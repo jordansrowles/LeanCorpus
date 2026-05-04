@@ -1,4 +1,7 @@
-﻿namespace Rowles.LeanLucene.Codecs.Vectors;
+﻿using System.Security.Cryptography;
+using System.Text;
+
+namespace Rowles.LeanLucene.Codecs.Vectors;
 
 /// <summary>
 /// Helpers for resolving per-field vector and HNSW file paths within a segment.
@@ -16,18 +19,33 @@ internal static class VectorFilePaths
         => $"{basePath}_v_{Sanitise(fieldName)}.hnsw";
 
     /// <summary>
-    /// Returns a filesystem-safe representation of <paramref name="fieldName"/>. Replaces any
-    /// character that is not ASCII letter/digit with an underscore.
+    /// Returns a filesystem-safe representation of <paramref name="fieldName"/>.
+    /// Unsafe names receive a hash suffix so different names cannot collapse to the same path.
     /// </summary>
     public static string Sanitise(string fieldName)
     {
         ArgumentException.ThrowIfNullOrEmpty(fieldName);
-        Span<char> buf = stackalloc char[fieldName.Length];
+        Span<char> buf = fieldName.Length <= 256 ? stackalloc char[fieldName.Length] : new char[fieldName.Length];
+        bool changed = false;
         for (int i = 0; i < fieldName.Length; i++)
         {
             char c = fieldName[i];
-            buf[i] = (char.IsAsciiLetterOrDigit(c) || c == '_') ? c : '_';
+            if (char.IsAsciiLetterOrDigit(c) || c == '_')
+            {
+                buf[i] = c;
+            }
+            else
+            {
+                buf[i] = '_';
+                changed = true;
+            }
         }
-        return new string(buf);
+
+        string safe = new(buf);
+        if (!changed)
+            return safe;
+
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(fieldName));
+        return $"{safe}_{Convert.ToHexString(hash, 0, 8)}";
     }
 }

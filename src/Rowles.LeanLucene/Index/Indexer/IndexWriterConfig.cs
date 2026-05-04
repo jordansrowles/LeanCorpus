@@ -42,8 +42,10 @@ public sealed class IndexWriterConfig
     /// <summary>
     /// When <c>true</c> (default), <see cref="IndexWriter.Commit"/> flushes file contents and
     /// directory metadata to disk via <c>fsync</c> before and after the <c>segments_N</c> rename,
-    /// guaranteeing the commit survives a power loss. Disable only for write-heavy benchmarks
-    /// where durability is not required; correctness suffers if the host crashes mid-commit.
+    /// guaranteeing the commit survives a power loss. Fsync failures are surfaced as
+    /// <see cref="IOException"/> from <c>Commit</c>; the commit fails closed rather than reporting
+    /// success on a host whose storage refused to flush. Disable only for write-heavy benchmarks
+    /// where durability is not required.
     /// </summary>
     public bool DurableCommits { get; set; } = true;
 

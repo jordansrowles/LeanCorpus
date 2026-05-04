@@ -1,4 +1,7 @@
-﻿namespace Rowles.LeanLucene.Search.Searcher;
+﻿using System.Globalization;
+using System.Text;
+
+namespace Rowles.LeanLucene.Search.Searcher;
 
 /// <summary>
 /// Thread-safe LRU query result cache. Entries are keyed by (Query, topN) and
@@ -57,7 +60,7 @@ public sealed class QueryCache
     /// </summary>
     public TopDocs? TryGet(Query query, int topN)
     {
-        var key = new CacheKey(query, topN);
+        var key = new CacheKey(QueryFingerprint.Create(query), topN);
         lock (_lock)
         {
             if (_map.TryGetValue(key, out var node) && node.Value.Generation == _generation)
@@ -86,7 +89,7 @@ public sealed class QueryCache
     /// </summary>
     public void Put(Query query, int topN, TopDocs result)
     {
-        var key = new CacheKey(query, topN);
+        var key = new CacheKey(QueryFingerprint.Create(query), topN);
         var entry = new CacheEntry(key, result, _generation);
 
         lock (_lock)
@@ -135,18 +138,124 @@ public sealed class QueryCache
         }
     }
 
-    private readonly record struct CacheKey(Query Query, int TopN)
-    {
-        public bool Equals(CacheKey other) =>
-            TopN == other.TopN && Query.Equals(other.Query);
-
-        public override int GetHashCode() => HashCode.Combine(Query, TopN);
-    }
+    private readonly record struct CacheKey(string QueryFingerprint, int TopN);
 
     private sealed class CacheEntry(CacheKey key, TopDocs result, long generation)
     {
         public CacheKey Key { get; } = key;
         public TopDocs Result { get; } = result;
         public long Generation { get; } = generation;
+    }
+
+    private static class QueryFingerprint
+    {
+        public static string Create(Query query)
+        {
+            var builder = new StringBuilder(128);
+            Append(query, builder);
+            return builder.ToString();
+        }
+
+        private static void Append(Query query, StringBuilder builder)
+        {
+            builder.Append(query.GetType().Name)
+                .Append("|b=")
+                .Append(query.Boost.ToString("R", CultureInfo.InvariantCulture));
+
+            switch (query)
+            {
+                case TermQuery tq:
+                    AppendPart(builder, tq.Field);
+                    AppendPart(builder, tq.Term);
+                    break;
+                case PhraseQuery pq:
+                    AppendPart(builder, pq.Field);
+                    builder.Append("|slop=").Append(pq.Slop);
+                    foreach (var term in pq.Terms) AppendPart(builder, term);
+                    break;
+                case BooleanQuery bq:
+                    foreach (var clause in bq.Clauses)
+                    {
+                        builder.Append("|").Append(clause.Occur).Append("(");
+                        Append(clause.Query, builder);
+                        builder.Append(')');
+                    }
+                    break;
+                case ConstantScoreQuery csq:
+                    builder.Append("|score=").Append(csq.ConstantScore.ToString("R", CultureInfo.InvariantCulture)).Append("(");
+                    Append(csq.Inner, builder);
+                    builder.Append(')');
+                    break;
+                case DisjunctionMaxQuery dmq:
+                    builder.Append("|tie=").Append(dmq.TieBreakerMultiplier.ToString("R", CultureInfo.InvariantCulture));
+                    foreach (var disjunct in dmq.Disjuncts)
+                    {
+                        builder.Append("(");
+                        Append(disjunct, builder);
+                        builder.Append(')');
+                    }
+                    break;
+                case RangeQuery rq:
+                    AppendPart(builder, rq.Field);
+                    builder.Append("|min=").Append(rq.Min.ToString("R", CultureInfo.InvariantCulture));
+                    builder.Append("|max=").Append(rq.Max.ToString("R", CultureInfo.InvariantCulture));
+                    break;
+                case PrefixQuery pq:
+                    AppendPart(builder, pq.Field);
+                    AppendPart(builder, pq.Prefix);
+                    break;
+                case WildcardQuery wq:
+                    AppendPart(builder, wq.Field);
+                    AppendPart(builder, wq.Pattern);
+                    break;
+                case FuzzyQuery fq:
+                    AppendPart(builder, fq.Field);
+                    AppendPart(builder, fq.Term);
+                    builder.Append("|edits=").Append(fq.MaxEdits).Append("|exp=").Append(fq.MaxExpansions);
+                    break;
+                case FunctionScoreQuery fsq:
+                    AppendPart(builder, fsq.NumericField);
+                    builder.Append("|mode=").Append(fsq.Mode).Append("(");
+                    Append(fsq.Inner, builder);
+                    builder.Append(')');
+                    break;
+                case BlockJoinQuery bjq:
+                    builder.Append("|child=(");
+                    Append(bjq.ChildQuery, builder);
+                    builder.Append(')');
+                    break;
+                case RrfQuery rrf:
+                    builder.Append("|k=").Append(rrf.K);
+                    foreach (var child in rrf.Queries)
+                    {
+                        builder.Append("(");
+                        Append(child, builder);
+                        builder.Append(')');
+                    }
+                    break;
+                case VectorQuery vq:
+                    AppendPart(builder, vq.Field);
+                    builder.Append("|topK=").Append(vq.TopK)
+                        .Append("|ef=").Append(vq.EfSearch)
+                        .Append("|over=").Append(vq.OversamplingFactor)
+                        .Append("|vec=");
+                    foreach (float value in vq.QueryVector)
+                        builder.Append(value.ToString("R", CultureInfo.InvariantCulture)).Append(',');
+                    if (vq.Filter is not null)
+                    {
+                        builder.Append("|filter=(");
+                        Append(vq.Filter, builder);
+                        builder.Append(')');
+                    }
+                    break;
+                default:
+                    AppendPart(builder, query.Field);
+                    builder.Append("|hash=").Append(query.GetHashCode());
+                    break;
+            }
+        }
+
+        private static void AppendPart(StringBuilder builder, string value)
+            => builder.Append('|').Append(value.Length).Append(':').Append(value);
     }
 }

@@ -255,6 +255,9 @@ public sealed partial class IndexWriter
         {
             var dvn = new Dictionary<string, double[]>(_numericDocValues.Count, StringComparer.Ordinal);
             var dvnReturnList = new List<double[]>(_numericDocValues.Count);
+            // Build per-field presence sets from the sparse numeric index so the codec can
+            // distinguish genuinely absent docs from those with a sentinel zero value.
+            var dvnPresence = new Dictionary<string, IReadOnlySet<int>>(_numericIndex.Count, StringComparer.Ordinal);
             foreach (var (field, list) in _numericDocValues)
             {
                 var arr = ArrayPool<double>.Shared.Rent(_bufferedDocCount);
@@ -263,8 +266,10 @@ public sealed partial class IndexWriter
                     arr[i] = list[i];
                 dvn[field] = arr;
                 dvnReturnList.Add(arr);
+                if (_numericIndex.TryGetValue(field, out var sparseMap))
+                    dvnPresence[field] = sparseMap.Keys.ToHashSet();
             }
-            NumericDocValuesWriter.Write(basePath + ".dvn", dvn, _bufferedDocCount);
+            NumericDocValuesWriter.Write(basePath + ".dvn", dvn, _bufferedDocCount, dvnPresence);
             foreach (var arr in dvnReturnList) ArrayPool<double>.Shared.Return(arr, clearArray: false);
         }
 
@@ -281,15 +286,20 @@ public sealed partial class IndexWriter
             SortedDocValuesWriter.Write(basePath + ".dvs", dvs, _bufferedDocCount);
         }
 
-        // Write BKD tree for numeric fields (.bkd)
-        if (_numericDocValues.Count > 0)
+        // Write BKD tree for numeric fields (.bkd).
+        // Source from the sparse numeric index so docs without a value are not padded
+        // with a synthetic zero. This is what makes BKD safe to use on the read path.
+        if (_numericIndex.Count > 0)
         {
-            var bkdData = new Dictionary<string, List<(double Value, int DocId)>>(_numericDocValues.Count, StringComparer.Ordinal);
-            foreach (var (field, list) in _numericDocValues)
+            var bkdData = new Dictionary<string, List<(double Value, int DocId)>>(_numericIndex.Count, StringComparer.Ordinal);
+            foreach (var (field, docMap) in _numericIndex)
             {
-                var points = new List<(double Value, int DocId)>();
-                for (int i = 0; i < Math.Min(list.Count, _bufferedDocCount); i++)
-                    points.Add((list[i], i));
+                var points = new List<(double Value, int DocId)>(docMap.Count);
+                foreach (var (docId, value) in docMap)
+                {
+                    if (docId < _bufferedDocCount)
+                        points.Add((value, docId));
+                }
                 if (points.Count > 0)
                     bkdData[field] = points;
             }

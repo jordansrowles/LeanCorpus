@@ -14,7 +14,7 @@ public sealed class SegmentInfo
     public int DocCount { get; init; }
 
     /// <summary>Gets the number of live (non-deleted) documents in this segment.</summary>
-    public int LiveDocCount { get; internal set; }
+    public int LiveDocCount { get; set; }
 
     /// <summary>Gets the commit generation at which this segment was created.</summary>
     public int CommitGeneration { get; init; }
@@ -30,6 +30,13 @@ public sealed class SegmentInfo
 
     /// <summary>Per-field vector metadata for vectors stored in this segment.</summary>
     public List<VectorFieldInfo> VectorFields { get; init; } = [];
+
+    /// <summary>
+    /// The commit generation at which the current live-document file was written.
+    /// When set, the file is named <c>{SegmentId}_gen_{DelGeneration}.del</c>.
+    /// When null, the legacy <c>{SegmentId}.del</c> path is used for backward compatibility.
+    /// </summary>
+    public int? DelGeneration { get; set; }
 
     /// <summary>Writes this segment metadata to a JSON file at the specified path.</summary>
     /// <param name="filePath">The path of the <c>.seg</c> file to write.</param>

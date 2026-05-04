@@ -4,8 +4,12 @@
 /// Primary directory implementation using memory-mapped files for reads
 /// and buffered file streams for writes.
 /// </summary>
-public sealed class MMapDirectory : LeanDirectory
+public sealed class MMapDirectory : LeanDirectory, IDisposable
 {
+    private readonly List<WeakReference<IndexInput>> _trackedInputs = [];
+    private readonly Lock _trackLock = new();
+    private volatile bool _disposed;
+
     /// <inheritdoc/>
     public override string DirectoryPath { get; }
 
@@ -26,6 +30,7 @@ public sealed class MMapDirectory : LeanDirectory
     /// <inheritdoc/>
     public override IndexOutput CreateOutput(string fileName)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         var filePath = Path.Combine(DirectoryPath, ValidateFileName(fileName));
         return new IndexOutput(filePath);
     }
@@ -33,13 +38,17 @@ public sealed class MMapDirectory : LeanDirectory
     /// <inheritdoc/>
     public override IndexInput OpenInput(string fileName)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         var filePath = Path.Combine(DirectoryPath, ValidateFileName(fileName));
-        return new IndexInput(filePath);
+        var input = new IndexInput(filePath);
+        TrackInput(input);
+        return input;
     }
 
     /// <inheritdoc/>
     public override void DeleteFile(string fileName)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         var filePath = Path.Combine(DirectoryPath, ValidateFileName(fileName));
         File.Delete(filePath);
     }
@@ -58,6 +67,37 @@ public sealed class MMapDirectory : LeanDirectory
             .Select(Path.GetFileName)
             .Where(name => name is not null)
             .ToArray()!;
+    }
+
+    /// <summary>
+    /// Disposes this directory. Any tracked <see cref="IndexInput"/> instances that have
+    /// not yet been disposed are closed. Callers should ensure all active readers are
+    /// disposed before calling this method.
+    /// </summary>
+    public void Dispose()
+    {
+        _disposed = true;
+        lock (_trackLock)
+        {
+            foreach (var weakRef in _trackedInputs)
+            {
+                if (weakRef.TryGetTarget(out var input))
+                    input.Dispose();
+            }
+            _trackedInputs.Clear();
+        }
+    }
+
+    private void TrackInput(IndexInput input)
+    {
+        lock (_trackLock)
+        {
+            // Prune dead references opportunistically to keep the list from growing unbounded.
+            if (_trackedInputs.Count > 0 && _trackedInputs.Count % 64 == 0)
+                _trackedInputs.RemoveAll(r => !r.TryGetTarget(out _));
+
+            _trackedInputs.Add(new WeakReference<IndexInput>(input));
+        }
     }
 
     private static string ValidateFileName(string fileName)

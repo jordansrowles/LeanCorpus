@@ -51,7 +51,12 @@ public class DeletionBenchmarks
             var directory = new LeanMMapDirectory(path);
             using var writer = new Rowles.LeanLucene.Index.Indexer.IndexWriter(
                 directory,
-                new Rowles.LeanLucene.Index.Indexer.IndexWriterConfig { MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 });
+                new Rowles.LeanLucene.Index.Indexer.IndexWriterConfig
+                {
+                    MaxBufferedDocs = 10_000,
+                    RamBufferSizeMB = 256,
+                    MergeThreshold = int.MaxValue,
+                });
 
             for (int i = 0; i < _documents.Length; i++)
             {

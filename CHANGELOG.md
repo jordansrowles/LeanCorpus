@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-05-03
+
+### Added
+
+- `SearchOptions` execution controls for per-query timeouts, scoring-budget limits, and streaming result collection, with `TopDocs.IsPartial` and `ScoreDoc.EstimatedBytes` exposing partial-result and resource-use information.
+- Field validation for document field names and vector inputs, plus coverage for invalid field, vector, and geo-point values.
+- BKD-backed numeric range search with sparse numeric-index sourcing and brute-force fallback.
+- Streaming merge infrastructure for postings, stored fields, term vectors, and doc-value flushing to reduce merge-time memory pressure.
+- Concurrent writer support for vectors, geo points, and sorted doc values.
+- Codec validation for RoaringBitmap and segment files, including headers, CRC32 footers, and orphan sidecar cleanup.
+- Fault-injection, merge-equivalence, writer-equivalence, concurrent-field, and force-merge memory tests, plus a BKD numeric range benchmark.
+
+### Changed
+
+- Field-sorted search now uses heap selection for top-N results rather than sorting the full candidate set.
+- Segment merges now run IO outside the writer lock so indexing can continue during merge work.
+- Query parsing now reports offsets more accurately and supports lenient parsing behaviour.
+- `DisjunctionMaxQuery` instances are frozen for safer execution, and segment metadata snapshots clone all tracked fields.
+- Numeric doc-value range computation now compares mixed-sign bit patterns in unsigned space.
+
+### Fixed
+
+- `PrefixQuery` and `WildcardQuery` now return each matching document once when multiple matched terms occur in the same document.
+- Durable commits now fail closed when fsync fails instead of reporting success.
+- Recovery validates required segment files and codec headers, fails closed when no commit file is valid, and tolerates missing `.del` files for graceful degradation.
+- Streaming postings merge now seeks the position section correctly during force merges.
+- Concurrent indexing now preserves vector, geo-point, and sorted doc-value data.
+- `MMapDirectory` now implements disposal correctly, and pending delete handling no longer drops deletion state.
+- README collapse and per-query resource-control examples were corrected.
+
 ## [1.1.3] - 2026-05-03
 
 ### Fixed

@@ -6,7 +6,8 @@
 /// </summary>
 public sealed class DisjunctionMaxQuery : Query
 {
-    private readonly List<Query> _disjuncts = [];
+    private readonly List<Query> _disjuncts;
+    private bool _frozen;
 
     /// <summary>
     /// Contribution of non-maximum clauses to the document score:
@@ -29,17 +30,61 @@ public sealed class DisjunctionMaxQuery : Query
     public DisjunctionMaxQuery(float tieBreakerMultiplier = 0.0f)
     {
         TieBreakerMultiplier = tieBreakerMultiplier;
+        _disjuncts = [];
+    }
+
+    private DisjunctionMaxQuery(float tieBreakerMultiplier, List<Query> disjuncts, bool frozen)
+    {
+        TieBreakerMultiplier = tieBreakerMultiplier;
+        _disjuncts = disjuncts;
+        _frozen = frozen;
     }
 
     /// <summary>Adds a disjunct sub-query and returns <c>this</c> for chaining.</summary>
     /// <param name="query">The sub-query to add as a disjunct.</param>
     /// <returns>This <see cref="DisjunctionMaxQuery"/> instance.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="query"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the query has been frozen via <see cref="Freeze"/>.</exception>
     public DisjunctionMaxQuery Add(Query query)
     {
         ArgumentNullException.ThrowIfNull(query);
+        if (_frozen)
+            throw new InvalidOperationException("DisjunctionMaxQuery is frozen; use the Builder to construct a new instance.");
         _disjuncts.Add(query);
         return this;
+    }
+
+    /// <summary>Marks this instance as immutable; subsequent <see cref="Add"/> calls will throw.</summary>
+    /// <returns>This instance.</returns>
+    public DisjunctionMaxQuery Freeze()
+    {
+        _frozen = true;
+        return this;
+    }
+
+    /// <summary>Builder for an immutable <see cref="DisjunctionMaxQuery"/>.</summary>
+    public sealed class Builder
+    {
+        private readonly List<Query> _disjuncts = [];
+        private float _tieBreakerMultiplier;
+
+        /// <summary>Sets the tie-breaker multiplier on the produced query.</summary>
+        public Builder WithTieBreakerMultiplier(float value)
+        {
+            _tieBreakerMultiplier = value;
+            return this;
+        }
+
+        /// <summary>Adds a disjunct sub-query.</summary>
+        public Builder Add(Query query)
+        {
+            ArgumentNullException.ThrowIfNull(query);
+            _disjuncts.Add(query);
+            return this;
+        }
+
+        /// <summary>Builds the immutable <see cref="DisjunctionMaxQuery"/>.</summary>
+        public DisjunctionMaxQuery Build() => new(_tieBreakerMultiplier, [.. _disjuncts], frozen: true);
     }
 
     /// <inheritdoc/>

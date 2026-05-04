@@ -147,6 +147,30 @@ public sealed class BlockDocumentTests : IClassFixture<TestDirectoryFixture>
     }
 
     [Fact]
+    public void BlockJoinQuery_ParentMatch_IsNotTreatedAsOwnChild()
+    {
+        var dir = Path.Combine(_path, nameof(BlockJoinQuery_ParentMatch_IsNotTreatedAsOwnChild));
+        Directory.CreateDirectory(dir);
+        var mmap = new MMapDirectory(dir);
+
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig()))
+        {
+            writer.AddDocumentBlock(
+            [
+                MakeChild("reply", "child text"),
+                MakeParent("parent-only token")
+            ]);
+
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(mmap);
+        var results = searcher.Search(new BlockJoinQuery(new TermQuery("title", "parent")), 10);
+
+        Assert.Equal(0, results.TotalHits);
+    }
+
+    [Fact]
     public void AddDocumentBlock_RequiresAtLeastTwoDocs()
     {
         var dir = Path.Combine(_path, nameof(AddDocumentBlock_RequiresAtLeastTwoDocs));

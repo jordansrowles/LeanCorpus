@@ -56,6 +56,35 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(3, results.TotalHits);
     }
 
+    [Theory]
+    [InlineData("prefix", "word")]
+    [InlineData("wildcard", "word*")]
+    [InlineData("wildcard", "*ord*")]
+    public void PatternQuery_MultipleMatchingTermsInDocument_ReturnsDocumentOnce(string queryType, string pattern)
+    {
+        var pathPattern = pattern.Replace("*", "star", StringComparison.Ordinal);
+        var dir = new MMapDirectory(SubDir($"pattern_dedup_{queryType}_{pathPattern}"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        var doc = new LeanDocument();
+        doc.Add(new TextField("title", "word wordy wordless", stored: false));
+        doc.Add(new StoredField("id", "1"));
+        writer.AddDocument(doc);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        Query query = queryType == "prefix"
+            ? new PrefixQuery("title", pattern)
+            : new WildcardQuery("title", pattern);
+
+        var results = searcher.Search(query, topN: 10);
+
+        var hit = Assert.Single(results.ScoreDocs);
+        Assert.Equal(1, results.TotalHits);
+        var stored = searcher.GetStoredFields(hit.DocId);
+        Assert.Equal("1", stored["id"][0]);
+    }
+
     [Fact]
     public void PrefixQuery_NoMatch_ReturnsEmpty()
     {

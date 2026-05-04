@@ -197,8 +197,27 @@ string snippet = highlighter.GetBestFragment("content", storedText);
 Deduplicate results by a field value:
 
 ```csharp
-var opts = new SearchOptions { CollapseField = "thread_id", CollapseMode = CollapseMode.Max };
+var collapse = new CollapseField("thread_id", CollapseMode.TopScore);
+var results = searcher.SearchWithCollapse(query, topN: 10, collapse);
+```
+
+## Per-query Resource Controls
+
+Bound query latency and intermediate memory with `SearchOptions`. Limits are checked between segments; on early termination `TopDocs.IsPartial` is set.
+
+```csharp
+var opts = new SearchOptions
+{
+    Timeout        = TimeSpan.FromMilliseconds(50),
+    MaxResultBytes = 1 * 1024 * 1024,
+};
 var results = searcher.Search(query, topN: 10, opts);
+if (results.IsPartial) { /* hit deadline or budget */ }
+
+foreach (var hit in searcher.SearchStreaming(query, perSegmentTopN: 1024, opts))
+{
+    // segment-by-segment results, in segment order
+}
 ```
 
 ## Diagnostics

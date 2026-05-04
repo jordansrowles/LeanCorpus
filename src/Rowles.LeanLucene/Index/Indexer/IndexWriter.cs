@@ -71,6 +71,11 @@ public sealed partial class IndexWriter : IDisposable
     private Task? _mergeTask;
     private readonly CancellationTokenSource _mergeCts = new();
     private readonly Lock _mergeLock = new();
+    // Serialises merge IO against operations that mutate per-segment files (ApplyPendingDeletions).
+    // Lock ordering invariant: _mergeIoLock is acquired BEFORE _writeLock.
+    // This lets long-running merge IO release _writeLock so AddDocument can proceed,
+    // while still preventing concurrent .del file mutation by Commit.
+    private readonly Lock _mergeIoLock = new();
 
     /// <summary>
     /// Initialises a new <see cref="IndexWriter"/> for the given directory with the specified configuration.
@@ -309,17 +314,28 @@ public sealed partial class IndexWriter : IDisposable
     }
 
     /// <summary>Atomically deletes documents matching the selector and adds the replacement.</summary>
+    /// <remarks>
+    /// The deletion targets only segments that existed at the time of this call.
+    /// Documents buffered before this call but not yet committed are flushed first,
+    /// but the delete is applied only to segments that were already committed before
+    /// the flush, not to any segment produced by this flush.
+    /// </remarks>
     public void UpdateDocument(string field, string term, LeanDocument replacement)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         lock (_writeLock)
         {
+            // Capture the count of already-committed segments before any flush.
+            // Deletions must not target the replacement segment that is about to be added.
+            int preFlushSegmentCount = _committedSegments.Count;
+
             FlushDwptPool();
             if (_bufferedDocCount > 0)
                 FlushSegment();
 
             _pendingDeletes.Add((field, term));
-            ApplyPendingDeletions(_committedSegments);
+            // Restrict deletions to the segments that existed before this call.
+            ApplyPendingDeletions(_committedSegments.GetRange(0, preFlushSegmentCount));
             AddDocumentCore(replacement);
         }
     }
@@ -333,6 +349,10 @@ public sealed partial class IndexWriter : IDisposable
     public void Commit()
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        // Lock ordering: _mergeIoLock first (so a running merge can finish before we
+        // mutate .del files), then _writeLock. AddDocument holds only _writeLock and
+        // continues to run while a merge IO phase is in progress.
+        lock (_mergeIoLock)
         lock (_writeLock)
         {
             using var activity = Diagnostics.LeanLuceneActivitySource.Source
@@ -428,11 +448,11 @@ public sealed partial class IndexWriter : IDisposable
                 if (string.Equals(name, "write.lock", StringComparison.Ordinal)) continue;
                 if (name.EndsWith(".tmp", StringComparison.Ordinal)) continue;
                 if (fsyncCutoff != DateTime.MinValue && File.GetLastWriteTimeUtc(path) <= fsyncCutoff) continue;
-                Store.DirectoryFsync.SyncFile(path);
+                Store.DirectoryFsync.SyncFile(path, strict: true);
             }
 
             // Sync the directory itself so any prior file creations are durable before the rename.
-            Store.DirectoryFsync.Sync(_directory.DirectoryPath);
+            Store.DirectoryFsync.Sync(_directory.DirectoryPath, strict: true);
 
             // Write segments_N.tmp durably so its contents survive a crash before the rename.
             using (var fs = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.None))
@@ -445,7 +465,7 @@ public sealed partial class IndexWriter : IDisposable
             File.Move(tempFile, commitFile, overwrite: true);
 
             // Sync the directory again so the rename itself is durable.
-            Store.DirectoryFsync.Sync(_directory.DirectoryPath);
+            Store.DirectoryFsync.Sync(_directory.DirectoryPath, strict: true);
             _lastCommitFsyncUtc = DateTime.UtcNow;
         }
         else
@@ -653,10 +673,26 @@ public sealed partial class IndexWriter : IDisposable
         foreach (var segId in recovery.SegmentIds)
         {
             var segPath = Path.Combine(_directory.DirectoryPath, segId + ".seg");
-            if (File.Exists(segPath))
+            if (!File.Exists(segPath))
+                continue;
+
+            var seg = SegmentInfo.ReadFrom(segPath);
+
+            var basePath = Path.Combine(_directory.DirectoryPath, segId);
+            var delPath = seg.DelGeneration.HasValue
+                ? basePath + $"_gen_{seg.DelGeneration.Value}.del"
+                : basePath + ".del";
+            if (File.Exists(delPath))
             {
-                _committedSegments.Add(SegmentInfo.ReadFrom(segPath));
+                var liveDocs = LiveDocs.Deserialise(delPath, seg.DocCount);
+                seg.LiveDocCount = liveDocs.LiveCount;
             }
+            else
+            {
+                seg.LiveDocCount = seg.DocCount;
+            }
+
+            _committedSegments.Add(seg);
         }
     }
 

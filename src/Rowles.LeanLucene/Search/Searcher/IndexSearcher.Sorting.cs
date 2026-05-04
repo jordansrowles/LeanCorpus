@@ -1,4 +1,6 @@
 ﻿using System.Buffers;
+using Rowles.LeanLucene.Search.Scoring;
+
 namespace Rowles.LeanLucene.Search.Searcher;
 
 /// <summary>
@@ -8,116 +10,94 @@ public sealed partial class IndexSearcher
 {
     /// <summary>
     /// Searches with a custom sort order instead of relevance ranking.
-    /// Matching documents are collected and then ordered by the requested field.
+    /// Matching documents are collected, then a heap-select picks the top-N
+    /// by the requested field without performing a full sort over every match.
     /// </summary>
     public TopDocs Search(Query query, int topN, SortField sort)
     {
         if (sort.Type == SortFieldType.Score)
             return Search(query, topN);
 
-        // Collect all matching docs with a generous limit to capture enough for re-sorting.
-        var allDocs = Search(query, Math.Max(topN, _totalDocCount));
+        if (topN <= 0)
+            return TopDocs.Empty;
+
+        // We still need every match to pick the top-N by sort key, but topN itself
+        // bounds how many we return. _totalDocCount is the upper bound on matches.
+        var allDocs = Search(query, _totalDocCount);
         if (allDocs.TotalHits == 0) return TopDocs.Empty;
+
+        var docs = allDocs.ScoreDocs;
+        int effectiveN = Math.Min(topN, docs.Length);
 
         var sorted = sort.Type switch
         {
-            SortFieldType.DocId => SortByDocId(allDocs.ScoreDocs, sort.Descending),
-            SortFieldType.Numeric => SortByNumericField(allDocs.ScoreDocs, sort.FieldName, sort.Descending),
-            SortFieldType.String => SortByStringField(allDocs.ScoreDocs, sort.FieldName, sort.Descending),
-            _ => allDocs.ScoreDocs
+            SortFieldType.DocId => SelectTopByDocId(docs, effectiveN, sort.Descending),
+            SortFieldType.Numeric => SelectTopByNumericField(docs, effectiveN, sort.FieldName, sort.Descending),
+            SortFieldType.String => SelectTopByStringField(docs, effectiveN, sort.FieldName, sort.Descending),
+            _ => docs.Length > effectiveN ? docs[..effectiveN] : docs
         };
 
-        var results2 = sorted.Length > topN ? sorted[..topN] : sorted;
-        return new TopDocs(allDocs.TotalHits, results2);
+        return new TopDocs(allDocs.TotalHits, sorted);
     }
 
-    private static ScoreDoc[] SortByDocId(ScoreDoc[] docs, bool descending)
+    private static ScoreDoc[] SelectTopByDocId(ScoreDoc[] docs, int topN, bool descending)
     {
-        Array.Sort(docs, descending
-            ? static (a, b) => b.DocId.CompareTo(a.DocId)
-            : static (a, b) => a.DocId.CompareTo(b.DocId));
-        return docs;
+        // Sort key is docId; reuse the numeric heap-select with double keys.
+        var keys = new double[docs.Length];
+        for (int i = 0; i < docs.Length; i++) keys[i] = docs[i].DocId;
+        return TopNSortHelper.SelectTopN(docs, keys, topN, descending);
     }
 
-    private ScoreDoc[] SortByNumericField(ScoreDoc[] docs, string fieldName, bool descending)
+    private ScoreDoc[] SelectTopByNumericField(ScoreDoc[] docs, int topN, string fieldName, bool descending)
     {
-        var values = ArrayPool<double>.Shared.Rent(docs.Length);
-        try
+        var keys = new double[docs.Length];
+        for (int i = 0; i < docs.Length; i++)
+            keys[i] = ResolveNumeric(docs[i].DocId, fieldName);
+        return TopNSortHelper.SelectTopN(docs, keys, topN, descending);
+    }
+
+    private ScoreDoc[] SelectTopByStringField(ScoreDoc[] docs, int topN, string fieldName, bool descending)
+    {
+        var keys = new string[docs.Length];
+        for (int i = 0; i < docs.Length; i++)
+            keys[i] = ResolveString(docs[i].DocId, fieldName);
+        return TopNSortHelper.SelectTopN(docs, keys, topN, descending);
+    }
+
+    private double ResolveNumeric(int globalId, string fieldName)
+    {
+        for (int r = 0; r < _readers.Count; r++)
         {
-            for (int i = 0; i < docs.Length; i++)
+            int nextBase = r + 1 < _docBases.Length ? _docBases[r + 1] : _totalDocCount;
+            if (globalId >= _docBases[r] && globalId < nextBase)
             {
-                double val = 0;
-                int globalId = docs[i].DocId;
-                bool found = false;
-                for (int r = 0; r < _readers.Count; r++)
-                {
-                    int nextBase = r + 1 < _docBases.Length ? _docBases[r + 1] : _totalDocCount;
-                    if (globalId >= _docBases[r] && globalId < nextBase)
-                    {
-                        found = _readers[r].TryGetNumericValue(fieldName, globalId - _docBases[r], out val);
-                        break;
-                    }
-                }
-                if (!found)
-                {
-                    var stored = GetStoredFields(globalId);
-                    if (stored.TryGetValue(fieldName, out var sv) && sv.Count > 0)
-                        double.TryParse(sv[0], System.Globalization.CultureInfo.InvariantCulture, out val);
-                }
-                values[i] = val;
+                if (_readers[r].TryGetNumericValue(fieldName, globalId - _docBases[r], out double val))
+                    return val;
+                break;
             }
-
-            // Sort docs in-place using values as the sort key
-            Array.Sort(values, docs, 0, docs.Length);
-            if (descending)
-                Array.Reverse(docs);
-            return docs;
         }
-        finally
-        {
-            ArrayPool<double>.Shared.Return(values, clearArray: false);
-        }
+        var stored = GetStoredFields(globalId);
+        if (stored.TryGetValue(fieldName, out var sv) && sv.Count > 0
+            && double.TryParse(sv[0], System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            return parsed;
+        return 0;
     }
 
-    private ScoreDoc[] SortByStringField(ScoreDoc[] docs, string fieldName, bool descending)
+    private string ResolveString(int globalId, string fieldName)
     {
-        var values = ArrayPool<string>.Shared.Rent(docs.Length);
-        try
+        for (int r = 0; r < _readers.Count; r++)
         {
-            for (int i = 0; i < docs.Length; i++)
+            int nextBase = r + 1 < _docBases.Length ? _docBases[r + 1] : _totalDocCount;
+            if (globalId >= _docBases[r] && globalId < nextBase)
             {
-                string val = string.Empty;
-                int globalId = docs[i].DocId;
-                bool found = false;
-                for (int r = 0; r < _readers.Count; r++)
-                {
-                    int nextBase = r + 1 < _docBases.Length ? _docBases[r + 1] : _totalDocCount;
-                    if (globalId >= _docBases[r] && globalId < nextBase)
-                    {
-                        found = _readers[r].TryGetSortedDocValue(fieldName, globalId - _docBases[r], out val);
-                        break;
-                    }
-                }
-                if (!found)
-                {
-                    var stored = GetStoredFields(globalId);
-                    if (stored.TryGetValue(fieldName, out var sv) && sv.Count > 0)
-                        val = sv[0];
-                }
-                values[i] = val;
+                if (_readers[r].TryGetSortedDocValue(fieldName, globalId - _docBases[r], out string val))
+                    return val;
+                break;
             }
-
-            // Sort docs in-place using values as the sort key
-            Array.Sort(values, docs, 0, docs.Length, StringComparer.Ordinal);
-            if (descending)
-                Array.Reverse(docs, 0, docs.Length);
-            return docs;
         }
-        finally
-        {
-            // Clear refs to allow GC of the string instances
-            Array.Clear(values, 0, docs.Length);
-            ArrayPool<string>.Shared.Return(values, clearArray: false);
-        }
+        var stored = GetStoredFields(globalId);
+        if (stored.TryGetValue(fieldName, out var sv) && sv.Count > 0)
+            return sv[0];
+        return string.Empty;
     }
 }

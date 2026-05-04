@@ -9,12 +9,17 @@ public sealed class GeoPointField : IField
     /// <summary>
     /// Initialises a new <see cref="GeoPointField"/> with the specified name, latitude, and longitude.
     /// </summary>
-    /// <param name="name">The base field name. Latitude and longitude are stored as <c>name_lat</c> and <c>name_lon</c>. Must not be null.</param>
+    /// <param name="name">The base field name. Latitude and longitude are stored as <c>name_lat</c> and <c>name_lon</c>. Must be a valid LeanLucene field name.</param>
     /// <param name="latitude">The latitude in decimal degrees (−90 to +90).</param>
     /// <param name="longitude">The longitude in decimal degrees (−180 to +180).</param>
     public GeoPointField(string name, double latitude, double longitude)
     {
-        Name = name ?? throw new ArgumentNullException(nameof(name));
+        if (latitude is < -90 or > 90 || double.IsNaN(latitude))
+            throw new ArgumentOutOfRangeException(nameof(latitude), "Latitude must be between -90 and 90.");
+        if (longitude is < -180 or > 180 || double.IsNaN(longitude))
+            throw new ArgumentOutOfRangeException(nameof(longitude), "Longitude must be between -180 and 180.");
+
+        Name = FieldNameValidator.Validate(name, nameof(name));
         Latitude = latitude;
         Longitude = longitude;
         Value = $"{latitude},{longitude}";

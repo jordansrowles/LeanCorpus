@@ -11,7 +11,8 @@ string dataPath = builder.Configuration["LEANLUCENE_DATA_PATH"]
     ?? Environment.GetEnvironmentVariable("LEANLUCENE_DATA_PATH")
     ?? Path.Combine(Directory.GetCurrentDirectory(), "data");
 
-builder.Services.AddSingleton(new CollectionManager(dataPath));
+builder.Services.AddSingleton(sp =>
+    new CollectionManager(dataPath, sp.GetRequiredService<ILogger<CollectionManager>>()));
 
 var app = builder.Build();
 
@@ -20,6 +21,11 @@ var jsonOpts = new JsonSerializerOptions
     PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     WriteIndented = true
 };
+
+static IResult? ValidateCollectionName(string name) =>
+    CollectionManager.IsValidCollectionName(name)
+        ? null
+        : Results.BadRequest(new { error = "Collection names may contain only ASCII letters, digits, underscores, and hyphens." });
 
 // ── Collections ─────────────────────────────────────────────────────────────
 
@@ -33,6 +39,8 @@ app.MapGet("/collections", (CollectionManager mgr) =>
 
 app.MapDelete("/collections/{name}", (string name, CollectionManager mgr) =>
 {
+    if (ValidateCollectionName(name) is { } invalidName) return invalidName;
+
     bool dropped = mgr.DropCollection(name);
     return dropped ? Results.Ok(new { message = $"Collection '{name}' deleted." })
                    : Results.NotFound(new { message = $"Collection '{name}' not found." });
@@ -45,6 +53,8 @@ app.MapPost("/collections/{name}/documents", async (
     HttpRequest request,
     CollectionManager mgr) =>
 {
+    if (ValidateCollectionName(name) is { } invalidName) return invalidName;
+
     JsonElement payload;
     try
     {
@@ -87,6 +97,8 @@ app.MapDelete("/collections/{name}/documents", (
     [FromQuery] string term,
     CollectionManager mgr) =>
 {
+    if (ValidateCollectionName(name) is { } invalidName) return invalidName;
+
     if (!mgr.Exists(name))
         return Results.NotFound(new { message = $"Collection '{name}' not found." });
 
@@ -94,13 +106,15 @@ app.MapDelete("/collections/{name}/documents", (
         return Results.BadRequest(new { error = "Query parameters 'field' and 'term' are required." });
 
     var writer = mgr.GetWriter(name);
-    var searcher = mgr.GetSearcher(name);
+    using var beforeLease = mgr.AcquireSearcher(name);
+    var searcher = beforeLease.Searcher;
     int before = searcher.Stats.LiveDocCount;
 
     writer.DeleteDocuments(new TermQuery(field, term));
     mgr.CommitAndRefresh(name);
 
-    int after = mgr.GetSearcher(name).Stats.LiveDocCount;
+    using var afterLease = mgr.AcquireSearcher(name);
+    int after = afterLease.Searcher.Stats.LiveDocCount;
     return Results.Ok(new DeleteResponse { Deleted = Math.Max(0, before - after) });
 });
 
@@ -113,6 +127,8 @@ app.MapGet("/collections/{name}/search", (
     [FromQuery] int topN,
     CollectionManager mgr) =>
 {
+    if (ValidateCollectionName(name) is { } invalidName) return invalidName;
+
     if (!mgr.Exists(name))
         return Results.NotFound(new { message = $"Collection '{name}' not found." });
 
@@ -122,7 +138,8 @@ app.MapGet("/collections/{name}/search", (
     topN = Math.Clamp(topN == 0 ? 10 : topN, 1, 100);
     string defaultField = string.IsNullOrEmpty(field) ? "content" : field;
 
-    var searcher = mgr.GetSearcher(name);
+    using var lease = mgr.AcquireSearcher(name);
+    var searcher = lease.Searcher;
     var results = searcher.Search(q, defaultField, topN);
 
     var hits = results.ScoreDocs.Select(sd =>

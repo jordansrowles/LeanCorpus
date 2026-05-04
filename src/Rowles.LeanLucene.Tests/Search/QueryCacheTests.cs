@@ -181,6 +181,19 @@ public sealed class QueryCacheTests : IDisposable
         Assert.NotEqual(a, b);
     }
 
+    [Fact]
+    public void Cache_QueryMutationAfterPut_DoesNotReturnStaleEntry()
+    {
+        var cache = new QueryCache(10);
+        var query = new TermQuery("body", "hello");
+        var cached = new TopDocs(1, [new ScoreDoc(123, 1.0f)]);
+
+        cache.Put(query, 10, cached);
+        query.Boost = 2.0f;
+
+        Assert.Null(cache.TryGet(query, 10));
+    }
+
     private static LeanDocument Doc(string body)
     {
         var doc = new LeanDocument();

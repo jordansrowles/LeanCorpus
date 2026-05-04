@@ -253,6 +253,68 @@ public class CrashRecoveryTests : IDisposable
     }
 
     [Fact]
+    public void LatestCommitMissingDictionary_FallsBackToPreviousGeneration()
+    {
+        var config = new IndexWriterConfig
+        {
+            DeletionPolicy = new KeepLastNCommitsPolicy(2)
+        };
+        using (var writer = new IndexWriter(new MMapDirectory(_dir), config))
+        {
+            var doc1 = new LeanDocument();
+            doc1.Add(new TextField("body", "first commit"));
+            writer.AddDocument(doc1);
+            writer.Commit();
+
+            var doc2 = new LeanDocument();
+            doc2.Add(new TextField("body", "second commit extra"));
+            writer.AddDocument(doc2);
+            writer.Commit();
+        }
+
+        var segments2 = Path.Combine(_dir, "segments_2");
+        var json = Rowles.LeanLucene.Index.CommitFileFormat.ReadJson(segments2);
+        var commit = JsonSerializer.Deserialize<JsonElement>(json);
+        var segments = commit.GetProperty("Segments");
+        var lastSeg = segments[segments.GetArrayLength() - 1].GetString()!;
+        // Delete a required sidecar (not the .seg) — recovery must still reject this commit.
+        File.Delete(Path.Combine(_dir, lastSeg + ".dic"));
+
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+        var results = searcher.Search(new TermQuery("body", "first"), 10);
+        Assert.Equal(1, results.TotalHits);
+    }
+
+    [Fact]
+    public void OrphanedSidecarFiles_CleanedUpOnStartup()
+    {
+        var config = new IndexWriterConfig();
+        using (var writer = new IndexWriter(new MMapDirectory(_dir), config))
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "real segment"));
+            writer.AddDocument(doc);
+            writer.Commit();
+        }
+
+        // Plant an orphan with a mix of sidecars including ones outside the legacy hard-coded list.
+        var orphanId = "orphan_77";
+        File.WriteAllText(Path.Combine(_dir, orphanId + ".seg"), "fake");
+        File.WriteAllText(Path.Combine(_dir, orphanId + ".stats.json"), "fake");
+        File.WriteAllText(Path.Combine(_dir, orphanId + ".fln"), "fake");
+        File.WriteAllText(Path.Combine(_dir, orphanId + "_v_embedding.vec"), "fake");
+        File.WriteAllText(Path.Combine(_dir, orphanId + "_v_embedding.hnsw"), "fake");
+
+        using var writer2 = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig());
+
+        Assert.False(File.Exists(Path.Combine(_dir, orphanId + ".seg")));
+        Assert.False(File.Exists(Path.Combine(_dir, orphanId + ".stats.json")));
+        Assert.False(File.Exists(Path.Combine(_dir, orphanId + ".fln")));
+        Assert.False(File.Exists(Path.Combine(_dir, orphanId + "_v_embedding.vec")));
+        Assert.False(File.Exists(Path.Combine(_dir, orphanId + "_v_embedding.hnsw")));
+    }
+
+    [Fact]
     public void RecoveryResult_Null_ForEmptyDirectory()
     {
         var emptyDir = Path.Combine(Path.GetTempPath(), $"ll_empty_{Guid.NewGuid():N}");

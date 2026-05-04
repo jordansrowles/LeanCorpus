@@ -150,6 +150,25 @@ public sealed class NewQueryTypesTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(0, results.TotalHits);
     }
 
+    [Fact]
+    public void ConstantScoreQuery_DoesNotDropMatchesAboveTenThousand()
+    {
+        var dir = new MMapDirectory(SubDir("csq_over_10000"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig { MaxBufferedDocs = 20_000 });
+        for (int i = 0; i < 10_025; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("tag", "needleword"));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new ConstantScoreQuery(new TermQuery("tag", "needleword")), 1);
+
+        Assert.Equal(10_025, results.TotalHits);
+    }
+
     // ── DisjunctionMaxQuery ─────────────────────────────────────────────────
 
     [Fact]
@@ -208,6 +227,27 @@ public sealed class NewQueryTypesTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(1, r5.TotalHits);
         // Score with tiebreaker must be >= score without
         Assert.True(r5.ScoreDocs[0].Score >= r0.ScoreDocs[0].Score);
+    }
+
+    [Fact]
+    public void DisjunctionMaxQuery_DoesNotDropMatchesAboveTenThousand()
+    {
+        var dir = new MMapDirectory(SubDir("dmq_over_10000"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig { MaxBufferedDocs = 20_000 });
+        for (int i = 0; i < 10_025; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("tag", "needleword"));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var dmq = new DisjunctionMaxQuery();
+        dmq.Add(new TermQuery("tag", "needleword"));
+        var results = searcher.Search(dmq, 1);
+
+        Assert.Equal(10_025, results.TotalHits);
     }
 
     // ── RegexpQuery ─────────────────────────────────────────────────────────

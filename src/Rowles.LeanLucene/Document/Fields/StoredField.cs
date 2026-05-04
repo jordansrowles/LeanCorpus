@@ -10,18 +10,18 @@ public sealed class StoredField : IField
     /// <summary>
     /// Initialises a new <see cref="StoredField"/> with the specified name and string value.
     /// </summary>
-    /// <param name="name">The field name. Must not be null.</param>
+    /// <param name="name">The field name. Must be a valid LeanLucene field name.</param>
     /// <param name="value">The value to persist in stored fields. Must not be null.</param>
     public StoredField(string name, string value)
     {
-        Name = name ?? throw new ArgumentNullException(nameof(name));
+        Name = FieldNameValidator.Validate(name, nameof(name));
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
     /// <summary>
     /// Initialises a new <see cref="StoredField"/> with the specified name and integer value.
     /// </summary>
-    /// <param name="name">The field name. Must not be null.</param>
+    /// <param name="name">The field name. Must be a valid LeanLucene field name.</param>
     /// <param name="value">The integer value to persist in stored fields.</param>
     public StoredField(string name, int value)
         : this(name, value.ToString(CultureInfo.InvariantCulture))
@@ -31,7 +31,7 @@ public sealed class StoredField : IField
     /// <summary>
     /// Initialises a new <see cref="StoredField"/> with the specified name and long integer value.
     /// </summary>
-    /// <param name="name">The field name. Must not be null.</param>
+    /// <param name="name">The field name. Must be a valid LeanLucene field name.</param>
     /// <param name="value">The long integer value to persist in stored fields.</param>
     public StoredField(string name, long value)
         : this(name, value.ToString(CultureInfo.InvariantCulture))
@@ -41,7 +41,7 @@ public sealed class StoredField : IField
     /// <summary>
     /// Initialises a new <see cref="StoredField"/> with the specified name and floating-point value.
     /// </summary>
-    /// <param name="name">The field name. Must not be null.</param>
+    /// <param name="name">The field name. Must be a valid LeanLucene field name.</param>
     /// <param name="value">The floating-point value to persist in stored fields.</param>
     public StoredField(string name, double value)
         : this(name, value.ToString(CultureInfo.InvariantCulture))

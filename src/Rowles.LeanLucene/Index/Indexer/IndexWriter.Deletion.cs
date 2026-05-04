@@ -30,6 +30,11 @@ public sealed partial class IndexWriter
             qualifiedTerms.Add(string.Concat(field, "\x00", term));
         }
 
+        // The pending commit will be at _commitGeneration + 1; generation-versioned del files
+        // are named for the generation they become durable in, so they never overwrite files
+        // that older commits still reference.
+        int pendingGen = _commitGeneration + 1;
+
         foreach (var seg in segments)
         {
             var basePath = Path.Combine(_directory.DirectoryPath, seg.SegmentId);
@@ -41,9 +46,14 @@ public sealed partial class IndexWriter
 
             using var dicReader = TermDictionaryReader.Open(dicPath);
 
-            var delPath = basePath + ".del";
-            var liveDocs = File.Exists(delPath)
-                ? LiveDocs.Deserialise(delPath, seg.DocCount)
+            // Resolve the existing del file: prefer the generation-versioned path, fall back
+            // to the legacy unversioned path so old on-disk indexes continue to load.
+            string existingDelPath = seg.DelGeneration.HasValue
+                ? basePath + $"_gen_{seg.DelGeneration.Value}.del"
+                : basePath + ".del";
+
+            var liveDocs = File.Exists(existingDelPath)
+                ? LiveDocs.Deserialise(existingDelPath, seg.DocCount)
                 : new LiveDocs(seg.DocCount);
 
             bool changed = false;
@@ -60,8 +70,13 @@ public sealed partial class IndexWriter
 
             if (changed)
             {
-                LiveDocs.Serialise(delPath, liveDocs);
+                var newDelPath = basePath + $"_gen_{pendingGen}.del";
+                LiveDocs.Serialise(newDelPath, liveDocs, _config.DurableCommits);
+                seg.DelGeneration = pendingGen;
                 seg.LiveDocCount = liveDocs.LiveCount;
+                // Rewrite the .seg metadata file so the updated DelGeneration is
+                // durable before the commit file that references this segment.
+                seg.WriteTo(basePath + ".seg");
             }
         }
 

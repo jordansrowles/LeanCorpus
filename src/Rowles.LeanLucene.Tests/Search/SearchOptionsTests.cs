@@ -1,12 +1,44 @@
+using Rowles.LeanLucene.Document;
+using Rowles.LeanLucene.Index.Indexer;
 using Rowles.LeanLucene.Search;
-using Rowles.LeanLucene.Search.Simd;
-using Rowles.LeanLucene.Search.Parsing;
-using Rowles.LeanLucene.Search.Highlighting;
+using Rowles.LeanLucene.Search.Scoring;
+using Rowles.LeanLucene.Search.Searcher;
+using Rowles.LeanLucene.Store;
+using Rowles.LeanLucene.Tests.Fixtures;
 
 namespace Rowles.LeanLucene.Tests.Search;
 
-public sealed class SearchOptionsTests
+[Trait("Category", "Search")]
+public sealed class SearchOptionsTests : IClassFixture<TestDirectoryFixture>
 {
+    private readonly TestDirectoryFixture _fixture;
+
+    public SearchOptionsTests(TestDirectoryFixture fixture) => _fixture = fixture;
+
+    private string SubDir(string name)
+    {
+        var path = System.IO.Path.Combine(_fixture.Path, name);
+        System.IO.Directory.CreateDirectory(path);
+        return path;
+    }
+
+    private MMapDirectory IndexSampleDocs(string suffix, int count)
+    {
+        var path = SubDir(suffix);
+        var dir = new MMapDirectory(path);
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            for (int i = 0; i < count; i++)
+            {
+                var doc = new LeanDocument();
+                doc.Add(new TextField("body", $"term{i % 10} payload"));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+        return dir;
+    }
+
     [Fact]
     public void Default_HasNoLimits()
     {
@@ -15,6 +47,7 @@ public sealed class SearchOptionsTests
         Assert.Equal(long.MaxValue, options.MaxResultBytes);
         Assert.False(options.StreamResults);
         Assert.Null(options.Timeout);
+        Assert.Equal(CancellationToken.None, options.CancellationToken);
     }
 
     [Fact]
@@ -36,13 +69,22 @@ public sealed class SearchOptionsTests
     }
 
     [Fact]
+    public void WithBudgetAndTimeout_SetsBoth()
+    {
+        var options = SearchOptions.WithBudgetAndTimeout(2048, TimeSpan.FromSeconds(2));
+
+        Assert.Equal(2048, options.MaxResultBytes);
+        Assert.Equal(TimeSpan.FromSeconds(2), options.Timeout);
+    }
+
+    [Fact]
     public void Init_AllowsCustomCombination()
     {
         var options = new SearchOptions
         {
             MaxResultBytes = 1024,
             StreamResults = true,
-            Timeout = TimeSpan.FromSeconds(1)
+            Timeout = TimeSpan.FromSeconds(1),
         };
 
         Assert.Equal(1024, options.MaxResultBytes);
@@ -57,5 +99,110 @@ public sealed class SearchOptionsTests
         var second = SearchOptions.Default;
 
         Assert.True(ReferenceEquals(first, second));
+    }
+
+    [Fact]
+    public void Search_WithUnboundedOptions_MatchesPlainSearch()
+    {
+        var dir = IndexSampleDocs("opts_match", 50);
+        using var searcher = new IndexSearcher(dir);
+
+        var query = new TermQuery("body", "term5");
+        var plain = searcher.Search(query, topN: 10);
+        var bounded = searcher.Search(query, topN: 10, SearchOptions.Default);
+
+        Assert.False(bounded.IsPartial);
+        Assert.Equal(plain.TotalHits, bounded.TotalHits);
+        Assert.Equal(plain.ScoreDocs.Length, bounded.ScoreDocs.Length);
+    }
+
+    [Fact]
+    public void Search_WithImpossibleBudget_Throws()
+    {
+        var dir = IndexSampleDocs("opts_budget", 5);
+        using var searcher = new IndexSearcher(dir);
+
+        var query = new TermQuery("body", "term1");
+        var opts = SearchOptions.WithBudget(1);
+
+        Assert.Throws<ArgumentException>(() => searcher.Search(query, topN: 100, opts));
+    }
+
+    [Fact]
+    public void Search_WithBudgetLargeEnoughForTopN_DoesNotStopAfterManyHits()
+    {
+        var dir = IndexSampleDocs("opts_budget_many_hits", 200);
+        using var searcher = new IndexSearcher(dir);
+
+        var query = new TermQuery("body", "payload");
+        var opts = SearchOptions.WithBudget(ScoreDoc.EstimatedBytes);
+
+        var result = searcher.Search(query, topN: 1, opts);
+
+        Assert.False(result.IsPartial);
+        Assert.Equal(200, result.TotalHits);
+        Assert.Single(result.ScoreDocs);
+    }
+
+    [Fact]
+    public void Search_WithCancelledToken_ReturnsPartial()
+    {
+        var dir = IndexSampleDocs("opts_cancel", 20);
+        using var searcher = new IndexSearcher(dir);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var query = new TermQuery("body", "term1");
+        var opts = new SearchOptions { CancellationToken = cts.Token };
+
+        var result = searcher.Search(query, topN: 10, opts);
+
+        Assert.True(result.IsPartial);
+    }
+
+    [Fact]
+    public void SearchStreaming_YieldsResults()
+    {
+        var dir = IndexSampleDocs("opts_stream", 30);
+        using var searcher = new IndexSearcher(dir);
+
+        var query = new TermQuery("body", "term1");
+        var emitted = searcher.SearchStreaming(query, perSegmentTopN: 64).ToList();
+
+        Assert.NotEmpty(emitted);
+    }
+
+    [Fact]
+    public void SearchStreaming_WithCancelledToken_YieldsNothing()
+    {
+        var dir = IndexSampleDocs("opts_stream_cancel", 30);
+        using var searcher = new IndexSearcher(dir);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var query = new TermQuery("body", "term1");
+
+        var cancelled = searcher.SearchStreaming(
+            query,
+            perSegmentTopN: 64,
+            new SearchOptions { CancellationToken = cts.Token }).ToList();
+
+        Assert.Empty(cancelled);
+    }
+
+    [Fact]
+    public void TopDocs_IsPartial_DefaultsToFalse()
+    {
+        var docs = new TopDocs(0, []);
+
+        Assert.False(docs.IsPartial);
+    }
+
+    [Fact]
+    public void TopDocs_WithIsPartialTrue_PreservesFlag()
+    {
+        var docs = new TopDocs(0, [], isPartial: true);
+
+        Assert.True(docs.IsPartial);
     }
 }

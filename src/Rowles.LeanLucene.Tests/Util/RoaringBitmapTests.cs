@@ -427,4 +427,55 @@ public sealed class RoaringBitmapTests
         }
         finally { File.Delete(path); }
     }
+
+    [Fact]
+    public void Deserialise_RejectsCorruptCrc()
+    {
+        var rb = new RoaringBitmap();
+        for (int i = 0; i < 100; i++) rb.Add(i * 3);
+
+        var path = Path.Combine(Path.GetTempPath(), $"roaring_test_{Guid.NewGuid():N}.bin");
+        try
+        {
+            rb.Serialise(path);
+            // Flip a single byte inside the payload to invalidate the CRC.
+            var bytes = File.ReadAllBytes(path);
+            bytes[10] ^= 0xFF;
+            File.WriteAllBytes(path, bytes);
+
+            Assert.Throws<InvalidDataException>(() => RoaringBitmap.Deserialise(path));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Deserialise_RejectsTruncatedFile()
+    {
+        var rb = new RoaringBitmap();
+        for (int i = 0; i < 100; i++) rb.Add(i * 3);
+
+        var path = Path.Combine(Path.GetTempPath(), $"roaring_test_{Guid.NewGuid():N}.bin");
+        try
+        {
+            rb.Serialise(path);
+            var bytes = File.ReadAllBytes(path);
+            // Drop the trailing CRC and last few payload bytes.
+            File.WriteAllBytes(path, bytes.AsSpan(0, bytes.Length - 8).ToArray());
+
+            Assert.Throws<InvalidDataException>(() => RoaringBitmap.Deserialise(path));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Deserialise_RejectsBadMagic()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"roaring_test_{Guid.NewGuid():N}.bin");
+        try
+        {
+            File.WriteAllBytes(path, new byte[] { 0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 });
+            Assert.Throws<InvalidDataException>(() => RoaringBitmap.Deserialise(path));
+        }
+        finally { File.Delete(path); }
+    }
 }

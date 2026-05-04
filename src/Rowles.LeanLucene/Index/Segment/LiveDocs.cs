@@ -37,9 +37,38 @@ internal sealed class LiveDocs
     /// <summary>Returns the underlying deleted-docs bitmap for set operations.</summary>
     internal RoaringBitmap DeletedBitmap => _deletedDocs;
 
-    public static void Serialise(string filePath, LiveDocs liveDocs)
+    /// <summary>
+    /// Writes live-doc state to <paramref name="filePath"/> atomically.
+    /// Writes to a temporary file, optionally fsyncs, then renames over the target.
+    /// </summary>
+    /// <param name="filePath">Destination path for the <c>.del</c> file.</param>
+    /// <param name="liveDocs">The live-docs state to serialise.</param>
+    /// <param name="durable">
+    /// When <see langword="true"/> the stream is flushed to disk before the rename so
+    /// the write is crash-safe. Matches the <c>IndexWriterConfig.DurableCommits</c> flag.
+    /// </param>
+    public static void Serialise(string filePath, LiveDocs liveDocs, bool durable = false)
     {
-        liveDocs._deletedDocs.Serialise(filePath);
+        var tmpPath = filePath + ".tmp";
+        try
+        {
+            using (var stream = File.Create(tmpPath))
+            using (var writer = new BinaryWriter(stream))
+            {
+                liveDocs._deletedDocs.Serialise(writer);
+                if (durable)
+                    stream.Flush(true);
+            }
+
+            File.Move(tmpPath, filePath, overwrite: true);
+        }
+        catch
+        {
+            // Best-effort cleanup of the temp file; ignore errors so the
+            // original exception is not masked.
+            try { File.Delete(tmpPath); } catch { }
+            throw;
+        }
     }
 
     public static LiveDocs Deserialise(string filePath, int maxDoc)

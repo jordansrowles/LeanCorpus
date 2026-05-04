@@ -6,7 +6,7 @@ public sealed class StringField : IField
     /// <summary>
     /// Initialises a new <see cref="StringField"/> with the specified name and value.
     /// </summary>
-    /// <param name="name">The field name. Must not be null.</param>
+    /// <param name="name">The field name. Must be a valid LeanLucene field name.</param>
     /// <param name="value">The exact string value to index and store. Must not be null.</param>
     public StringField(string name, string value)
         : this(name, value, stored: true)
@@ -21,7 +21,7 @@ public sealed class StringField : IField
     /// <param name="stored">Whether the exact string value should be persisted in stored fields.</param>
     public StringField(string name, string value, bool stored)
     {
-        Name = name ?? throw new ArgumentNullException(nameof(name));
+        Name = FieldNameValidator.Validate(name, nameof(name));
         Value = value ?? throw new ArgumentNullException(nameof(value));
         IsStored = stored;
     }

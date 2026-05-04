@@ -1,7 +1,8 @@
-﻿using System.Buffers;
+using System.Buffers;
 using Rowles.LeanLucene.Codecs;
 using Rowles.LeanLucene.Codecs.Hnsw;
 using Rowles.LeanLucene.Codecs.Bkd;
+using Rowles.LeanLucene.Codecs.Postings;
 using Rowles.LeanLucene.Codecs.Vectors;
 using Rowles.LeanLucene.Codecs.TermVectors;
 using Rowles.LeanLucene.Codecs.TermDictionary;
@@ -159,100 +160,128 @@ public sealed class SegmentMerger
         string newSegId,
         string basePath)
     {
-        // Collect all postings from all segments, re-mapping doc IDs
-        var allPostings = new SortedDictionary<string, List<int>>(StringComparer.Ordinal);
-        var allFreqs = new Dictionary<string, Dictionary<int, int>>();
-        var allStoredFields = new List<Dictionary<string, List<string>>>();
-        var allNumericFields = new Dictionary<string, Dictionary<int, double>>();
-        var allVectors = new Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>>(StringComparer.Ordinal);
-        var vectorFieldDims = new Dictionary<string, int>(StringComparer.Ordinal);
-        var vectorFieldNormalised = new Dictionary<string, bool>(StringComparer.Ordinal);
-        var vectorFieldHadHnsw = new Dictionary<string, bool>(StringComparer.Ordinal);
-        // Per-field, per-source-segment doc-id remap (sourceLocalDocId -> mergedDocId).
-        // Drives incremental HNSW merge: pick the segment with the most live vectors,
-        // load its existing graph, remap into the merged id space, then insert the rest.
-        var vectorFieldRemaps = new Dictionary<string, List<(SegmentInfo Seg, Dictionary<int, int> OldToNew)>>(StringComparer.Ordinal);
-        var fieldNames = new HashSet<string>(StringComparer.Ordinal);
-
-        // Collect the union of all field names across the source segments.
-        foreach (var segInfo in segments)
-        {
-            foreach (var field in segInfo.FieldNames)
-                fieldNames.Add(field);
-        }
-
-        // Re-read each segment's postings via the term dictionary, remapping doc IDs.
+        // Phase 1: build per-segment doc-id remap (live docs only).
+        var perSegmentMaps = new List<(SegmentInfo Seg, Dictionary<int, int> DocIdMap)>(segments.Count);
         int newDocId = 0;
-        var allPositions = new Dictionary<string, Dictionary<int, int[]>>();
-
         foreach (var segInfo in segments)
         {
-            var segBasePath = Path.Combine(_directory.DirectoryPath, segInfo.SegmentId);
             var reader = readers[segInfo.SegmentId];
-
-            // Build old→new doc ID mapping (only live docs)
-            var docIdMap = new Dictionary<int, int>();
+            var docIdMap = new Dictionary<int, int>(segInfo.DocCount);
             for (int oldDocId = 0; oldDocId < segInfo.DocCount; oldDocId++)
             {
                 if (reader.IsLive(oldDocId))
-                {
                     docIdMap[oldDocId] = newDocId++;
-                }
             }
-
-            // Re-read the .pos file to get all postings with their qualified terms
-            RemapPostings(segBasePath + ".pos", segBasePath + ".dic", docIdMap, allPostings, allFreqs, allPositions);
+            perSegmentMaps.Add((segInfo, docIdMap));
         }
-
         int totalDocs = newDocId;
-        if (totalDocs == 0)
-            return null;
+        if (totalDocs == 0) return null;
 
-        // Lazily-populated per-field column-stride codec arrays (.fln, .dvn, .dvs).
-        // We don't pre-seed by FieldNames because numeric fields aren't always present
-        // in segInfo.FieldNames yet still produce DocValues / lengths.
-        var allFieldLengths = new Dictionary<string, int[]>(StringComparer.Ordinal);
-        var allNumericDocValues = new Dictionary<string, double[]>(StringComparer.Ordinal);
-        var allSortedDocValues = new Dictionary<string, string?[]>(StringComparer.Ordinal);
-
-        // Pre-check whether any source segment has term vectors. If so, every doc in the
-        // merged segment must have an entry (empty for docs from segments without TVs).
-        bool anyTermVectors = false;
+        var fieldNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var segInfo in segments)
+            foreach (var field in segInfo.FieldNames)
+                fieldNames.Add(field);
+
+        // Phase 2: streaming postings + dictionary merge. Bounds RAM at one term's
+        // worth of decoded postings rather than the whole inverted index.
+        MergePostings(perSegmentMaps, basePath);
+
+        // Phase 3: per-doc payloads. Stored fields and term vectors are streamed to
+        // disk doc-by-doc; doc-values columns still buffer (codec format requires it).
+        var ctx = new MergeContext(totalDocs, fieldNames);
+        bool anyTermVectors = readers.Values.Any(r => r.HasTermVectors);
+        using (var storedWriter = new StoredFieldsStreamWriter(basePath + ".fdt", basePath + ".fdx"))
+        using (var tvWriter = anyTermVectors ? new TermVectorsStreamWriter(basePath + ".tvd", basePath + ".tvx") : null)
         {
-            var tvdPath = Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".tvd");
-            var tvxPath = Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".tvx");
-            if (File.Exists(tvdPath) && File.Exists(tvxPath))
-            {
-                anyTermVectors = true;
-                break;
-            }
+            ctx.StoredWriter = storedWriter;
+            ctx.TermVectorWriter = tvWriter;
+            AccumulateDocPayloads(perSegmentMaps, readers, ctx);
         }
-        var allTermVectorDocs = anyTermVectors
-            ? new List<Dictionary<string, List<TermVectorEntry>>>(totalDocs)
-            : null;
 
-        ParentBitSet? mergedParentBitSet = null;
+        // Phase 4: emit per-codec output files.
+        WriteNorms(segments, readers, fieldNames, basePath, totalDocs);
+        var mergedVectorFields = MergeVectors(ctx, basePath);
+        WriteNumericFiles(ctx, basePath);
+        WriteFieldLengthsAndStats(ctx, fieldNames, basePath, newSegId, totalDocs);
+        WriteDocValueColumns(ctx, basePath);
+        WriteBkdTree(ctx, basePath);
+        WriteParentBitSet(ctx, basePath);
 
-        int remapDocId = 0;
-        foreach (var segInfo in segments)
+        var mergedInfo = new SegmentInfo
+        {
+            SegmentId = newSegId,
+            DocCount = totalDocs,
+            LiveDocCount = totalDocs,
+            CommitGeneration = 0,
+            FieldNames = fieldNames.ToList(),
+            IndexSortFields = segments[0].IndexSortFields,
+            VectorFields = mergedVectorFields,
+        };
+        mergedInfo.WriteTo(basePath + ".seg");
+        return mergedInfo;
+    }
+
+    /// <summary>
+    /// Accumulator for per-doc data structures threaded through the merge phases.
+    /// Owns nothing; lifetime is the merge call.
+    /// </summary>
+    private sealed class MergeContext
+    {
+        internal int TotalDocs { get; }
+        internal HashSet<string> FieldNames { get; }
+        internal StoredFieldsStreamWriter? StoredWriter { get; set; }
+        internal TermVectorsStreamWriter? TermVectorWriter { get; set; }
+        internal Dictionary<string, Dictionary<int, double>> NumericFields { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, int[]> FieldLengths { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, double[]> NumericDocValues { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, string?[]> SortedDocValues { get; } = new(StringComparer.Ordinal);
+        internal ParentBitSet? ParentBitSet { get; set; }
+        internal Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> Vectors { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, int> VectorFieldDims { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, bool> VectorFieldNormalised { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, bool> VectorFieldHadHnsw { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, List<(SegmentInfo Seg, Dictionary<int, int> OldToNew)>> VectorFieldRemaps { get; } = new(StringComparer.Ordinal);
+
+        internal MergeContext(int totalDocs, HashSet<string> fieldNames)
+        {
+            TotalDocs = totalDocs;
+            FieldNames = fieldNames;
+        }
+    }
+
+    private void MergePostings(
+        IReadOnlyList<(SegmentInfo Seg, Dictionary<int, int> DocIdMap)> sources,
+        string basePath)
+    {
+        var merger = new List<StreamingPostingsMerger.Source>(sources.Count);
+        foreach (var (seg, map) in sources)
+        {
+            var segBase = Path.Combine(_directory.DirectoryPath, seg.SegmentId);
+            merger.Add(new StreamingPostingsMerger.Source
+            {
+                DicPath = segBase + ".dic",
+                PosPath = segBase + ".pos",
+                DocIdMap = map,
+            });
+        }
+        StreamingPostingsMerger.Merge(merger, basePath + ".pos", basePath + ".dic");
+    }
+
+    private void AccumulateDocPayloads(
+        IReadOnlyList<(SegmentInfo Seg, Dictionary<int, int> DocIdMap)> sources,
+        IReadOnlyDictionary<string, SegmentReader> readers,
+        MergeContext ctx)
+    {
+        foreach (var (segInfo, docIdMap) in sources)
         {
             var reader = readers[segInfo.SegmentId];
-
-            // Cache per-segment readers to avoid repeated lookups inside the doc loop.
             bool segHasTermVectors = reader.HasTermVectors;
             var segParentBitSet = reader.GetParentBitSet();
 
-            // Pre-fetch per-field length arrays for this segment by reading .fln directly,
-            // which lists every field that has length data (including ones not in FieldNames).
             var flnPath = Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".fln");
             var segFieldLengths = FieldLengthReader.TryRead(flnPath)
                 ?? new Dictionary<string, int[]>(StringComparer.Ordinal);
 
-            // Pre-fetch per-field column-stride DV arrays for this segment.
-            // We read .dvn / .dvs directly (rather than iterating segInfo.FieldNames)
-            // because numeric fields aren't always recorded in FieldNames yet still
-            // produce DocValues.
             var segNumericDvs = NumericDocValuesReader.Read(
                 Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".dvn"));
             var segSortedDvs = SortedDocValuesReader.Read(
@@ -262,78 +291,72 @@ public sealed class SegmentMerger
 
             for (int oldDocId = 0; oldDocId < segInfo.DocCount; oldDocId++)
             {
-                if (!reader.IsLive(oldDocId)) continue;
+                if (!docIdMap.TryGetValue(oldDocId, out int remapDocId)) continue;
 
-                var fields = reader.GetStoredFields(oldDocId);
-                var mutableFields = new Dictionary<string, List<string>>();
-                foreach (var kvp in fields)
-                    mutableFields[kvp.Key] = kvp.Value.ToList();
-                allStoredFields.Add(mutableFields);
+                ctx.StoredWriter!.AddDocument(reader.GetStoredFields(oldDocId));
 
                 foreach (var (field, values) in segNumericIndex)
                 {
-                    if (values.TryGetValue(oldDocId, out double numVal))
+                    if (!values.TryGetValue(oldDocId, out double numVal)) continue;
+                    if (!ctx.NumericFields.TryGetValue(field, out var fieldMap))
                     {
-                        if (!allNumericFields.TryGetValue(field, out var fieldMap))
-                        {
-                            fieldMap = new Dictionary<int, double>();
-                            allNumericFields[field] = fieldMap;
-                        }
-                        fieldMap[remapDocId] = numVal;
+                        fieldMap = new Dictionary<int, double>();
+                        ctx.NumericFields[field] = fieldMap;
                     }
+                    fieldMap[remapDocId] = numVal;
                 }
 
-                // Field lengths (.fln) — one entry per (field, doc).
                 foreach (var (field, fl) in segFieldLengths)
                 {
                     if ((uint)oldDocId >= (uint)fl.Length) continue;
-                    if (!allFieldLengths.TryGetValue(field, out var dst))
+                    if (!ctx.FieldLengths.TryGetValue(field, out var dst))
                     {
-                        dst = new int[totalDocs];
-                        allFieldLengths[field] = dst;
+                        dst = new int[ctx.TotalDocs];
+                        ctx.FieldLengths[field] = dst;
                     }
                     dst[remapDocId] = fl[oldDocId];
                 }
 
-                // Column-stride numeric DocValues (.dvn).
-                foreach (var (field, arr) in segNumericDvs)
+                foreach (var (field, arr) in segNumericDvs.Values)
                 {
                     if ((uint)oldDocId >= (uint)arr.Length) continue;
-                    if (!allNumericDocValues.TryGetValue(field, out var dst))
+                    // Skip docs absent from this field according to the presence bitmap.
+                    if (segNumericDvs.Presence.TryGetValue(field, out var presenceBitmap) &&
+                        presenceBitmap is not null && !presenceBitmap.Contains(oldDocId))
+                        continue;
+                    if (!ctx.NumericDocValues.TryGetValue(field, out var dst))
                     {
-                        dst = new double[totalDocs];
-                        allNumericDocValues[field] = dst;
+                        dst = new double[ctx.TotalDocs];
+                        ctx.NumericDocValues[field] = dst;
                     }
                     dst[remapDocId] = arr[oldDocId];
                 }
 
-                // Column-stride sorted DocValues (.dvs).
-                foreach (var (field, arr) in segSortedDvs)
+                foreach (var (field, arr) in segSortedDvs.Values)
                 {
                     if ((uint)oldDocId >= (uint)arr.Length) continue;
-                    if (!allSortedDocValues.TryGetValue(field, out var dst))
+                    // Skip docs absent from this field according to the presence bitmap.
+                    if (segSortedDvs.Presence.TryGetValue(field, out var presenceBitmap) &&
+                        presenceBitmap is not null && !presenceBitmap.Contains(oldDocId))
+                        continue;
+                    if (!ctx.SortedDocValues.TryGetValue(field, out var dst))
                     {
-                        dst = new string?[totalDocs];
-                        allSortedDocValues[field] = dst;
+                        dst = new string?[ctx.TotalDocs];
+                        ctx.SortedDocValues[field] = dst;
                     }
                     dst[remapDocId] = arr[oldDocId];
                 }
 
-                // Term vectors (.tvd/.tvx) — keep alignment by emitting an empty dict
-                // for docs from segments that didn't store vectors.
-                if (allTermVectorDocs is not null)
+                if (ctx.TermVectorWriter is not null)
                 {
-                    Dictionary<string, List<TermVectorEntry>>? tv = segHasTermVectors
-                        ? reader.GetTermVectors(oldDocId)
-                        : null;
-                    allTermVectorDocs.Add(tv ?? []);
+                    var tv = segHasTermVectors ? reader.GetTermVectors(oldDocId) : null;
+                    ctx.TermVectorWriter.AddDocument(tv);
                 }
 
-                // Parent bitset (.pbs) — remap any source parent docs into the merged space.
                 if (segParentBitSet is not null && segParentBitSet.IsParent(oldDocId))
                 {
-                    mergedParentBitSet ??= new ParentBitSet(totalDocs);
-                    mergedParentBitSet.Set(remapDocId);
+                    ctx.ParentBitSet ??= new ParentBitSet(ctx.TotalDocs);
+                    ctx.ParentBitSet.Set(remapDocId);
                 }
 
                 if (reader.HasVectors)
@@ -342,18 +365,18 @@ public sealed class SegmentMerger
                     {
                         var vec = reader.GetVector(vfName, oldDocId);
                         if (vec is null || vec.Length == 0) continue;
-                        if (!allVectors.TryGetValue(vfName, out var perField))
+                        if (!ctx.Vectors.TryGetValue(vfName, out var perField))
                         {
                             perField = new Dictionary<int, ReadOnlyMemory<float>>();
-                            allVectors[vfName] = perField;
+                            ctx.Vectors[vfName] = perField;
                         }
                         perField[remapDocId] = vec;
-                        vectorFieldDims[vfName] = vec.Length;
+                        ctx.VectorFieldDims[vfName] = vec.Length;
 
-                        if (!vectorFieldRemaps.TryGetValue(vfName, out var remapList))
+                        if (!ctx.VectorFieldRemaps.TryGetValue(vfName, out var remapList))
                         {
                             remapList = new List<(SegmentInfo, Dictionary<int, int>)>();
-                            vectorFieldRemaps[vfName] = remapList;
+                            ctx.VectorFieldRemaps[vfName] = remapList;
                         }
                         var entry = remapList.FirstOrDefault(t => ReferenceEquals(t.Seg, segInfo));
                         if (entry.OldToNew is null)
@@ -363,129 +386,67 @@ public sealed class SegmentMerger
                         }
                         entry.OldToNew[oldDocId] = remapDocId;
 
-                        // Carry forward source field metadata when present.
                         var match = reader.Info.VectorFields.FirstOrDefault(vf => vf.FieldName == vfName);
                         if (match is not null)
                         {
-                            vectorFieldNormalised[vfName] = match.Normalised;
-                            vectorFieldHadHnsw[vfName] = vectorFieldHadHnsw.GetValueOrDefault(vfName, false) || match.HasHnsw;
+                            ctx.VectorFieldNormalised[vfName] = match.Normalised;
+                            ctx.VectorFieldHadHnsw[vfName] = ctx.VectorFieldHadHnsw.GetValueOrDefault(vfName, false) || match.HasHnsw;
                         }
                     }
                 }
-                remapDocId++;
             }
         }
+    }
 
-        // Write merged segment files
-        var sortedTerms = allPostings.Keys.ToList();
-        var postingsData = new Dictionary<string, int[]>();
-        foreach (var (qt, docList) in allPostings)
-            postingsData[qt] = docList.ToArray();
-
-        var postingsOffsets = new Dictionary<string, long>();
-
-        // Write .pos using v3 block-packed format
-        using (var posOutput = new Store.IndexOutput(basePath + ".pos"))
-        {
-            CodecConstants.WriteHeader(posOutput, CodecConstants.PostingsVersion);
-
-            using var blockWriter = new BlockPostingsWriter(posOutput);
-
-            foreach (var qt in sortedTerms)
-            {
-                var ids = postingsData[qt];
-                bool hasFreqsFlag = allFreqs.ContainsKey(qt);
-                bool hasPositionsFlag = allPositions.TryGetValue(qt, out var posMap) && posMap.Count > 0;
-
-                // Per-term header
-                long headerPos = posOutput.Position;
-                posOutput.WriteInt32(0);          // placeholder docFreq
-                posOutput.WriteInt64(0L);         // placeholder skipOffset
-                posOutput.WriteBoolean(hasFreqsFlag);
-                posOutput.WriteBoolean(hasPositionsFlag);
-                posOutput.WriteBoolean(false);    // hasPayloads (not preserved through merge)
-
-                blockWriter.StartTerm();
-                var freqMap = hasFreqsFlag ? allFreqs[qt] : null;
-                foreach (var id in ids)
-                    blockWriter.AddPosting(id, freqMap?.GetValueOrDefault(id, 1) ?? 1);
-                var meta = blockWriter.FinishTerm();
-
-                // Write positions (VarInt format)
-                if (hasPositionsFlag)
-                {
-                    foreach (var id in ids)
-                    {
-                        var positions = posMap!.GetValueOrDefault(id, []);
-                        posOutput.WriteVarInt(positions.Length);
-                        int prevPos = 0;
-                        foreach (var p in positions)
-                        {
-                            posOutput.WriteVarInt(p - prevPos);
-                            prevPos = p;
-                        }
-                    }
-                }
-
-                // Fill in header
-                long endPos = posOutput.Position;
-                posOutput.Seek(headerPos);
-                posOutput.WriteInt32(meta.DocFreq);
-                posOutput.WriteInt64(meta.SkipOffset);
-                posOutput.Seek(endPos);
-
-                postingsOffsets[qt] = headerPos;
-            }
-        }
-
-        // Write .dic
-        TermDictionaryWriter.Write(basePath + ".dic", sortedTerms, postingsOffsets);
-
-        // Write per-field .nrm — carry forward per-field norms from source segments
+    private static void WriteNorms(
+        IReadOnlyList<SegmentInfo> segments,
+        IReadOnlyDictionary<string, SegmentReader> readers,
+        IReadOnlyCollection<string> fieldNames,
+        string basePath,
+        int totalDocs)
+    {
         var fieldNorms = new Dictionary<string, float[]>(StringComparer.Ordinal);
         foreach (var fieldName in fieldNames)
         {
-            var fieldNormsArray = new float[totalDocs];
-            int normIdx = 0;
+            var arr = new float[totalDocs];
+            int idx = 0;
             foreach (var segInfo in segments)
             {
-                var normReader = readers[segInfo.SegmentId];
+                var reader = readers[segInfo.SegmentId];
                 for (int oldDocId = 0; oldDocId < segInfo.DocCount; oldDocId++)
                 {
-                    if (!normReader.IsLive(oldDocId)) continue;
-                    fieldNormsArray[normIdx++] = normReader.GetNorm(oldDocId, fieldName);
+                    if (!reader.IsLive(oldDocId)) continue;
+                    arr[idx++] = reader.GetNorm(oldDocId, fieldName);
                 }
             }
-            fieldNorms[fieldName] = fieldNormsArray;
+            fieldNorms[fieldName] = arr;
         }
         NormsWriter.Write(basePath + ".nrm", fieldNorms);
+    }
 
-        // Write .fdt + .fdx
-        StoredFieldsWriter.Write(basePath + ".fdt", basePath + ".fdx", allStoredFields.ToArray());
-
-        // Per-field vectors and HNSW
-        var mergedVectorFields = new List<VectorFieldInfo>();
-        foreach (var (fieldName, perField) in allVectors)
+    private List<VectorFieldInfo> MergeVectors(MergeContext ctx, string basePath)
+    {
+        var merged = new List<VectorFieldInfo>();
+        foreach (var (fieldName, perField) in ctx.Vectors)
         {
             if (perField.Count == 0) continue;
-            int dimension = vectorFieldDims[fieldName];
-            if (!vectorFieldNormalised.TryGetValue(fieldName, out var normalised))
+            int dimension = ctx.VectorFieldDims[fieldName];
+            if (!ctx.VectorFieldNormalised.TryGetValue(fieldName, out var normalised))
                 throw new InvalidOperationException(
                     $"Cannot determine Normalised flag for vector field '{fieldName}' during merge. Source segments must declare this flag.");
 
             var vecPath = Codecs.Vectors.VectorFilePaths.VectorFile(basePath, fieldName);
-            VectorWriter.WriteField(vecPath, totalDocs, dimension, perField);
+            VectorWriter.WriteField(vecPath, ctx.TotalDocs, dimension, perField);
 
             bool hasHnsw = false;
-            if (vectorFieldHadHnsw.GetValueOrDefault(fieldName, false) && perField.Count >= 2)
+            if (ctx.VectorFieldHadHnsw.GetValueOrDefault(fieldName, false) && perField.Count >= 2)
             {
                 var src = new InMemoryVectorSource(new Dictionary<int, ReadOnlyMemory<float>>(perField), dimension);
                 var hnswSw = System.Diagnostics.Stopwatch.StartNew();
 
                 HnswGraph? graph = null;
-                if (vectorFieldRemaps.TryGetValue(fieldName, out var remapList) && remapList.Count > 0)
+                if (ctx.VectorFieldRemaps.TryGetValue(fieldName, out var remapList) && remapList.Count > 0)
                 {
-                    // Pick the source segment contributing the most live vectors as the seed graph.
                     var seed = remapList
                         .Where(t => t.Seg.VectorFields.Any(vf => vf.FieldName == fieldName && vf.HasHnsw))
                         .OrderByDescending(t => t.OldToNew.Count)
@@ -501,18 +462,11 @@ public sealed class SegmentMerger
                             {
                                 graph = HnswReader.Read(seedHnswPath, src, normalised, seed.OldToNew);
                                 graph.Thaw();
-
-                                // Insert any vectors not already present (from other segments
-                                // and any docs that were missing from the seed graph).
                                 foreach (var docId in perField.Keys)
-                                {
-                                    if (!graph.ContainsNode(docId))
-                                        graph.Insert(docId);
-                                }
+                                    if (!graph.ContainsNode(docId)) graph.Insert(docId);
                             }
                             catch
                             {
-                                // Fall back to full rebuild if the seed graph can't be reused.
                                 graph = null;
                             }
                         }
@@ -536,7 +490,7 @@ public sealed class SegmentMerger
                 hasHnsw = true;
             }
 
-            mergedVectorFields.Add(new VectorFieldInfo
+            merged.Add(new VectorFieldInfo
             {
                 FieldName = fieldName,
                 Dimension = dimension,
@@ -544,229 +498,94 @@ public sealed class SegmentMerger
                 HasHnsw = hasHnsw,
             });
         }
-
-        // Write .num if any numeric fields
-        if (allNumericFields.Count > 0)
-            WriteNumericIndex(basePath + ".num", allNumericFields);
-
-        // Write exact field lengths (.fln) so BM25 scoring on the merged segment
-        // matches the unmerged segments precisely (no quantisation loss).
-        if (allFieldLengths.Count > 0)
-            FieldLengthWriter.Write(basePath + ".fln", allFieldLengths, totalDocs);
-
-        SegmentStats.FromFieldLengths(totalDocs, totalDocs, fieldNames, allFieldLengths)
-            .WriteTo(SegmentStats.GetStatsPath(_directory.DirectoryPath, newSegId));
-
-        // Write column-stride numeric DocValues (.dvn) — used by sort, collapse, aggregations.
-        if (allNumericDocValues.Count > 0)
-            NumericDocValuesWriter.Write(basePath + ".dvn", allNumericDocValues, totalDocs);
-
-        // Write column-stride sorted DocValues (.dvs) — used by string sort and collapse.
-        if (allSortedDocValues.Count > 0)
-            SortedDocValuesWriter.Write(basePath + ".dvs", allSortedDocValues, totalDocs);
-
-        // Write BKD tree (.bkd) for numeric range queries from sparse numeric values.
-        // Missing numeric values must not be materialised as real zero-valued points.
-        if (allNumericFields.Count > 0)
-        {
-            var bkdData = new Dictionary<string, List<(double Value, int DocId)>>(StringComparer.Ordinal);
-            foreach (var (field, values) in allNumericFields)
-            {
-                var points = new List<(double Value, int DocId)>(values.Count);
-                foreach (var (docId, value) in values)
-                    points.Add((value, docId));
-                bkdData[field] = points;
-            }
-            if (bkdData.Count > 0)
-                BKDWriter.Write(basePath + ".bkd", bkdData);
-        }
-
-        // Write term vectors (.tvd/.tvx) when at least one source segment had them.
-        if (allTermVectorDocs is not null && allTermVectorDocs.Count > 0)
-            TermVectorsWriter.Write(basePath + ".tvd", basePath + ".tvx", allTermVectorDocs);
-
-        // Write parent bitset (.pbs) for block-join queries to keep working post-merge.
-        if (mergedParentBitSet is not null)
-            mergedParentBitSet.WriteTo(basePath + ".pbs");
-
-        // Write .seg
-        var mergedInfo = new SegmentInfo
-        {
-            SegmentId = newSegId,
-            DocCount = totalDocs,
-            LiveDocCount = totalDocs,
-            CommitGeneration = 0,
-            FieldNames = fieldNames.ToList(),
-            IndexSortFields = segments[0].IndexSortFields,
-            VectorFields = mergedVectorFields,
-        };
-        mergedInfo.WriteTo(basePath + ".seg");
-
-        return mergedInfo;
+        return merged;
     }
 
-    private static void RemapPostings(
-        string posPath, string dicPath,
-        Dictionary<int, int> docIdMap,
-        SortedDictionary<string, List<int>> allPostings,
-        Dictionary<string, Dictionary<int, int>> allFreqs,
-        Dictionary<string, Dictionary<int, int[]>> allPositions)
+    private static void WriteNumericFiles(MergeContext ctx, string basePath)
     {
-        // Use TermDictionaryReader to enumerate terms (handles v1 and v2 .dic format)
-        using var dicReader = TermDictionaryReader.Open(dicPath);
-        var allTerms = dicReader.EnumerateAllTerms();
+        if (ctx.NumericFields.Count > 0)
+            WriteNumericIndex(basePath + ".num", ctx.NumericFields);
+    }
 
-        // Open .pos file with mmap
-        using var posInput = new Store.IndexInput(posPath);
-        byte postingsVersion = CodecConstants.ReadHeaderVersion(
-            posInput, CodecConstants.PostingsVersion, "postings (.pos)");
+    private static void WriteFieldLengthsAndStats(
+        MergeContext ctx,
+        IReadOnlyCollection<string> fieldNames,
+        string basePath,
+        string newSegId,
+        int totalDocs)
+    {
+        if (ctx.FieldLengths.Count > 0)
+            FieldLengthWriter.Write(basePath + ".fln", ctx.FieldLengths, totalDocs);
 
-        foreach (var (qualifiedTerm, postingsOffset) in allTerms)
+        var dirPath = Path.GetDirectoryName(basePath)!;
+        SegmentStats.FromFieldLengths(totalDocs, totalDocs, fieldNames, ctx.FieldLengths)
+            .WriteTo(SegmentStats.GetStatsPath(dirPath, newSegId));
+    }
+
+    private static void WriteDocValueColumns(MergeContext ctx, string basePath)
+    {
+        if (ctx.NumericDocValues.Count > 0)
         {
-            posInput.Seek(postingsOffset);
-
-            int count;
-            int[]? oldIds;
-            int[]? freqs;
-            bool hasPositions;
-            bool hasPayloads;
-
-            if (postingsVersion >= 3)
+            using var output = new Store.IndexOutput(basePath + ".dvn");
+            CodecConstants.WriteHeader(output, CodecConstants.NumericDocValuesVersion);
+            output.WriteInt32(ctx.NumericDocValues.Count);
+            var fieldKeys = ctx.NumericDocValues.Keys.ToList();
+            foreach (var field in fieldKeys)
             {
-                // V3 block-packed format: per-term header then blocks
-                count = posInput.ReadInt32();
-                long skipOffset = posInput.ReadInt64();
-                bool hasFreqsFlag = posInput.ReadBoolean();
-                hasPositions = posInput.ReadBoolean();
-                hasPayloads = posInput.ReadBoolean();
-
-                long docStartOffset = posInput.Position;
-
-                // Decode doc IDs + freqs via BlockPostingsEnum
-                var blockEnum = BlockPostingsEnum.Create(posInput, docStartOffset, skipOffset, count);
-                oldIds = ArrayPool<int>.Shared.Rent(count);
-                freqs = ArrayPool<int>.Shared.Rent(count);
-
-                int idx = 0;
-                while (blockEnum.NextDoc() != BlockPostingsEnum.NoMoreDocs)
-                {
-                    oldIds[idx] = blockEnum.DocId;
-                    freqs[idx] = hasFreqsFlag ? blockEnum.Freq : 1;
-                    idx++;
-                }
-
-                // Seek past skip data to position section
-                if (hasPositions)
-                {
-                    posInput.Seek(skipOffset);
-                    int skipCount = posInput.ReadInt32();
-                    posInput.Seek(posInput.Position + (long)skipCount * 12);
-                }
-            }
-            else
-            {
-                // V1/V2 VarInt format
-                count = posInput.ReadInt32();
-                int postingSkipCount = posInput.ReadInt32();
-                if (postingSkipCount > 0)
-                    posInput.Seek(posInput.Position + postingSkipCount * 8L);
-
-                oldIds = ArrayPool<int>.Shared.Rent(count);
-                freqs = ArrayPool<int>.Shared.Rent(count);
-
-                int prev = 0;
-                for (int j = 0; j < count; j++)
-                {
-                    prev += posInput.ReadVarInt();
-                    oldIds[j] = prev;
-                }
-
-                bool hasFreqsFlag = posInput.ReadBoolean();
-                if (hasFreqsFlag)
-                {
-                    for (int j = 0; j < count; j++)
-                        freqs[j] = posInput.ReadVarInt();
-                }
-                else
-                {
-                    Array.Fill(freqs, 1, 0, count);
-                }
-
-                hasPositions = posInput.ReadBoolean();
-                hasPayloads = postingsVersion >= 2 && posInput.ReadBoolean();
-            }
-
-            try
-            {
-                int[][]? positions = null;
-                if (hasPositions)
-                {
-                    positions = new int[count][];
-                    for (int j = 0; j < count; j++)
-                    {
-                        int posCount = posInput.ReadVarInt();
-                        positions[j] = new int[posCount];
-                        int prevPos = 0;
-                        for (int k = 0; k < posCount; k++)
-                        {
-                            prevPos += posInput.ReadVarInt();
-                            positions[j][k] = prevPos;
-                            if (hasPayloads)
-                            {
-                                int payloadLen = posInput.ReadVarInt();
-                                if (payloadLen > 0)
-                                    posInput.Seek(posInput.Position + payloadLen);
-                            }
-                        }
-                    }
-                }
-
-                if (!allPostings.TryGetValue(qualifiedTerm, out var mergedList))
-                {
-                    mergedList = new List<int>();
-                    allPostings[qualifiedTerm] = mergedList;
-                }
-
-                if (!allFreqs.TryGetValue(qualifiedTerm, out var mergedFreqs))
-                {
-                    mergedFreqs = new Dictionary<int, int>();
-                    allFreqs[qualifiedTerm] = mergedFreqs;
-                }
-
-                if (!allPositions.TryGetValue(qualifiedTerm, out var mergedPositions))
-                {
-                    mergedPositions = new Dictionary<int, int[]>();
-                    allPositions[qualifiedTerm] = mergedPositions;
-                }
-
-                for (int j = 0; j < count; j++)
-                {
-                    if (docIdMap.TryGetValue(oldIds[j], out int newId))
-                    {
-                        mergedList.Add(newId);
-                        mergedFreqs[newId] = freqs[j];
-                        if (positions is not null)
-                            mergedPositions[newId] = positions[j];
-                    }
-                }
-            }
-            finally
-            {
-                ArrayPool<int>.Shared.Return(oldIds);
-                ArrayPool<int>.Shared.Return(freqs);
+                // Derive presence from the sparse numeric index (documents that truly have this field).
+                ctx.NumericFields.TryGetValue(field, out var sparseMap);
+                IReadOnlySet<int>? presenceSet = sparseMap is not null
+                    ? (IReadOnlySet<int>)sparseMap.Keys.ToHashSet()
+                    : null;
+                NumericDocValuesWriter.WriteFieldBlock(output, field, ctx.NumericDocValues[field], ctx.TotalDocs, presenceSet);
+                ctx.NumericDocValues.Remove(field);
             }
         }
-
-        foreach (var (_, list) in allPostings)
-            list.Sort();
+        if (ctx.SortedDocValues.Count > 0)
+        {
+            using var output = new Store.IndexOutput(basePath + ".dvs");
+            CodecConstants.WriteHeader(output, CodecConstants.SortedDocValuesVersion);
+            output.WriteInt32(ctx.SortedDocValues.Count);
+            var fieldKeys = ctx.SortedDocValues.Keys.ToList();
+            foreach (var field in fieldKeys)
+            {
+                SortedDocValuesWriter.WriteFieldBlock(output, field, ctx.SortedDocValues[field], ctx.TotalDocs);
+                ctx.SortedDocValues.Remove(field);
+            }
+        }
     }
+
+    private static void WriteBkdTree(MergeContext ctx, string basePath)
+    {
+        if (ctx.NumericFields.Count == 0) return;
+        var bkdData = new Dictionary<string, List<(double Value, int DocId)>>(StringComparer.Ordinal);
+        foreach (var (field, values) in ctx.NumericFields)
+        {
+            var points = new List<(double Value, int DocId)>(values.Count);
+            foreach (var (docId, value) in values)
+                points.Add((value, docId));
+            bkdData[field] = points;
+        }
+        if (bkdData.Count > 0)
+            BKDWriter.Write(basePath + ".bkd", bkdData);
+    }
+
+    private static void WriteParentBitSet(MergeContext ctx, string basePath)
+    {
+        ctx.ParentBitSet?.WriteTo(basePath + ".pbs");
+    }
+
 
     internal void CleanupSegmentFiles(SegmentInfo seg)
     {
-        // Delete every file belonging to this segment (any extension), not a hardcoded list.
-        // This is immune to future codec additions and prevents orphan-file disk leaks.
-        var pattern = $"{seg.SegmentId}.*";
-        foreach (var filePath in Directory.GetFiles(_directory.DirectoryPath, pattern))
+        // Delete every file belonging to this segment (any extension).
+        foreach (var filePath in Directory.GetFiles(_directory.DirectoryPath, $"{seg.SegmentId}.*"))
+        {
+            try { File.Delete(filePath); }
+            catch { /* best-effort cleanup */ }
+        }
+        // Also sweep generation-versioned deletion files (e.g. seg_0_gen_3.del).
+        foreach (var filePath in Directory.GetFiles(_directory.DirectoryPath, $"{seg.SegmentId}_gen_*.del"))
         {
             try { File.Delete(filePath); }
             catch { /* best-effort cleanup */ }

@@ -58,7 +58,13 @@ internal static class VectorWriter
 
         for (int i = 0; i < docCount; i++)
         {
-            var span = vectorsByDoc.TryGetValue(i, out var v) && v.Length == dimension ? v.Span : zero;
+            ReadOnlySpan<float> span = zero;
+            if (vectorsByDoc.TryGetValue(i, out var v))
+            {
+                if (v.Length != dimension)
+                    throw new InvalidDataException($"Vector for document {i} has dimension {v.Length}; expected {dimension}.");
+                span = v.Span;
+            }
             for (int j = 0; j < dimension; j++)
                 writer.Write(span[j]);
         }

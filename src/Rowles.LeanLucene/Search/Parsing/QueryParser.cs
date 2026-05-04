@@ -10,14 +10,21 @@ public sealed class QueryParser
 {
     private readonly string _defaultField;
     private readonly IAnalyser _analyser;
+    private readonly bool _lenient;
 
     /// <summary>Initialises a new <see cref="QueryParser"/> with the given default field and analyser.</summary>
     /// <param name="defaultField">The field used when no explicit <c>field:</c> prefix is present in the query string.</param>
     /// <param name="analyser">The analyser used to tokenise terms and phrases at query time.</param>
-    public QueryParser(string defaultField, IAnalyser analyser)
+    /// <param name="lenient">
+    /// When <see langword="true"/>, syntax errors are tolerated and the parser returns the best-effort
+    /// result built from valid tokens. When <see langword="false"/> (default), syntax errors throw
+    /// <see cref="QueryParseException"/>.
+    /// </param>
+    public QueryParser(string defaultField, IAnalyser analyser, bool lenient = false)
     {
         _defaultField = defaultField;
         _analyser = analyser;
+        _lenient = lenient;
     }
 
     /// <summary>Parses the query string into a <see cref="Query"/> object tree.</summary>
@@ -26,14 +33,32 @@ public sealed class QueryParser
     /// A <see cref="Query"/> representing the parsed expression, or an empty
     /// <see cref="BooleanQuery"/> when <paramref name="queryString"/> is null or whitespace.
     /// </returns>
+    /// <exception cref="QueryParseException">
+    /// Thrown when the query string contains a syntax error and the parser is not in lenient mode.
+    /// </exception>
     public Query Parse(string queryString)
     {
         if (string.IsNullOrWhiteSpace(queryString))
-            return new BooleanQuery();
+            return new BooleanQuery.Builder().Build();
 
-        var tokens = Tokenize(queryString);
+        var tokens = Tokenize(queryString, _lenient);
         int pos = 0;
-        var query = ParseExpression(tokens, ref pos);
+        Query query;
+        if (_lenient)
+        {
+            try { query = ParseExpression(tokens, ref pos); }
+            catch (QueryParseException) { query = new BooleanQuery.Builder().Build(); }
+        }
+        else
+        {
+            query = ParseExpression(tokens, ref pos);
+            if (pos < tokens.Count)
+            {
+                var tok = tokens[pos];
+                throw new QueryParseException(
+                    $"Unexpected token '{tok.Value}' at position {pos}.", tok.Offset);
+            }
+        }
         return query;
     }
 
@@ -47,6 +72,7 @@ public sealed class QueryParser
                 break;
 
             var occur = Occur.Should;
+            int operatorOffset = tokens[pos].Offset;
             if (tokens[pos].Type == QTokenType.Plus)
             {
                 occur = Occur.Must;
@@ -58,9 +84,25 @@ public sealed class QueryParser
                 pos++;
             }
 
-            if (pos >= tokens.Count) break;
+            if (pos >= tokens.Count)
+            {
+                if (_lenient) break;
+                throw new QueryParseException(
+                    "A required or prohibited operator must be followed by a query clause.",
+                    operatorOffset);
+            }
 
-            var subQuery = ParseClause(tokens, ref pos);
+            Query? subQuery;
+            if (_lenient)
+            {
+                try { subQuery = ParseClause(tokens, ref pos); }
+                catch (QueryParseException) { break; }
+            }
+            else
+            {
+                subQuery = ParseClause(tokens, ref pos);
+            }
+
             if (subQuery is not null)
                 clauses.Add(new BooleanClause(subQuery, occur));
         }
@@ -68,10 +110,10 @@ public sealed class QueryParser
         if (clauses.Count == 1 && clauses[0].Occur == Occur.Should)
             return clauses[0].Query;
 
-        var boolQuery = new BooleanQuery();
+        var builder = new BooleanQuery.Builder();
         foreach (var c in clauses)
-            boolQuery.Add(c.Query, c.Occur);
-        return boolQuery;
+            builder.Add(c.Query, c.Occur);
+        return builder.Build();
     }
 
     private Query? ParseClause(List<QToken> tokens, ref int pos)
@@ -81,10 +123,13 @@ public sealed class QueryParser
         // Parenthetical grouping
         if (tokens[pos].Type == QTokenType.LParen)
         {
+            int openOffset = tokens[pos].Offset;
             pos++; // consume '('
             var inner = ParseExpression(tokens, ref pos);
             if (pos < tokens.Count && tokens[pos].Type == QTokenType.RParen)
                 pos++; // consume ')'
+            else if (!_lenient)
+                throw new QueryParseException("Unmatched opening parenthesis.", openOffset);
             return ApplyBoost(inner, tokens, ref pos);
         }
 
@@ -105,6 +150,7 @@ public sealed class QueryParser
         {
             string field = _defaultField;
             string term = tokens[pos].Value;
+            int termOffset = tokens[pos].Offset;
             pos++;
 
             // Check for field:value
@@ -130,12 +176,17 @@ public sealed class QueryParser
                     }
                     else
                     {
-                        return null;
+                        if (_lenient) return null;
+                        throw new QueryParseException(
+                            $"Field '{field}' must be followed by a term or phrase.",
+                            tokens[pos].Offset);
                     }
                 }
                 else
                 {
-                    return null;
+                    if (_lenient) return null;
+                    throw new QueryParseException(
+                        $"Field '{field}' must be followed by a term or phrase.", termOffset);
                 }
             }
 
@@ -176,8 +227,9 @@ public sealed class QueryParser
             return ApplyBoost(tq, tokens, ref pos);
         }
 
-        pos++; // skip unrecognised
-        return null;
+        if (_lenient) return null;
+        throw new QueryParseException(
+            $"Unexpected token '{tokens[pos].Value}' at position {pos}.", tokens[pos].Offset);
     }
 
     private PhraseQuery BuildPhraseQuery(string field, string phraseText)
@@ -223,7 +275,7 @@ public sealed class QueryParser
         return tokens.Count > 0 ? tokens[0].Text : string.Empty;
     }
 
-    private static List<QToken> Tokenize(string input)
+    private static List<QToken> Tokenize(string input, bool lenient)
     {
         var tokens = new List<QToken>();
         int i = 0;
@@ -236,23 +288,35 @@ public sealed class QueryParser
 
             switch (c)
             {
-                case '+': tokens.Add(new QToken(QTokenType.Plus, "+")); i++; continue;
-                case '-': tokens.Add(new QToken(QTokenType.Minus, "-")); i++; continue;
-                case '(': tokens.Add(new QToken(QTokenType.LParen, "(")); i++; continue;
-                case ')': tokens.Add(new QToken(QTokenType.RParen, ")")); i++; continue;
-                case ':': tokens.Add(new QToken(QTokenType.Colon, ":")); i++; continue;
-                case '~': tokens.Add(new QToken(QTokenType.Tilde, "~")); i++; continue;
-                case '^': tokens.Add(new QToken(QTokenType.Caret, "^")); i++; continue;
+                case '+': tokens.Add(new QToken(QTokenType.Plus, "+", i)); i++; continue;
+                case '-': tokens.Add(new QToken(QTokenType.Minus, "-", i)); i++; continue;
+                case '(': tokens.Add(new QToken(QTokenType.LParen, "(", i)); i++; continue;
+                case ')': tokens.Add(new QToken(QTokenType.RParen, ")", i)); i++; continue;
+                case ':': tokens.Add(new QToken(QTokenType.Colon, ":", i)); i++; continue;
+                case '~': tokens.Add(new QToken(QTokenType.Tilde, "~", i)); i++; continue;
+                case '^': tokens.Add(new QToken(QTokenType.Caret, "^", i)); i++; continue;
             }
 
             if (c == '"')
             {
+                int quoteOffset = i;
                 i++; // skip opening quote
                 int start = i;
                 while (i < input.Length && input[i] != '"')
                     i++;
-                tokens.Add(new QToken(QTokenType.Phrase, input[start..i]));
-                if (i < input.Length) i++; // skip closing quote
+                if (i >= input.Length)
+                {
+                    if (lenient)
+                    {
+                        // Treat the unterminated phrase content as a plain term token.
+                        tokens.Add(new QToken(QTokenType.Term, input[start..], quoteOffset));
+                        continue;
+                    }
+                    throw new QueryParseException(
+                        "Unmatched quote in query string.", quoteOffset);
+                }
+                tokens.Add(new QToken(QTokenType.Phrase, input[start..i], quoteOffset));
+                i++; // skip closing quote
                 continue;
             }
 
@@ -265,7 +329,7 @@ public sealed class QueryParser
                 {
                     i++;
                 }
-                tokens.Add(new QToken(QTokenType.Term, input[start..i]));
+                tokens.Add(new QToken(QTokenType.Term, input[start..i], start));
             }
         }
 
@@ -274,5 +338,26 @@ public sealed class QueryParser
 
     private enum QTokenType { Term, Phrase, Plus, Minus, LParen, RParen, Colon, Tilde, Caret }
 
-    private readonly record struct QToken(QTokenType Type, string Value);
+    private readonly record struct QToken(QTokenType Type, string Value, int Offset);
+}
+
+/// <summary>Exception thrown when a query string cannot be parsed.</summary>
+public sealed class QueryParseException : FormatException
+{
+    /// <summary>Gets the zero-based character offset within the query string where the error was detected.</summary>
+    public int Offset { get; }
+
+    /// <summary>Initialises a new <see cref="QueryParseException"/> with the supplied message.</summary>
+    /// <param name="message">Description of the parse error.</param>
+    public QueryParseException(string message) : base(message)
+    {
+    }
+
+    /// <summary>Initialises a new <see cref="QueryParseException"/> with the supplied message and character offset.</summary>
+    /// <param name="message">Description of the parse error.</param>
+    /// <param name="offset">Zero-based character offset within the query string where the error was detected.</param>
+    public QueryParseException(string message, int offset) : base(message)
+    {
+        Offset = offset;
+    }
 }

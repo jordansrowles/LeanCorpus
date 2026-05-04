@@ -318,6 +318,32 @@ public sealed class ConcurrentIndexingTests : IDisposable
         Assert.Equal(41, manager.UsingSearcher(s => s.Search(new TermQuery("body", "reader"), 100).TotalHits));
     }
 
+    [Fact]
+    public void AddDocumentsDuringMerge_AllDocsPreservedAndIndexed()
+    {
+        var directory = new MMapDirectory(_dir);
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 5,
+            MergeThreshold = 4,
+        }))
+        {
+            for (int i = 0; i < 20; i++)
+                writer.AddDocument(BuildDoc(i, "merge baseline"));
+            writer.Commit();
+
+            for (int i = 0; i < 50; i++)
+                writer.AddDocument(BuildDoc(1000 + i, "merge concurrent"));
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(directory);
+        var baseline = searcher.Search(new TermQuery("body", "baseline"), 1000).TotalHits;
+        var concurrent = searcher.Search(new TermQuery("body", "concurrent"), 1000).TotalHits;
+        Assert.Equal(20, baseline);
+        Assert.Equal(50, concurrent);
+    }
+
     private static Dictionary<string, float> IndexAndScoreSingleThreaded(string path, IReadOnlyList<LeanDocument> docs)
     {
         var directory = new MMapDirectory(path);

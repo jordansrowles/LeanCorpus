@@ -153,6 +153,7 @@ public sealed partial class IndexWriter
         dwpt.NumericIndex.Clear();
         dwpt.NumericDocValues.Clear();
         dwpt.SortedDocValues.Clear();
+        dwpt.Vectors.Clear();
         dwpt.FieldNames.Clear();
         dwpt.DocTokenCounts.Clear();
         dwpt.DocCount = 0;
@@ -263,6 +264,36 @@ public sealed partial class IndexWriter
             }
             while (dstList.Count < docBase) dstList.Add(0);
             dstList.AddRange(list);
+        }
+
+        // Sorted doc values: pad to docBase, then copy each per-doc slot into the writer's column.
+        foreach (var (field, list) in dwpt.SortedDocValues)
+        {
+            if (!_sortedDocValues.TryGetValue(field, out var dstList))
+            {
+                dstList = new List<string?>();
+                _sortedDocValues[field] = dstList;
+            }
+            while (dstList.Count < docBase) dstList.Add(null);
+            for (int i = 0; i < dwpt.DocCount; i++)
+            {
+                int globalDocId = docBase + i;
+                while (dstList.Count <= globalDocId) dstList.Add(null);
+                if (i < list.Count)
+                    dstList[globalDocId] = list[i];
+            }
+        }
+
+        // Vectors: remap per-doc keys into the writer's docId space.
+        foreach (var (field, perField) in dwpt.Vectors)
+        {
+            if (!_bufferedVectors.TryGetValue(field, out var dstPerField))
+            {
+                dstPerField = new Dictionary<int, ReadOnlyMemory<float>>();
+                _bufferedVectors[field] = dstPerField;
+            }
+            foreach (var (localDocId, vec) in perField)
+                dstPerField[localDocId + docBase] = vec;
         }
 
         _bufferedDocCount += dwpt.DocCount;

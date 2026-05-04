@@ -16,6 +16,7 @@ internal sealed class DocumentsWriterPerThread
     internal readonly Dictionary<string, Dictionary<int, double>> NumericIndex = new();
     internal readonly Dictionary<string, List<double>> NumericDocValues = new(StringComparer.Ordinal);
     internal readonly Dictionary<string, List<string?>> SortedDocValues = new(StringComparer.Ordinal);
+    internal readonly Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> Vectors = new(StringComparer.Ordinal);
     internal readonly HashSet<string> FieldNames = new(StringComparer.Ordinal);
     // Per-field token counts: field → docId → count
     internal Dictionary<string, int[]> DocTokenCounts = new(StringComparer.Ordinal);
@@ -41,7 +42,6 @@ internal sealed class DocumentsWriterPerThread
     {
         int localDocId = DocCount;
         var storedDoc = new Dictionary<string, List<string>>(8);
-        long ramBefore = _estimatedRamBytes;
 
         foreach (var field in doc.Fields)
         {
@@ -51,25 +51,15 @@ internal sealed class DocumentsWriterPerThread
                     IndexTextField(tf.Name, tf.Value, localDocId);
                     if (tf.IsStored)
                     {
-                        if (!storedDoc.TryGetValue(tf.Name, out var list))
-                        {
-                            list = new List<string>();
-                            storedDoc[tf.Name] = list;
-                        }
-                        list.Add(tf.Value);
-                        _estimatedRamBytes += tf.Value.Length * 2 + 64; // string + List overhead
+                        AddStored(storedDoc, tf.Name, tf.Value);
+                        _estimatedRamBytes += tf.Value.Length * 2 + 64;
                     }
                     break;
                 case StringField sf:
                     IndexStringField(sf.Name, sf.Value, localDocId);
                     if (sf.IsStored)
                     {
-                        if (!storedDoc.TryGetValue(sf.Name, out var list))
-                        {
-                            list = new List<string>();
-                            storedDoc[sf.Name] = list;
-                        }
-                        list.Add(sf.Value);
+                        AddStored(storedDoc, sf.Name, sf.Value);
                         _estimatedRamBytes += sf.Value.Length * 2 + 64;
                     }
                     break;
@@ -77,23 +67,25 @@ internal sealed class DocumentsWriterPerThread
                     IndexNumericField(nf.Name, nf.Value, localDocId);
                     if (nf.IsStored)
                     {
-                        if (!storedDoc.TryGetValue(nf.Name, out var list))
-                        {
-                            list = new List<string>();
-                            storedDoc[nf.Name] = list;
-                        }
-                        list.Add(nf.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                        AddStored(storedDoc, nf.Name, nf.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
                         _estimatedRamBytes += 48;
                     }
                     break;
                 case StoredField sf:
-                    if (!storedDoc.TryGetValue(sf.Name, out var storedList))
-                    {
-                        storedList = new List<string>();
-                        storedDoc[sf.Name] = storedList;
-                    }
-                    storedList.Add(sf.Value);
+                    AddStored(storedDoc, sf.Name, sf.Value);
                     _estimatedRamBytes += sf.Value.Length * 2 + 64;
+                    break;
+                case VectorField vf:
+                    IndexVectorField(vf.Name, vf.Value, localDocId);
+                    break;
+                case GeoPointField gf:
+                    IndexNumericField(gf.LatFieldName, gf.Latitude, localDocId);
+                    IndexNumericField(gf.LonFieldName, gf.Longitude, localDocId);
+                    if (gf.IsStored)
+                    {
+                        AddStored(storedDoc, gf.Name, gf.Value);
+                        _estimatedRamBytes += gf.Value.Length * 2 + 64;
+                    }
                     break;
             }
         }
@@ -101,6 +93,16 @@ internal sealed class DocumentsWriterPerThread
         StoredFields.Add(storedDoc);
         DocCount++;
         _estimatedRamBytes += 128; // Dictionary + List overhead per doc
+    }
+
+    private static void AddStored(Dictionary<string, List<string>> storedDoc, string name, string value)
+    {
+        if (!storedDoc.TryGetValue(name, out var list))
+        {
+            list = new List<string>();
+            storedDoc[name] = list;
+        }
+        list.Add(value);
     }
 
     private void IndexTextField(string fieldName, string value, int docId)
@@ -149,10 +151,21 @@ internal sealed class DocumentsWriterPerThread
             Postings[qualifiedTerm] = acc;
         }
         acc.AddDocOnly(docId);
+
+        // Populate sorted DV column so collapse/facet behave the same as on the main writer.
+        if (!SortedDocValues.TryGetValue(fieldName, out var dvList))
+        {
+            dvList = new List<string?>();
+            SortedDocValues[fieldName] = dvList;
+        }
+        while (dvList.Count <= docId) dvList.Add(null);
+        dvList[docId] = value;
+        _estimatedRamBytes += value.Length * 2 + 16;
     }
 
     private void IndexNumericField(string fieldName, double value, int docId)
     {
+        FieldNames.Add(fieldName);
         if (!NumericIndex.TryGetValue(fieldName, out var fieldMap))
         {
             fieldMap = new Dictionary<int, double>();
@@ -167,6 +180,19 @@ internal sealed class DocumentsWriterPerThread
         }
         while (dvList.Count < docId) dvList.Add(0);
         dvList.Add(value);
+        _estimatedRamBytes += 24;
+    }
+
+    private void IndexVectorField(string fieldName, ReadOnlyMemory<float> value, int docId)
+    {
+        FieldNames.Add(fieldName);
+        if (!Vectors.TryGetValue(fieldName, out var perField))
+        {
+            perField = new Dictionary<int, ReadOnlyMemory<float>>();
+            Vectors[fieldName] = perField;
+        }
+        perField[docId] = value;
+        _estimatedRamBytes += value.Length * sizeof(float) + 32;
     }
 
     private string CanonicaliseTerm(string term)

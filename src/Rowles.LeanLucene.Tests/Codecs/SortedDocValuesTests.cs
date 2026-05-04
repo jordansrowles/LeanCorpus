@@ -28,8 +28,8 @@ public sealed class SortedDocValuesTests : IDisposable
         SortedDocValuesWriter.Write(path, fields, 5);
         var result = SortedDocValuesReader.Read(path);
 
-        Assert.Single(result);
-        Assert.Equal(fields["category"], result["category"]);
+        Assert.Single(result.Values);
+        Assert.Equal(fields["category"], result.Values["category"]);
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public sealed class SortedDocValuesTests : IDisposable
         SortedDocValuesWriter.Write(path, fields, 3);
         var result = SortedDocValuesReader.Read(path);
 
-        Assert.Equal(fields["status"], result["status"]);
+        Assert.Equal(fields["status"], result.Values["status"]);
     }
 
     [Fact]
@@ -59,13 +59,13 @@ public sealed class SortedDocValuesTests : IDisposable
         SortedDocValuesWriter.Write(path, fields, 4);
         var result = SortedDocValuesReader.Read(path);
 
-        Assert.Equal(["a", "", "b", ""], result["tag"]);
+        Assert.Equal(["a", "", "b", ""], result.Values["tag"]);
     }
 
     [Fact]
     public void Read_MissingFile_ReturnsEmpty()
     {
         var result = SortedDocValuesReader.Read(Path.Combine(_dir, "nonexistent.dvs"));
-        Assert.Empty(result);
+        Assert.Empty(result.Values);
     }
 }

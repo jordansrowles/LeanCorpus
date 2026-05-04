@@ -6,7 +6,7 @@ public sealed class NumericField : IField
     /// <summary>
     /// Initialises a new <see cref="NumericField"/> with the specified name and numeric value.
     /// </summary>
-    /// <param name="name">The field name. Must not be null.</param>
+    /// <param name="name">The field name. Must be a valid LeanLucene field name.</param>
     /// <param name="value">The numeric value to index and store.</param>
     public NumericField(string name, double value)
         : this(name, value, stored: true)
@@ -21,7 +21,7 @@ public sealed class NumericField : IField
     /// <param name="stored">Whether the numeric value should be persisted in stored fields.</param>
     public NumericField(string name, double value, bool stored)
     {
-        Name = name ?? throw new ArgumentNullException(nameof(name));
+        Name = FieldNameValidator.Validate(name, nameof(name));
         Value = value;
         IsStored = stored;
     }

@@ -9,11 +9,6 @@ namespace Rowles.LeanLucene.Index;
 /// </summary>
 public static class IndexRecovery
 {
-    /// <summary>Known segment file extensions that should be cleaned up when orphaned.</summary>
-    private static readonly string[] SegmentExtensions =
-        [".seg", ".dic", ".pos", ".nrm", ".fdt", ".fdx", ".del",
-         ".dvn", ".dvs", ".bkd", ".vec", ".tvd", ".tvx", ".num"];
-
     /// <summary>
     /// Attempts to load the latest valid commit from the index directory.
     /// Tries generations from highest to lowest. Returns null if no valid commit exists.
@@ -46,7 +41,10 @@ public static class IndexRecovery
             }
         }
 
-        return null;
+        // Commit files exist but none validated. The index is corrupt: refuse to open
+        // silently as an empty index, which would mask data loss.
+        throw new InvalidDataException(
+            $"Index at '{directoryPath}' is corrupt: {commitFiles.Count} commit file(s) found but none reference a valid set of segment files.");
     }
 
     /// <summary>
@@ -75,8 +73,27 @@ public static class IndexRecovery
     }
 
     /// <summary>
+    /// Required per-segment file extensions checked during recovery. A commit referencing a
+    /// segment whose required files are missing or empty falls back to the prior generation.
+    /// </summary>
+    private static readonly string[] RequiredSegmentExtensions = [".seg", ".dic", ".pos", ".nrm", ".fdt", ".fdx"];
+
+    /// <summary>
+    /// Per-extension expected codec magic header version. Files that exist but fail header
+    /// validation cause the commit to be rejected and recovery to fall back.
+    /// </summary>
+    private static readonly (string Ext, byte Version, string FileType)[] HeaderChecks =
+    [
+        (".dic", Codecs.CodecConstants.TermDictionaryVersion, "term dictionary"),
+        (".pos", Codecs.CodecConstants.PostingsVersion, "postings"),
+        (".nrm", Codecs.CodecConstants.NormsVersion, "norms"),
+    ];
+
+    /// <summary>
     /// Tries to load and validate a specific commit file.
-    /// Returns null if the file is corrupt or references missing segments.
+    /// Returns null if the file is corrupt or references missing or unreadable segments.
+    /// Validates the required per-segment files (.seg, .dic, .pos, .nrm) as well as any
+    /// vector and HNSW files declared in the segment metadata.
     /// </summary>
     private static RecoveryResult? TryLoadCommit(string directoryPath, string commitFilePath, int generation)
     {
@@ -93,21 +110,13 @@ public static class IndexRecovery
             if (commitData.Generation != generation)
                 return null;
 
-            // Validate all referenced segments exist
             var validSegments = new List<string>();
-            var missingSegments = new List<string>();
             foreach (var segId in commitData.Segments)
             {
-                var segPath = Path.Combine(directoryPath, segId + ".seg");
-                if (File.Exists(segPath))
-                    validSegments.Add(segId);
-                else
-                    missingSegments.Add(segId);
+                if (!ValidateSegment(directoryPath, segId))
+                    return null;
+                validSegments.Add(segId);
             }
-
-            // If any segments are missing, this commit is invalid
-            if (missingSegments.Count > 0)
-                return null;
 
             return new RecoveryResult
             {
@@ -129,6 +138,66 @@ public static class IndexRecovery
     }
 
     /// <summary>
+    /// Returns true if every required file for the given segment exists, is non-empty,
+    /// and the optional vector and HNSW files declared in the segment metadata are present.
+    /// </summary>
+    private static bool ValidateSegment(string directoryPath, string segId)
+    {
+        var basePath = Path.Combine(directoryPath, segId);
+        foreach (var ext in RequiredSegmentExtensions)
+        {
+            var path = basePath + ext;
+            var info = new FileInfo(path);
+            if (!info.Exists || info.Length == 0)
+                return false;
+        }
+
+        Segment.SegmentInfo segInfo;
+        try
+        {
+            segInfo = Segment.SegmentInfo.ReadFrom(basePath + ".seg");
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+
+        // Validate codec headers on the per-segment files that carry them.
+        foreach (var (ext, version, fileType) in HeaderChecks)
+        {
+            var path = basePath + ext;
+            if (!File.Exists(path)) return false;
+            try
+            {
+                using var fs = File.OpenRead(path);
+                using var reader = new BinaryReader(fs);
+                Codecs.CodecConstants.ValidateHeader(reader, version, fileType);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        // .del file presence is intentionally NOT validated here. A missing .del
+        // is treated as a fully-live segment by the reader, which is the documented
+        // graceful-degradation behaviour for fault-injection scenarios.
+
+        foreach (var vf in segInfo.VectorFields)
+        {
+            var vecPath = Codecs.Vectors.VectorFilePaths.VectorFile(basePath, vf.FieldName);
+            if (!File.Exists(vecPath)) return false;
+            if (vf.HasHnsw)
+            {
+                var hnswPath = Codecs.Vectors.VectorFilePaths.HnswFile(basePath, vf.FieldName);
+                if (!File.Exists(hnswPath)) return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Removes temp files left by interrupted write-then-rename commits.
     /// </summary>
     private static void CleanupTempFiles(string directoryPath)
@@ -143,7 +212,9 @@ public static class IndexRecovery
     }
 
     /// <summary>
-    /// Removes segment files that are not referenced by the active commit.
+    /// Removes segment files that are not referenced by the active commit. Uses a
+    /// pattern-based match so all sidecar files for the orphaned segment are cleaned,
+    /// including stats, vector, and HNSW files that may have been added by later codecs.
     /// </summary>
     private static void CleanupOrphanedSegments(string directoryPath, List<string> activeSegmentIds)
     {
@@ -156,12 +227,17 @@ public static class IndexRecovery
             if (activeSet.Contains(segId))
                 continue;
 
-            // This segment is orphaned — remove all its files
-            foreach (var ext in SegmentExtensions)
-            {
-                var orphanedFile = Path.Combine(directoryPath, segId + ext);
-                try { if (File.Exists(orphanedFile)) File.Delete(orphanedFile); } catch { /* best-effort */ }
-            }
+            // Pattern: segId.* and segId_v_*.* (per-field vector and HNSW files).
+            DeleteByPattern(directoryPath, segId + ".*");
+            DeleteByPattern(directoryPath, segId + "_v_*.*");
+        }
+    }
+
+    private static void DeleteByPattern(string directoryPath, string pattern)
+    {
+        foreach (var path in Directory.GetFiles(directoryPath, pattern))
+        {
+            try { File.Delete(path); } catch { /* best-effort */ }
         }
     }
 

@@ -28,9 +28,9 @@ public sealed class NumericDocValuesTests : IDisposable
         NumericDocValuesWriter.Write(path, fields, 5);
         var result = NumericDocValuesReader.Read(path);
 
-        Assert.Single(result);
-        Assert.True(result.ContainsKey("price"));
-        Assert.Equal(fields["price"], result["price"]);
+        Assert.Single(result.Values);
+        Assert.True(result.Values.ContainsKey("price"));
+        Assert.Equal(fields["price"], result.Values["price"]);
     }
 
     [Fact]
@@ -46,9 +46,9 @@ public sealed class NumericDocValuesTests : IDisposable
         NumericDocValuesWriter.Write(path, fields, 3);
         var result = NumericDocValuesReader.Read(path);
 
-        Assert.Equal(2, result.Count);
-        Assert.Equal(fields["price"], result["price"]);
-        Assert.Equal(fields["rating"], result["rating"]);
+        Assert.Equal(2, result.Values.Count);
+        Assert.Equal(fields["price"], result.Values["price"]);
+        Assert.Equal(fields["rating"], result.Values["rating"]);
     }
 
     [Fact]
@@ -63,13 +63,41 @@ public sealed class NumericDocValuesTests : IDisposable
         NumericDocValuesWriter.Write(path, fields, 4);
         var result = NumericDocValuesReader.Read(path);
 
-        Assert.Equal(fields["score"], result["score"]);
+        Assert.Equal(fields["score"], result.Values["score"]);
     }
 
     [Fact]
     public void Read_MissingFile_ReturnsEmpty()
     {
         var result = NumericDocValuesReader.Read(Path.Combine(_dir, "nonexistent.dvn"));
-        Assert.Empty(result);
+        Assert.Empty(result.Values);
+    }
+
+    [Fact]
+    public void Roundtrip_MixedSignBitPatterns_PreservesValues()
+    {
+        // Negative and positive doubles produce bit patterns whose long subtraction
+        // overflows. The writer must subtract in ulong space.
+        var path = Path.Combine(_dir, "mixed-sign.dvn");
+        var values = new[] { -1.0, 1.0, -0.5, 0.5, double.MinValue, double.MaxValue, 0.0 };
+        var fields = new Dictionary<string, double[]> { ["v"] = values };
+
+        NumericDocValuesWriter.Write(path, fields, values.Length);
+        var result = NumericDocValuesReader.Read(path);
+
+        Assert.Equal(values, result.Values["v"]);
+    }
+
+    [Fact]
+    public void Roundtrip_NegativeOnly_PreservesValues()
+    {
+        var path = Path.Combine(_dir, "neg.dvn");
+        var values = new[] { -100.0, -50.5, -1e9, -1e-9 };
+        var fields = new Dictionary<string, double[]> { ["v"] = values };
+
+        NumericDocValuesWriter.Write(path, fields, values.Length);
+        var result = NumericDocValuesReader.Read(path);
+
+        Assert.Equal(values, result.Values["v"]);
     }
 }

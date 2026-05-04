@@ -14,28 +14,13 @@ public static class QueryExtensions
 
     /// <summary>Combines two queries with a MUST boolean clause.</summary>
     public static BooleanQuery And(this Query left, Query right)
-    {
-        var bq = new BooleanQuery();
-        bq.Add(left, Occur.Must);
-        bq.Add(right, Occur.Must);
-        return bq;
-    }
+        => new BooleanQuery.Builder().Add(left, Occur.Must).Add(right, Occur.Must).Build();
 
     /// <summary>Combines two queries with a SHOULD boolean clause.</summary>
     public static BooleanQuery Or(this Query left, Query right)
-    {
-        var bq = new BooleanQuery();
-        bq.Add(left, Occur.Should);
-        bq.Add(right, Occur.Should);
-        return bq;
-    }
+        => new BooleanQuery.Builder().Add(left, Occur.Should).Add(right, Occur.Should).Build();
 
     /// <summary>Excludes results matching the given query.</summary>
     public static BooleanQuery Not(this Query left, Query excluded)
-    {
-        var bq = new BooleanQuery();
-        bq.Add(left, Occur.Must);
-        bq.Add(excluded, Occur.MustNot);
-        return bq;
-    }
+        => new BooleanQuery.Builder().Add(left, Occur.Must).Add(excluded, Occur.MustNot).Build();
 }

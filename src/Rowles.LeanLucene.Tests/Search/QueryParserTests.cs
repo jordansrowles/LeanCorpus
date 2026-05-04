@@ -146,4 +146,15 @@ public sealed class QueryParserTests
         Assert.Equal(Occur.Should, bq.Clauses[1].Occur);
         Assert.Equal(Occur.MustNot, bq.Clauses[2].Occur);
     }
+
+    [Theory]
+    [InlineData("\"unterminated")]
+    [InlineData("(quick brown")]
+    [InlineData("title:")]
+    [InlineData("+")]
+    [InlineData("quick)")]
+    public void Parse_InvalidSyntax_ThrowsQueryParseException(string query)
+    {
+        Assert.Throws<QueryParseException>(() => _parser.Parse(query));
+    }
 }

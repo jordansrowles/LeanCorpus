@@ -92,6 +92,15 @@ public sealed class IndexStats
         {
             File.Move(tmp, path, overwrite: true);
         }
+        catch (UnauthorizedAccessException) when (File.Exists(path))
+        {
+            // Stats are an optimisation sidecar. If a Windows reader has the old file
+            // open, keep the previous stats rather than failing an otherwise durable commit.
+        }
+        catch (IOException) when (File.Exists(path))
+        {
+            // Same sidecar rule as above: the next commit will publish fresh stats.
+        }
         catch (FileNotFoundException) when (File.Exists(path))
         {
             // The tmp was consumed by a concurrent move (shouldn't happen with

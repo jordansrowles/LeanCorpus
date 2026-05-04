@@ -1,20 +1,25 @@
 ﻿using Rowles.LeanLucene.Store;
+using Rowles.LeanLucene.Util;
 
 namespace Rowles.LeanLucene.Codecs.DocValues;
 
 /// <summary>
 /// Reads per-document numeric values from a column-stride .dvn file.
+/// Returns the dense value arrays alongside per-field presence bitmaps (v2 files only).
+/// A null presence entry means all documents carry a value for that field.
 /// </summary>
 internal static class NumericDocValuesReader
 {
-    public static Dictionary<string, double[]> Read(string filePath)
+    public static (Dictionary<string, double[]> Values, Dictionary<string, RoaringBitmap?> Presence) Read(string filePath)
     {
-        var result = new Dictionary<string, double[]>(StringComparer.Ordinal);
-        if (!File.Exists(filePath)) return result;
+        var values = new Dictionary<string, double[]>(StringComparer.Ordinal);
+        var presence = new Dictionary<string, RoaringBitmap?>(StringComparer.Ordinal);
+
+        if (!File.Exists(filePath)) return (values, presence);
 
         using var input = new IndexInput(filePath);
 
-        CodecConstants.ValidateHeader(input, CodecConstants.NumericDocValuesVersion, "numeric doc values (.dvn)");
+        byte version = CodecConstants.ReadHeaderVersion(input, CodecConstants.NumericDocValuesVersion, "numeric doc values (.dvn)");
 
         int fieldCount = input.ReadInt32();
 
@@ -26,19 +31,34 @@ internal static class NumericDocValuesReader
                 nameBytes[b] = input.ReadByte();
             string fieldName = System.Text.Encoding.UTF8.GetString(nameBytes);
 
+            // Presence block is only present in v2+ files.
+            RoaringBitmap? fieldPresence = null;
+            if (version >= 2)
+            {
+                int presenceByteCount = input.ReadInt32();
+                if (presenceByteCount > 0)
+                {
+                    var bitmapBytes = input.ReadBytes(presenceByteCount);
+                    using var ms = new System.IO.MemoryStream(bitmapBytes);
+                    using var br = new System.IO.BinaryReader(ms);
+                    fieldPresence = RoaringBitmap.Deserialise(br);
+                }
+                // presenceByteCount == 0 means all docs present; fieldPresence stays null.
+            }
+            presence[fieldName] = fieldPresence;
+
             int docCount = input.ReadInt32();
             long min = input.ReadInt64();
             int bitsPerValue = input.ReadByte();
 
-            var values = new double[docCount];
+            var fieldValues = new double[docCount];
             if (bitsPerValue == 0)
             {
                 double constVal = BitConverter.Int64BitsToDouble(min);
-                Array.Fill(values, constVal);
+                Array.Fill(fieldValues, constVal);
             }
             else
             {
-                // Byte-level bitpacking reader (safe for any bitsPerValue 1-64)
                 byte accum = 0;
                 int accBits = 0;
                 for (int i = 0; i < docCount; i++)
@@ -58,13 +78,13 @@ internal static class NumericDocValuesReader
                         accBits -= take;
                         collected += take;
                     }
-                    values[i] = BitConverter.Int64BitsToDouble(min + (long)val);
+                    fieldValues[i] = BitConverter.Int64BitsToDouble((long)((ulong)min + val));
                 }
             }
 
-            result[fieldName] = values;
+            values[fieldName] = fieldValues;
         }
 
-        return result;
+        return (values, presence);
     }
 }

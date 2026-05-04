@@ -41,11 +41,26 @@ internal sealed class ParentBitSet
     /// </summary>
     public int NextParent(int docId)
     {
-        for (int i = docId; i < _length; i++)
+        if (docId < 0) docId = 0;
+        if (docId >= _length) return -1;
+
+        int wordIndex = docId >> 6;
+        int bitOffset = docId & 63;
+        ulong word = (ulong)_bits[wordIndex] & (ulong.MaxValue << bitOffset);
+
+        while (true)
         {
-            if (IsParent(i)) return i;
+            if (word != 0)
+            {
+                int bit = System.Numerics.BitOperations.TrailingZeroCount(word);
+                int parent = (wordIndex << 6) + bit;
+                return parent < _length ? parent : -1;
+            }
+
+            wordIndex++;
+            if (wordIndex >= _bits.Length) return -1;
+            word = (ulong)_bits[wordIndex];
         }
-        return -1;
     }
 
     /// <summary>
@@ -54,11 +69,26 @@ internal sealed class ParentBitSet
     /// </summary>
     public int PrevParent(int docId)
     {
-        for (int i = docId - 1; i >= 0; i--)
+        if (docId <= 0) return -1;
+        if (docId > _length) docId = _length;
+
+        int candidate = docId - 1;
+        int wordIndex = candidate >> 6;
+        int bitOffset = candidate & 63;
+        ulong word = (ulong)_bits[wordIndex] & (ulong.MaxValue >> (63 - bitOffset));
+
+        while (true)
         {
-            if (IsParent(i)) return i;
+            if (word != 0)
+            {
+                int bit = 63 - System.Numerics.BitOperations.LeadingZeroCount(word);
+                return (wordIndex << 6) + bit;
+            }
+
+            wordIndex--;
+            if (wordIndex < 0) return -1;
+            word = (ulong)_bits[wordIndex];
         }
-        return -1;
     }
 
     public int Length => _length;
