@@ -8,6 +8,7 @@
         }
       ],
       "dest": "api",
+      "filter": "filterConfig.yml",
       "namespaceLayout": "nested",
       "memberLayout": "separatePages",
       "allowCompilationErrors": false,

@@ -78,7 +78,7 @@ function ConvertTo-HtmlEncoded([string]$text) {
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-$machines = Get-ChildItem $BenchDir -Directory | Sort-Object Name
+$machines = @(Get-ChildItem $BenchDir -Directory | Sort-Object Name)
 
 if ($machines.Count -eq 0) {
     Write-Warning "No machine directories found in $BenchDir"

@@ -1,7 +1,7 @@
 # Tutorials
 
 Short, focused walkthroughs of the LeanLucene API. Each page is high-level and links into
-the [API reference](../api/index.html) for full signatures.
+the [API reference](~/api/index.md) for full signatures.
 
 ## Getting Started
 

@@ -11,7 +11,7 @@ JVM, no Lucene. Write an index, run a query, ship your app.
 dotnet add package LeanLucene
 ```
 
-[Get started](tutorials/getting-started/01-installation.md) &nbsp;|&nbsp; [API reference](api/index.html)
+[Get started](tutorials/getting-started/01-installation.md) &nbsp;|&nbsp; [API reference](~/api/index.md)
 
 ---
 
@@ -75,4 +75,4 @@ engine uses SIMD posting intersection and BlockMax WAND for early termination on
 
 - [Tutorials](tutorials/index.md) - step-by-step guides for common tasks
 - [Articles](articles/index.md) - short notes on recent features
-- [API reference](api/index.html) - full type and member documentation
+- [API reference](~/api/index.md) - full type and member documentation

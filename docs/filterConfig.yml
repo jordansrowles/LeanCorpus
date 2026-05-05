@@ -1,0 +1,3 @@
+apiRules:
+  - exclude:
+      uidRegex: ^System\.Text\.RegularExpressions\.Generated
