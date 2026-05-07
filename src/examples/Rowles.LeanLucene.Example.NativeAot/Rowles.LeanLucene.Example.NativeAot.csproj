@@ -11,7 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Rowles.LeanLucene\Rowles.LeanLucene.csproj" />
+    <ProjectReference Include="..\..\core\Rowles.LeanLucene\Rowles.LeanLucene.csproj" />
   </ItemGroup>
 
 </Project>

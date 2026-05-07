@@ -50,7 +50,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repoRoot    = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$testProject = Join-Path $repoRoot "src\Rowles.LeanLucene.Tests\Rowles.LeanLucene.Tests.csproj"
+$testProject = Join-Path $repoRoot "src\devops\Rowles.LeanLucene.Tests\Rowles.LeanLucene.Tests.csproj"
 $resultsDir  = Join-Path $repoRoot "coverage-results"
 
 if (-not (Test-Path $testProject)) {
