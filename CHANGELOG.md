@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-05-07
+
+### Added
+
+- Pluggable stored-field compression via the `IFieldCompressionCodec` interface and `CompressionCodecRegistry`; any codec can be registered at startup without modifying core library code.
+- BCL codecs for `None`, `Deflate`, and `Brotli` policies using `System.IO.Compression`; available in the core package with no additional dependencies.
+- `Rowles.LeanLucene.Compression.LZ4` — optional extension package providing LZ4 fast compression via `K4os.Compression.LZ4`.
+- `Rowles.LeanLucene.Compression.Snappy` — optional extension package providing Snappy compression via `Snappier`.
+- `Rowles.LeanLucene.Compression.Zstandard` — optional extension package providing Zstandard compression via `ZstdSharp`.
+- `Rowles.LeanLucene.Benchmarks.Compression` project benchmarking compress and decompress throughput across all six policies at three payload sizes (128 B, 4 KB, 64 KB).
+
+### Changed
+
+- Default stored-field compression policy changed from Brotli (via `NativeCompressions`) to `FieldCompressionPolicy.Deflate` using BCL `DeflateStream`.
+- Extension package assemblies auto-register their codec via `[ModuleInitializer]` in standard .NET hosts; Native AOT consumers must call `Register()` explicitly at startup.
+- `src/` reorganised into `src/core/` (main library and compression packages) and `src/devops/` (benchmarks and tests).
+
+### Removed
+
+- Dependency on `NativeCompressions` (preview package) removed from the core library.
+
 ## [1.2.1] - 2026-05-05
 
 ### Added
