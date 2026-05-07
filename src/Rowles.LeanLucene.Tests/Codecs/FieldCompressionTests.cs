@@ -1,4 +1,6 @@
 using Rowles.LeanLucene.Codecs.StoredFields;
+using Rowles.LeanLucene.Compression.LZ4;
+using Rowles.LeanLucene.Compression.Zstandard;
 using Rowles.LeanLucene.Document;
 using Rowles.LeanLucene.Document.Fields;
 using Rowles.LeanLucene.Store;
@@ -10,6 +12,11 @@ namespace Rowles.LeanLucene.Tests.Codecs;
 /// </summary>
 public class FieldCompressionTests : IDisposable
 {
+    static FieldCompressionTests()
+    {
+        Lz4Compression.Register();
+        ZstandardCompression.Register();
+    }
     private readonly string _baseDir;
 
     public FieldCompressionTests()
@@ -89,7 +96,7 @@ public class FieldCompressionTests : IDisposable
     [Fact(DisplayName = "All Policies: Round-trip Correctly")]
     public void AllPolicies_RoundTrip_Correctly()
     {
-        foreach (var policy in new[] { FieldCompressionPolicy.None, FieldCompressionPolicy.Lz4, FieldCompressionPolicy.Zstandard })
+        foreach (var policy in new[] { FieldCompressionPolicy.None, FieldCompressionPolicy.Deflate, FieldCompressionPolicy.Brotli, FieldCompressionPolicy.Lz4, FieldCompressionPolicy.Zstandard })
         {
             var dir = SubDir($"roundtrip_{policy}");
             IndexDocs(dir, new IndexWriterConfig { CompressionPolicy = policy }, count: 10);
@@ -104,13 +111,13 @@ public class FieldCompressionTests : IDisposable
     }
 
     /// <summary>
-    /// Verifies the Compression Policy: Default Is Lz 4 scenario.
+    /// Verifies the Compression Policy: Default Is Deflate scenario.
     /// </summary>
-    [Fact(DisplayName = "Compression Policy: Default Is Lz 4")]
-    public void CompressionPolicy_DefaultIsLz4()
+    [Fact(DisplayName = "Compression Policy: Default Is Deflate")]
+    public void CompressionPolicy_DefaultIsDeflate()
     {
         var config = new IndexWriterConfig();
-        Assert.Equal(FieldCompressionPolicy.Lz4, config.CompressionPolicy);
+        Assert.Equal(FieldCompressionPolicy.Deflate, config.CompressionPolicy);
     }
 
     /// <summary>

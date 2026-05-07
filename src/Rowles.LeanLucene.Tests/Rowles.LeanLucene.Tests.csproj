@@ -16,6 +16,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Rowles.LeanLucene\Rowles.LeanLucene.csproj" />
+    <ProjectReference Include="..\Rowles.LeanLucene.Compression.LZ4\Rowles.LeanLucene.Compression.LZ4.csproj" />
+    <ProjectReference Include="..\Rowles.LeanLucene.Compression.Snappy\Rowles.LeanLucene.Compression.Snappy.csproj" />
+    <ProjectReference Include="..\Rowles.LeanLucene.Compression.Zstandard\Rowles.LeanLucene.Compression.Zstandard.csproj" />
   </ItemGroup>
 
   <ItemGroup>
