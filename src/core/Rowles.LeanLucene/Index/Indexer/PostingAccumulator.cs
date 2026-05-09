@@ -23,6 +23,8 @@ internal sealed class PostingAccumulator
     private int _docIdsLen; // logical length (may be < rented array length)
     private int _posBufLen;
     private long _cachedEstimatedBytes;
+    private bool _hasFreqs;
+    private bool _hasPositions;
 
     private const int NoPositionSentinel = -1;
 
@@ -58,6 +60,9 @@ internal sealed class PostingAccumulator
 
     public void Add(int docId, int position)
     {
+        _hasFreqs = true;
+        _hasPositions = true;
+
         if (_count > 0 && _docIds[_count - 1] == docId)
         {
             _freqs[_count - 1]++;
@@ -95,8 +100,62 @@ internal sealed class PostingAccumulator
         _count++;
     }
 
+    /// <summary>
+    /// Bulk-appends a contiguous run of positions for a single doc. Equivalent to
+    /// calling <see cref="Add(int, int)"/> once per position, but with a single
+    /// capacity check and copy. Used by the concurrent merge path.
+    /// </summary>
+    public void AddPositions(int docId, ReadOnlySpan<int> positions)
+    {
+        if (positions.IsEmpty) return;
+        _hasFreqs = true;
+        _hasPositions = true;
+
+        if (_count > 0 && _docIds[_count - 1] == docId)
+        {
+            int prevFreq = _freqs[_count - 1];
+            int newFreq = prevFreq + positions.Length;
+            int start = _posStarts[_count - 1];
+            int allocated = _posLengths[_count - 1];
+            if (newFreq > allocated)
+            {
+                int newAllocated = allocated;
+                while (newAllocated < newFreq) newAllocated *= 2;
+                EnsurePosBufCapacity(_posBufUsed + newAllocated);
+                int newStart = _posBufUsed;
+                Array.Copy(_posBuf, start, _posBuf, newStart, prevFreq);
+                _posStarts[_count - 1] = newStart;
+                _posLengths[_count - 1] = newAllocated;
+                positions.CopyTo(_posBuf.AsSpan(newStart + prevFreq));
+                _posBufUsed += newAllocated;
+            }
+            else
+            {
+                positions.CopyTo(_posBuf.AsSpan(start + prevFreq));
+            }
+            _freqs[_count - 1] = newFreq;
+            return;
+        }
+
+        if (_count == _docIdsLen)
+            Grow();
+
+        int reserve = positions.Length;
+        EnsurePosBufCapacity(_posBufUsed + reserve);
+        _docIds[_count] = docId;
+        _freqs[_count] = positions.Length;
+        _posStarts[_count] = _posBufUsed;
+        _posLengths[_count] = reserve;
+        positions.CopyTo(_posBuf.AsSpan(_posBufUsed));
+        _posBufUsed += reserve;
+        _count++;
+    }
+
     public void AddWithPayload(int docId, int position, byte[]? payload)
     {
+        _hasFreqs = true;
+        _hasPositions = true;
+
         if (_payloads == null)
         {
             _payloads = new byte[]?[_docIdsLen][];
@@ -187,25 +246,9 @@ internal sealed class PostingAccumulator
 
     public bool HasPayloads => _payloads != null;
 
-    public bool HasFreqs
-    {
-        get
-        {
-            for (int i = 0; i < _count; i++)
-                if (_freqs[i] > 0) return true;
-            return false;
-        }
-    }
+    public bool HasFreqs => _hasFreqs;
 
-    public bool HasPositions
-    {
-        get
-        {
-            for (int i = 0; i < _count; i++)
-                if (_posStarts[i] != NoPositionSentinel && _freqs[i] > 0) return true;
-            return false;
-        }
-    }
+    public bool HasPositions => _hasPositions;
 
     /// <summary>
     /// Translates doc IDs using the inverse permutation and re-sorts entries so
@@ -293,6 +336,8 @@ internal sealed class PostingAccumulator
         _docIdsLen = 0;
         _posBufLen = 0;
         _posBufUsed = 0;
+        _hasFreqs = false;
+        _hasPositions = false;
         _cachedEstimatedBytes = 64; // object overhead only
     }
 
