@@ -20,15 +20,20 @@ public sealed partial class IndexWriter
         }
     }
 
+    private readonly List<string> _deleteQualifiedTermsBuffer = new(64);
+
     private void ApplyPendingDeletions(List<SegmentInfo> segments)
     {
         if (_pendingDeletes.Count == 0) return;
 
-        var qualifiedTerms = new List<string>(_pendingDeletes.Count);
+        _deleteQualifiedTermsBuffer.Clear();
+        if (_deleteQualifiedTermsBuffer.Capacity < _pendingDeletes.Count)
+            _deleteQualifiedTermsBuffer.Capacity = _pendingDeletes.Count;
         foreach (var (field, term) in _pendingDeletes)
         {
-            qualifiedTerms.Add(string.Concat(field, "\x00", term));
+            _deleteQualifiedTermsBuffer.Add(string.Concat(field, "\x00", term));
         }
+        var qualifiedTerms = _deleteQualifiedTermsBuffer;
 
         // The pending commit will be at _commitGeneration + 1; generation-versioned del files
         // are named for the generation they become durable in, so they never overwrite files
