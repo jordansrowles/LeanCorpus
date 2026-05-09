@@ -8,5 +8,6 @@
   <Project Path="src/devops/Rowles.LeanLucene.Cli/Rowles.LeanLucene.Cli.csproj" />
   <Project Path="src/devops/Rowles.LeanLucene.Tests/Rowles.LeanLucene.Tests.csproj" />
   <Project Path="src/examples/Rowles.LeanLucene.Example.JsonApi/Rowles.LeanLucene.Example.JsonApi.csproj" />
+  <Project Path="src/examples/Rowles.LeanLucene.Example.NewsgroupsIndexer/Rowles.LeanLucene.Example.NewsgroupsIndexer.csproj" />
   <Project Path="src/examples/Rowles.LeanLucene.Example.Telemetry/Rowles.LeanLucene.Example.Telemetry.csproj" />
 </Solution>
