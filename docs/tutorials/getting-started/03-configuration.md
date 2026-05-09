@@ -14,7 +14,7 @@ var config = new IndexWriterConfig
     MaxQueuedDocs   = 20_000,
     MergeThreshold  = 10,
     DurableCommits  = true,
-    CompressionPolicy = FieldCompressionPolicy.Lz4,
+    CompressionPolicy = FieldCompressionPolicy.Deflate,
     StoredFieldBlockSize = 16,
 };
 ```
@@ -30,7 +30,7 @@ var config = new IndexWriterConfig
 | `Similarity` | `Bm25Similarity.Instance` |
 | `DeletionPolicy` | `KeepLatestCommitPolicy` |
 | `DurableCommits` | `true` |
-| `CompressionPolicy` | `Lz4` |
+| `CompressionPolicy` | `Deflate` |
 | `StoredFieldBlockSize` | `16` |
 | `PostingsSkipInterval` | `128` |
 | `MergeThreshold` | `10` |

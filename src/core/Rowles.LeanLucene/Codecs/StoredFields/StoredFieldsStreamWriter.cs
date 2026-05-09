@@ -24,7 +24,7 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
     private bool _disposed;
 
     internal StoredFieldsStreamWriter(string fdtPath, string fdxPath,
-        int blockSize = DefaultBlockSize, FieldCompressionPolicy compression = FieldCompressionPolicy.Lz4)
+        int blockSize = DefaultBlockSize, FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate)
     {
         _fdxPath = fdxPath;
         _blockSize = blockSize;

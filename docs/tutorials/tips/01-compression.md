@@ -8,18 +8,33 @@ Stored fields are written in blocks under the
 ```csharp
 var config = new IndexWriterConfig
 {
-    CompressionPolicy = FieldCompressionPolicy.Lz4, // default
-    StoredFieldBlockSize = 16,                       // docs per block
+    CompressionPolicy = FieldCompressionPolicy.Deflate, // default
+    StoredFieldBlockSize = 16,                          // docs per block
 };
 ```
 
-| Policy | Notes |
-|---|---|
-| `None` | No compression. Fastest write, largest disk. |
-| `Lz4` (default) | Very fast, modest ratio. |
-| `Zstandard` | Better ratio than LZ4, still fast. |
+| Policy | Package | Notes |
+|---|---|---|
+| `None` | Core | No compression. Fastest write, largest disk. |
+| `Deflate` (default) | Core | BCL `DeflateStream`. Good ratio, no native deps. |
+| `Brotli` | Core | BCL `BrotliStream`. Better ratio, slower writes. |
+| `Lz4` | `Rowles.LeanLucene.Compression.LZ4` | Very fast, modest ratio. |
+| `Snappy` | `Rowles.LeanLucene.Compression.Snappy` | Similar speed to LZ4. |
+| `Zstandard` | `Rowles.LeanLucene.Compression.Zstandard` | Better ratio than LZ4, still fast. |
 
 The policy is recorded in the segment header, so reads tolerate mixed segments.
+
+## Optional codec packages
+
+Install and register a codec package to use LZ4, Snappy, or Zstandard:
+
+```csharp
+// In standard .NET the module initialiser registers the codec automatically.
+// In Native AOT, call Register() explicitly at startup.
+Lz4Compression.Register();
+SnappyCompression.Register();
+ZstandardCompression.Register();
+```
 
 ## Block size
 
@@ -29,8 +44,8 @@ retrieval.
 
 ## Trade-offs
 
-- Indexing throughput: `None` > `Lz4` > `Zstandard`.
-- On-disk size: `Zstandard` < `Lz4` < `None`.
+- Indexing throughput: `None` > `Lz4` ≈ `Snappy` > `Deflate` > `Zstandard` > `Brotli`.
+- On-disk size: `Brotli` ≈ `Zstandard` < `Deflate` < `Lz4` ≈ `Snappy` < `None`.
 - Retrieval cost scales with block size, not policy.
 
 ## See also

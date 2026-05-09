@@ -3,7 +3,7 @@
 namespace Rowles.LeanLucene.Codecs.StoredFields;
 
 /// <summary>
-/// Reads stored fields (.fdt) with LZ4/Zstandard/Brotli block compression and multi-valued field support.
+/// Reads stored fields (.fdt) with registered block compression and multi-valued field support.
 /// Paired with <see cref="StoredFieldsWriter"/>.
 /// </summary>
 internal sealed class StoredFieldsReader : IDisposable
@@ -166,7 +166,7 @@ internal sealed class StoredFieldsReader : IDisposable
             _reader.BaseStream.ReadExactly(compData.AsSpan(0, compLength));
 
             var rawData = StoredFieldCompression.Decompress(
-                compData.AsSpan(0, compLength), rawLength, _compression);
+                compData, compLength, rawLength, _compression);
 
             _cachedBlockIndex = blockIndex;
             _cachedBlockData = rawData;

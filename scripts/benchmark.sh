@@ -37,7 +37,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROJECT_PATH="$REPO_ROOT/src/Rowles.LeanLucene.Benchmarks/Rowles.LeanLucene.Benchmarks.csproj"
+PROJECT_PATH="$REPO_ROOT/src/devops/Rowles.LeanLucene.Benchmarks/Rowles.LeanLucene.Benchmarks.csproj"
 
 SUITE="all"
 STRAT="default"

@@ -3,13 +3,16 @@
 ![NuGet Version](https://img.shields.io/nuget/v/LeanLucene?link=https%3A%2F%2Fwww.nuget.org%2Fpackages%2FLeanLucene%2F)
  [![Build](https://github.com/jordansrowles/LeanLucene/actions/workflows/build.yml/badge.svg)](https://github.com/jordansrowles/LeanLucene/actions/workflows/build.yml)  ![](https://img.shields.io/badge/AOT%20Compatible-8A2BE2)
 
-A .NET-native full-text search engine. Segment-centric indexing, memory-mapped reads, and atomic commit semantics. Targets `net10.0` and `net11.0`. The only external dependency for the core library is [NativeCompressions](https://www.nuget.org/packages/NativeCompressions) (LZ4 + Zstandard). Everything else uses BCL types.
+A .NET-native full-text search engine. Segment-centric indexing, memory-mapped reads, and atomic commit semantics. Targets `net10.0` and `net11.0`. The core library has no external dependencies; stored-field compression uses BCL types only. Optional extension packages add LZ4, Snappy, and Zstandard support.
 
 ## Projects
 
 | Project | Description |
 |---|---|
 | `Rowles.LeanLucene` | Core library |
+| `Rowles.LeanLucene.Compression.LZ4` | Optional LZ4 codec (`K4os.Compression.LZ4`) |
+| `Rowles.LeanLucene.Compression.Snappy` | Optional Snappy codec (`Snappier`) |
+| `Rowles.LeanLucene.Compression.Zstandard` | Optional Zstandard codec (`ZstdSharp.Port`) |
 | `Rowles.LeanLucene.Tests` | xUnit test suite |
 | `Rowles.LeanLucene.Benchmarks` | BenchmarkDotNet suites, compared against Lucene.NET |
 | `Rowles.LeanLucene.Example.JsonApi` | ASP.NET Minimal API example |
@@ -33,9 +36,9 @@ Run the local smoke check with:
 .\scripts\aot-smoke.ps1
 ```
 
-This publishes `src\examples\Rowles.LeanLucene.Example.NativeAot\Rowles.LeanLucene.Example.NativeAot.csproj` for `win-x64` with `PublishAot=true`, then runs the native executable. The smoke executable indexes, commits, reopens, searches, reads stored fields, writes diagnostics, and exercises `FieldCompressionPolicy.None`, `FieldCompressionPolicy.Lz4`, and `FieldCompressionPolicy.Zstandard`.
+This publishes `src\examples\Rowles.LeanLucene.Example.NativeAot\Rowles.LeanLucene.Example.NativeAot.csproj` for `win-x64` with `PublishAot=true`, then runs the native executable. The smoke executable indexes, commits, reopens, searches, reads stored fields, writes diagnostics, and exercises `FieldCompressionPolicy.None`, `FieldCompressionPolicy.Deflate`, and `FieldCompressionPolicy.Brotli`.
 
-Compression support uses `NativeCompressions`, so Native AOT publishes can include RID-specific native sidecar binaries such as LZ4 and Zstandard libraries.
+The core library has no native sidecar dependencies for compression. Optional packages (`Rowles.LeanLucene.Compression.LZ4`, `Rowles.LeanLucene.Compression.Snappy`, `Rowles.LeanLucene.Compression.Zstandard`) may include RID-specific native binaries; AOT consumers using those packages must call their respective `Register()` methods at startup.
 
 ## Quick Start
 
@@ -75,7 +78,7 @@ var config = new IndexWriterConfig
     RamBufferSizeMB     = 128,
     MaxBufferedDocs     = 5_000,
     MaxQueuedDocs       = 10_000,         // backpressure; blocks AddDocument when exceeded
-    CompressionPolicy   = FieldCompressionPolicy.Lz4,
+    CompressionPolicy   = FieldCompressionPolicy.Deflate,
     StoredFieldBlockSize = 16,
     MergeThreshold      = 10,
     PostingsSkipInterval = 128,

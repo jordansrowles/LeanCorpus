@@ -1,7 +1,11 @@
 <Solution>
-  <Project Path="src/Rowles.LeanLucene.Benchmarks/Rowles.LeanLucene.Benchmarks.csproj" />
-  <Project Path="src/Rowles.LeanLucene.Tests/Rowles.LeanLucene.Tests.csproj" />
-  <Project Path="src/Rowles.LeanLucene/Rowles.LeanLucene.csproj" />
+  <Project Path="src/core/Rowles.LeanLucene/Rowles.LeanLucene.csproj" />
+  <Project Path="src/core/Rowles.LeanLucene.Compression.LZ4/Rowles.LeanLucene.Compression.LZ4.csproj" />
+  <Project Path="src/core/Rowles.LeanLucene.Compression.Snappy/Rowles.LeanLucene.Compression.Snappy.csproj" />
+  <Project Path="src/core/Rowles.LeanLucene.Compression.Zstandard/Rowles.LeanLucene.Compression.Zstandard.csproj" />
+  <Project Path="src/devops/Rowles.LeanLucene.Benchmarks/Rowles.LeanLucene.Benchmarks.csproj" />
+  <Project Path="src/devops/Rowles.LeanLucene.Benchmarks.Compression/Rowles.LeanLucene.Benchmarks.Compression.csproj" />
+  <Project Path="src/devops/Rowles.LeanLucene.Tests/Rowles.LeanLucene.Tests.csproj" />
   <Project Path="src/examples/Rowles.LeanLucene.Example.JsonApi/Rowles.LeanLucene.Example.JsonApi.csproj" />
   <Project Path="src/examples/Rowles.LeanLucene.Example.Telemetry/Rowles.LeanLucene.Example.Telemetry.csproj" />
 </Solution>

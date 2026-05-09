@@ -50,10 +50,10 @@ public sealed class IndexWriterConfig
     public bool DurableCommits { get; set; } = true;
 
     /// <summary>
-    /// Compression algorithm for stored fields. Default: LZ4 (fast decompression).
-    /// Options: None, Lz4, Zstandard.
+    /// Compression algorithm for stored fields. Default: Deflate.
+    /// Options: None, Deflate, Brotli, and any registered optional codec.
     /// </summary>
-    public FieldCompressionPolicy CompressionPolicy { get; set; } = FieldCompressionPolicy.Lz4;
+    public FieldCompressionPolicy CompressionPolicy { get; set; } = FieldCompressionPolicy.Deflate;
 
     /// <summary>
     /// Number of documents per stored field block. Larger blocks compress better but

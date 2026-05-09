@@ -1,7 +1,7 @@
 ﻿namespace Rowles.LeanLucene.Codecs.StoredFields;
 
 /// <summary>
-/// Writes stored field data (.fdt) with configurable compression (LZ4/Zstandard/None)
+/// Writes stored field data (.fdt) with configurable compression
 /// and a parallel offset index (.fdx). Documents are grouped into blocks of 16.
 /// Each field supports multiple values.
 /// </summary>
@@ -14,7 +14,7 @@ internal static class StoredFieldsWriter
     /// </summary>
     internal static void Write(string fdtPath, string fdxPath,
         List<int> docStarts, List<int> fieldIds, List<string> values, List<string> fieldNames,
-        int blockSize = DefaultBlockSize, FieldCompressionPolicy compression = FieldCompressionPolicy.Lz4)
+        int blockSize = DefaultBlockSize, FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate)
     {
         int docCount = docStarts.Count;
 
@@ -117,7 +117,7 @@ internal static class StoredFieldsWriter
     }
 
     internal static void Write(string fdtPath, string fdxPath, IReadOnlyList<Dictionary<string, List<string>>> docs,
-        int blockSize = DefaultBlockSize, FieldCompressionPolicy compression = FieldCompressionPolicy.Lz4)
+        int blockSize = DefaultBlockSize, FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate)
     {
         using var fdtStream = new FileStream(fdtPath, FileMode.Create, FileAccess.Write, FileShare.None);
         using var fdtWriter = new BinaryWriter(fdtStream, System.Text.Encoding.UTF8, leaveOpen: false);

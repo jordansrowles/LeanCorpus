@@ -14,8 +14,8 @@ var rootPath = Path.Combine(Path.GetTempPath(), "leanlucene-aot-smoke-" + Guid.N
 try
 {
     RunPolicy(FieldCompressionPolicy.None, rootPath);
-    RunPolicy(FieldCompressionPolicy.Lz4, rootPath);
-    RunPolicy(FieldCompressionPolicy.Zstandard, rootPath);
+    RunPolicy(FieldCompressionPolicy.Deflate, rootPath);
+    RunPolicy(FieldCompressionPolicy.Brotli, rootPath);
 
     Directory.Delete(rootPath, recursive: true);
     Console.WriteLine("LeanLucene Native AOT smoke passed.");

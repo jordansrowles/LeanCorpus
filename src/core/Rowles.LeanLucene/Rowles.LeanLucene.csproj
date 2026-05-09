@@ -30,12 +30,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
-    <None Include="..\..\LICENCE" Pack="true" PackagePath="\" />
+    <None Include="..\..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\..\LICENCE" Pack="true" PackagePath="\" />
   </ItemGroup>
 
-  <ItemGroup>
-    <PackageReference Include="NativeCompressions" Version="0.6.0" />
-  </ItemGroup>
 
 </Project>
