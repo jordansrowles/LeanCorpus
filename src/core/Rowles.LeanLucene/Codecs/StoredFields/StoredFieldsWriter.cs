@@ -32,6 +32,10 @@ internal static class StoredFieldsWriter
         Span<byte> encodeBuf = stackalloc byte[512];
 
         var distinctFieldIds = new List<int>(16);
+        Span<int> intraOffsetsStack = stackalloc int[64];
+        bool[] seenFieldId = System.Buffers.ArrayPool<bool>.Shared.Rent(Math.Max(16, fieldNames.Count));
+        try
+        {
 
         for (int blockStart = 0; blockStart < docCount; blockStart += blockSize)
         {
@@ -41,7 +45,9 @@ internal static class StoredFieldsWriter
             rawStream.SetLength(0);
             rawStream.Position = 0;
 
-            var intraOffsets = new int[blockDocCount];
+            Span<int> intraOffsets = blockDocCount <= intraOffsetsStack.Length
+                ? intraOffsetsStack[..blockDocCount]
+                : new int[blockDocCount];
             for (int d = 0; d < blockDocCount; d++)
             {
                 intraOffsets[d] = (int)rawStream.Position;
@@ -53,9 +59,21 @@ internal static class StoredFieldsWriter
                 for (int e = entryStart; e < entryEnd; e++)
                 {
                     int fid = fieldIds[e];
-                    if (!distinctFieldIds.Contains(fid))
+                    if (fid >= seenFieldId.Length)
+                    {
+                        var grown = System.Buffers.ArrayPool<bool>.Shared.Rent(fid + 1);
+                        Array.Clear(grown);
+                        foreach (int existing in distinctFieldIds) grown[existing] = true;
+                        System.Buffers.ArrayPool<bool>.Shared.Return(seenFieldId);
+                        seenFieldId = grown;
+                    }
+                    if (!seenFieldId[fid])
+                    {
+                        seenFieldId[fid] = true;
                         distinctFieldIds.Add(fid);
+                    }
                 }
+                foreach (int fid in distinctFieldIds) seenFieldId[fid] = false;
 
                 rawWriter.Write(distinctFieldIds.Count);
                 foreach (int fid in distinctFieldIds)
@@ -98,6 +116,11 @@ internal static class StoredFieldsWriter
             for (int i = 0; i < blockDocCount; i++)
                 fdtWriter.Write(intraOffsets[i]);
             fdtWriter.Write(compData.AsSpan(0, compLength));
+        }
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<bool>.Shared.Return(seenFieldId);
         }
 
         rawWriter.Dispose();
