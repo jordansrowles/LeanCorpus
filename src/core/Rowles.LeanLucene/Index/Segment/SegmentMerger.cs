@@ -161,16 +161,17 @@ public sealed class SegmentMerger
         string basePath)
     {
         // Phase 1: build per-segment doc-id remap (live docs only).
-        var perSegmentMaps = new List<(SegmentInfo Seg, Dictionary<int, int> DocIdMap)>(segments.Count);
+        // Use int[] with -1 sentinel; flat arrays beat Dictionary on both lookup
+        // cost and allocation pressure for the hot streaming-merge inner loop.
+        var perSegmentMaps = new List<(SegmentInfo Seg, int[] DocIdMap)>(segments.Count);
         int newDocId = 0;
         foreach (var segInfo in segments)
         {
             var reader = readers[segInfo.SegmentId];
-            var docIdMap = new Dictionary<int, int>(segInfo.DocCount);
+            var docIdMap = new int[segInfo.DocCount];
             for (int oldDocId = 0; oldDocId < segInfo.DocCount; oldDocId++)
             {
-                if (reader.IsLive(oldDocId))
-                    docIdMap[oldDocId] = newDocId++;
+                docIdMap[oldDocId] = reader.IsLive(oldDocId) ? newDocId++ : -1;
             }
             perSegmentMaps.Add((segInfo, docIdMap));
         }
@@ -253,7 +254,7 @@ public sealed class SegmentMerger
     }
 
     private void MergePostings(
-        IReadOnlyList<(SegmentInfo Seg, Dictionary<int, int> DocIdMap)> sources,
+        IReadOnlyList<(SegmentInfo Seg, int[] DocIdMap)> sources,
         string basePath)
     {
         var merger = new List<StreamingPostingsMerger.Source>(sources.Count);
@@ -271,7 +272,7 @@ public sealed class SegmentMerger
     }
 
     private void AccumulateDocPayloads(
-        IReadOnlyList<(SegmentInfo Seg, Dictionary<int, int> DocIdMap)> sources,
+        IReadOnlyList<(SegmentInfo Seg, int[] DocIdMap)> sources,
         IReadOnlyDictionary<string, SegmentReader> readers,
         MergeContext ctx)
     {
@@ -298,9 +299,20 @@ public sealed class SegmentMerger
             var segNumericIndex = ReadNumericIndex(
                 Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".num"));
 
+            // Pre-build a name->VectorFieldInfo dictionary so the per-doc/per-field
+            // loop body avoids an O(N) LINQ scan for each posting.
+            Dictionary<string, VectorFieldInfo>? vectorFieldByName = null;
+            if (reader.HasVectors)
+            {
+                vectorFieldByName = new Dictionary<string, VectorFieldInfo>(reader.Info.VectorFields.Count, StringComparer.Ordinal);
+                foreach (var vf in reader.Info.VectorFields)
+                    vectorFieldByName[vf.FieldName] = vf;
+            }
+
             for (int oldDocId = 0; oldDocId < segInfo.DocCount; oldDocId++)
             {
-                if (!docIdMap.TryGetValue(oldDocId, out int remapDocId)) continue;
+                int remapDocId = docIdMap[oldDocId];
+                if (remapDocId < 0) continue;
 
                 ctx.StoredWriter!.AddDocument(reader.GetStoredFields(oldDocId));
 
@@ -399,7 +411,8 @@ public sealed class SegmentMerger
                         }
                         entry.OldToNew[oldDocId] = remapDocId;
 
-                        var match = reader.Info.VectorFields.FirstOrDefault(vf => vf.FieldName == vfName);
+                        var match = vectorFieldByName is not null && vectorFieldByName.TryGetValue(vfName, out var vfInfo)
+                            ? vfInfo : null;
                         if (match is not null)
                         {
                             ctx.VectorFieldNormalised[vfName] = match.Normalised;
@@ -542,16 +555,25 @@ public sealed class SegmentMerger
             using var output = new Store.IndexOutput(basePath + ".dvn");
             CodecConstants.WriteHeader(output, CodecConstants.NumericDocValuesVersion);
             output.WriteInt32(ctx.NumericDocValues.Count);
-            var fieldKeys = ctx.NumericDocValues.Keys.ToList();
-            foreach (var field in fieldKeys)
+            string[] fieldKeys = System.Buffers.ArrayPool<string>.Shared.Rent(ctx.NumericDocValues.Count);
+            try
             {
-                // Derive presence from the sparse numeric index (documents that truly have this field).
-                ctx.NumericFields.TryGetValue(field, out var sparseMap);
-                IReadOnlySet<int>? presenceSet = sparseMap is not null
-                    ? (IReadOnlySet<int>)sparseMap.Keys.ToHashSet()
-                    : null;
-                NumericDocValuesWriter.WriteFieldBlock(output, field, ctx.NumericDocValues[field], ctx.TotalDocs, presenceSet);
-                ctx.NumericDocValues.Remove(field);
+                int kn = 0;
+                foreach (var key in ctx.NumericDocValues.Keys) fieldKeys[kn++] = key;
+                for (int i = 0; i < kn; i++)
+                {
+                    var field = fieldKeys[i];
+                    ctx.NumericFields.TryGetValue(field, out var sparseMap);
+                    IReadOnlySet<int>? presenceSet = sparseMap is not null
+                        ? (IReadOnlySet<int>)sparseMap.Keys.ToHashSet()
+                        : null;
+                    NumericDocValuesWriter.WriteFieldBlock(output, field, ctx.NumericDocValues[field], ctx.TotalDocs, presenceSet);
+                    ctx.NumericDocValues.Remove(field);
+                }
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<string>.Shared.Return(fieldKeys, clearArray: true);
             }
         }
         if (ctx.SortedDocValues.Count > 0)
@@ -559,11 +581,21 @@ public sealed class SegmentMerger
             using var output = new Store.IndexOutput(basePath + ".dvs");
             CodecConstants.WriteHeader(output, CodecConstants.SortedDocValuesVersion);
             output.WriteInt32(ctx.SortedDocValues.Count);
-            var fieldKeys = ctx.SortedDocValues.Keys.ToList();
-            foreach (var field in fieldKeys)
+            string[] fieldKeys = System.Buffers.ArrayPool<string>.Shared.Rent(ctx.SortedDocValues.Count);
+            try
             {
-                SortedDocValuesWriter.WriteFieldBlock(output, field, ctx.SortedDocValues[field], ctx.TotalDocs);
-                ctx.SortedDocValues.Remove(field);
+                int kn = 0;
+                foreach (var key in ctx.SortedDocValues.Keys) fieldKeys[kn++] = key;
+                for (int i = 0; i < kn; i++)
+                {
+                    var field = fieldKeys[i];
+                    SortedDocValuesWriter.WriteFieldBlock(output, field, ctx.SortedDocValues[field], ctx.TotalDocs);
+                    ctx.SortedDocValues.Remove(field);
+                }
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<string>.Shared.Return(fieldKeys, clearArray: true);
             }
         }
         if (ctx.SortedSetDocValues.Count > 0)
