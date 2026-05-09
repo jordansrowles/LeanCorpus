@@ -58,9 +58,9 @@ internal static class NumericDocValuesWriter
             using var bw = new System.IO.BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true);
             bitmap.Serialise(bw);
             bw.Flush();
-            var bitmapBytes = ms.ToArray();
-            output.WriteInt32(bitmapBytes.Length);
-            output.WriteBytes(bitmapBytes);
+            int bitmapLen = (int)ms.Length;
+            output.WriteInt32(bitmapLen);
+            output.WriteBytes(ms.GetBuffer().AsSpan(0, bitmapLen));
         }
         else
         {
