@@ -328,9 +328,11 @@ The CLI executable is `leanlucene-cli.exe`:
 dotnet build .\src\devops\Rowles.LeanLucene.Cli\Rowles.LeanLucene.Cli.csproj -c Release
 .\src\devops\Rowles.LeanLucene.Cli\bin\Release\net10.0\leanlucene-cli.exe check .\index --deep
 .\src\devops\Rowles.LeanLucene.Cli\bin\Release\net10.0\leanlucene-cli.exe check .\index --json --doc-values --vectors
+.\src\devops\Rowles.LeanLucene.Cli\bin\Release\net10.0\leanlucene-cli.exe check .\index --summary-only --output .\check.txt
+.\src\devops\Rowles.LeanLucene.Cli\bin\Release\net10.0\leanlucene-cli.exe interactive
 ```
 
-Exit code `0` means healthy or warnings only, `1` means validation errors, and `2` means invalid arguments or CLI failure. See [Index checker CLI](docs/tutorials/index-management/04-cli-checker.md).
+Exit code `0` means healthy or warnings only, `1` means validation errors, and `2` means invalid arguments or CLI failure. `--fail-on-warnings` makes warnings return `1`. See [Index checker CLI](docs/tutorials/index-management/04-cli-checker.md).
 
 ## Benchmarks
 

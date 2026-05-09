@@ -1,6 +1,9 @@
+using System.Text;
 using System.Text.Json;
 using Rowles.LeanLucene.Index;
 using Rowles.LeanLucene.Store;
+using Spectre.Console;
+using Spectre.Console.Cli;
 
 namespace Rowles.LeanLucene.Cli;
 
@@ -10,7 +13,31 @@ namespace Rowles.LeanLucene.Cli;
 public static class IndexCheckerCli
 {
     /// <summary>
-    /// Runs the command-line checker.
+    /// Runs the Spectre.Console.Cli command app.
+    /// </summary>
+    /// <param name="args">Command-line arguments.</param>
+    /// <returns>Exit code: 0 for healthy, 1 for validation errors, 2 for invalid arguments or CLI failures.</returns>
+    public static int Run(string[] args)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+
+        var app = new CommandApp();
+        app.Configure(config =>
+        {
+            config.SetApplicationName("leanlucene-cli.exe");
+            config.SetApplicationVersion(typeof(IndexCheckerCli).Assembly.GetName().Version?.ToString() ?? "1.3.0");
+            config.AddCommand<CheckCommand>("check")
+                .WithDescription("Validate a LeanLucene index.");
+            config.AddCommand<InteractiveCommand>("interactive")
+                .WithDescription("Choose an index and validation depth interactively.");
+        });
+
+        int exitCode = app.Run(args);
+        return exitCode < 0 ? CliExitCodes.InvalidArguments : exitCode;
+    }
+
+    /// <summary>
+    /// Runs the command-line checker with redirected text writers.
     /// </summary>
     /// <param name="args">Command-line arguments.</param>
     /// <param name="output">Standard output writer.</param>
@@ -30,11 +57,17 @@ public static class IndexCheckerCli
                 return 0;
             }
 
+            if (string.Equals(args[0], "interactive", StringComparison.OrdinalIgnoreCase))
+            {
+                error.WriteLine("Interactive mode requires a terminal. Use the executable directly.");
+                return CliExitCodes.InvalidArguments;
+            }
+
             if (!string.Equals(args[0], "check", StringComparison.OrdinalIgnoreCase))
             {
                 error.WriteLine($"Unknown command '{args[0]}'.");
                 WriteHelp(error);
-                return 2;
+                return CliExitCodes.InvalidArguments;
             }
 
             if (args.Length == 2 && IsHelp(args[1]))
@@ -43,42 +76,146 @@ public static class IndexCheckerCli
                 return 0;
             }
 
-            if (!TryParseCheckArguments(args, error, out var indexPath, out var options, out bool json))
-                return 2;
+            if (!TryParseCheckArguments(args, error, out var request))
+                return CliExitCodes.InvalidArguments;
 
-            using var directory = new MMapDirectory(indexPath);
-            var result = IndexValidator.Check(directory, options);
-            if (json)
-                WriteJson(output, result);
-            else
-                WriteText(output, result);
-
-            return result.IsHealthy ? 0 : 1;
+            return RunCheck(request, output, error);
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
         {
             error.WriteLine(ex.Message);
-            return 2;
+            return CliExitCodes.InvalidArguments;
         }
     }
 
-    private static bool TryParseCheckArguments(
-        string[] args,
-        TextWriter error,
-        out string indexPath,
-        out IndexCheckOptions options,
-        out bool json)
+    internal static int RunCheck(CheckRequest request, TextWriter output, TextWriter error)
     {
-        indexPath = string.Empty;
-        options = new IndexCheckOptions();
-        json = false;
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(error);
+
+        try
+        {
+            using var directory = new MMapDirectory(request.IndexPath);
+            var result = IndexValidator.Check(directory, request.Options);
+            if (request.OutputPath is null)
+            {
+                if (request.Json)
+                    WriteJson(output, result);
+                else
+                    WriteText(output, result, request.SummaryOnly);
+            }
+            else
+            {
+                WriteOutputFile(request.OutputPath, request.Json, result, request.SummaryOnly);
+                output.WriteLine($"Wrote check result to {request.OutputPath}");
+            }
+
+            return ShouldFail(result, request.FailOnWarnings)
+                ? CliExitCodes.ValidationErrors
+                : CliExitCodes.Success;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
+        {
+            error.WriteLine(ex.Message);
+            return CliExitCodes.InvalidArguments;
+        }
+    }
+
+    internal static int RunCheckWithSpectre(CheckRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        try
+        {
+            using var directory = new MMapDirectory(request.IndexPath);
+            var result = IndexValidator.Check(directory, request.Options);
+            if (request.OutputPath is not null)
+            {
+                WriteOutputFile(request.OutputPath, request.Json, result, request.SummaryOnly);
+                AnsiConsole.MarkupLine($"[green]Wrote check result to[/] [grey]{Markup.Escape(request.OutputPath)}[/]");
+            }
+            else if (request.Json)
+            {
+                WriteJson(Console.Out, result);
+            }
+            else
+            {
+                WriteSpectreText(result, request.SummaryOnly);
+            }
+
+            return ShouldFail(result, request.FailOnWarnings)
+                ? CliExitCodes.ValidationErrors
+                : CliExitCodes.Success;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
+        {
+            AnsiConsole.MarkupLine($"[red]{Markup.Escape(ex.Message)}[/]");
+            return CliExitCodes.InvalidArguments;
+        }
+    }
+
+    internal static CheckRequest CreateRequest(
+        string indexPath,
+        bool deep,
+        bool json,
+        bool postings,
+        bool storedFields,
+        bool docValues,
+        bool vectors,
+        bool hnsw,
+        bool liveDocs,
+        bool summaryOnly,
+        bool failOnWarnings,
+        string? outputPath)
+    {
+        if (string.IsNullOrWhiteSpace(indexPath))
+            throw new ArgumentException("Missing index path.", nameof(indexPath));
+        if (!Directory.Exists(indexPath))
+            throw new ArgumentException($"Index path '{indexPath}' does not exist.", nameof(indexPath));
+
+        var options = new IndexCheckOptions
+        {
+            Deep = deep,
+            VerifyPostings = postings,
+            VerifyStoredFields = storedFields,
+            VerifyDocValues = docValues,
+            VerifyVectors = vectors,
+            VerifyHnsw = hnsw,
+            VerifyLiveDocs = liveDocs
+        };
+
+        return new CheckRequest(
+            Path.GetFullPath(indexPath),
+            options,
+            json,
+            summaryOnly,
+            failOnWarnings,
+            string.IsNullOrWhiteSpace(outputPath) ? null : Path.GetFullPath(outputPath));
+    }
+
+    private static bool TryParseCheckArguments(string[] args, TextWriter error, out CheckRequest request)
+    {
+        request = CheckRequest.Empty;
+        string indexPath = string.Empty;
+        string? outputPath = null;
+        bool deep = false;
+        bool json = false;
+        bool postings = false;
+        bool storedFields = false;
+        bool docValues = false;
+        bool vectors = false;
+        bool hnsw = false;
+        bool liveDocs = false;
+        bool summaryOnly = false;
+        bool failOnWarnings = false;
 
         for (int i = 1; i < args.Length; i++)
         {
             var arg = args[i];
             if (IsHelp(arg))
             {
-                error.WriteLine("Help must be requested as 'leanlucene check --help'.");
+                error.WriteLine("Help must be requested as 'leanlucene-cli.exe check --help'.");
                 return false;
             }
 
@@ -87,28 +224,44 @@ public static class IndexCheckerCli
                 switch (arg)
                 {
                     case "--deep":
-                        options.Deep = true;
+                        deep = true;
                         break;
                     case "--json":
                         json = true;
                         break;
                     case "--postings":
-                        options.VerifyPostings = true;
+                        postings = true;
                         break;
                     case "--stored-fields":
-                        options.VerifyStoredFields = true;
+                        storedFields = true;
                         break;
                     case "--doc-values":
-                        options.VerifyDocValues = true;
+                        docValues = true;
                         break;
                     case "--vectors":
-                        options.VerifyVectors = true;
+                        vectors = true;
                         break;
                     case "--hnsw":
-                        options.VerifyHnsw = true;
+                        hnsw = true;
                         break;
                     case "--live-docs":
-                        options.VerifyLiveDocs = true;
+                        liveDocs = true;
+                        break;
+                    case "--summary-only":
+                        summaryOnly = true;
+                        break;
+                    case "--fail-on-warnings":
+                        failOnWarnings = true;
+                        break;
+                    case "--output":
+                        if (i + 1 >= args.Length)
+                        {
+                            error.WriteLine("--output requires a value.");
+                            return false;
+                        }
+
+                        i++;
+                        outputPath = args[i];
                         break;
                     default:
                         error.WriteLine($"Unknown option '{arg}'.");
@@ -126,19 +279,28 @@ public static class IndexCheckerCli
             indexPath = arg;
         }
 
-        if (string.IsNullOrWhiteSpace(indexPath))
+        try
         {
-            error.WriteLine("Missing index path.");
+            request = CreateRequest(
+                indexPath,
+                deep,
+                json,
+                postings,
+                storedFields,
+                docValues,
+                vectors,
+                hnsw,
+                liveDocs,
+                summaryOnly,
+                failOnWarnings,
+                outputPath);
+            return true;
+        }
+        catch (ArgumentException ex)
+        {
+            error.WriteLine(ex.Message);
             return false;
         }
-
-        if (!Directory.Exists(indexPath))
-        {
-            error.WriteLine($"Index path '{indexPath}' does not exist.");
-            return false;
-        }
-
-        return true;
     }
 
     private static bool IsHelp(string arg)
@@ -148,17 +310,78 @@ public static class IndexCheckerCli
     private static void WriteHelp(TextWriter writer)
     {
         writer.WriteLine("Usage:");
-        writer.WriteLine("  leanlucene check <index-path> [--deep] [--json] [--postings] [--stored-fields] [--doc-values] [--vectors] [--hnsw] [--live-docs]");
+        writer.WriteLine("  leanlucene-cli.exe check <index-path> [--deep] [--json] [--postings] [--stored-fields] [--doc-values] [--vectors] [--hnsw] [--live-docs] [--summary-only] [--fail-on-warnings] [--output <path>]");
+        writer.WriteLine("  leanlucene-cli.exe interactive");
     }
 
-    private static void WriteText(TextWriter writer, IndexCheckResult result)
+    private static void WriteText(TextWriter writer, IndexCheckResult result, bool summaryOnly)
     {
-        writer.WriteLine(result.IsHealthy
-            ? $"Healthy: checked {result.SegmentsChecked} segment(s), {result.DocumentsChecked} document(s), {result.FilesChecked} file(s)."
-            : $"Unhealthy: checked {result.SegmentsChecked} segment(s), {result.DocumentsChecked} document(s), {result.FilesChecked} file(s).");
+        writer.WriteLine(FormatSummary(result));
+        if (summaryOnly)
+            return;
 
         foreach (var issue in result.DetailedIssues)
-            writer.WriteLine($"{issue.Severity} {issue.Code} {issue.SegmentId ?? "-"} {issue.FileName ?? "-"} {issue.Message}");
+            writer.WriteLine(FormatIssue(issue));
+    }
+
+    private static void WriteSpectreText(IndexCheckResult result, bool summaryOnly)
+    {
+        AnsiConsole.Write(new Panel(Markup.Escape(FormatSummary(result)))
+            .Header(result.IsHealthy ? "Healthy" : "Unhealthy")
+            .BorderColor(result.IsHealthy ? Color.Green : Color.Red));
+
+        if (summaryOnly || result.DetailedIssues.Count == 0)
+            return;
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("Severity")
+            .AddColumn("Code")
+            .AddColumn("Segment")
+            .AddColumn("File")
+            .AddColumn("Repairable")
+            .AddColumn("Message");
+
+        foreach (var issue in result.DetailedIssues)
+        {
+            string severityColour = issue.Severity switch
+            {
+                IndexCheckSeverity.Error => "red",
+                IndexCheckSeverity.Warning => "yellow",
+                _ => "grey"
+            };
+
+            table.AddRow(
+                $"[{severityColour}]{issue.Severity}[/]",
+                Markup.Escape(issue.Code),
+                Markup.Escape(issue.SegmentId ?? "-"),
+                Markup.Escape(issue.FileName ?? "-"),
+                issue.IsRepairable ? "[green]yes[/]" : "[grey]no[/]",
+                Markup.Escape(issue.Message));
+        }
+
+        AnsiConsole.Write(table);
+    }
+
+    private static string FormatSummary(IndexCheckResult result)
+        => result.IsHealthy
+            ? $"Healthy: checked {result.SegmentsChecked} segment(s), {result.DocumentsChecked} document(s), {result.FilesChecked} file(s)."
+            : $"Unhealthy: checked {result.SegmentsChecked} segment(s), {result.DocumentsChecked} document(s), {result.FilesChecked} file(s).";
+
+    private static string FormatIssue(IndexCheckIssue issue)
+        => $"{issue.Severity} {issue.Code} {issue.SegmentId ?? "-"} {issue.FileName ?? "-"} {issue.Message}";
+
+    private static void WriteOutputFile(string outputPath, bool json, IndexCheckResult result, bool summaryOnly)
+    {
+        string? directory = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        using var writer = new StreamWriter(outputPath, append: false, Encoding.UTF8);
+        if (json)
+            WriteJson(writer, result);
+        else
+            WriteText(writer, result, summaryOnly);
     }
 
     private static void WriteJson(TextWriter writer, IndexCheckResult result)
@@ -167,6 +390,34 @@ public static class IndexCheckerCli
         var json = JsonSerializer.Serialize(dto, IndexCheckCliJsonContext.Default.CliIndexCheckResultDto);
         writer.WriteLine(json);
     }
+
+    private static bool ShouldFail(IndexCheckResult result, bool failOnWarnings)
+        => result.DetailedIssues.Any(static issue => issue.Severity == IndexCheckSeverity.Error) ||
+           failOnWarnings && result.DetailedIssues.Any(static issue => issue.Severity == IndexCheckSeverity.Warning);
+}
+
+internal sealed record CheckRequest(
+    string IndexPath,
+    IndexCheckOptions Options,
+    bool Json,
+    bool SummaryOnly,
+    bool FailOnWarnings,
+    string? OutputPath)
+{
+    public static CheckRequest Empty { get; } = new(
+        string.Empty,
+        new IndexCheckOptions(),
+        Json: false,
+        SummaryOnly: false,
+        FailOnWarnings: false,
+        OutputPath: null);
+}
+
+internal static class CliExitCodes
+{
+    public const int Success = 0;
+    public const int ValidationErrors = 1;
+    public const int InvalidArguments = 2;
 }
 
 internal sealed class CliIndexCheckResultDto

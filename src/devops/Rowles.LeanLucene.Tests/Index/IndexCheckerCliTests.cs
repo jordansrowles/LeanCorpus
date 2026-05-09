@@ -74,6 +74,34 @@ public sealed class IndexCheckerCliTests : IClassFixture<TestDirectoryFixture>
         Assert.Contains("Unknown option", error.ToString());
     }
 
+    [Fact(DisplayName = "IndexCheckerCli: Output Writes Report File")]
+    public void IndexCheckerCli_Output_WritesReportFile()
+    {
+        var path = CreateIndex("cli_output");
+        var outputPath = Path.Combine(_fixture.Path, "cli-output-report.txt");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        int exitCode = IndexCheckerCli.Run(["check", path, "--output", outputPath, "--summary-only"], output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("Wrote check result", output.ToString());
+        Assert.Contains("Healthy", File.ReadAllText(outputPath));
+        Assert.Equal(string.Empty, error.ToString());
+    }
+
+    [Fact(DisplayName = "IndexCheckerCli: Interactive Command Requires Terminal When Redirected")]
+    public void IndexCheckerCli_Interactive_WhenRedirected_ReturnsTwo()
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        int exitCode = IndexCheckerCli.Run(["interactive"], output, error);
+
+        Assert.Equal(2, exitCode);
+        Assert.Contains("Interactive mode requires a terminal", error.ToString());
+    }
+
     private string CreateIndex(string name)
     {
         var path = Path.Combine(_fixture.Path, name);

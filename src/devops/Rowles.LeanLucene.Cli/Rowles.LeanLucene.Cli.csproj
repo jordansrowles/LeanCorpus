@@ -13,4 +13,8 @@
     <ProjectReference Include="..\..\core\Rowles.LeanLucene\Rowles.LeanLucene.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Spectre.Console.Cli" Version="0.55.0" />
+  </ItemGroup>
+
 </Project>

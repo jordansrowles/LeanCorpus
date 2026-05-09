@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `Rowles.LeanLucene.Compression.Zstandard`, via `ZstdSharp`.
 - `Rowles.LeanLucene.Benchmarks.Compression` project benchmarking compress and decompress throughput across all six policies at three payload sizes (128 B, 4 KB, 64 KB).
 - Richer DocValues support with sorted-set (`.dss`), sorted-numeric (`.dsn`), and binary (`.dvb`) sidecars for repeated `StringField`, repeated `NumericField`, and stored-field values, letting facets, grouping fallback, sorting fallback, and numeric aggregations avoid stored-field scans.
-- Public `IndexValidator.Check` API and `leanlucene-cli.exe check` command for structured index validation with text and JSON output.
+- Public `IndexValidator.Check` API and Spectre.Console.Cli-based `leanlucene-cli.exe check` command for structured index validation with text, table, JSON, and file output.
+  - Interactive checker mode for choosing an index path, validation depth, JSON output, summary output, warning handling, and report file output from prompts.
 - `Rowles.LeanLucene.Example.NewsgroupsIndexer`, a console example with bundled 20 Newsgroups data for creating checker test indexes.
 
 ### Changed
@@ -35,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Field-sorted top-N selection now uses `PriorityQueue<TElement, TPriority>` with an `int[]` doc-id map in place of `SortedSet<T>`.
 - `DocumentsWriterPerThread` migrated to flat stored-field buffers with a bulk position-merge path, removing per-document list allocations during indexing.
 - `IndexValidator` now reports structured issues with severity, stable codes, segment IDs, file names, and repairability flags, and can opt into deep checks for postings, stored fields, DocValues, vectors, HNSW, and live docs.
-- The command-line checker project now builds as `leanlucene-cli.exe`.
+- The command-line checker project now builds as `leanlucene-cli.exe` and supports `--summary-only`, `--fail-on-warnings`, and `--output <path>`.
 
 ### Fixed
 
