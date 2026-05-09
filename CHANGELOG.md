@@ -4,22 +4,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.3.0] - 2026-05-07
+## [1.3.0] - 2026-00-00
 
 ### Added
 
 - Pluggable stored-field compression via the `IFieldCompressionCodec` interface and `CompressionCodecRegistry`; any codec can be registered at startup without modifying core library code.
 - BCL codecs for `None`, `Deflate`, and `Brotli` policies using `System.IO.Compression`; available in the core package with no additional dependencies.
-- `Rowles.LeanLucene.Compression.LZ4` — optional extension package providing LZ4 fast compression via `K4os.Compression.LZ4`.
-- `Rowles.LeanLucene.Compression.Snappy` — optional extension package providing Snappy compression via `Snappier`.
-- `Rowles.LeanLucene.Compression.Zstandard` — optional extension package providing Zstandard compression via `ZstdSharp`.
+- Optional `Rowles.LeanLucene.Compression.*` packages:
+  - `Rowles.LeanLucene.Compression.LZ4`, via `K4os.Compression.LZ4`.
+  - `Rowles.LeanLucene.Compression.Snappy`, via `Snappier`.
+  - `Rowles.LeanLucene.Compression.Zstandard`, via `ZstdSharp`.
 - `Rowles.LeanLucene.Benchmarks.Compression` project benchmarking compress and decompress throughput across all six policies at three payload sizes (128 B, 4 KB, 64 KB).
+- Richer DocValues support with sorted-set (`.dss`), sorted-numeric (`.dsn`), and binary (`.dvb`) sidecars for repeated `StringField`, repeated `NumericField`, and stored-field values, letting facets, grouping fallback, sorting fallback, and numeric aggregations avoid stored-field scans.
 
 ### Changed
 
 - Default stored-field compression policy changed from Brotli (via `NativeCompressions`) to `FieldCompressionPolicy.Deflate` using BCL `DeflateStream`.
 - Extension package assemblies auto-register their codec via `[ModuleInitializer]` in standard .NET hosts; Native AOT consumers must call `Register()` explicitly at startup.
 - `src/` reorganised into `src/core/` (main library and compression packages) and `src/devops/` (benchmarks and tests).
+- `SortedNumericDocValues` reduced per-document allocations on the read path by reusing buffers and avoiding redundant array materialisation.
+- DocValues presence-bitmap writers now write directly from the underlying `MemoryStream` buffer instead of materialising a new array.
+- Postings writer caches `HasFreqs`/`HasPositions` per field and adds a bulk `AddPositions` path to reduce per-token virtual dispatch.
+- `IndexSort` serialised field list is pre-computed once per snapshot rather than per segment.
+- `StoredFieldsWriter` pools the distinct field-id dedup buffer across documents.
+- Pending-delete handling reuses a qualified-term list rather than allocating per flush.
+- Norms and field-length writes are fused into a single loop, term-vector dictionaries are built lazily, and DocValues key snapshots are pooled.
+- Vector field lookup is pre-built once per writer and DocValues key snapshots are pooled.
+- Field-sorted top-N selection now uses `PriorityQueue<TElement, TPriority>` with an `int[]` doc-id map in place of `SortedSet<T>`.
+- `DocumentsWriterPerThread` migrated to flat stored-field buffers with a bulk position-merge path, removing per-document list allocations during indexing.
+
+### Fixed
+
+- `BinaryDocValuesReader`, `SortedNumericDocValuesReader`, and `SortedSetDocValuesReader` now reject corrupt offset tables. Initial offsets must be zero, and binary terminal offsets must equal the total payload length; previously, malformed sidecars could silently skip or expose unrelated bytes.
 
 ### Removed
 
@@ -46,7 +62,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `WordDelimiterFilter`: splits compound tokens on delimiter punctuation, case-change boundaries, acronym-word boundaries, and letter-digit boundaries; supports preserve-original, concatenate-words, and concatenate-numbers modes.
 - Benchmark suites `analysis-parity` and `analysis-filters` covering lightweight analyser throughput vs Lucene.NET and per-filter allocation on no-op and mutating paths.
 - Native AOT compatibility metadata for the core package, with a dedicated `Rowles.LeanLucene.Example.NativeAot` smoke executable and local `scripts\aot-smoke.ps1` validation script.
-- Sorted-set, sorted-numeric, and binary DocValues sidecars for repeated `StringField`, repeated `NumericField`, and stored-field values, allowing facets, grouping fallback, sorting fallback, and numeric aggregations to avoid stored-field scans.
 
 ### Changed
 
