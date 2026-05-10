@@ -23,6 +23,9 @@ public sealed record IndexCheckIssue
     /// <summary>Gets a value indicating whether the issue can be repaired by future repair tooling.</summary>
     public bool IsRepairable { get; init; }
 
+    /// <summary>Gets suggested repair or recovery actions for this issue.</summary>
+    public IReadOnlyList<string> SuggestedActions { get; init; } = [];
+
     /// <inheritdoc />
     public override string ToString()
         => $"{Severity} {Code} {SegmentId ?? "-"} {FileName ?? "-"} {Message}";

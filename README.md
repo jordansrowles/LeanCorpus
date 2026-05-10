@@ -157,6 +157,7 @@ leanlucene-cli.exe check .\index --deep
 leanlucene-cli.exe inspect .\index --json
 leanlucene-cli.exe compat .\index --deep
 leanlucene-cli.exe migrate .\index --dry-run --json
+leanlucene-cli.exe migrate .\index --execute --staging .\index.migration
 ```
 
 See [Index checker CLI](docs/tutorials/index-management/04-cli-checker.md) for command options and exit codes.
@@ -356,7 +357,7 @@ foreach (var issue in result.DetailedIssues)
     Console.WriteLine($"{issue.Severity} {issue.Code} {issue.SegmentId} {issue.FileName} {issue.Message}");
 ```
 
-The checker reports stable issue codes, severity, file names, segment IDs, and repairability flags. Shallow validation checks commit files, segment metadata, required sidecars, codec headers, stored-field compression metadata, deletion generations, vectors, and HNSW files. Deep validation can additionally read postings, stored fields, DocValues, vectors, HNSW graphs, and live docs.
+The checker reports stable issue codes, severity, file names, segment IDs, repairability flags, and suggested repair actions. Shallow validation checks commit files, segment metadata, required sidecars, codec headers, stored-field compression metadata, deletion generations, vectors, and HNSW files. Deep validation can additionally read postings, stored fields, DocValues, vectors, HNSW graphs, and live docs.
 
 The CLI executable is `leanlucene-cli.exe`:
 
@@ -365,7 +366,7 @@ dotnet build .\src\devops\Rowles.LeanLucene.Cli\Rowles.LeanLucene.Cli.csproj -c 
 .\src\devops\Rowles.LeanLucene.Cli\bin\Release\net10.0\leanlucene-cli.exe check .\index --deep
 .\src\devops\Rowles.LeanLucene.Cli\bin\Release\net10.0\leanlucene-cli.exe check .\index --json --doc-values --vectors
 .\src\devops\Rowles.LeanLucene.Cli\bin\Release\net10.0\leanlucene-cli.exe check .\index --summary-only --output .\check.txt
-.\src\devops\Rowles.LeanLucene.Cli\bin\Release\net10.0\leanlucene-cli.exe interactive
+.\src\devops\Rowles.LeanLucene.Cli\bin\Release\net10.0\leanlucene-cli.exe migrate .\index --execute --staging .\index.migration
 ```
 
 Exit code `0` means healthy or warnings only, `1` means validation errors, and `2` means invalid arguments or CLI failure. `--fail-on-warnings` makes warnings return `1`. See [Index checker CLI](docs/tutorials/index-management/04-cli-checker.md).

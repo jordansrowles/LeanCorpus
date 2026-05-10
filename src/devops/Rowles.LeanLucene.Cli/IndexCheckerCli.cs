@@ -232,21 +232,22 @@ public static class IndexCheckerCli
     {
         var indexPath = new Argument<string>("index-path") { Description = "Path to the LeanLucene index directory." };
         var dryRun = BoolOption("--dry-run", "Report migration actions without modifying files.");
+        var execute = BoolOption("--execute", "Run the migration. Dry-run is used by default.");
         var inPlace = BoolOption("--in-place", "Allow migration in the source index directory.");
         var json = BoolOption("--json", "Write JSON instead of text.");
         var staging = StringOption("--staging", "Use an explicit staging directory.");
         var outputPath = StringOption("--output", "Write the report to a file.");
-        dryRun.DefaultValueFactory = _ => true;
         var command = new Command("migrate", "Plan or run codec migration.");
         command.Add(indexPath);
         command.Add(dryRun);
+        command.Add(execute);
         command.Add(inPlace);
         command.Add(json);
         command.Add(staging);
         command.Add(outputPath);
         command.SetAction(result => RunMigrate(
             GetRequiredValue(result, indexPath),
-            result.GetValue(dryRun),
+            !result.GetValue(execute) || result.GetValue(dryRun),
             result.GetValue(inPlace),
             result.GetValue(staging),
             result.GetValue(json),
@@ -387,7 +388,10 @@ public static class IndexCheckerCli
             return;
 
         foreach (var issue in result.DetailedIssues)
+        {
             writer.WriteLine(FormatIssue(issue));
+            WriteSuggestedActions(writer, issue, indent: "  ");
+        }
     }
 
     private static void WriteInspectText(TextWriter writer, IndexFormatInventory inventory)
@@ -408,9 +412,14 @@ public static class IndexCheckerCli
         writer.WriteLine($"Status: {result.Status}");
         writer.WriteLine($"Can read: {result.CanRead}");
         writer.WriteLine($"Can write: {result.CanWrite}");
+        writer.WriteLine($"Can validate: {result.CanValidate}");
         writer.WriteLine($"Can migrate: {result.CanMigrate}");
+        writer.WriteLine($"Must reject: {result.MustReject}");
         foreach (var issue in result.Issues)
+        {
             writer.WriteLine(FormatIssue(issue));
+            WriteSuggestedActions(writer, issue, indent: "  ");
+        }
         foreach (var action in result.MigrationActions)
             writer.WriteLine($"{action.Kind} {action.FileName ?? "-"} {action.Description}");
     }
@@ -422,7 +431,11 @@ public static class IndexCheckerCli
         foreach (var action in result.Actions)
             writer.WriteLine($"{action.Kind} {action.FileName ?? "-"} {action.Description}");
         foreach (var issue in result.Issues)
+        {
             writer.WriteLine($"{issue.Severity} {issue.Code} {issue.Message}");
+            foreach (var suggestedAction in issue.SuggestedActions)
+                writer.WriteLine($"  Suggested action: {suggestedAction}");
+        }
     }
 
     private static string FormatSummary(IndexCheckResult result)
@@ -432,6 +445,12 @@ public static class IndexCheckerCli
 
     private static string FormatIssue(IndexCheckIssue issue)
         => $"{issue.Severity} {issue.Code} {issue.SegmentId ?? "-"} {issue.FileName ?? "-"} {issue.Message}";
+
+    private static void WriteSuggestedActions(TextWriter writer, IndexCheckIssue issue, string indent)
+    {
+        foreach (var suggestedAction in issue.SuggestedActions)
+            writer.WriteLine($"{indent}Suggested action: {suggestedAction}");
+    }
 
     private static void WriteJson<T>(TextWriter writer, T value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> jsonTypeInfo)
     {
@@ -515,6 +534,7 @@ internal sealed class CliIndexCheckIssueDto
     public string? FileName { get; init; }
     public string? SegmentId { get; init; }
     public required bool IsRepairable { get; init; }
+    public required IReadOnlyList<string> SuggestedActions { get; init; }
 
     public static CliIndexCheckIssueDto FromIssue(IndexCheckIssue issue)
         => new()
@@ -524,7 +544,8 @@ internal sealed class CliIndexCheckIssueDto
             Message = issue.Message,
             FileName = issue.FileName,
             SegmentId = issue.SegmentId,
-            IsRepairable = issue.IsRepairable
+            IsRepairable = issue.IsRepairable,
+            SuggestedActions = issue.SuggestedActions
         };
 }
 
@@ -614,7 +635,9 @@ internal sealed class CliCompatibilityResultDto
     public required string Status { get; init; }
     public required bool CanRead { get; init; }
     public required bool CanWrite { get; init; }
+    public required bool CanValidate { get; init; }
     public required bool CanMigrate { get; init; }
+    public required bool MustReject { get; init; }
     public required bool RequiresMigration { get; init; }
     public required List<CliIndexCheckIssueDto> Issues { get; init; }
     public required List<CliMigrationActionDto> MigrationActions { get; init; }
@@ -625,7 +648,9 @@ internal sealed class CliCompatibilityResultDto
             Status = result.Status.ToString(),
             CanRead = result.CanRead,
             CanWrite = result.CanWrite,
+            CanValidate = result.CanValidate,
             CanMigrate = result.CanMigrate,
+            MustReject = result.MustReject,
             RequiresMigration = result.RequiresMigration,
             Issues = result.Issues.Select(CliIndexCheckIssueDto.FromIssue).ToList(),
             MigrationActions = result.MigrationActions.Select(CliMigrationActionDto.FromAction).ToList()

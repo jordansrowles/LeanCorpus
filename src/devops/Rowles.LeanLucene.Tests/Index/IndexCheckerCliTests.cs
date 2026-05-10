@@ -58,6 +58,7 @@ public sealed class IndexCheckerCliTests : IClassFixture<TestDirectoryFixture>
         var json = output.ToString();
         Assert.Contains("\"isHealthy\":false", json);
         Assert.Contains("\"issues\"", json);
+        Assert.Contains("\"suggestedActions\"", json);
         Assert.Contains(IndexCheckIssueCodes.RequiredFileMissing, json);
         Assert.Equal(string.Empty, error.ToString());
     }
@@ -130,6 +131,21 @@ public sealed class IndexCheckerCliTests : IClassFixture<TestDirectoryFixture>
 
         Assert.Equal(0, exitCode);
         Assert.Contains("Migration dry-run", output.ToString());
+        Assert.Equal(string.Empty, error.ToString());
+    }
+
+    [Fact(DisplayName = "IndexCheckerCli: Migrate Execute Runs Migration")]
+    public void IndexCheckerCli_MigrateExecute_RunsMigration()
+    {
+        var path = CreateIndex("cli_migrate_execute");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        int exitCode = IndexCheckerCli.Run(["migrate", path, "--execute"], output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("Migration", output.ToString());
+        Assert.DoesNotContain("Migration dry-run", output.ToString());
         Assert.Equal(string.Empty, error.ToString());
     }
 

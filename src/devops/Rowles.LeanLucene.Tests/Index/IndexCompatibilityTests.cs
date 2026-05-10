@@ -1,8 +1,10 @@
 ﻿using Rowles.LeanLucene.Codecs;
 using Rowles.LeanLucene.Document;
 using Rowles.LeanLucene.Document.Fields;
+using Rowles.LeanLucene.Index;
 using Rowles.LeanLucene.Index.Compatibility;
 using Rowles.LeanLucene.Index.Migration;
+using Rowles.LeanLucene.Search.Searcher;
 using Rowles.LeanLucene.Store;
 using Rowles.LeanLucene.Tests.Fixtures;
 
@@ -26,6 +28,8 @@ public sealed class IndexCompatibilityTests : IClassFixture<TestDirectoryFixture
         Assert.Equal(IndexCompatibilityStatus.Compatible, result.Status);
         Assert.True(result.CanRead);
         Assert.True(result.CanWrite);
+        Assert.True(result.CanValidate);
+        Assert.False(result.MustReject);
         Assert.False(result.RequiresMigration);
     }
 
@@ -40,6 +44,8 @@ public sealed class IndexCompatibilityTests : IClassFixture<TestDirectoryFixture
         Assert.Equal(IndexCompatibilityStatus.MigrationRecommended, result.Status);
         Assert.True(result.CanRead);
         Assert.False(result.CanWrite);
+        Assert.True(result.CanValidate);
+        Assert.False(result.MustReject);
         Assert.True(result.CanMigrate);
         Assert.Contains(result.MigrationActions, action => action.FileName is not null && action.FileName.EndsWith(".dic", StringComparison.Ordinal));
     }
@@ -55,6 +61,8 @@ public sealed class IndexCompatibilityTests : IClassFixture<TestDirectoryFixture
         Assert.Equal(IndexCompatibilityStatus.UnsupportedFutureFormat, result.Status);
         Assert.False(result.CanRead);
         Assert.False(result.CanWrite);
+        Assert.False(result.CanValidate);
+        Assert.True(result.MustReject);
     }
 
     [Fact]
@@ -64,6 +72,32 @@ public sealed class IndexCompatibilityTests : IClassFixture<TestDirectoryFixture
         WriteCodecVersion(directory, "*.dic", CodecConstants.TermDictionaryVersion + 1);
 
         Assert.Throws<InvalidDataException>(() => new IndexSearcher(directory));
+    }
+
+    [Fact]
+    public void IndexSearcher_UnsafeMode_AllowsDiagnosticOpenWithMigrationMarker()
+    {
+        using var directory = CreateIndex("compat_marker_unsafe");
+        File.WriteAllText(
+            Path.Combine(directory.DirectoryPath, IndexMigrationRecovery.MarkerFileName),
+            $$"""
+            {
+              "State": 2,
+              "SourceDirectory": "{{directory.DirectoryPath.Replace("\\", "\\\\", StringComparison.Ordinal)}}",
+              "StagingDirectory": "{{Path.Combine(_fixture.Path, "unsafe-staging").Replace("\\", "\\\\", StringComparison.Ordinal)}}",
+              "SourceCommitGeneration": 1,
+              "CreatedAtUtc": "2026-05-10T00:00:00+00:00",
+              "UpdatedAtUtc": "2026-05-10T00:00:00+00:00",
+              "PlannedActions": []
+            }
+            """);
+
+        using var searcher = new IndexSearcher(directory, new IndexSearcherConfig
+        {
+            CompatibilityMode = IndexOpenCompatibilityMode.UnsafeIgnoreCompatibility
+        });
+
+        Assert.NotNull(searcher);
     }
 
     [Fact]

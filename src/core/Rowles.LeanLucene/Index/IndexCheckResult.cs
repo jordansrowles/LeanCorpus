@@ -38,7 +38,8 @@ public sealed class IndexCheckResult
         string message,
         string? fileName,
         string? segmentId,
-        bool isRepairable)
+        bool isRepairable,
+        IReadOnlyList<string>? suggestedActions = null)
     {
         var issue = new IndexCheckIssue
         {
@@ -47,7 +48,8 @@ public sealed class IndexCheckResult
             Message = message,
             FileName = fileName,
             SegmentId = segmentId,
-            IsRepairable = isRepairable
+            IsRepairable = isRepairable,
+            SuggestedActions = suggestedActions ?? IndexRepairRecommendations.ForIssue(code)
         };
 
         _detailedIssues.Add(issue);

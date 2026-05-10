@@ -382,6 +382,7 @@ public static class IndexFormatInspector
             Message = message,
             FileName = fileName,
             SegmentId = segmentId,
-            IsRepairable = isRepairable
+            IsRepairable = isRepairable,
+            SuggestedActions = IndexRepairRecommendations.ForIssue(code)
         };
 }

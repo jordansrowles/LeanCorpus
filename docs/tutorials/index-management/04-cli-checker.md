@@ -40,10 +40,11 @@ Unhealthy output includes one line per issue:
 ```text
 Unhealthy: checked 1 segment(s), 10 document(s), 8 file(s).
 Error LLIDX006 seg_0 seg_0.dic Segment 'seg_0' is missing required file 'seg_0.dic'.
+  Suggested action: Restore the missing or empty segment file from backup, or rebuild the affected segment from source documents.
 ```
 
-The issue columns are severity, stable issue code, segment ID, file name,
-repairability, and message.
+The issue columns are severity, stable issue code, segment ID, file name, and
+message, followed by suggested repair actions where available.
 
 ```text
 leanlucene-cli.exe check <index-path> [--deep] [--json] [--postings] [--stored-fields] [--doc-values] [--vectors] [--hnsw] [--live-docs] [--summary-only] [--fail-on-warnings] [--output <path>]
@@ -109,16 +110,17 @@ Dry-run mode is the default safe workflow for automation:
 Run staged migration with an explicit staging directory:
 
 ```powershell
-.\src\devops\Rowles.LeanLucene.Cli\bin\Release\net10.0\leanlucene-cli.exe migrate .\index --staging .\index.migration
+.\src\devops\Rowles.LeanLucene.Cli\bin\Release\net10.0\leanlucene-cli.exe migrate .\index --execute --staging .\index.migration
 ```
 
 ```text
-leanlucene-cli.exe migrate <index-path> [--dry-run] [--staging <path>] [--in-place] [--json] [--output <path>]
+leanlucene-cli.exe migrate <index-path> [--dry-run] [--execute] [--staging <path>] [--in-place] [--json] [--output <path>]
 ```
 
 | Option | Behaviour |
 |---|---|
 | `--dry-run` | Reports every planned rewrite without modifying files |
+| `--execute` | Runs the migration. Without this option, dry-run mode is used |
 | `--staging <path>` | Uses an explicit staging directory |
 | `--in-place` | Allows source-directory migration instead of staged migration |
 | `--json` | Writes JSON instead of text |
@@ -161,7 +163,10 @@ The check JSON shape includes stable issue fields:
       "message": "Segment 'seg_0' is missing required file 'seg_0.dic'.",
       "fileName": "seg_0.dic",
       "segmentId": "seg_0",
-      "isRepairable": true
+      "isRepairable": true,
+      "suggestedActions": [
+        "Restore the missing or empty segment file from backup, or rebuild the affected segment from source documents."
+      ]
     }
   ]
 }

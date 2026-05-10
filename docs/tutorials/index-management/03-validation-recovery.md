@@ -83,6 +83,7 @@ Each `IndexCheckIssue` includes:
 | `FileName` | Related file name, when file-specific |
 | `SegmentId` | Related segment ID, when segment-specific |
 | `IsRepairable` | Whether future repair tooling could fix the issue |
+| `SuggestedActions` | Repair or recovery actions to consider |
 
 `IsHealthy` is true when no issue has `Error` severity.
 
@@ -129,6 +130,8 @@ Future codec versions are reported in `inventory.Issues` and
 `IndexCompatibility.Check` combines inventory, validation, and migration
 planning. It returns `Compatible`, `MigrationRecommended`, `MigrationRequired`,
 `UnsupportedFutureFormat`, `Corrupt`, or `Empty`.
+The result also exposes `CanRead`, `CanWrite`, `CanValidate`, `CanMigrate`,
+`MustReject`, and `RequiresMigration` flags for automation.
 
 ```csharp
 using Rowles.LeanLucene.Index.Compatibility;

@@ -1,4 +1,6 @@
-﻿using Rowles.LeanLucene.Codecs.DocValues;
+using Rowles.LeanLucene.Codecs;
+using Rowles.LeanLucene.Codecs.DocValues;
+using Rowles.LeanLucene.Codecs.Postings;
 using Rowles.LeanLucene.Codecs.StoredFields;
 using Rowles.LeanLucene.Codecs.TermDictionary;
 using Rowles.LeanLucene.Index.Format;
@@ -15,6 +17,7 @@ public static class IndexCodecMigrator
     private static readonly HashSet<string> ExecutableRewriteExtensions =
     [
         ".dic",
+        ".pos",
         ".dvn",
         ".dvs",
         ".fln",
@@ -99,7 +102,8 @@ public static class IndexCodecMigrator
                     Message = action.ReasonCannotExecute ?? $"Migration action for '{action.SourcePath}' is not executable.",
                     FileName = action.FileName,
                     SegmentId = action.SegmentId,
-                    IsRepairable = false
+                    IsRepairable = false,
+                    SuggestedActions = IndexRepairRecommendations.ForIssue(IndexCheckIssueCodes.UnsupportedMigrationPath)
                 });
             }
 
@@ -240,7 +244,8 @@ public static class IndexCodecMigrator
                     Severity = IndexCheckSeverity.Error,
                     Code = IndexCheckIssueCodes.UnsupportedMigrationPath,
                     Message = ex.Message,
-                    IsRepairable = true
+                    IsRepairable = true,
+                    SuggestedActions = IndexRepairRecommendations.ForIssue(IndexCheckIssueCodes.UnsupportedMigrationPath)
                 }
             };
 
@@ -315,6 +320,9 @@ public static class IndexCodecMigrator
             case ".dic":
                 RewriteTermDictionary(filePath);
                 break;
+            case ".pos":
+                RewritePostings(targetDirectory, action);
+                break;
             case ".dvn":
                 RewriteNumericDocValues(filePath);
                 break;
@@ -343,6 +351,110 @@ public static class IndexCodecMigrator
             path,
             terms.Select(static term => term.Term).ToList(),
             terms.ToDictionary(static term => term.Term, static term => term.Offset, StringComparer.Ordinal));
+    }
+
+    private static void RewritePostings(string targetDirectory, IndexCodecMigrationAction action)
+    {
+        if (action.SegmentId is null)
+            throw new InvalidDataException($"Postings action for '{action.SourcePath}' has no segment ID.");
+
+        var basePath = Path.Combine(targetDirectory, action.SegmentId);
+        List<(string Term, List<PostingRow> Postings)> terms;
+        using (var dictionary = TermDictionaryReader.Open(basePath + ".dic"))
+        using (var input = new IndexInput(basePath + ".pos"))
+        {
+            byte version = PostingsEnum.ValidateFileHeader(input);
+            terms = dictionary
+                .EnumerateAllTerms()
+                .Select(term => (term.Term, ReadPostingRows(input, term.Offset, version)))
+                .ToList();
+        }
+
+        var postingsOffsets = new Dictionary<string, long>(terms.Count, StringComparer.Ordinal);
+        var headerPatches = new List<(long HeaderPos, int DocFreq, long SkipOffset)>(terms.Count);
+
+        using (var output = new IndexOutput(basePath + ".pos"))
+        {
+            CodecConstants.WriteHeader(output, CodecConstants.PostingsVersion);
+            using var blockWriter = new BlockPostingsWriter(output);
+
+            foreach (var (term, postings) in terms)
+            {
+                bool hasFreqs = postings.Any(static posting => posting.Frequency != 1);
+                bool hasPositions = postings.Any(static posting => posting.Positions.Length > 0);
+                bool hasPayloads = postings.Any(static posting => posting.Payloads.Any(static payload => payload.Length > 0));
+
+                long headerPos = output.Position;
+                output.WriteInt32(0);
+                output.WriteInt64(0L);
+                output.WriteBoolean(hasFreqs);
+                output.WriteBoolean(hasPositions);
+                output.WriteBoolean(hasPayloads);
+
+                blockWriter.StartTerm();
+                foreach (var posting in postings)
+                    blockWriter.AddPosting(posting.DocId, hasFreqs ? posting.Frequency : 1);
+                var metadata = blockWriter.FinishTerm();
+
+                if (hasPositions)
+                    WritePositionRows(output, postings, hasPayloads);
+
+                headerPatches.Add((headerPos, metadata.DocFreq, metadata.SkipOffset));
+                postingsOffsets[term] = headerPos;
+            }
+        }
+
+        using (var patchStream = new FileStream(basePath + ".pos", FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Span<byte> patch = stackalloc byte[12];
+            foreach (var (headerPos, docFreq, skipOffset) in headerPatches)
+            {
+                patchStream.Seek(headerPos, SeekOrigin.Begin);
+                System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(patch, docFreq);
+                System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(patch[4..], skipOffset);
+                patchStream.Write(patch);
+            }
+        }
+
+        TermDictionaryWriter.Write(basePath + ".dic", postingsOffsets.Keys.Order(StringComparer.Ordinal).ToList(), postingsOffsets);
+    }
+
+    private static List<PostingRow> ReadPostingRows(IndexInput input, long offset, byte version)
+    {
+        using var postings = PostingsEnum.CreateWithPositions(input, offset, version);
+        var rows = new List<PostingRow>(postings.DocFreq);
+        while (postings.MoveNext())
+        {
+            var positions = postings.GetCurrentPositions().ToArray();
+            var payloads = new byte[positions.Length][];
+            for (int i = 0; i < positions.Length; i++)
+                payloads[i] = postings.GetPayload(i).ToArray();
+            rows.Add(new PostingRow(postings.DocId, postings.Freq, positions, payloads));
+        }
+
+        return rows;
+    }
+
+    private static void WritePositionRows(IndexOutput output, List<PostingRow> postings, bool hasPayloads)
+    {
+        foreach (var posting in postings)
+        {
+            output.WriteVarInt(posting.Positions.Length);
+            int previousPosition = 0;
+            for (int i = 0; i < posting.Positions.Length; i++)
+            {
+                output.WriteVarInt(posting.Positions[i] - previousPosition);
+                previousPosition = posting.Positions[i];
+
+                if (hasPayloads)
+                {
+                    var payload = posting.Payloads[i];
+                    output.WriteVarInt(payload.Length);
+                    if (payload.Length > 0)
+                        output.WriteBytes(payload);
+                }
+            }
+        }
     }
 
     private static void RewriteNumericDocValues(string path)
@@ -422,4 +534,6 @@ public static class IndexCodecMigrator
             });
         }
     }
+
+    private sealed record PostingRow(int DocId, int Frequency, int[] Positions, byte[][] Payloads);
 }
