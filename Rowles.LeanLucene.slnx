@@ -10,6 +10,7 @@
   <Project Path="src/devops/Rowles.LeanLucene.Tests.Unit/Rowles.LeanLucene.Tests.Unit.csproj" />
   <Project Path="src/devops/Rowles.LeanLucene.Tests.Integration/Rowles.LeanLucene.Tests.Integration.csproj" />
   <Project Path="src/devops/Rowles.LeanLucene.Tests.Chaos/Rowles.LeanLucene.Tests.Chaos.csproj" />
+  <Project Path="src/devops/Rowles.LeanLucene.Tests.CompressionParity/Rowles.LeanLucene.Tests.CompressionParity.csproj" />
   <Project Path="src/examples/Rowles.LeanLucene.Example.JsonApi/Rowles.LeanLucene.Example.JsonApi.csproj" />
   <Project Path="src/examples/Rowles.LeanLucene.Example.NewsgroupsIndexer/Rowles.LeanLucene.Example.NewsgroupsIndexer.csproj" />
   <Project Path="src/examples/Rowles.LeanLucene.Example.Telemetry/Rowles.LeanLucene.Example.Telemetry.csproj" />

@@ -15,6 +15,9 @@ public sealed class Lz4CompressionCodec : IFieldCompressionCodec
     /// <inheritdoc />
     public byte[] Compress(ReadOnlySpan<byte> raw)
     {
+        if (raw.Length == 0)
+            return [];
+
         var output = new byte[LZ4Codec.MaximumOutputSize(raw.Length)];
         int written = LZ4Codec.Encode(raw, output, LZ4Level.L00_FAST);
         if (written <= 0)
@@ -27,6 +30,9 @@ public sealed class Lz4CompressionCodec : IFieldCompressionCodec
     /// <inheritdoc />
     public byte[] Decompress(ReadOnlySpan<byte> compressed, int originalSize)
     {
+        if (originalSize == 0)
+            return [];
+
         var raw = new byte[originalSize];
         int decoded = LZ4Codec.Decode(compressed, raw);
         if (decoded != originalSize)

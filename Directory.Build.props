@@ -4,15 +4,15 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Rowles.LeanLucene' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Compression.LZ4' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Compression.Snappy' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Compression.Zstandard' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Cli' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Benchmarks' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Benchmarks.Compression' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Shared' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Unit' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Integration' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Chaos'">
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Rowles.LeanLucene' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Compression.LZ4' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Compression.Snappy' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Compression.Zstandard' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Cli' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Benchmarks' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Benchmarks.Compression' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Shared' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Unit' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Integration' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Chaos' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.CompressionParity'">
     <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Rowles.LeanLucene.Benchmarks.Compression' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Shared' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Unit' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Integration' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Chaos'">
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Rowles.LeanLucene.Benchmarks.Compression' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Shared' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Unit' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Integration' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Chaos' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.CompressionParity'">
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
-  <ItemGroup Condition="'$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Shared' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Unit' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Integration' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Chaos'">
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Shared' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Unit' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Integration' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.Chaos' Or '$(MSBuildProjectName)' == 'Rowles.LeanLucene.Tests.CompressionParity'">
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>
