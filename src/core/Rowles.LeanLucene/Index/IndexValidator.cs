@@ -136,6 +136,8 @@ public static class IndexValidator
         => fileName is "migration_state.json.tmp"
            || (fileName.StartsWith("segments_", StringComparison.Ordinal) && fileName.EndsWith(".tmp", StringComparison.Ordinal))
            || (fileName.StartsWith("stats_", StringComparison.Ordinal) && fileName.EndsWith(".json.tmp", StringComparison.Ordinal))
+           || fileName.EndsWith(".fdt.tmp", StringComparison.Ordinal)
+           || fileName.EndsWith(".fdx.tmp", StringComparison.Ordinal)
            || fileName.EndsWith(".seg.tmp", StringComparison.Ordinal)
            || fileName.EndsWith(".stats.json.tmp", StringComparison.Ordinal)
            || (fileName.Contains("_gen_", StringComparison.Ordinal) && fileName.EndsWith(".del.tmp", StringComparison.Ordinal));

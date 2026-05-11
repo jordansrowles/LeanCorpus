@@ -45,11 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Commit, segment metadata, live-doc, segment stats, and migration marker writes now share the same temp-file publication helper, and validation reports recognised stale temp files and partial migration markers.
 - The test suite is split into `Rowles.LeanLucene.Tests.Unit`, `Rowles.LeanLucene.Tests.Integration`, `Rowles.LeanLucene.Tests.Chaos`, and `Rowles.LeanLucene.Tests.Shared`, with test sources moved into their owning projects.
 - Common target framework, nullable, implicit using, xUnit using, packability, package versions, and NuGet source mapping configuration is centralised through `Directory.Build.props`, `Directory.Packages.props`, and root `NuGet.config`.
+- The GitHub build workflow now runs on `main` and `1.3.0`, and includes the compression parity test project.
 
 ### Fixed
 
 - `BinaryDocValuesReader`, `SortedNumericDocValuesReader`, and `SortedSetDocValuesReader` now reject corrupt offset tables. Initial offsets must be zero, and binary terminal offsets must equal the total payload length; previously, malformed sidecars could silently skip or expose unrelated bytes.
-- Stored-field codec migration now reads existing documents before rewriting `.fdt` and `.fdx`, avoiding Windows file-handle conflicts during staged migration.
+- LZ4 and uncompressed stored-field codecs now reject impossible compressed/original length combinations instead of accepting corrupt empty or oversized payload metadata.
+- Stored-field codec migration now streams existing documents into temporary `.fdt.tmp` and `.fdx.tmp` files before publication, avoiding Windows file-handle conflicts without buffering the whole segment.
 
 ### Removed
 

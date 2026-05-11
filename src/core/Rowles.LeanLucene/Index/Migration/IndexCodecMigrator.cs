@@ -558,18 +558,46 @@ public static class IndexCodecMigrator
 
         var basePath = Path.Combine(targetDirectory, action.SegmentId);
         var info = SegmentInfo.ReadFrom(basePath + ".seg");
-        var documents = new List<Dictionary<string, List<string>>>(info.DocCount);
-        using (var reader = StoredFieldsReader.Open(basePath + ".fdt", basePath + ".fdx"))
-        {
-            for (int docId = 0; docId < info.DocCount; docId++)
-                documents.Add(reader.ReadDocument(docId));
-        }
+        var fdtPath = basePath + ".fdt";
+        var fdxPath = basePath + ".fdx";
+        var temporaryFdtPath = fdtPath + ".tmp";
+        var temporaryFdxPath = fdxPath + ".tmp";
 
-        StoredFieldsWriter.Write(
-            basePath + ".fdt",
-            basePath + ".fdx",
-            documents,
-            compression: FieldCompressionPolicy.Deflate);
+        try
+        {
+            using (var reader = StoredFieldsReader.Open(fdtPath, fdxPath))
+            {
+                StoredFieldsWriter.Write(
+                    temporaryFdtPath,
+                    temporaryFdxPath,
+                    info.DocCount,
+                    reader.ReadDocument,
+                    compression: FieldCompressionPolicy.Deflate);
+            }
+
+            File.Move(temporaryFdtPath, fdtPath, overwrite: true);
+            File.Move(temporaryFdxPath, fdxPath, overwrite: true);
+        }
+        catch
+        {
+            TryDeleteTemporaryFile(temporaryFdtPath);
+            TryDeleteTemporaryFile(temporaryFdxPath);
+            throw;
+        }
+    }
+
+    private static void TryDeleteTemporaryFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 
     private static void AddActions(IEnumerable<CodecFileInventory> files, List<IndexCodecMigrationAction> actions)

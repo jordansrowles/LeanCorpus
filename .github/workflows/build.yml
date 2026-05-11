@@ -2,9 +2,9 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, '1.3.0']
   pull_request:
-    branches: [main]
+    branches: [main, '1.3.0']
 
 jobs:
   build:
@@ -35,18 +35,21 @@ jobs:
           dotnet restore src/devops/Rowles.LeanLucene.Tests.Unit/Rowles.LeanLucene.Tests.Unit.csproj
           dotnet restore src/devops/Rowles.LeanLucene.Tests.Integration/Rowles.LeanLucene.Tests.Integration.csproj
           dotnet restore src/devops/Rowles.LeanLucene.Tests.Chaos/Rowles.LeanLucene.Tests.Chaos.csproj
+          dotnet restore src/devops/Rowles.LeanLucene.Tests.CompressionParity/Rowles.LeanLucene.Tests.CompressionParity.csproj
 
       - name: Build tests
         run: |
           dotnet build src/devops/Rowles.LeanLucene.Tests.Unit/Rowles.LeanLucene.Tests.Unit.csproj -c Release --no-restore
           dotnet build src/devops/Rowles.LeanLucene.Tests.Integration/Rowles.LeanLucene.Tests.Integration.csproj -c Release --no-restore
           dotnet build src/devops/Rowles.LeanLucene.Tests.Chaos/Rowles.LeanLucene.Tests.Chaos.csproj -c Release --no-restore
+          dotnet build src/devops/Rowles.LeanLucene.Tests.CompressionParity/Rowles.LeanLucene.Tests.CompressionParity.csproj -c Release --no-restore
 
       - name: Test
         run: |
           dotnet test src/devops/Rowles.LeanLucene.Tests.Unit/Rowles.LeanLucene.Tests.Unit.csproj -c Release --no-build --logger "trx;LogFileName=unit-test-results.trx"
           dotnet test src/devops/Rowles.LeanLucene.Tests.Integration/Rowles.LeanLucene.Tests.Integration.csproj -c Release --no-build --logger "trx;LogFileName=integration-test-results.trx"
           dotnet test src/devops/Rowles.LeanLucene.Tests.Chaos/Rowles.LeanLucene.Tests.Chaos.csproj -c Release --no-build --logger "trx;LogFileName=chaos-test-results.trx"
+          dotnet test src/devops/Rowles.LeanLucene.Tests.CompressionParity/Rowles.LeanLucene.Tests.CompressionParity.csproj -c Release --no-build --logger "trx;LogFileName=compression-parity-test-results.trx"
 
       - name: Publish Native AOT smoke
         run: dotnet publish src/examples/Rowles.LeanLucene.Example.NativeAot/Rowles.LeanLucene.Example.NativeAot.csproj -c Release -r linux-x64 --self-contained true -p:PublishAot=true -p:WarningsAsErrors=IL2026%3BIL3050%3BIL2070%3BIL2072%3BIL2075%3BIL2090
@@ -67,6 +70,7 @@ jobs:
             src/devops/Rowles.LeanLucene.Tests.Unit/TestResults/*.trx
             src/devops/Rowles.LeanLucene.Tests.Integration/TestResults/*.trx
             src/devops/Rowles.LeanLucene.Tests.Chaos/TestResults/*.trx
+            src/devops/Rowles.LeanLucene.Tests.CompressionParity/TestResults/*.trx
           if-no-files-found: ignore
 
       - name: Upload docs artifact

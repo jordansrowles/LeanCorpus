@@ -110,4 +110,18 @@ public sealed class StoredFieldCompressionTests
         var restored = StoredFieldCompression.Decompress(compressed, 0, FieldCompressionPolicy.None);
         Assert.Empty(restored);
     }
+
+    [Fact(DisplayName = "StoredFieldCompression: Empty Original Size Rejects Compressed Bytes")]
+    public void Decompress_EmptyOriginalSizeWithCompressedBytes_Throws()
+    {
+        Assert.Throws<InvalidDataException>(() =>
+            StoredFieldCompression.Decompress([1], 0, FieldCompressionPolicy.Lz4));
+    }
+
+    [Fact(DisplayName = "StoredFieldCompression: None Policy Rejects Size Mismatch")]
+    public void None_DecompressSizeMismatch_Throws()
+    {
+        Assert.Throws<InvalidDataException>(() =>
+            StoredFieldCompression.Decompress([1], 2, FieldCompressionPolicy.None));
+    }
 }

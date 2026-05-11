@@ -15,8 +15,13 @@ internal sealed class NoneCompressionCodec : IFieldCompressionCodec
 
     public byte[] Decompress(ReadOnlySpan<byte> compressed, int originalSize)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(originalSize);
+
+        if (compressed.Length != originalSize)
+            throw new InvalidDataException($"Uncompressed stored fields contained {compressed.Length} bytes; expected {originalSize} bytes.");
+
         var raw = new byte[originalSize];
-        compressed[..originalSize].CopyTo(raw);
+        compressed.CopyTo(raw);
         return raw;
     }
 }

@@ -28,4 +28,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy docs-site --project-name=leanlucene --branch=main --commit-dirty=true
+          command: pages deploy docs-site --project-name=leanlucene --branch=${{ github.event.workflow_run.head_branch }} --commit-dirty=true

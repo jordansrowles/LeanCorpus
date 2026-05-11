@@ -30,8 +30,15 @@ public sealed class Lz4CompressionCodec : IFieldCompressionCodec
     /// <inheritdoc />
     public byte[] Decompress(ReadOnlySpan<byte> compressed, int originalSize)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(originalSize);
+
         if (originalSize == 0)
+        {
+            if (!compressed.IsEmpty)
+                throw new InvalidDataException("LZ4 compressed data for an empty payload must also be empty.");
+
             return [];
+        }
 
         var raw = new byte[originalSize];
         int decoded = LZ4Codec.Decode(compressed, raw);

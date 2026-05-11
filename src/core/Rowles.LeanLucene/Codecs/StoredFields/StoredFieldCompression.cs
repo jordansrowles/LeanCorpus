@@ -24,16 +24,14 @@ internal static class StoredFieldCompression
     /// <summary>Decompresses block data using the specified policy.</summary>
     internal static byte[] Decompress(ReadOnlySpan<byte> compressed, int originalSize, FieldCompressionPolicy policy)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(originalSize);
+
         if (originalSize == 0)
         {
-            return [];
-        }
+            if (!compressed.IsEmpty)
+                throw new InvalidDataException("Stored fields compressed data for an empty payload must also be empty.");
 
-        if (policy == FieldCompressionPolicy.None)
-        {
-            var raw = new byte[originalSize];
-            compressed[..originalSize].CopyTo(raw);
-            return raw;
+            return [];
         }
 
         return CompressionCodecRegistry.Get(policy).Decompress(compressed, originalSize);
@@ -42,17 +40,22 @@ internal static class StoredFieldCompression
     /// <summary>Decompresses block data from an array-backed buffer using the specified policy.</summary>
     internal static byte[] Decompress(byte[] compressed, int compressedLength, int originalSize, FieldCompressionPolicy policy)
     {
+        ArgumentNullException.ThrowIfNull(compressed);
+        ArgumentOutOfRangeException.ThrowIfNegative(originalSize);
+
+        if ((uint)compressedLength > (uint)compressed.Length)
+            throw new ArgumentOutOfRangeException(nameof(compressedLength));
+
         if (originalSize == 0)
         {
+            if (compressedLength != 0)
+                throw new InvalidDataException("Stored fields compressed data for an empty payload must also be empty.");
+
             return [];
         }
 
         if (policy == FieldCompressionPolicy.None)
-        {
-            var raw = new byte[originalSize];
-            compressed.AsSpan(0, originalSize).CopyTo(raw);
-            return raw;
-        }
+            return CompressionCodecRegistry.Get(policy).Decompress(compressed.AsSpan(0, compressedLength), originalSize);
 
         var codec = CompressionCodecRegistry.Get(policy);
         if (codec is IBufferedFieldCompressionCodec bufferedCodec)
