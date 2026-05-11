@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\core\Rowles.LeanCorpus\Rowles.LeanCorpus.csproj" />
+    <ProjectReference Include="..\..\core\Rowles.LeanCorpus.Compression.LZ4\Rowles.LeanCorpus.Compression.LZ4.csproj" />
+    <ProjectReference Include="..\..\core\Rowles.LeanCorpus.Compression.Snappy\Rowles.LeanCorpus.Compression.Snappy.csproj" />
+    <ProjectReference Include="..\..\core\Rowles.LeanCorpus.Compression.Zstandard\Rowles.LeanCorpus.Compression.Zstandard.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+    <PackageReference Include="BenchmarkDotNet.Annotations" ExcludeAssets="buildTransitive" />
+  </ItemGroup>
+
+</Project>

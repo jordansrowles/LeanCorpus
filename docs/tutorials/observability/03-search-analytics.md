@@ -1,4 +1,4 @@
-# Search analytics
+﻿# Search analytics
 
 `SearchAnalytics` is an in-memory ring buffer of recent search events. Older
 entries are dropped when the buffer is full.
@@ -6,7 +6,7 @@ entries are dropped when the buffer is full.
 ## Set up
 
 ```csharp
-using Rowles.LeanLucene.Diagnostics;
+using Rowles.LeanCorpus.Diagnostics;
 
 var analytics = new SearchAnalytics(capacity: 1000);
 var config = new IndexSearcherConfig { SearchAnalytics = analytics };
@@ -38,5 +38,5 @@ Writes a JSON array. The buffer is drained.
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Diagnostics.SearchAnalytics>
-- <xref:Rowles.LeanLucene.Diagnostics.SearchEvent>
+- <xref:Rowles.LeanCorpus.Diagnostics.SearchAnalytics>
+- <xref:Rowles.LeanCorpus.Diagnostics.SearchEvent>

@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="FsCheck" />
+    <PackageReference Include="FsCheck.Xunit" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Rowles.LeanCorpus.Tests.Shared\Rowles.LeanCorpus.Tests.Shared.csproj" />
+    <ProjectReference Include="..\..\core\Rowles.LeanCorpus\Rowles.LeanCorpus.csproj" />
+  </ItemGroup>
+
+</Project>

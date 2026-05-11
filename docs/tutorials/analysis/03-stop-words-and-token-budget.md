@@ -1,4 +1,4 @@
-# Stop words and the token budget
+﻿# Stop words and the token budget
 
 ## Stop words
 
@@ -34,5 +34,5 @@ documents would otherwise dominate buffer memory.
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Analysis.Filters.StopWordFilter>
-- <xref:Rowles.LeanLucene.Analysis.TokenBudgetPolicy>
+- <xref:Rowles.LeanCorpus.Analysis.Filters.StopWordFilter>
+- <xref:Rowles.LeanCorpus.Analysis.TokenBudgetPolicy>

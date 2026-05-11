@@ -1,14 +1,14 @@
----
+﻿---
 _layout: landing
 ---
 
-# LeanLucene
+# LeanCorpus
 
 A fast, embeddable full-text search engine for .NET. No external processes, no
-JVM, no Lucene. Write an index, run a query, ship your app.
+JVM, no external search server. Write an index, run a query, ship your app.
 
 ```bash
-dotnet add package LeanLucene
+dotnet add package LeanCorpus
 ```
 
 [Get started](tutorials/getting-started/01-installation.md) &nbsp;|&nbsp; [API reference](~/api/index.md)
@@ -25,6 +25,7 @@ dotnet add package LeanLucene
 | **Analysis** | Pluggable tokenisers (standard, n-gram, edge n-gram, CJK bigram), char filters, token filters, stemmers for 10+ languages |
 | **Search features** | Facets, aggregations, highlighting, spell-check suggestions, field collapsing, query caching |
 | **Concurrency** | `SearcherManager` for near-real-time search, snapshot-based backup, configurable commit retention policies |
+| **Operations** | Structured `IndexValidator.Check` results, `leancorpus-cli.exe check`, deep validation for DocValues, stored fields, postings, vectors, HNSW, and live docs |
 | **Observability** | `ActivitySource` traces, `System.Diagnostics.Metrics` via `MeterMetricsCollector`, structured logs through OpenTelemetry, slow query log, search analytics |
 
 ---
@@ -32,12 +33,12 @@ dotnet add package LeanLucene
 ## Quick start
 
 ```csharp
-using Rowles.LeanLucene.Store;
-using Rowles.LeanLucene.Index.Indexer;
-using Rowles.LeanLucene.Document;
-using Rowles.LeanLucene.Document.Fields;
-using Rowles.LeanLucene.Search.Searcher;
-using Rowles.LeanLucene.Search.Queries;
+using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Search.Searcher;
+using Rowles.LeanCorpus.Search.Queries;
 
 // Index
 using var writer = new IndexWriter(new MMapDirectory("./index"), new IndexWriterConfig());
@@ -63,9 +64,9 @@ See the [installation tutorial](tutorials/getting-started/01-installation.md) fo
 
 ---
 
-## Why not just use Lucene?
+## Why native .NET?
 
-LeanLucene targets .NET natively. No JNI bridge, no Java runtime dependency, no cross-process
+LeanCorpus targets .NET natively. No JNI bridge, no Java runtime dependency, no cross-process
 communication. The index format is purpose-built for memory-mapped I/O on .NET, and the query
 engine uses SIMD posting intersection and BlockMax WAND for early termination on large result sets.
 
@@ -75,4 +76,5 @@ engine uses SIMD posting intersection and BlockMax WAND for early termination on
 
 - [Tutorials](tutorials/index.md) - step-by-step guides for common tasks
 - [Articles](articles/index.md) - short notes on recent features
+- [Index checker CLI](tutorials/index-management/04-cli-checker.md) - command-line validation for local indexes
 - [API reference](~/api/index.md) - full type and member documentation

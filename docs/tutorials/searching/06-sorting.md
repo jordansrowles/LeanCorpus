@@ -1,4 +1,4 @@
-# Sorting
+﻿# Sorting
 
 By default, `IndexSearcher.Search` returns hits ordered by relevance score.
 
@@ -7,7 +7,7 @@ By default, `IndexSearcher.Search` returns hits ordered by relevance score.
 Use a sorted-search overload, supplying one or more `SortField` values:
 
 ```csharp
-using Rowles.LeanLucene.Search.Scoring;
+using Rowles.LeanCorpus.Search.Scoring;
 
 var sort = new[]
 {
@@ -22,7 +22,7 @@ Sort field types include `Score`, `String`, `Long`, `Int`, `Double`, `Float`.
 
 ## Index-time sort
 
-Configure <xref:Rowles.LeanLucene.Index.Indexer.IndexSort> on the writer to
+Configure <xref:Rowles.LeanCorpus.Index.Indexer.IndexSort> on the writer to
 physically reorder documents within each segment as they are flushed. Query-time
 sorted searches still collect and order matching hits by the requested field.
 
@@ -38,5 +38,5 @@ var config = new IndexWriterConfig
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Search.Scoring.SortField>
-- <xref:Rowles.LeanLucene.Index.Indexer.IndexSort>
+- <xref:Rowles.LeanCorpus.Search.Scoring.SortField>
+- <xref:Rowles.LeanCorpus.Index.Indexer.IndexSort>

@@ -274,6 +274,8 @@ Generated_Code/
 # because we have git ;-)
 _UpgradeReport_Files/
 Backup*/
+!src/core/Rowles.LeanCorpus/Index/Backup/
+!src/core/Rowles.LeanCorpus/Index/Backup/**
 UpgradeLog*.XML
 UpgradeLog*.htm
 ServiceFabricBackup/

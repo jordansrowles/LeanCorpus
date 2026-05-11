@@ -1,10 +1,10 @@
-name: Build
+﻿name: Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, '1.3.0']
   pull_request:
-    branches: [main]
+    branches: [main, '1.3.0']
 
 jobs:
   build:
@@ -31,19 +31,31 @@ jobs:
         run: echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
 
       - name: Restore tests
-        run: dotnet restore src/Rowles.LeanLucene.Tests/Rowles.LeanLucene.Tests.csproj
+        run: |
+          dotnet restore src/devops/Rowles.LeanCorpus.Tests.Unit/Rowles.LeanCorpus.Tests.Unit.csproj
+          dotnet restore src/devops/Rowles.LeanCorpus.Tests.Integration/Rowles.LeanCorpus.Tests.Integration.csproj
+          dotnet restore src/devops/Rowles.LeanCorpus.Tests.Chaos/Rowles.LeanCorpus.Tests.Chaos.csproj
+          dotnet restore src/devops/Rowles.LeanCorpus.Tests.CompressionParity/Rowles.LeanCorpus.Tests.CompressionParity.csproj
 
       - name: Build tests
-        run: dotnet build src/Rowles.LeanLucene.Tests/Rowles.LeanLucene.Tests.csproj -c Release --no-restore
+        run: |
+          dotnet build src/devops/Rowles.LeanCorpus.Tests.Unit/Rowles.LeanCorpus.Tests.Unit.csproj -c Release --no-restore
+          dotnet build src/devops/Rowles.LeanCorpus.Tests.Integration/Rowles.LeanCorpus.Tests.Integration.csproj -c Release --no-restore
+          dotnet build src/devops/Rowles.LeanCorpus.Tests.Chaos/Rowles.LeanCorpus.Tests.Chaos.csproj -c Release --no-restore
+          dotnet build src/devops/Rowles.LeanCorpus.Tests.CompressionParity/Rowles.LeanCorpus.Tests.CompressionParity.csproj -c Release --no-restore
 
       - name: Test
-        run: dotnet test src/Rowles.LeanLucene.Tests/Rowles.LeanLucene.Tests.csproj -c Release --no-build --logger "trx;LogFileName=test-results.trx"
+        run: |
+          dotnet test src/devops/Rowles.LeanCorpus.Tests.Unit/Rowles.LeanCorpus.Tests.Unit.csproj -c Release --no-build --logger "trx;LogFileName=unit-test-results.trx"
+          dotnet test src/devops/Rowles.LeanCorpus.Tests.Integration/Rowles.LeanCorpus.Tests.Integration.csproj -c Release --no-build --logger "trx;LogFileName=integration-test-results.trx"
+          dotnet test src/devops/Rowles.LeanCorpus.Tests.Chaos/Rowles.LeanCorpus.Tests.Chaos.csproj -c Release --no-build --logger "trx;LogFileName=chaos-test-results.trx"
+          dotnet test src/devops/Rowles.LeanCorpus.Tests.CompressionParity/Rowles.LeanCorpus.Tests.CompressionParity.csproj -c Release --no-build --logger "trx;LogFileName=compression-parity-test-results.trx"
 
       - name: Publish Native AOT smoke
-        run: dotnet publish src/examples/Rowles.LeanLucene.Example.NativeAot/Rowles.LeanLucene.Example.NativeAot.csproj -c Release -r linux-x64 --self-contained true -p:PublishAot=true -p:WarningsAsErrors=IL2026%3BIL3050%3BIL2070%3BIL2072%3BIL2075%3BIL2090
+        run: dotnet publish src/examples/Rowles.LeanCorpus.Example.NativeAot/Rowles.LeanCorpus.Example.NativeAot.csproj -c Release -r linux-x64 --self-contained true -p:PublishAot=true -p:WarningsAsErrors=IL2026%3BIL3050%3BIL2070%3BIL2072%3BIL2075%3BIL2090
 
       - name: Run Native AOT smoke
-        run: src/examples/Rowles.LeanLucene.Example.NativeAot/bin/Release/net10.0/linux-x64/publish/Rowles.LeanLucene.Example.NativeAot
+        run: src/examples/Rowles.LeanCorpus.Example.NativeAot/bin/Release/net10.0/linux-x64/publish/Rowles.LeanCorpus.Example.NativeAot
 
       - name: Build docs
         shell: pwsh
@@ -54,11 +66,15 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: test-results
-          path: src/Rowles.LeanLucene.Tests/TestResults/*.trx
+          path: |
+            src/devops/Rowles.LeanCorpus.Tests.Unit/TestResults/*.trx
+            src/devops/Rowles.LeanCorpus.Tests.Integration/TestResults/*.trx
+            src/devops/Rowles.LeanCorpus.Tests.Chaos/TestResults/*.trx
+            src/devops/Rowles.LeanCorpus.Tests.CompressionParity/TestResults/*.trx
           if-no-files-found: ignore
 
       - name: Upload docs artifact
         uses: actions/upload-artifact@v7
         with:
-          name: leanlucene-docs-site
+          name: leancorpus-docs-site
           path: docs/site

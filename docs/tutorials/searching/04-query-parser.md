@@ -1,6 +1,6 @@
-# The query parser
+﻿# The query parser
 
-<xref:Rowles.LeanLucene.Search.QueryParser> turns a string into a `Query`.
+<xref:Rowles.LeanCorpus.Search.Parsing.QueryParser> turns a string into a `Query`.
 
 ```csharp
 var parser = new QueryParser(defaultField: "body", analyser: new StandardAnalyser());
@@ -39,4 +39,4 @@ The third arg overload accepts an analyser; pass `null` to use the searcher defa
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Search.QueryParser>
+- <xref:Rowles.LeanCorpus.Search.Parsing.QueryParser>

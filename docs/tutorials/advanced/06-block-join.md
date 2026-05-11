@@ -1,4 +1,4 @@
-# Block-join (nested documents)
+﻿# Block-join (nested documents)
 
 Block-join lets a single parent document own a block of child documents, then query
 parents by what their children match.
@@ -26,7 +26,7 @@ The last document in the block is the parent.
 ## Query parents by child matches
 
 ```csharp
-using Rowles.LeanLucene.Search.Queries;
+using Rowles.LeanCorpus.Search.Queries;
 
 var childQ  = new TermQuery("comment", "battery");
 var parentQ = new BlockJoinQuery(childQ);
@@ -38,5 +38,5 @@ var hits = searcher.Search(parentQ, topN: 10);
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Search.Queries.BlockJoinQuery>
-- <xref:Rowles.LeanLucene.Index.Indexer.IndexWriter.AddDocumentBlock%2A>
+- <xref:Rowles.LeanCorpus.Search.Queries.BlockJoinQuery>
+- <xref:Rowles.LeanCorpus.Index.Indexer.IndexWriter.AddDocumentBlock%2A>

@@ -1,0 +1,17 @@
+﻿<Solution>
+  <Project Path="src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj" />
+  <Project Path="src/core/Rowles.LeanCorpus.Compression.LZ4/Rowles.LeanCorpus.Compression.LZ4.csproj" />
+  <Project Path="src/core/Rowles.LeanCorpus.Compression.Snappy/Rowles.LeanCorpus.Compression.Snappy.csproj" />
+  <Project Path="src/core/Rowles.LeanCorpus.Compression.Zstandard/Rowles.LeanCorpus.Compression.Zstandard.csproj" />
+  <Project Path="src/devops/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj" />
+  <Project Path="src/devops/Rowles.LeanCorpus.Benchmarks.Compression/Rowles.LeanCorpus.Benchmarks.Compression.csproj" />
+  <Project Path="src/devops/Rowles.LeanCorpus.Cli/Rowles.LeanCorpus.Cli.csproj" />
+  <Project Path="src/devops/Rowles.LeanCorpus.Tests.Shared/Rowles.LeanCorpus.Tests.Shared.csproj" />
+  <Project Path="src/devops/Rowles.LeanCorpus.Tests.Unit/Rowles.LeanCorpus.Tests.Unit.csproj" />
+  <Project Path="src/devops/Rowles.LeanCorpus.Tests.Integration/Rowles.LeanCorpus.Tests.Integration.csproj" />
+  <Project Path="src/devops/Rowles.LeanCorpus.Tests.Chaos/Rowles.LeanCorpus.Tests.Chaos.csproj" />
+  <Project Path="src/devops/Rowles.LeanCorpus.Tests.CompressionParity/Rowles.LeanCorpus.Tests.CompressionParity.csproj" />
+  <Project Path="src/examples/Rowles.LeanCorpus.Example.JsonApi/Rowles.LeanCorpus.Example.JsonApi.csproj" />
+  <Project Path="src/examples/Rowles.LeanCorpus.Example.NewsgroupsIndexer/Rowles.LeanCorpus.Example.NewsgroupsIndexer.csproj" />
+  <Project Path="src/examples/Rowles.LeanCorpus.Example.Telemetry/Rowles.LeanCorpus.Example.Telemetry.csproj" />
+</Solution>

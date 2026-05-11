@@ -1,10 +1,10 @@
-{
+﻿{
   "metadata": [
     {
       "src": [
         {
-          "files": [ "Rowles.LeanLucene.csproj" ],
-          "src": "../src/Rowles.LeanLucene"
+          "files": [ "Rowles.LeanCorpus.csproj" ],
+          "src": "../src/core/Rowles.LeanCorpus"
         }
       ],
       "dest": "api",
@@ -34,19 +34,16 @@
       }
     ],
     "output": "site",
-    "template": [ "default", "modern", "templates/leanlucene" ],
+    "template": [ "default", "modern", "templates/leancorpus" ],
     "resource": [
       {
         "files": [ "assets/**" ]
       },
-      {
-        "files": [ "coverage/**" ]
-      }
     ],
     "globalMetadata": {
-      "_appTitle": "LeanLucene",
-      "_appName": "LeanLucene",
-      "_appFooter": "LeanLucene: a fast, embeddable full-text search engine for .NET",
+      "_appTitle": "LeanCorpus",
+      "_appName": "LeanCorpus",
+      "_appFooter": "LeanCorpus: a fast, embeddable full-text search engine for .NET",
       "_enableSearch": true,
       "categoryLayout": "nested"
     }

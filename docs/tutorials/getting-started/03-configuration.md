@@ -1,6 +1,6 @@
-# Writer configuration
+﻿# Writer configuration
 
-<xref:Rowles.LeanLucene.Index.Indexer.IndexWriterConfig> exposes the knobs that affect
+<xref:Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig> exposes the knobs that affect
 buffering, merging, compression, and analysis.
 
 ## Common settings
@@ -14,7 +14,7 @@ var config = new IndexWriterConfig
     MaxQueuedDocs   = 20_000,
     MergeThreshold  = 10,
     DurableCommits  = true,
-    CompressionPolicy = FieldCompressionPolicy.Lz4,
+    CompressionPolicy = FieldCompressionPolicy.Deflate,
     StoredFieldBlockSize = 16,
 };
 ```
@@ -30,7 +30,7 @@ var config = new IndexWriterConfig
 | `Similarity` | `Bm25Similarity.Instance` |
 | `DeletionPolicy` | `KeepLatestCommitPolicy` |
 | `DurableCommits` | `true` |
-| `CompressionPolicy` | `Lz4` |
+| `CompressionPolicy` | `Deflate` |
 | `StoredFieldBlockSize` | `16` |
 | `PostingsSkipInterval` | `128` |
 | `MergeThreshold` | `10` |
@@ -44,10 +44,10 @@ var config = new IndexWriterConfig
 - **`RamBufferSizeMB` / `MaxBufferedDocs`**: in-memory buffer before a flush.
 - **`MergeThreshold`**: number of segments before a background merge runs.
 - **`DurableCommits`**: when true, fsyncs before declaring a commit successful.
-- **`Schema`**: optional <xref:Rowles.LeanLucene.Index.Indexer.IndexSchema>; rejects
+- **`Schema`**: optional <xref:Rowles.LeanCorpus.Index.Indexer.IndexSchema>; rejects
   bad documents at `AddDocument` time.
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Index.Indexer.IndexWriterConfig>
-- <xref:Rowles.LeanLucene.Codecs.StoredFields.FieldCompressionPolicy>
+- <xref:Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig>
+- <xref:Rowles.LeanCorpus.Codecs.StoredFields.FieldCompressionPolicy>

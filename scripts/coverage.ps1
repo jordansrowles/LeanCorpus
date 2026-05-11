@@ -1,6 +1,6 @@
-<#
+﻿<#
 .SYNOPSIS
-    Runs LeanLucene tests with code coverage collection.
+    Runs LeanCorpus tests with code coverage collection.
 
 .DESCRIPTION
     Executes the test suite under coverlet, collecting XPlat Code Coverage
@@ -34,6 +34,7 @@
     .\scripts\coverage.ps1 -IncludePerformance
     Runs coverage without excluding tests marked Coverage=Skip.
 #>
+[CmdletBinding()]
 param(
     [ValidateSet('net10.0', 'net11.0')]
     [string]$Framework = 'net10.0',
@@ -49,13 +50,29 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot    = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$testProject = Join-Path $repoRoot "src\Rowles.LeanLucene.Tests\Rowles.LeanLucene.Tests.csproj"
-$resultsDir  = Join-Path $repoRoot "coverage-results"
+$repoRoot         = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+$testProjectsRoot = Join-Path $repoRoot "src\devops"
+$testProjects     = @(
+    Get-ChildItem -Path $testProjectsRoot -Filter "*.csproj" -Recurse |
+        Where-Object {
+            $_.Directory.Name -like "Rowles.LeanCorpus.Tests.*" -and
+            $_.Directory.Name -ne "Rowles.LeanCorpus.Tests.Shared"
+        } |
+        Sort-Object -Property FullName |
+        ForEach-Object { $_.FullName }
+)
+$resultsDir       = Join-Path $repoRoot "coverage-results"
 
-if (-not (Test-Path $testProject)) {
-    Write-Error "Test project not found at: $testProject"
+if ($testProjects.Count -eq 0) {
+    Write-Error "No test projects found under: $testProjectsRoot"
     exit 1
+}
+
+foreach ($testProject in $testProjects) {
+    if (-not (Test-Path $testProject)) {
+        Write-Error "Test project not found at: $testProject"
+        exit 1
+    }
 }
 
 if ($Clean -and (Test-Path $resultsDir)) {
@@ -76,24 +93,28 @@ if (-not $IncludePerformance) {
 }
 Write-Host ""
 
-$testArgs = @(
-    'test',
-    $testProject,
-    '--configuration', $Configuration,
-    '--framework', $Framework,
-    '--collect', 'XPlat Code Coverage',
-    '--results-directory', $resultsDir
-)
+foreach ($testProject in $testProjects) {
+    Write-Host "  Project:       $([System.IO.Path]::GetFileNameWithoutExtension($testProject))" -ForegroundColor DarkGray
 
-if (-not $IncludePerformance) {
-    $testArgs += @('--filter', 'Coverage!=Skip')
-}
+    $testArgs = @(
+        'test',
+        $testProject,
+        '--configuration', $Configuration,
+        '--framework', $Framework,
+        '--collect', 'XPlat Code Coverage',
+        '--results-directory', $resultsDir
+    )
 
-dotnet @testArgs
+    if (-not $IncludePerformance) {
+        $testArgs += @('--filter', 'Coverage!=Skip')
+    }
 
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Tests failed with exit code $LASTEXITCODE."
-    exit $LASTEXITCODE
+    dotnet @testArgs
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Tests failed with exit code $LASTEXITCODE."
+        exit $LASTEXITCODE
+    }
 }
 
 $xmlFiles = @(Get-ChildItem $resultsDir -Filter 'coverage.cobertura.xml' -Recurse)

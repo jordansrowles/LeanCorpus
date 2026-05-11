@@ -1,4 +1,4 @@
-# Aspire dashboard
+﻿# Aspire dashboard
 
 The telemetry example is set up for the standalone Aspire dashboard.
 
@@ -6,7 +6,7 @@ The telemetry example is set up for the standalone Aspire dashboard.
 
 ```powershell
 aspire-dashboard -s false
-dotnet run --project src\examples\Rowles.LeanLucene.Example.Telemetry
+dotnet run --project src\examples\Rowles.LeanCorpus.Example.Telemetry
 ```
 
 Open `http://localhost:18888` for the dashboard.

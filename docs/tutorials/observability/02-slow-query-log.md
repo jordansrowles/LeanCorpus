@@ -1,12 +1,12 @@
-# Slow query log
+﻿# Slow query log
 
 `SlowQueryLog` writes one JSON line per query that exceeds a latency threshold.
 
 ## Wire it up
 
 ```csharp
-using Rowles.LeanLucene.Diagnostics;
-using Rowles.LeanLucene.Search.Searcher;
+using Rowles.LeanCorpus.Diagnostics;
+using Rowles.LeanCorpus.Search.Searcher;
 
 using var slowLog = SlowQueryLog.ToFile(
     thresholdMs: 50.0,
@@ -34,4 +34,4 @@ The file is JSON Lines. Parse each line with the schema above.
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Diagnostics.SlowQueryLog>
+- <xref:Rowles.LeanCorpus.Diagnostics.SlowQueryLog>

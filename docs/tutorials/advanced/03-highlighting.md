@@ -1,11 +1,11 @@
-# Highlighting
+﻿# Highlighting
 
 `Highlighter` extracts a snippet from stored text and wraps matching terms in tags.
 
 ## Use it
 
 ```csharp
-using Rowles.LeanLucene.Search;
+using Rowles.LeanCorpus.Search;
 
 var hl = new Highlighter(preTag: "<mark>", postTag: "</mark>", analyser: new StandardAnalyser());
 
@@ -37,4 +37,4 @@ truncated original when no terms match.
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Search.Highlighter>
+- <xref:Rowles.LeanCorpus.Search.Highlighting.Highlighter>

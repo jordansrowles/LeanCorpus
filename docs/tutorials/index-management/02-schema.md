@@ -1,4 +1,4 @@
-# Schema validation
+﻿# Schema validation
 
 `IndexSchema` declares the expected field set and type per field. When attached to
 the writer, every `AddDocument` call is validated.
@@ -6,8 +6,8 @@ the writer, every `AddDocument` call is validated.
 ## Define a schema
 
 ```csharp
-using Rowles.LeanLucene.Index.Indexer;
-using Rowles.LeanLucene.Document.Fields;
+using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Document.Fields;
 
 var schema = new IndexSchema { StrictMode = true }
     .Add(new FieldMapping("id",    FieldType.String) { IsStored = true, IsRequired = true })
@@ -32,5 +32,5 @@ setting `Analyser`.
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Index.Indexer.IndexSchema>
-- <xref:Rowles.LeanLucene.Index.Indexer.FieldMapping>
+- <xref:Rowles.LeanCorpus.Index.Indexer.IndexSchema>
+- <xref:Rowles.LeanCorpus.Index.Indexer.FieldMapping>

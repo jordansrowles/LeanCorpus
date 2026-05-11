@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unified LeanLucene benchmark runner.
+# Unified LeanCorpus benchmark runner.
 #
 # Usage:
 #   ./scripts/benchmark.sh [options] [BenchmarkDotNet args...]
@@ -11,7 +11,7 @@
 #   --doccount <n>        Override document count (overrides --strat)
 #   --prepare-data        Download benchmark data if not already present
 #   --book-count <n>      Number of Gutenberg books to fetch with --prepare-data (default: 200)
-#   --lean-only           Skip Lucene.NET comparison benchmarks
+#   --corpus-only         Skip Lucene.NET comparison benchmarks
 #   --list                List available suites and strategies and exit
 #   --dry                 Print the command that would run without executing it
 #   --gcdump              Collect GC heap dumps (requires dotnet-gcdump)
@@ -26,7 +26,7 @@
 # Examples:
 #   ./scripts/benchmark.sh
 #   ./scripts/benchmark.sh --suite query
-#   ./scripts/benchmark.sh --suite gutenberg-search --lean-only
+#   ./scripts/benchmark.sh --suite gutenberg-search --corpus-only
 #   ./scripts/benchmark.sh --strat fast --suite boolean
 #   ./scripts/benchmark.sh --strat intense --doccount 20000
 #   ./scripts/benchmark.sh --prepare-data --book-count 200
@@ -37,13 +37,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROJECT_PATH="$REPO_ROOT/src/Rowles.LeanLucene.Benchmarks/Rowles.LeanLucene.Benchmarks.csproj"
+PROJECT_PATH="$REPO_ROOT/src/devops/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj"
 
 SUITE="all"
 STRAT="default"
 TARGET_FRAMEWORK="net10.0"
 DOC_COUNT=0
-LEAN_ONLY=false
+CORPUS_ONLY=false
 DRY=false
 LIST=false
 HELP=false
@@ -146,8 +146,8 @@ while [[ $# -gt 0 ]]; do
             BOOK_COUNT="${2:-}"
             shift 2
             ;;
-        --lean-only)
-            LEAN_ONLY=true
+        --corpus-only)
+            CORPUS_ONLY=true
             shift
             ;;
         --dry)
@@ -206,7 +206,7 @@ fi
 
 if $HELP; then
     echo ""
-    echo "  LeanLucene Benchmark Runner"
+    echo "  LeanCorpus Benchmark Runner"
     echo "  ============================"
     echo ""
     echo "  Usage:"
@@ -219,7 +219,7 @@ if $HELP; then
     echo "    --doccount <n>        Override document count (overrides --strat)"
     echo "    --prepare-data        Download benchmark data if not already present"
     echo "    --book-count <n>      Number of Gutenberg books to fetch (default: 200)"
-    echo "    --lean-only           Skip Lucene.NET comparison benchmarks"
+    echo "    --corpus-only         Skip Lucene.NET comparison benchmarks"
     echo "    --list                List available suites and strategies and exit"
     echo "    --dry                 Print the command that would run without executing it"
     echo "    --gcdump              Collect GC heap dumps (requires dotnet-gcdump)"
@@ -244,14 +244,14 @@ if $HELP; then
     echo "    bench/{machine-name}/index.json   Per-machine run index"
     echo ""
     echo "  BenchmarkDotNet pass-through examples:"
-    echo "    --filter *Lean*            Run only methods whose name contains Lean"
+    echo "    --filter *LeanCorpus*      Run only methods whose name contains LeanCorpus"
     echo "    --job short                Use the Short job instead of Default"
     echo "    --runtimes net10.0         Override the target runtime"
     echo ""
     echo "  Examples:"
     echo "    ./scripts/benchmark.sh                                          # all suites"
     echo "    ./scripts/benchmark.sh --suite query                            # query only"
-    echo "    ./scripts/benchmark.sh --suite gutenberg-search --lean-only     # real data, lean only"
+    echo "    ./scripts/benchmark.sh --suite gutenberg-search --corpus-only   # real data, corpus only"
     echo "    ./scripts/benchmark.sh --strat fast --suite boolean             # smoke: boolean"
     echo "    ./scripts/benchmark.sh --strat intense --doccount 20000         # full: 20K docs"
     echo "    ./scripts/benchmark.sh --prepare-data --book-count 200          # fetch data then run all"
@@ -299,7 +299,7 @@ case "$STRAT" in
 esac
 
 if $CONTROLLED; then
-    LEAN_ONLY=true
+    CORPUS_ONLY=true
     if [[ "$DOC_COUNT" -le 0 && "$STRAT_DOC_COUNT" -le 0 ]]; then
         STRAT_DOC_COUNT=1000
     fi
@@ -359,8 +359,8 @@ if $PREPARE_DATA; then
 fi
 
 RUN_ARGS=(--suite "$SUITE")
-if $LEAN_ONLY; then
-    RUN_ARGS+=(--lean-only)
+if $CORPUS_ONLY; then
+    RUN_ARGS+=(--corpus-only)
 fi
 
 if [[ "$EFFECTIVE_DOC_COUNT" -gt 0 ]]; then
@@ -392,8 +392,8 @@ echo "Framework: $TARGET_FRAMEWORK"
 if $CONTROLLED; then
     echo "Mode:     controlled"
 fi
-if $LEAN_ONLY; then
-    echo "LeanOnly: enabled"
+if $CORPUS_ONLY; then
+    echo "CorpusOnly: enabled"
 fi
 if [[ "$EFFECTIVE_DOC_COUNT" -gt 0 ]]; then
     echo "Docs:     $EFFECTIVE_DOC_COUNT"

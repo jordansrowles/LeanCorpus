@@ -1,9 +1,9 @@
-<#
+﻿<#
 .SYNOPSIS
-    Unified LeanLucene benchmark runner.
+    Unified LeanCorpus benchmark runner.
 
 .DESCRIPTION
-    Runs BenchmarkDotNet suites for LeanLucene. Results are written to
+    Runs BenchmarkDotNet suites for LeanCorpus. Results are written to
     bench/{machine}/{date}/{time}/ with JSON, Markdown, and HTML output.
     A consolidated report.json and per-machine index.json are generated.
 
@@ -37,8 +37,8 @@
 .PARAMETER BookCount
     Number of Gutenberg books to download when -PrepareData is used. Defaults to 200.
 
-.PARAMETER LeanOnly
-    Skip Lucene.NET comparison benchmarks; run LeanLucene methods only.
+.PARAMETER CorpusOnly
+    Skip Lucene.NET comparison benchmarks; run LeanCorpus methods only.
 
 .PARAMETER Help
     Show usage information and exit.
@@ -54,7 +54,7 @@
 
 .PARAMETER Controlled
     Use a deterministic local diagnostic preset. Defaults to 1000 documents,
-    --job short, and LeanLucene-only when those are not otherwise specified.
+    --job short, and LeanCorpus-only when those are not otherwise specified.
 
 .PARAMETER SourceCommit
     Source commit for copied benchmark runs where .git is unavailable.
@@ -78,8 +78,8 @@
     Runs only the TermQuery benchmark suite.
 
 .EXAMPLE
-    .\scripts\benchmark.ps1 -Suite gutenberg-search -LeanOnly
-    Runs Gutenberg search benchmarks, LeanLucene only.
+    .\scripts\benchmark.ps1 -Suite gutenberg-search -CorpusOnly
+    Runs Gutenberg search benchmarks, LeanCorpus only.
 
 .EXAMPLE
     .\scripts\benchmark.ps1 -Strat fast -Suite boolean
@@ -118,7 +118,7 @@ param(
 
     [int]$BookCount = 200,
 
-    [switch]$LeanOnly,
+    [switch]$CorpusOnly,
 
     [switch]$Help,
 
@@ -199,7 +199,7 @@ $stratDescriptions = [ordered]@{
 
 if ($Help) {
     Write-Host ''
-    Write-Host '  LeanLucene Benchmark Runner'
+    Write-Host '  LeanCorpus Benchmark Runner'
     Write-Host '  ============================'
     Write-Host ''
     Write-Host '  Usage:'
@@ -212,7 +212,7 @@ if ($Help) {
     Write-Host '    -DocCount <n>      Override document count (overrides -Strat)'
     Write-Host '    -PrepareData       Download benchmark data if not already present'
     Write-Host '    -BookCount <n>     Number of Gutenberg books to fetch with -PrepareData (default: 200)'
-    Write-Host '    -LeanOnly          Skip Lucene.NET comparison benchmarks'
+    Write-Host '    -CorpusOnly        Skip Lucene.NET comparison benchmarks'
     Write-Host '    -List              List available suites and strategies and exit'
     Write-Host '    -Dry               Print the command that would run without executing it'
     Write-Host '    -GcDump            Collect GC heap dumps (requires dotnet-gcdump)'
@@ -237,14 +237,14 @@ if ($Help) {
     Write-Host '    bench/{machine-name}/index.json   Per-machine run index'
     Write-Host ''
     Write-Host '  BenchmarkDotNet pass-through examples:'
-    Write-Host '    --filter *Lean*            Run only methods whose name contains Lean'
+    Write-Host '    --filter *LeanCorpus*      Run only methods whose name contains LeanCorpus'
     Write-Host '    --job short                Use the Short job instead of Default'
     Write-Host '    --runtimes net10.0         Override the target runtime'
     Write-Host ''
     Write-Host '  Examples:'
     Write-Host '    .\scripts\benchmark.ps1                                          # all suites'
     Write-Host '    .\scripts\benchmark.ps1 -Suite query                             # query only'
-    Write-Host '    .\scripts\benchmark.ps1 -Suite gutenberg-search -LeanOnly        # real data, lean only'
+    Write-Host '    .\scripts\benchmark.ps1 -Suite gutenberg-search -CorpusOnly      # real data, corpus only'
     Write-Host '    .\scripts\benchmark.ps1 -Strat fast -Suite boolean               # smoke: boolean'
     Write-Host '    .\scripts\benchmark.ps1 -Strat intense -DocCount 20000           # full: 20K docs'
     Write-Host '    .\scripts\benchmark.ps1 -List                                    # list suites'
@@ -298,7 +298,7 @@ if ($Controlled) {
     if ($stratJobArgs.Count -eq 0 -and -not (Test-HasBdnOption $BenchmarkArgs @('--job', '-j'))) {
         $stratJobArgs = @('--job', 'short')
     }
-    $LeanOnly = $true
+    $CorpusOnly = $true
 }
 
 # DocCount parameter overrides strategy; if neither set, leave unset (BDN [Params] defaults)
@@ -310,7 +310,7 @@ if ($DocCount -gt 0) {
 }
 
 $projectPath = [System.IO.Path]::GetFullPath(
-    (Join-Path $PSScriptRoot "..\src\Rowles.LeanLucene.Benchmarks\Rowles.LeanLucene.Benchmarks.csproj")
+    (Join-Path $PSScriptRoot "..\src\devops\Rowles.LeanCorpus.Benchmarks\Rowles.LeanCorpus.Benchmarks.csproj")
 )
 
 if (-not (Test-Path $projectPath)) {
@@ -362,8 +362,8 @@ if ($effectiveDocCount -gt 0) {
     $env:BENCH_DOC_COUNT = $effectiveDocCount.ToString()
 }
 
-if ($LeanOnly) {
-    $runArgs += '--lean-only'
+if ($CorpusOnly) {
+    $runArgs += '--corpus-only'
 }
 
 if (-not [string]::IsNullOrWhiteSpace($SourceCommit)) {
@@ -387,7 +387,7 @@ Write-Host "Suite:    $Suite"
 Write-Host "Strat:    $Strat"
 Write-Host "Framework: $Framework"
 if ($Controlled) { Write-Host "Mode:     controlled" }
-if ($LeanOnly) { Write-Host "LeanOnly: enabled" }
+if ($CorpusOnly) { Write-Host "CorpusOnly: enabled" }
 if ($effectiveDocCount -gt 0) {
     Write-Host "Docs:     $effectiveDocCount"
 }

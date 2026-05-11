@@ -1,7 +1,7 @@
-# Query types overview
+﻿# Query types overview
 
-Every query derives from <xref:Rowles.LeanLucene.Search.Query>. The built-in types live
-under `Rowles.LeanLucene.Search.Queries`.
+Every query derives from <xref:Rowles.LeanCorpus.Search.Query>. The built-in types live
+under `Rowles.LeanCorpus.Search.Queries`.
 
 | Query | Use |
 |---|---|
@@ -28,7 +28,7 @@ under `Rowles.LeanLucene.Search.Queries`.
 var hits = searcher.Search(new TermQuery("title", "fox"), topN: 10);
 ```
 
-All overloads of <xref:Rowles.LeanLucene.Search.Searcher.IndexSearcher.Search%2A>
+All overloads of <xref:Rowles.LeanCorpus.Search.Searcher.IndexSearcher.Search%2A>
 return a `TopDocs`.
 
 ## See also

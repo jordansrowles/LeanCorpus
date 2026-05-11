@@ -1,4 +1,4 @@
-# Refresh failures
+﻿# Refresh failures
 
 `SearcherManager` polls for new commits in the background. If a commit file is
 temporarily unreadable or invalid, the manager keeps the current searcher alive
@@ -29,5 +29,5 @@ if (manager.LastRefreshError is { } error)
 ## See also
 
 - [Searcher manager](01-searcher-manager.md)
-- <xref:Rowles.LeanLucene.Search.Searcher.RefreshFailedEventArgs>
-- <xref:Rowles.LeanLucene.Search.Searcher.SearcherLease>
+- <xref:Rowles.LeanCorpus.Search.Searcher.RefreshFailedEventArgs>
+- <xref:Rowles.LeanCorpus.Search.Searcher.SearcherLease>

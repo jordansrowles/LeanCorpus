@@ -1,4 +1,4 @@
-# Reciprocal rank fusion
+﻿# Reciprocal rank fusion
 
 `RrfQuery` merges several result lists by rank, not by score, so the children do not
 need score normalisation.
@@ -15,7 +15,7 @@ results. `k` defaults to `60`.
 ## Combining text and vector results
 
 ```csharp
-using Rowles.LeanLucene.Search.Queries;
+using Rowles.LeanCorpus.Search.Queries;
 
 var rrf = new RrfQuery(k: 60)
     .Add(new TermQuery("body", "machine"))
@@ -39,4 +39,4 @@ var fused = RrfQuery.Combine(new[] { topDocsA, topDocsB }, topN: 10, k: 60);
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Search.Queries.RrfQuery>
+- <xref:Rowles.LeanCorpus.Search.Queries.RrfQuery>

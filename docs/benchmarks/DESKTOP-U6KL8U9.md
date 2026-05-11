@@ -1,4 +1,4 @@
----
+﻿---
 title: Benchmarks - DESKTOP-U6KL8U9
 ---
 
@@ -10,24 +10,24 @@ title: Benchmarks - DESKTOP-U6KL8U9
 
 | Method                     | SearchTerm | Mean      | Error     | StdDev    | Median    | Ratio | RatioSD | Gen0   | Gen1   | Allocated | Alloc Ratio |
 |--------------------------- |----------- |----------:|----------:|----------:|----------:|------:|--------:|-------:|-------:|----------:|------------:|
-| **LeanLucene_Standard_Search** | **death**      |  **9.680 μs** | **0.0922 μs** | **0.0817 μs** |  **9.669 μs** |  **1.00** |    **0.00** |      **-** |      **-** |     **472 B** |        **1.00** |
-| LeanLucene_English_Search  | death      |  9.637 μs | 0.0390 μs | 0.0365 μs |  9.638 μs |  1.00 |    0.01 |      - |      - |     472 B |        1.00 |
+| **LeanCorpus_Standard_Search** | **death**      |  **9.680 μs** | **0.0922 μs** | **0.0817 μs** |  **9.669 μs** |  **1.00** |    **0.00** |      **-** |      **-** |     **472 B** |        **1.00** |
+| LeanCorpus_English_Search  | death      |  9.637 μs | 0.0390 μs | 0.0365 μs |  9.638 μs |  1.00 |    0.01 |      - |      - |     472 B |        1.00 |
 | LuceneNet_Search           | death      | 15.235 μs | 0.1571 μs | 0.1392 μs | 15.239 μs |  1.57 |    0.02 | 0.1526 | 0.0153 |   11231 B |       23.79 |
 |                            |            |           |           |           |           |       |         |        |        |           |             |
-| **LeanLucene_Standard_Search** | **love**       | **12.620 μs** | **0.0541 μs** | **0.0506 μs** | **12.614 μs** |  **1.00** |    **0.00** |      **-** |      **-** |     **464 B** |        **1.00** |
-| LeanLucene_English_Search  | love       | 16.882 μs | 0.0990 μs | 0.0926 μs | 16.885 μs |  1.34 |    0.01 |      - |      - |     464 B |        1.00 |
+| **LeanCorpus_Standard_Search** | **love**       | **12.620 μs** | **0.0541 μs** | **0.0506 μs** | **12.614 μs** |  **1.00** |    **0.00** |      **-** |      **-** |     **464 B** |        **1.00** |
+| LeanCorpus_English_Search  | love       | 16.882 μs | 0.0990 μs | 0.0926 μs | 16.885 μs |  1.34 |    0.01 |      - |      - |     464 B |        1.00 |
 | LuceneNet_Search           | love       | 23.896 μs | 0.7845 μs | 2.3131 μs | 24.098 μs |  1.89 |    0.18 | 0.1526 | 0.0305 |   11180 B |       24.09 |
 |                            |            |           |           |           |           |       |         |        |        |           |             |
-| **LeanLucene_Standard_Search** | **man**        | **58.632 μs** | **2.9506 μs** | **8.7000 μs** | **58.572 μs** |  **1.00** |    **0.00** |      **-** |      **-** |     **464 B** |        **1.00** |
-| LeanLucene_English_Search  | man        | 59.109 μs | 1.0303 μs | 0.9133 μs | 59.182 μs |  1.03 |    0.15 |      - |      - |     464 B |        1.00 |
+| **LeanCorpus_Standard_Search** | **man**        | **58.632 μs** | **2.9506 μs** | **8.7000 μs** | **58.572 μs** |  **1.00** |    **0.00** |      **-** |      **-** |     **464 B** |        **1.00** |
+| LeanCorpus_English_Search  | man        | 59.109 μs | 1.0303 μs | 0.9133 μs | 59.182 μs |  1.03 |    0.15 |      - |      - |     464 B |        1.00 |
 | LuceneNet_Search           | man        | 58.660 μs | 1.4793 μs | 4.3617 μs | 56.669 μs |  1.02 |    0.17 | 0.1221 |      - |   11064 B |       23.84 |
 |                            |            |           |           |           |           |       |         |        |        |           |             |
-| **LeanLucene_Standard_Search** | **night**      | **32.269 μs** | **0.2541 μs** | **0.2252 μs** | **32.216 μs** |  **1.00** |    **0.00** |      **-** |      **-** |     **472 B** |        **1.00** |
-| LeanLucene_English_Search  | night      | 34.232 μs | 0.6609 μs | 0.7867 μs | 33.983 μs |  1.06 |    0.02 |      - |      - |     472 B |        1.00 |
+| **LeanCorpus_Standard_Search** | **night**      | **32.269 μs** | **0.2541 μs** | **0.2252 μs** | **32.216 μs** |  **1.00** |    **0.00** |      **-** |      **-** |     **472 B** |        **1.00** |
+| LeanCorpus_English_Search  | night      | 34.232 μs | 0.6609 μs | 0.7867 μs | 33.983 μs |  1.06 |    0.02 |      - |      - |     472 B |        1.00 |
 | LuceneNet_Search           | night      | 39.239 μs | 0.6468 μs | 0.5401 μs | 38.975 μs |  1.22 |    0.02 | 0.1221 |      - |   11228 B |       23.79 |
 |                            |            |           |           |           |           |       |         |        |        |           |             |
-| **LeanLucene_Standard_Search** | **sea**        | **16.227 μs** | **0.2988 μs** | **0.2795 μs** | **16.189 μs** |  **1.00** |    **0.00** |      **-** |      **-** |     **464 B** |        **1.00** |
-| LeanLucene_English_Search  | sea        | 17.221 μs | 0.3439 μs | 0.7024 μs | 17.516 μs |  1.06 |    0.05 |      - |      - |     464 B |        1.00 |
+| **LeanCorpus_Standard_Search** | **sea**        | **16.227 μs** | **0.2988 μs** | **0.2795 μs** | **16.189 μs** |  **1.00** |    **0.00** |      **-** |      **-** |     **464 B** |        **1.00** |
+| LeanCorpus_English_Search  | sea        | 17.221 μs | 0.3439 μs | 0.7024 μs | 17.516 μs |  1.06 |    0.05 |      - |      - |     464 B |        1.00 |
 | LuceneNet_Search           | sea        | 30.512 μs | 0.7069 μs | 2.0843 μs | 31.505 μs |  1.88 |    0.13 | 0.1221 |      - |   11276 B |       24.30 |
 
 <details>
@@ -40,7 +40,7 @@ title: Benchmarks - DESKTOP-U6KL8U9
   "generatedAtUtc": "2026-04-28T07:53:06.7237019\u002B00:00",
   "commandLineArgs": [
     "--filter",
-    "*LeanLucene*"
+    "*LeanCorpus*"
   ],
   "hostMachineName": "DESKTOP-U6KL8U9",
   "commitHash": "1bee180",
@@ -49,14 +49,14 @@ title: Benchmarks - DESKTOP-U6KL8U9
   "suites": [
     {
       "suiteName": "gutenberg-search",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.GutenbergSearchBenchmarks-20260428-085333",
+      "summaryTitle": "Rowles.LeanCorpus.Benchmarks.GutenbergSearchBenchmarks-20260428-085333",
       "benchmarkCount": 15,
       "benchmarks": [
         {
-          "key": "GutenbergSearchBenchmarks.LeanLucene_English_Search|SearchTerm=death",
-          "displayInfo": "GutenbergSearchBenchmarks.LeanLucene_English_Search: DefaultJob [SearchTerm=death]",
+          "key": "GutenbergSearchBenchmarks.LeanCorpus_English_Search|SearchTerm=death",
+          "displayInfo": "GutenbergSearchBenchmarks.LeanCorpus_English_Search: DefaultJob [SearchTerm=death]",
           "typeName": "GutenbergSearchBenchmarks",
-          "methodName": "LeanLucene_English_Search",
+          "methodName": "LeanCorpus_English_Search",
           "parameters": {
             "SearchTerm": "death"
           },
@@ -77,10 +77,10 @@ title: Benchmarks - DESKTOP-U6KL8U9
           }
         },
         {
-          "key": "GutenbergSearchBenchmarks.LeanLucene_English_Search|SearchTerm=love",
-          "displayInfo": "GutenbergSearchBenchmarks.LeanLucene_English_Search: DefaultJob [SearchTerm=love]",
+          "key": "GutenbergSearchBenchmarks.LeanCorpus_English_Search|SearchTerm=love",
+          "displayInfo": "GutenbergSearchBenchmarks.LeanCorpus_English_Search: DefaultJob [SearchTerm=love]",
           "typeName": "GutenbergSearchBenchmarks",
-          "methodName": "LeanLucene_English_Search",
+          "methodName": "LeanCorpus_English_Search",
           "parameters": {
             "SearchTerm": "love"
           },
@@ -101,10 +101,10 @@ title: Benchmarks - DESKTOP-U6KL8U9
           }
         },
         {
-          "key": "GutenbergSearchBenchmarks.LeanLucene_English_Search|SearchTerm=man",
-          "displayInfo": "GutenbergSearchBenchmarks.LeanLucene_English_Search: DefaultJob [SearchTerm=man]",
+          "key": "GutenbergSearchBenchmarks.LeanCorpus_English_Search|SearchTerm=man",
+          "displayInfo": "GutenbergSearchBenchmarks.LeanCorpus_English_Search: DefaultJob [SearchTerm=man]",
           "typeName": "GutenbergSearchBenchmarks",
-          "methodName": "LeanLucene_English_Search",
+          "methodName": "LeanCorpus_English_Search",
           "parameters": {
             "SearchTerm": "man"
           },
@@ -125,10 +125,10 @@ title: Benchmarks - DESKTOP-U6KL8U9
           }
         },
         {
-          "key": "GutenbergSearchBenchmarks.LeanLucene_English_Search|SearchTerm=night",
-          "displayInfo": "GutenbergSearchBenchmarks.LeanLucene_English_Search: DefaultJob [SearchTerm=night]",
+          "key": "GutenbergSearchBenchmarks.LeanCorpus_English_Search|SearchTerm=night",
+          "displayInfo": "GutenbergSearchBenchmarks.LeanCorpus_English_Search: DefaultJob [SearchTerm=night]",
           "typeName": "GutenbergSearchBenchmarks",
-          "methodName": "LeanLucene_English_Search",
+          "methodName": "LeanCorpus_English_Search",
           "parameters": {
             "SearchTerm": "night"
           },
@@ -149,10 +149,10 @@ title: Benchmarks - DESKTOP-U6KL8U9
           }
         },
         {
-          "key": "GutenbergSearchBenchmarks.LeanLucene_English_Search|SearchTerm=sea",
-          "displayInfo": "GutenbergSearchBenchmarks.LeanLucene_English_Search: DefaultJob [SearchTerm=sea]",
+          "key": "GutenbergSearchBenchmarks.LeanCorpus_English_Search|SearchTerm=sea",
+          "displayInfo": "GutenbergSearchBenchmarks.LeanCorpus_English_Search: DefaultJob [SearchTerm=sea]",
           "typeName": "GutenbergSearchBenchmarks",
-          "methodName": "LeanLucene_English_Search",
+          "methodName": "LeanCorpus_English_Search",
           "parameters": {
             "SearchTerm": "sea"
           },
@@ -173,10 +173,10 @@ title: Benchmarks - DESKTOP-U6KL8U9
           }
         },
         {
-          "key": "GutenbergSearchBenchmarks.LeanLucene_Standard_Search|SearchTerm=death",
-          "displayInfo": "GutenbergSearchBenchmarks.LeanLucene_Standard_Search: DefaultJob [SearchTerm=death]",
+          "key": "GutenbergSearchBenchmarks.LeanCorpus_Standard_Search|SearchTerm=death",
+          "displayInfo": "GutenbergSearchBenchmarks.LeanCorpus_Standard_Search: DefaultJob [SearchTerm=death]",
           "typeName": "GutenbergSearchBenchmarks",
-          "methodName": "LeanLucene_Standard_Search",
+          "methodName": "LeanCorpus_Standard_Search",
           "parameters": {
             "SearchTerm": "death"
           },
@@ -197,10 +197,10 @@ title: Benchmarks - DESKTOP-U6KL8U9
           }
         },
         {
-          "key": "GutenbergSearchBenchmarks.LeanLucene_Standard_Search|SearchTerm=love",
-          "displayInfo": "GutenbergSearchBenchmarks.LeanLucene_Standard_Search: DefaultJob [SearchTerm=love]",
+          "key": "GutenbergSearchBenchmarks.LeanCorpus_Standard_Search|SearchTerm=love",
+          "displayInfo": "GutenbergSearchBenchmarks.LeanCorpus_Standard_Search: DefaultJob [SearchTerm=love]",
           "typeName": "GutenbergSearchBenchmarks",
-          "methodName": "LeanLucene_Standard_Search",
+          "methodName": "LeanCorpus_Standard_Search",
           "parameters": {
             "SearchTerm": "love"
           },
@@ -221,10 +221,10 @@ title: Benchmarks - DESKTOP-U6KL8U9
           }
         },
         {
-          "key": "GutenbergSearchBenchmarks.LeanLucene_Standard_Search|SearchTerm=man",
-          "displayInfo": "GutenbergSearchBenchmarks.LeanLucene_Standard_Search: DefaultJob [SearchTerm=man]",
+          "key": "GutenbergSearchBenchmarks.LeanCorpus_Standard_Search|SearchTerm=man",
+          "displayInfo": "GutenbergSearchBenchmarks.LeanCorpus_Standard_Search: DefaultJob [SearchTerm=man]",
           "typeName": "GutenbergSearchBenchmarks",
-          "methodName": "LeanLucene_Standard_Search",
+          "methodName": "LeanCorpus_Standard_Search",
           "parameters": {
             "SearchTerm": "man"
           },
@@ -245,10 +245,10 @@ title: Benchmarks - DESKTOP-U6KL8U9
           }
         },
         {
-          "key": "GutenbergSearchBenchmarks.LeanLucene_Standard_Search|SearchTerm=night",
-          "displayInfo": "GutenbergSearchBenchmarks.LeanLucene_Standard_Search: DefaultJob [SearchTerm=night]",
+          "key": "GutenbergSearchBenchmarks.LeanCorpus_Standard_Search|SearchTerm=night",
+          "displayInfo": "GutenbergSearchBenchmarks.LeanCorpus_Standard_Search: DefaultJob [SearchTerm=night]",
           "typeName": "GutenbergSearchBenchmarks",
-          "methodName": "LeanLucene_Standard_Search",
+          "methodName": "LeanCorpus_Standard_Search",
           "parameters": {
             "SearchTerm": "night"
           },
@@ -269,10 +269,10 @@ title: Benchmarks - DESKTOP-U6KL8U9
           }
         },
         {
-          "key": "GutenbergSearchBenchmarks.LeanLucene_Standard_Search|SearchTerm=sea",
-          "displayInfo": "GutenbergSearchBenchmarks.LeanLucene_Standard_Search: DefaultJob [SearchTerm=sea]",
+          "key": "GutenbergSearchBenchmarks.LeanCorpus_Standard_Search|SearchTerm=sea",
+          "displayInfo": "GutenbergSearchBenchmarks.LeanCorpus_Standard_Search: DefaultJob [SearchTerm=sea]",
           "typeName": "GutenbergSearchBenchmarks",
-          "methodName": "LeanLucene_Standard_Search",
+          "methodName": "LeanCorpus_Standard_Search",
           "parameters": {
             "SearchTerm": "sea"
           },

@@ -1,4 +1,4 @@
-# Query cache
+﻿# Query cache
 
 The query cache memoises the doc-id bitset for a query within an `IndexSearcher`.
 Repeat searches for the same query then skip the matching pass entirely.
@@ -26,7 +26,7 @@ using var searcher = new IndexSearcher(dir, config);
 - Memory-constrained environments: each cached entry stores a per-segment bitset.
 
 Cache hits and misses are surfaced via
-<xref:Rowles.LeanLucene.Diagnostics.IMetricsCollector.RecordCacheHit%2A> and
+<xref:Rowles.LeanCorpus.Diagnostics.IMetricsCollector.RecordCacheHit%2A> and
 `RecordCacheMiss`. Watch the `CacheHitRate` in `MetricsSnapshot` to decide whether
 to keep it on.
 
@@ -37,4 +37,4 @@ searcher with a fresh cache.
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Search.Searcher.IndexSearcherConfig>
+- <xref:Rowles.LeanCorpus.Search.Searcher.IndexSearcherConfig>

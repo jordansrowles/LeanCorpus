@@ -1,8 +1,8 @@
-# Reliable commits
+﻿# Reliable commits
 
 Commit files are written atomically and include a CRC32 trailer. Recovery strips
 and validates the trailer before loading a commit. If the newest commit was torn
-or corrupted, LeanLucene falls back to an older valid generation.
+or corrupted, LeanCorpus falls back to an older valid generation.
 
 `IndexWriter` runs recovery when it opens. `SearcherManager` also uses recovery
 while polling, but without deleting orphaned files so readers stay safe.

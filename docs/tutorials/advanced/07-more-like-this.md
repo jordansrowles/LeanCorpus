@@ -1,4 +1,4 @@
-# More like this
+﻿# More like this
 
 `MoreLikeThisQuery` finds documents similar to a source document by extracting
 representative terms from its term vectors and turning them into a weighted boolean
@@ -7,7 +7,7 @@ query.
 ## Use
 
 ```csharp
-using Rowles.LeanLucene.Search.Queries;
+using Rowles.LeanCorpus.Search.Queries;
 
 var mlt = new MoreLikeThisQuery(
     docId: 42,
@@ -41,5 +41,5 @@ terms.
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Search.Queries.MoreLikeThisQuery>
-- <xref:Rowles.LeanLucene.Search.Queries.MoreLikeThisParameters>
+- <xref:Rowles.LeanCorpus.Search.Queries.MoreLikeThisQuery>
+- <xref:Rowles.LeanCorpus.Search.Queries.MoreLikeThisParameters>

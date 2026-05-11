@@ -1,7 +1,7 @@
-# Metrics
+﻿# Metrics
 
 Both `IndexWriterConfig` and `IndexSearcherConfig` accept an
-<xref:Rowles.LeanLucene.Diagnostics.IMetricsCollector>. The default
+<xref:Rowles.LeanCorpus.Diagnostics.IMetricsCollector>. The default
 (`NullMetricsCollector.Instance`) records nothing.
 
 ## DefaultMetricsCollector
@@ -9,7 +9,7 @@ Both `IndexWriterConfig` and `IndexSearcherConfig` accept an
 In-process collector with `Interlocked` counters. Pull a snapshot at any time:
 
 ```csharp
-using Rowles.LeanLucene.Diagnostics;
+using Rowles.LeanCorpus.Diagnostics;
 
 var metrics = new DefaultMetricsCollector();
 var config = new IndexSearcherConfig { Metrics = metrics };
@@ -33,7 +33,7 @@ Console.WriteLine($"Cache hit rate: {snap.CacheHitRate:P0}");
 ## MeterMetricsCollector
 
 Publishes the same data through `System.Diagnostics.Metrics` under the meter name
-`Rowles.LeanLucene`. See [OpenTelemetry](04-opentelemetry.md).
+`Rowles.LeanCorpus`. See [OpenTelemetry](04-opentelemetry.md).
 
 ## Custom collectors
 
@@ -42,5 +42,5 @@ StatsD, etc.).
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Diagnostics.IMetricsCollector>
-- <xref:Rowles.LeanLucene.Diagnostics.MetricsSnapshot>
+- <xref:Rowles.LeanCorpus.Diagnostics.IMetricsCollector>
+- <xref:Rowles.LeanCorpus.Diagnostics.MetricsSnapshot>

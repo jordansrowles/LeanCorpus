@@ -1,6 +1,6 @@
-DUAL LICENCE AGREEMENT
+﻿DUAL LICENCE AGREEMENT
 ======================
-LeanLucene — Copyright (c) 2026 Jordan Rowles
+LeanCorpus — Copyright (c) 2026 Jordan Rowles
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TL;DR
@@ -58,7 +58,7 @@ CONDITIONS (Tier 1)
     - Any publication, article, or post that describes or references the library.
 
   Required attribution text:
-    "LeanLucene by Jordan Rowles (https://github.com/jordansrowles/leanlucene)
+    "LeanCorpus by Jordan Rowles (https://github.com/jordansrowles/leancorpus)
      — used under the Community & Attribution Licence."
 
   You must not remove, obscure, or alter any existing copyright notice,
@@ -112,7 +112,7 @@ OBTAINING A COMMERCIAL LICENCE
   To obtain a Commercial Licence, contact:
     Jordan Rowles
     jordansrowles@gmail.com
-    https://github.com/jordansrowles/leanlucene
+    https://github.com/jordansrowles/leancorpus
 
   Upon payment and written confirmation from Jordan Rowles, you will receive
   a signed licence certificate granting Tier 2 rights to your organisation.
@@ -136,7 +136,7 @@ CONDITIONS (Tier 2)
 
   The Commercial Licence:
     - Is granted to a single legal entity (organisation) and is non-transferable;
-    - Covers all current and future versions of LeanLucene for the licensed
+    - Covers all current and future versions of LeanCorpus for the licensed
       organisation;
     - Does not permit redistribution of the source code as a standalone
       library under any terms other than this dual licence;
@@ -175,7 +175,7 @@ CONTRIBUTIONS
 TRADEMARKS
 
   This licence does not grant permission to use the trade names, trademarks,
-  service marks, or product names of Jordan Rowles (including "LeanLucene"),
+  service marks, or product names of Jordan Rowles (including "LeanCorpus"),
   except as required for reasonable and customary use in describing the
   origin of the software and reproducing the attribution notice.
 

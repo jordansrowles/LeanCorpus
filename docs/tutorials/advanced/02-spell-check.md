@@ -1,4 +1,4 @@
-# Spelling suggestions
+﻿# Spelling suggestions
 
 `DidYouMeanSuggester` returns alternative spellings for a term, ranked by document
 frequency divided by edit distance.
@@ -6,7 +6,7 @@ frequency divided by edit distance.
 ## Quick path
 
 ```csharp
-using Rowles.LeanLucene.Search.Suggestions;
+using Rowles.LeanCorpus.Search.Suggestions;
 
 var suggestions = DidYouMeanSuggester.Suggest(
     searcher, field: "title", queryTerm: "lukcy",
@@ -16,7 +16,7 @@ foreach (var s in suggestions)
     Console.WriteLine($"{s.Term} (distance={s.Distance}, df={s.DocFreq})");
 ```
 
-The underlying <xref:Rowles.LeanLucene.Search.Suggestions.SpellIndex> is built once
+The underlying <xref:Rowles.LeanCorpus.Search.Suggestions.SpellIndex> is built once
 per searcher / field and cached for subsequent calls.
 
 ## Reusing a SpellIndex
@@ -38,5 +38,5 @@ This avoids re-scanning the term dictionary.
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Search.Suggestions.DidYouMeanSuggester>
-- <xref:Rowles.LeanLucene.Search.Suggestions.SpellIndex>
+- <xref:Rowles.LeanCorpus.Search.Suggestions.DidYouMeanSuggester>
+- <xref:Rowles.LeanCorpus.Search.Suggestions.SpellIndex>

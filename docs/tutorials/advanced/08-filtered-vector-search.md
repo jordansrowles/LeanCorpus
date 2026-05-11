@@ -1,4 +1,4 @@
-# Filtered vector search
+﻿# Filtered vector search
 
 `VectorQuery` accepts an optional filter query. Use it when semantic search must
 respect tenant, category, visibility or date constraints.
@@ -22,7 +22,7 @@ var hits = searcher.Search(query, topN: 20);
 
 ## Filter strategy
 
-LeanLucene chooses the cheapest path per segment:
+LeanCorpus chooses the cheapest path per segment:
 
 | Filter shape | Strategy |
 |---|---|

@@ -1,0 +1,12 @@
+﻿{
+  "profiles": {
+    "Rowles.LeanCorpus.Example.JsonApi": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:63614;http://localhost:63615"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="xunit" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\core\Rowles.LeanCorpus\Rowles.LeanCorpus.csproj" />
+  </ItemGroup>
+
+</Project>

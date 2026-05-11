@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\core\Rowles.LeanCorpus\Rowles.LeanCorpus.csproj" />
+    <ProjectReference Include="..\..\core\Rowles.LeanCorpus.Compression.LZ4\Rowles.LeanCorpus.Compression.LZ4.csproj" />
+    <ProjectReference Include="..\..\core\Rowles.LeanCorpus.Compression.Snappy\Rowles.LeanCorpus.Compression.Snappy.csproj" />
+    <ProjectReference Include="..\..\core\Rowles.LeanCorpus.Compression.Zstandard\Rowles.LeanCorpus.Compression.Zstandard.csproj" />
+  </ItemGroup>
+
+</Project>

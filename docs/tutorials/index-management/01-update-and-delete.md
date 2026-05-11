@@ -1,4 +1,4 @@
-# Update and delete
+﻿# Update and delete
 
 ## Delete by query
 
@@ -36,5 +36,5 @@ segment is rewritten by a background merge.
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Index.Indexer.IndexWriter.DeleteDocuments%2A>
-- <xref:Rowles.LeanLucene.Index.Indexer.IndexWriter.UpdateDocument%2A>
+- <xref:Rowles.LeanCorpus.Index.Indexer.IndexWriter.DeleteDocuments%2A>
+- <xref:Rowles.LeanCorpus.Index.Indexer.IndexWriter.UpdateDocument%2A>

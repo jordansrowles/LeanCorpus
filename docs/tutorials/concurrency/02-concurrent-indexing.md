@@ -1,4 +1,4 @@
-# Concurrent indexing
+﻿# Concurrent indexing
 
 `IndexWriter` is thread-safe for `AddDocument`. For high-throughput ingest, the
 concurrent path uses per-thread document writers (DWPTs).
@@ -39,5 +39,5 @@ writer.InitialiseDwptPool();
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Index.Indexer.IndexWriter.AddDocumentsConcurrent%2A>
-- <xref:Rowles.LeanLucene.Index.Indexer.IndexWriterConfig>
+- <xref:Rowles.LeanCorpus.Index.Indexer.IndexWriter.AddDocumentsConcurrent%2A>
+- <xref:Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig>

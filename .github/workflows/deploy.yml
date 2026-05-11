@@ -1,4 +1,4 @@
-name: Deploy to Cloudflare Pages
+﻿name: Deploy to Cloudflare Pages
 
 on:
   workflow_run:
@@ -18,7 +18,7 @@ jobs:
       - name: Download docs artifact
         uses: actions/download-artifact@v8
         with:
-          name: leanlucene-docs-site
+          name: leancorpus-docs-site
           path: docs-site
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -28,4 +28,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy docs-site --project-name=leanlucene --branch=main --commit-dirty=true
+          command: pages deploy docs-site --project-name=leancorpus --branch=${{ github.event.workflow_run.head_branch }} --commit-dirty=true

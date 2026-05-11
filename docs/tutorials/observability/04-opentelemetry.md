@@ -1,6 +1,6 @@
-# OpenTelemetry
+﻿# OpenTelemetry
 
-LeanLucene exposes activities and metrics through the standard BCL APIs. Your app
+LeanCorpus exposes activities and metrics through the standard BCL APIs. Your app
 can export them to any OpenTelemetry backend, including Aspire, Jaeger and
 Prometheus.
 
@@ -8,33 +8,33 @@ Prometheus.
 
 | Kind | Name |
 |---|---|
-| `ActivitySource` | `Rowles.LeanLucene` |
-| `Meter` | `Rowles.LeanLucene` |
+| `ActivitySource` | `Rowles.LeanCorpus` |
+| `Meter` | `Rowles.LeanCorpus` |
 
 ## Activities
 
 | Activity | Tags |
 |---|---|
-| `leanlucene.search` | `query.type`, `search.total_hits`, `search.cache_hit` |
-| `leanlucene.index.commit` | `index.commit_generation`, `index.segment_count` |
-| `leanlucene.index.flush` | `index.segment_id`, `index.doc_count` |
-| `leanlucene.index.merge` | `index.segments_merged` |
+| `leancorpus.search` | `query.type`, `search.total_hits`, `search.cache_hit` |
+| `leancorpus.index.commit` | `index.commit_generation`, `index.segment_count` |
+| `leancorpus.index.flush` | `index.segment_id`, `index.doc_count` |
+| `leancorpus.index.merge` | `index.segments_merged` |
 
 Activities are only allocated when a listener is attached.
 
 ## Metric instruments
 
-`leanlucene.search.duration`, `leanlucene.search.count`, `leanlucene.cache.hits`,
-`leanlucene.cache.misses`, `leanlucene.index.flush.duration`,
-`leanlucene.index.merge.duration`, `leanlucene.index.merge.segments`,
-`leanlucene.index.commit.duration`, `leanlucene.hnsw.search.duration`,
-`leanlucene.hnsw.search.nodes_visited`, `leanlucene.hnsw.build.duration`,
-`leanlucene.hnsw.build.nodes`.
+`leancorpus.search.duration`, `leancorpus.search.count`, `leancorpus.cache.hits`,
+`leancorpus.cache.misses`, `leancorpus.index.flush.duration`,
+`leancorpus.index.merge.duration`, `leancorpus.index.merge.segments`,
+`leancorpus.index.commit.duration`, `leancorpus.hnsw.search.duration`,
+`leancorpus.hnsw.search.nodes_visited`, `leancorpus.hnsw.build.duration`,
+`leancorpus.hnsw.build.nodes`.
 
 ## Wire MeterMetricsCollector
 
 ```csharp
-using Rowles.LeanLucene.Diagnostics;
+using Rowles.LeanCorpus.Diagnostics;
 
 var collector = new MeterMetricsCollector();
 
@@ -54,10 +54,10 @@ builder.Services
     .AddOpenTelemetry()
     .ConfigureResource(r => r.AddService("MySearchApp"))
     .WithTracing(t => t
-        .AddSource("Rowles.LeanLucene")
+        .AddSource("Rowles.LeanCorpus")
         .AddOtlpExporter())
     .WithMetrics(m => m
-        .AddMeter("Rowles.LeanLucene")
+        .AddMeter("Rowles.LeanCorpus")
         .AddOtlpExporter());
 ```
 
@@ -70,7 +70,7 @@ $env:OTEL_EXPORTER_OTLP_PROTOCOL = "grpc"
 
 ## Structured logs
 
-LeanLucene does not log directly. Application logs can still be exported to the
+LeanCorpus does not log directly. Application logs can still be exported to the
 same OTLP endpoint:
 
 ```csharp
@@ -102,9 +102,9 @@ aspire-dashboard -s false
 Or set `OTEL_EXPORTER_OTLP_ENDPOINT` to `https://localhost:4317` and trust the
 certificate used by the dashboard.
 
-A worked example lives in `src/examples/Rowles.LeanLucene.Example.Telemetry`.
+A worked example lives in `src/examples/Rowles.LeanCorpus.Example.Telemetry`.
 
 ## See also
 
 - [Aspire dashboard](05-aspire-dashboard.md)
-- <xref:Rowles.LeanLucene.Diagnostics.MeterMetricsCollector>
+- <xref:Rowles.LeanCorpus.Diagnostics.MeterMetricsCollector>

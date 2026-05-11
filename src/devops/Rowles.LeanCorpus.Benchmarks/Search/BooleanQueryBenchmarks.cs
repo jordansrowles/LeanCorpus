@@ -1,0 +1,166 @@
+﻿using BenchmarkDotNet.Attributes;
+using Lucene.Net.Analysis.Standard;
+using Lucene.Net.Documents;
+using Lucene.Net.Index;
+using Lucene.Net.Search;
+using Lucene.Net.Store;
+using Lucene.Net.Util;
+using IODirectory = System.IO.Directory;
+using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
+using LeanIndexSearcher = Rowles.LeanCorpus.Search.Searcher.IndexSearcher;
+using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;
+using LeanStringField = Rowles.LeanCorpus.Document.Fields.StringField;
+using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
+using LuceneIndexSearcher = Lucene.Net.Search.IndexSearcher;
+using LuceneStringField = Lucene.Net.Documents.StringField;
+using LuceneTextField = Lucene.Net.Documents.TextField;
+
+namespace Rowles.LeanCorpus.Benchmarks;
+
+/// <summary>
+/// Measures BooleanQuery performance: Must / Should / MustNot across LeanCorpus and Lucene.NET.
+/// </summary>
+[MemoryDiagnoser]
+[HtmlExporter]
+[JsonExporterAttribute.Full]
+[MarkdownExporterAttribute.GitHub]
+[RPlotExporter]
+[SimpleJob]
+public class BooleanQueryBenchmarks
+{
+    private const int TopN = 25;
+
+    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
+
+    [ParamsSource(nameof(DocCounts))]
+    public int DocumentCount { get; set; }
+
+    [Params("Must", "Should", "MustNot")]
+    public string BooleanType { get; set; } = "Must";
+
+    private string _leanIndexPath = string.Empty;
+    private LeanMMapDirectory? _leanDirectory;
+    private LeanIndexSearcher? _leanSearcher;
+
+    private RAMDirectory? _luceneDirectory;
+    private StandardAnalyzer? _luceneAnalyzer;
+    private DirectoryReader? _luceneReader;
+    private LuceneIndexSearcher? _luceneSearcher;
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        var documents = BenchmarkData.BuildDocuments(DocumentCount);
+        BuildLeanIndex(documents);
+        BuildLuceneIndex(documents);
+    }
+
+    [GlobalCleanup]
+    public void Cleanup()
+    {
+        _leanSearcher?.Dispose();
+        if (!string.IsNullOrWhiteSpace(_leanIndexPath) && IODirectory.Exists(_leanIndexPath))
+            IODirectory.Delete(_leanIndexPath, recursive: true);
+
+        _luceneReader?.Dispose();
+        _luceneAnalyzer?.Dispose();
+        _luceneDirectory?.Dispose();
+    }
+
+    [Benchmark(Baseline = true)]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_BooleanQuery()
+    {
+        var bq = new Rowles.LeanCorpus.Search.Queries.BooleanQuery();
+        switch (BooleanType)
+        {
+            case "Must":
+                bq.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "government"), Rowles.LeanCorpus.Search.Occur.Must);
+                bq.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "said"), Rowles.LeanCorpus.Search.Occur.Must);
+                break;
+            case "Should":
+                bq.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "market"), Rowles.LeanCorpus.Search.Occur.Should);
+                bq.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "people"), Rowles.LeanCorpus.Search.Occur.Should);
+                break;
+            case "MustNot":
+                bq.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "government"), Rowles.LeanCorpus.Search.Occur.Must);
+                bq.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "market"), Rowles.LeanCorpus.Search.Occur.MustNot);
+                break;
+        }
+        return _leanSearcher!.Search(bq, TopN).TotalHits;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_BooleanQuery()
+    {
+        var bq = new Lucene.Net.Search.BooleanQuery();
+        switch (BooleanType)
+        {
+            case "Must":
+                bq.Add(new Lucene.Net.Search.TermQuery(new Term("body", "government")), Occur.MUST);
+                bq.Add(new Lucene.Net.Search.TermQuery(new Term("body", "said")), Occur.MUST);
+                break;
+            case "Should":
+                bq.Add(new Lucene.Net.Search.TermQuery(new Term("body", "market")), Occur.SHOULD);
+                bq.Add(new Lucene.Net.Search.TermQuery(new Term("body", "people")), Occur.SHOULD);
+                break;
+            case "MustNot":
+                bq.Add(new Lucene.Net.Search.TermQuery(new Term("body", "government")), Occur.MUST);
+                bq.Add(new Lucene.Net.Search.TermQuery(new Term("body", "market")), Occur.MUST_NOT);
+                break;
+        }
+        return _luceneSearcher!.Search(bq, TopN).TotalHits;
+    }
+
+    // --- Index builders ---
+
+    private void BuildLeanIndex(string[] documents)
+    {
+        _leanIndexPath = Path.Combine(Path.GetTempPath(), $"leancorpus-bench-bool-{Guid.NewGuid():N}");
+        IODirectory.CreateDirectory(_leanIndexPath);
+
+        _leanDirectory = new LeanMMapDirectory(_leanIndexPath);
+        using (var writer = new Rowles.LeanCorpus.Index.Indexer.IndexWriter(
+            _leanDirectory,
+            new Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig { MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 }))
+        {
+            for (int i = 0; i < documents.Length; i++)
+            {
+                var doc = new LeanDocument();
+                doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+                doc.Add(new LeanTextField("body", documents[i]));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        _leanSearcher = new LeanIndexSearcher(_leanDirectory);
+    }
+
+    private void BuildLuceneIndex(string[] documents)
+    {
+        _luceneDirectory = new RAMDirectory();
+        _luceneAnalyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+
+        using (var writer = new Lucene.Net.Index.IndexWriter(
+            _luceneDirectory,
+            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, _luceneAnalyzer)))
+        {
+            for (int i = 0; i < documents.Length; i++)
+            {
+                var doc = new Lucene.Net.Documents.Document
+                {
+                    new LuceneStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture), Field.Store.NO),
+                    new LuceneTextField("body", documents[i], Field.Store.NO)
+                };
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        _luceneReader = DirectoryReader.Open(_luceneDirectory);
+        _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
+    }
+
+}

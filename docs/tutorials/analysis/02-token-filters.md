@@ -1,13 +1,13 @@
-# Token filters and custom pipelines
+﻿# Token filters and custom pipelines
 
 A custom analyser is a tokeniser plus zero or more token filters and char filters.
 
 ## Build one
 
 ```csharp
-using Rowles.LeanLucene.Analysis;
-using Rowles.LeanLucene.Analysis.Tokenisers;
-using Rowles.LeanLucene.Analysis.Filters;
+using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis.Tokenisers;
+using Rowles.LeanCorpus.Analysis.Filters;
 
 var analyser = new Analyser(
     tokeniser: new Tokeniser(),
@@ -36,5 +36,5 @@ mis-ordered pipeline silently drops or keeps the wrong tokens.
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Analysis.Analyser>
-- <xref:Rowles.LeanLucene.Analysis.ITokenFilter>
+- <xref:Rowles.LeanCorpus.Analysis.Analysers.Analyser>
+- <xref:Rowles.LeanCorpus.Analysis.ITokenFilter>

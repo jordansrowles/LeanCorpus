@@ -8,3 +8,5 @@
   href: 03-benchmark-provenance.md
 - name: Reliable commits
   href: 04-reliable-commits.md
+- name: Codecs
+  href: 05-codecs.md

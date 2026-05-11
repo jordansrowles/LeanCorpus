@@ -1,13 +1,13 @@
-# Vector search
+﻿# Vector search
 
-LeanLucene stores dense float vectors per segment and builds an HNSW graph at
+LeanCorpus stores dense float vectors per segment and builds an HNSW graph at
 flush time by default. Searches use HNSW when a graph is present, then rerank the
 shortlist with exact cosine similarity.
 
 ## Index a vector
 
 ```csharp
-using Rowles.LeanLucene.Document.Fields;
+using Rowles.LeanCorpus.Document.Fields;
 
 var doc = new LeanDocument();
 doc.Add(new StringField("id", "v1"));
@@ -23,7 +23,7 @@ cheap and consistent.
 ## Query
 
 ```csharp
-using Rowles.LeanLucene.Search.Queries;
+using Rowles.LeanCorpus.Search.Queries;
 
 var query = new VectorQuery(
     "embedding",
@@ -41,8 +41,8 @@ vectors).
 ## Build settings
 
 ```csharp
-using Rowles.LeanLucene.Codecs.Hnsw;
-using Rowles.LeanLucene.Index.Indexer;
+using Rowles.LeanCorpus.Codecs.Hnsw;
+using Rowles.LeanCorpus.Index.Indexer;
 
 var config = new IndexWriterConfig
 {
@@ -70,10 +70,10 @@ var query = new VectorQuery("embedding", queryVector, topK: 10, filter: filter);
 
 ## Implementation note
 
-If no HNSW graph exists, LeanLucene falls back to a flat SIMD scan. Vector
+If no HNSW graph exists, LeanCorpus falls back to a flat SIMD scan. Vector
 readers are opened lazily, so non-vector searches do not pay the mmap cost.
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Search.Queries.VectorQuery>
+- <xref:Rowles.LeanCorpus.Search.Queries.VectorQuery>
 - [Filtered vector search](08-filtered-vector-search.md)

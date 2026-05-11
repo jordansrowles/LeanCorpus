@@ -1,7 +1,7 @@
-# Boosting and scoring
+﻿# Boosting and scoring
 
-LeanLucene scores with BM25 by default
-(<xref:Rowles.LeanLucene.Search.Scoring.Bm25Similarity>).
+LeanCorpus scores with BM25 by default
+(<xref:Rowles.LeanCorpus.Search.Scoring.Bm25Similarity>).
 
 ## Per-query boost
 
@@ -47,6 +47,6 @@ implementation.
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Search.Queries.ConstantScoreQuery>
-- <xref:Rowles.LeanLucene.Search.Queries.FunctionScoreQuery>
-- <xref:Rowles.LeanLucene.Search.Queries.ScoreMode>
+- <xref:Rowles.LeanCorpus.Search.Queries.ConstantScoreQuery>
+- <xref:Rowles.LeanCorpus.Search.Queries.FunctionScoreQuery>
+- <xref:Rowles.LeanCorpus.Search.Queries.ScoreMode>

@@ -1,4 +1,4 @@
-# Searcher manager
+﻿# Searcher manager
 
 `SearcherManager` keeps a current `IndexSearcher` open and swaps in a fresh one
 when a new commit is detected. Use it to share a searcher across many concurrent
@@ -7,8 +7,8 @@ queries.
 ## Set up
 
 ```csharp
-using Rowles.LeanLucene.Search.Searcher;
-using Rowles.LeanLucene.Store;
+using Rowles.LeanCorpus.Search.Searcher;
+using Rowles.LeanCorpus.Store;
 
 using var dir = new MMapDirectory("./index");
 using var manager = new SearcherManager(dir, new SearcherManagerConfig
@@ -73,5 +73,5 @@ if (manager.LastRefreshError is not null)
 ## See also
 
 - [Refresh failures](04-refresh-failures.md)
-- <xref:Rowles.LeanLucene.Search.Searcher.SearcherManager>
-- <xref:Rowles.LeanLucene.Search.Searcher.SearcherManagerConfig>
+- <xref:Rowles.LeanCorpus.Search.Searcher.SearcherManager>
+- <xref:Rowles.LeanCorpus.Search.Searcher.SearcherManagerConfig>

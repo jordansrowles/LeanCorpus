@@ -1,4 +1,4 @@
-# Snapshots and deletion policies
+﻿# Snapshots and deletion policies
 
 A snapshot pins a specific commit so its segment files survive future deletion
 policy passes. Use it to take consistent backups while indexing continues.
@@ -41,6 +41,6 @@ Active snapshots always protect their segments, regardless of policy.
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Index.Indexer.IndexWriter.CreateSnapshot%2A>
-- <xref:Rowles.LeanLucene.Index.Indexer.KeepLastNCommitsPolicy>
-- <xref:Rowles.LeanLucene.Index.Indexer.KeepLatestCommitPolicy>
+- <xref:Rowles.LeanCorpus.Index.Indexer.IndexWriter.CreateSnapshot%2A>
+- <xref:Rowles.LeanCorpus.Index.Indexer.KeepLastNCommitsPolicy>
+- <xref:Rowles.LeanCorpus.Index.Indexer.KeepLatestCommitPolicy>

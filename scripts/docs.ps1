@@ -1,6 +1,6 @@
-<#
+﻿<#
 .SYNOPSIS
-    Sets up and builds the LeanLucene documentation site using DocFX.
+    Sets up and builds the LeanCorpus documentation site using DocFX.
 
 .DESCRIPTION
     Ensures the docfx global tool is installed, then generates API metadata
@@ -298,7 +298,7 @@ function Remove-ExternalInheritedMembers {
             $keptMembers = [System.Collections.Generic.List[string]]::new()
             $i++
             while ($i -lt $lines.Length -and $lines[$i] -match '^  - (.+)$') {
-                if ($Matches[1].StartsWith('Rowles.LeanLucene.', [System.StringComparison]::Ordinal)) {
+                if ($Matches[1].StartsWith('Rowles.LeanCorpus.', [System.StringComparison]::Ordinal)) {
                     $keptMembers.Add($lines[$i])
                 }
                 $i++
@@ -341,7 +341,7 @@ function Remove-ExternalInheritanceEntries {
             $keptMembers = [System.Collections.Generic.List[string]]::new()
             $i++
             while ($i -lt $lines.Length -and $lines[$i] -match '^  - (.+)$') {
-                if ($Matches[1].StartsWith('Rowles.LeanLucene.', [System.StringComparison]::Ordinal)) {
+                if ($Matches[1].StartsWith('Rowles.LeanCorpus.', [System.StringComparison]::Ordinal)) {
                     $keptMembers.Add($lines[$i])
                 }
                 $i++
@@ -386,7 +386,7 @@ function Remove-ExternalReferenceEntries {
 
             if ($line -match '^- uid: (.+)$') {
                 if ($currentBlock -is [System.Collections.Generic.List[string]] -and
-                    $currentUid.StartsWith('Rowles.LeanLucene.', [System.StringComparison]::Ordinal)) {
+                    $currentUid.StartsWith('Rowles.LeanCorpus.', [System.StringComparison]::Ordinal)) {
                     if (-not $referencesAdded) {
                         $out.Add('references:')
                         $referencesAdded = $true
@@ -406,7 +406,7 @@ function Remove-ExternalReferenceEntries {
         }
 
         if ($currentBlock -is [System.Collections.Generic.List[string]] -and
-            $currentUid.StartsWith('Rowles.LeanLucene.', [System.StringComparison]::Ordinal)) {
+            $currentUid.StartsWith('Rowles.LeanCorpus.', [System.StringComparison]::Ordinal)) {
             if (-not $referencesAdded) {
                 $out.Add('references:')
                 $referencesAdded = $true
@@ -473,7 +473,7 @@ if (-not $SkipCoverage) {
             "-reports:$reportPaths" `
             "-targetdir:$coverageOutDir" `
             "-reporttypes:Html" `
-            "-title:LeanLucene Coverage"
+            "-title:LeanCorpus Coverage"
 
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "Coverage report generation failed (exit $LASTEXITCODE). Continuing without coverage report."

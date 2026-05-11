@@ -72,6 +72,8 @@
       href: index-management/02-schema.md
     - name: Validation and recovery
       href: index-management/03-validation-recovery.md
+    - name: Index checker CLI
+      href: index-management/04-cli-checker.md
 
 - name: Observability
   items:

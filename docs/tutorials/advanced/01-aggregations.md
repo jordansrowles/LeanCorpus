@@ -1,4 +1,4 @@
-# Aggregations
+﻿# Aggregations
 
 Aggregations compute summary statistics over the documents matching a query, in one
 pass alongside the search.
@@ -6,7 +6,7 @@ pass alongside the search.
 ## Stats and histograms
 
 ```csharp
-using Rowles.LeanLucene.Search.Aggregations;
+using Rowles.LeanCorpus.Search.Aggregations;
 
 var aggs = new[]
 {
@@ -37,5 +37,5 @@ The `Field` must be a numeric doc-values field (i.e., a `NumericField`).
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Search.Aggregations.AggregationRequest>
-- <xref:Rowles.LeanLucene.Search.Aggregations.AggregationResult>
+- <xref:Rowles.LeanCorpus.Search.Aggregations.AggregationRequest>
+- <xref:Rowles.LeanCorpus.Search.Aggregations.AggregationResult>

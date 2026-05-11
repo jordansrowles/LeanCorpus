@@ -1,4 +1,4 @@
-# Built-in analysers
+﻿# Built-in analysers
 
 An analyser turns text into a stream of tokens. The same analyser should be used at
 index-time and query-time so terms line up.
@@ -6,7 +6,7 @@ index-time and query-time so terms line up.
 ## Three you'll meet first
 
 ```csharp
-using Rowles.LeanLucene.Analysis;
+using Rowles.LeanCorpus.Analysis;
 
 var standard = new StandardAnalyser();      // lowercase + tokenise
 var stemmed  = new StemmedAnalyser();       // standard + Porter2 (English)
@@ -26,8 +26,8 @@ else throws `NotSupportedException`.
 ## Picking an analyser per field
 
 Set the writer-wide default through `IndexWriterConfig.DefaultAnalyser`. To override
-per-field, attach an `IAnalyser` to a <xref:Rowles.LeanLucene.Index.Indexer.FieldMapping>
-inside an <xref:Rowles.LeanLucene.Index.Indexer.IndexSchema>.
+per-field, attach an `IAnalyser` to a <xref:Rowles.LeanCorpus.Index.Indexer.FieldMapping>
+inside an <xref:Rowles.LeanCorpus.Index.Indexer.IndexSchema>.
 
 ## Inspecting tokens
 
@@ -39,5 +39,5 @@ foreach (var token in standard.Analyse("The Quick Brown Foxes".AsSpan()))
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Analysis.AnalyserFactory>
-- <xref:Rowles.LeanLucene.Analysis.IAnalyser>
+- <xref:Rowles.LeanCorpus.Analysis.Analysers.AnalyserFactory>
+- <xref:Rowles.LeanCorpus.Analysis.Analysers.IAnalyser>

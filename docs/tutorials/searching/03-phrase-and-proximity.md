@@ -1,4 +1,4 @@
-# Phrase and proximity
+﻿# Phrase and proximity
 
 ## PhraseQuery
 
@@ -38,5 +38,5 @@ positional logic.
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Search.Queries.PhraseQuery>
-- <xref:Rowles.LeanLucene.Search.Queries.SpanNearQuery>
+- <xref:Rowles.LeanCorpus.Search.Queries.PhraseQuery>
+- <xref:Rowles.LeanCorpus.Search.Queries.SpanNearQuery>

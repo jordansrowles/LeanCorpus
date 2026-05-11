@@ -1,6 +1,6 @@
-# Tutorials
+﻿# Tutorials
 
-Short, focused walkthroughs of the LeanLucene API. Each page is high-level and links into
+Short, focused walkthroughs of the LeanCorpus API. Each page is high-level and links into
 the [API reference](~/api/index.md) for full signatures.
 
 ## Getting Started
@@ -47,6 +47,7 @@ the [API reference](~/api/index.md) for full signatures.
 - [Update and delete](index-management/01-update-and-delete.md)
 - [Schema validation](index-management/02-schema.md)
 - [Validation and recovery](index-management/03-validation-recovery.md)
+- [Index checker CLI](index-management/04-cli-checker.md)
 
 ## Observability
 

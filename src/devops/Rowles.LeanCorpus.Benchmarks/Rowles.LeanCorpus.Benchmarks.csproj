@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\core\Rowles.LeanCorpus\Rowles.LeanCorpus.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+    <!-- Suppress the BDN assembly weaver: its bundled AsmResolver doesn't support .NET 11.
+         All [Benchmark] methods have manual [MethodImpl(MethodImplOptions.NoInlining)]. -->
+    <PackageReference Include="BenchmarkDotNet.Annotations" ExcludeAssets="buildTransitive" />
+    <PackageReference Include="Microsoft.Diagnostics.NETCore.Client" />
+
+    <PackageReference Include="Lucene.Net" />
+    <PackageReference Include="Lucene.Net.Analysis.Common" />
+    <PackageReference Include="Lucene.Net.Suggest" />
+    <PackageReference Include="Lucene.Net.Join" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+</Project>

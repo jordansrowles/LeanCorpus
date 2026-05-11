@@ -1,6 +1,6 @@
-# Benchmarking
+﻿# Benchmarking
 
-The benchmark project lives at `src/Rowles.LeanLucene.Benchmarks` and uses
+The benchmark project lives at `src/Rowles.LeanCorpus.Benchmarks` and uses
 BenchmarkDotNet.
 
 ## Run
@@ -19,13 +19,13 @@ They set the output layout and metadata. You can still run BenchmarkDotNet
 directly:
 
 ```bash
-dotnet run -c Release --project src/Rowles.LeanLucene.Benchmarks -- --filter '*'
+dotnet run -c Release --project src/Rowles.LeanCorpus.Benchmarks -- --filter '*'
 ```
 
 Filter to a specific class:
 
 ```bash
-dotnet run -c Release --project src/Rowles.LeanLucene.Benchmarks -- --filter '*SearchBenchmarks*'
+dotnet run -c Release --project src/Rowles.LeanCorpus.Benchmarks -- --filter '*SearchBenchmarks*'
 ```
 
 ## Output layout

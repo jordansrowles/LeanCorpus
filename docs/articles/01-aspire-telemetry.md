@@ -1,11 +1,11 @@
-# Aspire telemetry
+﻿# Aspire telemetry
 
 The telemetry example exports traces, metrics and structured logs through OTLP.
 Run it beside the Aspire dashboard when you want a quick local view.
 
 ```powershell
 aspire-dashboard -s false
-dotnet run --project src\examples\Rowles.LeanLucene.Example.Telemetry
+dotnet run --project src\examples\Rowles.LeanCorpus.Example.Telemetry
 ```
 
 `-s false` keeps the OTLP gRPC endpoint on plain HTTP. Aspire Runner defaults to

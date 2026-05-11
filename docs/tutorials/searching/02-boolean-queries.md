@@ -1,4 +1,4 @@
-# Boolean queries
+﻿# Boolean queries
 
 `BooleanQuery` combines clauses using <xml>Occur</xml>:
 
@@ -9,8 +9,8 @@
 ## Direct construction
 
 ```csharp
-using Rowles.LeanLucene.Search;
-using Rowles.LeanLucene.Search.Queries;
+using Rowles.LeanCorpus.Search;
+using Rowles.LeanCorpus.Search.Queries;
 
 var query = new BooleanQuery();
 query.Add(new TermQuery("title", "fox"),  Occur.Must);
@@ -35,6 +35,6 @@ the exclusions. Wrap in `ConstantScoreQuery` to skip BM25 when scoring is irrele
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Search.Queries.BooleanQuery>
-- <xref:Rowles.LeanLucene.Search.BooleanQueryBuilder>
-- <xref:Rowles.LeanLucene.Search.Occur>
+- <xref:Rowles.LeanCorpus.Search.Queries.BooleanQuery>
+- <xref:Rowles.LeanCorpus.Search.Parsing.BooleanQueryBuilder>
+- <xref:Rowles.LeanCorpus.Search.Occur>

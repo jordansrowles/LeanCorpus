@@ -1,7 +1,7 @@
-# Field types
+﻿# Field types
 
-LeanLucene ships five built-in field types. All implement
-<xref:Rowles.LeanLucene.Document.Fields.IField>.
+LeanCorpus ships five built-in field types. All implement
+<xref:Rowles.LeanCorpus.Document.Fields.IField>.
 
 | Type | Indexed | Stored opt-in | Notes |
 |---|---|---|---|
@@ -14,8 +14,8 @@ LeanLucene ships five built-in field types. All implement
 ## Examples
 
 ```csharp
-using Rowles.LeanLucene.Document;
-using Rowles.LeanLucene.Document.Fields;
+using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Document.Fields;
 
 var doc = new LeanDocument();
 doc.Add(new StringField("id", "abc-123"));
@@ -39,5 +39,5 @@ Use those names directly with `GeoBoundingBoxQuery` or `GeoDistanceQuery`.
 
 ## See also
 
-- <xref:Rowles.LeanLucene.Document.LeanDocument>
-- <xref:Rowles.LeanLucene.Document.Fields.FieldType>
+- <xref:Rowles.LeanCorpus.Document.LeanDocument>
+- <xref:Rowles.LeanCorpus.Document.Fields.FieldType>
