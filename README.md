@@ -26,6 +26,17 @@ A .NET-native full-text search engine. Segment-centric indexing, memory-mapped r
 | `Rowles.LeanCorpus.Example.Telemetry` | OpenTelemetry traces, metrics and structured logs example |
 | `Rowles.LeanCorpus.Example.NativeAot` | Native AOT smoke executable |
 
+## Installing
+```
+dotnet add package LeanCorpus
+
+# Optional
+
+dotnet add package LeanCorpus.Compression.LZ4
+dotnet add package LeanCorpus.Compression.Snappy
+dotnet add package LeanCorpus.Compression.Zstandard
+```
+
 ## Building and Testing
 
 ```
