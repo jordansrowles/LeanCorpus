@@ -1,231 +1,231 @@
----
+﻿---
 title: Benchmarks - debian
 ---
 
 # Benchmarks: debian
 
-**.NET** 10.0.3 &nbsp;&middot;&nbsp; **Commit** `2431f4a` &nbsp;&middot;&nbsp; 9 May 2026 23:07 UTC &nbsp;&middot;&nbsp; 92 benchmarks
+**.NET** 10.0.3 &nbsp;&middot;&nbsp; **Commit** `b772bf2` &nbsp;&middot;&nbsp; 11 May 2026 10:32 UTC &nbsp;&middot;&nbsp; 92 benchmarks
 
 ## Analysis
 
 | Method             | DocumentCount | Mean    | Error    | StdDev   | Ratio | Gen0        | Gen1      | Allocated | Alloc Ratio |
 |------------------- |-------------- |--------:|---------:|---------:|------:|------------:|----------:|----------:|------------:|
-| LeanLucene_Analyse | 100000        | 1.535 s | 0.0073 s | 0.0068 s |  1.00 |  49000.0000 | 2000.0000 | 199.73 MB |        1.00 |
-| LuceneNet_Analyse  | 100000        | 2.256 s | 0.0029 s | 0.0025 s |  1.47 | 144000.0000 |         - | 576.92 MB |        2.89 |
+| LeanLucene_Analyse | 100000        | 1.532 s | 0.0019 s | 0.0018 s |  1.00 |  49000.0000 | 2000.0000 | 199.73 MB |        1.00 |
+| LuceneNet_Analyse  | 100000        | 2.256 s | 0.0031 s | 0.0027 s |  1.47 | 144000.0000 |         - | 576.92 MB |        2.89 |
 
 ## analysis-filters
 
 | Method | Scenario             | Mean      | Error    | StdDev   | Gen0   | Allocated |
 |------- |--------------------- |----------:|---------:|---------:|-------:|----------:|
-| **Apply**  | **decim(...)ating [22]** |  **89.16 ns** | **0.166 ns** | **0.155 ns** | **0.0286** |     **120 B** |
-| **Apply**  | **elision-mutating**     | **154.58 ns** | **0.421 ns** | **0.394 ns** | **0.0362** |     **152 B** |
-| **Apply**  | **length-mutating**      |  **53.04 ns** | **0.095 ns** | **0.089 ns** | **0.0249** |     **104 B** |
-| **Apply**  | **length-noop**          |  **47.66 ns** | **0.094 ns** | **0.084 ns** | **0.0249** |     **104 B** |
-| **Apply**  | **reverse-mutating**     |  **70.00 ns** | **0.131 ns** | **0.109 ns** | **0.0381** |     **160 B** |
-| **Apply**  | **shingle-mutating**     | **259.53 ns** | **0.776 ns** | **0.726 ns** | **0.1202** |     **504 B** |
-| **Apply**  | **truncate-mutating**    |  **57.43 ns** | **0.142 ns** | **0.133 ns** | **0.0306** |     **128 B** |
-| **Apply**  | **truncate-noop**        |  **43.20 ns** | **0.102 ns** | **0.090 ns** | **0.0249** |     **104 B** |
-| **Apply**  | **unique-mutating**      | **150.77 ns** | **0.358 ns** | **0.318 ns** | **0.0706** |     **296 B** |
-| **Apply**  | **word-(...)ating [23]** | **447.43 ns** | **0.885 ns** | **0.828 ns** | **0.2217** |     **928 B** |
+| **Apply**  | **decim(...)ating [22]** |  **86.54 ns** | **0.158 ns** | **0.148 ns** | **0.0286** |     **120 B** |
+| **Apply**  | **elision-mutating**     | **154.51 ns** | **0.433 ns** | **0.384 ns** | **0.0362** |     **152 B** |
+| **Apply**  | **length-mutating**      |  **51.38 ns** | **0.128 ns** | **0.107 ns** | **0.0249** |     **104 B** |
+| **Apply**  | **length-noop**          |  **47.62 ns** | **0.096 ns** | **0.085 ns** | **0.0249** |     **104 B** |
+| **Apply**  | **reverse-mutating**     |  **69.78 ns** | **0.129 ns** | **0.114 ns** | **0.0381** |     **160 B** |
+| **Apply**  | **shingle-mutating**     | **256.32 ns** | **0.388 ns** | **0.324 ns** | **0.1202** |     **504 B** |
+| **Apply**  | **truncate-mutating**    |  **54.54 ns** | **0.145 ns** | **0.136 ns** | **0.0306** |     **128 B** |
+| **Apply**  | **truncate-noop**        |  **44.01 ns** | **0.081 ns** | **0.068 ns** | **0.0249** |     **104 B** |
+| **Apply**  | **unique-mutating**      | **152.78 ns** | **0.339 ns** | **0.317 ns** | **0.0706** |     **296 B** |
+| **Apply**  | **word-(...)ating [23]** | **446.41 ns** | **0.524 ns** | **0.490 ns** | **0.2217** |     **928 B** |
 
 ## analysis-parity
 
 | Method                | Mean      | Error     | StdDev    | Ratio | Gen0   | Allocated | Alloc Ratio |
 |---------------------- |----------:|----------:|----------:|------:|-------:|----------:|------------:|
-| LeanLucene_Whitespace | 39.058 μs | 0.0512 μs | 0.0479 μs |  1.00 |      - |         - |          NA |
-| LuceneNet_Whitespace  | 76.250 μs | 0.1543 μs | 0.1443 μs |  1.95 | 0.7324 |    3200 B |          NA |
-| LeanLucene_Keyword    |  3.993 μs | 0.0067 μs | 0.0062 μs |  0.10 |      - |         - |          NA |
-| LuceneNet_Keyword     | 12.566 μs | 0.0216 μs | 0.0202 μs |  0.32 | 0.7629 |    3200 B |          NA |
-| LeanLucene_Simple     | 39.651 μs | 0.0821 μs | 0.0768 μs |  1.02 |      - |         - |          NA |
-| LuceneNet_Simple      | 84.560 μs | 0.1543 μs | 0.1368 μs |  2.16 | 0.7324 |    3200 B |          NA |
+| LeanLucene_Whitespace | 39.833 μs | 0.0575 μs | 0.0509 μs |  1.00 |      - |         - |          NA |
+| LuceneNet_Whitespace  | 76.348 μs | 0.1119 μs | 0.0992 μs |  1.92 | 0.7324 |    3200 B |          NA |
+| LeanLucene_Keyword    |  4.017 μs | 0.0088 μs | 0.0082 μs |  0.10 |      - |         - |          NA |
+| LuceneNet_Keyword     | 12.487 μs | 0.0209 μs | 0.0185 μs |  0.31 | 0.7629 |    3200 B |          NA |
+| LeanLucene_Simple     | 39.521 μs | 0.0995 μs | 0.0882 μs |  0.99 |      - |         - |          NA |
+| LuceneNet_Simple      | 94.659 μs | 0.1440 μs | 0.1347 μs |  2.38 | 0.7324 |    3200 B |          NA |
 
 ## Block-Join
 
 | Method                           | BlockCount | Mean          | Error       | StdDev      | Ratio | Gen0      | Gen1     | Allocated  | Alloc Ratio |
 |--------------------------------- |----------- |--------------:|------------:|------------:|------:|----------:|---------:|-----------:|------------:|
-| LeanLucene_IndexBlocks           | 500        | 82,662.240 μs | 352.5100 μs | 312.4910 μs | 1.000 | 1714.2857 | 857.1429 | 13892496 B |       1.000 |
-| LeanLucene_BlockJoinQuery        | 500        |      7.160 μs |   0.0126 μs |   0.0118 μs | 0.000 |    0.1678 |        - |      720 B |       0.000 |
-| LuceneNet_IndexBlocks            | 500        | 56,608.486 μs | 398.8941 μs | 353.6092 μs | 0.685 | 5000.0000 | 666.6667 | 28714791 B |       2.067 |
-| LuceneNet_ToParentBlockJoinQuery | 500        |     21.839 μs |   0.0514 μs |   0.0456 μs | 0.000 |    3.0518 |        - |    12888 B |       0.001 |
+| LeanLucene_IndexBlocks           | 500        | 81,989.873 μs | 246.0180 μs | 218.0885 μs | 1.000 | 1857.1429 | 857.1429 | 13906016 B |       1.000 |
+| LeanLucene_BlockJoinQuery        | 500        |      7.152 μs |   0.0167 μs |   0.0156 μs | 0.000 |    0.1678 |        - |      720 B |       0.000 |
+| LuceneNet_IndexBlocks            | 500        | 57,079.239 μs | 322.5448 μs | 301.7086 μs | 0.696 | 5000.0000 | 666.6667 | 28715836 B |       2.065 |
+| LuceneNet_ToParentBlockJoinQuery | 500        |     21.741 μs |   0.0467 μs |   0.0437 μs | 0.000 |    3.0518 |        - |    12888 B |       0.001 |
 
 ## Boolean queries
 
 | Method                  | BooleanType | DocumentCount | Mean     | Error   | StdDev  | Ratio | RatioSD | Gen0     | Gen1    | Allocated | Alloc Ratio |
 |------------------------ |------------ |-------------- |---------:|--------:|--------:|------:|--------:|---------:|--------:|----------:|------------:|
-| **LeanLucene_BooleanQuery** | **Must**        | **100000**        | **267.3 μs** | **2.53 μs** | **2.11 μs** |  **1.00** |    **0.00** |   **2.9297** |       **-** |  **12.93 KB** |        **1.00** |
-| LuceneNet_BooleanQuery  | Must        | 100000        | 484.9 μs | 1.46 μs | 1.29 μs |  1.81 |    0.01 |  35.1563 |       - | 144.09 KB |       11.14 |
+| **LeanLucene_BooleanQuery** | **Must**        | **100000**        | **264.6 μs** | **2.54 μs** | **2.25 μs** |  **1.00** |    **0.00** |   **2.9297** |       **-** |  **12.93 KB** |        **1.00** |
+| LuceneNet_BooleanQuery  | Must        | 100000        | 484.1 μs | 0.38 μs | 0.30 μs |  1.83 |    0.02 |  35.1563 |       - | 144.09 KB |       11.14 |
 |                         |             |               |          |         |         |       |         |          |         |           |             |
-| **LeanLucene_BooleanQuery** | **MustNot**     | **100000**        | **173.5 μs** | **1.06 μs** | **0.94 μs** |  **1.00** |    **0.00** |   **3.1738** |       **-** |   **13.3 KB** |        **1.00** |
-| LuceneNet_BooleanQuery  | MustNot     | 100000        | 403.6 μs | 7.77 μs | 7.26 μs |  2.33 |    0.04 |  36.1328 |       - | 149.06 KB |       11.21 |
+| **LeanLucene_BooleanQuery** | **MustNot**     | **100000**        | **173.6 μs** | **1.23 μs** | **1.15 μs** |  **1.00** |    **0.00** |   **3.1738** |       **-** |   **13.3 KB** |        **1.00** |
+| LuceneNet_BooleanQuery  | MustNot     | 100000        | 410.1 μs | 0.86 μs | 0.81 μs |  2.36 |    0.02 |  36.1328 |       - | 149.06 KB |       11.21 |
 |                         |             |               |          |         |         |       |         |          |         |           |             |
-| **LeanLucene_BooleanQuery** | **Should**      | **100000**        | **221.9 μs** | **1.71 μs** | **1.60 μs** |  **1.00** |    **0.00** |   **3.1738** |       **-** |  **13.69 KB** |        **1.00** |
-| LuceneNet_BooleanQuery  | Should      | 100000        | 587.2 μs | 1.65 μs | 1.54 μs |  2.65 |    0.02 | 169.9219 | 40.0391 | 695.01 KB |       50.76 |
+| **LeanLucene_BooleanQuery** | **Should**      | **100000**        | **224.0 μs** | **3.19 μs** | **2.99 μs** |  **1.00** |    **0.00** |   **3.4180** |       **-** |   **13.7 KB** |        **1.00** |
+| LuceneNet_BooleanQuery  | Should      | 100000        | 579.8 μs | 0.92 μs | 0.77 μs |  2.59 |    0.03 | 169.9219 | 40.0391 | 695.01 KB |       50.74 |
 
 ## Deletion
 
 | Method                     | DocumentCount | Mean     | Error    | StdDev   | Ratio | Gen0        | Gen1       | Gen2      | Allocated | Alloc Ratio |
 |--------------------------- |-------------- |---------:|---------:|---------:|------:|------------:|-----------:|----------:|----------:|------------:|
-| LeanLucene_DeleteDocuments | 100000        | 10.914 s | 0.0479 s | 0.0448 s |  1.00 | 199000.0000 | 89000.0000 | 9000.0000 |   1.19 GB |        1.00 |
-| LuceneNet_DeleteDocuments  | 100000        |  7.203 s | 0.0326 s | 0.0305 s |  0.66 | 339000.0000 | 34000.0000 | 1000.0000 |   1.91 GB |        1.61 |
+| LeanLucene_DeleteDocuments | 100000        | 10.946 s | 0.0598 s | 0.0559 s |  1.00 | 200000.0000 | 89000.0000 | 9000.0000 |   1.19 GB |        1.00 |
+| LuceneNet_DeleteDocuments  | 100000        |  7.231 s | 0.0242 s | 0.0214 s |  0.66 | 339000.0000 | 37000.0000 | 1000.0000 |   1.91 GB |        1.61 |
 
 ## Fuzzy queries
 
 | Method                | QueryTerm | DocumentCount | Mean     | Error     | StdDev    | Ratio | Gen0     | Gen1     | Allocated  | Alloc Ratio |
 |---------------------- |---------- |-------------- |---------:|----------:|----------:|------:|---------:|---------:|-----------:|------------:|
-| **LeanLucene_FuzzyQuery** | **goverment** | **100000**        | **6.894 ms** | **0.0565 ms** | **0.0501 ms** |  **1.00** |        **-** |        **-** |   **25.88 KB** |        **1.00** |
-| LuceneNet_FuzzyQuery  | goverment | 100000        | 8.674 ms | 0.0317 ms | 0.0297 ms |  1.26 | 593.7500 | 203.1250 | 2870.85 KB |      110.93 |
+| **LeanLucene_FuzzyQuery** | **goverment** | **100000**        | **6.979 ms** | **0.0575 ms** | **0.0480 ms** |  **1.00** |        **-** |        **-** |   **25.88 KB** |        **1.00** |
+| LuceneNet_FuzzyQuery  | goverment | 100000        | 8.645 ms | 0.0200 ms | 0.0177 ms |  1.24 | 593.7500 | 203.1250 | 2870.85 KB |      110.94 |
 |                       |           |               |          |           |           |       |          |          |            |             |
-| **LeanLucene_FuzzyQuery** | **markts**    | **100000**        | **7.525 ms** | **0.0454 ms** | **0.0403 ms** |  **1.00** |   **7.8125** |        **-** |   **47.66 KB** |        **1.00** |
-| LuceneNet_FuzzyQuery  | markts    | 100000        | 9.247 ms | 0.0267 ms | 0.0250 ms |  1.23 | 625.0000 | 187.5000 | 2806.02 KB |       58.87 |
+| **LeanLucene_FuzzyQuery** | **markts**    | **100000**        | **7.595 ms** | **0.0603 ms** | **0.0564 ms** |  **1.00** |   **7.8125** |        **-** |   **47.66 KB** |        **1.00** |
+| LuceneNet_FuzzyQuery  | markts    | 100000        | 9.245 ms | 0.0255 ms | 0.0226 ms |  1.22 | 625.0000 | 187.5000 | 2806.02 KB |       58.87 |
 |                       |           |               |          |           |           |       |          |          |            |             |
-| **LeanLucene_FuzzyQuery** | **presiden**  | **100000**        | **7.899 ms** | **0.1009 ms** | **0.0895 ms** |  **1.00** |        **-** |        **-** |   **30.61 KB** |        **1.00** |
-| LuceneNet_FuzzyQuery  | presiden  | 100000        | 8.686 ms | 0.0270 ms | 0.0252 ms |  1.10 | 593.7500 | 218.7500 | 2844.58 KB |       92.93 |
+| **LeanLucene_FuzzyQuery** | **presiden**  | **100000**        | **8.035 ms** | **0.0928 ms** | **0.0868 ms** |  **1.00** |        **-** |        **-** |   **30.61 KB** |        **1.00** |
+| LuceneNet_FuzzyQuery  | presiden  | 100000        | 8.768 ms | 0.0197 ms | 0.0174 ms |  1.09 | 593.7500 | 218.7500 | 2844.58 KB |       92.93 |
 
 ## gutenberg-analysis
 
 | Method                      | Mean     | Error   | StdDev  | Ratio | RatioSD | Gen0       | Gen1      | Gen2      | Allocated | Alloc Ratio |
 |---------------------------- |---------:|--------:|--------:|------:|--------:|-----------:|----------:|----------:|----------:|------------:|
-| LeanLucene_Standard_Analyse | 125.2 ms | 0.52 ms | 0.48 ms |  1.00 |    0.00 |  1400.0000 |  600.0000 |         - |   7.23 MB |        1.00 |
-| LeanLucene_English_Analyse  | 395.4 ms | 2.27 ms | 2.12 ms |  3.16 |    0.02 | 11000.0000 | 6000.0000 | 2000.0000 | 113.03 MB |       15.62 |
+| LeanLucene_Standard_Analyse | 124.5 ms | 0.22 ms | 0.19 ms |  1.00 |    0.00 |  1400.0000 |  600.0000 |         - |   7.23 MB |        1.00 |
+| LeanLucene_English_Analyse  | 391.7 ms | 2.53 ms | 2.37 ms |  3.15 |    0.02 | 11000.0000 | 6000.0000 | 2000.0000 | 113.03 MB |       15.62 |
 
 ## gutenberg-index
 
-| Method                    | Mean       | Error   | StdDev  | Ratio | Gen0       | Gen1       | Gen2      | Allocated | Alloc Ratio |
-|-------------------------- |-----------:|--------:|--------:|------:|-----------:|-----------:|----------:|----------:|------------:|
-| LeanLucene_Standard_Index |   986.9 ms | 5.13 ms | 4.55 ms |  1.00 | 19000.0000 | 10000.0000 | 1000.0000 | 123.53 MB |        1.00 |
-| LeanLucene_English_Index  | 1,008.0 ms | 8.05 ms | 7.53 ms |  1.02 | 36000.0000 | 12000.0000 | 2000.0000 | 217.76 MB |        1.76 |
-| LuceneNet_Index           |   645.3 ms | 2.88 ms | 2.55 ms |  0.65 | 41000.0000 |  3000.0000 |         - | 207.69 MB |        1.68 |
+| Method                    | Mean       | Error    | StdDev   | Ratio | Gen0       | Gen1       | Gen2      | Allocated | Alloc Ratio |
+|-------------------------- |-----------:|---------:|---------:|------:|-----------:|-----------:|----------:|----------:|------------:|
+| LeanLucene_Standard_Index | 1,004.9 ms |  7.91 ms |  6.61 ms |  1.00 | 19000.0000 | 10000.0000 | 1000.0000 | 123.51 MB |        1.00 |
+| LeanLucene_English_Index  | 1,028.4 ms | 14.99 ms | 13.29 ms |  1.02 | 36000.0000 | 12000.0000 | 2000.0000 |  218.9 MB |        1.77 |
+| LuceneNet_Index           |   650.5 ms |  2.45 ms |  2.17 ms |  0.65 | 41000.0000 |  3000.0000 |         - | 207.68 MB |        1.68 |
 
 ## gutenberg-search
 
 | Method                     | SearchTerm | Mean     | Error    | StdDev   | Ratio | RatioSD | Gen0   | Gen1   | Allocated | Alloc Ratio |
 |--------------------------- |----------- |---------:|---------:|---------:|------:|--------:|-------:|-------:|----------:|------------:|
-| **LeanLucene_Standard_Search** | **death**      | **11.38 μs** | **0.028 μs** | **0.026 μs** |  **1.00** |    **0.00** | **0.1068** |      **-** |     **472 B** |        **1.00** |
-| LeanLucene_English_Search  | death      | 11.51 μs | 0.025 μs | 0.024 μs |  1.01 |    0.00 | 0.1068 |      - |     472 B |        1.00 |
-| LuceneNet_Search           | death      | 23.33 μs | 0.433 μs | 0.405 μs |  2.05 |    0.03 | 2.6550 | 0.0305 |   11231 B |       23.79 |
+| **LeanLucene_Standard_Search** | **death**      | **11.39 μs** | **0.031 μs** | **0.029 μs** |  **1.00** |    **0.00** | **0.1068** |      **-** |     **472 B** |        **1.00** |
+| LeanLucene_English_Search  | death      | 11.61 μs | 0.022 μs | 0.021 μs |  1.02 |    0.00 | 0.1068 |      - |     472 B |        1.00 |
+| LuceneNet_Search           | death      | 23.19 μs | 0.428 μs | 0.401 μs |  2.04 |    0.03 | 2.6550 | 0.0305 |   11231 B |       23.79 |
 |                            |            |          |          |          |       |         |        |        |           |             |
-| **LeanLucene_Standard_Search** | **love**       | **15.20 μs** | **0.038 μs** | **0.035 μs** |  **1.00** |    **0.00** | **0.1068** |      **-** |     **464 B** |        **1.00** |
-| LeanLucene_English_Search  | love       | 20.17 μs | 0.027 μs | 0.024 μs |  1.33 |    0.00 | 0.0916 |      - |     464 B |        1.00 |
-| LuceneNet_Search           | love       | 30.64 μs | 0.080 μs | 0.071 μs |  2.02 |    0.01 | 2.6245 | 0.0610 |   11175 B |       24.08 |
+| **LeanLucene_Standard_Search** | **love**       | **15.49 μs** | **0.051 μs** | **0.045 μs** |  **1.00** |    **0.00** | **0.0916** |      **-** |     **464 B** |        **1.00** |
+| LeanLucene_English_Search  | love       | 20.03 μs | 0.031 μs | 0.029 μs |  1.29 |    0.00 | 0.0916 |      - |     464 B |        1.00 |
+| LuceneNet_Search           | love       | 29.89 μs | 0.044 μs | 0.041 μs |  1.93 |    0.01 | 2.6245 | 0.0305 |   11175 B |       24.08 |
 |                            |            |          |          |          |       |         |        |        |           |             |
-| **LeanLucene_Standard_Search** | **man**        | **39.52 μs** | **0.091 μs** | **0.085 μs** |  **1.00** |    **0.00** | **0.0610** |      **-** |     **464 B** |        **1.00** |
-| LeanLucene_English_Search  | man        | 39.83 μs | 0.097 μs | 0.091 μs |  1.01 |    0.00 | 0.0610 |      - |     464 B |        1.00 |
-| LuceneNet_Search           | man        | 51.84 μs | 0.224 μs | 0.209 μs |  1.31 |    0.01 | 2.6245 | 0.0610 |   11038 B |       23.79 |
+| **LeanLucene_Standard_Search** | **man**        | **40.09 μs** | **0.074 μs** | **0.069 μs** |  **1.00** |    **0.00** | **0.0610** |      **-** |     **464 B** |        **1.00** |
+| LeanLucene_English_Search  | man        | 39.64 μs | 0.042 μs | 0.040 μs |  0.99 |    0.00 | 0.0610 |      - |     464 B |        1.00 |
+| LuceneNet_Search           | man        | 52.77 μs | 0.216 μs | 0.202 μs |  1.32 |    0.01 | 2.6245 | 0.0610 |   11038 B |       23.79 |
 |                            |            |          |          |          |       |         |        |        |           |             |
-| **LeanLucene_Standard_Search** | **night**      | **25.84 μs** | **0.057 μs** | **0.054 μs** |  **1.00** |    **0.00** | **0.0916** |      **-** |     **472 B** |        **1.00** |
-| LeanLucene_English_Search  | night      | 26.51 μs | 0.050 μs | 0.046 μs |  1.03 |    0.00 | 0.0916 |      - |     472 B |        1.00 |
-| LuceneNet_Search           | night      | 37.63 μs | 0.088 μs | 0.083 μs |  1.46 |    0.00 | 2.6245 | 0.0610 |   11223 B |       23.78 |
+| **LeanLucene_Standard_Search** | **night**      | **25.25 μs** | **0.051 μs** | **0.048 μs** |  **1.00** |    **0.00** | **0.0916** |      **-** |     **472 B** |        **1.00** |
+| LeanLucene_English_Search  | night      | 26.30 μs | 0.056 μs | 0.049 μs |  1.04 |    0.00 | 0.0916 |      - |     472 B |        1.00 |
+| LuceneNet_Search           | night      | 37.74 μs | 0.082 μs | 0.077 μs |  1.49 |    0.00 | 2.6245 |      - |   11223 B |       23.78 |
 |                            |            |          |          |          |       |         |        |        |           |             |
-| **LeanLucene_Standard_Search** | **sea**        | **12.83 μs** | **0.037 μs** | **0.035 μs** |  **1.00** |    **0.00** | **0.1068** |      **-** |     **464 B** |        **1.00** |
-| LeanLucene_English_Search  | sea        | 13.84 μs | 0.031 μs | 0.029 μs |  1.08 |    0.00 | 0.1068 |      - |     464 B |        1.00 |
-| LuceneNet_Search           | sea        | 27.23 μs | 0.078 μs | 0.073 μs |  2.12 |    0.01 | 2.6550 | 0.0305 |   11271 B |       24.29 |
+| **LeanLucene_Standard_Search** | **sea**        | **12.96 μs** | **0.027 μs** | **0.025 μs** |  **1.00** |    **0.00** | **0.1068** |      **-** |     **464 B** |        **1.00** |
+| LeanLucene_English_Search  | sea        | 13.95 μs | 0.025 μs | 0.023 μs |  1.08 |    0.00 | 0.1068 |      - |     464 B |        1.00 |
+| LuceneNet_Search           | sea        | 27.27 μs | 0.070 μs | 0.065 μs |  2.10 |    0.01 | 2.6550 | 0.0305 |   11271 B |       24.29 |
 
 ## Indexing
 
 | Method                    | DocumentCount | Mean     | Error    | StdDev   | Ratio | Gen0        | Gen1       | Gen2      | Allocated | Alloc Ratio |
 |-------------------------- |-------------- |---------:|---------:|---------:|------:|------------:|-----------:|----------:|----------:|------------:|
-| LeanLucene_IndexDocuments | 100000        | 10.796 s | 0.0286 s | 0.0254 s |  1.00 | 196000.0000 | 88000.0000 | 6000.0000 |   1.17 GB |        1.00 |
-| LuceneNet_IndexDocuments  | 100000        |  7.138 s | 0.0184 s | 0.0163 s |  0.66 | 332000.0000 | 30000.0000 | 1000.0000 |   1.88 GB |        1.61 |
+| LeanLucene_IndexDocuments | 100000        | 10.959 s | 0.0548 s | 0.0513 s |  1.00 | 196000.0000 | 87000.0000 | 6000.0000 |   1.17 GB |        1.00 |
+| LuceneNet_IndexDocuments  | 100000        |  7.126 s | 0.0191 s | 0.0169 s |  0.65 | 332000.0000 | 34000.0000 | 1000.0000 |   1.88 GB |        1.61 |
 
 ## Index-sort (index)
 
 | Method                    | DocumentCount | Mean    | Error   | StdDev  | Ratio | Gen0        | Gen1       | Gen2      | Allocated | Alloc Ratio |
 |-------------------------- |-------------- |--------:|--------:|--------:|------:|------------:|-----------:|----------:|----------:|------------:|
-| LeanLucene_Index_Unsorted | 100000        | 11.29 s | 0.022 s | 0.021 s |  1.00 | 205000.0000 | 87000.0000 | 6000.0000 |   1.24 GB |        1.00 |
-| LeanLucene_Index_Sorted   | 100000        | 12.27 s | 0.033 s | 0.029 s |  1.09 | 210000.0000 | 89000.0000 | 8000.0000 |   1.27 GB |        1.02 |
+| LeanLucene_Index_Unsorted | 100000        | 11.43 s | 0.041 s | 0.038 s |  1.00 | 205000.0000 | 87000.0000 | 6000.0000 |   1.24 GB |        1.00 |
+| LeanLucene_Index_Sorted   | 100000        | 12.36 s | 0.035 s | 0.033 s |  1.08 | 208000.0000 | 87000.0000 | 6000.0000 |   1.27 GB |        1.02 |
 
 ## Index-sort (search)
 
 | Method                                   | DocumentCount | Mean     | Error   | StdDev  | Ratio | Gen0    | Gen1   | Allocated | Alloc Ratio |
 |----------------------------------------- |-------------- |---------:|--------:|--------:|------:|--------:|-------:|----------:|------------:|
-| LeanLucene_SortedSearch_EarlyTermination | 100000        | 251.7 μs | 1.00 μs | 0.94 μs |  1.00 | 28.3203 | 0.9766 | 117.66 KB |        1.00 |
-| LeanLucene_SortedSearch_PostSort         | 100000        | 248.7 μs | 0.62 μs | 0.58 μs |  0.99 | 28.3203 | 0.9766 | 117.66 KB |        1.00 |
+| LeanLucene_SortedSearch_EarlyTermination | 100000        | 255.2 μs | 0.81 μs | 0.76 μs |  1.00 | 28.3203 | 0.9766 | 117.66 KB |        1.00 |
+| LeanLucene_SortedSearch_PostSort         | 100000        | 249.7 μs | 0.40 μs | 0.31 μs |  0.98 | 28.3203 | 0.9766 | 117.66 KB |        1.00 |
 
 ## Phrase queries
 
-| Method                 | PhraseType     | DocumentCount | Mean       | Error    | StdDev   | Ratio | Gen0    | Gen1    | Allocated | Alloc Ratio |
-|----------------------- |--------------- |-------------- |-----------:|---------:|---------:|------:|--------:|--------:|----------:|------------:|
-| **LeanLucene_PhraseQuery** | **ExactThreeWord** | **100000**        |   **445.4 μs** |  **4.57 μs** |  **4.27 μs** |  **1.00** | **14.6484** |       **-** |  **59.77 KB** |        **1.00** |
-| LuceneNet_PhraseQuery  | ExactThreeWord | 100000        |   342.2 μs |  0.78 μs |  0.69 μs |  0.77 | 90.3320 |  0.4883 | 369.88 KB |        6.19 |
-|                        |                |               |            |          |          |       |         |         |           |             |
-| **LeanLucene_PhraseQuery** | **ExactTwoWord**   | **100000**        |   **338.1 μs** |  **4.67 μs** |  **4.14 μs** |  **1.00** | **10.2539** |       **-** |  **42.92 KB** |        **1.00** |
-| LuceneNet_PhraseQuery  | ExactTwoWord   | 100000        |   406.2 μs |  0.58 μs |  0.54 μs |  1.20 | 72.2656 | 18.0664 | 297.27 KB |        6.93 |
-|                        |                |               |            |          |          |       |         |         |           |             |
-| **LeanLucene_PhraseQuery** | **SlopTwoWord**    | **100000**        |   **993.1 μs** | **11.34 μs** | **10.61 μs** |  **1.00** | **11.7188** |       **-** |  **48.69 KB** |        **1.00** |
-| LuceneNet_PhraseQuery  | SlopTwoWord    | 100000        | 1,035.5 μs |  2.58 μs |  2.29 μs |  1.04 | 37.1094 |       - | 155.61 KB |        3.20 |
+| Method                 | PhraseType     | DocumentCount | Mean       | Error   | StdDev  | Ratio | Gen0    | Gen1    | Allocated | Alloc Ratio |
+|----------------------- |--------------- |-------------- |-----------:|--------:|--------:|------:|--------:|--------:|----------:|------------:|
+| **LeanLucene_PhraseQuery** | **ExactThreeWord** | **100000**        |   **437.9 μs** | **1.91 μs** | **1.59 μs** |  **1.00** | **14.6484** |       **-** |  **59.75 KB** |        **1.00** |
+| LuceneNet_PhraseQuery  | ExactThreeWord | 100000        |   343.8 μs | 1.15 μs | 1.07 μs |  0.79 | 90.3320 |  0.4883 | 369.88 KB |        6.19 |
+|                        |                |               |            |         |         |       |         |         |           |             |
+| **LeanLucene_PhraseQuery** | **ExactTwoWord**   | **100000**        |   **321.3 μs** | **4.00 μs** | **3.74 μs** |  **1.00** | **10.2539** |       **-** |  **42.91 KB** |        **1.00** |
+| LuceneNet_PhraseQuery  | ExactTwoWord   | 100000        |   409.6 μs | 0.69 μs | 0.65 μs |  1.27 | 72.2656 | 18.0664 | 297.27 KB |        6.93 |
+|                        |                |               |            |         |         |       |         |         |           |             |
+| **LeanLucene_PhraseQuery** | **SlopTwoWord**    | **100000**        |   **985.9 μs** | **7.34 μs** | **6.13 μs** |  **1.00** | **11.7188** |       **-** |  **48.69 KB** |        **1.00** |
+| LuceneNet_PhraseQuery  | SlopTwoWord    | 100000        | 1,037.2 μs | 2.24 μs | 2.10 μs |  1.05 | 37.1094 |       - | 155.61 KB |        3.20 |
 
 ## Prefix queries
 
 | Method                 | QueryPrefix | DocumentCount | Mean     | Error   | StdDev  | Ratio | Gen0    | Gen1   | Allocated | Alloc Ratio |
 |----------------------- |------------ |-------------- |---------:|--------:|--------:|------:|--------:|-------:|----------:|------------:|
-| **LeanLucene_PrefixQuery** | **gov**         | **100000**        | **149.7 μs** | **1.56 μs** | **1.38 μs** |  **1.00** |  **5.8594** |      **-** |  **23.67 KB** |        **1.00** |
-| LuceneNet_PrefixQuery  | gov         | 100000        | 187.3 μs | 0.30 μs | 0.28 μs |  1.25 | 26.8555 | 0.2441 | 110.04 KB |        4.65 |
+| **LeanLucene_PrefixQuery** | **gov**         | **100000**        | **151.9 μs** | **1.12 μs** | **0.99 μs** |  **1.00** |  **5.8594** |      **-** |  **23.67 KB** |        **1.00** |
+| LuceneNet_PrefixQuery  | gov         | 100000        | 186.1 μs | 0.38 μs | 0.35 μs |  1.22 | 26.8555 | 0.2441 | 110.04 KB |        4.65 |
 |                        |             |               |          |         |         |       |         |        |           |             |
-| **LeanLucene_PrefixQuery** | **mark**        | **100000**        | **240.3 μs** | **1.19 μs** | **0.93 μs** |  **1.00** |  **8.5449** |      **-** |  **34.51 KB** |        **1.00** |
-| LuceneNet_PrefixQuery  | mark        | 100000        | 284.1 μs | 0.71 μs | 0.66 μs |  1.18 | 30.7617 |      - | 126.09 KB |        3.65 |
+| **LeanLucene_PrefixQuery** | **mark**        | **100000**        | **243.0 μs** | **1.27 μs** | **1.12 μs** |  **1.00** |  **8.5449** |      **-** |   **34.5 KB** |        **1.00** |
+| LuceneNet_PrefixQuery  | mark        | 100000        | 285.5 μs | 0.52 μs | 0.46 μs |  1.17 | 30.7617 |      - | 126.09 KB |        3.65 |
 |                        |             |               |          |         |         |       |         |        |           |             |
-| **LeanLucene_PrefixQuery** | **pres**        | **100000**        | **290.0 μs** | **3.71 μs** | **3.29 μs** |  **1.00** | **15.6250** |      **-** |  **62.99 KB** |        **1.00** |
-| LuceneNet_PrefixQuery  | pres        | 100000        | 355.8 μs | 0.61 μs | 0.57 μs |  1.23 | 32.2266 |      - | 133.65 KB |        2.12 |
+| **LeanLucene_PrefixQuery** | **pres**        | **100000**        | **289.7 μs** | **3.27 μs** | **2.90 μs** |  **1.00** | **15.6250** |      **-** |  **62.99 KB** |        **1.00** |
+| LuceneNet_PrefixQuery  | pres        | 100000        | 356.8 μs | 0.63 μs | 0.56 μs |  1.23 | 32.2266 |      - | 133.65 KB |        2.12 |
 
 ## Term queries
 
 | Method               | QueryTerm  | DocumentCount | Mean     | Error   | StdDev  | Ratio | Gen0    | Gen1   | Allocated | Alloc Ratio |
 |--------------------- |----------- |-------------- |---------:|--------:|--------:|------:|--------:|-------:|----------:|------------:|
-| **LeanLucene_TermQuery** | **government** | **100000**        | **106.4 μs** | **0.24 μs** | **0.22 μs** |  **1.00** |       **-** |      **-** |     **480 B** |        **1.00** |
-| LuceneNet_TermQuery  | government | 100000        | 135.6 μs | 0.48 μs | 0.42 μs |  1.27 | 14.4043 |      - |   60896 B |      126.87 |
+| **LeanLucene_TermQuery** | **government** | **100000**        | **106.0 μs** | **0.28 μs** | **0.26 μs** |  **1.00** |       **-** |      **-** |     **480 B** |        **1.00** |
+| LuceneNet_TermQuery  | government | 100000        | 136.3 μs | 0.35 μs | 0.31 μs |  1.29 | 14.4043 |      - |   60896 B |      126.87 |
 |                      |            |               |          |         |         |       |         |        |           |             |
-| **LeanLucene_TermQuery** | **people**     | **100000**        | **151.1 μs** | **0.35 μs** | **0.33 μs** |  **1.00** |       **-** |      **-** |     **472 B** |        **1.00** |
-| LuceneNet_TermQuery  | people     | 100000        | 175.4 μs | 0.41 μs | 0.36 μs |  1.16 | 13.9160 | 0.2441 |   58688 B |      124.34 |
+| **LeanLucene_TermQuery** | **people**     | **100000**        | **150.6 μs** | **0.30 μs** | **0.28 μs** |  **1.00** |       **-** |      **-** |     **472 B** |        **1.00** |
+| LuceneNet_TermQuery  | people     | 100000        | 177.5 μs | 0.34 μs | 0.32 μs |  1.18 | 13.9160 | 0.2441 |   58688 B |      124.34 |
 |                      |            |               |          |         |         |       |         |        |           |             |
-| **LeanLucene_TermQuery** | **said**       | **100000**        | **687.3 μs** | **1.09 μs** | **0.97 μs** |  **1.00** |       **-** |      **-** |     **464 B** |        **1.00** |
-| LuceneNet_TermQuery  | said       | 100000        | 754.2 μs | 1.18 μs | 1.11 μs |  1.10 | 13.6719 |      - |   58720 B |      126.55 |
+| **LeanLucene_TermQuery** | **said**       | **100000**        | **687.3 μs** | **1.02 μs** | **0.96 μs** |  **1.00** |       **-** |      **-** |     **464 B** |        **1.00** |
+| LuceneNet_TermQuery  | said       | 100000        | 753.3 μs | 1.25 μs | 1.17 μs |  1.10 | 13.6719 |      - |   58720 B |      126.55 |
 
 ## Schema and JSON
 
 | Method                      | DocumentCount | Mean        | Error    | StdDev   | Ratio | Gen0        | Gen1       | Gen2      | Allocated  | Alloc Ratio |
 |---------------------------- |-------------- |------------:|---------:|---------:|------:|------------:|-----------:|----------:|-----------:|------------:|
-| LeanLucene_Index_NoSchema   | 100000        | 10,553.3 ms | 33.23 ms | 31.09 ms |  1.00 | 192000.0000 | 82000.0000 | 2000.0000 | 1194.33 MB |        1.00 |
-| LeanLucene_Index_WithSchema | 100000        | 10,507.9 ms | 43.30 ms | 40.50 ms |  1.00 | 193000.0000 | 83000.0000 | 2000.0000 | 1198.15 MB |        1.00 |
-| LeanLucene_JsonMapping      | 100000        |    427.9 ms |  2.34 ms |  2.19 ms |  0.04 |  51000.0000 |  1000.0000 |         - |  215.88 MB |        0.18 |
+| LeanLucene_Index_NoSchema   | 100000        | 10,501.4 ms | 61.92 ms | 57.92 ms |  1.00 | 193000.0000 | 81000.0000 | 2000.0000 | 1194.41 MB |        1.00 |
+| LeanLucene_Index_WithSchema | 100000        | 10,540.6 ms | 48.98 ms | 45.81 ms |  1.00 | 193000.0000 | 82000.0000 | 2000.0000 | 1198.28 MB |        1.00 |
+| LeanLucene_JsonMapping      | 100000        |    443.4 ms |  2.52 ms |  2.36 ms |  0.04 |  51000.0000 |  1000.0000 |         - |  215.88 MB |        0.18 |
 
 ## Suggester
 
 | Method                 | DocumentCount | Mean      | Error     | StdDev    | Ratio | Gen0      | Gen1    | Allocated  | Alloc Ratio |
 |----------------------- |-------------- |----------:|----------:|----------:|------:|----------:|--------:|-----------:|------------:|
-| LeanLucene_DidYouMean  | 100000        |  4.635 ms | 0.0178 ms | 0.0148 ms |  1.00 |         - |       - |   24.91 KB |        1.00 |
-| LeanLucene_SpellIndex  | 100000        |  4.678 ms | 0.0179 ms | 0.0149 ms |  1.01 |         - |       - |    23.2 KB |        0.93 |
-| LuceneNet_SpellChecker | 100000        | 10.254 ms | 0.0299 ms | 0.0280 ms |  2.21 | 1296.8750 | 31.2500 | 5351.15 KB |      214.78 |
+| LeanLucene_DidYouMean  | 100000        |  4.700 ms | 0.0334 ms | 0.0312 ms |  1.00 |         - |       - |   24.91 KB |        1.00 |
+| LeanLucene_SpellIndex  | 100000        |  4.696 ms | 0.0133 ms | 0.0118 ms |  1.00 |         - |       - |    23.2 KB |        0.93 |
+| LuceneNet_SpellChecker | 100000        | 10.287 ms | 0.0257 ms | 0.0241 ms |  2.19 | 1296.8750 | 31.2500 | 5351.15 KB |      214.78 |
 
 ## Wildcard queries
 
-| Method                   | WildcardPattern | DocumentCount | Mean       | Error    | StdDev   | Ratio | RatioSD | Gen0    | Gen1   | Allocated | Alloc Ratio |
-|------------------------- |---------------- |-------------- |-----------:|---------:|---------:|------:|--------:|--------:|-------:|----------:|------------:|
-| **LeanLucene_WildcardQuery** | **gov***            | **100000**        |   **150.2 μs** |  **0.80 μs** |  **0.67 μs** |  **1.00** |    **0.00** |  **6.1035** |      **-** |  **24.38 KB** |        **1.00** |
-| LuceneNet_WildcardQuery  | gov*            | 100000        |   202.0 μs |  0.39 μs |  0.35 μs |  1.35 |    0.01 | 31.4941 |      - | 129.06 KB |        5.29 |
-|                          |                 |               |            |          |          |       |         |         |        |           |             |
-| **LeanLucene_WildcardQuery** | **m*rket**          | **100000**        |   **529.0 μs** | **10.49 μs** | **11.23 μs** |  **1.00** |    **0.00** |  **1.9531** |      **-** |  **10.17 KB** |        **1.00** |
-| LuceneNet_WildcardQuery  | m*rket          | 100000        | 1,167.8 μs |  3.30 μs |  2.92 μs |  2.21 |    0.05 | 97.6563 | 9.7656 | 404.52 KB |       39.76 |
-|                          |                 |               |            |          |          |       |         |         |        |           |             |
-| **LeanLucene_WildcardQuery** | **pre*dent**        | **100000**        |   **106.5 μs** |  **0.81 μs** |  **0.75 μs** |  **1.00** |    **0.00** |  **2.0752** |      **-** |   **8.63 KB** |        **1.00** |
-| LuceneNet_WildcardQuery  | pre*dent        | 100000        |   410.5 μs |  1.07 μs |  1.00 μs |  3.86 |    0.03 | 92.7734 |      - |  379.5 KB |       44.00 |
+| Method                   | WildcardPattern | DocumentCount | Mean       | Error   | StdDev  | Ratio | RatioSD | Gen0    | Gen1   | Allocated | Alloc Ratio |
+|------------------------- |---------------- |-------------- |-----------:|--------:|--------:|------:|--------:|--------:|-------:|----------:|------------:|
+| **LeanLucene_WildcardQuery** | **gov***            | **100000**        |   **149.8 μs** | **1.75 μs** | **1.55 μs** |  **1.00** |    **0.00** |  **6.1035** |      **-** |  **24.38 KB** |        **1.00** |
+| LuceneNet_WildcardQuery  | gov*            | 100000        |   203.6 μs | 0.29 μs | 0.26 μs |  1.36 |    0.01 | 31.4941 |      - | 129.06 KB |        5.29 |
+|                          |                 |               |            |         |         |       |         |         |        |           |             |
+| **LeanLucene_WildcardQuery** | **m*rket**          | **100000**        |   **530.5 μs** | **8.82 μs** | **8.25 μs** |  **1.00** |    **0.00** |  **1.9531** |      **-** |  **10.18 KB** |        **1.00** |
+| LuceneNet_WildcardQuery  | m*rket          | 100000        | 1,172.6 μs | 2.42 μs | 2.26 μs |  2.21 |    0.03 | 97.6563 | 9.7656 | 404.52 KB |       39.75 |
+|                          |                 |               |            |         |         |       |         |         |        |           |             |
+| **LeanLucene_WildcardQuery** | **pre*dent**        | **100000**        |   **106.1 μs** | **0.54 μs** | **0.45 μs** |  **1.00** |    **0.00** |  **2.0752** |      **-** |   **8.63 KB** |        **1.00** |
+| LuceneNet_WildcardQuery  | pre*dent        | 100000        |   410.5 μs | 0.97 μs | 0.90 μs |  3.87 |    0.02 | 92.7734 |      - |  379.5 KB |       44.00 |
 
 <details>
 <summary>Full data (report.json)</summary>
 
 <pre><code class="lang-json">{
   "schemaVersion": 2,
-  "runId": "2026-05-09 23-07 (2431f4a)",
+  "runId": "2026-05-11 10-32 (b772bf2)",
   "runType": "full",
-  "generatedAtUtc": "2026-05-09T23:07:16.0665036\u002B00:00",
+  "generatedAtUtc": "2026-05-11T10:32:06.2651834\u002B00:00",
   "commandLineArgs": [],
   "hostMachineName": "debian",
-  "commitHash": "2431f4a",
+  "commitHash": "b772bf2",
   "dotnetVersion": "10.0.3",
   "provenance": {
-    "sourceCommit": "2431f4a",
+    "sourceCommit": "b772bf2",
     "sourceRef": "",
     "sourceManifestPath": "",
-    "gitCommitHash": "2431f4a",
+    "gitCommitHash": "b772bf2",
     "gitAvailable": true,
     "gitDirty": false,
     "benchmarkDotNetVersion": "0.16.0-nightly.20260427.506\u002Bc68dc1556c410c4bdfe21373c7689be5781fbaf9",
@@ -241,7 +241,7 @@ title: Benchmarks - debian
   "suites": [
     {
       "suiteName": "analysis",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.AnalysisBenchmarks-20260510-002318",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.AnalysisBenchmarks-20260511-114756",
       "benchmarkCount": 2,
       "benchmarks": [
         {
@@ -254,12 +254,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 1534872811.9333334,
-            "medianNanoseconds": 1537830336,
-            "minNanoseconds": 1523081160,
-            "maxNanoseconds": 1542123753,
-            "standardDeviationNanoseconds": 6784686.0211168155,
-            "operationsPerSecond": 0.6515197821117146
+            "meanNanoseconds": 1531943367.8666666,
+            "medianNanoseconds": 1532094825,
+            "minNanoseconds": 1527479526,
+            "maxNanoseconds": 1534978435,
+            "standardDeviationNanoseconds": 1753449.1059289754,
+            "operationsPerSecond": 0.6527656445894385
           },
           "gc": {
             "bytesAllocatedPerOperation": 209429200,
@@ -278,12 +278,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 14,
-            "meanNanoseconds": 2255669329.214286,
-            "medianNanoseconds": 2255240063,
-            "minNanoseconds": 2251506735,
-            "maxNanoseconds": 2261054176,
-            "standardDeviationNanoseconds": 2545820.578249716,
-            "operationsPerSecond": 0.44332739158550716
+            "meanNanoseconds": 2255704285.285714,
+            "medianNanoseconds": 2256229605.5,
+            "minNanoseconds": 2250159429,
+            "maxNanoseconds": 2260899083,
+            "standardDeviationNanoseconds": 2732646.689312408,
+            "operationsPerSecond": 0.44332052145449424
           },
           "gc": {
             "bytesAllocatedPerOperation": 604939928,
@@ -296,7 +296,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "analysis-filters",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.TokenFilterBenchmarks-20260510-002924",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.TokenFilterBenchmarks-20260511-115408",
       "benchmarkCount": 10,
       "benchmarks": [
         {
@@ -309,12 +309,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 89.16235450108846,
-            "medianNanoseconds": 89.20604908466339,
-            "minNanoseconds": 88.82974314689636,
-            "maxNanoseconds": 89.37765991687775,
-            "standardDeviationNanoseconds": 0.15541586766852403,
-            "operationsPerSecond": 11215495.660646696
+            "meanNanoseconds": 86.5421764532725,
+            "medianNanoseconds": 86.54858815670013,
+            "minNanoseconds": 86.26754093170166,
+            "maxNanoseconds": 86.82399916648865,
+            "standardDeviationNanoseconds": 0.14821908556779007,
+            "operationsPerSecond": 11555059.52106415
           },
           "gc": {
             "bytesAllocatedPerOperation": 120,
@@ -332,13 +332,13 @@ title: Benchmarks - debian
             "Scenario": "elision-mutating"
           },
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 154.58440512021383,
-            "medianNanoseconds": 154.65079069137573,
-            "minNanoseconds": 153.96258020401,
-            "maxNanoseconds": 155.08847641944885,
-            "standardDeviationNanoseconds": 0.39375547743575934,
-            "operationsPerSecond": 6468957.843595813
+            "sampleCount": 14,
+            "meanNanoseconds": 154.51180641991752,
+            "medianNanoseconds": 154.49639976024628,
+            "minNanoseconds": 153.55269837379456,
+            "maxNanoseconds": 155.16837000846863,
+            "standardDeviationNanoseconds": 0.3840894151846098,
+            "operationsPerSecond": 6471997.339040196
           },
           "gc": {
             "bytesAllocatedPerOperation": 152,
@@ -356,13 +356,13 @@ title: Benchmarks - debian
             "Scenario": "length-mutating"
           },
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 53.042946100234985,
-            "medianNanoseconds": 53.03507363796234,
-            "minNanoseconds": 52.8838569521904,
-            "maxNanoseconds": 53.168991684913635,
-            "standardDeviationNanoseconds": 0.08897244139619027,
-            "operationsPerSecond": 18852648.1562752
+            "sampleCount": 13,
+            "meanNanoseconds": 51.37660347956877,
+            "medianNanoseconds": 51.40299707651138,
+            "minNanoseconds": 51.20801466703415,
+            "maxNanoseconds": 51.50944012403488,
+            "standardDeviationNanoseconds": 0.10712408069030205,
+            "operationsPerSecond": 19464112.69475367
           },
           "gc": {
             "bytesAllocatedPerOperation": 104,
@@ -381,12 +381,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 14,
-            "meanNanoseconds": 47.658829080207006,
-            "medianNanoseconds": 47.655495673418045,
-            "minNanoseconds": 47.53961229324341,
-            "maxNanoseconds": 47.82393229007721,
-            "standardDeviationNanoseconds": 0.08369547392498726,
-            "operationsPerSecond": 20982471.019526284
+            "meanNanoseconds": 47.617370639528545,
+            "medianNanoseconds": 47.60520598292351,
+            "minNanoseconds": 47.46851998567581,
+            "maxNanoseconds": 47.79380422830582,
+            "standardDeviationNanoseconds": 0.08481360765062097,
+            "operationsPerSecond": 21000739.57401317
           },
           "gc": {
             "bytesAllocatedPerOperation": 104,
@@ -404,13 +404,13 @@ title: Benchmarks - debian
             "Scenario": "reverse-mutating"
           },
           "statistics": {
-            "sampleCount": 13,
-            "meanNanoseconds": 69.99959816382481,
-            "medianNanoseconds": 70.02406990528107,
-            "minNanoseconds": 69.80475628376007,
-            "maxNanoseconds": 70.16595184803009,
-            "standardDeviationNanoseconds": 0.10949921570063245,
-            "operationsPerSecond": 14285796.293567745
+            "sampleCount": 14,
+            "meanNanoseconds": 69.78391012975148,
+            "medianNanoseconds": 69.80639290809631,
+            "minNanoseconds": 69.62415504455566,
+            "maxNanoseconds": 70.04579174518585,
+            "standardDeviationNanoseconds": 0.11394661955115672,
+            "operationsPerSecond": 14329950.81732548
           },
           "gc": {
             "bytesAllocatedPerOperation": 160,
@@ -428,13 +428,13 @@ title: Benchmarks - debian
             "Scenario": "shingle-mutating"
           },
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 259.5331671079,
-            "medianNanoseconds": 259.3176212310791,
-            "minNanoseconds": 258.3802351951599,
-            "maxNanoseconds": 260.92907190322876,
-            "standardDeviationNanoseconds": 0.7256760102112588,
-            "operationsPerSecond": 3853072.0799328648
+            "sampleCount": 13,
+            "meanNanoseconds": 256.31546889818634,
+            "medianNanoseconds": 256.2268052101135,
+            "minNanoseconds": 255.78462934494019,
+            "maxNanoseconds": 256.9174733161926,
+            "standardDeviationNanoseconds": 0.324187994598558,
+            "operationsPerSecond": 3901442.251217464
           },
           "gc": {
             "bytesAllocatedPerOperation": 504,
@@ -453,12 +453,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 57.430476311842604,
-            "medianNanoseconds": 57.465127825737,
-            "minNanoseconds": 57.236072182655334,
-            "maxNanoseconds": 57.683608651161194,
-            "standardDeviationNanoseconds": 0.13316081810720773,
-            "operationsPerSecond": 17412357.762280867
+            "meanNanoseconds": 54.53885383208593,
+            "medianNanoseconds": 54.53612965345383,
+            "minNanoseconds": 54.33203083276749,
+            "maxNanoseconds": 54.76179111003876,
+            "standardDeviationNanoseconds": 0.1355619566400577,
+            "operationsPerSecond": 18335552.17494664
           },
           "gc": {
             "bytesAllocatedPerOperation": 128,
@@ -476,13 +476,13 @@ title: Benchmarks - debian
             "Scenario": "truncate-noop"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 43.20392416630472,
-            "medianNanoseconds": 43.20649603009224,
-            "minNanoseconds": 43.07581615447998,
-            "maxNanoseconds": 43.4106268286705,
-            "standardDeviationNanoseconds": 0.09007155235559337,
-            "operationsPerSecond": 23146045.62656631
+            "sampleCount": 13,
+            "meanNanoseconds": 44.00806801594221,
+            "medianNanoseconds": 44.011815905570984,
+            "minNanoseconds": 43.83614385128021,
+            "maxNanoseconds": 44.117224752902985,
+            "standardDeviationNanoseconds": 0.06799581835782567,
+            "operationsPerSecond": 22723106.12767058
           },
           "gc": {
             "bytesAllocatedPerOperation": 104,
@@ -500,13 +500,13 @@ title: Benchmarks - debian
             "Scenario": "unique-mutating"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 150.7703288112368,
-            "medianNanoseconds": 150.76097071170807,
-            "minNanoseconds": 150.14886045455933,
-            "maxNanoseconds": 151.47344636917114,
-            "standardDeviationNanoseconds": 0.3177878029038432,
-            "operationsPerSecond": 6632604.756417237
+            "sampleCount": 15,
+            "meanNanoseconds": 152.78150444030763,
+            "medianNanoseconds": 152.71781587600708,
+            "minNanoseconds": 152.34994554519653,
+            "maxNanoseconds": 153.47322392463684,
+            "standardDeviationNanoseconds": 0.3173616070366511,
+            "operationsPerSecond": 6545294.888038651
           },
           "gc": {
             "bytesAllocatedPerOperation": 296,
@@ -525,12 +525,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 447.43072137832644,
-            "medianNanoseconds": 447.46702909469604,
-            "minNanoseconds": 446.0069179534912,
-            "maxNanoseconds": 449.1734504699707,
-            "standardDeviationNanoseconds": 0.8275704948430855,
-            "operationsPerSecond": 2234982.874934166
+            "meanNanoseconds": 446.4099799156189,
+            "medianNanoseconds": 446.509313583374,
+            "minNanoseconds": 445.5390658378601,
+            "maxNanoseconds": 447.1637649536133,
+            "standardDeviationNanoseconds": 0.49019480944563243,
+            "operationsPerSecond": 2240093.288660396
           },
           "gc": {
             "bytesAllocatedPerOperation": 928,
@@ -543,7 +543,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "analysis-parity",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.AnalyserParityBenchmarks-20260510-002628",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.AnalyserParityBenchmarks-20260511-115105",
       "benchmarkCount": 6,
       "benchmarks": [
         {
@@ -554,12 +554,12 @@ title: Benchmarks - debian
           "parameters": {},
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 3992.879215494792,
-            "medianNanoseconds": 3992.4408111572266,
-            "minNanoseconds": 3982.960159301758,
-            "maxNanoseconds": 4002.265411376953,
-            "standardDeviationNanoseconds": 6.225780938098402,
-            "operationsPerSecond": 250445.8427190569
+            "meanNanoseconds": 4016.934064737956,
+            "medianNanoseconds": 4018.956230163574,
+            "minNanoseconds": 3997.862464904785,
+            "maxNanoseconds": 4030.459976196289,
+            "standardDeviationNanoseconds": 8.245309309514672,
+            "operationsPerSecond": 248946.08272969868
           },
           "gc": {
             "bytesAllocatedPerOperation": 0,
@@ -575,13 +575,13 @@ title: Benchmarks - debian
           "methodName": "LeanLucene_Simple",
           "parameters": {},
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 39650.830249023435,
-            "medianNanoseconds": 39670.037048339844,
-            "minNanoseconds": 39518.768981933594,
-            "maxNanoseconds": 39774.692626953125,
-            "standardDeviationNanoseconds": 76.76537824091557,
-            "operationsPerSecond": 25220.15286236356
+            "sampleCount": 14,
+            "meanNanoseconds": 39520.592267717635,
+            "medianNanoseconds": 39506.00796508789,
+            "minNanoseconds": 39402.302673339844,
+            "maxNanoseconds": 39741.82598876953,
+            "standardDeviationNanoseconds": 88.20527034117696,
+            "operationsPerSecond": 25303.264516530264
           },
           "gc": {
             "bytesAllocatedPerOperation": 0,
@@ -597,13 +597,13 @@ title: Benchmarks - debian
           "methodName": "LeanLucene_Whitespace",
           "parameters": {},
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 39058.38391927083,
-            "medianNanoseconds": 39070.439392089844,
-            "minNanoseconds": 38969.601318359375,
-            "maxNanoseconds": 39148.749084472656,
-            "standardDeviationNanoseconds": 47.89228275888441,
-            "operationsPerSecond": 25602.697798938236
+            "sampleCount": 14,
+            "meanNanoseconds": 39832.5994480678,
+            "medianNanoseconds": 39831.001861572266,
+            "minNanoseconds": 39726.22479248047,
+            "maxNanoseconds": 39927.947509765625,
+            "standardDeviationNanoseconds": 50.93798276401993,
+            "operationsPerSecond": 25105.065043614875
           },
           "gc": {
             "bytesAllocatedPerOperation": 0,
@@ -619,13 +619,13 @@ title: Benchmarks - debian
           "methodName": "LuceneNet_Keyword",
           "parameters": {},
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 12566.30550842285,
-            "medianNanoseconds": 12571.542739868164,
-            "minNanoseconds": 12537.5732421875,
-            "maxNanoseconds": 12591.767852783203,
-            "standardDeviationNanoseconds": 20.201597786327447,
-            "operationsPerSecond": 79577.88383624188
+            "sampleCount": 14,
+            "meanNanoseconds": 12487.420587812152,
+            "medianNanoseconds": 12482.726173400879,
+            "minNanoseconds": 12463.8193359375,
+            "maxNanoseconds": 12514.581924438477,
+            "standardDeviationNanoseconds": 18.496407797086803,
+            "operationsPerSecond": 80080.5893393236
           },
           "gc": {
             "bytesAllocatedPerOperation": 3200,
@@ -641,13 +641,13 @@ title: Benchmarks - debian
           "methodName": "LuceneNet_Simple",
           "parameters": {},
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 84560.17690604074,
-            "medianNanoseconds": 84522.9951171875,
-            "minNanoseconds": 84393.15319824219,
-            "maxNanoseconds": 84837.52026367188,
-            "standardDeviationNanoseconds": 136.75370559058564,
-            "operationsPerSecond": 11825.897681259023
+            "sampleCount": 15,
+            "meanNanoseconds": 94659.315234375,
+            "medianNanoseconds": 94665.876953125,
+            "minNanoseconds": 94456.7734375,
+            "maxNanoseconds": 94847.57287597656,
+            "standardDeviationNanoseconds": 134.70454007229333,
+            "operationsPerSecond": 10564.20065499117
           },
           "gc": {
             "bytesAllocatedPerOperation": 3200,
@@ -663,13 +663,13 @@ title: Benchmarks - debian
           "methodName": "LuceneNet_Whitespace",
           "parameters": {},
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 76249.91119791666,
-            "medianNanoseconds": 76272.79772949219,
-            "minNanoseconds": 76020.13171386719,
-            "maxNanoseconds": 76539.83935546875,
-            "standardDeviationNanoseconds": 144.34491002674122,
-            "operationsPerSecond": 13114.769372050396
+            "sampleCount": 14,
+            "meanNanoseconds": 76348.00620814732,
+            "medianNanoseconds": 76344.76824951172,
+            "minNanoseconds": 76152.63586425781,
+            "maxNanoseconds": 76530.32458496094,
+            "standardDeviationNanoseconds": 99.15504608630353,
+            "operationsPerSecond": 13097.918985254222
           },
           "gc": {
             "bytesAllocatedPerOperation": 3200,
@@ -682,7 +682,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "blockjoin",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.BlockJoinBenchmarks-20260510-013742",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.BlockJoinBenchmarks-20260511-130257",
       "benchmarkCount": 4,
       "benchmarks": [
         {
@@ -695,12 +695,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 7160.064981587728,
-            "medianNanoseconds": 7161.31201171875,
-            "minNanoseconds": 7133.332588195801,
-            "maxNanoseconds": 7176.329460144043,
-            "standardDeviationNanoseconds": 11.78537805357379,
-            "operationsPerSecond": 139663.53693318748
+            "meanNanoseconds": 7151.729385375977,
+            "medianNanoseconds": 7148.284332275391,
+            "minNanoseconds": 7119.872222900391,
+            "maxNanoseconds": 7179.967903137207,
+            "standardDeviationNanoseconds": 15.646115636187227,
+            "operationsPerSecond": 139826.31977725882
           },
           "gc": {
             "bytesAllocatedPerOperation": 720,
@@ -719,16 +719,16 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 14,
-            "meanNanoseconds": 82662240.26530613,
-            "medianNanoseconds": 82646298.85714287,
-            "minNanoseconds": 82159033.71428572,
-            "maxNanoseconds": 83290953.57142857,
-            "standardDeviationNanoseconds": 312490.9511109331,
-            "operationsPerSecond": 12.097421952157113
+            "meanNanoseconds": 81989873.20408164,
+            "medianNanoseconds": 82019957.78571428,
+            "minNanoseconds": 81541203,
+            "maxNanoseconds": 82392643.28571428,
+            "standardDeviationNanoseconds": 218088.51749093426,
+            "operationsPerSecond": 12.196628204447787
           },
           "gc": {
-            "bytesAllocatedPerOperation": 13892496,
-            "gen0Collections": 12,
+            "bytesAllocatedPerOperation": 13906016,
+            "gen0Collections": 13,
             "gen1Collections": 6,
             "gen2Collections": 0
           }
@@ -742,16 +742,16 @@ title: Benchmarks - debian
             "BlockCount": "500"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 56608486.452380955,
-            "medianNanoseconds": 56632252.222222224,
-            "minNanoseconds": 56033699.333333336,
-            "maxNanoseconds": 57255062.11111111,
-            "standardDeviationNanoseconds": 353609.2058222753,
-            "operationsPerSecond": 17.66519585082353
+            "sampleCount": 15,
+            "meanNanoseconds": 57079239.47407408,
+            "medianNanoseconds": 56977248.44444445,
+            "minNanoseconds": 56587986.777777776,
+            "maxNanoseconds": 57555590,
+            "standardDeviationNanoseconds": 301708.5885874823,
+            "operationsPerSecond": 17.51950462574417
           },
           "gc": {
-            "bytesAllocatedPerOperation": 28714791,
+            "bytesAllocatedPerOperation": 28715836,
             "gen0Collections": 45,
             "gen1Collections": 6,
             "gen2Collections": 0
@@ -766,13 +766,13 @@ title: Benchmarks - debian
             "BlockCount": "500"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 21838.541259765625,
-            "medianNanoseconds": 21837.888626098633,
-            "minNanoseconds": 21747.815368652344,
-            "maxNanoseconds": 21911.04180908203,
-            "standardDeviationNanoseconds": 45.578915758500294,
-            "operationsPerSecond": 45790.60423977843
+            "sampleCount": 15,
+            "meanNanoseconds": 21740.85527750651,
+            "medianNanoseconds": 21750.045776367188,
+            "minNanoseconds": 21658.58184814453,
+            "maxNanoseconds": 21815.35675048828,
+            "standardDeviationNanoseconds": 43.66080406731814,
+            "operationsPerSecond": 45996.35052235587
           },
           "gc": {
             "bytesAllocatedPerOperation": 12888,
@@ -785,7 +785,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "boolean",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.BooleanQueryBenchmarks-20260510-003348",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.BooleanQueryBenchmarks-20260511-115846",
       "benchmarkCount": 6,
       "benchmarks": [
         {
@@ -798,16 +798,16 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 13,
-            "meanNanoseconds": 267250.4052358774,
-            "medianNanoseconds": 266851.08984375,
-            "minNanoseconds": 263726.9912109375,
-            "maxNanoseconds": 271095.7431640625,
-            "standardDeviationNanoseconds": 2111.940368235893,
-            "operationsPerSecond": 3741.8091063973948
+            "sampleCount": 14,
+            "meanNanoseconds": 264569.8779296875,
+            "medianNanoseconds": 264252.00390625,
+            "minNanoseconds": 261521.1669921875,
+            "maxNanoseconds": 269370.43603515625,
+            "standardDeviationNanoseconds": 2248.703539421354,
+            "operationsPerSecond": 3779.7197769647896
           },
           "gc": {
-            "bytesAllocatedPerOperation": 13243,
+            "bytesAllocatedPerOperation": 13244,
             "gen0Collections": 6,
             "gen1Collections": 0,
             "gen2Collections": 0
@@ -823,16 +823,16 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 173508.37941196986,
-            "medianNanoseconds": 173734.86279296875,
-            "minNanoseconds": 172135.2177734375,
-            "maxNanoseconds": 175102.13208007812,
-            "standardDeviationNanoseconds": 942.4613760372381,
-            "operationsPerSecond": 5763.410409278555
+            "sampleCount": 15,
+            "meanNanoseconds": 173601.1173828125,
+            "medianNanoseconds": 173568.27294921875,
+            "minNanoseconds": 171166.54931640625,
+            "maxNanoseconds": 175338.9560546875,
+            "standardDeviationNanoseconds": 1153.5145130434064,
+            "operationsPerSecond": 5760.331587007434
           },
           "gc": {
-            "bytesAllocatedPerOperation": 13619,
+            "bytesAllocatedPerOperation": 13618,
             "gen0Collections": 13,
             "gen1Collections": 0,
             "gen2Collections": 0
@@ -849,16 +849,16 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 221947.71564127604,
-            "medianNanoseconds": 221962.61596679688,
-            "minNanoseconds": 219711.97998046875,
-            "maxNanoseconds": 225172.18359375,
-            "standardDeviationNanoseconds": 1597.5867988216764,
-            "operationsPerSecond": 4505.565633377612
+            "meanNanoseconds": 223996.79331054687,
+            "medianNanoseconds": 223746.1025390625,
+            "minNanoseconds": 219815.57788085938,
+            "maxNanoseconds": 229626.5458984375,
+            "standardDeviationNanoseconds": 2987.6078316381713,
+            "operationsPerSecond": 4464.3496240306
           },
           "gc": {
-            "bytesAllocatedPerOperation": 14022,
-            "gen0Collections": 13,
+            "bytesAllocatedPerOperation": 14025,
+            "gen0Collections": 14,
             "gen1Collections": 0,
             "gen2Collections": 0
           }
@@ -873,13 +873,13 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 484884.70455496653,
-            "medianNanoseconds": 484566.9147949219,
-            "minNanoseconds": 482703.47802734375,
-            "maxNanoseconds": 487050.34716796875,
-            "standardDeviationNanoseconds": 1290.3579083598509,
-            "operationsPerSecond": 2062.345936273269
+            "sampleCount": 12,
+            "meanNanoseconds": 484088.5096842448,
+            "medianNanoseconds": 484146.1862792969,
+            "minNanoseconds": 483461.2099609375,
+            "maxNanoseconds": 484386.62451171875,
+            "standardDeviationNanoseconds": 298.8583424530632,
+            "operationsPerSecond": 2065.737938403594
           },
           "gc": {
             "bytesAllocatedPerOperation": 147552,
@@ -899,12 +899,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 403646.10110677086,
-            "medianNanoseconds": 407434.44140625,
-            "minNanoseconds": 390829.34228515625,
-            "maxNanoseconds": 409587.2138671875,
-            "standardDeviationNanoseconds": 7264.849857890558,
-            "operationsPerSecond": 2477.4177113517667
+            "meanNanoseconds": 410095.26396484376,
+            "medianNanoseconds": 410006.189453125,
+            "minNanoseconds": 409024.998046875,
+            "maxNanoseconds": 411421.40576171875,
+            "standardDeviationNanoseconds": 805.0096292690448,
+            "operationsPerSecond": 2438.45781180669
           },
           "gc": {
             "bytesAllocatedPerOperation": 152640,
@@ -923,13 +923,13 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 587231.5689453125,
-            "medianNanoseconds": 586922.4736328125,
-            "minNanoseconds": 584555.4267578125,
-            "maxNanoseconds": 590260.091796875,
-            "standardDeviationNanoseconds": 1539.033709828149,
-            "operationsPerSecond": 1702.9057238799905
+            "sampleCount": 13,
+            "meanNanoseconds": 579753.6161358173,
+            "medianNanoseconds": 579654.9853515625,
+            "minNanoseconds": 578558.60546875,
+            "maxNanoseconds": 581467.23046875,
+            "standardDeviationNanoseconds": 767.0324400444858,
+            "operationsPerSecond": 1724.8706556851089
           },
           "gc": {
             "bytesAllocatedPerOperation": 711688,
@@ -942,7 +942,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "deletion",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.DeletionBenchmarks-20260510-010036",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.DeletionBenchmarks-20260511-122528",
       "benchmarkCount": 2,
       "benchmarks": [
         {
@@ -955,16 +955,16 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 10914036193.066668,
-            "medianNanoseconds": 10906409250,
-            "minNanoseconds": 10840531864,
-            "maxNanoseconds": 11002134920,
-            "standardDeviationNanoseconds": 44762079.00867586,
-            "operationsPerSecond": 0.09162513137305404
+            "meanNanoseconds": 10946499400.4,
+            "medianNanoseconds": 10950000846,
+            "minNanoseconds": 10853505303,
+            "maxNanoseconds": 11037912613,
+            "standardDeviationNanoseconds": 55927897.1785428,
+            "operationsPerSecond": 0.09135340563426685
           },
           "gc": {
-            "bytesAllocatedPerOperation": 1279394048,
-            "gen0Collections": 199,
+            "bytesAllocatedPerOperation": 1279583560,
+            "gen0Collections": 200,
             "gen1Collections": 89,
             "gen2Collections": 9
           }
@@ -978,18 +978,18 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 7202568965.4,
-            "medianNanoseconds": 7205800981,
-            "minNanoseconds": 7157342901,
-            "maxNanoseconds": 7266386170,
-            "standardDeviationNanoseconds": 30456811.03559944,
-            "operationsPerSecond": 0.1388393509043567
+            "sampleCount": 14,
+            "meanNanoseconds": 7230953932.571428,
+            "medianNanoseconds": 7231338668,
+            "minNanoseconds": 7191674531,
+            "maxNanoseconds": 7270843478,
+            "standardDeviationNanoseconds": 21431449.959614314,
+            "operationsPerSecond": 0.1382943397683058
           },
           "gc": {
-            "bytesAllocatedPerOperation": 2055213080,
+            "bytesAllocatedPerOperation": 2055208536,
             "gen0Collections": 339,
-            "gen1Collections": 34,
+            "gen1Collections": 37,
             "gen2Collections": 1
           }
         }
@@ -997,7 +997,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "fuzzy",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.FuzzyQueryBenchmarks-20260510-004952",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.FuzzyQueryBenchmarks-20260511-121443",
       "benchmarkCount": 6,
       "benchmarks": [
         {
@@ -1010,16 +1010,16 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 6894466.470982143,
-            "medianNanoseconds": 6872726.99609375,
-            "minNanoseconds": 6833109.5859375,
-            "maxNanoseconds": 6973406.625,
-            "standardDeviationNanoseconds": 50097.36640066103,
-            "operationsPerSecond": 145.04385570788716
+            "sampleCount": 13,
+            "meanNanoseconds": 6978785.676682692,
+            "medianNanoseconds": 6970482.8984375,
+            "minNanoseconds": 6920301.421875,
+            "maxNanoseconds": 7103157.703125,
+            "standardDeviationNanoseconds": 47993.4282783503,
+            "operationsPerSecond": 143.29140431137895
           },
           "gc": {
-            "bytesAllocatedPerOperation": 26502,
+            "bytesAllocatedPerOperation": 26498,
             "gen0Collections": 0,
             "gen1Collections": 0,
             "gen2Collections": 0
@@ -1035,13 +1035,13 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 7525470.781808035,
-            "medianNanoseconds": 7529832.18359375,
-            "minNanoseconds": 7462458.546875,
-            "maxNanoseconds": 7606399.46875,
-            "standardDeviationNanoseconds": 40275.27966219745,
-            "operationsPerSecond": 132.88205203286225
+            "sampleCount": 15,
+            "meanNanoseconds": 7594638.521354167,
+            "medianNanoseconds": 7578079.1171875,
+            "minNanoseconds": 7502762.28125,
+            "maxNanoseconds": 7693255.6484375,
+            "standardDeviationNanoseconds": 56429.83286285594,
+            "operationsPerSecond": 131.67183628137897
           },
           "gc": {
             "bytesAllocatedPerOperation": 48808,
@@ -1060,16 +1060,16 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 7899314.948660715,
-            "medianNanoseconds": 7885611.4609375,
-            "minNanoseconds": 7801108.21875,
-            "maxNanoseconds": 8099217.71875,
-            "standardDeviationNanoseconds": 89478.83385346529,
-            "operationsPerSecond": 126.59325606070999
+            "sampleCount": 15,
+            "meanNanoseconds": 8035371.34375,
+            "medianNanoseconds": 8000354.921875,
+            "minNanoseconds": 7953158.75,
+            "maxNanoseconds": 8262527.5,
+            "standardDeviationNanoseconds": 86841.8688057435,
+            "operationsPerSecond": 124.4497556143203
           },
           "gc": {
-            "bytesAllocatedPerOperation": 31345,
+            "bytesAllocatedPerOperation": 31344,
             "gen0Collections": 0,
             "gen1Collections": 0,
             "gen2Collections": 0
@@ -1085,13 +1085,13 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 8673860.920833332,
-            "medianNanoseconds": 8671171.140625,
-            "minNanoseconds": 8623530.96875,
-            "maxNanoseconds": 8725568.171875,
-            "standardDeviationNanoseconds": 29661.08106813232,
-            "operationsPerSecond": 115.28891333709856
+            "sampleCount": 14,
+            "meanNanoseconds": 8644523.479910715,
+            "medianNanoseconds": 8643909.9609375,
+            "minNanoseconds": 8620154.96875,
+            "maxNanoseconds": 8687228.515625,
+            "standardDeviationNanoseconds": 17744.268689837725,
+            "operationsPerSecond": 115.68017627853428
           },
           "gc": {
             "bytesAllocatedPerOperation": 2939746,
@@ -1110,13 +1110,13 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 9247042.357291667,
-            "medianNanoseconds": 9252333.3125,
-            "minNanoseconds": 9200708.25,
-            "maxNanoseconds": 9297066.609375,
-            "standardDeviationNanoseconds": 25007.770840967743,
-            "operationsPerSecond": 108.14268620835932
+            "sampleCount": 14,
+            "meanNanoseconds": 9245373.760044644,
+            "medianNanoseconds": 9247418.046875,
+            "minNanoseconds": 9193674.765625,
+            "maxNanoseconds": 9282804.046875,
+            "standardDeviationNanoseconds": 22609.42327604573,
+            "operationsPerSecond": 108.16220370902249
           },
           "gc": {
             "bytesAllocatedPerOperation": 2873368,
@@ -1135,13 +1135,13 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 8686283.18125,
-            "medianNanoseconds": 8682509.21875,
-            "minNanoseconds": 8657350.421875,
-            "maxNanoseconds": 8740686.796875,
-            "standardDeviationNanoseconds": 25248.912281464138,
-            "operationsPerSecond": 115.12403857136222
+            "sampleCount": 14,
+            "meanNanoseconds": 8768333.685267856,
+            "medianNanoseconds": 8766440.21875,
+            "minNanoseconds": 8741820.96875,
+            "maxNanoseconds": 8803764.1875,
+            "standardDeviationNanoseconds": 17427.859189210245,
+            "operationsPerSecond": 114.04675459376656
           },
           "gc": {
             "bytesAllocatedPerOperation": 2912850,
@@ -1154,7 +1154,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "gutenberg-analysis",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.GutenbergAnalysisBenchmarks-20260510-014037",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.GutenbergAnalysisBenchmarks-20260511-130551",
       "benchmarkCount": 2,
       "benchmarks": [
         {
@@ -1165,15 +1165,15 @@ title: Benchmarks - debian
           "parameters": {},
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 395442141.6,
-            "medianNanoseconds": 396103825,
-            "minNanoseconds": 391417090,
-            "maxNanoseconds": 397880207,
-            "standardDeviationNanoseconds": 2121357.6002296195,
-            "operationsPerSecond": 2.528814951168067
+            "meanNanoseconds": 391672074,
+            "medianNanoseconds": 391682109,
+            "minNanoseconds": 387804683,
+            "maxNanoseconds": 394967827,
+            "standardDeviationNanoseconds": 2367265.0086030564,
+            "operationsPerSecond": 2.5531562405952895
           },
           "gc": {
-            "bytesAllocatedPerOperation": 118524568,
+            "bytesAllocatedPerOperation": 118518960,
             "gen0Collections": 11,
             "gen1Collections": 6,
             "gen2Collections": 2
@@ -1186,13 +1186,13 @@ title: Benchmarks - debian
           "methodName": "LeanLucene_Standard_Analyse",
           "parameters": {},
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 125178821.62666665,
-            "medianNanoseconds": 124961364,
-            "minNanoseconds": 124611520.6,
-            "maxNanoseconds": 126098394.6,
-            "standardDeviationNanoseconds": 484067.1460726304,
-            "operationsPerSecond": 7.988571764818175
+            "sampleCount": 13,
+            "meanNanoseconds": 124516439.69230771,
+            "medianNanoseconds": 124492915,
+            "minNanoseconds": 124263877.4,
+            "maxNanoseconds": 124950831.4,
+            "standardDeviationNanoseconds": 187331.47892693095,
+            "operationsPerSecond": 8.031068045882918
           },
           "gc": {
             "bytesAllocatedPerOperation": 7585864,
@@ -1205,7 +1205,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "gutenberg-index",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.GutenbergIndexingBenchmarks-20260510-014232",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.GutenbergIndexingBenchmarks-20260511-130750",
       "benchmarkCount": 3,
       "benchmarks": [
         {
@@ -1215,16 +1215,16 @@ title: Benchmarks - debian
           "methodName": "LeanLucene_English_Index",
           "parameters": {},
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 1007988459.9333333,
-            "medianNanoseconds": 1006021545,
-            "minNanoseconds": 998669771,
-            "maxNanoseconds": 1020999837,
-            "standardDeviationNanoseconds": 7528346.378334483,
-            "operationsPerSecond": 0.9920748498114139
+            "sampleCount": 14,
+            "meanNanoseconds": 1028388103.9285715,
+            "medianNanoseconds": 1026164810,
+            "minNanoseconds": 1007272632,
+            "maxNanoseconds": 1050422509,
+            "standardDeviationNanoseconds": 13290001.783440474,
+            "operationsPerSecond": 0.9723955345067438
           },
           "gc": {
-            "bytesAllocatedPerOperation": 228335848,
+            "bytesAllocatedPerOperation": 229529224,
             "gen0Collections": 36,
             "gen1Collections": 12,
             "gen2Collections": 2
@@ -1237,16 +1237,16 @@ title: Benchmarks - debian
           "methodName": "LeanLucene_Standard_Index",
           "parameters": {},
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 986852831.5,
-            "medianNanoseconds": 988080273,
-            "minNanoseconds": 979665601,
-            "maxNanoseconds": 995977335,
-            "standardDeviationNanoseconds": 4547868.748453749,
-            "operationsPerSecond": 1.0133223192763368
+            "sampleCount": 13,
+            "meanNanoseconds": 1004877883.3076923,
+            "medianNanoseconds": 1004395023,
+            "minNanoseconds": 993645396,
+            "maxNanoseconds": 1018610602,
+            "standardDeviationNanoseconds": 6606471.0170789035,
+            "operationsPerSecond": 0.995145794938151
           },
           "gc": {
-            "bytesAllocatedPerOperation": 129531536,
+            "bytesAllocatedPerOperation": 129508728,
             "gen0Collections": 19,
             "gen1Collections": 10,
             "gen2Collections": 1
@@ -1260,15 +1260,15 @@ title: Benchmarks - debian
           "parameters": {},
           "statistics": {
             "sampleCount": 14,
-            "meanNanoseconds": 645339395.0714285,
-            "medianNanoseconds": 644461499.5,
-            "minNanoseconds": 641127861,
-            "maxNanoseconds": 649507494,
-            "standardDeviationNanoseconds": 2554848.621751664,
-            "operationsPerSecond": 1.5495722214344536
+            "meanNanoseconds": 650505426.2857143,
+            "medianNanoseconds": 649821125.5,
+            "minNanoseconds": 648028032,
+            "maxNanoseconds": 655238751,
+            "standardDeviationNanoseconds": 2171939.3203447126,
+            "operationsPerSecond": 1.5372661927047186
           },
           "gc": {
-            "bytesAllocatedPerOperation": 217773632,
+            "bytesAllocatedPerOperation": 217772448,
             "gen0Collections": 41,
             "gen1Collections": 3,
             "gen2Collections": 0
@@ -1278,7 +1278,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "gutenberg-search",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.GutenbergSearchBenchmarks-20260510-014518",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.GutenbergSearchBenchmarks-20260511-131043",
       "benchmarkCount": 15,
       "benchmarks": [
         {
@@ -1291,12 +1291,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 11511.981513468425,
-            "medianNanoseconds": 11505.480590820312,
-            "minNanoseconds": 11479.840805053711,
-            "maxNanoseconds": 11553.4013671875,
-            "standardDeviationNanoseconds": 23.501263043677724,
-            "operationsPerSecond": 86866.01857638944
+            "meanNanoseconds": 11610.765129597981,
+            "medianNanoseconds": 11609.063186645508,
+            "minNanoseconds": 11577.45394897461,
+            "maxNanoseconds": 11644.504684448242,
+            "standardDeviationNanoseconds": 20.563498847124595,
+            "operationsPerSecond": 86126.9682779833
           },
           "gc": {
             "bytesAllocatedPerOperation": 472,
@@ -1314,13 +1314,13 @@ title: Benchmarks - debian
             "SearchTerm": "love"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 20169.113006591797,
-            "medianNanoseconds": 20171.648315429688,
-            "minNanoseconds": 20134.980743408203,
-            "maxNanoseconds": 20212.824615478516,
-            "standardDeviationNanoseconds": 23.627216463480572,
-            "operationsPerSecond": 49580.76240998668
+            "sampleCount": 15,
+            "meanNanoseconds": 20028.54461669922,
+            "medianNanoseconds": 20028.20620727539,
+            "minNanoseconds": 19967.461181640625,
+            "maxNanoseconds": 20081.411102294922,
+            "standardDeviationNanoseconds": 29.111837089561536,
+            "operationsPerSecond": 49928.74016248934
           },
           "gc": {
             "bytesAllocatedPerOperation": 464,
@@ -1339,12 +1339,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 39834.45678304036,
-            "medianNanoseconds": 39821.45837402344,
-            "minNanoseconds": 39656.30828857422,
-            "maxNanoseconds": 39986.75555419922,
-            "standardDeviationNanoseconds": 91.05539847359128,
-            "operationsPerSecond": 25103.89448628688
+            "meanNanoseconds": 39639.32342936198,
+            "medianNanoseconds": 39643.35656738281,
+            "minNanoseconds": 39574.960510253906,
+            "maxNanoseconds": 39695.47442626953,
+            "standardDeviationNanoseconds": 39.70090756444837,
+            "operationsPerSecond": 25227.473969933384
           },
           "gc": {
             "bytesAllocatedPerOperation": 464,
@@ -1362,13 +1362,13 @@ title: Benchmarks - debian
             "SearchTerm": "night"
           },
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 26514.84369913737,
-            "medianNanoseconds": 26520.26336669922,
-            "minNanoseconds": 26443.297729492188,
-            "maxNanoseconds": 26604.553436279297,
-            "standardDeviationNanoseconds": 46.3028145108657,
-            "operationsPerSecond": 37714.72354681592
+            "sampleCount": 14,
+            "meanNanoseconds": 26295.763739449638,
+            "medianNanoseconds": 26300.537216186523,
+            "minNanoseconds": 26182.447296142578,
+            "maxNanoseconds": 26379.711975097656,
+            "standardDeviationNanoseconds": 49.21420604473421,
+            "operationsPerSecond": 38028.93918231293
           },
           "gc": {
             "bytesAllocatedPerOperation": 472,
@@ -1387,12 +1387,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 13838.054491170247,
-            "medianNanoseconds": 13839.110412597656,
-            "minNanoseconds": 13786.762924194336,
-            "maxNanoseconds": 13885.176055908203,
-            "standardDeviationNanoseconds": 28.695481130270004,
-            "operationsPerSecond": 72264.4935845626
+            "meanNanoseconds": 13945.973951212565,
+            "medianNanoseconds": 13934.46499633789,
+            "minNanoseconds": 13923.333572387695,
+            "maxNanoseconds": 13985.153442382812,
+            "standardDeviationNanoseconds": 23.387917183281154,
+            "operationsPerSecond": 71705.28236309036
           },
           "gc": {
             "bytesAllocatedPerOperation": 464,
@@ -1411,12 +1411,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 11377.11216023763,
-            "medianNanoseconds": 11371.448501586914,
-            "minNanoseconds": 11333.350997924805,
-            "maxNanoseconds": 11422.493728637695,
-            "standardDeviationNanoseconds": 26.26849569224008,
-            "operationsPerSecond": 87895.76703787311
+            "meanNanoseconds": 11392.975388590496,
+            "medianNanoseconds": 11390.760513305664,
+            "minNanoseconds": 11347.674621582031,
+            "maxNanoseconds": 11458.385025024414,
+            "standardDeviationNanoseconds": 28.860018644005212,
+            "operationsPerSecond": 87773.38367652851
           },
           "gc": {
             "bytesAllocatedPerOperation": 472,
@@ -1434,17 +1434,17 @@ title: Benchmarks - debian
             "SearchTerm": "love"
           },
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 15198.220353190105,
-            "medianNanoseconds": 15203.903335571289,
-            "minNanoseconds": 15142.073455810547,
-            "maxNanoseconds": 15269.737319946289,
-            "standardDeviationNanoseconds": 35.38491697092195,
-            "operationsPerSecond": 65797.17735110348
+            "sampleCount": 14,
+            "meanNanoseconds": 15488.94316973005,
+            "medianNanoseconds": 15478.226211547852,
+            "minNanoseconds": 15413.962188720703,
+            "maxNanoseconds": 15577.442932128906,
+            "standardDeviationNanoseconds": 45.348993750158606,
+            "operationsPerSecond": 64562.184071686315
           },
           "gc": {
             "bytesAllocatedPerOperation": 464,
-            "gen0Collections": 7,
+            "gen0Collections": 3,
             "gen1Collections": 0,
             "gen2Collections": 0
           }
@@ -1459,12 +1459,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 39522.06903076172,
-            "medianNanoseconds": 39496.31384277344,
-            "minNanoseconds": 39392.75988769531,
-            "maxNanoseconds": 39695.23162841797,
-            "standardDeviationNanoseconds": 85.15884410907566,
-            "operationsPerSecond": 25302.319046648525
+            "meanNanoseconds": 40093.233723958336,
+            "medianNanoseconds": 40107.169860839844,
+            "minNanoseconds": 39931.69793701172,
+            "maxNanoseconds": 40190.337646484375,
+            "standardDeviationNanoseconds": 69.45734518170431,
+            "operationsPerSecond": 24941.86442742418
           },
           "gc": {
             "bytesAllocatedPerOperation": 464,
@@ -1483,12 +1483,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 25839.91415608724,
-            "medianNanoseconds": 25834.012145996094,
-            "minNanoseconds": 25767.961822509766,
-            "maxNanoseconds": 25963.037811279297,
-            "standardDeviationNanoseconds": 53.725149089860764,
-            "operationsPerSecond": 38699.81896841653
+            "meanNanoseconds": 25249.6109375,
+            "medianNanoseconds": 25257.84063720703,
+            "minNanoseconds": 25181.152923583984,
+            "maxNanoseconds": 25334.958465576172,
+            "standardDeviationNanoseconds": 47.81517398617418,
+            "operationsPerSecond": 39604.57063973325
           },
           "gc": {
             "bytesAllocatedPerOperation": 472,
@@ -1507,12 +1507,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 12832.652822875976,
-            "medianNanoseconds": 12835.552917480469,
-            "minNanoseconds": 12760.939361572266,
-            "maxNanoseconds": 12885.266082763672,
-            "standardDeviationNanoseconds": 34.737411845222674,
-            "operationsPerSecond": 77926.21009876943
+            "meanNanoseconds": 12959.039407348633,
+            "medianNanoseconds": 12962.078063964844,
+            "minNanoseconds": 12901.75991821289,
+            "maxNanoseconds": 12992.338241577148,
+            "standardDeviationNanoseconds": 25.428471560781,
+            "operationsPerSecond": 77166.21337172057
           },
           "gc": {
             "bytesAllocatedPerOperation": 464,
@@ -1531,12 +1531,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 23328.759912109374,
-            "medianNanoseconds": 23593.618225097656,
-            "minNanoseconds": 22727.45474243164,
-            "maxNanoseconds": 23709.8984375,
-            "standardDeviationNanoseconds": 404.91305634060086,
-            "operationsPerSecond": 42865.54466536068
+            "meanNanoseconds": 23186.745823160807,
+            "medianNanoseconds": 23398.912994384766,
+            "minNanoseconds": 22527.024658203125,
+            "maxNanoseconds": 23590.298858642578,
+            "standardDeviationNanoseconds": 400.62732825347587,
+            "operationsPerSecond": 43128.0873834878
           },
           "gc": {
             "bytesAllocatedPerOperation": 11231,
@@ -1554,17 +1554,17 @@ title: Benchmarks - debian
             "SearchTerm": "love"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 30639.855202811104,
-            "medianNanoseconds": 30621.275939941406,
-            "minNanoseconds": 30552.50860595703,
-            "maxNanoseconds": 30784.039916992188,
-            "standardDeviationNanoseconds": 71.08666396702301,
-            "operationsPerSecond": 32637.22995362763
+            "sampleCount": 15,
+            "meanNanoseconds": 29887.637664794922,
+            "medianNanoseconds": 29886.152465820312,
+            "minNanoseconds": 29820.318267822266,
+            "maxNanoseconds": 29970.177459716797,
+            "standardDeviationNanoseconds": 41.43914393877274,
+            "operationsPerSecond": 33458.64973389698
           },
           "gc": {
             "bytesAllocatedPerOperation": 11175,
-            "gen0Collections": 43,
+            "gen0Collections": 86,
             "gen1Collections": 1,
             "gen2Collections": 0
           }
@@ -1579,12 +1579,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 51835.99336344401,
-            "medianNanoseconds": 51864.08850097656,
-            "minNanoseconds": 51403.298583984375,
-            "maxNanoseconds": 52107.108337402344,
-            "standardDeviationNanoseconds": 209.3875414005578,
-            "operationsPerSecond": 19291.614477002076
+            "meanNanoseconds": 52773.634114583336,
+            "medianNanoseconds": 52702.66589355469,
+            "minNanoseconds": 52511.88067626953,
+            "maxNanoseconds": 53119.41979980469,
+            "standardDeviationNanoseconds": 201.8120885506014,
+            "operationsPerSecond": 18948.85612441957
           },
           "gc": {
             "bytesAllocatedPerOperation": 11038,
@@ -1603,17 +1603,17 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 37631.58152669271,
-            "medianNanoseconds": 37626.08184814453,
-            "minNanoseconds": 37495.673828125,
-            "maxNanoseconds": 37750.358642578125,
-            "standardDeviationNanoseconds": 82.72569217651765,
-            "operationsPerSecond": 26573.42475204459
+            "meanNanoseconds": 37735.44962565104,
+            "medianNanoseconds": 37759.0341796875,
+            "minNanoseconds": 37597.127502441406,
+            "maxNanoseconds": 37839.309509277344,
+            "standardDeviationNanoseconds": 76.55891103908662,
+            "operationsPerSecond": 26500.280503355665
           },
           "gc": {
             "bytesAllocatedPerOperation": 11223,
             "gen0Collections": 43,
-            "gen1Collections": 1,
+            "gen1Collections": 0,
             "gen2Collections": 0
           }
         },
@@ -1627,12 +1627,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 27231.01461385091,
-            "medianNanoseconds": 27241.180908203125,
-            "minNanoseconds": 27095.937866210938,
-            "maxNanoseconds": 27360.835357666016,
-            "standardDeviationNanoseconds": 73.07765026802048,
-            "operationsPerSecond": 36722.83292343265
+            "meanNanoseconds": 27265.840411376954,
+            "medianNanoseconds": 27261.136322021484,
+            "minNanoseconds": 27163.498107910156,
+            "maxNanoseconds": 27374.908477783203,
+            "standardDeviationNanoseconds": 65.04535961446238,
+            "operationsPerSecond": 36675.92800780641
           },
           "gc": {
             "bytesAllocatedPerOperation": 11271,
@@ -1645,7 +1645,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "index",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.IndexingBenchmarks-20260510-001344",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.IndexingBenchmarks-20260511-113835",
       "benchmarkCount": 2,
       "benchmarks": [
         {
@@ -1657,18 +1657,18 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 10795651311.928572,
-            "medianNanoseconds": 10792399180.5,
-            "minNanoseconds": 10748470683,
-            "maxNanoseconds": 10852199203,
-            "standardDeviationNanoseconds": 25363655.02763194,
-            "operationsPerSecond": 0.0926298906018813
+            "sampleCount": 15,
+            "meanNanoseconds": 10958565167.866667,
+            "medianNanoseconds": 10954167666,
+            "minNanoseconds": 10869919762,
+            "maxNanoseconds": 11037604579,
+            "standardDeviationNanoseconds": 51281275.00091924,
+            "operationsPerSecond": 0.09125282230672473
           },
           "gc": {
-            "bytesAllocatedPerOperation": 1252326464,
+            "bytesAllocatedPerOperation": 1252511536,
             "gen0Collections": 196,
-            "gen1Collections": 88,
+            "gen1Collections": 87,
             "gen2Collections": 6
           }
         },
@@ -1682,17 +1682,17 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 14,
-            "meanNanoseconds": 7137549299.428572,
-            "medianNanoseconds": 7139144301,
-            "minNanoseconds": 7093127962,
-            "maxNanoseconds": 7156706060,
-            "standardDeviationNanoseconds": 16288030.19287997,
-            "operationsPerSecond": 0.1401041110959555
+            "meanNanoseconds": 7125772885.357142,
+            "medianNanoseconds": 7125928585.5,
+            "minNanoseconds": 7102651297,
+            "maxNanoseconds": 7157157115,
+            "standardDeviationNanoseconds": 16932954.585346375,
+            "operationsPerSecond": 0.14033565426354172
           },
           "gc": {
-            "bytesAllocatedPerOperation": 2019255928,
+            "bytesAllocatedPerOperation": 2019258648,
             "gen0Collections": 332,
-            "gen1Collections": 30,
+            "gen1Collections": 34,
             "gen2Collections": 1
           }
         }
@@ -1700,7 +1700,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "indexsort-index",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.IndexSortIndexBenchmarks-20260510-012431",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.IndexSortIndexBenchmarks-20260511-124923",
       "benchmarkCount": 2,
       "benchmarks": [
         {
@@ -1712,19 +1712,19 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 12272045936.142857,
-            "medianNanoseconds": 12270272601.5,
-            "minNanoseconds": 12231449094,
-            "maxNanoseconds": 12328025847,
-            "standardDeviationNanoseconds": 28988852.194004346,
-            "operationsPerSecond": 0.08148600528416072
+            "sampleCount": 15,
+            "meanNanoseconds": 12361434808.6,
+            "medianNanoseconds": 12362712268,
+            "minNanoseconds": 12282132229,
+            "maxNanoseconds": 12415108389,
+            "standardDeviationNanoseconds": 33200105.038193263,
+            "operationsPerSecond": 0.08089675798025386
           },
           "gc": {
-            "bytesAllocatedPerOperation": 1358499624,
-            "gen0Collections": 210,
-            "gen1Collections": 89,
-            "gen2Collections": 8
+            "bytesAllocatedPerOperation": 1358620984,
+            "gen0Collections": 208,
+            "gen1Collections": 87,
+            "gen2Collections": 6
           }
         },
         {
@@ -1737,15 +1737,15 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 11287520018.8,
-            "medianNanoseconds": 11292563659,
-            "minNanoseconds": 11248221416,
-            "maxNanoseconds": 11321863857,
-            "standardDeviationNanoseconds": 21002506.247532345,
-            "operationsPerSecond": 0.08859341984195322
+            "meanNanoseconds": 11430628910.333334,
+            "medianNanoseconds": 11431828978,
+            "minNanoseconds": 11356964819,
+            "maxNanoseconds": 11483111915,
+            "standardDeviationNanoseconds": 38346272.086727045,
+            "operationsPerSecond": 0.08748425024068414
           },
           "gc": {
-            "bytesAllocatedPerOperation": 1333960792,
+            "bytesAllocatedPerOperation": 1334032064,
             "gen0Collections": 205,
             "gen1Collections": 87,
             "gen2Collections": 6
@@ -1755,7 +1755,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "indexsort-search",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.IndexSortSearchBenchmarks-20260510-013513",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.IndexSortSearchBenchmarks-20260511-130023",
       "benchmarkCount": 2,
       "benchmarks": [
         {
@@ -1768,12 +1768,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 251697.93577473957,
-            "medianNanoseconds": 251349.19287109375,
-            "minNanoseconds": 250309.8515625,
-            "maxNanoseconds": 253359.19775390625,
-            "standardDeviationNanoseconds": 937.2736151546011,
-            "operationsPerSecond": 3973.016294003155
+            "meanNanoseconds": 255235.07652994792,
+            "medianNanoseconds": 255138.896484375,
+            "minNanoseconds": 254266.45703125,
+            "maxNanoseconds": 256975.32958984375,
+            "standardDeviationNanoseconds": 755.5091960779882,
+            "operationsPerSecond": 3917.9567855465402
           },
           "gc": {
             "bytesAllocatedPerOperation": 120488,
@@ -1791,13 +1791,13 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 248680.13483072916,
-            "medianNanoseconds": 248710.94873046875,
-            "minNanoseconds": 247633.36181640625,
-            "maxNanoseconds": 249804.02734375,
-            "standardDeviationNanoseconds": 575.9541503468995,
-            "operationsPerSecond": 4021.229925263942
+            "sampleCount": 12,
+            "meanNanoseconds": 249709.7948811849,
+            "medianNanoseconds": 249707.7841796875,
+            "minNanoseconds": 249108.11083984375,
+            "maxNanoseconds": 250203.53173828125,
+            "standardDeviationNanoseconds": 310.1292530626882,
+            "operationsPerSecond": 4004.648678181858
           },
           "gc": {
             "bytesAllocatedPerOperation": 120488,
@@ -1810,7 +1810,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "phrase",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.PhraseQueryBenchmarks-20260510-003918",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.PhraseQueryBenchmarks-20260511-120416",
       "benchmarkCount": 6,
       "benchmarks": [
         {
@@ -1823,16 +1823,16 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 445364.9908854167,
-            "medianNanoseconds": 443748.84423828125,
-            "minNanoseconds": 441411.29052734375,
-            "maxNanoseconds": 455031.8466796875,
-            "standardDeviationNanoseconds": 4270.17122831497,
-            "operationsPerSecond": 2245.349366172519
+            "sampleCount": 13,
+            "meanNanoseconds": 437877.8270357572,
+            "medianNanoseconds": 437924.0087890625,
+            "minNanoseconds": 435960.68408203125,
+            "maxNanoseconds": 440939.2587890625,
+            "standardDeviationNanoseconds": 1594.4735097154626,
+            "operationsPerSecond": 2283.742035465842
           },
           "gc": {
-            "bytesAllocatedPerOperation": 61204,
+            "bytesAllocatedPerOperation": 61189,
             "gen0Collections": 30,
             "gen1Collections": 0,
             "gen2Collections": 0
@@ -1848,16 +1848,16 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 338125.3524344308,
-            "medianNanoseconds": 338887.8278808594,
-            "minNanoseconds": 330014.29443359375,
-            "maxNanoseconds": 345950.9453125,
-            "standardDeviationNanoseconds": 4137.171900820816,
-            "operationsPerSecond": 2957.4830541401648
+            "sampleCount": 15,
+            "meanNanoseconds": 321311.331640625,
+            "medianNanoseconds": 320966.91162109375,
+            "minNanoseconds": 316159.2900390625,
+            "maxNanoseconds": 329905.28271484375,
+            "standardDeviationNanoseconds": 3742.5118650812624,
+            "operationsPerSecond": 3112.246290518205
           },
           "gc": {
-            "bytesAllocatedPerOperation": 43950,
+            "bytesAllocatedPerOperation": 43944,
             "gen0Collections": 21,
             "gen1Collections": 0,
             "gen2Collections": 0
@@ -1873,16 +1873,16 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 993108.1602864583,
-            "medianNanoseconds": 991918.44921875,
-            "minNanoseconds": 977289.4453125,
-            "maxNanoseconds": 1010675.990234375,
-            "standardDeviationNanoseconds": 10606.95573949675,
-            "operationsPerSecond": 1006.9396667846871
+            "sampleCount": 13,
+            "meanNanoseconds": 985928.0563401442,
+            "medianNanoseconds": 986485.671875,
+            "minNanoseconds": 974043.365234375,
+            "maxNanoseconds": 997839.119140625,
+            "standardDeviationNanoseconds": 6127.552914410031,
+            "operationsPerSecond": 1014.2727895502762
           },
           "gc": {
-            "bytesAllocatedPerOperation": 49855,
+            "bytesAllocatedPerOperation": 49857,
             "gen0Collections": 6,
             "gen1Collections": 0,
             "gen2Collections": 0
@@ -1898,13 +1898,13 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 342181.90625,
-            "medianNanoseconds": 342201.05419921875,
-            "minNanoseconds": 340686.5703125,
-            "maxNanoseconds": 343460.99365234375,
-            "standardDeviationNanoseconds": 689.4347959450388,
-            "operationsPerSecond": 2922.4222021528935
+            "sampleCount": 15,
+            "meanNanoseconds": 343822.9452799479,
+            "medianNanoseconds": 343888.27685546875,
+            "minNanoseconds": 341939.81787109375,
+            "maxNanoseconds": 345406.96826171875,
+            "standardDeviationNanoseconds": 1073.4691699233779,
+            "operationsPerSecond": 2908.4737180230336
           },
           "gc": {
             "bytesAllocatedPerOperation": 378760,
@@ -1924,12 +1924,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 406185.0657877604,
-            "medianNanoseconds": 406213.080078125,
-            "minNanoseconds": 405316.958984375,
-            "maxNanoseconds": 407217.4833984375,
-            "standardDeviationNanoseconds": 538.2824046699425,
-            "operationsPerSecond": 2461.931971970923
+            "meanNanoseconds": 409596.01555989584,
+            "medianNanoseconds": 409705.48095703125,
+            "minNanoseconds": 408275.76904296875,
+            "maxNanoseconds": 410862.4619140625,
+            "standardDeviationNanoseconds": 650.0800233075787,
+            "operationsPerSecond": 2441.429999344729
           },
           "gc": {
             "bytesAllocatedPerOperation": 304408,
@@ -1948,13 +1948,13 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 1035532.5652901785,
-            "medianNanoseconds": 1035836.1787109375,
-            "minNanoseconds": 1030264.55859375,
-            "maxNanoseconds": 1039963.021484375,
-            "standardDeviationNanoseconds": 2290.1018355733895,
-            "operationsPerSecond": 965.6866751648496
+            "sampleCount": 15,
+            "meanNanoseconds": 1037226.0546875,
+            "medianNanoseconds": 1037216.18359375,
+            "minNanoseconds": 1033940.55859375,
+            "maxNanoseconds": 1041785.142578125,
+            "standardDeviationNanoseconds": 2096.6671055773304,
+            "operationsPerSecond": 964.1099888310117
           },
           "gc": {
             "bytesAllocatedPerOperation": 159344,
@@ -1967,7 +1967,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "prefix",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.PrefixQueryBenchmarks-20260510-004432",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.PrefixQueryBenchmarks-20260511-120928",
       "benchmarkCount": 6,
       "benchmarks": [
         {
@@ -1981,15 +1981,15 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 14,
-            "meanNanoseconds": 149696.74813406807,
-            "medianNanoseconds": 149314.14025878906,
-            "minNanoseconds": 148362.41967773438,
-            "maxNanoseconds": 152860.4228515625,
-            "standardDeviationNanoseconds": 1381.2435637444553,
-            "operationsPerSecond": 6680.171830482264
+            "meanNanoseconds": 151946.39936174665,
+            "medianNanoseconds": 152021.82580566406,
+            "minNanoseconds": 150195.70068359375,
+            "maxNanoseconds": 153446.1337890625,
+            "standardDeviationNanoseconds": 994.0041418686847,
+            "operationsPerSecond": 6581.268159038427
           },
           "gc": {
-            "bytesAllocatedPerOperation": 24235,
+            "bytesAllocatedPerOperation": 24243,
             "gen0Collections": 24,
             "gen1Collections": 0,
             "gen2Collections": 0
@@ -2005,16 +2005,16 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 12,
-            "meanNanoseconds": 240331.1528930664,
-            "medianNanoseconds": 240250.49487304688,
-            "minNanoseconds": 238886.18408203125,
-            "maxNanoseconds": 241688.47705078125,
-            "standardDeviationNanoseconds": 925.6995197174228,
-            "operationsPerSecond": 4160.925406307782
+            "sampleCount": 14,
+            "meanNanoseconds": 243043.30250767298,
+            "medianNanoseconds": 243236.13244628906,
+            "minNanoseconds": 240527.22290039062,
+            "maxNanoseconds": 244874.29370117188,
+            "standardDeviationNanoseconds": 1124.1622121433027,
+            "operationsPerSecond": 4114.493136334952
           },
           "gc": {
-            "bytesAllocatedPerOperation": 35337,
+            "bytesAllocatedPerOperation": 35333,
             "gen0Collections": 35,
             "gen1Collections": 0,
             "gen2Collections": 0
@@ -2031,15 +2031,15 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 14,
-            "meanNanoseconds": 290036.041922433,
-            "medianNanoseconds": 290027.1071777344,
-            "minNanoseconds": 283632.3125,
-            "maxNanoseconds": 296767.53125,
-            "standardDeviationNanoseconds": 3288.7779016924283,
-            "operationsPerSecond": 3447.8473550105855
+            "meanNanoseconds": 289734.12908063614,
+            "medianNanoseconds": 289883.255859375,
+            "minNanoseconds": 284507.5771484375,
+            "maxNanoseconds": 295131.12890625,
+            "standardDeviationNanoseconds": 2900.237942686557,
+            "operationsPerSecond": 3451.440129518498
           },
           "gc": {
-            "bytesAllocatedPerOperation": 64505,
+            "bytesAllocatedPerOperation": 64501,
             "gen0Collections": 32,
             "gen1Collections": 0,
             "gen2Collections": 0
@@ -2056,12 +2056,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 187265.85522460938,
-            "medianNanoseconds": 187256.36596679688,
-            "minNanoseconds": 186534.11474609375,
-            "maxNanoseconds": 187729.62231445312,
-            "standardDeviationNanoseconds": 284.34850841291296,
-            "operationsPerSecond": 5340.001778757722
+            "meanNanoseconds": 186072.07858072917,
+            "medianNanoseconds": 186100.28588867188,
+            "minNanoseconds": 185475.97045898438,
+            "maxNanoseconds": 186624.45727539062,
+            "standardDeviationNanoseconds": 351.88069917821514,
+            "operationsPerSecond": 5374.261456246056
           },
           "gc": {
             "bytesAllocatedPerOperation": 112680,
@@ -2080,13 +2080,13 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 284118.53170572914,
-            "medianNanoseconds": 283987.6748046875,
-            "minNanoseconds": 283272.64013671875,
-            "maxNanoseconds": 285244.3310546875,
-            "standardDeviationNanoseconds": 664.6826325744672,
-            "operationsPerSecond": 3519.657778028125
+            "sampleCount": 14,
+            "meanNanoseconds": 285475.65680803574,
+            "medianNanoseconds": 285473.97021484375,
+            "minNanoseconds": 284841.4951171875,
+            "maxNanoseconds": 286451.953125,
+            "standardDeviationNanoseconds": 461.19007107957725,
+            "operationsPerSecond": 3502.9256476058713
           },
           "gc": {
             "bytesAllocatedPerOperation": 129112,
@@ -2105,13 +2105,13 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 355793.72626953124,
-            "medianNanoseconds": 355848.01025390625,
-            "minNanoseconds": 354830.87548828125,
-            "maxNanoseconds": 357037.84814453125,
-            "standardDeviationNanoseconds": 573.0718431891585,
-            "operationsPerSecond": 2810.6172935788386
+            "sampleCount": 14,
+            "meanNanoseconds": 356816.8024204799,
+            "medianNanoseconds": 356742.6884765625,
+            "minNanoseconds": 355884.390625,
+            "maxNanoseconds": 357769.95751953125,
+            "standardDeviationNanoseconds": 559.4189666557379,
+            "operationsPerSecond": 2802.5586049100357
           },
           "gc": {
             "bytesAllocatedPerOperation": 136856,
@@ -2124,7 +2124,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "query",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.TermQueryBenchmarks-20260510-000823",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.TermQueryBenchmarks-20260511-113315",
       "benchmarkCount": 6,
       "benchmarks": [
         {
@@ -2138,12 +2138,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 106386.88771972657,
-            "medianNanoseconds": 106339.71569824219,
-            "minNanoseconds": 105945.02294921875,
-            "maxNanoseconds": 106776.04467773438,
-            "standardDeviationNanoseconds": 220.34745020091515,
-            "operationsPerSecond": 9399.654613776027
+            "meanNanoseconds": 106001.23293457032,
+            "medianNanoseconds": 105936.20629882812,
+            "minNanoseconds": 105601.29260253906,
+            "maxNanoseconds": 106461.26489257812,
+            "standardDeviationNanoseconds": 262.1319525744494,
+            "operationsPerSecond": 9433.852534689422
           },
           "gc": {
             "bytesAllocatedPerOperation": 480,
@@ -2163,12 +2163,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 151053.68888346353,
-            "medianNanoseconds": 151103.50146484375,
-            "minNanoseconds": 150430.70068359375,
-            "maxNanoseconds": 151570.13330078125,
-            "standardDeviationNanoseconds": 331.1393687145948,
-            "operationsPerSecond": 6620.162720895154
+            "meanNanoseconds": 150593.67825520833,
+            "medianNanoseconds": 150572.30029296875,
+            "minNanoseconds": 150283.72436523438,
+            "maxNanoseconds": 151135.31909179688,
+            "standardDeviationNanoseconds": 284.5749945437358,
+            "operationsPerSecond": 6640.384985519236
           },
           "gc": {
             "bytesAllocatedPerOperation": 472,
@@ -2187,13 +2187,13 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 687326.7730189732,
-            "medianNanoseconds": 687235.88671875,
-            "minNanoseconds": 685603.94921875,
-            "maxNanoseconds": 689169.5146484375,
-            "standardDeviationNanoseconds": 968.9489495116867,
-            "operationsPerSecond": 1454.912043666886
+            "sampleCount": 15,
+            "meanNanoseconds": 687340.3497395833,
+            "medianNanoseconds": 687346.3359375,
+            "minNanoseconds": 685916.751953125,
+            "maxNanoseconds": 689114.4775390625,
+            "standardDeviationNanoseconds": 957.1010550425198,
+            "operationsPerSecond": 1454.8833054524964
           },
           "gc": {
             "bytesAllocatedPerOperation": 464,
@@ -2213,12 +2213,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 14,
-            "meanNanoseconds": 135570.55552455358,
-            "medianNanoseconds": 135417.39526367188,
-            "minNanoseconds": 134957.78344726562,
-            "maxNanoseconds": 136397.5048828125,
-            "standardDeviationNanoseconds": 424.79326518932237,
-            "operationsPerSecond": 7376.232959515218
+            "meanNanoseconds": 136321.69264439173,
+            "medianNanoseconds": 136341.23693847656,
+            "minNanoseconds": 135751.56469726562,
+            "maxNanoseconds": 136782.15625,
+            "standardDeviationNanoseconds": 308.7529025843745,
+            "operationsPerSecond": 7335.58966736568
           },
           "gc": {
             "bytesAllocatedPerOperation": 60896,
@@ -2237,13 +2237,13 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 175362.4473876953,
-            "medianNanoseconds": 175426.78491210938,
-            "minNanoseconds": 174642.83251953125,
-            "maxNanoseconds": 175859.76538085938,
-            "standardDeviationNanoseconds": 363.6573128566398,
-            "operationsPerSecond": 5702.475158716148
+            "sampleCount": 15,
+            "meanNanoseconds": 177489.9166829427,
+            "medianNanoseconds": 177481.46533203125,
+            "minNanoseconds": 176790.48486328125,
+            "maxNanoseconds": 178053.828125,
+            "standardDeviationNanoseconds": 318.5398950262198,
+            "operationsPerSecond": 5634.122876886238
           },
           "gc": {
             "bytesAllocatedPerOperation": 58688,
@@ -2263,12 +2263,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 754172.1026041667,
-            "medianNanoseconds": 754193.822265625,
-            "minNanoseconds": 751818.177734375,
-            "maxNanoseconds": 755734.0888671875,
-            "standardDeviationNanoseconds": 1107.9550560500652,
-            "operationsPerSecond": 1325.9572934970495
+            "meanNanoseconds": 753346.7697916667,
+            "medianNanoseconds": 753194.7138671875,
+            "minNanoseconds": 751806.5009765625,
+            "maxNanoseconds": 755421.3642578125,
+            "standardDeviationNanoseconds": 1169.0287392343105,
+            "operationsPerSecond": 1327.4099526258588
           },
           "gc": {
             "bytesAllocatedPerOperation": 58720,
@@ -2281,7 +2281,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "schemajson",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.SchemaAndJsonBenchmarks-20260510-011359",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.SchemaAndJsonBenchmarks-20260511-123839",
       "benchmarkCount": 3,
       "benchmarks": [
         {
@@ -2294,17 +2294,17 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 10553342162.066668,
-            "medianNanoseconds": 10548253141,
-            "minNanoseconds": 10496021059,
-            "maxNanoseconds": 10610406941,
-            "standardDeviationNanoseconds": 31086604.820777755,
-            "operationsPerSecond": 0.0947567116315472
+            "meanNanoseconds": 10501423292.666666,
+            "medianNanoseconds": 10519699218,
+            "minNanoseconds": 10406486560,
+            "maxNanoseconds": 10567336754,
+            "standardDeviationNanoseconds": 57917185.658851944,
+            "operationsPerSecond": 0.09522518730373607
           },
           "gc": {
-            "bytesAllocatedPerOperation": 1252349496,
-            "gen0Collections": 192,
-            "gen1Collections": 82,
+            "bytesAllocatedPerOperation": 1252430424,
+            "gen0Collections": 193,
+            "gen1Collections": 81,
             "gen2Collections": 2
           }
         },
@@ -2318,17 +2318,17 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 10507944163.066668,
-            "medianNanoseconds": 10493052770,
-            "minNanoseconds": 10461512825,
-            "maxNanoseconds": 10599489578,
-            "standardDeviationNanoseconds": 40499382.21038946,
-            "operationsPerSecond": 0.09516609381260333
+            "meanNanoseconds": 10540583395.2,
+            "medianNanoseconds": 10555947979,
+            "minNanoseconds": 10446585425,
+            "maxNanoseconds": 10603285252,
+            "standardDeviationNanoseconds": 45811625.54260629,
+            "operationsPerSecond": 0.09487140915325262
           },
           "gc": {
-            "bytesAllocatedPerOperation": 1256348832,
+            "bytesAllocatedPerOperation": 1256486800,
             "gen0Collections": 193,
-            "gen1Collections": 83,
+            "gen1Collections": 82,
             "gen2Collections": 2
           }
         },
@@ -2342,12 +2342,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 427923202.8,
-            "medianNanoseconds": 428946184,
-            "minNanoseconds": 424407346,
-            "maxNanoseconds": 431104902,
-            "standardDeviationNanoseconds": 2190002.8899398805,
-            "operationsPerSecond": 2.3368679086732613
+            "meanNanoseconds": 443446771.1333333,
+            "medianNanoseconds": 443586715,
+            "minNanoseconds": 439315092,
+            "maxNanoseconds": 448139129,
+            "standardDeviationNanoseconds": 2358848.365388557,
+            "operationsPerSecond": 2.2550620843269713
           },
           "gc": {
             "bytesAllocatedPerOperation": 226364856,
@@ -2360,7 +2360,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "suggester",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.SuggesterBenchmarks-20260510-011012",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.SuggesterBenchmarks-20260511-123446",
       "benchmarkCount": 3,
       "benchmarks": [
         {
@@ -2372,13 +2372,13 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 13,
-            "meanNanoseconds": 4635460.948918269,
-            "medianNanoseconds": 4633483.265625,
-            "minNanoseconds": 4615838.078125,
-            "maxNanoseconds": 4672062.5703125,
-            "standardDeviationNanoseconds": 14833.367147428322,
-            "operationsPerSecond": 215.72827622102176
+            "sampleCount": 15,
+            "meanNanoseconds": 4700082.345833333,
+            "medianNanoseconds": 4688422.0859375,
+            "minNanoseconds": 4664718.9453125,
+            "maxNanoseconds": 4772246.6796875,
+            "standardDeviationNanoseconds": 31236.24380689237,
+            "operationsPerSecond": 212.7622297695506
           },
           "gc": {
             "bytesAllocatedPerOperation": 25512,
@@ -2396,13 +2396,13 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 13,
-            "meanNanoseconds": 4678330.760216346,
-            "medianNanoseconds": 4674481.5078125,
-            "minNanoseconds": 4657409.5625,
-            "maxNanoseconds": 4714285.3671875,
-            "standardDeviationNanoseconds": 14905.650537692973,
-            "operationsPerSecond": 213.75145351068673
+            "sampleCount": 14,
+            "meanNanoseconds": 4696301.515625,
+            "medianNanoseconds": 4697744.80078125,
+            "minNanoseconds": 4677200.1015625,
+            "maxNanoseconds": 4720489.9453125,
+            "standardDeviationNanoseconds": 11771.373198101603,
+            "operationsPerSecond": 212.93351729502754
           },
           "gc": {
             "bytesAllocatedPerOperation": 23752,
@@ -2421,12 +2421,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 10254258.8125,
-            "medianNanoseconds": 10243670.265625,
-            "minNanoseconds": 10210806.390625,
-            "maxNanoseconds": 10302941.90625,
-            "standardDeviationNanoseconds": 27980.293217647217,
-            "operationsPerSecond": 97.52045645473608
+            "meanNanoseconds": 10286502.404166667,
+            "medianNanoseconds": 10283477.375,
+            "minNanoseconds": 10251324,
+            "maxNanoseconds": 10324908.1875,
+            "standardDeviationNanoseconds": 24086.46889074488,
+            "operationsPerSecond": 97.21477337087273
           },
           "gc": {
             "bytesAllocatedPerOperation": 5479576,
@@ -2439,7 +2439,7 @@ title: Benchmarks - debian
     },
     {
       "suiteName": "wildcard",
-      "summaryTitle": "Rowles.LeanLucene.Benchmarks.WildcardQueryBenchmarks-20260510-005513",
+      "summaryTitle": "Rowles.LeanLucene.Benchmarks.WildcardQueryBenchmarks-20260511-122004",
       "benchmarkCount": 6,
       "benchmarks": [
         {
@@ -2452,16 +2452,16 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 13,
-            "meanNanoseconds": 150152.8491398738,
-            "medianNanoseconds": 150310.36328125,
-            "minNanoseconds": 148443.60717773438,
-            "maxNanoseconds": 151169.0830078125,
-            "standardDeviationNanoseconds": 670.7444450647262,
-            "operationsPerSecond": 6659.8802868432895
+            "sampleCount": 14,
+            "meanNanoseconds": 149830.23709542412,
+            "medianNanoseconds": 149683.90405273438,
+            "minNanoseconds": 147632.59643554688,
+            "maxNanoseconds": 152820.87377929688,
+            "standardDeviationNanoseconds": 1553.4165234628094,
+            "operationsPerSecond": 6674.22023341736
           },
           "gc": {
-            "bytesAllocatedPerOperation": 24960,
+            "bytesAllocatedPerOperation": 24963,
             "gen0Collections": 25,
             "gen1Collections": 0,
             "gen2Collections": 0
@@ -2477,16 +2477,16 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 18,
-            "meanNanoseconds": 528970.8275282118,
-            "medianNanoseconds": 534184.2055664062,
-            "minNanoseconds": 505804.615234375,
-            "maxNanoseconds": 542294.048828125,
-            "standardDeviationNanoseconds": 11229.16944419407,
-            "operationsPerSecond": 1890.463420587531
+            "sampleCount": 15,
+            "meanNanoseconds": 530479.6484375,
+            "medianNanoseconds": 532997.04296875,
+            "minNanoseconds": 515256.5439453125,
+            "maxNanoseconds": 543284.6767578125,
+            "standardDeviationNanoseconds": 8254.510782744564,
+            "operationsPerSecond": 1885.08645514573
           },
           "gc": {
-            "bytesAllocatedPerOperation": 10419,
+            "bytesAllocatedPerOperation": 10420,
             "gen0Collections": 2,
             "gen1Collections": 0,
             "gen2Collections": 0
@@ -2502,16 +2502,16 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 15,
-            "meanNanoseconds": 106486.87327473958,
-            "medianNanoseconds": 106362.04650878906,
-            "minNanoseconds": 105246.6708984375,
-            "maxNanoseconds": 107759.11877441406,
-            "standardDeviationNanoseconds": 754.8929493387212,
-            "operationsPerSecond": 9390.828834085189
+            "sampleCount": 13,
+            "meanNanoseconds": 106107.36450195312,
+            "medianNanoseconds": 106163.78784179688,
+            "minNanoseconds": 105383.63232421875,
+            "maxNanoseconds": 106909.51013183594,
+            "standardDeviationNanoseconds": 448.9649637427327,
+            "operationsPerSecond": 9424.41653031155
           },
           "gc": {
-            "bytesAllocatedPerOperation": 8832,
+            "bytesAllocatedPerOperation": 8833,
             "gen0Collections": 17,
             "gen1Collections": 0,
             "gen2Collections": 0
@@ -2528,12 +2528,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 14,
-            "meanNanoseconds": 202033.19013323102,
-            "medianNanoseconds": 201896.30053710938,
-            "minNanoseconds": 201452.87646484375,
-            "maxNanoseconds": 202750.4072265625,
-            "standardDeviationNanoseconds": 350.08045774291253,
-            "operationsPerSecond": 4949.68177921929
+            "meanNanoseconds": 203592.39512416295,
+            "medianNanoseconds": 203536.01684570312,
+            "minNanoseconds": 203095.88305664062,
+            "maxNanoseconds": 204032.2001953125,
+            "standardDeviationNanoseconds": 255.643246695371,
+            "operationsPerSecond": 4911.774820420672
           },
           "gc": {
             "bytesAllocatedPerOperation": 132160,
@@ -2552,13 +2552,13 @@ title: Benchmarks - debian
             "DocumentCount": "100000"
           },
           "statistics": {
-            "sampleCount": 14,
-            "meanNanoseconds": 1167828.0980747768,
-            "medianNanoseconds": 1167547.3916015625,
-            "minNanoseconds": 1161447.29296875,
-            "maxNanoseconds": 1173018.453125,
-            "standardDeviationNanoseconds": 2924.1499811793115,
-            "operationsPerSecond": 856.2904092208007
+            "sampleCount": 15,
+            "meanNanoseconds": 1172578.1557291667,
+            "medianNanoseconds": 1171661.466796875,
+            "minNanoseconds": 1169235.740234375,
+            "maxNanoseconds": 1177489.8984375,
+            "standardDeviationNanoseconds": 2263.007425107306,
+            "operationsPerSecond": 852.8216179996556
           },
           "gc": {
             "bytesAllocatedPerOperation": 414224,
@@ -2578,12 +2578,12 @@ title: Benchmarks - debian
           },
           "statistics": {
             "sampleCount": 15,
-            "meanNanoseconds": 410527.88990885415,
-            "medianNanoseconds": 410419.06103515625,
-            "minNanoseconds": 408905.93408203125,
-            "maxNanoseconds": 412759.71533203125,
-            "standardDeviationNanoseconds": 1000.4989289832179,
-            "operationsPerSecond": 2435.8880957442893
+            "meanNanoseconds": 410478.7944986979,
+            "medianNanoseconds": 410312.2529296875,
+            "minNanoseconds": 409117.1611328125,
+            "maxNanoseconds": 412156.8369140625,
+            "standardDeviationNanoseconds": 902.693138436569,
+            "operationsPerSecond": 2436.179440697447
           },
           "gc": {
             "bytesAllocatedPerOperation": 388608,

@@ -288,6 +288,25 @@ for (i = 0, l = charts.length; i < l; i++) {
 
 var assemblies = [
   {
+    "name": "leanlucene-cli",
+    "classes": [
+      { "name": "Rowles.LeanLucene.Cli.CheckRequest", "rp": "leanlucene_cli_CheckRequest.html", "cl": 7, "ucl": 7, "cal": 14, "tl": 928, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Cli.CliBackupFileDto", "rp": "leanlucene_cli_CliBackupFileDto.html", "cl": 17, "ucl": 0, "cal": 17, "tl": 928, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Cli.CliBackupResultDto", "rp": "leanlucene_cli_CliBackupResultDto.html", "cl": 13, "ucl": 0, "cal": 13, "tl": 928, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Cli.CliCodecFileInventoryDto", "rp": "leanlucene_cli_CliCodecFileInventoryDto.html", "cl": 25, "ucl": 0, "cal": 25, "tl": 928, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Cli.CliCompatibilityResultDto", "rp": "leanlucene_cli_CliCompatibilityResultDto.html", "cl": 21, "ucl": 0, "cal": 21, "tl": 928, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Cli.CliIndexCheckIssueDto", "rp": "leanlucene_cli_CliIndexCheckIssueDto.html", "cl": 17, "ucl": 0, "cal": 17, "tl": 928, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Cli.CliIndexCheckResultDto", "rp": "leanlucene_cli_CliIndexCheckResultDto.html", "cl": 18, "ucl": 0, "cal": 18, "tl": 928, "cb": 2, "tb": 2, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Cli.CliIndexFormatInventoryDto", "rp": "leanlucene_cli_CliIndexFormatInventoryDto.html", "cl": 19, "ucl": 0, "cal": 19, "tl": 928, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Cli.CliMigrationActionDto", "rp": "leanlucene_cli_CliMigrationActionDto.html", "cl": 0, "ucl": 23, "cal": 23, "tl": 928, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Cli.CliMigrationResultDto", "rp": "leanlucene_cli_CliMigrationResultDto.html", "cl": 24, "ucl": 0, "cal": 24, "tl": 928, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Cli.CliRestoreResultDto", "rp": "leanlucene_cli_CliRestoreResultDto.html", "cl": 15, "ucl": 0, "cal": 15, "tl": 928, "cb": 3, "tb": 6, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Cli.CliSegmentFormatInventoryDto", "rp": "leanlucene_cli_CliSegmentFormatInventoryDto.html", "cl": 19, "ucl": 0, "cal": 19, "tl": 928, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Cli.IndexCheckCliJsonContext", "rp": "leanlucene_cli_IndexCheckCliJsonContext.html", "cl": 2515, "ucl": 545, "cal": 3060, "tl": 4376, "cb": 140, "tb": 214, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Cli.IndexCheckerCli", "rp": "leanlucene_cli_IndexCheckerCli.html", "cl": 327, "ucl": 58, "cal": 385, "tl": 928, "cb": 55, "tb": 110, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Cli.Program", "rp": "leanlucene_cli_Program.html", "cl": 0, "ucl": 1, "cal": 1, "tl": 7, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+    ]},
+  {
     "name": "Rowles.LeanLucene",
     "classes": [
       { "name": "Rowles.LeanLucene.Analysis.Analysers.Analyser", "rp": "Rowles.LeanLucene_Analyser.html", "cl": 8, "ucl": 0, "cal": 8, "tl": 30, "cb": 2, "tb": 2, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
@@ -341,8 +360,10 @@ var assemblies = [
       { "name": "Rowles.LeanLucene.Analysis.Tokenisers.WhitespaceTokeniser", "rp": "Rowles.LeanLucene_WhitespaceTokeniser.html", "cl": 25, "ucl": 0, "cal": 25, "tl": 67, "cb": 24, "tb": 24, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.Bkd.BKDReader", "rp": "Rowles.LeanLucene_BKDReader.html", "cl": 45, "ucl": 0, "cal": 45, "tl": 96, "cb": 18, "tb": 18, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.Bkd.BKDWriter", "rp": "Rowles.LeanLucene_BKDWriter.html", "cl": 22, "ucl": 0, "cal": 22, "tl": 53, "cb": 6, "tb": 6, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Codecs.CodecConstants", "rp": "Rowles.LeanLucene_CodecConstants.html", "cl": 42, "ucl": 0, "cal": 42, "tl": 91, "cb": 12, "tb": 12, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Codecs.DocValues.FieldLengthReader", "rp": "Rowles.LeanLucene_FieldLengthReader.html", "cl": 19, "ucl": 4, "cal": 23, "tl": 61, "cb": 10, "tb": 12, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.CodecConstants", "rp": "Rowles.LeanLucene_CodecConstants.html", "cl": 42, "ucl": 0, "cal": 42, "tl": 94, "cb": 12, "tb": 12, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.DocValues.BinaryDocValuesReader", "rp": "Rowles.LeanLucene_BinaryDocValuesReader.html", "cl": 51, "ucl": 3, "cal": 54, "tl": 94, "cb": 22, "tb": 26, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.DocValues.BinaryDocValuesWriter", "rp": "Rowles.LeanLucene_BinaryDocValuesWriter.html", "cl": 33, "ucl": 0, "cal": 33, "tl": 69, "cb": 18, "tb": 18, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.DocValues.FieldLengthReader", "rp": "Rowles.LeanLucene_FieldLengthReader.html", "cl": 23, "ucl": 0, "cal": 23, "tl": 61, "cb": 12, "tb": 12, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.DocValues.FieldLengthWriter", "rp": "Rowles.LeanLucene_FieldLengthWriter.html", "cl": 13, "ucl": 0, "cal": 13, "tl": 35, "cb": 6, "tb": 6, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.DocValues.NormsReader", "rp": "Rowles.LeanLucene_NormsReader.html", "cl": 30, "ucl": 8, "cal": 38, "tl": 67, "cb": 7, "tb": 12, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.DocValues.NormsWriter", "rp": "Rowles.LeanLucene_NormsWriter.html", "cl": 13, "ucl": 0, "cal": 13, "tl": 36, "cb": 6, "tb": 6, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
@@ -350,6 +371,10 @@ var assemblies = [
       { "name": "Rowles.LeanLucene.Codecs.DocValues.NumericDocValuesWriter", "rp": "Rowles.LeanLucene_NumericDocValuesWriter.html", "cl": 54, "ucl": 0, "cal": 54, "tl": 112, "cb": 30, "tb": 30, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.DocValues.SortedDocValuesReader", "rp": "Rowles.LeanLucene_SortedDocValuesReader.html", "cl": 48, "ucl": 0, "cal": 48, "tl": 93, "cb": 21, "tb": 22, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.DocValues.SortedDocValuesWriter", "rp": "Rowles.LeanLucene_SortedDocValuesWriter.html", "cl": 58, "ucl": 0, "cal": 58, "tl": 110, "cb": 38, "tb": 38, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.DocValues.SortedNumericDocValuesReader", "rp": "Rowles.LeanLucene_SortedNumericDocValuesReader.html", "cl": 64, "ucl": 4, "cal": 68, "tl": 122, "cb": 27, "tb": 32, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.DocValues.SortedNumericDocValuesWriter", "rp": "Rowles.LeanLucene_SortedNumericDocValuesWriter.html", "cl": 71, "ucl": 3, "cal": 74, "tl": 141, "cb": 41, "tb": 42, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.DocValues.SortedSetDocValuesReader", "rp": "Rowles.LeanLucene_SortedSetDocValuesReader.html", "cl": 49, "ucl": 4, "cal": 53, "tl": 93, "cb": 25, "tb": 30, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.DocValues.SortedSetDocValuesWriter", "rp": "Rowles.LeanLucene_SortedSetDocValuesWriter.html", "cl": 45, "ucl": 0, "cal": 45, "tl": 88, "cb": 22, "tb": 22, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.Fst.FSTAutomaton", "rp": "Rowles.LeanLucene_FSTAutomaton.html", "cl": 1, "ucl": 0, "cal": 1, "tl": 505, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.Fst.FSTBuilder", "rp": "Rowles.LeanLucene_FSTBuilder.html", "cl": 209, "ucl": 16, "cal": 225, "tl": 650, "cb": 95, "tb": 104, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.Fst.FSTReader", "rp": "Rowles.LeanLucene_FSTReader.html", "cl": 348, "ucl": 65, "cal": 413, "tl": 827, "cb": 265, "tb": 329, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
@@ -368,20 +393,24 @@ var assemblies = [
       { "name": "Rowles.LeanLucene.Codecs.Postings.BlockPostingsEnum", "rp": "Rowles.LeanLucene_BlockPostingsEnum.html", "cl": 142, "ucl": 12, "cal": 154, "tl": 373, "cb": 83, "tb": 100, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.Postings.BlockPostingsWriter", "rp": "Rowles.LeanLucene_BlockPostingsWriter.html", "cl": 104, "ucl": 0, "cal": 104, "tl": 245, "cb": 39, "tb": 44, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.Postings.PackedIntCodec", "rp": "Rowles.LeanLucene_PackedIntCodec.html", "cl": 77, "ucl": 8, "cal": 85, "tl": 269, "cb": 46, "tb": 50, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Codecs.Postings.PostingsEnum", "rp": "Rowles.LeanLucene_PostingsEnum.html", "cl": 324, "ucl": 82, "cal": 406, "tl": 780, "cb": 213, "tb": 268, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.Postings.PostingsEnum", "rp": "Rowles.LeanLucene_PostingsEnum.html", "cl": 327, "ucl": 79, "cal": 406, "tl": 780, "cb": 222, "tb": 268, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.Postings.PostingsReader", "rp": "Rowles.LeanLucene_PostingsReader.html", "cl": 27, "ucl": 6, "cal": 33, "tl": 64, "cb": 8, "tb": 12, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.Postings.PostingsWriter", "rp": "Rowles.LeanLucene_PostingsWriter.html", "cl": 17, "ucl": 0, "cal": 17, "tl": 39, "cb": 4, "tb": 4, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Codecs.Postings.StreamingPostingsMerger", "rp": "Rowles.LeanLucene_StreamingPostingsMerger.html", "cl": 150, "ucl": 44, "cal": 194, "tl": 359, "cb": 56, "tb": 90, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Codecs.StoredFields.StoredFieldCompression", "rp": "Rowles.LeanLucene_StoredFieldCompression.html", "cl": 33, "ucl": 0, "cal": 33, "tl": 67, "cb": 20, "tb": 20, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Codecs.StoredFields.StoredFieldsReader", "rp": "Rowles.LeanLucene_StoredFieldsReader.html", "cl": 79, "ucl": 16, "cal": 95, "tl": 190, "cb": 24, "tb": 30, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.Postings.StreamingPostingsMerger", "rp": "Rowles.LeanLucene_StreamingPostingsMerger.html", "cl": 154, "ucl": 44, "cal": 198, "tl": 362, "cb": 60, "tb": 94, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.StoredFields.BrotliCompressionCodec", "rp": "Rowles.LeanLucene_BrotliCompressionCodec.html", "cl": 20, "ucl": 0, "cal": 20, "tl": 103, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.StoredFields.CompressionCodecRegistry", "rp": "Rowles.LeanLucene_CompressionCodecRegistry.html", "cl": 16, "ucl": 3, "cal": 19, "tl": 59, "cb": 2, "tb": 4, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.StoredFields.DeflateCompressionCodec", "rp": "Rowles.LeanLucene_DeflateCompressionCodec.html", "cl": 20, "ucl": 0, "cal": 20, "tl": 103, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.StoredFields.NoneCompressionCodec", "rp": "Rowles.LeanLucene_NoneCompressionCodec.html", "cl": 10, "ucl": 0, "cal": 10, "tl": 103, "cb": 2, "tb": 2, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.StoredFields.StoredFieldCompression", "rp": "Rowles.LeanLucene_StoredFieldCompression.html", "cl": 23, "ucl": 4, "cal": 27, "tl": 75, "cb": 14, "tb": 18, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.StoredFields.StoredFieldsReader", "rp": "Rowles.LeanLucene_StoredFieldsReader.html", "cl": 89, "ucl": 6, "cal": 95, "tl": 190, "cb": 27, "tb": 30, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.StoredFields.StoredFieldsStreamWriter", "rp": "Rowles.LeanLucene_StoredFieldsStreamWriter.html", "cl": 70, "ucl": 0, "cal": 70, "tl": 126, "cb": 15, "tb": 18, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Codecs.StoredFields.StoredFieldsWriter", "rp": "Rowles.LeanLucene_StoredFieldsWriter.html", "cl": 125, "ucl": 0, "cal": 125, "tl": 199, "cb": 41, "tb": 44, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Codecs.TermDictionary.TermDictionaryReader", "rp": "Rowles.LeanLucene_TermDictionaryReader.html", "cl": 169, "ucl": 9, "cal": 178, "tl": 391, "cb": 112, "tb": 120, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.StoredFields.StoredFieldsWriter", "rp": "Rowles.LeanLucene_StoredFieldsWriter.html", "cl": 136, "ucl": 5, "cal": 141, "tl": 231, "cb": 45, "tb": 52, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.TermDictionary.TermDictionaryReader", "rp": "Rowles.LeanLucene_TermDictionaryReader.html", "cl": 170, "ucl": 8, "cal": 178, "tl": 391, "cb": 113, "tb": 120, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.TermDictionary.TermDictionaryWriter", "rp": "Rowles.LeanLucene_TermDictionaryWriter.html", "cl": 4, "ucl": 0, "cal": 4, "tl": 18, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.TermVectors.TermVectorEntry", "rp": "Rowles.LeanLucene_TermVectorEntry.html", "cl": 1, "ucl": 0, "cal": 1, "tl": 7, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.TermVectors.TermVectorsReader", "rp": "Rowles.LeanLucene_TermVectorsReader.html", "cl": 35, "ucl": 1, "cal": 36, "tl": 72, "cb": 9, "tb": 10, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.TermVectors.TermVectorsStreamWriter", "rp": "Rowles.LeanLucene_TermVectorsStreamWriter.html", "cl": 32, "ucl": 2, "cal": 34, "tl": 66, "cb": 10, "tb": 12, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Codecs.TermVectors.TermVectorsWriter", "rp": "Rowles.LeanLucene_TermVectorsWriter.html", "cl": 24, "ucl": 0, "cal": 24, "tl": 51, "cb": 10, "tb": 10, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Codecs.TermVectors.TermVectorsWriter", "rp": "Rowles.LeanLucene_TermVectorsWriter.html", "cl": 25, "ucl": 2, "cal": 27, "tl": 56, "cb": 11, "tb": 12, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.Vectors.InMemoryVectorSource", "rp": "Rowles.LeanLucene_InMemoryVectorSource.html", "cl": 8, "ucl": 2, "cal": 10, "tl": 28, "cb": 1, "tb": 2, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.Vectors.VectorFilePaths", "rp": "Rowles.LeanLucene_VectorFilePaths.html", "cl": 12, "ucl": 4, "cal": 16, "tl": 51, "cb": 6, "tb": 10, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Codecs.Vectors.VectorReader", "rp": "Rowles.LeanLucene_VectorReader.html", "cl": 32, "ucl": 8, "cal": 40, "tl": 79, "cb": 3, "tb": 6, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
@@ -391,7 +420,8 @@ var assemblies = [
       { "name": "Rowles.LeanLucene.Diagnostics.IMetricsCollector", "rp": "Rowles.LeanLucene_IMetricsCollector.html", "cl": 2, "ucl": 0, "cal": 2, "tl": 41, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Diagnostics.IndexSizeCalculator", "rp": "Rowles.LeanLucene_IndexSizeCalculator.html", "cl": 33, "ucl": 3, "cal": 36, "tl": 67, "cb": 12, "tb": 12, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Diagnostics.IndexSizeReport", "rp": "Rowles.LeanLucene_IndexSizeReport.html", "cl": 15, "ucl": 0, "cal": 15, "tl": 37, "cb": 6, "tb": 6, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Diagnostics.LeanLuceneActivitySource", "rp": "Rowles.LeanLucene_LeanLuceneActivitySource.html", "cl": 1, "ucl": 0, "cal": 1, "tl": 17, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Diagnostics.LeanLuceneActivitySource", "rp": "Rowles.LeanLucene_LeanLuceneActivitySource.html", "cl": 1, "ucl": 0, "cal": 1, "tl": 24, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Diagnostics.LeanLuceneMaintenanceMetrics", "rp": "Rowles.LeanLucene_LeanLuceneMaintenanceMetrics.html", "cl": 95, "ucl": 0, "cal": 95, "tl": 147, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Diagnostics.MeterMetricsCollector", "rp": "Rowles.LeanLucene_MeterMetricsCollector.html", "cl": 117, "ucl": 17, "cal": 134, "tl": 268, "cb": 16, "tb": 18, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Diagnostics.MetricsSnapshot", "rp": "Rowles.LeanLucene_MetricsSnapshot.html", "cl": 22, "ucl": 0, "cal": 22, "tl": 75, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Diagnostics.NullMetricsCollector", "rp": "Rowles.LeanLucene_NullMetricsCollector.html", "cl": 8, "ucl": 0, "cal": 8, "tl": 31, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
@@ -410,34 +440,63 @@ var assemblies = [
       { "name": "Rowles.LeanLucene.Document.Json.JsonDocumentMapper", "rp": "Rowles.LeanLucene_JsonDocumentMapper.html", "cl": 28, "ucl": 0, "cal": 28, "tl": 78, "cb": 19, "tb": 21, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Document.Json.JsonMappingOptions", "rp": "Rowles.LeanLucene_JsonMappingOptions.html", "cl": 3, "ucl": 0, "cal": 3, "tl": 19, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Document.LeanDocument", "rp": "Rowles.LeanLucene_LeanDocument.html", "cl": 14, "ucl": 1, "cal": 15, "tl": 46, "cb": 11, "tb": 12, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Backup.IndexBackup", "rp": "Rowles.LeanLucene_IndexBackup.html", "cl": 261, "ucl": 21, "cal": 282, "tl": 496, "cb": 143, "tb": 198, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Backup.IndexBackupFileEntry", "rp": "Rowles.LeanLucene_IndexBackupFileEntry.html", "cl": 7, "ucl": 0, "cal": 7, "tl": 28, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Backup.IndexBackupManifest", "rp": "Rowles.LeanLucene_IndexBackupManifest.html", "cl": 6, "ucl": 0, "cal": 6, "tl": 25, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Backup.IndexBackupOptions", "rp": "Rowles.LeanLucene_IndexBackupOptions.html", "cl": 3, "ucl": 0, "cal": 3, "tl": 16, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Backup.IndexBackupResult", "rp": "Rowles.LeanLucene_IndexBackupResult.html", "cl": 3, "ucl": 0, "cal": 3, "tl": 16, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Backup.IndexRestoreOptions", "rp": "Rowles.LeanLucene_IndexRestoreOptions.html", "cl": 3, "ucl": 0, "cal": 3, "tl": 16, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Backup.IndexRestoreResult", "rp": "Rowles.LeanLucene_IndexRestoreResult.html", "cl": 4, "ucl": 0, "cal": 4, "tl": 19, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Index.CommitData", "rp": "Rowles.LeanLucene_CommitData.html", "cl": 3, "ucl": 0, "cal": 3, "tl": 10, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Index.CommitFileFormat", "rp": "Rowles.LeanLucene_CommitFileFormat.html", "cl": 15, "ucl": 1, "cal": 16, "tl": 59, "cb": 5, "tb": 8, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Index.IndexCheckResult", "rp": "Rowles.LeanLucene_IndexCheckResult.html", "cl": 6, "ucl": 0, "cal": 6, "tl": 22, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Compatibility.IndexCompatibility", "rp": "Rowles.LeanLucene_IndexCompatibility.html", "cl": 53, "ucl": 0, "cal": 53, "tl": 92, "cb": 37, "tb": 38, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Compatibility.IndexCompatibilityOptions", "rp": "Rowles.LeanLucene_IndexCompatibilityOptions.html", "cl": 3, "ucl": 0, "cal": 3, "tl": 16, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Compatibility.IndexCompatibilityResult", "rp": "Rowles.LeanLucene_IndexCompatibilityResult.html", "cl": 10, "ucl": 0, "cal": 10, "tl": 40, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Compatibility.IndexOpenGuard", "rp": "Rowles.LeanLucene_IndexOpenGuard.html", "cl": 44, "ucl": 2, "cal": 46, "tl": 94, "cb": 32, "tb": 34, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Format.CodecFileInventory", "rp": "Rowles.LeanLucene_CodecFileInventory.html", "cl": 11, "ucl": 0, "cal": 11, "tl": 40, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Format.CodecFormatDescriptor", "rp": "Rowles.LeanLucene_CodecFormatDescriptor.html", "cl": 1, "ucl": 0, "cal": 1, "tl": 39, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Format.CodecFormatTable", "rp": "Rowles.LeanLucene_CodecFormatTable.html", "cl": 25, "ucl": 1, "cal": 26, "tl": 39, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Format.IndexFormatInspectionOptions", "rp": "Rowles.LeanLucene_IndexFormatInspectionOptions.html", "cl": 2, "ucl": 1, "cal": 3, "tl": 16, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Format.IndexFormatInspector", "rp": "Rowles.LeanLucene_IndexFormatInspector.html", "cl": 204, "ucl": 42, "cal": 246, "tl": 421, "cb": 92, "tb": 120, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Format.IndexFormatInventory", "rp": "Rowles.LeanLucene_IndexFormatInventory.html", "cl": 8, "ucl": 0, "cal": 8, "tl": 31, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Format.SegmentFormatInventory", "rp": "Rowles.LeanLucene_SegmentFormatInventory.html", "cl": 8, "ucl": 0, "cal": 8, "tl": 31, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.IndexCheckIssue", "rp": "Rowles.LeanLucene_IndexCheckIssue.html", "cl": 8, "ucl": 0, "cal": 8, "tl": 32, "cb": 4, "tb": 4, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.IndexCheckOptions", "rp": "Rowles.LeanLucene_IndexCheckOptions.html", "cl": 8, "ucl": 1, "cal": 9, "tl": 34, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.IndexCheckResult", "rp": "Rowles.LeanLucene_IndexCheckResult.html", "cl": 22, "ucl": 1, "cal": 23, "tl": 58, "cb": 2, "tb": 2, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Index.Indexer.CommitDeletionPolicy", "rp": "Rowles.LeanLucene_CommitDeletionPolicy.html", "cl": 17, "ucl": 2, "cal": 19, "tl": 41, "cb": 13, "tb": 18, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Index.Indexer.DocumentsWriterPerThread", "rp": "Rowles.LeanLucene_DocumentsWriterPerThread.html", "cl": 110, "ucl": 3, "cal": 113, "tl": 215, "cb": 48, "tb": 50, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Indexer.DocumentsWriterPerThread", "rp": "Rowles.LeanLucene_DocumentsWriterPerThread.html", "cl": 177, "ucl": 4, "cal": 181, "tl": 323, "cb": 64, "tb": 66, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Index.Indexer.FieldMapping", "rp": "Rowles.LeanLucene_FieldMapping.html", "cl": 9, "ucl": 2, "cal": 11, "tl": 40, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Index.Indexer.IIndexDeletionPolicy", "rp": "Rowles.LeanLucene_IIndexDeletionPolicy.html", "cl": 1, "ucl": 0, "cal": 1, "tl": 24, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Index.Indexer.IndexSchema", "rp": "Rowles.LeanLucene_IndexSchema.html", "cl": 18, "ucl": 1, "cal": 19, "tl": 63, "cb": 14, "tb": 14, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Index.Indexer.IndexSort", "rp": "Rowles.LeanLucene_IndexSort.html", "cl": 24, "ucl": 0, "cal": 24, "tl": 62, "cb": 22, "tb": 22, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "rp": "Rowles.LeanLucene_IndexWriter.html", "cl": 1030, "ucl": 62, "cal": 1092, "tl": 2134, "cb": 548, "tb": 622, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Index.Indexer.IndexWriterConfig", "rp": "Rowles.LeanLucene_IndexWriterConfig.html", "cl": 27, "ucl": 1, "cal": 28, "tl": 159, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Indexer.IndexSort", "rp": "Rowles.LeanLucene_IndexSort.html", "cl": 29, "ucl": 0, "cal": 29, "tl": 72, "cb": 24, "tb": 24, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "rp": "Rowles.LeanLucene_IndexWriter.html", "cl": 1108, "ucl": 68, "cal": 1176, "tl": 2316, "cb": 585, "tb": 664, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Indexer.IndexWriterConfig", "rp": "Rowles.LeanLucene_IndexWriterConfig.html", "cl": 28, "ucl": 1, "cal": 29, "tl": 165, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Index.Indexer.KeepLastNCommitsPolicy", "rp": "Rowles.LeanLucene_KeepLastNCommitsPolicy.html", "cl": 18, "ucl": 1, "cal": 19, "tl": 55, "cb": 18, "tb": 18, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Index.Indexer.KeepLatestCommitPolicy", "rp": "Rowles.LeanLucene_KeepLatestCommitPolicy.html", "cl": 12, "ucl": 1, "cal": 13, "tl": 39, "cb": 16, "tb": 16, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Index.Indexer.PostingAccumulator", "rp": "Rowles.LeanLucene_PostingAccumulator.html", "cl": 184, "ucl": 7, "cal": 191, "tl": 329, "cb": 71, "tb": 78, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Indexer.PostingAccumulator", "rp": "Rowles.LeanLucene_PostingAccumulator.html", "cl": 202, "ucl": 24, "cal": 226, "tl": 374, "cb": 67, "tb": 80, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Index.Indexer.SchemaValidationException", "rp": "Rowles.LeanLucene_SchemaValidationException.html", "cl": 1, "ucl": 0, "cal": 1, "tl": 13, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Index.IndexRecovery", "rp": "Rowles.LeanLucene_IndexRecovery.html", "cl": 97, "ucl": 8, "cal": 105, "tl": 263, "cb": 50, "tb": 58, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Index.IndexValidator", "rp": "Rowles.LeanLucene_IndexValidator.html", "cl": 56, "ucl": 15, "cal": 71, "tl": 153, "cb": 30, "tb": 34, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Index.Segment.IndexSnapshot", "rp": "Rowles.LeanLucene_IndexSnapshot.html", "cl": 6, "ucl": 2, "cal": 8, "tl": 25, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Index.Segment.LiveDocs", "rp": "Rowles.LeanLucene_LiveDocs.html", "cl": 24, "ucl": 6, "cal": 30, "tl": 79, "cb": 2, "tb": 2, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.IndexFileInspector", "rp": "Rowles.LeanLucene_IndexFileInspector.html", "cl": 90, "ucl": 43, "cal": 133, "tl": 208, "cb": 22, "tb": 26, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.IndexRecovery", "rp": "Rowles.LeanLucene_IndexRecovery.html", "cl": 106, "ucl": 8, "cal": 114, "tl": 276, "cb": 70, "tb": 80, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.IndexRepairRecommendations", "rp": "Rowles.LeanLucene_IndexRepairRecommendations.html", "cl": 79, "ucl": 1, "cal": 80, "tl": 86, "cb": 86, "tb": 99, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.IndexValidator", "rp": "Rowles.LeanLucene_IndexValidator.html", "cl": 301, "ucl": 219, "cal": 520, "tl": 787, "cb": 112, "tb": 184, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Migration.IndexCodecMigrationAction", "rp": "Rowles.LeanLucene_IndexCodecMigrationAction.html", "cl": 10, "ucl": 0, "cal": 10, "tl": 37, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Migration.IndexCodecMigrationOptions", "rp": "Rowles.LeanLucene_IndexCodecMigrationOptions.html", "cl": 6, "ucl": 0, "cal": 6, "tl": 25, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Migration.IndexCodecMigrationPlan", "rp": "Rowles.LeanLucene_IndexCodecMigrationPlan.html", "cl": 4, "ucl": 0, "cal": 4, "tl": 21, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Migration.IndexCodecMigrationResult", "rp": "Rowles.LeanLucene_IndexCodecMigrationResult.html", "cl": 7, "ucl": 0, "cal": 7, "tl": 28, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Migration.IndexCodecMigrator", "rp": "Rowles.LeanLucene_IndexCodecMigrator.html", "cl": 306, "ucl": 97, "cal": 403, "tl": 634, "cb": 134, "tb": 186, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Migration.IndexMigrationMarker", "rp": "Rowles.LeanLucene_IndexMigrationMarker.html", "cl": 7, "ucl": 0, "cal": 7, "tl": 28, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Migration.IndexMigrationRecovery", "rp": "Rowles.LeanLucene_IndexMigrationRecovery.html", "cl": 49, "ucl": 1, "cal": 50, "tl": 115, "cb": 18, "tb": 22, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Segment.IndexSnapshot", "rp": "Rowles.LeanLucene_IndexSnapshot.html", "cl": 7, "ucl": 1, "cal": 8, "tl": 25, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Segment.LiveDocs", "rp": "Rowles.LeanLucene_LiveDocs.html", "cl": 21, "ucl": 3, "cal": 24, "tl": 66, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Index.Segment.ParentBitSet", "rp": "Rowles.LeanLucene_ParentBitSet.html", "cl": 48, "ucl": 5, "cal": 53, "tl": 117, "cb": 17, "tb": 24, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Index.Segment.SegmentInfo", "rp": "Rowles.LeanLucene_SegmentInfo.html", "cl": 14, "ucl": 0, "cal": 14, "tl": 60, "cb": 1, "tb": 2, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Index.Segment.SegmentMerger", "rp": "Rowles.LeanLucene_SegmentMerger.html", "cl": 328, "ucl": 10, "cal": 338, "tl": 645, "cb": 191, "tb": 200, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Index.Segment.SegmentReader", "rp": "Rowles.LeanLucene_SegmentReader.html", "cl": 287, "ucl": 164, "cal": 451, "tl": 1055, "cb": 125, "tb": 264, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Segment.SegmentInfo", "rp": "Rowles.LeanLucene_SegmentInfo.html", "cl": 14, "ucl": 0, "cal": 14, "tl": 61, "cb": 1, "tb": 2, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Segment.SegmentMerger", "rp": "Rowles.LeanLucene_SegmentMerger.html", "cl": 373, "ucl": 10, "cal": 383, "tl": 728, "cb": 215, "tb": 226, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Index.Segment.SegmentReader", "rp": "Rowles.LeanLucene_SegmentReader.html", "cl": 313, "ucl": 183, "cal": 496, "tl": 1154, "cb": 142, "tb": 294, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Index.Segment.VectorFieldInfo", "rp": "Rowles.LeanLucene_VectorFieldInfo.html", "cl": 4, "ucl": 0, "cal": 4, "tl": 20, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Aggregations.AggregationRequest", "rp": "Rowles.LeanLucene_AggregationRequest.html", "cl": 9, "ucl": 0, "cal": 9, "tl": 33, "cb": 2, "tb": 4, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Aggregations.AggregationResult", "rp": "Rowles.LeanLucene_AggregationResult.html", "cl": 8, "ucl": 1, "cal": 9, "tl": 38, "cb": 1, "tb": 2, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Aggregations.HistogramBucket", "rp": "Rowles.LeanLucene_HistogramBucket.html", "cl": 1, "ucl": 0, "cal": 1, "tl": 4, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Search.Aggregations.NumericAggregator", "rp": "Rowles.LeanLucene_NumericAggregator.html", "cl": 71, "ucl": 3, "cal": 74, "tl": 152, "cb": 33, "tb": 38, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Search.Aggregations.NumericAggregator", "rp": "Rowles.LeanLucene_NumericAggregator.html", "cl": 74, "ucl": 12, "cal": 86, "tl": 172, "cb": 38, "tb": 54, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Geo.GeoBoundingBoxQuery", "rp": "Rowles.LeanLucene_GeoBoundingBoxQuery.html", "cl": 14, "ucl": 0, "cal": 14, "tl": 48, "cb": 7, "tb": 12, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Geo.GeoDistanceQuery", "rp": "Rowles.LeanLucene_GeoDistanceQuery.html", "cl": 14, "ucl": 0, "cal": 14, "tl": 45, "cb": 6, "tb": 10, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Geo.GeoEncodingUtils", "rp": "Rowles.LeanLucene_GeoEncodingUtils.html", "cl": 12, "ucl": 0, "cal": 12, "tl": 46, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
@@ -485,7 +544,7 @@ var assemblies = [
       { "name": "Rowles.LeanLucene.Search.Scoring.IndexStats", "rp": "Rowles.LeanLucene_IndexStats.html", "cl": 45, "ucl": 7, "cal": 52, "tl": 140, "cb": 6, "tb": 10, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Scoring.IndexStatsDto", "rp": "Rowles.LeanLucene_IndexStatsDto.html", "cl": 4, "ucl": 0, "cal": 4, "tl": 18, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Scoring.ScoreDoc", "rp": "Rowles.LeanLucene_ScoreDoc.html", "cl": 1, "ucl": 0, "cal": 1, "tl": 12, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Search.Scoring.SegmentStats", "rp": "Rowles.LeanLucene_SegmentStats.html", "cl": 49, "ucl": 8, "cal": 57, "tl": 108, "cb": 10, "tb": 14, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Search.Scoring.SegmentStats", "rp": "Rowles.LeanLucene_SegmentStats.html", "cl": 47, "ucl": 8, "cal": 55, "tl": 107, "cb": 10, "tb": 14, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Scoring.SegmentStatsDto", "rp": "Rowles.LeanLucene_SegmentStatsDto.html", "cl": 4, "ucl": 0, "cal": 4, "tl": 18, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Scoring.SortField", "rp": "Rowles.LeanLucene_SortField.html", "cl": 12, "ucl": 0, "cal": 12, "tl": 41, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Scoring.TfIdfSimilarity", "rp": "Rowles.LeanLucene_TfIdfSimilarity.html", "cl": 10, "ucl": 0, "cal": 10, "tl": 32, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
@@ -493,13 +552,13 @@ var assemblies = [
       { "name": "Rowles.LeanLucene.Search.Scoring.TopNCollector", "rp": "Rowles.LeanLucene_TopNCollector.html", "cl": 52, "ucl": 5, "cal": 57, "tl": 129, "cb": 30, "tb": 30, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Scoring.TopNCollectorWrapper", "rp": "Rowles.LeanLucene_TopNCollectorWrapper.html", "cl": 4, "ucl": 0, "cal": 4, "tl": 24, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Scoring.TopNSortHelper", "rp": "Rowles.LeanLucene_TopNSortHelper.html", "cl": 68, "ucl": 0, "cal": 68, "tl": 143, "cb": 49, "tb": 52, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "rp": "Rowles.LeanLucene_IndexSearcher.html", "cl": 1245, "ucl": 307, "cal": 1552, "tl": 2968, "cb": 914, "tb": 1268, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Search.Searcher.IndexSearcherConfig", "rp": "Rowles.LeanLucene_IndexSearcherConfig.html", "cl": 8, "ucl": 0, "cal": 8, "tl": 51, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "rp": "Rowles.LeanLucene_IndexSearcher.html", "cl": 1263, "ucl": 318, "cal": 1581, "tl": 3013, "cb": 926, "tb": 1300, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Search.Searcher.IndexSearcherConfig", "rp": "Rowles.LeanLucene_IndexSearcherConfig.html", "cl": 9, "ucl": 0, "cal": 9, "tl": 58, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Searcher.QueryCache", "rp": "Rowles.LeanLucene_QueryCache.html", "cl": 113, "ucl": 9, "cal": 122, "tl": 261, "cb": 42, "tb": 48, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Searcher.RefreshFailedEventArgs", "rp": "Rowles.LeanLucene_RefreshFailedEventArgs.html", "cl": 7, "ucl": 0, "cal": 7, "tl": 24, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Searcher.SearcherLease", "rp": "Rowles.LeanLucene_SearcherLease.html", "cl": 5, "ucl": 0, "cal": 5, "tl": 25, "cb": 1, "tb": 2, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Search.Searcher.SearcherManager", "rp": "Rowles.LeanLucene_SearcherManager.html", "cl": 93, "ucl": 17, "cal": 110, "tl": 290, "cb": 26, "tb": 38, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Search.Searcher.SearcherManagerConfig", "rp": "Rowles.LeanLucene_SearcherManagerConfig.html", "cl": 2, "ucl": 0, "cal": 2, "tl": 13, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Search.Searcher.SearcherManager", "rp": "Rowles.LeanLucene_SearcherManager.html", "cl": 89, "ucl": 24, "cal": 113, "tl": 295, "cb": 26, "tb": 38, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Search.Searcher.SearcherManagerConfig", "rp": "Rowles.LeanLucene_SearcherManagerConfig.html", "cl": 3, "ucl": 0, "cal": 3, "tl": 21, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.SearchOptions", "rp": "Rowles.LeanLucene_SearchOptions.html", "cl": 8, "ucl": 0, "cal": 8, "tl": 57, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Simd.SimdIntersection", "rp": "Rowles.LeanLucene_SimdIntersection.html", "cl": 99, "ucl": 9, "cal": 108, "tl": 329, "cb": 43, "tb": 48, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Simd.SimdIntrinsicsVectorOps", "rp": "Rowles.LeanLucene_SimdIntrinsicsVectorOps.html", "cl": 96, "ucl": 35, "cal": 131, "tl": 229, "cb": 55, "tb": 68, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
@@ -507,19 +566,47 @@ var assemblies = [
       { "name": "Rowles.LeanLucene.Search.Suggestions.DidYouMeanSuggester", "rp": "Rowles.LeanLucene_DidYouMeanSuggester.html", "cl": 12, "ucl": 0, "cal": 12, "tl": 57, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Suggestions.SpellIndex", "rp": "Rowles.LeanLucene_SpellIndex.html", "cl": 106, "ucl": 2, "cal": 108, "tl": 249, "cb": 59, "tb": 62, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Search.Suggestions.Suggestion", "rp": "Rowles.LeanLucene_Suggestion.html", "cl": 1, "ucl": 0, "cal": 1, "tl": 6, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Serialization.LeanLuceneJsonContext", "rp": "Rowles.LeanLucene_LeanLuceneJsonContext.html", "cl": 1111, "ucl": 150, "cal": 1261, "tl": 2235, "cb": 118, "tb": 172, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Serialization.LeanLuceneJsonContext", "rp": "Rowles.LeanLucene_LeanLuceneJsonContext.html", "cl": 2092, "ucl": 263, "cal": 2355, "tl": 3861, "cb": 186, "tb": 260, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Store.DirectoryFsync", "rp": "Rowles.LeanLucene_DirectoryFsync.html", "cl": 46, "ucl": 5, "cal": 51, "tl": 145, "cb": 14, "tb": 18, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Store.IndexAtomicFileWriter", "rp": "Rowles.LeanLucene_IndexAtomicFileWriter.html", "cl": 20, "ucl": 3, "cal": 23, "tl": 45, "cb": 5, "tb": 6, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Store.IndexInput", "rp": "Rowles.LeanLucene_IndexInput.html", "cl": 203, "ucl": 50, "cal": 253, "tl": 570, "cb": 81, "tb": 130, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Store.IndexOutput", "rp": "Rowles.LeanLucene_IndexOutput.html", "cl": 61, "ucl": 1, "cal": 62, "tl": 163, "cb": 13, "tb": 14, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Store.MMapDirectory", "rp": "Rowles.LeanLucene_MMapDirectory.html", "cl": 46, "ucl": 2, "cal": 48, "tl": 124, "cb": 22, "tb": 26, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Store.NativeMethods", "rp": "Rowles.LeanLucene_NativeMethods.html", "cl": 3, "ucl": 0, "cal": 3, "tl": 19, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Store.WriteLockException", "rp": "Rowles.LeanLucene_WriteLockException.html", "cl": 1, "ucl": 0, "cal": 1, "tl": 15, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "Rowles.LeanLucene.Util.Crc32", "rp": "Rowles.LeanLucene_Crc32.html", "cl": 13, "ucl": 0, "cal": 13, "tl": 35, "cb": 8, "tb": 8, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Util.Crc32", "rp": "Rowles.LeanLucene_Crc32.html", "cl": 20, "ucl": 0, "cal": 20, "tl": 51, "cb": 12, "tb": 12, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Util.RoaringBitmap", "rp": "Rowles.LeanLucene_RoaringBitmap.html", "cl": 377, "ucl": 89, "cal": 466, "tl": 965, "cb": 178, "tb": 232, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "Rowles.LeanLucene.Util.RoaringBitmapBitSet", "rp": "Rowles.LeanLucene_RoaringBitmapBitSet.html", "cl": 6, "ucl": 0, "cal": 6, "tl": 19, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
       { "name": "System.Text.RegularExpressions.Generated", "rp": "Rowles.LeanLucene_Generated.html", "cl": 92, "ucl": 13, "cal": 105, "tl": 353, "cb": 40, "tb": 60, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "System.Text.RegularExpressions.Generated.\u003CRegexGenerator_g\u003EF44D39E150EC69EE8EEC9D9A5CDE1CFBD34A198B95B121BE1D986EB247DAD8CFF__EntityPattern_1", "rp": "Rowles.LeanLucene__RegexGenerator_g_F44D39E150EC69B121BE1D986EB247DAD8CFF__EntityPattern_1.html", "cl": 44, "ucl": 6, "cal": 50, "tl": 308, "cb": 23, "tb": 32, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
-      { "name": "System.Text.RegularExpressions.Generated.\u003CRegexGenerator_g\u003EF44D39E150EC69EE8EEC9D9A5CDE1CFBD34A198B95B121BE1D986EB247DAD8CFF__TagPattern_0", "rp": "Rowles.LeanLucene__RegexGenerator_g_F44D39E150EC69B95B121BE1D986EB247DAD8CFF__TagPattern_0.html", "cl": 36, "ucl": 7, "cal": 43, "tl": 168, "cb": 15, "tb": 24, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "System.Text.RegularExpressions.Generated.\u003CRegexGenerator_g\u003EFCDAC8D68B95C800C07D0D9237AB70255A843CE88AF9C2350AC934DD0C7E0AB29__EntityPattern_1", "rp": "Rowles.LeanLucene__RegexGenerator_g_FCDAC8D68B95C8F9C2350AC934DD0C7E0AB29__EntityPattern_1.html", "cl": 44, "ucl": 6, "cal": 50, "tl": 308, "cb": 23, "tb": 32, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "System.Text.RegularExpressions.Generated.\u003CRegexGenerator_g\u003EFCDAC8D68B95C800C07D0D9237AB70255A843CE88AF9C2350AC934DD0C7E0AB29__TagPattern_0", "rp": "Rowles.LeanLucene__RegexGenerator_g_FCDAC8D68B95C888AF9C2350AC934DD0C7E0AB29__TagPattern_0.html", "cl": 36, "ucl": 7, "cal": 43, "tl": 168, "cb": 15, "tb": 24, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+    ]},
+  {
+    "name": "Rowles.LeanLucene.Compression.LZ4",
+    "classes": [
+      { "name": "Rowles.LeanLucene.Compression.LZ4.Lz4Compression", "rp": "Rowles.LeanLucene.Compression.LZ4_Lz4Compression.html", "cl": 4, "ucl": 0, "cal": 4, "tl": 78, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Compression.LZ4.Lz4CompressionCodec", "rp": "Rowles.LeanLucene.Compression.LZ4_Lz4CompressionCodec.html", "cl": 18, "ucl": 1, "cal": 19, "tl": 78, "cb": 9, "tb": 10, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+    ]},
+  {
+    "name": "Rowles.LeanLucene.Compression.Snappy",
+    "classes": [
+      { "name": "Rowles.LeanLucene.Compression.Snappy.SnappyCompression", "rp": "Rowles.LeanLucene.Compression.Snappy_SnappyCompression.html", "cl": 4, "ucl": 0, "cal": 4, "tl": 57, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Compression.Snappy.SnappyCompressionCodec", "rp": "Rowles.LeanLucene.Compression.Snappy_SnappyCompressionCodec.html", "cl": 6, "ucl": 0, "cal": 6, "tl": 57, "cb": 2, "tb": 2, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+    ]},
+  {
+    "name": "Rowles.LeanLucene.Compression.Zstandard",
+    "classes": [
+      { "name": "Rowles.LeanLucene.Compression.Zstandard.ZstandardCompression", "rp": "Rowles.LeanLucene.Compression.Zstandard_ZstandardCompression.html", "cl": 4, "ucl": 0, "cal": 4, "tl": 60, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Compression.Zstandard.ZstandardCompressionCodec", "rp": "Rowles.LeanLucene.Compression.Zstandard_ZstandardCompressionCodec.html", "cl": 10, "ucl": 0, "cal": 10, "tl": 60, "cb": 2, "tb": 2, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+    ]},
+  {
+    "name": "Rowles.LeanLucene.Tests.Shared",
+    "classes": [
+      { "name": "Rowles.LeanLucene.Tests.Shared.Fixtures.TestDirectoryFixture", "rp": "Rowles.LeanLucene.Tests.Shared_TestDirectoryFixture.html", "cl": 14, "ucl": 0, "cal": 14, "tl": 32, "cb": 2, "tb": 2, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Tests.Shared.Infrastructure.DelayedMessageBus", "rp": "Rowles.LeanLucene.Tests.Shared_DelayedMessageBus.html", "cl": 0, "ucl": 12, "cal": 12, "tl": 150, "cb": 0, "tb": 2, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Tests.Shared.Infrastructure.RetryFactAttribute", "rp": "Rowles.LeanLucene.Tests.Shared_RetryFactAttribute.html", "cl": 0, "ucl": 2, "cal": 2, "tl": 150, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Tests.Shared.Infrastructure.RetryFactDiscoverer", "rp": "Rowles.LeanLucene.Tests.Shared_RetryFactDiscoverer.html", "cl": 0, "ucl": 9, "cal": 9, "tl": 150, "cb": 0, "tb": 0, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
+      { "name": "Rowles.LeanLucene.Tests.Shared.Infrastructure.RetryTestCase", "rp": "Rowles.LeanLucene.Tests.Shared_RetryTestCase.html", "cl": 0, "ucl": 28, "cal": 28, "tl": 150, "cb": 0, "tb": 6, "cm": 0, "fcm": 0, "tm": 0, "lch": [], "bch": [], "mch": [], "mfch": [], "hc": [], "metrics": { } },
     ]},
 ];
 
@@ -552,16 +639,28 @@ var riskHotspots = [
       { "value": 64, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "CollectChildDocsIntoBitArray(Rowles.LeanLucene.Search.Query,Rowles.LeanLucene.Index.Segment.SegmentReader,System.Collections.BitArray)", "methodShortName": "CollectChildDocsIntoBitArray(...)", "fileIndex": 0, "line": 540,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "CollectChildDocsIntoBitArray(Rowles.LeanLucene.Search.Query,Rowles.LeanLucene.Index.Segment.SegmentReader,System.Collections.BitArray)", "methodShortName": "CollectChildDocsIntoBitArray(...)", "fileIndex": 0, "line": 549,
     "metrics": [
       { "value": 812, "exceeded": true },
       { "value": 28, "exceeded": true },
+    ]},
+  {
+    "assembly": "leanlucene-cli", "class": "Rowles.LeanLucene.Cli.IndexCheckerCli", "reportPath": "leanlucene_cli_IndexCheckerCli.html", "methodName": "WriteInspectText(System.IO.TextWriter,Rowles.LeanLucene.Index.Format.IndexFormatInventory)", "methodShortName": "WriteInspectText(...)", "fileIndex": 0, "line": 518,
+    "metrics": [
+      { "value": 600, "exceeded": true },
+      { "value": 24, "exceeded": true },
     ]},
   {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "HasPositionsWithinSlopSpan(System.Span\u00601\u003CRowles.LeanLucene.Codecs.Postings.PostingsEnum\u003E,System.Int32,System.Int32,System.Int32)", "methodShortName": "HasPositionsWithinSlopSpan(...)", "fileIndex": 1, "line": 89,
     "metrics": [
       { "value": 517, "exceeded": true },
       { "value": 56, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.IndexValidator", "reportPath": "Rowles.LeanLucene_IndexValidator.html", "methodName": "IsRecognisedTemporaryFile(System.String)", "methodShortName": "IsRecognisedTemporaryFile(...)", "fileIndex": 0, "line": 136,
+    "metrics": [
+      { "value": 420, "exceeded": true },
+      { "value": 20, "exceeded": true },
     ]},
   {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Segment.SegmentReader", "reportPath": "Rowles.LeanLucene_SegmentReader.html", "methodName": "ReadTermFrequency(System.Int64,System.Int32)", "methodShortName": "ReadTermFrequency(...)", "fileIndex": 3, "line": 112,
@@ -588,7 +687,7 @@ var riskHotspots = [
       { "value": 218, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.Postings.StreamingPostingsMerger", "reportPath": "Rowles.LeanLucene_StreamingPostingsMerger.html", "methodName": "DecodeCurrent(System.Int32[]\u0026,System.Int32\u0026,System.Int32[]\u0026,System.Int32[][]\u0026)", "methodShortName": "DecodeCurrent(...)", "fileIndex": 0, "line": 246,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.Postings.StreamingPostingsMerger", "reportPath": "Rowles.LeanLucene_StreamingPostingsMerger.html", "methodName": "DecodeCurrent(System.Int32[]\u0026,System.Int32\u0026,System.Int32[]\u0026,System.Int32[][]\u0026)", "methodShortName": "DecodeCurrent(...)", "fileIndex": 0, "line": 249,
     "metrics": [
       { "value": 213, "exceeded": true },
       { "value": 36, "exceeded": true },
@@ -600,7 +699,13 @@ var riskHotspots = [
       { "value": 14, "exceeded": false },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "CreateThreadLocalDocumentWriter()", "methodShortName": "CreateThreadLocalDocumentWriter()", "fileIndex": 0, "line": 167,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Migration.IndexCodecMigrator", "reportPath": "Rowles.LeanLucene_IndexCodecMigrator.html", "methodName": "MigrateCore(Rowles.LeanLucene.Store.MMapDirectory,Rowles.LeanLucene.Index.Migration.IndexCodecMigrationOptions,System.Boolean\u0026)", "methodShortName": "MigrateCore(...)", "fileIndex": 0, "line": 125,
+    "metrics": [
+      { "value": 178, "exceeded": true },
+      { "value": 38, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "CreateThreadLocalDocumentWriter()", "methodShortName": "CreateThreadLocalDocumentWriter()", "fileIndex": 0, "line": 159,
     "metrics": [
       { "value": 165, "exceeded": true },
       { "value": 22, "exceeded": true },
@@ -618,7 +723,7 @@ var riskHotspots = [
       { "value": 68, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Segment.SegmentReader", "reportPath": "Rowles.LeanLucene_SegmentReader.html", "methodName": "GetNumericRange(System.String,System.Double,System.Double)", "methodShortName": "GetNumericRange(...)", "fileIndex": 1, "line": 125,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Segment.SegmentReader", "reportPath": "Rowles.LeanLucene_SegmentReader.html", "methodName": "GetNumericRange(System.String,System.Double,System.Double)", "methodShortName": "GetNumericRange(...)", "fileIndex": 1, "line": 221,
     "metrics": [
       { "value": 139, "exceeded": true },
       { "value": 20, "exceeded": true },
@@ -636,6 +741,12 @@ var riskHotspots = [
       { "value": 126, "exceeded": true },
     ]},
   {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Backup.IndexBackup", "reportPath": "Rowles.LeanLucene_IndexBackup.html", "methodName": "ClassifySegmentFile(System.String,System.Int32)", "methodShortName": "ClassifySegmentFile(...)", "fileIndex": 0, "line": 385,
+    "metrics": [
+      { "value": 123, "exceeded": true },
+      { "value": 72, "exceeded": true },
+    ]},
+  {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Analysis.Stemmers.GermanStemmer", "reportPath": "Rowles.LeanLucene_GermanStemmer.html", "methodName": "Stem(System.String)", "methodShortName": "Stem(...)", "fileIndex": 0, "line": 14,
     "metrics": [
       { "value": 120, "exceeded": true },
@@ -648,7 +759,13 @@ var riskHotspots = [
       { "value": 120, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Serialization.LeanLuceneJsonContext", "reportPath": "Rowles.LeanLucene_LeanLuceneJsonContext.html", "methodName": "ExpandConverter(System.Type,System.Text.Json.Serialization.JsonConverter,System.Text.Json.JsonSerializerOptions,System.Boolean)", "methodShortName": "ExpandConverter(...)", "fileIndex": 7, "line": 70,
+    "assembly": "leanlucene-cli", "class": "Rowles.LeanLucene.Cli.IndexCheckCliJsonContext", "reportPath": "leanlucene_cli_IndexCheckCliJsonContext.html", "methodName": "ExpandConverter(System.Type,System.Text.Json.Serialization.JsonConverter,System.Text.Json.JsonSerializerOptions,System.Boolean)", "methodShortName": "ExpandConverter(...)", "fileIndex": 13, "line": 73,
+    "metrics": [
+      { "value": 110, "exceeded": true },
+      { "value": 10, "exceeded": false },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Serialization.LeanLuceneJsonContext", "reportPath": "Rowles.LeanLucene_LeanLuceneJsonContext.html", "methodName": "ExpandConverter(System.Type,System.Text.Json.Serialization.JsonConverter,System.Text.Json.JsonSerializerOptions,System.Boolean)", "methodShortName": "ExpandConverter(...)", "fileIndex": 9, "line": 70,
     "metrics": [
       { "value": 110, "exceeded": true },
       { "value": 10, "exceeded": false },
@@ -660,7 +777,7 @@ var riskHotspots = [
       { "value": 10, "exceeded": false },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "Search(Rowles.LeanLucene.Search.Query,System.Int32,System.Threading.CancellationToken)", "methodShortName": "Search(...)", "fileIndex": 0, "line": 253,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "Search(Rowles.LeanLucene.Search.Query,System.Int32,System.Threading.CancellationToken)", "methodShortName": "Search(...)", "fileIndex": 0, "line": 262,
     "metrics": [
       { "value": 109, "exceeded": true },
       { "value": 16, "exceeded": true },
@@ -678,10 +795,16 @@ var riskHotspots = [
       { "value": 102, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.Postings.PostingsEnum", "reportPath": "Rowles.LeanLucene_PostingsEnum.html", "methodName": "CreateV3WithPositions(Rowles.LeanLucene.Store.IndexInput,System.Int64)", "methodShortName": "CreateV3WithPositions(...)", "fileIndex": 0, "line": 410,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.IndexRepairRecommendations", "reportPath": "Rowles.LeanLucene_IndexRepairRecommendations.html", "methodName": "ForIssue(System.String)", "methodShortName": "ForIssue(...)", "fileIndex": 0, "line": 6,
     "metrics": [
-      { "value": 84, "exceeded": true },
-      { "value": 28, "exceeded": true },
+      { "value": 99, "exceeded": true },
+      { "value": 99, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Segment.SegmentMerger", "reportPath": "Rowles.LeanLucene_SegmentMerger.html", "methodName": "AccumulateDocPayloads(System.Collections.Generic.IReadOnlyList\u00601\u003CSystem.ValueTuple\u00602\u003CRowles.LeanLucene.Index.Segment.SegmentInfo,System.Int32[]\u003E\u003E,System.Collections.Generic.IReadOnlyDictionary\u00602\u003CSystem.String,Rowles.LeanLucene.Index.Segment.SegmentReader\u003E,Rowles.LeanLucene.Index.Segment.SegmentMerger/MergeContext)", "methodShortName": "AccumulateDocPayloads(...)", "fileIndex": 0, "line": 279,
+    "metrics": [
+      { "value": 82, "exceeded": true },
+      { "value": 82, "exceeded": true },
     ]},
   {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "Explain(Rowles.LeanLucene.Search.Queries.VectorQuery,System.Int32)", "methodShortName": "Explain(...)", "fileIndex": 6, "line": 91,
@@ -690,22 +813,34 @@ var riskHotspots = [
       { "value": 30, "exceeded": true },
     ]},
   {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.Postings.PostingsEnum", "reportPath": "Rowles.LeanLucene_PostingsEnum.html", "methodName": "GetCurrentPositions()", "methodShortName": "GetCurrentPositions()", "fileIndex": 0, "line": 510,
+    "metrics": [
+      { "value": 79, "exceeded": true },
+      { "value": 48, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.IndexValidator", "reportPath": "Rowles.LeanLucene_IndexValidator.html", "methodName": "CheckStoredFieldsIndex(System.String,System.String,Rowles.LeanLucene.Index.Segment.SegmentInfo,Rowles.LeanLucene.Index.IndexCheckResult)", "methodShortName": "CheckStoredFieldsIndex(...)", "fileIndex": 0, "line": 308,
+    "metrics": [
+      { "value": 78, "exceeded": true },
+      { "value": 20, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.Postings.PostingsEnum", "reportPath": "Rowles.LeanLucene_PostingsEnum.html", "methodName": "CreateV3WithPositions(Rowles.LeanLucene.Store.IndexInput,System.Int64)", "methodShortName": "CreateV3WithPositions(...)", "fileIndex": 0, "line": 410,
+    "metrics": [
+      { "value": 77, "exceeded": true },
+      { "value": 28, "exceeded": true },
+    ]},
+  {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Analysis.Filters.PorterStemmerFilter", "reportPath": "Rowles.LeanLucene_PorterStemmerFilter.html", "methodName": "Step4(System.Span\u00601\u003CSystem.Char\u003E,System.Int32)", "methodShortName": "Step4(...)", "fileIndex": 0, "line": 257,
     "metrics": [
       { "value": 75, "exceeded": true },
       { "value": 75, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Segment.SegmentMerger", "reportPath": "Rowles.LeanLucene_SegmentMerger.html", "methodName": "AccumulateDocPayloads(System.Collections.Generic.IReadOnlyList\u00601\u003CSystem.ValueTuple\u00602\u003CRowles.LeanLucene.Index.Segment.SegmentInfo,System.Collections.Generic.Dictionary\u00602\u003CSystem.Int32,System.Int32\u003E\u003E\u003E,System.Collections.Generic.IReadOnlyDictionary\u00602\u003CSystem.String,Rowles.LeanLucene.Index.Segment.SegmentReader\u003E,Rowles.LeanLucene.Index.Segment.SegmentMerger/MergeContext)", "methodShortName": "AccumulateDocPayloads(...)", "fileIndex": 0, "line": 275,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "SearchWithFacets(Rowles.LeanLucene.Search.Query,System.Int32,System.String[])", "methodShortName": "SearchWithFacets(...)", "fileIndex": 6, "line": 200,
     "metrics": [
-      { "value": 74, "exceeded": true },
-      { "value": 74, "exceeded": true },
-    ]},
-  {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.Postings.PostingsEnum", "reportPath": "Rowles.LeanLucene_PostingsEnum.html", "methodName": "GetCurrentPositions()", "methodShortName": "GetCurrentPositions()", "fileIndex": 0, "line": 510,
-    "metrics": [
-      { "value": 71, "exceeded": true },
-      { "value": 48, "exceeded": true },
+      { "value": 72, "exceeded": true },
+      { "value": 26, "exceeded": true },
     ]},
   {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Analysis.Stemmers.DutchStemmer", "reportPath": "Rowles.LeanLucene_DutchStemmer.html", "methodName": "Stem(System.String)", "methodShortName": "Stem(...)", "fileIndex": 0, "line": 13,
@@ -714,10 +849,22 @@ var riskHotspots = [
       { "value": 70, "exceeded": true },
     ]},
   {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "ResolveString(System.Int32,System.String)", "methodShortName": "ResolveString(...)", "fileIndex": 3, "line": 90,
+    "metrics": [
+      { "value": 70, "exceeded": true },
+      { "value": 22, "exceeded": true },
+    ]},
+  {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Analysis.Stemmers.FrenchStemmer", "reportPath": "Rowles.LeanLucene_FrenchStemmer.html", "methodName": "Stem(System.String)", "methodShortName": "Stem(...)", "fileIndex": 0, "line": 11,
     "metrics": [
       { "value": 66, "exceeded": true },
       { "value": 66, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Serialization.LeanLuceneJsonContext", "reportPath": "Rowles.LeanLucene_LeanLuceneJsonContext.html", "methodName": "System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver.GetTypeInfo(System.Type,System.Text.Json.JsonSerializerOptions)", "methodShortName": "System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver.GetTypeInfo(...)", "fileIndex": 10, "line": 22,
+    "metrics": [
+      { "value": 66, "exceeded": true },
+      { "value": 64, "exceeded": true },
     ]},
   {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Analysis.Stemmers.ArabicStemmer", "reportPath": "Rowles.LeanLucene_ArabicStemmer.html", "methodName": "Stem(System.String)", "methodShortName": "Stem(...)", "fileIndex": 0, "line": 15,
@@ -726,10 +873,10 @@ var riskHotspots = [
       { "value": 64, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "MergeDwpt(Rowles.LeanLucene.Index.Indexer.DocumentsWriterPerThread)", "methodShortName": "MergeDwpt(...)", "fileIndex": 0, "line": 196,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "MergeDwpt(Rowles.LeanLucene.Index.Indexer.DocumentsWriterPerThread)", "methodShortName": "MergeDwpt(...)", "fileIndex": 0, "line": 188,
     "metrics": [
-      { "value": 60, "exceeded": true },
-      { "value": 60, "exceeded": true },
+      { "value": 58, "exceeded": true },
+      { "value": 58, "exceeded": true },
     ]},
   {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Parsing.QueryParser", "reportPath": "Rowles.LeanLucene_QueryParser.html", "methodName": "ParseClause(System.Collections.Generic.List\u00601\u003CRowles.LeanLucene.Search.Parsing.QueryParser/QToken\u003E,System.Int32\u0026)", "methodShortName": "ParseClause(...)", "fileIndex": 0, "line": 121,
@@ -744,6 +891,12 @@ var riskHotspots = [
       { "value": 12, "exceeded": false },
     ]},
   {
+    "assembly": "leanlucene-cli", "class": "Rowles.LeanLucene.Cli.IndexCheckCliJsonContext", "reportPath": "leanlucene_cli_IndexCheckCliJsonContext.html", "methodName": "System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver.GetTypeInfo(System.Type,System.Text.Json.JsonSerializerOptions)", "methodShortName": "System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver.GetTypeInfo(...)", "fileIndex": 14, "line": 22,
+    "metrics": [
+      { "value": 50, "exceeded": true },
+      { "value": 50, "exceeded": true },
+    ]},
+  {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Analysis.Analysers.AnalyserFactory", "reportPath": "Rowles.LeanLucene_AnalyserFactory.html", "methodName": "Create(System.String)", "methodShortName": "Create(...)", "fileIndex": 0, "line": 27,
     "metrics": [
       { "value": 49, "exceeded": true },
@@ -752,8 +905,8 @@ var riskHotspots = [
   {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "ResolveNumeric(System.Int32,System.String)", "methodShortName": "ResolveNumeric(...)", "fileIndex": 3, "line": 69,
     "metrics": [
-      { "value": 48, "exceeded": true },
-      { "value": 16, "exceeded": true },
+      { "value": 49, "exceeded": true },
+      { "value": 20, "exceeded": true },
     ]},
   {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Util.RoaringBitmap", "reportPath": "Rowles.LeanLucene_RoaringBitmap.html", "methodName": "Xor(Rowles.LeanLucene.Util.RoaringBitmap,Rowles.LeanLucene.Util.RoaringBitmap)", "methodShortName": "Xor(...)", "fileIndex": 0, "line": 256,
@@ -762,13 +915,19 @@ var riskHotspots = [
       { "value": 14, "exceeded": false },
     ]},
   {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.Postings.StreamingPostingsMerger", "reportPath": "Rowles.LeanLucene_StreamingPostingsMerger.html", "methodName": "Merge(System.Collections.Generic.IReadOnlyList\u00601\u003CRowles.LeanLucene.Codecs.Postings.StreamingPostingsMerger/Source\u003E,System.String,System.String)", "methodShortName": "Merge(...)", "fileIndex": 0, "line": 34,
+    "metrics": [
+      { "value": 46, "exceeded": true },
+      { "value": 46, "exceeded": true },
+    ]},
+  {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Parsing.QueryParser", "reportPath": "Rowles.LeanLucene_QueryParser.html", "methodName": "Tokenize(System.String,System.Boolean)", "methodShortName": "Tokenize(...)", "fileIndex": 0, "line": 280,
     "metrics": [
       { "value": 45, "exceeded": true },
       { "value": 45, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "ExecuteBlockJoinQuery(Rowles.LeanLucene.Search.Queries.BlockJoinQuery,System.Int32)", "methodShortName": "ExecuteBlockJoinQuery(...)", "fileIndex": 0, "line": 477,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "ExecuteBlockJoinQuery(Rowles.LeanLucene.Search.Queries.BlockJoinQuery,System.Int32)", "methodShortName": "ExecuteBlockJoinQuery(...)", "fileIndex": 0, "line": 486,
     "metrics": [
       { "value": 45, "exceeded": true },
       { "value": 24, "exceeded": true },
@@ -792,10 +951,16 @@ var riskHotspots = [
       { "value": 42, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.Postings.StreamingPostingsMerger", "reportPath": "Rowles.LeanLucene_StreamingPostingsMerger.html", "methodName": "Merge(System.Collections.Generic.IReadOnlyList\u00601\u003CRowles.LeanLucene.Codecs.Postings.StreamingPostingsMerger/Source\u003E,System.String,System.String)", "methodShortName": "Merge(...)", "fileIndex": 0, "line": 34,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.IndexValidator", "reportPath": "Rowles.LeanLucene_IndexValidator.html", "methodName": "IsRequiredHeader(System.String)", "methodShortName": "IsRequiredHeader(...)", "fileIndex": 0, "line": 233,
     "metrics": [
       { "value": 42, "exceeded": true },
+      { "value": 6, "exceeded": false },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Segment.SegmentReader", "reportPath": "Rowles.LeanLucene_SegmentReader.html", "methodName": "TryGetBinaryDocValues(System.String,System.Int32,System.Collections.Generic.IReadOnlyList\u00601\u003CSystem.Byte[]\u003E\u0026)", "methodShortName": "TryGetBinaryDocValues(...)", "fileIndex": 1, "line": 187,
+    "metrics": [
       { "value": 42, "exceeded": true },
+      { "value": 6, "exceeded": false },
     ]},
   {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Queries.WildcardQuery", "reportPath": "Rowles.LeanLucene_WildcardQuery.html", "methodName": "Equals(System.Object)", "methodShortName": "Equals(...)", "fileIndex": 0, "line": 25,
@@ -805,6 +970,12 @@ var riskHotspots = [
     ]},
   {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Util.RoaringBitmap", "reportPath": "Rowles.LeanLucene_RoaringBitmap.html", "methodName": "BitmapBitmapAnd(Rowles.LeanLucene.Util.RoaringBitmap/BitmapContainer,Rowles.LeanLucene.Util.RoaringBitmap/BitmapContainer)", "methodShortName": "BitmapBitmapAnd(...)", "fileIndex": 0, "line": 374,
+    "metrics": [
+      { "value": 42, "exceeded": true },
+      { "value": 6, "exceeded": false },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene.Tests.Shared", "class": "Rowles.LeanLucene.Tests.Shared.Infrastructure.RetryTestCase", "reportPath": "Rowles.LeanLucene.Tests.Shared_RetryTestCase.html", "methodName": "RunAsync()", "methodShortName": "RunAsync()", "fileIndex": 0, "line": 72,
     "metrics": [
       { "value": 42, "exceeded": true },
       { "value": 6, "exceeded": false },
@@ -828,19 +999,7 @@ var riskHotspots = [
       { "value": 38, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "ApplySortPermutation(System.Int32[],System.Int32[])", "methodShortName": "ApplySortPermutation(...)", "fileIndex": 4, "line": 449,
-    "metrics": [
-      { "value": 40, "exceeded": true },
-      { "value": 26, "exceeded": true },
-    ]},
-  {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Suggestions.SpellIndex", "reportPath": "Rowles.LeanLucene_SpellIndex.html", "methodName": "Suggest(System.String,System.Int32,System.Int32)", "methodShortName": "Suggest(...)", "fileIndex": 0, "line": 100,
-    "metrics": [
-      { "value": 40, "exceeded": true },
-      { "value": 40, "exceeded": true },
-    ]},
-  {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Serialization.LeanLuceneJsonContext", "reportPath": "Rowles.LeanLucene_LeanLuceneJsonContext.html", "methodName": "System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver.GetTypeInfo(System.Type,System.Text.Json.JsonSerializerOptions)", "methodShortName": "System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver.GetTypeInfo(...)", "fileIndex": 8, "line": 22,
     "metrics": [
       { "value": 40, "exceeded": true },
       { "value": 40, "exceeded": true },
@@ -852,13 +1011,25 @@ var riskHotspots = [
       { "value": 28, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Segment.SegmentReader", "reportPath": "Rowles.LeanLucene_SegmentReader.html", "methodName": "TryGetNumericValue(System.String,System.Int32,System.Double\u0026)", "methodShortName": "TryGetNumericValue(...)", "fileIndex": 1, "line": 61,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Segment.SegmentReader", "reportPath": "Rowles.LeanLucene_SegmentReader.html", "methodName": "TryGetNumericValue(System.String,System.Int32,System.Double\u0026)", "methodShortName": "TryGetNumericValue(...)", "fileIndex": 1, "line": 103,
     "metrics": [
       { "value": 39, "exceeded": true },
       { "value": 14, "exceeded": false },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "AddDocuments(System.Collections.Generic.IReadOnlyList\u00601\u003CRowles.LeanLucene.Document.LeanDocument\u003E)", "methodShortName": "AddDocuments(...)", "fileIndex": 1, "line": 182,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Migration.IndexCodecMigrator", "reportPath": "Rowles.LeanLucene_IndexCodecMigrator.html", "methodName": "ExecuteRewrite(System.String,Rowles.LeanLucene.Index.Migration.IndexCodecMigrationAction,System.Collections.Generic.HashSet\u00601\u003CSystem.String\u003E)", "methodShortName": "ExecuteRewrite(...)", "fileIndex": 0, "line": 376,
+    "metrics": [
+      { "value": 38, "exceeded": true },
+      { "value": 36, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "AddDocuments(System.Collections.Generic.IReadOnlyList\u00601\u003CRowles.LeanLucene.Document.LeanDocument\u003E)", "methodShortName": "AddDocuments(...)", "fileIndex": 1, "line": 186,
+    "metrics": [
+      { "value": 37, "exceeded": true },
+      { "value": 26, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "ApplySortPermutation(System.Int32[],System.Int32[])", "methodShortName": "ApplySortPermutation(...)", "fileIndex": 4, "line": 452,
     "metrics": [
       { "value": 37, "exceeded": true },
       { "value": 26, "exceeded": true },
@@ -870,16 +1041,16 @@ var riskHotspots = [
       { "value": 36, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "ScheduleBackgroundMerge()", "methodShortName": "ScheduleBackgroundMerge()", "fileIndex": 5, "line": 6,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.StoredFields.StoredFieldsWriter", "reportPath": "Rowles.LeanLucene_StoredFieldsWriter.html", "methodName": "Write(System.String,System.String,System.Collections.Generic.List\u00601\u003CSystem.Int32\u003E,System.Collections.Generic.List\u00601\u003CSystem.Int32\u003E,System.Collections.Generic.List\u00601\u003CSystem.String\u003E,System.Collections.Generic.List\u00601\u003CSystem.String\u003E,System.Int32,Rowles.LeanLucene.Codecs.StoredFields.FieldCompressionPolicy)", "methodShortName": "Write(...)", "fileIndex": 0, "line": 19,
     "metrics": [
       { "value": 36, "exceeded": true },
       { "value": 36, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.IndexValidator", "reportPath": "Rowles.LeanLucene_IndexValidator.html", "methodName": "Validate(Rowles.LeanLucene.Store.MMapDirectory)", "methodShortName": "Validate(...)", "fileIndex": 0, "line": 20,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "ScheduleBackgroundMerge()", "methodShortName": "ScheduleBackgroundMerge()", "fileIndex": 5, "line": 8,
     "metrics": [
       { "value": 36, "exceeded": true },
-      { "value": 26, "exceeded": true },
+      { "value": 36, "exceeded": true },
     ]},
   {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "ExecuteQuery(Rowles.LeanLucene.Search.Query,Rowles.LeanLucene.Index.Segment.SegmentReader,System.Collections.Generic.Dictionary\u00602\u003CSystem.ValueTuple\u00602\u003CSystem.String,System.String\u003E,System.Int32\u003E,Rowles.LeanLucene.Search.Scoring.TopNCollector\u0026)", "methodShortName": "ExecuteQuery(...)", "fileIndex": 2, "line": 90,
@@ -900,7 +1071,7 @@ var riskHotspots = [
       { "value": 32, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "SearchTermQuery(Rowles.LeanLucene.Search.Queries.TermQuery,System.Int32)", "methodShortName": "SearchTermQuery(...)", "fileIndex": 0, "line": 649,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "SearchTermQuery(Rowles.LeanLucene.Search.Queries.TermQuery,System.Int32)", "methodShortName": "SearchTermQuery(...)", "fileIndex": 0, "line": 658,
     "metrics": [
       { "value": 34, "exceeded": true },
       { "value": 34, "exceeded": true },
@@ -918,10 +1089,28 @@ var riskHotspots = [
       { "value": 32, "exceeded": true },
     ]},
   {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.PostingAccumulator", "reportPath": "Rowles.LeanLucene_PostingAccumulator.html", "methodName": "AddPositions(System.Int32,System.ReadOnlySpan\u00601\u003CSystem.Int32\u003E)", "methodShortName": "AddPositions(...)", "fileIndex": 0, "line": 110,
+    "metrics": [
+      { "value": 32, "exceeded": true },
+      { "value": 12, "exceeded": false },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.IndexValidator", "reportPath": "Rowles.LeanLucene_IndexValidator.html", "methodName": "CheckSegment(System.String,System.String,Rowles.LeanLucene.Index.IndexCheckOptions,Rowles.LeanLucene.Index.IndexCheckResult)", "methodShortName": "CheckSegment(...)", "fileIndex": 0, "line": 147,
+    "metrics": [
+      { "value": 32, "exceeded": true },
+      { "value": 14, "exceeded": false },
+    ]},
+  {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Scoring.BlockMaxWandScorer", "reportPath": "Rowles.LeanLucene_BlockMaxWandScorer.html", "methodName": "Score()", "methodShortName": "Score()", "fileIndex": 0, "line": 99,
     "metrics": [
       { "value": 32, "exceeded": true },
       { "value": 26, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Format.IndexFormatInspector", "reportPath": "Rowles.LeanLucene_IndexFormatInspector.html", "methodName": "TryInspectFile(System.String,System.String,System.String,Rowles.LeanLucene.Index.Format.IndexFormatInspectionOptions,System.Collections.Generic.List\u00601\u003CRowles.LeanLucene.Index.IndexCheckIssue\u003E,Rowles.LeanLucene.Index.Format.CodecFileInventory\u0026)", "methodShortName": "TryInspectFile(...)", "fileIndex": 0, "line": 253,
+    "metrics": [
+      { "value": 31, "exceeded": true },
+      { "value": 24, "exceeded": true },
     ]},
   {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.LevenshteinDistance", "reportPath": "Rowles.LeanLucene_LevenshteinDistance.html", "methodName": "ComputeAsciiBounded(System.ReadOnlySpan\u00601\u003CSystem.Byte\u003E,System.ReadOnlySpan\u00601\u003CSystem.Byte\u003E,System.Int32)", "methodShortName": "ComputeAsciiBounded(...)", "fileIndex": 0, "line": 161,
@@ -930,27 +1119,21 @@ var riskHotspots = [
       { "value": 30, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "ResolveString(System.Int32,System.String)", "methodShortName": "ResolveString(...)", "fileIndex": 3, "line": 88,
-    "metrics": [
-      { "value": 31, "exceeded": true },
-      { "value": 14, "exceeded": false },
-    ]},
-  {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "SearchCore(Rowles.LeanLucene.Search.Query,System.Int32)", "methodShortName": "SearchCore(...)", "fileIndex": 0, "line": 181,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "SearchCore(Rowles.LeanLucene.Search.Query,System.Int32)", "methodShortName": "SearchCore(...)", "fileIndex": 0, "line": 190,
     "metrics": [
       { "value": 30, "exceeded": false },
       { "value": 30, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.StoredFields.StoredFieldsWriter", "reportPath": "Rowles.LeanLucene_StoredFieldsWriter.html", "methodName": "Write(System.String,System.String,System.Collections.Generic.List\u00601\u003CSystem.Int32\u003E,System.Collections.Generic.List\u00601\u003CSystem.Int32\u003E,System.Collections.Generic.List\u00601\u003CSystem.String\u003E,System.Collections.Generic.List\u00601\u003CSystem.String\u003E,System.Int32,Rowles.LeanLucene.Codecs.StoredFields.FieldCompressionPolicy)", "methodShortName": "Write(...)", "fileIndex": 0, "line": 19,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "AddDocumentBlock(System.Collections.Generic.IReadOnlyList\u00601\u003CRowles.LeanLucene.Document.LeanDocument\u003E)", "methodShortName": "AddDocumentBlock(...)", "fileIndex": 1, "line": 254,
     "metrics": [
-      { "value": 28, "exceeded": false },
+      { "value": 29, "exceeded": false },
       { "value": 28, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "AddDocumentBlock(System.Collections.Generic.IReadOnlyList\u00601\u003CRowles.LeanLucene.Document.LeanDocument\u003E)", "methodShortName": "AddDocumentBlock(...)", "fileIndex": 1, "line": 250,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Migration.IndexCodecMigrator", "reportPath": "Rowles.LeanLucene_IndexCodecMigrator.html", "methodName": "Migrate(Rowles.LeanLucene.Store.MMapDirectory,Rowles.LeanLucene.Index.Migration.IndexCodecMigrationOptions)", "methodShortName": "Migrate(...)", "fileIndex": 0, "line": 92,
     "metrics": [
-      { "value": 29, "exceeded": false },
+      { "value": 28, "exceeded": false },
       { "value": 28, "exceeded": true },
     ]},
   {
@@ -960,7 +1143,7 @@ var riskHotspots = [
       { "value": 28, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Segment.SegmentMerger", "reportPath": "Rowles.LeanLucene_SegmentMerger.html", "methodName": "MergeVectors(Rowles.LeanLucene.Index.Segment.SegmentMerger/MergeContext,System.String)", "methodShortName": "MergeVectors(...)", "fileIndex": 0, "line": 429,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Segment.SegmentMerger", "reportPath": "Rowles.LeanLucene_SegmentMerger.html", "methodName": "MergeVectors(Rowles.LeanLucene.Index.Segment.SegmentMerger/MergeContext,System.String)", "methodShortName": "MergeVectors(...)", "fileIndex": 0, "line": 455,
     "metrics": [
       { "value": 30, "exceeded": false },
       { "value": 28, "exceeded": true },
@@ -972,7 +1155,7 @@ var riskHotspots = [
       { "value": 28, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "SearchStreaming()", "methodShortName": "SearchStreaming()", "fileIndex": 0, "line": 376,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "SearchStreaming()", "methodShortName": "SearchStreaming()", "fileIndex": 0, "line": 385,
     "metrics": [
       { "value": 28, "exceeded": false },
       { "value": 28, "exceeded": true },
@@ -990,7 +1173,7 @@ var riskHotspots = [
       { "value": 26, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "ComputeSortPermutation(Rowles.LeanLucene.Index.Indexer.IndexSort)", "methodShortName": "ComputeSortPermutation(...)", "fileIndex": 4, "line": 378,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "ComputeSortPermutation(Rowles.LeanLucene.Index.Indexer.IndexSort)", "methodShortName": "ComputeSortPermutation(...)", "fileIndex": 4, "line": 381,
     "metrics": [
       { "value": 26, "exceeded": false },
       { "value": 26, "exceeded": true },
@@ -1002,7 +1185,7 @@ var riskHotspots = [
       { "value": 26, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "ExecuteMoreLikeThis(Rowles.LeanLucene.Search.Queries.MoreLikeThisQuery,System.Int32)", "methodShortName": "ExecuteMoreLikeThis(...)", "fileIndex": 6, "line": 337,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "ExecuteMoreLikeThis(Rowles.LeanLucene.Search.Queries.MoreLikeThisQuery,System.Int32)", "methodShortName": "ExecuteMoreLikeThis(...)", "fileIndex": 6, "line": 367,
     "metrics": [
       { "value": 26, "exceeded": false },
       { "value": 26, "exceeded": true },
@@ -1022,17 +1205,29 @@ var riskHotspots = [
   {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.Postings.PostingsEnum", "reportPath": "Rowles.LeanLucene_PostingsEnum.html", "methodName": "CreateWithPositions(Rowles.LeanLucene.Store.IndexInput,System.Int64,System.Byte)", "methodShortName": "CreateWithPositions(...)", "fileIndex": 0, "line": 344,
     "metrics": [
+      { "value": 25, "exceeded": false },
+      { "value": 24, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Backup.IndexBackup", "reportPath": "Rowles.LeanLucene_IndexBackup.html", "methodName": "Restore(System.String,System.String,Rowles.LeanLucene.Index.Backup.IndexRestoreOptions)", "methodShortName": "Restore(...)", "fileIndex": 0, "line": 258,
+    "metrics": [
       { "value": 24, "exceeded": false },
       { "value": 24, "exceeded": true },
     ]},
   {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Segment.SegmentReader", "reportPath": "Rowles.LeanLucene_SegmentReader.html", "methodName": ".ctor(Rowles.LeanLucene.Store.MMapDirectory,Rowles.LeanLucene.Index.Segment.SegmentInfo)", "methodShortName": ".ctor(...)", "fileIndex": 0, "line": 24,
     "metrics": [
-      { "value": 24, "exceeded": false },
+      { "value": 26, "exceeded": false },
       { "value": 24, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "Search(Rowles.LeanLucene.Search.Query,System.Int32)", "methodShortName": "Search(...)", "fileIndex": 0, "line": 142,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Aggregations.NumericAggregator", "reportPath": "Rowles.LeanLucene_NumericAggregator.html", "methodName": "ComputeHistogram(System.ReadOnlySpan\u00601\u003CSystem.Int32\u003E,Rowles.LeanLucene.Search.Aggregations.AggregationRequest,System.Collections.Generic.IReadOnlyList\u00601\u003CRowles.LeanLucene.Index.Segment.SegmentReader\u003E,System.Int32[],System.Int32)", "methodShortName": "ComputeHistogram(...)", "fileIndex": 0, "line": 95,
+    "metrics": [
+      { "value": 25, "exceeded": false },
+      { "value": 24, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "Search(Rowles.LeanLucene.Search.Query,System.Int32)", "methodShortName": "Search(...)", "fileIndex": 0, "line": 151,
     "metrics": [
       { "value": 24, "exceeded": false },
       { "value": 24, "exceeded": true },
@@ -1068,7 +1263,25 @@ var riskHotspots = [
       { "value": 22, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.DocumentsWriterPerThread", "reportPath": "Rowles.LeanLucene_DocumentsWriterPerThread.html", "methodName": "AddDocument(Rowles.LeanLucene.Document.LeanDocument)", "methodShortName": "AddDocument(...)", "fileIndex": 0, "line": 43,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Compatibility.IndexCompatibility", "reportPath": "Rowles.LeanLucene_IndexCompatibility.html", "methodName": "Check(Rowles.LeanLucene.Store.MMapDirectory,Rowles.LeanLucene.Index.Compatibility.IndexCompatibilityOptions)", "methodShortName": "Check(...)", "fileIndex": 0, "line": 19,
+    "metrics": [
+      { "value": 22, "exceeded": false },
+      { "value": 22, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Format.IndexFormatInspector", "reportPath": "Rowles.LeanLucene_IndexFormatInspector.html", "methodName": "InspectSegment(System.String,System.String,Rowles.LeanLucene.Index.Format.IndexFormatInspectionOptions,System.Collections.Generic.List\u00601\u003CRowles.LeanLucene.Index.IndexCheckIssue\u003E,System.Collections.Generic.HashSet\u00601\u003CSystem.String\u003E)", "methodShortName": "InspectSegment(...)", "fileIndex": 0, "line": 143,
+    "metrics": [
+      { "value": 27, "exceeded": false },
+      { "value": 22, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.DocumentsWriterPerThread", "reportPath": "Rowles.LeanLucene_DocumentsWriterPerThread.html", "methodName": "AddDocument(Rowles.LeanLucene.Document.LeanDocument)", "methodShortName": "AddDocument(...)", "fileIndex": 0, "line": 78,
+    "metrics": [
+      { "value": 23, "exceeded": false },
+      { "value": 22, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "ApplyPendingDeletions(System.Collections.Generic.List\u00601\u003CRowles.LeanLucene.Index.Segment.SegmentInfo\u003E)", "methodShortName": "ApplyPendingDeletions(...)", "fileIndex": 2, "line": 27,
     "metrics": [
       { "value": 22, "exceeded": false },
       { "value": 22, "exceeded": true },
@@ -1086,7 +1299,7 @@ var riskHotspots = [
       { "value": 22, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "Search(Rowles.LeanLucene.Search.Query,System.Int32,Rowles.LeanLucene.Search.SearchOptions)", "methodShortName": "Search(...)", "fileIndex": 0, "line": 299,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "Search(Rowles.LeanLucene.Search.Query,System.Int32,Rowles.LeanLucene.Search.SearchOptions)", "methodShortName": "Search(...)", "fileIndex": 0, "line": 308,
     "metrics": [
       { "value": 22, "exceeded": false },
       { "value": 22, "exceeded": true },
@@ -1104,6 +1317,18 @@ var riskHotspots = [
       { "value": 20, "exceeded": true },
     ]},
   {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.DocValues.SortedNumericDocValuesWriter", "reportPath": "Rowles.LeanLucene_SortedNumericDocValuesWriter.html", "methodName": "WritePackedDoubles(Rowles.LeanLucene.Store.IndexOutput,System.Collections.Generic.IReadOnlyList\u00601\u003CSystem.Double\u003E)", "methodShortName": "WritePackedDoubles(...)", "fileIndex": 0, "line": 84,
+    "metrics": [
+      { "value": 20, "exceeded": false },
+      { "value": 20, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.DocValues.SortedSetDocValuesWriter", "reportPath": "Rowles.LeanLucene_SortedSetDocValuesWriter.html", "methodName": "WriteFieldBlock(Rowles.LeanLucene.Store.IndexOutput,System.String,System.Collections.Generic.IReadOnlyList\u00601\u003CSystem.String\u003E[],System.Int32)", "methodShortName": "WriteFieldBlock(...)", "fileIndex": 0, "line": 30,
+    "metrics": [
+      { "value": 20, "exceeded": false },
+      { "value": 20, "exceeded": true },
+    ]},
+  {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.Fst.FSTReader", "reportPath": "Rowles.LeanLucene_FSTReader.html", "methodName": "MatchesAsciiWildcard(System.ReadOnlySpan\u00601\u003CSystem.Byte\u003E,System.ReadOnlySpan\u00601\u003CSystem.Char\u003E)", "methodShortName": "MatchesAsciiWildcard(...)", "fileIndex": 0, "line": 704,
     "metrics": [
       { "value": 20, "exceeded": false },
@@ -1116,9 +1341,33 @@ var riskHotspots = [
       { "value": 20, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "ApplyPendingDeletions(System.Collections.Generic.List\u00601\u003CRowles.LeanLucene.Index.Segment.SegmentInfo\u003E)", "methodShortName": "ApplyPendingDeletions(...)", "fileIndex": 2, "line": 25,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Backup.IndexBackup", "reportPath": "Rowles.LeanLucene_IndexBackup.html", "methodName": "CreateManifestCore(System.String,Rowles.LeanLucene.Index.Backup.IndexBackupOptions)", "methodShortName": "CreateManifestCore(...)", "fileIndex": 0, "line": 57,
     "metrics": [
       { "value": 20, "exceeded": false },
+      { "value": 20, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.IndexRecovery", "reportPath": "Rowles.LeanLucene_IndexRecovery.html", "methodName": "IsRecognisedTemporaryFile(System.String)", "methodShortName": "IsRecognisedTemporaryFile(...)", "fileIndex": 0, "line": 219,
+    "metrics": [
+      { "value": 20, "exceeded": false },
+      { "value": 20, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.IndexValidator", "reportPath": "Rowles.LeanLucene_IndexValidator.html", "methodName": "RunDeepChecks(System.String,System.String,Rowles.LeanLucene.Index.Segment.SegmentInfo,Rowles.LeanLucene.Index.IndexCheckOptions,Rowles.LeanLucene.Index.IndexCheckResult)", "methodShortName": "RunDeepChecks(...)", "fileIndex": 0, "line": 587,
+    "metrics": [
+      { "value": 20, "exceeded": false },
+      { "value": 20, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Segment.SegmentMerger", "reportPath": "Rowles.LeanLucene_SegmentMerger.html", "methodName": "WriteDocValueColumns(Rowles.LeanLucene.Index.Segment.SegmentMerger/MergeContext,System.String)", "methodShortName": "WriteDocValueColumns(...)", "fileIndex": 0, "line": 553,
+    "metrics": [
+      { "value": 20, "exceeded": false },
+      { "value": 20, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Aggregations.NumericAggregator", "reportPath": "Rowles.LeanLucene_NumericAggregator.html", "methodName": "ComputeStats(System.ReadOnlySpan\u00601\u003CSystem.Int32\u003E,Rowles.LeanLucene.Search.Aggregations.AggregationRequest,System.Collections.Generic.IReadOnlyList\u00601\u003CRowles.LeanLucene.Index.Segment.SegmentReader\u003E,System.Int32[],System.Int32)", "methodShortName": "ComputeStats(...)", "fileIndex": 0, "line": 47,
+    "metrics": [
+      { "value": 21, "exceeded": false },
       { "value": 20, "exceeded": true },
     ]},
   {
@@ -1200,6 +1449,12 @@ var riskHotspots = [
       { "value": 18, "exceeded": true },
     ]},
   {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.DocValues.SortedSetDocValuesReader", "reportPath": "Rowles.LeanLucene_SortedSetDocValuesReader.html", "methodName": "Read(System.String)", "methodShortName": "Read(...)", "fileIndex": 0, "line": 12,
+    "metrics": [
+      { "value": 18, "exceeded": false },
+      { "value": 18, "exceeded": true },
+    ]},
+  {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.Hnsw.HnswGraph", "reportPath": "Rowles.LeanLucene_HnswGraph.html", "methodName": "Insert(System.Int32)", "methodShortName": "Insert(...)", "fileIndex": 0, "line": 152,
     "metrics": [
       { "value": 18, "exceeded": false },
@@ -1212,7 +1467,7 @@ var riskHotspots = [
       { "value": 18, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "WriteCommitFile(System.Int32)", "methodShortName": "WriteCommitFile(...)", "fileIndex": 1, "line": 418,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Indexer.IndexWriter", "reportPath": "Rowles.LeanLucene_IndexWriter.html", "methodName": "WriteCommitFile(System.Int32)", "methodShortName": "WriteCommitFile(...)", "fileIndex": 1, "line": 422,
     "metrics": [
       { "value": 18, "exceeded": false },
       { "value": 18, "exceeded": true },
@@ -1242,7 +1497,7 @@ var riskHotspots = [
       { "value": 18, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "SearchCoreBudgeted(Rowles.LeanLucene.Search.Query,System.Int32,Rowles.LeanLucene.Search.SearchOptions,System.Nullable\u00601\u003CSystem.Int64\u003E,System.Diagnostics.Stopwatch)", "methodShortName": "SearchCoreBudgeted(...)", "fileIndex": 0, "line": 335,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "SearchCoreBudgeted(Rowles.LeanLucene.Search.Query,System.Int32,Rowles.LeanLucene.Search.SearchOptions,System.Nullable\u00601\u003CSystem.Int64\u003E,System.Diagnostics.Stopwatch)", "methodShortName": "SearchCoreBudgeted(...)", "fileIndex": 0, "line": 344,
     "metrics": [
       { "value": 18, "exceeded": false },
       { "value": 18, "exceeded": true },
@@ -1272,6 +1527,18 @@ var riskHotspots = [
       { "value": 16, "exceeded": true },
     ]},
   {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.DocValues.BinaryDocValuesWriter", "reportPath": "Rowles.LeanLucene_BinaryDocValuesWriter.html", "methodName": "WriteFieldBlock(Rowles.LeanLucene.Store.IndexOutput,System.String,System.Collections.Generic.IReadOnlyList\u00601\u003CSystem.Byte[]\u003E[],System.Int32)", "methodShortName": "WriteFieldBlock(...)", "fileIndex": 0, "line": 30,
+    "metrics": [
+      { "value": 16, "exceeded": false },
+      { "value": 16, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.DocValues.SortedNumericDocValuesWriter", "reportPath": "Rowles.LeanLucene_SortedNumericDocValuesWriter.html", "methodName": "WriteFieldBlock(Rowles.LeanLucene.Store.IndexOutput,System.String,System.Collections.Generic.IReadOnlyList\u00601\u003CSystem.Double\u003E[],System.Int32)", "methodShortName": "WriteFieldBlock(...)", "fileIndex": 0, "line": 31,
+    "metrics": [
+      { "value": 16, "exceeded": false },
+      { "value": 16, "exceeded": true },
+    ]},
+  {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.Fst.FSTReader", "reportPath": "Rowles.LeanLucene_FSTReader.html", "methodName": "GetTermsMatching(System.String,System.ReadOnlySpan\u00601\u003CSystem.Char\u003E)", "methodShortName": "GetTermsMatching(...)", "fileIndex": 0, "line": 133,
     "metrics": [
       { "value": 17, "exceeded": false },
@@ -1292,11 +1559,11 @@ var riskHotspots = [
   {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.Postings.PostingsEnum", "reportPath": "Rowles.LeanLucene_PostingsEnum.html", "methodName": "Advance(System.Int32)", "methodShortName": "Advance(...)", "fileIndex": 0, "line": 655,
     "metrics": [
-      { "value": 16, "exceeded": false },
+      { "value": 17, "exceeded": false },
       { "value": 16, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.StoredFields.StoredFieldsWriter", "reportPath": "Rowles.LeanLucene_StoredFieldsWriter.html", "methodName": "Write(System.String,System.String,System.Collections.Generic.IReadOnlyList\u00601\u003CSystem.Collections.Generic.Dictionary\u00602\u003CSystem.String,System.Collections.Generic.List\u00601\u003CSystem.String\u003E\u003E\u003E,System.Int32,Rowles.LeanLucene.Codecs.StoredFields.FieldCompressionPolicy)", "methodShortName": "Write(...)", "fileIndex": 0, "line": 122,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Codecs.StoredFields.StoredFieldsWriter", "reportPath": "Rowles.LeanLucene_StoredFieldsWriter.html", "methodName": "Write(System.String,System.String,System.Int32,System.Func\u00602\u003CSystem.Int32,System.Collections.Generic.Dictionary\u00602\u003CSystem.String,System.Collections.Generic.List\u00601\u003CSystem.String\u003E\u003E\u003E,System.Int32,Rowles.LeanLucene.Codecs.StoredFields.FieldCompressionPolicy)", "methodShortName": "Write(...)", "fileIndex": 0, "line": 154,
     "metrics": [
       { "value": 16, "exceeded": false },
       { "value": 16, "exceeded": true },
@@ -1310,6 +1577,18 @@ var riskHotspots = [
   {
     "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Document.Fields.GeoPointField", "reportPath": "Rowles.LeanLucene_GeoPointField.html", "methodName": ".ctor(System.String,System.Double,System.Double)", "methodShortName": ".ctor(...)", "fileIndex": 0, "line": 15,
     "metrics": [
+      { "value": 18, "exceeded": false },
+      { "value": 16, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Compatibility.IndexCompatibility", "reportPath": "Rowles.LeanLucene_IndexCompatibility.html", "methodName": "DetermineStatus(System.Boolean,System.Boolean,System.Boolean,System.Boolean,System.Boolean,Rowles.LeanLucene.Index.Compatibility.IndexCompatibilityOptions)", "methodShortName": "DetermineStatus(...)", "fileIndex": 0, "line": 80,
+    "metrics": [
+      { "value": 16, "exceeded": false },
+      { "value": 16, "exceeded": true },
+    ]},
+  {
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Format.IndexFormatInspector", "reportPath": "Rowles.LeanLucene_IndexFormatInspector.html", "methodName": "Inspect(Rowles.LeanLucene.Store.MMapDirectory,Rowles.LeanLucene.Index.Format.IndexFormatInspectionOptions)", "methodShortName": "Inspect(...)", "fileIndex": 0, "line": 27,
+    "metrics": [
       { "value": 16, "exceeded": false },
       { "value": 16, "exceeded": true },
     ]},
@@ -1320,13 +1599,13 @@ var riskHotspots = [
       { "value": 16, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Aggregations.NumericAggregator", "reportPath": "Rowles.LeanLucene_NumericAggregator.html", "methodName": "ComputeHistogram(System.ReadOnlySpan\u00601\u003CSystem.Int32\u003E,Rowles.LeanLucene.Search.Aggregations.AggregationRequest,System.Collections.Generic.IReadOnlyList\u00601\u003CRowles.LeanLucene.Index.Segment.SegmentReader\u003E,System.Int32[],System.Int32)", "methodShortName": "ComputeHistogram(...)", "fileIndex": 0, "line": 85,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Index.Migration.IndexMigrationRecovery", "reportPath": "Rowles.LeanLucene_IndexMigrationRecovery.html", "methodName": "RollBack(System.String)", "methodShortName": "RollBack(...)", "fileIndex": 0, "line": 58,
     "metrics": [
       { "value": 16, "exceeded": false },
       { "value": 16, "exceeded": true },
     ]},
   {
-    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "CollectTerms(Rowles.LeanLucene.Search.Query,System.Collections.Generic.HashSet\u00601\u003CSystem.ValueTuple\u00602\u003CSystem.String,System.String\u003E\u003E)", "methodShortName": "CollectTerms(...)", "fileIndex": 0, "line": 625,
+    "assembly": "Rowles.LeanLucene", "class": "Rowles.LeanLucene.Search.Searcher.IndexSearcher", "reportPath": "Rowles.LeanLucene_IndexSearcher.html", "methodName": "CollectTerms(Rowles.LeanLucene.Search.Query,System.Collections.Generic.HashSet\u00601\u003CSystem.ValueTuple\u00602\u003CSystem.String,System.String\u003E\u003E)", "methodShortName": "CollectTerms(...)", "fileIndex": 0, "line": 634,
     "metrics": [
       { "value": 16, "exceeded": false },
       { "value": 16, "exceeded": true },

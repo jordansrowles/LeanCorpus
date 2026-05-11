@@ -34,6 +34,7 @@
     .\scripts\coverage.ps1 -IncludePerformance
     Runs coverage without excluding tests marked Coverage=Skip.
 #>
+[CmdletBinding()]
 param(
     [ValidateSet('net10.0', 'net11.0')]
     [string]$Framework = 'net10.0',
@@ -49,12 +50,23 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot     = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$testProjects = @(
-    Join-Path $repoRoot "src\devops\Rowles.LeanLucene.Tests.Unit\Rowles.LeanLucene.Tests.Unit.csproj",
-    Join-Path $repoRoot "src\devops\Rowles.LeanLucene.Tests.Integration\Rowles.LeanLucene.Tests.Integration.csproj"
+$repoRoot         = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+$testProjectsRoot = Join-Path $repoRoot "src\devops"
+$testProjects     = @(
+    Get-ChildItem -Path $testProjectsRoot -Filter "*.csproj" -Recurse |
+        Where-Object {
+            $_.Directory.Name -like "Rowles.LeanLucene.Tests.*" -and
+            $_.Directory.Name -ne "Rowles.LeanLucene.Tests.Shared"
+        } |
+        Sort-Object -Property FullName |
+        ForEach-Object { $_.FullName }
 )
-$resultsDir   = Join-Path $repoRoot "coverage-results"
+$resultsDir       = Join-Path $repoRoot "coverage-results"
+
+if ($testProjects.Count -eq 0) {
+    Write-Error "No test projects found under: $testProjectsRoot"
+    exit 1
+}
 
 foreach ($testProject in $testProjects) {
     if (-not (Test-Path $testProject)) {
