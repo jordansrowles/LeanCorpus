@@ -5,8 +5,18 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsAotCompatible>true</IsAotCompatible>
     <PackageId>LeanCorpus.Compression.Zstandard</PackageId>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
     <Authors>Jordan Rowles</Authors>
     <Description>Zstandard stored-field compression codec for LeanCorpus.</Description>
+    <PackageTags>search;full-text;corpus;compression;zstandard;stored-fields</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseFile>LICENCE</PackageLicenseFile>
+    <PackageProjectUrl>https://leancorpus.com</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/jordansrowles/LeanCorpus</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,6 +25,11 @@
 
   <ItemGroup>
     <PackageReference Include="ZstdSharp.Port" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\..\LICENCE" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

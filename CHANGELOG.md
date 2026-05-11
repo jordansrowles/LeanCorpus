@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Renamed the project, package family, namespaces, command-line tool, scripts, workflows, and documentation to `Rowles.LeanCorpus` and `LeanCorpus`.
+- Prepared the optional compression packages for their first NuGet release at version `1.0.0`, with package metadata, README, and licence files.
 - Default stored-field compression policy changed from Brotli (via `NativeCompressions`) to `FieldCompressionPolicy.Deflate` using BCL `DeflateStream`.
 - Extension package assemblies auto-register their codec via `[ModuleInitializer]` in standard .NET hosts; Native AOT consumers must call `Register()` explicitly at startup.
 - `src/` reorganised into `src/core/` (main library and compression packages) and `src/devops/` (benchmarks and tests).
