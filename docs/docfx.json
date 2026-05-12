@@ -39,6 +39,9 @@
       {
         "files": [ "assets/**" ]
       },
+      {
+        "files": [ "coverage/**" ]
+      },
     ],
     "globalMetadata": {
       "_appTitle": "LeanCorpus",

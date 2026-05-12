@@ -10,3 +10,5 @@
   href: api/index.md
 - name: Benchmarks
   href: benchmarks/
+- name: Coverage
+  href: coverage/index.html
