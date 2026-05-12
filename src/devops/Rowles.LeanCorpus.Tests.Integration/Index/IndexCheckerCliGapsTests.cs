@@ -35,12 +35,13 @@ public sealed class IndexCheckerCliGapsTests : IClassFixture<TestDirectoryFixtur
 
     // ── RunCheck catch block (lines 90-93) ───────────────────────────────────
 
-    [Fact(DisplayName = "IndexCheckerCli: RunCheck with non-existent path returns InvalidArguments")]
-    public void RunCheck_NonExistentPath_ReturnsInvalidArguments()
+    [Fact(DisplayName = "IndexCheckerCli: RunCheck with file path returns InvalidArguments")]
+    public void RunCheck_FilePath_ReturnsInvalidArguments()
     {
-        var nonExistent = Path.Combine(_fixture.Path, "no_such_dir_" + Guid.NewGuid().ToString("N"));
+        var filePath = Path.Combine(_fixture.Path, "not_a_directory.txt");
+        File.WriteAllText(filePath, "not an index directory");
         var request = new CheckRequest(
-            nonExistent,
+            filePath,
             new IndexCheckOptions(),
             Json: false,
             SummaryOnly: false,
@@ -196,8 +197,8 @@ public sealed class IndexCheckerCliGapsTests : IClassFixture<TestDirectoryFixtur
         Assert.Equal(0, code);
         var text = output.ToString();
         Assert.Contains("Status: MigrationRecommended", text);
-        // Migration actions should be present for the old-version .dic file.
-        Assert.Contains("RewriteTermDictionary", text);
+        Assert.Contains("RewriteFile", text);
+        Assert.Contains(".dic", text);
         Assert.Empty(error.ToString());
     }
 
@@ -216,7 +217,8 @@ public sealed class IndexCheckerCliGapsTests : IClassFixture<TestDirectoryFixtur
         Assert.Equal(0, code);
         var text = output.ToString();
         Assert.Contains("Migration dry-run", text);
-        Assert.Contains("RewriteTermDictionary", text);
+        Assert.Contains("RewriteFile", text);
+        Assert.Contains(".dic", text);
         Assert.Empty(error.ToString());
     }
 
