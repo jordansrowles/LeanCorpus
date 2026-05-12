@@ -425,4 +425,208 @@ public sealed class SegmentReaderGapsTests : IDisposable
             Assert.Equal(1, reader.Info.DocCount);
         }
     }
+
+    // GetFieldLength(int docId) — field-less overload
+
+    [Fact(DisplayName = "SegmentReader: GetFieldLength DocId Returns Positive For First Field")]
+    public void GetFieldLength_DocId_ReturnsPositiveForFirstField()
+    {
+        var (dir, searcher) = BuildAndOpen(w =>
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "hello world"));
+            w.AddDocument(doc);
+        });
+        using (dir) using (searcher)
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+            Assert.True(reader.GetFieldLength(0) >= 1);
+        }
+    }
+
+    [Fact(DisplayName = "SegmentReader: GetFieldLength DocId Out Of Range Returns One")]
+    public void GetFieldLength_DocId_OutOfRange_ReturnsOne()
+    {
+        var (dir, searcher) = BuildAndOpen(w =>
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "hello world"));
+            w.AddDocument(doc);
+        });
+        using (dir) using (searcher)
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+            Assert.Equal(1, reader.GetFieldLength(999));
+        }
+    }
+
+    // GetDocIds(string qualifiedTerm) — internal overload
+
+    [Fact(DisplayName = "SegmentReader: GetDocIds Qualified Term Returns DocIds")]
+    public void GetDocIds_QualifiedTerm_ReturnsDocIds()
+    {
+        var (dir, searcher) = BuildAndOpen(w =>
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "hello world"));
+            w.AddDocument(doc);
+        });
+        using (dir) using (searcher)
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+            var ids = reader.GetDocIds("body\x00hello");
+            Assert.Contains(0, ids);
+        }
+    }
+
+    [Fact(DisplayName = "SegmentReader: GetDocIds Qualified Term Missing Returns Empty")]
+    public void GetDocIds_QualifiedTerm_Missing_ReturnsEmpty()
+    {
+        var (dir, searcher) = BuildAndOpen(w =>
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "hello world"));
+            w.AddDocument(doc);
+        });
+        using (dir) using (searcher)
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+            var ids = reader.GetDocIds("body\x00nosuchterm");
+            Assert.Empty(ids);
+        }
+    }
+
+    // GetDocFreq(string qualifiedTerm) — internal overload
+
+    [Fact(DisplayName = "SegmentReader: GetDocFreq Qualified Term Returns Positive")]
+    public void GetDocFreq_QualifiedTerm_ReturnsPositive()
+    {
+        var (dir, searcher) = BuildAndOpen(w =>
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "hello world"));
+            w.AddDocument(doc);
+        });
+        using (dir) using (searcher)
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+            Assert.True(reader.GetDocFreq("body\x00hello") > 0);
+        }
+    }
+
+    [Fact(DisplayName = "SegmentReader: GetDocFreq Qualified Term Missing Returns Zero")]
+    public void GetDocFreq_QualifiedTerm_Missing_ReturnsZero()
+    {
+        var (dir, searcher) = BuildAndOpen(w =>
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "hello world"));
+            w.AddDocument(doc);
+        });
+        using (dir) using (searcher)
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+            Assert.Equal(0, reader.GetDocFreq("body\x00nosuchterm"));
+        }
+    }
+
+    // GetStoredFields — null _storedReader path
+
+    [Fact(DisplayName = "SegmentReader: GetStoredFields No Stored Fields File Returns Empty")]
+    public void GetStoredFields_NoStoredFieldsFile_ReturnsEmpty()
+    {
+        var (dir, searcher) = BuildAndOpen(w =>
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "hello world", stored: false));
+            w.AddDocument(doc);
+        });
+        using (dir) using (searcher)
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+            Assert.Empty(reader.GetStoredFields(0));
+        }
+    }
+
+    // GetNumericRange — deleted docs + BKD fallback
+
+    [Fact(DisplayName = "SegmentReader: GetNumericRange With Deleted Docs Filters By LiveDocs")]
+    public void GetNumericRange_WithDeletedDocs_FiltersByLiveDocs()
+    {
+        var mmap = new MMapDirectory(_dir);
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig()))
+        {
+            var keep = new LeanDocument();
+            keep.Add(new StringField("id", "keep"));
+            keep.Add(new NumericField("score", 10.0));
+            writer.AddDocument(keep);
+
+            var del = new LeanDocument();
+            del.Add(new StringField("id", "del"));
+            del.Add(new NumericField("score", 20.0));
+            writer.AddDocument(del);
+
+            writer.Commit();
+            writer.DeleteDocuments(new TermQuery("id", "del"));
+            writer.Commit();
+        }
+
+        using (mmap)
+        using (var searcher = new IndexSearcher(mmap))
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+            var hits = reader.GetNumericRange("score", 0.0, 100.0);
+            Assert.All(hits, h => Assert.True(reader.IsLive(h.DocId)));
+            Assert.DoesNotContain(hits, h => h.Value == 20.0);
+        }
+    }
+
+    [Fact(DisplayName = "SegmentReader: GetNumericRange Linear Fallback With No Bkd File Returns Results")]
+    public void GetNumericRange_LinearFallback_WithNoBkdFile_ReturnsResults()
+    {
+        var mmap = new MMapDirectory(_dir);
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig()))
+        {
+            var doc = new LeanDocument();
+            doc.Add(new NumericField("price", 42.0));
+            writer.AddDocument(doc);
+            writer.Commit();
+        }
+
+        foreach (var f in Directory.GetFiles(_dir, "*.bkd"))
+            File.Delete(f);
+
+        using (mmap)
+        using (var searcher = new IndexSearcher(mmap))
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+            var hits = reader.GetNumericRange("price", 0.0, 100.0);
+            Assert.Single(hits);
+            Assert.Equal(42.0, hits[0].Value);
+        }
+    }
+
+    [Fact(DisplayName = "SegmentReader: GetNumericRange Linear Fallback No Field In Index Returns Empty")]
+    public void GetNumericRange_LinearFallback_NoFieldInIndex_ReturnsEmpty()
+    {
+        var mmap = new MMapDirectory(_dir);
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig()))
+        {
+            var doc = new LeanDocument();
+            doc.Add(new NumericField("price", 42.0));
+            writer.AddDocument(doc);
+            writer.Commit();
+        }
+
+        foreach (var f in Directory.GetFiles(_dir, "*.bkd"))
+            File.Delete(f);
+
+        using (mmap)
+        using (var searcher = new IndexSearcher(mmap))
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+            var hits = reader.GetNumericRange("nosuchfield", 0.0, 100.0);
+            Assert.Empty(hits);
+        }
+    }
 }
