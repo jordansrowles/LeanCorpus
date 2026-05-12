@@ -480,6 +480,282 @@ public sealed class FSTDictionaryTests : IClassFixture<TestDirectoryFixture>
         _output.WriteLine("✓ 10K terms: all lookups correct");
     }
 
+    // ── Phase-1 fuzzy DP (maxEdits > 2) ─────────────────────────────────────
+
+    /// <summary>
+    /// Verifies that GetFuzzyMatches with maxEdits greater than 2 uses the Phase-1 DP loop.
+    /// </summary>
+    [Fact(DisplayName = "Fuzzy Matches: Max Edits 3 Uses Phase-1 DP")]
+    public void FuzzyMatches_MaxEdits3_UsesPhase1Dp()
+    {
+        // maxEdits == 3 bypasses the single-edit and maxEdits==2 fast paths,
+        // routing through the prefix-sharing DP loop (Phase 1).
+        var path = DicPath("fuzzy_phase1");
+        var terms = new List<string>
+        {
+            "body\0abcdef",   // dist 0
+            "body\0abcdex",   // dist 1 (substitution)
+            "body\0abcxyz",   // dist 3 (3 substitutions)
+            "body\0axxxxxx",  // dist > 3 — must not appear
+        };
+        terms.Sort(StringComparer.Ordinal);
+        var offsets = new Dictionary<string, long>();
+        for (int i = 0; i < terms.Count; i++) offsets[terms[i]] = i * 10L;
+
+        WriteDictionary(path, terms, offsets);
+        using var reader = TermDictionaryReader.Open(path);
+
+        var matches = reader.GetFuzzyMatches("body\0", "abcdef".AsSpan(), 3);
+
+        Assert.Contains(matches, m => m.Term == "body\0abcdef" && m.Distance == 0);
+        Assert.Contains(matches, m => m.Term == "body\0abcdex" && m.Distance == 1);
+        Assert.Contains(matches, m => m.Term == "body\0abcxyz" && m.Distance == 3);
+        Assert.DoesNotContain(matches, m => m.Term == "body\0axxxxxx");
+        Assert.True(matches.All(m => m.Distance <= 3));
+    }
+
+    /// <summary>
+    /// Verifies that the Phase-1 dead-prefix optimisation skips terms ahead of a dead prefix,
+    /// exercising LowerBound(key, lo) and TryBuildNextPrefixKey.
+    /// </summary>
+    [Fact(DisplayName = "Fuzzy Matches: Phase-1 Dead Prefix Skips Ahead Via LowerBound")]
+    public void FuzzyMatches_Phase1_DeadPrefixSkipsAheadViaLowerBound()
+    {
+        // Query "cat" vs terms beginning "zzzz": after 4 bytes the DP row minimum
+        // exceeds maxEdits=3, declaring a dead prefix. The skip-ahead increments the
+        // prefix key via TryBuildNextPrefixKey and advances the scan pointer via
+        // LowerBound(nextPrefix, idx + 1), bypassing all "zzzz*" variants.
+        var path = DicPath("fuzzy_dead_skip");
+        var terms = new List<string>
+        {
+            "body\0bat",
+            "body\0cat",
+            "body\0zzzz",
+            "body\0zzzza",
+            "body\0zzzzb",
+            "body\0zzzzc",
+            "body\0zzzzd",
+            "body\0zzzze",
+        };
+        terms.Sort(StringComparer.Ordinal);
+        var offsets = new Dictionary<string, long>();
+        for (int i = 0; i < terms.Count; i++) offsets[terms[i]] = i * 10L;
+
+        WriteDictionary(path, terms, offsets);
+        using var reader = TermDictionaryReader.Open(path);
+
+        var matches = reader.GetFuzzyMatches("body\0", "cat".AsSpan(), 3);
+
+        Assert.Contains(matches, m => m.Term == "body\0cat" && m.Distance == 0);
+        Assert.Contains(matches, m => m.Term == "body\0bat" && m.Distance == 1);
+        Assert.DoesNotContain(matches, m => m.Term.StartsWith("body\0zzzz", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Verifies the early-out path when the field prefix sorts past all terms in the dictionary.
+    /// </summary>
+    [Fact(DisplayName = "Fuzzy Matches: Returns Empty When Prefix Sorts Past All Terms")]
+    public void FuzzyMatches_ReturnsEmpty_WhenPrefixSortsPastAllTerms()
+    {
+        // LowerBound("zzz\0") returns _termCount, triggering the early return [].
+        var path = DicPath("fuzzy_past_end");
+        var terms = new List<string> { "aaa\0word", "bbb\0term" };
+        var offsets = new Dictionary<string, long> { ["aaa\0word"] = 1L, ["bbb\0term"] = 2L };
+
+        WriteDictionary(path, terms, offsets);
+        using var reader = TermDictionaryReader.Open(path);
+
+        var matches = reader.GetFuzzyMatches("zzz\0", "word".AsSpan(), 3);
+
+        Assert.Empty(matches);
+    }
+
+    // ── GetFuzzyMatchesFallback (non-ASCII query) ────────────────────────────
+
+    /// <summary>
+    /// Verifies that a non-ASCII query term routes through GetFuzzyMatchesFallback.
+    /// </summary>
+    [Fact(DisplayName = "Fuzzy Matches: Non-ASCII Query Uses Fallback Path")]
+    public void FuzzyMatches_NonAsciiQuery_UsesFallbackPath()
+    {
+        // "日本語" is non-ASCII (UTF-8 byte count != char count), so queryIsAscii=false
+        // and GetFuzzyMatchesFallback is invoked instead of the DP stack path.
+        var path = DicPath("fuzzy_noascii");
+        var terms = new List<string>
+        {
+            "body\0english",
+            "body\0日本",
+            "body\0日本語",
+        };
+        terms.Sort(StringComparer.Ordinal);
+        var offsets = new Dictionary<string, long>();
+        for (int i = 0; i < terms.Count; i++) offsets[terms[i]] = i * 10L;
+
+        WriteDictionary(path, terms, offsets);
+        using var reader = TermDictionaryReader.Open(path);
+
+        var matches = reader.GetFuzzyMatches("body\0", "日本語".AsSpan(), 1);
+
+        Assert.Contains(matches, m => m.Term == "body\0日本語" && m.Distance == 0);
+        Assert.Contains(matches, m => m.Term == "body\0日本" && m.Distance == 1);
+        Assert.DoesNotContain(matches, m => m.Term == "body\0english");
+    }
+
+    // ── FuzzyCacheKey (cache hit / eviction) ─────────────────────────────────
+
+    /// <summary>
+    /// Verifies that a maxEdits==2 result is returned from cache on a repeated call.
+    /// </summary>
+    [Fact(DisplayName = "Fuzzy Matches: MaxEdits 2 Result Is Served From Cache On Second Call")]
+    public void FuzzyMatches_MaxEdits2_ResultIsServedFromCacheOnSecondCall()
+    {
+        var path = DicPath("fuzzy_cache_hit");
+        var terms = new List<string> { "body\0hello", "body\0helo", "body\0world" };
+        terms.Sort(StringComparer.Ordinal);
+        var offsets = new Dictionary<string, long>();
+        for (int i = 0; i < terms.Count; i++) offsets[terms[i]] = i;
+
+        WriteDictionary(path, terms, offsets);
+        using var reader = TermDictionaryReader.Open(path);
+
+        var first = reader.GetFuzzyMatches("body\0", "hello".AsSpan(), 2);
+        var second = reader.GetFuzzyMatches("body\0", "hello".AsSpan(), 2);
+
+        Assert.Equal(first.Count, second.Count);
+        foreach (var m in first)
+            Assert.Contains(second, s => s.Term == m.Term && s.Distance == m.Distance);
+    }
+
+    /// <summary>
+    /// Verifies that the fuzzy cache evicts all entries once MaxFuzzyCacheEntries is exceeded,
+    /// and that subsequent calls still return correct results.
+    /// </summary>
+    [Fact(DisplayName = "Fuzzy Matches: Cache Evicts When Max Entries Exceeded")]
+    public void FuzzyMatches_Cache_EvictsWhenMaxEntriesExceeded()
+    {
+        // MaxFuzzyCacheEntries == 128. The 129th unique (fieldPrefix, query, maxEdits, maxExpansions)
+        // key triggers _fuzzyCache.Clear() before inserting the new entry.
+        var path = DicPath("fuzzy_cache_evict");
+        var terms = new List<string>();
+        var offsets = new Dictionary<string, long>();
+        for (int i = 0; i < 10; i++)
+        {
+            var t = $"body\0term{i:D2}";
+            terms.Add(t);
+            offsets[t] = i;
+        }
+        terms.Sort(StringComparer.Ordinal);
+
+        WriteDictionary(path, terms, offsets);
+        using var reader = TermDictionaryReader.Open(path);
+
+        for (int i = 0; i < 130; i++)
+        {
+            // 130 distinct query strings → 130 unique FuzzyCacheKey values.
+            var query = $"term{i:D3}";
+            var results = reader.GetFuzzyMatches("body\0", query.AsSpan(), 2);
+            Assert.True(results.All(m => m.Distance <= 2), $"Query {query}: result exceeded maxEdits");
+        }
+    }
+
+    // ── GetAllTermsForField edge cases ────────────────────────────────────────
+
+    /// <summary>
+    /// Verifies that GetAllTermsForField returns empty for a field with no entries.
+    /// </summary>
+    [Fact(DisplayName = "Get All Terms For Field: Unknown Field Returns Empty")]
+    public void GetAllTermsForField_UnknownField_ReturnsEmpty()
+    {
+        var path = DicPath("fieldall_unknown");
+        var terms = new List<string> { "body\0foo", "body\0bar", "title\0baz" };
+        terms.Sort(StringComparer.Ordinal);
+        var offsets = new Dictionary<string, long>();
+        for (int i = 0; i < terms.Count; i++) offsets[terms[i]] = i;
+
+        WriteDictionary(path, terms, offsets);
+        using var reader = TermDictionaryReader.Open(path);
+
+        Assert.Empty(reader.GetAllTermsForField("nofield\0"));
+    }
+
+    /// <summary>
+    /// Verifies that GetAllTermsForField on an empty dictionary returns empty.
+    /// </summary>
+    [Fact(DisplayName = "Get All Terms For Field: Empty Dictionary Returns Empty")]
+    public void GetAllTermsForField_EmptyDictionary_ReturnsEmpty()
+    {
+        var path = DicPath("fieldall_empty_dict");
+        WriteDictionary(path, [], []);
+        using var reader = TermDictionaryReader.Open(path);
+
+        Assert.Empty(reader.GetAllTermsForField("body\0"));
+    }
+
+    // ── GetTermsMatching: fullTerm decoding path ──────────────────────────────
+
+    /// <summary>
+    /// Verifies that wildcard matching decodes the full term when bareTerm bytes are non-ASCII.
+    /// </summary>
+    [Fact(DisplayName = "Wildcard Scan: Non-ASCII Terms Use Full Term Decode Path")]
+    public void WildcardScan_NonAsciiTerms_UseFullTermDecodePath()
+    {
+        // "café" contains é (0xC3 0xA9 in UTF-8), so IsAscii(bareTerm) is false.
+        // The ASCII fast path is skipped; the full term is decoded and matched
+        // via WildcardQuery.Matches. ASCII terms ("caffe", "cat") take the fast path.
+        var path = DicPath("wildcard_noascii_term");
+        var terms = new List<string>
+        {
+            "body\0café",
+            "body\0caffe",
+            "body\0cat",
+            "body\0dog",
+        };
+        terms.Sort(StringComparer.Ordinal);
+        var offsets = new Dictionary<string, long>();
+        for (int i = 0; i < terms.Count; i++) offsets[terms[i]] = i;
+
+        WriteDictionary(path, terms, offsets);
+        using var reader = TermDictionaryReader.Open(path);
+
+        var matches = reader.GetTermsMatching("body\0", "ca*".AsSpan());
+        var matched = matches.Select(m => m.Term).ToArray();
+
+        Assert.Contains("body\0café", matched);
+        Assert.Contains("body\0caffe", matched);
+        Assert.Contains("body\0cat", matched);
+        Assert.DoesNotContain("body\0dog", matched);
+    }
+
+    /// <summary>
+    /// Verifies that a non-ASCII wildcard pattern routes all terms through the full term decode path.
+    /// </summary>
+    [Fact(DisplayName = "Wildcard Scan: Non-ASCII Pattern Uses Full Term Decode Path")]
+    public void WildcardScan_NonAsciiPattern_UseFullTermDecodePath()
+    {
+        // patternIsAscii == false for "日*", so every candidate goes through the
+        // fullTerm decode branch regardless of whether bareTerm bytes are ASCII.
+        var path = DicPath("wildcard_noascii_pattern");
+        var terms = new List<string>
+        {
+            "body\0english",
+            "body\0日本",
+            "body\0日本語",
+        };
+        terms.Sort(StringComparer.Ordinal);
+        var offsets = new Dictionary<string, long>();
+        for (int i = 0; i < terms.Count; i++) offsets[terms[i]] = i;
+
+        WriteDictionary(path, terms, offsets);
+        using var reader = TermDictionaryReader.Open(path);
+
+        var matches = reader.GetTermsMatching("body\0", "日*".AsSpan());
+
+        Assert.Equal(2, matches.Count);
+        Assert.Contains(matches, m => m.Term == "body\0日本");
+        Assert.Contains(matches, m => m.Term == "body\0日本語");
+        Assert.DoesNotContain(matches, m => m.Term == "body\0english");
+    }
+
     // ── Format version in file ──────────────────────────────────────────────
 
     /// <summary>
