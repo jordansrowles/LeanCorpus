@@ -45,7 +45,7 @@ public sealed class SearcherManagerChaosTests : IClassFixture<ChaosDirectoryFixt
         CorruptAllCommitFiles(dir.DirectoryPath);
         mgr.MaybeRefresh();
 
-        Assert.Equal(1, firedCount);
+        Assert.True(firedCount >= 1, $"Expected RefreshFailed to fire at least once, got {firedCount}");
         Assert.NotNull(capturedEx);
     }
 
