@@ -113,4 +113,146 @@ public sealed class SearcherManagerGapsTests : IDisposable
         var unknown = new IndexSearcher(dir);
         mgr.Release(unknown);
     }
+
+    // ── LastRefreshError / LastRefreshErrorAt / ConsecutiveRefreshFailures ────
+
+    [Fact(DisplayName = "SearcherManager: LastRefreshError is initially null")]
+    public void LastRefreshError_InitiallyNull()
+    {
+        using var dir = BuildIndex("smgr_err_init");
+        using var mgr = new SearcherManager(dir);
+
+        Assert.Null(mgr.LastRefreshError);
+    }
+
+    [Fact(DisplayName = "SearcherManager: LastRefreshErrorAt is initially null")]
+    public void LastRefreshErrorAt_InitiallyNull()
+    {
+        using var dir = BuildIndex("smgr_errtime_init");
+        using var mgr = new SearcherManager(dir);
+
+        Assert.Null(mgr.LastRefreshErrorAt);
+    }
+
+    [Fact(DisplayName = "SearcherManager: ConsecutiveRefreshFailures is initially zero")]
+    public void ConsecutiveRefreshFailures_InitiallyZero()
+    {
+        using var dir = BuildIndex("smgr_crf_init");
+        using var mgr = new SearcherManager(dir);
+
+        Assert.Equal(0, mgr.ConsecutiveRefreshFailures);
+    }
+
+    // ── Refresh failure recording ─────────────────────────────────────────────
+
+    [Fact(DisplayName = "SearcherManager: LastRefreshError is non-null after corrupt commit")]
+    public void LastRefreshError_AfterCorruptCommit_IsNonNull()
+    {
+        using var dir = BuildIndex("smgr_err_corrupt");
+        using var mgr = new SearcherManager(dir);
+
+        CorruptAllCommitFiles(dir.DirectoryPath);
+        mgr.MaybeRefresh();
+
+        Assert.NotNull(mgr.LastRefreshError);
+    }
+
+    [Fact(DisplayName = "SearcherManager: LastRefreshErrorAt is non-null after corrupt commit")]
+    public void LastRefreshErrorAt_AfterCorruptCommit_IsNonNull()
+    {
+        using var dir = BuildIndex("smgr_errtime_corrupt");
+        using var mgr = new SearcherManager(dir);
+
+        CorruptAllCommitFiles(dir.DirectoryPath);
+        mgr.MaybeRefresh();
+
+        Assert.NotNull(mgr.LastRefreshErrorAt);
+    }
+
+    [Fact(DisplayName = "SearcherManager: ConsecutiveRefreshFailures increments after corrupt commit")]
+    public void ConsecutiveRefreshFailures_AfterCorruptCommit_IsPositive()
+    {
+        using var dir = BuildIndex("smgr_crf_corrupt");
+        using var mgr = new SearcherManager(dir);
+
+        CorruptAllCommitFiles(dir.DirectoryPath);
+        mgr.MaybeRefresh();
+
+        Assert.True(mgr.ConsecutiveRefreshFailures > 0);
+    }
+
+    [Fact(DisplayName = "SearcherManager: RefreshFailed event fires when commit file is corrupt")]
+    public void RefreshFailed_EventFires_WhenCommitCorrupted()
+    {
+        using var dir = BuildIndex("smgr_event_corrupt");
+        using var mgr = new SearcherManager(dir);
+        var fired = false;
+        mgr.RefreshFailed += (_, _) => fired = true;
+
+        CorruptAllCommitFiles(dir.DirectoryPath);
+        mgr.MaybeRefresh();
+
+        Assert.True(fired);
+    }
+
+    [Fact(DisplayName = "SearcherManager: Subscriber exception in RefreshFailed does not propagate")]
+    public void RefreshFailed_SubscriberThrows_NoExceptionPropagates()
+    {
+        using var dir = BuildIndex("smgr_sub_throw");
+        using var mgr = new SearcherManager(dir);
+        mgr.RefreshFailed += (_, _) => throw new InvalidOperationException("subscriber boom");
+
+        CorruptAllCommitFiles(dir.DirectoryPath);
+
+        // Must not throw even though subscriber throws.
+        var ex = Record.Exception(() => mgr.MaybeRefresh());
+        Assert.Null(ex);
+    }
+
+    // ── Recovery after corruption ─────────────────────────────────────────────
+
+    [Fact(DisplayName = "SearcherManager: ConsecutiveRefreshFailures resets after successful refresh")]
+    public void ConsecutiveRefreshFailures_ResetsAfterRecovery()
+    {
+        using var dir = BuildIndex("smgr_crf_reset");
+        using var mgr = new SearcherManager(dir);
+
+        // Capture the original commit bytes so we can restore them.
+        var commitPath  = Directory.GetFiles(dir.DirectoryPath, "segments_*")
+            .Single(f => !f.EndsWith(".tmp", StringComparison.Ordinal));
+        var original    = File.ReadAllBytes(commitPath);
+
+        CorruptAllCommitFiles(dir.DirectoryPath);
+        mgr.MaybeRefresh(); // produces a failure → counter goes to 1
+        Assert.True(mgr.ConsecutiveRefreshFailures > 0);
+
+        // Restore the original commit and write a second commit so
+        // TryRefreshCore sees a newer generation and succeeds.
+        File.WriteAllBytes(commitPath, original);
+        AddCommit(dir);
+
+        mgr.MaybeRefresh(); // succeeds → counter resets to 0
+        Assert.Equal(0, mgr.ConsecutiveRefreshFailures);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static void CorruptAllCommitFiles(string directoryPath)
+    {
+        foreach (var file in Directory.GetFiles(directoryPath, "segments_*"))
+        {
+            if (file.EndsWith(".tmp", StringComparison.Ordinal))
+                continue;
+            File.WriteAllBytes(file, [0xDE, 0xAD, 0xBE, 0xEF]);
+        }
+    }
+
+    private void AddCommit(MMapDirectory dir)
+    {
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+        var doc = new LeanDocument();
+        doc.Add(new TextField("body", "refresh recovery"));
+        writer.AddDocument(doc);
+        writer.Commit();
+    }
 }
