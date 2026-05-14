@@ -176,13 +176,15 @@ public sealed class QueryCacheTests : IDisposable
     [Fact(DisplayName = "Query Equality: Boolean Query")]
     public void QueryEquality_BooleanQuery()
     {
-        var a = new BooleanQuery();
-        a.Add(new TermQuery("f", "x"), Occur.Must);
-        a.Add(new TermQuery("f", "y"), Occur.Should);
+        var a = new BooleanQuery.Builder()
+            .Add(new TermQuery("f", "x"), Occur.Must)
+            .Add(new TermQuery("f", "y"), Occur.Should)
+            .Build();
 
-        var b = new BooleanQuery();
-        b.Add(new TermQuery("f", "x"), Occur.Must);
-        b.Add(new TermQuery("f", "y"), Occur.Should);
+        var b = new BooleanQuery.Builder()
+            .Add(new TermQuery("f", "x"), Occur.Must)
+            .Add(new TermQuery("f", "y"), Occur.Should)
+            .Build();
 
         Assert.Equal(a, b);
         Assert.Equal(a.GetHashCode(), b.GetHashCode());

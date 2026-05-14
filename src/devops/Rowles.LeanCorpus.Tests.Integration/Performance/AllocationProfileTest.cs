@@ -78,9 +78,10 @@ public class AllocationProfileTest : IDisposable
     [Fact(DisplayName = "Boolean Query: Allocation Per Query Under 20 KB")]
     public void BooleanQuery_AllocationPerQuery_Under20KB()
     {
-        var warmBq = new BooleanQuery();
-        warmBq.Add(new TermQuery("body", "search"), Occur.Must);
-        warmBq.Add(new TermQuery("body", "benchmark"), Occur.Must);
+        var warmBq = new BooleanQuery.Builder()
+            .Add(new TermQuery("body", "search"), Occur.Must)
+            .Add(new TermQuery("body", "benchmark"), Occur.Must)
+            .Build();
         for (int w = 0; w < 50; w++)
             _searcher.Search(warmBq, 25);
 
@@ -90,9 +91,10 @@ public class AllocationProfileTest : IDisposable
         const int iterations = 1000;
         for (int q = 0; q < iterations; q++)
         {
-            var bq = new BooleanQuery();
-            bq.Add(new TermQuery("body", "search"), Occur.Must);
-            bq.Add(new TermQuery("body", "benchmark"), Occur.Must);
+            var bq = new BooleanQuery.Builder()
+                .Add(new TermQuery("body", "search"), Occur.Must)
+                .Add(new TermQuery("body", "benchmark"), Occur.Must)
+                .Build();
             _searcher.Search(bq, 25);
         }
 

@@ -71,22 +71,24 @@ public class BooleanQueryBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_BooleanQuery()
     {
-        var bq = new Rowles.LeanCorpus.Search.Queries.BooleanQuery();
+        var builder = new Rowles.LeanCorpus.Search.Queries.BooleanQuery.Builder();
         switch (BooleanType)
         {
             case "Must":
-                bq.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "government"), Rowles.LeanCorpus.Search.Occur.Must);
-                bq.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "said"), Rowles.LeanCorpus.Search.Occur.Must);
+                builder.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "government"), Rowles.LeanCorpus.Search.Occur.Must);
+                builder.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "said"), Rowles.LeanCorpus.Search.Occur.Must);
                 break;
             case "Should":
-                bq.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "market"), Rowles.LeanCorpus.Search.Occur.Should);
-                bq.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "people"), Rowles.LeanCorpus.Search.Occur.Should);
+                builder.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "market"), Rowles.LeanCorpus.Search.Occur.Should);
+                builder.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "people"), Rowles.LeanCorpus.Search.Occur.Should);
                 break;
             case "MustNot":
-                bq.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "government"), Rowles.LeanCorpus.Search.Occur.Must);
-                bq.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "market"), Rowles.LeanCorpus.Search.Occur.MustNot);
+                builder.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "government"), Rowles.LeanCorpus.Search.Occur.Must);
+                builder.Add(new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "market"), Rowles.LeanCorpus.Search.Occur.MustNot);
                 break;
         }
+
+        var bq = builder.Build();
         return _leanSearcher!.Search(bq, TopN).TotalHits;
     }
 

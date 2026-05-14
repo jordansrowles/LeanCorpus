@@ -99,9 +99,10 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "fast"), Occur.Must);
-        query.Add(new TermQuery("body", "search"), Occur.Must);
+        var query = new BooleanQuery.Builder()
+            .Add(new TermQuery("body", "fast"), Occur.Must)
+            .Add(new TermQuery("body", "search"), Occur.Must)
+            .Build();
         var results = searcher.Search(query, 10);
 
         Assert.Equal(2, results.TotalHits);
@@ -132,8 +133,9 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         Query clause = queryType == "prefix"
             ? new PrefixQuery("title", pattern)
             : new WildcardQuery("title", pattern);
-        var query = new BooleanQuery();
-        query.Add(clause, Occur.Must);
+        var query = new BooleanQuery.Builder()
+            .Add(clause, Occur.Must)
+            .Build();
         var results = searcher.Search(query, 10);
 
         Assert.Equal(1, results.TotalHits);
@@ -207,9 +209,10 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "alpha"), Occur.Should);
-        query.Add(new TermQuery("body", "beta"), Occur.Should);
+        var query = new BooleanQuery.Builder()
+            .Add(new TermQuery("body", "alpha"), Occur.Should)
+            .Add(new TermQuery("body", "beta"), Occur.Should)
+            .Build();
         var results = searcher.Search(query, 10);
 
         Assert.Equal(4, results.TotalHits);
@@ -234,9 +237,10 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "search"), Occur.Must);
-        query.Add(new TermQuery("body", "slow"), Occur.MustNot);
+        var query = new BooleanQuery.Builder()
+            .Add(new TermQuery("body", "search"), Occur.Must)
+            .Add(new TermQuery("body", "slow"), Occur.MustNot)
+            .Build();
         var results = searcher.Search(query, 10);
 
         Assert.Equal(2, results.TotalHits);

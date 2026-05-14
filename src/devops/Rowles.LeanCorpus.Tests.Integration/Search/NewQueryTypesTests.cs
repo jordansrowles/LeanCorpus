@@ -362,8 +362,9 @@ public sealed class NewQueryTypesTests : IClassFixture<TestDirectoryFixture>
 
         Assert.Throws<OperationCanceledException>(() =>
         {
-            var bq = new BooleanQuery();
-            bq.Add(new TermQuery("body", "hello"), Occur.Must);
+            var bq = new BooleanQuery.Builder()
+                .Add(new TermQuery("body", "hello"), Occur.Must)
+                .Build();
             searcher.Search(bq, 10, cts.Token);
         });
     }

@@ -56,9 +56,10 @@ public sealed class SearchEdgeCaseTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var boolQ = new BooleanQuery();
-        boolQ.Add(new TermQuery("body", "alpha"), Occur.Should);
-        boolQ.Add(new TermQuery("body", "beta"), Occur.Should);
+        var boolQ = new BooleanQuery.Builder()
+            .Add(new TermQuery("body", "alpha"), Occur.Should)
+            .Add(new TermQuery("body", "beta"), Occur.Should)
+            .Build();
 
         var results = searcher.Search(new ConstantScoreQuery(boolQ, 7.5f), 10);
 
