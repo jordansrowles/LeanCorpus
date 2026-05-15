@@ -92,4 +92,24 @@ public sealed class SchemaValidationTests
 
         schema.Validate(doc); // no exception
     }
+
+    [Fact(DisplayName = "IndexWriter: Batch Paths Validate Schema Before Indexing")]
+    public async Task IndexWriter_BatchPaths_ValidateSchemaBeforeIndexing()
+    {
+        using var directory = new Rowles.LeanCorpus.Store.MMapDirectory(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")));
+        var schema = new IndexSchema()
+            .Add(new FieldMapping("title", FieldType.Text) { IsRequired = true });
+        using var writer = new IndexWriter(directory, new IndexWriterConfig { Schema = schema });
+
+        var valid = new LeanDocument();
+        valid.Add(new TextField("title", "valid"));
+        var invalid = new LeanDocument();
+        invalid.Add(new StringField("id", "missing-title"));
+
+        Assert.Throws<SchemaValidationException>(() => writer.AddDocuments([valid, invalid]));
+        await Assert.ThrowsAsync<SchemaValidationException>(() => writer.AddDocumentsAsync([valid, invalid]).AsTask());
+        Assert.Throws<SchemaValidationException>(() => writer.AddDocumentBlock([valid, invalid]));
+        await Assert.ThrowsAsync<SchemaValidationException>(() => writer.AddDocumentBlockAsync([valid, invalid]).AsTask());
+        Assert.Throws<SchemaValidationException>(() => writer.UpdateDocument("id", "1", invalid));
+    }
 }
