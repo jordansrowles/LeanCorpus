@@ -22,7 +22,7 @@ public sealed partial class IndexWriter
                     IndexTextField(tf.Name, tf.Value, localDocId);
                     if (tf.IsStored)
                     {
-                        AppendStoredField(tf.Name, StoredFieldValue.FromString(tf.Value));
+                        AppendStoredField(tf.Name, StoredFieldValue.FromString(tf.Value), mirrorStringToBinaryDocValues: false);
                     }
                     break;
                 case StringField sf:
@@ -240,7 +240,7 @@ public sealed partial class IndexWriter
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void AppendStoredField(string fieldName, StoredFieldValue value)
+    private void AppendStoredField(string fieldName, StoredFieldValue value, bool mirrorStringToBinaryDocValues = true)
     {
         if (!_sfFieldNameToId.TryGetValue(fieldName, out int fid))
         {
@@ -254,7 +254,7 @@ public sealed partial class IndexWriter
         {
             AddBinaryDocValue(fieldName, _bufferedDocCount, value.BinaryValue ?? []);
         }
-        else if (value.StringValue is not null)
+        else if (mirrorStringToBinaryDocValues && value.StringValue is not null)
         {
             AddBinaryDocValue(fieldName, _bufferedDocCount, value.StringValue);
         }

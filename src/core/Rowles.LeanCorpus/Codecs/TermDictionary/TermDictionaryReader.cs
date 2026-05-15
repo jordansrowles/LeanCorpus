@@ -139,6 +139,13 @@ internal sealed class TermDictionaryReader : IDisposable
         return GetTermsWithPrefixV1(qualifiedPrefix);
     }
 
+    public List<long> GetTermOffsetsWithPrefix(ReadOnlySpan<char> qualifiedPrefix)
+    {
+        if (_fstReader is not null)
+            return _fstReader.GetTermOffsetsWithPrefix(qualifiedPrefix);
+        return GetTermOffsetsWithPrefixV1(qualifiedPrefix);
+    }
+
     private List<(string Term, long Offset)> GetTermsWithPrefixV1(ReadOnlySpan<char> qualifiedPrefix)
     {
         var results = new List<(string, long)>();
@@ -147,6 +154,20 @@ internal sealed class TermDictionaryReader : IDisposable
         {
             if (_allTerms[i].AsSpan().StartsWith(qualifiedPrefix))
                 results.Add((_allTerms[i], _allOffsets![i]));
+            else
+                break;
+        }
+        return results;
+    }
+
+    private List<long> GetTermOffsetsWithPrefixV1(ReadOnlySpan<char> qualifiedPrefix)
+    {
+        var results = new List<long>();
+        int start = LowerBoundV1(qualifiedPrefix);
+        for (int i = start; i < _allTerms!.Length; i++)
+        {
+            if (_allTerms[i].AsSpan().StartsWith(qualifiedPrefix))
+                results.Add(_allOffsets![i]);
             else
                 break;
         }

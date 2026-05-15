@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.3.1] - 2026-xx-xx
+## [1.4.0] - 2026-xx-xx
 
 ### Added
 - Added Unicode-aware analysis components: `IcuAnalyser`, `IcuTokeniser`, `Uax29UrlEmailTokeniser`, `ThaiTokeniser`, `MediaWikiTokeniser`, `KeepWordFilter`, `TypeTokenFilter`, `LimitTokenCountFilter`, `FlattenGraphFilter`, `MetaphoneFilter`, `PhoneticAlternatesFilter`, `HunspellStemFilter`, `LightEnglishStemmer`, and a compatibility `KStemmer`, plus targeted unit, integration, and chaos coverage for extensible token types, MediaWiki token classes, phonetic alternates, Hunspell stemming, and token-budget guardrails.
@@ -41,12 +41,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scoped lightweight phonetic and English stemming APIs to honest names, and added Hunspell condition parsing plus generated-form limits.
 - Hardened async and batch indexing so schema validation runs before slot acquisition, dispose drains active indexing operations, block indexing suppresses mid-block threshold flushes until the parent marker is present, and partial indexing failures make the writer unusable until reopened.
 - Precomputed `CombinedFieldsQuery` union document frequencies once per search execution and bounded `TermInSetQuery` term counts.
+- Stopped mirroring stored `TextField` values into binary DocValues by default, keeping binary DocValues for `BinaryField`, `StoredField`, and exact `StringField` values.
+- Changed norms boost storage to sparse entries so default field boosts do not write or load per-document `float[]` arrays.
+- Added offsets-only prefix enumeration for prefix and trailing-wildcard query execution when global document-frequency remapping is not needed.
+- Changed phrase query execution to intersect candidate documents before decoding positional data for common multi-term phrases.
 
 ### Fixed
 - `FieldExistsQuery` no longer deserialises full stored-field values just to check stored-field presence.
 - Stored binary field reads now return defensive copies so callers cannot mutate cached stored-field buffers.
 - `StoredFieldsReader` now validates matching `.fdt` and `.fdx` header versions and block sizes before decoding stored values, and rejects unsupported `.fdt` versions up front.
 - `TermInSetQuery` now publishes its cached qualified-term array safely for parallel search execution.
+- `FuzzyQuery` now accumulates scores per document so multiple matching term expansions do not inflate hit counts with duplicate documents.
 
 ## [1.3.0] - 2026-05-11
 

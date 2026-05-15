@@ -147,7 +147,7 @@ public sealed class CodecsTests : IClassFixture<TestDirectoryFixture>
         for (int i = 0; i < norms.Length; i++)
             norms[i] = 1.0f / (1.0f + i);
 
-        // Write as per-field format (version 2)
+        // Write as per-field format.
         var fieldNorms = new Dictionary<string, float[]>(StringComparer.Ordinal)
         {
             ["testfield"] = norms
@@ -164,8 +164,7 @@ public sealed class CodecsTests : IClassFixture<TestDirectoryFixture>
             Assert.InRange(restoredFloat, norms[i] - 0.01f, norms[i] + 0.01f);
         }
 
-        var restoredBoosts = restored.Boosts["testfield"];
-        Assert.All(restoredBoosts, boost => Assert.Equal(1.0f, boost));
+        Assert.False(restored.Boosts.ContainsKey("testfield"));
     }
 
     /// <summary>

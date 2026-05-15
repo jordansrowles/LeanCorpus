@@ -37,13 +37,13 @@ public sealed class SegmentReaderDocValuesTests: IDisposable
 
     // TryGetBinaryDocValues / GetBinaryDocValues / EnsureBinaryDocValues
 
-    [Fact(DisplayName = "SegmentReader: TryGetBinaryDocValues With Stored Field Returns Values")]
-    public void TryGetBinaryDocValues_WithStoredField_ReturnsValues()
+    [Fact(DisplayName = "SegmentReader: TryGetBinaryDocValues With Binary Field Returns Values")]
+    public void TryGetBinaryDocValues_WithBinaryField_ReturnsValues()
     {
         var (dir, searcher) = BuildAndOpen(w =>
         {
             var doc = new LeanDocument();
-            doc.Add(new TextField("body", "hello world"));
+            doc.Add(new BinaryField("body", new byte[] { 1, 2, 3 }));
             w.AddDocument(doc);
         });
         using (dir) using (searcher)
@@ -51,7 +51,29 @@ public sealed class SegmentReaderDocValuesTests: IDisposable
             var reader = searcher.GetSegmentReaders()[0];
             var found = reader.TryGetBinaryDocValues("body", 0, out var values);
             Assert.True(found);
-            Assert.NotEmpty(values);
+            Assert.Equal(new byte[] { 1, 2, 3 }, values[0]);
+        }
+    }
+
+    [Fact(DisplayName = "SegmentReader: Stored Text Field Does Not Create Binary DocValues")]
+    public void StoredTextField_DoesNotCreateBinaryDocValues()
+    {
+        var path = Path.Combine(_dir, nameof(StoredTextField_DoesNotCreateBinaryDocValues));
+        Directory.CreateDirectory(path);
+        var mmap = new MMapDirectory(path);
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig()))
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "hello world"));
+            writer.AddDocument(doc);
+            writer.Commit();
+        }
+
+        using (mmap) using (var searcher = new IndexSearcher(mmap))
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+            Assert.False(reader.TryGetBinaryDocValues("body", 0, out _));
+            Assert.Null(reader.GetBinaryDocValues("body"));
         }
     }
 
@@ -77,7 +99,7 @@ public sealed class SegmentReaderDocValuesTests: IDisposable
         var (dir, searcher) = BuildAndOpen(w =>
         {
             var doc = new LeanDocument();
-            doc.Add(new TextField("body", "hello world"));
+            doc.Add(new BinaryField("body", new byte[] { 1, 2, 3 }));
             w.AddDocument(doc);
         });
         using (dir) using (searcher)
@@ -87,13 +109,13 @@ public sealed class SegmentReaderDocValuesTests: IDisposable
         }
     }
 
-    [Fact(DisplayName = "SegmentReader: GetBinaryDocValues With Stored Field Returns Non Null")]
-    public void GetBinaryDocValues_WithStoredField_ReturnsNonNull()
+    [Fact(DisplayName = "SegmentReader: GetBinaryDocValues With Binary Field Returns Non Null")]
+    public void GetBinaryDocValues_WithBinaryField_ReturnsNonNull()
     {
         var (dir, searcher) = BuildAndOpen(w =>
         {
             var doc = new LeanDocument();
-            doc.Add(new TextField("body", "hello world"));
+            doc.Add(new BinaryField("body", new byte[] { 1, 2, 3 }));
             w.AddDocument(doc);
         });
         using (dir) using (searcher)
@@ -109,7 +131,7 @@ public sealed class SegmentReaderDocValuesTests: IDisposable
         var (dir, searcher) = BuildAndOpen(w =>
         {
             var doc = new LeanDocument();
-            doc.Add(new TextField("body", "hello world"));
+            doc.Add(new BinaryField("body", new byte[] { 1, 2, 3 }));
             w.AddDocument(doc);
         });
         using (dir) using (searcher)

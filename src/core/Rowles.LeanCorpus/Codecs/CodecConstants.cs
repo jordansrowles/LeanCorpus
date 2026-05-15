@@ -12,7 +12,7 @@ internal static class CodecConstants
     // Per-format version numbers — increment when the binary layout changes.
     public const byte TermDictionaryVersion = 2;
     public const byte PostingsVersion = 3;
-    public const byte NormsVersion = 2;
+    public const byte NormsVersion = 3;
     public const byte VectorVersion = 1;
     public const byte HnswVersion = 1;
     public const byte StoredFieldsVersion = 6; // v6: typed stored values (string or binary)

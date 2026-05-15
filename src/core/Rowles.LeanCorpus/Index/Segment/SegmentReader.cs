@@ -186,6 +186,13 @@ public sealed partial class SegmentReader : IDisposable
         return 1.0f;
     }
 
+    /// <summary>Resolves the sparse boost array for a field when it has non-default boosts.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal bool TryGetFieldBoosts(string field, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out float[]? boosts)
+    {
+        return _fieldBoosts.TryGetValue(field, out boosts);
+    }
+
     /// <summary>Returns the quantised norm value for a document using the first available field.</summary>
     public float GetNorm(int docId)
     {

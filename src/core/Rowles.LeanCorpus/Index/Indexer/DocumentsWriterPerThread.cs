@@ -92,7 +92,7 @@ internal sealed class DocumentsWriterPerThread
                     IndexTextField(tf.Name, tf.Value, localDocId);
                     if (tf.IsStored)
                     {
-                        AppendStored(tf.Name, StoredFieldValue.FromString(tf.Value));
+                        AppendStored(tf.Name, StoredFieldValue.FromString(tf.Value), mirrorStringToBinaryDocValues: false);
                         _estimatedRamBytes += tf.Value.Length * 2 + 64;
                     }
                     break;
@@ -144,7 +144,7 @@ internal sealed class DocumentsWriterPerThread
         _estimatedRamBytes += 32; // per-doc overhead
     }
 
-    private void AppendStored(string name, StoredFieldValue value)
+    private void AppendStored(string name, StoredFieldValue value, bool mirrorStringToBinaryDocValues = true)
     {
         if (!_storedFieldNameToId.TryGetValue(name, out int id))
         {
@@ -158,7 +158,7 @@ internal sealed class DocumentsWriterPerThread
         {
             AddBinaryDocValue(name, DocCount, value.BinaryValue ?? []);
         }
-        else if (value.StringValue is not null)
+        else if (mirrorStringToBinaryDocValues && value.StringValue is not null)
         {
             AddBinaryDocValue(name, DocCount, value.StringValue);
         }

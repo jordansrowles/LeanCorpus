@@ -20,6 +20,7 @@ public static class IndexCodecMigrator
     [
         ".dic",
         ".pos",
+        ".nrm",
         ".dvn",
         ".dvs",
         ".dss",
@@ -459,6 +460,9 @@ public static class IndexCodecMigrator
             case ".pos":
                 RewritePostings(targetDirectory, action);
                 break;
+            case ".nrm":
+                RewriteNorms(filePath);
+                break;
             case ".dvn":
                 RewriteNumericDocValues(filePath);
                 break;
@@ -608,6 +612,28 @@ public static class IndexCodecMigrator
             static item => item.Value.Select(static value => (string?)value).ToArray(),
             StringComparer.Ordinal);
         WriteSingleFileAtomically(path, temporaryPath => SortedDocValuesWriter.Write(temporaryPath, nullableValues, docCount));
+    }
+
+    private static void RewriteNorms(string path)
+    {
+        var values = NormsReader.Read(path);
+        var fieldNorms = values.Norms.ToDictionary(
+            static item => item.Key,
+            static item =>
+            {
+                var norms = new float[item.Value.Length];
+                for (int i = 0; i < item.Value.Length; i++)
+                    norms[i] = item.Value[i] / 255f;
+                return norms;
+            },
+            StringComparer.Ordinal);
+
+        IReadOnlyDictionary<string, float[]>? fieldBoosts = values.Boosts.Count > 0
+            ? values.Boosts
+            : null;
+
+        var docCount = fieldNorms.Count == 0 ? 0 : fieldNorms.Values.Max(static field => field.Length);
+        WriteSingleFileAtomically(path, temporaryPath => NormsWriter.Write(temporaryPath, fieldNorms, fieldBoosts, docCount));
     }
 
     private static void RewriteSortedSetDocValues(string path)

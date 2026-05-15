@@ -248,13 +248,11 @@ public sealed partial class IndexSearcher
         Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
         var qualifiedPrefix = $"{query.Field}\x00{query.Prefix}";
-        var matchingTerms = reader.GetTermsWithPrefix(qualifiedPrefix);
-        if (matchingTerms.Count == 0) return;
-
         float boost = query.Boost;
         float avgDocLength = _stats.GetAvgFieldLength(query.Field);
         int docBase = reader.DocBase;
         reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+        reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
         var scores = EnsureScratch(ref t_patternScores, reader.MaxDoc);
         var seen = EnsureScratch(ref t_patternSeen, reader.MaxDoc);
         var docIds = EnsureScratch(ref t_patternDocIds, reader.MaxDoc);
@@ -262,6 +260,27 @@ public sealed partial class IndexSearcher
 
         try
         {
+            if (globalDFs.Count == 0)
+            {
+                var matchingOffsets = reader.GetTermOffsetsWithPrefix(qualifiedPrefix);
+                if (matchingOffsets.Count == 0) return;
+
+                foreach (var postingsOffset in matchingOffsets)
+                {
+                    using var postings = reader.GetPostingsEnumAtOffset(postingsOffset);
+                    if (postings.IsExhausted) continue;
+
+                    var (f1, f2) = _similarity.PrecomputeFactors(_totalDocCount, postings.DocFreq, avgDocLength);
+                    AccumulatePostingsScores(reader, postings, f1, f2, fieldLengths, fieldBoosts, boost, scores, seen, docIds, ref docCount);
+                }
+
+                CollectAccumulatedScores(scores, docIds, docCount, docBase, ref collector);
+                return;
+            }
+
+            var matchingTerms = reader.GetTermsWithPrefix(qualifiedPrefix);
+            if (matchingTerms.Count == 0) return;
+
             foreach (var (qualifiedTerm, postingsOffset) in matchingTerms)
             {
                 using var postings = reader.GetPostingsEnumAtOffset(postingsOffset);
@@ -275,7 +294,7 @@ public sealed partial class IndexSearcher
                 }
                 var (f1, f2) = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
 
-                AccumulatePostingsScores(reader, postings, query.Field, f1, f2, fieldLengths, boost, scores, seen, docIds, ref docCount);
+                AccumulatePostingsScores(reader, postings, f1, f2, fieldLengths, fieldBoosts, boost, scores, seen, docIds, ref docCount);
             }
 
             CollectAccumulatedScores(scores, docIds, docCount, docBase, ref collector);
@@ -301,6 +320,7 @@ public sealed partial class IndexSearcher
         float avgDocLength = _stats.GetAvgFieldLength(query.Field);
         int docBase = reader.DocBase;
         reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+        reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
         var scores = EnsureScratch(ref t_patternScores, reader.MaxDoc);
         var seen = EnsureScratch(ref t_patternSeen, reader.MaxDoc);
         var docIds = EnsureScratch(ref t_patternDocIds, reader.MaxDoc);
@@ -319,7 +339,7 @@ public sealed partial class IndexSearcher
                     if (postings.IsExhausted) continue;
 
                     var (f1, f2) = _similarity.PrecomputeFactors(_totalDocCount, postings.DocFreq, avgDocLength);
-                    AccumulatePostingsScores(reader, postings, query.Field, f1, f2, fieldLengths, boost, scores, seen, docIds, ref docCount);
+                    AccumulatePostingsScores(reader, postings, f1, f2, fieldLengths, fieldBoosts, boost, scores, seen, docIds, ref docCount);
                 }
 
                 CollectAccumulatedScores(scores, docIds, docCount, docBase, ref collector);
@@ -339,7 +359,7 @@ public sealed partial class IndexSearcher
                 docFreq = globalDFs.GetValueOrDefault((query.Field, termPart), docFreq);
                 var (f1, f2) = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
 
-                AccumulatePostingsScores(reader, postings, query.Field, f1, f2, fieldLengths, boost, scores, seen, docIds, ref docCount);
+                AccumulatePostingsScores(reader, postings, f1, f2, fieldLengths, fieldBoosts, boost, scores, seen, docIds, ref docCount);
             }
 
             CollectAccumulatedScores(scores, docIds, docCount, docBase, ref collector);
@@ -351,7 +371,7 @@ public sealed partial class IndexSearcher
     }
 
     private void AccumulatePostingsScores(SegmentReader reader, PostingsEnum postings,
-        string field, float f1, float f2, int[]? fieldLengths, float boost,
+        float f1, float f2, int[]? fieldLengths, float[]? fieldBoosts, float boost,
         float[] scores, bool[] seen, int[] docIds, ref int docCount)
     {
         while (postings.MoveNext())
@@ -364,7 +384,7 @@ public sealed partial class IndexSearcher
                 ? fieldLengths[docId] : 1;
             float score = _similarity.ScorePrecomputed(f1, f2, tf, docLength);
             if (boost != 1.0f) score *= boost;
-            score = ApplyFieldBoost(reader, docId, field, score);
+            score = ApplyFieldBoost(fieldBoosts, docId, score);
             if (!seen[docId])
             {
                 seen[docId] = true;
@@ -420,36 +440,54 @@ public sealed partial class IndexSearcher
         float boost = query.Boost;
         float avgDocLength = _stats.GetAvgFieldLength(query.Field);
         int docBase = reader.DocBase;
+        reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+        reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
+        var scores = EnsureScratch(ref t_patternScores, reader.MaxDoc);
+        var seen = EnsureScratch(ref t_patternSeen, reader.MaxDoc);
+        var docIds = EnsureScratch(ref t_patternDocIds, reader.MaxDoc);
+        int docCount = 0;
 
-        foreach (var (qualifiedTerm, postingsOffset, distance) in matchingTerms)
+        try
         {
-            using var postings = reader.GetPostingsEnumAtOffset(postingsOffset);
-            if (postings.IsExhausted) continue;
-
-            float distanceFactor = 1.0f - ((float)distance / (query.MaxEdits + 1));
-            int docFreq = postings.DocFreq;
-            if (globalDFs.Count > 0)
+            foreach (var (qualifiedTerm, postingsOffset, distance) in matchingTerms)
             {
-                var termStr = qualifiedTerm.AsSpan(query.Field.Length + 1).ToString();
-                docFreq = globalDFs.GetValueOrDefault((query.Field, termStr), docFreq);
+                using var postings = reader.GetPostingsEnumAtOffset(postingsOffset);
+                if (postings.IsExhausted) continue;
+
+                float distanceFactor = 1.0f - ((float)distance / (query.MaxEdits + 1));
+                int docFreq = postings.DocFreq;
+                if (globalDFs.Count > 0)
+                {
+                    var termStr = qualifiedTerm.AsSpan(query.Field.Length + 1).ToString();
+                    docFreq = globalDFs.GetValueOrDefault((query.Field, termStr), docFreq);
+                }
+                var (f1, f2) = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
+
+                while (postings.MoveNext())
+                {
+                    int docId = postings.DocId;
+                    if (!reader.IsLive(docId)) continue;
+
+                    int tf = postings.Freq;
+                    int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
+                        ? fieldLengths[docId] : 1;
+                    float score = _similarity.ScorePrecomputed(f1, f2, tf, docLength) * distanceFactor;
+                    if (boost != 1.0f) score *= boost;
+                    score = ApplyFieldBoost(fieldBoosts, docId, score);
+                    if (!seen[docId])
+                    {
+                        seen[docId] = true;
+                        docIds[docCount++] = docId;
+                    }
+                    scores[docId] += score;
+                }
             }
-            var (f1, f2) = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
 
-            reader.TryGetFieldLengths(query.Field, out var fieldLengths);
-
-            while (postings.MoveNext())
-            {
-                int docId = postings.DocId;
-                if (!reader.IsLive(docId)) continue;
-
-                int tf = postings.Freq;
-                int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
-                    ? fieldLengths[docId] : 1;
-                float score = _similarity.ScorePrecomputed(f1, f2, tf, docLength) * distanceFactor;
-                if (boost != 1.0f) score *= boost;
-                score = ApplyFieldBoost(reader, docId, query.Field, score);
-                collector.Collect(docBase + docId, score);
-            }
+            CollectAccumulatedScores(scores, docIds, docCount, docBase, ref collector);
+        }
+        finally
+        {
+            ClearAccumulatedScores(scores, seen, docIds, docCount);
         }
     }
 

@@ -20,6 +20,12 @@ public sealed partial class SegmentReader
         return _dicReader.GetTermsWithPrefix(qualifiedPrefix.AsSpan());
     }
 
+    /// <summary>Returns postings offsets for terms matching a qualified prefix.</summary>
+    internal List<long> GetTermOffsetsWithPrefix(string qualifiedPrefix)
+    {
+        return _dicReader.GetTermOffsetsWithPrefix(qualifiedPrefix.AsSpan());
+    }
+
     /// <summary>Returns all terms for a field matching a wildcard pattern.</summary>
     public List<(string Term, long Offset)> GetTermsMatching(string fieldPrefix, ReadOnlySpan<char> pattern)
     {

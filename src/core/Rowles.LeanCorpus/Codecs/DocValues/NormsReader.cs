@@ -61,23 +61,57 @@ internal static class NormsReader
 
             result.Norms[fieldName] = norms;
 
-            var boosts = new float[docCount];
-            if (version >= 2)
+            if (version >= 3)
             {
+                int boostCount = accessor.ReadInt32(offset);
+                offset += sizeof(int);
+                if ((uint)boostCount > (uint)docCount)
+                    throw new InvalidDataException($"Invalid norms file: boost count {boostCount} exceeds document count {docCount} for field '{fieldName}'.");
+
+                float[]? boosts = null;
+                for (int i = 0; i < boostCount; i++)
+                {
+                    int docId = accessor.ReadInt32(offset);
+                    offset += sizeof(int);
+                    float boost = accessor.ReadSingle(offset);
+                    offset += sizeof(float);
+
+                    if ((uint)docId >= (uint)docCount)
+                        throw new InvalidDataException($"Invalid norms file: boost doc ID {docId} is outside field '{fieldName}' document count {docCount}.");
+
+                    boosts ??= CreateDefaultBoosts(docCount);
+                    boosts[docId] = boost;
+                }
+
+                if (boosts is not null)
+                    result.Boosts[fieldName] = boosts;
+            }
+            else if (version >= 2)
+            {
+                float[]? boosts = null;
                 for (int i = 0; i < docCount; i++)
                 {
-                    boosts[i] = accessor.ReadSingle(offset);
+                    float boost = accessor.ReadSingle(offset);
                     offset += sizeof(float);
-                }
-            }
-            else
-            {
-                Array.Fill(boosts, 1.0f);
-            }
+                    if (boost == 1.0f)
+                        continue;
 
-            result.Boosts[fieldName] = boosts;
+                    boosts ??= CreateDefaultBoosts(docCount);
+                    boosts[i] = boost;
+                }
+
+                if (boosts is not null)
+                    result.Boosts[fieldName] = boosts;
+            }
         }
 
         return result;
+    }
+
+    private static float[] CreateDefaultBoosts(int docCount)
+    {
+        var boosts = new float[docCount];
+        Array.Fill(boosts, 1.0f);
+        return boosts;
     }
 }

@@ -129,6 +129,28 @@ internal sealed class FSTReader
         return results;
     }
 
+    /// <summary>Returns postings offsets for terms sharing the given qualified prefix.</summary>
+    public List<long> GetTermOffsetsWithPrefix(ReadOnlySpan<char> qualifiedPrefix)
+    {
+        int byteCount = Encoding.UTF8.GetByteCount(qualifiedPrefix);
+        Span<byte> prefixUtf8 = byteCount <= 256 ? stackalloc byte[byteCount] : new byte[byteCount];
+        Encoding.UTF8.GetBytes(qualifiedPrefix, prefixUtf8);
+
+        var results = new List<long>();
+        int start = LowerBound(prefixUtf8);
+
+        for (int i = start; i < _termCount; i++)
+        {
+            var key = GetKeySpan(i);
+            if (key.StartsWith(prefixUtf8))
+                results.Add(_offsets[i]);
+            else
+                break;
+        }
+
+        return results;
+    }
+
     /// <summary>Returns all terms matching a wildcard pattern for a given field.</summary>
     public List<(string Term, long Offset)> GetTermsMatching(string fieldPrefix, ReadOnlySpan<char> pattern)
     {

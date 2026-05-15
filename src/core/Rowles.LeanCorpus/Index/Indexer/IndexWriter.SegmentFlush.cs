@@ -157,7 +157,6 @@ public sealed partial class IndexWriter
             normFields.Add(fieldName);
 
         var fieldNorms = new Dictionary<string, float[]>(normFields.Count, StringComparer.Ordinal);
-        var fieldBoosts = new Dictionary<string, float[]>(normFields.Count, StringComparer.Ordinal);
         var fieldLengths = new Dictionary<string, int[]>(_docTokenCounts.Count, StringComparer.Ordinal);
         var normsReturnList = new List<float[]>(normFields.Count);
         var lengthsReturnList = new List<int[]>(_docTokenCounts.Count);
@@ -165,10 +164,8 @@ public sealed partial class IndexWriter
         {
             _docTokenCounts.TryGetValue(fieldName, out var counts);
             var norms = ArrayPool<float>.Shared.Rent(_bufferedDocCount);
-            var boosts = ArrayPool<float>.Shared.Rent(_bufferedDocCount);
             int[]? lengths = counts is not null ? ArrayPool<int>.Shared.Rent(_bufferedDocCount) : null;
             int countsLen = counts?.Length ?? 0;
-            _fieldBoosts.TryGetValue(fieldName, out var sparseBoosts);
             for (int i = 0; i < _bufferedDocCount; i++)
             {
                 int tokenCount = counts is not null
@@ -177,19 +174,16 @@ public sealed partial class IndexWriter
                 if (lengths is not null)
                     lengths[i] = tokenCount;
                 norms[i] = 1.0f / (1.0f + Math.Max(1, tokenCount));
-                boosts[i] = sparseBoosts is not null && sparseBoosts.TryGetValue(i, out var boost) ? boost : 1.0f;
             }
             fieldNorms[fieldName] = norms;
-            fieldBoosts[fieldName] = boosts;
             if (lengths is not null)
                 fieldLengths[fieldName] = lengths;
             normsReturnList.Add(norms);
             if (lengths is not null)
                 lengthsReturnList.Add(lengths);
         }
-        NormsWriter.Write(basePath + ".nrm", fieldNorms, fieldBoosts, _bufferedDocCount);
+        NormsWriter.Write(basePath + ".nrm", fieldNorms, docCount: _bufferedDocCount, sparseFieldBoosts: _fieldBoosts);
         foreach (var arr in normsReturnList) ArrayPool<float>.Shared.Return(arr, clearArray: false);
-        foreach (var arr in fieldBoosts.Values) ArrayPool<float>.Shared.Return(arr, clearArray: false);
 
         FieldLengthWriter.Write(basePath + ".fln", fieldLengths, _bufferedDocCount);
         SegmentStats.FromFieldLengths(_bufferedDocCount, _bufferedDocCount, fieldNames, fieldLengths)

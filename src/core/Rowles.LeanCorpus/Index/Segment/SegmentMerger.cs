@@ -440,6 +440,7 @@ public sealed class SegmentMerger
         {
             var norms = new float[totalDocs];
             var boosts = new float[totalDocs];
+            Array.Fill(boosts, 1.0f);
             int idx = 0;
             foreach (var segInfo in segments)
             {
