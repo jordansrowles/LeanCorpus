@@ -34,5 +34,9 @@
     <None Include="..\..\..\LICENCE" Pack="true" PackagePath="\" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Analysis\Stemmers\kstem-dict.txt" LogicalName="Rowles.LeanCorpus.Analysis.Stemmers.kstem-dict.txt" />
+  </ItemGroup>
+
 
 </Project>

@@ -30,11 +30,11 @@ LeanCorpus currently exposes more than one public English stemmer. They are not 
 |---|---|---|
 | `EnglishStemmer` | Porter-based English stemming | Default choice for most English full-text search. This is the English stemmer used by `AnalyserFactory.Create("en")`. |
 | `LightEnglishStemmer` | Lighter suffix stripping with a smaller rule set | Use only when you specifically want less aggressive stemming. |
-| `KStemmer` | Compatibility wrapper over `LightEnglishStemmer` | Use only when you need that exact current behaviour. |
+| `KStemmer` | Lexicon-validated English stemming inspired by Krovetz | Uses the embedded `kstem-dict.txt` by default, with optional `KStemLexicon` override support. |
 
 `StemmedAnalyser` also uses Porter stemming. If you want one default English choice for
 consumer-facing documentation, treat `EnglishStemmer` as that default and reach for
-`LightEnglishStemmer` only deliberately.
+`LightEnglishStemmer` or `KStemmer` only deliberately.
 
 ## Build a pipeline
 

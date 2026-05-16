@@ -9,7 +9,7 @@ recall, but it can also make matching less precise.
 |---|---|---|
 | `EnglishStemmer` | Porter-based English stemming | Default choice for most English search. `AnalyserFactory.Create("en")` uses this. |
 | `LightEnglishStemmer` | Lighter suffix stripping | Less aggressive than Porter. Use it only when you want that trade-off explicitly. |
-| `KStemmer` | Compatibility wrapper over `LightEnglishStemmer` | Exposes the same behaviour as `LightEnglishStemmer` at present. |
+| `KStemmer` | Lexicon-validated English stemming inspired by Krovetz | Uses the embedded `kstem-dict.txt` by default. Supply your own `KStemLexicon` when you need a different domain lexicon. |
 
 `StemmedAnalyser` also applies Porter stemming through `PorterStemmerFilter`, so it
 lines up more closely with `EnglishStemmer` than with `LightEnglishStemmer`.
@@ -27,6 +27,7 @@ your own custom analyser pipeline.
 
 - Start with `EnglishStemmer` for ordinary English full-text search.
 - Use `LightEnglishStemmer` only when Porter stemming is clearly too aggressive for your corpus.
+- Use `KStemmer` when false stems are more costly than missed stems. Override its default lexicon when your corpus needs different base forms.
 - Use `LanguageAnalyser` when you want stop words and stemming packaged together for a supported language.
 - Skip stemming entirely when exact forms matter more than recall.
 
