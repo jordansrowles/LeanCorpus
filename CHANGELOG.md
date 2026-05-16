@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.4.0] - 2026-xx-xx
 
 ### Added
-- Added Unicode-aware analysis components: `IcuAnalyser`, `IcuTokeniser`, `Uax29UrlEmailTokeniser`, `ThaiTokeniser`, `MediaWikiTokeniser`, `KeepWordFilter`, `TypeTokenFilter`, `LimitTokenCountFilter`, `FlattenGraphFilter`, `MetaphoneFilter`, `PhoneticAlternatesFilter`, `HunspellStemFilter`, `LightEnglishStemmer`, and a compatibility `KStemmer`, plus targeted unit, integration, and chaos coverage for extensible token types, MediaWiki token classes, phonetic alternates, Hunspell stemming, and token-budget guardrails.
+- Added Unicode-aware analysis components: `IcuAnalyser`, `IcuTokeniser`, `Uax29UrlEmailTokeniser`, `ThaiTokeniser`, `MediaWikiTokeniser`, `KeepWordFilter`, `TypeTokenFilter`, `LimitTokenCountFilter`, `FlattenGraphFilter`, `MetaphoneFilter`, `PhoneticAlternatesFilter`, `HunspellStemFilter`, `LightEnglishStemmer`, and a lexicon-backed `KStemmer`, plus targeted unit, integration, and chaos coverage for extensible token types, MediaWiki token classes, phonetic alternates, Hunspell stemming, and token-budget guardrails.
 - Added `BinaryField` for stored raw byte values, with typed stored-field codec support, binary doc-values mirroring, and binary retrieval through `SegmentReader` and `IndexSearcher`.
 - Added index-time field boosting on document fields, persisted through norms, applied across text, boolean, range, vector, and geo scoring paths, and surfaced in score explanations.
 - Added payload-bearing term vectors and payload-preserving merge paths for postings and stored term vectors, plus focused unit, integration, and chaos coverage for binary fields, boost scoring, merge round-trips, and truncated payload and boost tails.
@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scoped lightweight phonetic and English stemming APIs to honest names, and added Hunspell condition parsing plus generated-form limits.
 - Hardened async and batch indexing so schema validation runs before slot acquisition, dispose drains active indexing operations, block indexing suppresses mid-block threshold flushes until the parent marker is present, and partial indexing failures make the writer unusable until reopened.
 - Precomputed `CombinedFieldsQuery` union document frequencies once per search execution and bounded `TermInSetQuery` term counts.
+- Changed `KStemmer` to load its default lexicon from an embedded `kstem-dict.txt` resource generated from Lucene.NET's KStem word list, while still allowing custom `KStemLexicon` injection.
 - Stopped mirroring stored `TextField` values into binary DocValues by default, keeping binary DocValues for `BinaryField`, `StoredField`, and exact `StringField` values.
 - Changed norms boost storage to sparse entries so default field boosts do not write or load per-document `float[]` arrays.
 - Added offsets-only prefix enumeration for prefix and trailing-wildcard query execution when global document-frequency remapping is not needed.
@@ -53,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `StoredFieldsReader` now validates matching `.fdt` and `.fdx` header versions and block sizes before decoding stored values, and rejects unsupported `.fdt` versions up front.
 - `TermInSetQuery` now publishes its cached qualified-term array safely for parallel search execution.
 - `FuzzyQuery` now accumulates scores per document so multiple matching term expansions do not inflate hit counts with duplicate documents.
+- Hunspell affix parsing now rejects mismatched counted rule lines, applies cross-product suffix conditions to the prefix-modified form, and guards malformed strip lengths.
+- Concurrent DWPT merges now preserve per-document binary DocValues and account merged postings for RAM-threshold flushes.
 
 ## [1.3.0] - 2026-05-11
 
