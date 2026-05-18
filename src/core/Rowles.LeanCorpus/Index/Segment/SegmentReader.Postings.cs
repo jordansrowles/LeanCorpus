@@ -50,11 +50,17 @@ public sealed partial class SegmentReader
     /// <summary>Returns positional data for a pre-built qualified term string.</summary>
     internal ReadOnlySpan<int> GetPositions(string qualifiedTerm, int docId)
     {
-        if (!_dicReader.TryGetPostingsOffset(qualifiedTerm, out long offset))
-            return ReadOnlySpan<int>.Empty;
+        var positions = GetPositionsArray(qualifiedTerm, docId);
+        return positions is null ? ReadOnlySpan<int>.Empty : positions.AsSpan();
+    }
 
-        var positions = ReadPositionsAtOffset(offset, docId);
-        return positions.AsSpan();
+    /// <summary>Returns positional data for a pre-built qualified term string.</summary>
+    internal int[]? GetPositionsArray(string qualifiedTerm, int docId)
+    {
+        if (!TryGetCachedOffset(qualifiedTerm, out long offset))
+            return null;
+
+        return ReadPositionsAtOffset(offset, docId);
     }
 
     /// <summary>

@@ -1,6 +1,8 @@
 ﻿using System.Collections.Frozen;
 using System.Runtime.CompilerServices;
+using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Hnsw;
+using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Codecs.TermVectors;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
@@ -20,6 +22,7 @@ public sealed partial class SegmentReader : IDisposable
     private readonly byte _postingsVersion;
     private readonly StoredFieldsReader? _storedReader;
     private readonly FrozenDictionary<string, byte[]> _fieldNorms;
+    private readonly FrozenDictionary<string, float[]> _fieldBoosts;
     private readonly FrozenDictionary<string, int[]> _fieldLengthsPerField;
     private readonly Dictionary<string, string> _vectorPaths = new(StringComparer.Ordinal);
     private readonly Dictionary<string, VectorReader> _vectorReaders = new(StringComparer.Ordinal);
@@ -87,7 +90,9 @@ public sealed partial class SegmentReader : IDisposable
             _liveDocs = LiveDocs.Deserialise(delPath, info.DocCount);
 
         // Load per-field norms
-        _fieldNorms = NormsReader.Read(_basePath + ".nrm").ToFrozenDictionary(StringComparer.Ordinal);
+        var normsData = NormsReader.Read(_basePath + ".nrm");
+        _fieldNorms = normsData.Norms.ToFrozenDictionary(StringComparer.Ordinal);
+        _fieldBoosts = normsData.Boosts.ToFrozenDictionary(StringComparer.Ordinal);
 
         // Prefer exact field lengths from .fln; fall back to quantised norms
         var exactLengths = FieldLengthReader.TryRead(_basePath + ".fln");
@@ -171,6 +176,21 @@ public sealed partial class SegmentReader : IDisposable
         if (_fieldNorms.TryGetValue(field, out var norms) && (uint)docId < (uint)norms.Length)
             return norms[docId] / 255f;
         return 0f;
+    }
+
+    /// <summary>Returns the index-time field boost for a document in a specific field.</summary>
+    public float GetFieldBoost(int docId, string field)
+    {
+        if (_fieldBoosts.TryGetValue(field, out var boosts) && (uint)docId < (uint)boosts.Length)
+            return boosts[docId];
+        return 1.0f;
+    }
+
+    /// <summary>Resolves the sparse boost array for a field when it has non-default boosts.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal bool TryGetFieldBoosts(string field, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out float[]? boosts)
+    {
+        return _fieldBoosts.TryGetValue(field, out boosts);
     }
 
     /// <summary>Returns the quantised norm value for a document using the first available field.</summary>

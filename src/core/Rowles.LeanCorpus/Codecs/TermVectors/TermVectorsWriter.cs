@@ -4,7 +4,7 @@
 /// Writes per-document term vectors to .tvd (data) and .tvx (offset index) files.
 /// Format: .tvx: [docCount:int32] [long[] offsets into .tvd]
 ///         .tvd per doc: [fieldCount:int32] per field: [fieldName:string] [termCount:int32]
-///              per term: [term:string] [freq:int32] [posCount:int32] [positions:int32[]]
+///              per term: [term:string] [freq:int32] [posCount:int32] [positions:int32[]] [hasPayloads:bool] [payloads]
 /// </summary>
 internal static class TermVectorsWriter
 {
@@ -39,6 +39,7 @@ internal static class TermVectorsWriter
                     tvdWriter.Write(entry.Positions.Length);
                     foreach (var pos in entry.Positions)
                         tvdWriter.Write(pos);
+                    WritePayloads(tvdWriter, entry);
                 }
             }
         }
@@ -52,5 +53,26 @@ internal static class TermVectorsWriter
         tvxWriter.Write(docs.Count);
         foreach (var offset in offsets)
             tvxWriter.Write(offset);
+    }
+
+    private static void WritePayloads(BinaryWriter writer, TermVectorEntry entry)
+    {
+        bool hasPayloads = entry.Payloads is { Length: > 0 } payloads
+            && payloads.Any(static payload => payload is { Length: > 0 });
+        writer.Write(hasPayloads);
+
+        if (!hasPayloads)
+            return;
+
+        if (entry.Payloads is null || entry.Payloads.Length != entry.Positions.Length)
+            throw new InvalidDataException($"Term vector payload count for term '{entry.Term}' must match the position count.");
+
+        for (int i = 0; i < entry.Payloads.Length; i++)
+        {
+            var payload = entry.Payloads[i];
+            writer.Write(payload?.Length ?? 0);
+            if (payload is { Length: > 0 })
+                writer.Write(payload);
+        }
     }
 }

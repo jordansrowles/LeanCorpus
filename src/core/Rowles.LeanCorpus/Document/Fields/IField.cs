@@ -14,4 +14,7 @@ public interface IField
 
     /// <summary>Whether the field is included in the inverted index.</summary>
     bool IsIndexed { get; }
+
+    /// <summary>Index-time boost applied to queries that score this field.</summary>
+    float Boost { get; }
 }

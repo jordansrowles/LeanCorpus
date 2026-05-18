@@ -5,18 +5,20 @@ internal sealed class TermVectorsReader : IDisposable
 {
     private readonly Store.IndexInput _tvdInput;
     private readonly long[] _offsets;
+    private readonly byte _version;
 
-    private TermVectorsReader(Store.IndexInput tvdInput, long[] offsets)
+    private TermVectorsReader(Store.IndexInput tvdInput, long[] offsets, byte version)
     {
         _tvdInput = tvdInput;
         _offsets = offsets;
+        _version = version;
     }
 
     public static TermVectorsReader Open(string tvdPath, string tvxPath)
     {
         // Read offsets from .tvx index file
         using var tvxInput = new Store.IndexInput(tvxPath);
-        CodecConstants.ValidateHeader(tvxInput, CodecConstants.TermVectorsVersion, "term vectors index (.tvx)");
+        byte tvxVersion = CodecConstants.ReadHeaderVersion(tvxInput, CodecConstants.TermVectorsVersion, "term vectors index (.tvx)");
 
         int docCount = tvxInput.ReadInt32();
         var offsets = new long[docCount];
@@ -25,9 +27,12 @@ internal sealed class TermVectorsReader : IDisposable
 
         // Open .tvd data file as mmap
         var tvdInput = new Store.IndexInput(tvdPath);
-        CodecConstants.ValidateHeader(tvdInput, CodecConstants.TermVectorsVersion, "term vectors data (.tvd)");
+        byte tvdVersion = CodecConstants.ReadHeaderVersion(tvdInput, CodecConstants.TermVectorsVersion, "term vectors data (.tvd)");
 
-        return new TermVectorsReader(tvdInput, offsets);
+        if (tvdVersion != tvxVersion)
+            throw new InvalidDataException($"Mismatched term vector versions between '{tvdPath}' and '{tvxPath}'.");
+
+        return new TermVectorsReader(tvdInput, offsets, tvdVersion);
     }
 
     /// <summary>Returns all term vectors for a document across all stored fields.</summary>
@@ -53,7 +58,24 @@ internal sealed class TermVectorsReader : IDisposable
                 var positions = new int[posCount];
                 for (int p = 0; p < posCount; p++)
                     positions[p] = _tvdInput.ReadInt32(ref position);
-                entries.Add(new TermVectorEntry(term, freq, positions));
+                byte[]?[]? payloads = null;
+                if (_version >= 2)
+                {
+                    bool hasPayloads = _tvdInput.ReadBoolean(ref position);
+                    if (hasPayloads)
+                    {
+                        payloads = new byte[]?[posCount];
+                        for (int p = 0; p < posCount; p++)
+                        {
+                            int payloadLength = _tvdInput.ReadInt32(ref position);
+                            payloads[p] = payloadLength > 0
+                                ? _tvdInput.ReadSpan(payloadLength, ref position).ToArray()
+                                : null;
+                        }
+                    }
+                }
+
+                entries.Add(new TermVectorEntry(term, freq, positions, payloads));
             }
             result[fieldName] = entries;
         }

@@ -34,6 +34,15 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         return path;
     }
 
+    private static BooleanQuery BuildBooleanQuery(params (Query query, Occur occur)[] clauses)
+    {
+        var builder = new BooleanQuery.Builder();
+        foreach (var (query, occur) in clauses)
+            builder.Add(query, occur);
+
+        return builder.Build();
+    }
+
     /// <summary>
     /// Verifies the Must: Single Clause Returns Matching Docs scenario.
     /// </summary>
@@ -53,8 +62,8 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "alpha"), Occur.Must);
+        var query = BuildBooleanQuery(
+            (new TermQuery("body", "alpha"), Occur.Must));
         var results = searcher.Search(query, 10);
 
         Assert.Equal(2, results.TotalHits);
@@ -86,10 +95,10 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "red"), Occur.Must);
-        query.Add(new TermQuery("body", "green"), Occur.Must);
-        query.Add(new TermQuery("body", "blue"), Occur.Must);
+        var query = BuildBooleanQuery(
+            (new TermQuery("body", "red"), Occur.Must),
+            (new TermQuery("body", "green"), Occur.Must),
+            (new TermQuery("body", "blue"), Occur.Must));
         var results = searcher.Search(query, 10);
 
         Assert.Equal(2, results.TotalHits);
@@ -115,9 +124,9 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "alpha"), Occur.Must);
-        query.Add(new TermQuery("body", "beta"), Occur.Must);
+        var query = BuildBooleanQuery(
+            (new TermQuery("body", "alpha"), Occur.Must),
+            (new TermQuery("body", "beta"), Occur.Must));
         var results = searcher.Search(query, 10);
 
         Assert.Equal(0, results.TotalHits);
@@ -138,9 +147,9 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "some"), Occur.Must);
-        query.Add(new TermQuery("body", "nonexistent"), Occur.Must);
+        var query = BuildBooleanQuery(
+            (new TermQuery("body", "some"), Occur.Must),
+            (new TermQuery("body", "nonexistent"), Occur.Must));
         var results = searcher.Search(query, 10);
 
         Assert.Equal(0, results.TotalHits);
@@ -165,8 +174,8 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "alpha"), Occur.Should);
+        var query = BuildBooleanQuery(
+            (new TermQuery("body", "alpha"), Occur.Should));
         var results = searcher.Search(query, 10);
 
         Assert.Equal(2, results.TotalHits);
@@ -199,9 +208,9 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "alpha"), Occur.Should);
-        query.Add(new TermQuery("body", "beta"), Occur.Should);
+        var query = BuildBooleanQuery(
+            (new TermQuery("body", "alpha"), Occur.Should),
+            (new TermQuery("body", "beta"), Occur.Should));
         var results = searcher.Search(query, 10);
 
         Assert.Equal(3, results.TotalHits);
@@ -228,9 +237,9 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "search"), Occur.Must);
-        query.Add(new TermQuery("body", "database"), Occur.MustNot);
+        var query = BuildBooleanQuery(
+            (new TermQuery("body", "search"), Occur.Must),
+            (new TermQuery("body", "database"), Occur.MustNot));
         var results = searcher.Search(query, 10);
 
         Assert.Equal(2, results.TotalHits);
@@ -255,10 +264,10 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "search"), Occur.Must);
-        query.Add(new TermQuery("body", "database"), Occur.MustNot);
-        query.Add(new TermQuery("body", "cache"), Occur.MustNot);
+        var query = BuildBooleanQuery(
+            (new TermQuery("body", "search"), Occur.Must),
+            (new TermQuery("body", "database"), Occur.MustNot),
+            (new TermQuery("body", "cache"), Occur.MustNot));
         var results = searcher.Search(query, 10);
 
         Assert.Equal(2, results.TotalHits);
@@ -285,9 +294,9 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "fast"), Occur.Must);
-        query.Add(new TermQuery("body", "search"), Occur.Should);
+        var query = BuildBooleanQuery(
+            (new TermQuery("body", "fast"), Occur.Must),
+            (new TermQuery("body", "search"), Occur.Should));
         var results = searcher.Search(query, 10);
 
         Assert.Equal(2, results.TotalHits);
@@ -312,15 +321,13 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-
-        var alternatives = new BooleanQuery();
-        alternatives.Add(new TermQuery("title", "look"), Occur.Should);
-        alternatives.Add(new TermQuery("title", "looks"), Occur.Should);
-        alternatives.Add(new TermQuery("title", "looked"), Occur.Should);
-        query.Add(alternatives, Occur.Must);
-
-        query.Add(new TermQuery("title", "after"), Occur.Must);
+        var alternatives = BuildBooleanQuery(
+            (new TermQuery("title", "look"), Occur.Should),
+            (new TermQuery("title", "looks"), Occur.Should),
+            (new TermQuery("title", "looked"), Occur.Should));
+        var query = BuildBooleanQuery(
+            (alternatives, Occur.Must),
+            (new TermQuery("title", "after"), Occur.Must));
 
         var results = searcher.Search(query, 10);
 
@@ -352,8 +359,8 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "fast"), Occur.Must);
+        var query = BuildBooleanQuery(
+            (new TermQuery("body", "fast"), Occur.Must));
         var results = searcher.Search(query, 10);
 
         Assert.Equal(2, results.TotalHits);
@@ -381,9 +388,9 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "fast"), Occur.Must);
-        query.Add(new TermQuery("body", "search"), Occur.MustNot);
+        var query = BuildBooleanQuery(
+            (new TermQuery("body", "fast"), Occur.Must),
+            (new TermQuery("body", "search"), Occur.MustNot));
         var results = searcher.Search(query, 10);
 
         Assert.Equal(0, results.TotalHits);
@@ -400,8 +407,8 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "anything"), Occur.Must);
+        var query = BuildBooleanQuery(
+            (new TermQuery("body", "anything"), Occur.Must));
         var results = searcher.Search(query, 10);
 
         Assert.Equal(0, results.TotalHits);
@@ -426,10 +433,10 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "alpha"), Occur.Should);
-        query.Add(new TermQuery("body", "beta"), Occur.Should);
-        query.Add(new TermQuery("body", "gamma"), Occur.MustNot);
+        var query = BuildBooleanQuery(
+            (new TermQuery("body", "alpha"), Occur.Should),
+            (new TermQuery("body", "beta"), Occur.Should),
+            (new TermQuery("body", "gamma"), Occur.MustNot));
         var results = searcher.Search(query, 10);
 
         // Docs: 0 (alpha beta), 1 (gamma delta), 2 (alpha gamma), 3 (beta delta)
@@ -466,10 +473,10 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "red"), Occur.Should);
-        query.Add(new TermQuery("body", "green"), Occur.Should);
-        query.Add(new TermQuery("body", "blue"), Occur.Should);
+        var query = BuildBooleanQuery(
+            (new TermQuery("body", "red"), Occur.Should),
+            (new TermQuery("body", "green"), Occur.Should),
+            (new TermQuery("body", "blue"), Occur.Should));
         var results = searcher.Search(query, 10);
 
         Assert.Equal(3, results.TotalHits);

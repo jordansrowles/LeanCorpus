@@ -25,6 +25,13 @@ public sealed class DwptTests
         return doc;
     }
 
+    private static LeanDocument CreateBinaryDocument(int i)
+    {
+        var doc = CreateDocument(i);
+        doc.Add(new BinaryField("payload", System.Text.Encoding.UTF8.GetBytes($"payload-{i}")));
+        return doc;
+    }
+
     /// <summary>
     /// Verifies the DWPT Pool: Lock Free Single Thread Indexes Correctly scenario.
     /// </summary>
@@ -139,6 +146,78 @@ public sealed class DwptTests
         }
     }
 
+    [Fact(DisplayName = "DWPT Pool: Concurrent Batch Preserves Binary Doc Values Per Document")]
+    public void DwptPool_ConcurrentBatch_PreservesBinaryDocValuesPerDocument()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(dir);
+
+        try
+        {
+            var mmap = new MMapDirectory(dir);
+            using var writer = new IndexWriter(mmap, new IndexWriterConfig { MaxBufferedDocs = 1000 });
+            var docs = Enumerable.Range(0, 64).Select(CreateBinaryDocument).ToArray();
+
+            writer.AddDocumentsConcurrent(docs);
+            writer.Commit();
+
+            using var searcher = new IndexSearcher(mmap);
+            foreach (var reader in searcher.GetSegmentReaders())
+            {
+                for (int docId = 0; docId < reader.MaxDoc; docId++)
+                {
+                    var storedId = reader.GetStoredFields(docId)["id"][0];
+
+                    Assert.True(reader.TryGetBinaryDocValues("id", docId, out var idValues));
+                    var idValue = Assert.Single(idValues);
+                    Assert.Equal(storedId, System.Text.Encoding.UTF8.GetString(idValue));
+
+                    Assert.True(reader.TryGetBinaryDocValues("payload", docId, out var payloadValues));
+                    var payloadValue = Assert.Single(payloadValues);
+                    Assert.Equal($"payload-{storedId}", System.Text.Encoding.UTF8.GetString(payloadValue));
+                }
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "DWPT Pool: Concurrent Batch Uses RAM Threshold Flush")]
+    public void DwptPool_ConcurrentBatch_UsesRamThresholdFlush()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(dir);
+
+        try
+        {
+            var mmap = new MMapDirectory(dir);
+            using var writer = new IndexWriter(mmap, new IndexWriterConfig
+            {
+                MaxBufferedDocs = 10_000,
+                RamBufferSizeMB = 0.001
+            });
+            string largeValue = new('x', 4096);
+            var docs = Enumerable.Range(0, 16)
+                .Select(i =>
+                {
+                    var doc = CreateDocument(i);
+                    doc.Add(new StoredField("blob", largeValue));
+                    return doc;
+                })
+                .ToArray();
+
+            writer.AddDocumentsConcurrent(docs);
+
+            Assert.NotEmpty(Directory.GetFiles(dir, "*.seg"));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     /// <summary>
     /// Verifies the DWPT: Estimated Ram Bytes Increases With Documents scenario.
     /// </summary>
@@ -147,7 +226,7 @@ public sealed class DwptTests
     {
         // Arrange — create a DWPT directly (internal class, accessible via InternalsVisibleTo)
         var analyser = new StandardAnalyser();
-        var dwpt = new DocumentsWriterPerThread(analyser, new Dictionary<string, IAnalyser>());
+        var dwpt = new DocumentsWriterPerThread(analyser, new Dictionary<string, IAnalyser>(), storePayloads: false);
 
         Assert.Equal(0, dwpt.EstimatedRamBytes);
 

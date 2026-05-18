@@ -31,7 +31,11 @@ public sealed class Tokeniser : ITokeniser
                 i++;
             }
 
-            tokens.Add(new Token(input[start..i].ToString(), start, i));
+            tokens.Add(new Token(
+                input[start..i].ToString(),
+                start,
+                i,
+                UnicodeTokenisation.ClassifyTokenType(input[start..i])));
         }
 
         return tokens;

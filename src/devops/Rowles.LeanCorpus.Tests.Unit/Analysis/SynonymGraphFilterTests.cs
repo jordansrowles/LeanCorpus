@@ -197,4 +197,39 @@ public class SynonymGraphFilterTests
         Assert.Equal("usa", tokens[0].Text);
         Assert.Equal(3, tokens.Count); // usa + united states + america
     }
+
+    /// <summary>
+    /// Verifies the Larger Unique Synonym Maps: Expand More Tokens scenario.
+    /// </summary>
+    [Fact(DisplayName = "Larger Unique Synonym Maps: Expand More Tokens")]
+    public void LargerUniqueSynonymMaps_ExpandMoreTokens()
+    {
+        var baseTokens = new List<Token>
+        {
+            new("government", 0, 10),
+            new("market", 11, 17),
+            new("company", 18, 25),
+            new("nation", 26, 32),
+            new("policy", 33, 39)
+        };
+
+        var smallMap = new SynonymMap();
+        smallMap.Add("government", ["state"]);
+        smallMap.Add("market", ["exchange"]);
+
+        var largeMap = new SynonymMap();
+        largeMap.Add("government", ["state"]);
+        largeMap.Add("market", ["exchange"]);
+        largeMap.Add("company", ["firm"]);
+        largeMap.Add("nation", ["country"]);
+        largeMap.Add("policy", ["programme"]);
+
+        var smallTokens = new List<Token>(baseTokens);
+        var largeTokens = new List<Token>(baseTokens);
+
+        new SynonymGraphFilter(smallMap).Apply(smallTokens);
+        new SynonymGraphFilter(largeMap).Apply(largeTokens);
+
+        Assert.True(largeTokens.Count > smallTokens.Count);
+    }
 }

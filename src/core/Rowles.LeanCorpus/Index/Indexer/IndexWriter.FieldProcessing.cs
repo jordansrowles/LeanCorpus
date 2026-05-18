@@ -1,11 +1,12 @@
 ﻿using System.Runtime.CompilerServices;
+using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
 
 public sealed partial class IndexWriter
 {
-    private void AddDocumentCore(LeanDocument doc)
+    private void AddDocumentCore(LeanDocument doc, bool suppressFlush = false)
     {
         int localDocId = _bufferedDocCount;
         _sfDocStarts.Add(_sfFieldIds.Count);
@@ -17,28 +18,32 @@ public sealed partial class IndexWriter
             switch (field)
             {
                 case TextField tf:
+                    TrackFieldBoost(tf.Name, localDocId, tf.Boost);
                     IndexTextField(tf.Name, tf.Value, localDocId);
                     if (tf.IsStored)
                     {
-                        AppendStoredField(tf.Name, tf.Value);
+                        AppendStoredField(tf.Name, StoredFieldValue.FromString(tf.Value), mirrorStringToBinaryDocValues: false);
                     }
                     break;
                 case StringField sf:
+                    TrackFieldBoost(sf.Name, localDocId, sf.Boost);
                     IndexStringField(sf.Name, sf.Value, localDocId);
                     if (sf.IsStored)
                     {
-                        AppendStoredField(sf.Name, sf.Value);
+                        AppendStoredField(sf.Name, StoredFieldValue.FromString(sf.Value));
                     }
                     break;
                 case NumericField nf:
+                    TrackFieldBoost(nf.Name, localDocId, nf.Boost);
                     IndexNumericField(nf.Name, nf.Value, localDocId);
                     numericDoc ??= new Dictionary<string, double>();
                     if (nf.IsStored)
                     {
-                        AppendStoredField(nf.Name, nf.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                        AppendStoredField(nf.Name, StoredFieldValue.FromString(nf.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
                     }
                     break;
                 case VectorField vf:
+                    TrackFieldBoost(vf.Name, localDocId, vf.Boost);
                     if (!_bufferedVectors.TryGetValue(vf.Name, out var perField))
                     {
                         perField = new Dictionary<int, ReadOnlyMemory<float>>();
@@ -47,13 +52,17 @@ public sealed partial class IndexWriter
                     perField[localDocId] = vf.Value;
                     break;
                 case GeoPointField gf:
+                    TrackFieldBoost(gf.Name, localDocId, gf.Boost);
                     IndexNumericField(gf.LatFieldName, gf.Latitude, localDocId);
                     IndexNumericField(gf.LonFieldName, gf.Longitude, localDocId);
                     if (gf.IsStored)
-                        AppendStoredField(gf.Name, gf.Value);
+                        AppendStoredField(gf.Name, StoredFieldValue.FromString(gf.Value));
                     break;
                 case StoredField sf:
-                    AppendStoredField(sf.Name, sf.Value);
+                    AppendStoredField(sf.Name, StoredFieldValue.FromString(sf.Value));
+                    break;
+                case BinaryField bf:
+                    AppendStoredField(bf.Name, StoredFieldValue.FromBinary(bf.Value.Span));
                     break;
             }
         }
@@ -65,10 +74,10 @@ public sealed partial class IndexWriter
 
         // Track stored-field RAM (postings tracked accurately via EstimatedBytes)
         for (int i = storedEntryStart; i < _sfFieldIds.Count; i++)
-            _estimatedRamBytes += _sfValues[i].Length * 2 + 16;
+            _estimatedRamBytes += _sfValues[i].EstimatedSize;
 
         // Check flush thresholds
-        if (ShouldFlush())
+        if (!suppressFlush && ShouldFlush())
             FlushSegment();
     }
 
@@ -126,9 +135,15 @@ public sealed partial class IndexWriter
 
         _fieldNames.Add(fieldName);
 
-        for (int pos = 0; pos < tokens.Count; pos++)
+        int pos = -1;
+        for (int i = 0; i < tokens.Count; i++)
         {
-            var term = CanonicaliseTerm(tokens[pos].Text);
+            int increment = tokens[i].PositionIncrement > 0 ? tokens[i].PositionIncrement : 0;
+            if (pos < 0 && increment == 0)
+                increment = 1;
+            pos += increment;
+
+            var term = CanonicaliseTerm(tokens[i].Text);
 
             var pooledTerm = GetOrCreateQualifiedTerm(fieldName, term);
 
@@ -139,7 +154,15 @@ public sealed partial class IndexWriter
                 _postingsRamBytes += acc.EstimatedBytes;
             }
             long before = acc.EstimatedBytes;
-            acc.Add(docId, pos);
+            var payload = tokens[i].Payload;
+            if (_config.StorePayloads && (acc.HasPayloads || payload is { Length: > 0 }))
+            {
+                acc.AddWithPayload(docId, pos, payload);
+            }
+            else
+            {
+                acc.Add(docId, pos);
+            }
             _postingsRamBytes += acc.EstimatedBytes - before;
         }
     }
@@ -217,7 +240,7 @@ public sealed partial class IndexWriter
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void AppendStoredField(string fieldName, string value)
+    private void AppendStoredField(string fieldName, StoredFieldValue value, bool mirrorStringToBinaryDocValues = true)
     {
         if (!_sfFieldNameToId.TryGetValue(fieldName, out int fid))
         {
@@ -227,7 +250,14 @@ public sealed partial class IndexWriter
         }
         _sfFieldIds.Add(fid);
         _sfValues.Add(value);
-        AddBinaryDocValue(fieldName, _bufferedDocCount, value);
+        if (value.IsBinary)
+        {
+            AddBinaryDocValue(fieldName, _bufferedDocCount, value.BinaryValue ?? []);
+        }
+        else if (mirrorStringToBinaryDocValues && value.StringValue is not null)
+        {
+            AddBinaryDocValue(fieldName, _bufferedDocCount, value.StringValue);
+        }
     }
 
     private void AddSortedSetDocValue(string fieldName, int docId, string value)
@@ -266,6 +296,11 @@ public sealed partial class IndexWriter
 
     private void AddBinaryDocValue(string fieldName, int docId, string value)
     {
+        AddBinaryDocValue(fieldName, docId, System.Text.Encoding.UTF8.GetBytes(value));
+    }
+
+    private void AddBinaryDocValue(string fieldName, int docId, ReadOnlySpan<byte> value)
+    {
         if (!_binaryDocValues.TryGetValue(fieldName, out var fieldMap))
         {
             fieldMap = new Dictionary<int, List<byte[]>>();
@@ -278,7 +313,32 @@ public sealed partial class IndexWriter
             fieldMap[docId] = values;
         }
 
-        values.Add(System.Text.Encoding.UTF8.GetBytes(value));
+        values.Add(value.ToArray());
+    }
+
+    private void TrackFieldBoost(string fieldName, int docId, float boost)
+    {
+        if (boost == 1.0f)
+            return;
+
+        if (!_fieldBoosts.TryGetValue(fieldName, out var fieldMap))
+        {
+            fieldMap = new Dictionary<int, float>();
+            _fieldBoosts[fieldName] = fieldMap;
+        }
+
+        if (fieldMap.TryGetValue(docId, out var existingBoost))
+        {
+            if (Math.Abs(existingBoost - boost) > 1e-6f)
+            {
+                throw new InvalidOperationException(
+                    $"Document field '{fieldName}' was indexed multiple times with conflicting boosts ({existingBoost} and {boost}). Use one consistent boost per field per document.");
+            }
+
+            return;
+        }
+
+        fieldMap[docId] = boost;
     }
 
     private string CanonicaliseTerm(string term)

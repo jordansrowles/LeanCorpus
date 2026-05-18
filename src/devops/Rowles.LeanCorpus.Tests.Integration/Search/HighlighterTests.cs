@@ -128,10 +128,11 @@ public sealed class HighlighterTests : IClassFixture<TestDirectoryFixture>
     [Fact(DisplayName = "Extract Terms: Boolean Query Extracts All Non Must Not Terms")]
     public void ExtractTerms_BooleanQuery_ExtractsAllNonMustNotTerms()
     {
-        var bq = new BooleanQuery();
-        bq.Add(new TermQuery("body", "search"), Occur.Must);
-        bq.Add(new TermQuery("body", "engine"), Occur.Should);
-        bq.Add(new TermQuery("body", "spam"), Occur.MustNot);
+        var bq = new BooleanQuery.Builder()
+            .Add(new TermQuery("body", "search"), Occur.Must)
+            .Add(new TermQuery("body", "engine"), Occur.Should)
+            .Add(new TermQuery("body", "spam"), Occur.MustNot)
+            .Build();
 
         var terms = Highlighter.ExtractTerms(bq);
 

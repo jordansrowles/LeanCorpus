@@ -1,8 +1,10 @@
 ﻿using System.Buffers;
 using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.Bkd;
 using Rowles.LeanCorpus.Codecs.Postings;
+using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Codecs.TermVectors;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
@@ -234,6 +236,7 @@ public sealed class SegmentMerger
         internal TermVectorsStreamWriter? TermVectorWriter { get; set; }
         internal Dictionary<string, Dictionary<int, double>> NumericFields { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, int[]> FieldLengths { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, float[]> FieldBoosts { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, double[]> NumericDocValues { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, string?[]> SortedDocValues { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, IReadOnlyList<string>?[]> SortedSetDocValues { get; } = new(StringComparer.Ordinal);
@@ -314,7 +317,7 @@ public sealed class SegmentMerger
                 int remapDocId = docIdMap[oldDocId];
                 if (remapDocId < 0) continue;
 
-                ctx.StoredWriter!.AddDocument(reader.GetStoredFields(oldDocId));
+                ctx.StoredWriter!.AddDocument(reader.GetStoredFieldValues(oldDocId));
 
                 foreach (var (field, values) in segNumericIndex)
                 {
@@ -432,9 +435,12 @@ public sealed class SegmentMerger
         int totalDocs)
     {
         var fieldNorms = new Dictionary<string, float[]>(StringComparer.Ordinal);
+        var fieldBoosts = new Dictionary<string, float[]>(StringComparer.Ordinal);
         foreach (var fieldName in fieldNames)
         {
-            var arr = new float[totalDocs];
+            var norms = new float[totalDocs];
+            var boosts = new float[totalDocs];
+            Array.Fill(boosts, 1.0f);
             int idx = 0;
             foreach (var segInfo in segments)
             {
@@ -442,12 +448,15 @@ public sealed class SegmentMerger
                 for (int oldDocId = 0; oldDocId < segInfo.DocCount; oldDocId++)
                 {
                     if (!reader.IsLive(oldDocId)) continue;
-                    arr[idx++] = reader.GetNorm(oldDocId, fieldName);
+                    norms[idx] = reader.GetNorm(oldDocId, fieldName);
+                    boosts[idx] = reader.GetFieldBoost(oldDocId, fieldName);
+                    idx++;
                 }
             }
-            fieldNorms[fieldName] = arr;
+            fieldNorms[fieldName] = norms;
+            fieldBoosts[fieldName] = boosts;
         }
-        NormsWriter.Write(basePath + ".nrm", fieldNorms);
+        NormsWriter.Write(basePath + ".nrm", fieldNorms, fieldBoosts);
     }
 
     private List<VectorFieldInfo> MergeVectors(MergeContext ctx, string basePath)

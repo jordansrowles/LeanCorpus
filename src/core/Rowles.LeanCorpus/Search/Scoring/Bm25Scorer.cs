@@ -46,4 +46,24 @@ public static class Bm25Scorer
         float normalisedTf = (tf * k1Plus1) / (tf + k1TimesOneMinusB + k1BOverAvgDL * docLength);
         return idf * normalisedTf;
     }
+
+    /// <summary>
+    /// Normalises a field term frequency for BM25F-style combined-field scoring before cross-field aggregation.
+    /// </summary>
+    public static float NormaliseFieldTermFrequency(float termFreq, int docLength, float avgDocLength, float fieldWeight = 1.0f)
+    {
+        float denominator = 1.0f - B + B * (docLength / avgDocLength);
+        return denominator <= 0f ? 0f : (fieldWeight * termFreq) / denominator;
+    }
+
+    /// <summary>
+    /// Scores a BM25F-style pseudo term frequency using a precomputed IDF.
+    /// </summary>
+    public static float ScoreCombinedWithIdf(float idf, float pseudoTermFrequency)
+    {
+        if (pseudoTermFrequency <= 0f)
+            return 0f;
+
+        return idf * ((pseudoTermFrequency * (K1 + 1.0f)) / (pseudoTermFrequency + K1));
+    }
 }

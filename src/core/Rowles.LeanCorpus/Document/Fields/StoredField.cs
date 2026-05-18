@@ -62,4 +62,7 @@ public sealed class StoredField : IField
 
     /// <inheritdoc/>
     public bool IsIndexed => false;
+
+    /// <inheritdoc/>
+    public float Boost => 1.0f;
 }

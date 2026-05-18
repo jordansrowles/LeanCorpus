@@ -129,6 +129,28 @@ internal sealed class FSTReader
         return results;
     }
 
+    /// <summary>Returns postings offsets for terms sharing the given qualified prefix.</summary>
+    public List<long> GetTermOffsetsWithPrefix(ReadOnlySpan<char> qualifiedPrefix)
+    {
+        int byteCount = Encoding.UTF8.GetByteCount(qualifiedPrefix);
+        Span<byte> prefixUtf8 = byteCount <= 256 ? stackalloc byte[byteCount] : new byte[byteCount];
+        Encoding.UTF8.GetBytes(qualifiedPrefix, prefixUtf8);
+
+        var results = new List<long>();
+        int start = LowerBound(prefixUtf8);
+
+        for (int i = start; i < _termCount; i++)
+        {
+            var key = GetKeySpan(i);
+            if (key.StartsWith(prefixUtf8))
+                results.Add(_offsets[i]);
+            else
+                break;
+        }
+
+        return results;
+    }
+
     /// <summary>Returns all terms matching a wildcard pattern for a given field.</summary>
     public List<(string Term, long Offset)> GetTermsMatching(string fieldPrefix, ReadOnlySpan<char> pattern)
     {
@@ -704,6 +726,32 @@ internal sealed class FSTReader
             if (regex.IsMatch(bareTerm))
                 results.Add((fullTerm, _offsets[i]));
         }
+        return results;
+    }
+
+    /// <summary>Returns postings offsets for terms whose bare text contains the given ASCII literal.</summary>
+    public List<long> GetTermOffsetsContaining(string fieldPrefix, ReadOnlySpan<char> literal)
+    {
+        int prefixByteCount = Encoding.UTF8.GetByteCount(fieldPrefix);
+        Span<byte> prefixUtf8 = prefixByteCount <= 256 ? stackalloc byte[prefixByteCount] : new byte[prefixByteCount];
+        Encoding.UTF8.GetBytes(fieldPrefix, prefixUtf8);
+
+        int literalByteCount = Encoding.UTF8.GetByteCount(literal);
+        Span<byte> literalUtf8 = literalByteCount <= 256 ? stackalloc byte[literalByteCount] : new byte[literalByteCount];
+        Encoding.UTF8.GetBytes(literal, literalUtf8);
+
+        var results = new List<long>();
+        int start = LowerBound(prefixUtf8);
+        for (int i = start; i < _termCount; i++)
+        {
+            var key = GetKeySpan(i);
+            if (!key.StartsWith(prefixUtf8))
+                break;
+
+            if (key[prefixByteCount..].IndexOf(literalUtf8) >= 0)
+                results.Add(_offsets[i]);
+        }
+
         return results;
     }
 

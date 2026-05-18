@@ -15,7 +15,7 @@ public sealed class PorterStemmerFilter : ITokenFilter
             var t = tokens[i];
             var stemmed = Stem(t.Text);
             if (!ReferenceEquals(stemmed, t.Text))
-                tokens[i] = new Token(stemmed, t.StartOffset, t.EndOffset);
+                tokens[i] = t.WithText(stemmed);
         }
     }
 

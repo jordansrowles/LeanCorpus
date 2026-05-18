@@ -207,6 +207,24 @@ internal sealed class PostingAccumulator
         _count++;
     }
 
+    public void AddPositionsWithPayloads(int docId, ReadOnlySpan<int> positions, byte[]?[]? payloads)
+    {
+        if (positions.IsEmpty)
+            return;
+
+        if (payloads is not null && payloads.Length != positions.Length)
+            throw new ArgumentException("Payload count must match the position count.", nameof(payloads));
+
+        if (payloads is null)
+        {
+            AddPositions(docId, positions);
+            return;
+        }
+
+        for (int i = 0; i < positions.Length; i++)
+            AddWithPayload(docId, positions[i], payloads[i]);
+    }
+
     public void AddDocOnly(int docId)
     {
         if (_count > 0 && _docIds[_count - 1] == docId)

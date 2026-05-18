@@ -5,6 +5,18 @@
 /// </summary>
 public sealed partial class SegmentReader
 {
+    internal IReadOnlyDictionary<string, IReadOnlyList<StoredFieldValue>> GetStoredFieldValues(int docId)
+    {
+        if (_storedReader is null)
+            return new Dictionary<string, IReadOnlyList<StoredFieldValue>>();
+
+        var raw = _storedReader.ReadDocumentValues(docId);
+        return raw.ToDictionary(
+            static kvp => kvp.Key,
+            static kvp => (IReadOnlyList<StoredFieldValue>)kvp.Value.AsReadOnly(),
+            StringComparer.Ordinal);
+    }
+
     /// <summary>
     /// Returns all stored fields for the specified document as a read-only dictionary.
     /// </summary>
@@ -12,13 +24,39 @@ public sealed partial class SegmentReader
     /// <returns>A dictionary mapping field names to their stored values.</returns>
     public IReadOnlyDictionary<string, IReadOnlyList<string>> GetStoredFields(int docId)
     {
-        if (_storedReader is null)
-            return new Dictionary<string, IReadOnlyList<string>>();
+        var raw = GetStoredFieldValues(docId);
+        var result = new Dictionary<string, IReadOnlyList<string>>(raw.Count, StringComparer.Ordinal);
+        foreach (var (name, values) in raw)
+        {
+            var strings = values
+                .Where(static value => !value.IsBinary && value.StringValue is not null)
+                .Select(static value => value.StringValue!)
+                .ToList();
+            if (strings.Count > 0)
+                result[name] = strings.AsReadOnly();
+        }
 
-        var raw = _storedReader.ReadDocument(docId);
-        // Convert to read-only types
-        return raw.ToDictionary(
-            kvp => kvp.Key,
-            kvp => (IReadOnlyList<string>)kvp.Value.AsReadOnly());
+        return result;
+    }
+
+    /// <summary>
+    /// Returns all stored binary fields for the specified document as raw byte arrays.
+    /// </summary>
+    /// <param name="docId">The local (segment-relative) document ID.</param>
+    public IReadOnlyDictionary<string, IReadOnlyList<byte[]>> GetStoredBinaryFields(int docId)
+    {
+        var raw = GetStoredFieldValues(docId);
+        var result = new Dictionary<string, IReadOnlyList<byte[]>>(raw.Count, StringComparer.Ordinal);
+        foreach (var (name, values) in raw)
+        {
+            var binaries = values
+                .Where(static value => value.IsBinary && value.BinaryValue is not null)
+                .Select(static value => value.BinaryValue!.ToArray())
+                .ToList();
+            if (binaries.Count > 0)
+                result[name] = binaries.AsReadOnly();
+        }
+
+        return result;
     }
 }

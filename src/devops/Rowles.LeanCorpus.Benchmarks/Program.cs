@@ -10,7 +10,22 @@ internal static class Program
 {
     public static int Main(string[] args)
     {
-        var (suites, runType, benchmarkArgs, showHelp, docCount, gcDump) = ParseArguments(args);
+        HashSet<BenchmarkSuite> suites;
+        string runType;
+        string[] benchmarkArgs;
+        bool showHelp;
+        int? docCount;
+        bool gcDump;
+
+        try
+        {
+            (suites, runType, benchmarkArgs, showHelp, docCount, gcDump) = ParseArguments(args);
+        }
+        catch (ArgumentException ex)
+        {
+            Console.Error.WriteLine(ex.Message);
+            return 1;
+        }
 
         if (showHelp)
         {
@@ -78,8 +93,11 @@ internal static class Program
         if (runAll || suites.Contains(BenchmarkSuite.Wildcard))
             RunSuite<WildcardQueryBenchmarks>("wildcard", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
-        if (runAll || suites.Contains(BenchmarkSuite.Deletion))
-            RunSuite<DeletionBenchmarks>("deletion", runDir, benchmarkArgs, suiteSummaries, gcDump);
+        if (runAll || suites.Contains(BenchmarkSuite.Deletion) || suites.Contains(BenchmarkSuite.DeletionQueue))
+            RunSuite<DeletionQueueBenchmarks>("deletion-queue", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.Deletion) || suites.Contains(BenchmarkSuite.DeletionCommit))
+            RunSuite<DeletionCommitBenchmarks>("deletion-commit", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (suites.Contains(BenchmarkSuite.TokenBudget))
             RunSuite<TokenBudgetBenchmarks>("tokenbudget", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -99,8 +117,11 @@ internal static class Program
             RunSuite<IndexSortSearchBenchmarks>("indexsort-search", runDir, benchmarkArgs, suiteSummaries, gcDump);
         }
 
-        if (runAll || suites.Contains(BenchmarkSuite.BlockJoin))
-            RunSuite<BlockJoinBenchmarks>("blockjoin", runDir, benchmarkArgs, suiteSummaries, gcDump);
+        if (runAll || suites.Contains(BenchmarkSuite.BlockJoin) || suites.Contains(BenchmarkSuite.BlockJoinIndex))
+            RunSuite<BlockJoinIndexBenchmarks>("blockjoin-index", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.BlockJoin) || suites.Contains(BenchmarkSuite.BlockJoinSearch))
+            RunSuite<BlockJoinSearchBenchmarks>("blockjoin-search", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (runAll || suites.Contains(BenchmarkSuite.GutenbergAnalysis))
             RunSuite<GutenbergAnalysisBenchmarks>("gutenberg-analysis", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -110,6 +131,73 @@ internal static class Program
 
         if (runAll || suites.Contains(BenchmarkSuite.GutenbergSearch))
             RunSuite<GutenbergSearchBenchmarks>("gutenberg-search", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        // Phase 1: query parity
+        if (runAll || suites.Contains(BenchmarkSuite.Range))
+            RunSuite<RangeQueryBenchmarks>("range", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.Regexp))
+            RunSuite<RegexpQueryBenchmarks>("regexp", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.Dismax))
+            RunSuite<DisjunctionMaxQueryBenchmarks>("dismax", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.MultiPhrase))
+            RunSuite<MultiPhraseQueryBenchmarks>("multiphrase", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.Span))
+            RunSuite<SpanQueryBenchmarks>("span", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        // Phase 2: standalone (no Lucene.NET parity)
+        if (runAll || suites.Contains(BenchmarkSuite.MoreLikeThis))
+            RunSuite<MoreLikeThisBenchmarks>("mlt", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.Highlighter))
+            RunSuite<HighlighterBenchmarks>("highlighter", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.SearcherManager))
+            RunSuite<SearcherManagerBenchmarks>("searcher-mgr", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        // Phase 3: standalone post-Gutenberg
+        if (runAll || suites.Contains(BenchmarkSuite.CombinedFields))
+            RunSuite<CombinedFieldsQueryBenchmarks>("combined", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.TermInSet))
+            RunSuite<TermInSetQueryBenchmarks>("terminset", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.Aggregation))
+            RunSuite<AggregationBenchmarks>("aggregation", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.QueryCache))
+            RunSuite<QueryCacheBenchmarks>("query-cache", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.ParallelSearch))
+            RunSuite<ParallelSearchBenchmarks>("parallel", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.FunctionScore))
+            RunSuite<FunctionScoreQueryBenchmarks>("function-score", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.Geo))
+            RunSuite<GeoQueryBenchmarks>("geo", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.CollapseAndFacet))
+            RunSuite<CollapseAndFacetBenchmarks>("collapse-facet", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.Similarity))
+            RunSuite<SimilarityBenchmarks>("similarity", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        // Phase 4: analysis
+        if (runAll || suites.Contains(BenchmarkSuite.Stemmer))
+            RunSuite<StemmerParityBenchmarks>("stemmer", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.NGram))
+            RunSuite<NGramTokeniserBenchmarks>("ngram", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.Synonym))
+            RunSuite<SynonymBenchmarks>("synonym", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.AsyncIndex))
+            RunSuite<AsyncIndexingBenchmarks>("async-index", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (suiteSummaries.Count == 0)
         {
@@ -207,20 +295,45 @@ internal static class Program
               analysis         AnalysisBenchmarks -- tokenisation pipeline throughput
               analysis-parity  AnalyserParityBenchmarks -- lightweight analyser parity throughput
               analysis-filters TokenFilterBenchmarks -- token filter allocation and throughput
-              boolean          BooleanQueryBenchmarks -- Must/Should/MustNot queries
+              boolean          BooleanQueryBenchmarks -- deterministic clause shapes
               phrase           PhraseQueryBenchmarks -- exact and slop phrase matching
               prefix           PrefixQueryBenchmarks -- prefix matching (vs Lucene.NET)
-              fuzzy            FuzzyQueryBenchmarks -- fuzzy/edit-distance matching
+              fuzzy            FuzzyQueryBenchmarks -- deterministic fuzzy/edit-distance scenarios
               wildcard         WildcardQueryBenchmarks -- wildcard pattern matching
-              deletion         DeletionBenchmarks -- delete throughput (vs Lucene.NET)
+              deletion         DeletionQueue/CommitBenchmarks -- delete queueing and commit application
+              deletion-queue   DeletionQueueBenchmarks -- enqueue delete terms
+              deletion-commit  DeletionCommitBenchmarks -- apply queued deletes on commit
               suggester        SuggesterBenchmarks -- DidYouMean spelling correction (vs Lucene.NET)
               schemajson       SchemaAndJsonBenchmarks -- schema validation + JSON mapping
               indexsort        IndexSortIndex/SearchBenchmarks -- index-time sort + sorted search
-              blockjoin        BlockJoinBenchmarks -- block-join queries (vs Lucene.NET)
+              blockjoin        BlockJoinIndex/SearchBenchmarks -- block-join indexing and query hot path
+              blockjoin-index  BlockJoinIndexBenchmarks -- block-join indexing
+              blockjoin-search BlockJoinSearchBenchmarks -- block-join query hot path
 
               gutenberg-analysis  GutenbergAnalysisBenchmarks -- analysis on real ebook text
               gutenberg-index     GutenbergIndexingBenchmarks -- indexing real ebook data
               gutenberg-search    GutenbergSearchBenchmarks -- search on real ebook data
+              range               RangeQueryBenchmarks -- BKD range queries
+              regexp              RegexpQueryBenchmarks -- regexp query parity
+              dismax              DisjunctionMaxQueryBenchmarks -- disjunction max parity
+              multiphrase         MultiPhraseQueryBenchmarks -- multi-slot phrase parity
+              span                SpanQueryBenchmarks -- span query parity
+              mlt                 MoreLikeThisBenchmarks -- MoreLikeThis query
+              highlighter         HighlighterBenchmarks -- snippet highlighting
+              searcher-mgr        SearcherManagerBenchmarks -- acquire/release hot path
+              combined            CombinedFieldsQueryBenchmarks -- BM25F multi-field search
+              terminset           TermInSetQueryBenchmarks -- set membership search
+              aggregation         AggregationBenchmarks -- aggregation overhead
+              query-cache         QueryCacheBenchmarks -- query cache overhead
+              parallel            ParallelSearchBenchmarks -- parallel search
+              function-score      FunctionScoreQueryBenchmarks -- function score modes
+              geo                 GeoQueryBenchmarks -- geo distance and bounding-box search
+              collapse-facet      CollapseAndFacetBenchmarks -- collapse and facet collection
+              similarity          SimilarityBenchmarks -- BM25 vs TF-IDF
+              stemmer             StemmerParityBenchmarks -- stemming parity
+              ngram               NGramTokeniserBenchmarks -- N-gram tokenisation
+              synonym             SynonymBenchmarks -- synonym indexing overhead
+              async-index         AsyncIndexingBenchmarks -- sync vs async indexing
               tokenbudget         TokenBudgetBenchmarks -- token budget enforcement overhead (explicit only)
               diagnostics         DiagnosticsBenchmarks -- SlowQueryLog + Analytics hook overhead (explicit only)
 
@@ -303,7 +416,7 @@ internal static class Program
 
         // Inject BDN filter to exclude Lucene.NET benchmarks unless a caller supplied a more specific BDN filter.
         if (corpusOnly && !HasBenchmarkDotNetOption(benchmarkArgs, "--filter", "-f"))
-            benchmarkArgs.AddRange(["--filter", "*LeanCorpus*"]);
+            benchmarkArgs.AddRange(["--filter", "*Lean*"]);
 
         return (suites, runType, [.. benchmarkArgs], showHelp, docCount, gcDump);
     }
@@ -335,53 +448,56 @@ internal static class Program
 
     private static BenchmarkSuite ParseSingleSuite(string value)
     {
-        if (value.Equals("index", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.Index;
-        if (value.Equals("query", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.Query;
-        if (value.Equals("analysis", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.Analysis;
-        if (value.Equals("analysisparity", StringComparison.OrdinalIgnoreCase) ||
-            value.Equals("analysis-parity", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.AnalysisParity;
-        if (value.Equals("analysisfilters", StringComparison.OrdinalIgnoreCase) ||
-            value.Equals("analysis-filters", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.AnalysisFilters;
-        if (value.Equals("boolean", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.Boolean;
-        if (value.Equals("phrase", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.Phrase;
-        if (value.Equals("prefix", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.Prefix;
-        if (value.Equals("fuzzy", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.Fuzzy;
-        if (value.Equals("wildcard", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.Wildcard;
-        if (value.Equals("deletion", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.Deletion;
-        if (value.Equals("tokenbudget", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.TokenBudget;
-        if (value.Equals("diagnostics", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.Diagnostics;
-        if (value.Equals("suggester", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.Suggester;
-        if (value.Equals("schemajson", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.SchemaJson;
-        if (value.Equals("indexsort", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.IndexSort;
-        if (value.Equals("blockjoin", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.BlockJoin;
-        if (value.Equals("gutenberganalysis", StringComparison.OrdinalIgnoreCase) ||
-            value.Equals("gutenberg-analysis", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.GutenbergAnalysis;
-        if (value.Equals("gutenbergindex", StringComparison.OrdinalIgnoreCase) ||
-            value.Equals("gutenberg-index", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.GutenbergIndex;
-        if (value.Equals("gutenbergsearch", StringComparison.OrdinalIgnoreCase) ||
-            value.Equals("gutenberg-search", StringComparison.OrdinalIgnoreCase))
-            return BenchmarkSuite.GutenbergSearch;
-
-        return BenchmarkSuite.All;
+        return value.ToLowerInvariant() switch
+        {
+            "all" => BenchmarkSuite.All,
+            "index" => BenchmarkSuite.Index,
+            "query" => BenchmarkSuite.Query,
+            "analysis" => BenchmarkSuite.Analysis,
+            "analysisparity" or "analysis-parity" => BenchmarkSuite.AnalysisParity,
+            "analysisfilters" or "analysis-filters" => BenchmarkSuite.AnalysisFilters,
+            "boolean" => BenchmarkSuite.Boolean,
+            "phrase" => BenchmarkSuite.Phrase,
+            "prefix" => BenchmarkSuite.Prefix,
+            "fuzzy" => BenchmarkSuite.Fuzzy,
+            "wildcard" => BenchmarkSuite.Wildcard,
+            "deletion" => BenchmarkSuite.Deletion,
+            "deletionqueue" or "deletion-queue" => BenchmarkSuite.DeletionQueue,
+            "deletioncommit" or "deletion-commit" => BenchmarkSuite.DeletionCommit,
+            "tokenbudget" => BenchmarkSuite.TokenBudget,
+            "diagnostics" => BenchmarkSuite.Diagnostics,
+            "suggester" => BenchmarkSuite.Suggester,
+            "schemajson" => BenchmarkSuite.SchemaJson,
+            "indexsort" => BenchmarkSuite.IndexSort,
+            "blockjoin" => BenchmarkSuite.BlockJoin,
+            "blockjoinindex" or "blockjoin-index" => BenchmarkSuite.BlockJoinIndex,
+            "blockjoinsearch" or "blockjoin-search" => BenchmarkSuite.BlockJoinSearch,
+            "gutenberganalysis" or "gutenberg-analysis" => BenchmarkSuite.GutenbergAnalysis,
+            "gutenbergindex" or "gutenberg-index" => BenchmarkSuite.GutenbergIndex,
+            "gutenbergsearch" or "gutenberg-search" => BenchmarkSuite.GutenbergSearch,
+            "range" => BenchmarkSuite.Range,
+            "regexp" => BenchmarkSuite.Regexp,
+            "dismax" => BenchmarkSuite.Dismax,
+            "multiphrase" => BenchmarkSuite.MultiPhrase,
+            "span" => BenchmarkSuite.Span,
+            "mlt" => BenchmarkSuite.MoreLikeThis,
+            "highlighter" => BenchmarkSuite.Highlighter,
+            "searcher-mgr" or "searchermgr" => BenchmarkSuite.SearcherManager,
+            "combined" => BenchmarkSuite.CombinedFields,
+            "terminset" or "term-in-set" => BenchmarkSuite.TermInSet,
+            "aggregation" => BenchmarkSuite.Aggregation,
+            "query-cache" or "querycache" => BenchmarkSuite.QueryCache,
+            "parallel" => BenchmarkSuite.ParallelSearch,
+            "function-score" or "functionscore" => BenchmarkSuite.FunctionScore,
+            "geo" => BenchmarkSuite.Geo,
+            "collapse-facet" or "collapsefacet" => BenchmarkSuite.CollapseAndFacet,
+            "similarity" => BenchmarkSuite.Similarity,
+            "stemmer" => BenchmarkSuite.Stemmer,
+            "ngram" => BenchmarkSuite.NGram,
+            "synonym" => BenchmarkSuite.Synonym,
+            "async-index" or "asyncindex" => BenchmarkSuite.AsyncIndex,
+            _ => throw new ArgumentException($"Unknown benchmark suite '{value}'. Use --help to list available suites.")
+        };
     }
 
     private static string FindRepositoryRoot()
@@ -416,14 +532,39 @@ internal static class Program
         Fuzzy,
         Wildcard,
         Deletion,
+        DeletionQueue,
+        DeletionCommit,
         TokenBudget,
         Diagnostics,
         Suggester,
         SchemaJson,
         IndexSort,
         BlockJoin,
+        BlockJoinIndex,
+        BlockJoinSearch,
         GutenbergAnalysis,
         GutenbergIndex,
-        GutenbergSearch
+        GutenbergSearch,
+        Range,
+        Regexp,
+        Dismax,
+        MultiPhrase,
+        Span,
+        MoreLikeThis,
+        Highlighter,
+        SearcherManager,
+        CombinedFields,
+        TermInSet,
+        Aggregation,
+        QueryCache,
+        ParallelSearch,
+        FunctionScore,
+        Geo,
+        CollapseAndFacet,
+        Similarity,
+        Stemmer,
+        NGram,
+        Synonym,
+        AsyncIndex,
     }
 }

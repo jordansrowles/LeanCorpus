@@ -1,4 +1,6 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Filters;
+﻿using Rowles.LeanCorpus.Analysis.Tokenisers;
+
+namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
 /// Splits compound tokens on delimiters, case changes, and letter-number boundaries.
@@ -122,7 +124,13 @@ public sealed class WordDelimiterFilter : ITokenFilter
     private static Token CreatePartToken(Token source, Part part)
     {
         string text = source.Text[part.Start..part.End];
-        return new Token(text, source.StartOffset + part.Start, source.StartOffset + part.End);
+        return new Token(
+            text,
+            source.StartOffset + part.Start,
+            source.StartOffset + part.End,
+            part.Kind == PartKind.Number ? UnicodeTokenisation.NumberType : source.Type,
+            source.PositionIncrement,
+            source.Payload);
     }
 
     private static void AddConcatenation(List<Token> result, Token source, List<Part> parts, PartKind kind)
@@ -161,7 +169,12 @@ public sealed class WordDelimiterFilter : ITokenFilter
             }
         });
 
-        result.Add(new Token(text, source.StartOffset + parts[first].Start, source.StartOffset + parts[last].End));
+        result.Add(new Token(
+            text,
+            source.StartOffset + parts[first].Start,
+            source.StartOffset + parts[last].End,
+            source.Type,
+            positionIncrement: 0));
     }
 
     private enum PartKind

@@ -139,6 +139,13 @@ internal sealed class TermDictionaryReader : IDisposable
         return GetTermsWithPrefixV1(qualifiedPrefix);
     }
 
+    public List<long> GetTermOffsetsWithPrefix(ReadOnlySpan<char> qualifiedPrefix)
+    {
+        if (_fstReader is not null)
+            return _fstReader.GetTermOffsetsWithPrefix(qualifiedPrefix);
+        return GetTermOffsetsWithPrefixV1(qualifiedPrefix);
+    }
+
     private List<(string Term, long Offset)> GetTermsWithPrefixV1(ReadOnlySpan<char> qualifiedPrefix)
     {
         var results = new List<(string, long)>();
@@ -147,6 +154,20 @@ internal sealed class TermDictionaryReader : IDisposable
         {
             if (_allTerms[i].AsSpan().StartsWith(qualifiedPrefix))
                 results.Add((_allTerms[i], _allOffsets![i]));
+            else
+                break;
+        }
+        return results;
+    }
+
+    private List<long> GetTermOffsetsWithPrefixV1(ReadOnlySpan<char> qualifiedPrefix)
+    {
+        var results = new List<long>();
+        int start = LowerBoundV1(qualifiedPrefix);
+        for (int i = start; i < _allTerms!.Length; i++)
+        {
+            if (_allTerms[i].AsSpan().StartsWith(qualifiedPrefix))
+                results.Add(_allOffsets![i]);
             else
                 break;
         }
@@ -308,6 +329,13 @@ internal sealed class TermDictionaryReader : IDisposable
         return GetTermsMatchingRegexV1(fieldPrefix, regex);
     }
 
+    public List<long> GetTermOffsetsContaining(string fieldPrefix, ReadOnlySpan<char> literal)
+    {
+        if (_fstReader is not null)
+            return _fstReader.GetTermOffsetsContaining(fieldPrefix, literal);
+        return GetTermOffsetsContainingV1(fieldPrefix, literal);
+    }
+
     private List<(string Term, long Offset)> GetTermsMatchingRegexV1(string fieldPrefix, Regex regex)
     {
         var results = new List<(string, long)>();
@@ -320,6 +348,22 @@ internal sealed class TermDictionaryReader : IDisposable
             var bareTerm = term.AsSpan(fieldPrefix.Length);
             if (regex.IsMatch(bareTerm))
                 results.Add((term, _allOffsets![i]));
+        }
+        return results;
+    }
+
+    private List<long> GetTermOffsetsContainingV1(string fieldPrefix, ReadOnlySpan<char> literal)
+    {
+        var results = new List<long>();
+        int start = LowerBoundV1(fieldPrefix.AsSpan());
+        for (int i = start; i < _allTerms!.Length; i++)
+        {
+            var term = _allTerms[i];
+            if (!term.StartsWith(fieldPrefix, StringComparison.Ordinal))
+                break;
+
+            if (term.AsSpan(fieldPrefix.Length).Contains(literal, StringComparison.Ordinal))
+                results.Add(_allOffsets![i]);
         }
         return results;
     }

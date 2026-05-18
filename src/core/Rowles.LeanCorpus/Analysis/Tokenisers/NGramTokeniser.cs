@@ -1,6 +1,7 @@
 ﻿namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 
 using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis.Analysers;
 
 /// <summary>
 /// Splits text into all contiguous character substrings of length in [<see cref="MinGram"/>, <see cref="MaxGram"/>].
@@ -21,9 +22,8 @@ public sealed class NGramTokeniser : ITokeniser
     /// </summary>
     public int MaxGram { get; }
 
-    // Intern cache to reduce string allocations for repeated n-grams
-    private readonly Dictionary<int, string> _internCache = new();
-    private const int MaxInternCacheSize = 2048;
+    private const int MaxTextCacheSize = 65_536;
+    private readonly TokenTextCache _textCache = new(MaxTextCacheSize);
 
     /// <summary>
     /// Initialises a new <see cref="NGramTokeniser"/> with the specified gram size range.
@@ -44,29 +44,41 @@ public sealed class NGramTokeniser : ITokeniser
     /// <inheritdoc/>
     public List<Token> Tokenise(ReadOnlySpan<char> input)
     {
-        var tokens = new List<Token>();
+        var tokens = new List<Token>(CountNGrams(input.Length));
+        Tokenise(input, tokens);
+        return tokens;
+    }
+
+    /// <summary>
+    /// Tokenises the input into the supplied destination list, clearing it before use.
+    /// </summary>
+    /// <param name="input">The text to tokenise.</param>
+    /// <param name="tokens">The destination token buffer to populate.</param>
+    public void Tokenise(ReadOnlySpan<char> input, List<Token> tokens)
+    {
+        ArgumentNullException.ThrowIfNull(tokens);
+
+        tokens.Clear();
+        int tokenCount = CountNGrams(input.Length);
+        if (tokens.Capacity < tokenCount)
+            tokens.Capacity = tokenCount;
+
         int len = input.Length;
         for (int start = 0; start < len; start++)
         {
             for (int gramLen = MinGram; gramLen <= MaxGram && start + gramLen <= len; gramLen++)
             {
                 var span = input.Slice(start, gramLen);
-                string text = GetOrCacheString(span);
-                tokens.Add(new Token(text, start, start + gramLen));
+                tokens.Add(new Token(_textCache.GetOrAdd(span), start, start + gramLen));
             }
         }
-        return tokens;
     }
 
-    private string GetOrCacheString(ReadOnlySpan<char> span)
+    private int CountNGrams(int length)
     {
-        int hash = string.GetHashCode(span, StringComparison.Ordinal);
-        if (_internCache.TryGetValue(hash, out var cached) && cached.AsSpan().SequenceEqual(span))
-            return cached;
-
-        var text = span.ToString();
-        if (_internCache.Count < MaxInternCacheSize)
-            _internCache[hash] = text;
-        return text;
+        int count = 0;
+        for (int gramLen = MinGram; gramLen <= MaxGram && gramLen <= length; gramLen++)
+            count += length - gramLen + 1;
+        return count;
     }
 }

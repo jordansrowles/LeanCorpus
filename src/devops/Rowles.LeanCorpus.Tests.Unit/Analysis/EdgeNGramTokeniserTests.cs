@@ -52,4 +52,25 @@ public sealed class EdgeNGramTokeniserTests
         var tokens = tok.Tokenise(string.Empty.AsSpan());
         Assert.Empty(tokens);
     }
+
+    /// <summary>
+    /// Verifies the EdgeNGram: Destination Buffer Matches Allocating Path scenario.
+    /// </summary>
+    [Fact(DisplayName = "EdgeNGram: Destination Buffer Matches Allocating Path")]
+    public void EdgeNGram_DestinationBuffer_MatchesAllocatingPath()
+    {
+        var tok = new EdgeNGramTokeniser(1, 3);
+        var expected = tok.Tokenise("hello world".AsSpan());
+        var actual = new List<Token> { new("stale", 0, 5) };
+
+        tok.Tokenise("hello world".AsSpan(), actual);
+
+        Assert.Equal(expected.Count, actual.Count);
+        for (int i = 0; i < expected.Count; i++)
+        {
+            Assert.Equal(expected[i].Text, actual[i].Text);
+            Assert.Equal(expected[i].StartOffset, actual[i].StartOffset);
+            Assert.Equal(expected[i].EndOffset, actual[i].EndOffset);
+        }
+    }
 }

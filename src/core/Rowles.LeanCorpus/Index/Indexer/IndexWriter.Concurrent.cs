@@ -31,22 +31,13 @@ public sealed partial class IndexWriter
     /// </summary>
     public void AddDocumentLockFree(LeanDocument doc)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        _config.Schema?.Validate(doc);
-
-        var pool = _dwptPool ?? throw new InvalidOperationException(
-            "DWPT pool not initialised. Call InitialiseDwptPool() first.");
-
-        // Register this call as in-flight BEFORE entering the hot path, then re-check
-        // disposed. This two-step prevents Dispose from tearing down the semaphore
-        // while we are still inside the lock on a DWPT slot.
-        Interlocked.Increment(ref _inFlightAdds);
+        EnterIndexingOperation();
         try
         {
-            // Re-check: Dispose may have set _disposed between the first check and the
-            // increment above. If so, bail cleanly — the increment is undone in finally.
-            if (Volatile.Read(ref _disposed) != 0)
-                throw new ObjectDisposedException(nameof(IndexWriter));
+            ValidateDocument(doc);
+
+            var pool = _dwptPool ?? throw new InvalidOperationException(
+                "DWPT pool not initialised. Call InitialiseDwptPool() first.");
 
             // Round-robin DWPT selection — lock-free via Interlocked
             int slot = (int)((uint)Interlocked.Increment(ref _dwptCounter) % (uint)pool.Length);
@@ -77,7 +68,7 @@ public sealed partial class IndexWriter
         }
         finally
         {
-            Interlocked.Decrement(ref _inFlightAdds);
+            ExitIndexingOperation();
         }
     }
 
@@ -90,34 +81,38 @@ public sealed partial class IndexWriter
     /// <exception cref="ObjectDisposedException">Thrown if the writer has been disposed.</exception>
     public void AddDocumentsConcurrent(IReadOnlyList<Document.LeanDocument> documents)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        if (documents.Count == 0) return;
-
-        // Validate every document up front so a single bad doc fails the call,
-        // not silently corrupts the index on a per-partition basis.
-        if (_config.Schema is { } schema)
+        EnterIndexingOperation();
+        try
         {
-            for (int i = 0; i < documents.Count; i++)
-                schema.Validate(documents[i]);
-        }
+            ArgumentNullException.ThrowIfNull(documents);
+            if (documents.Count == 0) return;
 
-        var perThreadResults = new System.Collections.Concurrent.ConcurrentBag<DocumentsWriterPerThread>();
+            // Validate every document up front so a single bad doc fails the call,
+            // not silently corrupts the index on a per-partition basis.
+            ValidateDocuments(documents);
 
-        Parallel.ForEach(
-            System.Collections.Concurrent.Partitioner.Create(0, documents.Count),
-            () => CreateThreadLocalDocumentWriter(),
-            (range, _, dwpt) =>
+            var perThreadResults = new System.Collections.Concurrent.ConcurrentBag<DocumentsWriterPerThread>();
+
+            Parallel.ForEach(
+                System.Collections.Concurrent.Partitioner.Create(0, documents.Count),
+                () => CreateThreadLocalDocumentWriter(),
+                (range, _, dwpt) =>
+                {
+                    for (int i = range.Item1; i < range.Item2; i++)
+                        dwpt.AddDocument(documents[i]);
+                    return dwpt;
+                },
+                dwpt => perThreadResults.Add(dwpt));
+
+            lock (_writeLock)
             {
-                for (int i = range.Item1; i < range.Item2; i++)
-                    dwpt.AddDocument(documents[i]);
-                return dwpt;
-            },
-            dwpt => perThreadResults.Add(dwpt));
-
-        lock (_writeLock)
+                foreach (var dwpt in perThreadResults)
+                    MergeDwpt(dwpt);
+            }
+        }
+        finally
         {
-            foreach (var dwpt in perThreadResults)
-                MergeDwpt(dwpt);
+            ExitIndexingOperation();
         }
     }
 
@@ -180,7 +175,7 @@ public sealed partial class IndexWriter
             };
         }
 
-        return new DocumentsWriterPerThread(threadLocalDefaultAnalyser, threadLocalFieldAnalysers);
+        return new DocumentsWriterPerThread(threadLocalDefaultAnalyser, threadLocalFieldAnalysers, _config.StorePayloads);
     }
 
     private void MergeDwpt(DocumentsWriterPerThread dwpt)
@@ -192,20 +187,34 @@ public sealed partial class IndexWriter
             {
                 dstAcc = new PostingAccumulator();
                 _postings[qt] = dstAcc;
+                _postingsRamBytes += dstAcc.EstimatedBytes;
             }
             var srcIds = srcAcc.DocIds;
             bool srcHasPositions = srcAcc.HasPositions;
             for (int i = 0; i < srcIds.Length; i++)
             {
                 int remappedDocId = srcIds[i] + docBase;
+                long before = dstAcc.EstimatedBytes;
                 if (srcHasPositions)
                 {
-                    dstAcc.AddPositions(remappedDocId, srcAcc.GetPositions(i));
+                    if (srcAcc.HasPayloads)
+                    {
+                        var positions = srcAcc.GetPositions(i);
+                        var payloads = new byte[]?[positions.Length];
+                        for (int p = 0; p < positions.Length; p++)
+                            payloads[p] = srcAcc.GetPayload(i, p);
+                        dstAcc.AddPositionsWithPayloads(remappedDocId, positions, payloads);
+                    }
+                    else
+                    {
+                        dstAcc.AddPositions(remappedDocId, srcAcc.GetPositions(i));
+                    }
                 }
                 else
                 {
                     dstAcc.AddDocOnly(remappedDocId);
                 }
+                _postingsRamBytes += dstAcc.EstimatedBytes - before;
             }
         }
 
@@ -222,7 +231,7 @@ public sealed partial class IndexWriter
             int end = (d + 1) < dwptDocCount ? srcDocStarts[d + 1] : srcEntryTotal;
             for (int e = start; e < end; e++)
             {
-                AppendStoredField(srcIdToName[srcFieldIds[e]], srcValues[e]);
+                AppendMergedStoredField(srcIdToName[srcFieldIds[e]], srcValues[e]);
             }
         }
 
@@ -243,6 +252,18 @@ public sealed partial class IndexWriter
 
             for (int i = 0; i < dwpt.DocCount && i < counts.Length; i++)
                 dstCounts[docBase + i] = counts[i];
+        }
+
+        foreach (var (boostFieldName, boosts) in dwpt.FieldBoosts)
+        {
+            if (!_fieldBoosts.TryGetValue(boostFieldName, out var dstBoosts))
+            {
+                dstBoosts = new Dictionary<int, float>();
+                _fieldBoosts[boostFieldName] = dstBoosts;
+            }
+
+            foreach (var (docId, boost) in boosts)
+                dstBoosts[docBase + docId] = boost;
         }
 
         foreach (var fn in dwpt.FieldNames)
@@ -306,10 +327,22 @@ public sealed partial class IndexWriter
 
         _bufferedDocCount += dwpt.DocCount;
         _contentChangedSinceCommit = true;
-        // Stored-field overhead already tracked; postings tracked via EstimatedBytes
-
         if (ShouldFlush())
             FlushSegment();
+    }
+
+    private void AppendMergedStoredField(string fieldName, StoredFieldValue value)
+    {
+        if (!_sfFieldNameToId.TryGetValue(fieldName, out int fid))
+        {
+            fid = _sfFieldIdToName.Count;
+            _sfFieldNameToId[fieldName] = fid;
+            _sfFieldIdToName.Add(fieldName);
+        }
+
+        _sfFieldIds.Add(fid);
+        _sfValues.Add(value);
+        _estimatedRamBytes += value.EstimatedSize;
     }
 
     private static void MergeMultiValuedDocValues<T>(

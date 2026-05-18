@@ -13,7 +13,7 @@ internal static class StoredFieldsWriter
     /// Write stored fields from a flat struct-of-arrays buffer (used by IndexWriter flush path).
     /// </summary>
     internal static void Write(string fdtPath, string fdxPath,
-        List<int> docStarts, List<int> fieldIds, List<string> values, List<string> fieldNames,
+        List<int> docStarts, List<int> fieldIds, List<StoredFieldValue> values, List<string> fieldNames,
         int blockSize = DefaultBlockSize, FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate)
     {
         int docCount = docStarts.Count;
@@ -93,12 +93,7 @@ internal static class StoredFieldsWriter
                     for (int e = entryStart; e < entryEnd; e++)
                     {
                         if (fieldIds[e] != fid) continue;
-                        string value = values[e];
-                        int valueByteCount = System.Text.Encoding.UTF8.GetByteCount(value);
-                        Span<byte> valueBuf = valueByteCount <= encodeBuf.Length ? encodeBuf : new byte[valueByteCount];
-                        System.Text.Encoding.UTF8.GetBytes(value, valueBuf);
-                        rawWriter.Write(valueByteCount);
-                        rawWriter.Write(valueBuf[..valueByteCount]);
+                        WriteStoredValue(rawWriter, values[e], encodeBuf);
                     }
                 }
             }
@@ -141,13 +136,21 @@ internal static class StoredFieldsWriter
 
     internal static void Write(string fdtPath, string fdxPath, IReadOnlyList<Dictionary<string, List<string>>> docs,
         int blockSize = DefaultBlockSize, FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate)
-        => Write(fdtPath, fdxPath, docs.Count, docId => docs[docId], blockSize, compression);
+        => Write(
+            fdtPath,
+            fdxPath,
+            docs.Count,
+            docId => docs[docId].ToDictionary(
+                static kvp => kvp.Key,
+                static kvp => kvp.Value.Select(StoredFieldValue.FromString).ToList()),
+            blockSize,
+            compression);
 
     internal static void Write(
         string fdtPath,
         string fdxPath,
         int docCount,
-        Func<int, Dictionary<string, List<string>>> readDocument,
+        Func<int, Dictionary<string, List<StoredFieldValue>>> readDocument,
         int blockSize = DefaultBlockSize,
         FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate)
     {
@@ -188,13 +191,7 @@ internal static class StoredFieldsWriter
 
                     rawWriter.Write(values.Count);
                     foreach (var value in values)
-                    {
-                        int valueByteCount = System.Text.Encoding.UTF8.GetByteCount(value);
-                        Span<byte> valueBuf = valueByteCount <= encodeBuf.Length ? encodeBuf : new byte[valueByteCount];
-                        System.Text.Encoding.UTF8.GetBytes(value, valueBuf);
-                        rawWriter.Write(valueByteCount);
-                        rawWriter.Write(valueBuf[..valueByteCount]);
-                    }
+                        WriteStoredValue(rawWriter, value, encodeBuf);
                 }
             }
             rawWriter.Flush();
@@ -227,5 +224,25 @@ internal static class StoredFieldsWriter
         fdxWriter.Write(blockOffsets.Count);
         foreach (var offset in blockOffsets)
             fdxWriter.Write(offset);
+    }
+
+    private static void WriteStoredValue(BinaryWriter writer, StoredFieldValue value, Span<byte> encodeBuf)
+    {
+        writer.Write((byte)value.Kind);
+
+        if (value.IsBinary)
+        {
+            var bytes = value.BinaryValue ?? [];
+            writer.Write(bytes.Length);
+            writer.Write(bytes);
+            return;
+        }
+
+        var text = value.StringValue ?? string.Empty;
+        int valueByteCount = System.Text.Encoding.UTF8.GetByteCount(text);
+        Span<byte> valueBuf = valueByteCount <= encodeBuf.Length ? encodeBuf : new byte[valueByteCount];
+        System.Text.Encoding.UTF8.GetBytes(text, valueBuf);
+        writer.Write(valueByteCount);
+        writer.Write(valueBuf[..valueByteCount]);
     }
 }

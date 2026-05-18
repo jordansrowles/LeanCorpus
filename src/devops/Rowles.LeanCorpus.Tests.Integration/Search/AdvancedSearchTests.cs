@@ -231,6 +231,72 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(0, results.TotalHits);
     }
 
+    /// <summary>
+    /// Verifies the Fuzzy Query: Benchmark Terms Match Expected Documents scenario.
+    /// </summary>
+    [Fact(DisplayName = "Fuzzy Query: Benchmark Terms Match Expected Documents")]
+    public void FuzzyQuery_BenchmarkTerms_MatchExpectedDocuments()
+    {
+        var dir = new MMapDirectory(SubDir("fuzzy_benchmark_terms"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        AddBody(writer, "government policy");
+        AddBody(writer, "president statement");
+        AddBody(writer, "markets rally");
+        AddBody(writer, "governor market pressure");
+        AddBody(writer, "unrelated archive");
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+
+        AssertMatchedBodies(searcher, new FuzzyQuery("body", "goverment", 1), "government policy");
+        AssertMatchedBodies(searcher, new FuzzyQuery("body", "presiden", 1), "president statement");
+        AssertMatchedBodies(searcher, new FuzzyQuery("body", "markts", 1), "markets rally");
+    }
+
+    /// <summary>
+    /// Verifies the Fuzzy Query: Multiple Term Expansions Count A Document Once scenario.
+    /// </summary>
+    [Fact(DisplayName = "Fuzzy Query: Multiple Term Expansions Count A Document Once")]
+    public void FuzzyQuery_MultipleTermExpansions_CountDocumentOnce()
+    {
+        var dir = new MMapDirectory(SubDir("fuzzy_unique_docs"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        AddBody(writer, "goverment government");
+        AddBody(writer, "government");
+        AddBody(writer, "other");
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new FuzzyQuery("body", "goverment", 1), 10);
+        var docIds = results.ScoreDocs.Select(scoreDoc => scoreDoc.DocId).ToArray();
+
+        Assert.Equal(2, results.TotalHits);
+        Assert.Equal(docIds.Distinct().Count(), docIds.Length);
+    }
+
+    /// <summary>
+    /// Verifies the Fuzzy Query: Max Expansions Keeps Closest Terms scenario.
+    /// </summary>
+    [Fact(DisplayName = "Fuzzy Query: Max Expansions Keeps Closest Terms")]
+    public void FuzzyQuery_MaxExpansions_KeepsClosestTerms()
+    {
+        var dir = new MMapDirectory(SubDir("fuzzy_max_expansions"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        AddBody(writer, "markts");
+        AddBody(writer, "markets");
+        AddBody(writer, "market");
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new FuzzyQuery("body", "markts", maxEdits: 2, maxExpansions: 1), 10);
+
+        Assert.Equal(1, results.TotalHits);
+        Assert.Equal("markts", searcher.GetStoredFields(results.ScoreDocs[0].DocId)["body"][0]);
+    }
+
     // --- Levenshtein Distance ---
 
     /// <summary>
@@ -337,6 +403,71 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         var results = searcher.Search(pq, 10);
         Assert.Equal(1, results.TotalHits);
         Assert.Equal(0, results.ScoreDocs[0].DocId);
+    }
+
+    /// <summary>
+    /// Verifies the Phrase Query: Exact Three Word Matches Adjacent Terms scenario.
+    /// </summary>
+    [Fact(DisplayName = "Phrase Query: Exact Three Word Matches Adjacent Terms")]
+    public void PhraseQuery_ExactThreeWord_MatchesAdjacentTerms()
+    {
+        var dir = new MMapDirectory(SubDir("phrase_exact_three"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        AddBody(writer, "new york city guide");
+        AddBody(writer, "new fast york city");
+        AddBody(writer, "new york old city");
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new PhraseQuery("body", "new", "york", "city"), 10);
+
+        Assert.Equal(1, results.TotalHits);
+        Assert.Equal("new york city guide", searcher.GetStoredFields(results.ScoreDocs[0].DocId)["body"][0]);
+    }
+
+    /// <summary>
+    /// Verifies the Phrase Query: Slop One Allows One Gap On Adjacent Links scenario.
+    /// </summary>
+    [Fact(DisplayName = "Phrase Query: Slop One Allows One Gap On Adjacent Links")]
+    public void PhraseQuery_SlopOne_AllowsOneGapOnAdjacentLinks()
+    {
+        var dir = new MMapDirectory(SubDir("phrase_slop_one"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        AddBody(writer, "the quick agile brown fox");
+        AddBody(writer, "the quick agile bright brown fox");
+        AddBody(writer, "the brown quick fox");
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new PhraseQuery("body", 1, "quick", "brown", "fox"), 10);
+        var bodies = results.ScoreDocs
+            .Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["body"][0])
+            .ToArray();
+
+        Assert.Equal(1, results.TotalHits);
+        Assert.Contains("the quick agile brown fox", bodies);
+    }
+
+    /// <summary>
+    /// Verifies the Phrase Query: Repeated Term Uses Ordered Positions scenario.
+    /// </summary>
+    [Fact(DisplayName = "Phrase Query: Repeated Term Uses Ordered Positions")]
+    public void PhraseQuery_RepeatedTerm_UsesOrderedPositions()
+    {
+        var dir = new MMapDirectory(SubDir("phrase_repeated_term"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        AddBody(writer, "alpha alpha beta");
+        AddBody(writer, "alpha beta alpha");
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new PhraseQuery("body", "alpha", "alpha"), 10);
+
+        Assert.Equal(1, results.TotalHits);
+        Assert.Equal("alpha alpha beta", searcher.GetStoredFields(results.ScoreDocs[0].DocId)["body"][0]);
     }
 
     // --- Field-Level Boosting ---
@@ -575,5 +706,23 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
     public void WildcardQuery_Matches_CorrectResults(string text, string pattern, bool expected)
     {
         Assert.Equal(expected, WildcardQuery.Matches(text, pattern));
+    }
+
+    private static void AddBody(IndexWriter writer, string body)
+    {
+        var doc = new LeanDocument();
+        doc.Add(new TextField("body", body));
+        writer.AddDocument(doc);
+    }
+
+    private static void AssertMatchedBodies(IndexSearcher searcher, Query query, params string[] expectedBodies)
+    {
+        var results = searcher.Search(query, 10);
+        var bodies = results.ScoreDocs
+            .Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["body"][0])
+            .OrderBy(body => body, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(expectedBodies.OrderBy(body => body, StringComparer.Ordinal), bodies);
     }
 }

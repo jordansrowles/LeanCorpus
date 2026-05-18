@@ -43,6 +43,7 @@ internal sealed class TermVectorsStreamWriter : IDisposable
                 _tvdWriter.Write(entry.Positions.Length);
                 foreach (var pos in entry.Positions)
                     _tvdWriter.Write(pos);
+                WritePayloads(entry);
             }
         }
     }
@@ -62,5 +63,26 @@ internal sealed class TermVectorsStreamWriter : IDisposable
         tvxWriter.Write(_offsets.Count);
         foreach (var off in _offsets)
             tvxWriter.Write(off);
+    }
+
+    private void WritePayloads(TermVectorEntry entry)
+    {
+        bool hasPayloads = entry.Payloads is { Length: > 0 } payloads
+            && payloads.Any(static payload => payload is { Length: > 0 });
+        _tvdWriter.Write(hasPayloads);
+
+        if (!hasPayloads)
+            return;
+
+        if (entry.Payloads is null || entry.Payloads.Length != entry.Positions.Length)
+            throw new InvalidDataException($"Term vector payload count for term '{entry.Term}' must match the position count.");
+
+        for (int i = 0; i < entry.Payloads.Length; i++)
+        {
+            var payload = entry.Payloads[i];
+            _tvdWriter.Write(payload?.Length ?? 0);
+            if (payload is { Length: > 0 })
+                _tvdWriter.Write(payload);
+        }
     }
 }

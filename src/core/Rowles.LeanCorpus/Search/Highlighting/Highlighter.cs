@@ -38,31 +38,34 @@ public sealed class Highlighter
         if (tokens.Count == 0)
             return Truncate(text, maxSnippetLength);
 
-        // Find the best window (highest concentration of query terms)
         int bestStart = 0;
         int bestEnd = Math.Min(text.Length, maxSnippetLength);
         int bestScore = 0;
+        var matchingTokenIndexes = new List<int>();
 
-        // Score each token as a potential snippet centre
         for (int i = 0; i < tokens.Count; i++)
         {
-            if (!queryTerms.Contains(tokens[i].Text))
-                continue;
+            if (queryTerms.Contains(tokens[i].Text))
+                matchingTokenIndexes.Add(i);
+        }
 
-            // Window around this token
-            int windowStart = Math.Max(0, tokens[i].StartOffset - maxSnippetLength / 4);
+        int right = 0;
+        for (int left = 0; left < matchingTokenIndexes.Count; left++)
+        {
+            var token = tokens[matchingTokenIndexes[left]];
+            int windowStart = Math.Max(0, token.StartOffset - maxSnippetLength / 4);
             int windowEnd = Math.Min(text.Length, windowStart + maxSnippetLength);
 
-            int score = 0;
-            for (int j = 0; j < tokens.Count; j++)
+            if (right < left)
+                right = left;
+            while (right < matchingTokenIndexes.Count &&
+                   tokens[matchingTokenIndexes[right]].StartOffset >= windowStart &&
+                   tokens[matchingTokenIndexes[right]].EndOffset <= windowEnd)
             {
-                if (tokens[j].StartOffset >= windowStart && tokens[j].EndOffset <= windowEnd
-                    && queryTerms.Contains(tokens[j].Text))
-                {
-                    score++;
-                }
+                right++;
             }
 
+            int score = right - left;
             if (score > bestScore)
             {
                 bestScore = score;
@@ -71,33 +74,35 @@ public sealed class Highlighter
             }
         }
 
-        // Build the snippet with highlights
-        var snippet = text[bestStart..bestEnd];
-        var snippetTokens = _analyser.Analyse(snippet.AsSpan());
+        var sb = new System.Text.StringBuilder(
+            bestEnd - bestStart + queryTerms.Count * (_preTag.Length + _postTag.Length) + 6);
+        if (bestStart > 0)
+            sb.Append("...");
 
-        // Build highlighted output using original character offsets
-        var sb = new System.Text.StringBuilder(snippet.Length + queryTerms.Count * (_preTag.Length + _postTag.Length));
-        int lastEnd = 0;
-        foreach (var t in snippetTokens)
+        int lastEnd = bestStart;
+        foreach (var t in tokens)
         {
-            if (queryTerms.Contains(t.Text))
-            {
-                sb.Append(snippet, lastEnd, t.StartOffset - lastEnd);
-                sb.Append(_preTag);
-                sb.Append(snippet, t.StartOffset, t.EndOffset - t.StartOffset);
-                sb.Append(_postTag);
-                lastEnd = t.EndOffset;
-            }
+            if (t.EndOffset <= bestStart)
+                continue;
+            if (t.StartOffset >= bestEnd)
+                break;
+            if (!queryTerms.Contains(t.Text))
+                continue;
+
+            if (t.StartOffset < bestStart || t.EndOffset > bestEnd || t.StartOffset < lastEnd)
+                continue;
+
+            sb.Append(text, lastEnd, t.StartOffset - lastEnd);
+            sb.Append(_preTag);
+            sb.Append(text, t.StartOffset, t.EndOffset - t.StartOffset);
+            sb.Append(_postTag);
+            lastEnd = t.EndOffset;
         }
-        sb.Append(snippet, lastEnd, snippet.Length - lastEnd);
+        sb.Append(text, lastEnd, bestEnd - lastEnd);
+        if (bestEnd < text.Length)
+            sb.Append("...");
 
-        var result = sb.ToString();
-
-        // Add ellipsis if we're not at the start/end of the original text
-        if (bestStart > 0) result = "..." + result;
-        if (bestEnd < text.Length) result += "...";
-
-        return result;
+        return sb.ToString();
     }
 
     /// <summary>Extracts query terms from a TermQuery for use with GetBestFragment.</summary>

@@ -66,9 +66,10 @@ public sealed class AllocationRegressionTests : IClassFixture<TestDirectoryFixtu
         }
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "alpha"), Occur.Must);
-        query.Add(new TermQuery("body", "beta"), Occur.Must);
+        var query = new BooleanQuery.Builder()
+            .Add(new TermQuery("body", "alpha"), Occur.Must)
+            .Add(new TermQuery("body", "beta"), Occur.Must)
+            .Build();
 
         // Warmup
         for (int i = 0; i < warmup; i++)
@@ -122,10 +123,11 @@ public sealed class AllocationRegressionTests : IClassFixture<TestDirectoryFixtu
         }
 
         using var searcher = new IndexSearcher(dir);
-        var query = new BooleanQuery();
-        query.Add(new TermQuery("body", "red"), Occur.Should);
-        query.Add(new TermQuery("body", "green"), Occur.Should);
-        query.Add(new TermQuery("body", "blue"), Occur.Should);
+        var query = new BooleanQuery.Builder()
+            .Add(new TermQuery("body", "red"), Occur.Should)
+            .Add(new TermQuery("body", "green"), Occur.Should)
+            .Add(new TermQuery("body", "blue"), Occur.Should)
+            .Build();
 
         // Warmup
         for (int i = 0; i < warmup; i++)

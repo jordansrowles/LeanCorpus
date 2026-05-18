@@ -44,7 +44,7 @@ public sealed class StemmedAnalyser : IAnalyser
 
                 var stemmed = PorterStemmerFilter.Stem(token.Text);
                 if (!ReferenceEquals(stemmed, token.Text))
-                    tokens[i] = new Token(stemmed, token.StartOffset, token.EndOffset);
+                    tokens[i] = token.WithText(stemmed);
             }
         }
 

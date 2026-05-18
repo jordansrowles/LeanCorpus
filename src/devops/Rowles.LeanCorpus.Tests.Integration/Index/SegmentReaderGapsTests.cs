@@ -605,6 +605,33 @@ public sealed class SegmentReaderGapsTests: IDisposable
         }
     }
 
+    [Fact(DisplayName = "SegmentReader: GetNumericRange DocValues Fallback With No Bkd Or Num Returns Results")]
+    public void GetNumericRange_DocValuesFallback_WithNoBkdOrNum_ReturnsResults()
+    {
+        var mmap = new MMapDirectory(_dir);
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig()))
+        {
+            var doc = new LeanDocument();
+            doc.Add(new NumericField("price", 42.0));
+            writer.AddDocument(doc);
+            writer.Commit();
+        }
+
+        foreach (var f in Directory.GetFiles(_dir, "*.bkd"))
+            File.Delete(f);
+        foreach (var f in Directory.GetFiles(_dir, "*.num"))
+            File.Delete(f);
+
+        using (mmap)
+        using (var searcher = new IndexSearcher(mmap))
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+            var hits = reader.GetNumericRange("price", 0.0, 100.0);
+            Assert.Single(hits);
+            Assert.Equal(42.0, hits[0].Value);
+        }
+    }
+
     [Fact(DisplayName = "SegmentReader: GetNumericRange Linear Fallback No Field In Index Returns Empty")]
     public void GetNumericRange_LinearFallback_NoFieldInIndex_ReturnsEmpty()
     {

@@ -13,7 +13,7 @@ public sealed class LowercaseFilter : ITokenFilter
             var t = tokens[i];
             var lower = t.Text.ToLowerInvariant();
             if (!ReferenceEquals(lower, t.Text))
-                tokens[i] = new Token(lower, t.StartOffset, t.EndOffset);
+                tokens[i] = t.WithText(lower);
         }
     }
 

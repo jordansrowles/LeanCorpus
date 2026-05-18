@@ -147,7 +147,7 @@ public sealed class CodecsTests : IClassFixture<TestDirectoryFixture>
         for (int i = 0; i < norms.Length; i++)
             norms[i] = 1.0f / (1.0f + i);
 
-        // Write as per-field format (version 2)
+        // Write as per-field format.
         var fieldNorms = new Dictionary<string, float[]>(StringComparer.Ordinal)
         {
             ["testfield"] = norms
@@ -155,14 +155,16 @@ public sealed class CodecsTests : IClassFixture<TestDirectoryFixture>
         NormsWriter.Write(filePath + ".nrm", fieldNorms);
         var restored = NormsReader.Read(filePath + ".nrm");
 
-        Assert.True(restored.ContainsKey("testfield"));
-        var restoredNorms = restored["testfield"];
+        Assert.True(restored.Norms.ContainsKey("testfield"));
+        var restoredNorms = restored.Norms["testfield"];
         Assert.Equal(norms.Length, restoredNorms.Length);
         for (int i = 0; i < norms.Length; i++)
         {
             float restoredFloat = restoredNorms[i] / 255f;
             Assert.InRange(restoredFloat, norms[i] - 0.01f, norms[i] + 0.01f);
         }
+
+        Assert.False(restored.Boosts.ContainsKey("testfield"));
     }
 
     /// <summary>

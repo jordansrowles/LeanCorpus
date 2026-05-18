@@ -20,12 +20,14 @@ public sealed class MigratorChaosTests : IClassFixture<ChaosDirectoryFixture>
     public MigratorChaosTests(ChaosDirectoryFixture fixture) => _fixture = fixture;
 
     [Fact]
-    public void Migrate_ReadOnlyDicFile_CatchesExceptionAndReturnsFailed()
+    public void Migrate_BlockedTemporaryDicPath_CatchesExceptionAndReturnsFailed()
     {
         using var directory = CreateMigrationIndex("chaos_readonly_dic");
         RewriteTermDictionaryAsV1(directory);
         var dicPath = Directory.GetFiles(directory.DirectoryPath, "*.dic").Single();
-        File.SetAttributes(dicPath, FileAttributes.ReadOnly);
+        var temporaryDicPath = dicPath + ".tmp";
+        // Blocking the temporary rewrite path is deterministic across Windows and Unix-like runners.
+        Directory.CreateDirectory(temporaryDicPath);
         try
         {
             var result = IndexCodecMigrator.Migrate(directory, new IndexCodecMigrationOptions
@@ -42,7 +44,7 @@ public sealed class MigratorChaosTests : IClassFixture<ChaosDirectoryFixture>
         }
         finally
         {
-            File.SetAttributes(dicPath, FileAttributes.Normal);
+            Directory.Delete(temporaryDicPath, recursive: true);
         }
     }
 

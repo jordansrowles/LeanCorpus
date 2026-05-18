@@ -9,6 +9,9 @@ public enum FieldType
     /// <summary>Full-text content, passed through the analyser pipeline.</summary>
     Text,
 
+    /// <summary>Opaque binary content stored as raw bytes.</summary>
+    Binary,
+
     /// <summary>Numeric value for range filters and sorting.</summary>
     Numeric,
 

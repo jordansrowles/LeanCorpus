@@ -1,22 +1,23 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Documents;
 using Lucene.Net.Index;
-using Lucene.Net.Store;
 using Lucene.Net.Util;
-using IODirectory = System.IO.Directory;
 using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
+using LeanIndexWriter = Rowles.LeanCorpus.Index.Indexer.IndexWriter;
+using LeanIndexWriterConfig = Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig;
 using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;
 using LeanStringField = Rowles.LeanCorpus.Document.Fields.StringField;
+using LeanTermQuery = Rowles.LeanCorpus.Search.Queries.TermQuery;
 using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
+using LuceneMMapDirectory = Lucene.Net.Store.MMapDirectory;
 using LuceneStringField = Lucene.Net.Documents.StringField;
 using LuceneTextField = Lucene.Net.Documents.TextField;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
-/// Measures document deletion performance across all 3 libraries.
-/// Indexes N docs, then deletes ~10% and verifies the index reflects the change.
+/// Measures the cost of queueing delete terms without applying them to segment files.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -24,7 +25,110 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
 [SimpleJob]
-public class DeletionBenchmarks
+[InvocationCount(1)]
+public class DeletionQueueBenchmarks
+{
+    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
+
+    [ParamsSource(nameof(DocCounts))]
+    public int DocumentCount { get; set; }
+
+    private int _deleteCount;
+
+    private string _leanIndexPath = string.Empty;
+    private LeanMMapDirectory? _leanDirectory;
+    private LeanIndexWriter? _leanWriter;
+
+    private string _luceneIndexPath = string.Empty;
+    private LuceneMMapDirectory? _luceneDirectory;
+    private StandardAnalyzer? _luceneAnalyzer;
+    private Lucene.Net.Index.IndexWriter? _luceneWriter;
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _deleteCount = Math.Max(1, DocumentCount / 10);
+    }
+
+    [IterationSetup]
+    public void IterationSetup()
+    {
+        _leanIndexPath = CreateTempDirectory("leancorpus-bench-del-queue");
+        _leanDirectory = new LeanMMapDirectory(_leanIndexPath);
+        _leanWriter = new LeanIndexWriter(_leanDirectory, CreateLeanWriterConfig());
+
+        _luceneIndexPath = CreateTempDirectory("lucenenet-bench-del-queue");
+        _luceneDirectory = new LuceneMMapDirectory(new DirectoryInfo(_luceneIndexPath));
+        _luceneAnalyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+        _luceneWriter = new Lucene.Net.Index.IndexWriter(
+            _luceneDirectory,
+            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, _luceneAnalyzer));
+    }
+
+    [IterationCleanup]
+    public void IterationCleanup()
+    {
+        _leanWriter?.Dispose();
+        _luceneWriter?.Dispose();
+        _luceneAnalyzer?.Dispose();
+        _luceneDirectory?.Dispose();
+
+        DeleteDirectory(_leanIndexPath);
+        DeleteDirectory(_luceneIndexPath);
+    }
+
+    [Benchmark(Baseline = true)]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanLucene_QueueDeletes()
+    {
+        for (int i = 0; i < _deleteCount; i++)
+            _leanWriter!.DeleteDocuments(new LeanTermQuery("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+
+        return _deleteCount;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_QueueDeletes()
+    {
+        for (int i = 0; i < _deleteCount; i++)
+            _luceneWriter!.DeleteDocuments(new Term("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+
+        return _deleteCount;
+    }
+
+    internal static LeanIndexWriterConfig CreateLeanWriterConfig() => new()
+    {
+        MaxBufferedDocs = 10_000,
+        RamBufferSizeMB = 256,
+        MergeThreshold = int.MaxValue,
+    };
+
+    internal static string CreateTempDirectory(string prefix)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{prefix}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    internal static void DeleteDirectory(string path)
+    {
+        if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+            Directory.Delete(path, recursive: true);
+    }
+}
+
+/// <summary>
+/// Measures the cost of applying already-queued deletes during commit.
+/// </summary>
+[MemoryDiagnoser]
+[HtmlExporter]
+[JsonExporterAttribute.Full]
+[MarkdownExporterAttribute.GitHub]
+[RPlotExporter]
+[SimpleJob]
+[InvocationCount(1)]
+public class DeletionCommitBenchmarks
 {
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
 
@@ -32,82 +136,106 @@ public class DeletionBenchmarks
     public int DocumentCount { get; set; }
 
     private string[] _documents = [];
+    private int _deleteCount;
+
+    private string _leanIndexPath = string.Empty;
+    private LeanMMapDirectory? _leanDirectory;
+    private LeanIndexWriter? _leanWriter;
+
+    private string _luceneIndexPath = string.Empty;
+    private LuceneMMapDirectory? _luceneDirectory;
+    private StandardAnalyzer? _luceneAnalyzer;
+    private Lucene.Net.Index.IndexWriter? _luceneWriter;
 
     [GlobalSetup]
     public void Setup()
     {
         _documents = BenchmarkData.BuildDocuments(DocumentCount);
+        _deleteCount = Math.Max(1, DocumentCount / 10);
+    }
+
+    [IterationSetup]
+    public void IterationSetup()
+    {
+        _leanIndexPath = DeletionQueueBenchmarks.CreateTempDirectory("leancorpus-bench-del-commit");
+        _leanDirectory = new LeanMMapDirectory(_leanIndexPath);
+        _leanWriter = new LeanIndexWriter(_leanDirectory, DeletionQueueBenchmarks.CreateLeanWriterConfig());
+        IndexLeanDocuments(_leanWriter, _documents);
+        _leanWriter.Commit();
+        QueueLeanDeletes(_leanWriter);
+
+        _luceneIndexPath = DeletionQueueBenchmarks.CreateTempDirectory("lucenenet-bench-del-commit");
+        _luceneDirectory = new LuceneMMapDirectory(new DirectoryInfo(_luceneIndexPath));
+        _luceneAnalyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+        _luceneWriter = new Lucene.Net.Index.IndexWriter(
+            _luceneDirectory,
+            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, _luceneAnalyzer));
+        IndexLuceneDocuments(_luceneWriter, _documents);
+        _luceneWriter.Commit();
+        QueueLuceneDeletes(_luceneWriter);
+    }
+
+    [IterationCleanup]
+    public void IterationCleanup()
+    {
+        _leanWriter?.Dispose();
+        _luceneWriter?.Dispose();
+        _luceneAnalyzer?.Dispose();
+        _luceneDirectory?.Dispose();
+
+        DeletionQueueBenchmarks.DeleteDirectory(_leanIndexPath);
+        DeletionQueueBenchmarks.DeleteDirectory(_luceneIndexPath);
     }
 
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_DeleteDocuments()
+    public int LeanLucene_CommitDeletes()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"leancorpus-bench-del-{Guid.NewGuid():N}");
-        IODirectory.CreateDirectory(path);
-
-        try
-        {
-            var directory = new LeanMMapDirectory(path);
-            using var writer = new Rowles.LeanCorpus.Index.Indexer.IndexWriter(
-                directory,
-                new Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig
-                {
-                    MaxBufferedDocs = 10_000,
-                    RamBufferSizeMB = 256,
-                    MergeThreshold = int.MaxValue,
-                });
-
-            for (int i = 0; i < _documents.Length; i++)
-            {
-                var doc = new LeanDocument();
-                doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-                doc.Add(new LeanTextField("body", _documents[i]));
-                writer.AddDocument(doc);
-            }
-            writer.Commit();
-
-            int deleteCount = DocumentCount / 10;
-            for (int i = 0; i < deleteCount; i++)
-                writer.DeleteDocuments(new Rowles.LeanCorpus.Search.Queries.TermQuery("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-            writer.Commit();
-
-            return deleteCount;
-        }
-        finally
-        {
-            if (IODirectory.Exists(path))
-                IODirectory.Delete(path, recursive: true);
-        }
+        _leanWriter!.Commit();
+        return _deleteCount;
     }
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LuceneNet_DeleteDocuments()
+    public int LuceneNet_CommitDeletes()
     {
-        using var directory = new RAMDirectory();
-        using var analyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
-        using var writer = new Lucene.Net.Index.IndexWriter(
-            directory,
-            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyzer));
+        _luceneWriter!.Commit();
+        return _deleteCount;
+    }
 
-        for (int i = 0; i < _documents.Length; i++)
+    private void QueueLeanDeletes(LeanIndexWriter writer)
+    {
+        for (int i = 0; i < _deleteCount; i++)
+            writer.DeleteDocuments(new LeanTermQuery("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+    }
+
+    private void QueueLuceneDeletes(Lucene.Net.Index.IndexWriter writer)
+    {
+        for (int i = 0; i < _deleteCount; i++)
+            writer.DeleteDocuments(new Term("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+    }
+
+    private static void IndexLeanDocuments(LeanIndexWriter writer, IReadOnlyList<string> documents)
+    {
+        for (int i = 0; i < documents.Count; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            doc.Add(new LeanTextField("body", documents[i]));
+            writer.AddDocument(doc);
+        }
+    }
+
+    private static void IndexLuceneDocuments(Lucene.Net.Index.IndexWriter writer, IReadOnlyList<string> documents)
+    {
+        for (int i = 0; i < documents.Count; i++)
         {
             var doc = new Lucene.Net.Documents.Document
             {
-                new LuceneStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture), Field.Store.YES),
-                new LuceneTextField("body", _documents[i], Field.Store.NO)
+                new LuceneStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture), Field.Store.NO),
+                new LuceneTextField("body", documents[i], Field.Store.NO)
             };
             writer.AddDocument(doc);
         }
-        writer.Commit();
-
-        int deleteCount = DocumentCount / 10;
-        for (int i = 0; i < deleteCount; i++)
-            writer.DeleteDocuments(new Term("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-        writer.Commit();
-
-        return deleteCount;
     }
-
 }

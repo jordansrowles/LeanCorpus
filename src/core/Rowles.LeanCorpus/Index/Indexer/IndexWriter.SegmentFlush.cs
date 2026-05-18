@@ -152,27 +152,37 @@ public sealed partial class IndexWriter
 
         // Write per-field norms (.nrm) and exact field lengths (.fln) — fused single pass
         // over per-field token counts so we read each `counts` array only once.
-        var fieldNorms = new Dictionary<string, float[]>(_docTokenCounts.Count, StringComparer.Ordinal);
+        var normFields = new HashSet<string>(_docTokenCounts.Keys, StringComparer.Ordinal);
+        foreach (var fieldName in _fieldBoosts.Keys)
+            normFields.Add(fieldName);
+
+        var fieldNorms = new Dictionary<string, float[]>(normFields.Count, StringComparer.Ordinal);
         var fieldLengths = new Dictionary<string, int[]>(_docTokenCounts.Count, StringComparer.Ordinal);
-        var normsReturnList = new List<float[]>(_docTokenCounts.Count);
+        var normsReturnList = new List<float[]>(normFields.Count);
         var lengthsReturnList = new List<int[]>(_docTokenCounts.Count);
-        foreach (var (fieldName, counts) in _docTokenCounts)
+        foreach (var fieldName in normFields)
         {
+            _docTokenCounts.TryGetValue(fieldName, out var counts);
             var norms = ArrayPool<float>.Shared.Rent(_bufferedDocCount);
-            var lengths = ArrayPool<int>.Shared.Rent(_bufferedDocCount);
-            int countsLen = counts.Length;
+            int[]? lengths = counts is not null ? ArrayPool<int>.Shared.Rent(_bufferedDocCount) : null;
+            int countsLen = counts?.Length ?? 0;
             for (int i = 0; i < _bufferedDocCount; i++)
             {
-                int tokenCount = i < countsLen ? counts[i] : 0;
-                lengths[i] = tokenCount;
+                int tokenCount = counts is not null
+                    ? (i < countsLen ? counts[i] : 0)
+                    : 1;
+                if (lengths is not null)
+                    lengths[i] = tokenCount;
                 norms[i] = 1.0f / (1.0f + Math.Max(1, tokenCount));
             }
             fieldNorms[fieldName] = norms;
-            fieldLengths[fieldName] = lengths;
+            if (lengths is not null)
+                fieldLengths[fieldName] = lengths;
             normsReturnList.Add(norms);
-            lengthsReturnList.Add(lengths);
+            if (lengths is not null)
+                lengthsReturnList.Add(lengths);
         }
-        NormsWriter.Write(basePath + ".nrm", fieldNorms, _bufferedDocCount);
+        NormsWriter.Write(basePath + ".nrm", fieldNorms, docCount: _bufferedDocCount, sparseFieldBoosts: _fieldBoosts);
         foreach (var arr in normsReturnList) ArrayPool<float>.Shared.Return(arr, clearArray: false);
 
         FieldLengthWriter.Write(basePath + ".fln", fieldLengths, _bufferedDocCount);
@@ -338,7 +348,14 @@ public sealed partial class IndexWriter
                     int freq = acc.GetFreq(i);
                     var posSpan = acc.GetPositions(i);
                     var positions = posSpan.IsEmpty ? [] : posSpan.ToArray();
-                    terms.Add(new TermVectorEntry(trm, freq, positions));
+                    byte[]?[]? payloads = null;
+                    if (acc.HasPayloads && positions.Length > 0)
+                    {
+                        payloads = new byte[]?[positions.Length];
+                        for (int p = 0; p < positions.Length; p++)
+                            payloads[p] = acc.GetPayload(i, p);
+                    }
+                    terms.Add(new TermVectorEntry(trm, freq, positions, payloads));
                 }
             }
             TermVectorsWriter.Write(basePath + ".tvd", basePath + ".tvx", tvDocs);
@@ -459,6 +476,18 @@ public sealed partial class IndexWriter
 
         // 3. Remap per-field token counts (norm source)
         RemapDocTokenCounts(sortPerm, n);
+
+        // 3a. Remap per-field boosts.
+        foreach (var (field, docMap) in _fieldBoosts)
+        {
+            var remapped = new Dictionary<int, float>(docMap.Count);
+            foreach (var (oldDoc, boost) in docMap)
+            {
+                if (oldDoc < inversePerm.Length)
+                    remapped[inversePerm[oldDoc]] = boost;
+            }
+            _fieldBoosts[field] = remapped;
+        }
 
         // 4. Remap numeric doc values
         foreach (var (field, list) in _numericDocValues)
@@ -581,7 +610,7 @@ public sealed partial class IndexWriter
     {
         int totalEntries = _sfFieldIds.Count;
         var newFieldIds = new List<int>(totalEntries);
-        var newValues = new List<string>(totalEntries);
+        var newValues = new List<Codecs.StoredFields.StoredFieldValue>(totalEntries);
         var newDocStarts = new List<int>(n);
 
         for (int newDoc = 0; newDoc < n; newDoc++)

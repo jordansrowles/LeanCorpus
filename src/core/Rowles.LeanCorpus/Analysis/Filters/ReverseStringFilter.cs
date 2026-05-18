@@ -21,7 +21,7 @@ public sealed class ReverseStringFilter : ITokenFilter
                     buffer[j] = source[source.Length - 1 - j];
             });
 
-            tokens[i] = new Token(reversed, token.StartOffset, token.EndOffset);
+            tokens[i] = token.WithText(reversed);
         }
     }
 }

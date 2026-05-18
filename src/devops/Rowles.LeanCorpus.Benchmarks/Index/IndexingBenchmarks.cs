@@ -6,6 +6,7 @@ using Rowles.LeanCorpus.Store;
 using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
 using LeanStringField = Rowles.LeanCorpus.Document.Fields.StringField;
 using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
+using LuceneMMapDirectory = Lucene.Net.Store.MMapDirectory;
 using LuceneStringField = Lucene.Net.Documents.StringField;
 using LuceneTextField = Lucene.Net.Documents.TextField;
 
@@ -73,24 +74,35 @@ public class IndexingBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_IndexDocuments()
     {
-        using var directory = new Lucene.Net.Store.RAMDirectory();
-        using var analyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
-        using var writer = new Lucene.Net.Index.IndexWriter(
-            directory,
-            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyzer));
+        var path = Path.Combine(Path.GetTempPath(), $"lucenenet-bench-index-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(path);
 
-        for (int i = 0; i < _documents.Length; i++)
+        try
         {
-            var doc = new Lucene.Net.Documents.Document
-            {
-                new LuceneStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture), Field.Store.NO),
-                new LuceneTextField("body", _documents[i], Field.Store.NO)
-            };
-            writer.AddDocument(doc);
-        }
+            using var directory = new LuceneMMapDirectory(new DirectoryInfo(path));
+            using var analyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+            using var writer = new Lucene.Net.Index.IndexWriter(
+                directory,
+                new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyzer));
 
-        writer.Commit();
-        return _documents.Length;
+            for (int i = 0; i < _documents.Length; i++)
+            {
+                var doc = new Lucene.Net.Documents.Document
+                {
+                    new LuceneStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture), Field.Store.NO),
+                    new LuceneTextField("body", _documents[i], Field.Store.NO)
+                };
+                writer.AddDocument(doc);
+            }
+
+            writer.Commit();
+            return _documents.Length;
+        }
+        finally
+        {
+            if (Directory.Exists(path))
+                Directory.Delete(path, recursive: true);
+        }
     }
 
 }

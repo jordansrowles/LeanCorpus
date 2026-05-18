@@ -58,7 +58,12 @@ public sealed class ShingleFilter : ITokenFilter
             for (int size = _minShingleSize; size <= maxSize; size++)
             {
                 string text = CreateShingle(tokens, start, size, _tokenSeparator);
-                result.Add(new Token(text, tokens[start].StartOffset, tokens[start + size - 1].EndOffset));
+                result.Add(new Token(
+                    text,
+                    tokens[start].StartOffset,
+                    tokens[start + size - 1].EndOffset,
+                    tokens[start].Type,
+                    positionIncrement: 0));
             }
         }
 

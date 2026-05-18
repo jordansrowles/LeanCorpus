@@ -3,7 +3,9 @@
 ## Stop words
 
 `StopWordFilter` drops tokens that match a supplied set. The library ships
-`StopWords.English` and equivalents for other supported languages.
+`StopWords.English` and equivalents for other supported languages. `StandardAnalyser`,
+`StemmedAnalyser`, `LanguageAnalyser`, and `IcuAnalyser` all use stop words as part of
+their built-in pipelines.
 
 ```csharp
 var filter = new StopWordFilter(StopWords.English);
@@ -34,5 +36,7 @@ documents would otherwise dominate buffer memory.
 
 ## See also
 
+- [Analysis overview](index.md)
+- [Analysers](01-analysers.md)
 - <xref:Rowles.LeanCorpus.Analysis.Filters.StopWordFilter>
 - <xref:Rowles.LeanCorpus.Analysis.TokenBudgetPolicy>

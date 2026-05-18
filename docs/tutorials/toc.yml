@@ -12,12 +12,18 @@
 
 - name: Analysis
   items:
-    - name: Built-in analysers
-      href: analysis/01-built-in-analysers.md
+    - name: Overview
+      href: analysis/index.md
+    - name: Analysers
+      href: analysis/01-analysers.md
+    - name: Tokenisers
+      href: analysis/02-tokenisers.md
     - name: Token filters
-      href: analysis/02-token-filters.md
+      href: analysis/03-token-filters.md
+    - name: Stemmers
+      href: analysis/04-stemmers.md
     - name: Stop words and token budget
-      href: analysis/03-stop-words-and-token-budget.md
+      href: analysis/05-stop-words-and-token-budget.md
 
 - name: Searching
   items:

@@ -75,6 +75,7 @@ engine uses SIMD posting intersection and BlockMax WAND for early termination on
 ## Explore
 
 - [Tutorials](tutorials/index.md) - step-by-step guides for common tasks
+- [Analysis overview](tutorials/analysis/index.md) - analysers, tokenisers, filters, and stemmer choices
 - [Articles](articles/index.md) - short notes on recent features
 - [Index checker CLI](tutorials/index-management/04-cli-checker.md) - command-line validation for local indexes
 - [API reference](~/api/index.md) - full type and member documentation

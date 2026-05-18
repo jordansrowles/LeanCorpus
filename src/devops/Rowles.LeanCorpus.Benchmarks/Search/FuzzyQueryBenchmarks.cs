@@ -3,7 +3,6 @@ using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Documents;
 using Lucene.Net.Index;
 using Lucene.Net.Search;
-using Lucene.Net.Store;
 using Lucene.Net.Util;
 using IODirectory = System.IO.Directory;
 using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
@@ -12,13 +11,14 @@ using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;
 using LeanStringField = Rowles.LeanCorpus.Document.Fields.StringField;
 using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
 using LuceneIndexSearcher = Lucene.Net.Search.IndexSearcher;
+using LuceneMMapDirectory = Lucene.Net.Store.MMapDirectory;
 using LuceneStringField = Lucene.Net.Documents.StringField;
 using LuceneTextField = Lucene.Net.Documents.TextField;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
-/// Measures FuzzyQuery performance across LeanCorpus and Lucene.NET.
+/// Measures FuzzyQuery performance across deterministic edit-distance shapes.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -35,17 +35,20 @@ public class FuzzyQueryBenchmarks
     [ParamsSource(nameof(DocCounts))]
     public int DocumentCount { get; set; }
 
-    [Params("goverment", "presiden", "markts")]
-    public string QueryTerm { get; set; } = "goverment";
+    [Params("short-edit1-common", "medium-edit1-common", "medium-edit2-common", "long-edit1-common", "nohit-edit2")]
+    public string Scenario { get; set; } = "medium-edit1-common";
 
     private string _leanIndexPath = string.Empty;
     private LeanMMapDirectory? _leanDirectory;
     private LeanIndexSearcher? _leanSearcher;
+    private Rowles.LeanCorpus.Search.Queries.FuzzyQuery? _leanQuery;
 
-    private RAMDirectory? _luceneDirectory;
+    private string _luceneIndexPath = string.Empty;
+    private LuceneMMapDirectory? _luceneDirectory;
     private StandardAnalyzer? _luceneAnalyzer;
     private DirectoryReader? _luceneReader;
     private LuceneIndexSearcher? _luceneSearcher;
+    private Lucene.Net.Search.FuzzyQuery? _luceneQuery;
 
     [GlobalSetup]
     public void Setup()
@@ -53,6 +56,9 @@ public class FuzzyQueryBenchmarks
         var documents = BenchmarkData.BuildDocuments(DocumentCount);
         BuildLeanIndex(documents);
         BuildLuceneIndex(documents);
+        var scenario = ResolveScenario(Scenario);
+        _leanQuery = new Rowles.LeanCorpus.Search.Queries.FuzzyQuery("body", scenario.QueryTerm, scenario.MaxEdits);
+        _luceneQuery = new Lucene.Net.Search.FuzzyQuery(new Term("body", scenario.QueryTerm), scenario.MaxEdits);
     }
 
     [GlobalCleanup]
@@ -65,22 +71,22 @@ public class FuzzyQueryBenchmarks
         _luceneReader?.Dispose();
         _luceneAnalyzer?.Dispose();
         _luceneDirectory?.Dispose();
+        if (!string.IsNullOrWhiteSpace(_luceneIndexPath) && IODirectory.Exists(_luceneIndexPath))
+            IODirectory.Delete(_luceneIndexPath, recursive: true);
     }
 
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_FuzzyQuery()
     {
-        var query = new Rowles.LeanCorpus.Search.Queries.FuzzyQuery("body", QueryTerm, maxEdits: 2);
-        return _leanSearcher!.Search(query, TopN).TotalHits;
+        return _leanSearcher!.Search(_leanQuery!, TopN).TotalHits;
     }
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_FuzzyQuery()
     {
-        var query = new Lucene.Net.Search.FuzzyQuery(new Term("body", QueryTerm), 2);
-        return _luceneSearcher!.Search(query, TopN).TotalHits;
+        return _luceneSearcher!.Search(_luceneQuery!, TopN).TotalHits;
     }
 
     private void BuildLeanIndex(string[] documents)
@@ -108,7 +114,10 @@ public class FuzzyQueryBenchmarks
 
     private void BuildLuceneIndex(string[] documents)
     {
-        _luceneDirectory = new RAMDirectory();
+        _luceneIndexPath = Path.Combine(Path.GetTempPath(), $"lucenenet-bench-fuzzy-{Guid.NewGuid():N}");
+        IODirectory.CreateDirectory(_luceneIndexPath);
+
+        _luceneDirectory = new LuceneMMapDirectory(new DirectoryInfo(_luceneIndexPath));
         _luceneAnalyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
 
         using (var writer = new Lucene.Net.Index.IndexWriter(
@@ -130,5 +139,15 @@ public class FuzzyQueryBenchmarks
         _luceneReader = DirectoryReader.Open(_luceneDirectory);
         _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
     }
+
+    private static (string QueryTerm, int MaxEdits) ResolveScenario(string scenario) => scenario switch
+    {
+        "short-edit1-common" => ("marke", 1),
+        "medium-edit1-common" => ("goverment", 1),
+        "medium-edit2-common" => ("presdnt", 2),
+        "long-edit1-common" => ("econmic", 1),
+        "nohit-edit2" => ("zzzznomatch", 2),
+        _ => throw new InvalidOperationException($"Unknown fuzzy benchmark scenario '{scenario}'.")
+    };
 
 }

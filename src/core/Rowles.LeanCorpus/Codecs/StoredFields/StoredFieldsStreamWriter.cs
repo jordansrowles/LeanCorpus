@@ -43,7 +43,7 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
         _intraOffsets = new List<int>(blockSize);
     }
 
-    internal void AddDocument(IReadOnlyDictionary<string, IReadOnlyList<string>> fields)
+    internal void AddDocument(IReadOnlyDictionary<string, IReadOnlyList<StoredFieldValue>> fields)
     {
         _intraOffsets.Add((int)_rawStream.Position);
 
@@ -61,11 +61,22 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
             _rawWriter.Write(values.Count);
             foreach (var value in values)
             {
-                int valueByteCount = System.Text.Encoding.UTF8.GetByteCount(value);
-                Span<byte> valueBuf = valueByteCount <= encodeBuf.Length ? encodeBuf : new byte[valueByteCount];
-                System.Text.Encoding.UTF8.GetBytes(value, valueBuf);
-                _rawWriter.Write(valueByteCount);
-                _rawWriter.Write(valueBuf[..valueByteCount]);
+                _rawWriter.Write((byte)value.Kind);
+                if (value.IsBinary)
+                {
+                    var bytes = value.BinaryValue ?? [];
+                    _rawWriter.Write(bytes.Length);
+                    _rawWriter.Write(bytes);
+                }
+                else
+                {
+                    var text = value.StringValue ?? string.Empty;
+                    int valueByteCount = System.Text.Encoding.UTF8.GetByteCount(text);
+                    Span<byte> valueBuf = valueByteCount <= encodeBuf.Length ? encodeBuf : new byte[valueByteCount];
+                    System.Text.Encoding.UTF8.GetBytes(text, valueBuf);
+                    _rawWriter.Write(valueByteCount);
+                    _rawWriter.Write(valueBuf[..valueByteCount]);
+                }
             }
         }
 

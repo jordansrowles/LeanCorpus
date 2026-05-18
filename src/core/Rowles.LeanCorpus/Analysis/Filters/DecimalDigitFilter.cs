@@ -24,7 +24,7 @@ public sealed class DecimalDigitFilter : ITokenFilter
                     buffer[j] = NormaliseDigit(source[j]);
             });
 
-            tokens[i] = new Token(normalised, token.StartOffset, token.EndOffset);
+            tokens[i] = token.WithText(normalised);
         }
     }
 

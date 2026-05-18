@@ -28,7 +28,7 @@ public sealed class TruncateTokenFilter : ITokenFilter
             if (token.Text.Length <= _maxLength)
                 continue;
 
-            tokens[i] = new Token(token.Text[.._maxLength], token.StartOffset, token.StartOffset + _maxLength);
+            tokens[i] = token.WithTextAndOffsets(token.Text[.._maxLength], token.StartOffset, token.StartOffset + _maxLength);
         }
     }
 }

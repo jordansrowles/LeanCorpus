@@ -11,9 +11,12 @@ the [API reference](~/api/index.md) for full signatures.
 
 ## Analysis
 
-- [Built-in analysers](analysis/01-built-in-analysers.md)
-- [Token filters and custom pipelines](analysis/02-token-filters.md)
-- [Stop words and the token budget](analysis/03-stop-words-and-token-budget.md)
+- [Analysis overview](analysis/index.md)
+- [Analysers](analysis/01-analysers.md)
+- [Tokenisers](analysis/02-tokenisers.md)
+- [Token filters](analysis/03-token-filters.md)
+- [Stemmers](analysis/04-stemmers.md)
+- [Stop words and the token budget](analysis/05-stop-words-and-token-budget.md)
 
 ## Searching
 

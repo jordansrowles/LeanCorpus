@@ -76,4 +76,25 @@ public sealed class NGramTokeniserTests
         Assert.Equal(1, tokens[1].StartOffset);
         Assert.Equal(3, tokens[1].EndOffset);
     }
+
+    /// <summary>
+    /// Verifies the NGram: Destination Buffer Matches Allocating Path scenario.
+    /// </summary>
+    [Fact(DisplayName = "NGram: Destination Buffer Matches Allocating Path")]
+    public void NGram_DestinationBuffer_MatchesAllocatingPath()
+    {
+        var tok = new NGramTokeniser(2, 3);
+        var expected = tok.Tokenise("abcd".AsSpan());
+        var actual = new List<Token> { new("stale", 0, 5) };
+
+        tok.Tokenise("abcd".AsSpan(), actual);
+
+        Assert.Equal(expected.Count, actual.Count);
+        for (int i = 0; i < expected.Count; i++)
+        {
+            Assert.Equal(expected[i].Text, actual[i].Text);
+            Assert.Equal(expected[i].StartOffset, actual[i].StartOffset);
+            Assert.Equal(expected[i].EndOffset, actual[i].EndOffset);
+        }
+    }
 }

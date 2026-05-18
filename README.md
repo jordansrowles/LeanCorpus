@@ -212,6 +212,10 @@ Built-in token filters include lowercase, stop-word removal, Porter stemming, ac
 
 Character filters can be added to `IndexWriterConfig.CharFilters` and run before tokenisation. Token budget enforcement is configured via `MaxTokensPerDocument` and `TokenBudgetPolicy` (Truncate or Throw).
 
+See the [Analysis tutorials](docs/tutorials/analysis/index.md) for analyser, tokeniser,
+filter, and stemmer guidance, including when to use `EnglishStemmer` versus
+`LightEnglishStemmer`.
+
 ## Queries
 
 | Query | Notes |

@@ -20,6 +20,7 @@ public static class IndexCodecMigrator
     [
         ".dic",
         ".pos",
+        ".nrm",
         ".dvn",
         ".dvs",
         ".dss",
@@ -459,6 +460,9 @@ public static class IndexCodecMigrator
             case ".pos":
                 RewritePostings(targetDirectory, action);
                 break;
+            case ".nrm":
+                RewriteNorms(filePath);
+                break;
             case ".dvn":
                 RewriteNumericDocValues(filePath);
                 break;
@@ -610,6 +614,28 @@ public static class IndexCodecMigrator
         WriteSingleFileAtomically(path, temporaryPath => SortedDocValuesWriter.Write(temporaryPath, nullableValues, docCount));
     }
 
+    private static void RewriteNorms(string path)
+    {
+        var values = NormsReader.Read(path);
+        var fieldNorms = values.Norms.ToDictionary(
+            static item => item.Key,
+            static item =>
+            {
+                var norms = new float[item.Value.Length];
+                for (int i = 0; i < item.Value.Length; i++)
+                    norms[i] = item.Value[i] / 255f;
+                return norms;
+            },
+            StringComparer.Ordinal);
+
+        IReadOnlyDictionary<string, float[]>? fieldBoosts = values.Boosts.Count > 0
+            ? values.Boosts
+            : null;
+
+        var docCount = fieldNorms.Count == 0 ? 0 : fieldNorms.Values.Max(static field => field.Length);
+        WriteSingleFileAtomically(path, temporaryPath => NormsWriter.Write(temporaryPath, fieldNorms, fieldBoosts, docCount));
+    }
+
     private static void RewriteSortedSetDocValues(string path)
     {
         var values = SortedSetDocValuesReader.Read(path);
@@ -723,7 +749,7 @@ public static class IndexCodecMigrator
                     temporaryFdtPath,
                     temporaryFdxPath,
                     info.DocCount,
-                    reader.ReadDocument,
+                    reader.ReadDocumentValues,
                     compression: FieldCompressionPolicy.Deflate);
             }
 
