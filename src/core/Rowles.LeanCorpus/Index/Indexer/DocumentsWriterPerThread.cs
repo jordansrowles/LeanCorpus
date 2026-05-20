@@ -1,4 +1,5 @@
 ﻿using System.Runtime.CompilerServices;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
@@ -39,6 +40,7 @@ internal sealed class DocumentsWriterPerThread
     private readonly Dictionary<string, string> _qualifiedTermPool = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _fieldPrefixCache = new(StringComparer.Ordinal);
     private readonly HashSet<string> _termPool = new(StringComparer.Ordinal);
+    private readonly SpanPostingTokenSink _spanPostingSink;
     private long _estimatedRamBytes;
 
     /// <summary>Estimated RAM usage in bytes for this DWPT's buffers.</summary>
@@ -49,6 +51,7 @@ internal sealed class DocumentsWriterPerThread
         _analyser = defaultAnalyser;
         _fieldAnalysers = fieldAnalysers;
         _storePayloads = storePayloads;
+        _spanPostingSink = new SpanPostingTokenSink(this);
     }
 
     /// <summary>Resets all buffers to empty state for reuse.</summary>
@@ -70,6 +73,9 @@ internal sealed class DocumentsWriterPerThread
         FieldNames.Clear();
         DocTokenCounts.Clear();
         FieldBoosts.Clear();
+        _qualifiedTermPool.Clear();
+        _fieldPrefixCache.Clear();
+        _termPool.Clear();
         DocCount = 0;
         _estimatedRamBytes = 0;
     }
@@ -167,18 +173,12 @@ internal sealed class DocumentsWriterPerThread
     private void IndexTextField(string fieldName, string value, int docId)
     {
         var analyser = _fieldAnalysers.GetValueOrDefault(fieldName, _analyser);
+        if (TryIndexTextFieldWithSpanAnalyser(analyser, value.AsSpan(), fieldName, docId))
+            return;
+
         var tokens = analyser.Analyse(value.AsSpan());
 
-        // Track per-field token counts
-        if (!DocTokenCounts.TryGetValue(fieldName, out var counts))
-        {
-            counts = new int[16];
-            DocTokenCounts[fieldName] = counts;
-        }
-        if (docId >= counts.Length)
-            Array.Resize(ref counts, Math.Max(counts.Length * 2, docId + 1));
-        counts[docId] += tokens.Count;
-        DocTokenCounts[fieldName] = counts; // Update reference in case of resize
+        AddTokenCount(fieldName, docId, tokens.Count);
 
         FieldNames.Add(fieldName);
 
@@ -211,6 +211,33 @@ internal sealed class DocumentsWriterPerThread
                 _estimatedRamBytes += 12; // posting entry (docId + position)
             }
         }
+    }
+
+    private bool TryIndexTextFieldWithSpanAnalyser(IAnalyser analyser, ReadOnlySpan<char> input, string fieldName, int docId)
+    {
+        if (analyser is not ISpanAnalyser spanAnalyser)
+            return false;
+
+        _spanPostingSink.Reset(fieldName, docId);
+        if (!spanAnalyser.TryAnalyse(input, _spanPostingSink))
+            return false;
+
+        AddTokenCount(fieldName, docId, _spanPostingSink.AcceptedCount);
+        FieldNames.Add(fieldName);
+        return true;
+    }
+
+    private void AddTokenCount(string fieldName, int docId, int tokenCount)
+    {
+        if (!DocTokenCounts.TryGetValue(fieldName, out var counts))
+        {
+            counts = new int[16];
+            DocTokenCounts[fieldName] = counts;
+        }
+        if (docId >= counts.Length)
+            Array.Resize(ref counts, Math.Max(counts.Length * 2, docId + 1));
+        counts[docId] += tokenCount;
+        DocTokenCounts[fieldName] = counts; // Update reference in case of resize
     }
 
     private void IndexStringField(string fieldName, string value, int docId)
@@ -362,6 +389,10 @@ internal sealed class DocumentsWriterPerThread
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private string GetOrCreateQualifiedTerm(string fieldName, string term)
+        => GetOrCreateQualifiedTerm(fieldName, term.AsSpan());
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private string GetOrCreateQualifiedTerm(string fieldName, ReadOnlySpan<char> term)
     {
         if (!_fieldPrefixCache.TryGetValue(fieldName, out var prefix))
         {
@@ -372,7 +403,7 @@ internal sealed class DocumentsWriterPerThread
         int totalLen = prefix.Length + term.Length;
         Span<char> buf = totalLen <= 256 ? stackalloc char[totalLen] : new char[totalLen];
         prefix.AsSpan().CopyTo(buf);
-        term.AsSpan().CopyTo(buf[prefix.Length..]);
+        term.CopyTo(buf[prefix.Length..]);
 
         var lookup = _qualifiedTermPool.GetAlternateLookup<ReadOnlySpan<char>>();
         if (lookup.TryGetValue(buf, out var pooled))
@@ -381,5 +412,64 @@ internal sealed class DocumentsWriterPerThread
         var qualifiedTerm = new string(buf);
         _qualifiedTermPool[qualifiedTerm] = qualifiedTerm;
         return qualifiedTerm;
+    }
+
+    private sealed class SpanPostingTokenSink : ISpanTokenSink
+    {
+        private readonly DocumentsWriterPerThread _owner;
+        private string _fieldName = string.Empty;
+        private int _docId;
+        private int _position;
+
+        public SpanPostingTokenSink(DocumentsWriterPerThread owner)
+        {
+            _owner = owner;
+        }
+
+        public int AcceptedCount { get; private set; }
+
+        public void Reset(string fieldName, int docId)
+        {
+            _fieldName = fieldName;
+            _docId = docId;
+            _position = -1;
+            AcceptedCount = 0;
+        }
+
+        public void Add(
+            ReadOnlySpan<char> text,
+            int startOffset,
+            int endOffset,
+            string type = Token.DefaultType,
+            int positionIncrement = 1,
+            byte[]? payload = null)
+        {
+            int increment = positionIncrement > 0 ? positionIncrement : 0;
+            if (_position < 0 && increment == 0)
+                increment = 1;
+            _position += increment;
+
+            var qualifiedTerm = _owner.GetOrCreateQualifiedTerm(_fieldName, text);
+
+            if (!_owner.Postings.TryGetValue(qualifiedTerm, out var acc))
+            {
+                acc = new PostingAccumulator();
+                _owner.Postings[qualifiedTerm] = acc;
+                _owner._estimatedRamBytes += qualifiedTerm.Length * 2 + 128;
+            }
+
+            if (_owner._storePayloads && (acc.HasPayloads || payload is { Length: > 0 }))
+            {
+                acc.AddWithPayload(_docId, _position, payload);
+                _owner._estimatedRamBytes += 12 + (payload?.Length ?? 0);
+            }
+            else
+            {
+                acc.Add(_docId, _position);
+                _owner._estimatedRamBytes += 12;
+            }
+
+            AcceptedCount++;
+        }
     }
 }

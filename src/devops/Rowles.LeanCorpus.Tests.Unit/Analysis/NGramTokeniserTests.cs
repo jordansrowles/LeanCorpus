@@ -98,6 +98,21 @@ public sealed class NGramTokeniserTests
         }
     }
 
+    /// <summary>
+    /// Verifies the NGram span sink emits the same tokens as the legacy list path.
+    /// </summary>
+    [Fact(DisplayName = "NGram: Span Sink Matches Legacy Tokens")]
+    public void NGram_SpanSink_MatchesLegacyTokens()
+    {
+        var tok = new NGramTokeniser(2, 3);
+        var expected = tok.Tokenise("abcd".AsSpan());
+        var sink = new CollectingSpanTokenSink();
+
+        tok.Tokenise("abcd".AsSpan(), sink);
+
+        AssertEqualTokens(expected, sink.Tokens);
+    }
+
     // ----- splitOnWhitespace = true -----
 
     /// <summary>
@@ -205,6 +220,49 @@ public sealed class NGramTokeniserTests
             Assert.Equal(expected[i].Text, actual[i].Text);
             Assert.Equal(expected[i].StartOffset, actual[i].StartOffset);
             Assert.Equal(expected[i].EndOffset, actual[i].EndOffset);
+        }
+    }
+
+    /// <summary>
+    /// Verifies the whitespace-split NGram span sink matches the legacy list path.
+    /// </summary>
+    [Fact(DisplayName = "NGram WordSplit: Span Sink Matches Legacy Tokens")]
+    public void NGram_WordSplit_SpanSinkMatchesLegacyTokens()
+    {
+        var tok = new NGramTokeniser(2, 3, splitOnWhitespace: true);
+        var expected = tok.Tokenise("hello world".AsSpan());
+        var sink = new CollectingSpanTokenSink();
+
+        tok.Tokenise("hello world".AsSpan(), sink);
+
+        AssertEqualTokens(expected, sink.Tokens);
+    }
+
+    private static void AssertEqualTokens(List<Token> expected, List<Token> actual)
+    {
+        Assert.Equal(expected.Count, actual.Count);
+        for (int i = 0; i < expected.Count; i++)
+        {
+            Assert.Equal(expected[i].Text, actual[i].Text);
+            Assert.Equal(expected[i].StartOffset, actual[i].StartOffset);
+            Assert.Equal(expected[i].EndOffset, actual[i].EndOffset);
+            Assert.Equal(expected[i].PositionIncrement, actual[i].PositionIncrement);
+        }
+    }
+
+    private sealed class CollectingSpanTokenSink : ISpanTokenSink
+    {
+        public List<Token> Tokens { get; } = [];
+
+        public void Add(
+            ReadOnlySpan<char> text,
+            int startOffset,
+            int endOffset,
+            string type = Token.DefaultType,
+            int positionIncrement = 1,
+            byte[]? payload = null)
+        {
+            Tokens.Add(new Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload));
         }
     }
 }

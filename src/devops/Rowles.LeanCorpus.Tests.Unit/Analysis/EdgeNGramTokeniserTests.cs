@@ -73,4 +73,42 @@ public sealed class EdgeNGramTokeniserTests
             Assert.Equal(expected[i].EndOffset, actual[i].EndOffset);
         }
     }
+
+    /// <summary>
+    /// Verifies the EdgeNGram span sink emits the same tokens as the legacy list path.
+    /// </summary>
+    [Fact(DisplayName = "EdgeNGram: Span Sink Matches Legacy Tokens")]
+    public void EdgeNGram_SpanSink_MatchesLegacyTokens()
+    {
+        var tok = new EdgeNGramTokeniser(1, 3);
+        var expected = tok.Tokenise("hello world".AsSpan());
+        var sink = new CollectingSpanTokenSink();
+
+        tok.Tokenise("hello world".AsSpan(), sink);
+
+        Assert.Equal(expected.Count, sink.Tokens.Count);
+        for (int i = 0; i < expected.Count; i++)
+        {
+            Assert.Equal(expected[i].Text, sink.Tokens[i].Text);
+            Assert.Equal(expected[i].StartOffset, sink.Tokens[i].StartOffset);
+            Assert.Equal(expected[i].EndOffset, sink.Tokens[i].EndOffset);
+            Assert.Equal(expected[i].PositionIncrement, sink.Tokens[i].PositionIncrement);
+        }
+    }
+
+    private sealed class CollectingSpanTokenSink : ISpanTokenSink
+    {
+        public List<Token> Tokens { get; } = [];
+
+        public void Add(
+            ReadOnlySpan<char> text,
+            int startOffset,
+            int endOffset,
+            string type = Token.DefaultType,
+            int positionIncrement = 1,
+            byte[]? payload = null)
+        {
+            Tokens.Add(new Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload));
+        }
+    }
 }

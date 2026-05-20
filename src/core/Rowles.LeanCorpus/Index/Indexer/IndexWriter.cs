@@ -49,6 +49,8 @@ public sealed partial class IndexWriter : IDisposable
     private Dictionary<string, Dictionary<int, List<double>>> _sortedNumericDocValues = new(StringComparer.Ordinal);
     private Dictionary<string, Dictionary<int, List<byte[]>>> _binaryDocValues = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IAnalyser> _analyserCache = new(StringComparer.Ordinal);
+    private readonly SpanCountingTokenSink _spanCountingSink = new();
+    private readonly SpanPostingTokenSink _spanPostingSink;
     private readonly List<string> _sortedTermsBuffer = new(capacity: 10000);
     // Parent bitset for block-join indexing: tracks which buffered doc IDs are parent docs
     private HashSet<int>? _parentDocIds;
@@ -96,6 +98,7 @@ public sealed partial class IndexWriter : IDisposable
     {
         _directory = directory;
         _config = config;
+        _spanPostingSink = new SpanPostingTokenSink(this);
 
         // If using default StandardAnalyser and config has custom stop words or cache size, rebuild it
         if (config.DefaultAnalyser is StandardAnalyser &&

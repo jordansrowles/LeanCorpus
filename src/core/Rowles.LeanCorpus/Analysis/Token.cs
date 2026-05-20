@@ -6,7 +6,10 @@
 /// </summary>
 public readonly struct Token
 {
-    internal const string DefaultType = "term";
+    /// <summary>
+    /// The default token type used for ordinary term tokens.
+    /// </summary>
+    public const string DefaultType = "term";
 
     /// <summary>
     /// Initialises a new <see cref="Token"/> with an extensible token type.

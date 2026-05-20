@@ -33,6 +33,7 @@ public class NGramTokeniserBenchmarks
     private readonly List<Token> _edgeTokens = [];
     private readonly List<Token> _ngramTokens = [];
     private readonly List<Token> _ngramTokensWs = [];
+    private readonly CountingSpanTokenSink _spanSink = new();
     private int _min;
     private int _max;
 
@@ -84,6 +85,49 @@ public class NGramTokeniserBenchmarks
         {
             _ngramTokeniserWs.Tokenise(doc.AsSpan(), _ngramTokensWs);
             total += _ngramTokensWs.Count;
+        }
+        return total;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_EdgeNGramTokeniser_SpanSink()
+    {
+        int total = 0;
+        foreach (var doc in _documents)
+        {
+            _spanSink.Reset();
+            _edgeTokeniser.Tokenise(doc.AsSpan(), _spanSink);
+            total += _spanSink.Count;
+        }
+        return total;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_NGramTokeniser_SpanSink()
+    {
+        int total = 0;
+        foreach (var doc in _documents)
+        {
+            _spanSink.Reset();
+            _ngramTokeniser.Tokenise(doc.AsSpan(), _spanSink);
+            total += _spanSink.Count;
+        }
+        return total;
+    }
+
+    /// <summary>NGram tokeniser with per-word whitespace splitting, span sink path.</summary>
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_NGramTokeniser_WordSplit_SpanSink()
+    {
+        int total = 0;
+        foreach (var doc in _documents)
+        {
+            _spanSink.Reset();
+            _ngramTokeniserWs.Tokenise(doc.AsSpan(), _spanSink);
+            total += _spanSink.Count;
         }
         return total;
     }
@@ -158,5 +202,23 @@ public class NGramTokeniserBenchmarks
                 total++;
         }
         return total;
+    }
+
+    private sealed class CountingSpanTokenSink : ISpanTokenSink
+    {
+        public int Count { get; private set; }
+
+        public void Reset() => Count = 0;
+
+        public void Add(
+            ReadOnlySpan<char> text,
+            int startOffset,
+            int endOffset,
+            string type = Token.DefaultType,
+            int positionIncrement = 1,
+            byte[]? payload = null)
+        {
+            Count++;
+        }
     }
 }

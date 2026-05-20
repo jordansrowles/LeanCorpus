@@ -1,4 +1,6 @@
 ﻿using System.Runtime.CompilerServices;
+using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
 
@@ -99,6 +101,10 @@ public sealed partial class IndexWriter
             analyser = _config.FieldAnalysers.GetValueOrDefault(fieldName, _defaultAnalyser);
             _analyserCache[fieldName] = analyser;
         }
+
+        if (TryIndexTextFieldWithSpanAnalyser(analyser, input, fieldName, docId))
+            return;
+
         var tokens = analyser.Analyse(input);
 
         // Enforce token budget if configured
@@ -118,20 +124,7 @@ public sealed partial class IndexWriter
             }
         }
 
-        // Track per-field token count for O(1) per-field norm computation
-        // Pre-allocate to MaxBufferedDocs to avoid resize overhead during indexing
-        if (!_docTokenCounts.TryGetValue(fieldName, out var counts))
-        {
-            counts = new int[_config.MaxBufferedDocs];
-            _docTokenCounts[fieldName] = counts;
-        }
-        else if (docId >= counts.Length)
-        {
-            // Rare case: exceeded MaxBufferedDocs, grow the array
-            Array.Resize(ref counts, Math.Max(counts.Length * 2, docId + 1));
-            _docTokenCounts[fieldName] = counts;
-        }
-        counts[docId] += tokens.Count;
+        AddTokenCount(fieldName, docId, tokens.Count);
 
         _fieldNames.Add(fieldName);
 
@@ -165,6 +158,46 @@ public sealed partial class IndexWriter
             }
             _postingsRamBytes += acc.EstimatedBytes - before;
         }
+    }
+
+    private bool TryIndexTextFieldWithSpanAnalyser(IAnalyser analyser, ReadOnlySpan<char> input, string fieldName, int docId)
+    {
+        if (analyser is not ISpanAnalyser spanAnalyser)
+            return false;
+
+        int budget = _config.MaxTokensPerDocument;
+        if (budget > 0 && _config.TokenBudgetPolicy == Analysis.TokenBudgetPolicy.Reject)
+        {
+            _spanCountingSink.Reset(limit: budget);
+            if (!spanAnalyser.TryAnalyse(input, _spanCountingSink))
+                return false;
+            if (_spanCountingSink.ExceededLimit)
+                throw new Analysis.TokenBudgetExceededException(_spanCountingSink.Count, budget);
+        }
+
+        _spanPostingSink.Reset(fieldName, docId, budget, _config.TokenBudgetPolicy);
+        if (!spanAnalyser.TryAnalyse(input, _spanPostingSink))
+            return false;
+
+        AddTokenCount(fieldName, docId, _spanPostingSink.AcceptedCount);
+        _fieldNames.Add(fieldName);
+        return true;
+    }
+
+    private void AddTokenCount(string fieldName, int docId, int tokenCount)
+    {
+        if (!_docTokenCounts.TryGetValue(fieldName, out var counts))
+        {
+            counts = new int[_config.MaxBufferedDocs];
+            _docTokenCounts[fieldName] = counts;
+        }
+        else if (docId >= counts.Length)
+        {
+            // Rare case: exceeded MaxBufferedDocs, grow the array
+            Array.Resize(ref counts, Math.Max(counts.Length * 2, docId + 1));
+            _docTokenCounts[fieldName] = counts;
+        }
+        counts[docId] += tokenCount;
     }
 
     private void IndexStringField(string fieldName, string value, int docId)
@@ -356,6 +389,13 @@ public sealed partial class IndexWriter
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private string GetOrCreateQualifiedTerm(string fieldName, string term)
+        => GetOrCreateQualifiedTerm(fieldName, term.AsSpan());
+
+    /// <summary>
+    /// Returns a pooled qualified term string ("field\0term") directly from a token span.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private string GetOrCreateQualifiedTerm(string fieldName, ReadOnlySpan<char> term)
     {
         if (!_fieldPrefixCache.TryGetValue(fieldName, out var prefix))
         {
@@ -367,7 +407,7 @@ public sealed partial class IndexWriter
         int totalLen = prefix.Length + term.Length;
         Span<char> buf = totalLen <= 256 ? stackalloc char[totalLen] : new char[totalLen];
         prefix.AsSpan().CopyTo(buf);
-        term.AsSpan().CopyTo(buf[prefix.Length..]);
+        term.CopyTo(buf[prefix.Length..]);
 
         var lookup = _qualifiedTermPool.GetAlternateLookup<ReadOnlySpan<char>>();
         if (lookup.TryGetValue(buf, out var pooled))
@@ -376,5 +416,97 @@ public sealed partial class IndexWriter
         var qualifiedTerm = new string(buf);
         _qualifiedTermPool[qualifiedTerm] = qualifiedTerm;
         return qualifiedTerm;
+    }
+
+    private sealed class SpanCountingTokenSink : ISpanTokenSink
+    {
+        private int _limit;
+
+        public int Count { get; private set; }
+
+        public bool ExceededLimit => _limit > 0 && Count > _limit;
+
+        public void Reset(int limit)
+        {
+            _limit = limit;
+            Count = 0;
+        }
+
+        public void Add(
+            ReadOnlySpan<char> text,
+            int startOffset,
+            int endOffset,
+            string type = Token.DefaultType,
+            int positionIncrement = 1,
+            byte[]? payload = null)
+        {
+            Count++;
+        }
+    }
+
+    private sealed class SpanPostingTokenSink : ISpanTokenSink
+    {
+        private readonly IndexWriter _owner;
+        private string _fieldName = string.Empty;
+        private int _docId;
+        private int _budget;
+        private Analysis.TokenBudgetPolicy _budgetPolicy;
+        private int _position;
+
+        public SpanPostingTokenSink(IndexWriter owner)
+        {
+            _owner = owner;
+        }
+
+        public int AcceptedCount { get; private set; }
+
+        public void Reset(string fieldName, int docId, int budget, Analysis.TokenBudgetPolicy budgetPolicy)
+        {
+            _fieldName = fieldName;
+            _docId = docId;
+            _budget = budget;
+            _budgetPolicy = budgetPolicy;
+            _position = -1;
+            AcceptedCount = 0;
+        }
+
+        public void Add(
+            ReadOnlySpan<char> text,
+            int startOffset,
+            int endOffset,
+            string type = Token.DefaultType,
+            int positionIncrement = 1,
+            byte[]? payload = null)
+        {
+            if (_budget > 0 &&
+                _budgetPolicy == Analysis.TokenBudgetPolicy.Truncate &&
+                AcceptedCount >= _budget)
+            {
+                return;
+            }
+
+            int increment = positionIncrement > 0 ? positionIncrement : 0;
+            if (_position < 0 && increment == 0)
+                increment = 1;
+            _position += increment;
+
+            var pooledTerm = _owner.GetOrCreateQualifiedTerm(_fieldName, text);
+
+            if (!_owner._postings.TryGetValue(pooledTerm, out var acc))
+            {
+                acc = new PostingAccumulator();
+                _owner._postings[pooledTerm] = acc;
+                _owner._postingsRamBytes += acc.EstimatedBytes;
+            }
+
+            long before = acc.EstimatedBytes;
+            if (_owner._config.StorePayloads && (acc.HasPayloads || payload is { Length: > 0 }))
+                acc.AddWithPayload(_docId, _position, payload);
+            else
+                acc.Add(_docId, _position);
+
+            _owner._postingsRamBytes += acc.EstimatedBytes - before;
+            AcceptedCount++;
+        }
     }
 }
