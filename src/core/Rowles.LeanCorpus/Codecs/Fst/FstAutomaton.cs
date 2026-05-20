@@ -293,7 +293,9 @@ public sealed class LevenshteinAutomaton : IAutomaton
     private readonly int[] _transitions;
     private readonly bool[] _accept;
     private readonly bool[] _canMatch;
+    private readonly int[] _minDistance;
     private readonly int _stateCount;
+    private readonly int _maxEdits;
 
     /// <summary>
     /// Initialises a new <see cref="LevenshteinAutomaton"/> for the given term and maximum edit distance.
@@ -310,6 +312,7 @@ public sealed class LevenshteinAutomaton : IAutomaton
     /// <param name="maxEdits">The maximum allowed Levenshtein distance (typically 1 or 2).</param>
     public LevenshteinAutomaton(ReadOnlySpan<byte> termUtf8, int maxEdits)
     {
+        _maxEdits = maxEdits;
         byte[] term = termUtf8.ToArray();
         int termLen = term.Length;
         int stateWidth = maxEdits + 1;
@@ -391,12 +394,27 @@ public sealed class LevenshteinAutomaton : IAutomaton
             return string.Join(",", sorted);
         }
 
+        int NfaSetMinDistance(HashSet<int> set)
+        {
+            int best = int.MaxValue;
+            foreach (int s in set)
+            {
+                int pos = s / stateWidth;
+                int edits = s % stateWidth;
+                int remaining = termLen - pos;
+                int cost = edits + remaining;
+                if (cost < best) best = cost;
+            }
+            return best;
+        }
+
         // Subset construction
         var initialSet = EpsilonClosure([0]);
         var queue = new Queue<HashSet<int>>();
         var setToId = new Dictionary<string, int>();
         var dfaTransitions = new List<int[]>();
         var dfaAccept = new List<bool>();
+        var dfaMinDistance = new List<int>();
         int dfaStateId = 0;
 
         string initKey = SetKey(initialSet);
@@ -404,6 +422,7 @@ public sealed class LevenshteinAutomaton : IAutomaton
         dfaTransitions.Add(new int[256]);
         Array.Fill(dfaTransitions[0], -1);
         dfaAccept.Add(IsNfaAccept(initialSet));
+        dfaMinDistance.Add(NfaSetMinDistance(initialSet));
         queue.Enqueue(initialSet);
 
         while (queue.Count > 0)
@@ -429,6 +448,7 @@ public sealed class LevenshteinAutomaton : IAutomaton
                     dfaTransitions.Add(new int[256]);
                     Array.Fill(dfaTransitions[^1], -1);
                     dfaAccept.Add(IsNfaAccept(nextSet));
+                    dfaMinDistance.Add(NfaSetMinDistance(nextSet));
                     queue.Enqueue(nextSet);
                 }
 
@@ -439,6 +459,7 @@ public sealed class LevenshteinAutomaton : IAutomaton
         _stateCount = dfaStateId;
         _transitions = new int[_stateCount * 256];
         _accept = dfaAccept.ToArray();
+        _minDistance = dfaMinDistance.ToArray();
         _canMatch = new bool[_stateCount];
 
         for (int s = 0; s < _stateCount; s++)
@@ -484,6 +505,20 @@ public sealed class LevenshteinAutomaton : IAutomaton
 
     /// <inheritdoc/>
     public bool CanMatch(int state) => state >= 0 && state < _stateCount && _canMatch[state];
+
+    /// <summary>
+    /// Returns the minimum edit distance achievable when this state is accepting,
+    /// or <see cref="int.MaxValue"/> when no NFA state in the set reaches an accept.
+    /// Used by fuzzy queries to recover the distance from an FST traversal that ended on this state.
+    /// </summary>
+    public int MinDistance(int state)
+    {
+        if (state < 0 || state >= _stateCount) return int.MaxValue;
+        return _minDistance[state];
+    }
+
+    /// <summary>Maximum edit distance the automaton was constructed with.</summary>
+    public int MaxEdits => _maxEdits;
 }
 
 /// <summary>
