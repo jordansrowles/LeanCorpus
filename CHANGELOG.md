@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.4.0] - 2026-xx-xx
 
+### Changed (unreleased)
+- Renamed the real FST builder `FiniteStateTransducerBuilder` to `FstBuilder` and moved the legacy v2 byte-array term dictionary (formerly misnamed `FSTReader`/`FSTBuilder`) and the v1 reader to `Codecs\TermDictionary\Legacy\` for migrator-only use. No behaviour change in this commit; this is a preparatory rename ahead of the v3 FST-backed term dictionary cutover.
+
 ### Added
 - Added a Roslyn source generator (`Rowles.LeanCorpus.SourceGen`) that turns `[LeanDocument]`-annotated models into typed `LeanDocumentMap<T>`s with `ToDocument`, `FromStoredDocument`, `CreateSchema`, and `Fields` descriptors via direct, reflection-free, AOT-friendly code; ships attributes (`LeanText`, `LeanString`, `LeanNumeric`, `LeanVector`, `LeanGeoPoint`, `LeanStored`, `LeanIgnore`) and the `Mapping` runtime surface (`LeanDocumentMap<T>`, `LeanFieldBinding<T>`, `LeanField<T,V>`, `StoredDocument`, `LeanGeoLocation`, `LeanNumericEncoding`, `LeanNumericEncoders`) in the core library, with diagnostics `LCGEN001`–`LCGEN013`, strict-schema defaults, materialiser safety checks, stored round-tripping guidance, and a dedicated test project exercising generator output, diagnostics, nullability rules, encoder round-trips, and map round-trips.
 - Added Unicode-aware analysis components: `IcuAnalyser`, `IcuTokeniser`, `Uax29UrlEmailTokeniser`, `ThaiTokeniser`, `MediaWikiTokeniser`, `KeepWordFilter`, `TypeTokenFilter`, `LimitTokenCountFilter`, `FlattenGraphFilter`, `MetaphoneFilter`, `PhoneticAlternatesFilter`, `HunspellStemFilter`, `LightEnglishStemmer`, and a lexicon-backed `KStemmer`, plus targeted unit, integration, and chaos coverage for extensible token types, MediaWiki token classes, phonetic alternates, Hunspell stemming, and token-budget guardrails.

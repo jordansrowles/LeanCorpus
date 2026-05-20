@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Codecs.Fst;
+namespace Rowles.LeanCorpus.Codecs.Fst;
 
 /// <summary>
 /// Builds a minimal acyclic finite state transducer (FST) from sorted byte-sequence keys
@@ -7,7 +7,7 @@
 ///
 /// <para><b>Usage:</b></para>
 /// <code>
-///   var builder = new FSTBuilder();
+///   var builder = new FstBuilder();
 ///   builder.Add(key1Bytes, output1);
 ///   builder.Add(key2Bytes, output2);  // keys MUST be in lexicographic byte order
 ///   byte[] fstData = builder.Finish();
@@ -20,9 +20,9 @@
 ///   <item>
 ///     <b>Header (always present):</b>
 ///     <list type="number">
-///       <item>4 bytes — magic: ASCII <c>FST1</c> (<c>0x46 0x53 0x54 0x31</c>)</item>
-///       <item>VarInt — root node address (absolute position in the node-data section, or <c>-1</c> if empty)</item>
-///       <item>VarInt — key count</item>
+///       <item>4 bytes � magic: ASCII <c>FST1</c> (<c>0x46 0x53 0x54 0x31</c>)</item>
+///       <item>VarInt � root node address (absolute position in the node-data section, or <c>-1</c> if empty)</item>
+///       <item>VarInt � key count</item>
 ///     </list>
 ///   </item>
 ///   <item>
@@ -34,8 +34,8 @@
 ///   <item>
 ///     <b>Arc layout (each arc):</b>
 ///     <list type="number">
-///       <item>1 byte — flags: <c>[bit 7: isFinal][bit 6: isLastArc][bit 5: hasOutput][bit 4: hasTarget][bits 3-0: reserved]</c></item>
-///       <item>1 byte — label (the byte value on this transition; 0x00 for virtual arcs on final-only nodes)</item>
+///       <item>1 byte � flags: <c>[bit 7: isFinal][bit 6: isLastArc][bit 5: hasOutput][bit 4: hasTarget][bits 3-0: reserved]</c></item>
+///       <item>1 byte � label (the byte value on this transition; 0x00 for virtual arcs on final-only nodes)</item>
 ///       <item>If <c>hasTarget</c>: VarInt-encoded target address (absolute position in node-data section)</item>
 ///       <item>If <c>hasOutput</c>: VarInt-encoded output value (<see langword="long"/>, 7-bit variable-length, unsigned encoding)</item>
 ///     </list>
@@ -62,9 +62,9 @@
 /// <see cref="System.IO.BinaryWriter.Write7BitEncodedInt64"/>. Each byte stores 7 data bits;
 /// the high bit (<c>0x80</c>) is a continuation flag.</para>
 ///
-/// <para><b>Algorithm — incremental construction (Daciuk et al.):</b></para>
+/// <para><b>Algorithm � incremental construction (Daciuk et al.):</b></para>
 /// <list type="number">
-///   <item>Maintain a "frontier" — one <see cref="UncompiledNode"/> per byte of the current key prefix.</item>
+///   <item>Maintain a "frontier" � one <see cref="UncompiledNode"/> per byte of the current key prefix.</item>
 ///   <item>When adding a new key, find the common prefix length with the previous key.</item>
 ///   <item>For each frontier node beyond the common prefix, "freeze" (compile) it:
 ///     check a registry of previously frozen nodes for an equivalent node (same arcs,
@@ -76,36 +76,36 @@
 ///   <item><see cref="Finish"/> freezes remaining frontier nodes and returns the serialised FST.</item>
 /// </list>
 /// </summary>
-public sealed class FSTBuilder
+public sealed class FstBuilder
 {
-    // ── Arc flag constants ───────────────────────────────────────────────────
+    // -- Arc flag constants ---------------------------------------------------
     internal const byte FlagIsFinal = 0b_1000_0000; // bit 7
     internal const byte FlagIsLastArc = 0b_0100_0000; // bit 6
     internal const byte FlagHasOutput = 0b_0010_0000; // bit 5
     internal const byte FlagHasTarget = 0b_0001_0000; // bit 4
 
-    // ── Header magic bytes ("FST1") ─────────────────────────────────────────
+    // -- Header magic bytes ("FST1") -----------------------------------------
     internal static ReadOnlySpan<byte> HeaderMagic => "FST1"u8;
 
-    // ── Output buffer ───────────────────────────────────────────────────────
+    // -- Output buffer -------------------------------------------------------
     private byte[] _buffer;
     private int _position;
 
-    // ── Frontier (one node per byte of current key prefix + root at index 0) ─
+    // -- Frontier (one node per byte of current key prefix + root at index 0) -
     private UncompiledNode[] _frontier;
 
-    // ── Previous key for sorted-order enforcement ───────────────────────────
+    // -- Previous key for sorted-order enforcement ---------------------------
     private byte[] _previousKey;
     private int _previousKeyLength;
 
-    // ── Registry for suffix sharing: hash(node) → compiled address ──────────
+    // -- Registry for suffix sharing: hash(node) ? compiled address ----------
     private readonly Dictionary<long, long> _registry;
 
-    // ── State ───────────────────────────────────────────────────────────────
+    // -- State ---------------------------------------------------------------
     private int _count;
     private bool _finished;
 
-    // ── Sentinel address for "no target" / uncompiled ───────────────────────
+    // -- Sentinel address for "no target" / uncompiled -----------------------
     private const long NoAddress = -1;
 
     /// <summary>
@@ -117,7 +117,7 @@ public sealed class FSTBuilder
     /// Creates a new FST builder with the specified initial buffer capacity.
     /// </summary>
     /// <param name="initialCapacity">Initial byte buffer size in bytes (default 1 MiB).</param>
-    public FSTBuilder(int initialCapacity = 1024 * 1024)
+    public FstBuilder(int initialCapacity = 1024 * 1024)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(initialCapacity);
 
@@ -150,7 +150,7 @@ public sealed class FSTBuilder
         if (_finished)
             throw new InvalidOperationException("Cannot add keys after Finish() has been called.");
 
-        // ── Sorted-order enforcement ────────────────────────────────────
+        // -- Sorted-order enforcement ------------------------------------
         if (_count > 0)
         {
             int cmp = key.SequenceCompareTo(_previousKey.AsSpan(0, _previousKeyLength));
@@ -160,17 +160,17 @@ public sealed class FSTBuilder
                 throw new ArgumentException("Duplicate keys are not permitted.");
         }
 
-        // ── Compute common prefix length with previous key ──────────────
+        // -- Compute common prefix length with previous key --------------
         int prefixLength = CommonPrefixLength(
             _previousKey.AsSpan(0, _previousKeyLength), key);
 
-        // ── Freeze (compile) frontier nodes beyond the common prefix ────
+        // -- Freeze (compile) frontier nodes beyond the common prefix ----
         FreezeTrail(prefixLength);
 
-        // ── Ensure frontier capacity for new key ────────────────────────
+        // -- Ensure frontier capacity for new key ------------------------
         EnsureFrontierCapacity(key.Length + 1);
 
-        // ── Extend frontier for the new key's suffix bytes ──────────────
+        // -- Extend frontier for the new key's suffix bytes --------------
         for (int i = prefixLength; i < key.Length; i++)
         {
             _frontier[i + 1].Reset();
@@ -181,10 +181,10 @@ public sealed class FSTBuilder
         _frontier[key.Length].IsFinal = true;
         _frontier[key.Length].FinalOutput = 0;
 
-        // ── Output distribution ─────────────────────────────────────────
+        // -- Output distribution -----------------------------------------
         DistributeOutput(key, prefixLength, output);
 
-        // ── Store previous key for next comparison ──────────────────────
+        // -- Store previous key for next comparison ----------------------
         if (_previousKey.Length < key.Length)
             _previousKey = new byte[Math.Max(key.Length, _previousKey.Length * 2)];
         key.CopyTo(_previousKey);
@@ -223,7 +223,7 @@ public sealed class FSTBuilder
             ? _frontier[0].CompiledAddress
             : NoAddress;
 
-        // ── Build final byte[] with header prepended ────────────────────
+        // -- Build final byte[] with header prepended --------------------
         // Header: [magic: 4B][rootAddress: VarInt][keyCount: VarInt]
         int headerSize = 4 + VarIntSize(rootAddress) + VarIntSize(_count);
         int totalSize = headerSize + _position;
@@ -241,9 +241,9 @@ public sealed class FSTBuilder
         return result;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
+    // -----------------------------------------------------------------------
     //  Core algorithm methods
-    // ═══════════════════════════════════════════════════════════════════════
+    // -----------------------------------------------------------------------
 
     /// <summary>
     /// Freezes frontier nodes from <c>_previousKeyLength</c> down to
@@ -276,7 +276,7 @@ public sealed class FSTBuilder
 
         long address = _position;
 
-        // ── Handle nodes with arcs ──────────────────────────────────────
+        // -- Handle nodes with arcs --------------------------------------
         if (node.NumArcs > 0)
         {
             // If node is final AND has a non-zero final output, emit a virtual
@@ -322,7 +322,7 @@ public sealed class FSTBuilder
         }
         else
         {
-            // ── Final-only node (accept state, no outgoing arcs) ────────
+            // -- Final-only node (accept state, no outgoing arcs) --------
             byte flags = FlagIsLastArc;
             if (node.IsFinal)
                 flags |= FlagIsFinal;
@@ -374,7 +374,7 @@ public sealed class FSTBuilder
         }
         else
         {
-            // Key equals a prefix of another key — accumulate on final output
+            // Key equals a prefix of another key � accumulate on final output
             _frontier[key.Length].FinalOutput += output;
         }
     }
@@ -405,9 +405,9 @@ public sealed class FSTBuilder
         return unchecked((long)hash);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
+    // -----------------------------------------------------------------------
     //  Utility methods
-    // ═══════════════════════════════════════════════════════════════════════
+    // -----------------------------------------------------------------------
 
     /// <summary>
     /// Returns the length of the longest common prefix between two byte spans.
@@ -453,10 +453,10 @@ public sealed class FSTBuilder
         _buffer = newBuffer;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //  VarInt encoding — 7-bit variable-length, little-endian
+    // -----------------------------------------------------------------------
+    //  VarInt encoding � 7-bit variable-length, little-endian
     //  Compatible with BinaryWriter.Write7BitEncodedInt64.
-    // ═══════════════════════════════════════════════════════════════════════
+    // -----------------------------------------------------------------------
 
     /// <summary>
     /// Writes a <see langword="long"/> value as a 7-bit variable-length integer.
@@ -512,13 +512,13 @@ public sealed class FSTBuilder
         return size;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //  UncompiledNode — mutable node used during FST construction
-    // ═══════════════════════════════════════════════════════════════════════
+    // -----------------------------------------------------------------------
+    //  UncompiledNode � mutable node used during FST construction
+    // -----------------------------------------------------------------------
 
     /// <summary>
     /// A mutable node in the frontier during FST construction.
-    /// Holds an ordered list of arcs (label → target + output)
+    /// Holds an ordered list of arcs (label ? target + output)
     /// and a final flag with optional final output.
     /// </summary>
     private sealed class UncompiledNode

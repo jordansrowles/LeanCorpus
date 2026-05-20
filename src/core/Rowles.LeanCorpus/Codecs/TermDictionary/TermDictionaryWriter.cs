@@ -1,5 +1,5 @@
 ﻿using Rowles.LeanCorpus.Store;
-using Rowles.LeanCorpus.Codecs.Fst;
+using Rowles.LeanCorpus.Codecs.TermDictionary.Legacy;
 namespace Rowles.LeanCorpus.Codecs.TermDictionary;
 
 /// <summary>
@@ -13,6 +13,6 @@ internal static class TermDictionaryWriter
     {
         using var output = new IndexOutput(filePath, durable);
         CodecConstants.WriteHeader(output, CodecConstants.TermDictionaryVersion);
-        TermDictionaryFstBuilder.Write(output, sortedTerms, postingsOffsets);
+        TermDictionaryV2Writer.Write(output, sortedTerms, postingsOffsets);
     }
 }

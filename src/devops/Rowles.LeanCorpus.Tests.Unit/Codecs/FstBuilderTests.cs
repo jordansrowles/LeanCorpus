@@ -1,35 +1,35 @@
-﻿using System.Text;
+using System.Text;
 using Rowles.LeanCorpus.Codecs.Fst;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Codecs.Fst;
 
 /// <summary>
-/// Tests for <see cref="FSTBuilder"/> — the minimal acyclic FST builder.
-/// Since <c>FSTReader</c> does not yet exist, tests focus on:
-/// correct <see cref="FSTBuilder.Count"/>, exception behaviour (sorted-order enforcement),
+/// Tests for <see cref="FstBuilder"/> � the minimal acyclic FST builder.
+/// Since <c>FstReader</c> does not yet exist, tests focus on:
+/// correct <see cref="FstBuilder.Count"/>, exception behaviour (sorted-order enforcement),
 /// output byte array validity, and size sanity (suffix sharing compresses output).
 /// </summary>
 [Trait("Category", "Codecs")]
-public sealed class FSTBuilderTests
+public sealed class FstBuilderTests
 {
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    // -- Helpers --------------------------------------------------------------
 
     private static byte[] Utf8(string s) => Encoding.UTF8.GetBytes(s);
 
     /// <summary>
     /// Builds an FST from the given (string key, long output) pairs.
-    /// Keys are NOT sorted here — caller must supply them in order.
+    /// Keys are NOT sorted here � caller must supply them in order.
     /// </summary>
     private static (byte[] Data, int Count) BuildFst(params (string Key, long Output)[] entries)
     {
-        var builder = new FSTBuilder();
+        var builder = new FstBuilder();
         foreach (var (key, output) in entries)
             builder.Add(Utf8(key), output);
         var data = builder.Finish();
         return (data, builder.Count);
     }
 
-    // ── Tests ────────────────────────────────────────────────────────────────
+    // -- Tests ----------------------------------------------------------------
 
     /// <summary>
     /// Verifies the Build: Empty FST Produces Valid Output scenario.
@@ -37,7 +37,7 @@ public sealed class FSTBuilderTests
     [Fact(DisplayName = "Build: Empty FST Produces Valid Output")]
     public void Build_EmptyFST_ProducesValidOutput()
     {
-        var builder = new FSTBuilder();
+        var builder = new FstBuilder();
         var data = builder.Finish();
 
         Assert.NotNull(data);
@@ -57,7 +57,7 @@ public sealed class FSTBuilderTests
     [Fact(DisplayName = "Build: Single Key Round Trips")]
     public void Build_SingleKey_RoundTrips()
     {
-        var builder = new FSTBuilder();
+        var builder = new FstBuilder();
         builder.Add(Utf8("hello"), 42L);
         var data = builder.Finish();
 
@@ -72,7 +72,7 @@ public sealed class FSTBuilderTests
     [Fact(DisplayName = "Build: Multiple Keys Count Is Correct")]
     public void Build_MultipleKeys_CountIsCorrect()
     {
-        var builder = new FSTBuilder();
+        var builder = new FstBuilder();
         var keys = new[] { "alpha", "beta", "charlie", "delta", "echo",
                            "foxtrot", "golf", "hotel", "india", "juliet" };
 
@@ -91,7 +91,7 @@ public sealed class FSTBuilderTests
     [Fact(DisplayName = "Build: Unsorted Keys Throws")]
     public void Build_UnsortedKeys_Throws()
     {
-        var builder = new FSTBuilder();
+        var builder = new FstBuilder();
         builder.Add(Utf8("b"), 1L);
 
         var ex = Assert.Throws<ArgumentException>(() => builder.Add(Utf8("a"), 2L));
@@ -104,7 +104,7 @@ public sealed class FSTBuilderTests
     [Fact(DisplayName = "Build: Duplicate Keys Throws")]
     public void Build_DuplicateKeys_Throws()
     {
-        var builder = new FSTBuilder();
+        var builder = new FstBuilder();
         builder.Add(Utf8("same"), 1L);
 
         var ex = Assert.Throws<ArgumentException>(() => builder.Add(Utf8("same"), 2L));
@@ -145,7 +145,7 @@ public sealed class FSTBuilderTests
         };
         Array.Sort(keysWithSharedSuffixes, StringComparer.Ordinal);
 
-        var builder = new FSTBuilder();
+        var builder = new FstBuilder();
         for (int i = 0; i < keysWithSharedSuffixes.Length; i++)
             builder.Add(Utf8(keysWithSharedSuffixes[i]), (long)(i * 10));
         var fstData = builder.Finish();
@@ -173,7 +173,7 @@ public sealed class FSTBuilderTests
 
         keys.Sort(StringComparer.Ordinal);
 
-        var builder = new FSTBuilder();
+        var builder = new FstBuilder();
         for (int i = 0; i < keys.Count; i++)
             builder.Add(Utf8(keys[i]), (long)i * 8);
 
@@ -198,7 +198,7 @@ public sealed class FSTBuilderTests
     [Fact(DisplayName = "Build: Single Byte Keys")]
     public void Build_SingleByteKeys()
     {
-        var builder = new FSTBuilder();
+        var builder = new FstBuilder();
         builder.Add([(byte)'a'], 10L);
         builder.Add([(byte)'b'], 20L);
         builder.Add([(byte)'c'], 30L);
@@ -216,7 +216,7 @@ public sealed class FSTBuilderTests
     public void Build_EmptyKey()
     {
         // Empty byte sequence is a valid key (represents the empty string term)
-        var builder = new FSTBuilder();
+        var builder = new FstBuilder();
         builder.Add(ReadOnlySpan<byte>.Empty, 99L);
         var data = builder.Finish();
 
@@ -234,7 +234,7 @@ public sealed class FSTBuilderTests
         var longKey1 = new string('a', 300);
         var longKey2 = new string('b', 300);
 
-        var builder = new FSTBuilder();
+        var builder = new FstBuilder();
         builder.Add(Utf8(longKey1), 1L);
         builder.Add(Utf8(longKey2), 2L);
         var data = builder.Finish();
@@ -251,7 +251,7 @@ public sealed class FSTBuilderTests
     public void Build_BinaryKeys()
     {
         // Keys containing 0x00 and 0xFF bytes
-        var builder = new FSTBuilder();
+        var builder = new FstBuilder();
         builder.Add([0x00], 1L);
         builder.Add([0x00, 0xFF], 2L);
         builder.Add([0x01], 3L);
@@ -264,7 +264,7 @@ public sealed class FSTBuilderTests
         Assert.NotNull(data);
     }
 
-    // ── Additional edge-case tests ──────────────────────────────────────────
+    // -- Additional edge-case tests ------------------------------------------
 
     /// <summary>
     /// Verifies the Build: Cannot Add After Finish scenario.
@@ -272,7 +272,7 @@ public sealed class FSTBuilderTests
     [Fact(DisplayName = "Build: Cannot Add After Finish")]
     public void Build_CannotAddAfterFinish()
     {
-        var builder = new FSTBuilder();
+        var builder = new FstBuilder();
         builder.Add(Utf8("a"), 1L);
         _ = builder.Finish();
 
@@ -286,7 +286,7 @@ public sealed class FSTBuilderTests
     [Fact(DisplayName = "Build: Cannot Finish Twice")]
     public void Build_CannotFinishTwice()
     {
-        var builder = new FSTBuilder();
+        var builder = new FstBuilder();
         _ = builder.Finish();
 
         Assert.Throws<InvalidOperationException>(() => builder.Finish());
@@ -299,7 +299,7 @@ public sealed class FSTBuilderTests
     public void Build_SharedPrefixes_CompressesOutput()
     {
         // Many keys sharing the prefix "prefix_" should benefit from prefix sharing
-        var builder = new FSTBuilder();
+        var builder = new FstBuilder();
         for (int i = 0; i < 100; i++)
             builder.Add(Utf8($"prefix_{i:D4}"), (long)i);
 
@@ -319,8 +319,8 @@ public sealed class FSTBuilderTests
     [Fact(DisplayName = "Build: Zero Outputs Succeeds")]
     public void Build_ZeroOutputs_Succeeds()
     {
-        // All outputs are zero — should still build correctly
-        var builder = new FSTBuilder();
+        // All outputs are zero � should still build correctly
+        var builder = new FstBuilder();
         builder.Add(Utf8("alpha"), 0L);
         builder.Add(Utf8("beta"), 0L);
         builder.Add(Utf8("gamma"), 0L);
@@ -337,7 +337,7 @@ public sealed class FSTBuilderTests
     public void Build_LargeOutputValues_Succeeds()
     {
         // Outputs that require full 10-byte VarInt encoding
-        var builder = new FSTBuilder();
+        var builder = new FstBuilder();
         builder.Add(Utf8("key1"), long.MaxValue / 2);
         builder.Add(Utf8("key2"), long.MaxValue);
         var data = builder.Finish();
@@ -364,8 +364,8 @@ public sealed class FSTBuilderTests
     [Fact(DisplayName = "Build: Monotonically Increasing Outputs Succeeds")]
     public void Build_MonotonicallyIncreasingOutputs_Succeeds()
     {
-        // Simulates real postings offsets — strictly increasing
-        var builder = new FSTBuilder();
+        // Simulates real postings offsets � strictly increasing
+        var builder = new FstBuilder();
         long offset = 0;
         var terms = new[] { "apple", "banana", "cherry", "date", "elderberry",
                             "fig", "grape", "honeydew", "jackfruit", "kiwi" };
@@ -398,9 +398,9 @@ public sealed class FSTBuilderTests
         var buffer = new byte[20];
         foreach (long value in values)
         {
-            int written = FSTBuilder.WriteVarInt(buffer, 0, value);
+            int written = FstBuilder.WriteVarInt(buffer, 0, value);
             int offset = 0;
-            long decoded = FSTBuilder.ReadVarInt(buffer.AsSpan(), ref offset);
+            long decoded = FstBuilder.ReadVarInt(buffer.AsSpan(), ref offset);
 
             Assert.Equal(value, decoded);
             Assert.Equal(written, offset);
@@ -414,7 +414,7 @@ public sealed class FSTBuilderTests
     public void Build_SmallInitialCapacity_GrowsCorrectly()
     {
         // Use a tiny initial capacity to exercise buffer growth
-        var builder = new FSTBuilder(initialCapacity: 16);
+        var builder = new FstBuilder(initialCapacity: 16);
         for (int i = 0; i < 100; i++)
             builder.Add(Utf8($"key_{i:D4}"), (long)i);
 

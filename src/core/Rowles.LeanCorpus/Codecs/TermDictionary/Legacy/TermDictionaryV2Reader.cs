@@ -1,15 +1,16 @@
-﻿using System.Text;
+using System.Text;
 using System.Text.RegularExpressions;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Store;
-namespace Rowles.LeanCorpus.Codecs.Fst;
+using Rowles.LeanCorpus.Codecs.Fst;
+namespace Rowles.LeanCorpus.Codecs.TermDictionary.Legacy;
 
 /// <summary>
 /// Reads a v2 .dic file: compact byte-keyed sorted dictionary.
 /// All data is loaded into contiguous arrays at open time — no per-term string allocation.
 /// Binary search operates on raw UTF-8 bytes (~3× faster than char-span comparison).
 /// </summary>
-internal sealed class FSTReader
+internal sealed class TermDictionaryV2Reader
 {
     private readonly long[] _offsets;
     private readonly int[] _keyStarts;
@@ -23,7 +24,7 @@ internal sealed class FSTReader
     private readonly Lock _fuzzyCacheLock = new();
     private readonly Dictionary<FuzzyCacheKey, List<(string Term, long Offset, int Distance)>> _fuzzyCache = new();
     private const int MaxFuzzyCacheEntries = 128;
-    private FSTReader(long[] offsets, int[] keyStarts, byte[] keyData, int termCount,
+    private TermDictionaryV2Reader(long[] offsets, int[] keyStarts, byte[] keyData, int termCount,
         int[] hashBuckets, int[] hashNext, int hashMask)
     {
         _offsets = offsets;
@@ -38,11 +39,11 @@ internal sealed class FSTReader
     /// <summary>
     /// Opens a v2 dictionary from an <see cref="IndexInput"/> positioned just after the codec header.
     /// </summary>
-    public static FSTReader Open(IndexInput input)
+    public static TermDictionaryV2Reader Open(IndexInput input)
     {
         int termCount = input.ReadInt32();
         if (termCount == 0)
-            return new FSTReader([], [], [], 0, [-1], [], 0);
+            return new TermDictionaryV2Reader([], [], [], 0, [-1], [], 0);
 
         // Read postings offsets (N × int64)
         var offsets = new long[termCount];
@@ -78,7 +79,7 @@ internal sealed class FSTReader
             hashBuckets[h] = i;
         }
 
-        return new FSTReader(offsets, keyStarts, keyData, termCount, hashBuckets, hashNext, hashMask);
+        return new TermDictionaryV2Reader(offsets, keyStarts, keyData, termCount, hashBuckets, hashNext, hashMask);
     }
 
     /// <summary>O(1) average-case hash lookup on UTF-8 byte keys (falls back to chain walk on collision).</summary>

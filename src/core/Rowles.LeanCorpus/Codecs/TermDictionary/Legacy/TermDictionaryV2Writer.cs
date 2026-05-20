@@ -1,16 +1,18 @@
 ﻿using System.Buffers;
 using System.Text;
 using Rowles.LeanCorpus.Store;
-namespace Rowles.LeanCorpus.Codecs.Fst;
+namespace Rowles.LeanCorpus.Codecs.TermDictionary.Legacy;
 
 /// <summary>
-/// Serialises a sorted term list into a compact byte-keyed v2 dictionary format.
+/// Legacy v2 term dictionary writer. Serialises a sorted term list into a compact byte-keyed format.
 /// Format: [termCount:int32][postingsOffsets: N*int64][keyStarts: (N+1)*int32][keyData: UTF-8 bytes].
-/// This format enables O(log N) binary search on raw UTF-8 bytes without string materialisation.
+/// Despite the historic "Fst" name, this is a byte-array dictionary with an open-addressed hash table,
+/// not a real finite-state transducer. Retained solely for use by <c>IndexCodecMigrator</c> when reading
+/// pre-v3 segments. Live writes go through <see cref="TermDictionaryWriter"/> which produces v3 FSTs.
 /// Terms are re-sorted in UTF-8 byte order to ensure binary search correctness
 /// (string ordinal sort can differ from UTF-8 byte sort for supplementary characters).
 /// </summary>
-internal static class TermDictionaryFstBuilder
+internal static class TermDictionaryV2Writer
 {
     /// <summary>
     /// Writes sorted terms and their postings offsets in v2 format to the given <paramref name="output"/>.
