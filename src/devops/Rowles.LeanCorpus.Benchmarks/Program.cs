@@ -190,6 +190,15 @@ internal static class Program
         if (runAll || suites.Contains(BenchmarkSuite.Stemmer))
             RunSuite<StemmerParityBenchmarks>("stemmer", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
+        if (runAll || suites.Contains(BenchmarkSuite.KStemmer))
+            RunSuite<KStemmerParityBenchmarks>("kstemmer", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.LightEnglish))
+            RunSuite<LightEnglishStemmerBenchmarks>("lightenglish", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.Hunspell))
+            RunSuite<HunspellBenchmarks>("hunspell", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
         if (runAll || suites.Contains(BenchmarkSuite.NGram))
             RunSuite<NGramTokeniserBenchmarks>("ngram", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
@@ -331,6 +340,9 @@ internal static class Program
               collapse-facet      CollapseAndFacetBenchmarks -- collapse and facet collection
               similarity          SimilarityBenchmarks -- BM25 vs TF-IDF
               stemmer             StemmerParityBenchmarks -- stemming parity
+              kstemmer            KStemmerParityBenchmarks -- Krovetz stemmer parity (vs Lucene.NET KStemmer)
+              lightenglish        LightEnglishStemmerBenchmarks -- LightEnglish vs Porter throughput
+              hunspell            HunspellBenchmarks -- Hunspell parse and stem throughput
               ngram               NGramTokeniserBenchmarks -- N-gram tokenisation
               synonym             SynonymBenchmarks -- synonym indexing overhead
               async-index         AsyncIndexingBenchmarks -- sync vs async indexing
@@ -493,6 +505,9 @@ internal static class Program
             "collapse-facet" or "collapsefacet" => BenchmarkSuite.CollapseAndFacet,
             "similarity" => BenchmarkSuite.Similarity,
             "stemmer" => BenchmarkSuite.Stemmer,
+            "kstemmer" => BenchmarkSuite.KStemmer,
+            "lightenglish" or "light-english" => BenchmarkSuite.LightEnglish,
+            "hunspell" => BenchmarkSuite.Hunspell,
             "ngram" => BenchmarkSuite.NGram,
             "synonym" => BenchmarkSuite.Synonym,
             "async-index" or "asyncindex" => BenchmarkSuite.AsyncIndex,
@@ -563,6 +578,9 @@ internal static class Program
         CollapseAndFacet,
         Similarity,
         Stemmer,
+        KStemmer,
+        LightEnglish,
+        Hunspell,
         NGram,
         Synonym,
         AsyncIndex,

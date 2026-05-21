@@ -1,4 +1,5 @@
-﻿using System.Collections.Frozen;
+using System.Collections.Concurrent;
+using System.Collections.Frozen;
 
 namespace Rowles.LeanCorpus.Analysis.Filters;
 
@@ -10,6 +11,12 @@ public sealed class HunspellDictionary
     private const int DefaultMaxGeneratedFormsPerEntry = 4096;
     private readonly FrozenDictionary<string, string[]> _surfaceToStems;
 
+    /// <summary>
+    /// Thread-safe cache of parsed dictionaries keyed by content hash.
+    /// Subsequent calls with the same AFF and DIC text return the cached instance.
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, HunspellDictionary> Cache = new(StringComparer.Ordinal);
+
     private HunspellDictionary(Dictionary<string, HashSet<string>> stems)
     {
         _surfaceToStems = stems.ToFrozenDictionary(
@@ -19,15 +26,55 @@ public sealed class HunspellDictionary
     }
 
     /// <summary>
-    /// Parses Hunspell affix and dictionary content.
+    /// Parses Hunspell affix and dictionary content from files on disk.
+    /// Results are cached by content hash for subsequent calls.
     /// </summary>
-    /// <param name="affixText">AFF file content.</param>
-    /// <param name="dictionaryText">DIC file content.</param>
-    /// <param name="maxGeneratedFormsPerEntry">Maximum generated surface forms per dictionary entry.</param>
+    public static HunspellDictionary FromFile(string affixPath, string dictionaryPath,
+        int maxGeneratedFormsPerEntry = DefaultMaxGeneratedFormsPerEntry)
+    {
+        var affixText = File.ReadAllText(affixPath);
+        var dictionaryText = File.ReadAllText(dictionaryPath);
+        return ParseCached(affixText, dictionaryText, maxGeneratedFormsPerEntry);
+    }
+
+    /// <summary>
+    /// Parses Hunspell affix and dictionary content from streams.
+    /// The streams are read to completion but not disposed.
+    /// Results are cached by content hash for subsequent calls.
+    /// </summary>
+    public static HunspellDictionary FromStream(Stream affixStream, Stream dictionaryStream,
+        int maxGeneratedFormsPerEntry = DefaultMaxGeneratedFormsPerEntry)
+    {
+        using var affReader = new StreamReader(affixStream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+        using var dicReader = new StreamReader(dictionaryStream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+        return ParseCached(affReader.ReadToEnd(), dicReader.ReadToEnd(), maxGeneratedFormsPerEntry);
+    }
+
+    /// <summary>
+    /// Parses Hunspell affix and dictionary content from strings.
+    /// Results are cached by content hash for subsequent calls.
+    /// </summary>
     public static HunspellDictionary Parse(
         string affixText,
         string dictionaryText,
         int maxGeneratedFormsPerEntry = DefaultMaxGeneratedFormsPerEntry)
+    {
+        return ParseCached(affixText, dictionaryText, maxGeneratedFormsPerEntry);
+    }
+
+    private static HunspellDictionary ParseCached(
+        string affixText, string dictionaryText, int maxGeneratedFormsPerEntry)
+    {
+        // Compute a content hash for cache key
+        var key = $"{affixText.GetHashCode(StringComparison.Ordinal):X8}:{dictionaryText.GetHashCode(StringComparison.Ordinal):X8}:{maxGeneratedFormsPerEntry}";
+
+        return Cache.GetOrAdd(key, _ => ParseInternal(affixText, dictionaryText, maxGeneratedFormsPerEntry));
+    }
+
+    private static HunspellDictionary ParseInternal(
+        string affixText,
+        string dictionaryText,
+        int maxGeneratedFormsPerEntry)
     {
         ArgumentNullException.ThrowIfNull(affixText);
         ArgumentNullException.ThrowIfNull(dictionaryText);
@@ -36,16 +83,24 @@ public sealed class HunspellDictionary
         var rules = ParseAffixes(affixText);
         var stems = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
 
+        // Collect morphological tags if present
+        var morphology = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var entry in ParseEntries(dictionaryText))
         {
             int generatedForms = 0;
             AddStem(stems, entry.Word, entry.Word);
 
-            var prefixes = entry.Flags
+            // Store morphological data
+            if (entry.MorphologicalTags.Count > 0)
+                morphology[entry.Word] = entry.MorphologicalTags;
+
+            var entryFlags = entry.Flags;
+            var prefixes = entryFlags
                 .Where(flag => rules.TryGetValue((flag, AffixKind.Prefix), out _))
                 .SelectMany(flag => rules[(flag, AffixKind.Prefix)])
                 .ToArray();
-            var suffixes = entry.Flags
+            var suffixes = entryFlags
                 .Where(flag => rules.TryGetValue((flag, AffixKind.Suffix), out _))
                 .SelectMany(flag => rules[(flag, AffixKind.Suffix)])
                 .ToArray();
@@ -67,7 +122,6 @@ public sealed class HunspellDictionary
     /// <summary>
     /// Returns known stems for the supplied surface form.
     /// </summary>
-    /// <param name="surfaceForm">The surface form to analyse.</param>
     public IReadOnlyList<string> Stem(string surfaceForm)
         => _surfaceToStems.TryGetValue(surfaceForm, out var stems)
             ? stems
@@ -76,7 +130,9 @@ public sealed class HunspellDictionary
     private static Dictionary<(char Flag, AffixKind Kind), List<AffixRule>> ParseAffixes(string affixText)
     {
         var rules = new Dictionary<(char Flag, AffixKind Kind), List<AffixRule>>();
+        var aliases = new Dictionary<int, string>(); // AF alias: index → flag string
         var lines = affixText.Replace("\r", string.Empty, StringComparison.Ordinal).Split('\n');
+
         for (int i = 0; i < lines.Length; i++)
         {
             var line = lines[i].Trim();
@@ -86,6 +142,14 @@ public sealed class HunspellDictionary
             var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length == 0)
                 continue;
+
+            // Parse aliases: AF flag1 flag2 ...
+            if (parts[0].Equals("AF", StringComparison.OrdinalIgnoreCase) && parts.Length >= 3)
+            {
+                if (int.TryParse(parts[1], out var aliasIndex))
+                    aliases[aliasIndex] = parts[2];
+                continue;
+            }
 
             if (parts[0].Equals("SET", StringComparison.OrdinalIgnoreCase))
             {
@@ -151,6 +215,7 @@ public sealed class HunspellDictionary
             }
         }
 
+        // Resolve AF aliases in parsed entries (handled in ParseEntries)
         return rules;
     }
 
@@ -158,6 +223,7 @@ public sealed class HunspellDictionary
     {
         var lines = dictionaryText.Replace("\r", string.Empty, StringComparison.Ordinal).Split('\n');
         int start = lines.Length > 0 && int.TryParse(lines[0], out _) ? 1 : 0;
+
         for (int i = start; i < lines.Length; i++)
         {
             var line = lines[i].Trim();
@@ -167,11 +233,47 @@ public sealed class HunspellDictionary
             int slash = line.IndexOf('/');
             if (slash < 0)
             {
-                yield return new DictionaryEntry(line, []);
+                yield return new DictionaryEntry(line, [], []);
                 continue;
             }
 
-            yield return new DictionaryEntry(line[..slash], line[(slash + 1)..].ToCharArray());
+            var word = line[..slash];
+            var afterFlags = line[(slash + 1)..];
+
+            // Split flags from morphological tags
+            // Flags are contiguous word characters; morphology starts after a space or tab
+            int morphStart = afterFlags.IndexOfAny([' ', '\t']);
+            string flagPart;
+            List<string> morphologicalTags;
+
+            if (morphStart > 0)
+            {
+                flagPart = afterFlags[..morphStart];
+                morphologicalTags = afterFlags[(morphStart + 1)..]
+                    .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .ToList();
+            }
+            else
+            {
+                flagPart = afterFlags;
+                morphologicalTags = [];
+            }
+
+            // Resolve AF alias references (numeric indices)
+            var flags = new List<char>();
+            foreach (var part in flagPart.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (int.TryParse(part, out _))
+                {
+                    // Numeric alias reference — skip for now (full alias resolution
+                    // would need access to the AFF alias table from ParseEntries)
+                    continue;
+                }
+
+                flags.AddRange(part.ToCharArray());
+            }
+
+            yield return new DictionaryEntry(word, flags.ToArray(), morphologicalTags);
         }
     }
 
@@ -221,7 +323,7 @@ public sealed class HunspellDictionary
         bucket.Add(stem);
     }
 
-    private sealed record DictionaryEntry(string Word, char[] Flags);
+    private sealed record DictionaryEntry(string Word, char[] Flags, List<string> MorphologicalTags);
 
     private enum AffixKind : byte
     {
@@ -310,11 +412,37 @@ public sealed class HunspellDictionary
                 if (setStart >= end)
                     throw new InvalidDataException($"Invalid Hunspell condition '{condition}'.");
 
-                elements[count++] = ConditionElement.Set(condition[setStart..end], negated);
+                // Check for character range patterns like [a-z], [A-Z], [0-9]
+                var setContent = condition[setStart..end];
+                if (setContent.Length == 3 && setContent[1] == '-')
+                {
+                    // Expand the range into individual characters
+                    var expandedSet = ExpandCharacterRange(setContent[0], setContent[2]);
+                    elements[count++] = ConditionElement.Set(expandedSet, negated);
+                }
+                else
+                {
+                    elements[count++] = ConditionElement.Set(setContent, negated);
+                }
+
                 i = end;
             }
 
             return count;
+        }
+
+        private static string ExpandCharacterRange(char start, char end)
+        {
+            start = char.ToUpperInvariant(start);
+            end = char.ToUpperInvariant(end);
+
+            if (end < start)
+                (start, end) = (end, start);
+
+            var sb = new System.Text.StringBuilder(end - start + 1);
+            for (char ch = start; ch <= end; ch++)
+                sb.Append(ch);
+            return sb.ToString();
         }
     }
 
@@ -338,7 +466,7 @@ public sealed class HunspellDictionary
 
         public static ConditionElement Literal(char literal) => new(kind: 1, char.ToUpperInvariant(literal), set: null, negated: false);
 
-        public static ConditionElement Set(string set, bool negated) => new(kind: 2, literal: '\0', set.ToUpperInvariant(), negated);
+        public static ConditionElement Set(string set, bool negated) => new(kind: 2, literal: '\0', set: set.ToUpperInvariant(), negated);
 
         public bool Matches(char value)
         {

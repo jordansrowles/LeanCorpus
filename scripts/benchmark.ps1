@@ -109,7 +109,7 @@ param(
                  'mlt', 'highlighter', 'searcher-mgr',
                  'combined', 'terminset', 'aggregation', 'query-cache',
                  'parallel', 'function-score', 'geo', 'collapse-facet', 'similarity',
-                 'stemmer', 'ngram', 'synonym', 'async-index',
+                 'stemmer', 'kstemmer', 'lightenglish', 'hunspell', 'ngram', 'synonym', 'async-index',
                  'gutenberg-analysis', 'gutenberg-index', 'gutenberg-search',
                  'tokenbudget', 'diagnostics')]
     [string]$Suite = 'all',
@@ -211,6 +211,9 @@ $suiteDescriptions = [ordered]@{
     'collapse-facet'     = 'CollapseAndFacetBenchmarks  -- field collapse + facet collection'
     similarity           = 'SimilarityBenchmarks        -- BM25 vs TF-IDF'
     stemmer              = 'StemmerParityBenchmarks     -- StemmedAnalyser vs EnglishAnalyzer'
+    kstemmer             = 'KStemmerParityBenchmarks    -- Krovetz stemmer throughput'
+    lightenglish         = 'LightEnglishStemmerBenchmarks -- LightEnglish vs Porter throughput'
+    hunspell             = 'HunspellBenchmarks          -- Hunspell parse and stem throughput'
     ngram                = 'NGramTokeniserBenchmarks    -- edge/full N-gram parity (vs Lucene.NET)'
     synonym              = 'SynonymBenchmarks           -- SynonymGraphFilter indexing overhead'
     'async-index'        = 'AsyncIndexingBenchmarks     -- sync vs async vs batch ingestion'

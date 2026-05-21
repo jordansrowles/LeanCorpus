@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using System.Reflection;
 
 namespace Rowles.LeanCorpus.Analysis.Stemmers;
 
@@ -39,12 +40,34 @@ public sealed class KStemLexicon : IKStemLexicon
     }
 
     /// <summary>
-    /// Loads a UTF-8 text lexicon from disk, using one base form per line.
-    /// Lines starting with <c>#</c> are ignored.
+    /// Loads a UTF-8 text lexicon from an embedded resource in the calling assembly.
     /// </summary>
+    /// <param name="resourceName">The fully qualified embedded resource name (e.g. "MyApp.lexicons.kstem-dict.txt").</param>
+    /// <param name="assembly">The assembly containing the resource. Defaults to the calling assembly.</param>
+    public static KStemLexicon FromEmbeddedResource(string resourceName, Assembly? assembly = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(resourceName);
+        assembly ??= Assembly.GetCallingAssembly();
+
+        using var stream = assembly.GetManifestResourceStream(resourceName)
+            ?? throw new FileNotFoundException(
+                $"Embedded resource '{resourceName}' not found in assembly '{assembly.FullName}'.");
+
+        return FromStream(stream);
+    }
+
+    /// <summary>
+    /// Loads a UTF-8 text lexicon from disk. If <paramref name="path"/> is relative,
+    /// it is resolved against <see cref="AppContext.BaseDirectory"/>.
+    /// </summary>
+    /// <param name="path">Absolute or relative path to the lexicon file.</param>
     public static KStemLexicon FromFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        if (!Path.IsPathRooted(path))
+            path = Path.Combine(AppContext.BaseDirectory, path);
+
         return From(File.ReadLines(path, System.Text.Encoding.UTF8));
     }
 
