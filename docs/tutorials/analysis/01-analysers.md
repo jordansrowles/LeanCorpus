@@ -11,7 +11,7 @@ query execution use.
 | `StandardAnalyser` | Basic tokeniser, lowercase normalisation, stop-word removal | You want the default general-purpose analyser. |
 | `StemmedAnalyser` | `StandardAnalyser` plus Porter stemming | You want broader English recall with the standard pipeline. |
 | `LanguageAnalyser` | Tokeniser, lowercase normalisation, stop words, optional `IStemmer` | You want a language-specific pipeline or a custom tokeniser plus stemmer combination. |
-| `IcuAnalyser` | `IcuTokeniser`, lowercase normalisation, stop-word removal, optional extra filters | You need better Unicode-aware segmentation. |
+| `IcuAnalyser` | `IcuTokeniser`, lowercase normalisation, stop-word removal, optional extra filters, optional Thai tokeniser | You need better Unicode-aware segmentation. Inject a `ThaiTokeniser` for Thai support. |
 | `WhitespaceAnalyser` | `WhitespaceTokeniser` only | Punctuation and case should stay intact. |
 | `KeywordAnalyser` | `KeywordTokeniser` only | The whole field should be treated as one token. |
 | `SimpleAnalyser` | Letter-only tokenisation and lowercase normalisation | You want a small analyser that ignores digits and punctuation. |

@@ -237,16 +237,12 @@ public sealed class KStemmer : IStemmer
     private readonly IKStemLexicon _lexicon;
 
     /// <summary>
-    /// Initialises a new <see cref="KStemmer"/> using the embedded default lexicon.
-    /// </summary>
-    public KStemmer()
-        : this(KStemLexicon.Default)
-    {
-    }
-
-    /// <summary>
     /// Initialises a new <see cref="KStemmer"/> with the supplied base-form lexicon.
     /// </summary>
+    /// <remarks>
+    /// A lexicon file is available in the repository under <c>lexicons/kstem-dict.txt</c>.
+    /// Load it with <see cref="KStemLexicon.FromFile"/>.
+    /// </remarks>
     public KStemmer(IKStemLexicon lexicon)
     {
         _lexicon = lexicon ?? throw new ArgumentNullException(nameof(lexicon));

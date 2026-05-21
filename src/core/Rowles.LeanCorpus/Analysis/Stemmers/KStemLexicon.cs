@@ -1,25 +1,20 @@
 using System.Collections.Frozen;
-using System.Reflection;
 
 namespace Rowles.LeanCorpus.Analysis.Stemmers;
 
 /// <summary>
 /// Immutable <see cref="IKStemLexicon"/> backed by a frozen set.
 /// </summary>
+/// <remarks>
+/// The lexicon must be provided via <see cref="From(IEnumerable{string})"/>,
+/// <see cref="FromFile"/>, or <see cref="FromStream"/>. A lexicon file is
+/// available in the repository under <c>lexicons/kstem-dict.txt</c>.
+/// </remarks>
 public sealed class KStemLexicon : IKStemLexicon
 {
-    private const string DefaultResourceName = "Rowles.LeanCorpus.Analysis.Stemmers.kstem-dict.txt";
-    private static readonly Lazy<KStemLexicon> s_default = new(
-        () => FromEmbeddedResource(typeof(KStemLexicon).Assembly, DefaultResourceName));
-
     private readonly FrozenSet<string> _words;
 
     private KStemLexicon(FrozenSet<string> words) => _words = words;
-
-    /// <summary>
-    /// Gets the default embedded KStem lexicon used by the parameterless <see cref="KStemmer"/> constructor.
-    /// </summary>
-    public static KStemLexicon Default => s_default.Value;
 
     /// <inheritdoc/>
     public bool Contains(string word)
@@ -44,19 +39,25 @@ public sealed class KStemLexicon : IKStemLexicon
     }
 
     /// <summary>
-    /// Loads a UTF-8 text lexicon from an embedded resource, using one base form per line.
+    /// Loads a UTF-8 text lexicon from disk, using one base form per line.
     /// Lines starting with <c>#</c> are ignored.
     /// </summary>
-    public static KStemLexicon FromEmbeddedResource(Assembly assembly, string resourceName)
+    public static KStemLexicon FromFile(string path)
     {
-        ArgumentNullException.ThrowIfNull(assembly);
-        ArgumentNullException.ThrowIfNull(resourceName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        return From(File.ReadLines(path, System.Text.Encoding.UTF8));
+    }
 
-        using var stream = assembly.GetManifestResourceStream(resourceName)
-            ?? throw new InvalidOperationException($"Embedded resource '{resourceName}' was not found in {assembly.FullName}.");
-        using var reader = new StreamReader(stream, System.Text.Encoding.UTF8);
+    /// <summary>
+    /// Loads a UTF-8 text lexicon from a stream, using one base form per line.
+    /// Lines starting with <c>#</c> are ignored. The stream is not disposed.
+    /// </summary>
+    public static KStemLexicon FromStream(Stream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
 
         var words = new List<string>();
+        using var reader = new StreamReader(stream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
         string? line;
         while ((line = reader.ReadLine()) is not null)
         {
@@ -66,15 +67,5 @@ public sealed class KStemLexicon : IKStemLexicon
         }
 
         return From(words);
-    }
-
-    /// <summary>
-    /// Loads a UTF-8 text lexicon from disk, using one base form per line.
-    /// Lines starting with <c>#</c> are ignored.
-    /// </summary>
-    public static KStemLexicon FromFile(string path)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return From(File.ReadLines(path));
     }
 }

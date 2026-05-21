@@ -1,8 +1,8 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Tokenisers;
+namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 
 /// <summary>
 /// Unicode-aware tokeniser that preserves URLs, email addresses, hashtags, and mentions
-/// as single tokens.
+/// as single tokens. Thai segmentation is opt-in via the constructor.
 /// </summary>
 public sealed class Uax29UrlEmailTokeniser : ITokeniser
 {
@@ -15,15 +15,24 @@ public sealed class Uax29UrlEmailTokeniser : ITokeniser
     /// <summary>Token type emitted for at-mentions.</summary>
     public const string MentionType = "mention";
 
-    private readonly ThaiTokeniser _thaiTokeniser;
+    private readonly ITokeniser? _thaiTokeniser;
 
     /// <summary>
-    /// Initialises a new <see cref="Uax29UrlEmailTokeniser"/>.
+    /// Initialises a new <see cref="Uax29UrlEmailTokeniser"/> without Thai segmentation.
+    /// Thai characters are treated as regular word characters.
     /// </summary>
-    /// <param name="thaiLexicon">Optional Thai lexicon override used for Thai runs.</param>
-    public Uax29UrlEmailTokeniser(IEnumerable<string>? thaiLexicon = null)
+    public Uax29UrlEmailTokeniser()
     {
-        _thaiTokeniser = new ThaiTokeniser(thaiLexicon);
+    }
+
+    /// <summary>
+    /// Initialises a new <see cref="Uax29UrlEmailTokeniser"/> with an optional Thai tokeniser.
+    /// When supplied, contiguous Thai runs are delegated to <paramref name="thaiTokeniser"/>.
+    /// </summary>
+    /// <param name="thaiTokeniser">A tokeniser used for Thai text, or null to skip Thai segmentation.</param>
+    public Uax29UrlEmailTokeniser(ITokeniser? thaiTokeniser)
+    {
+        _thaiTokeniser = thaiTokeniser;
     }
 
     /// <inheritdoc/>
@@ -34,7 +43,7 @@ public sealed class Uax29UrlEmailTokeniser : ITokeniser
 
         while (i < input.Length)
         {
-            if (UnicodeTokenisation.IsThai(input[i]))
+            if (_thaiTokeniser is not null && UnicodeTokenisation.IsThai(input[i]))
             {
                 int runStart = i;
                 while (i < input.Length && UnicodeTokenisation.IsThai(input[i]))
@@ -70,16 +79,7 @@ public sealed class Uax29UrlEmailTokeniser : ITokeniser
                 continue;
             }
 
-            if (!UnicodeTokenisation.IsWordStart(input[i]))
-            {
-                i++;
-                continue;
-            }
-
-            int wordStart = i;
-            i = UnicodeTokenisation.ConsumeWord(input, wordStart, allowUnderscore: true, allowHyphen: true);
-            var span = input[wordStart..i];
-            tokens.Add(new Token(span.ToString(), wordStart, i, UnicodeTokenisation.ClassifyTokenType(span)));
+            UnicodeTokenisation.TokeniseNonThaiSpan(input, tokens, ref i);
         }
 
         return tokens;

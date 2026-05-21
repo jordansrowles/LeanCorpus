@@ -1,8 +1,8 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Analysers;
+namespace Rowles.LeanCorpus.Analysis.Analysers;
 
 /// <summary>
-/// Default Unicode-aware analyser built on <see cref="IcuTokeniser"/>, lowercase normalisation,
-/// and stop-word removal.
+/// Default Unicode-aware analyser built on <see cref="Tokenisers.IcuTokeniser"/>, lowercase
+/// normalisation, and stop-word removal.
 /// </summary>
 public sealed class IcuAnalyser : IAnalyser
 {
@@ -12,8 +12,15 @@ public sealed class IcuAnalyser : IAnalyser
     /// Initialises a new <see cref="IcuAnalyser"/>.
     /// </summary>
     /// <param name="stopWords">Optional stop word list override.</param>
+    /// <param name="thaiTokeniser">
+    /// Optional Thai tokeniser for dictionary-based Thai segmentation.
+    /// When null, Thai characters are treated as regular word characters.
+    /// </param>
     /// <param name="additionalFilters">Optional extra filters applied after stop-word removal.</param>
-    public IcuAnalyser(IEnumerable<string>? stopWords = null, params ITokenFilter[] additionalFilters)
+    public IcuAnalyser(
+        IEnumerable<string>? stopWords = null,
+        Tokenisers.ITokeniser? thaiTokeniser = null,
+        params ITokenFilter[] additionalFilters)
     {
         var filters = new List<ITokenFilter>(2 + additionalFilters.Length)
         {
@@ -21,7 +28,7 @@ public sealed class IcuAnalyser : IAnalyser
             new StopWordFilter(stopWords)
         };
         filters.AddRange(additionalFilters);
-        _inner = new Analyser(new IcuTokeniser(), filters.ToArray());
+        _inner = new Analyser(new Tokenisers.IcuTokeniser(thaiTokeniser), filters.ToArray());
     }
 
     /// <inheritdoc/>

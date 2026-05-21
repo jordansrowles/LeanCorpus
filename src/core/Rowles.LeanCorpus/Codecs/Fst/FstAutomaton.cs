@@ -23,6 +23,14 @@ public interface IAutomaton
     /// Returns false only if the state is dead (no path to any accept state).
     /// </summary>
     bool CanMatch(int state);
+
+    /// <summary>
+    /// Returns true if the given state accepts every possible byte sequence
+    /// (i.e. all 256 transitions lead to an accept state or a self-sink).
+    /// Used by the FST reader to skip automaton calls and switch to
+    /// a simple output-collection traversal when the automaton is fully permissive.
+    /// </summary>
+    bool IsSink(int state) => false;
 }
 
 /// <summary>
@@ -280,6 +288,26 @@ public sealed class WildcardAutomaton : IAutomaton
 
     /// <inheritdoc/>
     public bool CanMatch(int state) => state >= 0 && state < _stateCount && _canMatch[state];
+
+    /// <inheritdoc/>
+    public bool IsSink(int state)
+    {
+        if (state < 0 || state >= _stateCount)
+            return false;
+
+        // A sink state transitions to itself on every byte and is accepting.
+        if (!_accept[state]) return false;
+
+        int baseOffset = state * 256;
+        for (int b = 0; b < 256; b++)
+        {
+            int next = _transitions[baseOffset + b];
+            if (next != state && next >= 0 && !_accept[next])
+                return false;
+        }
+
+        return true;
+    }
 }
 
 /// <summary>

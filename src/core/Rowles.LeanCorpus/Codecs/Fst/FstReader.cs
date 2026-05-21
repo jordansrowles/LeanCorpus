@@ -379,6 +379,16 @@ public sealed class FstReader
 
     private void CollectIntersectRecursive(long nodeAddr, int automatonState, long accumulatedOutput, IAutomaton automaton, List<long> sink)
     {
+        // When the automaton is in a fully-permissive sink state, every remaining
+        // FST path is a match. Skip automaton calls and collect all outputs.
+        if (automaton.IsSink(automatonState))
+        {
+            if (TryGetFinalOutput(nodeAddr, out long final))
+                sink.Add(accumulatedOutput + final);
+            CollectOutputsRecursive(nodeAddr, accumulatedOutput, sink);
+            return;
+        }
+
         int firstArc = FirstRealArcOffset(nodeAddr);
         if (firstArc < 0) return;
         int pos = firstArc;

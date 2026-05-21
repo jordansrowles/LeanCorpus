@@ -440,6 +440,62 @@ public sealed partial class IndexSearcher
         return true;
     }
 
+    /// <summary>
+    /// Extracts a literal prefix from a regex pattern. Walks the pattern from the start,
+    /// collecting literal characters until a regex metacharacter is encountered. Handles
+    /// escape sequences (\X) and the anchor (^) by skipping them. Stops at ., *, +, ?, [, (, {, |, $.
+    /// </summary>
+    private static bool TryGetRegexLiteralPrefix(string pattern, out string prefix)
+    {
+        prefix = string.Empty;
+        if (string.IsNullOrEmpty(pattern))
+            return false;
+
+        int start = 0;
+        if (pattern[0] == '^')
+            start = 1;
+
+        int end = start;
+        while (end < pattern.Length)
+        {
+            char c = pattern[end];
+            if (c == '\\')
+            {
+                // Escaped character — consume the backslash and add the next char literally.
+                end++;
+                if (end < pattern.Length)
+                    end++;
+                continue;
+            }
+            if (c is '.' or '*' or '+' or '?' or '[' or '(' or '{' or '|' or '$')
+                break;
+            end++;
+        }
+
+        int length = end - start;
+        if (length == 0)
+            return false;
+
+        // Unescape the literal prefix to get the actual bytes.
+        var sb = new System.Text.StringBuilder(length);
+        for (int i = start; i < end; i++)
+        {
+            char c = pattern[i];
+            if (c == '\\' && i + 1 < end)
+            {
+                i++;
+                sb.Append(pattern[i]);
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+
+        prefix = sb.ToString();
+        return prefix.Length > 0;
+    }
+
     private static bool TryGetSimpleContainsRegexLiteral(string pattern, out string literal)
     {
         literal = string.Empty;
@@ -568,28 +624,55 @@ public sealed partial class IndexSearcher
         Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
         var fieldPrefix = $"{query.Field}\x00";
+        var regex = query.CompiledRegex;
+
+        // Fast path: literal-contains pattern (e.g. .*nation.*)
         if (globalDFs.Count == 0 &&
-            (query.CompiledRegex.Options & System.Text.RegularExpressions.RegexOptions.IgnoreCase) == 0 &&
+            (regex.Options & System.Text.RegularExpressions.RegexOptions.IgnoreCase) == 0 &&
             TryGetSimpleContainsRegexLiteral(query.Pattern, out var literal))
         {
             ExecuteRegexpContainsQuery(query, reader, fieldPrefix, literal, ref collector);
             return;
         }
 
-        var matchingTerms = reader.GetTermsMatchingRegex(fieldPrefix, query.CompiledRegex);
-        if (matchingTerms.Count == 0) return;
+        // Fast path: prefix-literal extraction (e.g. gov.*ment → prefix "gov", mark.* → prefix "mark")
+        // Enumerate only the FST subtree matching the literal prefix, then regex-verify each term.
+        if (TryGetRegexLiteralPrefix(query.Pattern, out var prefix) && prefix.Length >= 1)
+        {
+            var qualifiedPrefix = string.Concat(fieldPrefix, prefix);
+            var candidateTerms = reader.GetTermsWithPrefix(qualifiedPrefix);
+            ExecuteRegexpFromCandidates(query, reader, ref collector, candidateTerms, fieldPrefix, regex);
+            return;
+        }
 
+        // Fallback: full FST enumeration with regex filter (expensive — only for complex patterns).
+        var matchingTerms = reader.GetTermsMatchingRegex(fieldPrefix, regex);
+        if (matchingTerms.Count == 0) return;
+        ExecuteRegexpFromCandidates(query, reader, ref collector, matchingTerms, fieldPrefix, regex);
+    }
+
+    private void ExecuteRegexpFromCandidates(RegexpQuery query, SegmentReader reader,
+        ref TopNCollector collector,
+        List<(string Term, long Offset)> candidates,
+        string fieldPrefix,
+        System.Text.RegularExpressions.Regex regex)
+    {
         float boost = query.Boost;
         float avgDocLength = _stats.GetAvgFieldLength(query.Field);
         int docBase = reader.DocBase;
 
-        foreach (var (qualifiedTerm, postingsOffset) in matchingTerms)
+        foreach (var (qualifiedTerm, postingsOffset) in candidates)
         {
+            // Verify the term matches the full regex pattern.
+            var bareTerm = qualifiedTerm.AsSpan(fieldPrefix.Length);
+            if (!regex.IsMatch(bareTerm))
+                continue;
+
             using var postings = reader.GetPostingsEnumAtOffset(postingsOffset);
             if (postings.IsExhausted) continue;
 
             var termPart = qualifiedTerm.AsSpan(query.Field.Length + 1).ToString();
-            int docFreq = globalDFs.GetValueOrDefault((query.Field, termPart), postings.DocFreq);
+            int docFreq = postings.DocFreq;
             var (f1, f2) = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
 
             reader.TryGetFieldLengths(query.Field, out var fieldLengths);

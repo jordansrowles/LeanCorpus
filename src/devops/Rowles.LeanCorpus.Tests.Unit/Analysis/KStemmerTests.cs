@@ -104,16 +104,33 @@ public sealed class KStemmerTests
     public void Stem_MixedCase_NormalisesToLower()
         => Assert.Equal("cat", _stemmer.Stem("CATS"));
 
-    [Fact(DisplayName = "KStemmer: Default Constructor Uses Embedded Dictionary")]
-    public void Stem_DefaultConstructor_UsesEmbeddedDictionary()
-    {
-        var stemmer = new KStemmer();
+    [Fact(DisplayName = "KStemmer: Null Lexicon Throws")]
+    public void Ctor_NullLexicon_Throws()
+        => Assert.Throws<ArgumentNullException>(() => new KStemmer(null!));
 
+    [Fact(DisplayName = "KStemLexicon: FromFile Loads Lexicon From Disk")]
+    public void KStemLexicon_FromFile_LoadsLexicon()
+    {
+        var lexicon = KStemLexicon.FromFile(ResolveLexiconPath("kstem-dict.txt"));
+        Assert.True(lexicon.Contains("abandon"));
+    }
+
+    [Fact(DisplayName = "KStemmer: FromFile Lexicon Works End-to-End")]
+    public void KStemmer_FromFileLexicon_StemsCorrectly()
+    {
+        var lexicon = KStemLexicon.FromFile(ResolveLexiconPath("kstem-dict.txt"));
+        var stemmer = new KStemmer(lexicon);
         Assert.Equal("tie", stemmer.Stem("tying"));
         Assert.Equal("news", stemmer.Stem("news"));
     }
 
-    [Fact(DisplayName = "KStemLexicon: Default Embedded Dictionary Contains Known Base Form")]
-    public void DefaultLexicon_ContainsKnownBaseForm()
-        => Assert.True(KStemLexicon.Default.Contains("abandon"));
+    private static string ResolveLexiconPath(string fileName)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "lexicons", fileName)))
+            dir = dir.Parent;
+        if (dir is null)
+            throw new InvalidOperationException($"Could not find lexicons/{fileName}. Ensure the test is run from within the repository.");
+        return Path.Combine(dir.FullName, "lexicons", fileName);
+    }
 }

@@ -1,20 +1,30 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Tokenisers;
+namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 
 /// <summary>
-/// Lightweight Unicode-aware tokeniser that segments text using Unicode character classes
-/// and delegates Thai runs to <see cref="ThaiTokeniser"/>.
+/// Lightweight Unicode-aware tokeniser that segments text using Unicode character classes.
+/// Thai segmentation is opt-in: pass a <see cref="ThaiTokeniser"/> to the constructor to
+/// enable dictionary-based Thai word splitting.
 /// </summary>
 public sealed class IcuTokeniser : ITokeniser
 {
-    private readonly ThaiTokeniser _thaiTokeniser;
+    private readonly ITokeniser? _thaiTokeniser;
 
     /// <summary>
-    /// Initialises a new <see cref="IcuTokeniser"/>.
+    /// Initialises a new <see cref="IcuTokeniser"/> without Thai segmentation support.
+    /// Thai characters are treated as regular word characters.
     /// </summary>
-    /// <param name="thaiLexicon">Optional Thai lexicon override used for Thai runs.</param>
-    public IcuTokeniser(IEnumerable<string>? thaiLexicon = null)
+    public IcuTokeniser()
     {
-        _thaiTokeniser = new ThaiTokeniser(thaiLexicon);
+    }
+
+    /// <summary>
+    /// Initialises a new <see cref="IcuTokeniser"/> with an optional Thai tokeniser.
+    /// When supplied, contiguous Thai runs are delegated to <paramref name="thaiTokeniser"/>.
+    /// </summary>
+    /// <param name="thaiTokeniser">A tokeniser used for Thai text, or null to skip Thai segmentation.</param>
+    public IcuTokeniser(ITokeniser? thaiTokeniser)
+    {
+        _thaiTokeniser = thaiTokeniser;
     }
 
     /// <inheritdoc/>
@@ -25,7 +35,7 @@ public sealed class IcuTokeniser : ITokeniser
 
         while (i < input.Length)
         {
-            if (UnicodeTokenisation.IsThai(input[i]))
+            if (_thaiTokeniser is not null && UnicodeTokenisation.IsThai(input[i]))
             {
                 int runStart = i;
                 while (i < input.Length && UnicodeTokenisation.IsThai(input[i]))
@@ -35,16 +45,7 @@ public sealed class IcuTokeniser : ITokeniser
                 continue;
             }
 
-            if (!UnicodeTokenisation.IsWordStart(input[i]))
-            {
-                i++;
-                continue;
-            }
-
-            int start = i;
-            i = UnicodeTokenisation.ConsumeWord(input, start);
-            var span = input[start..i];
-            tokens.Add(new Token(span.ToString(), start, i, UnicodeTokenisation.ClassifyTokenType(span)));
+            UnicodeTokenisation.TokeniseNonThaiSpan(input, tokens, ref i);
         }
 
         return tokens;

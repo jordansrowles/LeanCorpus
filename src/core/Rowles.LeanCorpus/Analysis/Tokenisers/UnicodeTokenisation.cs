@@ -53,6 +53,25 @@ internal static class UnicodeTokenisation
         return i;
     }
 
+    /// <summary>
+    /// Tokenises the next non-Thai word span at the current position and advances <paramref name="i"/>.
+    /// Used by <see cref="IcuTokeniser"/> and <see cref="ThaiTokeniser"/> to avoid duplicating the
+    /// same Unicode word-consumption loop.
+    /// </summary>
+    internal static void TokeniseNonThaiSpan(ReadOnlySpan<char> input, List<Token> tokens, ref int i)
+    {
+        if (!IsWordStart(input[i]))
+        {
+            i++;
+            return;
+        }
+
+        int start = i;
+        i = ConsumeWord(input, start);
+        var span = input[start..i];
+        tokens.Add(new Token(span.ToString(), start, i, ClassifyTokenType(span)));
+    }
+
     public static bool TryReadUrl(ReadOnlySpan<char> input, int start, out int end)
     {
         end = start;

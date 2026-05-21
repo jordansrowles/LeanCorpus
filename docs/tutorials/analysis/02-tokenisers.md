@@ -14,15 +14,16 @@ Choose them based on the structure of the input, not on the stemming strategy.
 | `NGramTokeniser` | Produces sliding n-grams across tokens. |
 | `EdgeNGramTokeniser` | Produces prefix n-grams. Useful for prefix-style matching. |
 | `CJKBigramTokeniser` | Produces bigrams for CJK text. |
-| `IcuTokeniser` | Unicode-aware tokeniser for broader language coverage. |
-| `Uax29UrlEmailTokeniser` | Preserves URLs, email addresses, hashtags, and mentions as single tokens. |
-| `ThaiTokeniser` | Segments Thai runs with dictionary support. |
+| `IcuTokeniser` | Unicode-aware tokeniser for broader language coverage. Thai segmentation is opt-in via the constructor. |
+| `Uax29UrlEmailTokeniser` | Preserves URLs, email addresses, hashtags, and mentions as single tokens. Thai segmentation is opt-in. |
+| `ThaiTokeniser` | Segments Thai runs with dictionary support. Requires a lexicon loaded from file or stream. |
 | `MediaWikiTokeniser` | Tokenises MediaWiki markup such as headings, links, categories, and citations. |
 
 ## Picking one
 
 - Start with `Tokeniser` for ordinary English or mixed alphanumeric text.
 - Use `IcuTokeniser` or `IcuAnalyser` when Unicode word boundaries matter.
+- Inject a `ThaiTokeniser` for Thai segmentation: `new IcuTokeniser(ThaiTokeniser.FromFile("lexicons/thai-dict.txt"))`.
 - Use `Uax29UrlEmailTokeniser` for social, web, or support text where URLs and email addresses should stay intact.
 - Use `KeywordTokeniser` for identifiers, tags, or whole-field exact matching.
 
