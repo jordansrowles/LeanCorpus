@@ -4,6 +4,8 @@ using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Index.Compatibility;
+using Rowles.LeanCorpus.Search;
+using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
@@ -54,6 +56,9 @@ public sealed partial class IndexWriter : IDisposable
     private readonly List<string> _sortedTermsBuffer = new(capacity: 10000);
     // Parent bitset for block-join indexing: tracks which buffered doc IDs are parent docs
     private HashSet<int>? _parentDocIds;
+    // Sequence number tracking
+    private long _nextSequenceNumber;
+    private long _flushSeqNoStart;
 
     private int _bufferedDocCount;
     private long _estimatedRamBytes;
@@ -64,7 +69,7 @@ public sealed partial class IndexWriter : IDisposable
     private bool _contentChangedSinceCommit;
     private readonly List<SegmentInfo> _committedSegments = [];
     // Pending deletions: field → term → set of matching terms to delete
-    private readonly List<(string field, string term)> _pendingDeletes = [];
+    private readonly List<(string field, string term, bool isSoftDelete)> _pendingDeletes = [];
     private readonly Lock _writeLock = new();
     private readonly SemaphoreSlim? _backpressureSemaphore;
     private int _flushElection;
@@ -129,6 +134,12 @@ public sealed partial class IndexWriter : IDisposable
         // Load existing commit state if present
         LoadLatestCommit();
     }
+
+    /// <summary>
+    /// Returns the sequence number that will be assigned to the next indexed document.
+    /// Only meaningful when <see cref="IndexWriterConfig.TrackSequenceNumbers"/> is enabled.
+    /// </summary>
+    public long NextSequenceNumber => Volatile.Read(ref _nextSequenceNumber);
 
     /// <summary>
     /// Indexes a single document. Validates the document against the schema if one is configured.
@@ -358,7 +369,7 @@ public sealed partial class IndexWriter : IDisposable
                     if (_bufferedDocCount > 0)
                         FlushSegment();
 
-                    _pendingDeletes.Add((field, term));
+                    _pendingDeletes.Add((field, term, isSoftDelete: false));
                     // Restrict deletions to the segments that existed before this call.
                     ApplyPendingDeletions(_committedSegments.GetRange(0, preFlushSegmentCount));
                     enteredCore = true;
@@ -370,6 +381,209 @@ public sealed partial class IndexWriter : IDisposable
                 if (enteredCore)
                     MarkIndexingFailed();
                 throw;
+            }
+        }
+        finally
+        {
+            ExitIndexingOperation();
+        }
+    }
+
+    /// <summary>
+    /// Soft-deletes documents matching the given term query by marking them as deleted
+    /// in the live-docs bitmap and recording an expiry timestamp. Soft-deleted documents
+    /// remain on disk until the retention period elapses, after which merges reclaim them.
+    /// The timestamp is recorded as Unix milliseconds in the <c>.del</c> file.
+    /// </summary>
+    /// <param name="query">The term query identifying documents to soft-delete.</param>
+    /// <exception cref="InvalidOperationException">Thrown when <see cref="IndexWriterConfig.SoftDeletesEnabled"/> is <c>false</c>.</exception>
+    public void SoftDeleteDocuments(TermQuery query)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        if (!_config.SoftDeletesEnabled)
+            throw new InvalidOperationException(
+                "SoftDeletesEnabled must be true in IndexWriterConfig to use SoftDeleteDocuments.");
+
+        lock (_writeLock)
+        {
+            _pendingDeletes.Add((query.Field, query.Term, isSoftDelete: true));
+            _contentChangedSinceCommit = true;
+        }
+    }
+
+    /// <summary>
+    /// Atomically deletes documents matching the given query and adds the replacement document.
+    /// Supports <see cref="TermQuery"/>, <see cref="BooleanQuery"/> (composed of <see cref="TermQuery"/> clauses),
+    /// <see cref="MatchAllDocsQuery"/>, and <see cref="BooleanQuery"/> with a <see cref="MatchAllDocsQuery"/> clause.
+    /// Other query types fall back to manual search-then-delete-by-terms.
+    /// </summary>
+    /// <param name="query">The query identifying documents to delete and replace.</param>
+    /// <param name="replacement">The document to add in place of the deleted documents.</param>
+    public void UpdateDocuments(Query query, LeanDocument replacement)
+    {
+        EnterIndexingOperation();
+        try
+        {
+            ValidateDocument(replacement);
+            bool enteredCore = false;
+            try
+            {
+                lock (_writeLock)
+                {
+                    int preFlushSegmentCount = _committedSegments.Count;
+
+                    FlushDwptPool();
+                    if (_bufferedDocCount > 0)
+                        FlushSegment();
+
+                    var terms = ResolveQueryToTerms(query, _committedSegments.GetRange(0, preFlushSegmentCount));
+                    foreach (var (field, term) in terms)
+                        _pendingDeletes.Add((field, term, isSoftDelete: false));
+
+                    ApplyPendingDeletions(_committedSegments.GetRange(0, preFlushSegmentCount));
+                    enteredCore = true;
+                    AddDocumentCore(replacement);
+                }
+            }
+            catch
+            {
+                if (enteredCore)
+                    MarkIndexingFailed();
+                throw;
+            }
+        }
+        finally
+        {
+            ExitIndexingOperation();
+        }
+    }
+
+    /// <summary>
+    /// Resolves a <see cref="Query"/> into a list of (field, term) pairs suitable for deletion.
+    /// Supports <see cref="TermQuery"/>, <see cref="BooleanQuery"/> (with <see cref="TermQuery"/> clauses),
+    /// and <see cref="MatchAllDocsQuery"/>.
+    /// </summary>
+    private List<(string field, string term)> ResolveQueryToTerms(Query query, List<SegmentInfo> segments)
+    {
+        var terms = new List<(string, string)>();
+        ResolveQueryToTermsInternal(query, segments, terms);
+        return terms;
+    }
+
+    private void ResolveQueryToTermsInternal(Query query, List<SegmentInfo> segments, List<(string, string)> terms)
+    {
+        switch (query)
+        {
+            case TermQuery tq:
+                terms.Add((tq.Field, tq.Term));
+                break;
+
+            case BooleanQuery bq:
+                foreach (var clause in bq.Clauses)
+                {
+                    if (clause.Occur == Occur.MustNot)
+                        continue;
+                    ResolveQueryToTermsInternal(clause.Query, segments, terms);
+                }
+                break;
+
+            case MatchAllDocsQuery:
+                // Enumerate all terms from all committed segments
+                foreach (var seg in segments)
+                {
+                    var basePath = Path.Combine(_directory.DirectoryPath, seg.SegmentId);
+                    var dicPath = basePath + ".dic";
+                    if (!File.Exists(dicPath)) continue;
+
+                    using var dicReader = Codecs.TermDictionary.TermDictionaryReader.Open(dicPath);
+                    foreach (var (qualifiedTerm, _) in dicReader.EnumerateAllTerms())
+                    {
+                        int sep = qualifiedTerm.IndexOf('\x00');
+                        if (sep > 0)
+                        {
+                            var field = qualifiedTerm[..sep];
+                            var term = qualifiedTerm[(sep + 1)..];
+                            if (!terms.Contains((field, term)))
+                                terms.Add((field, term));
+                        }
+                    }
+                }
+                break;
+
+            default:
+                throw new NotSupportedException(
+                    $"Query type '{query.GetType().Name}' is not supported for update-by-query. Use a TermQuery, BooleanQuery of TermQuery clauses, or MatchAllDocsQuery.");
+        }
+    }
+
+    /// <summary>
+    /// Merges all segments from the given source directory into the current index.
+    /// Segments are validated for format compatibility, merged into a single new segment
+    /// in the target directory, and the commit is updated. Existing source segments are not modified.
+    /// </summary>
+    /// <param name="sourceDirectory">The directory whose segments will be merged into this index.</param>
+    /// <exception cref="InvalidDataException">Thrown if source segment files are missing or incompatible.</exception>
+    public void AddIndexes(MMapDirectory sourceDirectory)
+    {
+        EnterIndexingOperation();
+        try
+        {
+            var recovery = IndexRecovery.RecoverLatestCommit(
+                sourceDirectory.DirectoryPath,
+                cleanupOrphans: false);
+            if (recovery is null)
+                throw new InvalidDataException(
+                    $"No valid commit found in source directory '{sourceDirectory.DirectoryPath}'.");
+
+            IndexOpenGuard.EnsureCanOpenSegments(
+                sourceDirectory,
+                recovery.SegmentIds,
+                _config.CompatibilityMode,
+                forWriting: false);
+
+            var sourceSegments = new List<SegmentInfo>();
+            foreach (var segId in recovery.SegmentIds)
+            {
+                var segPath = Path.Combine(sourceDirectory.DirectoryPath, segId + ".seg");
+                if (!File.Exists(segPath))
+                    throw new InvalidDataException($"Segment file not found: {segPath}");
+
+                var seg = SegmentInfo.ReadFrom(segPath);
+                var delPath = seg.DelGeneration.HasValue
+                    ? Path.Combine(sourceDirectory.DirectoryPath, $"{segId}_gen_{seg.DelGeneration.Value}.del")
+                    : Path.Combine(sourceDirectory.DirectoryPath, segId + ".del");
+                if (File.Exists(delPath))
+                {
+                    var liveDocs = LiveDocs.Deserialise(delPath, seg.DocCount);
+                    seg.LiveDocCount = liveDocs.LiveCount;
+                    seg.EarliestSoftDeleteTimestamp = liveDocs.EarliestSoftDeleteTimestamp;
+                }
+                else
+                {
+                    seg.LiveDocCount = seg.DocCount;
+                }
+
+                sourceSegments.Add(seg);
+            }
+
+            lock (_writeLock)
+            {
+                FlushDwptPool();
+                if (_bufferedDocCount > 0)
+                    FlushSegment();
+
+                var merger = new SegmentMerger(_directory, _config.MergeThreshold, _config.PostingsSkipInterval);
+                int localOrdinal = _nextSegmentOrdinal;
+                _nextSegmentOrdinal += sourceSegments.Count + 8;
+
+                var merged = merger.MergeSegmentsFromDirectory(
+                    sourceDirectory, sourceSegments, ref localOrdinal, _config);
+                if (merged is not null)
+                {
+                    _committedSegments.Add(merged);
+                    _contentChangedSinceCommit = true;
+                    _nextSegmentOrdinal = Math.Max(_nextSegmentOrdinal, localOrdinal);
+                }
             }
         }
         finally
@@ -763,6 +977,7 @@ public sealed partial class IndexWriter : IDisposable
         _postingsRamBytes = 0;
         _docTokenCounts.Clear();
         _parentDocIds = null;
+        _flushSeqNoStart = _nextSequenceNumber;
     }
 
     private void LoadLatestCommit()
@@ -792,6 +1007,7 @@ public sealed partial class IndexWriter : IDisposable
             {
                 var liveDocs = LiveDocs.Deserialise(delPath, seg.DocCount);
                 seg.LiveDocCount = liveDocs.LiveCount;
+                seg.EarliestSoftDeleteTimestamp = liveDocs.EarliestSoftDeleteTimestamp;
             }
             else
             {
@@ -799,6 +1015,19 @@ public sealed partial class IndexWriter : IDisposable
             }
 
             _committedSegments.Add(seg);
+        }
+
+        // Recover sequence number counter from the highest known seqno across all segments.
+        if (_config.TrackSequenceNumbers)
+        {
+            long maxSeq = 0;
+            foreach (var seg in _committedSegments)
+            {
+                if (seg.MaxSequenceNumber.HasValue && seg.MaxSequenceNumber.Value > maxSeq)
+                    maxSeq = seg.MaxSequenceNumber.Value;
+            }
+            _nextSequenceNumber = maxSeq + 1;
+            _flushSeqNoStart = _nextSequenceNumber;
         }
     }
 }

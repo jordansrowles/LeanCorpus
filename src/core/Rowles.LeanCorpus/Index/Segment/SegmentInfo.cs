@@ -40,6 +40,21 @@ public sealed class SegmentInfo
     /// </summary>
     public int? DelGeneration { get; set; }
 
+    /// <summary>
+    /// Inclusive lower bound of the sequence numbers assigned to documents in this segment.
+    /// Only set when sequence number tracking is enabled.
+    /// </summary>
+    public long? MinSequenceNumber { get; set; }
+
+    /// <summary>
+    /// Inclusive upper bound of the sequence numbers assigned to documents in this segment.
+    /// Only set when sequence number tracking is enabled.
+    /// </summary>
+    public long? MaxSequenceNumber { get; set; }
+
+    /// <summary>Gets the smallest soft-delete timestamp (Unix milliseconds) among live soft-deleted docs, or null if none exist.</summary>
+    public long? EarliestSoftDeleteTimestamp { get; set; }
+
     /// <summary>Writes this segment metadata to a JSON file at the specified path.</summary>
     /// <param name="filePath">The path of the <c>.seg</c> file to write.</param>
     public void WriteTo(string filePath)

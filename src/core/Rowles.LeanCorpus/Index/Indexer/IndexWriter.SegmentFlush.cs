@@ -50,7 +50,9 @@ public sealed partial class IndexWriter
             LiveDocCount = _bufferedDocCount,
             CommitGeneration = _commitGeneration,
             FieldNames = fieldNames,
-            IndexSortFields = _config.IndexSort?.SerialisedFields
+            IndexSortFields = _config.IndexSort?.SerialisedFields,
+            MinSequenceNumber = _config.TrackSequenceNumbers ? _flushSeqNoStart : null,
+            MaxSequenceNumber = _config.TrackSequenceNumbers ? _nextSequenceNumber - 1 : null
         };
         segInfo.WriteTo(basePath + ".seg");
 

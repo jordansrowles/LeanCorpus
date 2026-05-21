@@ -71,6 +71,14 @@ public sealed partial class IndexWriter
 
         if (numericDoc is not null)
             _numericFields.Add(numericDoc);
+
+        if (_config.TrackSequenceNumbers)
+        {
+            if (_bufferedDocCount == 0 && localDocId == 0)
+                _flushSeqNoStart = _nextSequenceNumber;
+            _nextSequenceNumber++;
+        }
+
         _bufferedDocCount++;
         _contentChangedSinceCommit = true;
 

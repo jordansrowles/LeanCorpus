@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `IndexCodecMigrator` now tolerates `LLIDX033`/`LLIDX034` validation errors caused by an outdated term dictionary on segments it is about to rewrite, so legacy `.dic` files no longer block `ValidateBeforeMigration`.
 
 ### Added
+- Soft deletes with configurable retention period. When `IndexWriterConfig.SoftDeletesEnabled` is `true`, `SoftDeleteDocuments(TermQuery)` marks matching documents as deleted in the live-docs bitmap and records a Unix-millisecond timestamp in the `.del` file. Soft-deleted documents are invisible to search but retained on disk until the retention period elapses, at which point merges reclaim the space.
+- Per-segment sequence number tracking. When `IndexWriterConfig.TrackSequenceNumbers` is `true`, each document is assigned a monotonically-increasing sequence number and the segment metadata records `MinSequenceNumber` and `MaxSequenceNumber`. `IndexWriter.NextSequenceNumber` exposes the next sequence number that will be assigned.
+- `UpdateDocuments(Query, LeanDocument)` for atomically deleting documents matching a query and adding a replacement. Supports `TermQuery`, `BooleanQuery` of `TermQuery` clauses, and `MatchAllDocsQuery`.
+- `IndexWriter.AddIndexes(MMapDirectory)` to merge all segments from a source directory into the current index. Segments are validated for format compatibility and merged into a single new segment without modifying the source files.
 - `HunspellDictionary` now supports character ranges (`[a-z]`, `[A-Z]`, `[0-9]`) in affix conditions; `AF` alias directive parsing; morphological tag extraction from dictionary entries (`word/flags po:verb`); thread-safe content-hash-based dictionary caching across repeated `Parse` calls; and `FromFile`/`FromStream` convenience overloads.
 - `KStemLexicon` now supports `FromEmbeddedResource` for loading lexicons from assembly manifest resources, and `FromFile` resolves relative paths against `AppContext.BaseDirectory`.
 - `StemTokenFilter` wraps any `IStemmer` as a composable `ITokenFilter` for use in the `Analyser` pipeline.

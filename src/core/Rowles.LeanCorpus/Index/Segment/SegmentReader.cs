@@ -147,6 +147,27 @@ public sealed partial class SegmentReader : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool IsLive(int docId) => _liveDocs?.IsLive(docId) ?? true;
 
+    /// <summary>
+    /// Returns <see langword="true"/> if the document is soft-deleted (has a recorded
+    /// soft-delete timestamp). Sets <paramref name="timestamp"/> to the Unix-millisecond
+    /// timestamp when the document was soft-deleted.
+    /// </summary>
+    public bool IsSoftDeleted(int docId, out long timestamp)
+    {
+        if (_liveDocs is null || _liveDocs.IsLive(docId))
+        {
+            timestamp = 0;
+            return false;
+        }
+
+        var timestamps = _liveDocs.SoftDeleteTimestamps;
+        if (timestamps is not null && timestamps.TryGetValue(docId, out timestamp))
+            return true;
+
+        timestamp = 0;
+        return false;
+    }
+
     /// <summary>True when this segment has no deleted documents, allowing callers to skip per-doc IsLive checks.</summary>
     public bool HasDeletions => _liveDocs is not null;
 

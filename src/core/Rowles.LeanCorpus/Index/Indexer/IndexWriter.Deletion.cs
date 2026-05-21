@@ -1,4 +1,5 @@
 ﻿using Rowles.LeanCorpus.Codecs.TermDictionary;
+using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
@@ -15,7 +16,7 @@ public sealed partial class IndexWriter
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         lock (_writeLock)
         {
-            _pendingDeletes.Add((query.Field, query.Term));
+            _pendingDeletes.Add((query.Field, query.Term, isSoftDelete: false));
             _contentChangedSinceCommit = true;
         }
     }
@@ -29,9 +30,14 @@ public sealed partial class IndexWriter
         _deleteQualifiedTermsBuffer.Clear();
         if (_deleteQualifiedTermsBuffer.Capacity < _pendingDeletes.Count)
             _deleteQualifiedTermsBuffer.Capacity = _pendingDeletes.Count;
-        foreach (var (field, term) in _pendingDeletes)
+        var softDeleteQualifiedTerms = new List<string>(_pendingDeletes.Count);
+        foreach (var (field, term, isSoftDelete) in _pendingDeletes)
         {
-            _deleteQualifiedTermsBuffer.Add(string.Concat(field, "\x00", term));
+            var qt = string.Concat(field, "\x00", term);
+            if (isSoftDelete)
+                softDeleteQualifiedTerms.Add(qt);
+            else
+                _deleteQualifiedTermsBuffer.Add(qt);
         }
         var qualifiedTerms = _deleteQualifiedTermsBuffer;
 
@@ -70,7 +76,19 @@ public sealed partial class IndexWriter
                 if (!dicReader.TryGetPostingsOffset(qualifiedTerm, out long offset))
                     continue;
 
-                ReadPostingsAtOffsetInto(posInput, offset, postingsVersion, liveDocs, ref changed);
+                ReadPostingsAtOffsetInto(posInput, offset, postingsVersion, liveDocs, ref changed, softDelete: false);
+            }
+
+            if (softDeleteQualifiedTerms.Count > 0)
+            {
+                long nowMillis = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                foreach (var qualifiedTerm in softDeleteQualifiedTerms)
+                {
+                    if (!dicReader.TryGetPostingsOffset(qualifiedTerm, out long offset))
+                        continue;
+
+                    ReadPostingsAtOffsetInto(posInput, offset, postingsVersion, liveDocs, ref changed, softDelete: true, nowMillis);
+                }
             }
 
             if (changed)
@@ -79,6 +97,7 @@ public sealed partial class IndexWriter
                 LiveDocs.Serialise(newDelPath, liveDocs, _config.DurableCommits);
                 seg.DelGeneration = pendingGen;
                 seg.LiveDocCount = liveDocs.LiveCount;
+                seg.EarliestSoftDeleteTimestamp = liveDocs.EarliestSoftDeleteTimestamp;
                 // Rewrite the .seg metadata file so the updated DelGeneration is
                 // durable before the commit file that references this segment.
                 seg.WriteTo(basePath + ".seg");
@@ -90,9 +109,11 @@ public sealed partial class IndexWriter
 
     /// <summary>
     /// Reads doc IDs from postings at the given offset using a memory-mapped IndexInput,
-    /// and marks matching live docs as deleted.
+    /// and marks matching live docs as deleted (hard-delete) or soft-deleted.
     /// </summary>
-    private static void ReadPostingsAtOffsetInto(IndexInput input, long offset, byte postingsVersion, LiveDocs liveDocs, ref bool changed)
+    private static void ReadPostingsAtOffsetInto(
+        IndexInput input, long offset, byte postingsVersion, LiveDocs liveDocs,
+        ref bool changed, bool softDelete = false, long softDeleteTimestamp = 0)
     {
         using var pe = PostingsEnum.Create(input, offset, postingsVersion);
         while (pe.MoveNext())
@@ -100,7 +121,10 @@ public sealed partial class IndexWriter
             int docId = pe.DocId;
             if (liveDocs.IsLive(docId))
             {
-                liveDocs.Delete(docId);
+                if (softDelete)
+                    liveDocs.SoftDelete(docId, softDeleteTimestamp);
+                else
+                    liveDocs.Delete(docId);
                 changed = true;
             }
         }
