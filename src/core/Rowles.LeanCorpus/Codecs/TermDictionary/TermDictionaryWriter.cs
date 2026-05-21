@@ -39,6 +39,7 @@ internal static class TermDictionaryWriter
         Array.Sort(encoded, (a, b) => a.KeyUtf8.AsSpan().SequenceCompareTo(b.KeyUtf8));
 
         var builder = new FstBuilder();
+        builder.EnsureNodeCapacity(n);
         for (int i = 0; i < n; i++)
             builder.Add(encoded[i].KeyUtf8, encoded[i].Output);
 

@@ -137,26 +137,7 @@ public sealed partial class IndexWriter
             pos += increment;
 
             var term = CanonicaliseTerm(tokens[i].Text);
-
-            var pooledTerm = GetOrCreateQualifiedTerm(fieldName, term);
-
-            if (!_postings.TryGetValue(pooledTerm, out var acc))
-            {
-                acc = new PostingAccumulator();
-                _postings[pooledTerm] = acc;
-                _postingsRamBytes += acc.EstimatedBytes;
-            }
-            long before = acc.EstimatedBytes;
-            var payload = tokens[i].Payload;
-            if (_config.StorePayloads && (acc.HasPayloads || payload is { Length: > 0 }))
-            {
-                acc.AddWithPayload(docId, pos, payload);
-            }
-            else
-            {
-                acc.Add(docId, pos);
-            }
-            _postingsRamBytes += acc.EstimatedBytes - before;
+            AccumulatePosting(fieldName, term.AsSpan(), docId, pos, tokens[i].Payload);
         }
     }
 
@@ -392,6 +373,44 @@ public sealed partial class IndexWriter
         => GetOrCreateQualifiedTerm(fieldName, term.AsSpan());
 
     /// <summary>
+    /// Accumulates a posting for a single token, combining qualified-term interning and
+    /// postings lookup into one alternate-lookup probe to avoid a double hash computation.
+    /// </summary>
+    private void AccumulatePosting(string fieldName, ReadOnlySpan<char> term, int docId, int position, byte[]? payload)
+    {
+        if (!_fieldPrefixCache.TryGetValue(fieldName, out var prefix))
+        {
+            prefix = string.Concat(fieldName, "\x00");
+            _fieldPrefixCache[fieldName] = prefix;
+        }
+
+        int totalLen = prefix.Length + term.Length;
+        Span<char> buf = totalLen <= 256 ? stackalloc char[totalLen] : new char[totalLen];
+        prefix.AsSpan().CopyTo(buf);
+        term.CopyTo(buf[prefix.Length..]);
+
+        var lookup = _postings.GetAlternateLookup<ReadOnlySpan<char>>();
+        if (lookup.TryGetValue(buf, out var acc))
+        {
+            // Cache hit — the key string is already interned inside _postings.
+        }
+        else
+        {
+            acc = new PostingAccumulator();
+            var qualifiedTerm = new string(buf);
+            _postings[qualifiedTerm] = acc;
+            _postingsRamBytes += acc.EstimatedBytes;
+        }
+
+        long before = acc.EstimatedBytes;
+        if (_config.StorePayloads && (acc.HasPayloads || payload is { Length: > 0 }))
+            acc.AddWithPayload(docId, position, payload);
+        else
+            acc.Add(docId, position);
+        _postingsRamBytes += acc.EstimatedBytes - before;
+    }
+
+    /// <summary>
     /// Returns a pooled qualified term string ("field\0term") directly from a token span.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -490,22 +509,7 @@ public sealed partial class IndexWriter
                 increment = 1;
             _position += increment;
 
-            var pooledTerm = _owner.GetOrCreateQualifiedTerm(_fieldName, text);
-
-            if (!_owner._postings.TryGetValue(pooledTerm, out var acc))
-            {
-                acc = new PostingAccumulator();
-                _owner._postings[pooledTerm] = acc;
-                _owner._postingsRamBytes += acc.EstimatedBytes;
-            }
-
-            long before = acc.EstimatedBytes;
-            if (_owner._config.StorePayloads && (acc.HasPayloads || payload is { Length: > 0 }))
-                acc.AddWithPayload(_docId, _position, payload);
-            else
-                acc.Add(_docId, _position);
-
-            _owner._postingsRamBytes += acc.EstimatedBytes - before;
+            _owner.AccumulatePosting(_fieldName, text, _docId, _position, payload);
             AcceptedCount++;
         }
     }

@@ -11,7 +11,7 @@
 /// for performance. Each instance should be used by a single thread, or callers should create
 /// separate instances per thread (as IndexWriter does in AddDocumentsConcurrent).
 /// </summary>
-public sealed class StandardAnalyser : IAnalyser
+public sealed class StandardAnalyser : IAnalyser, ISpanAnalyser
 {
     private readonly Tokeniser _tokeniser = new();
     private readonly StopWordFilter _stopWordFilter;
@@ -77,5 +77,31 @@ public sealed class StandardAnalyser : IAnalyser
         }
 
         return _tokensBuf;
+    }
+
+    /// <inheritdoc/>
+    public bool TryAnalyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+
+        _tokeniser.TokeniseOffsets(input, _offsetBuf);
+
+        for (int i = 0; i < _offsetBuf.Count; i++)
+        {
+            var (start, end) = _offsetBuf[i];
+            var span = input.Slice(start, end - start);
+
+            if (_stopWordFilter.IsStopWord(span))
+                continue;
+
+            int len = end - start;
+            if (len > _lowerBuf.Length)
+                _lowerBuf = new char[Math.Max(_lowerBuf.Length * 2, len)];
+
+            span.ToLowerInvariant(_lowerBuf.AsSpan(0, len));
+            sink.Add(_lowerBuf.AsSpan(0, len), start, end);
+        }
+
+        return true;
     }
 }

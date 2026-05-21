@@ -20,9 +20,9 @@ namespace Rowles.LeanCorpus.Codecs.Fst;
 ///   <item>
 ///     <b>Header (always present):</b>
 ///     <list type="number">
-///       <item>4 bytes — magic: ASCII <c>FST1</c> (<c>0x46 0x53 0x54 0x31</c>)</item>
-///       <item>VarInt — root node address (absolute position in the node-data section, or <c>-1</c> if empty)</item>
-///       <item>VarInt — key count</item>
+///       <item>4 bytes ï¿½ magic: ASCII <c>FST1</c> (<c>0x46 0x53 0x54 0x31</c>)</item>
+///       <item>VarInt ï¿½ root node address (absolute position in the node-data section, or <c>-1</c> if empty)</item>
+///       <item>VarInt ï¿½ key count</item>
 ///     </list>
 ///   </item>
 ///   <item>
@@ -34,8 +34,8 @@ namespace Rowles.LeanCorpus.Codecs.Fst;
 ///   <item>
 ///     <b>Arc layout (each arc):</b>
 ///     <list type="number">
-///       <item>1 byte — flags: <c>[bit 7: isFinal][bit 6: isLastArc][bit 5: hasOutput][bit 4: hasTarget][bits 3-0: reserved]</c></item>
-///       <item>1 byte — label (the byte value on this transition; 0x00 for virtual arcs on final-only nodes)</item>
+///       <item>1 byte ï¿½ flags: <c>[bit 7: isFinal][bit 6: isLastArc][bit 5: hasOutput][bit 4: hasTarget][bits 3-0: reserved]</c></item>
+///       <item>1 byte ï¿½ label (the byte value on this transition; 0x00 for virtual arcs on final-only nodes)</item>
 ///       <item>If <c>hasTarget</c>: VarInt-encoded target address (absolute position in node-data section)</item>
 ///       <item>If <c>hasOutput</c>: VarInt-encoded output value (<see langword="long"/>, 7-bit variable-length, unsigned encoding)</item>
 ///     </list>
@@ -62,9 +62,9 @@ namespace Rowles.LeanCorpus.Codecs.Fst;
 /// <see cref="System.IO.BinaryWriter.Write7BitEncodedInt64"/>. Each byte stores 7 data bits;
 /// the high bit (<c>0x80</c>) is a continuation flag.</para>
 ///
-/// <para><b>Algorithm — incremental construction (Daciuk et al.):</b></para>
+/// <para><b>Algorithm ï¿½ incremental construction (Daciuk et al.):</b></para>
 /// <list type="number">
-///   <item>Maintain a "frontier" — one <see cref="UncompiledNode"/> per byte of the current key prefix.</item>
+///   <item>Maintain a "frontier" ï¿½ one <see cref="UncompiledNode"/> per byte of the current key prefix.</item>
 ///   <item>When adding a new key, find the common prefix length with the previous key.</item>
 ///   <item>For each frontier node beyond the common prefix, "freeze" (compile) it:
 ///     check a registry of previously frozen nodes for an equivalent node (same arcs,
@@ -131,6 +131,16 @@ public sealed class FstBuilder
         _registry = new Dictionary<long, long>();
         _count = 0;
         _finished = false;
+    }
+
+    /// <summary>
+    /// Pre-sizes the internal node registry to avoid rehashing during construction.
+    /// Call once before the first <see cref="Add"/> with the expected number of unique terms.
+    /// </summary>
+    /// <param name="expectedNodeCount">Expected number of compiled (frozen) nodes, typically â‰¤ the unique term count.</param>
+    public void EnsureNodeCapacity(int expectedNodeCount)
+    {
+        _registry.EnsureCapacity(expectedNodeCount);
     }
 
     /// <summary>
@@ -374,7 +384,7 @@ public sealed class FstBuilder
         }
         else
         {
-            // Key equals a prefix of another key — accumulate on final output
+            // Key equals a prefix of another key ï¿½ accumulate on final output
             _frontier[key.Length].FinalOutput += output;
         }
     }
@@ -454,7 +464,7 @@ public sealed class FstBuilder
     }
 
     // -----------------------------------------------------------------------
-    //  VarInt encoding — 7-bit variable-length, little-endian
+    //  VarInt encoding ï¿½ 7-bit variable-length, little-endian
     //  Compatible with BinaryWriter.Write7BitEncodedInt64.
     // -----------------------------------------------------------------------
 
@@ -513,7 +523,7 @@ public sealed class FstBuilder
     }
 
     // -----------------------------------------------------------------------
-    //  UncompiledNode — mutable node used during FST construction
+    //  UncompiledNode ï¿½ mutable node used during FST construction
     // -----------------------------------------------------------------------
 
     /// <summary>
