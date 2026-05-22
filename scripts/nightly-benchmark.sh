@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# chmod +x /home/jordan/code/leancorpus/scripts/leancorpus-nightly.sh
-# 0 2 * * * /home/jordan/code/leancorpus/scripts/leancorpus-nightly.sh >> /home/jordan/logs/leancorpus/cron.log 2>&1
+# chmod +x /home/jordan/Code/LeanCorpus/scripts/nightly-benchmark.sh
+# 0 2 * * * /home/jordan/Code/LeanCorpus/scripts/leancorpus-nightly.sh >> /home/jordan/logs/leancorpus/cron.log 2>&1
 
 export PATH="/usr/local/bin:/usr/bin:/bin"
 
-REPO_DIR="/home/jordan/code/leancorpus"
+REPO_DIR="/home/jordan/Code/LeanCorpus"
 BRANCH="1.4.0"
 TMUX_SESSION="leancorpus-benchmark"
 
