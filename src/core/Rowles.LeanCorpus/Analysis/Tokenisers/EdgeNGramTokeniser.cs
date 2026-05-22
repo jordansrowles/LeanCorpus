@@ -87,8 +87,8 @@ public sealed class EdgeNGramTokeniser : ISpanTokeniser
         {
             while (true)
             {
-                // Find next word if we haven't started one or finished the previous
-                if (_gramLen == 0 && _scanPos < _input.Length)
+                // Find next word if needed
+                if (_gramLen == 0)
                 {
                     while (_scanPos < _input.Length && char.IsWhiteSpace(_input[_scanPos]))
                         _scanPos++;
@@ -118,8 +118,9 @@ public sealed class EdgeNGramTokeniser : ISpanTokeniser
                     return true;
                 }
 
-                // Done with this word
-                _gramLen = 0;
+                // Only reset when we've exceeded maxGramLen; if still below MinGram, keep advancing
+                if (_gramLen > maxGramLen)
+                    _gramLen = 0;
             }
         }
 

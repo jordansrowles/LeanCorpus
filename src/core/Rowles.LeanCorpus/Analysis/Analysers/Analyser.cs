@@ -11,7 +11,6 @@ public sealed class Analyser : IAnalyser, ISpanAnalyser
     private readonly ITokenFilter[] _filters;
     private readonly ISpanTokenFilter[]? _spanFilters;
     private readonly FilteringSpanTokenSink _filteringSink = new();
-    private readonly MaterialisingTokenSink _materialisingSink = new();
 
     /// <summary>
     /// Initialises a new <see cref="Analyser"/> with the specified span tokeniser and optional filter chain.
@@ -45,9 +44,9 @@ public sealed class Analyser : IAnalyser, ISpanAnalyser
     /// <inheritdoc/>
     public List<Token> Analyse(ReadOnlySpan<char> input)
     {
-        _materialisingSink.Reset();
-        _tokeniser.Tokenise(input, _materialisingSink);
-        var tokens = _materialisingSink.Tokens;
+        var sink = new MaterialisingTokenSink();
+        _tokeniser.Tokenise(input, sink);
+        var tokens = sink.Tokens;
         foreach (var filter in _filters)
             filter.Apply(tokens);
         return tokens;

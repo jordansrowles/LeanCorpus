@@ -77,6 +77,17 @@ public sealed class NGramTokeniserTests
     }
 
     /// <summary>
+    /// Verifies the NGram enumerator terminates on a single word with no trailing whitespace.
+    /// </summary>
+    [Fact(DisplayName = "NGram: Enumerator Terminates On Single Word")]
+    public void NGram_EnumeratorTerminatesOnSingleWord()
+    {
+        var tok = new NGramTokeniser(2, 3);
+        var tokens = CollectEnum(tok, "abc");
+        Assert.Equal(3, tokens.Count); // ab, abc, bc
+    }
+
+    /// <summary>
     /// Verifies the NGram span sink and enumerator produce identical tokens.
     /// </summary>
     [Fact(DisplayName = "NGram: Span Sink And Enumerator Match")]
@@ -201,7 +212,7 @@ public sealed class NGramTokeniserTests
 
     private sealed class CollectingSpanTokenSink : ISpanTokenSink
     {
-        public List<Token> Tokens { get; } = [];
+        public readonly List<Token> Tokens = new List<Token>();
 
         public void Add(
             ReadOnlySpan<char> text,

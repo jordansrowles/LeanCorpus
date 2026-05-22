@@ -72,6 +72,39 @@ public sealed class EdgeNGramTokeniserTests
     }
 
     /// <summary>
+    /// Verifies that the enumerator terminates on a single word with no trailing whitespace.
+    /// </summary>
+    [Fact(DisplayName = "EdgeNGram: Enumerator Terminates On Single Word")]
+    public void EdgeNGram_EnumeratorTerminatesOnSingleWord()
+    {
+        var tok = new EdgeNGramTokeniser(2, 3);
+        Assert.Equal(2, tok.MinGram);
+        Assert.Equal(3, tok.MaxGram);
+        
+        // Verify the sink path works first
+        var sink = new CollectingSpanTokenSink();
+        tok.Tokenise("hello".AsSpan(), sink);
+        Assert.Equal(2, sink.Tokens.Count); // he, hel
+        
+        // Then verify enumerator
+        var tokens = new List<Token>();
+        foreach (var st in tok.EnumerateTokens("hello".AsSpan()))
+            tokens.Add(new Token(st.Text.ToString(), st.StartOffset, st.EndOffset));
+        Assert.Equal(2, tokens.Count); // he, hel
+    }
+
+    /// <summary>
+    /// Verifies that the enumerator terminates on empty input.
+    /// </summary>
+    [Fact(DisplayName = "EdgeNGram: Enumerator Terminates On Empty Input")]
+    public void EdgeNGram_EnumeratorTerminatesOnEmptyInput()
+    {
+        var tok = new EdgeNGramTokeniser(2, 3);
+        var tokens = CollectEnum(tok, "");
+        Assert.Empty(tokens);
+    }
+
+    /// <summary>
     /// Verifies that tokens from short words are skipped when shorter than MinGram.
     /// </summary>
     [Fact(DisplayName = "EdgeNGram: Short Words Skipped Below MinGram")]
@@ -105,7 +138,7 @@ public sealed class EdgeNGramTokeniserTests
 
     private sealed class CollectingSpanTokenSink : ISpanTokenSink
     {
-        public List<Token> Tokens { get; } = [];
+        public readonly List<Token> Tokens = new List<Token>();
 
         public void Add(
             ReadOnlySpan<char> text,
