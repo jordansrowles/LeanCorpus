@@ -289,11 +289,8 @@ public sealed class AnalysisIntegrationTests : IClassFixture<TestDirectoryFixtur
         }
     }
 
-    private sealed class SpanOnlyUpperTokeniser : ITokeniser, ISpanTokeniser
+    private sealed class SpanOnlyUpperTokeniser : ISpanTokeniser
     {
-        public List<Token> Tokenise(ReadOnlySpan<char> input)
-            => throw new InvalidOperationException("Legacy tokenisation path should not be used.");
-
         public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)
             => sink.Add("AB".AsSpan(), 0, 2);
     }

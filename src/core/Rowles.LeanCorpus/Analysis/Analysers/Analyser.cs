@@ -7,22 +7,32 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// </summary>
 public sealed class Analyser : IAnalyser, ISpanAnalyser
 {
-    private readonly ITokeniser _tokeniser;
+    private readonly ISpanTokeniser _tokeniser;
     private readonly ITokenFilter[] _filters;
     private readonly ISpanTokenFilter[]? _spanFilters;
     private readonly FilteringSpanTokenSink _filteringSink = new();
+    private readonly MaterialisingTokenSink _materialisingSink = new();
 
     /// <summary>
-    /// Initialises a new <see cref="Analyser"/> with the specified tokeniser and optional filter chain.
+    /// Initialises a new <see cref="Analyser"/> with the specified span tokeniser and optional filter chain.
     /// </summary>
-    /// <param name="tokeniser">The tokeniser used to split input into raw tokens.</param>
+    /// <param name="tokeniser">The span tokeniser used to split input into raw tokens.</param>
     /// <param name="filters">Zero or more filters to apply to the token list in order.</param>
-    public Analyser(ITokeniser tokeniser, params ITokenFilter[] filters)
+    public Analyser(ISpanTokeniser tokeniser, params ITokenFilter[] filters)
     {
         _tokeniser = tokeniser;
         _filters = filters;
         _spanFilters = TryGetSpanFilters(filters);
     }
+
+    /// <summary>
+    /// Creates a new <see cref="Analyser"/> from a legacy <see cref="ITokeniser"/> by wrapping it
+    /// in a span adapter. Prefer passing an <see cref="ISpanTokeniser"/> directly.
+    /// </summary>
+    /// <param name="tokeniser">The legacy tokeniser to adapt.</param>
+    /// <param name="filters">Zero or more filters to apply to the token list in order.</param>
+    public static Analyser FromTokeniser(ITokeniser tokeniser, params ITokenFilter[] filters)
+        => new(new TokeniserToSpanAdapter(tokeniser), filters);
 
     /// <summary>Creates a new <see cref="Analyser"/> sharing the same tokeniser and filters.</summary>
     /// <remarks>
@@ -33,8 +43,11 @@ public sealed class Analyser : IAnalyser, ISpanAnalyser
     internal Analyser Clone() => new(_tokeniser, _filters);
 
     /// <inheritdoc/>
-    public List<Token> Analyse(ReadOnlySpan<char> input)    {
-        var tokens = _tokeniser.Tokenise(input);
+    public List<Token> Analyse(ReadOnlySpan<char> input)
+    {
+        _materialisingSink.Reset();
+        _tokeniser.Tokenise(input, _materialisingSink);
+        var tokens = _materialisingSink.Tokens;
         foreach (var filter in _filters)
             filter.Apply(tokens);
         return tokens;
@@ -45,17 +58,17 @@ public sealed class Analyser : IAnalyser, ISpanAnalyser
     {
         ArgumentNullException.ThrowIfNull(sink);
 
-        if (_tokeniser is not ISpanTokeniser spanTokeniser || _spanFilters is null)
+        if (_spanFilters is null)
             return false;
 
         if (_spanFilters.Length == 0)
         {
-            spanTokeniser.Tokenise(input, sink);
+            _tokeniser.Tokenise(input, sink);
         }
         else
         {
             _filteringSink.Reset(_spanFilters, sink);
-            spanTokeniser.Tokenise(input, _filteringSink);
+            _tokeniser.Tokenise(input, _filteringSink);
         }
 
         return true;
@@ -148,6 +161,43 @@ public sealed class Analyser : IAnalyser, ISpanAnalyser
             {
                 _owner.ApplyAt(_nextFilterIndex, text, startOffset, endOffset, type, positionIncrement, payload);
             }
+        }
+    }
+
+    private sealed class MaterialisingTokenSink : ISpanTokenSink
+    {
+        public List<Token> Tokens { get; } = [];
+
+        public void Reset() => Tokens.Clear();
+
+        public void Add(
+            ReadOnlySpan<char> text,
+            int startOffset,
+            int endOffset,
+            string type = Token.DefaultType,
+            int positionIncrement = 1,
+            byte[]? payload = null)
+        {
+            Tokens.Add(new Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload));
+        }
+    }
+
+    /// <summary>
+    /// Adapts a legacy <see cref="ITokeniser"/> to the <see cref="ISpanTokeniser"/> interface.
+    /// Used by <see cref="Analyser.FromTokeniser"/> to bridge tokenisers that have not yet been
+    /// migrated to the span path.
+    /// </summary>
+    internal sealed class TokeniserToSpanAdapter : ISpanTokeniser
+    {
+        private readonly ITokeniser _inner;
+
+        public TokeniserToSpanAdapter(ITokeniser inner) => _inner = inner;
+
+        public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)
+        {
+            var tokens = _inner.Tokenise(input);
+            foreach (var t in tokens)
+                sink.Add(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload);
         }
     }
 }

@@ -1,5 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
-using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Analysis;
@@ -17,7 +16,7 @@ public sealed class EdgeNGramTokeniserTests
     public void EdgeNGram_EmitsEdgeNGrams()
     {
         var tok = new EdgeNGramTokeniser(1, 3);
-        var tokens = tok.Tokenise("hello".AsSpan());
+        var tokens = Collect(tok, "hello");
         var texts = tokens.Select(t => t.Text).ToList();
         Assert.Contains("h", texts);
         Assert.Contains("he", texts);
@@ -34,7 +33,7 @@ public sealed class EdgeNGramTokeniserTests
     public void EdgeNGram_MultipleWords_EachWordHasEdgeNGrams()
     {
         var tok = new EdgeNGramTokeniser(1, 2);
-        var tokens = tok.Tokenise("hi me".AsSpan());
+        var tokens = Collect(tok, "hi me");
         var texts = tokens.Select(t => t.Text).ToList();
         Assert.Contains("h", texts);
         Assert.Contains("hi", texts);
@@ -49,51 +48,59 @@ public sealed class EdgeNGramTokeniserTests
     public void EdgeNGram_EmptyInput_ReturnsEmpty()
     {
         var tok = new EdgeNGramTokeniser(1, 3);
-        var tokens = tok.Tokenise(string.Empty.AsSpan());
+        var tokens = Collect(tok, "");
         Assert.Empty(tokens);
     }
 
     /// <summary>
-    /// Verifies the EdgeNGram: Destination Buffer Matches Allocating Path scenario.
+    /// Verifies that the span sink and enumerator produce identical tokens.
     /// </summary>
-    [Fact(DisplayName = "EdgeNGram: Destination Buffer Matches Allocating Path")]
-    public void EdgeNGram_DestinationBuffer_MatchesAllocatingPath()
+    [Fact(DisplayName = "EdgeNGram: Span Sink And Enumerator Match")]
+    public void EdgeNGram_SpanSinkAndEnumeratorMatch()
     {
         var tok = new EdgeNGramTokeniser(1, 3);
-        var expected = tok.Tokenise("hello world".AsSpan());
-        var actual = new List<Token> { new("stale", 0, 5) };
+        var fromSink = Collect(tok, "hello world");
+        var fromEnum = CollectEnum(tok, "hello world");
 
-        tok.Tokenise("hello world".AsSpan(), actual);
-
-        Assert.Equal(expected.Count, actual.Count);
-        for (int i = 0; i < expected.Count; i++)
+        Assert.Equal(fromSink.Count, fromEnum.Count);
+        for (int i = 0; i < fromSink.Count; i++)
         {
-            Assert.Equal(expected[i].Text, actual[i].Text);
-            Assert.Equal(expected[i].StartOffset, actual[i].StartOffset);
-            Assert.Equal(expected[i].EndOffset, actual[i].EndOffset);
+            Assert.Equal(fromSink[i].Text, fromEnum[i].Text);
+            Assert.Equal(fromSink[i].StartOffset, fromEnum[i].StartOffset);
+            Assert.Equal(fromSink[i].EndOffset, fromEnum[i].EndOffset);
         }
     }
 
     /// <summary>
-    /// Verifies the EdgeNGram span sink emits the same tokens as the legacy list path.
+    /// Verifies that tokens from short words are skipped when shorter than MinGram.
     /// </summary>
-    [Fact(DisplayName = "EdgeNGram: Span Sink Matches Legacy Tokens")]
-    public void EdgeNGram_SpanSink_MatchesLegacyTokens()
+    [Fact(DisplayName = "EdgeNGram: Short Words Skipped Below MinGram")]
+    public void EdgeNGram_ShortWordsSkippedBelowMinGram()
     {
-        var tok = new EdgeNGramTokeniser(1, 3);
-        var expected = tok.Tokenise("hello world".AsSpan());
+        var tok = new EdgeNGramTokeniser(3, 5);
+        var tokens = Collect(tok, "a ab abcdef");
+        var texts = tokens.Select(t => t.Text).ToList();
+        // "a" and "ab" are too short; "abcdef" yields "abc", "abcd", "abcde"
+        Assert.DoesNotContain("a", texts);
+        Assert.DoesNotContain("ab", texts);
+        Assert.Contains("abc", texts);
+        Assert.Contains("abcd", texts);
+        Assert.Contains("abcde", texts);
+    }
+
+    private static List<Token> Collect(EdgeNGramTokeniser tok, string input)
+    {
         var sink = new CollectingSpanTokenSink();
+        tok.Tokenise(input.AsSpan(), sink);
+        return sink.Tokens;
+    }
 
-        tok.Tokenise("hello world".AsSpan(), sink);
-
-        Assert.Equal(expected.Count, sink.Tokens.Count);
-        for (int i = 0; i < expected.Count; i++)
-        {
-            Assert.Equal(expected[i].Text, sink.Tokens[i].Text);
-            Assert.Equal(expected[i].StartOffset, sink.Tokens[i].StartOffset);
-            Assert.Equal(expected[i].EndOffset, sink.Tokens[i].EndOffset);
-            Assert.Equal(expected[i].PositionIncrement, sink.Tokens[i].PositionIncrement);
-        }
+    private static List<Token> CollectEnum(EdgeNGramTokeniser tok, string input)
+    {
+        var tokens = new List<Token>();
+        foreach (var st in tok.EnumerateTokens(input.AsSpan()))
+            tokens.Add(new Token(st.Text.ToString(), st.StartOffset, st.EndOffset));
+        return tokens;
     }
 
     private sealed class CollectingSpanTokenSink : ISpanTokenSink

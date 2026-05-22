@@ -1,7 +1,6 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Tokenisers;
+namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 
 using Rowles.LeanCorpus.Analysis;
-using Rowles.LeanCorpus.Analysis.Analysers;
 
 /// <summary>
 /// Splits text into all contiguous character substrings of length in [<see cref="MinGram"/>, <see cref="MaxGram"/>].
@@ -9,13 +8,12 @@ using Rowles.LeanCorpus.Analysis.Analysers;
 ///
 /// When <see cref="SplitOnWhitespace"/> is <see langword="true"/> the tokeniser first splits on
 /// whitespace (via <see cref="char.IsWhiteSpace(char)"/>) and applies n-grams per word only,
-/// which avoids cross-word-boundary grams and substantially reduces allocations.
+/// which avoids cross-word-boundary grams.
 ///
-/// Thread-safety: The span path is thread-safe for concurrent use on the same instance.
-/// The legacy <see cref="List{Token}"/> path uses an instance-level intern cache; each thread
-/// should use a separate instance when calling <see cref="Tokenise(ReadOnlySpan{char})"/> concurrently.
+/// Thread-safety: the span path and enumerator are thread-safe for concurrent use on the same instance.
+/// No per-instance mutable state is retained across calls.
 /// </summary>
-public sealed class NGramTokeniser : ITokeniser, ISpanTokeniser
+public sealed class NGramTokeniser : ISpanTokeniser
 {
     /// <summary>
     /// Gets the minimum n-gram length (inclusive).
@@ -33,10 +31,6 @@ public sealed class NGramTokeniser : ITokeniser, ISpanTokeniser
     /// </summary>
     public bool SplitOnWhitespace { get; }
 
-    private const int MaxTextCacheSize = 65_536;
-    private readonly TokenTextCache _textCache = new(MaxTextCacheSize);
-    private readonly WhitespaceTokeniser _ws = new();
-
     /// <summary>
     /// Initialises a new <see cref="NGramTokeniser"/> with the specified gram size range.
     /// </summary>
@@ -44,7 +38,7 @@ public sealed class NGramTokeniser : ITokeniser, ISpanTokeniser
     /// <param name="maxGram">The maximum gram length (must be ≥ <paramref name="minGram"/>).</param>
     /// <param name="splitOnWhitespace">
     /// When <see langword="true"/>, n-grams are generated per whitespace-delimited word rather than
-    /// across the entire input. Defaults to <see langword="false"/> for backward compatibility.
+    /// across the entire input. Defaults to <see langword="false"/>.
     /// </param>
     /// <exception cref="ArgumentOutOfRangeException">
     /// Thrown when <paramref name="minGram"/> is less than 1, or <paramref name="maxGram"/> is less than <paramref name="minGram"/>.
@@ -56,30 +50,6 @@ public sealed class NGramTokeniser : ITokeniser, ISpanTokeniser
         MinGram = minGram;
         MaxGram = maxGram;
         SplitOnWhitespace = splitOnWhitespace;
-    }
-
-    /// <inheritdoc/>
-    public List<Token> Tokenise(ReadOnlySpan<char> input)
-    {
-        // Pre-size only for the full-text path where the count is O(1).
-        var tokens = SplitOnWhitespace
-            ? new List<Token>()
-            : new List<Token>(CountNGrams(input.Length));
-        FillTokens(input, tokens);
-        return tokens;
-    }
-
-    /// <summary>
-    /// Tokenises the input into the supplied destination list, clearing it before use.
-    /// The list's existing capacity is reused; no pre-count pass is performed.
-    /// </summary>
-    /// <param name="input">The text to tokenise.</param>
-    /// <param name="tokens">The destination token buffer to populate.</param>
-    public void Tokenise(ReadOnlySpan<char> input, List<Token> tokens)
-    {
-        ArgumentNullException.ThrowIfNull(tokens);
-        tokens.Clear();
-        FillTokens(input, tokens);
     }
 
     /// <inheritdoc/>
@@ -111,26 +81,23 @@ public sealed class NGramTokeniser : ITokeniser, ISpanTokeniser
     {
         private readonly NGramTokeniser _owner;
         private readonly ReadOnlySpan<char> _input;
-        private int _wordIdx;
+        private int _scanPos;
+        private int _wordStart;
+        private int _wordEnd;
         private int _start;
         private int _gramLen;
         private SpanToken _current;
-        private List<(int Start, int End)>? _wordOffsets;
 
         internal Enumerator(NGramTokeniser owner, ReadOnlySpan<char> input)
         {
             _owner = owner;
             _input = input;
-            _wordIdx = 0;
+            _scanPos = 0;
+            _wordStart = 0;
+            _wordEnd = 0;
             _start = 0;
             _gramLen = owner.MinGram - 1;
             _current = default;
-
-            if (owner.SplitOnWhitespace)
-            {
-                _wordOffsets = [];
-                owner._ws.TokeniseOffsets(input, _wordOffsets);
-            }
         }
 
         /// <summary>Gets the current token.</summary>
@@ -146,15 +113,29 @@ public sealed class NGramTokeniser : ITokeniser, ISpanTokeniser
 
         private bool MoveNextSplit()
         {
-            while (_wordIdx < _wordOffsets!.Count)
+            while (true)
             {
-                var (wordStart, wordEnd) = _wordOffsets[_wordIdx];
-                int wordLen = wordEnd - wordStart;
+                // Find next word if needed
+                if (_start == 0 && _gramLen == _owner.MinGram - 1)
+                {
+                    while (_scanPos < _input.Length && char.IsWhiteSpace(_input[_scanPos]))
+                        _scanPos++;
+
+                    if (_scanPos >= _input.Length)
+                        return false;
+
+                    _wordStart = _scanPos;
+                    while (_scanPos < _input.Length && !char.IsWhiteSpace(_input[_scanPos]))
+                        _scanPos++;
+                    _wordEnd = _scanPos;
+                }
+
+                int wordLen = _wordEnd - _wordStart;
 
                 _gramLen++;
                 if (_gramLen <= _owner.MaxGram && _start + _gramLen <= wordLen)
                 {
-                    int absStart = wordStart + _start;
+                    int absStart = _wordStart + _start;
                     var span = _input.Slice(absStart, _gramLen);
                     _current = new SpanToken(span, absStart, absStart + _gramLen);
                     return true;
@@ -164,13 +145,8 @@ public sealed class NGramTokeniser : ITokeniser, ISpanTokeniser
                 _gramLen = _owner.MinGram - 1;
 
                 if (_start >= wordLen)
-                {
-                    _wordIdx++;
                     _start = 0;
-                }
             }
-
-            return false;
         }
 
         private bool MoveNextFull()
@@ -211,12 +187,21 @@ public sealed class NGramTokeniser : ITokeniser, ISpanTokeniser
 
     private void EmitSplit(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
-        List<(int Start, int End)> wordOffsets = [];
-        _ws.TokeniseOffsets(input, wordOffsets);
-
-        foreach (var (wordStart, wordEnd) in wordOffsets)
+        int i = 0;
+        while (i < input.Length)
         {
-            int wordLen = wordEnd - wordStart;
+            // Skip whitespace
+            while (i < input.Length && char.IsWhiteSpace(input[i]))
+                i++;
+
+            if (i >= input.Length)
+                break;
+
+            int wordStart = i;
+            while (i < input.Length && !char.IsWhiteSpace(input[i]))
+                i++;
+
+            int wordLen = i - wordStart;
             for (int start = 0; start < wordLen; start++)
             {
                 for (int gramLen = MinGram; gramLen <= MaxGram && start + gramLen <= wordLen; gramLen++)
@@ -226,55 +211,5 @@ public sealed class NGramTokeniser : ITokeniser, ISpanTokeniser
                 }
             }
         }
-    }
-
-    private void FillTokens(ReadOnlySpan<char> input, List<Token> tokens)
-    {
-        if (SplitOnWhitespace)
-            FillSplit(input, tokens);
-        else
-            FillFull(input, tokens);
-    }
-
-    private void FillFull(ReadOnlySpan<char> input, List<Token> tokens)
-    {
-        int len = input.Length;
-        for (int start = 0; start < len; start++)
-        {
-            for (int gramLen = MinGram; gramLen <= MaxGram && start + gramLen <= len; gramLen++)
-            {
-                var span = input.Slice(start, gramLen);
-                tokens.Add(new Token(TokenTextCache.Allocate(span), start, start + gramLen));
-            }
-        }
-    }
-
-    private void FillSplit(ReadOnlySpan<char> input, List<Token> tokens)
-    {
-        List<(int Start, int End)> wordOffsets = [];
-        _ws.TokeniseOffsets(input, wordOffsets);
-
-        foreach (var (wordStart, wordEnd) in wordOffsets)
-        {
-            int wordLen = wordEnd - wordStart;
-            for (int start = 0; start < wordLen; start++)
-            {
-                for (int gramLen = MinGram; gramLen <= MaxGram && start + gramLen <= wordLen; gramLen++)
-                {
-                    int absStart = wordStart + start;
-                    var span = input.Slice(absStart, gramLen);
-                    tokens.Add(new Token(_textCache.GetOrAdd(span), absStart, absStart + gramLen));
-                }
-            }
-        }
-    }
-
-    // O(MaxGram - MinGram): used only by the allocating overload on the full-text path.
-    private int CountNGrams(int length)
-    {
-        int count = 0;
-        for (int gramLen = MinGram; gramLen <= MaxGram && gramLen <= length; gramLen++)
-            count += length - gramLen + 1;
-        return count;
     }
 }

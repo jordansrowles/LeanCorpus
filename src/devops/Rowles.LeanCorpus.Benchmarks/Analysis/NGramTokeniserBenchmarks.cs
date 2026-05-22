@@ -8,6 +8,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
 /// Compares <see cref="EdgeNGramTokeniser"/> and <see cref="NGramTokeniser"/> throughput against Lucene.NET equivalents.
+/// Only the zero-allocation span-sink and streaming enumerator paths are benchmarked.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -30,9 +31,6 @@ public class NGramTokeniserBenchmarks
     private EdgeNGramTokeniser _edgeTokeniser = null!;
     private NGramTokeniser _ngramTokeniser = null!;
     private NGramTokeniser _ngramTokeniserWs = null!;
-    private readonly List<Token> _edgeTokens = [];
-    private readonly List<Token> _ngramTokens = [];
-    private readonly List<Token> _ngramTokensWs = [];
     private readonly CountingSpanTokenSink _spanSink = new();
     private int _min;
     private int _max;
@@ -50,46 +48,6 @@ public class NGramTokeniserBenchmarks
     }
 
     [Benchmark(Baseline = true)]
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_EdgeNGramTokeniser()
-    {
-        int total = 0;
-        foreach (var doc in _documents)
-        {
-            _edgeTokeniser.Tokenise(doc.AsSpan(), _edgeTokens);
-            total += _edgeTokens.Count;
-        }
-        return total;
-    }
-
-    [Benchmark]
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_NGramTokeniser()
-    {
-        int total = 0;
-        foreach (var doc in _documents)
-        {
-            _ngramTokeniser.Tokenise(doc.AsSpan(), _ngramTokens);
-            total += _ngramTokens.Count;
-        }
-        return total;
-    }
-
-    /// <summary>NGram tokeniser with per-word whitespace splitting enabled.</summary>
-    [Benchmark]
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_NGramTokeniser_WordSplit()
-    {
-        int total = 0;
-        foreach (var doc in _documents)
-        {
-            _ngramTokeniserWs.Tokenise(doc.AsSpan(), _ngramTokensWs);
-            total += _ngramTokensWs.Count;
-        }
-        return total;
-    }
-
-    [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_EdgeNGramTokeniser_SpanSink()
     {

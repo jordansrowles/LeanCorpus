@@ -28,7 +28,7 @@ public sealed class IcuAnalyser : IAnalyser
             new StopWordFilter(stopWords)
         };
         filters.AddRange(additionalFilters);
-        _inner = new Analyser(new Tokenisers.IcuTokeniser(thaiTokeniser), filters.ToArray());
+        _inner = Analyser.FromTokeniser(new Tokenisers.IcuTokeniser(thaiTokeniser), filters.ToArray());
     }
 
     /// <inheritdoc/>

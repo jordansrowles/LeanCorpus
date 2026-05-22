@@ -36,7 +36,7 @@ FLAG long
     [Fact(DisplayName = "Analysis Expansion: Token Budget Rejects Runaway Alternates")]
     public void AnalysisExpansion_TokenBudget_RejectsRunawayAlternates()
     {
-        var analyser = new Analyser(
+        var analyser = Analyser.FromTokeniser(
             new Uax29UrlEmailTokeniser(),
             new LowercaseFilter(),
             new MetaphoneFilter(),

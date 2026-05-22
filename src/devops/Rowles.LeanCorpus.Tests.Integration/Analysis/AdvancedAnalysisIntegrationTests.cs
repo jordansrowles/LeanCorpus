@@ -26,7 +26,7 @@ public sealed class AdvancedAnalysisIntegrationTests : IClassFixture<TestDirecto
     public void Uax29UrlEmailTokeniser_IndexesUrlsAndEmailAddresses()
     {
         using var directory = new MMapDirectory(SubDir("uax29_special_terms"));
-        var analyser = new Analyser(new Uax29UrlEmailTokeniser(), new LowercaseFilter());
+        var analyser = Analyser.FromTokeniser(new Uax29UrlEmailTokeniser(), new LowercaseFilter());
 
         using (var writer = new IndexWriter(directory, new IndexWriterConfig { DefaultAnalyser = analyser }))
         {
@@ -45,7 +45,7 @@ public sealed class AdvancedAnalysisIntegrationTests : IClassFixture<TestDirecto
     public void MediaWikiTokeniser_WithTypeFilter_IndexesCategoryTermsOnly()
     {
         using var directory = new MMapDirectory(SubDir("mediawiki_category_only"));
-        var analyser = new Analyser(
+        var analyser = Analyser.FromTokeniser(
             new MediaWikiTokeniser(),
             new TypeTokenFilter([MediaWikiTokeniser.CategoryType]),
             new LowercaseFilter());

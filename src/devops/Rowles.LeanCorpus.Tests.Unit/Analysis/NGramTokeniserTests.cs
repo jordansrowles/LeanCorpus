@@ -1,5 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
-using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Analysis;
@@ -17,7 +16,7 @@ public sealed class NGramTokeniserTests
     public void NGram_SingleCharTokens()
     {
         var tok = new NGramTokeniser(1, 1);
-        var tokens = tok.Tokenise("abc".AsSpan());
+        var tokens = Collect(tok, "abc");
         Assert.Equal(3, tokens.Count);
         Assert.Equal("a", tokens[0].Text);
         Assert.Equal("b", tokens[1].Text);
@@ -31,7 +30,7 @@ public sealed class NGramTokeniserTests
     public void NGram_BigramsAndTrigrams()
     {
         var tok = new NGramTokeniser(2, 3);
-        var tokens = tok.Tokenise("abcd".AsSpan());
+        var tokens = Collect(tok, "abcd");
         // Expected: ab, abc, bc, bcd, cd
         var texts = tokens.Select(t => t.Text).ToList();
         Assert.Contains("ab", texts);
@@ -48,7 +47,7 @@ public sealed class NGramTokeniserTests
     public void NGram_EmptyInput_ReturnsEmptyList()
     {
         var tok = new NGramTokeniser(1, 2);
-        var tokens = tok.Tokenise(string.Empty.AsSpan());
+        var tokens = Collect(tok, "");
         Assert.Empty(tokens);
     }
 
@@ -59,7 +58,7 @@ public sealed class NGramTokeniserTests
     public void NGram_InputShorterThanMinGram_ReturnsEmpty()
     {
         var tok = new NGramTokeniser(3, 4);
-        var tokens = tok.Tokenise("ab".AsSpan());
+        var tokens = Collect(tok, "ab");
         Assert.Empty(tokens);
     }
 
@@ -70,7 +69,7 @@ public sealed class NGramTokeniserTests
     public void NGram_OffsetValues_AreCorrect()
     {
         var tok = new NGramTokeniser(2, 2);
-        var tokens = tok.Tokenise("xyz".AsSpan());
+        var tokens = Collect(tok, "xyz");
         Assert.Equal(0, tokens[0].StartOffset);
         Assert.Equal(2, tokens[0].EndOffset);
         Assert.Equal(1, tokens[1].StartOffset);
@@ -78,39 +77,22 @@ public sealed class NGramTokeniserTests
     }
 
     /// <summary>
-    /// Verifies the NGram: Destination Buffer Matches Allocating Path scenario.
+    /// Verifies the NGram span sink and enumerator produce identical tokens.
     /// </summary>
-    [Fact(DisplayName = "NGram: Destination Buffer Matches Allocating Path")]
-    public void NGram_DestinationBuffer_MatchesAllocatingPath()
+    [Fact(DisplayName = "NGram: Span Sink And Enumerator Match")]
+    public void NGram_SpanSinkAndEnumeratorMatch()
     {
         var tok = new NGramTokeniser(2, 3);
-        var expected = tok.Tokenise("abcd".AsSpan());
-        var actual = new List<Token> { new("stale", 0, 5) };
+        var fromSink = Collect(tok, "abcd");
+        var fromEnum = CollectEnum(tok, "abcd");
 
-        tok.Tokenise("abcd".AsSpan(), actual);
-
-        Assert.Equal(expected.Count, actual.Count);
-        for (int i = 0; i < expected.Count; i++)
+        Assert.Equal(fromSink.Count, fromEnum.Count);
+        for (int i = 0; i < fromSink.Count; i++)
         {
-            Assert.Equal(expected[i].Text, actual[i].Text);
-            Assert.Equal(expected[i].StartOffset, actual[i].StartOffset);
-            Assert.Equal(expected[i].EndOffset, actual[i].EndOffset);
+            Assert.Equal(fromSink[i].Text, fromEnum[i].Text);
+            Assert.Equal(fromSink[i].StartOffset, fromEnum[i].StartOffset);
+            Assert.Equal(fromSink[i].EndOffset, fromEnum[i].EndOffset);
         }
-    }
-
-    /// <summary>
-    /// Verifies the NGram span sink emits the same tokens as the legacy list path.
-    /// </summary>
-    [Fact(DisplayName = "NGram: Span Sink Matches Legacy Tokens")]
-    public void NGram_SpanSink_MatchesLegacyTokens()
-    {
-        var tok = new NGramTokeniser(2, 3);
-        var expected = tok.Tokenise("abcd".AsSpan());
-        var sink = new CollectingSpanTokenSink();
-
-        tok.Tokenise("abcd".AsSpan(), sink);
-
-        AssertEqualTokens(expected, sink.Tokens);
     }
 
     // ----- splitOnWhitespace = true -----
@@ -122,7 +104,7 @@ public sealed class NGramTokeniserTests
     public void NGram_WordSplit_NoCrossWordGrams()
     {
         var tok = new NGramTokeniser(2, 3, splitOnWhitespace: true);
-        var tokens = tok.Tokenise("hello world".AsSpan());
+        var tokens = Collect(tok, "hello world");
         var texts = tokens.Select(t => t.Text).ToList();
 
         // grams that span the space must not appear
@@ -138,7 +120,7 @@ public sealed class NGramTokeniserTests
     public void NGram_WordSplit_GramsFromEachWord()
     {
         var tok = new NGramTokeniser(2, 2, splitOnWhitespace: true);
-        var tokens = tok.Tokenise("ab cd".AsSpan());
+        var tokens = Collect(tok, "ab cd");
         var texts = tokens.Select(t => t.Text).ToList();
         Assert.Contains("ab", texts);
         Assert.Contains("cd", texts);
@@ -153,7 +135,7 @@ public sealed class NGramTokeniserTests
     {
         var tok = new NGramTokeniser(2, 2, splitOnWhitespace: true);
         // "ab cd" — "ab" at 0-2, "cd" at 3-5
-        var tokens = tok.Tokenise("ab cd".AsSpan());
+        var tokens = Collect(tok, "ab cd");
         var ab = tokens.Single(t => t.Text == "ab");
         var cd = tokens.Single(t => t.Text == "cd");
         Assert.Equal(0, ab.StartOffset);
@@ -169,7 +151,7 @@ public sealed class NGramTokeniserTests
     public void NGram_WordSplit_LeadingAndTrailingWhitespace()
     {
         var tok = new NGramTokeniser(2, 2, splitOnWhitespace: true);
-        var tokens = tok.Tokenise("  ab  ".AsSpan());
+        var tokens = Collect(tok, "  ab  ");
         var texts = tokens.Select(t => t.Text).ToList();
         Assert.Equal(["ab"], texts);
     }
@@ -181,7 +163,7 @@ public sealed class NGramTokeniserTests
     public void NGram_WordSplit_ConsecutiveWhitespace()
     {
         var tok = new NGramTokeniser(2, 2, splitOnWhitespace: true);
-        var tokens = tok.Tokenise("ab\t\r\ncd".AsSpan());
+        var tokens = Collect(tok, "ab\t\r\ncd");
         var texts = tokens.Select(t => t.Text).ToList();
         Assert.Contains("ab", texts);
         Assert.Contains("cd", texts);
@@ -196,58 +178,25 @@ public sealed class NGramTokeniserTests
     {
         var tok = new NGramTokeniser(3, 4, splitOnWhitespace: true);
         // "a" is shorter than minGram=3; "abcd" should produce grams
-        var tokens = tok.Tokenise("a abcd".AsSpan());
+        var tokens = Collect(tok, "a abcd");
         var texts = tokens.Select(t => t.Text).ToList();
         Assert.DoesNotContain("a", texts);
         Assert.Contains("abc", texts);
     }
 
-    /// <summary>
-    /// Verifies the buffer overload matches the allocating path when splitOnWhitespace is true.
-    /// </summary>
-    [Fact(DisplayName = "NGram WordSplit: Buffer Matches Allocating Path")]
-    public void NGram_WordSplit_BufferMatchesAllocatingPath()
+    private static List<Token> Collect(NGramTokeniser tok, string input)
     {
-        var tok = new NGramTokeniser(2, 3, splitOnWhitespace: true);
-        var expected = tok.Tokenise("hello world".AsSpan());
-        var actual = new List<Token> { new("stale", 0, 5) };
-
-        tok.Tokenise("hello world".AsSpan(), actual);
-
-        Assert.Equal(expected.Count, actual.Count);
-        for (int i = 0; i < expected.Count; i++)
-        {
-            Assert.Equal(expected[i].Text, actual[i].Text);
-            Assert.Equal(expected[i].StartOffset, actual[i].StartOffset);
-            Assert.Equal(expected[i].EndOffset, actual[i].EndOffset);
-        }
-    }
-
-    /// <summary>
-    /// Verifies the whitespace-split NGram span sink matches the legacy list path.
-    /// </summary>
-    [Fact(DisplayName = "NGram WordSplit: Span Sink Matches Legacy Tokens")]
-    public void NGram_WordSplit_SpanSinkMatchesLegacyTokens()
-    {
-        var tok = new NGramTokeniser(2, 3, splitOnWhitespace: true);
-        var expected = tok.Tokenise("hello world".AsSpan());
         var sink = new CollectingSpanTokenSink();
-
-        tok.Tokenise("hello world".AsSpan(), sink);
-
-        AssertEqualTokens(expected, sink.Tokens);
+        tok.Tokenise(input.AsSpan(), sink);
+        return sink.Tokens;
     }
 
-    private static void AssertEqualTokens(List<Token> expected, List<Token> actual)
+    private static List<Token> CollectEnum(NGramTokeniser tok, string input)
     {
-        Assert.Equal(expected.Count, actual.Count);
-        for (int i = 0; i < expected.Count; i++)
-        {
-            Assert.Equal(expected[i].Text, actual[i].Text);
-            Assert.Equal(expected[i].StartOffset, actual[i].StartOffset);
-            Assert.Equal(expected[i].EndOffset, actual[i].EndOffset);
-            Assert.Equal(expected[i].PositionIncrement, actual[i].PositionIncrement);
-        }
+        var tokens = new List<Token>();
+        foreach (var st in tok.EnumerateTokens(input.AsSpan()))
+            tokens.Add(new Token(st.Text.ToString(), st.StartOffset, st.EndOffset));
+        return tokens;
     }
 
     private sealed class CollectingSpanTokenSink : ISpanTokenSink
