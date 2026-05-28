@@ -31,9 +31,15 @@ public sealed class MediaWikiTokeniser : ITokeniser
     /// Optional ICU tokeniser used for tokenising content within markup blocks.
     /// When null, a default parameterless <see cref="IcuTokeniser"/> is used.
     /// </param>
-    public MediaWikiTokeniser(IcuTokeniser? icuTokeniser = null)
+    /// <param name="plainTokeniser">
+    /// Optional tokeniser used for body text between markup blocks.
+    /// When null, a default parameterless <see cref="Uax29UrlEmailTokeniser"/> is used.
+    /// </param>
+    public MediaWikiTokeniser(
+        IcuTokeniser? icuTokeniser = null,
+        Uax29UrlEmailTokeniser? plainTokeniser = null)
     {
-        _plainTokeniser = new Uax29UrlEmailTokeniser();
+        _plainTokeniser = plainTokeniser ?? new Uax29UrlEmailTokeniser();
         _icuTokeniser = icuTokeniser ?? new IcuTokeniser();
     }
 

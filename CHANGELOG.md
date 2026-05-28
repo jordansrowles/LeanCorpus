@@ -79,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved the built-in Thai lexicon out of `ThaiTokeniser` into `lexicons/thai-dict.txt`. `ThaiTokeniser` no longer has a parameterless constructor; provide a lexicon via the constructor, `ThaiTokeniser.FromFile`, or `ThaiTokeniser.FromStream`.
 - Decoupled `IcuTokeniser` and `Uax29UrlEmailTokeniser` from `ThaiTokeniser`. Both now accept an optional `ITokeniser` for Thai segmentation via their constructor. Without injection, Thai characters are treated as regular word characters.
 - `MediaWikiTokeniser` now caches its `IcuTokeniser` instance as a field rather than allocating a new one per markup block.
+- `MediaWikiTokeniser` now accepts an optional `Uax29UrlEmailTokeniser` parameter so the body-text tokeniser between markup blocks can be injected.
 - Replaced the enum-based `TokenKind` analysis contract with string token types, removed the public generic `TokenTypes` taxonomy, and moved producer-specific token type names onto the tokenisers that emit them.
 - Tightened new query constructors so empty fields, empty term groups, unknown combined-field weights, and non-finite point values fail fast instead of being silently filtered or coerced.
 - Scoped lightweight phonetic and English stemming APIs to honest names, and added Hunspell condition parsing plus generated-form limits.
