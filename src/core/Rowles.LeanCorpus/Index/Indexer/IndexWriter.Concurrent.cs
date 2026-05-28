@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Document;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
@@ -39,11 +39,11 @@ public sealed partial class IndexWriter
             var pool = _dwptPool ?? throw new InvalidOperationException(
                 "DWPT pool not initialised. Call InitialiseDwptPool() first.");
 
-            // Round-robin DWPT selection — lock-free via Interlocked
+            // Round-robin DWPT selection  --  lock-free via Interlocked
             int slot = (int)((uint)Interlocked.Increment(ref _dwptCounter) % (uint)pool.Length);
             var dwpt = pool[slot];
 
-            // Per-DWPT lock (not global — only contention on the same slot)
+            // Per-DWPT lock (not global  --  only contention on the same slot)
             lock (dwpt)
             {
                 dwpt.AddDocument(doc);
@@ -182,14 +182,14 @@ public sealed partial class IndexWriter
 
     private void MergeDwpt(DocumentsWriterPerThread dwpt)
     {
-        int docBase = _bufferedDocCount;
+        int docBase = _buffer.DocCount;
         foreach (var (qt, srcAcc) in dwpt.Postings)
         {
-            if (!_postings.TryGetValue(qt, out var dstAcc))
+            if (!_buffer.Postings.TryGetValue(qt, out var dstAcc))
             {
                 dstAcc = new PostingAccumulator();
-                _postings[qt] = dstAcc;
-                _postingsRamBytes += dstAcc.EstimatedBytes;
+                _buffer.Postings[qt] = dstAcc;
+                _buffer.PostingsRamBytes += dstAcc.EstimatedBytes;
             }
             var srcIds = srcAcc.DocIds;
             bool srcHasPositions = srcAcc.HasPositions;
@@ -216,7 +216,7 @@ public sealed partial class IndexWriter
                 {
                     dstAcc.AddDocOnly(remappedDocId);
                 }
-                _postingsRamBytes += dstAcc.EstimatedBytes - before;
+                _buffer.PostingsRamBytes += dstAcc.EstimatedBytes - before;
             }
         }
 
@@ -228,7 +228,7 @@ public sealed partial class IndexWriter
         int srcEntryTotal = srcFieldIds.Count;
         for (int d = 0; d < dwptDocCount; d++)
         {
-            _sfDocStarts.Add(_sfFieldIds.Count);
+            _buffer.StoredDocStarts.Add(_buffer.StoredFieldIds.Count);
             int start = srcDocStarts[d];
             int end = (d + 1) < dwptDocCount ? srcDocStarts[d + 1] : srcEntryTotal;
             for (int e = start; e < end; e++)
@@ -239,17 +239,17 @@ public sealed partial class IndexWriter
 
         foreach (var (fieldName, counts) in dwpt.DocTokenCounts)
         {
-            if (!_docTokenCounts.TryGetValue(fieldName, out var dstCounts))
+            if (!_buffer.DocTokenCounts.TryGetValue(fieldName, out var dstCounts))
             {
                 dstCounts = new int[_config.MaxBufferedDocs];
-                _docTokenCounts[fieldName] = dstCounts;
+                _buffer.DocTokenCounts[fieldName] = dstCounts;
             }
 
             int newTotal = docBase + dwpt.DocCount;
             if (newTotal > dstCounts.Length)
             {
                 Array.Resize(ref dstCounts, Math.Max(dstCounts.Length * 2, newTotal));
-                _docTokenCounts[fieldName] = dstCounts;
+                _buffer.DocTokenCounts[fieldName] = dstCounts;
             }
 
             for (int i = 0; i < dwpt.DocCount && i < counts.Length; i++)
@@ -258,10 +258,10 @@ public sealed partial class IndexWriter
 
         foreach (var (boostFieldName, boosts) in dwpt.FieldBoosts)
         {
-            if (!_fieldBoosts.TryGetValue(boostFieldName, out var dstBoosts))
+            if (!_buffer.FieldBoosts.TryGetValue(boostFieldName, out var dstBoosts))
             {
                 dstBoosts = new Dictionary<int, float>();
-                _fieldBoosts[boostFieldName] = dstBoosts;
+                _buffer.FieldBoosts[boostFieldName] = dstBoosts;
             }
 
             foreach (var (docId, boost) in boosts)
@@ -269,14 +269,14 @@ public sealed partial class IndexWriter
         }
 
         foreach (var fn in dwpt.FieldNames)
-            _fieldNames.Add(fn);
+            _buffer.FieldNames.Add(fn);
 
         foreach (var (field, map) in dwpt.NumericIndex)
         {
-            if (!_numericIndex.TryGetValue(field, out var dstMap))
+            if (!_buffer.NumericIndex.TryGetValue(field, out var dstMap))
             {
                 dstMap = new Dictionary<int, double>();
-                _numericIndex[field] = dstMap;
+                _buffer.NumericIndex[field] = dstMap;
             }
             foreach (var (docId, val) in map)
                 dstMap[docId + docBase] = val;
@@ -284,10 +284,10 @@ public sealed partial class IndexWriter
 
         foreach (var (field, list) in dwpt.NumericDocValues)
         {
-            if (!_numericDocValues.TryGetValue(field, out var dstList))
+            if (!_buffer.NumericDocValues.TryGetValue(field, out var dstList))
             {
                 dstList = new List<double>();
-                _numericDocValues[field] = dstList;
+                _buffer.NumericDocValues[field] = dstList;
             }
             while (dstList.Count < docBase) dstList.Add(0);
             dstList.AddRange(list);
@@ -296,10 +296,10 @@ public sealed partial class IndexWriter
         // Sorted doc values: pad to docBase, then copy each per-doc slot into the writer's column.
         foreach (var (field, list) in dwpt.SortedDocValues)
         {
-            if (!_sortedDocValues.TryGetValue(field, out var dstList))
+            if (!_buffer.SortedDocValues.TryGetValue(field, out var dstList))
             {
                 dstList = new List<string?>();
-                _sortedDocValues[field] = dstList;
+                _buffer.SortedDocValues[field] = dstList;
             }
             while (dstList.Count < docBase) dstList.Add(null);
             for (int i = 0; i < dwpt.DocCount; i++)
@@ -311,23 +311,23 @@ public sealed partial class IndexWriter
             }
         }
 
-        MergeMultiValuedDocValues(dwpt.SortedSetDocValues, _sortedSetDocValues, docBase);
-        MergeMultiValuedDocValues(dwpt.SortedNumericDocValues, _sortedNumericDocValues, docBase);
-        MergeMultiValuedDocValues(dwpt.BinaryDocValues, _binaryDocValues, docBase);
+        MergeMultiValuedDocValues(dwpt.SortedSetDocValues, _buffer.SortedSetDocValues, docBase);
+        MergeMultiValuedDocValues(dwpt.SortedNumericDocValues, _buffer.SortedNumericDocValues, docBase);
+        MergeMultiValuedDocValues(dwpt.BinaryDocValues, _buffer.BinaryDocValues, docBase);
 
         // Vectors: remap per-doc keys into the writer's docId space.
         foreach (var (field, perField) in dwpt.Vectors)
         {
-            if (!_bufferedVectors.TryGetValue(field, out var dstPerField))
+            if (!_buffer.Vectors.TryGetValue(field, out var dstPerField))
             {
                 dstPerField = new Dictionary<int, ReadOnlyMemory<float>>();
-                _bufferedVectors[field] = dstPerField;
+                _buffer.Vectors[field] = dstPerField;
             }
             foreach (var (localDocId, vec) in perField)
                 dstPerField[localDocId + docBase] = vec;
         }
 
-        _bufferedDocCount += dwpt.DocCount;
+        _buffer.DocCount += dwpt.DocCount;
         _contentChangedSinceCommit = true;
         if (ShouldFlush())
             FlushSegment();
@@ -335,16 +335,16 @@ public sealed partial class IndexWriter
 
     private void AppendMergedStoredField(string fieldName, StoredFieldValue value)
     {
-        if (!_sfFieldNameToId.TryGetValue(fieldName, out int fid))
+        if (!_buffer.StoredFieldNameToId.TryGetValue(fieldName, out int fid))
         {
-            fid = _sfFieldIdToName.Count;
-            _sfFieldNameToId[fieldName] = fid;
-            _sfFieldIdToName.Add(fieldName);
+            fid = _buffer.StoredFieldIdToName.Count;
+            _buffer.StoredFieldNameToId[fieldName] = fid;
+            _buffer.StoredFieldIdToName.Add(fieldName);
         }
 
-        _sfFieldIds.Add(fid);
-        _sfValues.Add(value);
-        _estimatedRamBytes += value.EstimatedSize;
+        _buffer.StoredFieldIds.Add(fid);
+        _buffer.StoredFieldValues.Add(value);
+        _buffer.EstimatedRamBytes += value.EstimatedSize;
     }
 
     private static void MergeMultiValuedDocValues<T>(

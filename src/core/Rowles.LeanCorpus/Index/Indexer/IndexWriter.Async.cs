@@ -37,7 +37,7 @@ public sealed partial class IndexWriter
                         addedToHeldSlots = true;
                     }
 
-                    if (ShouldThrottleForMerge() && _bufferedDocCount > 0)
+                    if (ShouldThrottleForMerge() && _buffer.DocCount > 0)
                         FlushSegment();
 
                     enteredCore = true;
@@ -223,8 +223,8 @@ public sealed partial class IndexWriter
                     {
                         if (i == block.Count - 1)
                         {
-                            _parentDocIds ??= new HashSet<int>();
-                            _parentDocIds.Add(_bufferedDocCount);
+                            _buffer.ParentDocIds ??= new HashSet<int>();
+                            _buffer.ParentDocIds.Add(_buffer.DocCount);
                         }
 
                         enteredCore = true;
@@ -298,7 +298,7 @@ public sealed partial class IndexWriter
             {
                 lock (_writeLock)
                 {
-                    if (_bufferedDocCount > 0)
+                    if (_buffer.DocCount > 0)
                         FlushSegment();
                 }
             }

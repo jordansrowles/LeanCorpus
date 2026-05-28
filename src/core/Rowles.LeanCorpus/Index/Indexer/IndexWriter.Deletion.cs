@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Codecs.TermDictionary;
+using Rowles.LeanCorpus.Codecs.TermDictionary;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Store;
 

@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Rowles.LeanCorpus.Serialization;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
@@ -20,55 +20,21 @@ public sealed partial class IndexWriter : IDisposable
     private readonly IndexWriterConfig _config;
     private readonly IAnalyser _defaultAnalyser;
 
-    // Unified posting accumulator keyed by qualified term ("field\0term")
-    private Dictionary<string, PostingAccumulator> _postings = new(8192, StringComparer.Ordinal);
-    // Flat stored field buffer: parallel arrays indexed by entry position
-    private List<int> _sfFieldIds = new(4096);
-    private List<StoredFieldValue> _sfValues = new(4096);
-    private List<int> _sfDocStarts = new(256);
-    private readonly Dictionary<string, int> _sfFieldNameToId = new(StringComparer.Ordinal);
-    private readonly List<string> _sfFieldIdToName = new();
-    // Buffered numeric fields per document
-    private List<Dictionary<string, double>> _numericFields = [];
-    // Per-field numeric values for range indexing: field → docId → value
-    private Dictionary<string, Dictionary<int, double>> _numericIndex = new();
-    private Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> _bufferedVectors =
-        new(StringComparer.Ordinal);
-    private readonly HashSet<string> _termPool = new(4096, StringComparer.Ordinal);
-    // Per-field per-doc token counts for O(1) per-field norm computation
-    private Dictionary<string, int[]> _docTokenCounts = new(StringComparer.Ordinal);
-    private Dictionary<string, Dictionary<int, float>> _fieldBoosts = new(StringComparer.Ordinal);
-    // Track field names seen in this flush
-    private readonly HashSet<string> _fieldNames = new(StringComparer.Ordinal);
-    // Cache qualified term strings to avoid repeated string.Concat, keyed by the qualified term itself
-    private Dictionary<string, string> _qualifiedTermPool = new(8192, StringComparer.Ordinal);
-    // Cache field name prefixes ("fieldName\0") to avoid repeated prefix construction
-    private readonly Dictionary<string, string> _fieldPrefixCache = new(StringComparer.Ordinal);
-    // DocValues accumulators: field → per-doc values
-    private Dictionary<string, List<double>> _numericDocValues = new(StringComparer.Ordinal);
-    private Dictionary<string, List<string?>> _sortedDocValues = new(StringComparer.Ordinal);
-    private Dictionary<string, Dictionary<int, List<string>>> _sortedSetDocValues = new(StringComparer.Ordinal);
-    private Dictionary<string, Dictionary<int, List<double>>> _sortedNumericDocValues = new(StringComparer.Ordinal);
-    private Dictionary<string, Dictionary<int, List<byte[]>>> _binaryDocValues = new(StringComparer.Ordinal);
+    private DocumentBufferState _buffer = new();
+
     private readonly Dictionary<string, IAnalyser> _analyserCache = new(StringComparer.Ordinal);
     private readonly SpanCountingTokenSink _spanCountingSink = new();
     private readonly SpanPostingTokenSink _spanPostingSink;
-    private readonly List<string> _sortedTermsBuffer = new(capacity: 10000);
-    // Parent bitset for block-join indexing: tracks which buffered doc IDs are parent docs
-    private HashSet<int>? _parentDocIds;
+
     // Sequence number tracking
     private long _nextSequenceNumber;
     private long _flushSeqNoStart;
-
-    private int _bufferedDocCount;
-    private long _estimatedRamBytes;
-    private long _postingsRamBytes; // incrementally tracked sum of all PostingAccumulator.EstimatedBytes
     private int _nextSegmentOrdinal;
     private int _commitGeneration;
     private long _contentToken;
     private bool _contentChangedSinceCommit;
     private readonly List<SegmentInfo> _committedSegments = [];
-    // Pending deletions: field → term → set of matching terms to delete
+    // Pending deletions: field  ->  term  ->  set of matching terms to delete
     private readonly List<(string field, string term, bool isSoftDelete)> _pendingDeletes = [];
     private readonly Lock _writeLock = new();
     private readonly SemaphoreSlim? _backpressureSemaphore;
@@ -103,7 +69,7 @@ public sealed partial class IndexWriter : IDisposable
     {
         _directory = directory;
         _config = config;
-        _spanPostingSink = new SpanPostingTokenSink(this);
+        _spanPostingSink = new SpanPostingTokenSink(_buffer, _config);
 
         // If using default StandardAnalyser and config has custom stop words or cache size, rebuild it
         if (config.DefaultAnalyser is StandardAnalyser &&
@@ -175,7 +141,7 @@ public sealed partial class IndexWriter : IDisposable
                         _semaphoreSlotsHeld++;
 
                     // Merge backpressure: if too many unmerged segments, flush and merge now
-                    if (ShouldThrottleForMerge() && _bufferedDocCount > 0)
+                    if (ShouldThrottleForMerge() && _buffer.DocCount > 0)
                         FlushSegment();
 
                     enteredCore = true;
@@ -317,8 +283,8 @@ public sealed partial class IndexWriter : IDisposable
                     {
                         if (i == block.Count - 1)
                         {
-                            _parentDocIds ??= new HashSet<int>();
-                            _parentDocIds.Add(_bufferedDocCount);
+                            _buffer.ParentDocIds ??= new HashSet<int>();
+                            _buffer.ParentDocIds.Add(_buffer.DocCount);
                         }
 
                         enteredCore = true;
@@ -366,7 +332,7 @@ public sealed partial class IndexWriter : IDisposable
                     int preFlushSegmentCount = _committedSegments.Count;
 
                     FlushDwptPool();
-                    if (_bufferedDocCount > 0)
+                    if (_buffer.DocCount > 0)
                         FlushSegment();
 
                     _pendingDeletes.Add((field, term, isSoftDelete: false));
@@ -433,7 +399,7 @@ public sealed partial class IndexWriter : IDisposable
                     int preFlushSegmentCount = _committedSegments.Count;
 
                     FlushDwptPool();
-                    if (_bufferedDocCount > 0)
+                    if (_buffer.DocCount > 0)
                         FlushSegment();
 
                     var terms = ResolveQueryToTerms(query, _committedSegments.GetRange(0, preFlushSegmentCount));
@@ -569,7 +535,7 @@ public sealed partial class IndexWriter : IDisposable
             lock (_writeLock)
             {
                 FlushDwptPool();
-                if (_bufferedDocCount > 0)
+                if (_buffer.DocCount > 0)
                     FlushSegment();
 
                 var merger = new SegmentMerger(_directory, _config.MergeThreshold, _config.PostingsSkipInterval);
@@ -647,7 +613,7 @@ public sealed partial class IndexWriter : IDisposable
         FlushDwptPool();
 
         // Flush any remaining buffered documents
-        if (_bufferedDocCount > 0)
+        if (_buffer.DocCount > 0)
             FlushSegment();
 
         // Apply any remaining deletions to ALL segments (including the just-flushed one).
@@ -895,7 +861,7 @@ public sealed partial class IndexWriter : IDisposable
 
     private bool ShouldFlush()
     {
-        if (_bufferedDocCount >= _config.MaxBufferedDocs)
+        if (_buffer.DocCount >= _config.MaxBufferedDocs)
             return true;
         long ram = ComputeEstimatedRamBytes();
         return ram >= (long)(_config.RamBufferSizeMB * 1024 * 1024);
@@ -922,7 +888,7 @@ public sealed partial class IndexWriter : IDisposable
             {
                 lock (_writeLock)
                 {
-                    if (_bufferedDocCount > 0)
+                    if (_buffer.DocCount > 0)
                         FlushSegment();
                 }
             }
@@ -942,41 +908,17 @@ public sealed partial class IndexWriter : IDisposable
 
     /// <summary>
     /// Returns the estimated RAM used by all buffered data. O(1), using the
-    /// incrementally tracked <c>_postingsRamBytes</c> instead of iterating
+    /// incrementally tracked <c>_buffer.PostingsRamBytes</c> instead of iterating
     /// every <see cref="PostingAccumulator"/>.
     /// </summary>
     private long ComputeEstimatedRamBytes()
     {
-        return _postingsRamBytes + _estimatedRamBytes;
+        return _buffer.PostingsRamBytes + _buffer.EstimatedRamBytes;
     }
 
     private void ResetBuffer()
     {
-        // Return pooled arrays from all accumulators before clearing
-        foreach (var acc in _postings.Values)
-            acc.ReturnBuffers();
-        _postings.Clear();
-        _sfFieldIds.Clear();
-        _sfValues.Clear();
-        _sfDocStarts.Clear();
-        _numericFields.Clear();
-        _termPool.Clear();
-        _fieldNames.Clear();
-        _qualifiedTermPool.Clear();
-        _numericIndex.Clear();
-        _bufferedVectors.Clear();
-        _numericDocValues.Clear();
-        _sortedDocValues.Clear();
-        _sortedSetDocValues.Clear();
-        _sortedNumericDocValues.Clear();
-        _binaryDocValues.Clear();
-        _fieldBoosts.Clear();
-        _sortedTermsBuffer.Clear();
-        _bufferedDocCount = 0;
-        _estimatedRamBytes = 0;
-        _postingsRamBytes = 0;
-        _docTokenCounts.Clear();
-        _parentDocIds = null;
+        _buffer.Reset();
         _flushSeqNoStart = _nextSequenceNumber;
     }
 
@@ -1028,6 +970,31 @@ public sealed partial class IndexWriter : IDisposable
             }
             _nextSequenceNumber = maxSeq + 1;
             _flushSeqNoStart = _nextSequenceNumber;
+        }
+    }
+    private void FlushSegment()
+    {
+        if (_buffer.DocCount == 0) return;
+
+        int docCountToFlush = _buffer.DocCount;
+
+        var segInfo = SegmentFlusher.Flush(
+            _buffer, _config, _directory.DirectoryPath,
+            ref _nextSegmentOrdinal, _commitGeneration,
+            _flushSeqNoStart, _nextSequenceNumber);
+
+        _committedSegments.Add(segInfo);
+        ResetBuffer();
+
+        // Release semaphore slots AFTER the flush is complete and buffers are cleared.
+        if (_backpressureSemaphore is not null && docCountToFlush > 0)
+        {
+            int toRelease = Math.Min(docCountToFlush, _semaphoreSlotsHeld);
+            if (toRelease > 0)
+            {
+                _backpressureSemaphore.Release(toRelease);
+                _semaphoreSlotsHeld -= toRelease;
+            }
         }
     }
 }
