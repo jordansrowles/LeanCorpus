@@ -4,7 +4,7 @@ using Rowles.LeanCorpus.Codecs.Fst;
 namespace Rowles.LeanCorpus.Tests.Unit.Codecs.Fst;
 
 /// <summary>
-/// Tests for <see cref="FstBuilder"/> � the minimal acyclic FST builder.
+/// Tests for <see cref="FstBuilder"/> � the minimal acyclic FST builder.
 /// Since <c>FstReader</c> does not yet exist, tests focus on:
 /// correct <see cref="FstBuilder.Count"/>, exception behaviour (sorted-order enforcement),
 /// output byte array validity, and size sanity (suffix sharing compresses output).
@@ -18,7 +18,7 @@ public sealed class FstBuilderTests
 
     /// <summary>
     /// Builds an FST from the given (string key, long output) pairs.
-    /// Keys are NOT sorted here � caller must supply them in order.
+    /// Keys are NOT sorted here � caller must supply them in order.
     /// </summary>
     private static (byte[] Data, int Count) BuildFst(params (string Key, long Output)[] entries)
     {
@@ -319,7 +319,7 @@ public sealed class FstBuilderTests
     [Fact(DisplayName = "Build: Zero Outputs Succeeds")]
     public void Build_ZeroOutputs_Succeeds()
     {
-        // All outputs are zero � should still build correctly
+        // All outputs are zero � should still build correctly
         var builder = new FstBuilder();
         builder.Add(Utf8("alpha"), 0L);
         builder.Add(Utf8("beta"), 0L);
@@ -364,7 +364,7 @@ public sealed class FstBuilderTests
     [Fact(DisplayName = "Build: Monotonically Increasing Outputs Succeeds")]
     public void Build_MonotonicallyIncreasingOutputs_Succeeds()
     {
-        // Simulates real postings offsets � strictly increasing
+        // Simulates real postings offsets � strictly increasing
         var builder = new FstBuilder();
         long offset = 0;
         var terms = new[] { "apple", "banana", "cherry", "date", "elderberry",
@@ -421,5 +421,112 @@ public sealed class FstBuilderTests
         var data = builder.Finish();
         Assert.Equal(100, builder.Count);
         Assert.NotNull(data);
+    }
+
+    // ── Phase 3: FstBuilder edge cases ────────────────────────────────────
+
+    [Fact(DisplayName = "Build: VarInt Byte Boundaries Round Trip")]
+    public void Build_VarIntByteBoundaries_RoundTrip()
+    {
+        // Outputs at each VarInt byte boundary — verify round-trip through FstReader.
+        var entries = new (string, long)[]
+        {
+            ("a", 0),
+            ("b", 1),
+            ("c", 127),                    // 1-byte max
+            ("d", 128),                    // 2-byte min
+            ("e", 16383),                  // 2-byte max
+            ("f", 16384),                  // 3-byte min
+            ("g", 2097151),                // 3-byte max
+            ("h", 2097152),                // 4-byte min
+            ("i", 268435455),              // 4-byte max
+            ("j", 268435456),              // 5-byte min
+            ("k", 34359738367),            // 5-byte max
+            ("l", 34359738368),            // 6-byte min
+            ("m", 4398046511103L),         // 6-byte max
+            ("n", 4398046511104L),         // 7-byte min
+            ("o", 562949953421311L),       // 7-byte max
+            ("p", 562949953421312L),       // 8-byte min
+            ("q", 72057594037927935L),     // 8-byte max
+            ("r", 72057594037927936L),     // 9-byte min
+            ("s", 9223372036854775807L),   // 9-byte max (long.MaxValue / 2)
+            ("t", long.MaxValue),
+        };
+        Array.Sort(entries, (a, b) => StringComparer.Ordinal.Compare(a.Item1, b.Item1));
+
+        var builder = new FstBuilder();
+        foreach (var (key, output) in entries)
+            builder.Add(Utf8(key), output);
+        var data = builder.Finish();
+        Assert.Equal(entries.Length, builder.Count);
+
+        var reader = FstReader.Open(data);
+        foreach (var (key, expected) in entries)
+        {
+            Assert.True(reader.TryGetOutput(Utf8(key), out long got),
+                $"missing key '{key}' with expected {expected}");
+            Assert.Equal(expected, got);
+        }
+    }
+
+    [Fact(DisplayName = "Build: Complex Output Distribution Preserves Outputs")]
+    public void Build_ComplexOutputDistribution_PreservesOutputs()
+    {
+        // "a" → 10, "ab" → 15, "abc" → 20, "abd" → 25
+        // The output distribution algorithm must preserve each key's final output sum.
+        var entries = new (string, long)[]
+        {
+            ("a", 10),
+            ("ab", 15),
+            ("abc", 20),
+            ("abd", 25),
+        };
+        var builder = new FstBuilder();
+        foreach (var (key, output) in entries)
+            builder.Add(Utf8(key), output);
+        var data = builder.Finish();
+        Assert.Equal(entries.Length, builder.Count);
+
+        var reader = FstReader.Open(data);
+        foreach (var (key, expected) in entries)
+        {
+            Assert.True(reader.TryGetOutput(Utf8(key), out long got),
+                $"missing key '{key}'");
+            Assert.Equal(expected, got);
+        }
+    }
+
+    [Fact(DisplayName = "Build: Frontier Capacity Growth Handles Many Long Keys")]
+    public void Build_FrontierCapacityGrowth_HandlesManyLongKeys()
+    {
+        // 100 keys that are all ~10KB long — well beyond initial frontier capacity of 64.
+        var keys = new List<string>();
+        var rng = new Random(42);
+        for (int i = 0; i < 100; i++)
+        {
+            var sb = new StringBuilder();
+            sb.Append($"key_{i:D4}_");
+            while (sb.Length < 10_000)
+                sb.Append((char)('a' + rng.Next(26)));
+            keys.Add(sb.ToString());
+        }
+        keys.Sort(StringComparer.Ordinal);
+
+        var builder = new FstBuilder();
+        for (int i = 0; i < keys.Count; i++)
+            builder.Add(Utf8(keys[i]), i * 10L);
+        var data = builder.Finish();
+        Assert.Equal(keys.Count, builder.Count);
+        Assert.NotNull(data);
+        Assert.True(data.Length > 4);
+
+        // Verify round-trip through reader
+        var reader = FstReader.Open(data);
+        for (int i = 0; i < keys.Count; i++)
+        {
+            Assert.True(reader.TryGetOutput(Utf8(keys[i]), out long got),
+                $"missing key index {i}");
+            Assert.Equal(i * 10L, got);
+        }
     }
 }

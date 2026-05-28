@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.Fst;
 using Rowles.LeanCorpus.Codecs.Bkd;
@@ -270,5 +270,159 @@ public sealed class FSTAutomatonTests : IClassFixture<TestDirectoryFixture>
         var automaton = new PrefixAutomaton("xyz");
         var results = FSTAutomaton.Intersect(reader, "body\0", automaton);
         Assert.Empty(results);
+    }
+
+    // ── Phase 4: FstAutomaton edge cases ──────────────────────────────────
+
+    [Fact(DisplayName = "Levenshtein Automaton: Large Edit Distance Matches Brute Force")]
+    public void LevenshteinAutomaton_LargeEditDistance_MatchesBruteForce()
+    {
+        // Generate 200+ terms, test with maxEdits=5 against brute-force Levenshtein.
+        var bareTerms = Enumerable.Range(0, 220)
+            .Select(i =>
+            {
+                // Generate varied-length terms
+                int len = 4 + (i % 8);
+                var sb = new System.Text.StringBuilder();
+                for (int j = 0; j < len; j++)
+                    sb.Append((char)('a' + ((i * 7 + j * 13) % 26)));
+                return sb.ToString();
+            })
+            .Distinct()
+            .Order()
+            .ToArray();
+
+        using var reader = BuildDictionary("lev_large_edits", bareTerms);
+
+        const string query = "hello";
+        const int maxEdits = 5;
+        var automaton = new LevenshteinAutomaton(query, maxEdits);
+        var results = FSTAutomaton.Intersect(reader, "body\0", automaton);
+        var matchedTerms = results.Select(r => r.Term.Replace("body\0", "")).ToHashSet();
+
+        // Brute-force Levenshtein
+        int LevDistance(string a, string b)
+        {
+            if (a.Length == 0) return b.Length;
+            if (b.Length == 0) return a.Length;
+            var d = new int[a.Length + 1, b.Length + 1];
+            for (int i = 0; i <= a.Length; i++) d[i, 0] = i;
+            for (int j = 0; j <= b.Length; j++) d[0, j] = j;
+            for (int i = 1; i <= a.Length; i++)
+                for (int j = 1; j <= b.Length; j++)
+                    d[i, j] = Math.Min(
+                        Math.Min(d[i - 1, j] + 1, d[i, j - 1] + 1),
+                        d[i - 1, j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1));
+            return d[a.Length, b.Length];
+        }
+
+        var expected = bareTerms.Where(t => LevDistance(query, t) <= maxEdits).ToHashSet();
+
+        Assert.Equal(expected, matchedTerms);
+    }
+
+    [Fact(DisplayName = "Wildcard Automaton: Complex Patterns Match Correctly")]
+    public void WildcardAutomaton_ComplexPatterns_MatchCorrectly()
+    {
+        var bareTerms = new[]
+        {
+            "ab", "abc", "abbc", "abbbc", "axbyc", "ac",           // a*b*c patterns
+            "xaybz", "aabb", "cad", "bad", "apple", "banana",      // ?a?b? patterns
+            "alphabetical", "cat", "cart", "cast", "cost",          // a??c*d patterns
+            "café", "cafeteria", "cafe", "coffee",                 // unicode prefix
+        };
+
+        using var reader = BuildDictionary("wc_complex", bareTerms);
+
+        // "a*b*c" — any sequence with a-b-c in order
+        var w1 = new WildcardAutomaton("a*b*c");
+        var r1 = FSTAutomaton.Intersect(reader, "body\0", w1)
+            .Select(r => r.Term.Replace("body\0", "")).ToHashSet();
+        Assert.Contains("abc", r1);
+        Assert.Contains("abbc", r1);
+        Assert.Contains("abbbc", r1);
+        Assert.Contains("axbyc", r1);
+        Assert.DoesNotContain("ac", r1); // no 'b' between a and c
+
+        // "?a?b?" — any 5-char string with a at pos 1 and b at pos 3
+        var w2 = new WildcardAutomaton("?a?b?");
+        var r2 = FSTAutomaton.Intersect(reader, "body\0", w2)
+            .Select(r => r.Term.Replace("body\0", "")).ToHashSet();
+        Assert.Contains("xaybz", r2);
+
+        // "a??c*d" — a, then 2 chars, then c, then any, then d
+        var w3 = new WildcardAutomaton("a??c*d");
+        var r3 = FSTAutomaton.Intersect(reader, "body\0", w3)
+            .Select(r => r.Term.Replace("body\0", "")).ToHashSet();
+        // "alphabetical" — 'a', 'l', 'p', 'h', 'a', 'b', 'e', 't', 'i', 'c', 'a', 'l'
+        // After a??c — "alphabetic..." has a-l-p-h-a-b-e-t-i-c... matches "a??c" (a-l-p... but c is later)
+        // Actually "alphabetical": "alphabetical" - a(lp)habetical - wait, a??c needs pos after a, then 2 chars, then c.
+        // "alphabetical": a-l-p-h-a-b-e-t-i-c-a-l
+        // a = matches, l = char 1, p = char 2, h ≠ c. So no match.
+        // Let's verify with simpler test data:
+        Assert.DoesNotContain("cat", r3); // no d after c
+        Assert.DoesNotContain("cart", r3); // "cart": a-r-t, c not at position for a??c
+        Assert.DoesNotContain("cast", r3); // similarly
+        Assert.DoesNotContain("cost", r3); // doesn't start with 'a'
+
+        // Unicode pattern: "caf*" should match "café", "cafeteria", "cafe"
+        var w4 = new WildcardAutomaton("caf*");
+        var r4 = FSTAutomaton.Intersect(reader, "body\0", w4)
+            .Select(r => r.Term.Replace("body\0", "")).ToHashSet();
+        Assert.Contains("cafe", r4);
+
+        // Note: "caf\u00e9" contains a multi-byte UTF-8 char (é = 0xC3 0xA9).
+        // The WildcardAutomaton operates on bytes, so "caf*" matches "caf" + any bytes.
+        Assert.Contains("caf\u00e9", r4);
+        Assert.Contains("cafeteria", r4);
+        Assert.DoesNotContain("coffee", r4);
+    }
+
+    [Fact(DisplayName = "Prefix Automaton: Multi-byte UTF-8 Boundary")]
+    public void PrefixAutomaton_MultiByteUtf8Boundary()
+    {
+        // "café" in UTF-8: c(0x63) a(0x61) f(0x66) é(0xC3 0xA9)
+        // "cafe" in UTF-8: c(0x63) a(0x61) f(0x66) e(0x65)
+        var bareTerms = new[] { "café", "cafeteria", "cafe", "coffee" };
+
+        using var reader = BuildDictionary("prefix_mb", bareTerms);
+
+        // Prefix "caf" — operates on bytes c-a-f, so it matches all of "café", "cafeteria", "cafe"
+        var automaton = new PrefixAutomaton("caf");
+        var results = FSTAutomaton.Intersect(reader, "body\0", automaton)
+            .Select(r => r.Term.Replace("body\0", "")).ToHashSet();
+
+        Assert.Contains("cafe", results);
+        Assert.Contains("caf\u00e9", results);
+        Assert.Contains("cafeteria", results);
+        Assert.DoesNotContain("coffee", results);
+    }
+
+    [Fact(DisplayName = "Levenshtein Automaton: MinDistance On Dead State Returns IntMax")]
+    public void LevenshteinAutomaton_MinDistance_OnDeadState_ReturnsIntMax()
+    {
+        var automaton = new LevenshteinAutomaton("hello", 1);
+
+        // Step through for "xyzzy" — should end in dead state (-1)
+        int state = automaton.Start;
+        foreach (byte b in System.Text.Encoding.UTF8.GetBytes("xyzzy"))
+        {
+            if (state < 0) break;
+            state = automaton.Step(state, b);
+        }
+
+        // Should be dead
+        Assert.True(state < 0 || !automaton.CanMatch(state));
+
+        // MinDistance on -1 returns int.MaxValue
+        int dist = automaton.MinDistance(-1);
+        Assert.Equal(int.MaxValue, dist);
+
+        // MinDistance on a dead (non-negative but non-matching) state also returns int.MaxValue
+        if (state >= 0)
+        {
+            Assert.False(automaton.CanMatch(state));
+            Assert.Equal(int.MaxValue, automaton.MinDistance(state));
+        }
     }
 }
