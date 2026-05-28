@@ -80,13 +80,13 @@ public sealed class HunspellDictionary
         ArgumentNullException.ThrowIfNull(dictionaryText);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxGeneratedFormsPerEntry, 1);
 
-        var rules = ParseAffixes(affixText);
+        var (rules, aliases) = ParseAffixes(affixText);
         var stems = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
 
         // Collect morphological tags if present
         var morphology = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var entry in ParseEntries(dictionaryText))
+        foreach (var entry in ParseEntries(dictionaryText, aliases))
         {
             int generatedForms = 0;
             AddStem(stems, entry.Word, entry.Word);
@@ -127,7 +127,7 @@ public sealed class HunspellDictionary
             ? stems
             : Array.Empty<string>();
 
-    private static Dictionary<(char Flag, AffixKind Kind), List<AffixRule>> ParseAffixes(string affixText)
+    private static (Dictionary<(char Flag, AffixKind Kind), List<AffixRule>> Rules, Dictionary<int, string> Aliases) ParseAffixes(string affixText)
     {
         var rules = new Dictionary<(char Flag, AffixKind Kind), List<AffixRule>>();
         var aliases = new Dictionary<int, string>(); // AF alias: index → flag string
@@ -216,10 +216,10 @@ public sealed class HunspellDictionary
         }
 
         // Resolve AF aliases in parsed entries (handled in ParseEntries)
-        return rules;
+        return (rules, aliases);
     }
 
-    private static IEnumerable<DictionaryEntry> ParseEntries(string dictionaryText)
+    private static IEnumerable<DictionaryEntry> ParseEntries(string dictionaryText, Dictionary<int, string> aliases)
     {
         var lines = dictionaryText.Replace("\r", string.Empty, StringComparison.Ordinal).Split('\n');
         int start = lines.Length > 0 && int.TryParse(lines[0], out _) ? 1 : 0;
@@ -263,10 +263,9 @@ public sealed class HunspellDictionary
             var flags = new List<char>();
             foreach (var part in flagPart.Split(' ', StringSplitOptions.RemoveEmptyEntries))
             {
-                if (int.TryParse(part, out _))
+                if (int.TryParse(part, out var aliasIndex) && aliases.TryGetValue(aliasIndex, out var aliasFlags))
                 {
-                    // Numeric alias reference — skip for now (full alias resolution
-                    // would need access to the AFF alias table from ParseEntries)
+                    flags.AddRange(aliasFlags.ToCharArray());
                     continue;
                 }
 

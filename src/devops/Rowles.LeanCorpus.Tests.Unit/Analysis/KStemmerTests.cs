@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis.Stemmers;
+using Rowles.LeanCorpus.Analysis.Stemmers;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Analysis;
 
@@ -132,5 +132,13 @@ public sealed class KStemmerTests
         if (dir is null)
             throw new InvalidOperationException($"Could not find lexicons/{fileName}. Ensure the test is run from within the repository.");
         return Path.Combine(dir.FullName, "lexicons", fileName);
+    }
+
+    [Fact(DisplayName = "KStemmer: No Vowel Root With ed Suffix Returns Self")]
+    public void Stem_NoVowelRootWithEdSuffix_ReturnsSelf()
+    {
+        // Root "bcdfg" has no vowels, so the -ed stripping rule (which requires
+        // ContainsVowel on the root) is rejected and the word is unchanged.
+        Assert.Equal("bcdfged", _stemmer.Stem("bcdfged"));
     }
 }

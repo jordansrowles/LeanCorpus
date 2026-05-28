@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Filters;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
 
@@ -235,5 +235,98 @@ play/D
         filter.Apply(tokens);
 
         Assert.Equal("play", tokens[0].Text);
+    }
+
+    [Fact(DisplayName = "Hunspell Dictionary: AF Alias Resolves Numeric Flag References")]
+    public void HunspellDictionary_AF_Alias_ResolvesNumericFlags()
+    {
+        const string aff = """
+SET UTF-8
+AF 1 AB
+PFX A Y 1
+PFX A 0 re .
+SFX B Y 1
+SFX B 0 ing .
+""";
+        const string dic = """
+1
+play/1
+""";
+        var dictionary = HunspellDictionary.Parse(aff, dic);
+
+        Assert.Contains("play", dictionary.Stem("replaying"));
+    }
+
+    [Fact(DisplayName = "Hunspell Dictionary: Character Range Condition Is Expanded")]
+    public void HunspellDictionary_CharacterRangeCondition_IsExpanded()
+    {
+        const string aff = """
+SET UTF-8
+PFX A Y 1
+PFX A 0 re [a-p]
+""";
+        const string dic = """
+2
+play/A
+query/A
+""";
+        var dictionary = HunspellDictionary.Parse(aff, dic);
+
+        Assert.Contains("play", dictionary.Stem("replay"));
+        Assert.Empty(dictionary.Stem("requery"));
+    }
+
+    [Fact(DisplayName = "Hunspell Dictionary: FromFile Loads and Parses")]
+    public void HunspellDictionary_FromFile_LoadsAndParses()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"hunspell_test_{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var affPath = Path.Combine(tempDir, "test.aff");
+            var dicPath = Path.Combine(tempDir, "test.dic");
+            File.WriteAllText(affPath, "SET UTF-8\nSFX D Y 1\nSFX D 0 ing .\n");
+            File.WriteAllText(dicPath, "1\nplay/D\n");
+
+            var dictionary = HunspellDictionary.FromFile(affPath, dicPath);
+
+            Assert.Contains("play", dictionary.Stem("playing"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Hunspell Dictionary: FromStream Loads and Parses")]
+    public void HunspellDictionary_FromStream_LoadsAndParses()
+    {
+        var affBytes = System.Text.Encoding.UTF8.GetBytes("SET UTF-8\nSFX D Y 1\nSFX D 0 ing .\n");
+        var dicBytes = System.Text.Encoding.UTF8.GetBytes("1\nplay/D\n");
+
+        using var affStream = new MemoryStream(affBytes);
+        using var dicStream = new MemoryStream(dicBytes);
+
+        var dictionary = HunspellDictionary.FromStream(affStream, dicStream);
+
+        Assert.Contains("play", dictionary.Stem("playing"));
+    }
+
+    [Fact(DisplayName = "Hunspell Dictionary: Morphological Tags Do Not Break Parsing")]
+    public void HunspellDictionary_MorphologicalTags_DoNotBreakParsing()
+    {
+        const string aff = """
+SET UTF-8
+SFX D Y 1
+SFX D 0 ing .
+""";
+        const string dic = """
+1
+walk/D po:verb is:base
+""";
+        var dictionary = HunspellDictionary.Parse(aff, dic);
+
+        Assert.Contains("walk", dictionary.Stem("walking"));
     }
 }
