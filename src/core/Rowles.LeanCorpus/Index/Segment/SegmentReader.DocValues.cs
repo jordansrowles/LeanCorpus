@@ -1,6 +1,7 @@
 ﻿using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.Vectors;
+using Rowles.LeanCorpus.Util;
 
 namespace Rowles.LeanCorpus.Index.Segment;
 
@@ -219,14 +220,77 @@ public sealed partial class SegmentReader
     public List<(int DocId, double Value)> GetNumericRange(string field, double min, double max)
     {
         var results = new List<(int, double)>();
+        VisitNumericRange(field, min, max, (docId, value) => results.Add((docId, value)));
+        return results;
+    }
 
-        // Fast path: use the BKD tree if one is available for this segment.
+    internal bool VisitNumericRange(string field, double min, double max, Action<int, double> visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+
         var bkd = EnsureBkdReader();
         if (bkd is not null && bkd.HasField(field))
         {
-            var raw = bkd.RangeQuery(field, min, max);
+            bkd.VisitRange(field, min, max, (docId, value) =>
+            {
+                if (_liveDocs is null || IsLive(docId))
+                    visitor(docId, value);
+            });
+            return true;
+        }
+
+        var numericIndex = EnsureNumericIndex();
+        if (numericIndex.TryGetValue(field, out var fieldMap))
+        {
+            foreach (var (docId, value) in fieldMap)
+            {
+                if (value >= min && value <= max && IsLive(docId))
+                    visitor(docId, value);
+            }
+
+            return true;
+        }
+
+        var numericDocValues = EnsureNumericDocValues();
+        if (!numericDocValues.TryGetValue(field, out var values))
+            return false;
+
+        RoaringBitmap? presenceBitmap = null;
+        _numericDocValuesPresence?.TryGetValue(field, out presenceBitmap);
+        for (int docId = 0; docId < values.Length; docId++)
+        {
+            if (!IsLive(docId))
+                continue;
+
+            if (presenceBitmap is not null && !presenceBitmap.Contains(docId))
+                continue;
+
+            double value = values[docId];
+            if (value >= min && value <= max)
+                visitor(docId, value);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Returns all document IDs whose numeric point value is equal to any value in the supplied set.
+    /// </summary>
+    public List<(int DocId, double Value)> GetNumericPointsInSet(string field, IReadOnlySet<double> values)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+
+        var results = new List<(int, double)>();
+        if (values.Count == 0)
+            return results;
+
+        var bkd = EnsureBkdReader();
+        if (bkd is not null && bkd.HasField(field))
+        {
+            var raw = bkd.ExactSetQuery(field, values);
             if (_liveDocs is null)
                 return raw;
+
             results.Capacity = raw.Count;
             foreach (var hit in raw)
             {
@@ -236,18 +300,42 @@ public sealed partial class SegmentReader
             return results;
         }
 
-        // Fallback: linear scan of the sparse numeric index. Used for legacy segments
-        // written before BKD was wired or when the .bkd file is missing for this field.
         var numericIndex = EnsureNumericIndex();
         if (!numericIndex.TryGetValue(field, out var fieldMap))
             return results;
 
         foreach (var (docId, value) in fieldMap)
         {
-            if (value >= min && value <= max && IsLive(docId))
+            if (values.Contains(value) && IsLive(docId))
                 results.Add((docId, value));
         }
+
         return results;
+    }
+
+    /// <summary>Returns <see langword="true"/> when the document contains at least one value for the named field.</summary>
+    public bool HasFieldValue(string field, int docId)
+    {
+        if (TryGetFieldLengths(field, out var lengths) &&
+            (uint)docId < (uint)lengths.Length &&
+            lengths[docId] > 0)
+        {
+            return true;
+        }
+
+        if (TryGetNumericValue(field, docId, out _) ||
+            TryGetSortedDocValue(field, docId, out _) ||
+            TryGetSortedSetDocValues(field, docId, out var sortedSetValues) && sortedSetValues.Count > 0 ||
+            TryGetSortedNumericDocValues(field, docId, out var sortedNumericValues) && sortedNumericValues.Count > 0 ||
+            TryGetBinaryDocValues(field, docId, out var binaryValues) && binaryValues.Count > 0)
+        {
+            return true;
+        }
+
+        if (_vectorPaths.ContainsKey(field) && GetVector(field, docId) is { Length: > 0 })
+            return true;
+
+        return _storedReader is not null && _storedReader.HasField(docId, field);
     }
 
     /// <summary>

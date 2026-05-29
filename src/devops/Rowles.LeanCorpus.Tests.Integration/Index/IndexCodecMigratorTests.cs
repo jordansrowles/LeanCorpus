@@ -23,7 +23,7 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
 
     public static IEnumerable<object[]> CodecCases()
     {
-        yield return [new MigrationCodecCase("term-dictionary", [".dic"], 1, directory => RewriteTermDictionaryAsV1(Directory.GetFiles(directory.DirectoryPath, "*.dic").Single()))];
+        yield return [new MigrationCodecCase("term-dictionary", [".dic"], 1, directory => RewriteTermDictionaryAsV1(Directory.GetFiles(directory.DirectoryPath, "*.dic").Single()), BlocksLiveReads: true)];
         yield return [new MigrationCodecCase("postings", [".pos"], 2, RewritePostingsAsV2)];
         yield return [new MigrationCodecCase("numeric-doc-values", [".dvn"], 1, RewriteNumericDocValuesAsV1)];
         yield return [new MigrationCodecCase("sorted-doc-values", [".dvs"], 1, RewriteSortedDocValuesAsV1)];
@@ -63,7 +63,10 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
     {
         using var directory = CreateMigrationIndex($"migrate_{testCase.Name}", out var expected);
         testCase.Downgrade(directory);
-        AssertReadable(directory, expected);
+        if (!testCase.BlocksLiveReads)
+        {
+            AssertReadable(directory, expected);
+        }
         var stagingDirectory = Path.Combine(_fixture.Path, $"migrate_{testCase.Name}_staging_{Guid.NewGuid():N}");
 
         var result = IndexCodecMigrator.Migrate(directory, new IndexCodecMigrationOptions
@@ -118,7 +121,10 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         Assert.True(result.DryRun);
         Assert.NotEmpty(result.ExecutedActions);
         Assert.Equal(versionsBefore, CaptureVersions(directory, testCase.ExpectedExtensions));
-        AssertReadable(directory, expected);
+        if (!testCase.BlocksLiveReads)
+        {
+            AssertReadable(directory, expected);
+        }
     }
 
     [Fact]
@@ -678,7 +684,7 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         writer.Write(version);
     }
 
-    public sealed record MigrationCodecCase(string Name, IReadOnlyList<string> ExpectedExtensions, byte LegacyVersion, Action<MMapDirectory> Downgrade)
+    public sealed record MigrationCodecCase(string Name, IReadOnlyList<string> ExpectedExtensions, byte LegacyVersion, Action<MMapDirectory> Downgrade, bool BlocksLiveReads = false)
     {
         public override string ToString() => Name;
     }

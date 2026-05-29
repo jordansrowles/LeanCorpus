@@ -1,8 +1,11 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Rowles.LeanCorpus.Serialization;
 using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Index.Compatibility;
+using Rowles.LeanCorpus.Search;
+using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
@@ -17,50 +20,22 @@ public sealed partial class IndexWriter : IDisposable
     private readonly IndexWriterConfig _config;
     private readonly IAnalyser _defaultAnalyser;
 
-    // Unified posting accumulator keyed by qualified term ("field\0term")
-    private Dictionary<string, PostingAccumulator> _postings = new(8192, StringComparer.Ordinal);
-    // Flat stored field buffer: parallel arrays indexed by entry position
-    private List<int> _sfFieldIds = new(4096);
-    private List<string> _sfValues = new(4096);
-    private List<int> _sfDocStarts = new(256);
-    private readonly Dictionary<string, int> _sfFieldNameToId = new(StringComparer.Ordinal);
-    private readonly List<string> _sfFieldIdToName = new();
-    // Buffered numeric fields per document
-    private List<Dictionary<string, double>> _numericFields = [];
-    // Per-field numeric values for range indexing: field → docId → value
-    private Dictionary<string, Dictionary<int, double>> _numericIndex = new();
-    private Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> _bufferedVectors =
-        new(StringComparer.Ordinal);
-    private readonly HashSet<string> _termPool = new(4096, StringComparer.Ordinal);
-    // Per-field per-doc token counts for O(1) per-field norm computation
-    private Dictionary<string, int[]> _docTokenCounts = new(StringComparer.Ordinal);
-    // Track field names seen in this flush
-    private readonly HashSet<string> _fieldNames = new(StringComparer.Ordinal);
-    // Cache qualified term strings to avoid repeated string.Concat, keyed by the qualified term itself
-    private Dictionary<string, string> _qualifiedTermPool = new(8192, StringComparer.Ordinal);
-    // Cache field name prefixes ("fieldName\0") to avoid repeated prefix construction
-    private readonly Dictionary<string, string> _fieldPrefixCache = new(StringComparer.Ordinal);
-    // DocValues accumulators: field → per-doc values
-    private Dictionary<string, List<double>> _numericDocValues = new(StringComparer.Ordinal);
-    private Dictionary<string, List<string?>> _sortedDocValues = new(StringComparer.Ordinal);
-    private Dictionary<string, Dictionary<int, List<string>>> _sortedSetDocValues = new(StringComparer.Ordinal);
-    private Dictionary<string, Dictionary<int, List<double>>> _sortedNumericDocValues = new(StringComparer.Ordinal);
-    private Dictionary<string, Dictionary<int, List<byte[]>>> _binaryDocValues = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, IAnalyser> _analyserCache = new(StringComparer.Ordinal);
-    private readonly List<string> _sortedTermsBuffer = new(capacity: 10000);
-    // Parent bitset for block-join indexing: tracks which buffered doc IDs are parent docs
-    private HashSet<int>? _parentDocIds;
+    private DocumentBufferState _buffer = new();
 
-    private int _bufferedDocCount;
-    private long _estimatedRamBytes;
-    private long _postingsRamBytes; // incrementally tracked sum of all PostingAccumulator.EstimatedBytes
+    private readonly Dictionary<string, IAnalyser> _analyserCache = new(StringComparer.Ordinal);
+    private readonly SpanCountingTokenSink _spanCountingSink = new();
+    private readonly SpanPostingTokenSink _spanPostingSink;
+
+    // Sequence number tracking
+    private long _nextSequenceNumber;
+    private long _flushSeqNoStart;
     private int _nextSegmentOrdinal;
     private int _commitGeneration;
     private long _contentToken;
     private bool _contentChangedSinceCommit;
     private readonly List<SegmentInfo> _committedSegments = [];
-    // Pending deletions: field → term → set of matching terms to delete
-    private readonly List<(string field, string term)> _pendingDeletes = [];
+    // Pending deletions: field  ->  term  ->  set of matching terms to delete
+    private readonly List<(string field, string term, bool isSoftDelete)> _pendingDeletes = [];
     private readonly Lock _writeLock = new();
     private readonly SemaphoreSlim? _backpressureSemaphore;
     private int _flushElection;
@@ -70,7 +45,8 @@ public sealed partial class IndexWriter : IDisposable
     private int _semaphoreSlotsHeld;
     private readonly List<IndexSnapshot> _heldSnapshots = [];
     private int _disposed;      // 0 = alive, 1 = disposed (atomically set via Interlocked)
-    private int _inFlightAdds;  // count of AddDocumentLockFree callers currently inside the hot path
+    private int _inFlightAdds;  // count of indexing callers that passed the disposed-check gate
+    private int _indexingFailed;
     private readonly FileStream _writeLockFile;
     // Background merge
     private Task? _mergeTask;
@@ -93,6 +69,7 @@ public sealed partial class IndexWriter : IDisposable
     {
         _directory = directory;
         _config = config;
+        _spanPostingSink = new SpanPostingTokenSink(_buffer, _config);
 
         // If using default StandardAnalyser and config has custom stop words or cache size, rebuild it
         if (config.DefaultAnalyser is StandardAnalyser &&
@@ -125,6 +102,12 @@ public sealed partial class IndexWriter : IDisposable
     }
 
     /// <summary>
+    /// Returns the sequence number that will be assigned to the next indexed document.
+    /// Only meaningful when <see cref="IndexWriterConfig.TrackSequenceNumbers"/> is enabled.
+    /// </summary>
+    public long NextSequenceNumber => Volatile.Read(ref _nextSequenceNumber);
+
+    /// <summary>
     /// Indexes a single document. Validates the document against the schema if one is configured.
     /// May block if <see cref="IndexWriterConfig.MaxQueuedDocs"/> backpressure is enabled.
     /// Automatically flushes a segment when the RAM or document count threshold is reached.
@@ -134,45 +117,57 @@ public sealed partial class IndexWriter : IDisposable
     /// <exception cref="SchemaValidationException">Thrown if the document violates the configured schema.</exception>
     public void AddDocument(LeanDocument doc)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        _config.Schema?.Validate(doc);
-
-        // Apply backpressure if enabled: wait for a semaphore slot before acquiring the write lock.
-        // This prevents unbounded memory growth when documents are queued faster than they can be flushed.
-        // When the semaphore is exhausted, ONE thread is elected to flush while others
-        // simply Wait() for the slot to become available. The election prevents N threads from all
-        // re-acquiring _writeLock and sequentially calling FlushSegment when only one flush is needed.
-        AcquireBackpressureSlot();
-
+        EnterIndexingOperation();
         try
         {
-            lock (_writeLock)
-            {
-                // We hold a semaphore slot at this point. Track it under the
-                // existing write lock so AddDocument does not take a second lock
-                // just for backpressure accounting.
-                if (_backpressureSemaphore is not null)
-                    _semaphoreSlotsHeld++;
+            ValidateDocument(doc);
 
-                // Merge backpressure: if too many unmerged segments, flush and merge now
-                if (ShouldThrottleForMerge() && _bufferedDocCount > 0)
-                    FlushSegment();
+            // Apply backpressure if enabled: wait for a semaphore slot before acquiring the write lock.
+            // This prevents unbounded memory growth when documents are queued faster than they can be flushed.
+            // When the semaphore is exhausted, ONE thread is elected to flush while others
+            // simply Wait() for the slot to become available. The election prevents N threads from all
+            // re-acquiring _writeLock and sequentially calling FlushSegment when only one flush is needed.
+            AcquireBackpressureSlot();
 
-                AddDocumentCore(doc);
-            }
-        }
-        catch
-        {
-            // If AddDocumentCore fails, release the semaphore slot immediately
-            if (_backpressureSemaphore is not null)
+            bool enteredCore = false;
+            try
             {
-                _backpressureSemaphore.Release();
                 lock (_writeLock)
                 {
-                    _semaphoreSlotsHeld--;
+                    // We hold a semaphore slot at this point. Track it under the
+                    // existing write lock so AddDocument does not take a second lock
+                    // just for backpressure accounting.
+                    if (_backpressureSemaphore is not null)
+                        _semaphoreSlotsHeld++;
+
+                    // Merge backpressure: if too many unmerged segments, flush and merge now
+                    if (ShouldThrottleForMerge() && _buffer.DocCount > 0)
+                        FlushSegment();
+
+                    enteredCore = true;
+                    AddDocumentCore(doc);
                 }
             }
-            throw;
+            catch
+            {
+                if (enteredCore)
+                    MarkIndexingFailed();
+
+                // If AddDocumentCore fails, release the semaphore slot immediately
+                if (_backpressureSemaphore is not null)
+                {
+                    _backpressureSemaphore.Release();
+                    lock (_writeLock)
+                    {
+                        _semaphoreSlotsHeld--;
+                    }
+                }
+                throw;
+            }
+        }
+        finally
+        {
+            ExitIndexingOperation();
         }
     }
 
@@ -183,61 +178,59 @@ public sealed partial class IndexWriter : IDisposable
     /// </summary>
     public void AddDocuments(IReadOnlyList<LeanDocument> documents)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        if (documents.Count == 0) return;
-        if (_backpressureSemaphore is not null && documents.Count > _config.MaxQueuedDocs)
-        {
-            foreach (var document in documents)
-                AddDocument(document);
-            return;
-        }
-
-        int acquired = 0;
-        bool addedToHeldSlots = false;
+        EnterIndexingOperation();
         try
         {
-            if (_backpressureSemaphore is not null)
+            ArgumentNullException.ThrowIfNull(documents);
+            if (documents.Count == 0) return;
+            ValidateDocuments(documents);
+            if (_backpressureSemaphore is not null && documents.Count > _config.MaxQueuedDocs)
             {
-                for (int i = 0; i < documents.Count; i++)
-                {
-                    AcquireBackpressureSlot();
-                    acquired++;
-                }
+                foreach (var document in documents)
+                    AddDocument(document);
+                return;
             }
 
-            lock (_writeLock)
+            int acquired = 0;
+            bool addedToHeldSlots = false;
+            bool enteredCore = false;
+            try
             {
                 if (_backpressureSemaphore is not null)
                 {
-                    _semaphoreSlotsHeld += acquired;
-                    addedToHeldSlots = true;
+                    for (int i = 0; i < documents.Count; i++)
+                    {
+                        AcquireBackpressureSlot();
+                        acquired++;
+                    }
                 }
 
-                for (int i = 0; i < documents.Count; i++)
-                    AddDocumentCore(documents[i]);
-            }
-        }
-        catch
-        {
-            if (_backpressureSemaphore is not null && acquired > 0)
-            {
-                if (!addedToHeldSlots)
-                {
-                    _backpressureSemaphore.Release(acquired);
-                    throw;
-                }
-
-                int toRelease;
                 lock (_writeLock)
                 {
-                    toRelease = Math.Min(acquired, Math.Max(0, _semaphoreSlotsHeld));
-                    if (toRelease > 0)
-                        _semaphoreSlotsHeld -= toRelease;
+                    if (_backpressureSemaphore is not null)
+                    {
+                        _semaphoreSlotsHeld += acquired;
+                        addedToHeldSlots = true;
+                    }
+
+                    for (int i = 0; i < documents.Count; i++)
+                    {
+                        enteredCore = true;
+                        AddDocumentCore(documents[i]);
+                    }
                 }
-                if (toRelease > 0)
-                    _backpressureSemaphore.Release(toRelease);
             }
-            throw;
+            catch
+            {
+                if (enteredCore)
+                    MarkIndexingFailed();
+                ReleaseFailedBackpressureSlots(acquired, addedToHeldSlots);
+                throw;
+            }
+        }
+        finally
+        {
+            ExitIndexingOperation();
         }
     }
 
@@ -251,70 +244,68 @@ public sealed partial class IndexWriter : IDisposable
     /// <exception cref="ArgumentException">Thrown if the block has fewer than 2 documents.</exception>
     public void AddDocumentBlock(IReadOnlyList<LeanDocument> block)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        if (block.Count < 2)
-            throw new ArgumentException("A document block requires at least one child and one parent document.", nameof(block));
-        if (_backpressureSemaphore is not null && block.Count > _config.MaxQueuedDocs)
-            throw new InvalidOperationException(
-                $"Document block contains {block.Count} documents, which exceeds MaxQueuedDocs ({_config.MaxQueuedDocs}).");
-
-        int acquired = 0;
-        bool addedToHeldSlots = false;
+        EnterIndexingOperation();
         try
         {
-            if (_backpressureSemaphore is not null)
-            {
-                for (int i = 0; i < block.Count; i++)
-                {
-                    AcquireBackpressureSlot();
-                    acquired++;
-                }
-            }
+            ArgumentNullException.ThrowIfNull(block);
+            if (block.Count < 2)
+                throw new ArgumentException("A document block requires at least one child and one parent document.", nameof(block));
+            ValidateDocuments(block);
+            if (_backpressureSemaphore is not null && block.Count > _config.MaxQueuedDocs)
+                throw new InvalidOperationException(
+                    $"Document block contains {block.Count} documents, which exceeds MaxQueuedDocs ({_config.MaxQueuedDocs}).");
 
-            lock (_writeLock)
+            int acquired = 0;
+            bool addedToHeldSlots = false;
+            bool enteredCore = false;
+            try
             {
                 if (_backpressureSemaphore is not null)
                 {
-                    _semaphoreSlotsHeld += acquired;
-                    addedToHeldSlots = true;
-                }
-
-                // Index all docs in the block contiguously.
-                // Record the parent ID BEFORE its AddDocumentCore call so that
-                // a mid-block flush (triggered inside AddDocumentCore) includes
-                // the correct parent in the ParentBitSet.
-                for (int i = 0; i < block.Count; i++)
-                {
-                    if (i == block.Count - 1)
+                    for (int i = 0; i < block.Count; i++)
                     {
-                        _parentDocIds ??= new HashSet<int>();
-                        _parentDocIds.Add(_bufferedDocCount);
+                        AcquireBackpressureSlot();
+                        acquired++;
                     }
-                    AddDocumentCore(block[i]);
-                }
-            }
-        }
-        catch
-        {
-            if (_backpressureSemaphore is not null && acquired > 0)
-            {
-                if (!addedToHeldSlots)
-                {
-                    _backpressureSemaphore.Release(acquired);
-                    throw;
                 }
 
-                int toRelease;
                 lock (_writeLock)
                 {
-                    toRelease = Math.Min(acquired, Math.Max(0, _semaphoreSlotsHeld));
-                    if (toRelease > 0)
-                        _semaphoreSlotsHeld -= toRelease;
+                    if (_backpressureSemaphore is not null)
+                    {
+                        _semaphoreSlotsHeld += acquired;
+                        addedToHeldSlots = true;
+                    }
+
+                    // Suppress threshold flushes until the parent marker is in place so
+                    // the block is never split across segments without its parent bit.
+                    for (int i = 0; i < block.Count; i++)
+                    {
+                        if (i == block.Count - 1)
+                        {
+                            _buffer.ParentDocIds ??= new HashSet<int>();
+                            _buffer.ParentDocIds.Add(_buffer.DocCount);
+                        }
+
+                        enteredCore = true;
+                        AddDocumentCore(block[i], suppressFlush: true);
+                    }
+
+                    if (ShouldFlush())
+                        FlushSegment();
                 }
-                if (toRelease > 0)
-                    _backpressureSemaphore.Release(toRelease);
             }
-            throw;
+            catch
+            {
+                if (enteredCore)
+                    MarkIndexingFailed();
+                ReleaseFailedBackpressureSlots(acquired, addedToHeldSlots);
+                throw;
+            }
+        }
+        finally
+        {
+            ExitIndexingOperation();
         }
     }
 
@@ -327,21 +318,243 @@ public sealed partial class IndexWriter : IDisposable
     /// </remarks>
     public void UpdateDocument(string field, string term, LeanDocument replacement)
     {
+        EnterIndexingOperation();
+        try
+        {
+            ValidateDocument(replacement);
+            bool enteredCore = false;
+            try
+            {
+                lock (_writeLock)
+                {
+                    // Capture the count of already-committed segments before any flush.
+                    // Deletions must not target the replacement segment that is about to be added.
+                    int preFlushSegmentCount = _committedSegments.Count;
+
+                    FlushDwptPool();
+                    if (_buffer.DocCount > 0)
+                        FlushSegment();
+
+                    _pendingDeletes.Add((field, term, isSoftDelete: false));
+                    // Restrict deletions to the segments that existed before this call.
+                    ApplyPendingDeletions(_committedSegments.GetRange(0, preFlushSegmentCount));
+                    enteredCore = true;
+                    AddDocumentCore(replacement);
+                }
+            }
+            catch
+            {
+                if (enteredCore)
+                    MarkIndexingFailed();
+                throw;
+            }
+        }
+        finally
+        {
+            ExitIndexingOperation();
+        }
+    }
+
+    /// <summary>
+    /// Soft-deletes documents matching the given term query by marking them as deleted
+    /// in the live-docs bitmap and recording an expiry timestamp. Soft-deleted documents
+    /// remain on disk until the retention period elapses, after which merges reclaim them.
+    /// The timestamp is recorded as Unix milliseconds in the <c>.del</c> file.
+    /// </summary>
+    /// <param name="query">The term query identifying documents to soft-delete.</param>
+    /// <exception cref="InvalidOperationException">Thrown when <see cref="IndexWriterConfig.SoftDeletesEnabled"/> is <c>false</c>.</exception>
+    public void SoftDeleteDocuments(TermQuery query)
+    {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        if (!_config.SoftDeletesEnabled)
+            throw new InvalidOperationException(
+                "SoftDeletesEnabled must be true in IndexWriterConfig to use SoftDeleteDocuments.");
+
         lock (_writeLock)
         {
-            // Capture the count of already-committed segments before any flush.
-            // Deletions must not target the replacement segment that is about to be added.
-            int preFlushSegmentCount = _committedSegments.Count;
+            _pendingDeletes.Add((query.Field, query.Term, isSoftDelete: true));
+            _contentChangedSinceCommit = true;
+        }
+    }
 
-            FlushDwptPool();
-            if (_bufferedDocCount > 0)
-                FlushSegment();
+    /// <summary>
+    /// Atomically deletes documents matching the given query and adds the replacement document.
+    /// Supports <see cref="TermQuery"/>, <see cref="BooleanQuery"/> (composed of <see cref="TermQuery"/> clauses),
+    /// <see cref="MatchAllDocsQuery"/>, and <see cref="BooleanQuery"/> with a <see cref="MatchAllDocsQuery"/> clause.
+    /// Other query types fall back to manual search-then-delete-by-terms.
+    /// </summary>
+    /// <param name="query">The query identifying documents to delete and replace.</param>
+    /// <param name="replacement">The document to add in place of the deleted documents.</param>
+    public void UpdateDocuments(Query query, LeanDocument replacement)
+    {
+        EnterIndexingOperation();
+        try
+        {
+            ValidateDocument(replacement);
+            bool enteredCore = false;
+            try
+            {
+                lock (_writeLock)
+                {
+                    int preFlushSegmentCount = _committedSegments.Count;
 
-            _pendingDeletes.Add((field, term));
-            // Restrict deletions to the segments that existed before this call.
-            ApplyPendingDeletions(_committedSegments.GetRange(0, preFlushSegmentCount));
-            AddDocumentCore(replacement);
+                    FlushDwptPool();
+                    if (_buffer.DocCount > 0)
+                        FlushSegment();
+
+                    var terms = ResolveQueryToTerms(query, _committedSegments.GetRange(0, preFlushSegmentCount));
+                    foreach (var (field, term) in terms)
+                        _pendingDeletes.Add((field, term, isSoftDelete: false));
+
+                    ApplyPendingDeletions(_committedSegments.GetRange(0, preFlushSegmentCount));
+                    enteredCore = true;
+                    AddDocumentCore(replacement);
+                }
+            }
+            catch
+            {
+                if (enteredCore)
+                    MarkIndexingFailed();
+                throw;
+            }
+        }
+        finally
+        {
+            ExitIndexingOperation();
+        }
+    }
+
+    /// <summary>
+    /// Resolves a <see cref="Query"/> into a list of (field, term) pairs suitable for deletion.
+    /// Supports <see cref="TermQuery"/>, <see cref="BooleanQuery"/> (with <see cref="TermQuery"/> clauses),
+    /// and <see cref="MatchAllDocsQuery"/>.
+    /// </summary>
+    private List<(string field, string term)> ResolveQueryToTerms(Query query, List<SegmentInfo> segments)
+    {
+        var terms = new List<(string, string)>();
+        ResolveQueryToTermsInternal(query, segments, terms);
+        return terms;
+    }
+
+    private void ResolveQueryToTermsInternal(Query query, List<SegmentInfo> segments, List<(string, string)> terms)
+    {
+        switch (query)
+        {
+            case TermQuery tq:
+                terms.Add((tq.Field, tq.Term));
+                break;
+
+            case BooleanQuery bq:
+                foreach (var clause in bq.Clauses)
+                {
+                    if (clause.Occur == Occur.MustNot)
+                        continue;
+                    ResolveQueryToTermsInternal(clause.Query, segments, terms);
+                }
+                break;
+
+            case MatchAllDocsQuery:
+                // Enumerate all terms from all committed segments
+                foreach (var seg in segments)
+                {
+                    var basePath = Path.Combine(_directory.DirectoryPath, seg.SegmentId);
+                    var dicPath = basePath + ".dic";
+                    if (!File.Exists(dicPath)) continue;
+
+                    using var dicReader = Codecs.TermDictionary.TermDictionaryReader.Open(dicPath);
+                    foreach (var (qualifiedTerm, _) in dicReader.EnumerateAllTerms())
+                    {
+                        int sep = qualifiedTerm.IndexOf('\x00');
+                        if (sep > 0)
+                        {
+                            var field = qualifiedTerm[..sep];
+                            var term = qualifiedTerm[(sep + 1)..];
+                            if (!terms.Contains((field, term)))
+                                terms.Add((field, term));
+                        }
+                    }
+                }
+                break;
+
+            default:
+                throw new NotSupportedException(
+                    $"Query type '{query.GetType().Name}' is not supported for update-by-query. Use a TermQuery, BooleanQuery of TermQuery clauses, or MatchAllDocsQuery.");
+        }
+    }
+
+    /// <summary>
+    /// Merges all segments from the given source directory into the current index.
+    /// Segments are validated for format compatibility, merged into a single new segment
+    /// in the target directory, and the commit is updated. Existing source segments are not modified.
+    /// </summary>
+    /// <param name="sourceDirectory">The directory whose segments will be merged into this index.</param>
+    /// <exception cref="InvalidDataException">Thrown if source segment files are missing or incompatible.</exception>
+    public void AddIndexes(MMapDirectory sourceDirectory)
+    {
+        EnterIndexingOperation();
+        try
+        {
+            var recovery = IndexRecovery.RecoverLatestCommit(
+                sourceDirectory.DirectoryPath,
+                cleanupOrphans: false);
+            if (recovery is null)
+                throw new InvalidDataException(
+                    $"No valid commit found in source directory '{sourceDirectory.DirectoryPath}'.");
+
+            IndexOpenGuard.EnsureCanOpenSegments(
+                sourceDirectory,
+                recovery.SegmentIds,
+                _config.CompatibilityMode,
+                forWriting: false);
+
+            var sourceSegments = new List<SegmentInfo>();
+            foreach (var segId in recovery.SegmentIds)
+            {
+                var segPath = Path.Combine(sourceDirectory.DirectoryPath, segId + ".seg");
+                if (!File.Exists(segPath))
+                    throw new InvalidDataException($"Segment file not found: {segPath}");
+
+                var seg = SegmentInfo.ReadFrom(segPath);
+                var delPath = seg.DelGeneration.HasValue
+                    ? Path.Combine(sourceDirectory.DirectoryPath, $"{segId}_gen_{seg.DelGeneration.Value}.del")
+                    : Path.Combine(sourceDirectory.DirectoryPath, segId + ".del");
+                if (File.Exists(delPath))
+                {
+                    var liveDocs = LiveDocs.Deserialise(delPath, seg.DocCount);
+                    seg.LiveDocCount = liveDocs.LiveCount;
+                    seg.EarliestSoftDeleteTimestamp = liveDocs.EarliestSoftDeleteTimestamp;
+                }
+                else
+                {
+                    seg.LiveDocCount = seg.DocCount;
+                }
+
+                sourceSegments.Add(seg);
+            }
+
+            lock (_writeLock)
+            {
+                FlushDwptPool();
+                if (_buffer.DocCount > 0)
+                    FlushSegment();
+
+                var merger = new SegmentMerger(_directory, _config.MergeThreshold, _config.PostingsSkipInterval);
+                int localOrdinal = _nextSegmentOrdinal;
+                _nextSegmentOrdinal += sourceSegments.Count + 8;
+
+                var merged = merger.MergeSegmentsFromDirectory(
+                    sourceDirectory, sourceSegments, ref localOrdinal, _config);
+                if (merged is not null)
+                {
+                    _committedSegments.Add(merged);
+                    _contentChangedSinceCommit = true;
+                    _nextSegmentOrdinal = Math.Max(_nextSegmentOrdinal, localOrdinal);
+                }
+            }
+        }
+        finally
+        {
+            ExitIndexingOperation();
         }
     }
 
@@ -353,7 +566,19 @@ public sealed partial class IndexWriter : IDisposable
     /// <exception cref="ObjectDisposedException">Thrown if the writer has been disposed.</exception>
     public void Commit()
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        EnterIndexingOperation();
+        try
+        {
+            CommitWithLocks();
+        }
+        finally
+        {
+            ExitIndexingOperation();
+        }
+    }
+
+    private void CommitWithLocks()
+    {
         // Lock ordering: _mergeIoLock first (so a running merge can finish before we
         // mutate .del files), then _writeLock. AddDocument holds only _writeLock and
         // continues to run while a merge IO phase is in progress.
@@ -388,7 +613,7 @@ public sealed partial class IndexWriter : IDisposable
         FlushDwptPool();
 
         // Flush any remaining buffered documents
-        if (_bufferedDocCount > 0)
+        if (_buffer.DocCount > 0)
             FlushSegment();
 
         // Apply any remaining deletions to ALL segments (including the just-flushed one).
@@ -550,9 +775,9 @@ public sealed partial class IndexWriter : IDisposable
     {
         if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0) return;
 
-        // Drain any AddDocumentLockFree callers that passed the disposed-check gate
-        // but have not yet completed their work. Without this fence they would race
-        // the semaphore dispose below and produce an ObjectDisposedException.
+        // Drain indexing callers that passed the disposed-check gate but have not
+        // yet completed their work. Without this fence they could race resource
+        // disposal below while holding writer state or semaphore slots.
         var spinWait = new SpinWait();
         while (Volatile.Read(ref _inFlightAdds) != 0)
             spinWait.SpinOnce();
@@ -572,9 +797,71 @@ public sealed partial class IndexWriter : IDisposable
         try { File.Delete(lockPath); } catch { /* best-effort */ }
     }
 
+    private void EnterIndexingOperation()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ThrowIfIndexingFailed();
+        Interlocked.Increment(ref _inFlightAdds);
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            Interlocked.Decrement(ref _inFlightAdds);
+            throw new ObjectDisposedException(nameof(IndexWriter));
+        }
+        try
+        {
+            ThrowIfIndexingFailed();
+        }
+        catch
+        {
+            Interlocked.Decrement(ref _inFlightAdds);
+            throw;
+        }
+    }
+
+    private void ExitIndexingOperation()
+    {
+        Interlocked.Decrement(ref _inFlightAdds);
+    }
+
+    private void ThrowIfIndexingFailed()
+    {
+        if (Volatile.Read(ref _indexingFailed) != 0)
+        {
+            throw new InvalidOperationException(
+                "The writer is unusable because an indexing operation failed after mutating the in-memory buffer. Dispose the writer and reopen from the last commit.");
+        }
+    }
+
+    private void MarkIndexingFailed()
+    {
+        Volatile.Write(ref _indexingFailed, 1);
+    }
+
+    private void ValidateDocument(LeanDocument doc)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        _config.Schema?.Validate(doc);
+    }
+
+    private void ValidateDocuments(IReadOnlyList<LeanDocument> documents)
+    {
+        if (_config.Schema is not { } schema)
+        {
+            for (int i = 0; i < documents.Count; i++)
+                ArgumentNullException.ThrowIfNull(documents[i]);
+            return;
+        }
+
+        for (int i = 0; i < documents.Count; i++)
+        {
+            ArgumentNullException.ThrowIfNull(documents[i]);
+            schema.Validate(documents[i]);
+        }
+    }
+
     private bool ShouldFlush()
     {
-        if (_bufferedDocCount >= _config.MaxBufferedDocs)
+        if (_buffer.DocCount >= _config.MaxBufferedDocs)
             return true;
         long ram = ComputeEstimatedRamBytes();
         return ram >= (long)(_config.RamBufferSizeMB * 1024 * 1024);
@@ -601,7 +888,7 @@ public sealed partial class IndexWriter : IDisposable
             {
                 lock (_writeLock)
                 {
-                    if (_bufferedDocCount > 0)
+                    if (_buffer.DocCount > 0)
                         FlushSegment();
                 }
             }
@@ -621,40 +908,18 @@ public sealed partial class IndexWriter : IDisposable
 
     /// <summary>
     /// Returns the estimated RAM used by all buffered data. O(1), using the
-    /// incrementally tracked <c>_postingsRamBytes</c> instead of iterating
+    /// incrementally tracked <c>_buffer.PostingsRamBytes</c> instead of iterating
     /// every <see cref="PostingAccumulator"/>.
     /// </summary>
     private long ComputeEstimatedRamBytes()
     {
-        return _postingsRamBytes + _estimatedRamBytes;
+        return _buffer.PostingsRamBytes + _buffer.EstimatedRamBytes;
     }
 
     private void ResetBuffer()
     {
-        // Return pooled arrays from all accumulators before clearing
-        foreach (var acc in _postings.Values)
-            acc.ReturnBuffers();
-        _postings.Clear();
-        _sfFieldIds.Clear();
-        _sfValues.Clear();
-        _sfDocStarts.Clear();
-        _numericFields.Clear();
-        _termPool.Clear();
-        _fieldNames.Clear();
-        _qualifiedTermPool.Clear();
-        _numericIndex.Clear();
-        _bufferedVectors.Clear();
-        _numericDocValues.Clear();
-        _sortedDocValues.Clear();
-        _sortedSetDocValues.Clear();
-        _sortedNumericDocValues.Clear();
-        _binaryDocValues.Clear();
-        _sortedTermsBuffer.Clear();
-        _bufferedDocCount = 0;
-        _estimatedRamBytes = 0;
-        _postingsRamBytes = 0;
-        _docTokenCounts.Clear();
-        _parentDocIds = null;
+        _buffer.Reset();
+        _flushSeqNoStart = _nextSequenceNumber;
     }
 
     private void LoadLatestCommit()
@@ -684,6 +949,7 @@ public sealed partial class IndexWriter : IDisposable
             {
                 var liveDocs = LiveDocs.Deserialise(delPath, seg.DocCount);
                 seg.LiveDocCount = liveDocs.LiveCount;
+                seg.EarliestSoftDeleteTimestamp = liveDocs.EarliestSoftDeleteTimestamp;
             }
             else
             {
@@ -691,6 +957,44 @@ public sealed partial class IndexWriter : IDisposable
             }
 
             _committedSegments.Add(seg);
+        }
+
+        // Recover sequence number counter from the highest known seqno across all segments.
+        if (_config.TrackSequenceNumbers)
+        {
+            long maxSeq = 0;
+            foreach (var seg in _committedSegments)
+            {
+                if (seg.MaxSequenceNumber.HasValue && seg.MaxSequenceNumber.Value > maxSeq)
+                    maxSeq = seg.MaxSequenceNumber.Value;
+            }
+            _nextSequenceNumber = maxSeq + 1;
+            _flushSeqNoStart = _nextSequenceNumber;
+        }
+    }
+    private void FlushSegment()
+    {
+        if (_buffer.DocCount == 0) return;
+
+        int docCountToFlush = _buffer.DocCount;
+
+        var segInfo = SegmentFlusher.Flush(
+            _buffer, _config, _directory.DirectoryPath,
+            ref _nextSegmentOrdinal, _commitGeneration,
+            _flushSeqNoStart, _nextSequenceNumber);
+
+        _committedSegments.Add(segInfo);
+        ResetBuffer();
+
+        // Release semaphore slots AFTER the flush is complete and buffers are cleared.
+        if (_backpressureSemaphore is not null && docCountToFlush > 0)
+        {
+            int toRelease = Math.Min(docCountToFlush, _semaphoreSlotsHeld);
+            if (toRelease > 0)
+            {
+                _backpressureSemaphore.Release(toRelease);
+                _semaphoreSlotsHeld -= toRelease;
+            }
         }
     }
 }

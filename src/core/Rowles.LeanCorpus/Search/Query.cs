@@ -5,7 +5,7 @@
 /// </summary>
 public abstract class Query : IEquatable<Query>
 {
-    /// <summary>Gets the primary field this query targets.</summary>
+    /// <summary>Gets the single field this query targets, or an empty value for fieldless and multi-field queries.</summary>
     public abstract string Field { get; }
 
     /// <summary>Boost factor applied to this query's score. Default 1.0.</summary>

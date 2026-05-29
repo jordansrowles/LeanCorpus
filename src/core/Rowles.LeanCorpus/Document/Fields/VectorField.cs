@@ -8,7 +8,8 @@ public sealed class VectorField : IField
     /// </summary>
     /// <param name="name">The field name. Must be a valid LeanCorpus field name.</param>
     /// <param name="value">The non-empty dense float vector to store. Not included in the inverted index.</param>
-    public VectorField(string name, ReadOnlyMemory<float> value)
+    /// <param name="boost">Index-time boost applied to vector-scoring queries against this field.</param>
+    public VectorField(string name, ReadOnlyMemory<float> value, float boost = 1.0f)
     {
         if (value.Length == 0)
             throw new ArgumentException("Vector fields must contain at least one dimension.", nameof(value));
@@ -20,6 +21,7 @@ public sealed class VectorField : IField
 
         Name = FieldNameValidator.Validate(name, nameof(name));
         Value = value;
+        Boost = FieldBoostValidator.Validate(boost, nameof(boost));
     }
 
     /// <inheritdoc/>
@@ -36,4 +38,7 @@ public sealed class VectorField : IField
 
     /// <inheritdoc/>
     public bool IsIndexed => false;
+
+    /// <inheritdoc/>
+    public float Boost { get; }
 }

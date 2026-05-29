@@ -20,6 +20,7 @@ dotnet add package LeanCorpus
 | Area | Details |
 |---|---|
 | **Indexing** | Memory-mapped segments, BM25 scoring, index-time sorting, schema validation, concurrent multi-thread indexing, CRC-protected commits |
+| **Mapping** | Optional Roslyn source generator for typed, reflection-free `LeanDocument` mappers, schemas, field descriptors, and stored-field materialisers |
 | **Queries** | Term, boolean, phrase, prefix, wildcard, fuzzy, range, regexp, span, geo bounding box, geo distance, disjunction max |
 | **Advanced queries** | HNSW vector ANN (`VectorQuery`), filtered vector search, reciprocal rank fusion (`RrfQuery`), block-join, more-like-this, function score, constant score |
 | **Analysis** | Pluggable tokenisers (standard, n-gram, edge n-gram, CJK bigram), char filters, token filters, stemmers for 10+ languages |
@@ -75,6 +76,7 @@ engine uses SIMD posting intersection and BlockMax WAND for early termination on
 ## Explore
 
 - [Tutorials](tutorials/index.md) - step-by-step guides for common tasks
+- [Analysis overview](tutorials/analysis/index.md) - analysers, tokenisers, filters, and stemmer choices
 - [Articles](articles/index.md) - short notes on recent features
 - [Index checker CLI](tutorials/index-management/04-cli-checker.md) - command-line validation for local indexes
 - [API reference](~/api/index.md) - full type and member documentation

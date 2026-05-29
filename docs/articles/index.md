@@ -7,3 +7,4 @@ Short notes on the larger pieces of LeanCorpus.
 - [Benchmark provenance](03-benchmark-provenance.md)
 - [Reliable commits](04-reliable-commits.md)
 - [Codecs](05-codecs.md)
+- [Source generator diagnostics](06-source-generator-diagnostics.md)

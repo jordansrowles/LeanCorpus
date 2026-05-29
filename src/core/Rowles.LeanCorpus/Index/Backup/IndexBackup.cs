@@ -64,6 +64,8 @@ public static class IndexBackup
         var commitData = JsonSerializer.Deserialize(commitJson, LeanCorpusJsonContext.Default.CommitData)
             ?? throw new InvalidDataException($"Commit file '{Path.GetFileName(selectedCommit.FilePath)}' cannot be deserialised.");
 
+        commitData.Validate();
+
         if (commitData.Generation != selectedCommit.Generation)
             throw new InvalidDataException($"Commit file '{Path.GetFileName(selectedCommit.FilePath)}' records generation {commitData.Generation}, expected {selectedCommit.Generation}.");
 

@@ -575,11 +575,13 @@ public sealed class FSTDictionaryTests : IClassFixture<TestDirectoryFixture>
     /// <summary>
     /// Verifies that a non-ASCII query term routes through GetFuzzyMatchesFallback.
     /// </summary>
-    [Fact(DisplayName = "Fuzzy Matches: Non-ASCII Query Uses Fallback Path")]
-    public void FuzzyMatches_NonAsciiQuery_UsesFallbackPath()
+    [Fact(DisplayName = "Fuzzy Matches: Non-ASCII Query Uses Byte Levenshtein")]
+    public void FuzzyMatches_NonAsciiQuery_UsesByteLevenshtein()
     {
-        // "日本語" is non-ASCII (UTF-8 byte count != char count), so queryIsAscii=false
-        // and GetFuzzyMatchesFallback is invoked instead of the DP stack path.
+        // Distance is reported in UTF-8 bytes under the FST-backed v3 reader (byte-level
+        // Levenshtein DFA). For ASCII queries this is identical to char-level; for
+        // multi-byte queries it differs. Here "日本" (6 UTF-8 bytes) is 3 byte-deletions
+        // away from "日本語" (9 UTF-8 bytes), so it is not reachable at maxEdits=1.
         var path = DicPath("fuzzy_noascii");
         var terms = new List<string>
         {
@@ -597,8 +599,10 @@ public sealed class FSTDictionaryTests : IClassFixture<TestDirectoryFixture>
         var matches = reader.GetFuzzyMatches("body\0", "日本語".AsSpan(), 1);
 
         Assert.Contains(matches, m => m.Term == "body\0日本語" && m.Distance == 0);
-        Assert.Contains(matches, m => m.Term == "body\0日本" && m.Distance == 1);
         Assert.DoesNotContain(matches, m => m.Term == "body\0english");
+
+        var widerMatches = reader.GetFuzzyMatches("body\0", "日本語".AsSpan(), 3);
+        Assert.Contains(widerMatches, m => m.Term == "body\0日本" && m.Distance == 3);
     }
 
     // ── FuzzyCacheKey (cache hit / eviction) ─────────────────────────────────
@@ -759,10 +763,10 @@ public sealed class FSTDictionaryTests : IClassFixture<TestDirectoryFixture>
     // ── Format version in file ──────────────────────────────────────────────
 
     /// <summary>
-    /// Verifies the Written File: Has Version Two scenario.
+    /// Verifies the Written File: Has Version Three scenario.
     /// </summary>
-    [Fact(DisplayName = "Written File: Has Version Two")]
-    public void WrittenFile_HasVersionTwo()
+    [Fact(DisplayName = "Written File: Has Version Three")]
+    public void WrittenFile_HasVersionThree()
     {
         var path = DicPath("version_check");
         WriteDictionary(path, ["body\0test"], new Dictionary<string, long> { ["body\0test"] = 1 });
@@ -771,6 +775,7 @@ public sealed class FSTDictionaryTests : IClassFixture<TestDirectoryFixture>
         int magic = input.ReadInt32();
         byte version = input.ReadByte();
         Assert.Equal(CodecConstants.Magic, magic);
-        Assert.Equal(2, version);
+        Assert.Equal(CodecConstants.TermDictionaryVersion, version);
+        Assert.Equal(3, version);
     }
 }

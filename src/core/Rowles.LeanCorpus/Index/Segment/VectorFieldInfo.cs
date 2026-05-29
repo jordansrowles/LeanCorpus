@@ -17,4 +17,16 @@ public sealed class VectorFieldInfo
 
     /// <summary>Whether a built HNSW graph file is present for this field.</summary>
     public bool HasHnsw { get; init; }
+
+    /// <summary>
+    /// Validates invariants after deserialisation. Throws <see cref="InvalidDataException"/>
+    /// when required fields are missing, empty, or out of range.
+    /// </summary>
+    internal void Validate()
+    {
+        if (string.IsNullOrEmpty(FieldName))
+            throw new InvalidDataException("Vector field metadata has a null or empty FieldName.");
+        if (Dimension <= 0)
+            throw new InvalidDataException($"Vector field '{FieldName}' has a non-positive Dimension ({Dimension}).");
+    }
 }

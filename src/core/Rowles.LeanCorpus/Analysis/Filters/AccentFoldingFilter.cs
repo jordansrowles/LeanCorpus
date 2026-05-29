@@ -18,7 +18,7 @@ public sealed class AccentFoldingFilter : ITokenFilter
             var t = tokens[i];
             var folded = Fold(t.Text);
             if (!ReferenceEquals(folded, t.Text))
-                tokens[i] = new Token(folded, t.StartOffset, t.EndOffset);
+                tokens[i] = t.WithText(folded);
         }
     }
 

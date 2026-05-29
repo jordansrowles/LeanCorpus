@@ -162,4 +162,25 @@ public sealed class IndexWriterConfig
     /// per segment and persisted into the <c>.hnsw</c> file. Set explicitly for reproducible builds.
     /// </summary>
     public long? HnswSeed { get; set; }
+
+    /// <summary>
+    /// When <c>true</c>, each document is assigned a monotonically-increasing sequence number
+    /// and the per-segment sequence number range is persisted in segment metadata.
+    /// Default: <c>false</c> (off for backward compatibility).
+    /// </summary>
+    public bool TrackSequenceNumbers { get; set; }
+
+    /// <summary>
+    /// When <c>true</c>, soft-deleted documents are retained on disk until
+    /// <see cref="SoftDeleteRetentionSeconds"/> elapses. The soft-delete timestamp is written
+    /// alongside the live-docs bitmap in the <c>.del</c> file. Default: <c>false</c>.
+    /// </summary>
+    public bool SoftDeletesEnabled { get; set; }
+
+    /// <summary>
+    /// Minimum number of seconds to retain soft-deleted documents before they are eligible
+    /// for physical reclamation during a merge. Only used when <see cref="SoftDeletesEnabled"/>
+    /// is <c>true</c>. Default: 86400 (24 hours).
+    /// </summary>
+    public double SoftDeleteRetentionSeconds { get; set; } = 86400.0;
 }

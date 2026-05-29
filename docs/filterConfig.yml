@@ -1,3 +1,5 @@
 apiRules:
   - exclude:
       uidRegex: ^System\.Text\.RegularExpressions\.Generated
+  - exclude:
+      uidRegex: ^System\.Runtime\.CompilerServices

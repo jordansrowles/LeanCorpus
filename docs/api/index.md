@@ -1,4 +1,4 @@
-﻿---
+---
 uid: api
 title: API Reference
 ---
@@ -13,9 +13,9 @@ change between releases.
 
 ## Common entry points
 
-- <xref:Rowles.LeanCorpus.Index.Indexer.IndexWriter> — write documents to an index.
-- <xref:Rowles.LeanCorpus.Search.Searcher.IndexSearcher> — open an index and run queries.
-- <xref:Rowles.LeanCorpus.Document.LeanDocument> — the document type used for both indexing and retrieval.
+- <xref:Rowles.LeanCorpus.Index.Indexer.IndexWriter> - write documents to an index.
+- <xref:Rowles.LeanCorpus.Search.Searcher.IndexSearcher> - open an index and run queries.
+- <xref:Rowles.LeanCorpus.Document.LeanDocument> - the document type used for both indexing and retrieval.
 
 ## Namespaces
 
@@ -28,3 +28,12 @@ change between releases.
 | `Rowles.LeanCorpus.Index` | Indexing primitives, segment management, merge policy. |
 | `Rowles.LeanCorpus.Search` | Queries, scoring, top-N collection. |
 | `Rowles.LeanCorpus.Store` | Memory-mapped IO and locking. |
+
+## Packages
+
+| Package | Description |
+|---|---|
+| `LeanCorpus.Compression.LZ4` | LZ4 stored-field compression codec. |
+| `LeanCorpus.Compression.Snappy` | Snappy stored-field compression codec. |
+| `LeanCorpus.Compression.Zstandard` | Zstandard stored-field compression codec. |
+| `LeanCorpus.SourceGen` | Roslyn source generator for typed document mapping. |

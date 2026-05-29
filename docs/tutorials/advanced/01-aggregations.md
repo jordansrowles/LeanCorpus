@@ -1,4 +1,4 @@
-﻿# Aggregations
+# Aggregations
 
 Aggregations compute summary statistics over the documents matching a query, in one
 pass alongside the search.
@@ -25,9 +25,10 @@ foreach (var r in results)
 
 ## Available types
 
-- `AggregationType.Stats` — `Count`, `Min`, `Max`, `Sum`, `Avg`.
-- `AggregationType.Histogram` — fixed-width buckets controlled by
-  `HistogramInterval` (default `10.0`).
+| Type | Behaviour |
+|---|---|
+| `AggregationType.Stats` | `Count`, `Min`, `Max`, `Sum`, `Avg`. |
+| `AggregationType.Histogram` | Fixed-width buckets controlled by `HistogramInterval` (default `10.0`). |
 
 Histogram results expose the buckets through `AggregationResult.Buckets`.
 

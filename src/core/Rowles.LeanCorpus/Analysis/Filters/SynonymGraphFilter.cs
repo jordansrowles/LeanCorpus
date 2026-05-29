@@ -34,15 +34,16 @@ public sealed class SynonymGraphFilter : ITokenFilter
 
             if (matchLen > 0 && replacements is not null)
             {
-                // Keep the original tokens at their positions
-                for (int j = 0; j < matchLen; j++)
-                    result.Add(tokens[i + j]);
+                result.Add(tokens[i]);
 
-                // Insert synonym tokens at the same position as the first source token
+                // Insert synonym tokens at the same position as the first source token.
                 int start = tokens[i].StartOffset;
                 int end = tokens[i + matchLen - 1].EndOffset;
                 foreach (var syn in replacements)
-                    result.Add(new Token(syn, start, end));
+                    result.Add(new Token(syn, start, end, positionIncrement: 0));
+
+                for (int j = 1; j < matchLen; j++)
+                    result.Add(tokens[i + j]);
 
                 i += matchLen;
             }

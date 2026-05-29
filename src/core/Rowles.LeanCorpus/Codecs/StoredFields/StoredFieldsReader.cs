@@ -13,6 +13,7 @@ internal sealed class StoredFieldsReader : IDisposable
     private readonly int _blockSize;
     private readonly long[] _blockOffsets;
     private readonly FieldCompressionPolicy _compression;
+    private readonly byte _version;
 
     // Decompressed block cache (last used block)
     private int _cachedBlockIndex = -1;
@@ -25,13 +26,14 @@ internal sealed class StoredFieldsReader : IDisposable
 
     private bool _disposed;
 
-    private StoredFieldsReader(FileStream fs, BinaryReader reader, int blockSize, long[] blockOffsets, FieldCompressionPolicy compression)
+    private StoredFieldsReader(FileStream fs, BinaryReader reader, int blockSize, long[] blockOffsets, FieldCompressionPolicy compression, byte version)
     {
         _fs = fs;
         _reader = reader;
         _blockSize = blockSize;
         _blockOffsets = blockOffsets;
         _compression = compression;
+        _version = version;
     }
 
     public static StoredFieldsReader Open(string fdtPath, string fdxPath)
@@ -49,12 +51,6 @@ internal sealed class StoredFieldsReader : IDisposable
         if (firstInt == CodecConstants.Magic)
         {
             version = fdxReader.ReadByte();
-            if (version > CodecConstants.StoredFieldsVersion)
-                throw new InvalidDataException(
-                    $"Unsupported stored fields format version {version}. " +
-                    $"This build supports up to version {CodecConstants.StoredFieldsVersion}. " +
-                    "Please upgrade LeanCorpus.");
-
             blockSize = fdxReader.ReadInt32();
             docCount = fdxReader.ReadInt32();
             blockCount = fdxReader.ReadInt32();
@@ -67,6 +63,8 @@ internal sealed class StoredFieldsReader : IDisposable
             docCount = fdxReader.ReadInt32();
             blockCount = fdxReader.ReadInt32();
         }
+
+        ValidateSupportedVersion(version, "stored fields index (.fdx)");
 
         var blockOffsets = new long[blockCount];
         for (int i = 0; i < blockCount; i++)
@@ -82,6 +80,8 @@ internal sealed class StoredFieldsReader : IDisposable
         {
             byte fdtVersion = reader.ReadByte();
             int fdtBlockSize = reader.ReadInt32();
+            ValidateSupportedVersion(fdtVersion, "stored fields data (.fdt)");
+            ValidateMatchingHeaders(fdtPath, fdxPath, fdtVersion, version, fdtBlockSize, blockSize);
             if (fdtVersion >= 5)
             {
                 compression = (FieldCompressionPolicy)reader.ReadByte();
@@ -96,15 +96,143 @@ internal sealed class StoredFieldsReader : IDisposable
         {
             // Pre-magic: Brotli
             fs.Seek(0, SeekOrigin.Begin);
-            reader.ReadByte(); // old version byte
-            reader.ReadInt32(); // blockSize
+            byte fdtVersion = reader.ReadByte();
+            int fdtBlockSize = reader.ReadInt32();
+            ValidateSupportedVersion(fdtVersion, "stored fields data (.fdt)");
+            ValidateMatchingHeaders(fdtPath, fdxPath, fdtVersion, version, fdtBlockSize, blockSize);
             compression = FieldCompressionPolicy.Brotli;
         }
 
-        return new StoredFieldsReader(fs, reader, blockSize, blockOffsets, compression);
+        return new StoredFieldsReader(fs, reader, blockSize, blockOffsets, compression, version);
+    }
+
+    private static void ValidateSupportedVersion(byte version, string fileType)
+    {
+        if (version > CodecConstants.StoredFieldsVersion)
+        {
+            throw new InvalidDataException(
+                $"Unsupported {fileType} format version {version}. " +
+                $"This build supports up to version {CodecConstants.StoredFieldsVersion}. " +
+                "Please upgrade LeanCorpus.");
+        }
+    }
+
+    private static void ValidateMatchingHeaders(
+        string fdtPath,
+        string fdxPath,
+        byte fdtVersion,
+        byte fdxVersion,
+        int fdtBlockSize,
+        int fdxBlockSize)
+    {
+        if (fdtVersion != fdxVersion)
+        {
+            throw new InvalidDataException(
+                $"Mismatched stored fields versions between '{fdtPath}' and '{fdxPath}'.");
+        }
+
+        if (fdtBlockSize != fdxBlockSize)
+        {
+            throw new InvalidDataException(
+                $"Mismatched stored fields block sizes between '{fdtPath}' and '{fdxPath}'.");
+        }
     }
 
     public Dictionary<string, List<string>> ReadDocument(int docId)
+    {
+        var values = ReadDocumentValues(docId);
+        var result = new Dictionary<string, List<string>>(values.Count, StringComparer.Ordinal);
+        foreach (var (name, entries) in values)
+        {
+            var strings = new List<string>(entries.Count);
+            foreach (var entry in entries)
+            {
+                if (!entry.IsBinary && entry.StringValue is not null)
+                    strings.Add(entry.StringValue);
+            }
+
+            if (strings.Count > 0)
+                result[name] = strings;
+        }
+
+        return result;
+    }
+
+    internal Dictionary<string, List<StoredFieldValue>> ReadDocumentValues(int docId)
+    {
+        var br = PositionDocumentReader(docId);
+
+        int fieldCount = br.ReadInt32();
+        var fields = new Dictionary<string, List<StoredFieldValue>>(fieldCount, StringComparer.Ordinal);
+
+        for (int i = 0; i < fieldCount; i++)
+        {
+            int nameLen = br.ReadInt32();
+            string name = System.Text.Encoding.UTF8.GetString(br.ReadBytes(nameLen));
+
+            int valueCount = br.ReadInt32();
+            var values = new List<StoredFieldValue>(valueCount);
+            for (int v = 0; v < valueCount; v++)
+            {
+                if (_version >= 6)
+                {
+                    var kind = (StoredFieldValueKind)br.ReadByte();
+                    int valueLength = br.ReadInt32();
+                    if (kind == StoredFieldValueKind.Binary)
+                    {
+                        values.Add(StoredFieldValue.FromBinary(br.ReadBytes(valueLength)));
+                    }
+                    else
+                    {
+                        values.Add(StoredFieldValue.FromString(System.Text.Encoding.UTF8.GetString(br.ReadBytes(valueLength))));
+                    }
+                    continue;
+                }
+
+                int valueLen = br.ReadInt32();
+                values.Add(StoredFieldValue.FromString(System.Text.Encoding.UTF8.GetString(br.ReadBytes(valueLen))));
+            }
+            fields[name] = values;
+        }
+
+        return fields;
+    }
+
+    internal bool HasField(int docId, string field)
+    {
+        var br = PositionDocumentReader(docId);
+
+        int fieldCount = br.ReadInt32();
+        for (int i = 0; i < fieldCount; i++)
+        {
+            int nameLen = br.ReadInt32();
+            string name = System.Text.Encoding.UTF8.GetString(br.ReadBytes(nameLen));
+
+            int valueCount = br.ReadInt32();
+            if (string.Equals(name, field, StringComparison.Ordinal) && valueCount > 0)
+                return true;
+
+            for (int v = 0; v < valueCount; v++)
+            {
+                int valueLength;
+                if (_version >= 6)
+                {
+                    _ = br.ReadByte();
+                    valueLength = br.ReadInt32();
+                }
+                else
+                {
+                    valueLength = br.ReadInt32();
+                }
+
+                br.BaseStream.Seek(valueLength, SeekOrigin.Current);
+            }
+        }
+
+        return false;
+    }
+
+    private BinaryReader PositionDocumentReader(int docId)
     {
         int blockIndex = docId / _blockSize;
         int docInBlock = docId % _blockSize;
@@ -124,28 +252,7 @@ internal sealed class StoredFieldsReader : IDisposable
         }
 
         _docStream!.Seek(_cachedIntraOffsets![docInBlock], SeekOrigin.Begin);
-        var br = _docReader!;
-
-        int fieldCount = br.ReadInt32();
-        var fields = new Dictionary<string, List<string>>(fieldCount);
-
-        for (int i = 0; i < fieldCount; i++)
-        {
-            int nameLen = br.ReadInt32();
-            string name = System.Text.Encoding.UTF8.GetString(br.ReadBytes(nameLen));
-
-            int valueCount = br.ReadInt32();
-            var values = new List<string>(valueCount);
-            for (int v = 0; v < valueCount; v++)
-            {
-                int valueLen = br.ReadInt32();
-                string value = System.Text.Encoding.UTF8.GetString(br.ReadBytes(valueLen));
-                values.Add(value);
-            }
-            fields[name] = values;
-        }
-
-        return fields;
+        return _docReader!;
     }
 
     private void DecompressBlock(int blockIndex)

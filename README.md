@@ -14,6 +14,7 @@ A .NET-native full-text search engine. Segment-centric indexing, memory-mapped r
 | Project | Description |
 |---|---|
 | `Rowles.LeanCorpus` | Core library |
+| `Rowles.LeanCorpus.SourceGen` | Optional Roslyn source generator for typed schemas and mappers |
 | `Rowles.LeanCorpus.Compression.LZ4` | Optional LZ4 codec (`K4os.Compression.LZ4`) |
 | `Rowles.LeanCorpus.Compression.Snappy` | Optional Snappy codec (`Snappier`) |
 | `Rowles.LeanCorpus.Compression.Zstandard` | Optional Zstandard codec (`ZstdSharp.Port`) |
@@ -31,6 +32,9 @@ A .NET-native full-text search engine. Segment-centric indexing, memory-mapped r
 ## Installing
 ```
 dotnet add package LeanCorpus
+
+# Typed mapping source generator
+dotnet add package LeanCorpus.SourceGen
 
 # Optional
 
@@ -78,6 +82,47 @@ writer.Commit();
 using var searcher = new IndexSearcher(dir);
 var results = searcher.Search("hello", "title", topN: 10);
 ```
+
+## Source-generated mapping
+
+Add `LeanCorpus.SourceGen` when you want typed, reflection-free document mapping. Annotated models get a generated `{TypeName}Index` class with `Fields`, `ToDocument`, `FromStoredDocument`, `CreateSchema`, and `Map`.
+
+```csharp
+using Rowles.LeanCorpus.Mapping;
+using Rowles.LeanCorpus.Mapping.Attributes;
+
+[LeanDocument]
+public partial class Product
+{
+    [LeanString("id", Required = true)]
+    public required string Id { get; init; }
+
+    [LeanText("title")]
+    public string? Title { get; init; }
+
+    [LeanNumeric("price")]
+    public double Price { get; init; }
+
+    [LeanNumeric("published", Encoding = LeanNumericEncoding.UnixMilliseconds)]
+    public DateTimeOffset Published { get; init; }
+}
+
+var config = new IndexWriterConfig
+{
+    Schema = ProductIndex.CreateSchema()
+};
+
+using var writer = new IndexWriter(dir, config);
+writer.AddDocument(ProductIndex.ToDocument(new Product
+{
+    Id = "p-1",
+    Title = "hello world",
+    Price = 12.99,
+    Published = DateTimeOffset.UtcNow
+}));
+```
+
+The generator emits direct constructor calls and does not use reflection, expression compilation, or runtime shape discovery, so it is suitable for Native AOT. `FromStoredDocument` is generated only when every mapped member can be materialised from stored fields.
 
 For near-real-time search, use `SearcherManager`, which polls for new commits and swaps the searcher with reference-counted acquire/release:
 
@@ -211,6 +256,10 @@ Built-in tokenisers: standard, whitespace, keyword, letter, N-gram, edge N-gram,
 Built-in token filters include lowercase, stop-word removal, Porter stemming, accent folding, synonym graphs, length filtering, token truncation, unique-token filtering, elision removal, reverse-string filtering, keyword marking, decimal digit normalisation, shingles, and word delimiter splitting.
 
 Character filters can be added to `IndexWriterConfig.CharFilters` and run before tokenisation. Token budget enforcement is configured via `MaxTokensPerDocument` and `TokenBudgetPolicy` (Truncate or Throw).
+
+See the [Analysis tutorials](docs/tutorials/analysis/index.md) for analyser, tokeniser,
+filter, and stemmer guidance, including when to use `EnglishStemmer` versus
+`LightEnglishStemmer`.
 
 ## Queries
 

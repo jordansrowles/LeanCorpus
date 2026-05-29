@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Text.Json;
 
 namespace Rowles.LeanCorpus.Benchmarks;
@@ -6,7 +6,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 internal static class BenchmarkData
 {
     /// <summary>Default document count used by all benchmark suites when <c>BENCH_DOC_COUNT</c> is not set.</summary>
-    public const int DefaultDocCount = 100_000;
+    public const int DefaultDocCount = 20_000;
 
     /// <summary>
     /// Returns the document count to use for benchmarks. When the BENCH_DOC_COUNT

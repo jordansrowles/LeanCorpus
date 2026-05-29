@@ -1,6 +1,6 @@
 ﻿# Benchmarking
 
-The benchmark project lives at `src/Rowles.LeanCorpus.Benchmarks` and uses
+The benchmark project lives at `src/devops/Rowles.LeanCorpus.Benchmarks` and uses
 BenchmarkDotNet.
 
 ## Run
@@ -19,13 +19,13 @@ They set the output layout and metadata. You can still run BenchmarkDotNet
 directly:
 
 ```bash
-dotnet run -c Release --project src/Rowles.LeanCorpus.Benchmarks -- --filter '*'
+dotnet run -c Release --project src/devops/Rowles.LeanCorpus.Benchmarks -- --filter '*'
 ```
 
 Filter to a specific class:
 
 ```bash
-dotnet run -c Release --project src/Rowles.LeanCorpus.Benchmarks -- --filter '*SearchBenchmarks*'
+dotnet run -c Release --project src/devops/Rowles.LeanCorpus.Benchmarks -- --filter '*SearchBenchmarks*'
 ```
 
 ## Output layout
@@ -55,6 +55,16 @@ Each run writes:
 | `stress` | Larger stress run, 50,000 docs |
 
 Pass `-Controlled` or `--controlled` for a deterministic local diagnostic preset.
+
+## Suite shape
+
+Suites that mix unrelated costs are split at the runner level. The `blockjoin`
+alias runs `blockjoin-index` and `blockjoin-search`, and the `deletion` alias
+runs `deletion-queue` and `deletion-commit`. Use the specific suite names when
+you need one table per workload.
+
+Boolean and fuzzy suites use deterministic scenario names rather than broad
+single-word labels. This keeps each row tied to a specific query shape.
 
 ## Real data
 

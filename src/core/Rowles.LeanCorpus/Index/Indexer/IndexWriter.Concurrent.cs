@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Document;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
@@ -31,28 +31,19 @@ public sealed partial class IndexWriter
     /// </summary>
     public void AddDocumentLockFree(LeanDocument doc)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        _config.Schema?.Validate(doc);
-
-        var pool = _dwptPool ?? throw new InvalidOperationException(
-            "DWPT pool not initialised. Call InitialiseDwptPool() first.");
-
-        // Register this call as in-flight BEFORE entering the hot path, then re-check
-        // disposed. This two-step prevents Dispose from tearing down the semaphore
-        // while we are still inside the lock on a DWPT slot.
-        Interlocked.Increment(ref _inFlightAdds);
+        EnterIndexingOperation();
         try
         {
-            // Re-check: Dispose may have set _disposed between the first check and the
-            // increment above. If so, bail cleanly — the increment is undone in finally.
-            if (Volatile.Read(ref _disposed) != 0)
-                throw new ObjectDisposedException(nameof(IndexWriter));
+            ValidateDocument(doc);
 
-            // Round-robin DWPT selection — lock-free via Interlocked
+            var pool = _dwptPool ?? throw new InvalidOperationException(
+                "DWPT pool not initialised. Call InitialiseDwptPool() first.");
+
+            // Round-robin DWPT selection  --  lock-free via Interlocked
             int slot = (int)((uint)Interlocked.Increment(ref _dwptCounter) % (uint)pool.Length);
             var dwpt = pool[slot];
 
-            // Per-DWPT lock (not global — only contention on the same slot)
+            // Per-DWPT lock (not global  --  only contention on the same slot)
             lock (dwpt)
             {
                 dwpt.AddDocument(doc);
@@ -77,7 +68,7 @@ public sealed partial class IndexWriter
         }
         finally
         {
-            Interlocked.Decrement(ref _inFlightAdds);
+            ExitIndexingOperation();
         }
     }
 
@@ -90,34 +81,38 @@ public sealed partial class IndexWriter
     /// <exception cref="ObjectDisposedException">Thrown if the writer has been disposed.</exception>
     public void AddDocumentsConcurrent(IReadOnlyList<Document.LeanDocument> documents)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        if (documents.Count == 0) return;
-
-        // Validate every document up front so a single bad doc fails the call,
-        // not silently corrupts the index on a per-partition basis.
-        if (_config.Schema is { } schema)
+        EnterIndexingOperation();
+        try
         {
-            for (int i = 0; i < documents.Count; i++)
-                schema.Validate(documents[i]);
-        }
+            ArgumentNullException.ThrowIfNull(documents);
+            if (documents.Count == 0) return;
 
-        var perThreadResults = new System.Collections.Concurrent.ConcurrentBag<DocumentsWriterPerThread>();
+            // Validate every document up front so a single bad doc fails the call,
+            // not silently corrupts the index on a per-partition basis.
+            ValidateDocuments(documents);
 
-        Parallel.ForEach(
-            System.Collections.Concurrent.Partitioner.Create(0, documents.Count),
-            () => CreateThreadLocalDocumentWriter(),
-            (range, _, dwpt) =>
+            var perThreadResults = new System.Collections.Concurrent.ConcurrentBag<DocumentsWriterPerThread>();
+
+            Parallel.ForEach(
+                System.Collections.Concurrent.Partitioner.Create(0, documents.Count),
+                () => CreateThreadLocalDocumentWriter(),
+                (range, _, dwpt) =>
+                {
+                    for (int i = range.Item1; i < range.Item2; i++)
+                        dwpt.AddDocument(documents[i]);
+                    return dwpt;
+                },
+                dwpt => perThreadResults.Add(dwpt));
+
+            lock (_writeLock)
             {
-                for (int i = range.Item1; i < range.Item2; i++)
-                    dwpt.AddDocument(documents[i]);
-                return dwpt;
-            },
-            dwpt => perThreadResults.Add(dwpt));
-
-        lock (_writeLock)
+                foreach (var dwpt in perThreadResults)
+                    MergeDwpt(dwpt);
+            }
+        }
+        finally
         {
-            foreach (var dwpt in perThreadResults)
-                MergeDwpt(dwpt);
+            ExitIndexingOperation();
         }
     }
 
@@ -163,6 +158,7 @@ public sealed partial class IndexWriter
             KeywordAnalyser => new KeywordAnalyser(_config.AnalyserInternCacheSize),
             SimpleAnalyser => new SimpleAnalyser(_config.AnalyserInternCacheSize),
             StemmedAnalyser => new StemmedAnalyser(),
+            Analyser a => a.Clone(),
             _ => _defaultAnalyser
         };
 
@@ -176,36 +172,51 @@ public sealed partial class IndexWriter
                 KeywordAnalyser => new KeywordAnalyser(),
                 SimpleAnalyser => new SimpleAnalyser(),
                 StemmedAnalyser => new StemmedAnalyser(),
+                Analyser a => a.Clone(),
                 _ => kvp.Value
             };
         }
 
-        return new DocumentsWriterPerThread(threadLocalDefaultAnalyser, threadLocalFieldAnalysers);
+        return new DocumentsWriterPerThread(threadLocalDefaultAnalyser, threadLocalFieldAnalysers, _config.StorePayloads);
     }
 
     private void MergeDwpt(DocumentsWriterPerThread dwpt)
     {
-        int docBase = _bufferedDocCount;
+        int docBase = _buffer.DocCount;
         foreach (var (qt, srcAcc) in dwpt.Postings)
         {
-            if (!_postings.TryGetValue(qt, out var dstAcc))
+            if (!_buffer.Postings.TryGetValue(qt, out var dstAcc))
             {
                 dstAcc = new PostingAccumulator();
-                _postings[qt] = dstAcc;
+                _buffer.Postings[qt] = dstAcc;
+                _buffer.PostingsRamBytes += dstAcc.EstimatedBytes;
             }
             var srcIds = srcAcc.DocIds;
             bool srcHasPositions = srcAcc.HasPositions;
             for (int i = 0; i < srcIds.Length; i++)
             {
                 int remappedDocId = srcIds[i] + docBase;
+                long before = dstAcc.EstimatedBytes;
                 if (srcHasPositions)
                 {
-                    dstAcc.AddPositions(remappedDocId, srcAcc.GetPositions(i));
+                    if (srcAcc.HasPayloads)
+                    {
+                        var positions = srcAcc.GetPositions(i);
+                        var payloads = new byte[]?[positions.Length];
+                        for (int p = 0; p < positions.Length; p++)
+                            payloads[p] = srcAcc.GetPayload(i, p);
+                        dstAcc.AddPositionsWithPayloads(remappedDocId, positions, payloads);
+                    }
+                    else
+                    {
+                        dstAcc.AddPositions(remappedDocId, srcAcc.GetPositions(i));
+                    }
                 }
                 else
                 {
                     dstAcc.AddDocOnly(remappedDocId);
                 }
+                _buffer.PostingsRamBytes += dstAcc.EstimatedBytes - before;
             }
         }
 
@@ -217,43 +228,55 @@ public sealed partial class IndexWriter
         int srcEntryTotal = srcFieldIds.Count;
         for (int d = 0; d < dwptDocCount; d++)
         {
-            _sfDocStarts.Add(_sfFieldIds.Count);
+            _buffer.StoredDocStarts.Add(_buffer.StoredFieldIds.Count);
             int start = srcDocStarts[d];
             int end = (d + 1) < dwptDocCount ? srcDocStarts[d + 1] : srcEntryTotal;
             for (int e = start; e < end; e++)
             {
-                AppendStoredField(srcIdToName[srcFieldIds[e]], srcValues[e]);
+                AppendMergedStoredField(srcIdToName[srcFieldIds[e]], srcValues[e]);
             }
         }
 
         foreach (var (fieldName, counts) in dwpt.DocTokenCounts)
         {
-            if (!_docTokenCounts.TryGetValue(fieldName, out var dstCounts))
+            if (!_buffer.DocTokenCounts.TryGetValue(fieldName, out var dstCounts))
             {
                 dstCounts = new int[_config.MaxBufferedDocs];
-                _docTokenCounts[fieldName] = dstCounts;
+                _buffer.DocTokenCounts[fieldName] = dstCounts;
             }
 
             int newTotal = docBase + dwpt.DocCount;
             if (newTotal > dstCounts.Length)
             {
                 Array.Resize(ref dstCounts, Math.Max(dstCounts.Length * 2, newTotal));
-                _docTokenCounts[fieldName] = dstCounts;
+                _buffer.DocTokenCounts[fieldName] = dstCounts;
             }
 
             for (int i = 0; i < dwpt.DocCount && i < counts.Length; i++)
                 dstCounts[docBase + i] = counts[i];
         }
 
+        foreach (var (boostFieldName, boosts) in dwpt.FieldBoosts)
+        {
+            if (!_buffer.FieldBoosts.TryGetValue(boostFieldName, out var dstBoosts))
+            {
+                dstBoosts = new Dictionary<int, float>();
+                _buffer.FieldBoosts[boostFieldName] = dstBoosts;
+            }
+
+            foreach (var (docId, boost) in boosts)
+                dstBoosts[docBase + docId] = boost;
+        }
+
         foreach (var fn in dwpt.FieldNames)
-            _fieldNames.Add(fn);
+            _buffer.FieldNames.Add(fn);
 
         foreach (var (field, map) in dwpt.NumericIndex)
         {
-            if (!_numericIndex.TryGetValue(field, out var dstMap))
+            if (!_buffer.NumericIndex.TryGetValue(field, out var dstMap))
             {
                 dstMap = new Dictionary<int, double>();
-                _numericIndex[field] = dstMap;
+                _buffer.NumericIndex[field] = dstMap;
             }
             foreach (var (docId, val) in map)
                 dstMap[docId + docBase] = val;
@@ -261,10 +284,10 @@ public sealed partial class IndexWriter
 
         foreach (var (field, list) in dwpt.NumericDocValues)
         {
-            if (!_numericDocValues.TryGetValue(field, out var dstList))
+            if (!_buffer.NumericDocValues.TryGetValue(field, out var dstList))
             {
                 dstList = new List<double>();
-                _numericDocValues[field] = dstList;
+                _buffer.NumericDocValues[field] = dstList;
             }
             while (dstList.Count < docBase) dstList.Add(0);
             dstList.AddRange(list);
@@ -273,10 +296,10 @@ public sealed partial class IndexWriter
         // Sorted doc values: pad to docBase, then copy each per-doc slot into the writer's column.
         foreach (var (field, list) in dwpt.SortedDocValues)
         {
-            if (!_sortedDocValues.TryGetValue(field, out var dstList))
+            if (!_buffer.SortedDocValues.TryGetValue(field, out var dstList))
             {
                 dstList = new List<string?>();
-                _sortedDocValues[field] = dstList;
+                _buffer.SortedDocValues[field] = dstList;
             }
             while (dstList.Count < docBase) dstList.Add(null);
             for (int i = 0; i < dwpt.DocCount; i++)
@@ -288,28 +311,40 @@ public sealed partial class IndexWriter
             }
         }
 
-        MergeMultiValuedDocValues(dwpt.SortedSetDocValues, _sortedSetDocValues, docBase);
-        MergeMultiValuedDocValues(dwpt.SortedNumericDocValues, _sortedNumericDocValues, docBase);
-        MergeMultiValuedDocValues(dwpt.BinaryDocValues, _binaryDocValues, docBase);
+        MergeMultiValuedDocValues(dwpt.SortedSetDocValues, _buffer.SortedSetDocValues, docBase);
+        MergeMultiValuedDocValues(dwpt.SortedNumericDocValues, _buffer.SortedNumericDocValues, docBase);
+        MergeMultiValuedDocValues(dwpt.BinaryDocValues, _buffer.BinaryDocValues, docBase);
 
         // Vectors: remap per-doc keys into the writer's docId space.
         foreach (var (field, perField) in dwpt.Vectors)
         {
-            if (!_bufferedVectors.TryGetValue(field, out var dstPerField))
+            if (!_buffer.Vectors.TryGetValue(field, out var dstPerField))
             {
                 dstPerField = new Dictionary<int, ReadOnlyMemory<float>>();
-                _bufferedVectors[field] = dstPerField;
+                _buffer.Vectors[field] = dstPerField;
             }
             foreach (var (localDocId, vec) in perField)
                 dstPerField[localDocId + docBase] = vec;
         }
 
-        _bufferedDocCount += dwpt.DocCount;
+        _buffer.DocCount += dwpt.DocCount;
         _contentChangedSinceCommit = true;
-        // Stored-field overhead already tracked; postings tracked via EstimatedBytes
-
         if (ShouldFlush())
             FlushSegment();
+    }
+
+    private void AppendMergedStoredField(string fieldName, StoredFieldValue value)
+    {
+        if (!_buffer.StoredFieldNameToId.TryGetValue(fieldName, out int fid))
+        {
+            fid = _buffer.StoredFieldIdToName.Count;
+            _buffer.StoredFieldNameToId[fieldName] = fid;
+            _buffer.StoredFieldIdToName.Add(fieldName);
+        }
+
+        _buffer.StoredFieldIds.Add(fid);
+        _buffer.StoredFieldValues.Add(value);
+        _buffer.EstimatedRamBytes += value.EstimatedSize;
     }
 
     private static void MergeMultiValuedDocValues<T>(

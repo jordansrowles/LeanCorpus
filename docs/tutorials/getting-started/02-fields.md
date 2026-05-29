@@ -1,6 +1,6 @@
-﻿# Field types
+# Field types
 
-LeanCorpus ships five built-in field types. All implement
+LeanCorpus ships six built-in field types. All implement
 <xref:Rowles.LeanCorpus.Document.Fields.IField>.
 
 | Type | Indexed | Stored opt-in | Notes |
@@ -9,7 +9,7 @@ LeanCorpus ships five built-in field types. All implement
 | `StringField` | yes (whole value) | yes | Identifiers, tags, enums. Not analysed. |
 | `NumericField` | yes (BKD point) | yes | Long, double, etc. Range queries. |
 | `VectorField` | no | flat `.vec` file | Dense float vectors for ANN. |
-| `GeoPointField` | yes | yes | Stored as two derived `_lat` and `_lon` numeric fields. |
+| `BinaryField` | no | yes | Raw byte values. Binary doc-values backed. |
 
 ## Examples
 
@@ -22,7 +22,7 @@ doc.Add(new StringField("id", "abc-123"));
 doc.Add(new TextField("body", "Full text goes here"));
 doc.Add(new NumericField("price", 29.99));
 doc.Add(new VectorField("embedding", new float[] { 0.1f, 0.2f, 0.3f }));
-doc.Add(new GeoPointField("loc", latitude: 51.5074, longitude: -0.1278));
+doc.Add(new BinaryField("raw", new byte[] { 0x01, 0x02, 0x03 }));
 ```
 
 ## Stored vs indexed

@@ -107,6 +107,9 @@ public static class IndexRecovery
             if (commitData is null || commitData.Segments is null)
                 return null;
 
+            // Validate deserialised data
+            try { commitData.Validate(); } catch (InvalidDataException) { return null; }
+
             // Validate generation matches
             if (commitData.Generation != generation)
                 return null;

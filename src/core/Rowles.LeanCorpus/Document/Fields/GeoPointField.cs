@@ -12,7 +12,8 @@ public sealed class GeoPointField : IField
     /// <param name="name">The base field name. Latitude and longitude are stored as <c>name_lat</c> and <c>name_lon</c>. Must be a valid LeanCorpus field name.</param>
     /// <param name="latitude">The latitude in decimal degrees (−90 to +90).</param>
     /// <param name="longitude">The longitude in decimal degrees (−180 to +180).</param>
-    public GeoPointField(string name, double latitude, double longitude)
+    /// <param name="boost">Index-time boost applied to geo queries against this field.</param>
+    public GeoPointField(string name, double latitude, double longitude, float boost = 1.0f)
     {
         if (latitude is < -90 or > 90 || double.IsNaN(latitude))
             throw new ArgumentOutOfRangeException(nameof(latitude), "Latitude must be between -90 and 90.");
@@ -23,6 +24,7 @@ public sealed class GeoPointField : IField
         Latitude = latitude;
         Longitude = longitude;
         Value = $"{latitude},{longitude}";
+        Boost = FieldBoostValidator.Validate(boost, nameof(boost));
     }
 
     /// <inheritdoc/>
@@ -45,6 +47,9 @@ public sealed class GeoPointField : IField
 
     /// <inheritdoc/>
     public bool IsIndexed => true;
+
+    /// <inheritdoc/>
+    public float Boost { get; }
 
     /// <summary>Returns the lat sub-field name.</summary>
     public string LatFieldName => Name + "_lat";

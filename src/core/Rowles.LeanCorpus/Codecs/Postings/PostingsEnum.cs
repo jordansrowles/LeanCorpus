@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Runtime.CompilerServices;
 using Rowles.LeanCorpus.Store;
 
@@ -28,7 +28,7 @@ public unsafe struct PostingsEnum : IDisposable
     // Lazy block-at-a-time mode (v3): delegates to BlockPostingsEnum
     // instead of pre-decoding all doc IDs/frequencies into ArrayPool arrays.
     private BlockPostingsEnum _blockEnum;
-    private bool _lazyMode;
+    private readonly bool _lazyMode;
 
     // Lazy position decoding: store per-doc byte offsets and base pointer
     private long[]? _positionByteOffsets;
@@ -38,12 +38,16 @@ public unsafe struct PostingsEnum : IDisposable
     private int _lastDecodedPosIndex; // cache: skip re-decode if same doc
     private int _lastDecodedPosCount; // number of valid positions in _lazyPosBuffer
     // Prevents the IndexInput from being disposed/GC'd while this PostingsEnum holds a raw pointer
-    private IndexInput? _sourceInput;
+    private readonly IndexInput? _sourceInput;
 
     // v2 payload support
-    private bool _hasPayloads;
+    private readonly bool _hasPayloads;
     private long[]? _payloadByteOffsets;
     private int[]? _payloadLengths;
+
+    // Shared disposal guard: all copies of this struct reference the same guard.
+    // When any copy is disposed, the guard is marked and all other copies detect it.
+    private readonly DisposalGuard? _guard;
 
     // Thread-static recycled buffer pools for position metadata arrays.
     // A 4-slot pool allows reuse when phrase queries create multiple PostingsEnums
@@ -205,6 +209,7 @@ public unsafe struct PostingsEnum : IDisposable
         _payloadLengths = null;
         _blockEnum = default;
         _lazyMode = false;
+        _guard = new DisposalGuard();
     }
 
     private PostingsEnum(int[]? docIds, int[]? freqs, int count,
@@ -230,6 +235,7 @@ public unsafe struct PostingsEnum : IDisposable
         _payloadLengths = null;
         _blockEnum = default;
         _lazyMode = false;
+        _guard = new DisposalGuard();
     }
 
     /// <summary>Lazy mode: wraps a BlockPostingsEnum without pre-decoding.</summary>
@@ -254,6 +260,7 @@ public unsafe struct PostingsEnum : IDisposable
         _hasPayloads = false;
         _payloadByteOffsets = null;
         _payloadLengths = null;
+        _guard = new DisposalGuard();
     }
 
     /// <summary>Lazy mode with positions: wraps a BlockPostingsEnum and preloaded position metadata.</summary>
@@ -280,6 +287,7 @@ public unsafe struct PostingsEnum : IDisposable
         _hasPayloads = hasPayloads;
         _payloadByteOffsets = null;
         _payloadLengths = null;
+        _guard = new DisposalGuard();
     }
 
     /// <summary>Creates a PostingsEnum by reading from a memory-mapped IndexInput at the specified offset.</summary>
@@ -507,7 +515,7 @@ public unsafe struct PostingsEnum : IDisposable
     /// </summary>
     public ReadOnlySpan<int> GetCurrentPositions()
     {
-        if (_disposed || _index < 0)
+        if (_guard?.IsDisposed == true || _disposed || _index < 0)
             return ReadOnlySpan<int>.Empty;
         if (_lazyMode ? _blockEnum.IsExhausted : _index >= _count)
             return ReadOnlySpan<int>.Empty;
@@ -628,6 +636,8 @@ public unsafe struct PostingsEnum : IDisposable
     /// <returns><see langword="true"/> if there is a next document; <see langword="false"/> if the list is exhausted.</returns>
     public bool MoveNext()
     {
+        if (_guard?.IsDisposed == true)
+            throw new ObjectDisposedException(nameof(PostingsEnum), "This PostingsEnum is a copy of an already-disposed instance.");
         if (_lazyMode)
         {
             if (_blockEnum.NextDoc() == BlockPostingsEnum.NoMoreDocs)
@@ -696,6 +706,9 @@ public unsafe struct PostingsEnum : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+
+        if (_guard is not null)
+            _guard.IsDisposed = true;
 
         if (_lazyMode)
         {
@@ -767,6 +780,16 @@ public unsafe struct PostingsEnum : IDisposable
 
     /// <summary>A pre-built empty postings enum that is immediately exhausted.</summary>
     public static PostingsEnum Empty => new(null, null, 0);
+
+    /// <summary>
+    /// Shared guard object referenced by all copies of a PostingsEnum.
+    /// When any copy is disposed, <see cref="IsDisposed"/> is set to <see langword="true"/>,
+    /// signalling all other copies that their pooled buffers are no longer valid.
+    /// </summary>
+    private sealed class DisposalGuard
+    {
+        public bool IsDisposed;
+    }
 
     /// <summary>
     /// Validates the postings file header. Returns the format version.

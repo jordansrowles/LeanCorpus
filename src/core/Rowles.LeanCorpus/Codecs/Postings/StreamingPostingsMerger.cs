@@ -55,7 +55,7 @@ internal static class StreamingPostingsMerger
                 heap.Enqueue(i, (cursors[i].CurrentTerm, i));
 
             var participants = new List<int>(cursors.Count);
-            var positionStream = new List<(int DocId, int[] Positions)>();
+            var positionStream = new List<(int DocId, int[] Positions, byte[]?[]? Payloads)>();
 
             while (heap.Count > 0)
             {
@@ -73,11 +73,13 @@ internal static class StreamingPostingsMerger
 
                 bool hasFreqs = false;
                 bool hasPositions = false;
+                bool hasPayloads = false;
                 foreach (int idx in participants)
                 {
-                    cursors[idx].PeekFlags(out bool f, out bool p);
+                    cursors[idx].PeekFlags(out bool f, out bool p, out bool pl);
                     hasFreqs |= f;
                     hasPositions |= p;
+                    hasPayloads |= pl;
                 }
 
                 long headerPos = posOutput.Position;
@@ -85,7 +87,7 @@ internal static class StreamingPostingsMerger
                 posOutput.WriteInt64(0L);
                 posOutput.WriteBoolean(hasFreqs);
                 posOutput.WriteBoolean(hasPositions);
-                posOutput.WriteBoolean(false);
+                posOutput.WriteBoolean(hasPayloads);
 
                 blockWriter.StartTerm();
                 positionStream.Clear();
@@ -93,7 +95,7 @@ internal static class StreamingPostingsMerger
                 foreach (int idx in participants)
                 {
                     var cursor = cursors[idx];
-                    cursor.DecodeCurrent(out var oldIds, out int count, out var freqs, out var positions);
+                    cursor.DecodeCurrent(out var oldIds, out int count, out var freqs, out var positions, out var payloads);
                     try
                     {
                         var docMap = cursor.Source.DocIdMap;
@@ -107,7 +109,8 @@ internal static class StreamingPostingsMerger
                             if (hasPositions)
                             {
                                 int[] p = positions is null ? Array.Empty<int>() : (positions[j] ?? Array.Empty<int>());
-                                positionStream.Add((newId, p));
+                                byte[]?[]? pl = payloads is null ? null : payloads[j];
+                                positionStream.Add((newId, p, pl));
                             }
                         }
                     }
@@ -123,14 +126,24 @@ internal static class StreamingPostingsMerger
                 if (hasPositions)
                 {
                     positionStream.Sort(static (a, b) => a.DocId.CompareTo(b.DocId));
-                    foreach (var (_, pos) in positionStream)
+                    foreach (var (_, pos, payloadsForDoc) in positionStream)
                     {
                         posOutput.WriteVarInt(pos.Length);
                         int prev = 0;
-                        foreach (var p in pos)
+                        for (int i = 0; i < pos.Length; i++)
                         {
+                            int p = pos[i];
                             posOutput.WriteVarInt(p - prev);
                             prev = p;
+                            if (hasPayloads)
+                            {
+                                var payload = payloadsForDoc is not null && i < payloadsForDoc.Length
+                                    ? payloadsForDoc[i]
+                                    : null;
+                                posOutput.WriteVarInt(payload?.Length ?? 0);
+                                if (payload is { Length: > 0 })
+                                    posOutput.WriteBytes(payload);
+                            }
                         }
                     }
                 }
@@ -211,7 +224,7 @@ internal static class StreamingPostingsMerger
 
         internal void Advance() => _index++;
 
-        internal void PeekFlags(out bool hasFreqs, out bool hasPositions)
+        internal void PeekFlags(out bool hasFreqs, out bool hasPositions, out bool hasPayloads)
         {
             long savedPos = _pos.Position;
             try
@@ -223,7 +236,7 @@ internal static class StreamingPostingsMerger
                     _pos.ReadInt64();        // skipOffset
                     hasFreqs = _pos.ReadBoolean();
                     hasPositions = _pos.ReadBoolean();
-                    _pos.ReadBoolean();      // hasPayloads
+                    hasPayloads = _pos.ReadBoolean();
                 }
                 else
                 {
@@ -236,6 +249,7 @@ internal static class StreamingPostingsMerger
                     hasFreqs = _pos.ReadBoolean();
                     if (hasFreqs) for (int j = 0; j < count; j++) _pos.ReadVarInt();
                     hasPositions = _pos.ReadBoolean();
+                    hasPayloads = _postingsVersion >= 2 && hasPositions && _pos.ReadBoolean();
                 }
             }
             finally
@@ -244,7 +258,7 @@ internal static class StreamingPostingsMerger
             }
         }
 
-        internal void DecodeCurrent(out int[] oldIds, out int count, out int[] freqs, out int[]?[]? positions)
+        internal void DecodeCurrent(out int[] oldIds, out int count, out int[] freqs, out int[]?[]? positions, out byte[]?[][]? payloads)
         {
             _pos.Seek(CurrentOffset);
             if (_postingsVersion >= 3)
@@ -274,10 +288,12 @@ internal static class StreamingPostingsMerger
                     _pos.Seek(_pos.Position + (long)skipCount * 15);
 
                     var posArr = new int[count][];
+                    byte[]?[][]? payloadArr = hasPayloads ? new byte[]?[count][] : null;
                     for (int j = 0; j < count; j++)
                     {
                         int pc = _pos.ReadVarInt();
                         var arr = new int[pc];
+                        byte[]?[]? docPayloads = hasPayloads ? new byte[]?[pc] : null;
                         int prevPos = 0;
                         for (int k = 0; k < pc; k++)
                         {
@@ -286,16 +302,21 @@ internal static class StreamingPostingsMerger
                             if (hasPayloads)
                             {
                                 int payloadLen = _pos.ReadVarInt();
-                                if (payloadLen > 0) _pos.Seek(_pos.Position + payloadLen);
+                                if (payloadLen > 0)
+                                    docPayloads![k] = _pos.ReadBytes(payloadLen);
                             }
                         }
                         posArr[j] = arr;
+                        if (payloadArr is not null)
+                            payloadArr[j] = docPayloads ?? [];
                     }
                     positions = posArr;
+                    payloads = payloadArr;
                 }
                 else
                 {
                     positions = null;
+                    payloads = null;
                 }
             }
             else
@@ -327,10 +348,12 @@ internal static class StreamingPostingsMerger
                 if (hasPositions)
                 {
                     var posArr = new int[count][];
+                    byte[]?[][]? payloadArr = hasPayloads ? new byte[]?[count][] : null;
                     for (int j = 0; j < count; j++)
                     {
                         int pc = _pos.ReadVarInt();
                         var arr = new int[pc];
+                        byte[]?[]? docPayloads = hasPayloads ? new byte[]?[pc] : null;
                         int prevPos = 0;
                         for (int k = 0; k < pc; k++)
                         {
@@ -339,16 +362,21 @@ internal static class StreamingPostingsMerger
                             if (hasPayloads)
                             {
                                 int payloadLen = _pos.ReadVarInt();
-                                if (payloadLen > 0) _pos.Seek(_pos.Position + payloadLen);
+                                if (payloadLen > 0)
+                                    docPayloads![k] = _pos.ReadBytes(payloadLen);
                             }
                         }
                         posArr[j] = arr;
+                        if (payloadArr is not null)
+                            payloadArr[j] = docPayloads ?? [];
                     }
                     positions = posArr;
+                    payloads = payloadArr;
                 }
                 else
                 {
                     positions = null;
+                    payloads = null;
                 }
             }
         }

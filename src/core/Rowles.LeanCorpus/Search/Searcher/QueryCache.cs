@@ -173,6 +173,16 @@ public sealed class QueryCache
                     builder.Append("|slop=").Append(pq.Slop);
                     foreach (var term in pq.Terms) AppendPart(builder, term);
                     break;
+                case MultiPhraseQuery mpq:
+                    AppendPart(builder, mpq.Field);
+                    builder.Append("|slop=").Append(mpq.Slop);
+                    for (int i = 0; i < mpq.TermGroups.Count; i++)
+                    {
+                        builder.Append("|pos=").Append(mpq.Positions[i]).Append('(');
+                        foreach (var term in mpq.TermGroups[i]) AppendPart(builder, term);
+                        builder.Append(')');
+                    }
+                    break;
                 case BooleanQuery bq:
                     foreach (var clause in bq.Clauses)
                     {
@@ -199,6 +209,23 @@ public sealed class QueryCache
                     AppendPart(builder, rq.Field);
                     builder.Append("|min=").Append(rq.Min.ToString("R", CultureInfo.InvariantCulture));
                     builder.Append("|max=").Append(rq.Max.ToString("R", CultureInfo.InvariantCulture));
+                    break;
+                case MatchAllDocsQuery:
+                    break;
+                case MatchNoDocsQuery mndq:
+                    AppendPart(builder, mndq.Reason);
+                    break;
+                case FieldExistsQuery feq:
+                    AppendPart(builder, feq.Field);
+                    break;
+                case TermInSetQuery tisq:
+                    AppendPart(builder, tisq.Field);
+                    foreach (var term in tisq.Terms) AppendPart(builder, term);
+                    break;
+                case PointInSetQuery pisq:
+                    AppendPart(builder, pisq.Field);
+                    foreach (var point in pisq.Points)
+                        builder.Append("|pt=").Append(point.ToString("R", CultureInfo.InvariantCulture));
                     break;
                 case PrefixQuery pq:
                     AppendPart(builder, pq.Field);
@@ -248,6 +275,20 @@ public sealed class QueryCache
                         builder.Append(')');
                     }
                     break;
+                case CombinedFieldsQuery cfq:
+                    builder.Append("|msm=").Append(cfq.MinimumShouldMatch);
+                    foreach (var field in cfq.Fields) AppendPart(builder, field);
+                    foreach (var term in cfq.Terms) AppendPart(builder, term);
+                    foreach (var fieldWeight in cfq.FieldWeights.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+                    {
+                        AppendPart(builder, fieldWeight.Key);
+                        builder.Append("|w=").Append(fieldWeight.Value.ToString("R", CultureInfo.InvariantCulture));
+                    }
+                    break;
+                case IntervalsQuery iq:
+                    builder.Append("|src=");
+                    AppendIntervalsSource(iq.Source, builder);
+                    break;
                 default:
                     AppendPart(builder, query.Field);
                     builder.Append("|hash=").Append(query.GetHashCode());
@@ -257,5 +298,68 @@ public sealed class QueryCache
 
         private static void AppendPart(StringBuilder builder, string value)
             => builder.Append('|').Append(value.Length).Append(':').Append(value);
+
+        private static void AppendIntervalsSource(IntervalsSource source, StringBuilder builder)
+        {
+            builder.Append(source.GetType().Name);
+            switch (source)
+            {
+                case IntervalsTermSource termSource:
+                    AppendPart(builder, termSource.Field);
+                    AppendPart(builder, termSource.Term);
+                    break;
+                case IntervalsPhraseSource phraseSource:
+                    AppendPart(builder, phraseSource.Field);
+                    foreach (var term in phraseSource.Terms) AppendPart(builder, term);
+                    break;
+                case IntervalsOrSource orSource:
+                    foreach (var child in orSource.Sources)
+                    {
+                        builder.Append('(');
+                        AppendIntervalsSource(child, builder);
+                        builder.Append(')');
+                    }
+                    break;
+                case IntervalsOrderedSource orderedSource:
+                    builder.Append("|g=").Append(orderedSource.MaxGaps);
+                    foreach (var child in orderedSource.Sources)
+                    {
+                        builder.Append('(');
+                        AppendIntervalsSource(child, builder);
+                        builder.Append(')');
+                    }
+                    break;
+                case IntervalsUnorderedSource unorderedSource:
+                    builder.Append("|g=").Append(unorderedSource.MaxGaps);
+                    foreach (var child in unorderedSource.Sources)
+                    {
+                        builder.Append('(');
+                        AppendIntervalsSource(child, builder);
+                        builder.Append(')');
+                    }
+                    break;
+                case IntervalsContainingSource containingSource:
+                    builder.Append('(');
+                    AppendIntervalsSource(containingSource.Outer, builder);
+                    builder.Append(")(");
+                    AppendIntervalsSource(containingSource.Inner, builder);
+                    builder.Append(')');
+                    break;
+                case IntervalsContainedBySource containedBySource:
+                    builder.Append('(');
+                    AppendIntervalsSource(containedBySource.Inner, builder);
+                    builder.Append(")(");
+                    AppendIntervalsSource(containedBySource.Outer, builder);
+                    builder.Append(')');
+                    break;
+                case IntervalsNotContainingSource notContainingSource:
+                    builder.Append('(');
+                    AppendIntervalsSource(notContainingSource.Outer, builder);
+                    builder.Append(")(");
+                    AppendIntervalsSource(notContainingSource.Inner, builder);
+                    builder.Append(')');
+                    break;
+            }
+        }
     }
 }

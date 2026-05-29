@@ -10,3 +10,5 @@
   href: 04-reliable-commits.md
 - name: Codecs
   href: 05-codecs.md
+- name: Source generator diagnostics
+  href: 06-source-generator-diagnostics.md

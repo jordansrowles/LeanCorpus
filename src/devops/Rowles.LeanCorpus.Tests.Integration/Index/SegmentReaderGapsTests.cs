@@ -91,8 +91,8 @@ public sealed class SegmentReaderGapsTests: IDisposable
         }
     }
 
-    [Fact(DisplayName = "SegmentReader: GetNorm DocId Returns NonZero For First Field")]
-    public void GetNorm_DocId_ReturnsNonZeroForFirstField()
+    [Fact(DisplayName = "SegmentReader: GetNorm Returns NonZero For Indexed Field")]
+    public void GetNorm_ReturnsNonZeroForIndexedField()
     {
         var (dir, searcher) = BuildAndOpen(w =>
         {
@@ -103,7 +103,7 @@ public sealed class SegmentReaderGapsTests: IDisposable
         using (dir) using (searcher)
         {
             var reader = searcher.GetSegmentReaders()[0];
-            float norm = reader.GetNorm(0);
+            float norm = reader.GetNorm(0, "body");
             Assert.True(norm > 0f);
         }
     }
@@ -425,10 +425,10 @@ public sealed class SegmentReaderGapsTests: IDisposable
         }
     }
 
-    // GetFieldLength(int docId) — field-less overload
+    // GetFieldLength via field-specific overload
 
-    [Fact(DisplayName = "SegmentReader: GetFieldLength DocId Returns Positive For First Field")]
-    public void GetFieldLength_DocId_ReturnsPositiveForFirstField()
+    [Fact(DisplayName = "SegmentReader: GetFieldLength Returns Positive For Indexed Field")]
+    public void GetFieldLength_ReturnsPositiveForIndexedField()
     {
         var (dir, searcher) = BuildAndOpen(w =>
         {
@@ -439,12 +439,12 @@ public sealed class SegmentReaderGapsTests: IDisposable
         using (dir) using (searcher)
         {
             var reader = searcher.GetSegmentReaders()[0];
-            Assert.True(reader.GetFieldLength(0) >= 1);
+            Assert.True(reader.GetFieldLength(0, "body") >= 1);
         }
     }
 
-    [Fact(DisplayName = "SegmentReader: GetFieldLength DocId Out Of Range Returns One")]
-    public void GetFieldLength_DocId_OutOfRange_ReturnsOne()
+    [Fact(DisplayName = "SegmentReader: GetFieldLength Out Of Range DocId Returns One")]
+    public void GetFieldLength_OutOfRangeDocId_ReturnsOne()
     {
         var (dir, searcher) = BuildAndOpen(w =>
         {
@@ -455,7 +455,7 @@ public sealed class SegmentReaderGapsTests: IDisposable
         using (dir) using (searcher)
         {
             var reader = searcher.GetSegmentReaders()[0];
-            Assert.Equal(1, reader.GetFieldLength(999));
+            Assert.Equal(1, reader.GetFieldLength(999, "body"));
         }
     }
 
@@ -593,6 +593,33 @@ public sealed class SegmentReaderGapsTests: IDisposable
         }
 
         foreach (var f in Directory.GetFiles(_dir, "*.bkd"))
+            File.Delete(f);
+
+        using (mmap)
+        using (var searcher = new IndexSearcher(mmap))
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+            var hits = reader.GetNumericRange("price", 0.0, 100.0);
+            Assert.Single(hits);
+            Assert.Equal(42.0, hits[0].Value);
+        }
+    }
+
+    [Fact(DisplayName = "SegmentReader: GetNumericRange DocValues Fallback With No Bkd Or Num Returns Results")]
+    public void GetNumericRange_DocValuesFallback_WithNoBkdOrNum_ReturnsResults()
+    {
+        var mmap = new MMapDirectory(_dir);
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig()))
+        {
+            var doc = new LeanDocument();
+            doc.Add(new NumericField("price", 42.0));
+            writer.AddDocument(doc);
+            writer.Commit();
+        }
+
+        foreach (var f in Directory.GetFiles(_dir, "*.bkd"))
+            File.Delete(f);
+        foreach (var f in Directory.GetFiles(_dir, "*.num"))
             File.Delete(f);
 
         using (mmap)

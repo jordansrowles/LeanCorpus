@@ -1,4 +1,4 @@
-﻿# Query types overview
+# Query types overview
 
 Every query derives from <xref:Rowles.LeanCorpus.Search.Query>. The built-in types live
 under `Rowles.LeanCorpus.Search.Queries`.
@@ -10,7 +10,7 @@ under `Rowles.LeanCorpus.Search.Queries`.
 | `PhraseQuery` | ordered terms within an optional slop |
 | `PrefixQuery` | terms starting with a prefix |
 | `WildcardQuery` | `*` and `?` patterns |
-| `FuzzyQuery` | Levenshtein, max edits 0–2 |
+| `FuzzyQuery` | Levenshtein, max edits 0-2 |
 | `RangeQuery` | numeric ranges over `NumericField` |
 | `RegexpQuery` | .NET regular expressions |
 | `ConstantScoreQuery` | wrap to bypass BM25 |
@@ -21,6 +21,14 @@ under `Rowles.LeanCorpus.Search.Queries`.
 | `MoreLikeThisQuery` | similar documents to a source doc |
 | `SpanNearQuery` | proximity over span queries |
 | `GeoBoundingBoxQuery` / `GeoDistanceQuery` | geo filters |
+| `MatchAllDocsQuery` | matches every document in the index |
+| `MatchNoDocsQuery` | matches nothing; sentinel for empty results |
+| `FieldExistsQuery` | documents where a field has a value |
+| `TermInSetQuery` | documents matching any term in a set |
+| `PointInSetQuery` | multi-point set for numeric/doc-values fields |
+| `MultiPhraseQuery` | any of several terms at each phrase position |
+| `IntervalsQuery` | fine-grained positional constraints near terms |
+| `CombinedFieldsQuery` | single query across multiple text fields |
 
 ## Running a query
 

@@ -1,8 +1,6 @@
 ﻿using Rowles.LeanCorpus.Codecs;
-using Rowles.LeanCorpus.Codecs.Fst;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Codecs;
 
@@ -109,125 +107,32 @@ public sealed class TermDictionaryReaderGapsTests : IDisposable
         Assert.Null(ex);
     }
 
-    [Fact(DisplayName = "TermDictionaryReader: V1 Exact Lookup Returns Offset")]
-    public void V1ExactLookup_ReturnsOffset()
+    [Fact(DisplayName = "TermDictionaryReader: V1 Dictionary Is Rejected With Migrate Hint")]
+    public void V1Dictionary_IsRejectedWithMigrateHint()
     {
         var path = WriteV1Dictionary(
-            "v1_exact",
+            "v1_rejected",
             ("body\0alpha", 11L),
-            ("body\0beta", 22L),
-            ("title\0alpha", 33L));
-        using var reader = TermDictionaryReader.Open(path);
+            ("body\0beta", 22L));
 
-        var found = reader.TryGetPostingsOffset("body\0beta".AsSpan(), out long offset);
-        var missing = reader.TryGetPostingsOffset("body\0missing".AsSpan(), out long missingOffset);
-
-        Assert.True(found);
-        Assert.Equal(22L, offset);
-        Assert.False(missing);
-        Assert.Equal(0L, missingOffset);
+        var ex = Assert.Throws<InvalidDataException>(() => TermDictionaryReader.Open(path));
+        Assert.Contains("migrate", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact(DisplayName = "TermDictionaryReader: V1 Prefix And Field Enumeration Return Matches")]
-    public void V1PrefixAndFieldEnumeration_ReturnMatches()
+    [Fact(DisplayName = "TermDictionaryReader: V2 Dictionary Is Rejected With Migrate Hint")]
+    public void V2Dictionary_IsRejectedWithMigrateHint()
     {
-        var path = WriteV1Dictionary(
-            "v1_prefix",
-            ("body\0alpha", 10L),
-            ("body\0alphabet", 20L),
-            ("body\0beta", 30L),
-            ("title\0alpha", 40L));
-        using var reader = TermDictionaryReader.Open(path);
+        var path = Path.Combine(_dir, "v2_rejected.dic");
+        using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write))
+        using (var writer = new BinaryWriter(fs))
+        {
+            CodecConstants.WriteHeader(writer, version: 2);
+            writer.Write(0);
+            writer.Write(0);
+        }
 
-        var alphaTerms = reader.GetTermsWithPrefix("body\0alph".AsSpan());
-        var bodyTerms = reader.GetAllTermsForField("body\0");
-        var allTerms = reader.EnumerateAllTerms();
-
-        Assert.Equal([("body\0alpha", 10L), ("body\0alphabet", 20L)], alphaTerms);
-        Assert.Equal(3, bodyTerms.Count);
-        Assert.Equal(4, allTerms.Count);
-        Assert.DoesNotContain(allTerms, entry => entry.Term == "skip\0ignored");
-    }
-
-    [Fact(DisplayName = "TermDictionaryReader: V1 Wildcard Matching Returns Terms And Offsets")]
-    public void V1WildcardMatching_ReturnsTermsAndOffsets()
-    {
-        var path = WriteV1Dictionary(
-            "v1_wildcard",
-            ("body\0cart", 10L),
-            ("body\0cat", 20L),
-            ("body\0cot", 30L),
-            ("body\0cut", 40L),
-            ("title\0cat", 50L));
-        using var reader = TermDictionaryReader.Open(path);
-
-        var terms = reader.GetTermsMatching("body\0", "c?t".AsSpan());
-        var offsets = reader.GetTermOffsetsMatching("body\0", "c?t".AsSpan());
-
-        Assert.Equal([("body\0cat", 20L), ("body\0cot", 30L), ("body\0cut", 40L)], terms);
-        Assert.Equal([20L, 30L, 40L], offsets);
-    }
-
-    [Fact(DisplayName = "TermDictionaryReader: V1 Fuzzy Matching Returns Closest Expansions")]
-    public void V1FuzzyMatching_ReturnsClosestExpansions()
-    {
-        var path = WriteV1Dictionary(
-            "v1_fuzzy",
-            ("body\0bar", 10L),
-            ("body\0book", 20L),
-            ("body\0books", 30L),
-            ("body\0boon", 40L),
-            ("body\0cook", 50L),
-            ("title\0book", 60L));
-        using var reader = TermDictionaryReader.Open(path);
-
-        var matches = reader.GetFuzzyMatches("body\0", "book".AsSpan(), maxEdits: 1, maxExpansions: 2);
-
-        Assert.Equal(2, matches.Count);
-        Assert.Contains(matches, entry => entry.Term == "body\0book" && entry.Offset == 20L && entry.Distance == 0);
-        Assert.All(matches, entry => Assert.InRange(entry.Distance, 0, 1));
-        Assert.DoesNotContain(matches, entry => entry.Term.StartsWith("title\0", StringComparison.Ordinal));
-    }
-
-    [Fact(DisplayName = "TermDictionaryReader: V1 Range Matching Honours Inclusive Flags")]
-    public void V1RangeMatching_HonoursInclusiveFlags()
-    {
-        var path = WriteV1Dictionary(
-            "v1_range",
-            ("body\0apple", 10L),
-            ("body\0apricot", 20L),
-            ("body\0banana", 30L),
-            ("body\0berry", 40L),
-            ("title\0apricot", 50L));
-        using var reader = TermDictionaryReader.Open(path);
-
-        var inclusive = reader.GetTermsInRange("body\0", "apple", "banana");
-        var lowerExclusive = reader.GetTermsInRange("body\0", "apple", "banana", includeLower: false);
-        var upperExclusive = reader.GetTermsInRange("body\0", "apple", "banana", includeUpper: false);
-        var openLower = reader.GetTermsInRange("body\0", null, "apricot", includeUpper: true);
-
-        Assert.Equal([("body\0apple", 10L), ("body\0apricot", 20L), ("body\0banana", 30L)], inclusive);
-        Assert.Equal([("body\0apricot", 20L), ("body\0banana", 30L)], lowerExclusive);
-        Assert.Equal([("body\0apple", 10L), ("body\0apricot", 20L)], upperExclusive);
-        Assert.Equal([("body\0apple", 10L), ("body\0apricot", 20L)], openLower);
-    }
-
-    [Fact(DisplayName = "TermDictionaryReader: V1 Regex And Automaton Matching Return Matches")]
-    public void V1RegexAndAutomatonMatching_ReturnMatches()
-    {
-        var path = WriteV1Dictionary(
-            "v1_regex_automaton",
-            ("body\0apple", 10L),
-            ("body\0application", 20L),
-            ("body\0banana", 30L),
-            ("title\0apple", 40L));
-        using var reader = TermDictionaryReader.Open(path);
-
-        var regexMatches = reader.GetTermsMatchingRegex("body\0", new Regex("^app.+e$", RegexOptions.CultureInvariant));
-        var automatonMatches = reader.IntersectAutomaton("body\0", new PrefixAutomaton("app"));
-
-        Assert.Equal([("body\0apple", 10L)], regexMatches);
-        Assert.Equal([("body\0apple", 10L), ("body\0application", 20L)], automatonMatches);
+        var ex = Assert.Throws<InvalidDataException>(() => TermDictionaryReader.Open(path));
+        Assert.Contains("migrate", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     private string WriteDictionary()

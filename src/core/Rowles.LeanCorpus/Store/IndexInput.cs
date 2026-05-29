@@ -562,6 +562,22 @@ public sealed unsafe class IndexInput : IDisposable
             _accessor.Dispose();
         }
         _mmf?.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// Finaliser that releases the native memory-mapped view pointer if <see cref="Dispose"/>
+    /// was not called. This is a safety net; callers should always dispose explicitly.
+    /// </summary>
+    ~IndexInput()
+    {
+        if (_accessor is not null)
+        {
+            _accessor.SafeMemoryMappedViewHandle.ReleasePointer();
+            _ptr = null;
+            _accessor.Dispose();
+        }
+        _mmf?.Dispose();
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]

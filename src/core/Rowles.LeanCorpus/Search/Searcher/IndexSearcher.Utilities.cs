@@ -17,6 +17,19 @@ public sealed partial class IndexSearcher
         return new Dictionary<string, IReadOnlyList<string>>();
     }
 
+    /// <summary>Retrieves stored binary fields for a global document ID.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<byte[]>> GetStoredBinaryFields(int globalDocId)
+    {
+        for (int i = 0; i < _readers.Count; i++)
+        {
+            int nextBase = i + 1 < _docBases.Length ? _docBases[i + 1] : _totalDocCount;
+            if (globalDocId >= _docBases[i] && globalDocId < nextBase)
+                return _readers[i].GetStoredBinaryFields(globalDocId - _docBases[i]);
+        }
+
+        return new Dictionary<string, IReadOnlyList<byte[]>>();
+    }
+
     /// <summary>
     /// Explains the score computation for a specific document and query.
     /// Returns null if the document does not match the query.
@@ -64,6 +77,8 @@ public sealed partial class IndexSearcher
         float idf = Bm25Scorer.Idf(_totalDocCount, globalDF);
         float score = _similarity.Score(tf, docLength, avgDocLength, _totalDocCount, globalDF);
         if (query.Boost != 1.0f) score *= query.Boost;
+        float indexBoost = reader.GetFieldBoost(localDocId, query.Field);
+        if (indexBoost != 1.0f) score *= indexBoost;
 
         return new Explanation
         {
@@ -75,7 +90,8 @@ public sealed partial class IndexSearcher
                 new Explanation { Score = tf, Description = $"termFreq={tf}" },
                 new Explanation { Score = docLength, Description = $"fieldLength={docLength}" },
                 new Explanation { Score = avgDocLength, Description = $"avgFieldLength={avgDocLength:F2}" },
-                new Explanation { Score = query.Boost, Description = $"boost={query.Boost}" }
+                new Explanation { Score = query.Boost, Description = $"queryBoost={query.Boost}" },
+                new Explanation { Score = indexBoost, Description = $"indexBoost={indexBoost}" }
             ]
         };
     }
@@ -103,6 +119,9 @@ public sealed partial class IndexSearcher
         if (docVector is null || docVector.Length == 0) return null;
 
         float similarity = VectorQuery.CosineSimilarity(query.QueryVector, docVector);
+        float indexBoost = reader.GetFieldBoost(localDocId, query.Field);
+        if (indexBoost != 1.0f)
+            similarity *= indexBoost;
 
         var graph = reader.GetHnswGraph(query.Field);
         bool hasGraph = graph is not null && graph.NodeCount > 0;
@@ -143,6 +162,7 @@ public sealed partial class IndexSearcher
         details.Add(new Explanation { Score = shortlistSize, Description = $"shortlistSize={shortlistSize} (topK*oversampling)" });
         if (hasGraph)
             details.Add(new Explanation { Score = graph!.NodeCount, Description = $"hnswNodeCount={graph.NodeCount}" });
+        details.Add(new Explanation { Score = indexBoost, Description = $"indexBoost={indexBoost}" });
 
         return new Explanation
         {

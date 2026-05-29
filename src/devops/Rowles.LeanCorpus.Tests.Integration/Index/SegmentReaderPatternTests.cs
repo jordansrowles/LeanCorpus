@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Codecs.Fst;
+using Rowles.LeanCorpus.Codecs.Fst;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Store;
 
@@ -71,6 +71,77 @@ public sealed class SegmentReaderPatternTests: IDisposable
             Assert.NotEmpty(matches);
             Assert.All(matches, t => Assert.Contains("ap", t.Term, StringComparison.Ordinal));
             Assert.DoesNotContain(matches, t => t.Term.EndsWith("banana", StringComparison.Ordinal));
+        }
+    }
+
+    // ── Phase 5: Integration coverage ─────────────────────────────────────
+
+    [Fact(DisplayName = "SegmentReader: GetFuzzyMatches Returns Terms Within Edit Distance")]
+    public void GetFuzzyMatches_ReturnsTermsWithinEditDistance()
+    {
+        var (dir, searcher) = BuildAndOpen(w =>
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "hello help hell heap helper"));
+            w.AddDocument(doc);
+        });
+        using (dir) using (searcher)
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+            var matches = reader.GetFuzzyMatches("body\0", "hell".AsSpan(), 1);
+
+            // "hell" with edit distance 1 should match "hello" (insertion), "hell" (exact), "help" (substitution)
+            // "heap" is distance 2, "helper" is distance 2+ (insert 'p', insert 'e', insert 'r')
+            Assert.Contains(matches, m => m.Term.EndsWith("hello", StringComparison.Ordinal));
+            Assert.Contains(matches, m => m.Term.EndsWith("hell", StringComparison.Ordinal));
+            Assert.Contains(matches, m => m.Term.EndsWith("help", StringComparison.Ordinal));
+            Assert.DoesNotContain(matches, m => m.Term.EndsWith("heap", StringComparison.Ordinal));
+            Assert.DoesNotContain(matches, m => m.Term.EndsWith("helper", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact(DisplayName = "SegmentReader: GetTermsWithRegex Matches Terms By Pattern")]
+    public void GetTermsMatchingRegex_MatchesTermsByPattern()
+    {
+        var (dir, searcher) = BuildAndOpen(w =>
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "cat cart cast cost coffee"));
+            w.AddDocument(doc);
+        });
+        using (dir) using (searcher)
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+            var regex = new System.Text.RegularExpressions.Regex("^ca");
+            var matches = reader.GetTermsMatchingRegex("body\0", regex);
+
+            Assert.Contains(matches, m => m.Term.EndsWith("cat", StringComparison.Ordinal));
+            Assert.Contains(matches, m => m.Term.EndsWith("cart", StringComparison.Ordinal));
+            Assert.DoesNotContain(matches, m => m.Term.EndsWith("cost", StringComparison.Ordinal));
+            Assert.DoesNotContain(matches, m => m.Term.EndsWith("coffee", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact(DisplayName = "SegmentReader: GetTermsInRange Returns Terms Within Bounds")]
+    public void GetTermsInRange_ReturnsTermsWithinBounds()
+    {
+        var (dir, searcher) = BuildAndOpen(w =>
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "apple banana cherry date elderberry"));
+            w.AddDocument(doc);
+        });
+        using (dir) using (searcher)
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+
+            // Range ["banana", "date"] inclusive
+            var matches = reader.GetTermsInRange("body\0", "banana", "date", true, true);
+            Assert.Contains(matches, m => m.Term.EndsWith("banana", StringComparison.Ordinal));
+            Assert.Contains(matches, m => m.Term.EndsWith("cherry", StringComparison.Ordinal));
+            Assert.Contains(matches, m => m.Term.EndsWith("date", StringComparison.Ordinal));
+            Assert.DoesNotContain(matches, m => m.Term.EndsWith("apple", StringComparison.Ordinal));
+            Assert.DoesNotContain(matches, m => m.Term.EndsWith("elderberry", StringComparison.Ordinal));
         }
     }
 }

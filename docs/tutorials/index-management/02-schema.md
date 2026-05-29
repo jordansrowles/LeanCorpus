@@ -17,6 +17,34 @@ var schema = new IndexSchema { StrictMode = true }
 var config = new IndexWriterConfig { Schema = schema };
 ```
 
+## Generated schemas
+
+If the source generator package is installed, annotated models can produce the same schema without restating field names:
+
+```csharp
+using Rowles.LeanCorpus.Mapping.Attributes;
+
+[LeanDocument]
+public partial class Product
+{
+    [LeanString("id", Required = true)]
+    public required string Id { get; init; }
+
+    [LeanText("title", Required = true)]
+    public required string Title { get; init; }
+
+    [LeanNumeric("price")]
+    public double Price { get; init; }
+}
+
+var config = new IndexWriterConfig
+{
+    Schema = ProductIndex.CreateSchema()
+};
+```
+
+`ProductIndex.CreateSchema()` uses the `[LeanDocument(StrictSchema = ...)]` default, and `ProductIndex.CreateSchema(strict: false)` can override it at the call site.
+
 ## Strict vs lax mode
 
 - `StrictMode = false` (default): unknown fields are accepted silently.
@@ -34,3 +62,4 @@ setting `Analyser`.
 
 - <xref:Rowles.LeanCorpus.Index.Indexer.IndexSchema>
 - <xref:Rowles.LeanCorpus.Index.Indexer.FieldMapping>
+- <xref:Rowles.LeanCorpus.Mapping.LeanDocumentMap`1>

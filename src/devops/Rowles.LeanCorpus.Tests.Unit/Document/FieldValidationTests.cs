@@ -22,6 +22,7 @@ public sealed class FieldValidationTests
         Assert.ThrowsAny<ArgumentException>(() => new NumericField(name, 1));
         Assert.ThrowsAny<ArgumentException>(() => new VectorField(name, new float[] { 1, 2 }));
         Assert.ThrowsAny<ArgumentException>(() => new GeoPointField(name, 51.5, -0.1));
+        Assert.ThrowsAny<ArgumentException>(() => new BinaryField(name, new byte[] { 1, 2, 3 }));
     }
 
     /// <summary>
@@ -48,5 +49,22 @@ public sealed class FieldValidationTests
     public void GeoPointField_RejectsOutOfRangeCoordinates(double latitude, double longitude)
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new GeoPointField("location", latitude, longitude));
+    }
+
+    /// <summary>
+    /// Verifies the Indexed Fields: Reject Invalid Boost Values scenario.
+    /// </summary>
+    [Theory(DisplayName = "Indexed Fields: Reject Invalid Boost Values")]
+    [InlineData(0f)]
+    [InlineData(-1f)]
+    [InlineData(float.NaN)]
+    [InlineData(float.PositiveInfinity)]
+    public void IndexedFields_RejectInvalidBoostValues(float boost)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new TextField("body", "value", stored: true, boost));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new StringField("tag", "value", stored: true, boost));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new NumericField("price", 1, stored: true, boost));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new VectorField("embedding", new[] { 1f, 2f }, boost));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new GeoPointField("location", 51.5, -0.1, boost));
     }
 }

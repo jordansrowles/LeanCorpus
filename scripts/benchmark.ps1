@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Unified LeanCorpus benchmark runner.
 
@@ -10,18 +10,22 @@
 .PARAMETER Suite
     Which benchmark suite to run. Default: all.
     Valid values: all, index, query, analysis, boolean, phrase, prefix,
-    fuzzy, wildcard, deletion, suggester, schemajson, compound, indexsort,
-    blockjoin, gutenberg-analysis, gutenberg-index, gutenberg-search,
+    fuzzy, wildcard, deletion, deletion-queue, deletion-commit, suggester, schemajson, indexsort,
+    blockjoin, blockjoin-index, blockjoin-search, range, regexp, dismax, multiphrase, span, mlt, highlighter,
+    searcher-mgr, combined, terminset, aggregation, query-cache, parallel,
+    function-score, geo, collapse-facet, similarity, stemmer, ngram, synonym,
+    async-index, gutenberg-analysis, gutenberg-index, gutenberg-search,
     tokenbudget, diagnostics.
 
 .PARAMETER Strat
     Predefined strategy that configures DocCount and BDN job.
-    Valid values: default, fast, quick-compare, intense, stress.
-      default       - No overrides, uses BDN defaults. Type: full.
+    Valid values: default, fast, quick-compare, intense, stress, exhaustive.
+      default       - 20K docs, --job short (development baseline). Type: short.
       fast          - 500 docs, --job dry (minimal smoke-test). Type: smoke.
       quick-compare - 1000 docs, --job short (quick comparison). Type: partial.
-      intense       - 10000 docs, default BDN job. Type: full.
-      stress        - 50000 docs, default BDN job. Type: stress.
+      intense       - 10K docs, default BDN job. Type: full.
+      stress        - 50K docs, default BDN job. Type: stress.
+      exhaustive    - 100K docs, default BDN job (official reference). Type: exhaustive.
 
 .PARAMETER DocCount
     Override document count for all suites.
@@ -100,13 +104,18 @@
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [ValidateSet('all', 'index', 'query', 'analysis', 'boolean', 'phrase',
-                 'prefix', 'fuzzy', 'wildcard', 'deletion',
-                 'suggester', 'schemajson', 'compound', 'indexsort', 'blockjoin',
+                 'prefix', 'fuzzy', 'wildcard', 'deletion', 'deletion-queue', 'deletion-commit',
+                 'suggester', 'schemajson', 'indexsort', 'blockjoin', 'blockjoin-index', 'blockjoin-search',
+                 'range', 'regexp', 'dismax', 'multiphrase', 'span',
+                 'mlt', 'highlighter', 'searcher-mgr',
+                 'combined', 'terminset', 'aggregation', 'query-cache',
+                 'parallel', 'function-score', 'geo', 'collapse-facet', 'similarity',
+                 'stemmer', 'kstemmer', 'lightenglish', 'hunspell', 'ngram', 'synonym', 'async-index',
                  'gutenberg-analysis', 'gutenberg-index', 'gutenberg-search',
                  'tokenbudget', 'diagnostics')]
     [string]$Suite = 'all',
 
-    [ValidateSet('default', 'fast', 'quick-compare', 'intense', 'stress')]
+    [ValidateSet('default', 'fast', 'quick-compare', 'intense', 'stress', 'exhaustive')]
     [string]$Strat = 'default',
 
     [ValidateSet('net10.0', 'net11.0')]
@@ -168,33 +177,61 @@ if ($BenchmarkArgs -and $BenchmarkArgs.Count -gt 0 -and $BenchmarkArgs[0] -eq '-
 
 $suiteDescriptions = [ordered]@{
     all                  = 'Run all primary benchmark suites, including Gutenberg (default)'
-    index                = 'IndexingBenchmarks        -- bulk indexing throughput (vs Lucene.NET)'
-    query                = 'TermQueryBenchmarks        -- single-term search (vs Lucene.NET)'
-    analysis             = 'AnalysisBenchmarks         -- tokenisation pipeline'
-    boolean              = 'BooleanQueryBenchmarks     -- Must / Should / MustNot'
-    phrase               = 'PhraseQueryBenchmarks      -- exact and slop phrase'
-    prefix               = 'PrefixQueryBenchmarks      -- prefix matching (vs Lucene.NET)'
-    fuzzy                = 'FuzzyQueryBenchmarks       -- fuzzy/edit-distance'
-    wildcard             = 'WildcardQueryBenchmarks    -- wildcard patterns'
-    deletion             = 'DeletionBenchmarks         -- delete throughput (vs Lucene.NET)'
-    suggester            = 'SuggesterBenchmarks        -- DidYouMean spelling (vs Lucene.NET)'
-    schemajson           = 'SchemaAndJsonBenchmarks    -- schema validation + JSON mapping'
-    compound             = 'CompoundFileIndex/Search   -- compound file read/write (vs Lucene.NET)'
-    indexsort            = 'IndexSortIndex/Search      -- index-time sort + early termination'
-    blockjoin            = 'BlockJoinBenchmarks        -- block-join queries (vs Lucene.NET)'
-    'gutenberg-analysis' = 'GutenbergAnalysis          -- analysis on real ebook text'
-    'gutenberg-index'    = 'GutenbergIndex             -- indexing real ebook data'
-    'gutenberg-search'   = 'GutenbergSearch            -- search on real ebook data'
-    tokenbudget          = 'TokenBudgetBenchmarks      -- token budget enforcement overhead (explicit only)'
-    diagnostics          = 'DiagnosticsBenchmarks      -- SlowQueryLog + Analytics overhead (explicit only)'
+    index                = 'IndexingBenchmarks          -- bulk indexing throughput (vs Lucene.NET)'
+    query                = 'TermQueryBenchmarks         -- single-term search (vs Lucene.NET)'
+    analysis             = 'AnalysisBenchmarks          -- tokenisation pipeline'
+    boolean              = 'BooleanQueryBenchmarks      -- deterministic BooleanQuery clause shapes'
+    phrase               = 'PhraseQueryBenchmarks       -- exact and slop phrase'
+    prefix               = 'PrefixQueryBenchmarks       -- prefix matching (vs Lucene.NET)'
+    fuzzy                = 'FuzzyQueryBenchmarks        -- deterministic fuzzy/edit-distance scenarios'
+    wildcard             = 'WildcardQueryBenchmarks     -- wildcard patterns'
+    deletion             = 'DeletionQueue/Commit        -- delete queueing and commit application'
+    'deletion-queue'     = 'DeletionQueueBenchmarks     -- enqueue delete terms (vs Lucene.NET)'
+    'deletion-commit'    = 'DeletionCommitBenchmarks    -- apply queued deletes on commit (vs Lucene.NET)'
+    suggester            = 'SuggesterBenchmarks         -- DidYouMean spelling (vs Lucene.NET)'
+    schemajson           = 'SchemaAndJsonBenchmarks     -- schema validation + JSON mapping'
+    indexsort            = 'IndexSortIndex/Search       -- index-time sort + early termination'
+    blockjoin            = 'BlockJoinIndex/Search       -- block-join indexing and query hot path'
+    'blockjoin-index'    = 'BlockJoinIndexBenchmarks    -- block-join indexing (vs Lucene.NET)'
+    'blockjoin-search'   = 'BlockJoinSearchBenchmarks   -- block-join query hot path (vs Lucene.NET)'
+    range                = 'RangeQueryBenchmarks        -- BKD range query (vs Lucene.NET NumericRange)'
+    regexp               = 'RegexpQueryBenchmarks       -- regexp query parity (vs Lucene.NET)'
+    dismax               = 'DisjunctionMaxQueryBenchmarks -- tie-breaker parity (vs Lucene.NET)'
+    multiphrase          = 'MultiPhraseQueryBenchmarks  -- multi-slot phrase parity (vs Lucene.NET)'
+    span                 = 'SpanQueryBenchmarks         -- span Near/Or/Not parity (vs Lucene.NET)'
+    mlt                  = 'MoreLikeThisBenchmarks      -- MoreLikeThis query (standalone)'
+    highlighter          = 'HighlighterBenchmarks       -- snippet highlighting (standalone)'
+    'searcher-mgr'       = 'SearcherManagerBenchmarks   -- acquire/release hot path (vs Lucene.NET)'
+    combined             = 'CombinedFieldsQueryBenchmarks -- BM25F multi-field (standalone)'
+    terminset            = 'TermInSetQueryBenchmarks    -- set membership vs BooleanQuery(Should)'
+    aggregation          = 'AggregationBenchmarks       -- stats and histogram aggregation overhead'
+    'query-cache'        = 'QueryCacheBenchmarks        -- query cache hit/miss/warm overhead'
+    parallel             = 'ParallelSearchBenchmarks    -- ParallelSearch=true vs false'
+    'function-score'     = 'FunctionScoreQueryBenchmarks -- score mode variants'
+    geo                  = 'GeoQueryBenchmarks          -- distance and bounding-box queries'
+    'collapse-facet'     = 'CollapseAndFacetBenchmarks  -- field collapse + facet collection'
+    similarity           = 'SimilarityBenchmarks        -- BM25 vs TF-IDF'
+    stemmer              = 'StemmerParityBenchmarks     -- StemmedAnalyser vs EnglishAnalyzer'
+    kstemmer             = 'KStemmerParityBenchmarks    -- Krovetz stemmer throughput'
+    lightenglish         = 'LightEnglishStemmerBenchmarks -- LightEnglish vs Porter throughput'
+    hunspell             = 'HunspellBenchmarks          -- Hunspell parse and stem throughput'
+    ngram                = 'NGramTokeniserBenchmarks    -- edge/full N-gram parity (vs Lucene.NET)'
+    synonym              = 'SynonymBenchmarks           -- SynonymGraphFilter indexing overhead'
+    'async-index'        = 'AsyncIndexingBenchmarks     -- sync vs async vs batch ingestion'
+    'gutenberg-analysis' = 'GutenbergAnalysis           -- analysis on real ebook text'
+    'gutenberg-index'    = 'GutenbergIndex              -- indexing real ebook data'
+    'gutenberg-search'   = 'GutenbergSearch             -- search on real ebook data'
+    tokenbudget          = 'TokenBudgetBenchmarks       -- token budget enforcement overhead (explicit only)'
+    diagnostics          = 'DiagnosticsBenchmarks       -- SlowQueryLog + Analytics overhead (explicit only)'
 }
 
 $stratDescriptions = [ordered]@{
-    'default'       = 'No overrides, uses BDN defaults.'
+    'default'       = '20K docs, --job short (development baseline).'
     'fast'          = '500 docs, --job dry (minimal smoke-test).'
     'quick-compare' = '1000 docs, --job short (quick comparison).'
-    'intense'       = '10000 docs, default BDN job.'
-    'stress'        = '50000 docs, default BDN job.'
+    'intense'       = '10K docs, default BDN job.'
+    'stress'        = '50K docs, default BDN job.'
+    'exhaustive'    = '100K docs, default BDN job (official reference).'
 }
 
 if ($Help) {
@@ -237,7 +274,7 @@ if ($Help) {
     Write-Host '    bench/{machine-name}/index.json   Per-machine run index'
     Write-Host ''
     Write-Host '  BenchmarkDotNet pass-through examples:'
-    Write-Host '    --filter *LeanCorpus*      Run only methods whose name contains LeanCorpus'
+    Write-Host '    --filter *Lean*            Run only LeanCorpus methods'
     Write-Host '    --job short                Use the Short job instead of Default'
     Write-Host '    --runtimes net10.0         Override the target runtime'
     Write-Host ''
@@ -275,6 +312,9 @@ $stratDocCount = 0
 $stratJobArgs = @()
 
 switch ($Strat) {
+    'default' {
+        $stratJobArgs = @('--job', 'short')
+    }
     'fast' {
         $stratDocCount = 500
         $stratJobArgs = @('--job', 'dry')
@@ -288,6 +328,9 @@ switch ($Strat) {
     }
     'stress' {
         $stratDocCount = 50000
+    }
+    'exhaustive' {
+        $stratDocCount = 100000
     }
 }
 

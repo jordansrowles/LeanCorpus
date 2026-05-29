@@ -87,6 +87,22 @@ internal static class IndexFileInspector
             return null;
         }
 
+        try
+        {
+            commitData.Validate();
+        }
+        catch (InvalidDataException ex)
+        {
+            result.AddIssue(
+                IndexCheckSeverity.Error,
+                IndexCheckIssueCodes.CommitInvalidJson,
+                $"Commit file '{commitPath}' failed validation: {ex.Message}",
+                Path.GetFileName(commitPath),
+                null,
+                false);
+            return null;
+        }
+
         if (commitData.Generation != generation)
         {
             result.AddIssue(

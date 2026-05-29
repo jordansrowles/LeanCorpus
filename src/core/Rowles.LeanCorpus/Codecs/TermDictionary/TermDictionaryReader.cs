@@ -1,386 +1,307 @@
-﻿using System.Collections.Frozen;
+using System.Buffers;
+using System.Text;
 using System.Text.RegularExpressions;
-using Rowles.LeanCorpus.Search;
-using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Codecs.Fst;
+using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Codecs.TermDictionary;
 
 /// <summary>
-/// Reads a .dic file produced by <see cref="TermDictionaryWriter"/>.
-/// Detects format version automatically:
-/// v2 (current): delegates to <see cref="FSTReader"/> for byte-keyed O(log N) lookups.
-/// v1 (legacy): materialises all terms into string[] + long[] for backward compatibility.
+/// Reads a v3 .dic file: a real FST (Daciuk minimal acyclic transducer) emitting postings
+/// offsets as outputs. All query primitives are thin wrappers around <see cref="FstReader"/>:
+/// exact lookups are O(key length) arc walks; prefix/wildcard/fuzzy queries are native
+/// FST × automaton intersections. v1 and v2 dictionaries are not accepted in the live read
+/// path; the migrator must upgrade them first.
 /// </summary>
 internal sealed class TermDictionaryReader : IDisposable
 {
-    // v2 path: delegate to FSTReader
-    private readonly FSTReader? _fstReader;
-
-    // v1 fallback: materialised string arrays
-    private readonly string[]? _allTerms;
-    private readonly long[]? _allOffsets;
-    // v1 hash layer for O(1) exact term lookup
-    private readonly FrozenDictionary<string, int>? _termHashV1;
-
+    private readonly FstReader _fst;
+    private readonly Lock _fuzzyCacheLock = new();
+    private readonly Dictionary<FuzzyCacheKey, List<(string Term, long Offset, int Distance)>> _fuzzyCache = new();
+    private readonly Lock _wildcardCacheLock = new();
+    private readonly Dictionary<string, WildcardAutomaton> _wildcardCache = new(StringComparer.Ordinal);
+    private const int MaxFuzzyCacheEntries = 128;
+    private const int MaxWildcardCacheEntries = 64;
     private bool _disposed;
 
-    private TermDictionaryReader(FSTReader fstReader)
+    private TermDictionaryReader(FstReader fst)
     {
-        _fstReader = fstReader;
+        _fst = fst;
     }
 
-    private TermDictionaryReader(string[] allTerms, long[] allOffsets)
-    {
-        _allTerms = allTerms;
-        _allOffsets = allOffsets;
-        // Build hash layer for O(1) exact lookups on v1 format
-        var tempHash = new Dictionary<string, int>(allTerms.Length, StringComparer.Ordinal);
-        for (int i = 0; i < allTerms.Length; i++)
-            tempHash[allTerms[i]] = i;
-        _termHashV1 = tempHash.ToFrozenDictionary(StringComparer.Ordinal);
-    }
-
+    /// <summary>Opens a v3 dictionary; throws with a clear "run migrate" hint for older versions.</summary>
     public static TermDictionaryReader Open(string filePath)
     {
         using var input = new IndexInput(filePath);
 
-        // Read magic + version
         int magic = input.ReadInt32();
         if (magic != CodecConstants.Magic)
             throw new InvalidDataException(
                 $"Invalid term dictionary (.dic) file: expected magic 0x{CodecConstants.Magic:X8}, got 0x{magic:X8}.");
+
         byte version = input.ReadByte();
+        if (version != CodecConstants.TermDictionaryVersion)
+            throw new InvalidDataException(
+                $"Unsupported term dictionary format version {version}. This build expects v{CodecConstants.TermDictionaryVersion}. " +
+                "Run 'leancorpus-cli migrate' (or IndexCodecMigrator) to upgrade the segment.");
 
-        if (version == 2)
-        {
-            var fst = FSTReader.Open(input);
-            return new TermDictionaryReader(fst);
-        }
+        long remaining = input.Length - input.Position;
+        if (remaining < 0 || remaining > int.MaxValue)
+            throw new InvalidDataException("Term dictionary FST blob length is out of range.");
 
-        if (version == 1)
-            return OpenV1(input);
-
-        throw new InvalidDataException(
-            $"Unsupported term dictionary format version {version}. This build supports up to version {CodecConstants.TermDictionaryVersion}.");
+        var span = input.ReadSpan((int)remaining);
+        var blob = span.ToArray();
+        var fst = FstReader.Open(blob);
+        return new TermDictionaryReader(fst);
     }
 
-    private static TermDictionaryReader OpenV1(IndexInput input)
-    {
-        int skipCount = input.ReadInt32();
-        for (int i = 0; i < skipCount; i++)
-        {
-            int termLen = input.ReadInt32();
-            input.ReadSpan(termLen);
-            input.ReadInt64();
-        }
+    // -- Exact lookups -----------------------------------------------------
 
-        long dataEnd = input.Length;
-        var terms = new List<string>();
-        var offsets = new List<long>();
-
-        while (input.Position < dataEnd)
-        {
-            int termLen = input.ReadInt32();
-            string term = System.Text.Encoding.UTF8.GetString(input.ReadSpan(termLen));
-            long offset = input.ReadInt64();
-            terms.Add(term);
-            offsets.Add(offset);
-        }
-
-        return new TermDictionaryReader([.. terms], [.. offsets]);
-    }
-
-    // ── Exact Lookup ────────────────────────────────────────────────────────
-
-    public bool TryGetPostingsOffset(string term, out long offset)
-    {
-        return TryGetPostingsOffset(term.AsSpan(), out offset);
-    }
+    public bool TryGetPostingsOffset(string term, out long offset) => TryGetPostingsOffset(term.AsSpan(), out offset);
 
     public bool TryGetPostingsOffset(ReadOnlySpan<char> term, out long offset)
     {
-        if (_fstReader is not null)
-            return _fstReader.TryGetPostingsOffset(term, out offset);
-        return TryGetPostingsOffsetV1(term, out offset);
+        int byteCount = Encoding.UTF8.GetByteCount(term);
+        if (byteCount <= 256)
+        {
+            Span<byte> utf8 = stackalloc byte[byteCount];
+            Encoding.UTF8.GetBytes(term, utf8);
+            return _fst.TryGetOutput(utf8, out offset);
+        }
+
+        var rented = ArrayPool<byte>.Shared.Rent(byteCount);
+        try
+        {
+            int written = Encoding.UTF8.GetBytes(term, rented);
+            return _fst.TryGetOutput(rented.AsSpan(0, written), out offset);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
     }
 
-    private bool TryGetPostingsOffsetV1(ReadOnlySpan<char> term, out long offset)
-    {
-        offset = 0;
-        // Use hash layer for O(1) lookup when available
-        if (_termHashV1 is not null)
-        {
-            var termStr = term.ToString();
-            if (_termHashV1.TryGetValue(termStr, out int idx))
-            {
-                offset = _allOffsets![idx];
-                return true;
-            }
-            return false;
-        }
-        int lo = 0, hi = _allTerms!.Length - 1;
-        while (lo <= hi)
-        {
-            int mid = lo + (hi - lo) / 2;
-            int cmp = _allTerms[mid].AsSpan().SequenceCompareTo(term);
-            if (cmp == 0) { offset = _allOffsets![mid]; return true; }
-            if (cmp < 0) lo = mid + 1;
-            else hi = mid - 1;
-        }
-        return false;
-    }
-
-    // ── Prefix Scan ─────────────────────────────────────────────────────────
+    // -- Prefix scans ------------------------------------------------------
 
     public List<(string Term, long Offset)> GetTermsWithPrefix(ReadOnlySpan<char> qualifiedPrefix)
     {
-        if (_fstReader is not null)
-            return _fstReader.GetTermsWithPrefix(qualifiedPrefix);
-        return GetTermsWithPrefixV1(qualifiedPrefix);
+        var prefixUtf8 = Encoding.UTF8.GetBytes(qualifiedPrefix.ToArray());
+        var results = new List<(string, long)>();
+        foreach (var (key, output) in _fst.EnumerateWithPrefix(prefixUtf8))
+            results.Add((Encoding.UTF8.GetString(key), output));
+        return results;
     }
 
-    private List<(string Term, long Offset)> GetTermsWithPrefixV1(ReadOnlySpan<char> qualifiedPrefix)
+    public List<long> GetTermOffsetsWithPrefix(ReadOnlySpan<char> qualifiedPrefix)
     {
-        var results = new List<(string, long)>();
-        int start = LowerBoundV1(qualifiedPrefix);
-        for (int i = start; i < _allTerms!.Length; i++)
+        Span<byte> prefixStack = stackalloc byte[256];
+        var prefixUtf8 = EncodeUtf8(qualifiedPrefix, prefixStack, out byte[]? rented);
+        var results = new List<long>();
+        try
         {
-            if (_allTerms[i].AsSpan().StartsWith(qualifiedPrefix))
-                results.Add((_allTerms[i], _allOffsets![i]));
-            else
-                break;
+            _fst.CollectOutputsWithPrefix(prefixUtf8, results);
+        }
+        finally
+        {
+            if (rented is not null) System.Buffers.ArrayPool<byte>.Shared.Return(rented);
         }
         return results;
     }
 
-    // ── Wildcard Scan ───────────────────────────────────────────────────────
+    // -- Wildcard ---------------------------------------------------------
 
     public List<(string Term, long Offset)> GetTermsMatching(string fieldPrefix, ReadOnlySpan<char> pattern)
     {
-        if (_fstReader is not null)
-            return _fstReader.GetTermsMatching(fieldPrefix, pattern);
-        return GetTermsMatchingV1(fieldPrefix, pattern);
+        var qualifier = Encoding.UTF8.GetBytes(fieldPrefix);
+        var wildcard = new WildcardAutomaton(pattern.ToString());
+        var results = new List<(string, long)>();
+        foreach (var (key, output, _) in _fst.IntersectAutomaton(wildcard, qualifier))
+            results.Add((Encoding.UTF8.GetString(key), output));
+        return results;
     }
 
     internal List<long> GetTermOffsetsMatching(string fieldPrefix, ReadOnlySpan<char> pattern)
     {
-        if (_fstReader is not null)
-            return _fstReader.GetTermOffsetsMatching(fieldPrefix, pattern);
-        return GetTermOffsetsMatchingV1(fieldPrefix, pattern);
-    }
-
-    private List<(string Term, long Offset)> GetTermsMatchingV1(string fieldPrefix, ReadOnlySpan<char> pattern)
-    {
-        var results = new List<(string, long)>();
-        int start = LowerBoundV1(fieldPrefix.AsSpan());
-        for (int i = start; i < _allTerms!.Length; i++)
-        {
-            var term = _allTerms[i];
-            if (!term.StartsWith(fieldPrefix, StringComparison.Ordinal))
-                break;
-            var bareTerm = term.AsSpan(fieldPrefix.Length);
-            if (WildcardQuery.Matches(bareTerm, pattern))
-                results.Add((term, _allOffsets![i]));
-        }
-        return results;
-    }
-
-    private List<long> GetTermOffsetsMatchingV1(string fieldPrefix, ReadOnlySpan<char> pattern)
-    {
+        Span<byte> qualStack = stackalloc byte[256];
+        var qualifier = EncodeUtf8(fieldPrefix.AsSpan(), qualStack, out byte[]? rented);
+        var wildcard = GetOrAddWildcardAutomaton(pattern);
         var results = new List<long>();
-        int start = LowerBoundV1(fieldPrefix.AsSpan());
-        for (int i = start; i < _allTerms!.Length; i++)
+        try
         {
-            var term = _allTerms[i];
-            if (!term.StartsWith(fieldPrefix, StringComparison.Ordinal))
-                break;
-            var bareTerm = term.AsSpan(fieldPrefix.Length);
-            if (WildcardQuery.Matches(bareTerm, pattern))
-                results.Add(_allOffsets![i]);
+            _fst.CollectIntersectOutputs(wildcard, qualifier, results);
+        }
+        finally
+        {
+            if (rented is not null) System.Buffers.ArrayPool<byte>.Shared.Return(rented);
         }
         return results;
     }
 
-    // ── Fuzzy Scan ──────────────────────────────────────────────────────────
-
-    public List<(string Term, long Offset, int Distance)> GetFuzzyMatches(string fieldPrefix, ReadOnlySpan<char> queryTerm, int maxEdits, int maxExpansions = 64)
+    private WildcardAutomaton GetOrAddWildcardAutomaton(ReadOnlySpan<char> pattern)
     {
-        if (_fstReader is not null)
-            return _fstReader.GetFuzzyMatches(fieldPrefix, queryTerm, maxEdits, maxExpansions);
-        return GetFuzzyMatchesV1(fieldPrefix, queryTerm, maxEdits, maxExpansions);
+        var key = pattern.ToString();
+        lock (_wildcardCacheLock)
+        {
+            if (_wildcardCache.TryGetValue(key, out var cached)) return cached;
+            if (_wildcardCache.Count >= MaxWildcardCacheEntries)
+                _wildcardCache.Clear();
+            var built = new WildcardAutomaton(key);
+            _wildcardCache[key] = built;
+            return built;
+        }
     }
 
-    private List<(string Term, long Offset, int Distance)> GetFuzzyMatchesV1(string fieldPrefix, ReadOnlySpan<char> queryTerm, int maxEdits, int maxExpansions)
+    private static ReadOnlySpan<byte> EncodeUtf8(ReadOnlySpan<char> chars, Span<byte> stackBuffer, out byte[]? rented)
     {
-        var results = new List<(string, long, int)>();
-        int start = LowerBoundV1(fieldPrefix.AsSpan());
-        int queryTermLen = queryTerm.Length;
-        for (int i = start; i < _allTerms!.Length; i++)
+        rented = null;
+        int max = Encoding.UTF8.GetMaxByteCount(chars.Length);
+        Span<byte> target;
+        if (max <= stackBuffer.Length)
         {
-            var term = _allTerms[i];
-            if (!term.StartsWith(fieldPrefix, StringComparison.Ordinal))
-                break;
-            var bareTerm = term.AsSpan(fieldPrefix.Length);
-            if (Math.Abs(bareTerm.Length - queryTermLen) > maxEdits)
-                continue;
-            int distance = LevenshteinDistance.ComputeBounded(queryTerm, bareTerm, maxEdits);
-            if (distance <= maxEdits)
-                results.Add((term, _allOffsets![i], distance));
+            target = stackBuffer;
+        }
+        else
+        {
+            rented = System.Buffers.ArrayPool<byte>.Shared.Rent(max);
+            target = rented;
+        }
+        int written = Encoding.UTF8.GetBytes(chars, target);
+        return target.Slice(0, written);
+    }
+
+    // -- Fuzzy ------------------------------------------------------------
+
+    public List<(string Term, long Offset, int Distance)> GetFuzzyMatches(
+        string fieldPrefix, ReadOnlySpan<char> queryTerm, int maxEdits, int maxExpansions = 64)
+    {
+        var key = new FuzzyCacheKey(fieldPrefix, queryTerm.ToString(), maxEdits, maxExpansions);
+        if (TryGetFuzzyCache(key, out var cached)) return cached;
+
+        var qualifier = Encoding.UTF8.GetBytes(fieldPrefix);
+        var lev = new LevenshteinAutomaton(queryTerm.ToString(), maxEdits);
+
+        var results = new List<(string, long, int)>();
+        foreach (var (k, output, finalState) in _fst.IntersectAutomaton(lev, qualifier))
+        {
+            int distance = lev.MinDistance(finalState);
+            if (distance > maxEdits) continue;
+            results.Add((Encoding.UTF8.GetString(k), output, distance));
         }
 
-        // Truncate to maxExpansions closest matches
-        if (maxExpansions > 0 && results.Count > maxExpansions)
+        // Cap to maxExpansions closest matches.
+        if (results.Count > maxExpansions)
         {
             results.Sort((a, b) => a.Item3.CompareTo(b.Item3));
-            results.RemoveRange(maxExpansions, results.Count - maxExpansions);
+            results = results.GetRange(0, maxExpansions);
         }
 
+        StoreFuzzyCache(key, results);
         return results;
     }
 
-    // ── Field Enumeration ───────────────────────────────────────────────────
-
-    public List<(string Term, long Offset)> GetAllTermsForField(string fieldPrefix)
+    private bool TryGetFuzzyCache(FuzzyCacheKey key, out List<(string Term, long Offset, int Distance)> results)
     {
-        return GetTermsWithPrefix(fieldPrefix.AsSpan());
+        lock (_fuzzyCacheLock)
+        {
+            if (_fuzzyCache.TryGetValue(key, out var cached))
+            {
+                results = cached;
+                return true;
+            }
+        }
+        results = [];
+        return false;
     }
 
-    /// <summary>Enumerates all terms and their postings offsets. Used by SegmentMerger.</summary>
+    private void StoreFuzzyCache(FuzzyCacheKey key, List<(string Term, long Offset, int Distance)> results)
+    {
+        lock (_fuzzyCacheLock)
+        {
+            if (_fuzzyCache.Count >= MaxFuzzyCacheEntries)
+                _fuzzyCache.Clear();
+            _fuzzyCache[key] = results;
+        }
+    }
+
+    private readonly record struct FuzzyCacheKey(string FieldPrefix, string QueryTerm, int MaxEdits, int MaxExpansions);
+
+    // -- Range / regex / contains / enumerate -----------------------------
+
+    public List<(string Term, long Offset)> GetAllTermsForField(string fieldPrefix) => GetTermsWithPrefix(fieldPrefix.AsSpan());
+
     public List<(string Term, long Offset)> EnumerateAllTerms()
     {
-        if (_fstReader is not null)
-            return _fstReader.EnumerateAllTerms();
-
-        // v1 fallback
-        var results = new List<(string, long)>(_allTerms!.Length);
-        for (int i = 0; i < _allTerms.Length; i++)
-            results.Add((_allTerms[i], _allOffsets![i]));
+        var results = new List<(string, long)>();
+        foreach (var (key, output) in _fst.EnumerateAll())
+            results.Add((Encoding.UTF8.GetString(key), output));
         return results;
     }
 
-    // ── Range Scan ──────────────────────────────────────────────────────────
-
     public List<(string Term, long Offset)> GetTermsInRange(
-        string fieldPrefix,
-        string? lower, string? upper,
-        bool includeLower = true, bool includeUpper = true)
+        string fieldPrefix, string? lower, string? upper, bool includeLower = true, bool includeUpper = true)
     {
-        if (_fstReader is not null)
-            return _fstReader.GetTermsInRange(fieldPrefix, lower, upper, includeLower, includeUpper);
-        return GetTermsInRangeV1(fieldPrefix, lower, upper, includeLower, includeUpper);
-    }
-
-    private List<(string Term, long Offset)> GetTermsInRangeV1(
-        string fieldPrefix,
-        string? lower, string? upper,
-        bool includeLower, bool includeUpper)
-    {
+        var qualifier = Encoding.UTF8.GetBytes(fieldPrefix);
         var results = new List<(string, long)>();
-        string scanKey = lower is not null ? fieldPrefix + lower : fieldPrefix;
-        int start = LowerBoundV1(scanKey.AsSpan());
-        for (int i = start; i < _allTerms!.Length; i++)
+        foreach (var (key, output) in _fst.EnumerateWithPrefix(qualifier))
         {
-            var term = _allTerms[i];
-            if (!term.StartsWith(fieldPrefix, StringComparison.Ordinal))
-                break;
-            var bareTerm = term.AsSpan(fieldPrefix.Length);
+            var bare = Encoding.UTF8.GetString(key.AsSpan(qualifier.Length));
             if (lower is not null)
             {
-                int cmp = bareTerm.SequenceCompareTo(lower.AsSpan());
+                int cmp = string.CompareOrdinal(bare, lower);
                 if (cmp < 0 || (cmp == 0 && !includeLower)) continue;
             }
             if (upper is not null)
             {
-                int cmp = bareTerm.SequenceCompareTo(upper.AsSpan());
-                if (cmp > 0 || (cmp == 0 && !includeUpper)) break;
+                int cmp = string.CompareOrdinal(bare, upper);
+                if (cmp > 0 || (cmp == 0 && !includeUpper)) continue;
             }
-            results.Add((term, _allOffsets![i]));
+            results.Add((Encoding.UTF8.GetString(key), output));
         }
         return results;
     }
-
-    // ── Regex Scan ──────────────────────────────────────────────────────────
 
     public List<(string Term, long Offset)> GetTermsMatchingRegex(string fieldPrefix, Regex regex)
     {
-        if (_fstReader is not null)
-            return _fstReader.GetTermsMatchingRegex(fieldPrefix, regex);
-        return GetTermsMatchingRegexV1(fieldPrefix, regex);
-    }
-
-    private List<(string Term, long Offset)> GetTermsMatchingRegexV1(string fieldPrefix, Regex regex)
-    {
+        var qualifier = Encoding.UTF8.GetBytes(fieldPrefix);
         var results = new List<(string, long)>();
-        int start = LowerBoundV1(fieldPrefix.AsSpan());
-        for (int i = start; i < _allTerms!.Length; i++)
+        foreach (var (key, output) in _fst.EnumerateWithPrefix(qualifier))
         {
-            var term = _allTerms[i];
-            if (!term.StartsWith(fieldPrefix, StringComparison.Ordinal))
-                break;
-            var bareTerm = term.AsSpan(fieldPrefix.Length);
-            if (regex.IsMatch(bareTerm))
-                results.Add((term, _allOffsets![i]));
+            var bare = Encoding.UTF8.GetString(key.AsSpan(qualifier.Length));
+            if (regex.IsMatch(bare))
+                results.Add((Encoding.UTF8.GetString(key), output));
         }
         return results;
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────────────
+    public List<long> GetTermOffsetsContaining(string fieldPrefix, ReadOnlySpan<char> literal)
+    {
+        Span<byte> qualStack = stackalloc byte[256];
+        Span<byte> needleStack = stackalloc byte[256];
+        var qualifier = EncodeUtf8(fieldPrefix.AsSpan(), qualStack, out byte[]? qualRented);
+        var needleUtf8 = EncodeUtf8(literal, needleStack, out byte[]? needleRented);
+        var results = new List<long>();
+        try
+        {
+            _fst.CollectContainsOutputs(qualifier, needleUtf8, results);
+        }
+        finally
+        {
+            if (qualRented is not null) System.Buffers.ArrayPool<byte>.Shared.Return(qualRented);
+            if (needleRented is not null) System.Buffers.ArrayPool<byte>.Shared.Return(needleRented);
+        }
+        return results;
+    }
 
     /// <summary>
-    /// Intersects the term dictionary with an automaton, returning matching terms.
-    /// Delegates to FSTReader on v2; falls back to brute-force scan on v1.
+    /// Intersects the term dictionary with an automaton operating on the bare term bytes
+    /// (after <paramref name="fieldPrefix"/>). Driven by <see cref="FstReader.IntersectAutomaton(IAutomaton, ReadOnlySpan{byte})"/>.
     /// </summary>
     public List<(string Term, long Offset)> IntersectAutomaton(string fieldPrefix, IAutomaton automaton)
     {
-        if (_fstReader is not null)
-            return _fstReader.IntersectAutomaton(fieldPrefix, automaton);
-        return IntersectAutomatonV1(fieldPrefix, automaton);
-    }
-
-    private List<(string Term, long Offset)> IntersectAutomatonV1(string fieldPrefix, IAutomaton automaton)
-    {
+        var qualifier = Encoding.UTF8.GetBytes(fieldPrefix);
         var results = new List<(string, long)>();
-        int start = LowerBoundV1(fieldPrefix.AsSpan());
-        Span<byte> buf = stackalloc byte[4];
-        for (int i = start; i < _allTerms!.Length; i++)
-        {
-            var term = _allTerms[i];
-            if (!term.StartsWith(fieldPrefix, StringComparison.Ordinal))
-                break;
-
-            var bareTerm = term.AsSpan(fieldPrefix.Length);
-            int state = automaton.Start;
-            bool dead = false;
-            for (int j = 0; j < bareTerm.Length; j++)
-            {
-                // Convert char to UTF-8 bytes for automaton
-                int len = System.Text.Encoding.UTF8.GetBytes(bareTerm.Slice(j, 1), buf);
-                for (int k = 0; k < len; k++)
-                {
-                    state = automaton.Step(state, buf[k]);
-                    if (!automaton.CanMatch(state)) { dead = true; break; }
-                }
-                if (dead) break;
-            }
-
-            if (!dead && automaton.IsAccept(state))
-                results.Add((term, _allOffsets![i]));
-        }
+        foreach (var (key, output, _) in _fst.IntersectAutomaton(automaton, qualifier))
+            results.Add((Encoding.UTF8.GetString(key), output));
         return results;
-    }
-
-    private int LowerBoundV1(ReadOnlySpan<char> key)
-    {
-        int lo = 0, hi = _allTerms!.Length;
-        while (lo < hi)
-        {
-            int mid = lo + (hi - lo) / 2;
-            if (_allTerms[mid].AsSpan().SequenceCompareTo(key) < 0)
-                lo = mid + 1;
-            else
-                hi = mid;
-        }
-        return lo;
     }
 
     public void Dispose()

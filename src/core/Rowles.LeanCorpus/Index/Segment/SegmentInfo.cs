@@ -40,6 +40,21 @@ public sealed class SegmentInfo
     /// </summary>
     public int? DelGeneration { get; set; }
 
+    /// <summary>
+    /// Inclusive lower bound of the sequence numbers assigned to documents in this segment.
+    /// Only set when sequence number tracking is enabled.
+    /// </summary>
+    public long? MinSequenceNumber { get; set; }
+
+    /// <summary>
+    /// Inclusive upper bound of the sequence numbers assigned to documents in this segment.
+    /// Only set when sequence number tracking is enabled.
+    /// </summary>
+    public long? MaxSequenceNumber { get; set; }
+
+    /// <summary>Gets the smallest soft-delete timestamp (Unix milliseconds) among live soft-deleted docs, or null if none exist.</summary>
+    public long? EarliestSoftDeleteTimestamp { get; set; }
+
     /// <summary>Writes this segment metadata to a JSON file at the specified path.</summary>
     /// <param name="filePath">The path of the <c>.seg</c> file to write.</param>
     public void WriteTo(string filePath)
@@ -51,11 +66,29 @@ public sealed class SegmentInfo
     /// <summary>Reads and deserialises segment metadata from the specified JSON file.</summary>
     /// <param name="filePath">The path of the <c>.seg</c> file to read.</param>
     /// <returns>The deserialised <see cref="SegmentInfo"/>.</returns>
-    /// <exception cref="InvalidDataException">Thrown if the file cannot be deserialised.</exception>
+    /// <exception cref="InvalidDataException">Thrown if the file cannot be deserialised or fails validation.</exception>
     public static SegmentInfo ReadFrom(string filePath)
     {
         var json = File.ReadAllText(filePath);
-        return JsonSerializer.Deserialize(json, LeanCorpusJsonContext.Default.SegmentInfo)
+        var info = JsonSerializer.Deserialize(json, LeanCorpusJsonContext.Default.SegmentInfo)
             ?? throw new InvalidDataException("Failed to deserialise segment info.");
+        info.Validate();
+        return info;
+    }
+
+    /// <summary>
+    /// Validates invariants after deserialisation. Throws <see cref="InvalidDataException"/>
+    /// when required fields are missing, empty, or out of range.
+    /// </summary>
+    internal void Validate()
+    {
+        if (string.IsNullOrEmpty(SegmentId))
+            throw new InvalidDataException("Segment metadata has a null or empty SegmentId.");
+        if (FieldNames is null)
+            throw new InvalidDataException($"Segment '{SegmentId}' has a null FieldNames list.");
+        if (VectorFields is null)
+            throw new InvalidDataException($"Segment '{SegmentId}' has a null VectorFields list.");
+        foreach (var vf in VectorFields)
+            vf.Validate();
     }
 }

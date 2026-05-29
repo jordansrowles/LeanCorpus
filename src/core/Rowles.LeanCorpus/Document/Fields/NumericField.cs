@@ -9,7 +9,7 @@ public sealed class NumericField : IField
     /// <param name="name">The field name. Must be a valid LeanCorpus field name.</param>
     /// <param name="value">The numeric value to index and store.</param>
     public NumericField(string name, double value)
-        : this(name, value, stored: true)
+        : this(name, value, stored: true, boost: 1.0f)
     {
     }
 
@@ -20,10 +20,23 @@ public sealed class NumericField : IField
     /// <param name="value">The numeric value to index.</param>
     /// <param name="stored">Whether the numeric value should be persisted in stored fields.</param>
     public NumericField(string name, double value, bool stored)
+        : this(name, value, stored, 1.0f)
+    {
+    }
+
+    /// <summary>
+    /// Initialises a new <see cref="NumericField"/> with the specified name, numeric value, stored-field behaviour, and index-time boost.
+    /// </summary>
+    /// <param name="name">The field name. Must not be null.</param>
+    /// <param name="value">The numeric value to index.</param>
+    /// <param name="stored">Whether the numeric value should be persisted in stored fields.</param>
+    /// <param name="boost">Index-time boost applied to scoring queries against this field.</param>
+    public NumericField(string name, double value, bool stored, float boost)
     {
         Name = FieldNameValidator.Validate(name, nameof(name));
         Value = value;
         IsStored = stored;
+        Boost = FieldBoostValidator.Validate(boost, nameof(boost));
     }
 
     /// <inheritdoc/>
@@ -40,4 +53,7 @@ public sealed class NumericField : IField
 
     /// <inheritdoc/>
     public bool IsIndexed => true;
+
+    /// <inheritdoc/>
+    public float Boost { get; }
 }

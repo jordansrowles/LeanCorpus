@@ -1,4 +1,4 @@
-﻿# Spelling suggestions
+# Spelling suggestions
 
 `DidYouMeanSuggester` returns alternative spellings for a term, ranked by document
 frequency divided by edit distance.
@@ -33,8 +33,10 @@ This avoids re-scanning the term dictionary.
 
 ## Tuning
 
-- `maxEdits` — Levenshtein cap (sensible values 1–2).
-- `topN` — number of suggestions returned.
+| Parameter | Guidance |
+|---|---|
+| `maxEdits` | Levenshtein cap (sensible values 1-2). |
+| `topN` | Number of suggestions returned. |
 
 ## See also
 

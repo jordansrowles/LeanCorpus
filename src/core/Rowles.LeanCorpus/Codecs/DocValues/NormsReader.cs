@@ -9,11 +9,11 @@ namespace Rowles.LeanCorpus.Codecs.DocValues;
 /// </summary>
 internal static class NormsReader
 {
-    public static Dictionary<string, byte[]> Read(string filePath)
+    public static NormsData Read(string filePath)
     {
         var fileInfo = new FileInfo(filePath);
         if (!fileInfo.Exists || fileInfo.Length == 0)
-            return new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            return new NormsData();
 
         using var mmf = MemoryMappedFile.CreateFromFile(filePath, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
         using var accessor = mmf.CreateViewAccessor(0, fileInfo.Length, MemoryMappedFileAccess.Read);
@@ -39,7 +39,7 @@ internal static class NormsReader
         int fieldCount = accessor.ReadInt32(offset);
         offset += 4;
 
-        var result = new Dictionary<string, byte[]>(fieldCount, StringComparer.Ordinal);
+        var result = new NormsData();
         Span<byte> nameBuf = stackalloc byte[256];
 
         for (int f = 0; f < fieldCount; f++)
@@ -59,9 +59,59 @@ internal static class NormsReader
             accessor.ReadArray(offset, norms, 0, docCount);
             offset += docCount;
 
-            result[fieldName] = norms;
+            result.Norms[fieldName] = norms;
+
+            if (version >= 3)
+            {
+                int boostCount = accessor.ReadInt32(offset);
+                offset += sizeof(int);
+                if ((uint)boostCount > (uint)docCount)
+                    throw new InvalidDataException($"Invalid norms file: boost count {boostCount} exceeds document count {docCount} for field '{fieldName}'.");
+
+                float[]? boosts = null;
+                for (int i = 0; i < boostCount; i++)
+                {
+                    int docId = accessor.ReadInt32(offset);
+                    offset += sizeof(int);
+                    float boost = accessor.ReadSingle(offset);
+                    offset += sizeof(float);
+
+                    if ((uint)docId >= (uint)docCount)
+                        throw new InvalidDataException($"Invalid norms file: boost doc ID {docId} is outside field '{fieldName}' document count {docCount}.");
+
+                    boosts ??= CreateDefaultBoosts(docCount);
+                    boosts[docId] = boost;
+                }
+
+                if (boosts is not null)
+                    result.Boosts[fieldName] = boosts;
+            }
+            else if (version >= 2)
+            {
+                float[]? boosts = null;
+                for (int i = 0; i < docCount; i++)
+                {
+                    float boost = accessor.ReadSingle(offset);
+                    offset += sizeof(float);
+                    if (boost == 1.0f)
+                        continue;
+
+                    boosts ??= CreateDefaultBoosts(docCount);
+                    boosts[i] = boost;
+                }
+
+                if (boosts is not null)
+                    result.Boosts[fieldName] = boosts;
+            }
         }
 
         return result;
+    }
+
+    private static float[] CreateDefaultBoosts(int docCount)
+    {
+        var boosts = new float[docCount];
+        Array.Fill(boosts, 1.0f);
+        return boosts;
     }
 }

@@ -44,7 +44,11 @@ public sealed class CJKBigramTokeniser : ITokeniser
                 int start = i;
                 while (i < input.Length && char.IsLetterOrDigit(input[i]))
                     i++;
-                tokens.Add(new Token(input.Slice(start, i - start).ToString(), start, i));
+                tokens.Add(new Token(
+                    input.Slice(start, i - start).ToString(),
+                    start,
+                    i,
+                    UnicodeTokenisation.ClassifyTokenType(input.Slice(start, i - start))));
             }
             else
             {

@@ -1,5 +1,6 @@
 ﻿using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis.Tokenisers;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
@@ -76,6 +77,63 @@ public sealed class TokenBudgetTests : IClassFixture<TestDirectoryFixture>
             () => writer.AddDocument(doc));
         Assert.Equal(2, ex.Budget);
         Assert.True(ex.TokenCount > 2);
+    }
+
+    /// <summary>
+    /// Verifies the span analysis path rejects before indexing when the budget is exceeded.
+    /// </summary>
+    [Fact(DisplayName = "Reject: Span Analysis Throws When Budget Exceeded")]
+    public void Reject_SpanAnalysis_ThrowsWhenBudgetExceeded()
+    {
+        var dir = Path.Combine(_path, nameof(Reject_SpanAnalysis_ThrowsWhenBudgetExceeded));
+        Directory.CreateDirectory(dir);
+        var mmap = new MMapDirectory(dir);
+        var config = new IndexWriterConfig
+        {
+            DefaultAnalyser = new Analyser(new NGramTokeniser(2, 2)),
+            MaxTokensPerDocument = 1,
+            TokenBudgetPolicy = TokenBudgetPolicy.Reject
+        };
+        using var writer = new IndexWriter(mmap, config);
+
+        var doc = new LeanDocument();
+        doc.Add(new TextField("body", "abc"));
+
+        var ex = Assert.Throws<TokenBudgetExceededException>(
+            () => writer.AddDocument(doc));
+        Assert.Equal(1, ex.Budget);
+        Assert.Equal(2, ex.TokenCount);
+    }
+
+    /// <summary>
+    /// Verifies the span analysis path truncates tokens at the configured budget.
+    /// </summary>
+    [Fact(DisplayName = "Truncate: Span Analysis Limits Tokens To Budget")]
+    public void Truncate_SpanAnalysis_LimitsTokensToBudget()
+    {
+        var dir = Path.Combine(_path, nameof(Truncate_SpanAnalysis_LimitsTokensToBudget));
+        Directory.CreateDirectory(dir);
+        var mmap = new MMapDirectory(dir);
+        var config = new IndexWriterConfig
+        {
+            DefaultAnalyser = new Analyser(new NGramTokeniser(2, 2)),
+            MaxTokensPerDocument = 1,
+            TokenBudgetPolicy = TokenBudgetPolicy.Truncate
+        };
+
+        using (var writer = new IndexWriter(mmap, config))
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "abc"));
+            writer.AddDocument(doc);
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(mmap);
+        var first = searcher.Search(new TermQuery("body", "ab"), 10);
+        var second = searcher.Search(new TermQuery("body", "bc"), 10);
+        Assert.Equal(1, first.TotalHits);
+        Assert.Equal(0, second.TotalHits);
     }
 
     /// <summary>

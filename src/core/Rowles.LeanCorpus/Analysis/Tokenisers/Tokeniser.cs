@@ -7,7 +7,7 @@ using Rowles.LeanCorpus.Analysis.Analysers;
 /// Slices input text into tokens at word boundaries, splitting on
 /// whitespace and punctuation whilst tracking character offsets.
 /// </summary>
-public sealed class Tokeniser : ITokeniser
+public sealed class Tokeniser : ITokeniser, ISpanTokeniser
 {
     /// <inheritdoc/>
     public List<Token> Tokenise(ReadOnlySpan<char> input)
@@ -31,10 +31,34 @@ public sealed class Tokeniser : ITokeniser
                 i++;
             }
 
-            tokens.Add(new Token(input[start..i].ToString(), start, i));
+            tokens.Add(new Token(
+                input[start..i].ToString(),
+                start,
+                i,
+                UnicodeTokenisation.ClassifyTokenType(input[start..i])));
         }
 
         return tokens;
+    }
+
+    /// <inheritdoc/>
+    public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)
+    {
+        int i = 0;
+        while (i < input.Length)
+        {
+            if (!char.IsLetterOrDigit(input[i]))
+            {
+                i++;
+                continue;
+            }
+
+            int start = i;
+            while (i < input.Length && char.IsLetterOrDigit(input[i]))
+                i++;
+
+            sink.Add(input[start..i], start, i, UnicodeTokenisation.ClassifyTokenType(input[start..i]));
+        }
     }
 
     /// <summary>

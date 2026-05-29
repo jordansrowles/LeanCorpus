@@ -107,6 +107,53 @@ public sealed class AnalysisIntegrationTests : IClassFixture<TestDirectoryFixtur
         Assert.Equal(2, results.TotalHits);
     }
 
+    /// <summary>
+    /// Verifies span analysis is used by indexing without falling back to the legacy token list path.
+    /// </summary>
+    [Fact(DisplayName = "NGram Tokeniser: Span Analysis Indexes Without Legacy Analyse")]
+    public void NGramTokeniser_SpanAnalysis_IndexesWithoutLegacyAnalyse()
+    {
+        var analyser = new SpanOnlyNGramAnalyser();
+        var dir = new MMapDirectory(SubDir("ngram_span_only"));
+        var config = new IndexWriterConfig { DefaultAnalyser = analyser };
+
+        using (var writer = new IndexWriter(dir, config))
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "abcd"));
+            writer.AddDocument(doc);
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new TermQuery("body", "bc"), 10);
+        Assert.Equal(1, results.TotalHits);
+    }
+
+    /// <summary>
+    /// Verifies span analysis with a lowercase filter indexes without falling back to legacy tokenisation.
+    /// </summary>
+    [Fact(DisplayName = "NGram Tokeniser: Span Lowercase Indexes Without Legacy Tokenise")]
+    public void NGramTokeniser_SpanLowercase_IndexesWithoutLegacyTokenise()
+    {
+        var analyser = new Analyser(new SpanOnlyUpperTokeniser(), new LowercaseFilter());
+        var dir = new MMapDirectory(SubDir("ngram_span_lowercase"));
+        var config = new IndexWriterConfig { DefaultAnalyser = analyser };
+
+        using (var writer = new IndexWriter(dir, config))
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "ignored"));
+            writer.AddDocument(doc);
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new TermQuery("body", "ab"), 10);
+        Assert.Equal(1, results.TotalHits);
+    }
+
+
     // ── EdgeNGramTokeniser end-to-end ───────────────────────────────────────
 
     /// <summary>
@@ -226,5 +273,25 @@ public sealed class AnalysisIntegrationTests : IClassFixture<TestDirectoryFixtur
         var results = searcher.Search(new TermQuery("body", "cafe"), 10);
         _output.WriteLine($"AccentFolding (no accents): TermQuery('cafe') → {results.TotalHits} hits");
         Assert.Equal(1, results.TotalHits);
+    }
+
+    private sealed class SpanOnlyNGramAnalyser : IAnalyser, ISpanAnalyser
+    {
+        private readonly NGramTokeniser _tokeniser = new(2, 2);
+
+        public List<Token> Analyse(ReadOnlySpan<char> input)
+            => throw new InvalidOperationException("Legacy analysis path should not be used.");
+
+        public bool TryAnalyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
+        {
+            _tokeniser.Tokenise(input, sink);
+            return true;
+        }
+    }
+
+    private sealed class SpanOnlyUpperTokeniser : ISpanTokeniser
+    {
+        public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)
+            => sink.Add("AB".AsSpan(), 0, 2);
     }
 }

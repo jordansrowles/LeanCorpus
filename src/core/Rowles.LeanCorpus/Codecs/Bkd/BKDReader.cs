@@ -33,21 +33,44 @@ internal sealed class BKDReader : IDisposable
         return new BKDReader(input, offsets);
     }
 
+    /// <summary>Visits all (docId, value) pairs in [min, max] range for the given field.</summary>
+    internal bool VisitRange(string field, double min, double max, Action<int, double> visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+
+        if (!_fieldOffsets.TryGetValue(field, out long offset))
+            return false;
+
+        _input.Seek(offset);
+        SearchNode(_input, min, max, visitor);
+        return true;
+    }
+
     /// <summary>Returns all (docId, value) pairs in [min, max] range for the given field.</summary>
     public List<(int DocId, double Value)> RangeQuery(string field, double min, double max)
     {
         var results = new List<(int, double)>();
-        if (!_fieldOffsets.TryGetValue(field, out long offset))
+        VisitRange(field, min, max, (docId, value) => results.Add((docId, value)));
+        return results;
+    }
+
+    /// <summary>Returns all (docId, value) pairs whose value is contained in the supplied set.</summary>
+    public List<(int DocId, double Value)> ExactSetQuery(string field, IReadOnlySet<double> values)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+
+        var results = new List<(int, double)>();
+        if (values.Count == 0 || !_fieldOffsets.TryGetValue(field, out long offset))
             return results;
 
         _input.Seek(offset);
-        SearchNode(_input, min, max, results);
+        SearchNodeExactSet(_input, values, results);
         return results;
     }
 
     public bool HasField(string field) => _fieldOffsets.ContainsKey(field);
 
-    private static void SearchNode(Store.IndexInput input, double min, double max, List<(int, double)> results)
+    private static void SearchNode(Store.IndexInput input, double min, double max, Action<int, double> visitor)
     {
         byte marker = input.ReadByte();
         if (marker == 1) // leaf
@@ -58,21 +81,43 @@ internal sealed class BKDReader : IDisposable
                 double value = input.ReadDouble();
                 int docId = input.ReadInt32();
                 if (value >= min && value <= max)
-                    results.Add((docId, value));
+                    visitor(docId, value);
             }
         }
         else // internal
         {
             double splitValue = input.ReadDouble();
             if (min <= splitValue)
-                SearchNode(input, min, max, results);
+                SearchNode(input, min, max, visitor);
             else
                 SkipNode(input);
 
             if (max >= splitValue)
-                SearchNode(input, min, max, results);
+                SearchNode(input, min, max, visitor);
             else
                 SkipNode(input);
+        }
+    }
+
+    private static void SearchNodeExactSet(Store.IndexInput input, IReadOnlySet<double> values, List<(int DocId, double Value)> results)
+    {
+        byte marker = input.ReadByte();
+        if (marker == 1)
+        {
+            int count = input.ReadInt32();
+            for (int i = 0; i < count; i++)
+            {
+                double value = input.ReadDouble();
+                int docId = input.ReadInt32();
+                if (values.Contains(value))
+                    results.Add((docId, value));
+            }
+        }
+        else
+        {
+            input.ReadDouble(); // split value
+            SearchNodeExactSet(input, values, results);
+            SearchNodeExactSet(input, values, results);
         }
     }
 

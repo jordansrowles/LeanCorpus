@@ -21,6 +21,7 @@ public sealed partial class IndexSearcher : IDisposable
     [ThreadStatic] private static ScoreDoc[]? t_collectorHeapCache;
     [ThreadStatic] private static HashSet<(string Field, string Term)>? t_docFreqTermsBuf;
     private static readonly Dictionary<(string Field, string Term), int> EmptyGlobalDFs = new();
+    private const string CombinedFieldsDocFreqKey = "\u0001combined-fields";
     private readonly QueryCache? _queryCache;
 
     /// <summary>Corpus-wide statistics computed at construction.</summary>
@@ -216,10 +217,7 @@ public sealed partial class IndexSearcher : IDisposable
 
         // Pattern-based queries (Prefix, Wildcard, Fuzzy) don't have static terms,
         // so PrecomputeGlobalDocFreqs produces an empty dictionary. Skip the tree walk.
-        bool skipGlobalDFs = query is PrefixQuery or WildcardQuery or FuzzyQuery;
-        var globalDFs = skipGlobalDFs
-            ? EmptyGlobalDFs
-            : PrecomputeGlobalDocFreqs(query);
+        var globalDFs = PrecomputeGlobalDocFreqsForSearch(query);
         var collector = new TopNCollector(topN);
 
         if (_readers.Count == 1 || !_config.ParallelSearch)
@@ -272,10 +270,7 @@ public sealed partial class IndexSearcher : IDisposable
         if (query is TermQuery tq)
             return SearchTermQuery(tq, topN);
 
-        bool skipGlobalDFs = query is PrefixQuery or WildcardQuery or FuzzyQuery;
-        var globalDFs = skipGlobalDFs
-            ? EmptyGlobalDFs
-            : PrecomputeGlobalDocFreqs(query);
+        var globalDFs = PrecomputeGlobalDocFreqsForSearch(query);
         var collector = new TopNCollector(topN);
 
         foreach (var reader in _readers)
@@ -346,8 +341,7 @@ public sealed partial class IndexSearcher : IDisposable
     private TopDocs SearchCoreBudgeted(Query query, int topN, SearchOptions options,
         long? deadlineTicks, System.Diagnostics.Stopwatch sw)
     {
-        bool skipGlobalDFs = query is PrefixQuery or WildcardQuery or FuzzyQuery;
-        var globalDFs = skipGlobalDFs ? EmptyGlobalDFs : PrecomputeGlobalDocFreqs(query);
+        var globalDFs = PrecomputeGlobalDocFreqsForSearch(query);
         var collector = new TopNCollector(topN);
         bool partial = false;
         long topNBytes = (long)topN * Scoring.ScoreDoc.EstimatedBytes;
@@ -397,8 +391,7 @@ public sealed partial class IndexSearcher : IDisposable
             ? (long)(options.Timeout.Value.TotalSeconds * System.Diagnostics.Stopwatch.Frequency)
             : null;
 
-        bool skipGlobalDFs = query is PrefixQuery or WildcardQuery or FuzzyQuery;
-        var globalDFs = skipGlobalDFs ? EmptyGlobalDFs : PrecomputeGlobalDocFreqs(query);
+        var globalDFs = PrecomputeGlobalDocFreqsForSearch(query);
         long perSegmentBytes = (long)perSegmentTopN * Scoring.ScoreDoc.EstimatedBytes;
         long emittedBytes = 0;
 
@@ -451,6 +444,22 @@ public sealed partial class IndexSearcher : IDisposable
         }
 
         return new IndexStats(_totalDocCount, liveDocCount, avgFieldLengths, fieldDocCounts);
+    }
+
+    private static bool ShouldSkipGlobalDocFreqs(Query query) =>
+        query is PrefixQuery or WildcardQuery or FuzzyQuery
+            or MatchAllDocsQuery or MatchNoDocsQuery
+            or FieldExistsQuery or TermInSetQuery or PointInSetQuery
+            or MultiPhraseQuery or IntervalsQuery or CombinedFieldsQuery;
+
+    private Dictionary<(string Field, string Term), int> PrecomputeGlobalDocFreqsForSearch(Query query)
+    {
+        if (query is CombinedFieldsQuery combined)
+            return PrecomputeCombinedFieldUnionDocFreqs(combined);
+
+        return ShouldSkipGlobalDocFreqs(query)
+            ? EmptyGlobalDFs
+            : PrecomputeGlobalDocFreqs(query);
     }
 
     private (List<string> SegmentIds, int Generation) LoadLatestCommitWithGeneration()
@@ -628,6 +637,35 @@ public sealed partial class IndexSearcher : IDisposable
                 total += reader.GetDocFreqByQualified(qt);
             result[(field, term)] = total;
         }
+
+        return result;
+    }
+
+    private Dictionary<(string Field, string Term), int> PrecomputeCombinedFieldUnionDocFreqs(CombinedFieldsQuery query)
+    {
+        var result = new Dictionary<(string Field, string Term), int>(query.Terms.Count);
+        foreach (var term in query.Terms)
+        {
+            int total = 0;
+            foreach (var reader in _readers)
+            {
+                var docs = new HashSet<int>();
+                foreach (var field in query.Fields)
+                {
+                    using var postings = reader.GetPostingsEnum(string.Concat(field, "\x00", term));
+                    while (postings.MoveNext())
+                    {
+                        if (reader.IsLive(postings.DocId))
+                            docs.Add(postings.DocId);
+                    }
+                }
+
+                total += docs.Count;
+            }
+
+            result[(CombinedFieldsDocFreqKey, term)] = total;
+        }
+
         return result;
     }
 
@@ -713,6 +751,7 @@ public sealed partial class IndexSearcher : IDisposable
                         ? fieldLengths[docId] : 1;
                     float score = _similarity.ScorePrecomputed(idf, k1BOverAvgDL, tf, docLength);
                     if (boost != 1.0f) score *= boost;
+                    score = ApplyFieldBoost(reader, docId, query.Field, score);
                     collector.Collect(docBase + docId, score);
                 }
             }

@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Index.Backup;
+using Rowles.LeanCorpus.Index.Backup;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
 
@@ -121,7 +121,7 @@ public sealed partial class IndexWriter
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         lock (_writeLock)
         {
-            if (_bufferedDocCount > 0)
+            if (_buffer.DocCount > 0)
                 FlushSegment();
             return _committedSegments.ToList().AsReadOnly();
         }
@@ -137,7 +137,7 @@ public sealed partial class IndexWriter
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         lock (_writeLock)
         {
-            if (_bufferedDocCount > 0)
+            if (_buffer.DocCount > 0)
                 FlushSegment();
 
             var snapshot = new IndexSnapshot(

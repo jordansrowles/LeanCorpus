@@ -39,7 +39,7 @@ public sealed class ElisionFilter : ITokenFilter
                 continue;
 
             int newStart = token.StartOffset + apostrophe + 1;
-            tokens[i] = new Token(token.Text[(apostrophe + 1)..], newStart, token.EndOffset);
+            tokens[i] = token.WithTextAndOffsets(token.Text[(apostrophe + 1)..], newStart, token.EndOffset);
         }
     }
 

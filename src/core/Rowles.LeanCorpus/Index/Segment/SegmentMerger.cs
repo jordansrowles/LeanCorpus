@@ -1,12 +1,15 @@
 ﻿using System.Buffers;
 using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.Bkd;
 using Rowles.LeanCorpus.Codecs.Postings;
+using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Codecs.TermVectors;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Index.Indexer;
 
 namespace Rowles.LeanCorpus.Index.Segment;
 
@@ -175,6 +178,27 @@ public sealed class SegmentMerger
             }
             perSegmentMaps.Add((segInfo, docIdMap));
         }
+
+        // Check soft-delete retention: if a doc is soft-deleted and its timestamp
+        // is still within the retention window, keep it (treat it as live for merge purposes).
+        for (int i = 0; i < perSegmentMaps.Count; i++)
+        {
+            var (segInfo, docIdMap) = perSegmentMaps[i];
+            var reader = readers[segInfo.SegmentId];
+
+            if (!ShouldRetainSoftDeletes(segInfo)) continue;
+
+            long cutoff = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - (long)(SoftDeleteRetentionSeconds * 1000);
+
+            for (int oldDocId = 0; oldDocId < segInfo.DocCount; oldDocId++)
+            {
+                // If doc was soft-deleted but retention hasn't elapsed, remap it as live.
+                if (docIdMap[oldDocId] < 0 && reader.IsSoftDeleted(oldDocId, out long ts) && ts > cutoff)
+                {
+                    docIdMap[oldDocId] = newDocId++;
+                }
+            }
+        }
         int totalDocs = newDocId;
         if (totalDocs == 0) return null;
 
@@ -217,6 +241,9 @@ public sealed class SegmentMerger
             FieldNames = fieldNames.ToList(),
             IndexSortFields = segments[0].IndexSortFields,
             VectorFields = mergedVectorFields,
+            MinSequenceNumber = ComputeMergedMinSeqNo(segments),
+            MaxSequenceNumber = ComputeMergedMaxSeqNo(segments),
+            EarliestSoftDeleteTimestamp = ComputeMergedEarliestSoftDeleteTimestamp(segments),
         };
         mergedInfo.WriteTo(basePath + ".seg");
         return mergedInfo;
@@ -234,6 +261,7 @@ public sealed class SegmentMerger
         internal TermVectorsStreamWriter? TermVectorWriter { get; set; }
         internal Dictionary<string, Dictionary<int, double>> NumericFields { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, int[]> FieldLengths { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, float[]> FieldBoosts { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, double[]> NumericDocValues { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, string?[]> SortedDocValues { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, IReadOnlyList<string>?[]> SortedSetDocValues { get; } = new(StringComparer.Ordinal);
@@ -314,7 +342,7 @@ public sealed class SegmentMerger
                 int remapDocId = docIdMap[oldDocId];
                 if (remapDocId < 0) continue;
 
-                ctx.StoredWriter!.AddDocument(reader.GetStoredFields(oldDocId));
+                ctx.StoredWriter!.AddDocument(reader.GetStoredFieldValues(oldDocId));
 
                 foreach (var (field, values) in segNumericIndex)
                 {
@@ -432,9 +460,12 @@ public sealed class SegmentMerger
         int totalDocs)
     {
         var fieldNorms = new Dictionary<string, float[]>(StringComparer.Ordinal);
+        var fieldBoosts = new Dictionary<string, float[]>(StringComparer.Ordinal);
         foreach (var fieldName in fieldNames)
         {
-            var arr = new float[totalDocs];
+            var norms = new float[totalDocs];
+            var boosts = new float[totalDocs];
+            Array.Fill(boosts, 1.0f);
             int idx = 0;
             foreach (var segInfo in segments)
             {
@@ -442,12 +473,15 @@ public sealed class SegmentMerger
                 for (int oldDocId = 0; oldDocId < segInfo.DocCount; oldDocId++)
                 {
                     if (!reader.IsLive(oldDocId)) continue;
-                    arr[idx++] = reader.GetNorm(oldDocId, fieldName);
+                    norms[idx] = reader.GetNorm(oldDocId, fieldName);
+                    boosts[idx] = reader.GetFieldBoost(oldDocId, fieldName);
+                    idx++;
                 }
             }
-            fieldNorms[fieldName] = arr;
+            fieldNorms[fieldName] = norms;
+            fieldBoosts[fieldName] = boosts;
         }
-        NormsWriter.Write(basePath + ".nrm", fieldNorms);
+        NormsWriter.Write(basePath + ".nrm", fieldNorms, fieldBoosts);
     }
 
     private List<VectorFieldInfo> MergeVectors(MergeContext ctx, string basePath)
@@ -724,5 +758,88 @@ public sealed class SegmentMerger
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Default soft-delete retention period in seconds. Documents soft-deleted within this
+    /// window are preserved during merges even though they are invisible to search.
+    /// </summary>
+    internal const double SoftDeleteRetentionSeconds = 86400.0; // 24 hours
+
+    /// <summary>
+    /// Returns <c>true</c> if this segment contains soft-deleted documents that may still
+    /// be within the retention window and should be preserved during a merge.
+    /// </summary>
+    private static bool ShouldRetainSoftDeletes(SegmentInfo segInfo)
+        => segInfo.EarliestSoftDeleteTimestamp.HasValue;
+
+    /// <summary>
+    /// Merges segments from a foreign directory into a single new segment in the target directory.
+    /// Used by <see cref="IndexWriter.AddIndexes"/>.
+    /// </summary>
+    public SegmentInfo? MergeSegmentsFromDirectory(
+        MMapDirectory sourceDirectory,
+        List<SegmentInfo> sourceSegments,
+        ref int nextSegmentOrdinal,
+        IndexWriterConfig config)
+    {
+        var newSegId = $"seg_{nextSegmentOrdinal++}";
+        var basePath = Path.Combine(_directory.DirectoryPath, newSegId);
+
+        var readers = new Dictionary<string, SegmentReader>(StringComparer.Ordinal);
+        try
+        {
+            foreach (var segInfo in sourceSegments)
+                readers[segInfo.SegmentId] = new SegmentReader(sourceDirectory, segInfo);
+
+            return MergeSegmentsCore(sourceSegments, readers, newSegId, basePath);
+        }
+        finally
+        {
+            foreach (var r in readers.Values)
+                r.Dispose();
+        }
+    }
+
+    private static long? ComputeMergedMinSeqNo(List<SegmentInfo> segments)
+    {
+        long? min = null;
+        foreach (var seg in segments)
+        {
+            if (seg.MinSequenceNumber.HasValue)
+            {
+                if (!min.HasValue || seg.MinSequenceNumber.Value < min.Value)
+                    min = seg.MinSequenceNumber.Value;
+            }
+        }
+        return min;
+    }
+
+    private static long? ComputeMergedMaxSeqNo(List<SegmentInfo> segments)
+    {
+        long? max = null;
+        foreach (var seg in segments)
+        {
+            if (seg.MaxSequenceNumber.HasValue)
+            {
+                if (!max.HasValue || seg.MaxSequenceNumber.Value > max.Value)
+                    max = seg.MaxSequenceNumber.Value;
+            }
+        }
+        return max;
+    }
+
+    private static long? ComputeMergedEarliestSoftDeleteTimestamp(List<SegmentInfo> segments)
+    {
+        long? earliest = null;
+        foreach (var seg in segments)
+        {
+            if (seg.EarliestSoftDeleteTimestamp.HasValue)
+            {
+                if (!earliest.HasValue || seg.EarliestSoftDeleteTimestamp.Value < earliest.Value)
+                    earliest = seg.EarliestSoftDeleteTimestamp.Value;
+            }
+        }
+        return earliest;
     }
 }

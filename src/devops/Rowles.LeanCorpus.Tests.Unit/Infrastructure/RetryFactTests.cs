@@ -227,7 +227,7 @@ public sealed class RetryFactDiscovererTests
         var info = new DictionarySerialiser();
         original.Serialize(info);
 
-        var restored = new RetryTestCase();
+        var restored = CreateTestCase(1);
         restored.Deserialize(info);
 
         // Re-serialise to observe what Deserialize actually restored.

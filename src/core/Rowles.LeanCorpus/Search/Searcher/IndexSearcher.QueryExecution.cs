@@ -98,6 +98,9 @@ public sealed partial class IndexSearcher
             case PhraseQuery pq:
                 ExecutePhraseQuery(pq, reader, ref collector);
                 break;
+            case MultiPhraseQuery mpq:
+                ExecuteMultiPhraseQuery(mpq, reader, ref collector);
+                break;
             case VectorQuery vq:
                 ExecuteVectorQuery(vq, reader, globalDFs, ref collector);
                 break;
@@ -124,6 +127,27 @@ public sealed partial class IndexSearcher
                 break;
             case FunctionScoreQuery fsq:
                 ExecuteFunctionScoreQuery(fsq, reader, globalDFs, ref collector);
+                break;
+            case MatchAllDocsQuery madq:
+                ExecuteMatchAllDocsQuery(madq, reader, ref collector);
+                break;
+            case MatchNoDocsQuery mndq:
+                ExecuteMatchNoDocsQuery(mndq, reader, ref collector);
+                break;
+            case FieldExistsQuery feq:
+                ExecuteFieldExistsQuery(feq, reader, ref collector);
+                break;
+            case TermInSetQuery tisq:
+                ExecuteTermInSetQuery(tisq, reader, ref collector);
+                break;
+            case PointInSetQuery pisq:
+                ExecutePointInSetQuery(pisq, reader, ref collector);
+                break;
+            case CombinedFieldsQuery cfq:
+                ExecuteCombinedFieldsQuery(cfq, reader, globalDFs, ref collector);
+                break;
+            case IntervalsQuery iq:
+                ExecuteIntervalsQuery(iq, reader, ref collector);
                 break;
             case SpanNearQuery snq:
                 ExecuteSpanNearQuery(snq, reader, globalDFs, ref collector);
@@ -156,16 +180,20 @@ public sealed partial class IndexSearcher
         int docBase = reader.DocBase;
         float boost = query.Boost;
         reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+        reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
+        bool hasDeletions = reader.HasDeletions;
+        bool hasQueryBoost = boost != 1.0f;
 
         while (postings.MoveNext())
         {
             int docId = postings.DocId;
-            if (!reader.IsLive(docId)) continue;
+            if (hasDeletions && !reader.IsLive(docId)) continue;
 
             int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                 ? fieldLengths[docId] : 1;
             float score = _similarity.ScorePrecomputed(factors.Factor1, factors.Factor2, postings.Freq, docLength);
-            if (boost != 1.0f) score *= boost;
+            if (hasQueryBoost) score *= boost;
+            score = ApplyFieldBoost(fieldBoosts, docId, score);
             collector.Collect(docBase + docId, score);
         }
     }
@@ -260,11 +288,19 @@ public sealed partial class IndexSearcher
 
             // Resolve field-length arrays once per clause to avoid per-doc dictionary lookups
             var mustFieldLens = mustCount > 0 ? new int[]?[mustCount] : null;
+            var mustFieldBoosts = mustCount > 0 ? new float[]?[mustCount] : null;
             for (int i = 0; i < mustCount; i++)
+            {
                 reader.TryGetFieldLengths(mustFields![i], out mustFieldLens![i]);
+                reader.TryGetFieldBoosts(mustFields[i], out mustFieldBoosts![i]);
+            }
             var shouldFieldLens = shouldCount > 0 ? new int[]?[shouldCount] : null;
+            var shouldFieldBoosts = shouldCount > 0 ? new float[]?[shouldCount] : null;
             for (int i = 0; i < shouldCount; i++)
+            {
                 reader.TryGetFieldLengths(shouldFields![i], out shouldFieldLens![i]);
+                reader.TryGetFieldBoosts(shouldFields[i], out shouldFieldBoosts![i]);
+            }
 
             if (mustCount > 0)
             {
@@ -280,6 +316,8 @@ public sealed partial class IndexSearcher
                     (mustEnums![0], mustEnums[leaderIdx]) = (mustEnums[leaderIdx], mustEnums[0]);
                     (mustFactors![0], mustFactors[leaderIdx]) = (mustFactors[leaderIdx], mustFactors[0]);
                     (mustFields![0], mustFields[leaderIdx]) = (mustFields[leaderIdx], mustFields[0]);
+                    (mustFieldLens![0], mustFieldLens[leaderIdx]) = (mustFieldLens[leaderIdx], mustFieldLens[0]);
+                    (mustFieldBoosts![0], mustFieldBoosts[leaderIdx]) = (mustFieldBoosts[leaderIdx], mustFieldBoosts[0]);
                 }
 
                 // Stream through leader, advance followers
@@ -317,9 +355,9 @@ public sealed partial class IndexSearcher
                     for (int i = 0; i < mustCount; i++)
                     {
                         int docLength = mustFieldLens![i] is { } mfl && (uint)docId < (uint)mfl.Length ? mfl[docId] : 1;
-                        score += _similarity.ScorePrecomputed(
+                        score += ApplyFieldBoost(mustFieldBoosts![i], docId, _similarity.ScorePrecomputed(
                             mustFactors![i].Idf, mustFactors[i].K1BOverAvgDL,
-                            mustEnums[i].Freq, docLength);
+                            mustEnums[i].Freq, docLength));
                     }
 
                     // Add Should bonus
@@ -328,9 +366,9 @@ public sealed partial class IndexSearcher
                         if (shouldEnums![i].Advance(docId) && shouldEnums[i].DocId == docId)
                         {
                             int docLength = shouldFieldLens![i] is { } sfl && (uint)docId < (uint)sfl.Length ? sfl[docId] : 1;
-                            score += _similarity.ScorePrecomputed(
+                            score += ApplyFieldBoost(shouldFieldBoosts![i], docId, _similarity.ScorePrecomputed(
                                 shouldFactors![i].Idf, shouldFactors[i].K1BOverAvgDL,
-                                shouldEnums[i].Freq, docLength);
+                                shouldEnums[i].Freq, docLength));
                         }
                     }
 
@@ -373,9 +411,9 @@ public sealed partial class IndexSearcher
                         if (currentDocs[i] == minDoc)
                         {
                             int docLength = shouldFieldLens![i] is { } sfl && (uint)minDoc < (uint)sfl.Length ? sfl[minDoc] : 1;
-                            score += _similarity.ScorePrecomputed(
+                            score += ApplyFieldBoost(shouldFieldBoosts![i], minDoc, _similarity.ScorePrecomputed(
                                 shouldFactors![i].Idf, shouldFactors[i].K1BOverAvgDL,
-                                shouldEnums![i].Freq, docLength);
+                                shouldEnums![i].Freq, docLength));
                             currentDocs[i] = shouldEnums[i].MoveNext() ? shouldEnums[i].DocId : int.MaxValue;
                         }
                     }
@@ -615,6 +653,7 @@ public sealed partial class IndexSearcher
                         int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                             ? fieldLengths[docId] : 1;
                         float score = _similarity.ScorePrecomputed(factors.Factor1, factors.Factor2, postings.Freq, docLength);
+                        score = ApplyFieldBoost(reader, docId, tq.Field, score);
                         results.Add(new ScoreDoc(docId, score));
                     }
                     break;
@@ -634,7 +673,7 @@ public sealed partial class IndexSearcher
                     var rangeResults = reader.GetNumericRange(rq.Field, rq.Min, rq.Max);
                     float rqScore = rq.Boost != 1.0f ? rq.Boost : 1.0f;
                     foreach (var r in rangeResults)
-                        results.Add(new ScoreDoc(r.DocId, rqScore));
+                        results.Add(new ScoreDoc(r.DocId, ApplyFieldBoost(reader, r.DocId, rq.Field, rqScore)));
                     break;
                 }
             case PrefixQuery pfq:

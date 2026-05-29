@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Sets up and builds the LeanCorpus documentation site using DocFX.
 
@@ -483,6 +483,155 @@ if (-not $SkipCoverage) {
     }
 }
 
+
+
+function Add-MissingPackageNamespaces {
+    <#
+    .SYNOPSIS
+        Adds compression packages and SourceGen as top-level TOC entries.
+
+    .DESCRIPTION
+        DocFX nested namespace layout drops namespaces whose intermediate
+        parents do not exist (e.g. Rowles.LeanCorpus.Compression has no YAML
+        file, so LZ4/Snappy/Zstandard are omitted). SourceGen is incorrectly
+        nested under Rowles.LeanCorpus. This function fixes both.
+    #>
+    $apiDir = Join-Path $docsDir "api"
+    if (-not (Test-Path $apiDir)) { return }
+
+    $tocPath = Join-Path $apiDir 'toc.yml'
+    if (-not (Test-Path $tocPath)) { return }
+
+    $tocLines = [string[]](Get-Content $tocPath)
+
+    # Step 1: Remove SourceGen and Compression from nested positions under Rowles.LeanCorpus
+    $outToc = [System.Collections.Generic.List[string]]::new()
+    $sourceGenBlock = [System.Collections.Generic.List[string]]::new()
+    $sourceGenIndent = -1
+    $compressionBlock = [System.Collections.Generic.List[string]]::new()
+    $compressionIndent = -1
+
+    for ($i = 0; $i -lt $tocLines.Length; $i++) {
+        if ($tocLines[$i] -match '^(\s*)- uid: Rowles\.LeanCorpus\.SourceGen$') {
+            $sourceGenIndent = $Matches[1].Length
+            $sourceGenBlock.Add($tocLines[$i])
+            $i++
+            while ($i -lt $tocLines.Length) {
+                if ($tocLines[$i] -match '^(\s*)- uid: ') {
+                    if ($Matches[1].Length -le $sourceGenIndent) {
+                        $i--
+                        break
+                    }
+                }
+                $sourceGenBlock.Add($tocLines[$i])
+                $i++
+            }
+            continue
+        }
+        if ($tocLines[$i] -match '^(\s*)- uid: Rowles\.LeanCorpus\.Compression$') {
+            $compressionIndent = $Matches[1].Length
+            $compressionBlock.Add($tocLines[$i])
+            $i++
+            while ($i -lt $tocLines.Length) {
+                if ($tocLines[$i] -match '^(\s*)- uid: ') {
+                    if ($Matches[1].Length -le $compressionIndent) {
+                        $i--
+                        break
+                    }
+                }
+                $compressionBlock.Add($tocLines[$i])
+                $i++
+            }
+            continue
+        }
+        $outToc.Add($tocLines[$i])
+    }
+
+    # Step 2: Read compression namespace YML files to build TOC entries
+    $compressionNs = @(
+        'Rowles.LeanCorpus.Compression.LZ4',
+        'Rowles.LeanCorpus.Compression.Snappy',
+        'Rowles.LeanCorpus.Compression.Zstandard'
+    )
+
+    function Get-YmlType($ymlPath) {
+        if (-not (Test-Path $ymlPath)) { return 'Class' }
+        $lines = [string[]](Get-Content $ymlPath)
+        for ($li = 0; $li -lt $lines.Length; $li++) {
+            if ($lines[$li] -match '^  type: (.+)$') {
+                return $Matches[1]
+            }
+        }
+        return 'Class'
+    }
+
+    function Get-NamespaceChildren($nsYmlPath) {
+        $children = [System.Collections.Generic.List[string]]::new()
+        if (-not (Test-Path $nsYmlPath)) { return $children }
+        $nsLines = [string[]](Get-Content $nsYmlPath)
+        $inChildren = $false
+        foreach ($line in $nsLines) {
+            if ($line -eq '  children:') {
+                $inChildren = $true
+                continue
+            }
+            if ($inChildren) {
+                if ($line -match '^  - (.+)$') {
+                    $children.Add($Matches[1])
+                } else {
+                    break
+                }
+            }
+        }
+        return $children
+    }
+
+    $compressionEntries = [System.Collections.Generic.List[string]]::new()
+    foreach ($ns in $compressionNs) {
+        $nsYml = Join-Path $apiDir "$ns.yml"
+        $children = Get-NamespaceChildren $nsYml
+        if ($children.Count -eq 0) { continue }
+
+        $compressionEntries.Add("- uid: $ns")
+        $compressionEntries.Add("  name: $ns")
+        $compressionEntries.Add('  type: Namespace')
+        $compressionEntries.Add('  items:')
+
+        foreach ($childUid in $children) {
+            $childYml = Join-Path $apiDir "$childUid.yml"
+            $childType = Get-YmlType $childYml
+            $childName = $childUid.Split('.')[-1]
+            $compressionEntries.Add("  - uid: $childUid")
+            $compressionEntries.Add("    name: $childName")
+            $compressionEntries.Add("    type: $childType")
+        }
+    }
+
+    # Step 3: Remove 2-space indent from SourceGen block (make it top-level)
+    $sourceGenTopLevel = [System.Collections.Generic.List[string]]::new()
+    foreach ($line in $sourceGenBlock) {
+        if ($line.Length -ge 2 -and $line[0] -eq ' ' -and $line[1] -eq ' ') {
+            $sourceGenTopLevel.Add($line.Substring(2))
+        } else {
+            $sourceGenTopLevel.Add($line)
+        }
+    }
+
+    # Step 4: Insert new entries before memberLayout
+    $finalToc = [System.Collections.Generic.List[string]]::new()
+    foreach ($line in $outToc) {
+        if ($line -eq 'memberLayout: SeparatePages') {
+            $finalToc.Add('')
+            foreach ($entry in $compressionEntries) { $finalToc.Add($entry) }
+            $finalToc.Add('')
+            foreach ($entry in $sourceGenTopLevel) { $finalToc.Add($entry) }
+        }
+        $finalToc.Add($line)
+    }
+
+    Set-GeneratedContent -Path $tocPath -Value $finalToc
+    Write-Host "Added compression and SourceGen package namespaces to API TOC."
+}
 # ── Build ─────────────────────────────────────────────────────────────────────
 
 if ($MetadataOnly) {
@@ -495,6 +644,7 @@ if ($MetadataOnly) {
     Remove-PrivateApiEntries
     Remove-ExternalReferenceEntries
     Add-InternalApiBadges
+Add-MissingPackageNamespaces
     Write-Host "Metadata written to: $docsDir\api" -ForegroundColor Green
     exit 0
 }
@@ -508,6 +658,7 @@ Remove-ExternalInheritanceEntries
 Remove-PrivateApiEntries
 Remove-ExternalReferenceEntries
 Add-InternalApiBadges
+Add-MissingPackageNamespaces
 
 if ($Serve) {
     Write-Host "Building and serving docs on http://localhost:8080..." -ForegroundColor Cyan

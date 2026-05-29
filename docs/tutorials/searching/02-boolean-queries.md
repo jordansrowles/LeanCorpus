@@ -1,10 +1,12 @@
-﻿# Boolean queries
+# Boolean queries
 
 `BooleanQuery` combines clauses using <xml>Occur</xml>:
 
-- `Must` — required.
-- `Should` — optional. Increases relevance.
-- `MustNot` — exclude.
+| Occur | Description |
+|---|---|
+| `Must` | Required. |
+| `Should` | Optional. Increases relevance. |
+| `MustNot` | Exclude. |
 
 ## Direct construction
 
@@ -12,10 +14,11 @@
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Queries;
 
-var query = new BooleanQuery();
-query.Add(new TermQuery("title", "fox"),  Occur.Must);
-query.Add(new TermQuery("title", "quick"), Occur.Should);
-query.Add(new TermQuery("title", "lazy"),  Occur.MustNot);
+var query = new BooleanQuery.Builder()
+    .Add(new TermQuery("title", "fox"),  Occur.Must)
+    .Add(new TermQuery("title", "quick"), Occur.Should)
+    .Add(new TermQuery("title", "lazy"),  Occur.MustNot)
+    .Build();
 ```
 
 ## Fluent builder

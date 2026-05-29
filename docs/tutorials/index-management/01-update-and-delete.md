@@ -1,4 +1,4 @@
-﻿# Update and delete
+# Update and delete
 
 ## Delete by query
 
@@ -29,10 +29,57 @@ writer.Commit();
 The delete and add land in the same commit, so readers never see a window where
 the document is missing.
 
-## Tombstones
+## Soft deletes
 
-Deletes are written as a per-segment `.del` bitset. They are merged out when the
-segment is rewritten by a background merge.
+Enable soft-deletion to mark documents deleted without immediately removing them
+from the index:
+
+```csharp
+var config = new IndexWriterConfig
+{
+    SoftDeletesEnabled = true,
+    SoftDeletesRetentionPeriod = TimeSpan.FromHours(24),
+};
+```
+
+Soft-deleted documents are excluded from search results but retained in segments
+until the retention period expires and a merge reclaims them. Delete by soft-delete
+query:
+
+```csharp
+writer.SoftDeleteDocuments(new TermQuery("id", "abc-123"));
+writer.Commit();
+```
+
+## Update by query
+
+`UpdateDocuments` accepts an arbitrary `Query` and a replacement `LeanDocument`.
+It atomically deletes all matching documents and adds the replacement:
+
+```csharp
+var replacement = new LeanDocument();
+replacement.Add(new StringField("id", "abc-123"));
+replacement.Add(new TextField("body", "Replacement content"));
+
+writer.UpdateDocuments(new TermQuery("id", "abc-123"), replacement);
+writer.Commit();
+```
+
+Unlike `UpdateDocument`, the query does not need to be a `TermQuery`.
+
+## AddIndexes
+
+`AddIndexes` merges segments from another index directory into the current index
+without re-analysing or re-indexing individual documents:
+
+```csharp
+var sourceDir = new MMapDirectory("/path/to/other/index");
+writer.AddIndexes(sourceDir);
+writer.Commit();
+```
+
+This is useful for restoring archived segments, merging partitioned indexes,
+or bootstrapping a new index from a snapshot.
 
 ## See also
 

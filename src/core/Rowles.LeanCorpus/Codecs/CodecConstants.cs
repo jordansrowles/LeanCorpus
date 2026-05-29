@@ -10,13 +10,13 @@ internal static class CodecConstants
     public const int Magic = 0x4C4C_4E31; // "LLN1" in ASCII
 
     // Per-format version numbers — increment when the binary layout changes.
-    public const byte TermDictionaryVersion = 2;
+    public const byte TermDictionaryVersion = 3;
     public const byte PostingsVersion = 3;
-    public const byte NormsVersion = 1;
+    public const byte NormsVersion = 3;
     public const byte VectorVersion = 1;
     public const byte HnswVersion = 1;
-    public const byte StoredFieldsVersion = 5; // v5: stored-field compression policy byte (was v4 Brotli)
-    public const byte TermVectorsVersion = 1;
+    public const byte StoredFieldsVersion = 6; // v6: typed stored values (string or binary)
+    public const byte TermVectorsVersion = 2; // v2: aligned per-position payload arrays
     public const byte NumericDocValuesVersion = 2;
     public const byte SortedDocValuesVersion = 2;
     public const byte SortedSetDocValuesVersion = 1;

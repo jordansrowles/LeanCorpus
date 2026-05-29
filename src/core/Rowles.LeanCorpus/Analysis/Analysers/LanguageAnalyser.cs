@@ -65,7 +65,7 @@ public sealed class LanguageAnalyser : IAnalyser
                 if (_stemmer is not null && (_keywordMarker is null || !_keywordMarker.IsKeyword(text)))
                     text = _stemmer.Stem(text);
 
-                result.Add(new Token(text, t.StartOffset, t.EndOffset));
+                result.Add(new Token(text, t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload));
             }
         }
         finally

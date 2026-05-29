@@ -1,10 +1,26 @@
-﻿{
+{
   "metadata": [
     {
       "src": [
         {
           "files": [ "Rowles.LeanCorpus.csproj" ],
           "src": "../src/core/Rowles.LeanCorpus"
+        },
+        {
+          "files": [ "Rowles.LeanCorpus.Compression.LZ4.csproj" ],
+          "src": "../src/core/Rowles.LeanCorpus.Compression.LZ4"
+        },
+        {
+          "files": [ "Rowles.LeanCorpus.Compression.Snappy.csproj" ],
+          "src": "../src/core/Rowles.LeanCorpus.Compression.Snappy"
+        },
+        {
+          "files": [ "Rowles.LeanCorpus.Compression.Zstandard.csproj" ],
+          "src": "../src/core/Rowles.LeanCorpus.Compression.Zstandard"
+        },
+        {
+          "files": [ "Rowles.LeanCorpus.SourceGen.csproj" ],
+          "src": "../src/core/Rowles.LeanCorpus.SourceGen"
         }
       ],
       "dest": "api",

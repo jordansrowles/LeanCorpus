@@ -25,7 +25,7 @@
 </tr>
 <tr>
 <th>File(s):</th>
-<td class="overflow-wrap"><a href="#CUsersJordanDesktopLeanLucenereposmainsrccoreRowlesLeanCorpusCodecsTermVectorsTermVectorEntrycs" class="navigatetohash">C:\Users\Jordan\Desktop\LeanLucene\repos\main\src\core\Rowles.LeanCorpus\Codecs\TermVectors\TermVectorEntry.cs</a></td>
+<td class="overflow-wrap"><a href="#CUsersJordanDesktopLeanLucenerepospublicsrccoreRowlesLeanCorpusCodecsTermVectorsTermVectorEntrycs" class="navigatetohash">C:\Users\Jordan\Desktop\LeanLucene\repos\public\src\core\Rowles.LeanCorpus\Codecs\TermVectors\TermVectorEntry.cs</a></td>
 </tr>
 </table>
 </div>
@@ -53,7 +53,7 @@
 </tr>
 <tr>
 <th>Total lines:</th>
-<td class="limit-width right" title="7">7</td>
+<td class="limit-width right" title="8">8</td>
 </tr>
 <tr>
 <th>Line coverage:</th>
@@ -107,12 +107,12 @@
 </colgroup>
 <thead><tr><th>Method</th><th>Branch coverage <a href="https://en.wikipedia.org/wiki/Code_coverage" target="_blank"><i class="icon-info-circled"></i></a></th><th>Crap Score <a href="https://googletesting.blogspot.de/2011/02/this-code-is-crap.html" target="_blank"><i class="icon-info-circled"></i></a></th><th>Cyclomatic complexity <a href="https://en.wikipedia.org/wiki/Cyclomatic_complexity" target="_blank"><i class="icon-info-circled"></i></a></th><th>Line coverage <a href="https://en.wikipedia.org/wiki/Code_coverage" target="_blank"><i class="icon-info-circled"></i></a></th></tr></thead>
 <tbody>
-<tr><td title="get_Term()"><a href="#file0_line7" class="navigatetohash">get_Term()</a></td><td>100%</td><td>1</td><td>1</td><td>100%</td></tr>
+<tr><td title="get_Term()"><a href="#file0_line8" class="navigatetohash">get_Term()</a></td><td>100%</td><td>1</td><td>1</td><td>100%</td></tr>
 </tbody>
 </table>
 </div>
 <h1>File(s)</h1>
-<h2 id="CUsersJordanDesktopLeanLucenereposmainsrccoreRowlesLeanCorpusCodecsTermVectorsTermVectorEntrycs">C:\Users\Jordan\Desktop\LeanLucene\repos\main\src\core\Rowles.LeanCorpus\Codecs\TermVectors\TermVectorEntry.cs</h2>
+<h2 id="CUsersJordanDesktopLeanLucenerepospublicsrccoreRowlesLeanCorpusCodecsTermVectorsTermVectorEntrycs">C:\Users\Jordan\Desktop\LeanLucene\repos\public\src\core\Rowles.LeanCorpus\Codecs\TermVectors\TermVectorEntry.cs</h2>
 <div class="table-responsive">
 <table class="lineAnalysis">
 <thead><tr><th></th><th>#</th><th>Line</th><th></th><th>Line coverage</th></tr></thead>
@@ -123,15 +123,16 @@
 <tr class="" title="Not coverable" data-coverage="{'AllTestMethods': {'VC': '', 'LVS': 'gray'}}"><td class="gray">&nbsp;</td><td class="leftmargin rightmargin right"></td><td class="rightmargin right"><a id="file0_line4"></a><code>4</code></td><td></td><td class="lightgray"><code>///&nbsp;&lt;param&nbsp;name=&quot;Term&quot;&gt;The&nbsp;term&nbsp;text.&lt;/param&gt;</code></td></tr>
 <tr class="" title="Not coverable" data-coverage="{'AllTestMethods': {'VC': '', 'LVS': 'gray'}}"><td class="gray">&nbsp;</td><td class="leftmargin rightmargin right"></td><td class="rightmargin right"><a id="file0_line5"></a><code>5</code></td><td></td><td class="lightgray"><code>///&nbsp;&lt;param&nbsp;name=&quot;Freq&quot;&gt;The&nbsp;number&nbsp;of&nbsp;times&nbsp;the&nbsp;term&nbsp;appears&nbsp;in&nbsp;the&nbsp;document.&lt;/param&gt;</code></td></tr>
 <tr class="" title="Not coverable" data-coverage="{'AllTestMethods': {'VC': '', 'LVS': 'gray'}}"><td class="gray">&nbsp;</td><td class="leftmargin rightmargin right"></td><td class="rightmargin right"><a id="file0_line6"></a><code>6</code></td><td></td><td class="lightgray"><code>///&nbsp;&lt;param&nbsp;name=&quot;Positions&quot;&gt;The&nbsp;token&nbsp;positions&nbsp;at&nbsp;which&nbsp;the&nbsp;term&nbsp;appears.&lt;/param&gt;</code></td></tr>
-<tr class="coverableline" title="Covered (865 visits)" data-coverage="{'AllTestMethods': {'VC': '865', 'LVS': 'green'}}"><td class="green">&nbsp;</td><td class="leftmargin rightmargin right">865</td><td class="rightmargin right"><a id="file0_line7"></a><code>7</code></td><td></td><td class="lightgreen"><code>public&nbsp;readonly&nbsp;record&nbsp;struct&nbsp;TermVectorEntry(string&nbsp;Term,&nbsp;int&nbsp;Freq,&nbsp;int[]&nbsp;Positions);</code></td></tr>
+<tr class="" title="Not coverable" data-coverage="{'AllTestMethods': {'VC': '', 'LVS': 'gray'}}"><td class="gray">&nbsp;</td><td class="leftmargin rightmargin right"></td><td class="rightmargin right"><a id="file0_line7"></a><code>7</code></td><td></td><td class="lightgray"><code>///&nbsp;&lt;param&nbsp;name=&quot;Payloads&quot;&gt;Optional&nbsp;payload&nbsp;bytes&nbsp;aligned&nbsp;to&nbsp;&lt;paramref&nbsp;name=&quot;Positions&quot;/&gt;.&lt;/param&gt;</code></td></tr>
+<tr class="coverableline" title="Covered (1182 visits)" data-coverage="{'AllTestMethods': {'VC': '1182', 'LVS': 'green'}}"><td class="green">&nbsp;</td><td class="leftmargin rightmargin right">1182</td><td class="rightmargin right"><a id="file0_line8"></a><code>8</code></td><td></td><td class="lightgreen"><code>public&nbsp;readonly&nbsp;record&nbsp;struct&nbsp;TermVectorEntry(string&nbsp;Term,&nbsp;int&nbsp;Freq,&nbsp;int[]&nbsp;Positions,&nbsp;byte[]?[]?&nbsp;Payloads&nbsp;=&nbsp;null);</code></td></tr>
 </tbody>
 </table>
 </div>
-<div class="footer">Generated by: ReportGenerator 5.5.9.0<br />12/05/2026 - 17:47:30<br /><a href="https://github.com/danielpalme/ReportGenerator">GitHub</a> | <a href="https://reportgenerator.io">reportgenerator.io</a></div></div>
+<div class="footer">Generated by: ReportGenerator 5.5.9.0<br />29/05/2026 - 14:43:11<br /><a href="https://github.com/danielpalme/ReportGenerator">GitHub</a> | <a href="https://reportgenerator.io">reportgenerator.io</a></div></div>
 <div class="containerright">
 <div class="containerrightfixed">
 <h1>Methods/Properties</h1>
-<a href="#file0_line7" class="navigatetohash percentagebar percentagebar100" title="Line coverage: 100% - get_Term()"><i class="icon-wrench"></i>get_Term()</a><br />
+<a href="#file0_line8" class="navigatetohash percentagebar percentagebar100" title="Line coverage: 100% - get_Term()"><i class="icon-wrench"></i>get_Term()</a><br />
 <br/></div>
 </div></div>
 <script type="text/javascript" src="class.js"></script>
