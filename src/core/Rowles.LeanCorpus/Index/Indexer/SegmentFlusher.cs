@@ -1,5 +1,6 @@
 using System.Buffers;
 using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Codecs.Bkd;
 using Rowles.LeanCorpus.Codecs.TermVectors;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
@@ -101,13 +102,35 @@ internal static class SegmentFlusher
                 {
                     for (int i = 0; i < ids.Length; i++)
                     {
-                        var positions = acc.GetPositions(i);
-                        posOutput.WriteVarInt(positions.Length);
-                        int prevPos = 0;
-                        for (int pi = 0; pi < positions.Length; pi++)
+                        acc.GetEncodedPositionDeltas(i, out var deltaBytes, out int firstPos, out int freq);
+                        posOutput.WriteVarInt(freq);
+                        if (freq == 0) continue;
+
+                        posOutput.WriteVarInt(firstPos);
+                        int prevPos = firstPos;
+
+                        // Payload for position 0
+                        if (hasPayloads)
                         {
-                            posOutput.WriteVarInt(positions[pi] - prevPos);
-                            prevPos = positions[pi];
+                            var payload0 = acc.GetPayload(i, 0);
+                            if (payload0 is { Length: > 0 })
+                            {
+                                posOutput.WriteVarInt(payload0.Length);
+                                posOutput.WriteBytes(payload0);
+                            }
+                            else
+                            {
+                                posOutput.WriteVarInt(0);
+                            }
+                        }
+
+                        int offset = 0;
+                        for (int pi = 1; pi < freq; pi++)
+                        {
+                            offset += PostingAccumulator.ReadVarInt(deltaBytes.Slice(offset), out int delta);
+                            int abs = firstPos + delta;
+                            posOutput.WriteVarInt(abs - prevPos);
+                            prevPos = abs;
 
                             if (hasPayloads)
                             {
@@ -219,23 +242,75 @@ internal static class SegmentFlusher
                             perField[k] = copy;
                     }
                 }
+                var quantisation = config.VectorQuantisation;
+                float int8Min = 0f, int8Alpha = 0f;
+                float[]? bbqCentroid = null;
 
-                var vecPath = Codecs.Vectors.VectorFilePaths.VectorFile(basePath, fieldName);
-                Codecs.Vectors.VectorWriter.WriteField(vecPath, buffer.DocCount, dimension, perField);
+                if (quantisation == VectorQuantisation.None)
+                {
+                    var vecPath = Codecs.Vectors.VectorFilePaths.VectorFile(basePath, fieldName);
+                    Codecs.Vectors.VectorWriter.WriteField(vecPath, buffer.DocCount, dimension, perField, quantisation);
+                }
+                else
+                {
+                    switch (quantisation)
+                    {
+                        case VectorQuantisation.Int8:
+                            (int8Min, int8Alpha) = ComputeInt8Params(perField);
+                            break;
+                        case VectorQuantisation.BBQ:
+                            bbqCentroid = ComputeBBQCentroid(perField, dimension);
+                            break;
+                    }
+                    // Defer write until after HNSW build source creation.
+                }
 
                 bool hasHnsw = false;
                 if (config.BuildHnswOnFlush && perField.Count >= 2)
                 {
-                    var memSource = new Dictionary<int, ReadOnlyMemory<float>>(perField);
-                    var source = new Codecs.Vectors.InMemoryVectorSource(memSource, dimension);
                     var docIds = perField.Keys.ToArray();
                     var hnswSw = System.Diagnostics.Stopwatch.StartNew();
-                    var graph = Codecs.Hnsw.HnswGraphBuilder.Build(source, docIds, config.HnswBuildConfig, config.HnswSeed);
+                    Codecs.Hnsw.HnswGraph graph;
+
+                    if (quantisation == VectorQuantisation.Int8)
+                    {
+                        var int8Source = new Codecs.Vectors.Int8QuantisedMemoryVectorSource(perField, dimension, int8Min, int8Alpha);
+                        var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
+                        Codecs.Vectors.QuantisedVectorWriter.WriteInt8(vqPath, buffer.DocCount, dimension, perField);
+                        graph = Codecs.Hnsw.HnswGraphBuilder.Build(int8Source, docIds, config.HnswBuildConfig, config.HnswSeed);
+                    }
+                    else if (quantisation == VectorQuantisation.BBQ)
+                    {
+                        var bbqSource = new Codecs.Vectors.BBQMemoryVectorSource(perField, dimension, bbqCentroid!);
+                        var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
+                        Codecs.Vectors.QuantisedVectorWriter.WriteBBQ(vqPath, buffer.DocCount, dimension, perField, bbqCentroid!);
+                        graph = Codecs.Hnsw.HnswGraphBuilder.Build(bbqSource, docIds, config.HnswBuildConfig, config.HnswSeed);
+                    }
+                    else
+                    {
+                        var memSource = new Dictionary<int, ReadOnlyMemory<float>>(perField);
+                        var source = new Codecs.Vectors.InMemoryVectorSource(memSource, dimension);
+                        graph = Codecs.Hnsw.HnswGraphBuilder.Build(source, docIds, config.HnswBuildConfig, config.HnswSeed);
+                    }
                     hnswSw.Stop();
                     config.Metrics.RecordHnswBuild(hnswSw.Elapsed, docIds.Length);
                     var hnswPath = Codecs.Vectors.VectorFilePaths.HnswFile(basePath, fieldName);
                     Codecs.Hnsw.HnswWriter.Write(hnswPath, graph, dimension, config.NormaliseVectors);
                     hasHnsw = true;
+                }
+                else if (quantisation != VectorQuantisation.None)
+                {
+                    // Write .vq even when HNSW is not built, since the data was deferred.
+                    var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
+                    switch (quantisation)
+                    {
+                        case VectorQuantisation.Int8:
+                            Codecs.Vectors.QuantisedVectorWriter.WriteInt8(vqPath, buffer.DocCount, dimension, perField);
+                            break;
+                        case VectorQuantisation.BBQ:
+                            Codecs.Vectors.QuantisedVectorWriter.WriteBBQ(vqPath, buffer.DocCount, dimension, perField, bbqCentroid!);
+                            break;
+                    }
                 }
 
                 segInfo.VectorFields.Add(new VectorFieldInfo
@@ -243,6 +318,7 @@ internal static class SegmentFlusher
                     FieldName = fieldName,
                     Dimension = dimension,
                     Normalised = config.NormaliseVectors,
+                    Quantisation = quantisation,
                     HasHnsw = hasHnsw,
                 });
             }
@@ -625,5 +701,45 @@ internal static class SegmentFlusher
                 writer.Write(value);
             }
         }
+    }
+
+    private static (float min, float alpha) ComputeInt8Params(
+        IReadOnlyDictionary<int, ReadOnlyMemory<float>> perField)
+    {
+        float min = float.MaxValue;
+        float max = float.MinValue;
+        foreach (var v in perField.Values)
+        {
+            var span = v.Span;
+            for (int j = 0; j < span.Length; j++)
+            {
+                float val = span[j];
+                if (val < min) min = val;
+                if (val > max) max = val;
+            }
+        }
+        if (MathF.Abs(max - min) < 1e-8f) max = min + 1f;
+        return (min, (max - min) / 255f);
+    }
+
+    private static float[] ComputeBBQCentroid(
+        IReadOnlyDictionary<int, ReadOnlyMemory<float>> perField,
+        int dimension)
+    {
+        float[] centroid = new float[dimension];
+        int count = 0;
+        foreach (var v in perField.Values)
+        {
+            var span = v.Span;
+            for (int j = 0; j < dimension; j++)
+                centroid[j] += span[j];
+            count++;
+        }
+        if (count > 0)
+        {
+            for (int j = 0; j < dimension; j++)
+                centroid[j] /= count;
+        }
+        return centroid;
     }
 }

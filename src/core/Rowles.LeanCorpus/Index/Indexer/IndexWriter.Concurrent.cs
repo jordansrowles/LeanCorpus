@@ -209,7 +209,8 @@ public sealed partial class IndexWriter
                     }
                     else
                     {
-                        dstAcc.AddPositions(remappedDocId, srcAcc.GetPositions(i));
+                        srcAcc.GetEncodedPositionDeltas(i, out var deltas, out int firstPos, out int freq);
+                        dstAcc.AddEncodedPositions(remappedDocId, firstPos, deltas, freq);
                     }
                 }
                 else
