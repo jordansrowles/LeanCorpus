@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Rowles.LeanCorpus.Serialization;
 
 namespace Rowles.LeanCorpus.Index;
@@ -189,8 +189,16 @@ public static class IndexRecovery
 
         foreach (var vf in segInfo.VectorFields)
         {
-            var vecPath = Codecs.Vectors.VectorFilePaths.VectorFile(basePath, vf.FieldName);
-            if (!File.Exists(vecPath)) return false;
+            if (vf.Quantisation != Codecs.Vectors.VectorQuantisation.None)
+            {
+                var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, vf.FieldName);
+                if (!File.Exists(vqPath)) return false;
+            }
+            else
+            {
+                var vecPath = Codecs.Vectors.VectorFilePaths.VectorFile(basePath, vf.FieldName);
+                if (!File.Exists(vecPath)) return false;
+            }
             if (vf.HasHnsw)
             {
                 var hnswPath = Codecs.Vectors.VectorFilePaths.HnswFile(basePath, vf.FieldName);

@@ -272,6 +272,7 @@ public sealed class SegmentMerger
         internal Dictionary<string, int> VectorFieldDims { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, bool> VectorFieldNormalised { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, bool> VectorFieldHadHnsw { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, VectorQuantisation> VectorFieldQuantisation { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, List<(SegmentInfo Seg, Dictionary<int, int> OldToNew)>> VectorFieldRemaps { get; } = new(StringComparer.Ordinal);
 
         internal MergeContext(int totalDocs, HashSet<string> fieldNames)
@@ -445,6 +446,7 @@ public sealed class SegmentMerger
                         {
                             ctx.VectorFieldNormalised[vfName] = match.Normalised;
                             ctx.VectorFieldHadHnsw[vfName] = ctx.VectorFieldHadHnsw.GetValueOrDefault(vfName, false) || match.HasHnsw;
+                            ctx.VectorFieldQuantisation[vfName] = match.Quantisation;
                         }
                     }
                 }
@@ -495,13 +497,49 @@ public sealed class SegmentMerger
                 throw new InvalidOperationException(
                     $"Cannot determine Normalised flag for vector field '{fieldName}' during merge. Source segments must declare this flag.");
 
-            var vecPath = Codecs.Vectors.VectorFilePaths.VectorFile(basePath, fieldName);
-            VectorWriter.WriteField(vecPath, ctx.TotalDocs, dimension, perField);
+            var quantisation = ctx.VectorFieldQuantisation.GetValueOrDefault(fieldName, VectorQuantisation.None);
+            float int8Min = 0f, int8Alpha = 0f;
+            float[]? bbqCentroid = null;
+
+            if (quantisation == VectorQuantisation.None)
+            {
+                var vecPath = Codecs.Vectors.VectorFilePaths.VectorFile(basePath, fieldName);
+                VectorWriter.WriteField(vecPath, ctx.TotalDocs, dimension, perField, quantisation);
+            }
+            else
+            {
+                switch (quantisation)
+                {
+                    case VectorQuantisation.Int8:
+                        (int8Min, int8Alpha) = ComputeInt8ParamsMerge(perField);
+                        break;
+                    case VectorQuantisation.BBQ:
+                        bbqCentroid = ComputeBBQCentroidMerge(perField, dimension);
+                        break;
+                }
+            }
 
             bool hasHnsw = false;
             if (ctx.VectorFieldHadHnsw.GetValueOrDefault(fieldName, false) && perField.Count >= 2)
             {
-                var src = new InMemoryVectorSource(new Dictionary<int, ReadOnlyMemory<float>>(perField), dimension);
+                IVectorSource src;
+                if (quantisation == VectorQuantisation.Int8)
+                {
+                    src = new Int8QuantisedMemoryVectorSource(perField, dimension, int8Min, int8Alpha);
+                    var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
+                    QuantisedVectorWriter.WriteInt8(vqPath, ctx.TotalDocs, dimension, perField);
+                }
+                else if (quantisation == VectorQuantisation.BBQ)
+                {
+                    src = new BBQMemoryVectorSource(perField, dimension, bbqCentroid!);
+                    var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
+                    QuantisedVectorWriter.WriteBBQ(vqPath, ctx.TotalDocs, dimension, perField, bbqCentroid!);
+                }
+                else
+                {
+                    src = new InMemoryVectorSource(new Dictionary<int, ReadOnlyMemory<float>>(perField), dimension);
+                }
+
                 var hnswSw = System.Diagnostics.Stopwatch.StartNew();
 
                 HnswGraph? graph = null;
@@ -549,12 +587,27 @@ public sealed class SegmentMerger
                 HnswWriter.Write(hnswPath, graph, dimension, normalised);
                 hasHnsw = true;
             }
+            else if (quantisation != VectorQuantisation.None)
+            {
+                // Write .vq even when HNSW is not rebuilt, since the data was deferred.
+                var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
+                switch (quantisation)
+                {
+                    case VectorQuantisation.Int8:
+                        QuantisedVectorWriter.WriteInt8(vqPath, ctx.TotalDocs, dimension, perField);
+                        break;
+                    case VectorQuantisation.BBQ:
+                        QuantisedVectorWriter.WriteBBQ(vqPath, ctx.TotalDocs, dimension, perField, bbqCentroid!);
+                        break;
+                }
+            }
 
             merged.Add(new VectorFieldInfo
             {
                 FieldName = fieldName,
                 Dimension = dimension,
                 Normalised = normalised,
+                Quantisation = quantisation,
                 HasHnsw = hasHnsw,
             });
         }
@@ -852,5 +905,45 @@ public sealed class SegmentMerger
             }
         }
         return earliest;
+    }
+
+    private static (float min, float alpha) ComputeInt8ParamsMerge(
+        IReadOnlyDictionary<int, ReadOnlyMemory<float>> perField)
+    {
+        float min = float.MaxValue;
+        float max = float.MinValue;
+        foreach (var v in perField.Values)
+        {
+            var sp = v.Span;
+            for (int j = 0; j < sp.Length; j++)
+            {
+                float val = sp[j];
+                if (val < min) min = val;
+                if (val > max) max = val;
+            }
+        }
+        if (MathF.Abs(max - min) < 1e-8f) max = min + 1f;
+        return (min, (max - min) / 255f);
+    }
+
+    private static float[] ComputeBBQCentroidMerge(
+        IReadOnlyDictionary<int, ReadOnlyMemory<float>> perField,
+        int dimension)
+    {
+        float[] centroid = new float[dimension];
+        int cnt = 0;
+        foreach (var v in perField.Values)
+        {
+            var sp = v.Span;
+            for (int j = 0; j < dimension; j++)
+                centroid[j] += sp[j];
+            cnt++;
+        }
+        if (cnt > 0)
+        {
+            for (int j = 0; j < dimension; j++)
+                centroid[j] /= cnt;
+        }
+        return centroid;
     }
 }

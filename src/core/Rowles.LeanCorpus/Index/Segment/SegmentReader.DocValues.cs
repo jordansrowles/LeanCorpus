@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Codecs.DocValues;
+using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Store;
@@ -377,18 +377,47 @@ public sealed partial class SegmentReader
     public float[]? GetVector(int docId)
     {
         foreach (var fieldName in _vectorPaths.Keys)
-            return EnsureVectorReader(fieldName)?.ReadVector(docId);
+            return ReadVectorFromField(fieldName, docId);
         return null;
     }
 
     /// <summary>Reads the vector for a given document on the named vector field.</summary>
     public float[]? GetVector(string fieldName, int docId)
     {
-        if (EnsureVectorReader(fieldName) is { } r)
-            return r.ReadVector(docId);
+        if (ReadVectorFromField(fieldName, docId) is { } vec)
+            return vec;
         if (string.IsNullOrEmpty(fieldName) && _vectorPaths.Count == 1)
             return GetVector(docId);
         return null;
+    }
+
+    private float[]? ReadVectorFromField(string fieldName, int docId)
+    {
+        if (_vectorReaders.TryGetValue(fieldName, out var vr))
+            return vr.ReadVector(docId);
+        if (_quantisedVectorReaders.TryGetValue(fieldName, out var qr))
+            return qr.ReadVector(docId);
+
+        lock (_hnswLoadLock)
+        {
+            if (_vectorReaders.TryGetValue(fieldName, out vr))
+                return vr.ReadVector(docId);
+            if (_quantisedVectorReaders.TryGetValue(fieldName, out qr))
+                return qr.ReadVector(docId);
+            if (!_vectorPaths.TryGetValue(fieldName, out var path))
+                return null;
+
+            if (_vectorQuantisation.TryGetValue(fieldName, out var q) && q != VectorQuantisation.None)
+            {
+                qr = QuantisedVectorReader.Open(path);
+                _quantisedVectorReaders[fieldName] = qr;
+                return qr.ReadVector(docId);
+            }
+
+            vr = VectorReader.Open(path);
+            _vectorReaders[fieldName] = vr;
+            return vr.ReadVector(docId);
+        }
     }
 
     /// <summary>Returns the field names with vector data in this segment.</summary>
@@ -406,40 +435,40 @@ public sealed partial class SegmentReader
             if (_hnswGraphs.TryGetValue(fieldName, out cached)) return cached;
             var path = VectorFilePaths.HnswFile(_basePath, fieldName);
             HnswGraph? graph = null;
-            var vr = EnsureVectorReaderNoLock(fieldName);
-            if (File.Exists(path) && vr is not null)
+
+            if (File.Exists(path))
             {
-                var src = new VectorReaderSource(vr);
-                bool? expectedNormalised = _info.VectorFields
-                    .FirstOrDefault(vf => vf.FieldName == fieldName)?.Normalised;
-                graph = HnswReader.Read(path, src, expectedNormalised);
+                IVectorSource? src = null;
+                if (_vectorReaders.TryGetValue(fieldName, out var vr))
+                    src = new VectorReaderSource(vr);
+                else if (_quantisedVectorReaders.TryGetValue(fieldName, out var qr))
+                    src = new QuantisedVectorSource(qr);
+                else if (_vectorPaths.TryGetValue(fieldName, out var vecPath))
+                {
+                    if (_vectorQuantisation.TryGetValue(fieldName, out var q) && q != VectorQuantisation.None)
+                    {
+                        qr = QuantisedVectorReader.Open(vecPath);
+                        _quantisedVectorReaders[fieldName] = qr;
+                        src = new QuantisedVectorSource(qr);
+                    }
+                    else
+                    {
+                        vr = VectorReader.Open(vecPath);
+                        _vectorReaders[fieldName] = vr;
+                        src = new VectorReaderSource(vr);
+                    }
+                }
+
+                if (src is not null)
+                {
+                    bool? expectedNormalised = _info.VectorFields
+                        .FirstOrDefault(vf => vf.FieldName == fieldName)?.Normalised;
+                    graph = HnswReader.Read(path, src, expectedNormalised);
+                }
             }
             _hnswGraphs[fieldName] = graph;
             return graph;
         }
-    }
-
-    private VectorReader? EnsureVectorReader(string fieldName)
-    {
-        if (_vectorReaders.TryGetValue(fieldName, out var reader))
-            return reader;
-
-        lock (_hnswLoadLock)
-        {
-            return EnsureVectorReaderNoLock(fieldName);
-        }
-    }
-
-    private VectorReader? EnsureVectorReaderNoLock(string fieldName)
-    {
-        if (_vectorReaders.TryGetValue(fieldName, out var reader))
-            return reader;
-        if (!_vectorPaths.TryGetValue(fieldName, out var path))
-            return null;
-
-        reader = VectorReader.Open(path);
-        _vectorReaders[fieldName] = reader;
-        return reader;
     }
 
     private static Dictionary<string, Dictionary<int, double>> ReadNumericIndex(string filePath)

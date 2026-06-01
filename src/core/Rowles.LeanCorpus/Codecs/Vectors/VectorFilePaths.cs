@@ -1,4 +1,4 @@
-﻿using System.Security.Cryptography;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace Rowles.LeanCorpus.Codecs.Vectors;
@@ -13,6 +13,10 @@ internal static class VectorFilePaths
     /// <summary>Returns the per-field <c>.vec</c> file path.</summary>
     public static string VectorFile(string basePath, string fieldName)
         => $"{basePath}_v_{Sanitise(fieldName)}.vec";
+    /// <summary>Returns the per-field <c>.vq</c> (quantised vector) file path.</summary>
+    public static string QuantisedVectorFile(string basePath, string fieldName)
+        => $"{basePath}_v_{Sanitise(fieldName)}.vq";
+
 
     /// <summary>Returns the per-field <c>.hnsw</c> file path.</summary>
     public static string HnswFile(string basePath, string fieldName)

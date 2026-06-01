@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Simd;
 using Rowles.LeanCorpus.Util;
@@ -27,6 +27,10 @@ internal sealed class HnswGraph
     private readonly IVectorSource _vectors;
     private readonly Random _rng;
     private readonly double _levelMultiplier;
+
+    // Quantisation dispatch: set based on the IVectorSource type.
+    private readonly VectorQuantisation _vectorQuantisation;
+    private readonly IBBQVectorSource? _bbqSource;
 
     // Layer 0 is the base; index increases with sparsity.
     private readonly List<Dictionary<int, List<int>>> _mutableLevels;
@@ -76,6 +80,18 @@ internal sealed class HnswGraph
         _rng = new Random(unchecked((int)seed));
         _levelMultiplier = 1.0 / Math.Log(M);
         _mutableLevels = [new Dictionary<int, List<int>>()];
+
+        if (vectors is QuantisedVectorSource qvs)
+        {
+            _vectorQuantisation = qvs.Quantisation;
+            if (qvs.Quantisation == VectorQuantisation.BBQ)
+                _bbqSource = qvs;
+        }
+        else if (vectors is BBQMemoryVectorSource bbqMem)
+        {
+            _vectorQuantisation = VectorQuantisation.BBQ;
+            _bbqSource = bbqMem;
+        }
     }
 
     /// <summary>
@@ -317,14 +333,14 @@ internal sealed class HnswGraph
     private int GreedyDescent(ReadOnlySpan<float> query, int entry, int level)
     {
         int current = entry;
-        float currentDist = Distance(query, _vectors.GetVector(current));
+        float currentDist = QueryDistance(query, current);
         bool improved;
         do
         {
             improved = false;
             foreach (var n in NeighboursAt(current, level))
             {
-                float d = Distance(query, _vectors.GetVector(n));
+                float d = QueryDistance(query, n);
                 if (d < currentDist)
                 {
                     currentDist = d;
@@ -364,7 +380,7 @@ internal sealed class HnswGraph
         {
             if (visited.Add(ep))
             {
-                float d = Distance(query, _vectors.GetVector(ep));
+                float d = QueryDistance(query, ep);
                 frontier.Enqueue(ep, d);
                 if (allowList is null || allowList.Contains(ep))
                 {
@@ -386,7 +402,7 @@ internal sealed class HnswGraph
             {
                 if (!visited.Add(neighbour)) continue;
 
-                float d = Distance(query, _vectors.GetVector(neighbour));
+                float d = QueryDistance(query, neighbour);
                 bool resultsFull = results.Count >= ef;
                 bool eligibleForResults = allowList is null || allowList.Contains(neighbour);
 
@@ -458,6 +474,26 @@ internal sealed class HnswGraph
         foreach (var n in kept) list.Add(n.DocId);
     }
 
+    /// <summary>
+    /// Distance between a query vector and a stored vector identified by docId.
+    /// For BBQ, uses PopCount on raw bit-packed data to avoid dequantisation overhead.
+    /// For all other quantisation modes, dequantises (if needed) and uses dot product.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private float QueryDistance(ReadOnlySpan<float> query, int docId)
+    {
+        if (_vectorQuantisation == VectorQuantisation.BBQ && _bbqSource is not null)
+        {
+            var bits = _bbqSource.GetRawVector(docId);
+            return BBQDistanceComputer.Distance(query, _bbqSource.Centroid, bits, _vectors.Dimension);
+        }
+        return -SimdVectorOps.DotProduct(query, _vectors.GetVector(docId));
+    }
+
+    /// <summary>
+    /// Distance between two already-dequantised vectors. Used for stored-vs-stored
+    /// performance-critical enough to warrant quantisation-specific paths.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static float Distance(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
     {

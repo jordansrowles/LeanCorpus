@@ -1,6 +1,7 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Index;
+using Rowles.LeanCorpus.Codecs.Vectors;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
 
@@ -146,6 +147,14 @@ public sealed class IndexWriterConfig
     /// equals cosine similarity, enabling cheaper search. Default: <c>true</c>.
     /// </summary>
     public bool NormaliseVectors { get; set; } = true;
+
+    /// <summary>
+    /// Quantisation strategy for vector fields. <see cref="Codecs.Vectors.VectorQuantisation.None"/> (default)
+    /// stores raw float32 vectors. <see cref="Codecs.Vectors.VectorQuantisation.Int8"/> gives ~4× storage
+    /// reduction with minimal recall loss. <see cref="Codecs.Vectors.VectorQuantisation.BBQ"/> gives ~32×
+    /// reduction at some recall cost. Default: <see cref="Codecs.Vectors.VectorQuantisation.None"/>.
+    /// </summary>
+    public VectorQuantisation VectorQuantisation { get; set; } = VectorQuantisation.None;
 
     /// <summary>
     /// Build an HNSW graph for every vector field at flush time. Disable to fall back to

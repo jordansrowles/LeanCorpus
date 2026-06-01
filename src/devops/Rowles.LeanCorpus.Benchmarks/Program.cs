@@ -1,4 +1,4 @@
-﻿using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
 using System.Diagnostics;
@@ -428,7 +428,7 @@ internal static class Program
 
         // Inject BDN filter to exclude Lucene.NET benchmarks unless a caller supplied a more specific BDN filter.
         if (corpusOnly && !HasBenchmarkDotNetOption(benchmarkArgs, "--filter", "-f"))
-            benchmarkArgs.AddRange(["--filter", "*Lean*"]);
+            benchmarkArgs.AddRange(["--filter", "*LeanCorpus_*"]);
 
         return (suites, runType, [.. benchmarkArgs], showHelp, docCount, gcDump);
     }

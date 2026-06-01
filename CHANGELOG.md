@@ -5,13 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.4.1] - 2026-07-15
 
-### Added
-
-- `IndexSearcher.GetStoredFields(int, ISet<string>?)` and `GetStoredBinaryFields(int, ISet<string>?)` overloads that accept an optional set of field names to load. When provided, only the requested fields are decoded and allocated, reducing memory pressure when callers only need specific fields.
-- Corresponding overloads on `SegmentReader.GetStoredFields` and `SegmentReader.GetStoredBinaryFields`.
-- Internal callers (`ResolveNumeric`, `ResolveString`, `ExecuteRangeQuery`, `SearchWithFacets`) now pass targeted field sets when falling back to stored fields, avoiding loading unused fields.
+## [1.5.0] - Work In Progress
 
 ## [1.4.0] - 2026-05-29
 

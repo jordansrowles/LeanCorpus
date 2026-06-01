@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Codecs;
+namespace Rowles.LeanCorpus.Codecs;
 
 /// <summary>
 /// Shared magic number and format version constants for all codec file types.
@@ -14,6 +14,7 @@ internal static class CodecConstants
     public const byte PostingsVersion = 3;
     public const byte NormsVersion = 3;
     public const byte VectorVersion = 1;
+    public const byte QuantisedVectorVersion = 1;
     public const byte HnswVersion = 1;
     public const byte StoredFieldsVersion = 6; // v6: typed stored values (string or binary)
     public const byte TermVectorsVersion = 2; // v2: aligned per-position payload arrays

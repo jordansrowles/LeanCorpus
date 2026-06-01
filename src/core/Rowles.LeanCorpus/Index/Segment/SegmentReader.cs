@@ -1,4 +1,4 @@
-﻿using System.Collections.Frozen;
+using System.Collections.Frozen;
 using System.Runtime.CompilerServices;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Hnsw;
@@ -26,6 +26,8 @@ public sealed partial class SegmentReader : IDisposable
     private readonly FrozenDictionary<string, int[]> _fieldLengthsPerField;
     private readonly Dictionary<string, string> _vectorPaths = new(StringComparer.Ordinal);
     private readonly Dictionary<string, VectorReader> _vectorReaders = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, QuantisedVectorReader> _quantisedVectorReaders = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, VectorQuantisation> _vectorQuantisation = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HnswGraph?> _hnswGraphs = new(StringComparer.Ordinal);
     private readonly object _hnswLoadLock = new();
     private LiveDocs? _liveDocs;
@@ -122,9 +124,21 @@ public sealed partial class SegmentReader : IDisposable
         {
             foreach (var vf in info.VectorFields)
             {
-                var perFieldVecPath = VectorFilePaths.VectorFile(_basePath, vf.FieldName);
-                if (File.Exists(perFieldVecPath))
-                    _vectorPaths[vf.FieldName] = perFieldVecPath;
+                if (vf.Quantisation != VectorQuantisation.None)
+                {
+                    var vqPath = VectorFilePaths.QuantisedVectorFile(_basePath, vf.FieldName);
+                    if (File.Exists(vqPath))
+                    {
+                        _vectorPaths[vf.FieldName] = vqPath;
+                        _vectorQuantisation[vf.FieldName] = vf.Quantisation;
+                    }
+                }
+                else
+                {
+                    var perFieldVecPath = VectorFilePaths.VectorFile(_basePath, vf.FieldName);
+                    if (File.Exists(perFieldVecPath))
+                        _vectorPaths[vf.FieldName] = perFieldVecPath;
+                }
             }
         }
         else
