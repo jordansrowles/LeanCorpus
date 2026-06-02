@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.5.0] - Work In Progress
 
+### Added
+
+- Vector quantisation: scalar quantisation (float32 -> int8) and binary quantisation (BBQ) with `VectorQuantisation` enum (`None`, `Int8`, `BBQ`), configurable per-field via `VectorFieldInfo.Quantisation` and globally via `IndexWriterConfig.VectorQuantisation`. Quantised vectors are written to `.vq` files alongside existing `.vec` files, and HNSW graphs are built against quantised representations when `BuildHnswOnFlush` is enabled. Includes `Int8DistanceComputer` and `BBQDistanceComputer` for distance-aware KNN retrieval.
+
+### Changed
+
+- Positions in `PostingAccumulator` are now stored as VarInt delta-encoded bytes instead of raw `int[]`. The first position per posting is encoded as an absolute VarInt; subsequent positions are VarInt deltas from the first. Segment flush and concurrent merge write positions directly from the encoded bytes without intermediate `int[]` allocations, eliminating approximately 32 MB of per-indexing-run GC pressure on the standard 20K-document benchmark.
+
 ## [1.4.0] - 2026-05-29
 
 ### Added

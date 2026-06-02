@@ -31,6 +31,7 @@ internal sealed class HnswGraph
     // Quantisation dispatch: set based on the IVectorSource type.
     private readonly VectorQuantisation _vectorQuantisation;
     private readonly IBBQVectorSource? _bbqSource;
+    private readonly IInt8VectorSource? _int8Source;
 
     // Layer 0 is the base; index increases with sparsity.
     private readonly List<Dictionary<int, List<int>>> _mutableLevels;
@@ -80,17 +81,23 @@ internal sealed class HnswGraph
         _rng = new Random(unchecked((int)seed));
         _levelMultiplier = 1.0 / Math.Log(M);
         _mutableLevels = [new Dictionary<int, List<int>>()];
-
         if (vectors is QuantisedVectorSource qvs)
         {
             _vectorQuantisation = qvs.Quantisation;
             if (qvs.Quantisation == VectorQuantisation.BBQ)
                 _bbqSource = qvs;
+            else if (qvs.Quantisation == VectorQuantisation.Int8)
+                _int8Source = qvs;
         }
         else if (vectors is BBQMemoryVectorSource bbqMem)
         {
             _vectorQuantisation = VectorQuantisation.BBQ;
             _bbqSource = bbqMem;
+        }
+        else if (vectors is Int8QuantisedMemoryVectorSource int8Mem)
+        {
+            _vectorQuantisation = VectorQuantisation.Int8;
+            _int8Source = int8Mem;
         }
     }
 
@@ -486,6 +493,11 @@ internal sealed class HnswGraph
         {
             var bits = _bbqSource.GetRawVector(docId);
             return BBQDistanceComputer.Distance(query, _bbqSource.Centroid, bits, _vectors.Dimension);
+        }
+        if (_vectorQuantisation == VectorQuantisation.Int8 && _int8Source is not null)
+        {
+            var raw = _int8Source.GetRawVector(docId);
+            return Int8DistanceComputer.Distance(query, raw, _int8Source.Min, _int8Source.Alpha);
         }
         return -SimdVectorOps.DotProduct(query, _vectors.GetVector(docId));
     }

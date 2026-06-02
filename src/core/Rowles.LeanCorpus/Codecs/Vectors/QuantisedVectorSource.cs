@@ -5,7 +5,7 @@ namespace Rowles.LeanCorpus.Codecs.Vectors;
 /// so an HNSW graph can resolve vector data on demand. Dequantisation produces a freshly
 /// allocated float array per call, matching the allocation behaviour of <see cref="VectorReader"/>.
 /// </summary>
-internal sealed class QuantisedVectorSource : IBBQVectorSource
+internal sealed class QuantisedVectorSource : IBBQVectorSource, IInt8VectorSource
 {
     private readonly QuantisedVectorReader _reader;
     private readonly int _dimension;
@@ -33,6 +33,15 @@ internal sealed class QuantisedVectorSource : IBBQVectorSource
 
     /// <inheritdoc cref="IBBQVectorSource.GetRawVector"/>
     ReadOnlySpan<byte> IBBQVectorSource.GetRawVector(int docId) => _reader.GetRawBBQVector(docId);
+
+    /// <inheritdoc cref="IInt8VectorSource.GetRawVector"/>
+    ReadOnlySpan<byte> IInt8VectorSource.GetRawVector(int docId) => _reader.GetRawInt8Vector(docId);
+
+    /// <inheritdoc cref="IInt8VectorSource.Min"/>
+    float IInt8VectorSource.Min => _reader.Min;
+
+    /// <inheritdoc cref="IInt8VectorSource.Alpha"/>
+    float IInt8VectorSource.Alpha => _reader.Alpha;
 
     /// <inheritdoc cref="IBBQVectorSource.Centroid"/>
     ReadOnlySpan<float> IBBQVectorSource.Centroid => _reader.Centroid;

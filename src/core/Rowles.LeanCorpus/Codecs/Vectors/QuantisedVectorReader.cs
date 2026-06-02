@@ -146,6 +146,20 @@ internal sealed class QuantisedVectorReader : IDisposable
         return vec;
     }
 
+    /// <summary>Returns raw int8 bytes for fused distance computation without dequantisation.</summary>
+    public ReadOnlySpan<byte> GetRawInt8Vector(int docId)
+    {
+        if (_quantisation != VectorQuantisation.Int8)
+            throw new InvalidOperationException("GetRawInt8Vector is only valid for Int8 quantisation.");
+        if ((uint)docId >= (uint)_docCount)
+            throw new ArgumentOutOfRangeException(nameof(docId));
+
+        long offset = _packedStart + (long)docId * _dimension;
+        var buf = new byte[_dimension];
+        _accessor.ReadArray(offset, buf, 0, _dimension);
+        return buf;
+    }
+
     /// <summary>Returns raw bit-packed bytes for BBQ distance computation.</summary>
     public ReadOnlySpan<byte> GetRawBBQVector(int docId)
     {

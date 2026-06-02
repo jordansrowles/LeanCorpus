@@ -12,7 +12,7 @@ namespace Rowles.LeanCorpus.Codecs.Vectors;
 /// matching the allocation pattern of <see cref="VectorReader"/>. This is called once per
 /// vector per HNSW layer during graph construction — acceptable overhead for the memory savings.
 /// </remarks>
-internal sealed class Int8QuantisedMemoryVectorSource : IVectorSource
+internal sealed class Int8QuantisedMemoryVectorSource : IVectorSource, IInt8VectorSource
 {
     private readonly byte[] _packed;
     private readonly float _min;
@@ -83,4 +83,18 @@ internal sealed class Int8QuantisedMemoryVectorSource : IVectorSource
 
         return vec;
     }
+
+    /// <inheritdoc cref="IInt8VectorSource.GetRawVector"/>
+    ReadOnlySpan<byte> IInt8VectorSource.GetRawVector(int docId)
+    {
+        if ((uint)docId >= (uint)_docCount)
+            throw new ArgumentOutOfRangeException(nameof(docId));
+        return new ReadOnlySpan<byte>(_packed, docId * _dimension, _dimension);
+    }
+
+    /// <inheritdoc cref="IInt8VectorSource.Min"/>
+    float IInt8VectorSource.Min => _min;
+
+    /// <inheritdoc cref="IInt8VectorSource.Alpha"/>
+    float IInt8VectorSource.Alpha => _alpha;
 }

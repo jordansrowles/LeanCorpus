@@ -208,6 +208,9 @@ internal static class Program
         if (runAll || suites.Contains(BenchmarkSuite.AsyncIndex))
             RunSuite<AsyncIndexingBenchmarks>("async-index", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
+        if (runAll || suites.Contains(BenchmarkSuite.VectorQuantisation))
+            RunSuite<VectorQuantisationBenchmarks>("vq", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
         if (suiteSummaries.Count == 0)
         {
             Console.Error.WriteLine("No benchmark suite selected.");
@@ -508,6 +511,7 @@ internal static class Program
             "kstemmer" => BenchmarkSuite.KStemmer,
             "lightenglish" or "light-english" => BenchmarkSuite.LightEnglish,
             "hunspell" => BenchmarkSuite.Hunspell,
+            "vectorquantisation" or "vq" => BenchmarkSuite.VectorQuantisation,
             "ngram" => BenchmarkSuite.NGram,
             "synonym" => BenchmarkSuite.Synonym,
             "async-index" or "asyncindex" => BenchmarkSuite.AsyncIndex,
@@ -584,5 +588,6 @@ internal static class Program
         NGram,
         Synonym,
         AsyncIndex,
+        VectorQuantisation,
     }
 }
