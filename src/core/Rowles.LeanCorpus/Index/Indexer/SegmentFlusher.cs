@@ -63,15 +63,22 @@ internal static class SegmentFlusher
         };
         segInfo.WriteTo(basePath + ".seg");
 
-        // Sort qualified terms for the dictionary
+        // Sort qualified terms for the dictionary — build from term hash table
         buffer.SortedTermsBuffer.Clear();
-        buffer.SortedTermsBuffer.AddRange(buffer.Postings.Keys);
+        int postingsCount = buffer.PostingsCount;
+        for (int i = 0; i < postingsCount; i++)
+            buffer.SortedTermsBuffer.Add(buffer.GetTermString(i));
         buffer.SortedTermsBuffer.Sort(StringComparer.Ordinal);
         var postingsOffsets = new Dictionary<string, long>(buffer.SortedTermsBuffer.Count);
 
         var headerPatches = new List<(long HeaderPos, int DocFreq, long SkipOffset)>(buffer.SortedTermsBuffer.Count);
 
-        using (var posOutput = new IndexOutput(basePath + ".pos", durable: true))
+        // Build term-accumulator lookup dictionary for sorted iteration
+        var termToAcc = new Dictionary<string, PostingAccumulator>(postingsCount, StringComparer.Ordinal);
+        for (int i = 0; i < postingsCount; i++)
+            termToAcc[buffer.GetTermString(i)] = buffer.PostingAccumulators[i];
+
+        using (var posOutput = new IndexOutput(basePath + ".pos"))
         {
             CodecConstants.WriteHeader(posOutput, CodecConstants.PostingsVersion);
 
@@ -79,7 +86,7 @@ internal static class SegmentFlusher
 
             foreach (var qt in buffer.SortedTermsBuffer)
             {
-                var acc = buffer.Postings[qt];
+                var acc = termToAcc[qt];
                 var ids = acc.DocIds;
 
                 bool hasFreqs = acc.HasFreqs;
@@ -393,7 +400,7 @@ internal static class SegmentFlusher
         {
             var tvDocs = new Dictionary<string, List<TermVectorEntry>>?[buffer.DocCount];
 
-            foreach (var (qt, acc) in buffer.Postings)
+            foreach (var (qt, acc) in buffer.EnumeratePostings())
             {
                 if (!acc.HasPositions) continue;
                 int sep = qt.IndexOf('\x00');
@@ -581,7 +588,7 @@ internal static class SegmentFlusher
 
     private static void RemapPostings(DocumentBufferState buffer, int[] inversePerm)
     {
-        foreach (var (_, acc) in buffer.Postings)
+        foreach (var acc in buffer.PostingAccumulators)
             acc.RemapDocIds(inversePerm);
     }
 

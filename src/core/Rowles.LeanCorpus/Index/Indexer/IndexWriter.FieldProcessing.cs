@@ -196,12 +196,7 @@ public sealed partial class IndexWriter
 
         var pooledTerm = _buffer.GetOrCreateQualifiedTerm(fieldName, term.AsSpan());
 
-        if (!_buffer.Postings.TryGetValue(pooledTerm, out var acc))
-        {
-            acc = new PostingAccumulator();
-            _buffer.Postings[pooledTerm] = acc;
-            _buffer.PostingsRamBytes += acc.EstimatedBytes;
-        }
+        var acc = _buffer.GetOrCreateAccumulator(pooledTerm);
         long before = acc.EstimatedBytes;
         acc.AddDocOnly(docId);
         _buffer.PostingsRamBytes += acc.EstimatedBytes - before;

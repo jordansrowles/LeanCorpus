@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
@@ -16,6 +16,19 @@ internal sealed class DocumentsWriterPerThread
     private readonly Dictionary<string, IAnalyser> _fieldAnalysers;
     private readonly bool _storePayloads;
     internal readonly Dictionary<string, PostingAccumulator> Postings = new(StringComparer.Ordinal);
+
+    /// <summary>Looks up or creates a posting accumulator by qualified term.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal PostingAccumulator GetOrCreateAccumulator(string qualifiedTerm)
+    {
+        if (!Postings.TryGetValue(qualifiedTerm, out var acc))
+        {
+            acc = new PostingAccumulator();
+            Postings[qualifiedTerm] = acc;
+            _estimatedRamBytes += qualifiedTerm.Length * 2 + 128;
+        }
+        return acc;
+    }
 
     // Stored fields as a flat struct-of-arrays buffer (mirrors the main writer).
     // StoredDocStarts[d] = start index into StoredFieldIds/StoredValues for doc d.
@@ -451,12 +464,7 @@ internal sealed class DocumentsWriterPerThread
 
             var qualifiedTerm = _owner.GetOrCreateQualifiedTerm(_fieldName, text);
 
-            if (!_owner.Postings.TryGetValue(qualifiedTerm, out var acc))
-            {
-                acc = new PostingAccumulator();
-                _owner.Postings[qualifiedTerm] = acc;
-                _owner._estimatedRamBytes += qualifiedTerm.Length * 2 + 128;
-            }
+            var acc = _owner.GetOrCreateAccumulator(qualifiedTerm);
 
             if (_owner._storePayloads && (acc.HasPayloads || payload is { Length: > 0 }))
             {

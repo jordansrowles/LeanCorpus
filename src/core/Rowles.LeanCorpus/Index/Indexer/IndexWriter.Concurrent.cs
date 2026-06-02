@@ -185,12 +185,7 @@ public sealed partial class IndexWriter
         int docBase = _buffer.DocCount;
         foreach (var (qt, srcAcc) in dwpt.Postings)
         {
-            if (!_buffer.Postings.TryGetValue(qt, out var dstAcc))
-            {
-                dstAcc = new PostingAccumulator();
-                _buffer.Postings[qt] = dstAcc;
-                _buffer.PostingsRamBytes += dstAcc.EstimatedBytes;
-            }
+            var dstAcc = _buffer.GetOrCreateAccumulator(qt);
             var srcIds = srcAcc.DocIds;
             bool srcHasPositions = srcAcc.HasPositions;
             for (int i = 0; i < srcIds.Length; i++)

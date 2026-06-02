@@ -17,20 +17,23 @@ internal sealed class PostingAccumulator
 {
     private static readonly ArrayPool<int> IntPool = ArrayPool<int>.Shared;
     private static readonly ArrayPool<byte> BytePool = ArrayPool<byte>.Shared;
-
-    private int[] _docIds;
+    private int[] _docIds;           // first entry: absolute base; rest: deltas from previous
     private int[] _freqs;
-    private int[] _posStarts;      // byte offset into _posBuf per posting
-    private int[] _posByteLens;    // byte length of encoded region per posting
+    private int[] _posStarts;        // byte offset into _posBuf per posting
+    private int[] _posByteLens;      // byte length of encoded region per posting
     private byte[] _posBuf;
-    private int _posBufUsed;       // bytes used in _posBuf
-    private int _posBufLen;        // _posBuf array length
+    private int _posBufUsed;         // bytes used in _posBuf
+    private int _posBufLen;          // _posBuf array length
     private byte[]?[][]? _payloads;
     private int _count;
-    private int _docIdsLen;        // logical length (may be < rented array length)
+    private int _docIdsLen;          // logical length (may be < rented array length)
     private long _cachedEstimatedBytes;
     private bool _hasFreqs;
     private bool _hasPositions;
+
+    private int _lastAbsoluteDocId;  // last absolute doc ID for delta computation
+    private int[]? _absoluteCache;   // lazily expanded absolute doc IDs
+    private bool _absoluteCacheValid;
 
     private const int NoPositionSentinel = -1;
 
@@ -46,10 +49,14 @@ internal sealed class PostingAccumulator
         _posBufLen = 16;
         _posBufUsed = 0;
         _count = 0;
+        _lastAbsoluteDocId = -1;
         _cachedEstimatedBytes = RecomputeEstimatedBytes();
     }
 
     public int Count => _count;
+
+    /// <summary>First absolute doc ID (the base). Only valid when Count > 0.</summary>
+    public int FirstDocId => _count > 0 ? _docIds[0] : -1;
 
     public long EstimatedBytes => _cachedEstimatedBytes;
 
@@ -59,8 +66,57 @@ internal sealed class PostingAccumulator
         long bufferBytes = (long)(_docIds.Length + _freqs.Length + _posStarts.Length +
             _posByteLens.Length) * sizeof(int)
             + _posBuf.Length;
+        if (_absoluteCache is not null)
+            bufferBytes += _absoluteCache.Length * sizeof(int);
         return ObjectOverhead + bufferBytes;
     }
+
+    // ─────── Absolute doc ID expansion ───────
+
+    /// <summary>
+    /// Returns absolute doc IDs, expanding from deltas on first call.
+    /// The returned span references an internal cache that is invalidated on mutation.
+    /// </summary>
+    public ReadOnlySpan<int> DocIds
+    {
+        get
+        {
+            if (!_absoluteCacheValid || _absoluteCache is null)
+                ExpandToAbsolute();
+            return _absoluteCache.AsSpan(0, _count);
+        }
+    }
+
+    /// <summary>
+    /// Returns the raw delta-encoded doc IDs: first entry is absolute base,
+    /// subsequent entries are deltas from the previous doc ID.
+    /// </summary>
+    public ReadOnlySpan<int> DocIdDeltas => _docIds.AsSpan(0, _count);
+
+    private void ExpandToAbsolute()
+    {
+        if (_absoluteCache is null || _absoluteCache.Length < _docIdsLen)
+        {
+            if (_absoluteCache is not null) IntPool.Return(_absoluteCache, clearArray: false);
+            _absoluteCache = IntPool.Rent(_docIdsLen);
+        }
+
+        int prev = 0;
+        for (int i = 0; i < _count; i++)
+        {
+            prev += _docIds[i];
+            _absoluteCache[i] = prev;
+        }
+        _absoluteCacheValid = true;
+        _cachedEstimatedBytes = RecomputeEstimatedBytes();
+    }
+
+    private void InvalidateAbsoluteCache()
+    {
+        _absoluteCacheValid = false;
+    }
+
+    // ─────── VarInt helpers ───────
 
     /// <summary>Decodes the first absolute position from the posting's encoded bytes.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -71,8 +127,6 @@ internal sealed class PostingAccumulator
         ReadVarInt(_posBuf.AsSpan(start), out int first);
         return first;
     }
-
-    // ─────── VarInt helpers ───────
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int VarIntEncodedSize(int value)
@@ -104,6 +158,110 @@ internal sealed class PostingAccumulator
         return i;
     }
 
+    // ─────── Internal write helpers ───────
+
+    private void EnsurePosBufCapacity(int requiredBytes)
+    {
+        if (requiredBytes <= _posBufLen) return;
+        int newLen = Math.Max(_posBufLen * 2, requiredBytes);
+        var newBuf = BytePool.Rent(newLen);
+        if (_posBufUsed > 0) Array.Copy(_posBuf, newBuf, _posBufUsed);
+        BytePool.Return(_posBuf, clearArray: false);
+        _posBuf = newBuf;
+        _posBufLen = newLen;
+        _cachedEstimatedBytes = RecomputeEstimatedBytes();
+    }
+
+    /// <summary>Writes a single delta VarInt for the last posting, relocating if needed.</summary>
+    private void AppendDeltaToLastPosting(int delta)
+    {
+        int idx = _count - 1;
+        int byteLen = _posByteLens[idx];
+        int encodedSize = VarIntEncodedSize(delta);
+
+        if (_posStarts[idx] + byteLen + encodedSize <= _posBufLen && _posStarts[idx] + byteLen >= _posBufUsed - byteLen)
+        {
+            WriteVarInt(_posBuf.AsSpan(_posStarts[idx] + byteLen), delta);
+            _posByteLens[idx] = byteLen + encodedSize;
+            if (_posStarts[idx] + byteLen == _posBufUsed)
+                _posBufUsed += encodedSize;
+        }
+        else
+        {
+            EnsurePosBufCapacity(_posBufUsed + byteLen + encodedSize);
+            Array.Copy(_posBuf, _posStarts[idx], _posBuf, _posBufUsed, byteLen);
+            _posStarts[idx] = _posBufUsed;
+            _posBufUsed += byteLen;
+            _posBufUsed += WriteVarInt(_posBuf.AsSpan(_posBufUsed), delta);
+            _posByteLens[idx] = byteLen + encodedSize;
+        }
+    }
+
+    private void AppendDeltasToLastPosting(ReadOnlySpan<int> deltas)
+    {
+        int idx = _count - 1;
+        int byteLen = _posByteLens[idx];
+        int extraBytes = 0;
+        for (int p = 0; p < deltas.Length; p++)
+            extraBytes += VarIntEncodedSize(deltas[p]);
+
+        EnsurePosBufCapacity(_posBufUsed + byteLen + extraBytes);
+        Array.Copy(_posBuf, _posStarts[idx], _posBuf, _posBufUsed, byteLen);
+        _posStarts[idx] = _posBufUsed;
+        _posBufUsed += byteLen;
+        for (int p = 0; p < deltas.Length; p++)
+            _posBufUsed += WriteVarInt(_posBuf.AsSpan(_posBufUsed), deltas[p]);
+        _posByteLens[idx] = byteLen + extraBytes;
+    }
+
+    /// <summary>Appends a new posting entry with delta doc ID storage.</summary>
+    private void AddNewPosting(int docId, ReadOnlySpan<int> positions)
+    {
+        if (_count == _docIdsLen) Grow();
+
+        int delta;
+        if (_count == 0)
+        {
+            delta = docId;           // first entry: absolute base
+        }
+        else
+        {
+            delta = docId - _lastAbsoluteDocId;
+        }
+
+        int firstPos = positions[0];
+        int totalBytes = VarIntEncodedSize(firstPos);
+        for (int p = 1; p < positions.Length; p++)
+            totalBytes += VarIntEncodedSize(positions[p] - firstPos);
+
+        EnsurePosBufCapacity(_posBufUsed + totalBytes);
+
+        _docIds[_count] = delta;
+        _freqs[_count] = positions.Length;
+        _posStarts[_count] = _posBufUsed;
+
+        _posBufUsed += WriteVarInt(_posBuf.AsSpan(_posBufUsed), firstPos);
+        for (int p = 1; p < positions.Length; p++)
+            _posBufUsed += WriteVarInt(_posBuf.AsSpan(_posBufUsed), positions[p] - firstPos);
+
+        _posByteLens[_count] = totalBytes;
+        _lastAbsoluteDocId = docId;
+        _count++;
+        InvalidateAbsoluteCache();
+    }
+
+    /// <summary>
+    /// Checks whether the last posting matches the given document, using either the
+    /// absolute cache or the tracked last-absolute value.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private bool IsLastDoc(int docId)
+    {
+        return _count > 0 && _lastAbsoluteDocId == docId;
+    }
+
+    // ─────── Raw merge helpers ───────
+
     /// <summary>
     /// Returns the VarInt-encoded delta bytes (after the first position), the decoded first
     /// absolute position, and the frequency. Zero-allocation.
@@ -127,7 +285,7 @@ internal sealed class PostingAccumulator
 
     /// <summary>
     /// Appends positions for a new document from raw VarInt-encoded delta bytes.
-    /// Avoids the decode→re-encode cycle of <see cref="AddPositions"/> for merge paths.
+    /// Used by the merge path (DWPT merge and segment merge).
     /// </summary>
     internal void AddEncodedPositions(int docId, int firstPosition, ReadOnlySpan<byte> deltaBytes, int freq)
     {
@@ -137,9 +295,8 @@ internal sealed class PostingAccumulator
         int firstBytes = VarIntEncodedSize(firstPosition);
         int totalBytes = firstBytes + deltaBytes.Length;
 
-        if (_count > 0 && _docIds[_count - 1] == docId)
+        if (IsLastDoc(docId))
         {
-            // Append deltas to last posting (merge case: same doc, additional positions)
             AppendDeltasToLastPostingRaw(deltaBytes, firstPosition);
             _freqs[_count - 1] += freq;
             return;
@@ -148,7 +305,8 @@ internal sealed class PostingAccumulator
         if (_count == _docIdsLen) Grow();
         EnsurePosBufCapacity(_posBufUsed + totalBytes);
 
-        _docIds[_count] = docId;
+        int delta = _count == 0 ? docId : docId - _lastAbsoluteDocId;
+        _docIds[_count] = delta;
         _freqs[_count] = freq;
         _posStarts[_count] = _posBufUsed;
 
@@ -156,7 +314,9 @@ internal sealed class PostingAccumulator
         deltaBytes.CopyTo(_posBuf.AsSpan(_posBufUsed));
         _posBufUsed += deltaBytes.Length;
         _posByteLens[_count] = totalBytes;
+        _lastAbsoluteDocId = docId;
         _count++;
+        InvalidateAbsoluteCache();
     }
 
     /// <summary>Appends raw VarInt deltas from firstPos to the last posting without re-encoding.</summary>
@@ -188,95 +348,13 @@ internal sealed class PostingAccumulator
         }
     }
 
-    // ─────── Internal write helpers ───────
-
-    private void EnsurePosBufCapacity(int requiredBytes)
-    {
-        if (requiredBytes <= _posBufLen) return;
-        int newLen = Math.Max(_posBufLen * 2, requiredBytes);
-        var newBuf = BytePool.Rent(newLen);
-        if (_posBufUsed > 0) Array.Copy(_posBuf, newBuf, _posBufUsed);
-        BytePool.Return(_posBuf, clearArray: false);
-        _posBuf = newBuf;
-        _posBufLen = newLen;
-        _cachedEstimatedBytes = RecomputeEstimatedBytes();
-    }
-
-    /// <summary>Writes a single delta VarInt for the last posting, relocating if needed.</summary>
-    private void AppendDeltaToLastPosting(int delta)
-    {
-        int idx = _count - 1;
-        int byteLen = _posByteLens[idx];
-        int encodedSize = VarIntEncodedSize(delta);
-
-        if (_posStarts[idx] + byteLen + encodedSize <= _posBufLen && _posStarts[idx] + byteLen >= _posBufUsed - byteLen)
-        {
-            // Fast path: fits in-place at the end of the posting's region (common when contiguous)
-            WriteVarInt(_posBuf.AsSpan(_posStarts[idx] + byteLen), delta);
-            _posByteLens[idx] = byteLen + encodedSize;
-            if (_posStarts[idx] + byteLen == _posBufUsed)
-                _posBufUsed += encodedSize;
-        }
-        else
-        {
-            // Relocate to end of _posBuf
-            EnsurePosBufCapacity(_posBufUsed + byteLen + encodedSize);
-            Array.Copy(_posBuf, _posStarts[idx], _posBuf, _posBufUsed, byteLen);
-            _posStarts[idx] = _posBufUsed;
-            _posBufUsed += byteLen;
-            _posBufUsed += WriteVarInt(_posBuf.AsSpan(_posBufUsed), delta);
-            _posByteLens[idx] = byteLen + encodedSize;
-        }
-    }
-
-    private void AppendDeltasToLastPosting(ReadOnlySpan<int> deltas)
-    {
-        int idx = _count - 1;
-        int byteLen = _posByteLens[idx];
-        int extraBytes = 0;
-        for (int p = 0; p < deltas.Length; p++)
-            extraBytes += VarIntEncodedSize(deltas[p]);
-
-        // Always relocate — bulk append is the merge path, not hot
-        EnsurePosBufCapacity(_posBufUsed + byteLen + extraBytes);
-        Array.Copy(_posBuf, _posStarts[idx], _posBuf, _posBufUsed, byteLen);
-        _posStarts[idx] = _posBufUsed;
-        _posBufUsed += byteLen;
-        for (int p = 0; p < deltas.Length; p++)
-            _posBufUsed += WriteVarInt(_posBuf.AsSpan(_posBufUsed), deltas[p]);
-        _posByteLens[idx] = byteLen + extraBytes;
-    }
-
-    private void AddNewPosting(int docId, ReadOnlySpan<int> positions)
-    {
-        if (_count == _docIdsLen) Grow();
-
-        int firstPos = positions[0];
-        int totalBytes = VarIntEncodedSize(firstPos);
-        for (int p = 1; p < positions.Length; p++)
-            totalBytes += VarIntEncodedSize(positions[p] - firstPos);
-
-        EnsurePosBufCapacity(_posBufUsed + totalBytes);
-
-        _docIds[_count] = docId;
-        _freqs[_count] = positions.Length;
-        _posStarts[_count] = _posBufUsed;
-
-        _posBufUsed += WriteVarInt(_posBuf.AsSpan(_posBufUsed), firstPos);
-        for (int p = 1; p < positions.Length; p++)
-            _posBufUsed += WriteVarInt(_posBuf.AsSpan(_posBufUsed), positions[p] - firstPos);
-
-        _posByteLens[_count] = totalBytes;
-        _count++;
-    }
-
     // ─────── Public API ───────
 
     public void Add(int docId, int position)
     {
         _hasFreqs = true;
         _hasPositions = true;
-        if (_count > 0 && _docIds[_count - 1] == docId)
+        if (IsLastDoc(docId))
         {
             AppendDeltaToLastPosting(position - GetFirstPosition(_count - 1));
             _freqs[_count - 1]++;
@@ -286,13 +364,12 @@ internal sealed class PostingAccumulator
         AddNewPosting(docId, single);
     }
 
-
     public void AddPositions(int docId, ReadOnlySpan<int> positions)
     {
         if (positions.IsEmpty) return;
         _hasFreqs = true;
         _hasPositions = true;
-        if (_count > 0 && _docIds[_count - 1] == docId)
+        if (IsLastDoc(docId))
         {
             int first = GetFirstPosition(_count - 1);
             Span<int> deltas = stackalloc int[positions.Length];
@@ -307,13 +384,17 @@ internal sealed class PostingAccumulator
 
     public void AddDocOnly(int docId)
     {
-        if (_count > 0 && _docIds[_count - 1] == docId) return;
+        if (IsLastDoc(docId)) return;
         if (_count == _docIdsLen) Grow();
-        _docIds[_count] = docId;
+
+        int delta = _count == 0 ? docId : docId - _lastAbsoluteDocId;
+        _docIds[_count] = delta;
         _freqs[_count] = 0;
         _posStarts[_count] = NoPositionSentinel;
         _posByteLens[_count] = 0;
+        _lastAbsoluteDocId = docId;
         _count++;
+        InvalidateAbsoluteCache();
     }
 
     public void AddPositionsWithPayloads(int docId, ReadOnlySpan<int> positions, byte[]?[] payloads)
@@ -323,7 +404,7 @@ internal sealed class PostingAccumulator
         _hasPositions = true;
         EnsurePayloads();
 
-        if (_count > 0 && _docIds[_count - 1] == docId)
+        if (IsLastDoc(docId))
         {
             int idx = _count - 1;
             int first = GetFirstPosition(idx);
@@ -353,7 +434,7 @@ internal sealed class PostingAccumulator
         _hasPositions = true;
         EnsurePayloads();
 
-        if (_count > 0 && _docIds[_count - 1] == docId)
+        if (IsLastDoc(docId))
         {
             int idx = _count - 1;
             AppendDeltaToLastPosting(position - GetFirstPosition(idx));
@@ -383,7 +464,6 @@ internal sealed class PostingAccumulator
         }
     }
 
-    public ReadOnlySpan<int> DocIds => _docIds.AsSpan(0, _count);
     public int GetFreq(int index) => _freqs[index];
 
     public ReadOnlySpan<int> GetPositions(int index)
@@ -397,11 +477,9 @@ internal sealed class PostingAccumulator
         var result = new int[freq];
         int pos = 0;
 
-        // First position: absolute VarInt
         pos += ReadVarInt(src, out int firstPos);
         result[0] = firstPos;
 
-        // Subsequent: VarInt deltas from first
         for (int i = 1; i < freq; i++)
         {
             pos += ReadVarInt(src.Slice(pos), out int delta);
@@ -429,11 +507,15 @@ internal sealed class PostingAccumulator
     {
         if (_count == 0) return;
 
+        // Expand to absolute, remap, sort, re-delta
+        if (!_absoluteCacheValid || _absoluteCache is null)
+            ExpandToAbsolute();
+
         var entries = IntPool.Rent(_count);
         var origIdxs = IntPool.Rent(_count);
         for (int i = 0; i < _count; i++)
         {
-            entries[i] = inversePerm[_docIds[i]];
+            entries[i] = inversePerm[_absoluteCache![i]];
             origIdxs[i] = i;
         }
         Array.Sort(entries, origIdxs, 0, _count);
@@ -446,10 +528,13 @@ internal sealed class PostingAccumulator
         var newPosBuf = BytePool.Rent(_posBufLen);
         int newPosBufUsed = 0;
 
+        int prevAbs = 0;
         for (int i = 0; i < _count; i++)
         {
             int orig = origIdxs[i];
-            _docIds[i] = entries[i];
+            int newAbs = entries[i];
+            _docIds[i] = i == 0 ? newAbs : newAbs - prevAbs;
+            prevAbs = newAbs;
             newFreqs[i] = _freqs[orig];
 
             int posStart = _posStarts[orig];
@@ -471,6 +556,9 @@ internal sealed class PostingAccumulator
                 newPayloads[i] = _payloads![orig];
         }
 
+        _lastAbsoluteDocId = prevAbs;
+        InvalidateAbsoluteCache();
+
         IntPool.Return(entries);
         IntPool.Return(origIdxs);
         IntPool.Return(_freqs);
@@ -486,6 +574,9 @@ internal sealed class PostingAccumulator
         _posBufLen = _posBuf.Length;
         _payloads = newPayloads;
         _cachedEstimatedBytes = RecomputeEstimatedBytes();
+
+        // Invalidate absolute cache and re-expand with new remapped order
+        _absoluteCacheValid = false;
     }
 
     public void ReturnBuffers()
@@ -495,10 +586,13 @@ internal sealed class PostingAccumulator
         if (_posStarts.Length > 0) IntPool.Return(_posStarts, clearArray: false);
         if (_posByteLens.Length > 0) IntPool.Return(_posByteLens, clearArray: false);
         if (_posBuf.Length > 0) BytePool.Return(_posBuf, clearArray: false);
+        if (_absoluteCache is not null) IntPool.Return(_absoluteCache, clearArray: false);
         _docIds = []; _freqs = []; _posStarts = []; _posByteLens = [];
-        _posBuf = []; _payloads = null;
+        _posBuf = []; _payloads = null; _absoluteCache = null;
         _count = 0; _docIdsLen = 0; _posBufLen = 0; _posBufUsed = 0;
+        _lastAbsoluteDocId = -1;
         _hasFreqs = false; _hasPositions = false;
+        _absoluteCacheValid = false;
         _cachedEstimatedBytes = 64;
     }
 
@@ -511,6 +605,7 @@ internal sealed class PostingAccumulator
         GrowIntArray(ref _posByteLens, _docIdsLen, newLen);
         if (_payloads != null) Array.Resize(ref _payloads, newLen);
         _docIdsLen = newLen;
+        InvalidateAbsoluteCache();
         _cachedEstimatedBytes = RecomputeEstimatedBytes();
     }
 
