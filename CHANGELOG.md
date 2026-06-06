@@ -12,15 +12,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Vector quantisation: scalar quantisation (float32 -> int8) and binary quantisation (BBQ) with `VectorQuantisation` enum (`None`, `Int8`, `BBQ`), configurable per-field via `VectorFieldInfo.Quantisation` and globally via `IndexWriterConfig.VectorQuantisation`. Quantised vectors are written to `.vq` files alongside existing `.vec` files, and HNSW graphs are built against quantised representations when `BuildHnswOnFlush` is enabled. Includes `Int8DistanceComputer` and `BBQDistanceComputer` for distance-aware KNN retrieval.
 
+- CodecKit: a composable binary codec framework extracted from the format-specific codec paths. Provides primitive codecs (VarInt, VarUInt, fixed-width integers, byte sequences), combinators (fixed-frame, length-prefixed, bytes-owned), integrity wrappers (CRC32, xxHash32, xxHash64 checksums in header or trailer placement, version envelope), compression wrapping via Deflate, and an immutable `CodecRegistry` for provider registration. The framework ships fully tested across unit, integration, chaos, and compression-parity suites.
+
 ### Changed
 
 - Positions in `PostingAccumulator` are now stored as VarInt delta-encoded bytes instead of raw `int[]`. The first position per posting is encoded as an absolute VarInt; subsequent positions are VarInt deltas from the first. Segment flush and concurrent merge write positions directly from the encoded bytes without intermediate `int[]` allocations, eliminating approximately 32 MB of per-indexing-run GC pressure on the standard 20K-document benchmark.
+
+- All per-codec format versions reset to 1 following the CodecKit migration. Forward compatibility is handled by the version envelope; old-format readers have been retired.
+
 
 ## [1.4.0] - 2026-05-29
 
 ### Added
 
 - Soft deletes with configurable retention period. When `IndexWriterConfig.SoftDeletesEnabled` is `true`, `SoftDeleteDocuments(TermQuery)` marks matching documents as deleted in the live-docs bitmap and records a Unix-millisecond timestamp in the `.del` file. Soft-deleted documents are invisible to search but retained on disk until the retention period elapses, at which point merges reclaim the space.
+
 - Per-segment sequence number tracking. When `IndexWriterConfig.TrackSequenceNumbers` is `true`, each document is assigned a monotonically-increasing sequence number and the segment metadata records `MinSequenceNumber` and `MaxSequenceNumber`. `IndexWriter.NextSequenceNumber` exposes the next sequence number that will be assigned.
 - `UpdateDocuments(Query, LeanDocument)` for atomically deleting documents matching a query and adding a replacement. Supports `TermQuery`, `BooleanQuery` of `TermQuery` clauses, and `MatchAllDocsQuery`.
 - `IndexWriter.AddIndexes(MMapDirectory)` to merge all segments from a source directory into the current index. Segments are validated for format compatibility and merged into a single new segment without modifying the source files.
