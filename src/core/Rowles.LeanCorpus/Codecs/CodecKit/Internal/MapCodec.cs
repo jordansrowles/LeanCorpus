@@ -69,6 +69,7 @@ internal sealed class MapCodec<TIn, TOut> : ICodec<TOut>
             throw new UserCodeException(0, context.CurrentPath, ex);
         }
 
+        using var depthGuard = context.PushDepth();
         _inner.Encode(raw, writer, context);
     }
 }

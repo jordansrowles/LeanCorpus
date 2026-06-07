@@ -44,7 +44,8 @@ public sealed partial class IndexWriter
                     }
 
                     // Heavy IO phase runs without _writeLock so AddDocument can buffer.
-                    var merger = new SegmentMerger(_directory, _config.MergeThreshold, _config.PostingsSkipInterval);
+                    var merger = new SegmentMerger(_directory, _config.MergeThreshold, _config.PostingsSkipInterval,
+                        _config.SoftDeleteRetentionSeconds);
                     var sourceList = sourceSegments.ToList();
                     var merged = merger.MaybeMerge(sourceList, ref localNextOrd, protectedSegments);
 

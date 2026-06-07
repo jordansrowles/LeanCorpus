@@ -37,8 +37,8 @@ internal sealed class ThenCodec<TFirst, TSecond> : ICodec<TSecond>
 
     public void Encode(TSecond value, IBufferWriter<byte> writer, CodecContext context)
     {
-        _first.Encode(default!, writer, context);
         using var depthGuard = context.PushDepth();
+        _first.Encode(default!, writer, context);
         _second.Encode(value, writer, context);
     }
 }

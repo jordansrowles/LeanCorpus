@@ -101,6 +101,7 @@ internal sealed class OptionalSentinelCodec<T, TSentinel> : ICodec<T?> where TSe
                     $"Unexpected sentinel value: expected {_absentValue} or {_presentValue}, got {sentinel}");
             }
 
+            using var depthGuard = context.PushDepth();
             return _innerCodec.Decode(ref reader, context);
         }
         catch
@@ -120,6 +121,7 @@ internal sealed class OptionalSentinelCodec<T, TSentinel> : ICodec<T?> where TSe
         else
         {
             _sentinelCodec.Encode(_presentValue, writer, context);
+            using var depthGuard = context.PushDepth();
             _innerCodec.Encode(value, writer, context);
         }
     }

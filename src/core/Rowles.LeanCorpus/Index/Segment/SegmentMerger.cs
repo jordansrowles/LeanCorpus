@@ -26,6 +26,7 @@ public sealed class SegmentMerger
     private readonly MMapDirectory _directory;
     private readonly int _mergeThreshold;
     private readonly int _skipInterval;
+    private readonly double _softDeleteRetentionSeconds;
     private readonly Diagnostics.IMetricsCollector _metrics;
 
     /// <summary>Default merge threshold: when this many segments exist, merge.</summary>
@@ -34,20 +35,26 @@ public sealed class SegmentMerger
     /// <summary>Default postings skip interval.</summary>
     public const int DefaultSkipInterval = 128;
 
+    /// <summary>Default soft-delete retention period in seconds (24 hours).</summary>
+    public const double DefaultSoftDeleteRetentionSeconds = 86400.0;
+
     /// <summary>Initialises a merger bound to the given directory.</summary>
     /// <param name="directory">The directory holding segment files.</param>
     /// <param name="mergeThreshold">Number of segments at one tier before a merge is triggered.</param>
     /// <param name="skipInterval">Postings skip interval used when writing the merged segment.</param>
+    /// <param name="softDeleteRetentionSeconds">Minimum seconds to retain soft-deleted documents during merge.</param>
     /// <param name="metrics">Optional metrics collector. Defaults to <see cref="Diagnostics.NullMetricsCollector.Instance"/>.</param>
     public SegmentMerger(
         MMapDirectory directory,
         int mergeThreshold = DefaultMergeThreshold,
         int skipInterval = DefaultSkipInterval,
+        double softDeleteRetentionSeconds = DefaultSoftDeleteRetentionSeconds,
         Diagnostics.IMetricsCollector? metrics = null)
     {
         _directory = directory;
         _mergeThreshold = mergeThreshold;
         _skipInterval = skipInterval;
+        _softDeleteRetentionSeconds = softDeleteRetentionSeconds;
         _metrics = metrics ?? Diagnostics.NullMetricsCollector.Instance;
     }
 
@@ -141,15 +148,11 @@ public sealed class SegmentMerger
     /// </summary>
     /// <param name="segments">All segments to merge into one.</param>
     /// <param name="nextSegmentOrdinal">Ordinal counter for naming the output segment.</param>
-    /// <returns>The merged segment, or <c>null</c> if only one segment was provided and no merge occurred.</returns>
+    /// <returns>The merged segment, or <c>null</c> if no live documents remain.</returns>
     public SegmentInfo? MergeAll(List<SegmentInfo> segments, ref int nextSegmentOrdinal)
     {
         if (segments.Count == 0)
             return null;
-
-        // If there is only one segment, nothing to merge
-        if (segments.Count == 1)
-            return segments[0];
 
         return MergeSegments(segments, ref nextSegmentOrdinal);
     }
@@ -209,7 +212,7 @@ public sealed class SegmentMerger
 
             if (!ShouldRetainSoftDeletes(segInfo)) continue;
 
-            long cutoff = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - (long)(SoftDeleteRetentionSeconds * 1000);
+            long cutoff = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - (long)(_softDeleteRetentionSeconds * 1000);
 
             for (int oldDocId = 0; oldDocId < segInfo.DocCount; oldDocId++)
             {
@@ -245,7 +248,7 @@ public sealed class SegmentMerger
         }
 
         // Phase 4: emit per-codec output files.
-        WriteNorms(segments, readers, fieldNames, basePath, totalDocs);
+        WriteNorms(perSegmentMaps, readers, fieldNames, basePath, totalDocs);
         var mergedVectorFields = MergeVectors(ctx, basePath);
         WriteNumericFiles(ctx, basePath);
         WriteFieldLengthsAndStats(ctx, fieldNames, basePath, newSegId, totalDocs);
@@ -476,7 +479,7 @@ public sealed class SegmentMerger
     }
 
     private static void WriteNorms(
-        IReadOnlyList<SegmentInfo> segments,
+        IReadOnlyList<(SegmentInfo Seg, int[] DocIdMap)> perSegmentMaps,
         IReadOnlyDictionary<string, SegmentReader> readers,
         IReadOnlyCollection<string> fieldNames,
         string basePath,
@@ -489,16 +492,15 @@ public sealed class SegmentMerger
             var norms = new float[totalDocs];
             var boosts = new float[totalDocs];
             Array.Fill(boosts, 1.0f);
-            int idx = 0;
-            foreach (var segInfo in segments)
+            foreach (var (segInfo, docIdMap) in perSegmentMaps)
             {
                 var reader = readers[segInfo.SegmentId];
                 for (int oldDocId = 0; oldDocId < segInfo.DocCount; oldDocId++)
                 {
-                    if (!reader.IsLive(oldDocId)) continue;
-                    norms[idx] = reader.GetNorm(oldDocId, fieldName);
-                    boosts[idx] = reader.GetFieldBoost(oldDocId, fieldName);
-                    idx++;
+                    int newDocId = docIdMap[oldDocId];
+                    if (newDocId < 0) continue;
+                    norms[newDocId] = reader.GetNorm(oldDocId, fieldName);
+                    boosts[newDocId] = reader.GetFieldBoost(oldDocId, fieldName);
                 }
             }
             fieldNorms[fieldName] = norms;
@@ -870,12 +872,6 @@ public sealed class SegmentMerger
 
         return result;
     }
-
-    /// <summary>
-    /// Default soft-delete retention period in seconds. Documents soft-deleted within this
-    /// window are preserved during merges even though they are invisible to search.
-    /// </summary>
-    internal const double SoftDeleteRetentionSeconds = 86400.0; // 24 hours
 
     /// <summary>
     /// Returns <c>true</c> if this segment contains soft-deleted documents that may still

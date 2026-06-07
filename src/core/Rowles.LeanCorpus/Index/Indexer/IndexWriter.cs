@@ -535,7 +535,8 @@ public sealed partial class IndexWriter : IDisposable
                 if (_buffer.DocCount > 0)
                     FlushSegment();
 
-                var merger = new SegmentMerger(_directory, _config.MergeThreshold, _config.PostingsSkipInterval);
+                var merger = new SegmentMerger(_directory, _config.MergeThreshold, _config.PostingsSkipInterval,
+                    _config.SoftDeleteRetentionSeconds);
                 int localOrdinal = _nextSegmentOrdinal;
                 _nextSegmentOrdinal += sourceSegments.Count + 8;
 
@@ -612,7 +613,6 @@ public sealed partial class IndexWriter : IDisposable
             if (_committedSegments.Count <= 1)
                 return 0;
 
-            int sourceCount = _committedSegments.Count;
             var segmentsToMerge = _committedSegments.ToList();
             var protectedSegments = GetSnapshotProtectedSegments();
 
@@ -625,7 +625,10 @@ public sealed partial class IndexWriter : IDisposable
             if (mergeable.Count < 2)
                 return 0;
 
-            var merger = new SegmentMerger(_directory, _config.MergeThreshold, _config.PostingsSkipInterval);
+            int mergeableCount = mergeable.Count;
+
+            var merger = new SegmentMerger(_directory, _config.MergeThreshold, _config.PostingsSkipInterval,
+                _config.SoftDeleteRetentionSeconds);
             var merged = merger.MergeAll(mergeable, ref _nextSegmentOrdinal);
 
             if (merged is null)
@@ -642,7 +645,17 @@ public sealed partial class IndexWriter : IDisposable
                 _committedSegments.Add(merged);
             }
 
-            // Clean up old segment files no longer referenced.
+            // Commit before cleaning up old files — ensures the commit file references
+            // the new segment before we delete anything the old segments depend on.
+            _contentToken++;
+            _commitGeneration++;
+            WriteCommitFile(_commitGeneration);
+            WriteCommitStats(_commitGeneration);
+            _config.DeletionPolicy.OnCommit(_directory.DirectoryPath, _commitGeneration, GetSnapshotProtectedSegments());
+
+            // Clean up old segment files no longer referenced. Must happen AFTER the
+            // commit is durably written so a crash doesn't leave a commit referencing
+            // deleted files.
             var activeSegments = new HashSet<string>(
                 _committedSegments.Select(static s => s.SegmentId), StringComparer.Ordinal);
             foreach (var seg in segmentsToMerge)
@@ -654,13 +667,7 @@ public sealed partial class IndexWriter : IDisposable
                 }
             }
 
-            _contentToken++;
-            _commitGeneration++;
-            WriteCommitFile(_commitGeneration);
-            WriteCommitStats(_commitGeneration);
-            _config.DeletionPolicy.OnCommit(_directory.DirectoryPath, _commitGeneration, GetSnapshotProtectedSegments());
-
-            return sourceCount;
+            return mergeableCount;
         }
     }
 

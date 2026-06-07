@@ -68,6 +68,7 @@ internal sealed class RepeatCodec<T> : ICodec<IReadOnlyList<T>>
 
         for (int i = 0; i < value.Count; i++)
         {
+            using var depthGuard = context.PushDepth();
             _elementCodec.Encode(value[i], writer, context);
         }
     }
@@ -113,7 +114,10 @@ internal sealed class RepeatPrefixedCodec<T> : ICodec<IReadOnlyList<T>>
             try
             {
                 for (int i = 0; i < n; i++)
+                {
+                    using var depthGuard = context.PushDepth();
                     items[i] = _elementCodec.Decode(ref reader, context);
+                }
                 return new PooledArray<T>(items, n);
             }
             catch
@@ -137,6 +141,7 @@ internal sealed class RepeatPrefixedCodec<T> : ICodec<IReadOnlyList<T>>
 
         for (int i = 0; i < value.Count; i++)
         {
+            using var depthGuard = context.PushDepth();
             _elementCodec.Encode(value[i], writer, context);
         }
     }

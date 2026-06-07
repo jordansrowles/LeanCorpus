@@ -28,6 +28,20 @@ internal sealed record CodecFormat
                     $"Duplicate version {step.Version} in codec format '{codecId}'.", nameof(steps));
         }
 
+
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i] is null)
+                throw new ArgumentException(
+                    $"Version step at index {i} is null in codec format '{codecId}'.", nameof(steps));
+        }
+
+        for (var i = 1; i < steps.Count; i++)
+        {
+            if (steps[i].Version <= steps[i - 1].Version)
+                throw new ArgumentException(
+                    $"Versions must be strictly increasing from oldest to newest in codec format '{codecId}'.", nameof(steps));
+        }
         CodecId = codecId;
         Steps = steps;
     }

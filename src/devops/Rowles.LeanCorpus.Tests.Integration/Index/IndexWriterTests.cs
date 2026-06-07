@@ -348,6 +348,53 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
             Rowles.LeanCorpus.Index.Segment.SegmentInfo.ReadFrom(finalSegFiles[0]));
         Assert.True(reader.MaxDoc >= 6, $"Expected at least 6 live docs, got {reader.MaxDoc}");
     }
+    /// <summary>
+    /// Verifies that soft-deleted documents still within the retention window
+    /// are preserved during Compact rather than being physically dropped.
+    /// </summary>
+    [Fact(DisplayName = "Compact preserves soft-deletes within retention window")]
+    public void Compact_PreservesSoftDeletes_WithinRetentionWindow()
+    {
+        var dir = new MMapDirectory(SubDir("compact_sd_retain"));
+        var config = new IndexWriterConfig
+        {
+            MaxBufferedDocs = 3,               // flush every 3 docs
+            SoftDeletesEnabled = true,
+            SoftDeleteRetentionSeconds = 3600, // 1 hour — well beyond test duration
+            MergeThreshold = 10                // keep tiered merge from interfering
+        };
+
+        using var writer = new IndexWriter(dir, config);
+
+        // Index 9 documents to create 3 segments
+        for (int i = 1; i <= 9; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("id", $"doc-{i}"));
+            doc.Add(new TextField("body", $"content number {i}"));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        // Soft-delete documents 1-3 (first segment loses all its docs)
+        for (int i = 1; i <= 3; i++)
+            writer.SoftDeleteDocuments(new Rowles.LeanCorpus.Search.Queries.TermQuery("id", $"doc-{i}"));
+        writer.Commit();
+
+        // Compact immediately — retention window has not elapsed
+        int merged = writer.Compact();
+        Assert.True(merged > 1, $"Expected multiple segments merged, got {merged}");
+
+        // Verify only one segment remains
+        var finalSegFiles = System.IO.Directory.GetFiles(SubDir("compact_sd_retain"), "*.seg");
+        Assert.Single(finalSegFiles);
+
+        // All 9 documents should still be present — the soft-deleted docs
+        // are within the retention window and must survive the merge.
+        using var reader = new Rowles.LeanCorpus.Index.Segment.SegmentReader(dir,
+            Rowles.LeanCorpus.Index.Segment.SegmentInfo.ReadFrom(finalSegFiles[0]));
+        Assert.Equal(9, reader.MaxDoc);
+    }
 
     /// <summary>
     /// Verifies that Compact is a no-op when there is only one segment.
@@ -371,5 +418,52 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         // Should be a single segment after explicit commit + flush
         int merged = writer.Compact();
         Assert.Equal(0, merged);
+    }
+
+    /// <summary>
+    /// Verifies that segments held by an active snapshot are excluded from Compact
+    /// and only unprotected segments are merged. After the snapshot is released,
+    /// a second Compact merges the remaining segments.
+    /// </summary>
+    [Fact(DisplayName = "Compact excludes snapshot-protected segments")]
+    public void Compact_ExcludesSnapshotProtectedSegments()
+    {
+        var dir = new MMapDirectory(SubDir("compact_snapshot"));
+        var config = new IndexWriterConfig
+        {
+            MaxBufferedDocs = 3,    // flush every 3 docs
+            MergeThreshold = 10     // keep tiered merge from interfering
+        };
+
+        using var writer = new IndexWriter(dir, config);
+
+        // Create 2 segments by indexing 6 documents
+        for (int i = 1; i <= 6; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", $"doc {i}"));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        var initialSegs = System.IO.Directory.GetFiles(SubDir("compact_snapshot"), "*.seg");
+        Assert.True(initialSegs.Length >= 2, $"Expected at least 2 segments, got {initialSegs.Length}");
+
+        // Hold a snapshot — both segments are now protected
+        var snapshot = writer.CreateSnapshot();
+
+        // Compact should be a no-op because all segments are protected
+        int merged = writer.Compact();
+        Assert.Equal(0, merged);
+
+        // Release the snapshot — segments are no longer protected
+        writer.ReleaseSnapshot(snapshot);
+
+        // Now Compact should merge everything into one segment
+        merged = writer.Compact();
+        Assert.True(merged > 1, $"Expected multiple segments merged, got {merged}");
+
+        var finalSegs = System.IO.Directory.GetFiles(SubDir("compact_snapshot"), "*.seg");
+        Assert.Single(finalSegs);
     }
 }
