@@ -155,6 +155,9 @@ internal static class Program
         if (runAll || suites.Contains(BenchmarkSuite.Highlighter))
             RunSuite<HighlighterBenchmarks>("highlighter", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
+        if (runAll || suites.Contains(BenchmarkSuite.TvHighlighter))
+            RunSuite<TermVectorHighlighterBenchmarks>("tv-highlighter", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
         if (runAll || suites.Contains(BenchmarkSuite.SearcherManager))
             RunSuite<SearcherManagerBenchmarks>("searcher-mgr", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
@@ -497,6 +500,7 @@ internal static class Program
             "span" => BenchmarkSuite.Span,
             "mlt" => BenchmarkSuite.MoreLikeThis,
             "highlighter" => BenchmarkSuite.Highlighter,
+            "tv-highlighter" or "tvhighlighter" => BenchmarkSuite.TvHighlighter,
             "searcher-mgr" or "searchermgr" => BenchmarkSuite.SearcherManager,
             "combined" => BenchmarkSuite.CombinedFields,
             "terminset" or "term-in-set" => BenchmarkSuite.TermInSet,
@@ -571,6 +575,7 @@ internal static class Program
         Span,
         MoreLikeThis,
         Highlighter,
+        TvHighlighter,
         SearcherManager,
         CombinedFields,
         TermInSet,

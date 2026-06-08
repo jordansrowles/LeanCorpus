@@ -14,6 +14,7 @@
     <PackageReference Include="Lucene.Net" />
     <PackageReference Include="Lucene.Net.Analysis.Common" />
     <PackageReference Include="Lucene.Net.Suggest" />
+    <PackageReference Include="Lucene.Net.Highlighter" />
     <PackageReference Include="Lucene.Net.Join" />
     <PackageReference Include="Lucene.Net.Queries" />
   </ItemGroup>
