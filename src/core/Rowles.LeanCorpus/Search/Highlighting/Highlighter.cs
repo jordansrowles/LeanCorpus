@@ -1,10 +1,11 @@
-﻿using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Codecs.TermVectors;
+using Rowles.LeanCorpus.Analysis.Analysers;
 namespace Rowles.LeanCorpus.Search.Highlighting;
 
 /// <summary>
 /// Extracts text snippets from stored fields with matching terms highlighted.
 /// </summary>
-public sealed class Highlighter
+public sealed class Highlighter : IHighlighter
 {
     private readonly string _preTag;
     private readonly string _postTag;
@@ -105,9 +106,18 @@ public sealed class Highlighter
         return sb.ToString();
     }
 
+    /// <inheritdoc />
+    public string GetBestFragment(string text, Query query,
+        IReadOnlyList<TermVectorEntry>? termVectors = null,
+        int maxSnippetLength = 200)
+    {
+        var terms = ExtractTerms(query);
+        return GetBestFragment(text, terms, maxSnippetLength);
+    }
+
     /// <summary>Extracts query terms from a TermQuery for use with GetBestFragment.</summary>
     /// <param name="query">The query from which to collect searchable terms.</param>
-    /// <returns>A case-insensitive set of term strings suitable for use with <see cref="GetBestFragment"/>.</returns>
+    /// <returns>A case-insensitive set of term strings suitable for use with one of the GetBestFragment overloads.</returns>
     public static HashSet<string> ExtractTerms(Query query)
     {
         var terms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

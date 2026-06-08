@@ -9,7 +9,7 @@ namespace Rowles.LeanCorpus.Search.Highlighting;
 /// it uses pre-computed start/end character offsets from term vectors to locate
 /// query terms in the original field text.
 /// </summary>
-public sealed class PostingsHighlighter
+public sealed class PostingsHighlighter : IHighlighter
 {
     private readonly string _preTag;
     private readonly string _postTag;
@@ -115,6 +115,17 @@ public sealed class PostingsHighlighter
             sb.Append("...");
 
         return sb.ToString();
+    }
+
+    /// <inheritdoc />
+    public string GetBestFragment(string text, Query query,
+        IReadOnlyList<TermVectorEntry>? termVectors = null,
+        int maxSnippetLength = 200)
+    {
+        if (termVectors is null || termVectors.Count == 0)
+            return Truncate(text, maxSnippetLength);
+        var terms = Highlighter.ExtractTerms(query);
+        return GetBestFragment(text, termVectors, terms, maxSnippetLength);
     }
 
     private static string Truncate(string text, int maxLength)
