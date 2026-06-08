@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\..\core\Rowles.LeanCorpus\Rowles.LeanCorpus.csproj" />
@@ -15,6 +15,7 @@
     <PackageReference Include="Lucene.Net.Analysis.Common" />
     <PackageReference Include="Lucene.Net.Suggest" />
     <PackageReference Include="Lucene.Net.Join" />
+    <PackageReference Include="Lucene.Net.Queries" />
   </ItemGroup>
 
   <PropertyGroup>

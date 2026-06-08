@@ -13,6 +13,7 @@
     <PackageVersion Include="Lucene.Net" Version="4.8.0-beta00016" />
     <PackageVersion Include="Lucene.Net.Analysis.Common" Version="4.8.0-beta00016" />
     <PackageVersion Include="Lucene.Net.Join" Version="4.8.0-beta00016" />
+    <PackageVersion Include="Lucene.Net.Queries" Version="4.8.0-beta00016" />
     <PackageVersion Include="Lucene.Net.Suggest" Version="4.8.0-beta00016" />
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
     <PackageVersion Include="Microsoft.Diagnostics.NETCore.Client" Version="0.2.661903" />
