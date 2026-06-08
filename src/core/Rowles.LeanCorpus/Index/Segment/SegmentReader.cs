@@ -337,6 +337,19 @@ public sealed partial class SegmentReader : IDisposable
         long cursor = offset;
         return _posInput.ReadInt32(ref cursor);
     }
+    /// <summary>
+    /// Sums all per-document term frequencies for the given qualified term.
+    /// Iterates the full postings list; call only when collection-level term statistics
+    /// are required (language-model similarities).
+    /// </summary>
+    internal long GetCollectionFrequency(string qualifiedTerm)
+    {
+        using var postings = GetPostingsEnum(qualifiedTerm);
+        long sum = 0;
+        while (postings.MoveNext())
+            sum += postings.Freq;
+        return sum;
+    }
 
     /// <summary>Reads docFreq directly from a known postings file offset (no dictionary lookup).</summary>
     internal int ReadDocFreqAtOffset(long offset)

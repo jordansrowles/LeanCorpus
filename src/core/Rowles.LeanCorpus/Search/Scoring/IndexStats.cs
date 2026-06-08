@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Rowles.LeanCorpus.Serialization;
 
 namespace Rowles.LeanCorpus.Search.Scoring;
@@ -22,21 +22,27 @@ public sealed class IndexStats
     /// <summary>Per-field total document frequency (number of docs containing the field).</summary>
     private readonly Dictionary<string, int> _fieldDocCounts;
 
+    /// <summary>Per-field sum of all token counts across all documents (total terms in collection).</summary>
+    private readonly Dictionary<string, long> _fieldLengthSums;
+
     /// <summary>Initialises a new <see cref="IndexStats"/> with pre-computed corpus statistics.</summary>
     /// <param name="totalDocCount">Total number of documents across all segments, including deleted.</param>
     /// <param name="liveDocCount">Total number of live (non-deleted) documents across all segments.</param>
     /// <param name="avgFieldLengths">Per-field average document length in token count.</param>
     /// <param name="fieldDocCounts">Per-field document frequency.</param>
+    /// <param name="fieldLengthSums">Per-field sum of all token counts across all documents.</param>
     public IndexStats(
         int totalDocCount,
         int liveDocCount,
         Dictionary<string, float> avgFieldLengths,
-        Dictionary<string, int> fieldDocCounts)
+        Dictionary<string, int> fieldDocCounts,
+        Dictionary<string, long> fieldLengthSums)
     {
         TotalDocCount = totalDocCount;
         LiveDocCount = liveDocCount;
         _avgFieldLengths = avgFieldLengths;
         _fieldDocCounts = fieldDocCounts;
+        _fieldLengthSums = fieldLengthSums;
     }
 
     /// <summary>Returns the average field length for a given field, defaulting to 1.0f.</summary>
@@ -47,6 +53,10 @@ public sealed class IndexStats
     public int GetFieldDocCount(string field)
         => _fieldDocCounts.GetValueOrDefault(field, 0);
 
+    /// <summary>Returns the total number of tokens in the collection for a given field, defaulting to 0.</summary>
+    public long GetFieldLengthSum(string field)
+        => _fieldLengthSums.GetValueOrDefault(field, 0L);
+
     /// <summary>Returns a copy of the average field lengths dictionary (for serialisation).</summary>
     internal Dictionary<string, float> GetAvgFieldLengths()
         => new(_avgFieldLengths, StringComparer.Ordinal);
@@ -55,8 +65,12 @@ public sealed class IndexStats
     internal Dictionary<string, int> GetFieldDocCounts()
         => new(_fieldDocCounts, StringComparer.Ordinal);
 
+    /// <summary>Returns a copy of the field length sums dictionary (for serialisation).</summary>
+    internal Dictionary<string, long> GetFieldLengthSums()
+        => new(_fieldLengthSums, StringComparer.Ordinal);
+
     /// <summary>An empty stats instance used for new or unreadable indexes.</summary>
-    public static IndexStats Empty => new(0, 0, [], []);
+    public static IndexStats Empty => new(0, 0, [], [], []);
 
     // --- Persistence ---
 
@@ -72,6 +86,7 @@ public sealed class IndexStats
             LiveDocCount = LiveDocCount,
             AvgFieldLengths = _avgFieldLengths,
             FieldDocCounts = _fieldDocCounts,
+            FieldLengthSums = _fieldLengthSums,
         };
         var json = JsonSerializer.Serialize(dto, LeanCorpusJsonContext.Default.IndexStatsDto);
 
@@ -126,7 +141,8 @@ public sealed class IndexStats
                 dto.TotalDocCount,
                 dto.LiveDocCount,
                 dto.AvgFieldLengths ?? new(StringComparer.Ordinal),
-                dto.FieldDocCounts ?? new(StringComparer.Ordinal));
+                dto.FieldDocCounts ?? new(StringComparer.Ordinal),
+                dto.FieldLengthSums ?? new(StringComparer.Ordinal));
         }
         catch
         {

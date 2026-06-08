@@ -25,11 +25,14 @@ internal sealed class PostingAccumulator
     private int _posBufUsed;         // bytes used in _posBuf
     private int _posBufLen;          // _posBuf array length
     private byte[]?[][]? _payloads;
+    private int[][]? _startOffsets;  // per-posting arrays of start offsets, aligned to positions
+    private int[][]? _endOffsets;    // per-posting arrays of end offsets, aligned to positions
     private int _count;
     private int _docIdsLen;          // logical length (may be < rented array length)
     private long _cachedEstimatedBytes;
     private bool _hasFreqs;
     private bool _hasPositions;
+    private bool _hasOffsets;
 
     private int _lastAbsoluteDocId;  // last absolute doc ID for delta computation
     private int[]? _absoluteCache;   // lazily expanded absolute doc IDs
@@ -364,6 +367,13 @@ internal sealed class PostingAccumulator
         AddNewPosting(docId, single);
     }
 
+    public void Add(int docId, int position, int startOffset, int endOffset)
+    {
+        _hasOffsets = true;
+        Add(docId, position);
+        StoreOffset(docId, _freqs[_count - 1] - 1, startOffset, endOffset);
+    }
+
     public void AddPositions(int docId, ReadOnlySpan<int> positions)
     {
         if (positions.IsEmpty) return;
@@ -453,6 +463,13 @@ internal sealed class PostingAccumulator
         _payloads[newIdx]![0] = payload;
     }
 
+    public void AddWithPayload(int docId, int position, byte[]? payload, int startOffset, int endOffset)
+    {
+        _hasOffsets = true;
+        AddWithPayload(docId, position, payload);
+        StoreOffset(docId, -1, startOffset, endOffset);
+    }
+
     private void EnsurePayloads()
     {
         if (_payloads is not null) return;
@@ -464,6 +481,42 @@ internal sealed class PostingAccumulator
         }
     }
 
+    private void EnsureOffsets()
+    {
+        if (_startOffsets is not null) return;
+        _startOffsets = new int[_docIdsLen][];
+        _endOffsets = new int[_docIdsLen][];
+        for (int i = 0; i < _count; i++)
+        {
+            int f = _freqs[i] > 0 ? _freqs[i] : 0;
+            _startOffsets[i] = new int[f];
+            _endOffsets[i] = new int[f];
+        }
+    }
+
+    private void StoreOffset(int docId, int positionIndex, int startOffset, int endOffset)
+    {
+        EnsureOffsets();
+        if (IsLastDoc(docId))
+        {
+            int idx = _count - 1;
+            int freq = _freqs[idx];
+            int posIdx = positionIndex >= 0 ? positionIndex : freq - 1;
+            _startOffsets![idx] ??= new int[freq];
+            _endOffsets![idx] ??= new int[freq];
+            if (freq > _startOffsets[idx]!.Length) Array.Resize(ref _startOffsets[idx], freq);
+            if (freq > _endOffsets[idx]!.Length) Array.Resize(ref _endOffsets[idx], freq);
+            _startOffsets[idx]![posIdx] = startOffset;
+            _endOffsets[idx]![posIdx] = endOffset;
+        }
+        else
+        {
+            int idx = _count - 1;
+            _startOffsets![idx] = new int[1] { startOffset };
+            _endOffsets![idx] = new int[1] { endOffset };
+        }
+    }
+
     public int GetFreq(int index) => _freqs[index];
 
     public ReadOnlySpan<int> GetPositions(int index)
@@ -472,7 +525,6 @@ internal sealed class PostingAccumulator
         if (start == NoPositionSentinel) return ReadOnlySpan<int>.Empty;
         int freq = _freqs[index];
         if (freq == 0) return ReadOnlySpan<int>.Empty;
-
         var src = _posBuf.AsSpan(start, _posByteLens[index]);
         var result = new int[freq];
         int pos = 0;
@@ -499,7 +551,15 @@ internal sealed class PostingAccumulator
         return docPayloads[positionIndex];
     }
 
+    public (int[]? Starts, int[]? Ends) GetOffsets(int index)
+    {
+        if (_startOffsets == null || (uint)index >= (uint)_count)
+            return (null, null);
+        return (_startOffsets[index], _endOffsets![index]);
+    }
+
     public bool HasPayloads => _payloads != null;
+    public bool HasOffsets => _hasOffsets;
     public bool HasFreqs => _hasFreqs;
     public bool HasPositions => _hasPositions;
 
@@ -524,7 +584,8 @@ internal sealed class PostingAccumulator
         var newPosStarts = IntPool.Rent(_docIdsLen);
         var newPosByteLens = IntPool.Rent(_docIdsLen);
         byte[]?[][]? newPayloads = _payloads is not null ? new byte[]?[_docIdsLen][] : null;
-
+        int[][]? newStartOffsets = _startOffsets is not null ? new int[_docIdsLen][] : null;
+        int[][]? newEndOffsets = _endOffsets is not null ? new int[_docIdsLen][] : null;
         var newPosBuf = BytePool.Rent(_posBufLen);
         int newPosBufUsed = 0;
 
@@ -554,6 +615,10 @@ internal sealed class PostingAccumulator
             }
             if (newPayloads is not null)
                 newPayloads[i] = _payloads![orig];
+            if (newStartOffsets is not null)
+                newStartOffsets[i] = _startOffsets![orig];
+            if (newEndOffsets is not null)
+                newEndOffsets[i] = _endOffsets![orig];
         }
 
         _lastAbsoluteDocId = prevAbs;
@@ -573,6 +638,8 @@ internal sealed class PostingAccumulator
         _posBufUsed = newPosBufUsed;
         _posBufLen = _posBuf.Length;
         _payloads = newPayloads;
+        _startOffsets = newStartOffsets;
+        _endOffsets = newEndOffsets;
         _cachedEstimatedBytes = RecomputeEstimatedBytes();
 
         // Invalidate absolute cache and re-expand with new remapped order
@@ -589,9 +656,10 @@ internal sealed class PostingAccumulator
         if (_absoluteCache is not null) IntPool.Return(_absoluteCache, clearArray: false);
         _docIds = []; _freqs = []; _posStarts = []; _posByteLens = [];
         _posBuf = []; _payloads = null; _absoluteCache = null;
+        _startOffsets = null; _endOffsets = null;
         _count = 0; _docIdsLen = 0; _posBufLen = 0; _posBufUsed = 0;
         _lastAbsoluteDocId = -1;
-        _hasFreqs = false; _hasPositions = false;
+        _hasFreqs = false; _hasPositions = false; _hasOffsets = false;
         _absoluteCacheValid = false;
         _cachedEstimatedBytes = 64;
     }
@@ -603,6 +671,8 @@ internal sealed class PostingAccumulator
         GrowIntArray(ref _freqs, _docIdsLen, newLen);
         GrowIntArray(ref _posStarts, _docIdsLen, newLen);
         GrowIntArray(ref _posByteLens, _docIdsLen, newLen);
+        if (_startOffsets != null) Array.Resize(ref _startOffsets, newLen);
+        if (_endOffsets != null) Array.Resize(ref _endOffsets, newLen);
         if (_payloads != null) Array.Resize(ref _payloads, newLen);
         _docIdsLen = newLen;
         InvalidateAbsoluteCache();

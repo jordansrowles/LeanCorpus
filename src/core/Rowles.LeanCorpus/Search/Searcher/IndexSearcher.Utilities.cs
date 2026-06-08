@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Search.Searcher;
+namespace Rowles.LeanCorpus.Search.Searcher;
 
 /// <summary>
 /// Partial class containing utility methods (GetStoredFields, Explain, Suggest, SearchWithFacets, etc.).
@@ -93,7 +93,9 @@ public sealed partial class IndexSearcher
         }
 
         float idf = Bm25Scorer.Idf(_totalDocCount, globalDF);
-        float score = _similarity.Score(tf, docLength, avgDocLength, _totalDocCount, globalDF);
+        long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
+        var (f1, f2, f3) = ComputeTermFactors(globalDF, avgDocLength, collectionFreq, query.Field);
+        float score = ScoreTerm(f1, f2, f3, tf, docLength);
         if (query.Boost != 1.0f) score *= query.Boost;
         float indexBoost = reader.GetFieldBoost(localDocId, query.Field);
         if (indexBoost != 1.0f) score *= indexBoost;

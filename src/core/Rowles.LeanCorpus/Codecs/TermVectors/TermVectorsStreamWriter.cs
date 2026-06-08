@@ -48,6 +48,7 @@ internal sealed class TermVectorsStreamWriter : IDisposable
                 foreach (var pos in entry.Positions)
                     _tvdBuf.WriteInt32(pos);
                 WritePayloads(entry);
+                WriteOffsets(entry);
             }
         }
     }
@@ -78,6 +79,21 @@ internal sealed class TermVectorsStreamWriter : IDisposable
 
         using var tvxOutput = new IndexOutput(_tvxPath);
         CodecFileHeader.Write(tvxOutput, CodecFormats.TermVectors, tvxBody);
+    }
+
+    private void WriteOffsets(TermVectorEntry entry)
+    {
+        bool hasOffsets = entry.StartOffsets is { Length: > 0 } && entry.EndOffsets is { Length: > 0 };
+        _tvdBuf.WriteByte(hasOffsets ? (byte)1 : (byte)0);
+        if (!hasOffsets) return;
+
+        if (entry.StartOffsets!.Length != entry.Positions.Length || entry.EndOffsets!.Length != entry.Positions.Length)
+            throw new InvalidDataException($"Term vector offset count for term '{entry.Term}' must match the position count.");
+
+        for (int i = 0; i < entry.StartOffsets.Length; i++)
+            _tvdBuf.WriteInt32(entry.StartOffsets[i]);
+        for (int i = 0; i < entry.EndOffsets.Length; i++)
+            _tvdBuf.WriteInt32(entry.EndOffsets[i]);
     }
 
     private void WritePayloads(TermVectorEntry entry)

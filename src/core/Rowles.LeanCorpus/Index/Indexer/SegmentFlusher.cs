@@ -158,6 +158,8 @@ internal static class SegmentFlusher
                         }
                     }
 
+
+
                     headerPatches.Add((headerPos, meta.DocFreq, meta.SkipOffset));
                 }
             }
@@ -452,7 +454,8 @@ internal static class SegmentFlusher
                         for (int p = 0; p < positions.Length; p++)
                             payloads[p] = acc.GetPayload(i, p);
                     }
-                    terms.Add(new TermVectorEntry(trm, freq, positions, payloads));
+                    var (starts, ends) = acc.GetOffsets(i);
+                    terms.Add(new TermVectorEntry(trm, freq, positions, payloads, starts, ends));
                 }
             }
             TermVectorsWriter.Write(basePath + ".tvd", basePath + ".tvx", tvDocs);

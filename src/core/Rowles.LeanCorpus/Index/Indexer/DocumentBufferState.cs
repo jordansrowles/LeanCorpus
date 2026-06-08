@@ -159,7 +159,8 @@ internal sealed class DocumentBufferState
     /// Accumulates a posting — the indexing hot path.
     /// Encodes the qualified term as UTF-8 and probes the open-addressing hash table.
     /// </summary>
-    public void AccumulatePosting(string fieldName, ReadOnlySpan<char> term, int docId, int position, byte[]? payload, bool storePayloads)
+    public void AccumulatePosting(string fieldName, ReadOnlySpan<char> term, int docId, int position, byte[]? payload, bool storePayloads,
+        int startOffset = 0, int endOffset = 0)
     {
         // Encode "fieldName\0term" as UTF-8 bytes for hash table probe
         if (!FieldPrefixCache.TryGetValue(fieldName, out var prefix))
@@ -188,9 +189,9 @@ internal sealed class DocumentBufferState
 
         long before = acc.EstimatedBytes;
         if (storePayloads && (acc.HasPayloads || payload is { Length: > 0 }))
-            acc.AddWithPayload(docId, position, payload);
+            acc.AddWithPayload(docId, position, payload, startOffset, endOffset);
         else
-            acc.Add(docId, position);
+            acc.Add(docId, position, startOffset, endOffset);
         PostingsRamBytes += acc.EstimatedBytes - before;
     }
 

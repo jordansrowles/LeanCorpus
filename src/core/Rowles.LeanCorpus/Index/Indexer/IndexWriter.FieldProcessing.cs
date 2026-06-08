@@ -415,7 +415,7 @@ public sealed partial class IndexWriter
                 increment = 1;
             _position += increment;
 
-            _buffer.AccumulatePosting(_fieldName, text, _docId, _position, payload, _config.StorePayloads);
+            _buffer.AccumulatePosting(_fieldName, text, _docId, _position, payload, _config.StorePayloads, startOffset, endOffset);
             AcceptedCount++;
         }
     }

@@ -468,12 +468,12 @@ internal sealed class DocumentsWriterPerThread
 
             if (_owner._storePayloads && (acc.HasPayloads || payload is { Length: > 0 }))
             {
-                acc.AddWithPayload(_docId, _position, payload);
+                acc.AddWithPayload(_docId, _position, payload, startOffset, endOffset);
                 _owner._estimatedRamBytes += 12 + (payload?.Length ?? 0);
             }
             else
             {
-                acc.Add(_docId, _position);
+                acc.Add(_docId, _position, startOffset, endOffset);
                 _owner._estimatedRamBytes += 12;
             }
 

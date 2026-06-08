@@ -806,7 +806,7 @@ public sealed partial class IndexWriter : IDisposable
             avgFieldLengths[field] = count > 0 ? (float)sum / count : 1.0f;
         }
 
-        var stats = new IndexStats(totalDocCount, liveDocCount, avgFieldLengths, fieldDocCounts);
+        var stats = new IndexStats(totalDocCount, liveDocCount, avgFieldLengths, fieldDocCounts, fieldLengthSums);
         stats.WriteTo(IndexStats.GetStatsPath(_directory.DirectoryPath, generation));
     }
 

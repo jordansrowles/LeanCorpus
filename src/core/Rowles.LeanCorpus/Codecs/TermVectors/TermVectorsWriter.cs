@@ -42,6 +42,7 @@ internal static class TermVectorsWriter
                     foreach (var pos in entry.Positions)
                         bodyBuf.WriteInt32(pos);
                     WritePayloads(bodyBuf, entry);
+                    WriteOffsets(bodyBuf, entry);
                 }
             }
         }
@@ -72,6 +73,21 @@ internal static class TermVectorsWriter
         CodecFileHeader.Write(tvxOutput, CodecFormats.TermVectors, tvxBody);
     }
 
+
+    private static void WriteOffsets(IBufferWriter<byte> writer, TermVectorEntry entry)
+    {
+        bool hasOffsets = entry.StartOffsets is { Length: > 0 } && entry.EndOffsets is { Length: > 0 };
+        writer.WriteByte(hasOffsets ? (byte)1 : (byte)0);
+        if (!hasOffsets) return;
+
+        if (entry.StartOffsets!.Length != entry.Positions.Length || entry.EndOffsets!.Length != entry.Positions.Length)
+            throw new InvalidDataException($"Term vector offset count for term '{entry.Term}' must match the position count.");
+
+        for (int i = 0; i < entry.StartOffsets.Length; i++)
+            writer.WriteInt32(entry.StartOffsets[i]);
+        for (int i = 0; i < entry.EndOffsets.Length; i++)
+            writer.WriteInt32(entry.EndOffsets[i]);
+    }
     private static void WritePayloads(IBufferWriter<byte> writer, TermVectorEntry entry)
     {
         bool hasPayloads = entry.Payloads is { Length: > 0 } payloads

@@ -56,8 +56,8 @@ internal sealed class TermVectorsReader : IDisposable
                 var positions = new int[posCount];
                 for (int p = 0; p < posCount; p++)
                     positions[p] = _tvdInput.ReadInt32(ref position);
-                byte[]?[]? payloads = null;
                 bool hasPayloads = _tvdInput.ReadBoolean(ref position);
+                byte[]?[]? payloads = null;
                 if (hasPayloads)
                 {
                     payloads = new byte[]?[posCount];
@@ -70,7 +70,20 @@ internal sealed class TermVectorsReader : IDisposable
                     }
                 }
 
-                entries.Add(new TermVectorEntry(term, freq, positions, payloads));
+                bool hasOffsets = _tvdInput.ReadBoolean(ref position);
+                int[]? startOffsets = null;
+                int[]? endOffsets = null;
+                if (hasOffsets)
+                {
+                    startOffsets = new int[posCount];
+                    for (int p = 0; p < posCount; p++)
+                        startOffsets[p] = _tvdInput.ReadInt32(ref position);
+                    endOffsets = new int[posCount];
+                    for (int p = 0; p < posCount; p++)
+                        endOffsets[p] = _tvdInput.ReadInt32(ref position);
+                }
+
+                entries.Add(new TermVectorEntry(term, freq, positions, payloads, startOffsets, endOffsets));
             }
             result[fieldName] = entries;
         }

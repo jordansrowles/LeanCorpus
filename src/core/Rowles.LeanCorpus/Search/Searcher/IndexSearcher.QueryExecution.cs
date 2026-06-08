@@ -96,7 +96,7 @@ public sealed partial class IndexSearcher
                 ExecuteRangeQuery(rq, reader, ref collector);
                 break;
             case PhraseQuery pq:
-                ExecutePhraseQuery(pq, reader, ref collector);
+                ExecutePhraseQuery(pq, reader, globalDFs, ref collector);
                 break;
             case MultiPhraseQuery mpq:
                 ExecuteMultiPhraseQuery(mpq, reader, ref collector);
@@ -175,8 +175,9 @@ public sealed partial class IndexSearcher
         if (postings.IsExhausted) return;
 
         int docFreq = globalDFs.GetValueOrDefault((query.Field, query.Term), postings.DocFreq);
+        long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
         float avgDocLength = _stats.GetAvgFieldLength(query.Field);
-        var factors = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
+        var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
         int docBase = reader.DocBase;
         float boost = query.Boost;
         reader.TryGetFieldLengths(query.Field, out var fieldLengths);
@@ -191,7 +192,7 @@ public sealed partial class IndexSearcher
 
             int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                 ? fieldLengths[docId] : 1;
-            float score = _similarity.ScorePrecomputed(factors.Factor1, factors.Factor2, postings.Freq, docLength);
+            float score = ScoreTerm(f1, f2, f3, postings.Freq, docLength);
             if (hasQueryBoost) score *= boost;
             score = ApplyFieldBoost(fieldBoosts, docId, score);
             collector.Collect(docBase + docId, score);
@@ -241,10 +242,10 @@ public sealed partial class IndexSearcher
         ref TopNCollector collector, int mustCount, int shouldCount, int mustNotCount)
     {
         var mustEnums = mustCount > 0 ? new PostingsEnum[mustCount] : null;
-        var mustFactors = mustCount > 0 ? new (float Idf, float K1BOverAvgDL)[mustCount] : null;
+        var mustFactors = mustCount > 0 ? new (float Idf, float K1BOverAvgDL, float CollectionProb)[mustCount] : null;
         var mustFields = mustCount > 0 ? new string[mustCount] : null;
         var shouldEnums = shouldCount > 0 ? new PostingsEnum[shouldCount] : null;
-        var shouldFactors = shouldCount > 0 ? new (float Idf, float K1BOverAvgDL)[shouldCount] : null;
+        var shouldFactors = shouldCount > 0 ? new (float Idf, float K1BOverAvgDL, float CollectionProb)[shouldCount] : null;
         var shouldFields = shouldCount > 0 ? new string[shouldCount] : null;
         var mustNotEnums = mustNotCount > 0 ? new PostingsEnum[mustNotCount] : null;
 
@@ -259,20 +260,21 @@ public sealed partial class IndexSearcher
                 var postings = reader.GetPostingsEnum(qt);
 
                 int docFreq = globalDFs.GetValueOrDefault((tq.Field, tq.Term), postings.DocFreq);
+                long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
                 float avgDocLength = _stats.GetAvgFieldLength(tq.Field);
-                var factors = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
+                var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, tq.Field);
 
                 switch (clause.Occur)
                 {
                     case Occur.Must:
                         mustEnums![mi] = postings;
-                        mustFactors![mi] = factors;
+                        mustFactors![mi] = (f1, f2, f3);
                         mustFields![mi] = tq.Field;
                         mi++;
                         break;
                     case Occur.Should:
                         shouldEnums![si] = postings;
-                        shouldFactors![si] = factors;
+                        shouldFactors![si] = (f1, f2, f3);
                         shouldFields![si] = tq.Field;
                         si++;
                         break;
@@ -355,8 +357,8 @@ public sealed partial class IndexSearcher
                     for (int i = 0; i < mustCount; i++)
                     {
                         int docLength = mustFieldLens![i] is { } mfl && (uint)docId < (uint)mfl.Length ? mfl[docId] : 1;
-                        score += ApplyFieldBoost(mustFieldBoosts![i], docId, _similarity.ScorePrecomputed(
-                            mustFactors![i].Idf, mustFactors[i].K1BOverAvgDL,
+                        score += ApplyFieldBoost(mustFieldBoosts![i], docId, ScoreTerm(
+                            mustFactors![i].Idf, mustFactors[i].K1BOverAvgDL, mustFactors[i].CollectionProb,
                             mustEnums[i].Freq, docLength));
                     }
 
@@ -366,8 +368,8 @@ public sealed partial class IndexSearcher
                         if (shouldEnums![i].Advance(docId) && shouldEnums[i].DocId == docId)
                         {
                             int docLength = shouldFieldLens![i] is { } sfl && (uint)docId < (uint)sfl.Length ? sfl[docId] : 1;
-                            score += ApplyFieldBoost(shouldFieldBoosts![i], docId, _similarity.ScorePrecomputed(
-                                shouldFactors![i].Idf, shouldFactors[i].K1BOverAvgDL,
+                            score += ApplyFieldBoost(shouldFieldBoosts![i], docId, ScoreTerm(
+                                shouldFactors![i].Idf, shouldFactors[i].K1BOverAvgDL, shouldFactors[i].CollectionProb,
                                 shouldEnums[i].Freq, docLength));
                         }
                     }
@@ -411,8 +413,8 @@ public sealed partial class IndexSearcher
                         if (currentDocs[i] == minDoc)
                         {
                             int docLength = shouldFieldLens![i] is { } sfl && (uint)minDoc < (uint)sfl.Length ? sfl[minDoc] : 1;
-                            score += ApplyFieldBoost(shouldFieldBoosts![i], minDoc, _similarity.ScorePrecomputed(
-                                shouldFactors![i].Idf, shouldFactors[i].K1BOverAvgDL,
+                            score += ApplyFieldBoost(shouldFieldBoosts![i], minDoc, ScoreTerm(
+                                shouldFactors![i].Idf, shouldFactors[i].K1BOverAvgDL, shouldFactors[i].CollectionProb,
                                 shouldEnums![i].Freq, docLength));
                             currentDocs[i] = shouldEnums[i].MoveNext() ? shouldEnums[i].DocId : int.MaxValue;
                         }
@@ -643,8 +645,9 @@ public sealed partial class IndexSearcher
                     using var postings = reader.GetPostingsEnum(qt);
                     if (postings.IsExhausted) break;
                     int docFreq = globalDFs.GetValueOrDefault((tq.Field, tq.Term), postings.DocFreq);
+                    long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
                     float avgDocLength = _stats.GetAvgFieldLength(tq.Field);
-                    var factors = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
+                    var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, tq.Field);
                     reader.TryGetFieldLengths(tq.Field, out var fieldLengths);
                     // For selective queries (fewer than 2 batches), use an inline loop to avoid
                     // stackalloc + two-pass batch overhead. The batch+SIMD path only pays off
@@ -658,7 +661,7 @@ public sealed partial class IndexSearcher
                             if (!reader.IsLive(docId)) continue;
                             int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                                 ? fieldLengths[docId] : 1;
-                            float score = _similarity.ScorePrecomputed(factors.Factor1, factors.Factor2, postings.Freq, docLength);
+                            float score = ScoreTerm(f1, f2, f3, postings.Freq, docLength);
                             score = ApplyFieldBoost(reader, docId, tq.Field, score);
                             results.Add(new ScoreDoc(docId, score));
                         }
@@ -684,13 +687,13 @@ public sealed partial class IndexSearcher
                             {
                                 if (useBm25Batch)
                                 {
-                                    Bm25Scorer.ScorePrecomputedBatch(factors.Factor1, factors.Factor2,
+                                    Bm25Scorer.ScorePrecomputedBatch(f1, f2,
                                         termFreqs, docLengths, batchScores);
                                 }
                                 else
                                 {
                                     for (int j = 0; j < batchSize; j++)
-                                        batchScores[j] = _similarity.ScorePrecomputed(factors.Factor1, factors.Factor2, termFreqs[j], docLengths[j]);
+                                        batchScores[j] = ScoreTerm(f1, f2, f3, termFreqs[j], docLengths[j]);
                                 }
                                 for (int j = 0; j < batchSize; j++)
                                 {
@@ -704,14 +707,14 @@ public sealed partial class IndexSearcher
                         {
                             if (useBm25Batch)
                             {
-                                Bm25Scorer.ScorePrecomputedBatch(factors.Factor1, factors.Factor2,
+                                Bm25Scorer.ScorePrecomputedBatch(f1, f2,
                                     termFreqs.Slice(0, batchCount), docLengths.Slice(0, batchCount),
                                     batchScores.Slice(0, batchCount));
                             }
                             else
                             {
                                 for (int j = 0; j < batchCount; j++)
-                                    batchScores[j] = _similarity.ScorePrecomputed(factors.Factor1, factors.Factor2, termFreqs[j], docLengths[j]);
+                                    batchScores[j] = ScoreTerm(f1, f2, f3, termFreqs[j], docLengths[j]);
                             }
                             for (int j = 0; j < batchCount; j++)
                             {
