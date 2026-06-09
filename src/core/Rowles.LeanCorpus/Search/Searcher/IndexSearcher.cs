@@ -37,23 +37,14 @@ public sealed partial class IndexSearcher : IDisposable
     private (float F1, float F2, float F3) ComputeTermFactors(
         int docFreq, float avgDocLength, long collectionFreq, string field)
     {
-        if (_useLmScoring)
-        {
-            long totalTerms = _stats.GetFieldLengthSum(field);
-            return _similarity.PrecomputeLmFactors(_totalDocCount, docFreq, avgDocLength, collectionFreq, totalTerms);
-        }
-        var (f1, f2) = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
-        return (f1, f2, 0f);
+        long totalTerms = _useLmScoring ? _stats.GetFieldLengthSum(field) : 0;
+        return _similarity.PrecomputeLmFactors(_totalDocCount, docFreq, avgDocLength, collectionFreq, totalTerms);
     }
 
-    /// <summary>Scores a term, dispatching to LM or classic path.</summary>
+    /// <summary>Scores a term via the unified language-model path.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private float ScoreTerm(float f1, float f2, float f3, int tf, int docLength)
-    {
-        return _useLmScoring
-            ? _similarity.ScoreLmPrecomputed(f1, f2, f3, tf, docLength)
-            : _similarity.ScorePrecomputed(f1, f2, tf, docLength);
-    }
+        => _similarity.ScoreLmPrecomputed(f1, f2, f3, tf, docLength);
 
     /// <summary>Computes the collection frequency for a term across all segments.</summary>
     private long GetGlobalCollectionFreq(string qualifiedTerm)
