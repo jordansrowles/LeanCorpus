@@ -1,11 +1,11 @@
 using BenchmarkDotNet.Attributes;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Filters;
+using Rowles.LeanCorpus.Analysis.Analysers;
 
 namespace Rowles.LeanCorpus.Benchmarks;
-
 /// <summary>
-/// Compares token filter throughput between LeanCorpus batch (<see cref="ITokenFilter"/>)
+/// Compares token filter throughput between LeanCorpus batch (<see cref="ISpanTokenFilter"/>)
 /// and Lucene.NET streaming (<c>TokenFilter</c>) implementations for equivalent filters.
 /// DecimalDigitFilter has no Lucene.NET equivalent and is LeanCorpus-only.
 /// </summary>
@@ -31,7 +31,7 @@ public class TokenFilterBenchmarks
 
     // LeanCorpus state
     private Token[] _source = [];
-    private ITokenFilter _filter = null!;
+    private ISpanTokenFilter _filter = null!;
 
     // Lucene.NET state: the raw input string for the tokeniser
     private string _luceneInput = string.Empty;
@@ -39,7 +39,7 @@ public class TokenFilterBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        (Token[] source, ITokenFilter filter, string input) configured = Scenario switch
+        (Token[] source, ISpanTokenFilter filter, string input) configured = Scenario switch
         {
             "length-noop" => (
                 BuildTokens(["quick", "brown", "fox"]),
@@ -95,9 +95,10 @@ public class TokenFilterBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_Apply()
     {
-        var tokens = new List<Token>(_source);
-        _filter.Apply(tokens);
-        return tokens.Count;
+        var sink = new MaterialisingTokenSink();
+        foreach (var token in _source)
+            _filter.Apply(token.Text.AsSpan(), token.StartOffset, token.EndOffset, token.Type, token.PositionIncrement, token.Payload, sink);
+        return sink.Tokens.Count;
     }
 
     // --- Lucene.NET streaming benchmark ---

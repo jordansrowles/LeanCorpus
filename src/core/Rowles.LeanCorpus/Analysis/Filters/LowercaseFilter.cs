@@ -6,20 +6,10 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 /// <summary>
 /// Performs an in-place lowercase transformation on tokens or a character buffer.
 /// </summary>
-public sealed class LowercaseFilter : ITokenFilter, ISpanTokenFilter
+public sealed class LowercaseFilter : ISpanTokenFilter
 {
 
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
-    {
-        for (int i = 0; i < tokens.Count; i++)
-        {
-            var t = tokens[i];
-            var lower = t.Text.ToLowerInvariant();
-            if (!ReferenceEquals(lower, t.Text))
-                tokens[i] = t.WithText(lower);
-        }
-    }
 
     /// <summary>
     /// Lowercases all characters in the provided character buffer in place.

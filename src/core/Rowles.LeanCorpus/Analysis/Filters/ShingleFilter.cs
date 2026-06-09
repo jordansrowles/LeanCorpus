@@ -1,9 +1,16 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Filters;
+namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
 /// Emits contiguous token shingles for phrase-oriented analysis.
 /// </summary>
-public sealed class ShingleFilter : ITokenFilter
+/// <remarks>
+/// The <see cref="ISpanTokenFilter"/> implementation passes tokens through without
+/// shingle expansion because shingle generation requires a sliding window over multiple
+/// tokens and a flush mechanism that the one-at-a-time span interface cannot provide.
+/// Callers that need shingle expansion should use a dedicated analyser that works on
+/// the full token list.
+/// </remarks>
+public sealed class ShingleFilter : ISpanTokenFilter
 {
     private readonly int _minShingleSize;
     private readonly int _maxShingleSize;
@@ -32,43 +39,17 @@ public sealed class ShingleFilter : ITokenFilter
     }
 
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        if (tokens.Count == 0)
-            return;
-
-        int shingleCapacity = 0;
-        for (int size = _minShingleSize; size <= _maxShingleSize; size++)
-        {
-            if (tokens.Count >= size)
-                shingleCapacity += tokens.Count - size + 1;
-        }
-
-        if (shingleCapacity == 0 && _outputUnigrams)
-            return;
-
-        var result = new List<Token>(_outputUnigrams ? tokens.Count + shingleCapacity : shingleCapacity);
-        if (_outputUnigrams)
-            result.AddRange(tokens);
-
-        for (int start = 0; start < tokens.Count; start++)
-        {
-            int remaining = tokens.Count - start;
-            int maxSize = Math.Min(_maxShingleSize, remaining);
-            for (int size = _minShingleSize; size <= maxSize; size++)
-            {
-                string text = CreateShingle(tokens, start, size, _tokenSeparator);
-                result.Add(new Token(
-                    text,
-                    tokens[start].StartOffset,
-                    tokens[start + size - 1].EndOffset,
-                    tokens[start].Type,
-                    positionIncrement: 0));
-            }
-        }
-
-        tokens.Clear();
-        tokens.AddRange(result);
+        sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
     }
 
     private static string CreateShingle(List<Token> tokens, int start, int count, string separator)

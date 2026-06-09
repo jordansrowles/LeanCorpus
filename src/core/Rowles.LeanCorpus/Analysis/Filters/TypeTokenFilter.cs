@@ -1,11 +1,11 @@
-﻿using System.Collections.Frozen;
+using System.Collections.Frozen;
 
 namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
 /// Filters tokens by extensible token type.
 /// </summary>
-public sealed class TypeTokenFilter : ITokenFilter
+public sealed class TypeTokenFilter : ISpanTokenFilter
 {
     private readonly FrozenSet<string> _types;
     private readonly bool _keepMatching;
@@ -22,9 +22,19 @@ public sealed class TypeTokenFilter : ITokenFilter
         _keepMatching = keepMatching;
     }
 
+
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        tokens.RemoveAll(token => _keepMatching ? !_types.Contains(token.Type) : _types.Contains(token.Type));
+        bool match = _types.Contains(type);
+        if (_keepMatching == match)
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
     }
 }

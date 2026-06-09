@@ -1,4 +1,4 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 
@@ -38,7 +38,11 @@ public class MultiLanguageAnalysisBenchmarks
         int total = 0;
         // Repeat the sample to amortise per-call overhead.
         for (int i = 0; i < 100; i++)
-            total += _analyser.Analyse(_sample.AsSpan()).Count;
+        {
+            var matSink = new MaterialisingTokenSink();
+            _analyser.Analyse(_sample.AsSpan(), matSink);
+            total += matSink.Tokens.Count;
+        }
         return total;
     }
 

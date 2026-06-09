@@ -1,27 +1,24 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Filters;
+namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
 /// Reverses the characters in each token.
 /// </summary>
-public sealed class ReverseStringFilter : ITokenFilter
+public sealed class ReverseStringFilter : ISpanTokenFilter
 {
+
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        for (int i = 0; i < tokens.Count; i++)
-        {
-            var token = tokens[i];
-            string text = token.Text;
-            if (text.Length <= 1)
-                continue;
-
-            string reversed = string.Create(text.Length, text, static (buffer, source) =>
-            {
-                for (int j = 0; j < source.Length; j++)
-                    buffer[j] = source[source.Length - 1 - j];
-            });
-
-            tokens[i] = token.WithText(reversed);
-        }
+        Span<char> reversed = stackalloc char[text.Length];
+        text.CopyTo(reversed);
+        reversed.Reverse();
+        sink.Add(reversed, startOffset, endOffset, type, positionIncrement, payload);
     }
 }

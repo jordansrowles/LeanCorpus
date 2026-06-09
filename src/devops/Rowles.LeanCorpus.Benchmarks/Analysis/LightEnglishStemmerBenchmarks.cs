@@ -66,16 +66,19 @@ public class LightEnglishStemmerBenchmarks
             batch.Add(new Token(word, 0, word.Length));
             if (batch.Count >= 1000)
             {
-                filter.Apply(batch);
-                count += batch.Count;
+                var matSink = new MaterialisingTokenSink();
+                foreach (var t in batch) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+                count += matSink.Tokens.Count;
                 batch.Clear();
+                batch.AddRange(matSink.Tokens);
             }
         }
 
         if (batch.Count > 0)
         {
-            filter.Apply(batch);
-            count += batch.Count;
+            var matSink = new MaterialisingTokenSink();
+            foreach (var t in batch) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+            count += matSink.Tokens.Count;
         }
 
         return count;

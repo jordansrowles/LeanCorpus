@@ -38,7 +38,11 @@ public class KStemmerParityBenchmarks
     {
         int total = 0;
         foreach (var doc in _documents)
-            total += _analyser.Analyse(doc.AsSpan()).Count;
+        {
+            var matSink = new MaterialisingTokenSink();
+            _analyser.Analyse(doc.AsSpan(), matSink);
+            total += matSink.Tokens.Count;
+        }
         return total;
     }
 

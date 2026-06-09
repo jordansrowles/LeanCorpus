@@ -12,7 +12,7 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// <see cref="FromStream"/>. A starter lexicon is available in the repository
 /// under <c>lexicons/thai-dict.txt</c>.
 /// </remarks>
-public sealed class ThaiTokeniser : ITokeniser
+public sealed class ThaiTokeniser : ISpanTokeniser
 {
     /// <summary>Token type emitted for Thai segments.</summary>
     public const string ThaiType = "thai";
@@ -78,7 +78,7 @@ public sealed class ThaiTokeniser : ITokeniser
     }
 
     /// <inheritdoc/>
-    public List<Token> Tokenise(ReadOnlySpan<char> input)
+    public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
         var tokens = new List<Token>();
         int i = 0;
@@ -99,8 +99,16 @@ public sealed class ThaiTokeniser : ITokeniser
             UnicodeTokenisation.TokeniseNonThaiSpan(input, tokens, ref i);
         }
 
-        return tokens;
+        foreach (var token in tokens)
+            sink.Add(
+                token.Text.AsSpan(),
+                token.StartOffset,
+                token.EndOffset,
+                token.Type,
+                token.PositionIncrement,
+                token.Payload);
     }
+
 
     private void TokeniseThaiRun(ReadOnlySpan<char> input, int start, int end, List<Token> tokens)
     {

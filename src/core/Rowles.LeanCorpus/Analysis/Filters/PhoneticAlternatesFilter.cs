@@ -1,9 +1,11 @@
+using Rowles.LeanCorpus.Analysis;
+
 namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
 /// Emits bounded Latin-name phonetic alternates at the same token position.
 /// </summary>
-public sealed class PhoneticAlternatesFilter : ITokenFilter
+public sealed class PhoneticAlternatesFilter : ISpanTokenFilter
 {
     private readonly bool _inject;
     private readonly int _maxExpansions;
@@ -21,37 +23,38 @@ public sealed class PhoneticAlternatesFilter : ITokenFilter
     }
 
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
-    {
-        var result = new List<Token>(tokens.Count * (_inject ? 2 : 1));
-        for (int i = 0; i < tokens.Count; i++)
-        {
-            var token = tokens[i];
-            var encodings = PhoneticEncoding.EncodeLatinNameAlternates(token.Text, _maxExpansions);
-            if (encodings.Count == 0)
-            {
-                result.Add(token);
-                continue;
-            }
 
-            if (_inject)
-            {
-                result.Add(token);
-                foreach (var encoding in encodings)
-                {
-                    if (!string.Equals(encoding, token.Text, StringComparison.Ordinal))
-                        result.Add(new Token(encoding, token.StartOffset, token.EndOffset, token.Type, positionIncrement: 0, token.Payload));
-                }
-            }
-            else
-            {
-                result.Add(token.WithText(encodings[0]));
-                for (int j = 1; j < encodings.Count; j++)
-                    result.Add(new Token(encodings[j], token.StartOffset, token.EndOffset, token.Type, positionIncrement: 0, token.Payload));
-            }
+    /// <inheritdoc/>
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
+    {
+        var encodings = PhoneticEncoding.EncodeLatinNameAlternates(new string(text), _maxExpansions);
+        if (encodings.Count == 0)
+        {
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+            return;
         }
 
-        tokens.Clear();
-        tokens.AddRange(result);
+        if (_inject)
+        {
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+            foreach (var encoding in encodings)
+            {
+                if (!string.Equals(encoding, new string(text), StringComparison.Ordinal))
+                    sink.Add(encoding.AsSpan(), startOffset, endOffset, type, 0, payload);
+            }
+        }
+        else
+        {
+            sink.Add(encodings[0].AsSpan(), startOffset, endOffset, type, positionIncrement, payload);
+            for (int j = 1; j < encodings.Count; j++)
+                sink.Add(encodings[j].AsSpan(), startOffset, endOffset, type, 0, payload);
+        }
     }
 }

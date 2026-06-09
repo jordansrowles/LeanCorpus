@@ -1,22 +1,24 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Filters;
+namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
-/// Porter Stemming Algorithm implementation as an ITokenFilter.
+/// Porter Stemming Algorithm implementation as an ISpanTokenFilter.
 /// Based on the Porter 1980 specification for English stemming.
 /// Operates on tokens in-place, replacing text with stemmed form.
 /// </summary>
-public sealed class PorterStemmerFilter : ITokenFilter
+public sealed class PorterStemmerFilter : ISpanTokenFilter
 {
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        for (int i = 0; i < tokens.Count; i++)
-        {
-            var t = tokens[i];
-            var stemmed = Stem(t.Text);
-            if (!ReferenceEquals(stemmed, t.Text))
-                tokens[i] = t.WithText(stemmed);
-        }
+        string stemmed = Stem(text);
+        sink.Add(stemmed.AsSpan(), startOffset, endOffset, type, positionIncrement, payload);
     }
 
     internal static string Stem(string word)
@@ -41,6 +43,8 @@ public sealed class PorterStemmerFilter : ITokenFilter
         var result = buf[..len];
         return result.SequenceEqual(word.AsSpan()) ? word : new string(result);
     }
+
+    internal static string Stem(ReadOnlySpan<char> word) => Stem(new string(word));
 
     private static bool IsConsonant(ReadOnlySpan<char> s, int i)
     {

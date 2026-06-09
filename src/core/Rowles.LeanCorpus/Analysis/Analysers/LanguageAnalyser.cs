@@ -8,13 +8,13 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// </summary>
 /// <remarks>
 /// Instances are safe to share across threads provided the supplied
-/// <see cref="ITokeniser"/> and <see cref="IStemmer"/> are also thread-safe.
+    /// <see cref="ISpanTokeniser"/> and <see cref="IStemmer"/> are also thread-safe.
 /// Per-call scratch buffers are rented from <see cref="ArrayPool{T}"/> and
 /// returned before the method exits.
 /// </remarks>
 public sealed class LanguageAnalyser : IAnalyser
 {
-    private readonly ITokeniser _tokeniser;
+    private readonly ISpanTokeniser _tokeniser;
     private readonly StopWordFilter _stopWordFilter;
     private readonly IStemmer? _stemmer;
     private readonly KeywordMarkerFilter? _keywordMarker;
@@ -27,7 +27,7 @@ public sealed class LanguageAnalyser : IAnalyser
     /// <param name="stemmer">Optional stemmer to reduce tokens to their root form, or <see langword="null"/> to skip stemming.</param>
     /// <param name="keywordMarker">Optional keyword marker used to skip stemming for selected token text.</param>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="tokeniser"/> is <see langword="null"/>.</exception>
-    public LanguageAnalyser(ITokeniser tokeniser, IEnumerable<string>? stopWords, IStemmer? stemmer, KeywordMarkerFilter? keywordMarker = null)
+    public LanguageAnalyser(ISpanTokeniser tokeniser, IEnumerable<string>? stopWords, IStemmer? stemmer, KeywordMarkerFilter? keywordMarker = null)
     {
         _tokeniser = tokeniser ?? throw new ArgumentNullException(nameof(tokeniser));
         _stopWordFilter = new StopWordFilter(stopWords);
@@ -36,10 +36,13 @@ public sealed class LanguageAnalyser : IAnalyser
     }
 
     /// <inheritdoc/>
-    public List<Token> Analyse(ReadOnlySpan<char> input)
+    public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
-        var rawTokens = _tokeniser.Tokenise(input);
-        var result = new List<Token>(rawTokens.Count);
+        ArgumentNullException.ThrowIfNull(sink);
+
+        var matSink = new MaterialisingTokenSink();
+        _tokeniser.Tokenise(input, matSink);
+        var rawTokens = matSink.Tokens;
 
         const int StackThreshold = 128;
         char[]? rented = null;
@@ -65,7 +68,7 @@ public sealed class LanguageAnalyser : IAnalyser
                     if (_stemmer is not null && (_keywordMarker is null || !_keywordMarker.IsKeyword(text)))
                         text = _stemmer.Stem(text);
 
-                    result.Add(new Token(text, t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload));
+                    sink.Add(text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload);
                 }
                 else
                 {
@@ -84,7 +87,7 @@ public sealed class LanguageAnalyser : IAnalyser
                     if (_stemmer is not null && (_keywordMarker is null || !_keywordMarker.IsKeyword(text)))
                         text = _stemmer.Stem(text);
 
-                    result.Add(new Token(text, t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload));
+                    sink.Add(text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload);
                 }
             }
         }
@@ -92,7 +95,5 @@ public sealed class LanguageAnalyser : IAnalyser
         {
             if (rented is not null) ArrayPool<char>.Shared.Return(rented);
         }
-
-        return result;
     }
 }

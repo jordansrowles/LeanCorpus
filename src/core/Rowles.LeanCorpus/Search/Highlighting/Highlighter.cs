@@ -35,7 +35,9 @@ public sealed class Highlighter : IHighlighter
         if (string.IsNullOrEmpty(text) || queryTerms.Count == 0)
             return Truncate(text, maxSnippetLength);
 
-        var tokens = _analyser.Analyse(text.AsSpan());
+        var sink = new MaterialisingTokenSink();
+        _analyser.Analyse(text.AsSpan(), sink);
+        var tokens = sink.Tokens;
         if (tokens.Count == 0)
             return Truncate(text, maxSnippetLength);
 

@@ -1,16 +1,14 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Tokenisers;
+namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 
 /// <summary>
 /// Treats the complete input as a single token.
 /// </summary>
-public sealed class KeywordTokeniser : ITokeniser
+public sealed class KeywordTokeniser : ISpanTokeniser
 {
     /// <inheritdoc/>
-    public List<Token> Tokenise(ReadOnlySpan<char> input)
+    public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
-        var tokens = new List<Token>(input.IsEmpty ? 0 : 1);
         if (!input.IsEmpty)
-            tokens.Add(new Token(input.ToString(), 0, input.Length));
-        return tokens;
+            sink.Add(input, 0, input.Length);
     }
 }

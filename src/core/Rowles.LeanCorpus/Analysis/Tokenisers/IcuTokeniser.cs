@@ -5,9 +5,9 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// Thai segmentation is opt-in: pass a <see cref="ThaiTokeniser"/> to the constructor to
 /// enable dictionary-based Thai word splitting.
 /// </summary>
-public sealed class IcuTokeniser : ITokeniser
+public sealed class IcuTokeniser : ISpanTokeniser
 {
-    private readonly ITokeniser? _thaiTokeniser;
+    private readonly ISpanTokeniser? _thaiTokeniser;
 
     /// <summary>
     /// Initialises a new <see cref="IcuTokeniser"/> without Thai segmentation support.
@@ -22,15 +22,15 @@ public sealed class IcuTokeniser : ITokeniser
     /// When supplied, contiguous Thai runs are delegated to <paramref name="thaiTokeniser"/>.
     /// </summary>
     /// <param name="thaiTokeniser">A tokeniser used for Thai text, or null to skip Thai segmentation.</param>
-    public IcuTokeniser(ITokeniser? thaiTokeniser)
+    public IcuTokeniser(ISpanTokeniser? thaiTokeniser)
     {
         _thaiTokeniser = thaiTokeniser;
     }
 
+
     /// <inheritdoc/>
-    public List<Token> Tokenise(ReadOnlySpan<char> input)
+    public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
-        var tokens = new List<Token>();
         int i = 0;
 
         while (i < input.Length)
@@ -41,13 +41,32 @@ public sealed class IcuTokeniser : ITokeniser
                 while (i < input.Length && UnicodeTokenisation.IsThai(input[i]))
                     i++;
 
-                UnicodeTokenisation.AddShiftedTokens(tokens, _thaiTokeniser.Tokenise(input[runStart..i]), runStart);
+                var thaiSink = new Analysers.MaterialisingTokenSink();
+                _thaiTokeniser.Tokenise(input[runStart..i], thaiSink);
+                var thaiTokens = thaiSink.Tokens;
+                for (int ti = 0; ti < thaiTokens.Count; ti++)
+                {
+                    var t = thaiTokens[ti];
+                    sink.Add(
+                        t.Text.AsSpan(),
+                        t.StartOffset + runStart,
+                        t.EndOffset + runStart,
+                        t.Type,
+                        t.PositionIncrement,
+                        t.Payload);
+                }
                 continue;
             }
 
-            UnicodeTokenisation.TokeniseNonThaiSpan(input, tokens, ref i);
-        }
+            if (!UnicodeTokenisation.IsWordStart(input[i]))
+            {
+                i++;
+                continue;
+            }
 
-        return tokens;
+            int start = i;
+            i = UnicodeTokenisation.ConsumeWord(input, start);
+            sink.Add(input[start..i], start, i, UnicodeTokenisation.ClassifyTokenType(input[start..i]));
+        }
     }
 }

@@ -1,4 +1,4 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 using Lucene.Net.Analysis;
 using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Util;
@@ -49,8 +49,9 @@ public class AnalysisBenchmarks
         int totalTokens = 0;
         for (int i = 0; i < _documents.Length; i++)
         {
-            var tokens = _leanAnalyser.Analyse(_documents[i].AsSpan());
-            totalTokens += tokens.Count;
+            var matSink = new MaterialisingTokenSink();
+            _leanAnalyser.Analyse(_documents[i].AsSpan(), matSink);
+            totalTokens += matSink.Tokens.Count;
         }
         return totalTokens;
     }

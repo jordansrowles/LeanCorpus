@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Analysers;
+namespace Rowles.LeanCorpus.Analysis.Analysers;
 
 /// <summary>
 /// Default analyser combining tokenisation, lowercase normalisation,
@@ -11,13 +11,12 @@
 /// for performance. Each instance should be used by a single thread, or callers should create
 /// separate instances per thread (as IndexWriter does in AddDocumentsConcurrent).
 /// </summary>
-public sealed class StandardAnalyser : IAnalyser, ISpanAnalyser
+public sealed class StandardAnalyser : IAnalyser
 {
     private readonly Tokeniser _tokeniser = new();
     private readonly StopWordFilter _stopWordFilter;
     private char[] _lowerBuf = new char[64];
     private readonly List<(int Start, int End)> _offsetBuf = new();
-    private readonly List<Token> _tokensBuf = new();
     // Intern cache keyed by string value to avoid hash-collision misses.
     // Uses AlternateLookup<ReadOnlySpan<char>> for zero-alloc cache hits.
     private readonly Dictionary<string, string> _internCache = new(StringComparer.Ordinal);
@@ -37,50 +36,7 @@ public sealed class StandardAnalyser : IAnalyser, ISpanAnalyser
     }
 
     /// <inheritdoc/>
-    public List<Token> Analyse(ReadOnlySpan<char> input)
-    {
-        _tokeniser.TokeniseOffsets(input, _offsetBuf);
-
-        _tokensBuf.Clear();
-        if (_tokensBuf.Capacity < _offsetBuf.Count)
-            _tokensBuf.Capacity = _offsetBuf.Count;
-
-        for (int i = 0; i < _offsetBuf.Count; i++)
-        {
-            var (start, end) = _offsetBuf[i];
-            var span = input.Slice(start, end - start);
-
-            if (_stopWordFilter.IsStopWord(span))
-                continue;
-
-            int len = end - start;
-            if (len > _lowerBuf.Length)
-                _lowerBuf = new char[Math.Max(_lowerBuf.Length * 2, len)];
-
-            span.ToLowerInvariant(_lowerBuf.AsSpan(0, len));
-            var lowerSpan = _lowerBuf.AsSpan(0, len);
-
-            // Try intern cache to reuse string objects for repeated tokens
-            string text;
-            if (_internLookup.TryGetValue(lowerSpan, out var cached))
-            {
-                text = cached;
-            }
-            else
-            {
-                text = new string(lowerSpan);
-                if (_internCache.Count < _maxInternCacheSize)
-                    _internLookup[lowerSpan] = text;
-            }
-
-            _tokensBuf.Add(new Token(text, start, end));
-        }
-
-        return _tokensBuf;
-    }
-
-    /// <inheritdoc/>
-    public bool TryAnalyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
+    public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
         ArgumentNullException.ThrowIfNull(sink);
 
@@ -99,9 +55,17 @@ public sealed class StandardAnalyser : IAnalyser, ISpanAnalyser
                 _lowerBuf = new char[Math.Max(_lowerBuf.Length * 2, len)];
 
             span.ToLowerInvariant(_lowerBuf.AsSpan(0, len));
-            sink.Add(_lowerBuf.AsSpan(0, len), start, end);
-        }
+            var lowerSpan = _lowerBuf.AsSpan(0, len);
 
-        return true;
+            if (!_internLookup.TryGetValue(lowerSpan, out var cached))
+            {
+                cached = new string(lowerSpan);
+                if (_internCache.Count < _maxInternCacheSize)
+                    _internLookup[lowerSpan] = cached;
+            }
+
+            sink.Add(cached.AsSpan(), start, end);
+        }
     }
+
 }

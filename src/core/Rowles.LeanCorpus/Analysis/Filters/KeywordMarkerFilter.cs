@@ -1,11 +1,11 @@
-﻿using System.Collections.Frozen;
+using System.Collections.Frozen;
 
 namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
 /// Identifies tokens that should be treated as keywords by compatible analysers.
 /// </summary>
-public sealed class KeywordMarkerFilter : ITokenFilter
+public sealed class KeywordMarkerFilter : ISpanTokenFilter
 {
     private readonly FrozenSet<string> _keywords;
 
@@ -19,9 +19,18 @@ public sealed class KeywordMarkerFilter : ITokenFilter
         _keywords = keywords.ToFrozenSet(StringComparer.Ordinal);
     }
 
+
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
+        sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
     }
 
     /// <summary>

@@ -64,7 +64,11 @@ public class SynonymBenchmarks
     {
         int total = 0;
         foreach (var doc in _documents)
-            total += _baseAnalyser.Analyse(doc.AsSpan()).Count;
+        {
+            var matSink = new MaterialisingTokenSink();
+            _baseAnalyser.Analyse(doc.AsSpan(), matSink);
+            total += matSink.Tokens.Count;
+        }
         return total;
     }
 
@@ -75,9 +79,12 @@ public class SynonymBenchmarks
         int total = 0;
         foreach (var doc in _documents)
         {
-            var tokens = _baseAnalyser.Analyse(doc.AsSpan());
-            _synonymFilter.Apply(tokens);
-            total += tokens.Count;
+            var matSink = new MaterialisingTokenSink();
+            _baseAnalyser.Analyse(doc.AsSpan(), matSink);
+            var tokens = matSink.Tokens;
+            var filterSink = new MaterialisingTokenSink();
+            foreach (var t in tokens) _synonymFilter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, filterSink);
+            total += filterSink.Tokens.Count;
         }
         return total;
     }
@@ -163,7 +170,9 @@ public class SynonymBenchmarks
 
         for (int i = 0; i < sampleCount; i++)
         {
-            var tokens = _baseAnalyser.Analyse(documents[i].AsSpan());
+            var matSink = new MaterialisingTokenSink();
+            _baseAnalyser.Analyse(documents[i].AsSpan(), matSink);
+            var tokens = matSink.Tokens;
             foreach (var token in tokens)
             {
                 frequencies.TryGetValue(token.Text, out int current);

@@ -6,7 +6,7 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 /// Applies an <see cref="IStemmer"/> to each token in the list.
 /// Useful as a drop-in filter in the composable <see cref="Analysers.Analyser"/> pipeline.
 /// </summary>
-public sealed class StemTokenFilter : ITokenFilter
+public sealed class StemTokenFilter : ISpanTokenFilter
 {
     private readonly IStemmer _stemmer;
 
@@ -19,14 +19,17 @@ public sealed class StemTokenFilter : ITokenFilter
     }
 
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        for (int i = 0; i < tokens.Count; i++)
-        {
-            var token = tokens[i];
-            var stemmed = _stemmer.Stem(token.Text);
-            if (!ReferenceEquals(stemmed, token.Text))
-                tokens[i] = token.WithText(stemmed);
-        }
+        var stemmed = _stemmer.Stem(new string(text));
+        sink.Add(stemmed.AsSpan(), startOffset, endOffset, type, positionIncrement, payload);
     }
+
 }

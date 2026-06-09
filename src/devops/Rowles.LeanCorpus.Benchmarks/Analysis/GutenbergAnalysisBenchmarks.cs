@@ -1,4 +1,4 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 
@@ -43,7 +43,11 @@ public class GutenbergAnalysisBenchmarks
     {
         int total = 0;
         foreach (var (_, text) in _books)
-            total += _standard.Analyse(text.AsSpan()).Count;
+        {
+            var matSink = new MaterialisingTokenSink();
+            _standard.Analyse(text.AsSpan(), matSink);
+            total += matSink.Tokens.Count;
+        }
         return total;
     }
 
@@ -56,7 +60,11 @@ public class GutenbergAnalysisBenchmarks
     {
         int total = 0;
         foreach (var (_, text) in _books)
-            total += _english.Analyse(text.AsSpan()).Count;
+        {
+            var matSink = new MaterialisingTokenSink();
+            _english.Analyse(text.AsSpan(), matSink);
+            total += matSink.Tokens.Count;
+        }
         return total;
     }
 }

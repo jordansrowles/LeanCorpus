@@ -37,7 +37,10 @@ public sealed class StemmerAnalyser : IAnalyser
     }
 
     /// <inheritdoc/>
-    public List<Token> Analyse(ReadOnlySpan<char> input) => _inner.Analyse(input);
+    public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
+    {
+        _inner.Analyse(input, sink);
+    }
 
     /// <summary>
     /// Creates a <see cref="StemmerAnalyser"/> using the Porter stemmer.
@@ -101,7 +104,7 @@ internal sealed class HunspellStemmerAdapter : IStemmer
 }
 
 /// <summary>
-/// Adapter that exposes <see cref="PorterStemmerFilter.Stem"/> through <see cref="IStemmer"/>.
+/// Adapter that exposes Porter stemming through <see cref="IStemmer"/>.
 /// </summary>
 public sealed class PorterStemmer : IStemmer
 {

@@ -1,4 +1,6 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis;
+
+namespace Rowles.LeanCorpus.Analysis.Analysers;
 
 /// <summary>
 /// Extends <see cref="StandardAnalyser"/> with Porter stemming for improved recall.
@@ -27,12 +29,22 @@ public sealed class StemmedAnalyser : IAnalyser
     }
 
     /// <inheritdoc/>
-    public List<Token> Analyse(ReadOnlySpan<char> input)
+    public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
-        var tokens = _inner.Analyse(input);
+        // Materialise via inner analyser
+        var matSink = new MaterialisingTokenSink();
+        _inner.Analyse(input, matSink);
+        var tokens = matSink.Tokens;
+
         if (_keywordMarker is null)
         {
-            _stemmer.Apply(tokens);
+            for (int i = 0; i < tokens.Count; i++)
+            {
+                var token = tokens[i];
+                var stemmed = PorterStemmerFilter.Stem(token.Text);
+                if (!ReferenceEquals(stemmed, token.Text))
+                    tokens[i] = token.WithText(stemmed);
+            }
         }
         else
         {
@@ -48,6 +60,8 @@ public sealed class StemmedAnalyser : IAnalyser
             }
         }
 
-        return tokens;
+        // Forward to caller's sink
+        foreach (var token in tokens)
+            sink.Add(token.Text.AsSpan(), token.StartOffset, token.EndOffset, token.Type, token.PositionIncrement, token.Payload);
     }
 }

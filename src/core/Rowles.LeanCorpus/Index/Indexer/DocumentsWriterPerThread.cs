@@ -186,59 +186,12 @@ internal sealed class DocumentsWriterPerThread
     private void IndexTextField(string fieldName, string value, int docId)
     {
         var analyser = _fieldAnalysers.GetValueOrDefault(fieldName, _analyser);
-        if (TryIndexTextFieldWithSpanAnalyser(analyser, value.AsSpan(), fieldName, docId))
-            return;
-
-        var tokens = analyser.Analyse(value.AsSpan());
-
-        AddTokenCount(fieldName, docId, tokens.Count);
-
-        FieldNames.Add(fieldName);
-
-        int pos = -1;
-        for (int i = 0; i < tokens.Count; i++)
-        {
-            int increment = tokens[i].PositionIncrement > 0 ? tokens[i].PositionIncrement : 0;
-            if (pos < 0 && increment == 0)
-                increment = 1;
-            pos += increment;
-
-            var term = CanonicaliseTerm(tokens[i].Text);
-            var qualifiedTerm = GetOrCreateQualifiedTerm(fieldName, term);
-
-            if (!Postings.TryGetValue(qualifiedTerm, out var acc))
-            {
-                acc = new PostingAccumulator();
-                Postings[qualifiedTerm] = acc;
-                _estimatedRamBytes += qualifiedTerm.Length * 2 + 128; // new term + accumulator
-            }
-            var payload = tokens[i].Payload;
-            if (_storePayloads && (acc.HasPayloads || payload is { Length: > 0 }))
-            {
-                acc.AddWithPayload(docId, pos, payload);
-                _estimatedRamBytes += 12 + (payload?.Length ?? 0);
-            }
-            else
-            {
-                acc.Add(docId, pos);
-                _estimatedRamBytes += 12; // posting entry (docId + position)
-            }
-        }
-    }
-
-    private bool TryIndexTextFieldWithSpanAnalyser(IAnalyser analyser, ReadOnlySpan<char> input, string fieldName, int docId)
-    {
-        if (analyser is not ISpanAnalyser spanAnalyser)
-            return false;
-
         _spanPostingSink.Reset(fieldName, docId);
-        if (!spanAnalyser.TryAnalyse(input, _spanPostingSink))
-            return false;
-
+        analyser.Analyse(value.AsSpan(), _spanPostingSink);
         AddTokenCount(fieldName, docId, _spanPostingSink.AcceptedCount);
         FieldNames.Add(fieldName);
-        return true;
     }
+
 
     private void AddTokenCount(string fieldName, int docId, int tokenCount)
     {

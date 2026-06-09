@@ -1,16 +1,28 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Tokenisers;
+namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 
 /// <summary>
 /// Splits input text into letter-only tokens, discarding digits and punctuation.
 /// </summary>
-public sealed class LetterTokeniser : ITokeniser
+public sealed class LetterTokeniser : ISpanTokeniser
 {
     /// <inheritdoc/>
-    public List<Token> Tokenise(ReadOnlySpan<char> input)
+    public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
-        var tokens = new List<Token>();
-        TokeniseOffsets(input, tokens);
-        return tokens;
+        int i = 0;
+        while (i < input.Length)
+        {
+            if (!char.IsLetter(input[i]))
+            {
+                i++;
+                continue;
+            }
+
+            int start = i;
+            while (i < input.Length && char.IsLetter(input[i]))
+                i++;
+
+            sink.Add(input[start..i], start, i);
+        }
     }
 
     /// <summary>

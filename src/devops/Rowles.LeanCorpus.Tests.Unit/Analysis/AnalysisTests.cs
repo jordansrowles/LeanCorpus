@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
 
@@ -18,7 +18,9 @@ public sealed class AnalysisTests
     {
         var tokeniser = new Tokeniser();
         var input = "The quick brown fox".AsSpan();
-        var tokens = tokeniser.Tokenise(input);
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise(input, matSink);
+        var tokens = matSink.Tokens;
 
         var expected = new[] { "The", "quick", "brown", "fox" };
         Assert.Equal(expected.Length, tokens.Count);
@@ -38,7 +40,9 @@ public sealed class AnalysisTests
     public void Tokeniser_Punctuation_IsExcludedFromTokens()
     {
         var tokeniser = new Tokeniser();
-        var tokens = tokeniser.Tokenise("hello, world!".AsSpan());
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise("hello, world!".AsSpan(), matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Equal(2, tokens.Count);
         Assert.Equal("hello", tokens[0].Text.ToString());
@@ -65,7 +69,9 @@ public sealed class AnalysisTests
     {
         // "to", "be", "or", "not" are all stop words; only "live" survives.
         var analyser = new StandardAnalyser();
-        var tokens = analyser.Analyse("to be or not to live".AsSpan());
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("to be or not to live".AsSpan(), matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Single(tokens);
         Assert.Equal("live", tokens[0].Text.ToString());
@@ -78,7 +84,9 @@ public sealed class AnalysisTests
     public void StandardAnalyser_EndToEnd_LowercasesTokenisesFilters()
     {
         var analyser = new StandardAnalyser();
-        var tokens = analyser.Analyse("Running quickly in THE forest".AsSpan());
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("Running quickly in THE forest".AsSpan(), matSink);
+        var tokens = matSink.Tokens;
 
         var expected = new[] { "running", "quickly", "forest" };
         Assert.Equal(expected.Length, tokens.Count);

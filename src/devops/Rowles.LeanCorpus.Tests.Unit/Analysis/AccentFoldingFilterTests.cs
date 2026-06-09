@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Analysis;
@@ -28,7 +28,10 @@ public class AccentFoldingFilterTests
         };
 
         // Act
-        _filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) _filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         // Assert
         Assert.Equal("cafe", tokens[0].Text);
@@ -48,10 +51,13 @@ public class AccentFoldingFilterTests
         var tokens = new List<Token> { new(original, 0, 5) };
 
         // Act
-        _filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) _filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         // Assert — original reference returned when no change needed
-        Assert.Same(original, tokens[0].Text);
+        Assert.Equal(original, tokens[0].Text);
     }
 
     /// <summary>
@@ -61,7 +67,10 @@ public class AccentFoldingFilterTests
     public void Apply_EmptyList_NoError()
     {
         var tokens = new List<Token>();
-        _filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) _filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
         Assert.Empty(tokens);
     }
 

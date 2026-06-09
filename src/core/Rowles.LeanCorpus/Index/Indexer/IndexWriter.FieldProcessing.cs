@@ -110,68 +110,22 @@ public sealed partial class IndexWriter
             _analyserCache[fieldName] = analyser;
         }
 
-        if (TryIndexTextFieldWithSpanAnalyser(analyser, input, fieldName, docId))
-            return;
-
-        var tokens = analyser.Analyse(input);
-
         // Enforce token budget if configured
-        int budget = _config.MaxTokensPerDocument;
-        if (budget > 0 && tokens.Count > budget)
-        {
-            switch (_config.TokenBudgetPolicy)
-            {
-                case Analysis.TokenBudgetPolicy.Truncate:
-                    tokens.RemoveRange(budget, tokens.Count - budget);
-                    break;
-                case Analysis.TokenBudgetPolicy.Warn:
-                    // Continue with all tokens; caller can observe via metrics
-                    break;
-                case Analysis.TokenBudgetPolicy.Reject:
-                    throw new Analysis.TokenBudgetExceededException(tokens.Count, budget);
-            }
-        }
-
-        AddTokenCount(fieldName, docId, tokens.Count);
-
-        _buffer.FieldNames.Add(fieldName);
-
-        int pos = -1;
-        for (int i = 0; i < tokens.Count; i++)
-        {
-            int increment = tokens[i].PositionIncrement > 0 ? tokens[i].PositionIncrement : 0;
-            if (pos < 0 && increment == 0)
-                increment = 1;
-            pos += increment;
-
-            var term = _buffer.CanonicaliseTerm(tokens[i].Text);
-            _buffer.AccumulatePosting(fieldName, term.AsSpan(), docId, pos, tokens[i].Payload, _config.StorePayloads);
-        }
-    }
-
-    private bool TryIndexTextFieldWithSpanAnalyser(IAnalyser analyser, ReadOnlySpan<char> input, string fieldName, int docId)
-    {
-        if (analyser is not ISpanAnalyser spanAnalyser)
-            return false;
-
         int budget = _config.MaxTokensPerDocument;
         if (budget > 0 && _config.TokenBudgetPolicy == Analysis.TokenBudgetPolicy.Reject)
         {
             _spanCountingSink.Reset(limit: budget);
-            if (!spanAnalyser.TryAnalyse(input, _spanCountingSink))
-                return false;
+            analyser.Analyse(input, _spanCountingSink);
             if (_spanCountingSink.ExceededLimit)
                 throw new Analysis.TokenBudgetExceededException(_spanCountingSink.Count, budget);
         }
 
         _spanPostingSink.Reset(fieldName, docId, budget, _config.TokenBudgetPolicy);
-        if (!spanAnalyser.TryAnalyse(input, _spanPostingSink))
-            return false;
-
+        analyser.Analyse(input, _spanPostingSink);
         AddTokenCount(fieldName, docId, _spanPostingSink.AcceptedCount);
         _buffer.FieldNames.Add(fieldName);
-        return true;
     }
+
 
     private void AddTokenCount(string fieldName, int docId, int tokenCount)
     {

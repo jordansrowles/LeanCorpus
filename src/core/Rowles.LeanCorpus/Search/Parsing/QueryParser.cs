@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis.Analysers;
 namespace Rowles.LeanCorpus.Search.Parsing;
 
 /// <summary>
@@ -234,8 +234,9 @@ public sealed class QueryParser
 
     private PhraseQuery BuildPhraseQuery(string field, string phraseText)
     {
-        var analysedTokens = _analyser.Analyse(phraseText.AsSpan());
-        var terms = analysedTokens.Select(t => t.Text).ToArray();
+        var matSink = new MaterialisingTokenSink();
+        _analyser.Analyse(phraseText.AsSpan(), matSink);
+        var terms = matSink.Tokens.Select(t => t.Text).ToArray();
         return terms.Length > 0 ? new PhraseQuery(field, terms) : new PhraseQuery(field, phraseText.Split(' '));
     }
 
@@ -271,8 +272,9 @@ public sealed class QueryParser
 
     private string AnalyseTerm(string term)
     {
-        var tokens = _analyser.Analyse(term.AsSpan());
-        return tokens.Count > 0 ? tokens[0].Text : string.Empty;
+        var matSink = new MaterialisingTokenSink();
+        _analyser.Analyse(term.AsSpan(), matSink);
+        return matSink.Tokens.Count > 0 ? matSink.Tokens[0].Text : string.Empty;
     }
 
     private static List<QToken> Tokenize(string input, bool lenient)

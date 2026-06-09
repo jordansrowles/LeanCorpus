@@ -1,11 +1,11 @@
-﻿using System.Collections.Frozen;
+using System.Collections.Frozen;
 
 namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
 /// Removes any token whose text is not present in the configured keep-word set.
 /// </summary>
-public sealed class KeepWordFilter : ITokenFilter
+public sealed class KeepWordFilter : ISpanTokenFilter
 {
     private readonly FrozenSet<string> _words;
 
@@ -19,9 +19,18 @@ public sealed class KeepWordFilter : ITokenFilter
         _words = words.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
     }
 
+
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        tokens.RemoveAll(token => !_words.Contains(token.Text));
+        if (_words.GetAlternateLookup<ReadOnlySpan<char>>().Contains(text))
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
     }
 }

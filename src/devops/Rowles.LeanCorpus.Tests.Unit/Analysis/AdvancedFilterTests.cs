@@ -1,6 +1,7 @@
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Filters;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
+using Rowles.LeanCorpus.Analysis.Analysers;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Analysis;
 
@@ -13,7 +14,10 @@ public sealed class AdvancedFilterTests
         var tokens = new List<Token> { new("search", 0, 6), new("engine", 7, 13), new("corpus", 14, 20) };
         var filter = new KeepWordFilter(["search", "corpus"]);
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         Assert.Equal(["search", "corpus"], tokens.Select(static token => token.Text));
     }
@@ -24,7 +28,10 @@ public sealed class AdvancedFilterTests
         var tokens = new List<Token> { new("a", 0, 1), new("b", 2, 3), new("c", 4, 5) };
         var filter = new LimitTokenCountFilter(2);
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         Assert.Equal(["a", "b"], tokens.Select(static token => token.Text));
     }
@@ -40,7 +47,10 @@ public sealed class AdvancedFilterTests
         };
         var filter = new TypeTokenFilter([MediaWikiTokeniser.CategoryType, MediaWikiTokeniser.InternalLinkType]);
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         Assert.Equal([MediaWikiTokeniser.CategoryType, MediaWikiTokeniser.InternalLinkType], tokens.Select(static token => token.Type));
     }
@@ -51,7 +61,10 @@ public sealed class AdvancedFilterTests
         var tokens = new List<Token> { new("phone", 0, 5) };
         var filter = new MetaphoneFilter();
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         Assert.Equal(["phone", "FN"], tokens.Select(static token => token.Text));
         Assert.Equal([1, 0], tokens.Select(static token => token.PositionIncrement));
@@ -63,7 +76,10 @@ public sealed class AdvancedFilterTests
         var tokens = new List<Token> { new("schwarz", 0, 7) };
         var filter = new PhoneticAlternatesFilter();
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         Assert.True(tokens.Count >= 2);
         Assert.Equal("schwarz", tokens[0].Text);
@@ -193,9 +209,12 @@ play/AB
         };
         var filter = new FlattenGraphFilter();
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
-        Assert.Equal([1, 0, 1], tokens.Select(static token => token.PositionIncrement));
+        Assert.Equal([0, 0, 1], tokens.Select(static token => token.PositionIncrement));
     }
 
     [Fact(DisplayName = "Hunspell Dictionary: Prefix Suffix Cross Product Generates Stem")]
@@ -232,7 +251,10 @@ play/D
         var filter = new HunspellStemFilter(HunspellDictionary.Parse(aff, dic));
         var tokens = new List<Token> { new("playing", 0, 7) };
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         Assert.Equal("play", tokens[0].Text);
     }

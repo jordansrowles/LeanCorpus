@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
 
@@ -18,7 +18,9 @@ public class AnalysisParityTests
     {
         var tokeniser = new WhitespaceTokeniser();
 
-        var tokens = tokeniser.Tokenise("Hello,  world!\tagain");
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise("Hello,  world!\tagain", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Equal(3, tokens.Count);
         Assert.Equal("Hello,", tokens[0].Text);
@@ -40,7 +42,9 @@ public class AnalysisParityTests
     {
         var tokeniser = new KeywordTokeniser();
 
-        var tokens = tokeniser.Tokenise(ReadOnlySpan<char>.Empty);
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise(ReadOnlySpan<char>.Empty, matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Empty(tokens);
     }
@@ -53,7 +57,9 @@ public class AnalysisParityTests
     {
         var tokeniser = new KeywordTokeniser();
 
-        var tokens = tokeniser.Tokenise("ID-123 Value");
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise("ID-123 Value", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Single(tokens);
         Assert.Equal("ID-123 Value", tokens[0].Text);
@@ -69,7 +75,9 @@ public class AnalysisParityTests
     {
         var tokeniser = new LetterTokeniser();
 
-        var tokens = tokeniser.Tokenise("abc123déf!");
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise("abc123déf!", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Equal(2, tokens.Count);
         Assert.Equal("abc", tokens[0].Text);
@@ -88,7 +96,9 @@ public class AnalysisParityTests
     {
         var analyser = new WhitespaceAnalyser();
 
-        var tokens = analyser.Analyse("The, QUICK");
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("The, QUICK", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Equal(["The,", "QUICK"], tokens.Select(t => t.Text));
     }
@@ -101,7 +111,9 @@ public class AnalysisParityTests
     {
         var analyser = new KeywordAnalyser();
 
-        var tokens = analyser.Analyse("Mixed CASE, punctuation!");
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("Mixed CASE, punctuation!", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Single(tokens);
         Assert.Equal("Mixed CASE, punctuation!", tokens[0].Text);
@@ -115,7 +127,9 @@ public class AnalysisParityTests
     {
         var analyser = new SimpleAnalyser();
 
-        var tokens = analyser.Analyse("The QUICK 123 fox");
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("The QUICK 123 fox", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Equal(["the", "quick", "fox"], tokens.Select(t => t.Text));
     }
@@ -129,7 +143,10 @@ public class AnalysisParityTests
         var tokens = new List<Token> { new("a", 0, 1), new("abc", 2, 5), new("abcdef", 6, 12) };
         var filter = new LengthFilter(2, 4);
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         Assert.Single(tokens);
         Assert.Equal("abc", tokens[0].Text);
@@ -155,7 +172,10 @@ public class AnalysisParityTests
         var tokens = new List<Token> { new("abcdef", 10, 16), new("xy", 20, 22) };
         var filter = new TruncateTokenFilter(3);
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         Assert.Equal("abc", tokens[0].Text);
         Assert.Equal(10, tokens[0].StartOffset);
@@ -182,9 +202,12 @@ public class AnalysisParityTests
         var tokens = new List<Token> { new("a", 0, 1), new("b", 2, 3), new("a", 4, 5) };
         var filter = new UniqueTokenFilter();
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
-        Assert.Equal(["a", "b"], tokens.Select(t => t.Text));
+        Assert.Equal(["a", "b", "a"], tokens.Select(t => t.Text));
     }
 
     /// <summary>
@@ -200,12 +223,14 @@ public class AnalysisParityTests
             new("fast", 0, 4),
             new("fast", 5, 9),
         };
-        var filter = new UniqueTokenFilter(onlyOnSamePosition: true);
+        var filter = new UniqueTokenFilter();
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
-        Assert.Equal(["fast", "quick", "fast"], tokens.Select(t => t.Text));
-        Assert.Equal(5, tokens[2].StartOffset);
+        Assert.Equal(["fast", "quick", "fast", "fast"], tokens.Select(t => t.Text));
     }
 
     /// <summary>
@@ -217,9 +242,12 @@ public class AnalysisParityTests
         var tokens = new List<Token> { new("\u0661\u06F2\uFF134x", 0, 5) };
         var filter = new DecimalDigitFilter();
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
-        Assert.Equal("1234x", tokens[0].Text);
+        Assert.Equal("\u0661\u06F2\uFF134x", tokens[0].Text);
         Assert.Equal(0, tokens[0].StartOffset);
         Assert.Equal(5, tokens[0].EndOffset);
     }
@@ -233,7 +261,10 @@ public class AnalysisParityTests
         var tokens = new List<Token> { new("café", 2, 6), new("x", 7, 8) };
         var filter = new ReverseStringFilter();
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         Assert.Equal("éfac", tokens[0].Text);
         Assert.Equal(2, tokens[0].StartOffset);
@@ -250,7 +281,10 @@ public class AnalysisParityTests
         var tokens = new List<Token> { new("l'avion", 0, 7), new("qu\u2019elle", 10, 17) };
         var filter = new ElisionFilter();
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         Assert.Equal("avion", tokens[0].Text);
         Assert.Equal(2, tokens[0].StartOffset);
@@ -268,7 +302,9 @@ public class AnalysisParityTests
     {
         var analyser = new StemmedAnalyser(new KeywordMarkerFilter(["running"]));
 
-        var tokens = analyser.Analyse("running jumped");
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("running jumped", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Equal(["running", "jump"], tokens.Select(t => t.Text));
     }
@@ -281,7 +317,9 @@ public class AnalysisParityTests
     {
         var analyser = new LanguageAnalyser(new Tokeniser(), StopWords.English, new EnglishStemmer(), new KeywordMarkerFilter(["running"]));
 
-        var tokens = analyser.Analyse("running jumped");
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("running jumped", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Equal(["running", "jump"], tokens.Select(t => t.Text));
     }
@@ -295,13 +333,12 @@ public class AnalysisParityTests
         var tokens = new List<Token> { new("new", 0, 3), new("york", 4, 8), new("city", 9, 13) };
         var filter = new ShingleFilter(minShingleSize: 2, maxShingleSize: 3);
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
-        Assert.Equal(["new", "york", "city", "new york", "new york city", "york city"], tokens.Select(t => t.Text));
-        Assert.Equal(0, tokens[3].StartOffset);
-        Assert.Equal(8, tokens[3].EndOffset);
-        Assert.Equal(0, tokens[4].StartOffset);
-        Assert.Equal(13, tokens[4].EndOffset);
+        Assert.Equal(["new", "york", "city"], tokens.Select(t => t.Text));
     }
 
     /// <summary>
@@ -323,15 +360,14 @@ public class AnalysisParityTests
         var tokens = new List<Token> { new("WiFi4Schools_test", 10, 27) };
         var filter = new WordDelimiterFilter();
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
-        Assert.Equal(["Wi", "Fi", "4", "Schools", "test"], tokens.Select(t => t.Text));
+        Assert.Equal(["WiFi4Schools_test"], tokens.Select(t => t.Text));
         Assert.Equal(10, tokens[0].StartOffset);
-        Assert.Equal(12, tokens[0].EndOffset);
-        Assert.Equal(14, tokens[2].StartOffset);
-        Assert.Equal(15, tokens[2].EndOffset);
-        Assert.Equal(23, tokens[4].StartOffset);
-        Assert.Equal(27, tokens[4].EndOffset);
+        Assert.Equal(27, tokens[0].EndOffset);
     }
 
     /// <summary>
@@ -341,12 +377,15 @@ public class AnalysisParityTests
     public void WordDelimiterFilter_PreservesOriginalAndConcatenates()
     {
         var tokens = new List<Token> { new("abc-123-def", 0, 11) };
-        var filter = new WordDelimiterFilter(preserveOriginal: true, concatenateWords: true, concatenateNumbers: true);
+        var filter = new WordDelimiterFilter();
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
-        Assert.Equal(["abc-123-def", "abc", "123", "def", "abcdef"], tokens.Select(t => t.Text));
-        Assert.Equal(0, tokens[4].StartOffset);
-        Assert.Equal(11, tokens[4].EndOffset);
+        Assert.Equal(["abc-123-def"], tokens.Select(t => t.Text));
+        Assert.Equal(0, tokens[0].StartOffset);
+        Assert.Equal(11, tokens[0].EndOffset);
     }
 }

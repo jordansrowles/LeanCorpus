@@ -4,7 +4,7 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// Unicode-aware tokeniser that preserves URLs, email addresses, hashtags, and mentions
 /// as single tokens. Thai segmentation is opt-in via the constructor.
 /// </summary>
-public sealed class Uax29UrlEmailTokeniser : ITokeniser
+public sealed class Uax29UrlEmailTokeniser : ISpanTokeniser
 {
     /// <summary>Token type emitted for URLs.</summary>
     public const string UrlType = "url";
@@ -15,7 +15,7 @@ public sealed class Uax29UrlEmailTokeniser : ITokeniser
     /// <summary>Token type emitted for at-mentions.</summary>
     public const string MentionType = "mention";
 
-    private readonly ITokeniser? _thaiTokeniser;
+    private readonly ISpanTokeniser? _thaiTokeniser;
 
     /// <summary>
     /// Initialises a new <see cref="Uax29UrlEmailTokeniser"/> without Thai segmentation.
@@ -30,15 +30,14 @@ public sealed class Uax29UrlEmailTokeniser : ITokeniser
     /// When supplied, contiguous Thai runs are delegated to <paramref name="thaiTokeniser"/>.
     /// </summary>
     /// <param name="thaiTokeniser">A tokeniser used for Thai text, or null to skip Thai segmentation.</param>
-    public Uax29UrlEmailTokeniser(ITokeniser? thaiTokeniser)
+    public Uax29UrlEmailTokeniser(ISpanTokeniser? thaiTokeniser)
     {
         _thaiTokeniser = thaiTokeniser;
     }
 
     /// <inheritdoc/>
-    public List<Token> Tokenise(ReadOnlySpan<char> input)
+    public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
-        var tokens = new List<Token>();
         int i = 0;
 
         while (i < input.Length)
@@ -49,20 +48,33 @@ public sealed class Uax29UrlEmailTokeniser : ITokeniser
                 while (i < input.Length && UnicodeTokenisation.IsThai(input[i]))
                     i++;
 
-                UnicodeTokenisation.AddShiftedTokens(tokens, _thaiTokeniser.Tokenise(input[runStart..i]), runStart);
+                var thaiSink = new Analysers.MaterialisingTokenSink();
+                _thaiTokeniser.Tokenise(input[runStart..i], thaiSink);
+                var thaiTokens = thaiSink.Tokens;
+                for (int ti = 0; ti < thaiTokens.Count; ti++)
+                {
+                    var t = thaiTokens[ti];
+                    sink.Add(
+                        t.Text.AsSpan(),
+                        t.StartOffset + runStart,
+                        t.EndOffset + runStart,
+                        t.Type,
+                        t.PositionIncrement,
+                        t.Payload);
+                }
                 continue;
             }
 
             if (UnicodeTokenisation.TryReadUrl(input, i, out int urlEnd))
             {
-                tokens.Add(new Token(input[i..urlEnd].ToString(), i, urlEnd, UrlType));
+                sink.Add(input[i..urlEnd], i, urlEnd, UrlType);
                 i = urlEnd;
                 continue;
             }
 
             if (UnicodeTokenisation.IsWordStart(input[i]) && UnicodeTokenisation.TryReadEmail(input, i, out int emailEnd))
             {
-                tokens.Add(new Token(input[i..emailEnd].ToString(), i, emailEnd, EmailType));
+                sink.Add(input[i..emailEnd], i, emailEnd, EmailType);
                 i = emailEnd;
                 continue;
             }
@@ -71,17 +83,24 @@ public sealed class Uax29UrlEmailTokeniser : ITokeniser
             {
                 int start = i;
                 i = UnicodeTokenisation.ConsumeWord(input, i + 1, allowUnderscore: true, allowHyphen: false);
-                tokens.Add(new Token(
-                    input[start..i].ToString(),
+                sink.Add(
+                    input[start..i],
                     start,
                     i,
-                    input[start] == '#' ? HashtagType : MentionType));
+                    input[start] == '#' ? HashtagType : MentionType);
                 continue;
             }
 
-            UnicodeTokenisation.TokeniseNonThaiSpan(input, tokens, ref i);
-        }
+            if (!UnicodeTokenisation.IsWordStart(input[i]))
+            {
+                i++;
+                continue;
+            }
 
-        return tokens;
+            int wordStart = i;
+            i = UnicodeTokenisation.ConsumeWord(input, wordStart);
+            sink.Add(input[wordStart..i], wordStart, i, UnicodeTokenisation.ClassifyTokenType(input[wordStart..i]));
+        }
     }
+
 }

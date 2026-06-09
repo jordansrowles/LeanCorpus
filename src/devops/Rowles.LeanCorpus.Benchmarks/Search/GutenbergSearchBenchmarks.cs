@@ -1,4 +1,4 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Documents;
 using Lucene.Net.Index;
@@ -144,8 +144,9 @@ public class GutenbergSearchBenchmarks
 
     private static string AnalyseQueryTerm(IAnalyser analyser, string term)
     {
-        var tokens = analyser.Analyse(term.AsSpan());
-        return tokens.Count > 0 ? tokens[0].Text : term;
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse(term.AsSpan(), matSink);
+        return matSink.Tokens.Count > 0 ? matSink.Tokens[0].Text : term;
     }
 
     private static string BuildLeanIndex(BookParagraph[] paragraphs, IAnalyser analyser, string label)

@@ -1,5 +1,6 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 using Lucene.Net.Analysis;
+using Rowles.LeanCorpus.Analysis.Analysers;
 using Lucene.Net.Analysis.Core;
 using Lucene.Net.Util;
 using LeanKeywordAnalyser = Rowles.LeanCorpus.Analysis.Analysers.KeywordAnalyser;
@@ -80,7 +81,11 @@ public class AnalyserParityBenchmarks
     {
         int total = 0;
         for (int i = 0; i < 100; i++)
-            total += analyser.Analyse(Sample.AsSpan()).Count;
+        {
+            var matSink = new MaterialisingTokenSink();
+            analyser.Analyse(Sample.AsSpan(), matSink);
+            total += matSink.Tokens.Count;
+        }
         return total;
     }
 
