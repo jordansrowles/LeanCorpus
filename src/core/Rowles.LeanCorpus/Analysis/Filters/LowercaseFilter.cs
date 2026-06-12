@@ -8,6 +8,9 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 /// </summary>
 public sealed class LowercaseFilter : ISpanTokenFilter
 {
+    // SIMD-accelerated search values for uppercase ASCII letters A-Z.
+    private static readonly System.Buffers.SearchValues<char> UppercaseLetters =
+        System.Buffers.SearchValues.Create("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
 
     /// <inheritdoc/>
 
@@ -33,7 +36,7 @@ public sealed class LowercaseFilter : ISpanTokenFilter
     {
         ArgumentNullException.ThrowIfNull(sink);
 
-        int uppercaseIndex = IndexOfUppercase(text);
+        int uppercaseIndex = text.IndexOfAny(UppercaseLetters);
         if (uppercaseIndex < 0)
         {
             sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
@@ -66,16 +69,5 @@ public sealed class LowercaseFilter : ISpanTokenFilter
         {
             if (rentedArr is not null) ArrayPool<char>.Shared.Return(rentedArr);
         }
-    }
-
-    private static int IndexOfUppercase(ReadOnlySpan<char> text)
-    {
-        for (int i = 0; i < text.Length; i++)
-        {
-            if (char.IsUpper(text[i]))
-                return i;
-        }
-
-        return -1;
     }
 }

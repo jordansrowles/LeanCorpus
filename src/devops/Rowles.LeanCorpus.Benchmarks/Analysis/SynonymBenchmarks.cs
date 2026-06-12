@@ -167,9 +167,8 @@ public class SynonymBenchmarks
 
         for (int i = 0; i < sampleCount; i++)
         {
-            var matSink = new MaterialisingTokenSink();
-            _baseAnalyser.Analyse(documents[i].AsSpan(), matSink);
-            var tokens = matSink.Tokens;
+            var tokens = new List<Analysis.Token>();
+            _baseAnalyser.Analyse(documents[i].AsSpan(), new CapturingTokenSink(tokens));
             foreach (var token in tokens)
             {
                 frequencies.TryGetValue(token.Text, out int current);
@@ -189,5 +188,12 @@ public class SynonymBenchmarks
                 $"Expected {SynonymCount} synonym sources but only found {sources.Length}.");
 
         return sources;
+    }
+
+    private sealed class CapturingTokenSink(List<Analysis.Token> tokens) : Analysis.ISpanTokenSink
+    {
+        public void Add(ReadOnlySpan<char> text, int startOffset, int endOffset,
+            string type = Analysis.Token.DefaultType, int positionIncrement = 1, byte[]? payload = null)
+            => tokens.Add(new Analysis.Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload));
     }
 }

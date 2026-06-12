@@ -48,20 +48,8 @@ public sealed class Uax29UrlEmailTokeniser : ISpanTokeniser
                 while (i < input.Length && UnicodeTokenisation.IsThai(input[i]))
                     i++;
 
-                var thaiSink = new Analysers.MaterialisingTokenSink();
+                var thaiSink = new OffsetAdjustingSink(sink, runStart);
                 _thaiTokeniser.Tokenise(input[runStart..i], thaiSink);
-                var thaiTokens = thaiSink.Tokens;
-                for (int ti = 0; ti < thaiTokens.Count; ti++)
-                {
-                    var t = thaiTokens[ti];
-                    sink.Add(
-                        t.Text.AsSpan(),
-                        t.StartOffset + runStart,
-                        t.EndOffset + runStart,
-                        t.Type,
-                        t.PositionIncrement,
-                        t.Payload);
-                }
                 continue;
             }
 

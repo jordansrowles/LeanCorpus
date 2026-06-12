@@ -12,6 +12,9 @@ public sealed class Highlighter : IHighlighter
     private readonly string _preTag;
     private readonly string _postTag;
     private readonly IAnalyser _analyser;
+    private readonly OffsetCapturingSink _sink = new();
+    private readonly List<int> _matchBuffer = [];
+    private readonly System.Text.StringBuilder _stringBuilder = new();
 
     /// <summary>Lightweight offset-only token used by the highlighter to avoid string allocations per token.</summary>
     private readonly struct HighlightToken
@@ -69,42 +72,45 @@ public sealed class Highlighter : IHighlighter
         if (string.IsNullOrEmpty(text) || queryTerms.Count == 0)
             return Truncate(text, maxSnippetLength);
 
-        var sink = new OffsetCapturingSink();
-        _analyser.Analyse(text.AsSpan(), sink);
-        var tokens = sink.Tokens;
+        _sink.Clear();
+        _analyser.Analyse(text.AsSpan(), _sink);
+        var tokens = _sink.Tokens;
         if (tokens.Count == 0)
             return Truncate(text, maxSnippetLength);
 
-        // Use AlternateLookup for zero-alloc span-based term matching when possible.
-        var lookup = (queryTerms as HashSet<string>)?.GetAlternateLookup<ReadOnlySpan<char>>();
-        bool spanMatch(int start, int end) => lookup.HasValue
-            ? lookup.Value.Contains(text.AsSpan(start, end - start))
-            : queryTerms.Contains(text[start..end]);
+        // Always use AlternateLookup to avoid per-token substring allocations.
+        var set = queryTerms as HashSet<string>
+            ?? new HashSet<string>(queryTerms, StringComparer.OrdinalIgnoreCase);
+        var lookup = set.GetAlternateLookup<ReadOnlySpan<char>>();
+
+        var matches = _matchBuffer;
+        matches.Clear();
+        for (int i = 0; i < tokens.Count; i++)
+        {
+            var t = tokens[i];
+            if (lookup.Contains(text.AsSpan(t.StartOffset, t.EndOffset - t.StartOffset)))
+                matches.Add(i);
+        }
+
+        if (matches.Count == 0)
+            return Truncate(text, maxSnippetLength);
 
         int bestStart = 0;
         int bestEnd = Math.Min(text.Length, maxSnippetLength);
         int bestScore = 0;
-        var matchingTokenIndexes = new List<int>();
-
-        for (int i = 0; i < tokens.Count; i++)
-        {
-            var token = tokens[i];
-            if (spanMatch(token.StartOffset, token.EndOffset))
-                matchingTokenIndexes.Add(i);
-        }
 
         int right = 0;
-        for (int left = 0; left < matchingTokenIndexes.Count; left++)
+        for (int left = 0; left < matches.Count; left++)
         {
-            var token = tokens[matchingTokenIndexes[left]];
+            var token = tokens[matches[left]];
             int windowStart = Math.Max(0, token.StartOffset - maxSnippetLength / 4);
             int windowEnd = Math.Min(text.Length, windowStart + maxSnippetLength);
 
             if (right < left)
                 right = left;
-            while (right < matchingTokenIndexes.Count &&
-                   tokens[matchingTokenIndexes[right]].StartOffset >= windowStart &&
-                   tokens[matchingTokenIndexes[right]].EndOffset <= windowEnd)
+            while (right < matches.Count &&
+                   tokens[matches[right]].StartOffset >= windowStart &&
+                   tokens[matches[right]].EndOffset <= windowEnd)
             {
                 right++;
             }
@@ -118,21 +124,17 @@ public sealed class Highlighter : IHighlighter
             }
         }
 
-        var sb = new System.Text.StringBuilder(
-            bestEnd - bestStart + queryTerms.Count * (_preTag.Length + _postTag.Length) + 6);
+        // Build snippet — iterate matching tokens only, not all tokens.
+        var sb = _stringBuilder;
+        sb.Clear();
+        sb.EnsureCapacity(bestEnd - bestStart + matches.Count * (_preTag.Length + _postTag.Length) + 6);
         if (bestStart > 0)
             sb.Append("...");
 
         int lastEnd = bestStart;
-        foreach (var t in tokens)
+        for (int i = 0; i < matches.Count; i++)
         {
-            if (t.EndOffset <= bestStart)
-                continue;
-            if (t.StartOffset >= bestEnd)
-                break;
-            if (!spanMatch(t.StartOffset, t.EndOffset))
-                continue;
-
+            var t = tokens[matches[i]];
             if (t.StartOffset < bestStart || t.EndOffset > bestEnd || t.StartOffset < lastEnd)
                 continue;
 
@@ -141,6 +143,9 @@ public sealed class Highlighter : IHighlighter
             sb.Append(text, t.StartOffset, t.EndOffset - t.StartOffset);
             sb.Append(_postTag);
             lastEnd = t.EndOffset;
+
+            if (t.EndOffset >= bestEnd)
+                break;
         }
         sb.Append(text, lastEnd, bestEnd - lastEnd);
         if (bestEnd < text.Length)

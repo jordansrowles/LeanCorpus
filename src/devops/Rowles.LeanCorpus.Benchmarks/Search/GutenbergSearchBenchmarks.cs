@@ -144,9 +144,16 @@ public class GutenbergSearchBenchmarks
 
     private static string AnalyseQueryTerm(IAnalyser analyser, string term)
     {
-        var matSink = new MaterialisingTokenSink();
-        analyser.Analyse(term.AsSpan(), matSink);
-        return matSink.Tokens.Count > 0 ? matSink.Tokens[0].Text : term;
+        var tokens = new List<Analysis.Token>();
+        analyser.Analyse(term.AsSpan(), new CapturingTokenSink(tokens));
+        return tokens.Count > 0 ? tokens[0].Text : term;
+    }
+
+    private sealed class CapturingTokenSink(List<Analysis.Token> tokens) : Analysis.ISpanTokenSink
+    {
+        public void Add(ReadOnlySpan<char> text, int startOffset, int endOffset,
+            string type = Analysis.Token.DefaultType, int positionIncrement = 1, byte[]? payload = null)
+            => tokens.Add(new Analysis.Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload));
     }
 
     private static string BuildLeanIndex(BookParagraph[] paragraphs, IAnalyser analyser, string label)

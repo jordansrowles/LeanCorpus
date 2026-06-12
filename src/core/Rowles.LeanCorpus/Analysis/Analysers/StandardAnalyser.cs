@@ -2,12 +2,10 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 
 /// <summary>
 /// Default analyser combining tokenisation, lowercase normalisation,
-/// and stop-word removal into a single pipeline. Uses original input offsets
-/// for lowercasing to avoid double string allocation.
-/// The returned token list is reused across calls — callers must not hold
-/// references to it beyond the current invocation.
-/// 
-/// Thread-safety: This class maintains instance-level buffers (_tokensBuf, _lowerBuf, _internCache)
+/// and stop-word removal into a single pipeline. Passes span-backed tokens
+/// directly to the sink without per-token string allocations.
+///
+/// Thread-safety: This class maintains instance-level buffers (_lowerBuf, _offsetBuf)
 /// for performance. Each instance should be used by a single thread, or callers should create
 /// separate instances per thread (as IndexWriter does in AddDocumentsConcurrent).
 /// </summary>
@@ -17,22 +15,16 @@ public sealed class StandardAnalyser : IAnalyser
     private readonly StopWordFilter _stopWordFilter;
     private char[] _lowerBuf = new char[64];
     private readonly List<(int Start, int End)> _offsetBuf = new();
-    // Intern cache keyed by string value to avoid hash-collision misses.
-    // Uses AlternateLookup<ReadOnlySpan<char>> for zero-alloc cache hits.
-    private readonly Dictionary<string, string> _internCache = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string>.AlternateLookup<ReadOnlySpan<char>> _internLookup;
-    private readonly int _maxInternCacheSize;
 
     /// <summary>
-    /// Initialises a new <see cref="StandardAnalyser"/> with the specified intern cache size and stop words.
+    /// Initialises a new <see cref="StandardAnalyser"/> with the specified stop words.
     /// </summary>
-    /// <param name="internCacheSize">Maximum number of entries in the internal token string cache. Defaults to 4096.</param>
+    /// <param name="internCacheSize">Ignored; retained for binary compatibility. Token string interning has been removed — the analyser now passes spans directly to the sink.</param>
     /// <param name="stopWords">Custom stop word list, or <see langword="null"/> to use the built-in English list.</param>
     public StandardAnalyser(int internCacheSize = 4096, IEnumerable<string>? stopWords = null)
     {
-        _maxInternCacheSize = internCacheSize;
+        _ = internCacheSize; // retained for source compatibility, no longer used
         _stopWordFilter = new StopWordFilter(stopWords);
-        _internLookup = _internCache.GetAlternateLookup<ReadOnlySpan<char>>();
     }
 
     /// <inheritdoc/>
@@ -57,14 +49,7 @@ public sealed class StandardAnalyser : IAnalyser
             span.ToLowerInvariant(_lowerBuf.AsSpan(0, len));
             var lowerSpan = _lowerBuf.AsSpan(0, len);
 
-            if (!_internLookup.TryGetValue(lowerSpan, out var cached))
-            {
-                cached = new string(lowerSpan);
-                if (_internCache.Count < _maxInternCacheSize)
-                    _internLookup[lowerSpan] = cached;
-            }
-
-            sink.Add(cached.AsSpan(), start, end);
+            sink.Add(lowerSpan, start, end);
         }
     }
 

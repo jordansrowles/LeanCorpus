@@ -11,7 +11,8 @@ public sealed class KStemmer : ISpanStemmer
         string Suffix,
         string Replacement,
         int MinRootLength,
-        Func<string, bool>? StemCondition = null);
+        Func<string, bool>? StemCondition = null,
+        Func<ReadOnlySpan<char>, bool>? SpanCondition = null);
 
     private static readonly FrozenDictionary<string, string> Exceptions =
         new Dictionary<string, string>(StringComparer.Ordinal)
@@ -128,16 +129,22 @@ public sealed class KStemmer : ISpanStemmer
         new("ses", "s", 2),
         new("es", "e", 2),
         new("es", "", 2),
-        new("s", "", 3, static candidate =>
-            !candidate.EndsWith("ss", StringComparison.Ordinal) &&
-            !candidate.EndsWith("us", StringComparison.Ordinal) &&
-            !candidate.EndsWith("is", StringComparison.Ordinal)),
+        new("s", "", 3,
+            StemCondition: null,
+            SpanCondition: static candidate =>
+                !candidate.EndsWith("ss") &&
+                !candidate.EndsWith("us") &&
+                !candidate.EndsWith("is")),
         new("ied", "y", 2),
         new("ied", "ie", 2),
         new("ed", "e", 2),
-        new("ed", "", 2, ContainsVowel),
+        new("ed", "", 2,
+            StemCondition: null,
+            SpanCondition: ContainsVowelSpan),
         new("ing", "e", 2),
-        new("ing", "", 2, ContainsVowel)
+        new("ing", "", 2,
+            StemCondition: null,
+            SpanCondition: ContainsVowelSpan)
     ];
 
     private static readonly MorphRule[] DerivationalRules =
@@ -257,24 +264,73 @@ public sealed class KStemmer : ISpanStemmer
             return word.Length;
         }
 
-        // Lowercase into output.
+        // Lowercase into output, then delegate to the shared core.
         int len = word.Length;
         for (int i = 0; i < len; i++)
             output[i] = char.ToLowerInvariant(word[i]);
 
+        return StemCore(output, len);
+    }
+
+    /// <summary>
+    /// Same as <c>Stem(ReadOnlySpan{char}, Span{char})</c> but assumes the input is already lowercased.
+    /// Callers who have already lowercased via <see cref="Filters.LowercaseFilter"/>
+    /// can use this to avoid a redundant per-character <c>ToLowerInvariant</c> pass.
+    /// </summary>
+    public int StemPreLowered(ReadOnlySpan<char> word, Span<char> output)
+    {
+        if (word.Length <= 2)
+        {
+            word.CopyTo(output);
+            return word.Length;
+        }
+
+        // Pre-filter: all stemming suffixes end in one of these characters.
+        // Words whose last character isn't in this set can't possibly be stemmed
+        // and don't need the output buffer populated (caller uses len==text.Length to
+        // forward the original span, skipping the buffer read).
+        char last = word[word.Length - 1];
+        bool mayStem = last is 's' or 'd' or 'g' or 'r' or 'y' or 't' or 'l' or 'e' or 'c' or 'm' or 'p';
+
+        if (!mayStem)
+            return word.Length;
+
+        // Fast path: if the word is in the lexicon it won't be stemmed.
+        // (ProtectedWords like "corpus" are covered by SpanConditions on the rules —
+        // e.g. the "s" rule excludes endings of "us"/"ss"/"is".)
+        if (_lexicon.ContainsPreLowered(word))
+            return word.Length;
+
+        // Exception words also bypass the full stemming pipeline.
+        var exLookup = Exceptions.GetAlternateLookup<ReadOnlySpan<char>>();
+        if (exLookup.TryGetValue(word, out var replacement))
+        {
+            if (output.Length < replacement.Length) return -1;
+            replacement.AsSpan().CopyTo(output);
+            return replacement.Length;
+        }
+
+        // Non-dictionary word: copy into output buffer and run the stemming rules.
+        word.CopyTo(output);
+        return StemCore(output, word.Length);
+    }
+
+    /// <summary>Core stemming logic operating on the already-lowered word in <paramref name="output"/>.</summary>
+    private int StemCore(Span<char> output, int len)
+    {
         var lowered = output[..len];
 
         // Check exceptions.
         var exLookup = Exceptions.GetAlternateLookup<ReadOnlySpan<char>>();
         if (exLookup.TryGetValue(lowered, out var replacement))
         {
+            if (output.Length < replacement.Length) return -1;
             replacement.AsSpan().CopyTo(output);
             return replacement.Length;
         }
 
-        // Check protected words and lexicon.
-        var pwLookup = ProtectedWords.GetAlternateLookup<ReadOnlySpan<char>>();
-        if (pwLookup.Contains(lowered) || _lexicon.Contains(lowered))
+        // Check lexicon (ProtectedWords handled by rule SpanConditions).
+        if (_lexicon.ContainsPreLowered(lowered))
             return len;
 
         // Apply inflectional rules, then derivational.
@@ -293,7 +349,10 @@ public sealed class KStemmer : ISpanStemmer
     public string Stem(string word)
     {
         ArgumentNullException.ThrowIfNull(word);
-        Span<char> buf = stackalloc char[word.Length];
+        int bufSize = word.Length + 4; // +4 for rare expansion (e.g. "mice"→"mouse")
+        Span<char> buf = bufSize <= 128
+            ? stackalloc char[bufSize]
+            : new char[bufSize];
         int len = Stem(word.AsSpan(), buf);
         return new string(buf[..len]);
     }
@@ -329,15 +388,20 @@ public sealed class KStemmer : ISpanStemmer
 
             var candidate = candBuf[..candLen];
 
-            // StemCondition requires a string (rare path — only a few rules have conditions).
-            if (rule.StemCondition is not null)
+            // Check StemCondition (string-based, backwards compat) or SpanCondition (zero-alloc).
+            if (rule.SpanCondition is not null)
+            {
+                if (!rule.SpanCondition(candidate))
+                    continue;
+            }
+            else if (rule.StemCondition is not null)
             {
                 string candStr = candidate.ToString();
                 if (!rule.StemCondition(candStr))
                     continue;
             }
 
-            if (_lexicon.Contains(candidate))
+            if (_lexicon.ContainsPreLowered(candidate))
             {
                 candidate.CopyTo(output);
                 resultLen = candLen;
@@ -346,7 +410,7 @@ public sealed class KStemmer : ISpanStemmer
 
             // Try undoubled.
             int undLen = UndoubleTrailingConsonantSpan(candBuf, candLen);
-            if (undLen != candLen && _lexicon.Contains(candBuf[..undLen]))
+            if (undLen != candLen && _lexicon.ContainsPreLowered(candBuf[..undLen]))
             {
                 candBuf[..undLen].CopyTo(output);
                 resultLen = undLen;
@@ -358,7 +422,7 @@ public sealed class KStemmer : ISpanStemmer
             {
                 candBuf[candLen] = 'e';
                 int withELen = candLen + 1;
-                if (_lexicon.Contains(candBuf[..withELen]))
+                if (_lexicon.ContainsPreLowered(candBuf[..withELen]))
                 {
                     candBuf[..withELen].CopyTo(output);
                     resultLen = withELen;
@@ -384,6 +448,17 @@ public sealed class KStemmer : ISpanStemmer
     }
 
     private static bool ContainsVowel(string value)
+    {
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (IsVowel(value[i]))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool ContainsVowelSpan(ReadOnlySpan<char> value)
     {
         for (int i = 0; i < value.Length; i++)
         {

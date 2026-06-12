@@ -10,13 +10,24 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 public sealed class StemTokenFilter : ISpanTokenFilter
 {
     private readonly ISpanStemmer _stemmer;
+    private readonly KeywordMarkerFilter? _keywordMarker;
 
     /// <summary>
-    /// Initialises a new <see cref="StemTokenFilter"/>.
+    /// Initialises a new <see cref="StemTokenFilter"/> that stems all tokens.
     /// </summary>
     public StemTokenFilter(ISpanStemmer stemmer)
     {
         _stemmer = stemmer ?? throw new ArgumentNullException(nameof(stemmer));
+    }
+
+    /// <summary>
+    /// Initialises a new <see cref="StemTokenFilter"/> with an optional keyword marker.
+    /// Tokens recognised by <paramref name="keywordMarker"/> are passed through unchanged.
+    /// </summary>
+    public StemTokenFilter(ISpanStemmer stemmer, KeywordMarkerFilter? keywordMarker)
+    {
+        _stemmer = stemmer ?? throw new ArgumentNullException(nameof(stemmer));
+        _keywordMarker = keywordMarker;
     }
 
     /// <inheritdoc/>
@@ -31,17 +42,46 @@ public sealed class StemTokenFilter : ISpanTokenFilter
     {
         ArgumentNullException.ThrowIfNull(sink);
 
+        if (_keywordMarker is not null && _keywordMarker.IsKeyword(text))
+        {
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+            return;
+        }
+
         const int StackThreshold = 128;
         char[]? rented = null;
         try
         {
-            Span<char> buf = text.Length <= StackThreshold
-                ? stackalloc char[text.Length]
-                : (rented = ArrayPool<char>.Shared.Rent(text.Length)).AsSpan(0, text.Length);
+            int bufSize = text.Length + 1; // +1 for rare expansion cases (e.g. German ß→ss)
+            Span<char> buf = bufSize <= StackThreshold
+                ? stackalloc char[bufSize]
+                : (rented = ArrayPool<char>.Shared.Rent(bufSize)).AsSpan(0, bufSize);
 
-            int len = _stemmer.Stem(text, buf);
+            // Use StemPreLowered when available to skip the redundant ToLowerInvariant loop.
+            var ks = _stemmer as KStemmer;
+            int len = ks is not null
+                ? ks.StemPreLowered(text, buf)
+                : _stemmer.Stem(text, buf);
 
-            if (len == text.Length && buf[..len].SequenceEqual(text))
+            if (len < 0)
+            {
+                // Buffer too small (e.g. multiple ß→ss expansions). Rent larger.
+                if (rented is not null) { ArrayPool<char>.Shared.Return(rented); rented = null; }
+                bufSize = text.Length * 2;
+                rented = ArrayPool<char>.Shared.Rent(bufSize);
+                buf = rented.AsSpan(0, bufSize);
+                len = ks is not null
+                    ? ks.StemPreLowered(text, buf)
+                    : _stemmer.Stem(text, buf);
+            }
+
+            // When len == text.Length with KStemmer, the word was explicitly
+            // returned unchanged — skip the redundant SequenceEqual scan.
+            if (len == text.Length && ks is not null)
+            {
+                sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+            }
+            else if (len == text.Length && buf[..len].SequenceEqual(text))
             {
                 sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
             }

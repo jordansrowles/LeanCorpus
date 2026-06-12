@@ -1,6 +1,9 @@
 using BenchmarkDotNet.Attributes;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis.Filters;
 using Rowles.LeanCorpus.Analysis.Stemmers;
+using Rowles.LeanCorpus.Analysis.Tokenisers;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
@@ -21,7 +24,7 @@ public class KStemmerParityBenchmarks
     public int DocumentCount { get; set; }
 
     private string[] _documents = [];
-    private StemmerAnalyser _analyser = null!;
+    private IAnalyser _analyser = null!;
 
     [GlobalSetup]
     public void Setup()
@@ -29,7 +32,12 @@ public class KStemmerParityBenchmarks
         _documents = BenchmarkData.BuildDocuments(DocumentCount);
 
         var lexiconPath = FindKStemLexiconPath();
-        _analyser = StemmerAnalyser.KStem(lexiconPath);
+        var lexicon = KStemLexicon.FromFile(lexiconPath);
+        // Match Lucene's pipeline: Tokeniser → LowercaseFilter → KStemFilter (no stopword removal).
+        _analyser = new Analyser(
+            new Tokeniser(),
+            new LowercaseFilter(),
+            new StemTokenFilter(new KStemmer(lexicon)));
 
         // Build a Lucene.NET KStemmer pipeline: StandardTokenizer → LowerCaseFilter → KStemFilter
         _luceneAnalyser = new AnalyzerAnonymousClass(static (fieldName, reader) =>

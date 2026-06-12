@@ -408,48 +408,75 @@ public sealed partial class IndexSearcher
         int readerIdx = ResolveReaderIndex(mlt.DocId);
         var reader = _readers[readerIdx];
         int localDocId = mlt.DocId - _docBases[readerIdx];
+        int segmentCount = _readers.Count;
 
-        // Collect (term, field, tfidfScore) across all requested fields
-        var candidates = new List<(string Field, string Term, float Score)>();
+        // Collect all candidates, then sort once and take top MaxQueryTerms.
+        var candidates = new List<(float Score, string Field, string Term)>();
 
         foreach (var field in mlt.Fields)
         {
             var tv = reader.GetTermVectors(localDocId);
             if (tv is null || !tv.TryGetValue(field, out var entries)) continue;
 
+            // Pre-compute qualified term prefix for this field to avoid repeated string.Concat.
+            var fieldPrefix = string.Concat(field, "\x00");
+
             foreach (var entry in entries)
             {
                 if (entry.Term.Length < p.MinWordLength) continue;
                 if (entry.Freq < p.MinTermFreq) continue;
 
-                // Compute document frequency across all segments
-                var qt = string.Concat(field, "\x00", entry.Term);
-                int docFreq = 0;
-                foreach (var r in _readers)
-                    docFreq += r.GetDocFreqByQualified(qt);
-
-                if (docFreq < p.MinDocFreq || docFreq > p.MaxDocFreq) continue;
-
                 float tf = entry.Freq;
-                float idf = MathF.Log((float)_totalDocCount / (docFreq + 1));
-                candidates.Add((field, entry.Term, tf * idf));
+
+                // Fast path: if MinDocFreq <= 1, every term passes the filter.
+                // Use the current segment's docFreq, scaled by segment count, as an
+                // IDF approximation. This avoids the full O(Nsegs) cross-segment scan.
+                if (p.MinDocFreq <= 1 && segmentCount > 1)
+                {
+                    var qt = string.Concat(fieldPrefix, entry.Term);
+                    int currDocFreq = reader.GetDocFreqByQualified(qt);
+                    if (currDocFreq < 1) continue;
+                    float estimatedGlobal = (float)currDocFreq * segmentCount;
+                    float idf = MathF.Log((float)_totalDocCount / (estimatedGlobal + 1));
+                    candidates.Add((tf * idf, field, entry.Term));
+                    continue;
+                }
+
+                // Full cross-segment scan for MinDocFreq > 1 or single-segment index.
+                {
+                    var qt = string.Concat(fieldPrefix, entry.Term);
+                    int docFreq = 0;
+                    foreach (var r in _readers)
+                    {
+                        docFreq += r.GetDocFreqByQualified(qt);
+                        // Early exit: once we pass MaxDocFreq, skip this term.
+                        if (docFreq > p.MaxDocFreq)
+                            goto nextTerm;
+                    }
+
+                    if (docFreq < p.MinDocFreq) continue;
+
+                    float idf = MathF.Log((float)_totalDocCount / (docFreq + 1));
+                    candidates.Add((tf * idf, field, entry.Term));
+                }
+            nextTerm: ;
             }
         }
 
         if (candidates.Count == 0)
             return TopDocs.Empty;
 
-        // Sort by score descending, take top N terms
-        candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
+        // Sort descending by score, take top MaxQueryTerms.
+        candidates.Sort(static (a, b) => b.Score.CompareTo(a.Score));
         int termCount = Math.Min(candidates.Count, p.MaxQueryTerms);
 
-        // Build a BooleanQuery with Should clauses
+        // Build a BooleanQuery with Should clauses.
         var boolQBuilder = new BooleanQuery.Builder();
         float maxScore = candidates[0].Score;
 
         for (int i = 0; i < termCount; i++)
         {
-            var (field, term, score) = candidates[i];
+            var (score, field, term) = candidates[i];
             var tq = new TermQuery(field, term);
             if (p.BoostByScore && maxScore > 0)
                 tq.Boost = score / maxScore;
@@ -458,7 +485,7 @@ public sealed partial class IndexSearcher
 
         var boolQ = boolQBuilder.Build();
 
-        // Execute via the existing search path (bypasses cache to avoid recursion)
+        // Execute via the existing search path (bypasses cache to avoid recursion).
         return SearchCore(boolQ, topN + 1);
     }
 }

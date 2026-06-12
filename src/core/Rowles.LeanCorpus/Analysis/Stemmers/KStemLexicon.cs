@@ -33,6 +33,14 @@ public sealed class KStemLexicon : IKStemLexicon
         return lookup.Contains(lowered);
     }
 
+    /// <inheritdoc/>
+    /// <remarks>Skips the internal <c>ToLowerInvariant</c> since the caller guarantees the input is already lowercase.</remarks>
+    public bool ContainsPreLowered(ReadOnlySpan<char> word)
+    {
+        var lookup = _words.GetAlternateLookup<ReadOnlySpan<char>>();
+        return lookup.Contains(word);
+    }
+
     /// <summary>
     /// Builds a lexicon from base-form words. Empty lines and duplicate entries are ignored.
     /// </summary>

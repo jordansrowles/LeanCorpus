@@ -1,4 +1,6 @@
-namespace Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis;
+
+namespace Rowles.LeanCorpus.Tests.Shared.Infrastructure;
 
 /// <summary>
 /// An <see cref="ISpanTokenSink"/> that materialises span-backed tokens into a <see cref="List{Token}"/>.

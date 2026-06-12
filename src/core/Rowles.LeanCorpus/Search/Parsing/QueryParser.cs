@@ -234,9 +234,10 @@ public sealed class QueryParser
 
     private PhraseQuery BuildPhraseQuery(string field, string phraseText)
     {
-        var matSink = new MaterialisingTokenSink();
-        _analyser.Analyse(phraseText.AsSpan(), matSink);
-        var terms = matSink.Tokens.Select(t => t.Text).ToArray();
+        var tokens = new List<Analysis.Token>();
+        var sink = new CapturingSink(tokens);
+        _analyser.Analyse(phraseText.AsSpan(), sink);
+        var terms = tokens.Select(t => t.Text).ToArray();
         return terms.Length > 0 ? new PhraseQuery(field, terms) : new PhraseQuery(field, phraseText.Split(' '));
     }
 
@@ -272,9 +273,19 @@ public sealed class QueryParser
 
     private string AnalyseTerm(string term)
     {
-        var matSink = new MaterialisingTokenSink();
-        _analyser.Analyse(term.AsSpan(), matSink);
-        return matSink.Tokens.Count > 0 ? matSink.Tokens[0].Text : string.Empty;
+        var tokens = new List<Analysis.Token>();
+        var sink = new CapturingSink(tokens);
+        _analyser.Analyse(term.AsSpan(), sink);
+        return tokens.Count > 0 ? tokens[0].Text : string.Empty;
+    }
+
+    private sealed class CapturingSink : Analysis.ISpanTokenSink
+    {
+        private readonly List<Analysis.Token> _tokens;
+        public CapturingSink(List<Analysis.Token> tokens) => _tokens = tokens;
+        public void Add(ReadOnlySpan<char> text, int startOffset, int endOffset,
+            string type = Analysis.Token.DefaultType, int positionIncrement = 1, byte[]? payload = null)
+            => _tokens.Add(new Analysis.Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload));
     }
 
     private static List<QToken> Tokenize(string input, bool lenient)
