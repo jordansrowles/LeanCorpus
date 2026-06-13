@@ -17,4 +17,12 @@ public interface IField
 
     /// <summary>Index-time boost applied to queries that score this field.</summary>
     float Boost { get; }
+
+    /// <summary>
+    /// Whether to populate DocValues (sorted, sorted-set, numeric, binary) for this field.
+    /// When <c>false</c>, no DocValues sidecar files are produced for the field.
+    /// Default: <c>true</c> for <see cref="StringField"/> and <see cref="NumericField"/>;
+    /// <c>false</c> for <see cref="TextField"/>, <see cref="StoredField"/>, and <see cref="BinaryField"/>.
+    /// </summary>
+    bool StoreDocValues { get; }
 }

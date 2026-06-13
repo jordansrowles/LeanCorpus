@@ -31,12 +31,17 @@ public sealed class TextField : IField
     /// <param name="value">The text content to analyse and index. Must not be null.</param>
     /// <param name="stored">Whether the original text value should be persisted in stored fields.</param>
     /// <param name="boost">Index-time boost applied to scoring queries against this field.</param>
-    public TextField(string name, string value, bool stored, float boost)
+    /// <param name="storeDocValues">
+    /// Whether to populate DocValues for this field. Defaults to <c>false</c>
+    /// because <see cref="TextField"/> does not currently populate DocValues.
+    /// </param>
+    public TextField(string name, string value, bool stored, float boost, bool storeDocValues = false)
     {
         Name = FieldNameValidator.Validate(name, nameof(name));
         Value = value ?? throw new ArgumentNullException(nameof(value));
         IsStored = stored;
         Boost = FieldBoostValidator.Validate(boost, nameof(boost));
+        StoreDocValues = storeDocValues;
     }
 
     /// <inheritdoc/>
@@ -56,4 +61,7 @@ public sealed class TextField : IField
 
     /// <inheritdoc/>
     public float Boost { get; }
+
+    /// <inheritdoc/>
+    public bool StoreDocValues { get; }
 }

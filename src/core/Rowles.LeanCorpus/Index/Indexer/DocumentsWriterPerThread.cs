@@ -111,35 +111,35 @@ internal sealed class DocumentsWriterPerThread
                     IndexTextField(tf.Name, tf.Value, localDocId);
                     if (tf.IsStored)
                     {
-                        AppendStored(tf.Name, StoredFieldValue.FromString(tf.Value), mirrorStringToBinaryDocValues: false);
+                        AppendStored(tf.Name, StoredFieldValue.FromString(tf.Value), mirrorStringToBinaryDocValues: false, storeDocValues: tf.StoreDocValues);
                         _estimatedRamBytes += tf.Value.Length * 2 + 64;
                     }
                     break;
                 case StringField sf:
                     TrackFieldBoost(sf.Name, localDocId, sf.Boost);
-                    IndexStringField(sf.Name, sf.Value, localDocId);
+                    IndexStringField(sf.Name, sf.Value, localDocId, sf.StoreDocValues);
                     if (sf.IsStored)
                     {
-                        AppendStored(sf.Name, StoredFieldValue.FromString(sf.Value));
+                        AppendStored(sf.Name, StoredFieldValue.FromString(sf.Value), storeDocValues: sf.StoreDocValues);
                         _estimatedRamBytes += sf.Value.Length * 2 + 64;
                     }
                     break;
                 case NumericField nf:
                     TrackFieldBoost(nf.Name, localDocId, nf.Boost);
-                    IndexNumericField(nf.Name, nf.Value, localDocId);
+                    IndexNumericField(nf.Name, nf.Value, localDocId, nf.StoreDocValues);
                     if (nf.IsStored)
                     {
                         var storedValue = nf.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                        AppendStored(nf.Name, StoredFieldValue.FromString(storedValue));
+                        AppendStored(nf.Name, StoredFieldValue.FromString(storedValue), storeDocValues: nf.StoreDocValues);
                         _estimatedRamBytes += 48;
                     }
                     break;
                 case StoredField sf:
-                    AppendStored(sf.Name, StoredFieldValue.FromString(sf.Value));
+                    AppendStored(sf.Name, StoredFieldValue.FromString(sf.Value), storeDocValues: sf.StoreDocValues);
                     _estimatedRamBytes += sf.Value.Length * 2 + 64;
                     break;
                 case BinaryField bf:
-                    AppendStored(bf.Name, StoredFieldValue.FromBinary(bf.Value.Span));
+                    AppendStored(bf.Name, StoredFieldValue.FromBinary(bf.Value.Span), storeDocValues: bf.StoreDocValues);
                     _estimatedRamBytes += bf.Value.Length + 64;
                     break;
                 case VectorField vf:
@@ -148,11 +148,11 @@ internal sealed class DocumentsWriterPerThread
                     break;
                 case GeoPointField gf:
                     TrackFieldBoost(gf.Name, localDocId, gf.Boost);
-                    IndexNumericField(gf.LatFieldName, gf.Latitude, localDocId);
-                    IndexNumericField(gf.LonFieldName, gf.Longitude, localDocId);
+                    IndexNumericField(gf.LatFieldName, gf.Latitude, localDocId, gf.StoreDocValues);
+                    IndexNumericField(gf.LonFieldName, gf.Longitude, localDocId, gf.StoreDocValues);
                     if (gf.IsStored)
                     {
-                        AppendStored(gf.Name, StoredFieldValue.FromString(gf.Value));
+                        AppendStored(gf.Name, StoredFieldValue.FromString(gf.Value), storeDocValues: gf.StoreDocValues);
                         _estimatedRamBytes += gf.Value.Length * 2 + 64;
                     }
                     break;
@@ -163,7 +163,7 @@ internal sealed class DocumentsWriterPerThread
         _estimatedRamBytes += 32; // per-doc overhead
     }
 
-    private void AppendStored(string name, StoredFieldValue value, bool mirrorStringToBinaryDocValues = true)
+    private void AppendStored(string name, StoredFieldValue value, bool mirrorStringToBinaryDocValues = true, bool storeDocValues = true)
     {
         if (!_storedFieldNameToId.TryGetValue(name, out int id))
         {
@@ -173,13 +173,16 @@ internal sealed class DocumentsWriterPerThread
         }
         StoredFieldIds.Add(id);
         StoredValues.Add(value);
-        if (value.IsBinary)
+        if (storeDocValues)
         {
-            AddBinaryDocValue(name, DocCount, value.BinaryValue ?? []);
-        }
-        else if (mirrorStringToBinaryDocValues && value.StringValue is not null)
-        {
-            AddBinaryDocValue(name, DocCount, value.StringValue);
+            if (value.IsBinary)
+            {
+                AddBinaryDocValue(name, DocCount, value.BinaryValue ?? []);
+            }
+            else if (mirrorStringToBinaryDocValues && value.StringValue is not null)
+            {
+                AddBinaryDocValue(name, DocCount, value.StringValue);
+            }
         }
     }
 
@@ -206,7 +209,7 @@ internal sealed class DocumentsWriterPerThread
         DocTokenCounts[fieldName] = counts; // Update reference in case of resize
     }
 
-    private void IndexStringField(string fieldName, string value, int docId)
+    private void IndexStringField(string fieldName, string value, int docId, bool storeDocValues = true)
     {
         FieldNames.Add(fieldName);
         var term = CanonicaliseTerm(value);
@@ -219,19 +222,22 @@ internal sealed class DocumentsWriterPerThread
         }
         acc.AddDocOnly(docId);
 
-        // Populate sorted DV column so collapse/facet behave the same as on the main writer.
-        if (!SortedDocValues.TryGetValue(fieldName, out var dvList))
+        if (storeDocValues)
         {
-            dvList = new List<string?>();
-            SortedDocValues[fieldName] = dvList;
+            // Populate sorted DV column so collapse/facet behave the same as on the main writer.
+            if (!SortedDocValues.TryGetValue(fieldName, out var dvList))
+            {
+                dvList = new List<string?>();
+                SortedDocValues[fieldName] = dvList;
+            }
+            while (dvList.Count <= docId) dvList.Add(null);
+            dvList[docId] = value;
+            AddSortedSetDocValue(fieldName, docId, value);
         }
-        while (dvList.Count <= docId) dvList.Add(null);
-        dvList[docId] = value;
-        AddSortedSetDocValue(fieldName, docId, value);
         _estimatedRamBytes += value.Length * 2 + 16;
     }
 
-    private void IndexNumericField(string fieldName, double value, int docId)
+    private void IndexNumericField(string fieldName, double value, int docId, bool storeDocValues = true)
     {
         FieldNames.Add(fieldName);
         if (!NumericIndex.TryGetValue(fieldName, out var fieldMap))
@@ -241,14 +247,17 @@ internal sealed class DocumentsWriterPerThread
         }
         fieldMap[docId] = value;
 
-        if (!NumericDocValues.TryGetValue(fieldName, out var dvList))
+        if (storeDocValues)
         {
-            dvList = new List<double>();
-            NumericDocValues[fieldName] = dvList;
+            if (!NumericDocValues.TryGetValue(fieldName, out var dvList))
+            {
+                dvList = new List<double>();
+                NumericDocValues[fieldName] = dvList;
+            }
+            while (dvList.Count <= docId) dvList.Add(0);
+            dvList[docId] = value;
+            AddSortedNumericDocValue(fieldName, docId, value);
         }
-        while (dvList.Count <= docId) dvList.Add(0);
-        dvList[docId] = value;
-        AddSortedNumericDocValue(fieldName, docId, value);
         _estimatedRamBytes += 24;
     }
 
@@ -288,10 +297,15 @@ internal sealed class DocumentsWriterPerThread
 
     private void AddBinaryDocValue(string fieldName, int docId, string value)
     {
-        AddBinaryDocValue(fieldName, docId, System.Text.Encoding.UTF8.GetBytes(value));
+        AddBinaryDocValueCore(fieldName, docId, System.Text.Encoding.UTF8.GetBytes(value));
     }
 
     private void AddBinaryDocValue(string fieldName, int docId, ReadOnlySpan<byte> value)
+    {
+        AddBinaryDocValueCore(fieldName, docId, value.ToArray());
+    }
+
+    private void AddBinaryDocValueCore(string fieldName, int docId, byte[] value)
     {
         if (!BinaryDocValues.TryGetValue(fieldName, out var fieldMap))
         {
@@ -305,7 +319,7 @@ internal sealed class DocumentsWriterPerThread
             fieldMap[docId] = values;
         }
 
-        values.Add(value.ToArray());
+        values.Add(value);
     }
 
     private void TrackFieldBoost(string fieldName, int docId, float boost)

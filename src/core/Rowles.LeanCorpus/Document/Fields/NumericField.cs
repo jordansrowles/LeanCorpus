@@ -20,7 +20,7 @@ public sealed class NumericField : IField
     /// <param name="value">The numeric value to index.</param>
     /// <param name="stored">Whether the numeric value should be persisted in stored fields.</param>
     public NumericField(string name, double value, bool stored)
-        : this(name, value, stored, 1.0f)
+        : this(name, value, stored, 1.0f, storeDocValues: true)
     {
     }
 
@@ -31,12 +31,18 @@ public sealed class NumericField : IField
     /// <param name="value">The numeric value to index.</param>
     /// <param name="stored">Whether the numeric value should be persisted in stored fields.</param>
     /// <param name="boost">Index-time boost applied to scoring queries against this field.</param>
-    public NumericField(string name, double value, bool stored, float boost)
+    /// <param name="storeDocValues">
+    /// Whether to populate DocValues (numeric, sorted-numeric) for this field.
+    /// Defaults to <c>true</c>. Set to <c>false</c> to reduce indexing overhead when
+    /// range queries can rely on the BKD index alone.
+    /// </param>
+    public NumericField(string name, double value, bool stored, float boost, bool storeDocValues = true)
     {
         Name = FieldNameValidator.Validate(name, nameof(name));
         Value = value;
         IsStored = stored;
         Boost = FieldBoostValidator.Validate(boost, nameof(boost));
+        StoreDocValues = storeDocValues;
     }
 
     /// <inheritdoc/>
@@ -56,4 +62,7 @@ public sealed class NumericField : IField
 
     /// <inheritdoc/>
     public float Boost { get; }
+
+    /// <inheritdoc/>
+    public bool StoreDocValues { get; }
 }

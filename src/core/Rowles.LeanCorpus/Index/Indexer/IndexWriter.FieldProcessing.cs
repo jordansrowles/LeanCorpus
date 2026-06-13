@@ -27,24 +27,24 @@ public sealed partial class IndexWriter
                     IndexTextField(tf.Name, tf.Value, localDocId);
                     if (tf.IsStored)
                     {
-                        AppendStoredField(tf.Name, StoredFieldValue.FromString(tf.Value), mirrorStringToBinaryDocValues: false);
+                        AppendStoredField(tf.Name, StoredFieldValue.FromString(tf.Value), mirrorStringToBinaryDocValues: false, storeDocValues: tf.StoreDocValues);
                     }
                     break;
                 case StringField sf:
                     TrackFieldBoost(sf.Name, localDocId, sf.Boost);
-                    IndexStringField(sf.Name, sf.Value, localDocId);
+                    IndexStringField(sf.Name, sf.Value, localDocId, sf.StoreDocValues);
                     if (sf.IsStored)
                     {
-                        AppendStoredField(sf.Name, StoredFieldValue.FromString(sf.Value));
+                        AppendStoredField(sf.Name, StoredFieldValue.FromString(sf.Value), storeDocValues: sf.StoreDocValues);
                     }
                     break;
                 case NumericField nf:
                     TrackFieldBoost(nf.Name, localDocId, nf.Boost);
-                    IndexNumericField(nf.Name, nf.Value, localDocId);
+                    IndexNumericField(nf.Name, nf.Value, localDocId, nf.StoreDocValues);
                     numericDoc ??= new Dictionary<string, double>();
                     if (nf.IsStored)
                     {
-                        AppendStoredField(nf.Name, StoredFieldValue.FromString(nf.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+                        AppendStoredField(nf.Name, StoredFieldValue.FromString(nf.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)), storeDocValues: nf.StoreDocValues);
                     }
                     break;
                 case VectorField vf:
@@ -58,16 +58,16 @@ public sealed partial class IndexWriter
                     break;
                 case GeoPointField gf:
                     TrackFieldBoost(gf.Name, localDocId, gf.Boost);
-                    IndexNumericField(gf.LatFieldName, gf.Latitude, localDocId);
-                    IndexNumericField(gf.LonFieldName, gf.Longitude, localDocId);
+                    IndexNumericField(gf.LatFieldName, gf.Latitude, localDocId, gf.StoreDocValues);
+                    IndexNumericField(gf.LonFieldName, gf.Longitude, localDocId, gf.StoreDocValues);
                     if (gf.IsStored)
-                        AppendStoredField(gf.Name, StoredFieldValue.FromString(gf.Value));
+                        AppendStoredField(gf.Name, StoredFieldValue.FromString(gf.Value), storeDocValues: gf.StoreDocValues);
                     break;
                 case StoredField sf:
-                    AppendStoredField(sf.Name, StoredFieldValue.FromString(sf.Value));
+                    AppendStoredField(sf.Name, StoredFieldValue.FromString(sf.Value), storeDocValues: sf.StoreDocValues);
                     break;
                 case BinaryField bf:
-                    AppendStoredField(bf.Name, StoredFieldValue.FromBinary(bf.Value.Span));
+                    AppendStoredField(bf.Name, StoredFieldValue.FromBinary(bf.Value.Span), storeDocValues: bf.StoreDocValues);
                     break;
             }
         }
@@ -148,7 +148,7 @@ public sealed partial class IndexWriter
         counts[docId] += tokenCount;
     }
 
-    private void IndexStringField(string fieldName, string value, int docId)
+    private void IndexStringField(string fieldName, string value, int docId, bool storeDocValues = true)
     {
         _buffer.FieldNames.Add(fieldName);
         var term = _buffer.CanonicaliseTerm(value);
@@ -160,19 +160,22 @@ public sealed partial class IndexWriter
         acc.AddDocOnly(docId);
         _buffer.PostingsRamBytes += acc.EstimatedBytes - before;
 
-        // Also populate SortedDocValues for collapsing/faceting
-        if (!_buffer.SortedDocValues.TryGetValue(fieldName, out var dvList))
+        if (storeDocValues)
         {
-            dvList = new List<string?>();
-            _buffer.SortedDocValues[fieldName] = dvList;
-        }
-        while (dvList.Count <= docId) dvList.Add(null);
-        dvList[docId] = value;
+            // Also populate SortedDocValues for collapsing/faceting
+            if (!_buffer.SortedDocValues.TryGetValue(fieldName, out var dvList))
+            {
+                dvList = new List<string?>();
+                _buffer.SortedDocValues[fieldName] = dvList;
+            }
+            while (dvList.Count <= docId) dvList.Add(null);
+            dvList[docId] = value;
 
-        AddSortedSetDocValue(fieldName, docId, value);
+            AddSortedSetDocValue(fieldName, docId, value);
+        }
     }
 
-    private void IndexNumericField(string fieldName, double value, int docId)
+    private void IndexNumericField(string fieldName, double value, int docId, bool storeDocValues = true)
     {
         if (!_buffer.NumericIndex.TryGetValue(fieldName, out var fieldMap))
         {
@@ -181,23 +184,26 @@ public sealed partial class IndexWriter
         }
         fieldMap[docId] = value;
 
-        // Also accumulate for NumericDocValues column-stride storage
-        if (!_buffer.NumericDocValues.TryGetValue(fieldName, out var dvList))
+        if (storeDocValues)
         {
-            dvList = new List<double>();
-            _buffer.NumericDocValues[fieldName] = dvList;
-        }
-        // Pad with 0 for any skipped docs.
-        while (dvList.Count <= docId)
-            dvList.Add(0);
-        dvList[docId] = value;
+            // Also accumulate for NumericDocValues column-stride storage
+            if (!_buffer.NumericDocValues.TryGetValue(fieldName, out var dvList))
+            {
+                dvList = new List<double>();
+                _buffer.NumericDocValues[fieldName] = dvList;
+            }
+            // Pad with 0 for any skipped docs.
+            while (dvList.Count <= docId)
+                dvList.Add(0);
+            dvList[docId] = value;
 
-        AddSortedNumericDocValue(fieldName, docId, value);
+            AddSortedNumericDocValue(fieldName, docId, value);
+        }
     }
 
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void AppendStoredField(string fieldName, StoredFieldValue value, bool mirrorStringToBinaryDocValues = true)
+    private void AppendStoredField(string fieldName, StoredFieldValue value, bool mirrorStringToBinaryDocValues = true, bool storeDocValues = true)
     {
         if (!_buffer.StoredFieldNameToId.TryGetValue(fieldName, out int fid))
         {
@@ -207,13 +213,16 @@ public sealed partial class IndexWriter
         }
         _buffer.StoredFieldIds.Add(fid);
         _buffer.StoredFieldValues.Add(value);
-        if (value.IsBinary)
+        if (storeDocValues)
         {
-            AddBinaryDocValue(fieldName, _buffer.DocCount, value.BinaryValue ?? []);
-        }
-        else if (mirrorStringToBinaryDocValues && value.StringValue is not null)
-        {
-            AddBinaryDocValue(fieldName, _buffer.DocCount, value.StringValue);
+            if (value.IsBinary)
+            {
+                AddBinaryDocValue(fieldName, _buffer.DocCount, value.BinaryValue ?? []);
+            }
+            else if (mirrorStringToBinaryDocValues && value.StringValue is not null)
+            {
+                AddBinaryDocValue(fieldName, _buffer.DocCount, value.StringValue);
+            }
         }
     }
 
@@ -253,10 +262,15 @@ public sealed partial class IndexWriter
 
     private void AddBinaryDocValue(string fieldName, int docId, string value)
     {
-        AddBinaryDocValue(fieldName, docId, System.Text.Encoding.UTF8.GetBytes(value));
+        AddBinaryDocValueCore(fieldName, docId, System.Text.Encoding.UTF8.GetBytes(value));
     }
 
     private void AddBinaryDocValue(string fieldName, int docId, ReadOnlySpan<byte> value)
+    {
+        AddBinaryDocValueCore(fieldName, docId, value.ToArray());
+    }
+
+    private void AddBinaryDocValueCore(string fieldName, int docId, byte[] value)
     {
         if (!_buffer.BinaryDocValues.TryGetValue(fieldName, out var fieldMap))
         {
@@ -270,7 +284,7 @@ public sealed partial class IndexWriter
             fieldMap[docId] = values;
         }
 
-        values.Add(value.ToArray());
+        values.Add(value);
     }
 
     private void TrackFieldBoost(string fieldName, int docId, float boost)
