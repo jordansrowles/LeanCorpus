@@ -99,7 +99,7 @@ public class TermVectorHighlighterBenchmarks
     // Term-vector path (offset-based)
     // -----------------------------------------------------------------------
 
-    [Benchmark(Baseline = true)]
+    [Benchmark]
     [BenchmarkCategory("highlighter")]
     [BenchmarkCategory("tv")]
     [MethodImpl(MethodImplOptions.NoInlining)]
