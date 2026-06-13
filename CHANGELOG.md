@@ -6,19 +6,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [1.5.0] - Work In Progress
+## [2.0.0] - Work In Progress
 
 ### Added
 
-- Vector quantisation: scalar quantisation (float32 -> int8) and binary quantisation (BBQ) with `VectorQuantisation` enum (`None`, `Int8`, `BBQ`), configurable per-field via `VectorFieldInfo.Quantisation` and globally via `IndexWriterConfig.VectorQuantisation`. Quantised vectors are written to `.vq` files alongside existing `.vec` files, and HNSW graphs are built against quantised representations when `BuildHnswOnFlush` is enabled. Includes `Int8DistanceComputer` and `BBQDistanceComputer` for distance-aware KNN retrieval.
+- Vector quantisation: scalar (float32 → int8) and binary (BBQ) with a `VectorQuantisation` enum (`None`, `Int8`, `BBQ`), configurable per-field via `VectorFieldInfo.Quantisation` and globally via `IndexWriterConfig.VectorQuantisation`. HNSW graphs are built against quantised representations; includes `Int8DistanceComputer` and `BBQDistanceComputer` for distance-aware KNN retrieval, plus an Int8 fast path in HNSW distance computation.
 
-- CodecKit: a composable binary codec framework extracted from the format-specific codec paths. Provides primitive codecs (VarInt, VarUInt, fixed-width integers, byte sequences), combinators (fixed-frame, length-prefixed, bytes-owned), integrity wrappers (CRC32, xxHash32, xxHash64 checksums in header or trailer placement, version envelope), compression wrapping via Deflate, and an immutable `CodecRegistry` for provider registration. The framework ships fully tested across unit, integration, chaos, and compression-parity suites.
+- CodecKit: a composable binary codec framework with primitive codecs (VarInt, VarUInt, fixed-width integers, byte sequences), combinators (fixed-frame, length-prefixed, bytes-owned), integrity wrappers (CRC32, xxHash32, xxHash64 with header or trailer placement, version envelope), Deflate compression wrapping, and an immutable `CodecRegistry`. Ships with unit, integration, chaos, and compression-parity test suites.
+
+- Five new scoring models: `Bm25PlusSimilarity`, `Bm25LSimilarity`, and three TF-IDF variants (`TfIdfAugmentedSimilarity`, `TfIdfDoubleNormSimilarity`, `TfIdfPivotedSimilarity`).
+
+- Three language-model similarities: `LMJelinekMercerSimilarity` (linear interpolation), `DirichletSimilarity` (Bayesian smoothing), and `LMAbsoluteDiscountingSimilarity` (absolute discounting). All consume `CollectionStatistics` for term probability estimation.
+
+- `PostingsHighlighter` and `TermVectorHighlighter` for snippet extraction using stored term-vector offsets without re-analysing the original text. `HybridHighlighter` combines stored-field re-analysis with term-vector snippet placement.
+
+- `GetStoredFields` overload with an optional `fieldsToLoad` parameter for selective stored-field retrieval, reducing allocations when only a subset of fields is needed.
+
+- `StoreDocValues` flag on `StringField`, `TextField`, and `NumericField` (defaults: `true` for `StringField`/`NumericField`, `false` for `TextField`). When `false`, the field skips populating sorted, sorted-set, numeric, and binary DocValues, cutting per-document buffer overhead and shrinking the flush I/O footprint.
+
+- Profiling project with `ActivitySource`-based phased breakdown of indexing time (`add_document`, `analyse`, `flush`, `commit`, `merge`), plus a deletion-phased benchmark.
 
 ### Changed
 
-- Positions in `PostingAccumulator` are now stored as VarInt delta-encoded bytes instead of raw `int[]`. The first position per posting is encoded as an absolute VarInt; subsequent positions are VarInt deltas from the first. Segment flush and concurrent merge write positions directly from the encoded bytes without intermediate `int[]` allocations, eliminating approximately 32 MB of per-indexing-run GC pressure on the standard 20K-document benchmark.
+- Positions in `PostingAccumulator` are now stored as VarInt delta-encoded bytes instead of raw `int[]`, eliminating ~32 MB of GC pressure per 20K-document indexing run.
 
-- All per-codec format versions reset to 1 following the CodecKit migration. Forward compatibility is handled by the version envelope; old-format readers have been retired.
+- The indexing hot path uses an open-addressing byte-ref hash table (`BytesRefHash`) for postings accumulation, removing per-token string allocations during tokenisation.
+
+- Character-offset array allocation in `PostingAccumulator` is gated on `IndexWriterConfig.StoreTermVectors`, reducing per-term allocations by ~5× when term vectors are disabled.
+
+- `ScoreTerm` scoring made branchless via DIM devirtualisation, and phrase queries now intersect candidate documents before decoding positional data.
+
+- SIMD-accelerated ASCII lowercasing added to stemmers, `LowercaseFilter`, and `StandardAnalyser` via `AsciiCharInspector`.
+
+- `Analyser` constructor now accepts `ISpanTokeniser` directly; `IStemmer` removed in favour of `ISpanStemmer`. `AnalyserFactory` provides static construction helpers.
+
+- `RamBufferSizeMB` default raised from 16 to 512.
+
+- `PushDepth` wired into all nesting codecs to enforce a maximum nesting depth, preventing stack overflows on malformed inputs.
+
+- All per-codec format versions reset to 1 following the CodecKit migration. Legacy term dictionary v1/v2 codec, `ICompressionProvider` abstraction, and old-format readers removed.
+
+- Kernel hints (`SequentialScan`, `WriteThrough`) applied to merge I/O paths.
+
+### Fixed
+
+- `Compact()`, `WriteNorms()`, `PushDepth`, and `CodecFormat` validation bugs caught by codec audit.
+
+- Double-byte-copy in `AddBinaryDocValue`: the string overload encoded to UTF-8 then called the span overload which called `ToArray()` a second time. Both paths now route through a shared core method, allocating once.
+
+- AOT smoke test script now auto-detects the OS when selecting the runtime identifier.
+
+- Highlighter and similarity benchmark comparisons against Lucene.NET corrected.
 
 
 ## [1.4.0] - 2026-05-29
