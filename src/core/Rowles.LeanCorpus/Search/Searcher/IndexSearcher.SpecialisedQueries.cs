@@ -355,14 +355,8 @@ public sealed partial class IndexSearcher
                 }
                 else
                 {
-                    var candidates = reader.GetTermsWithPrefix(fieldPrefix);
-                    matchingOffsets = [];
-                    int fieldLen = query.Field.Length + 1;
-                    foreach (var (term, offset) in candidates)
-                    {
-                        if (WildcardQuery.Matches(term.AsSpan(fieldLen), query.Pattern.AsSpan()))
-                            matchingOffsets.Add(offset);
-                    }
+                    matchingOffsets = reader.GetTermOffsetsMatchingWithPrefix(
+                        query.Field, leadingPrefix, query.Pattern.AsSpan());
                 }
                 if (matchingOffsets.Count == 0) return;
 
@@ -385,14 +379,8 @@ public sealed partial class IndexSearcher
             }
             else
             {
-                var candidates = reader.GetTermsWithPrefix(fieldPrefix);
-                matchingTerms = [];
-                int fieldLen = query.Field.Length + 1;
-                foreach (var (term, offset) in candidates)
-                {
-                    if (WildcardQuery.Matches(term.AsSpan(fieldLen), query.Pattern.AsSpan()))
-                        matchingTerms.Add((term, offset));
-                }
+                matchingTerms = reader.GetTermsMatchingWithPrefix(
+                    query.Field, leadingPrefix, query.Pattern.AsSpan());
             }
             if (matchingTerms.Count == 0) return;
 

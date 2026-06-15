@@ -128,6 +128,71 @@ internal sealed class TermDictionaryReader : IDisposable
         return results;
     }
 
+    /// <summary>
+    /// Returns qualified terms and offsets matching a wildcard pattern where the FST
+    /// traversal is pre-narrowed by a known leading literal prefix (≥2 characters).
+    /// Callers needing term strings (e.g. for cross-segment DF lookup) should use
+    /// this; callers needing only offsets should use
+    /// <see cref="GetTermOffsetsMatchingWithPrefix"/> instead.
+    /// </summary>
+    internal List<(string Term, long Offset)> GetTermsMatchingWithPrefix(
+        string field, ReadOnlySpan<char> leadingPrefix, ReadOnlySpan<char> fullPattern)
+    {
+        var suffixPattern = fullPattern.Slice(leadingPrefix.Length);
+        var wildcard = GetOrAddWildcardAutomaton(suffixPattern);
+
+        int totalCharLen = field.Length + 1 + leadingPrefix.Length;
+        Span<char> qualChars = totalCharLen <= 256
+            ? stackalloc char[totalCharLen]
+            : new char[totalCharLen];
+        field.AsSpan().CopyTo(qualChars);
+        qualChars[field.Length] = '\0';
+        leadingPrefix.CopyTo(qualChars.Slice(field.Length + 1));
+
+        var qualifierUtf8 = Encoding.UTF8.GetBytes(qualChars.ToArray());
+        var results = new List<(string, long)>();
+        foreach (var (key, output, _) in _fst.IntersectAutomaton(wildcard, qualifierUtf8))
+            results.Add((Encoding.UTF8.GetString(key), output));
+        return results;
+    }
+
+    /// <summary>
+    /// Collects postings offsets for terms matching a wildcard pattern where the FST
+    /// traversal is pre-narrowed by a known leading literal prefix (≥2 characters).
+    /// The prefix is walked in the FST ahead of time, and only the suffix pattern
+    /// is matched via automaton intersection. Allocation-light: no per-term strings.
+    /// </summary>
+    internal List<long> GetTermOffsetsMatchingWithPrefix(
+        string field, ReadOnlySpan<char> leadingPrefix, ReadOnlySpan<char> fullPattern)
+    {
+        // Strip the leading prefix from the pattern so the wildcard automaton
+        // only needs to match the suffix following the pre-walked FST prefix.
+        var suffixPattern = fullPattern.Slice(leadingPrefix.Length);
+        var wildcard = GetOrAddWildcardAutomaton(suffixPattern);
+
+        // Build the full qualifier: "field\0leadingPrefix" (zero heap when ≤256 chars).
+        int totalCharLen = field.Length + 1 + leadingPrefix.Length;
+        Span<char> qualChars = totalCharLen <= 256
+            ? stackalloc char[totalCharLen]
+            : new char[totalCharLen];
+        field.AsSpan().CopyTo(qualChars);
+        qualChars[field.Length] = '\0';
+        leadingPrefix.CopyTo(qualChars.Slice(field.Length + 1));
+
+        Span<byte> qualStack = stackalloc byte[256];
+        var qualifierUtf8 = EncodeUtf8(qualChars, qualStack, out byte[]? rented);
+        var results = new List<long>();
+        try
+        {
+            _fst.CollectIntersectOutputs(wildcard, qualifierUtf8, results);
+        }
+        finally
+        {
+            if (rented is not null) System.Buffers.ArrayPool<byte>.Shared.Return(rented);
+        }
+        return results;
+    }
+
     private WildcardAutomaton GetOrAddWildcardAutomaton(ReadOnlySpan<char> pattern)
     {
         var key = pattern.ToString();

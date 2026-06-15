@@ -13,7 +13,6 @@ public sealed class Highlighter : IHighlighter
     private readonly string _postTag;
     private readonly IAnalyser _analyser;
     private readonly OffsetCapturingSink _sink = new();
-    private readonly List<int> _matchBuffer = [];
     private readonly System.Text.StringBuilder _stringBuilder = new();
 
     /// <summary>Lightweight offset-only token used by the highlighter to avoid string allocations per token.</summary>
@@ -30,22 +29,38 @@ public sealed class Highlighter : IHighlighter
     }
 
     /// <summary>
-    /// An <see cref="Rowles.LeanCorpus.Analysis.ISpanTokenSink"/> that captures only character offsets,
-    /// avoiding per-token string allocations. The original text must be kept alive by the caller
-    /// for later slicing.
+    /// An <see cref="Rowles.LeanCorpus.Analysis.ISpanTokenSink"/> that captures character offsets
+    /// and simultaneously checks tokens against query terms, avoiding a separate O(n) scan
+    /// after tokenisation. The original text must be kept alive by the caller for slicing.
     /// </summary>
     private sealed class OffsetCapturingSink : Rowles.LeanCorpus.Analysis.ISpanTokenSink
     {
         public readonly List<HighlightToken> Tokens = [];
+        public readonly List<int> Matches = [];
+        private string _text = "";
+        private HashSet<string>.AlternateLookup<ReadOnlySpan<char>> _lookup;
 
-        public void Add(ReadOnlySpan<char> text, int startOffset, int endOffset,
+        public void Configure(string text, HashSet<string>.AlternateLookup<ReadOnlySpan<char>> lookup)
+        {
+            _text = text;
+            _lookup = lookup;
+        }
+
+        public void Add(ReadOnlySpan<char> tokenText, int startOffset, int endOffset,
             string type = Rowles.LeanCorpus.Analysis.Token.DefaultType,
             int positionIncrement = 1, byte[]? payload = null)
         {
+            int idx = Tokens.Count;
             Tokens.Add(new HighlightToken(startOffset, endOffset));
+            if (_lookup.Contains(_text.AsSpan(startOffset, endOffset - startOffset)))
+                Matches.Add(idx);
         }
 
-        public void Clear() => Tokens.Clear();
+        public void Clear()
+        {
+            Tokens.Clear();
+            Matches.Clear();
+        }
     }
 
     /// <summary>Initialises a new <see cref="Highlighter"/> with the given tags and analyser.</summary>
@@ -72,25 +87,18 @@ public sealed class Highlighter : IHighlighter
         if (string.IsNullOrEmpty(text) || queryTerms.Count == 0)
             return Truncate(text, maxSnippetLength);
 
-        _sink.Clear();
-        _analyser.Analyse(text.AsSpan(), _sink);
-        var tokens = _sink.Tokens;
-        if (tokens.Count == 0)
-            return Truncate(text, maxSnippetLength);
-
         // Always use AlternateLookup to avoid per-token substring allocations.
         var set = queryTerms as HashSet<string>
             ?? new HashSet<string>(queryTerms, StringComparer.OrdinalIgnoreCase);
         var lookup = set.GetAlternateLookup<ReadOnlySpan<char>>();
 
-        var matches = _matchBuffer;
-        matches.Clear();
-        for (int i = 0; i < tokens.Count; i++)
-        {
-            var t = tokens[i];
-            if (lookup.Contains(text.AsSpan(t.StartOffset, t.EndOffset - t.StartOffset)))
-                matches.Add(i);
-        }
+        _sink.Clear();
+        _sink.Configure(text, lookup);
+        _analyser.Analyse(text.AsSpan(), _sink);
+        var tokens = _sink.Tokens;
+        var matches = _sink.Matches;
+        if (tokens.Count == 0)
+            return Truncate(text, maxSnippetLength);
 
         if (matches.Count == 0)
             return Truncate(text, maxSnippetLength);

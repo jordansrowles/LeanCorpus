@@ -337,6 +337,21 @@ public sealed partial class SegmentReader : IDisposable
         long cursor = offset;
         return _posInput.ReadInt32(ref cursor);
     }
+
+    /// <summary>
+    /// Returns the document frequency for a qualified term span without allocating
+    /// a string. Bypasses the per-segment LRU cache and goes directly to the FST.
+    /// Suitable for one-shot lookups (e.g. MLT term extraction) where the term
+    /// is looked up exactly once.
+    /// </summary>
+    internal int GetDocFreqByQualified(ReadOnlySpan<char> qualifiedTerm)
+    {
+        if (!_dicReader.TryGetPostingsOffset(qualifiedTerm, out long offset))
+            return 0;
+
+        long cursor = offset;
+        return _posInput.ReadInt32(ref cursor);
+    }
     /// <summary>
     /// Sums all per-document term frequencies for the given qualified term.
     /// Iterates the full postings list; call only when collection-level term statistics

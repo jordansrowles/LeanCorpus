@@ -38,6 +38,29 @@ public sealed partial class SegmentReader
         return _dicReader.GetTermOffsetsMatching(fieldPrefix, pattern);
     }
 
+    /// <summary>
+    /// Returns postings offsets for terms matching a wildcard pattern where the FST
+    /// traversal is pre-narrowed by a known leading literal prefix (≥2 characters).
+    /// Allocation-light: no per-term string materialisation.
+    /// </summary>
+    internal List<long> GetTermOffsetsMatchingWithPrefix(
+        string field, ReadOnlySpan<char> leadingPrefix, ReadOnlySpan<char> fullPattern)
+    {
+        return _dicReader.GetTermOffsetsMatchingWithPrefix(field, leadingPrefix, fullPattern);
+    }
+
+    /// <summary>
+    /// Returns qualified terms and offsets matching a wildcard pattern with prefix
+    /// narrowing. Callers needing term strings (e.g. cross-segment DF lookup) should
+    /// use this; callers needing only offsets should use
+    /// <see cref="GetTermOffsetsMatchingWithPrefix"/>.
+    /// </summary>
+    internal List<(string Term, long Offset)> GetTermsMatchingWithPrefix(
+        string field, ReadOnlySpan<char> leadingPrefix, ReadOnlySpan<char> fullPattern)
+    {
+        return _dicReader.GetTermsMatchingWithPrefix(field, leadingPrefix, fullPattern);
+    }
+
     /// <summary>Returns all terms for a given field.</summary>
     public List<(string Term, long Offset)> GetAllTermsForField(string fieldPrefix)
     {

@@ -48,6 +48,18 @@ public sealed class StemTokenFilter : ISpanTokenFilter
             return;
         }
 
+        // Fast pre-filter: stemming suffixes all end in one of these characters.
+        // ~85% of tokens don't — skip buffer allocation for them entirely.
+        if (text.Length > 0)
+        {
+            char last = text[text.Length - 1];
+            if (last is not ('s' or 'd' or 'g' or 'r' or 'y' or 't' or 'l' or 'e' or 'c' or 'm' or 'p'))
+            {
+                sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+                return;
+            }
+        }
+
         const int StackThreshold = 128;
         char[]? rented = null;
         try

@@ -243,6 +243,11 @@ public sealed class KStemmer : ISpanStemmer
 
     private readonly IKStemLexicon _lexicon;
 
+    // Rule lookup tables keyed by last 2 characters of the suffix for O(1) dispatch.
+    // Suffixes shorter than 2 chars use the single character as the key.
+    private readonly FrozenDictionary<string, MorphRule[]> _inflectionalBySuffix;
+    private readonly FrozenDictionary<string, MorphRule[]> _derivationalBySuffix;
+
     /// <summary>
     /// Initialises a new <see cref="KStemmer"/> with the supplied base-form lexicon.
     /// </summary>
@@ -253,6 +258,30 @@ public sealed class KStemmer : ISpanStemmer
     public KStemmer(IKStemLexicon lexicon)
     {
         _lexicon = lexicon ?? throw new ArgumentNullException(nameof(lexicon));
+        _inflectionalBySuffix = BuildRuleLookup(InflectionalRules);
+        _derivationalBySuffix = BuildRuleLookup(DerivationalRules);
+    }
+
+    /// <summary>Builds a lookup dictionary keyed by the last 2 characters of each rule's suffix.</summary>
+    private static FrozenDictionary<string, MorphRule[]> BuildRuleLookup(MorphRule[] rules)
+    {
+        var dict = new Dictionary<string, List<MorphRule>>(rules.Length, StringComparer.Ordinal);
+        foreach (var rule in rules)
+        {
+            string key = rule.Suffix.Length >= 2
+                ? rule.Suffix[^2..]
+                : rule.Suffix; // 1-char suffix uses itself as key
+            if (!dict.TryGetValue(key, out var list))
+            {
+                list = new List<MorphRule>(4);
+                dict[key] = list;
+            }
+            list.Add(rule);
+        }
+        return dict.ToFrozenDictionary(
+            kvp => kvp.Key,
+            kvp => kvp.Value.ToArray(),
+            StringComparer.Ordinal);
     }
 
     /// <inheritdoc/>
@@ -310,11 +339,13 @@ public sealed class KStemmer : ISpanStemmer
         }
 
         // Non-dictionary word: copy into output buffer and run the stemming rules.
+        // StemPreLowered already checked exceptions and lexicon; skip those checks here.
         word.CopyTo(output);
-        return StemCore(output, word.Length);
+        return ApplyRulesCore(output, word.Length);
     }
 
-    /// <summary>Core stemming logic operating on the already-lowered word in <paramref name="output"/>.</summary>
+    /// <summary>Core stemming logic operating on the already-lowered word in <paramref name="output"/>.
+    /// Called from <c>Stem(ReadOnlySpan{char}, Span{char})</c> which hasn't pre-checked exceptions or the lexicon.</summary>
     private int StemCore(Span<char> output, int len)
     {
         var lowered = output[..len];
@@ -332,11 +363,18 @@ public sealed class KStemmer : ISpanStemmer
         if (_lexicon.ContainsPreLowered(lowered))
             return len;
 
+        return ApplyRulesCore(output, len);
+    }
+
+    /// <summary>Applies inflectional and derivational rules without re-checking
+    /// exceptions or the lexicon (caller has already done so).</summary>
+    private int ApplyRulesCore(Span<char> output, int len)
+    {
         // Apply inflectional rules, then derivational.
-        if (TryRulesSpan(output, len, InflectionalRules, out int inflectedLen))
+        if (TryRulesSpan(output, len, _inflectionalBySuffix, out int inflectedLen))
             len = inflectedLen;
 
-        if (TryRulesSpan(output, len, DerivationalRules, out int derivedLen))
+        if (TryRulesSpan(output, len, _derivationalBySuffix, out int derivedLen))
             len = derivedLen;
 
         return len;
@@ -356,13 +394,41 @@ public sealed class KStemmer : ISpanStemmer
         return new string(buf[..len]);
     }
 
-    private bool TryRulesSpan(Span<char> output, int len, IReadOnlyList<MorphRule> rules, out int resultLen)
+    private bool TryRulesSpan(Span<char> output, int len, FrozenDictionary<string, MorphRule[]> lookup, out int resultLen)
     {
         var word = output[..len];
 
-        for (int i = 0; i < rules.Count; i++)
+        if (len < 1)
         {
-            var rule = rules[i];
+            resultLen = 0;
+            return false;
+        }
+
+        // Look up candidate rules by the last 2 characters of the word.
+        // Use AlternateLookup with ReadOnlySpan<char> to avoid string allocation.
+        var spanLookup = lookup.GetAlternateLookup<ReadOnlySpan<char>>();
+
+        MorphRule[]? candidateRules = null;
+        if (len >= 2)
+        {
+            spanLookup.TryGetValue(word[^2..], out candidateRules);
+        }
+
+        if (candidateRules is null)
+        {
+            // Fall back to 1-char key (e.g. rule "s" matches any word ending in *s).
+            spanLookup.TryGetValue(word[^1..], out candidateRules);
+        }
+
+        if (candidateRules is null)
+        {
+            resultLen = 0;
+            return false;
+        }
+
+        for (int i = 0; i < candidateRules.Length; i++)
+        {
+            var rule = candidateRules[i];
             if (!word.EndsWith(rule.Suffix))
                 continue;
 

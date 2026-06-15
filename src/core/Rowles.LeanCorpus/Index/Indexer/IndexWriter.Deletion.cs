@@ -24,27 +24,32 @@ public sealed partial class IndexWriter
         }
     }
 
-    private readonly List<string> _deleteQualifiedTermsBuffer = new(64);
-
     private void ApplyPendingDeletions(List<SegmentInfo> segments)
     {
         using var activity = Diagnostics.LeanCorpusActivitySource.Source
             .StartActivity(Diagnostics.LeanCorpusActivitySource.DeleteApply);
         if (_pendingDeletes.Count == 0) return;
 
-        _deleteQualifiedTermsBuffer.Clear();
-        if (_deleteQualifiedTermsBuffer.Capacity < _pendingDeletes.Count)
-            _deleteQualifiedTermsBuffer.Capacity = _pendingDeletes.Count;
-        var softDeleteQualifiedTerms = new List<string>(_pendingDeletes.Count);
+        // Group hard deletes by field for single-pass FST prefix scans per segment.
+        // This avoids O(N_terms) individual FST walks — instead we do one prefix scan
+        // per unique field, matching against a HashSet of bare terms.
+        var hardDeleteTermsByField = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        var softDeleteTermsByField = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        long softDeleteTimestamp = 0;
+
         foreach (var (field, term, isSoftDelete) in _pendingDeletes)
         {
-            var qt = QualifiedTermHelpers.BuildQualifiedTermString(field, term);
-            if (isSoftDelete)
-                softDeleteQualifiedTerms.Add(qt);
-            else
-                _deleteQualifiedTermsBuffer.Add(qt);
+            var dict = isSoftDelete ? softDeleteTermsByField : hardDeleteTermsByField;
+            if (!dict.TryGetValue(field, out var set))
+            {
+                set = new HashSet<string>(StringComparer.Ordinal);
+                dict[field] = set;
+            }
+            set.Add(term);
         }
-        var qualifiedTerms = _deleteQualifiedTermsBuffer;
+
+        if (softDeleteTermsByField.Count > 0)
+            softDeleteTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
         // The pending commit will be at _commitGeneration + 1; generation-versioned del files
         // are named for the generation they become durable in, so they never overwrite files
@@ -76,25 +81,11 @@ public sealed partial class IndexWriter
             using var posInput = new IndexInput(posPath);
             byte postingsVersion = PostingsEnum.ValidateFileHeader(posInput);
 
-            foreach (var qualifiedTerm in qualifiedTerms)
-            {
-                if (!dicReader.TryGetPostingsOffset(qualifiedTerm, out long offset))
-                    continue;
-
-                ReadPostingsAtOffsetInto(posInput, offset, postingsVersion, liveDocs, ref changed, softDelete: false);
-            }
-
-            if (softDeleteQualifiedTerms.Count > 0)
-            {
-                long nowMillis = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                foreach (var qualifiedTerm in softDeleteQualifiedTerms)
-                {
-                    if (!dicReader.TryGetPostingsOffset(qualifiedTerm, out long offset))
-                        continue;
-
-                    ReadPostingsAtOffsetInto(posInput, offset, postingsVersion, liveDocs, ref changed, softDelete: true, nowMillis);
-                }
-            }
+            // Single FST prefix scan per unique field instead of per-term FST walks.
+            ApplyDeletesByField(dicReader, posInput, postingsVersion, liveDocs,
+                hardDeleteTermsByField, softDelete: false, 0, ref changed);
+            ApplyDeletesByField(dicReader, posInput, postingsVersion, liveDocs,
+                softDeleteTermsByField, softDelete: true, softDeleteTimestamp, ref changed);
 
             if (changed)
             {
@@ -131,6 +122,30 @@ public sealed partial class IndexWriter
                 else
                     liveDocs.Delete(docId);
                 changed = true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Scans the FST for terms matching one field's delete set via a single prefix walk,
+    /// rather than per-term individual FST lookups.
+    /// </summary>
+    private static void ApplyDeletesByField(
+        TermDictionaryReader dicReader, IndexInput posInput, byte postingsVersion,
+        LiveDocs liveDocs, Dictionary<string, HashSet<string>> termsByField,
+        bool softDelete, long softDeleteTimestamp, ref bool changed)
+    {
+        foreach (var (field, terms) in termsByField)
+        {
+            var fieldPrefix = $"{field}\x00";
+            foreach (var (qualifiedTerm, offset) in dicReader.GetTermsWithPrefix(fieldPrefix.AsSpan()))
+            {
+                var bareTerm = qualifiedTerm.AsSpan(fieldPrefix.Length);
+                if (!terms.Contains(bareTerm.ToString()))
+                    continue;
+
+                ReadPostingsAtOffsetInto(posInput, offset, postingsVersion,
+                    liveDocs, ref changed, softDelete, softDeleteTimestamp);
             }
         }
     }
