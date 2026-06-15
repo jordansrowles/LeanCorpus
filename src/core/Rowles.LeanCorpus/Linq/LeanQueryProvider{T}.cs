@@ -163,9 +163,43 @@ public sealed class LeanQueryProvider<TDocument> : IQueryProvider
 
     private object ExecuteToArray(Query query, LambdaExpression? selector, int take, int skip, SortField? sort = null)
     {
+        // Identity projection — TDocument[] via List<T>.ToArray() is AOT-safe
+        // because TDocument is known at compile time.
+        if (selector is null)
+        {
+            var source = ExecuteAndMaterialise(query, take, skip, sort);
+            return source.ToArray();
+        }
+
         var list = (System.Collections.IList)ExecuteToList(query, selector, take, skip, sort);
-        var elementType = list.Count > 0 ? list[0]!.GetType() : typeof(TDocument);
-        var array = Array.CreateInstance(elementType, list.Count);
+        int count = list.Count;
+        var elementType = selector.ReturnType;
+
+        // Fast paths — allocate typed arrays directly, AOT-safe since the
+        // element type is a compile-time constant in each branch.
+        if (elementType == typeof(string)) return CopyToArray<string>(list, count);
+        if (elementType == typeof(int))    return CopyToArray<int>(list, count);
+        if (elementType == typeof(long))   return CopyToArray<long>(list, count);
+        if (elementType == typeof(double)) return CopyToArray<double>(list, count);
+        if (elementType == typeof(float))  return CopyToArray<float>(list, count);
+        if (elementType == typeof(bool))   return CopyToArray<bool>(list, count);
+        if (elementType == typeof(DateTime))       return CopyToArray<DateTime>(list, count);
+        if (elementType == typeof(DateTimeOffset)) return CopyToArray<DateTimeOffset>(list, count);
+        if (elementType == typeof(Guid))     return CopyToArray<Guid>(list, count);
+        if (elementType == typeof(decimal))  return CopyToArray<decimal>(list, count);
+        if (elementType == typeof(short))    return CopyToArray<short>(list, count);
+        if (elementType == typeof(byte))     return CopyToArray<byte>(list, count);
+        if (elementType == typeof(DateOnly)) return CopyToArray<DateOnly>(list, count);
+        if (elementType == typeof(TimeOnly)) return CopyToArray<TimeOnly>(list, count);
+
+        throw new NotSupportedException(
+            $"Projecting to '{elementType.Name}' and calling .ToArray() is not AOT-compatible. " +
+            "Use .ToList() instead, or project to a supported value type (string, int, long, double, float, bool, DateTime, DateTimeOffset, Guid, decimal, short, byte, DateOnly, TimeOnly).");
+    }
+
+    private static T[] CopyToArray<T>(System.Collections.IList list, int count)
+    {
+        var array = new T[count];
         list.CopyTo(array, 0);
         return array;
     }
