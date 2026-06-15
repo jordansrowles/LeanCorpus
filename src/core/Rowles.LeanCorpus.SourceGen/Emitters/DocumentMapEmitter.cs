@@ -23,6 +23,8 @@ internal static class DocumentMapEmitter
         sb.AppendLine("using global::Rowles.LeanCorpus.Document.Fields;");
         sb.AppendLine("using global::Rowles.LeanCorpus.Index.Indexer;");
         sb.AppendLine("using global::Rowles.LeanCorpus.Mapping;");
+        sb.AppendLine("using global::Rowles.LeanCorpus.Linq;");
+        sb.AppendLine("using global::Rowles.LeanCorpus.Search.Searcher;");
         sb.AppendLine();
 
         bool hasNs = !string.IsNullOrEmpty(doc.Namespace);
@@ -53,6 +55,8 @@ internal static class DocumentMapEmitter
             sb.AppendLine();
             EmitGeoParser(sb);
         }
+
+        QueryableEmitter.Emit(sb, doc);
 
         sb.AppendLine("}");
         sb.AppendLine();

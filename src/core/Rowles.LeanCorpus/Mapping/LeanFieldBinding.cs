@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Linq;
 
 namespace Rowles.LeanCorpus.Mapping;
 
@@ -7,7 +8,7 @@ namespace Rowles.LeanCorpus.Mapping;
 /// makes the binding collection iterable without knowing each field's CLR type.
 /// </summary>
 /// <typeparam name="TDocument">The mapped document model type.</typeparam>
-public sealed class LeanFieldBinding<TDocument>
+public sealed class LeanFieldBinding<TDocument> : IFieldDescriptor
 {
     /// <summary>
     /// Initialises a new <see cref="LeanFieldBinding{TDocument}"/>.
