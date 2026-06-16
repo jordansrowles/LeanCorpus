@@ -12,8 +12,6 @@ using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Index;
-using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Xunit.Abstractions;
 
