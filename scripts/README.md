@@ -11,6 +11,7 @@
 | `download-gutenberg.sh` | Bash equivalent for downloading Project Gutenberg benchmark data. |
 | `download-news.ps1` | Downloads and extracts the 20 Newsgroups and Reuters-21578 benchmark datasets. |
 | `download-news.sh` | Bash equivalent for downloading and extracting the news benchmark datasets. |
-| `download-wikipedia.ps1` | Downloads English Wikipedia article introductions for benchmark indexing and analysis data. |
+| `download-wikipedia.ps1` | Downloads Wikipedia article introductions (one file per article) for benchmark indexing and analysis data. |
+| `download-wikipedia.sh` | Bash equivalent for downloading Wikipedia article introductions (one file per article). |
 | `generate-benchmark-docs.ps1` | Converts the latest BenchmarkDotNet output under `bench/` into DocFX benchmark pages. |
 | `send-for-bench.ps1` | Connects to the Debian benchmark host, updates `/home/jordan/code/leancorpus` from `origin/main`, and starts benchmarks in tmux. |

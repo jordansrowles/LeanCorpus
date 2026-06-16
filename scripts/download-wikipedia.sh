@@ -9,7 +9,6 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LANGUAGE="en"
 OUTPUT_DIR=""
 ARTICLE_COUNT=5000
-ARTICLES_PER_FILE=500
 
 print_help() {
     cat <<'EOF'
@@ -17,8 +16,9 @@ Usage:
   ./scripts/download-wikipedia.sh [options]
 
 Downloads Wikipedia article introductions for benchmark testing. Uses the
-MediaWiki API to fetch random-article extracts as plain-text .txt files in
-bench/data/wikipedia/{language}/.
+MediaWiki API to fetch random-article extracts, writing each article to its
+own plain-text .txt file in bench/data/wikipedia/{language}/. Files are named
+with a random UUID (e.g. 7a3b2c1d-...txt).
 
 Specify a BCP 47 language code (e.g. en, fr, de, zh, ja) to target that
 language edition of Wikipedia. All language editions use the same API.
@@ -31,13 +31,12 @@ Options:
   --language LANG    BCP 47 language code (default: en)
   --output-dir DIR   Override output directory (default: bench/data/wikipedia/{lang})
   --article-count N  Total articles to download (default: 5000)
-  --per-file N       Articles per output file (default: 500)
   --help             Show this help and exit
 
 Examples:
   ./scripts/download-wikipedia.sh
   ./scripts/download-wikipedia.sh --language fr --article-count 2000
-  ./scripts/download-wikipedia.sh --language zh --article-count 10000 --per-file 1000
+  ./scripts/download-wikipedia.sh --language zh --article-count 10000
 EOF
 }
 
@@ -47,6 +46,26 @@ require_command() {
     if ! command -v "$command_name" >/dev/null 2>&1; then
         echo "Error: $command_name is required. $reason" >&2
         exit 1
+    fi
+}
+
+# Generate a random UUID for filenames (no external deps required).
+generate_uuid() {
+    if [[ -f /proc/sys/kernel/random/uuid ]]; then
+        cat /proc/sys/kernel/random/uuid
+    elif command -v uuidgen >/dev/null 2>&1; then
+        uuidgen
+    else
+        # Fallback: 16 random bytes from /dev/urandom, formatted as hex UUID
+        local bytes
+        bytes=$(od -A n -t x1 -N 16 /dev/urandom 2>/dev/null | tr -d ' \n')
+        if [[ -n "$bytes" ]]; then
+            echo "${bytes:0:8}-${bytes:8:4}-${bytes:12:4}-${bytes:16:4}-${bytes:20:12}"
+        else
+            # Last resort (shouldn't happen on real systems)
+            printf '%04x%04x-%04x-%04x-%04x-%04x%04x%04x\n' \
+                $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM
+        fi
     fi
 }
 
@@ -62,10 +81,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --article-count)
             ARTICLE_COUNT="$2"
-            shift 2
-            ;;
-        --per-file)
-            ARTICLES_PER_FILE="$2"
             shift 2
             ;;
         --help)
@@ -85,11 +100,6 @@ if ! [[ "$ARTICLE_COUNT" =~ ^[0-9]+$ ]] || (( ARTICLE_COUNT < 1 )); then
     exit 1
 fi
 
-if ! [[ "$ARTICLES_PER_FILE" =~ ^[0-9]+$ ]] || (( ARTICLES_PER_FILE < 1 )); then
-    echo "Error: --per-file must be a positive integer." >&2
-    exit 1
-fi
-
 if [[ -z "$OUTPUT_DIR" ]]; then
     OUTPUT_DIR="$REPO_ROOT/bench/data/wikipedia/$LANGUAGE"
 fi
@@ -104,33 +114,6 @@ BATCH_SIZE=50
 USER_AGENT="BenchmarkDataBot/1.0 ($LANGUAGE benchmark testing; non-commercial)"
 
 total_fetched=0
-batch_index=0
-batch_lines=()
-
-# Flush any accumulated articles on interrupt so partial progress is saved.
-cleanup() {
-    if (( ${#batch_lines[@]} > 0 )); then
-        local out_file
-        printf -v out_file "%s/batch-%04d.txt" "$OUTPUT_DIR" "$batch_index"
-        printf '%s\n' "${batch_lines[@]}" > "$out_file"
-        local count=$(( ${#batch_lines[@]} / 3 ))
-        echo ""
-        echo "Interrupted — saved $count articles to $out_file"
-    fi
-}
-trap cleanup EXIT
-trap 'trap - EXIT; cleanup; exit 1' INT TERM
-
-flush_batch() {
-    local index="$1"
-    local dir="$2"
-    local out_file
-    printf -v out_file "%s/batch-%04d.txt" "$dir" "$index"
-    printf '%s\n' "${batch_lines[@]}" > "$out_file"
-    local count=$(( ${#batch_lines[@]} / 3 ))
-    echo "  Saved batch $(printf '%04d' "$index"): $count articles -> $out_file"
-    batch_lines=()
-}
 
 echo "Downloading $ARTICLE_COUNT Wikipedia ($LANGUAGE) article introductions..."
 echo "API:    $API_BASE"
@@ -174,9 +157,8 @@ while (( total_fetched < ARTICLE_COUNT )); do
     # Use process substitution (not $()) so null bytes survive into the read loop.
     saw_any=false
     while IFS= read -r -d '' title && IFS= read -r -d '' extract; do
-        batch_lines+=("$title")
-        batch_lines+=("$extract")
-        batch_lines+=("")
+        # Write each article to its own UUID-named file: title on line 1, extract on line 2
+        printf '%s\n%s\n' "$title" "$extract" > "$OUTPUT_DIR/$(generate_uuid).txt"
         total_fetched=$(( total_fetched + 1 ))
         saw_any=true
     done < <(echo "$response" | jq -j '
@@ -194,19 +176,10 @@ while (( total_fetched < ARTICLE_COUNT )); do
 
     # Success: reset backoff and pause before next request
     backoff=3
-    if (( ${#batch_lines[@]} >= (ARTICLES_PER_FILE * 3) )); then
-        flush_batch "$batch_index" "$OUTPUT_DIR"
-        batch_index=$(( batch_index + 1 ))
-    fi
-
     echo "  $total_fetched / $ARTICLE_COUNT articles..."
     sleep "$backoff"
 done
 
-if (( ${#batch_lines[@]} > 0 )); then
-    flush_batch "$batch_index" "$OUTPUT_DIR"
-fi
-
 echo ""
-echo "Complete: $total_fetched articles in $(( batch_index + 1 )) file(s)."
+echo "Complete: $total_fetched articles."
 echo "Data in: $OUTPUT_DIR"

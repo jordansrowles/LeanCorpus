@@ -127,21 +127,34 @@ public sealed partial class IndexWriter
     }
 
     /// <summary>
-    /// Scans the FST for terms matching one field's delete set via a single prefix walk,
-    /// rather than per-term individual FST lookups.
+    /// Applies pending deletions for one field's delete set via per-term FST lookups
+    /// with stack-allocated qualified terms. Avoids the full prefix scan and its
+    /// associated string allocations when a field has many more unique terms than deletes.
     /// </summary>
     private static void ApplyDeletesByField(
         TermDictionaryReader dicReader, IndexInput posInput, byte postingsVersion,
         LiveDocs liveDocs, Dictionary<string, HashSet<string>> termsByField,
         bool softDelete, long softDeleteTimestamp, ref bool changed)
     {
+        // Reusable stack buffer for qualified-term construction.
+        // Qualified terms are "field\0term" — in practice always ≤ 256 chars.
+        Span<char> stackBuf = stackalloc char[256];
+
         foreach (var (field, terms) in termsByField)
         {
-            var fieldPrefix = $"{field}\x00";
-            foreach (var (qualifiedTerm, offset) in dicReader.GetTermsWithPrefix(fieldPrefix.AsSpan()))
+            foreach (var term in terms)
             {
-                var bareTerm = qualifiedTerm.AsSpan(fieldPrefix.Length);
-                if (!terms.Contains(bareTerm.ToString()))
+                int fieldLen = field.Length;
+                int termLen = term.Length;
+                int totalLen = fieldLen + 1 + termLen;
+                Span<char> qualified = totalLen <= 256
+                    ? stackBuf.Slice(0, totalLen)
+                    : new char[totalLen];
+                field.AsSpan().CopyTo(qualified);
+                qualified[fieldLen] = '\0';
+                term.AsSpan().CopyTo(qualified.Slice(fieldLen + 1));
+
+                if (!dicReader.TryGetPostingsOffset(qualified, out long offset))
                     continue;
 
                 ReadPostingsAtOffsetInto(posInput, offset, postingsVersion,
