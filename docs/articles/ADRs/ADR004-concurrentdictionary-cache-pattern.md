@@ -31,8 +31,12 @@ instances from the library.
 
 ## Consequences
 
-- `QueryCache.TryGet` now increments hit/miss counters with
-  `Interlocked.Increment` outside the LRU lock.
+- `QueryCache` uses `ConcurrentDictionary` with an approximate count
+  tracked via `Interlocked.Increment`/`Decrement`. The `Put` path
+  writes through the indexer and triggers a generation swap when the
+  soft cap is exceeded. `TryGet` is lock-free: it reads the volatile
+  dictionary reference and does a single `TryGetValue` plus a
+  generation check. The `Lock` and `LinkedList` are removed.
 - `TermDictionaryReader` automaton caches use `ConcurrentDictionary`
   with `Lazy<WildcardAutomaton>` and generation-swap eviction.
 - Any future read-heavy cache with a soft size cap should use this
