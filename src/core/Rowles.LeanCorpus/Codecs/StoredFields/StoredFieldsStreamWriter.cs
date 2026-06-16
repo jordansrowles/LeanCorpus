@@ -119,13 +119,13 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
 
         FlushBlock();
 
-        byte[] fdtBody = _fdtBuf.WrittenSpan.ToArray();
+        long fdtBodyLength = _fdtBuf.WrittenCount;
 
         long headerSize;
         using (var fdtOutput = new IndexOutput(_fdtPath))
         {
-            CodecFileHeader.Write(fdtOutput, CodecFormats.StoredFields, fdtBody);
-            headerSize = fdtOutput.Position - fdtBody.Length;
+            CodecFileHeader.Write(fdtOutput, CodecFormats.StoredFields, _fdtBuf.WrittenSpan);
+            headerSize = fdtOutput.Position - fdtBodyLength;
         }
 
         // Re-base body-relative block offsets to file-absolute positions.
@@ -138,9 +138,8 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
         fdxBodyBuf.WriteInt32(_blockOffsets.Count);
         foreach (var offset in _blockOffsets)
             fdxBodyBuf.WriteInt64(offset);
-        byte[] fdxBody = fdxBodyBuf.WrittenSpan.ToArray();
 
         using var fdxOutput = new IndexOutput(_fdxPath);
-        CodecFileHeader.Write(fdxOutput, CodecFormats.StoredFields, fdxBody);
+        CodecFileHeader.Write(fdxOutput, CodecFormats.StoredFields, fdxBodyBuf.WrittenSpan);
     }
 }

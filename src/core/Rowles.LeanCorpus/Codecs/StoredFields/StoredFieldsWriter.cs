@@ -119,14 +119,14 @@ internal static class StoredFieldsWriter
             ArrayPool<bool>.Shared.Return(seenFieldId);
         }
 
-        byte[] fdtBody = fdtBodyBuf.WrittenSpan.ToArray();
+        long fdtBodyLength = fdtBodyBuf.WrittenCount;
 
         // Write .fdt: CodecKit header + body, then measure header size
         long headerSize;
         using (var fdtOutput = new IndexOutput(fdtPath))
         {
-            CodecFileHeader.Write(fdtOutput, CodecFormats.StoredFields, fdtBody);
-            headerSize = fdtOutput.Position - fdtBody.Length;
+            CodecFileHeader.Write(fdtOutput, CodecFormats.StoredFields, fdtBodyBuf.WrittenSpan);
+            headerSize = fdtOutput.Position - fdtBodyLength;
         }
 
         // Adjust block offsets: body-relative → file-absolute
@@ -140,11 +140,10 @@ internal static class StoredFieldsWriter
         fdxBodyBuf.WriteInt32(blockOffsets.Count);
         foreach (var offset in blockOffsets)
             fdxBodyBuf.WriteInt64(offset);
-        byte[] fdxBody = fdxBodyBuf.WrittenSpan.ToArray();
 
         // Write .fdx: CodecKit header + body
         using var fdxOutput = new IndexOutput(fdxPath);
-        CodecFileHeader.Write(fdxOutput, CodecFormats.StoredFields, fdxBody);
+        CodecFileHeader.Write(fdxOutput, CodecFormats.StoredFields, fdxBodyBuf.WrittenSpan);
     }
 
     internal static void Write(string fdtPath, string fdxPath, IReadOnlyList<Dictionary<string, List<string>>> docs,
@@ -218,13 +217,13 @@ internal static class StoredFieldsWriter
             fdtBodyBuf.WriteBytes(compData.AsSpan(0, compLength));
         }
 
-        byte[] fdtBody = fdtBodyBuf.WrittenSpan.ToArray();
+        long fdtBodyLength = fdtBodyBuf.WrittenCount;
 
         long headerSize;
         using (var fdtOutput = new IndexOutput(fdtPath))
         {
-            CodecFileHeader.Write(fdtOutput, CodecFormats.StoredFields, fdtBody);
-            headerSize = fdtOutput.Position - fdtBody.Length;
+            CodecFileHeader.Write(fdtOutput, CodecFormats.StoredFields, fdtBodyBuf.WrittenSpan);
+            headerSize = fdtOutput.Position - fdtBodyLength;
         }
 
         for (int i = 0; i < blockOffsets.Count; i++)
@@ -236,10 +235,9 @@ internal static class StoredFieldsWriter
         fdxBodyBuf.WriteInt32(blockOffsets.Count);
         foreach (var offset in blockOffsets)
             fdxBodyBuf.WriteInt64(offset);
-        byte[] fdxBody = fdxBodyBuf.WrittenSpan.ToArray();
 
         using var fdxOutput = new IndexOutput(fdxPath);
-        CodecFileHeader.Write(fdxOutput, CodecFormats.StoredFields, fdxBody);
+        CodecFileHeader.Write(fdxOutput, CodecFormats.StoredFields, fdxBodyBuf.WrittenSpan);
     }
 
     private static void WriteStoredValue(IBufferWriter<byte> writer, StoredFieldValue value, Span<byte> encodeBuf)

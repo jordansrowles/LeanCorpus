@@ -25,10 +25,8 @@ internal static class BKDWriter
             points.Sort((a, b) => a.Value.CompareTo(b.Value));
             WriteNode(bodyBuf, points, 0, points.Count, maxLeafSize);
         }
-        byte[] body = bodyBuf.WrittenSpan.ToArray();
-
         using var output = new IndexOutput(filePath);
-        CodecFileHeader.Write(output, CodecFormats.Bkd, body);
+        CodecFileHeader.Write(output, CodecFormats.Bkd, bodyBuf.WrittenSpan);
     }
 
     private static void WriteNode(IBufferWriter<byte> writer, List<(double Value, int DocId)> points, int start, int end, int maxLeafSize)

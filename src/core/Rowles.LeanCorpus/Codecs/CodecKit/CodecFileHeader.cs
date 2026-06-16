@@ -1,5 +1,6 @@
 using System.Buffers;
 using Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit.Internal;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.CodecKit;
@@ -64,6 +65,27 @@ internal static class CodecFileHeader
         format.Encode(body, writer, ctx);
     }
 
+    /// <summary>
+    /// Writes a codec file envelope with a <see cref="ReadOnlySpan{Byte}"/> body.
+    /// Uses the <see cref="VersionEnvelopeCodec{TBase,TVersion}"/> fast path when
+    /// available, avoiding the intermediate <c>byte[]</c> allocation and scratch staging.
+    /// </summary>
+    internal static void Write(IndexOutput output, ICodec<byte[]> format, ReadOnlySpan<byte> body)
+    {
+        var writer = new Adapters.IndexOutputBuffer(output);
+        var ctx = new CodecContext(CodecOptions.Default, CodecRegistry.Default);
+
+        if (format is VersionEnvelopeCodec<byte[], byte> envelope)
+        {
+            envelope.EncodeSpan(body, writer, ctx);
+        }
+        else
+        {
+            // Fallback: allocate byte[] for non-envelope codecs (e.g. WithCompressionCodec).
+            format.Encode(body.ToArray(), writer, ctx);
+        }
+    }
+
     internal static (T Value, byte Version) Read<T>(IndexInput input, ICodec<byte[]> format, ICodec<T> bodyCodec)
     {
         var result = Read(input, format);
@@ -83,6 +105,27 @@ internal static class CodecFileHeader
         var buf = new ArrayBufferWriter<byte>(body.Length + 16);
         var ctx = new CodecContext(CodecOptions.Default, CodecRegistry.Default);
         format.Encode(body, buf, ctx);
+        writer.Write(buf.WrittenSpan);
+    }
+
+    /// <summary>
+    /// <see cref="ReadOnlySpan{Byte}"/> overload for the <see cref="BinaryWriter"/> path.
+    /// Uses the <see cref="VersionEnvelopeCodec{TBase,TVersion}"/> fast path when available.
+    /// </summary>
+    internal static void Write(BinaryWriter writer, ICodec<byte[]> format, ReadOnlySpan<byte> body)
+    {
+        var buf = new ArrayBufferWriter<byte>(body.Length + 16);
+        var ctx = new CodecContext(CodecOptions.Default, CodecRegistry.Default);
+
+        if (format is VersionEnvelopeCodec<byte[], byte> envelope)
+        {
+            envelope.EncodeSpan(body, buf, ctx);
+        }
+        else
+        {
+            format.Encode(body.ToArray(), buf, ctx);
+        }
+
         writer.Write(buf.WrittenSpan);
     }
 

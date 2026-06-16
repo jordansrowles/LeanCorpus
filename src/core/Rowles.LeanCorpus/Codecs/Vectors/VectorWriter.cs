@@ -34,10 +34,8 @@ internal static class VectorWriter
                 bodyBuf.WriteSingle(span[j]);
         }
 
-        byte[] body = bodyBuf.WrittenSpan.ToArray();
-
         using var output = new IndexOutput(filePath);
-        CodecFileHeader.Write(output, CodecFormats.Vectors, body);
+        CodecFileHeader.Write(output, CodecFormats.Vectors, bodyBuf.WrittenSpan);
     }
 
     /// <summary>
@@ -124,9 +122,7 @@ internal static class VectorWriter
             }
         }
 
-        byte[] body = bodyBuf.WrittenSpan.ToArray();
-
         using var output = new IndexOutput(filePath);
-        CodecFileHeader.Write(output, CodecFormats.Vectors, body);
+        CodecFileHeader.Write(output, CodecFormats.Vectors, bodyBuf.WrittenSpan);
     }
 }

@@ -141,10 +141,8 @@ internal static class QuantisedVectorWriter
             ArrayPool<byte>.Shared.Return(writeBuf, clearArray: false);
         }
 
-        byte[] body = bodyBuf.WrittenSpan.ToArray();
-
         using var output = new IndexOutput(filePath);
-        CodecFileHeader.Write(output, CodecFormats.QuantisedVectors, body);
+        CodecFileHeader.Write(output, CodecFormats.QuantisedVectors, bodyBuf.WrittenSpan);
     }
 
     /// <summary>
@@ -252,9 +250,7 @@ internal static class QuantisedVectorWriter
             ArrayPool<byte>.Shared.Return(writeBuf, clearArray: false);
         }
 
-        byte[] body = bodyBuf.WrittenSpan.ToArray();
-
         using var output = new IndexOutput(filePath);
-        CodecFileHeader.Write(output, CodecFormats.QuantisedVectors, body);
+        CodecFileHeader.Write(output, CodecFormats.QuantisedVectors, bodyBuf.WrittenSpan);
     }
 }

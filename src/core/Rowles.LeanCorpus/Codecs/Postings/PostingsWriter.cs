@@ -26,10 +26,8 @@ internal static class PostingsWriter
             prev = docIds[i];
         }
 
-        byte[] body = bodyBuf.WrittenSpan.ToArray();
-
         using var output = new IndexOutput(filePath);
-        CodecFileHeader.Write(output, CodecFormats.Postings, body);
+        CodecFileHeader.Write(output, CodecFormats.Postings, bodyBuf.WrittenSpan);
     }
 
     /// <summary>Writes a non-negative integer using variable-length encoding (LEB128).</summary>

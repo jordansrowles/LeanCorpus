@@ -3,6 +3,7 @@ using System.Collections;
 using System.Numerics;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Util;
 
@@ -497,15 +498,12 @@ public sealed class RoaringBitmap : IEnumerable<int>
         var crc = Crc32.Compute(payload);
 
         // Body: [payloadLength:int32][payload:bytes][crc:uint32]
-        using var bodyMs = new MemoryStream();
-        using (var bodyWriter = new BinaryWriter(bodyMs, System.Text.Encoding.UTF8, leaveOpen: true))
-        {
-            bodyWriter.Write(payload.Length);
-            bodyWriter.Write(payload);
-            bodyWriter.Write(crc);
-        }
+        var bodyBuf = new ArrayBufferWriter<byte>(payload.Length + 16);
+        bodyBuf.WriteInt32(payload.Length);
+        bodyBuf.WriteBytes(payload);
+        bodyBuf.WriteInt32((int)crc);
 
-        CodecFileHeader.Write(writer, CodecFormats.RoaringBitmap, bodyMs.ToArray());
+        CodecFileHeader.Write(writer, CodecFormats.RoaringBitmap, bodyBuf.WrittenSpan);
     }
 
     private void WritePayload(BinaryWriter writer)

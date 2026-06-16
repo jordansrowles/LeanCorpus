@@ -24,9 +24,8 @@ internal static class SortedDocValuesWriter
         foreach (var (fieldName, values) in fields)
             WriteFieldBlock(bodyBuf, fieldName, values, docCount);
 
-        byte[] body = bodyBuf.WrittenSpan.ToArray();
         using var output = new IndexOutput(filePath, durable);
-        CodecFileHeader.Write(output, CodecFormats.SortedDocValues, body);
+        CodecFileHeader.Write(output, CodecFormats.SortedDocValues, bodyBuf.WrittenSpan);
     }
 
     private static void WriteFieldBlock(IBufferWriter<byte> bw, string fieldName, string?[] values, int docCount)

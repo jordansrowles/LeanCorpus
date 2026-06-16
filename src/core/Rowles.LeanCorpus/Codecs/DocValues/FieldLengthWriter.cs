@@ -34,9 +34,7 @@ internal static class FieldLengthWriter
             }
         }
 
-        byte[] body = bodyBuf.WrittenSpan.ToArray();
-
         using var output = new IndexOutput(filePath, durable);
-        CodecFileHeader.Write(output, CodecFormats.FieldLengths, body);
+        CodecFileHeader.Write(output, CodecFormats.FieldLengths, bodyBuf.WrittenSpan);
     }
 }

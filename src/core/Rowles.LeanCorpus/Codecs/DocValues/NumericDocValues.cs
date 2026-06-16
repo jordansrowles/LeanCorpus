@@ -33,9 +33,8 @@ internal static class NumericDocValuesWriter
             WriteFieldBlock(bodyBuf, fieldName, values, docCount, presenceSet);
         }
 
-        byte[] body = bodyBuf.WrittenSpan.ToArray();
         using var output = new IndexOutput(filePath, durable);
-        CodecFileHeader.Write(output, CodecFormats.NumericDocValues, body);
+        CodecFileHeader.Write(output, CodecFormats.NumericDocValues, bodyBuf.WrittenSpan);
     }
 
     /// <summary>

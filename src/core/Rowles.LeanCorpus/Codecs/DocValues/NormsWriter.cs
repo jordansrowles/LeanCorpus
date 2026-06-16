@@ -53,9 +53,8 @@ internal static class NormsWriter
             }
         }
 
-        byte[] body = bodyBuf.WrittenSpan.ToArray();
         using var output = new IndexOutput(filePath, durable);
-        CodecFileHeader.Write(output, CodecFormats.Norms, body);
+        CodecFileHeader.Write(output, CodecFormats.Norms, bodyBuf.WrittenSpan);
     }
 
     private static void WriteDenseBoosts(IBufferWriter<byte> bw, float[] boosts, int count)

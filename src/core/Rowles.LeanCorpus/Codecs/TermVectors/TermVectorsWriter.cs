@@ -24,7 +24,6 @@ internal static class TermVectorsWriter
     {
         // Buffer .tvd body and track body-relative offsets.
         var bodyOffsets = new long[docs.Count];
-        byte[] tvdBody;
         var bodyBuf = new ArrayBufferWriter<byte>(4096);
         for (int d = 0; d < docs.Count; d++)
         {
@@ -52,14 +51,14 @@ internal static class TermVectorsWriter
                 }
             }
         }
-        tvdBody = bodyBuf.WrittenSpan.ToArray();
+        long tvdBodyLength = bodyBuf.WrittenCount;
 
         // Write .tvd file and capture envelope header size for offset computation.
         long headerSize;
         using (var tvdOutput = new IndexOutput(tvdPath))
         {
-            CodecFileHeader.Write(tvdOutput, CodecFormats.TermVectors, tvdBody);
-            headerSize = tvdOutput.Position - tvdBody.Length;
+            CodecFileHeader.Write(tvdOutput, CodecFormats.TermVectors, bodyBuf.WrittenSpan);
+            headerSize = tvdOutput.Position - tvdBodyLength;
         }
 
         // Compute file-absolute offsets: envelope header size + body-relative offset.
@@ -72,11 +71,10 @@ internal static class TermVectorsWriter
         tvxBodyBuf.WriteInt32(docs.Count);
         foreach (var offset in offsets)
             tvxBodyBuf.WriteInt64(offset);
-        byte[] tvxBody = tvxBodyBuf.WrittenSpan.ToArray();
 
         // Write .tvx index.
         using var tvxOutput = new IndexOutput(tvxPath);
-        CodecFileHeader.Write(tvxOutput, CodecFormats.TermVectors, tvxBody);
+        CodecFileHeader.Write(tvxOutput, CodecFormats.TermVectors, tvxBodyBuf.WrittenSpan);
     }
 
 

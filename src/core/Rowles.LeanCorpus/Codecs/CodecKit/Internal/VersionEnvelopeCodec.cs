@@ -184,4 +184,33 @@ internal sealed class VersionEnvelopeCodec<TBase, TVersion> : ICodec<TBase> wher
             context.ReturnScratchBuffer(scratch);
         }
     }
+
+    /// <summary>
+    /// Fast-path encode for <see cref="ReadOnlySpan{Byte}"/> payloads.
+    /// Writes version + body-length + body bytes directly without staging
+    /// through a scratch buffer, since the body length is already known.
+    /// Uses the first (newest) version case — callers must ensure the
+    /// payload is compatible with the current format version.
+    /// </summary>
+    internal void EncodeSpan(ReadOnlySpan<byte> body, IBufferWriter<byte> writer, CodecContext context)
+    {
+        if (_cases.Length == 0)
+            throw new InvalidOperationException("No version cases registered.");
+
+        var currentCase = _cases[0];
+
+        // Write version
+        _versionCodec.Encode((TVersion)currentCase.Version, writer, context);
+
+        // Write body length
+        _bodyLengthCodec.Encode(body.Length, writer, context);
+
+        // Write body bytes directly — bypass scratch staging
+        if (body.Length > 0)
+        {
+            var span = writer.GetSpan(body.Length);
+            body.CopyTo(span);
+            writer.Advance(body.Length);
+        }
+    }
 }

@@ -58,13 +58,13 @@ internal sealed class TermVectorsStreamWriter : IDisposable
         if (_disposed) return;
         _disposed = true;
 
-        byte[] tvdBody = _tvdBuf.WrittenSpan.ToArray();
+        long tvdBodyLength = _tvdBuf.WrittenCount;
 
         long headerSize;
         using (var tvdOutput = new IndexOutput(_tvdPath))
         {
-            CodecFileHeader.Write(tvdOutput, CodecFormats.TermVectors, tvdBody);
-            headerSize = tvdOutput.Position - tvdBody.Length;
+            CodecFileHeader.Write(tvdOutput, CodecFormats.TermVectors, _tvdBuf.WrittenSpan);
+            headerSize = tvdOutput.Position - tvdBodyLength;
         }
 
         // Re-base body-relative offsets to file-absolute positions.
@@ -75,10 +75,9 @@ internal sealed class TermVectorsStreamWriter : IDisposable
         tvxBodyBuf.WriteInt32(_offsets.Count);
         foreach (var off in _offsets)
             tvxBodyBuf.WriteInt64(off);
-        byte[] tvxBody = tvxBodyBuf.WrittenSpan.ToArray();
 
         using var tvxOutput = new IndexOutput(_tvxPath);
-        CodecFileHeader.Write(tvxOutput, CodecFormats.TermVectors, tvxBody);
+        CodecFileHeader.Write(tvxOutput, CodecFormats.TermVectors, tvxBodyBuf.WrittenSpan);
     }
 
     private void WriteOffsets(TermVectorEntry entry)
