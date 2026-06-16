@@ -52,14 +52,17 @@ internal static class HnswReader
         int nodeCount = reader.ReadInt32();
         int levelCount = reader.ReadInt32();
 
-        var levels = new List<Dictionary<int, int[]>>(levelCount);
+        // Collect per-level (docId, neighbours) pairs, then sort by docId.
+        var levels = new List<HnswGraph.FrozenLevel>(levelCount);
         for (int i = 0; i < levelCount; i++)
-            levels.Add(new Dictionary<int, int[]>());
+            levels.Add(null!); // placeholder; filled in reverse order below
 
         for (int level = levelCount - 1; level >= 0; level--)
         {
             int nodes = reader.ReadInt32();
-            var dict = levels[level];
+            var docIds = new List<int>(nodes);
+            var neighbourLists = new List<int[]>(nodes);
+
             for (int n = 0; n < nodes; n++)
             {
                 int docId = reader.ReadInt32();
@@ -70,7 +73,8 @@ internal static class HnswReader
 
                 if (docIdRemap is null)
                 {
-                    dict[docId] = arr;
+                    docIds.Add(docId);
+                    neighbourLists.Add(arr);
                 }
                 else if (docIdRemap.TryGetValue(docId, out int newDocId))
                 {
@@ -80,9 +84,15 @@ internal static class HnswReader
                         if (docIdRemap.TryGetValue(neigh, out int newNeigh))
                             remapped.Add(newNeigh);
                     }
-                    dict[newDocId] = remapped.ToArray();
+                    docIds.Add(newDocId);
+                    neighbourLists.Add(remapped.ToArray());
                 }
             }
+
+            var sortedIds = docIds.ToArray();
+            var sortedNeighbours = neighbourLists.ToArray();
+            Array.Sort(sortedIds, sortedNeighbours);
+            levels[level] = new HnswGraph.FrozenLevel(sortedIds, sortedNeighbours);
         }
 
         if (docIdRemap is not null)
@@ -95,8 +105,8 @@ internal static class HnswReader
             // If the original entry point was dropped, pick any surviving top-level node.
             if (entryPoint == -1 && maxLevel >= 0)
             {
-                using var e = levels[maxLevel].Keys.GetEnumerator();
-                if (e.MoveNext()) entryPoint = e.Current;
+                var topIds = levels[maxLevel].NodeIds;
+                if (topIds.Length > 0) entryPoint = topIds[0];
             }
         }
 

@@ -37,7 +37,8 @@ internal sealed class HnswGraph
     private readonly List<Dictionary<int, List<int>>> _mutableLevels;
 
     // Populated after Freeze: stable adjacency arrays for thread-safe reads.
-    private List<Dictionary<int, int[]>>? _frozenLevels;
+    // volatile ensures the frozen graph is fully visible to all threads on ARM64.
+    private volatile List<FrozenLevel>? _frozenLevels;
 
     /// <summary>Vector dimension; matches <see cref="IVectorSource.Dimension"/>.</summary>
     public int Dimension => _vectors.Dimension;
@@ -109,7 +110,7 @@ internal sealed class HnswGraph
         IVectorSource vectors,
         HnswBuildConfig config,
         long seed,
-        List<Dictionary<int, int[]>> levels,
+        List<FrozenLevel> levels,
         int entryPoint,
         int maxLevel,
         int nodeCount)
@@ -129,14 +130,9 @@ internal sealed class HnswGraph
     {
         if (IsReadOnly) return;
 
-        var frozen = new List<Dictionary<int, int[]>>(_mutableLevels.Count);
+        var frozen = new List<FrozenLevel>(_mutableLevels.Count);
         foreach (var level in _mutableLevels)
-        {
-            var dict = new Dictionary<int, int[]>(level.Count);
-            foreach (var (docId, neighbours) in level)
-                dict[docId] = neighbours.ToArray();
-            frozen.Add(dict);
-        }
+            frozen.Add(FrozenLevel.FromMutable(level));
         _frozenLevels = frozen;
         _mutableLevels.Clear();
     }
@@ -154,8 +150,11 @@ internal sealed class HnswGraph
         foreach (var level in _frozenLevels)
         {
             var dict = new Dictionary<int, List<int>>(level.Count);
-            foreach (var (docId, neighbours) in level)
-                dict[docId] = [.. neighbours];
+            for (int i = 0; i < level.NodeIds.Length; i++)
+            {
+                int docId = level.NodeIds[i];
+                dict[docId] = [.. level.GetNeighbours(docId)];
+            }
             _mutableLevels.Add(dict);
         }
         _frozenLevels = null;
@@ -165,7 +164,7 @@ internal sealed class HnswGraph
     internal bool ContainsNode(int docId)
     {
         if (_frozenLevels is not null)
-            return _frozenLevels.Count > 0 && _frozenLevels[0].ContainsKey(docId);
+            return _frozenLevels.Count > 0 && _frozenLevels[0].ContainsNode(docId);
         return _mutableLevels.Count > 0 && _mutableLevels[0].ContainsKey(docId);
     }
 
@@ -303,9 +302,7 @@ internal sealed class HnswGraph
     internal IReadOnlyList<int> GetNeighbours(int docId, int level)
     {
         if (_frozenLevels is not null)
-        {
-            return _frozenLevels[level].TryGetValue(docId, out var arr) ? arr : Array.Empty<int>();
-        }
+            return _frozenLevels[level].GetNeighbours(docId);
         return _mutableLevels[level].TryGetValue(docId, out var list) ? list : (IReadOnlyList<int>)Array.Empty<int>();
     }
 
@@ -313,7 +310,7 @@ internal sealed class HnswGraph
     internal IEnumerable<int> GetNodesAtLevel(int level)
     {
         if (_frozenLevels is not null)
-            return _frozenLevels[level].Keys;
+            return _frozenLevels[level].NodeIds;
         return _mutableLevels[level].Keys;
     }
 
@@ -363,7 +360,7 @@ internal sealed class HnswGraph
     private IReadOnlyList<int> NeighboursAt(int docId, int level)
     {
         if (_frozenLevels is not null)
-            return _frozenLevels[level].TryGetValue(docId, out var arr) ? arr : Array.Empty<int>();
+            return _frozenLevels[level].GetNeighbours(docId);
         return _mutableLevels[level].TryGetValue(docId, out var list) ? list : (IReadOnlyList<int>)Array.Empty<int>();
     }
 
@@ -513,5 +510,62 @@ internal sealed class HnswGraph
         // Vectors are expected to be L2-normalised; dot product then equals cosine similarity.
         // Convert to a distance where smaller is better.
         return -SimdVectorOps.DotProduct(a, b);
+    }
+
+    /// <summary>
+    /// Frozen (read-only) adjacency for a single level. Replaces
+    /// <c>Dictionary&lt;int, int[]&gt;</c> with parallel sorted arrays
+    /// for cache-friendly sequential access during search.
+    /// </summary>
+    internal sealed class FrozenLevel
+    {
+        private readonly int[] _sortedDocIds;
+        private readonly int[][] _neighbourArrays;
+
+        internal FrozenLevel(int[] sortedDocIds, int[][] neighbourArrays)
+        {
+            _sortedDocIds = sortedDocIds;
+            _neighbourArrays = neighbourArrays;
+        }
+
+        internal int Count => _sortedDocIds.Length;
+
+        /// <summary>Binary search for cache-friendly O(log N) lookup.</summary>
+        internal bool ContainsNode(int docId)
+            => Array.BinarySearch(_sortedDocIds, docId) >= 0;
+
+        internal int[] GetNeighbours(int docId)
+        {
+            int idx = Array.BinarySearch(_sortedDocIds, docId);
+            return idx >= 0 ? _neighbourArrays[idx] : Array.Empty<int>();
+        }
+
+        /// <summary>Sorted doc IDs at this level — used by the writer.</summary>
+        internal int[] NodeIds => _sortedDocIds;
+
+        /// <summary>Creates a <c>Dictionary&lt;int, int[]&gt;</c> from this level.</summary>
+        internal Dictionary<int, int[]> ToDictionary()
+        {
+            var dict = new Dictionary<int, int[]>(_sortedDocIds.Length);
+            for (int i = 0; i < _sortedDocIds.Length; i++)
+                dict[_sortedDocIds[i]] = _neighbourArrays[i];
+            return dict;
+        }
+
+        /// <summary>Builds a <see cref="FrozenLevel"/> from a mutable dictionary, sorting by doc ID.</summary>
+        internal static FrozenLevel FromMutable(Dictionary<int, List<int>> mutable)
+        {
+            var docIds = new int[mutable.Count];
+            var neighbourArrays = new int[mutable.Count][];
+            int i = 0;
+            foreach (var (docId, neighbours) in mutable)
+            {
+                docIds[i] = docId;
+                neighbourArrays[i] = neighbours.ToArray();
+                i++;
+            }
+            Array.Sort(docIds, neighbourArrays);
+            return new FrozenLevel(docIds, neighbourArrays);
+        }
     }
 }
