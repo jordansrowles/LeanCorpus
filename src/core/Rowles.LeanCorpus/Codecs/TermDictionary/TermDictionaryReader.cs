@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.RegularExpressions;
 using Rowles.LeanCorpus.Codecs.CodecKit;
@@ -17,10 +18,8 @@ namespace Rowles.LeanCorpus.Codecs.TermDictionary;
 internal sealed class TermDictionaryReader : IDisposable
 {
     private readonly FstReader _fst;
-    private readonly Lock _fuzzyCacheLock = new();
-    private readonly Dictionary<FuzzyCacheKey, List<(string Term, long Offset, int Distance)>> _fuzzyCache = new();
-    private readonly Lock _wildcardCacheLock = new();
-    private readonly Dictionary<string, WildcardAutomaton> _wildcardCache = new(StringComparer.Ordinal);
+    private ConcurrentDictionary<FuzzyCacheKey, List<(string Term, long Offset, int Distance)>> _fuzzyCache = new();
+    private ConcurrentDictionary<string, Lazy<WildcardAutomaton>> _wildcardCache = new(StringComparer.Ordinal);
     private const int MaxFuzzyCacheEntries = 128;
     private const int MaxWildcardCacheEntries = 64;
     private bool _disposed;
@@ -196,15 +195,14 @@ internal sealed class TermDictionaryReader : IDisposable
     private WildcardAutomaton GetOrAddWildcardAutomaton(ReadOnlySpan<char> pattern)
     {
         var key = pattern.ToString();
-        lock (_wildcardCacheLock)
-        {
-            if (_wildcardCache.TryGetValue(key, out var cached)) return cached;
-            if (_wildcardCache.Count >= MaxWildcardCacheEntries)
-                _wildcardCache.Clear();
-            var built = new WildcardAutomaton(key);
-            _wildcardCache[key] = built;
-            return built;
-        }
+        var cache = _wildcardCache;
+        var lazy = cache.GetOrAdd(key,
+            _ => new Lazy<WildcardAutomaton>(() => new WildcardAutomaton(key), LazyThreadSafetyMode.ExecutionAndPublication));
+
+        if (cache.Count > MaxWildcardCacheEntries)
+            Interlocked.CompareExchange(ref _wildcardCache, new(StringComparer.Ordinal), cache);
+
+        return lazy.Value;
     }
 
     private static ReadOnlySpan<byte> EncodeUtf8(ReadOnlySpan<char> chars, Span<byte> stackBuffer, out byte[]? rented)
@@ -256,27 +254,15 @@ internal sealed class TermDictionaryReader : IDisposable
     }
 
     private bool TryGetFuzzyCache(FuzzyCacheKey key, out List<(string Term, long Offset, int Distance)> results)
-    {
-        lock (_fuzzyCacheLock)
-        {
-            if (_fuzzyCache.TryGetValue(key, out var cached))
-            {
-                results = cached;
-                return true;
-            }
-        }
-        results = [];
-        return false;
-    }
+        => _fuzzyCache.TryGetValue(key, out results!);
 
     private void StoreFuzzyCache(FuzzyCacheKey key, List<(string Term, long Offset, int Distance)> results)
     {
-        lock (_fuzzyCacheLock)
-        {
-            if (_fuzzyCache.Count >= MaxFuzzyCacheEntries)
-                _fuzzyCache.Clear();
-            _fuzzyCache[key] = results;
-        }
+        var cache = _fuzzyCache;
+        cache[key] = results;
+
+        if (cache.Count > MaxFuzzyCacheEntries)
+            Interlocked.CompareExchange(ref _fuzzyCache, new(), cache);
     }
 
     private readonly record struct FuzzyCacheKey(string FieldPrefix, string QueryTerm, int MaxEdits, int MaxExpansions);

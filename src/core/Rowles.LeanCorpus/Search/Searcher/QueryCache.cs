@@ -62,6 +62,8 @@ public sealed class QueryCache
     public TopDocs? TryGet(Query query, int topN)
     {
         var key = new CacheKey(QueryFingerprint.Create(query), topN);
+        TopDocs? result = null;
+        bool hit = false;
         lock (_lock)
         {
             if (_map.TryGetValue(key, out var node) && node.Value.Generation == _generation)
@@ -69,20 +71,26 @@ public sealed class QueryCache
                 // Move to front (most recently used)
                 _lru.Remove(node);
                 _lru.AddFirst(node);
-                _hits++;
-                return node.Value.Result;
+                result = node.Value.Result;
+                hit = true;
             }
-
-            // Stale entry — remove it
-            if (node is not null)
+            else
             {
-                _lru.Remove(node);
-                _map.Remove(key);
+                // Stale entry — remove it
+                if (node is not null)
+                {
+                    _lru.Remove(node);
+                    _map.Remove(key);
+                }
             }
-
-            _misses++;
-            return null;
         }
+
+        if (hit)
+            Interlocked.Increment(ref _hits);
+        else
+            Interlocked.Increment(ref _misses);
+
+        return result;
     }
 
     /// <summary>
