@@ -1,4 +1,6 @@
-﻿global using Rowles.LeanCorpus.Analysis.Filters;
+﻿global using Rowles.LeanCorpus.Analysis;
+global using Rowles.LeanCorpus.Analysis.Analysers;
+global using Rowles.LeanCorpus.Analysis.Filters;
 global using Rowles.LeanCorpus.Analysis.Stemmers;
 global using Rowles.LeanCorpus.Analysis.Tokenisers;
 global using Rowles.LeanCorpus.Codecs.CodecKit;
@@ -23,6 +25,7 @@ global using Rowles.LeanCorpus.Mapping;
 global using Rowles.LeanCorpus.Mapping.Attributes;
 global using Rowles.LeanCorpus.Search.Aggregations;
 global using Rowles.LeanCorpus.Search.Geo;
+global using Rowles.LeanCorpus.Search.Highlighting;
 global using Rowles.LeanCorpus.Search.Queries;
 global using Rowles.LeanCorpus.Search.Scoring;
 global using Rowles.LeanCorpus.Search.Searcher;
