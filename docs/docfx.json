@@ -56,7 +56,7 @@
         "files": [ "assets/**" ]
       },
       {
-        "files": [ "benchmarks/*.json" ]
+        "files": [ "benchmarks/*.json", "benchmarks/benchmark-charts.js" ]
       },
       {
         "files": [ "coverage/**" ]

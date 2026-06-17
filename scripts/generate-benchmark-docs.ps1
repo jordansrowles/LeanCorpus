@@ -166,73 +166,6 @@ if ($newestPerSuite.Count -eq 0) {
 
 Write-Host "Found $($newestPerSuite.Count) suites across all runs." -ForegroundColor Green
 
-# ── Chart.js template ─────────────────────────────────────────────────────────
-# Single @' … '@ here-string so $ symbols are literal.  Placeholders:
-#   CHART_DATA_PLACEHOLDER  →  compact JSON array of {label, meanNs, allocBytes, iterations}
-#   CHART_ID_PLACEHOLDER    →  safe CSS id for the two <canvas> elements
-
-$chartJsTemplate = @'
-(function(){
-var d=CHART_DATA_PLACEHOLDER;
-if(!d||!d.length)return;
-var colors=["#4e79a7","#f28e2b","#e15759","#76b7b2","#59a14f","#edc948","#b07aa1","#ff9da7","#9c755f","#bab0ac"];
-
-// Allocation — horizontal bar
-new Chart(document.getElementById("chart-alloc-CHART_ID_PLACEHOLDER"),{
-  type:"bar",
-  data:{
-    labels:d.map(function(x){return x.label;}),
-    datasets:[{
-      label:"Bytes allocated",
-      data:d.map(function(x){return x.allocBytes;}),
-      backgroundColor:colors[0]
-    }]
-  },
-  options:{
-    indexAxis:"y",
-    responsive:true,
-    maintainAspectRatio:false,
-    plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return fmtBytes(c.raw);}}}},
-    scales:{x:{title:{display:true,text:"Allocated"},ticks:{callback:fmtBytes}}}
-  }
-});
-
-// Performance — bar means with scatter iterations overlay
-var perfLabels=d.map(function(x){return x.label;});
-var perfDatasets=[{
-  type:"bar",
-  label:"Mean",
-  data:d.map(function(x){return x.meanNs;}),
-  backgroundColor:colors.map(function(c){return c+"88";}),
-  order:1
-}];
-d.forEach(function(m,i){
-  perfDatasets.push({
-    type:"scatter",
-    label:m.label,
-    data:m.iterations.map(function(ns){return{x:m.label,y:ns};}),
-    backgroundColor:colors[i%colors.length],
-    pointRadius:3,
-    pointHoverRadius:5,
-    showLine:false,
-    order:0
-  });
-});
-new Chart(document.getElementById("chart-perf-CHART_ID_PLACEHOLDER"),{
-  data:{labels:perfLabels,datasets:perfDatasets},
-  options:{
-    responsive:true,
-    maintainAspectRatio:false,
-    plugins:{tooltip:{callbacks:{label:function(c){var v=c.raw.y||c.raw;return c.dataset.label+": "+fmtNs(v);}}}},
-    scales:{y:{title:{display:true,text:"Time"},ticks:{callback:fmtNs}}}
-  }
-});
-
-function fmtBytes(v){if(v>=1e9)return(v/1e9).toFixed(1)+" GB";if(v>=1e6)return(v/1e6).toFixed(1)+" MB";if(v>=1e3)return(v/1e3).toFixed(1)+" KB";return v+" B";}
-function fmtNs(v){if(v>=1e9)return(v/1e9).toFixed(2)+" s";if(v>=1e6)return(v/1e6).toFixed(2)+" ms";if(v>=1e3)return(v/1e3).toFixed(2)+" μs";return v.toFixed(0)+" ns";}
-})();
-'@
-
 # ── Generate pages ────────────────────────────────────────────────────────────
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
@@ -297,29 +230,11 @@ foreach ($entry in $sortedSuites) {
     $jsonOutName  = "$jsonBaseName.json"
     $jsonOutPath  = Join-Path $OutputDir $jsonOutName
     $jsonFiles    = @(Get-ChildItem $suiteResultDir -Recurse -Filter '*-report-full.json' -ErrorAction SilentlyContinue)
-    $chartJson    = '[]'
     $hasCharts    = $false
 
     if ($jsonFiles.Count -gt 0) {
         Copy-Item $jsonFiles[0].FullName $jsonOutPath -Force
-        try {
-            $fullJson = Get-Content $jsonFiles[0].FullName -Raw | ConvertFrom-Json
-            $chartData = @($fullJson.Benchmarks | ForEach-Object {
-                $label = $_.MethodTitle
-                if ($_.Parameters) { $label += " [$($_.Parameters)]" }
-                $resultIters = @($_.Measurements | Where-Object { $_.IterationStage -eq 'Result' } | ForEach-Object { $_.Nanoseconds })
-                [PSCustomObject]@{
-                    label      = $label
-                    meanNs     = [math]::Round($_.Statistics.Mean, 0)
-                    allocBytes = $_.Memory.BytesAllocatedPerOperation
-                    iterations = $resultIters
-                }
-            })
-            $chartJson = ($chartData | ConvertTo-Json -Compress -Depth 4)
-            $hasCharts = ($chartData.Count -gt 0)
-        } catch {
-            Write-Warning "  Failed to parse JSON for '$suiteName', charts skipped."
-        }
+        $hasCharts = $true
     }
 
     $chartId = $suiteName -replace '[^a-zA-Z0-9]', '-'
@@ -344,13 +259,7 @@ foreach ($entry in $sortedSuites) {
         [void]$sb.AppendLine("<div style=""max-width:960px""><canvas id=""chart-perf-$chartId"" style=""max-height:500px""></canvas></div>")
         [void]$sb.AppendLine("<p><a href=""$jsonOutName"">Full results as JSON</a></p>")
         [void]$sb.AppendLine("</div>")
-        [void]$sb.AppendLine("<script src=""https://cdn.jsdelivr.net/npm/chart.js@4""></script>")
-        [void]$sb.AppendLine("<script>")
-        $chartJs = $chartJsTemplate
-        $chartJs = $chartJs -replace 'CHART_DATA_PLACEHOLDER', $chartJson.Replace('$', '$$')
-        $chartJs = $chartJs -replace 'CHART_ID_PLACEHOLDER', $chartId
-        [void]$sb.AppendLine($chartJs)
-        [void]$sb.AppendLine("</script>")
+        [void]$sb.AppendLine("<script src=""benchmark-charts.js""></script>")
     }
     [void]$sb.AppendLine()
 
@@ -362,6 +271,105 @@ foreach ($entry in $sortedSuites) {
     $tocEntries.Add("- name: $displayName")
     $tocEntries.Add("  href: $fileName")
 }
+
+# ── benchmark-charts.js ───────────────────────────────────────────────────────
+
+$benchmarkChartsJs = @'
+(function(){
+"use strict";
+
+// Work out which suite page we are on from the canvas element id.
+var allocCanvas = document.querySelector("canvas[id^='chart-alloc-']");
+if(!allocCanvas)return;
+var suite = allocCanvas.id.replace("chart-alloc-","");
+var jsonUrl = suite + ".json";
+
+// Load Chart.js then fetch data and render.
+var chartJs = document.createElement("script");
+chartJs.src = "https://cdn.jsdelivr.net/npm/chart.js@4";
+chartJs.onload = function(){ fetch(jsonUrl).then(function(r){return r.json();}).then(render).catch(function(){}); };
+document.head.appendChild(chartJs);
+
+function render(full){
+  var benchmarks = full.Benchmarks;
+  if(!benchmarks||!benchmarks.length)return;
+
+  var colors=["#4e79a7","#f28e2b","#e15759","#76b7b2","#59a14f","#edc948","#b07aa1","#ff9da7","#9c755f","#bab0ac"];
+
+  // Build chart data from the full BDN JSON
+  var chartData=[];
+  benchmarks.forEach(function(b){
+    var label=b.MethodTitle;
+    if(b.Parameters)label+=" ["+b.Parameters+"]";
+    var iters=[];
+    b.Measurements.forEach(function(m){if(m.IterationStage==="Result")iters.push(m.Nanoseconds);});
+    chartData.push({
+      label:label,
+      meanNs:Math.round(b.Statistics.Mean),
+      allocBytes:b.Memory.BytesAllocatedPerOperation,
+      iterations:iters
+    });
+  });
+
+  // Allocation — horizontal bar
+  new Chart(document.getElementById("chart-alloc-"+suite),{
+    type:"bar",
+    data:{
+      labels:chartData.map(function(x){return x.label;}),
+      datasets:[{
+        label:"Bytes allocated",
+        data:chartData.map(function(x){return x.allocBytes;}),
+        backgroundColor:colors[0]
+      }]
+    },
+    options:{
+      indexAxis:"y",
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return fmtBytes(c.raw);}}}},
+      scales:{x:{title:{display:true,text:"Allocated"},ticks:{callback:fmtBytes}}}
+    }
+  });
+
+  // Performance — bar means with scatter iterations overlay
+  var perfLabels=chartData.map(function(x){return x.label;});
+  var perfDatasets=[{
+    type:"bar",
+    label:"Mean",
+    data:chartData.map(function(x){return x.meanNs;}),
+    backgroundColor:colors.map(function(c){return c+"88";}),
+    order:1
+  }];
+  chartData.forEach(function(m,i){
+    perfDatasets.push({
+      type:"scatter",
+      label:m.label,
+      data:m.iterations.map(function(ns){return{x:m.label,y:ns};}),
+      backgroundColor:colors[i%colors.length],
+      pointRadius:3,
+      pointHoverRadius:5,
+      showLine:false,
+      order:0
+    });
+  });
+  new Chart(document.getElementById("chart-perf-"+suite),{
+    data:{labels:perfLabels,datasets:perfDatasets},
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{tooltip:{callbacks:{label:function(c){var v=c.raw.y||c.raw;return c.dataset.label+": "+fmtNs(v);}}}},
+      scales:{y:{title:{display:true,text:"Time"},ticks:{callback:fmtNs}}}
+    }
+  });
+
+  function fmtBytes(v){if(v>=1e9)return(v/1e9).toFixed(1)+" GB";if(v>=1e6)return(v/1e6).toFixed(1)+" MB";if(v>=1e3)return(v/1e3).toFixed(1)+" KB";return v+" B";}
+  function fmtNs(v){if(v>=1e9)return(v/1e9).toFixed(2)+" s";if(v>=1e6)return(v/1e6).toFixed(2)+" ms";if(v>=1e3)return(v/1e3).toFixed(2)+" μs";return v.toFixed(0)+" ns";}
+}})();
+
+'@
+
+$benchmarkChartsJs | Set-Content (Join-Path $OutputDir 'benchmark-charts.js') -Encoding UTF8
+Write-Host "Written: benchmark-charts.js" -ForegroundColor Green
 
 # ── toc.yml ───────────────────────────────────────────────────────────────────
 
