@@ -20,7 +20,7 @@ public sealed partial class IndexWriter
         {
             ValidateDocument(doc);
 
-            await AcquireBackpressureSlotAsync(cancellationToken);
+            await AcquireBackpressureSlotAsync(cancellationToken).ConfigureAwait(false);
 
             bool addedToHeldSlots = false;
             bool enteredCore = false;
@@ -80,7 +80,7 @@ public sealed partial class IndexWriter
             if (_backpressureSemaphore is not null && documents.Count > _config.MaxQueuedDocs)
             {
                 for (int i = 0; i < documents.Count; i++)
-                    await AddDocumentAsync(documents[i], cancellationToken);
+                    await AddDocumentAsync(documents[i], cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -93,7 +93,7 @@ public sealed partial class IndexWriter
                 {
                     for (int i = 0; i < documents.Count; i++)
                     {
-                        await AcquireBackpressureSlotAsync(cancellationToken);
+                        await AcquireBackpressureSlotAsync(cancellationToken).ConfigureAwait(false);
                         acquired++;
                     }
                 }
@@ -152,18 +152,18 @@ public sealed partial class IndexWriter
             int effectiveBatchSize = GetEffectiveAsyncBatchSize(batchSize);
             var batch = new List<LeanDocument>(effectiveBatchSize);
 
-            await foreach (var document in documents.WithCancellation(cancellationToken))
+            await foreach (var document in documents.WithCancellation(cancellationToken).ConfigureAwait(false))
             {
                 batch.Add(document);
                 if (batch.Count < effectiveBatchSize)
                     continue;
 
-                await AddDocumentsAsync(batch, cancellationToken);
+                await AddDocumentsAsync(batch, cancellationToken).ConfigureAwait(false);
                 batch.Clear();
             }
 
             if (batch.Count > 0)
-                await AddDocumentsAsync(batch, cancellationToken);
+                await AddDocumentsAsync(batch, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -203,7 +203,7 @@ public sealed partial class IndexWriter
                 {
                     for (int i = 0; i < block.Count; i++)
                     {
-                        await AcquireBackpressureSlotAsync(cancellationToken);
+                        await AcquireBackpressureSlotAsync(cancellationToken).ConfigureAwait(false);
                         acquired++;
                     }
                 }
@@ -310,7 +310,7 @@ public sealed partial class IndexWriter
 
         try
         {
-            await _backpressureSemaphore.WaitAsync(cancellationToken);
+            await _backpressureSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (ObjectDisposedException) when (Volatile.Read(ref _disposed) != 0)
         {

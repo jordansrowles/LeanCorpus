@@ -176,7 +176,7 @@ public sealed class SearcherManager : IDisposable
         {
             try
             {
-                await Task.Delay(_config.RefreshInterval, ct);
+                await Task.Delay(_config.RefreshInterval, ct).ConfigureAwait(false);
                 if (TryRefresh())
                     Interlocked.Increment(ref _unobservedBackgroundRefreshes);
             }
