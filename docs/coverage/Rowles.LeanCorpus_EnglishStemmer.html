@@ -25,7 +25,7 @@
 </tr>
 <tr>
 <th>File(s):</th>
-<td class="overflow-wrap"><a href="#CUsersJordanDesktopLeanLucenerepospublicsrccoreRowlesLeanCorpusAnalysisStemmersEnglishStemmercs" class="navigatetohash">C:\Users\Jordan\Desktop\LeanLucene\repos\public\src\core\Rowles.LeanCorpus\Analysis\Stemmers\EnglishStemmer.cs</a></td>
+<td class="overflow-wrap"><a href="#homejordansourceleancorpusworking_directorysrccoreRowlesLeanCorpusAnalysisStemmersEnglishStemmercs" class="navigatetohash">/home/jordan/source/leancorpus/working_directory/src/core/Rowles.LeanCorpus/Analysis/Stemmers/EnglishStemmer.cs</a></td>
 </tr>
 </table>
 </div>
@@ -41,7 +41,7 @@
 <table>
 <tr>
 <th>Covered lines:</th>
-<td class="limit-width right" title="1">1</td>
+<td class="limit-width right" title="2">2</td>
 </tr>
 <tr>
 <th>Uncovered lines:</th>
@@ -49,15 +49,15 @@
 </tr>
 <tr>
 <th>Coverable lines:</th>
-<td class="limit-width right" title="1">1</td>
+<td class="limit-width right" title="2">2</td>
 </tr>
 <tr>
 <th>Total lines:</th>
-<td class="limit-width right" title="10">10</td>
+<td class="limit-width right" title="14">14</td>
 </tr>
 <tr>
 <th>Line coverage:</th>
-<td class="limit-width right" title="1 of 1">100%</td>
+<td class="limit-width right" title="2 of 2">100%</td>
 </tr>
 </table>
 </div>
@@ -107,12 +107,13 @@
 </colgroup>
 <thead><tr><th>Method</th><th>Branch coverage <a href="https://en.wikipedia.org/wiki/Code_coverage" target="_blank"><i class="icon-info-circled"></i></a></th><th>Crap Score <a href="https://googletesting.blogspot.de/2011/02/this-code-is-crap.html" target="_blank"><i class="icon-info-circled"></i></a></th><th>Cyclomatic complexity <a href="https://en.wikipedia.org/wiki/Cyclomatic_complexity" target="_blank"><i class="icon-info-circled"></i></a></th><th>Line coverage <a href="https://en.wikipedia.org/wiki/Code_coverage" target="_blank"><i class="icon-info-circled"></i></a></th></tr></thead>
 <tbody>
-<tr><td title="Stem(System.String)"><a href="#file0_line9" class="navigatetohash">Stem(...)</a></td><td>100%</td><td>1</td><td>1</td><td>100%</td></tr>
+<tr><td title="Stem(System.ReadOnlySpan`1&lt;System.Char&gt;,System.Span`1&lt;System.Char&gt;)"><a href="#file0_line10" class="navigatetohash">Stem(...)</a></td><td>100%</td><td>1</td><td>1</td><td>100%</td></tr>
+<tr><td title="Stem(System.String)"><a href="#file0_line13" class="navigatetohash">Stem(...)</a></td><td>100%</td><td>1</td><td>1</td><td>100%</td></tr>
 </tbody>
 </table>
 </div>
 <h1>File(s)</h1>
-<h2 id="CUsersJordanDesktopLeanLucenerepospublicsrccoreRowlesLeanCorpusAnalysisStemmersEnglishStemmercs">C:\Users\Jordan\Desktop\LeanLucene\repos\public\src\core\Rowles.LeanCorpus\Analysis\Stemmers\EnglishStemmer.cs</h2>
+<h2 id="homejordansourceleancorpusworking_directorysrccoreRowlesLeanCorpusAnalysisStemmersEnglishStemmercs">/home/jordan/source/leancorpus/working_directory/src/core/Rowles.LeanCorpus/Analysis/Stemmers/EnglishStemmer.cs</h2>
 <div class="table-responsive">
 <table class="lineAnalysis">
 <thead><tr><th></th><th>#</th><th>Line</th><th></th><th>Line coverage</th></tr></thead>
@@ -122,19 +123,24 @@
 <tr class="" title="Not coverable" data-coverage="{'AllTestMethods': {'VC': '', 'LVS': 'gray'}}"><td class="gray">&nbsp;</td><td class="leftmargin rightmargin right"></td><td class="rightmargin right"><a id="file0_line3"></a><code>3</code></td><td></td><td class="lightgray"><code>///&nbsp;&lt;summary&gt;</code></td></tr>
 <tr class="" title="Not coverable" data-coverage="{'AllTestMethods': {'VC': '', 'LVS': 'gray'}}"><td class="gray">&nbsp;</td><td class="leftmargin rightmargin right"></td><td class="rightmargin right"><a id="file0_line4"></a><code>4</code></td><td></td><td class="lightgray"><code>///&nbsp;English&nbsp;stemmer&nbsp;wrapping&nbsp;the&nbsp;existing&nbsp;Porter&nbsp;stemmer&nbsp;implementation.</code></td></tr>
 <tr class="" title="Not coverable" data-coverage="{'AllTestMethods': {'VC': '', 'LVS': 'gray'}}"><td class="gray">&nbsp;</td><td class="leftmargin rightmargin right"></td><td class="rightmargin right"><a id="file0_line5"></a><code>5</code></td><td></td><td class="lightgray"><code>///&nbsp;&lt;/summary&gt;</code></td></tr>
-<tr class="" title="Not coverable" data-coverage="{'AllTestMethods': {'VC': '', 'LVS': 'gray'}}"><td class="gray">&nbsp;</td><td class="leftmargin rightmargin right"></td><td class="rightmargin right"><a id="file0_line6"></a><code>6</code></td><td></td><td class="lightgray"><code>public&nbsp;sealed&nbsp;class&nbsp;EnglishStemmer&nbsp;:&nbsp;IStemmer</code></td></tr>
+<tr class="" title="Not coverable" data-coverage="{'AllTestMethods': {'VC': '', 'LVS': 'gray'}}"><td class="gray">&nbsp;</td><td class="leftmargin rightmargin right"></td><td class="rightmargin right"><a id="file0_line6"></a><code>6</code></td><td></td><td class="lightgray"><code>public&nbsp;sealed&nbsp;class&nbsp;EnglishStemmer&nbsp;:&nbsp;ISpanStemmer</code></td></tr>
 <tr class="" title="Not coverable" data-coverage="{'AllTestMethods': {'VC': '', 'LVS': 'gray'}}"><td class="gray">&nbsp;</td><td class="leftmargin rightmargin right"></td><td class="rightmargin right"><a id="file0_line7"></a><code>7</code></td><td></td><td class="lightgray"><code>{</code></td></tr>
 <tr class="" title="Not coverable" data-coverage="{'AllTestMethods': {'VC': '', 'LVS': 'gray'}}"><td class="gray">&nbsp;</td><td class="leftmargin rightmargin right"></td><td class="rightmargin right"><a id="file0_line8"></a><code>8</code></td><td></td><td class="lightgray"><code>&nbsp;&nbsp;&nbsp;&nbsp;///&nbsp;&lt;inheritdoc/&gt;</code></td></tr>
-<tr class="coverableline" title="Covered (9657 visits)" data-coverage="{'AllTestMethods': {'VC': '9657', 'LVS': 'green'}}"><td class="green">&nbsp;</td><td class="leftmargin rightmargin right">9657</td><td class="rightmargin right"><a id="file0_line9"></a><code>9</code></td><td></td><td class="lightgreen"><code>&nbsp;&nbsp;&nbsp;&nbsp;public&nbsp;string&nbsp;Stem(string&nbsp;word)&nbsp;=&gt;&nbsp;PorterStemmerFilter.Stem(word);</code></td></tr>
-<tr class="" title="Not coverable" data-coverage="{'AllTestMethods': {'VC': '', 'LVS': 'gray'}}"><td class="gray">&nbsp;</td><td class="leftmargin rightmargin right"></td><td class="rightmargin right"><a id="file0_line10"></a><code>10</code></td><td></td><td class="lightgray"><code>}</code></td></tr>
+<tr class="" title="Not coverable" data-coverage="{'AllTestMethods': {'VC': '', 'LVS': 'gray'}}"><td class="gray">&nbsp;</td><td class="leftmargin rightmargin right"></td><td class="rightmargin right"><a id="file0_line9"></a><code>9</code></td><td></td><td class="lightgray"><code>&nbsp;&nbsp;&nbsp;&nbsp;public&nbsp;int&nbsp;Stem(ReadOnlySpan&lt;char&gt;&nbsp;word,&nbsp;Span&lt;char&gt;&nbsp;output)</code></td></tr>
+<tr class="coverableline" title="Covered (8047 visits)" data-coverage="{'AllTestMethods': {'VC': '8047', 'LVS': 'green'}}"><td class="green">&nbsp;</td><td class="leftmargin rightmargin right">8047</td><td class="rightmargin right"><a id="file0_line10"></a><code>10</code></td><td></td><td class="lightgreen"><code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;=&gt;&nbsp;PorterStemmerFilter.Stem(word,&nbsp;output);</code></td></tr>
+<tr class="" title="Not coverable" data-coverage="{'AllTestMethods': {'VC': '', 'LVS': 'gray'}}"><td class="gray">&nbsp;</td><td class="leftmargin rightmargin right"></td><td class="rightmargin right"><a id="file0_line11"></a><code>11</code></td><td></td><td class="lightgray"><code></code></td></tr>
+<tr class="" title="Not coverable" data-coverage="{'AllTestMethods': {'VC': '', 'LVS': 'gray'}}"><td class="gray">&nbsp;</td><td class="leftmargin rightmargin right"></td><td class="rightmargin right"><a id="file0_line12"></a><code>12</code></td><td></td><td class="lightgray"><code>&nbsp;&nbsp;&nbsp;&nbsp;///&nbsp;&lt;summary&gt;Convenience&nbsp;overload&nbsp;returning&nbsp;a&nbsp;stemmed&nbsp;string.&lt;/summary&gt;</code></td></tr>
+<tr class="coverableline" title="Covered (2 visits)" data-coverage="{'AllTestMethods': {'VC': '2', 'LVS': 'green'}}"><td class="green">&nbsp;</td><td class="leftmargin rightmargin right">2</td><td class="rightmargin right"><a id="file0_line13"></a><code>13</code></td><td></td><td class="lightgreen"><code>&nbsp;&nbsp;&nbsp;&nbsp;public&nbsp;string&nbsp;Stem(string&nbsp;word)&nbsp;=&gt;&nbsp;PorterStemmerFilter.Stem(word);</code></td></tr>
+<tr class="" title="Not coverable" data-coverage="{'AllTestMethods': {'VC': '', 'LVS': 'gray'}}"><td class="gray">&nbsp;</td><td class="leftmargin rightmargin right"></td><td class="rightmargin right"><a id="file0_line14"></a><code>14</code></td><td></td><td class="lightgray"><code>}</code></td></tr>
 </tbody>
 </table>
 </div>
-<div class="footer">Generated by: ReportGenerator 5.5.9.0<br />29/05/2026 - 14:43:09<br /><a href="https://github.com/danielpalme/ReportGenerator">GitHub</a> | <a href="https://reportgenerator.io">reportgenerator.io</a></div></div>
+<div class="footer">Generated by: ReportGenerator 5.5.10.0<br />17/06/2026 - 19:18:19<br /><a href="https://github.com/danielpalme/ReportGenerator">GitHub</a> | <a href="https://reportgenerator.io">reportgenerator.io</a></div></div>
 <div class="containerright">
 <div class="containerrightfixed">
 <h1>Methods/Properties</h1>
-<a href="#file0_line9" class="navigatetohash percentagebar percentagebar100" title="Line coverage: 100% - Stem(System.String)"><i class="icon-cube"></i>Stem(System.String)</a><br />
+<a href="#file0_line10" class="navigatetohash percentagebar percentagebar100" title="Line coverage: 100% - Stem(System.ReadOnlySpan`1&lt;System.Char&gt;,System.Span`1&lt;System.Char&gt;)"><i class="icon-cube"></i>Stem(System.ReadOnlySpan`1&lt;System.Char&gt;,System.Span`1&lt;System.Char&gt;)</a><br />
+<a href="#file0_line13" class="navigatetohash percentagebar percentagebar100" title="Line coverage: 100% - Stem(System.String)"><i class="icon-cube"></i>Stem(System.String)</a><br />
 <br/></div>
 </div></div>
 <script type="text/javascript" src="class.js"></script>

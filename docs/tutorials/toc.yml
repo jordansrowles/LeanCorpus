@@ -45,6 +45,8 @@
       href: searching/06-sorting.md
     - name: LINQ queries
       href: searching/07-linq-queries.md
+    - name: Disjunction max
+      href: searching/08-disjunction-max.md
 
 - name: Advanced
   items:
@@ -64,6 +66,8 @@
       href: advanced/07-more-like-this.md
     - name: Filtered vector search
       href: advanced/08-filtered-vector-search.md
+    - name: Field collapsing
+      href: advanced/09-field-collapsing.md
 
 - name: Concurrency
   items:
@@ -112,3 +116,14 @@
       href: tips/02-query-cache.md
     - name: Benchmarking
       href: tips/03-benchmarking.md
+
+- name: CodecKit
+  items:
+    - name: Overview
+      href: codeckit/index.md
+    - name: Creating codecs
+      href: codeckit/01-creating-codecs.md
+    - name: Adding formats
+      href: codeckit/02-adding-formats.md
+    - name: Migrations
+      href: codeckit/03-migrations.md

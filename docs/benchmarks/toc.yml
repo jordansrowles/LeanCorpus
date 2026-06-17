@@ -1,4 +1,112 @@
-﻿- name: debian
-  href: debian.md
-- name: DESKTOP-U6KL8U9
-  href: DESKTOP-U6KL8U9.md
+- name: Aggregation
+  href: aggregation.md
+- name: Analysis filters
+  href: analysis-filters.md
+- name: Analysis filters v2
+  href: analysis-filters-v2.md
+- name: Analysis
+  href: analysis.md
+- name: Analysis parity
+  href: analysis-parity.md
+- name: Async index
+  href: async-index.md
+- name: Block-Join (index)
+  href: blockjoin-index.md
+- name: Block-Join
+  href: blockjoin.md
+- name: Block-Join (search)
+  href: blockjoin-search.md
+- name: Boolean queries
+  href: boolean.md
+- name: Collapse and facet
+  href: collapse-facet.md
+- name: Combined queries
+  href: combined.md
+- name: concurrent-write
+  href: concurrent-write.md
+- name: Deletion (commit)
+  href: deletion-commit.md
+- name: Deletion
+  href: deletion.md
+- name: Deletion (queue)
+  href: deletion-queue.md
+- name: Disjunction max
+  href: dismax.md
+- name: Function score
+  href: function-score.md
+- name: Fuzzy queries
+  href: fuzzy.md
+- name: Geo queries
+  href: geo.md
+- name: Gutenberg analysis
+  href: gutenberg-analysis.md
+- name: Gutenberg index
+  href: gutenberg-index.md
+- name: Gutenberg search
+  href: gutenberg-search.md
+- name: Highlighter
+  href: highlighter.md
+- name: Hunspell
+  href: hunspell.md
+- name: Indexing
+  href: index.md
+- name: Index-sort (index)
+  href: indexsort-index.md
+- name: Index-sort (search)
+  href: indexsort-search.md
+- name: index-writer
+  href: index-writer.md
+- name: KStemmer
+  href: kstemmer.md
+- name: Light English stemmer
+  href: lightenglish.md
+- name: More like this
+  href: mlt.md
+- name: Multi-phrase
+  href: multiphrase.md
+- name: N-gram
+  href: ngram.md
+- name: numeric-aggregator
+  href: numeric-aggregator.md
+- name: packed-int-codec
+  href: packed-int-codec.md
+- name: Parallel indexing
+  href: parallel.md
+- name: Pattern tokeniser
+  href: pattern-tokeniser.md
+- name: Phrase queries
+  href: phrase.md
+- name: Prefix queries
+  href: prefix.md
+- name: Query cache
+  href: query-cache.md
+- name: Term queries
+  href: query.md
+- name: Range queries
+  href: range.md
+- name: Regexp queries
+  href: regexp.md
+- name: Schema and JSON
+  href: schemajson.md
+- name: Searcher manager
+  href: searcher-mgr.md
+- name: simd-cosine
+  href: simd-cosine.md
+- name: Similarity
+  href: similarity.md
+- name: Span queries
+  href: span.md
+- name: Stemmer
+  href: stemmer.md
+- name: Suggester
+  href: suggester.md
+- name: Synonym
+  href: synonym.md
+- name: Term in set
+  href: terminset.md
+- name: Term-vector highlighter
+  href: tv-highlighter.md
+- name: Vector queries
+  href: vq.md
+- name: Wildcard queries
+  href: wildcard.md

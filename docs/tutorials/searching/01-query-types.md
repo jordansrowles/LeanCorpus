@@ -1,45 +1,45 @@
-# Query types overview
+# Query types
 
-Every query derives from <xref:Rowles.LeanCorpus.Search.Query>. The built-in types live
-under `Rowles.LeanCorpus.Search.Queries`.
+Every query derives from `Query`. The built-in types are in `Rowles.LeanCorpus.Search.Queries`.
 
 | Query | Use |
 |---|---|
-| `TermQuery` | exact match on one term |
-| `BooleanQuery` | combine clauses with `Must` / `Should` / `MustNot` |
-| `PhraseQuery` | ordered terms within an optional slop |
-| `PrefixQuery` | terms starting with a prefix |
+| `TermQuery` | Exact match on one term |
+| `BooleanQuery` | Combine clauses with `Must`, `Should`, `MustNot` |
+| `PhraseQuery` | Ordered terms within an optional slop |
+| `PrefixQuery` | Terms starting with a prefix |
 | `WildcardQuery` | `*` and `?` patterns |
-| `FuzzyQuery` | Levenshtein, max edits 0-2 |
-| `RangeQuery` | numeric ranges over `NumericField` |
+| `FuzzyQuery` | Levenshtein, max edits 0–2 |
+| `RangeQuery` | Numeric ranges over `NumericField` |
 | `RegexpQuery` | .NET regular expressions |
-| `ConstantScoreQuery` | wrap to bypass BM25 |
-| `FunctionScoreQuery` | combine BM25 with a numeric field |
-| `RrfQuery` | reciprocal rank fusion of children |
+| `DisjunctionMaxQuery` | Best matching clause wins, with tie-breaker |
+| `ConstantScoreQuery` | Fixed score; bypass BM25 |
+| `FunctionScoreQuery` | Combine BM25 with a numeric field |
+| `RrfQuery` | Reciprocal rank fusion of child queries |
 | `VectorQuery` | ANN over a vector field |
-| `BlockJoinQuery` | parents whose children match |
-| `MoreLikeThisQuery` | similar documents to a source doc |
-| `SpanNearQuery` | proximity over span queries |
-| `GeoBoundingBoxQuery` / `GeoDistanceQuery` | geo filters |
-| `MatchAllDocsQuery` | matches every document in the index |
-| `MatchNoDocsQuery` | matches nothing; sentinel for empty results |
-| `FieldExistsQuery` | documents where a field has a value |
-| `TermInSetQuery` | documents matching any term in a set |
-| `PointInSetQuery` | multi-point set for numeric/doc-values fields |
-| `MultiPhraseQuery` | any of several terms at each phrase position |
-| `IntervalsQuery` | fine-grained positional constraints near terms |
-| `CombinedFieldsQuery` | single query across multiple text fields |
+| `BlockJoinQuery` | Parents whose children match |
+| `MoreLikeThisQuery` | Similar documents to a source doc |
+| `SpanNearQuery` | Proximity over span queries |
+| `GeoBoundingBoxQuery` / `GeoDistanceQuery` | Geo filters |
+| `MatchAllDocsQuery` | Every document in the index |
+| `MatchNoDocsQuery` | Nothing; sentinel for empty results |
+| `FieldExistsQuery` | Documents where a field has a value |
+| `TermInSetQuery` | Documents matching any term in a set |
+| `PointInSetQuery` | Multi-point set for numeric/doc-values fields |
+| `MultiPhraseQuery` | Any of several terms at each phrase position |
+| `IntervalsQuery` | Fine-grained positional constraints near terms |
+| `CombinedFieldsQuery` | Single query across multiple text fields |
 
-## Running a query
+## Run a query
 
 ```csharp
 var hits = searcher.Search(new TermQuery("title", "fox"), topN: 10);
 ```
 
-All overloads of <xref:Rowles.LeanCorpus.Search.Searcher.IndexSearcher.Search%2A>
-return a `TopDocs`.
+All `Search` overloads return a `TopDocs`.
 
 ## See also
 
 - [Boolean queries](02-boolean-queries.md)
+- [Disjunction max](08-disjunction-max.md)
 - [Query parser](04-query-parser.md)

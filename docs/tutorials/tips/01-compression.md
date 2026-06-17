@@ -1,7 +1,6 @@
 ﻿# Stored field compression
 
-Stored fields are written in blocks under the
-`.fdt` extension and compressed.
+Stored fields are written in compressed blocks under `.fdt`.
 
 ## Choose a policy
 
@@ -9,46 +8,43 @@ Stored fields are written in blocks under the
 var config = new IndexWriterConfig
 {
     CompressionPolicy = FieldCompressionPolicy.Deflate, // default
-    StoredFieldBlockSize = 16,                          // docs per block
+    StoredFieldBlockSize = 16,
 };
 ```
 
 | Policy | Package | Notes |
 |---|---|---|
-| `None` | Core | No compression. Fastest write, largest disk. |
-| `Deflate` (default) | Core | BCL `DeflateStream`. Good ratio, no native deps. |
-| `Brotli` | Core | BCL `BrotliStream`. Better ratio, slower writes. |
-| `Lz4` | `Rowles.LeanCorpus.Compression.LZ4` | Very fast, modest ratio. |
-| `Snappy` | `Rowles.LeanCorpus.Compression.Snappy` | Similar speed to LZ4. |
-| `Zstandard` | `Rowles.LeanCorpus.Compression.Zstandard` | Better ratio than LZ4, still fast. |
+| `None` | Core | No compression. Fastest write, largest disk |
+| `Deflate` (default) | Core | BCL `DeflateStream`. Good ratio |
+| `Brotli` | Core | BCL `BrotliStream`. Better ratio, slower writes |
+| `Lz4` | `LeanCorpus.Compression.LZ4` | Very fast, modest ratio |
+| `Snappy` | `LeanCorpus.Compression.Snappy` | Similar speed to LZ4 |
+| `Zstandard` | `LeanCorpus.Compression.Zstandard` | Better ratio than LZ4, still fast |
 
-The policy is recorded in the segment header, so reads tolerate mixed segments.
+The policy is recorded in the segment header; reads tolerate mixed segments.
 
-## Optional codec packages
+## Optional codecs
 
-Install and register a codec package to use LZ4, Snappy, or Zstandard:
+Install and register:
 
 ```csharp
-// In standard .NET the module initialiser registers the codec automatically.
-// In Native AOT, call Register() explicitly at startup.
 Lz4Compression.Register();
 SnappyCompression.Register();
 ZstandardCompression.Register();
 ```
 
+In standard .NET the module initialiser registers automatically. In Native AOT, call `Register()` explicitly at startup.
+
 ## Block size
 
-`StoredFieldBlockSize` (default `16`) controls how many documents share a
-compression block. Larger blocks compress better but cost more on single-document
-retrieval.
+`StoredFieldBlockSize` (default `16`) controls how many documents share a compression block. Larger blocks compress better but cost more on single-document retrieval.
 
 ## Trade-offs
 
-- Indexing throughput: `None` > `Lz4` ≈ `Snappy` > `Deflate` > `Zstandard` > `Brotli`.
-- On-disk size: `Brotli` ≈ `Zstandard` < `Deflate` < `Lz4` ≈ `Snappy` < `None`.
-- Retrieval cost scales with block size, not policy.
+- Write speed: `None` > `Lz4` ≈ `Snappy` > `Deflate` > `Zstandard` > `Brotli`
+- Disk size: `Brotli` ≈ `Zstandard` < `Deflate` < `Lz4` ≈ `Snappy` < `None`
+- Retrieval cost scales with block size, not policy
 
 ## See also
 
 - <xref:Rowles.LeanCorpus.Codecs.StoredFields.FieldCompressionPolicy>
-- <xref:Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig>

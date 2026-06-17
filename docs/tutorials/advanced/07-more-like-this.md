@@ -1,14 +1,8 @@
 ﻿# More like this
 
-`MoreLikeThisQuery` finds documents similar to a source document by extracting
-representative terms from its term vectors and turning them into a weighted boolean
-query.
-
-## Use
+`MoreLikeThisQuery` finds documents similar to a source document by extracting representative terms from its term vectors and turning them into a weighted boolean query.
 
 ```csharp
-using Rowles.LeanCorpus.Search.Queries;
-
 var mlt = new MoreLikeThisQuery(
     docId: 42,
     fields: new[] { "title", "body" },
@@ -24,20 +18,18 @@ var mlt = new MoreLikeThisQuery(
 var hits = searcher.Search(mlt, topN: 10);
 ```
 
-## Parameter defaults
+## Parameters
 
-| Parameter | Default |
-|---|---|
-| `MinTermFreq` | `1` |
-| `MinDocFreq` | `1` |
-| `MaxDocFreq` | `int.MaxValue` |
-| `MaxQueryTerms` | `25` |
-| `MinWordLength` | `3` |
-| `BoostByScore` | `true` |
+| Parameter | Default | Effect |
+|---|---|---|
+| `MinTermFreq` | `1` | Minimum occurrences in the source doc |
+| `MinDocFreq` | `1` | Minimum docs containing the term |
+| `MaxDocFreq` | `int.MaxValue` | Cap on doc frequency for common terms |
+| `MaxQueryTerms` | `25` | Maximum terms in the generated query |
+| `MinWordLength` | `3` | Minimum term length |
+| `BoostByScore` | `true` | Weight terms by their TF-IDF score |
 
-Raising `MinDocFreq` filters out terms that appear in only a handful of documents
-and would otherwise dominate similarity. Lowering `MaxDocFreq` filters ultra-common
-terms.
+Raise `MinDocFreq` to filter rare terms that dominate similarity. Lower `MaxDocFreq` to filter ultra-common terms.
 
 ## See also
 
