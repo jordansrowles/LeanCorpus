@@ -253,8 +253,8 @@ foreach ($entry in $sortedSuites) {
 
     if ($hasCharts) {
         [void]$sb.AppendLine("<div class=""benchmark-chart"">")
-        [void]$sb.AppendLine("<p style=""margin-bottom:4px""><label>Time scale: <select id=""chart-scale-$chartId""><option value=""log2"" selected>Log2</option><option value=""log10"">Log10</option><option value=""linear"">Linear</option></select></label></p>")
-        [void]$sb.AppendLine("<div style=""max-width:960px""><canvas id=""chart-bench-$chartId"" style=""max-height:500px""></canvas></div>")
+        [void]$sb.AppendLine("<p style=""margin-bottom:4px""><label>Time scale: <select id=""chart-scale-$chartId""><option value=""log2"" selected>Log2</option><option value=""log10"">Log10</option><option value=""linear"">Linear</option></select></label> <label>Width: <input type=""range"" id=""chart-width-$chartId"" min=""400"" max=""1400"" value=""960"" step=""20"" style=""vertical-align:middle""></label> <label>Height: <input type=""range"" id=""chart-height-$chartId"" min=""200"" max=""900"" value=""500"" step=""20"" style=""vertical-align:middle""></label></p>")
+        [void]$sb.AppendLine("<div id=""chart-wrap-$chartId"" style=""max-width:960px""><canvas id=""chart-bench-$chartId"" style=""height:500px""></canvas></div>")
         [void]$sb.AppendLine("<p><a href=""$jsonOutName"">Full results as JSON</a></p>")
         [void]$sb.AppendLine("</div>")
         [void]$sb.AppendLine("<script src=""benchmark-charts.js""></script>")
@@ -373,6 +373,23 @@ function render(full){
     sel.addEventListener("change",function(){
       chart.options.scales.y1 = makeScale(this.value);
       chart.update();
+    });
+  }
+
+  // Width / height sliders
+  var wrap = document.getElementById("chart-wrap-"+suite);
+  var widthSlider = document.getElementById("chart-width-"+suite);
+  var heightSlider = document.getElementById("chart-height-"+suite);
+  if(widthSlider && wrap){
+    widthSlider.addEventListener("input",function(){
+      wrap.style.maxWidth = this.value + "px";
+      chart.resize();
+    });
+  }
+  if(heightSlider){
+    heightSlider.addEventListener("input",function(){
+      canvas.style.height = this.value + "px";
+      chart.resize();
     });
   }
 
