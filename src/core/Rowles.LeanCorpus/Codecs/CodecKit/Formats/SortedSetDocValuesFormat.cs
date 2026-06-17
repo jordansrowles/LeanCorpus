@@ -27,10 +27,10 @@ internal static class SortedSetDocValuesFormat
 
     // Per-field codec
     private static readonly ICodec<Field> FieldCodec = Codec.Record<Field>()
-        .Field("name",           f => f.Name,          Codec.LengthPrefixed(Codec.VarInt32, Codec.Utf8StringRemaining()))
+        .Field("name",           f => f.Name,          Codec.LengthPrefixed(Codec.VarInt32, Codec.Utf8StringRemaining(), TrailingDataPolicy.Allow))
         .Field("docCount",        f => f.DocCount,      Codec.Int32LE)
         .Field("ordCount",        f => f.Terms.Length,  Codec.Int32LE)
-        .Field("terms",           f => f.Terms,         Codec.LengthPrefixed(Codec.VarInt32, Codec.Utf8StringRemaining()).RepeatFrom("ordCount"))
+        .Field("terms",           f => f.Terms,         Codec.LengthPrefixed(Codec.VarInt32, Codec.Utf8StringRemaining(), TrailingDataPolicy.Allow).RepeatFrom("ordCount"))
         .Field("docStartCount",   f => f.DocStarts.Length, Codec.Int32LE)
         .Field("docStarts",       f => f.DocStarts,     Codec.Int32LE.RepeatFrom("docStartCount"))
         .Field("totalOrdinals",   f => f.Ordinals.Length, Codec.Int32LE)

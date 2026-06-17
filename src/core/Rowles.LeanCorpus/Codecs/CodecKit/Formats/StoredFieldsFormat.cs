@@ -13,14 +13,14 @@ internal static class StoredFieldsFormat
     {
         public int BlockSize { get; init; }
         public byte Compression { get; init; }
-        public byte[] Blocks { get; init; } = [];
+        public IReadOnlyList<byte> Blocks { get; init; } = [];
     }
 
     internal static readonly ICodec<Data> V1 = Codec.Record<Data>()
         .Field("blockSize",   d => d.BlockSize,   Codec.Int32LE)
         .Field("compression", d => d.Compression, Codec.UInt8)
-        .Field("blocksLen",   d => d.Blocks.Length, Codec.Int32LE)
+        .Field("blocksLen",   d => d.Blocks.Count, Codec.Int32LE)
         .Field("blocks",      d => d.Blocks,      Codec.UInt8.RepeatFrom("blocksLen"))
-        .Build<int, byte, int, byte[]>((blockSize, compression, blocksLen, blocks) =>
+        .Build<int, byte, int, IReadOnlyList<byte>>((blockSize, compression, blocksLen, blocks) =>
             new Data { BlockSize = blockSize, Compression = compression, Blocks = blocks });
 }

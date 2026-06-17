@@ -11,12 +11,12 @@ internal static class TermDictionaryFormat
     internal sealed class Data
     {
         public int FstLength { get; init; }
-        public byte[] FstBlob { get; init; } = [];
+        public IReadOnlyList<byte> FstBlob { get; init; } = [];
     }
 
     internal static readonly ICodec<Data> V1 = Codec.Record<Data>()
-        .Field("fstLength", d => d.FstLength, Codec.Int32LE)
+        .Field("fstLength", d => d.FstBlob.Count, Codec.Int32LE)
         .Field("fstBlob",   d => d.FstBlob,   Codec.UInt8.RepeatFrom("fstLength"))
-        .Build<int, byte[]>((fstLength, fstBlob) =>
-            new Data { FstLength = fstLength, FstBlob = fstBlob });
+        .Build<int, IReadOnlyList<byte>>((fstLength, fstBlob) =>
+            new Data { FstLength = fstBlob.Count, FstBlob = fstBlob });
 }

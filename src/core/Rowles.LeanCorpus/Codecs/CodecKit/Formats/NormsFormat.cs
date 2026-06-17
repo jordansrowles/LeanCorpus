@@ -18,19 +18,19 @@ internal static class NormsFormat
     internal sealed class Field
     {
         public string Name { get; init; } = "";
-        public byte[] Norms { get; init; } = [];
+        public IReadOnlyList<byte> Norms { get; init; } = [];
         public float[]? Boosts { get; init; }
-        public int DocCount => Norms.Length;
+        public int DocCount => Norms.Count;
     }
 
     // Per-field codec
     private static readonly ICodec<Field> FieldCodec = Codec.Record<Field>()
-        .Field("name",       f => f.Name,               Codec.LengthPrefixed(Codec.VarInt32, Codec.Utf8StringRemaining()))
+        .Field("name",       f => f.Name,               Codec.LengthPrefixed(Codec.VarInt32, Codec.Utf8StringRemaining(), TrailingDataPolicy.Allow))
         .Field("docCount",    f => f.DocCount,           Codec.Int32LE)
         .Field("norms",       f => f.Norms,              Codec.UInt8.RepeatFrom("docCount"))
         .Field("boostCount",  f => f.Boosts?.Length ?? 0, Codec.Int32LE)
         .Field("boosts",      f => f.Boosts ?? [],       Codec.Float32LE.RepeatFrom("boostCount"))
-        .Build<string, int, byte[], int, float[]>((name, docCount, norms, boostCount, boosts) =>
+        .Build<string, int, IReadOnlyList<byte>, int, float[]>((name, docCount, norms, boostCount, boosts) =>
             new Field { Name = name, Norms = norms, Boosts = boostCount == 0 ? null : boosts });
 
     // File-level codec: fieldCount (Int32LE), then fields repeated

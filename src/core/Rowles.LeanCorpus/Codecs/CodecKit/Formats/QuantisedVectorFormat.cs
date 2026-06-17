@@ -17,7 +17,7 @@ internal static class QuantisedVectorFormat
         public float QMin { get; init; }
         public float QAlpha { get; init; }
         public int TailLength { get; init; }
-        public byte[] Tail { get; init; } = [];
+        public IReadOnlyList<byte> Tail { get; init; } = [];
     }
 
     // File-level codec: header fields then opaque tail
@@ -27,9 +27,9 @@ internal static class QuantisedVectorFormat
         .Field("quantisation", d => d.Quantisation, Codec.UInt8)
         .Field("qMin",         d => d.QMin,         Codec.Float32LE)
         .Field("qAlpha",       d => d.QAlpha,       Codec.Float32LE)
-        .Field("tailLength",   d => d.TailLength,   Codec.Int32LE)
+        .Field("tailLength",   d => d.Tail.Count,   Codec.Int32LE)
         .Field("tail",         d => d.Tail,         Codec.UInt8.RepeatFrom("tailLength"))
-        .Build<int, int, byte, float, float, int, byte[]>(
+        .Build<int, int, byte, float, float, int, IReadOnlyList<byte>>(
             (docCount, dimension, quantisation, qMin, qAlpha, tailLength, tail) =>
                 new Data { DocCount = docCount, Dimension = dimension, Quantisation = quantisation, QMin = qMin, QAlpha = qAlpha, TailLength = tailLength, Tail = tail });
 }

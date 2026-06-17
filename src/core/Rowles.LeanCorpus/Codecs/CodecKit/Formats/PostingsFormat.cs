@@ -16,7 +16,7 @@ internal static class PostingsFormat
         public bool HasFreqs { get; init; }
         public bool HasPositions { get; init; }
         public bool HasPayloads { get; init; }
-        public byte[] Body { get; init; } = [];
+        public IReadOnlyList<byte> Body { get; init; } = [];
     }
 
     internal static readonly ICodec<Data> V1 = Codec.Record<Data>()
@@ -25,9 +25,9 @@ internal static class PostingsFormat
         .Field("hasFreqs",     d => d.HasFreqs,     Codec.Bool)
         .Field("hasPositions", d => d.HasPositions, Codec.Bool)
         .Field("hasPayloads",  d => d.HasPayloads,  Codec.Bool)
-        .Field("bodyLen",      d => d.Body.Length,  Codec.Int32LE)
+        .Field("bodyLen",      d => d.Body.Count,  Codec.Int32LE)
         .Field("body",         d => d.Body,         Codec.UInt8.RepeatFrom("bodyLen"))
-        .Build<int, long, bool, bool, bool, int, byte[]>(
+        .Build<int, long, bool, bool, bool, int, IReadOnlyList<byte>>(
             (docFreq, skipOffset, hasFreqs, hasPositions, hasPayloads, bodyLen, body) =>
                 new Data { DocFreq = docFreq, SkipOffset = skipOffset, HasFreqs = hasFreqs, HasPositions = hasPositions, HasPayloads = hasPayloads, Body = body });
 }

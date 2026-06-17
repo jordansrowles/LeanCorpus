@@ -21,7 +21,7 @@ internal static class NumericDocValuesFormat
 
     // Per-field codec: name (VarInt-prefixed UTF-8), docCount (Int32LE), values (Float64LE repeated), presenceBitCount (Int32LE), presence (VarInt repeated)
     private static readonly ICodec<Field> FieldCodec = Codec.Record<Field>()
-        .Field("name",           f => f.Name,               Codec.LengthPrefixed(Codec.VarInt32, Codec.Utf8StringRemaining()))
+        .Field("name",           f => f.Name,               Codec.LengthPrefixed(Codec.VarInt32, Codec.Utf8StringRemaining(), TrailingDataPolicy.Allow))
         .Field("docCount",        f => f.Values.Length,      Codec.Int32LE)
         .Field("values",          f => f.Values,             Codec.Float64LE.RepeatFrom("docCount"))
         .Field("presenceBitCount", f => f.Presence?.Length ?? 0, Codec.Int32LE)

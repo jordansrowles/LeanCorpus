@@ -22,10 +22,10 @@ internal static class SortedDocValuesFormat
 
     // Per-field codec: name, docCount, ordCount, terms, ordinals, presenceBitCount, presence
     private static readonly ICodec<Field> FieldCodec = Codec.Record<Field>()
-        .Field("name",           f => f.Name,               Codec.LengthPrefixed(Codec.VarInt32, Codec.Utf8StringRemaining()))
+        .Field("name",           f => f.Name,               Codec.LengthPrefixed(Codec.VarInt32, Codec.Utf8StringRemaining(), TrailingDataPolicy.Allow))
         .Field("docCount",        f => f.Ordinals.Length,    Codec.Int32LE)
         .Field("ordCount",        f => f.Terms.Length,       Codec.Int32LE)
-        .Field("terms",           f => f.Terms,              Codec.LengthPrefixed(Codec.VarInt32, Codec.Utf8StringRemaining()).RepeatFrom("ordCount"))
+        .Field("terms",           f => f.Terms,              Codec.LengthPrefixed(Codec.VarInt32, Codec.Utf8StringRemaining(), TrailingDataPolicy.Allow).RepeatFrom("ordCount"))
         .Field("ordinals",        f => f.Ordinals,           Codec.VarInt32.RepeatFrom("docCount"))
         .Field("presenceBitCount", f => f.Presence?.Length ?? 0, Codec.Int32LE)
         .Field("presence",        f => f.Presence ?? [],     Codec.VarInt32.RepeatFrom("presenceBitCount"))

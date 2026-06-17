@@ -21,7 +21,7 @@ internal static class FieldLengthsFormat
 
     // Per-field codec: name (VarInt-prefixed UTF-8), docCount (Int32LE), lengths (VarInt repeated)
     private static readonly ICodec<FieldEntry> FieldCodec = Codec.Record<FieldEntry>()
-        .Field("name",    e => e.Name,    Codec.LengthPrefixed(Codec.VarInt32, Codec.Utf8StringRemaining()))
+        .Field("name",    e => e.Name,    Codec.LengthPrefixed(Codec.VarInt32, Codec.Utf8StringRemaining(), TrailingDataPolicy.Allow))
         .Field("docCount", e => e.DocCount, Codec.Int32LE)
         .Field("lengths",  e => e.Lengths, Codec.VarInt32.RepeatFrom("docCount"))
         .Build<string, int, int[]>((name, docCount, lengths) => new FieldEntry { Name = name, Lengths = lengths });

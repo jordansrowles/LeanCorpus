@@ -14,14 +14,14 @@ internal static class HnswFormat
     {
         public int Dimension { get; init; }
         public bool Normalised { get; init; }
-        public byte[] Body { get; init; } = [];
+        public IReadOnlyList<byte> Body { get; init; } = [];
     }
 
     internal static readonly ICodec<Data> V1 = Codec.Record<Data>()
         .Field("dimension",  d => d.Dimension,  Codec.Int32LE)
         .Field("normalised", d => d.Normalised, Codec.Bool)
-        .Field("bodyLen",    d => d.Body.Length, Codec.Int32LE)
+        .Field("bodyLen",    d => d.Body.Count, Codec.Int32LE)
         .Field("body",       d => d.Body,        Codec.UInt8.RepeatFrom("bodyLen"))
-        .Build<int, bool, int, byte[]>((dimension, normalised, bodyLen, body) =>
+        .Build<int, bool, int, IReadOnlyList<byte>>((dimension, normalised, bodyLen, body) =>
             new Data { Dimension = dimension, Normalised = normalised, Body = body });
 }

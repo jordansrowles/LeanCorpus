@@ -13,13 +13,13 @@ internal static class TermVectorsFormat
     internal sealed class Data
     {
         public int DocCount { get; init; }
-        public byte[] Body { get; init; } = [];
+        public IReadOnlyList<byte> Body { get; init; } = [];
     }
 
     internal static readonly ICodec<Data> V2 = Codec.Record<Data>()
         .Field("docCount", d => d.DocCount, Codec.Int32LE)
-        .Field("bodyLen",  d => d.Body.Length, Codec.Int32LE)
+        .Field("bodyLen",  d => d.Body.Count, Codec.Int32LE)
         .Field("body",     d => d.Body, Codec.UInt8.RepeatFrom("bodyLen"))
-        .Build<int, int, byte[]>((docCount, bodyLen, body) =>
+        .Build<int, int, IReadOnlyList<byte>>((docCount, bodyLen, body) =>
             new Data { DocCount = docCount, Body = body });
 }
