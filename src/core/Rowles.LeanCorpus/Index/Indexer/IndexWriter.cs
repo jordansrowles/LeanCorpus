@@ -1116,9 +1116,21 @@ public sealed partial class IndexWriter : IDisposable
         // Drain indexing callers that passed the disposed-check gate but have not
         // yet completed their work. Without this fence they could race resource
         // disposal below while holding writer state or semaphore slots.
+        // A hard timeout of 30 seconds prevents a stuck AddDocument call from
+        // hanging process shutdown indefinitely.
         var spinWait = new SpinWait();
+        const long drainTimeoutTicks = 30 * TimeSpan.TicksPerSecond;
+        long started = Environment.TickCount64;
         while (Volatile.Read(ref _inFlightAdds) != 0)
+        {
             spinWait.SpinOnce();
+            if (spinWait.NextSpinWillYield)
+            {
+                if (Environment.TickCount64 - started > drainTimeoutTicks)
+                    break;
+                Thread.Sleep(1);
+            }
+        }
 
         // Cancel and await background merge
         _mergeCts.Cancel();
