@@ -253,6 +253,7 @@ foreach ($entry in $sortedSuites) {
 
     if ($hasCharts) {
         [void]$sb.AppendLine("<div class=""benchmark-chart"">")
+        [void]$sb.AppendLine("<p style=""margin-bottom:4px""><label>Time scale: <select id=""chart-scale-$chartId""><option value=""log2"" selected>Log2</option><option value=""log10"">Log10</option><option value=""linear"">Linear</option></select></label></p>")
         [void]$sb.AppendLine("<div style=""max-width:960px""><canvas id=""chart-bench-$chartId"" style=""max-height:500px""></canvas></div>")
         [void]$sb.AppendLine("<p><a href=""$jsonOutName"">Full results as JSON</a></p>")
         [void]$sb.AppendLine("</div>")
@@ -307,10 +308,8 @@ function render(full){
 
   var labels=chartData.map(function(x){return x.label;});
 
-  // Build datasets
   var datasets=[];
 
-  // Allocation bars on left axis
   datasets.push({
     type:"bar",
     label:"Allocated",
@@ -320,7 +319,6 @@ function render(full){
     order:1
   });
 
-  // Performance line (mean) on right axis
   datasets.push({
     type:"line",
     label:"Mean time",
@@ -333,7 +331,6 @@ function render(full){
     order:0
   });
 
-  // Individual iteration scatter on right axis
   chartData.forEach(function(m,i){
     datasets.push({
       type:"scatter",
@@ -348,7 +345,7 @@ function render(full){
     });
   });
 
-  new Chart(canvas,{
+  var chart = new Chart(canvas,{
     data:{labels:labels,datasets:datasets},
     options:{
       responsive:true,
@@ -365,15 +362,44 @@ function render(full){
           ticks:{callback:fmtBytes},
           grid:{drawOnChartArea:false}
         },
-        y1:{
-          type:"linear",
-          position:"right",
-          title:{display:true,text:"Time"},
-          ticks:{callback:fmtNs}
-        }
+        y1:makeScale("log2")
       }
     }
   });
+
+  // Scale switcher
+  var sel = document.getElementById("chart-scale-"+suite);
+  if(sel){
+    sel.addEventListener("change",function(){
+      chart.options.scales.y1 = makeScale(this.value);
+      chart.update();
+    });
+  }
+
+  function makeScale(mode){
+    var base = {
+      type:"logarithmic",
+      position:"right",
+      title:{display:true,text:"Time (log\u2082)"},
+      ticks:{callback:fmtNs}
+    };
+    if(mode==="log10"){
+      base.title.text = "Time (log\u2081\u2080)";
+    } else if(mode==="linear"){
+      base.type = "linear";
+      base.title.text = "Time (linear)";
+    } else {
+      // log2 — afterBuildTicks to show powers of 2
+      base.afterBuildTicks = function(axis){
+        var min = axis.min, max = axis.max;
+        var ticks = [];
+        var v = Math.pow(2, Math.floor(Math.log2(min||1)));
+        while(v <= max){ ticks.push({value:v}); v *= 2; }
+        axis.ticks = ticks;
+      };
+    }
+    return base;
+  }
 
   function fmtBytes(v){if(v>=1e9)return(v/1e9).toFixed(1)+" GB";if(v>=1e6)return(v/1e6).toFixed(1)+" MB";if(v>=1e3)return(v/1e3).toFixed(1)+" KB";return v+" B";}
   function fmtNs(v){if(v>=1e9)return(v/1e9).toFixed(2)+" s";if(v>=1e6)return(v/1e6).toFixed(2)+" ms";if(v>=1e3)return(v/1e3).toFixed(2)+" μs";return v.toFixed(0)+" ns";}
