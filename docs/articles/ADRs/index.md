@@ -7,6 +7,7 @@
 | ADR003 | 2026-06-16 | Accepted | [Sorted parallel arrays for HNSW frozen adjacency](ADR003-hnsw-frozen-sorted-arrays.md) |
 | ADR004 | 2026-06-16 | Accepted | [ConcurrentDictionary with generation-swap eviction for read-heavy caches](ADR004-concurrentdictionary-cache-pattern.md) |
 | ADR005 | 2026-06-16 | Accepted | [Each DWPT flushes its own segment](ADR005-dwpt-segment-flush.md) |
+| ADR006 | 2026-06-17 | Accepted | [Defer Stryker.NET mutation testing until upstream bug is fixed](ADR006-stryker-deferred.md) |
 
 ## Template
 
