@@ -13,10 +13,11 @@ public sealed partial class IndexWriter
     {
         using var activity = Diagnostics.LeanCorpusActivitySource.Source
             .StartActivity(Diagnostics.LeanCorpusActivitySource.AddDocument);
-        int localDocId = _buffer.DocCount;
-        _buffer.StoredDocStarts.Add(_buffer.StoredFieldIds.Count);
+        var buffer = Buffer;
+        int localDocId = buffer.DocCount;
+        buffer.StoredDocStarts.Add(buffer.StoredFieldIds.Count);
         Dictionary<string, double>? numericDoc = null;
-        int storedEntryStart = _buffer.StoredFieldIds.Count;
+        int storedEntryStart = buffer.StoredFieldIds.Count;
 
         foreach (var field in doc.Fields)
         {
@@ -49,10 +50,10 @@ public sealed partial class IndexWriter
                     break;
                 case VectorField vf:
                     TrackFieldBoost(vf.Name, localDocId, vf.Boost);
-                    if (!_buffer.Vectors.TryGetValue(vf.Name, out var perField))
+                    if (!buffer.Vectors.TryGetValue(vf.Name, out var perField))
                     {
                         perField = new Dictionary<int, ReadOnlyMemory<float>>();
-                        _buffer.Vectors[vf.Name] = perField;
+                        buffer.Vectors[vf.Name] = perField;
                     }
                     perField[localDocId] = vf.Value;
                     break;
@@ -73,21 +74,21 @@ public sealed partial class IndexWriter
         }
 
         if (numericDoc is not null)
-            _buffer.NumericFields.Add(numericDoc);
+            buffer.NumericFields.Add(numericDoc);
 
-        if (_config.TrackSequenceNumbers)
+        if (Config.TrackSequenceNumbers)
         {
-            if (_buffer.DocCount == 0 && localDocId == 0)
-                _flushSeqNoStart = _nextSequenceNumber;
-            _nextSequenceNumber++;
+            if (buffer.DocCount == 0 && localDocId == 0)
+                CommitState.FlushSeqNoStart = CommitState.NextSequenceNumber;
+            CommitState.NextSequenceNumber++;
         }
 
-        _buffer.DocCount++;
-        _contentChangedSinceCommit = true;
+        buffer.DocCount++;
+        CommitState.ContentChangedSinceCommit = true;
 
         // Track stored-field RAM (postings tracked accurately via EstimatedBytes)
-        for (int i = storedEntryStart; i < _buffer.StoredFieldIds.Count; i++)
-            _buffer.EstimatedRamBytes += _buffer.StoredFieldValues[i].EstimatedSize;
+        for (int i = storedEntryStart; i < buffer.StoredFieldIds.Count; i++)
+            buffer.EstimatedRamBytes += buffer.StoredFieldValues[i].EstimatedSize;
 
         // Check flush thresholds
         if (!suppressFlush && ShouldFlush())
@@ -99,23 +100,23 @@ public sealed partial class IndexWriter
         // Apply char filters before tokenisation
         ReadOnlySpan<char> input = value.AsSpan();
         string? filtered = null;
-        if (_config.CharFilters.Count > 0)
+        if (Config.CharFilters.Count > 0)
         {
             filtered = value;
-            foreach (var cf in _config.CharFilters)
+            foreach (var cf in Config.CharFilters)
                 filtered = cf.Filter(filtered.AsSpan());
             input = filtered.AsSpan();
         }
 
         if (!_analyserCache.TryGetValue(fieldName, out var analyser))
         {
-            analyser = _config.FieldAnalysers.GetValueOrDefault(fieldName, _defaultAnalyser);
+            analyser = Config.FieldAnalysers.GetValueOrDefault(fieldName, _defaultAnalyser);
             _analyserCache[fieldName] = analyser;
         }
 
         // Enforce token budget if configured
-        int budget = _config.MaxTokensPerDocument;
-        if (budget > 0 && _config.TokenBudgetPolicy == Analysis.TokenBudgetPolicy.Reject)
+        int budget = Config.MaxTokensPerDocument;
+        if (budget > 0 && Config.TokenBudgetPolicy == Analysis.TokenBudgetPolicy.Reject)
         {
             _spanCountingSink.Reset(limit: budget);
             analyser.Analyse(input, _spanCountingSink);
@@ -123,50 +124,49 @@ public sealed partial class IndexWriter
                 throw new Analysis.TokenBudgetExceededException(_spanCountingSink.Count, budget);
         }
 
-        _spanPostingSink.Reset(fieldName, docId, budget, _config.TokenBudgetPolicy, indexOptions);
+        _spanPostingSink.Reset(fieldName, docId, budget, Config.TokenBudgetPolicy, indexOptions);
         using var analyseActivity = Diagnostics.LeanCorpusActivitySource.Source
             .StartActivity(Diagnostics.LeanCorpusActivitySource.Analyse);
         analyser.Analyse(input, _spanPostingSink);
         AddTokenCount(fieldName, docId, _spanPostingSink.AcceptedCount);
-        _buffer.FieldNames.Add(fieldName);
+        Buffer.FieldNames.Add(fieldName);
     }
 
 
     private void AddTokenCount(string fieldName, int docId, int tokenCount)
     {
-        if (!_buffer.DocTokenCounts.TryGetValue(fieldName, out var counts))
+        if (!Buffer.DocTokenCounts.TryGetValue(fieldName, out var counts))
         {
-            counts = new int[_config.MaxBufferedDocs];
-            _buffer.DocTokenCounts[fieldName] = counts;
+            counts = new int[Config.MaxBufferedDocs];
+            Buffer.DocTokenCounts[fieldName] = counts;
         }
         else if (docId >= counts.Length)
         {
             // Rare case: exceeded MaxBufferedDocs, grow the array
             Array.Resize(ref counts, Math.Max(counts.Length * 2, docId + 1));
-            _buffer.DocTokenCounts[fieldName] = counts;
+            Buffer.DocTokenCounts[fieldName] = counts;
         }
         counts[docId] += tokenCount;
     }
 
     private void IndexStringField(string fieldName, string value, int docId, bool storeDocValues = true)
     {
-        _buffer.FieldNames.Add(fieldName);
-        var term = _buffer.CanonicaliseTerm(value);
+        Buffer.FieldNames.Add(fieldName);
+        var term = Buffer.CanonicaliseTerm(value);
 
-        var pooledTerm = _buffer.GetOrCreateQualifiedTerm(fieldName, term.AsSpan());
+        var pooledTerm = Buffer.GetOrCreateQualifiedTerm(fieldName, term.AsSpan());
 
-        var acc = _buffer.GetOrCreateAccumulator(pooledTerm);
+        var acc = Buffer.GetOrCreateAccumulator(pooledTerm);
         long before = acc.EstimatedBytes;
         acc.AddDocOnly(docId);
-        _buffer.PostingsRamBytes += acc.EstimatedBytes - before;
+        Buffer.PostingsRamBytes += acc.EstimatedBytes - before;
 
         if (storeDocValues)
         {
-            // Also populate SortedDocValues for collapsing/faceting
-            if (!_buffer.SortedDocValues.TryGetValue(fieldName, out var dvList))
+            if (!Buffer.SortedDocValues.TryGetValue(fieldName, out var dvList))
             {
                 dvList = new List<string?>();
-                _buffer.SortedDocValues[fieldName] = dvList;
+                Buffer.SortedDocValues[fieldName] = dvList;
             }
             while (dvList.Count <= docId) dvList.Add(null);
             dvList[docId] = value;
@@ -177,22 +177,20 @@ public sealed partial class IndexWriter
 
     private void IndexNumericField(string fieldName, double value, int docId, bool storeDocValues = true)
     {
-        if (!_buffer.NumericIndex.TryGetValue(fieldName, out var fieldMap))
+        if (!Buffer.NumericIndex.TryGetValue(fieldName, out var fieldMap))
         {
             fieldMap = new Dictionary<int, double>();
-            _buffer.NumericIndex[fieldName] = fieldMap;
+            Buffer.NumericIndex[fieldName] = fieldMap;
         }
         fieldMap[docId] = value;
 
         if (storeDocValues)
         {
-            // Also accumulate for NumericDocValues column-stride storage
-            if (!_buffer.NumericDocValues.TryGetValue(fieldName, out var dvList))
+            if (!Buffer.NumericDocValues.TryGetValue(fieldName, out var dvList))
             {
                 dvList = new List<double>();
-                _buffer.NumericDocValues[fieldName] = dvList;
+                Buffer.NumericDocValues[fieldName] = dvList;
             }
-            // Pad with 0 for any skipped docs.
             while (dvList.Count <= docId)
                 dvList.Add(0);
             dvList[docId] = value;
@@ -205,33 +203,33 @@ public sealed partial class IndexWriter
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void AppendStoredField(string fieldName, StoredFieldValue value, bool mirrorStringToBinaryDocValues = true, bool storeDocValues = true)
     {
-        if (!_buffer.StoredFieldNameToId.TryGetValue(fieldName, out int fid))
+        if (!Buffer.StoredFieldNameToId.TryGetValue(fieldName, out int fid))
         {
-            fid = _buffer.StoredFieldIdToName.Count;
-            _buffer.StoredFieldNameToId[fieldName] = fid;
-            _buffer.StoredFieldIdToName.Add(fieldName);
+            fid = Buffer.StoredFieldIdToName.Count;
+            Buffer.StoredFieldNameToId[fieldName] = fid;
+            Buffer.StoredFieldIdToName.Add(fieldName);
         }
-        _buffer.StoredFieldIds.Add(fid);
-        _buffer.StoredFieldValues.Add(value);
+        Buffer.StoredFieldIds.Add(fid);
+        Buffer.StoredFieldValues.Add(value);
         if (storeDocValues)
         {
             if (value.IsBinary)
             {
-                AddBinaryDocValue(fieldName, _buffer.DocCount, value.BinaryValue ?? []);
+                AddBinaryDocValue(fieldName, Buffer.DocCount, value.BinaryValue ?? []);
             }
             else if (mirrorStringToBinaryDocValues && value.StringValue is not null)
             {
-                AddBinaryDocValue(fieldName, _buffer.DocCount, value.StringValue);
+                AddBinaryDocValue(fieldName, Buffer.DocCount, value.StringValue);
             }
         }
     }
 
     private void AddSortedSetDocValue(string fieldName, int docId, string value)
     {
-        if (!_buffer.SortedSetDocValues.TryGetValue(fieldName, out var fieldMap))
+        if (!Buffer.SortedSetDocValues.TryGetValue(fieldName, out var fieldMap))
         {
             fieldMap = new Dictionary<int, List<string>>();
-            _buffer.SortedSetDocValues[fieldName] = fieldMap;
+            Buffer.SortedSetDocValues[fieldName] = fieldMap;
         }
 
         if (!fieldMap.TryGetValue(docId, out var values))
@@ -245,10 +243,10 @@ public sealed partial class IndexWriter
 
     private void AddSortedNumericDocValue(string fieldName, int docId, double value)
     {
-        if (!_buffer.SortedNumericDocValues.TryGetValue(fieldName, out var fieldMap))
+        if (!Buffer.SortedNumericDocValues.TryGetValue(fieldName, out var fieldMap))
         {
             fieldMap = new Dictionary<int, List<double>>();
-            _buffer.SortedNumericDocValues[fieldName] = fieldMap;
+            Buffer.SortedNumericDocValues[fieldName] = fieldMap;
         }
 
         if (!fieldMap.TryGetValue(docId, out var values))
@@ -272,10 +270,10 @@ public sealed partial class IndexWriter
 
     private void AddBinaryDocValueCore(string fieldName, int docId, byte[] value)
     {
-        if (!_buffer.BinaryDocValues.TryGetValue(fieldName, out var fieldMap))
+        if (!Buffer.BinaryDocValues.TryGetValue(fieldName, out var fieldMap))
         {
             fieldMap = new Dictionary<int, List<byte[]>>();
-            _buffer.BinaryDocValues[fieldName] = fieldMap;
+            Buffer.BinaryDocValues[fieldName] = fieldMap;
         }
 
         if (!fieldMap.TryGetValue(docId, out var values))
@@ -292,10 +290,10 @@ public sealed partial class IndexWriter
         if (boost == 1.0f)
             return;
 
-        if (!_buffer.FieldBoosts.TryGetValue(fieldName, out var fieldMap))
+        if (!Buffer.FieldBoosts.TryGetValue(fieldName, out var fieldMap))
         {
             fieldMap = new Dictionary<int, float>();
-            _buffer.FieldBoosts[fieldName] = fieldMap;
+            Buffer.FieldBoosts[fieldName] = fieldMap;
         }
 
         if (fieldMap.TryGetValue(docId, out var existingBoost))

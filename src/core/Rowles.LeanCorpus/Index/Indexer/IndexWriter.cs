@@ -3,6 +3,7 @@ using Rowles.LeanCorpus.Serialization;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Index.Backup;
 using Rowles.LeanCorpus.Index.Compatibility;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Queries;
@@ -13,6 +14,8 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 /// <summary>
 /// Accepts documents, analyses text fields, buffers in memory,
 /// and flushes immutable segments to disk.
+/// Coordinates commit, backpressure, merge, snapshot, deletion, and DWPT subsystems
+/// via dedicated manager classes.
 /// </summary>
 public sealed partial class IndexWriter : IDisposable
 {
@@ -26,38 +29,17 @@ public sealed partial class IndexWriter : IDisposable
     private readonly SpanCountingTokenSink _spanCountingSink = new();
     private readonly SpanPostingTokenSink _spanPostingSink;
 
-    // Sequence number tracking
-    private long _nextSequenceNumber;
-    private long _flushSeqNoStart;
-    private int _nextSegmentOrdinal;
-    private int _commitGeneration;
-    private long _contentToken;
-    private bool _contentChangedSinceCommit;
-    // Two-phase commit state
-    private int _preparedGeneration = -1;
-    private List<SegmentInfo>? _preparedSegments;
-    private long _preparedContentToken;
-    private readonly List<SegmentInfo> _committedSegments = [];
-    // Pending deletions: field  ->  term  ->  set of matching terms to delete
-    private readonly List<(string field, string term, bool isSoftDelete)> _pendingDeletes = [];
+    private readonly CommitState _commitState = new();
+    private readonly BackpressureState _backpressureState = new();
+    private readonly MergeState _mergeState = new();
+    private readonly SnapshotState _snapshotState = new();
+    private readonly DwptState _dwptState = new();
+
     private readonly Lock _writeLock = new();
-    private readonly SemaphoreSlim? _backpressureSemaphore;
-    private int _flushElection;
-    private int _semaphoreSlotsHeld;
-    private readonly List<IndexSnapshot> _heldSnapshots = [];
     private int _disposed;      // 0 = alive, 1 = disposed (atomically set via Interlocked)
     private int _inFlightAdds;  // count of indexing callers that passed the disposed-check gate
     private int _indexingFailed;
     private readonly FileStream _writeLockFile;
-    // Background merge
-    private Task? _mergeTask;
-    private readonly CancellationTokenSource _mergeCts = new();
-    private readonly Lock _mergeLock = new();
-    // Serialises merge IO against operations that mutate per-segment files (ApplyPendingDeletions).
-    // Lock ordering invariant: _mergeIoLock is acquired BEFORE _writeLock.
-    // This lets long-running merge IO release _writeLock so AddDocument can proceed,
-    // while still preventing concurrent .del file mutation by Commit.
-    private readonly Lock _mergeIoLock = new();
 
     /// <summary>
     /// Initialises a new <see cref="IndexWriter"/> for the given directory with the specified configuration.
@@ -97,26 +79,29 @@ public sealed partial class IndexWriter : IDisposable
 
         // Initialize backpressure semaphore if MaxQueuedDocs > 0
         if (config.MaxQueuedDocs > 0)
-            _backpressureSemaphore = new SemaphoreSlim(config.MaxQueuedDocs, config.MaxQueuedDocs);
+            _backpressureState.BackpressureSemaphore = new SemaphoreSlim(config.MaxQueuedDocs, config.MaxQueuedDocs);
 
         // Load existing commit state if present
-        LoadLatestCommit();
+        CommitManager.LoadLatestCommit(_commitState, _directory, _config);
     }
 
     /// <summary>
     /// Returns the sequence number that will be assigned to the next indexed document.
     /// Only meaningful when <see cref="IndexWriterConfig.TrackSequenceNumbers"/> is enabled.
     /// </summary>
-    public long NextSequenceNumber => Volatile.Read(ref _nextSequenceNumber);
+    public long NextSequenceNumber => Volatile.Read(ref _commitState.NextSequenceNumber);
+
+    /// <summary>
+    /// Returns <c>true</c> if a commit has been prepared via <see cref="PrepareCommit"/>
+    /// but not yet published via <see cref="Commit"/>.
+    /// </summary>
+    public bool HasPreparedCommit => _commitState.PreparedGeneration >= 0;
 
     /// <summary>
     /// Indexes a single document. Validates the document against the schema if one is configured.
     /// May block if <see cref="IndexWriterConfig.MaxQueuedDocs"/> backpressure is enabled.
     /// Automatically flushes a segment when the RAM or document count threshold is reached.
     /// </summary>
-    /// <param name="doc">The document to index.</param>
-    /// <exception cref="ObjectDisposedException">Thrown if the writer has been disposed.</exception>
-    /// <exception cref="SchemaValidationException">Thrown if the document violates the configured schema.</exception>
     public void AddDocument(LeanDocument doc)
     {
         EnterIndexingOperation();
@@ -124,25 +109,17 @@ public sealed partial class IndexWriter : IDisposable
         {
             ValidateDocument(doc);
 
-            // Apply backpressure if enabled: wait for a semaphore slot before acquiring the write lock.
-            // This prevents unbounded memory growth when documents are queued faster than they can be flushed.
-            // When the semaphore is exhausted, ONE thread is elected to flush while others
-            // simply Wait() for the slot to become available. The election prevents N threads from all
-            // re-acquiring _writeLock and sequentially calling FlushSegment when only one flush is needed.
-            AcquireBackpressureSlot();
+            BackpressureController.AcquireBackpressureSlot(_backpressureState, _writeLock,
+                _buffer, _config, _commitState, _directory.DirectoryPath);
 
             bool enteredCore = false;
             try
             {
                 lock (_writeLock)
                 {
-                    // We hold a semaphore slot at this point. Track it under the
-                    // existing write lock so AddDocument does not take a second lock
-                    // just for backpressure accounting.
-                    if (_backpressureSemaphore is not null)
-                        _semaphoreSlotsHeld++;
+                    if (_backpressureState.BackpressureSemaphore is not null)
+                        _backpressureState.SemaphoreSlotsHeld++;
 
-                    // Merge backpressure: if too many unmerged segments, flush and merge now
                     if (ShouldThrottleForMerge() && _buffer.DocCount > 0)
                         FlushSegment();
 
@@ -155,13 +132,12 @@ public sealed partial class IndexWriter : IDisposable
                 if (enteredCore)
                     MarkIndexingFailed();
 
-                // If AddDocumentCore fails, release the semaphore slot immediately
-                if (_backpressureSemaphore is not null)
+                if (_backpressureState.BackpressureSemaphore is not null)
                 {
-                    _backpressureSemaphore.Release();
+                    _backpressureState.BackpressureSemaphore.Release();
                     lock (_writeLock)
                     {
-                        _semaphoreSlotsHeld--;
+                        _backpressureState.SemaphoreSlotsHeld--;
                     }
                 }
                 throw;
@@ -175,8 +151,6 @@ public sealed partial class IndexWriter : IDisposable
 
     /// <summary>
     /// Indexes a batch of documents with a single lock acquisition.
-    /// Faster than calling <see cref="AddDocument"/> in a loop because lock
-    /// and backpressure overhead is paid once for the entire batch.
     /// </summary>
     public void AddDocuments(IReadOnlyList<LeanDocument> documents)
     {
@@ -186,7 +160,7 @@ public sealed partial class IndexWriter : IDisposable
             ArgumentNullException.ThrowIfNull(documents);
             if (documents.Count == 0) return;
             ValidateDocuments(documents);
-            if (_backpressureSemaphore is not null && documents.Count > _config.MaxQueuedDocs)
+            if (_backpressureState.BackpressureSemaphore is not null && documents.Count > _config.MaxQueuedDocs)
             {
                 foreach (var document in documents)
                     AddDocument(document);
@@ -198,20 +172,21 @@ public sealed partial class IndexWriter : IDisposable
             bool enteredCore = false;
             try
             {
-                if (_backpressureSemaphore is not null)
+                if (_backpressureState.BackpressureSemaphore is not null)
                 {
                     for (int i = 0; i < documents.Count; i++)
                     {
-                        AcquireBackpressureSlot();
+                        BackpressureController.AcquireBackpressureSlot(_backpressureState, _writeLock,
+                            _buffer, _config, _commitState, _directory.DirectoryPath);
                         acquired++;
                     }
                 }
 
                 lock (_writeLock)
                 {
-                    if (_backpressureSemaphore is not null)
+                    if (_backpressureState.BackpressureSemaphore is not null)
                     {
-                        _semaphoreSlotsHeld += acquired;
+                        _backpressureState.SemaphoreSlotsHeld += acquired;
                         addedToHeldSlots = true;
                     }
 
@@ -226,7 +201,7 @@ public sealed partial class IndexWriter : IDisposable
             {
                 if (enteredCore)
                     MarkIndexingFailed();
-                ReleaseFailedBackpressureSlots(acquired, addedToHeldSlots);
+                BackpressureController.ReleaseFailedBackpressureSlots(_backpressureState, _writeLock, acquired, addedToHeldSlots);
                 throw;
             }
         }
@@ -238,12 +213,7 @@ public sealed partial class IndexWriter : IDisposable
 
     /// <summary>
     /// Indexes a block of child documents followed by a parent document atomically.
-    /// The last document in <paramref name="block"/> is the parent; all preceding
-    /// documents are children. Children are stored contiguously before their parent
-    /// in the segment, enabling block-join queries.
     /// </summary>
-    /// <param name="block">The documents to index as a block. The last element is the parent. Must have at least 2 documents.</param>
-    /// <exception cref="ArgumentException">Thrown if the block has fewer than 2 documents.</exception>
     public void AddDocumentBlock(IReadOnlyList<LeanDocument> block)
     {
         EnterIndexingOperation();
@@ -253,7 +223,7 @@ public sealed partial class IndexWriter : IDisposable
             if (block.Count < 2)
                 throw new ArgumentException("A document block requires at least one child and one parent document.", nameof(block));
             ValidateDocuments(block);
-            if (_backpressureSemaphore is not null && block.Count > _config.MaxQueuedDocs)
+            if (_backpressureState.BackpressureSemaphore is not null && block.Count > _config.MaxQueuedDocs)
                 throw new InvalidOperationException(
                     $"Document block contains {block.Count} documents, which exceeds MaxQueuedDocs ({_config.MaxQueuedDocs}).");
 
@@ -262,25 +232,24 @@ public sealed partial class IndexWriter : IDisposable
             bool enteredCore = false;
             try
             {
-                if (_backpressureSemaphore is not null)
+                if (_backpressureState.BackpressureSemaphore is not null)
                 {
                     for (int i = 0; i < block.Count; i++)
                     {
-                        AcquireBackpressureSlot();
+                        BackpressureController.AcquireBackpressureSlot(_backpressureState, _writeLock,
+                            _buffer, _config, _commitState, _directory.DirectoryPath);
                         acquired++;
                     }
                 }
 
                 lock (_writeLock)
                 {
-                    if (_backpressureSemaphore is not null)
+                    if (_backpressureState.BackpressureSemaphore is not null)
                     {
-                        _semaphoreSlotsHeld += acquired;
+                        _backpressureState.SemaphoreSlotsHeld += acquired;
                         addedToHeldSlots = true;
                     }
 
-                    // Suppress threshold flushes until the parent marker is in place so
-                    // the block is never split across segments without its parent bit.
                     for (int i = 0; i < block.Count; i++)
                     {
                         if (i == block.Count - 1)
@@ -301,7 +270,7 @@ public sealed partial class IndexWriter : IDisposable
             {
                 if (enteredCore)
                     MarkIndexingFailed();
-                ReleaseFailedBackpressureSlots(acquired, addedToHeldSlots);
+                BackpressureController.ReleaseFailedBackpressureSlots(_backpressureState, _writeLock, acquired, addedToHeldSlots);
                 throw;
             }
         }
@@ -312,12 +281,6 @@ public sealed partial class IndexWriter : IDisposable
     }
 
     /// <summary>Atomically deletes documents matching the selector and adds the replacement.</summary>
-    /// <remarks>
-    /// The deletion targets only segments that existed at the time of this call.
-    /// Documents buffered before this call but not yet committed are flushed first,
-    /// but the delete is applied only to segments that were already committed before
-    /// the flush, not to any segment produced by this flush.
-    /// </remarks>
     public void UpdateDocument(string field, string term, LeanDocument replacement)
     {
         EnterIndexingOperation();
@@ -329,17 +292,16 @@ public sealed partial class IndexWriter : IDisposable
             {
                 lock (_writeLock)
                 {
-                    // Capture the count of already-committed segments before any flush.
-                    // Deletions must not target the replacement segment that is about to be added.
-                    int preFlushSegmentCount = _committedSegments.Count;
+                    int preFlushSegmentCount = _commitState.CommittedSegments.Count;
 
-                    FlushDwptPool();
+                    DwptManager.FlushDwptPool(_dwptState, _directory, _config, _commitState);
                     if (_buffer.DocCount > 0)
                         FlushSegment();
 
-                    _pendingDeletes.Add((field, term, isSoftDelete: false));
-                    // Restrict deletions to the segments that existed before this call.
-                    ApplyPendingDeletions(_committedSegments.GetRange(0, preFlushSegmentCount));
+                    _commitState.PendingDeletes.Add((field, term, isSoftDelete: false));
+                    DeletionApplier.ApplyPendingDeletions(
+                        _commitState.PendingDeletes, _commitState.CommittedSegments.GetRange(0, preFlushSegmentCount),
+                        _directory, _commitState.CommitGeneration, _config.DurableCommits);
                     enteredCore = true;
                     AddDocumentCore(replacement);
                 }
@@ -358,13 +320,8 @@ public sealed partial class IndexWriter : IDisposable
     }
 
     /// <summary>
-    /// Soft-deletes documents matching the given term query by marking them as deleted
-    /// in the live-docs bitmap and recording an expiry timestamp. Soft-deleted documents
-    /// remain on disk until the retention period elapses, after which merges reclaim them.
-    /// The timestamp is recorded as Unix milliseconds in the <c>.del</c> file.
+    /// Soft-deletes documents matching the given term query.
     /// </summary>
-    /// <param name="query">The term query identifying documents to soft-delete.</param>
-    /// <exception cref="InvalidOperationException">Thrown when <see cref="IndexWriterConfig.SoftDeletesEnabled"/> is <c>false</c>.</exception>
     public void SoftDeleteDocuments(TermQuery query)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
@@ -374,19 +331,14 @@ public sealed partial class IndexWriter : IDisposable
 
         lock (_writeLock)
         {
-            _pendingDeletes.Add((query.Field, query.Term, isSoftDelete: true));
-            _contentChangedSinceCommit = true;
+            _commitState.PendingDeletes.Add((query.Field, query.Term, isSoftDelete: true));
+            _commitState.ContentChangedSinceCommit = true;
         }
     }
 
     /// <summary>
-    /// Atomically deletes documents matching the given query and adds the replacement document.
-    /// Supports <see cref="TermQuery"/>, <see cref="BooleanQuery"/> (composed of <see cref="TermQuery"/> clauses),
-    /// <see cref="MatchAllDocsQuery"/>, and <see cref="BooleanQuery"/> with a <see cref="MatchAllDocsQuery"/> clause.
-    /// Other query types fall back to manual search-then-delete-by-terms.
+    /// Atomically deletes documents matching the given query and adds the replacement.
     /// </summary>
-    /// <param name="query">The query identifying documents to delete and replace.</param>
-    /// <param name="replacement">The document to add in place of the deleted documents.</param>
     public void UpdateDocuments(Query query, LeanDocument replacement)
     {
         EnterIndexingOperation();
@@ -398,17 +350,19 @@ public sealed partial class IndexWriter : IDisposable
             {
                 lock (_writeLock)
                 {
-                    int preFlushSegmentCount = _committedSegments.Count;
+                    int preFlushSegmentCount = _commitState.CommittedSegments.Count;
 
-                    FlushDwptPool();
+                    DwptManager.FlushDwptPool(_dwptState, _directory, _config, _commitState);
                     if (_buffer.DocCount > 0)
                         FlushSegment();
 
-                    var terms = ResolveQueryToTerms(query, _committedSegments.GetRange(0, preFlushSegmentCount));
-                    foreach (var (field, term) in terms)
-                        _pendingDeletes.Add((field, term, isSoftDelete: false));
+                    var terms = ResolveQueryToTerms(query, _commitState.CommittedSegments.GetRange(0, preFlushSegmentCount));
+                    foreach (var (f, t) in terms)
+                        _commitState.PendingDeletes.Add((f, t, isSoftDelete: false));
 
-                    ApplyPendingDeletions(_committedSegments.GetRange(0, preFlushSegmentCount));
+                    DeletionApplier.ApplyPendingDeletions(
+                        _commitState.PendingDeletes, _commitState.CommittedSegments.GetRange(0, preFlushSegmentCount),
+                        _directory, _commitState.CommitGeneration, _config.DurableCommits);
                     enteredCore = true;
                     AddDocumentCore(replacement);
                 }
@@ -426,11 +380,6 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
-    /// <summary>
-    /// Resolves a <see cref="Query"/> into a list of (field, term) pairs suitable for deletion.
-    /// Supports <see cref="TermQuery"/>, <see cref="BooleanQuery"/> (with <see cref="TermQuery"/> clauses),
-    /// and <see cref="MatchAllDocsQuery"/>.
-    /// </summary>
     private List<(string field, string term)> ResolveQueryToTerms(Query query, List<SegmentInfo> segments)
     {
         var terms = new List<(string, string)>();
@@ -456,7 +405,6 @@ public sealed partial class IndexWriter : IDisposable
                 break;
 
             case MatchAllDocsQuery:
-                // Enumerate all terms from all committed segments
                 foreach (var seg in segments)
                 {
                     var basePath = Path.Combine(_directory.DirectoryPath, seg.SegmentId);
@@ -486,11 +434,7 @@ public sealed partial class IndexWriter : IDisposable
 
     /// <summary>
     /// Merges all segments from the given source directory into the current index.
-    /// Segments are validated for format compatibility, merged into a single new segment
-    /// in the target directory, and the commit is updated. Existing source segments are not modified.
     /// </summary>
-    /// <param name="sourceDirectory">The directory whose segments will be merged into this index.</param>
-    /// <exception cref="InvalidDataException">Thrown if source segment files are missing or incompatible.</exception>
     public void AddIndexes(MMapDirectory sourceDirectory)
     {
         EnterIndexingOperation();
@@ -536,22 +480,22 @@ public sealed partial class IndexWriter : IDisposable
 
             lock (_writeLock)
             {
-                FlushDwptPool();
+                DwptManager.FlushDwptPool(_dwptState, _directory, _config, _commitState);
                 if (_buffer.DocCount > 0)
                     FlushSegment();
 
                 var merger = new SegmentMerger(_directory, _config.MergePolicy, _config.PostingsSkipInterval,
                     _config.SoftDeleteRetentionSeconds);
-                int localOrdinal = _nextSegmentOrdinal;
-                _nextSegmentOrdinal += sourceSegments.Count + 8;
+                int localOrdinal = _commitState.NextSegmentOrdinal;
+                _commitState.NextSegmentOrdinal += sourceSegments.Count + 8;
 
                 var merged = merger.MergeSegmentsFromDirectory(
                     sourceDirectory, sourceSegments, ref localOrdinal, _config);
                 if (merged is not null)
                 {
-                    _committedSegments.Add(merged);
-                    _contentChangedSinceCommit = true;
-                    _nextSegmentOrdinal = Math.Max(_nextSegmentOrdinal, localOrdinal);
+                    _commitState.CommittedSegments.Add(merged);
+                    _commitState.ContentChangedSinceCommit = true;
+                    _commitState.NextSegmentOrdinal = Math.Max(_commitState.NextSegmentOrdinal, localOrdinal);
                 }
             }
         }
@@ -564,20 +508,16 @@ public sealed partial class IndexWriter : IDisposable
     /// <summary>
     /// Flushes all buffered documents and pending deletions to disk, writes a new
     /// <c>segments_N</c> commit file, and applies the configured deletion policy.
-    /// Schedules a background merge after the flush.
     /// </summary>
-    /// <remarks>
-    /// If <see cref="PrepareCommit"/> was called previously, this publishes the
-    /// prepared commit by atomically renaming the <c>.pending</c> file. Otherwise
-    /// it performs a full flush-and-commit cycle.
-    /// </remarks>
-    /// <exception cref="ObjectDisposedException">Thrown if the writer has been disposed.</exception>
     public void Commit()
     {
         EnterIndexingOperation();
         try
         {
-            CommitWithLocks();
+            CommitManager.CommitWithLocks(_commitState, _directory, _config, _buffer,
+                _writeLock, _mergeState.MergeIoLock, _mergeState.MergeLock,
+                _dwptState, _snapshotState, _mergeState,
+                _backpressureState.BackpressureSemaphore, ref _backpressureState.SemaphoreSlotsHeld);
         }
         finally
         {
@@ -587,50 +527,16 @@ public sealed partial class IndexWriter : IDisposable
 
     /// <summary>
     /// Flushes all buffered documents and pending deletions to disk and writes a
-    /// <c>segments_N.pending</c> commit file WITHOUT publishing it as the current
-    /// commit point. The prepared commit is not visible to readers until
-    /// <see cref="Commit"/> is called.
+    /// <c>segments_N.pending</c> commit file WITHOUT publishing it as the current commit point.
     /// </summary>
-    /// <remarks>
-    /// <para>Call <see cref="Commit"/> to publish the prepared commit, or
-    /// <see cref="Rollback"/> to discard it. The <c>.pending</c> file is durable
-    /// — if the process crashes after <c>PrepareCommit</c> but before
-    /// <c>Commit</c>, recovery will promote it on next open.</para>
-    /// <para>Only one prepared commit may be outstanding at a time. Calling
-    /// <c>PrepareCommit</c> again overwrites the previous prepared state.</para>
-    /// </remarks>
-    /// <exception cref="ObjectDisposedException">Thrown if the writer has been disposed.</exception>
     public void PrepareCommit()
     {
         EnterIndexingOperation();
         try
         {
-            lock (_mergeIoLock)
-            lock (_writeLock)
-            {
-                // Apply pending deletions, flush DWPT pool, flush buffered docs.
-                var preFlushSegmentCount = _committedSegments.Count;
-                if (preFlushSegmentCount > 0 && _pendingDeletes.Count > 0)
-                    ApplyPendingDeletions(_committedSegments.GetRange(0, preFlushSegmentCount));
-
-                FlushDwptPool();
-                if (_buffer.DocCount > 0)
-                    FlushSegment();
-
-                if (_pendingDeletes.Count > 0)
-                    ApplyPendingDeletions(_committedSegments);
-
-                if (_contentChangedSinceCommit)
-                    _contentToken++;
-
-                int gen = _commitGeneration + 1;
-                WriteCommitFile(gen, pending: true);
-                _contentChangedSinceCommit = false;
-
-                _preparedGeneration = gen;
-                _preparedSegments = new List<SegmentInfo>(_committedSegments);
-                _preparedContentToken = _contentToken;
-            }
+            CommitManager.PrepareCommit(_commitState, _directory, _config, _buffer,
+                _writeLock, _mergeState.MergeIoLock, _dwptState,
+                _backpressureState.BackpressureSemaphore, ref _backpressureState.SemaphoreSlotsHeld);
         }
         finally
         {
@@ -640,45 +546,16 @@ public sealed partial class IndexWriter : IDisposable
 
     /// <summary>
     /// Discards a prepared commit created by <see cref="PrepareCommit"/>.
-    /// Deletes the <c>.pending</c> file and any segment files that were
-    /// created exclusively for the prepared commit. Has no effect if no
-    /// commit has been prepared.
     /// </summary>
-    /// <exception cref="ObjectDisposedException">Thrown if the writer has been disposed.</exception>
     public void Rollback()
     {
         EnterIndexingOperation();
         try
         {
-            lock (_mergeIoLock)
+            lock (_mergeState.MergeIoLock)
             lock (_writeLock)
             {
-                if (_preparedGeneration < 0)
-                    return;
-
-                // Delete the pending commit file.
-                var pendingPath = Path.Combine(_directory.DirectoryPath,
-                    $"segments_{_preparedGeneration}.pending");
-                try { File.Delete(pendingPath); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "rollback pending-file delete"); }
-
-                // Delete segment files that exist only in the prepared state.
-                if (_preparedSegments is not null)
-                {
-                    var committedIds = new HashSet<string>(
-                        _committedSegments.Select(static s => s.SegmentId),
-                        StringComparer.Ordinal);
-                    foreach (var seg in _preparedSegments)
-                    {
-                        if (!committedIds.Contains(seg.SegmentId))
-                        {
-                            _committedSegments.Remove(seg);
-                            DeleteSegmentFiles(seg.SegmentId);
-                        }
-                    }
-                }
-
-                _preparedGeneration = -1;
-                _preparedSegments = null;
+                CommitManager.RollbackPrepared(_commitState, _directory.DirectoryPath);
             }
         }
         finally
@@ -687,39 +564,17 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
-    private void DeleteSegmentFiles(string segId)
-    {
-        foreach (var file in Directory.GetFiles(_directory.DirectoryPath, segId + ".*"))
-        {
-            try { File.Delete(file); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "segment file delete"); }
-        }
-        foreach (var file in Directory.GetFiles(_directory.DirectoryPath, segId + "_v_*.*"))
-        {
-            try { File.Delete(file); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "vector file delete"); }
-        }
-    }
-
     /// <summary>
-    /// Returns <c>true</c> if a commit has been prepared via <see cref="PrepareCommit"/>
-    /// but not yet published via <see cref="Commit"/>.
+    /// Force-merges all committed segments into a single segment.
     /// </summary>
-    public bool HasPreparedCommit => _preparedGeneration >= 0;
-
-    /// <summary>
-    /// Force-merges all committed segments into a single segment, reclaiming disk space
-    /// from hard-deleted documents and consolidating soft-deleted documents past their
-    /// retention window. This is a synchronous, blocking operation — it holds the merge
-    /// I/O lock for the duration and should only be called during maintenance windows
-    /// or when write throughput is low.
-    /// </summary>
-    /// <returns>The number of segments that were merged, or 0 if no merge was performed.</returns>
-    /// <exception cref="ObjectDisposedException">Thrown if the writer has been disposed.</exception>
     public int Compact()
     {
         EnterIndexingOperation();
         try
         {
-            return CompactWithLocks();
+            return CommitManager.CompactWithLocks(_commitState, _directory, _config, _buffer,
+                _writeLock, _mergeState.MergeIoLock, _dwptState, _snapshotState,
+                _backpressureState.BackpressureSemaphore, ref _backpressureState.SemaphoreSlotsHeld);
         }
         finally
         {
@@ -728,75 +583,18 @@ public sealed partial class IndexWriter : IDisposable
     }
 
     /// <summary>
-    /// Force-merges segments until the segment count reaches <paramref name="maxSegments"/>
-    /// or fewer. Merges the smallest unprotected segments first. This is a synchronous,
-    /// blocking operation.
+    /// Force-merges segments until the segment count reaches <paramref name="maxSegments"/> or fewer.
     /// </summary>
-    /// <param name="maxSegments">The target maximum number of segments. Must be at least 1.</param>
-    /// <returns>The total number of segments that were merged, or 0 if no merge was needed.</returns>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="maxSegments"/> is less than 1.</exception>
-    /// <exception cref="ObjectDisposedException">Thrown if the writer has been disposed.</exception>
     public int ForceMerge(int maxSegments)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxSegments, 1);
         EnterIndexingOperation();
         try
         {
-            int totalMerged = 0;
-            lock (_mergeIoLock)
-            lock (_writeLock)
-            {
-                // Flush and apply deletions first.
-                if (_pendingDeletes.Count > 0)
-                    ApplyPendingDeletions(_committedSegments);
-                if (_buffer.DocCount > 0)
-                    FlushSegment();
-
-                var protectedSegments = GetSnapshotProtectedSegments();
-
-                while (_committedSegments.Count > maxSegments)
-                {
-                    var mergeable = _committedSegments
-                        .Where(s => !protectedSegments.Contains(s.SegmentId))
-                        .ToList();
-
-                    if (mergeable.Count < 2)
-                        break;
-
-                    // Merge the smallest mergeable segments.
-                    mergeable.Sort(static (a, b) => a.DocCount.CompareTo(b.DocCount));
-                    int count = Math.Min(mergeable.Count, _committedSegments.Count - maxSegments + 1);
-                    var toMerge = mergeable.GetRange(0, count);
-
-                    var merger = new SegmentMerger(_directory, _config.MergePolicy, _config.PostingsSkipInterval,
-                        _config.SoftDeleteRetentionSeconds);
-                    var merged = merger.MergeAll(toMerge, ref _nextSegmentOrdinal);
-
-                    if (merged is null)
-                    {
-                        foreach (var seg in toMerge)
-                            _committedSegments.Remove(seg);
-                    }
-                    else
-                    {
-                        foreach (var seg in toMerge)
-                            _committedSegments.Remove(seg);
-                        _committedSegments.Add(merged);
-                    }
-
-                    totalMerged += toMerge.Count;
-                }
-
-                if (totalMerged > 0)
-                {
-                    _contentToken++;
-                    _commitGeneration++;
-                    WriteCommitFile(_commitGeneration);
-                    WriteCommitStats(_commitGeneration);
-                    _config.DeletionPolicy.OnCommit(_directory.DirectoryPath, _commitGeneration, GetSnapshotProtectedSegments());
-                }
-            }
-            return totalMerged;
+            return CommitManager.ForceMerge(_commitState, _directory, _config, _buffer,
+                _writeLock, _mergeState.MergeIoLock, _snapshotState,
+                _backpressureState.BackpressureSemaphore, ref _backpressureState.SemaphoreSlotsHeld,
+                maxSegments);
         }
         finally
         {
@@ -804,330 +602,63 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
-    private int CompactWithLocks()
+    /// <summary>
+    /// Returns all committed and flushed segments for near-real-time search.
+    /// </summary>
+    public IReadOnlyList<SegmentInfo> GetNrtSegments()
     {
-        // Lock ordering: _mergeIoLock before _writeLock.
-        lock (_mergeIoLock)
-        lock (_writeLock)
-        {
-            // Apply any pending deletions then flush buffered documents
-            if (_pendingDeletes.Count > 0)
-                ApplyPendingDeletions(_committedSegments);
-
-            if (_buffer.DocCount > 0)
-                FlushSegment();
-
-            if (_committedSegments.Count <= 1)
-                return 0;
-
-            var segmentsToMerge = _committedSegments.ToList();
-            var protectedSegments = GetSnapshotProtectedSegments();
-
-            // Remove protected segments from the merge set — they are held by
-            // active snapshots and must not be deleted.
-            var mergeable = segmentsToMerge
-                .Where(s => !protectedSegments.Contains(s.SegmentId))
-                .ToList();
-
-            if (mergeable.Count < 2)
-                return 0;
-
-            int mergeableCount = mergeable.Count;
-
-            var merger = new SegmentMerger(_directory, _config.MergePolicy, _config.PostingsSkipInterval,
-                _config.SoftDeleteRetentionSeconds);
-            var merged = merger.MergeAll(mergeable, ref _nextSegmentOrdinal);
-
-            if (merged is null)
-            {
-                // All documents were deleted — remove the merged segments entirely.
-                foreach (var seg in mergeable)
-                    _committedSegments.Remove(seg);
-            }
-            else
-            {
-                // Replace the merged segments with the single result.
-                foreach (var seg in mergeable)
-                    _committedSegments.Remove(seg);
-                _committedSegments.Add(merged);
-            }
-
-            // Commit before cleaning up old files — ensures the commit file references
-            // the new segment before we delete anything the old segments depend on.
-            _contentToken++;
-            _commitGeneration++;
-            WriteCommitFile(_commitGeneration);
-            WriteCommitStats(_commitGeneration);
-            _config.DeletionPolicy.OnCommit(_directory.DirectoryPath, _commitGeneration, GetSnapshotProtectedSegments());
-
-            // Clean up old segment files no longer referenced. Must happen AFTER the
-            // commit is durably written so a crash doesn't leave a commit referencing
-            // deleted files.
-            var activeSegments = new HashSet<string>(
-                _committedSegments.Select(static s => s.SegmentId), StringComparer.Ordinal);
-            foreach (var seg in segmentsToMerge)
-            {
-                if (!activeSegments.Contains(seg.SegmentId) &&
-                    !protectedSegments.Contains(seg.SegmentId))
-                {
-                    merger.CleanupSegmentFiles(seg);
-                }
-            }
-
-            return mergeableCount;
-        }
-    }
-
-    private void CommitWithLocks()
-    {
-        // Lock ordering: _mergeIoLock first (so a running merge can finish before we
-        // mutate .del files), then _writeLock. AddDocument holds only _writeLock and
-        // continues to run while a merge IO phase is in progress.
-        lock (_mergeIoLock)
-        lock (_writeLock)
-        {
-            if (_preparedGeneration >= 0)
-            {
-                // Publish the prepared commit by renaming .pending → final.
-                PublishPreparedCommit();
-                return;
-            }
-
-            using var activity = Diagnostics.LeanCorpusActivitySource.Source
-                .StartActivity(Diagnostics.LeanCorpusActivitySource.Commit);
-            activity?.SetTag("index.commit_generation", _commitGeneration + 1);
-
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            CommitCore();
-            sw.Stop();
-            _config.Metrics.RecordCommit(sw.Elapsed);
-
-            activity?.SetTag("index.segment_count", _committedSegments.Count);
-        }
-
-        // Wait for any background merge triggered by CommitCore to finish so the
-        // on-disk state is consistent before a reader opens the index.
-        Task? merge;
-        lock (_mergeLock) { merge = _mergeTask; }
-        if (merge is { IsCompleted: false })
-        {
-            try { merge.Wait(); }
-            catch (AggregateException) { }
-        }
-    }
-
-    private void PublishPreparedCommit()
-    {
-        var pendingPath = Path.Combine(_directory.DirectoryPath,
-            $"segments_{_preparedGeneration}.pending");
-        var finalPath = Path.Combine(_directory.DirectoryPath,
-            $"segments_{_preparedGeneration}");
-
-        // Atomically rename .pending → final commit file.
-        File.Move(pendingPath, finalPath, overwrite: false);
-
-        _commitGeneration = _preparedGeneration;
-        _contentToken = _preparedContentToken;
-        _contentChangedSinceCommit = false;
-
-        // Persist stats alongside the commit.
-        WriteCommitStats(_commitGeneration);
-
-        // Apply deletion policy to prune old commits.
-        _config.DeletionPolicy.OnCommit(_directory.DirectoryPath, _commitGeneration,
-            GetSnapshotProtectedSegments());
-
-        // Schedule background merge.
-        ScheduleBackgroundMerge();
-
-        _preparedGeneration = -1;
-        _preparedSegments = null;
-    }
-
-    private void CommitCore()
-    {
-        // Snapshot the segments that exist BEFORE flushing. Deletions from
-        // UpdateDocument must only target these older segments, not the
-        // replacement segment that will be flushed next.
-        var preFlushSegmentCount = _committedSegments.Count;
-
-        // Apply pending deletions to pre-existing segments only (for UpdateDocument)
-        if (preFlushSegmentCount > 0 && _pendingDeletes.Count > 0)
-            ApplyPendingDeletions(_committedSegments.GetRange(0, preFlushSegmentCount));
-
-        // Flush any DWPT pool buffers before the main flush
-        FlushDwptPool();
-
-        // Flush any remaining buffered documents
-        if (_buffer.DocCount > 0)
-            FlushSegment();
-
-        // Apply any remaining deletions to ALL segments (including the just-flushed one).
-        // This handles the case where DeleteDocuments + Commit are called without UpdateDocument.
-        if (_pendingDeletes.Count > 0)
-            ApplyPendingDeletions(_committedSegments);
-
-        if (_contentChangedSinceCommit)
-            _contentToken++;
-
-        // Write segments_N commit file (atomic: write to temp, then rename)
-        _commitGeneration++;
-        WriteCommitFile(_commitGeneration);
-        _contentChangedSinceCommit = false;
-
-        // Persist index statistics alongside the commit so IndexSearcher can
-        // skip the expensive full-segment scan on construction.
-        WriteCommitStats(_commitGeneration);
-
-        // Apply deletion policy to prune old commit files
-        _config.DeletionPolicy.OnCommit(_directory.DirectoryPath, _commitGeneration, GetSnapshotProtectedSegments());
-
-        // Schedule merge in background (non-blocking) only after every reader of
-        // _committedSegments and its files has completed. Scheduling earlier allowed
-        // a fast merge to delete segment files the post-commit work still needed.
-        ScheduleBackgroundMerge();
-    }
-
-    private void WriteCommitFile(int generation, bool pending = false)
-    {
-        var commitFile = Path.Combine(_directory.DirectoryPath, $"segments_{generation}");
-        if (pending)
-            commitFile += ".pending";
-
-        var segmentIds = new List<string>(_committedSegments.Count);
-        foreach (var seg in _committedSegments)
-            segmentIds.Add(seg.SegmentId);
-        var commitData = new CommitData
-        {
-            Segments = segmentIds,
-            Generation = generation,
-            ContentToken = _contentToken
-        };
-        var commitJson = JsonSerializer.Serialize(commitData, LeanCorpusJsonContext.Default.CommitData);
-
-        // Append a CRC32 trailer so torn writes (where the JSON byte-tail survives but
-        // the rename did not flush) can be detected on recovery. The trailer line is
-        // optional on read, for backward compatibility with files written before this
-        // line was added.
-        var fileContent = CommitFileFormat.Wrap(commitJson);
-
-        if (_config.DurableCommits)
-        {
-            // Segment data files are immutable once written. They are flushed to disk
-            // at creation time (via Stream.Flush(flushToDisk: true) in each writer or
-            // IndexOutput with durable: true). Only the directory entry sync is needed
-            // here to make file-name metadata durable before the commit marker rename.
-            Store.DirectoryFsync.Sync(_directory.DirectoryPath, strict: true);
-
-            IndexAtomicFileWriter.WriteText(commitFile, fileContent, durable: true);
-        }
-        else
-        {
-            IndexAtomicFileWriter.WriteText(commitFile, fileContent, durable: false);
-        }
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        return SnapshotManager.GetNrtSegments(_snapshotState, _commitState, _buffer, _config,
+            _directory.DirectoryPath, _writeLock,
+            _backpressureState.BackpressureSemaphore, ref _backpressureState.SemaphoreSlotsHeld);
     }
 
     /// <summary>
-    /// Computes current index statistics from committed segments and writes
-    /// a stats_N.json file for the given commit generation.
+    /// Creates a point-in-time snapshot of the currently committed segments.
     /// </summary>
-    private void WriteCommitStats(int generation)
+    public IndexSnapshot CreateSnapshot()
     {
-        int totalDocCount = 0;
-        int liveDocCount = 0;
-        var fieldLengthSums = new Dictionary<string, long>(StringComparer.Ordinal);
-        var fieldDocCounts = new Dictionary<string, int>(StringComparer.Ordinal);
-
-        foreach (var seg in _committedSegments)
-        {
-            var segmentStats = SegmentStats.TryLoadFrom(SegmentStats.GetStatsPath(_directory.DirectoryPath, seg.SegmentId));
-            if (segmentStats is not null &&
-                segmentStats.TotalDocCount == seg.DocCount &&
-                segmentStats.LiveDocCount == seg.LiveDocCount)
-            {
-                AccumulateSegmentStats(segmentStats, fieldLengthSums, fieldDocCounts);
-                totalDocCount += segmentStats.TotalDocCount;
-                liveDocCount += segmentStats.LiveDocCount;
-                continue;
-            }
-
-            AccumulateSegmentStatsByScan(seg, fieldLengthSums, fieldDocCounts, ref totalDocCount, ref liveDocCount);
-        }
-
-        var avgFieldLengths = new Dictionary<string, float>(StringComparer.Ordinal);
-        foreach (var (field, sum) in fieldLengthSums)
-        {
-            int count = fieldDocCounts.GetValueOrDefault(field, 1);
-            avgFieldLengths[field] = count > 0 ? (float)sum / count : 1.0f;
-        }
-
-        var stats = new IndexStats(totalDocCount, liveDocCount, avgFieldLengths, fieldDocCounts, fieldLengthSums);
-        stats.WriteTo(IndexStats.GetStatsPath(_directory.DirectoryPath, generation));
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        return SnapshotManager.CreateSnapshot(_snapshotState, _commitState, _buffer, _config,
+            _directory.DirectoryPath, _writeLock,
+            _backpressureState.BackpressureSemaphore, ref _backpressureState.SemaphoreSlotsHeld);
     }
 
-    private static void AccumulateSegmentStats(
-        SegmentStats segmentStats,
-        Dictionary<string, long> fieldLengthSums,
-        Dictionary<string, int> fieldDocCounts)
+    /// <summary>
+    /// Releases a previously held snapshot.
+    /// </summary>
+    public void ReleaseSnapshot(IndexSnapshot snapshot)
     {
-        foreach (var (field, sum) in segmentStats.FieldLengthSums)
-            fieldLengthSums[field] = fieldLengthSums.GetValueOrDefault(field) + sum;
-
-        foreach (var (field, count) in segmentStats.FieldDocCounts)
-            fieldDocCounts[field] = fieldDocCounts.GetValueOrDefault(field) + count;
+        SnapshotManager.ReleaseSnapshot(_snapshotState, snapshot, _writeLock);
     }
 
-    private void AccumulateSegmentStatsByScan(
-        SegmentInfo segment,
-        Dictionary<string, long> fieldLengthSums,
-        Dictionary<string, int> fieldDocCounts,
-        ref int totalDocCount,
-        ref int liveDocCount)
+    /// <summary>
+    /// Creates a backup manifest for a held snapshot without copying files.
+    /// </summary>
+    public IndexBackupManifest CreateBackupManifest(IndexSnapshot snapshot)
     {
-        SegmentReader? reader = null;
-        try
-        {
-            reader = new SegmentReader(_directory, segment);
-        }
-        catch (FileNotFoundException)
-        {
-            // A background merge may have deleted this segment's files.
-            // Skip the segment rather than failing the commit.
-            return;
-        }
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        return SnapshotManager.CreateBackupManifest(snapshot, _directory.DirectoryPath);
+    }
 
-        using (reader)
-        {
-            totalDocCount += reader.MaxDoc;
-            for (int docId = 0; docId < reader.MaxDoc; docId++)
-            {
-                if (!reader.IsLive(docId))
-                    continue;
-
-                liveDocCount++;
-                foreach (var field in segment.FieldNames)
-                {
-                    int length = reader.GetFieldLength(docId, field);
-                    fieldLengthSums[field] = fieldLengthSums.GetValueOrDefault(field) + length;
-                    fieldDocCounts[field] = fieldDocCounts.GetValueOrDefault(field) + 1;
-                }
-            }
-        }
+    /// <summary>
+    /// Creates a backup for a held snapshot.
+    /// </summary>
+    public IndexBackupResult BackupSnapshot(IndexSnapshot snapshot, string backupDirectoryPath, IndexBackupOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        return SnapshotManager.BackupSnapshot(snapshot, backupDirectoryPath, _directory.DirectoryPath, options);
     }
 
     /// <summary>
     /// Releases all resources held by this writer, including the directory write lock.
-    /// Cancels any background merge task and waits for in-progress merge I/O to complete.
     /// </summary>
     public void Dispose()
     {
         if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0) return;
 
-        // Drain indexing callers that passed the disposed-check gate but have not
-        // yet completed their work. Without this fence they could race resource
-        // disposal below while holding writer state or semaphore slots.
-        // A hard timeout of 30 seconds prevents a stuck AddDocument call from
-        // hanging process shutdown indefinitely.
         var spinWait = new SpinWait();
         const long drainTimeoutTicks = 30 * TimeSpan.TicksPerSecond;
         long started = Environment.TickCount64;
@@ -1142,16 +673,14 @@ public sealed partial class IndexWriter : IDisposable
             }
         }
 
-        // Cancel and await background merge
-        _mergeCts.Cancel();
-        try { _mergeTask?.Wait(); }
-        catch (AggregateException) { /* Expected: merge task cancelled during shutdown */ }
-        catch (ObjectDisposedException) { /* CTS already disposed */ }
-        _mergeCts.Dispose();
+        _mergeState.MergeCts.Cancel();
+        try { _mergeState.MergeTask?.Wait(); }
+        catch (AggregateException) { }
+        catch (ObjectDisposedException) { }
+        _mergeState.MergeCts.Dispose();
 
-        _backpressureSemaphore?.Dispose();
+        _backpressureState.BackpressureSemaphore?.Dispose();
 
-        // Release the directory write lock
         _writeLockFile.Dispose();
         var lockPath = Path.Combine(_directory.DirectoryPath, "write.lock");
         try { File.Delete(lockPath); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "write-lock file delete"); }
@@ -1227,147 +756,119 @@ public sealed partial class IndexWriter : IDisposable
         return ram >= (long)(_config.RamBufferSizeMB * 1024 * 1024);
     }
 
-    /// <summary>
-    /// Checks whether merge backpressure should pause indexing.
-    /// When <see cref="IndexWriterConfig.MergeThrottleSegments"/> is set and the
-    /// number of committed segments exceeds it, this returns true.
-    /// </summary>
-    /// <summary>
-    /// Acquires one semaphore slot. If the semaphore is exhausted, the first contending
-    /// thread is elected to perform a flush; the rest simply <see cref="SemaphoreSlim.Wait()"/>.
-    /// Caller must hold no locks.
-    /// </summary>
-    private void AcquireBackpressureSlot()
-    {
-        if (_backpressureSemaphore is null) return;
-        if (_backpressureSemaphore.Wait(0)) return;
-
-        if (Interlocked.CompareExchange(ref _flushElection, 1, 0) == 0)
-        {
-            try
-            {
-                lock (_writeLock)
-                {
-                    if (_buffer.DocCount > 0)
-                        FlushSegment();
-                }
-            }
-            finally
-            {
-                Volatile.Write(ref _flushElection, 0);
-            }
-        }
-        _backpressureSemaphore.Wait();
-    }
-
     private bool ShouldThrottleForMerge()
     {
         return _config.MergeThrottleSegments > 0
-            && _committedSegments.Count >= _config.MergeThrottleSegments;
+            && _commitState.CommittedSegments.Count >= _config.MergeThrottleSegments;
     }
 
-    /// <summary>
-    /// Returns the estimated RAM used by all buffered data. O(1), using the
-    /// incrementally tracked <c>_buffer.PostingsRamBytes</c> instead of iterating
-    /// every <see cref="PostingAccumulator"/>.
-    /// </summary>
     private long ComputeEstimatedRamBytes()
     {
         return _buffer.PostingsRamBytes + _buffer.EstimatedRamBytes;
     }
 
-    private void ResetBuffer()
+    // --- Internal static helpers called by extracted manager classes ---
+
+    /// <summary>
+    /// Flushes the in-memory buffer to a segment on disk. Called both from IndexWriter
+    /// instance methods and from <see cref="CommitManager"/> / <see cref="BackpressureController"/>.
+    /// </summary>
+    internal static void FlushSegmentStatic(
+        DocumentBufferState buffer,
+        IndexWriterConfig config,
+        string directoryPath,
+        CommitState commitState,
+        SemaphoreSlim? backpressureSemaphore,
+        ref int semaphoreSlotsHeld)
     {
-        _buffer.Reset();
-        _flushSeqNoStart = _nextSequenceNumber;
-    }
+        if (buffer.DocCount == 0) return;
 
-    private void LoadLatestCommit()
-    {
-        IndexOpenGuard.EnsureNoBlockingMigration(_directory, _config.CompatibilityMode);
-        var recovery = IndexRecovery.RecoverLatestCommit(_directory.DirectoryPath);
-        if (recovery is null) return;
-        IndexOpenGuard.EnsureCanOpenSegments(_directory, recovery.SegmentIds, _config.CompatibilityMode, forWriting: true);
-
-        _commitGeneration = recovery.Generation;
-        _contentToken = recovery.ContentToken;
-        // Parse the maximum segment ordinal from the segment IDs (e.g. "seg_557" → 557)
-        // rather than using Segments.Count, which is incorrect after merges reduce
-        // the segment count while ordinals keep climbing.
-        int maxOrdinal = 0;
-        foreach (var segId in recovery.SegmentIds)
-        {
-            if (segId.StartsWith("seg_", StringComparison.Ordinal) &&
-                int.TryParse(segId.AsSpan(4), out int ordinal) &&
-                ordinal >= maxOrdinal)
-            {
-                maxOrdinal = ordinal;
-            }
-        }
-        _nextSegmentOrdinal = maxOrdinal + 1;
-
-        foreach (var segId in recovery.SegmentIds)
-        {
-            var segPath = Path.Combine(_directory.DirectoryPath, segId + ".seg");
-            if (!File.Exists(segPath))
-                continue;
-
-            var seg = SegmentInfo.ReadFrom(segPath);
-
-            var basePath = Path.Combine(_directory.DirectoryPath, segId);
-            var delPath = seg.DelGeneration.HasValue
-                ? basePath + $"_gen_{seg.DelGeneration.Value}.del"
-                : basePath + ".del";
-            if (File.Exists(delPath))
-            {
-                var liveDocs = LiveDocs.Deserialise(delPath, seg.DocCount);
-                seg.LiveDocCount = liveDocs.LiveCount;
-                seg.EarliestSoftDeleteTimestamp = liveDocs.EarliestSoftDeleteTimestamp;
-            }
-            else
-            {
-                seg.LiveDocCount = seg.DocCount;
-            }
-
-            _committedSegments.Add(seg);
-        }
-
-        // Recover sequence number counter from the highest known seqno across all segments.
-        if (_config.TrackSequenceNumbers)
-        {
-            long maxSeq = 0;
-            foreach (var seg in _committedSegments)
-            {
-                if (seg.MaxSequenceNumber.HasValue && seg.MaxSequenceNumber.Value > maxSeq)
-                    maxSeq = seg.MaxSequenceNumber.Value;
-            }
-            _nextSequenceNumber = maxSeq + 1;
-            _flushSeqNoStart = _nextSequenceNumber;
-        }
-    }
-    private void FlushSegment()
-    {
-        if (_buffer.DocCount == 0) return;
-
-        int docCountToFlush = _buffer.DocCount;
+        int docCountToFlush = buffer.DocCount;
 
         var segInfo = SegmentFlusher.Flush(
-            _buffer, _config, _directory.DirectoryPath,
-            ref _nextSegmentOrdinal, _commitGeneration,
-            _flushSeqNoStart, _nextSequenceNumber);
+            buffer, config, directoryPath,
+            ref commitState.NextSegmentOrdinal, commitState.CommitGeneration,
+            commitState.FlushSeqNoStart, commitState.NextSequenceNumber);
 
-        _committedSegments.Add(segInfo);
-        ResetBuffer();
+        commitState.CommittedSegments.Add(segInfo);
+        ResetBufferStatic(buffer, commitState);
 
-        // Release semaphore slots AFTER the flush is complete and buffers are cleared.
-        if (_backpressureSemaphore is not null && docCountToFlush > 0)
+        if (backpressureSemaphore is not null && docCountToFlush > 0)
         {
-            int toRelease = Math.Min(docCountToFlush, _semaphoreSlotsHeld);
+            int toRelease = Math.Min(docCountToFlush, semaphoreSlotsHeld);
             if (toRelease > 0)
             {
-                _backpressureSemaphore.Release(toRelease);
-                _semaphoreSlotsHeld -= toRelease;
+                backpressureSemaphore.Release(toRelease);
+                semaphoreSlotsHeld -= toRelease;
             }
         }
     }
+
+    internal static void ResetBufferStatic(DocumentBufferState buffer, CommitState commitState)
+    {
+        buffer.Reset();
+        commitState.FlushSeqNoStart = commitState.NextSequenceNumber;
+    }
+
+    /// <summary>Instance-level flush — delegates to the static helper.</summary>
+    private void FlushSegment()
+    {
+        FlushSegmentStatic(_buffer, _config, _directory.DirectoryPath, _commitState,
+            _backpressureState.BackpressureSemaphore, ref _backpressureState.SemaphoreSlotsHeld);
+    }
+
+    /// <summary>
+    /// Provides access to <see cref="DwptState"/> for the Concurrent indexing partial.
+    /// </summary>
+    internal DwptState DwptState => _dwptState;
+
+    /// <summary>
+    /// Provides access to <see cref="CommitState"/> for partial classes.
+    /// </summary>
+    internal CommitState CommitState => _commitState;
+
+    /// <summary>
+    /// Provides access to <see cref="BackpressureState"/> for partial classes.
+    /// </summary>
+    internal BackpressureState BackpressureState => _backpressureState;
+
+    /// <summary>
+    /// Provides access to <see cref="MergeState"/> for partial classes.
+    /// </summary>
+    internal MergeState MergeState => _mergeState;
+
+    /// <summary>
+    /// Provides access to <see cref="SnapshotState"/> for partial classes.
+    /// </summary>
+    internal SnapshotState SnapshotState => _snapshotState;
+
+    /// <summary>
+    /// Provides access to <see cref="MMapDirectory"/> for partial classes.
+    /// </summary>
+    internal MMapDirectory Directory => _directory;
+
+    /// <summary>
+    /// Provides access to <see cref="IndexWriterConfig"/> for partial classes.
+    /// </summary>
+    internal IndexWriterConfig Config => _config;
+
+    /// <summary>
+    /// Provides access to <see cref="IAnalyser"/> for partial classes.
+    /// </summary>
+    internal IAnalyser DefaultAnalyser => _defaultAnalyser;
+
+    /// <summary>
+    /// Provides access to the write lock for partial classes.
+    /// </summary>
+    internal Lock WriteLock => _writeLock;
+
+    /// <summary>
+    /// Provides access to the buffer for partial classes.
+    /// </summary>
+    internal DocumentBufferState Buffer => _buffer;
+
+    /// <summary>
+    /// Provides access to the backpressure semaphore for tests and diagnostics.
+    /// </summary>
+    internal SemaphoreSlim? BackpressureSemaphoreForTests => _backpressureState.BackpressureSemaphore;
 }

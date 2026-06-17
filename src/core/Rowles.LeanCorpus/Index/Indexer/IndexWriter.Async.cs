@@ -6,13 +6,7 @@ public sealed partial class IndexWriter
 {
     /// <summary>
     /// Indexes a single document asynchronously.
-    /// Uses asynchronous backpressure waits when the writer queue is full, then
-    /// reuses the same synchronous indexing core as <see cref="AddDocument"/>.
     /// </summary>
-    /// <param name="doc">The document to index.</param>
-    /// <param name="cancellationToken">Cancels the operation before the document enters the writer critical section.</param>
-    /// <exception cref="ObjectDisposedException">Thrown if the writer has been disposed.</exception>
-    /// <exception cref="OperationCanceledException">Thrown if <paramref name="cancellationToken"/> is cancelled before indexing starts.</exception>
     public async ValueTask AddDocumentAsync(LeanDocument doc, CancellationToken cancellationToken = default)
     {
         EnterIndexingOperation();
@@ -20,24 +14,25 @@ public sealed partial class IndexWriter
         {
             ValidateDocument(doc);
 
-            await AcquireBackpressureSlotAsync(cancellationToken).ConfigureAwait(false);
+            await BackpressureController.AcquireBackpressureSlotAsync(BackpressureState, WriteLock,
+                Buffer, Config, CommitState, Directory.DirectoryPath, cancellationToken).ConfigureAwait(false);
 
             bool addedToHeldSlots = false;
             bool enteredCore = false;
             try
             {
-                lock (_writeLock)
+                lock (WriteLock)
                 {
                     if (Volatile.Read(ref _disposed) != 0)
                         throw new ObjectDisposedException(nameof(IndexWriter));
 
-                    if (_backpressureSemaphore is not null)
+                    if (BackpressureState.BackpressureSemaphore is not null)
                     {
-                        _semaphoreSlotsHeld++;
+                        BackpressureState.SemaphoreSlotsHeld++;
                         addedToHeldSlots = true;
                     }
 
-                    if (ShouldThrottleForMerge() && _buffer.DocCount > 0)
+                    if (ShouldThrottleForMerge() && Buffer.DocCount > 0)
                         FlushSegment();
 
                     enteredCore = true;
@@ -48,7 +43,7 @@ public sealed partial class IndexWriter
             {
                 if (enteredCore)
                     MarkIndexingFailed();
-                ReleaseFailedBackpressureSlots(acquired: 1, addedToHeldSlots);
+                BackpressureController.ReleaseFailedBackpressureSlots(BackpressureState, WriteLock, acquired: 1, addedToHeldSlots);
                 throw;
             }
         }
@@ -60,13 +55,7 @@ public sealed partial class IndexWriter
 
     /// <summary>
     /// Indexes a batch of documents asynchronously with a single writer-lock acquisition.
-    /// Uses asynchronous backpressure waits when needed, then reuses the same synchronous
-    /// batch indexing core as <see cref="AddDocuments"/>.
     /// </summary>
-    /// <param name="documents">The documents to index.</param>
-    /// <param name="cancellationToken">Cancels the operation before the batch enters the writer critical section.</param>
-    /// <exception cref="ObjectDisposedException">Thrown if the writer has been disposed.</exception>
-    /// <exception cref="OperationCanceledException">Thrown if <paramref name="cancellationToken"/> is cancelled before indexing starts.</exception>
     public async ValueTask AddDocumentsAsync(IReadOnlyList<LeanDocument> documents, CancellationToken cancellationToken = default)
     {
         EnterIndexingOperation();
@@ -77,7 +66,7 @@ public sealed partial class IndexWriter
                 return;
             ValidateDocuments(documents);
 
-            if (_backpressureSemaphore is not null && documents.Count > _config.MaxQueuedDocs)
+            if (BackpressureState.BackpressureSemaphore is not null && documents.Count > Config.MaxQueuedDocs)
             {
                 for (int i = 0; i < documents.Count; i++)
                     await AddDocumentAsync(documents[i], cancellationToken).ConfigureAwait(false);
@@ -89,23 +78,24 @@ public sealed partial class IndexWriter
             bool enteredCore = false;
             try
             {
-                if (_backpressureSemaphore is not null)
+                if (BackpressureState.BackpressureSemaphore is not null)
                 {
                     for (int i = 0; i < documents.Count; i++)
                     {
-                        await AcquireBackpressureSlotAsync(cancellationToken).ConfigureAwait(false);
+                        await BackpressureController.AcquireBackpressureSlotAsync(BackpressureState, WriteLock,
+                            Buffer, Config, CommitState, Directory.DirectoryPath, cancellationToken).ConfigureAwait(false);
                         acquired++;
                     }
                 }
 
-                lock (_writeLock)
+                lock (WriteLock)
                 {
                     if (Volatile.Read(ref _disposed) != 0)
                         throw new ObjectDisposedException(nameof(IndexWriter));
 
-                    if (_backpressureSemaphore is not null)
+                    if (BackpressureState.BackpressureSemaphore is not null)
                     {
-                        _semaphoreSlotsHeld += acquired;
+                        BackpressureState.SemaphoreSlotsHeld += acquired;
                         addedToHeldSlots = true;
                     }
 
@@ -120,7 +110,7 @@ public sealed partial class IndexWriter
             {
                 if (enteredCore)
                     MarkIndexingFailed();
-                ReleaseFailedBackpressureSlots(acquired, addedToHeldSlots);
+                BackpressureController.ReleaseFailedBackpressureSlots(BackpressureState, WriteLock, acquired, addedToHeldSlots);
                 throw;
             }
         }
@@ -132,13 +122,7 @@ public sealed partial class IndexWriter
 
     /// <summary>
     /// Indexes streamed documents from an async enumerable using bounded batches.
-    /// Fully submitted batches are retained if the source later faults; the current
-    /// in-memory batch is discarded when the enumerable fails before the next flush.
     /// </summary>
-    /// <param name="documents">The streamed documents to index.</param>
-    /// <param name="batchSize">The maximum batch size submitted to the writer at once. Must be greater than zero.</param>
-    /// <param name="cancellationToken">Cancels source consumption or a pending batch submission.</param>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="batchSize"/> is less than one.</exception>
     public async ValueTask AddDocumentsAsync(
         IAsyncEnumerable<LeanDocument> documents,
         int batchSize = 256,
@@ -173,12 +157,7 @@ public sealed partial class IndexWriter
 
     /// <summary>
     /// Indexes a block of child documents followed by a parent document asynchronously.
-    /// Cancellation is honoured only before the block enters the writer critical section,
-    /// preserving the same all-or-nothing block semantics as <see cref="AddDocumentBlock"/>.
     /// </summary>
-    /// <param name="block">The documents to index as a block. The last element is the parent.</param>
-    /// <param name="cancellationToken">Cancels the operation before the block enters the writer critical section.</param>
-    /// <exception cref="ArgumentException">Thrown if the block has fewer than two documents.</exception>
     public async ValueTask AddDocumentBlockAsync(IReadOnlyList<LeanDocument> block, CancellationToken cancellationToken = default)
     {
         EnterIndexingOperation();
@@ -188,10 +167,10 @@ public sealed partial class IndexWriter
             if (block.Count < 2)
                 throw new ArgumentException("A document block requires at least one child and one parent document.", nameof(block));
             ValidateDocuments(block);
-            if (_backpressureSemaphore is not null && block.Count > _config.MaxQueuedDocs)
+            if (BackpressureState.BackpressureSemaphore is not null && block.Count > Config.MaxQueuedDocs)
             {
                 throw new InvalidOperationException(
-                    $"Document block contains {block.Count} documents, which exceeds MaxQueuedDocs ({_config.MaxQueuedDocs}).");
+                    $"Document block contains {block.Count} documents, which exceeds MaxQueuedDocs ({Config.MaxQueuedDocs}).");
             }
 
             int acquired = 0;
@@ -199,23 +178,24 @@ public sealed partial class IndexWriter
             bool enteredCore = false;
             try
             {
-                if (_backpressureSemaphore is not null)
+                if (BackpressureState.BackpressureSemaphore is not null)
                 {
                     for (int i = 0; i < block.Count; i++)
                     {
-                        await AcquireBackpressureSlotAsync(cancellationToken).ConfigureAwait(false);
+                        await BackpressureController.AcquireBackpressureSlotAsync(BackpressureState, WriteLock,
+                            Buffer, Config, CommitState, Directory.DirectoryPath, cancellationToken).ConfigureAwait(false);
                         acquired++;
                     }
                 }
 
-                lock (_writeLock)
+                lock (WriteLock)
                 {
                     if (Volatile.Read(ref _disposed) != 0)
                         throw new ObjectDisposedException(nameof(IndexWriter));
 
-                    if (_backpressureSemaphore is not null)
+                    if (BackpressureState.BackpressureSemaphore is not null)
                     {
-                        _semaphoreSlotsHeld += acquired;
+                        BackpressureState.SemaphoreSlotsHeld += acquired;
                         addedToHeldSlots = true;
                     }
 
@@ -223,8 +203,8 @@ public sealed partial class IndexWriter
                     {
                         if (i == block.Count - 1)
                         {
-                            _buffer.ParentDocIds ??= new HashSet<int>();
-                            _buffer.ParentDocIds.Add(_buffer.DocCount);
+                            Buffer.ParentDocIds ??= new HashSet<int>();
+                            Buffer.ParentDocIds.Add(Buffer.DocCount);
                         }
 
                         enteredCore = true;
@@ -239,7 +219,7 @@ public sealed partial class IndexWriter
             {
                 if (enteredCore)
                     MarkIndexingFailed();
-                ReleaseFailedBackpressureSlots(acquired, addedToHeldSlots);
+                BackpressureController.ReleaseFailedBackpressureSlots(BackpressureState, WriteLock, acquired, addedToHeldSlots);
                 throw;
             }
         }
@@ -251,10 +231,7 @@ public sealed partial class IndexWriter
 
     /// <summary>
     /// Flushes buffered work and publishes a durable commit on a background worker thread.
-    /// Cancellation is honoured before the commit starts; once started, the commit runs to completion
-    /// so the on-disk durability sequence stays identical to <see cref="Commit"/>.
     /// </summary>
-    /// <param name="cancellationToken">Cancels the operation before the commit starts.</param>
     public Task CommitAsync(CancellationToken cancellationToken = default)
     {
         EnterIndexingOperation();
@@ -267,7 +244,10 @@ public sealed partial class IndexWriter
                 try
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    CommitWithLocks();
+                    CommitManager.CommitWithLocks(CommitState, Directory, Config, Buffer,
+                        WriteLock, MergeState.MergeIoLock, MergeState.MergeLock,
+                        DwptState, SnapshotState, MergeState,
+                        BackpressureState.BackpressureSemaphore, ref BackpressureState.SemaphoreSlotsHeld);
                 }
                 finally
                 {
@@ -282,88 +262,12 @@ public sealed partial class IndexWriter
         }
     }
 
-    private async ValueTask AcquireBackpressureSlotAsync(CancellationToken cancellationToken)
-    {
-        if (_backpressureSemaphore is null)
-            return;
-
-        if (_backpressureSemaphore.Wait(0))
-            return;
-
-        cancellationToken.ThrowIfCancellationRequested();
-
-        if (Interlocked.CompareExchange(ref _flushElection, 1, 0) == 0)
-        {
-            try
-            {
-                lock (_writeLock)
-                {
-                    if (_buffer.DocCount > 0)
-                        FlushSegment();
-                }
-            }
-            finally
-            {
-                Volatile.Write(ref _flushElection, 0);
-            }
-        }
-
-        try
-        {
-            await _backpressureSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (ObjectDisposedException) when (Volatile.Read(ref _disposed) != 0)
-        {
-            throw new ObjectDisposedException(nameof(IndexWriter));
-        }
-
-        if (Volatile.Read(ref _disposed) != 0)
-            throw new ObjectDisposedException(nameof(IndexWriter));
-    }
-
-    private void ReleaseFailedBackpressureSlots(int acquired, bool addedToHeldSlots)
-    {
-        if (_backpressureSemaphore is null || acquired <= 0)
-            return;
-
-        if (!addedToHeldSlots)
-        {
-            ReleaseSemaphoreSlots(acquired);
-            return;
-        }
-
-        int toRelease;
-        lock (_writeLock)
-        {
-            toRelease = Math.Min(acquired, Math.Max(0, _semaphoreSlotsHeld));
-            if (toRelease > 0)
-                _semaphoreSlotsHeld -= toRelease;
-        }
-
-        if (toRelease > 0)
-            ReleaseSemaphoreSlots(toRelease);
-    }
-
-    private void ReleaseSemaphoreSlots(int count)
-    {
-        if (_backpressureSemaphore is null || count <= 0)
-            return;
-
-        try
-        {
-            _backpressureSemaphore.Release(count);
-        }
-        catch (ObjectDisposedException) when (Volatile.Read(ref _disposed) != 0)
-        {
-        }
-    }
-
     private int GetEffectiveAsyncBatchSize(int requestedBatchSize)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(requestedBatchSize);
-        if (_config.MaxQueuedDocs <= 0)
+        if (Config.MaxQueuedDocs <= 0)
             return requestedBatchSize;
 
-        return Math.Min(requestedBatchSize, _config.MaxQueuedDocs);
+        return Math.Min(requestedBatchSize, Config.MaxQueuedDocs);
     }
 }
