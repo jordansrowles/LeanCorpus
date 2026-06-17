@@ -252,11 +252,8 @@ foreach ($entry in $sortedSuites) {
     [void]$sb.AppendLine()
 
     if ($hasCharts) {
-        [void]$sb.AppendLine("<div class=""benchmark-charts"">")
-        [void]$sb.AppendLine("<h2>Allocation</h2>")
-        [void]$sb.AppendLine("<div style=""max-width:960px""><canvas id=""chart-alloc-$chartId"" style=""max-height:400px""></canvas></div>")
-        [void]$sb.AppendLine("<h2>Performance</h2>")
-        [void]$sb.AppendLine("<div style=""max-width:960px""><canvas id=""chart-perf-$chartId"" style=""max-height:500px""></canvas></div>")
+        [void]$sb.AppendLine("<div class=""benchmark-chart"">")
+        [void]$sb.AppendLine("<div style=""max-width:960px""><canvas id=""chart-bench-$chartId"" style=""max-height:500px""></canvas></div>")
         [void]$sb.AppendLine("<p><a href=""$jsonOutName"">Full results as JSON</a></p>")
         [void]$sb.AppendLine("</div>")
         [void]$sb.AppendLine("<script src=""benchmark-charts.js""></script>")
@@ -278,13 +275,11 @@ $benchmarkChartsJs = @'
 (function(){
 "use strict";
 
-// Work out which suite page we are on from the canvas element id.
-var allocCanvas = document.querySelector("canvas[id^='chart-alloc-']");
-if(!allocCanvas)return;
-var suite = allocCanvas.id.replace("chart-alloc-","");
+var canvas = document.querySelector("canvas[id^='chart-bench-']");
+if(!canvas)return;
+var suite = canvas.id.replace("chart-bench-","");
 var jsonUrl = suite + ".json";
 
-// Load Chart.js then fetch data and render.
 var chartJs = document.createElement("script");
 chartJs.src = "https://cdn.jsdelivr.net/npm/chart.js@4";
 chartJs.onload = function(){ fetch(jsonUrl).then(function(r){return r.json();}).then(render).catch(function(){}); };
@@ -296,7 +291,6 @@ function render(full){
 
   var colors=["#4e79a7","#f28e2b","#e15759","#76b7b2","#59a14f","#edc948","#b07aa1","#ff9da7","#9c755f","#bab0ac"];
 
-  // Build chart data from the full BDN JSON
   var chartData=[];
   benchmarks.forEach(function(b){
     var label=b.MethodTitle;
@@ -311,54 +305,73 @@ function render(full){
     });
   });
 
-  // Allocation — horizontal bar
-  new Chart(document.getElementById("chart-alloc-"+suite),{
+  var labels=chartData.map(function(x){return x.label;});
+
+  // Build datasets
+  var datasets=[];
+
+  // Allocation bars on left axis
+  datasets.push({
     type:"bar",
-    data:{
-      labels:chartData.map(function(x){return x.label;}),
-      datasets:[{
-        label:"Bytes allocated",
-        data:chartData.map(function(x){return x.allocBytes;}),
-        backgroundColor:colors[0]
-      }]
-    },
-    options:{
-      indexAxis:"y",
-      responsive:true,
-      maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return fmtBytes(c.raw);}}}},
-      scales:{x:{title:{display:true,text:"Allocated"},ticks:{callback:fmtBytes}}}
-    }
+    label:"Allocated",
+    data:chartData.map(function(x){return x.allocBytes;}),
+    backgroundColor:colors[0]+"cc",
+    yAxisID:"y",
+    order:1
   });
 
-  // Performance — bar means with scatter iterations overlay
-  var perfLabels=chartData.map(function(x){return x.label;});
-  var perfDatasets=[{
-    type:"bar",
-    label:"Mean",
+  // Performance line (mean) on right axis
+  datasets.push({
+    type:"line",
+    label:"Mean time",
     data:chartData.map(function(x){return x.meanNs;}),
-    backgroundColor:colors.map(function(c){return c+"88";}),
-    order:1
-  }];
+    borderColor:"#e15759",
+    backgroundColor:"#e1575933",
+    yAxisID:"y1",
+    pointRadius:4,
+    pointHoverRadius:6,
+    order:0
+  });
+
+  // Individual iteration scatter on right axis
   chartData.forEach(function(m,i){
-    perfDatasets.push({
+    datasets.push({
       type:"scatter",
       label:m.label,
       data:m.iterations.map(function(ns){return{x:m.label,y:ns};}),
-      backgroundColor:colors[i%colors.length],
-      pointRadius:3,
-      pointHoverRadius:5,
+      backgroundColor:colors[i%colors.length]+"55",
+      yAxisID:"y1",
+      pointRadius:2,
+      pointHoverRadius:4,
       showLine:false,
-      order:0
+      order:2
     });
   });
-  new Chart(document.getElementById("chart-perf-"+suite),{
-    data:{labels:perfLabels,datasets:perfDatasets},
+
+  new Chart(canvas,{
+    data:{labels:labels,datasets:datasets},
     options:{
       responsive:true,
       maintainAspectRatio:false,
-      plugins:{tooltip:{callbacks:{label:function(c){var v=c.raw.y||c.raw;return c.dataset.label+": "+fmtNs(v);}}}},
-      scales:{y:{title:{display:true,text:"Time"},ticks:{callback:fmtNs}}}
+      interaction:{mode:"index",intersect:false},
+      plugins:{
+        tooltip:{callbacks:{label:function(c){var v=c.raw.y||c.raw;if(c.dataset.yAxisID==="y")return fmtBytes(v);return fmtNs(v);}}}
+      },
+      scales:{
+        y:{
+          type:"linear",
+          position:"left",
+          title:{display:true,text:"Allocated"},
+          ticks:{callback:fmtBytes},
+          grid:{drawOnChartArea:false}
+        },
+        y1:{
+          type:"linear",
+          position:"right",
+          title:{display:true,text:"Time"},
+          ticks:{callback:fmtNs}
+        }
+      }
     }
   });
 
