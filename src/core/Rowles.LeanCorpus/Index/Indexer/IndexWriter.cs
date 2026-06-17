@@ -904,6 +904,16 @@ public sealed partial class IndexWriter : IDisposable
 
             activity?.SetTag("index.segment_count", _committedSegments.Count);
         }
+
+        // Wait for any background merge triggered by CommitCore to finish so the
+        // on-disk state is consistent before a reader opens the index.
+        Task? merge;
+        lock (_mergeLock) { merge = _mergeTask; }
+        if (merge is { IsCompleted: false })
+        {
+            try { merge.Wait(); }
+            catch (AggregateException) { }
+        }
     }
 
     private void PublishPreparedCommit()

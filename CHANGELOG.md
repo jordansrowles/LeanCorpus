@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `IndexWriter.Dispose` no longer spins indefinitely waiting for in-flight indexing operations. A 30-second timeout prevents a stuck `AddDocument` call from hanging process shutdown.
 - Every swallowed exception across the library now logs via `LeanCorpusActivitySource.TraceSwallowed`, writing to `Debug.WriteLine` so filesystem errors during cleanup, fsync, merge, and event dispatch are no longer silent.
 - `AddDocumentsConcurrent` now clears the DWPT between `Parallel.ForEach` ranges, preventing accumulated document data from inflating segment doc counts when a thread processes multiple ranges. `QueryCache.Put` no longer increments the approximate count on duplicate keys.
+- `Commit` now waits for the background merge to finish before returning, preventing a race where a reader opened immediately after commit could see a new commit referencing segment files the merge had not yet flushed to disk.
 - `QueryCache` uses `ConcurrentDictionary` with generation-swap eviction instead of `Dictionary`+`Lock`+`LinkedList`. The `TryGet` path is lock-free. `Put` triggers a dictionary swap when the soft entry cap is exceeded. (ADR004)
 - `CodecFormatDescriptor` now carries a `HeaderFormat` field per extension, populated from `CodecFormats`, so version checks use the correct codec format rather than a single hardcoded value.
 
