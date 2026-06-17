@@ -120,7 +120,7 @@ public sealed class IndexStats
         {
             if (File.Exists(tmp))
             {
-                try { File.Delete(tmp); } catch { /* best-effort cleanup */ }
+                try { File.Delete(tmp); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "stats temp file delete"); }
             }
         }
     }

@@ -123,10 +123,10 @@ internal static class DirectoryFsync
         {
             SyncFileCore(filePath);
         }
-        catch (FileNotFoundException) { }
-        catch (DirectoryNotFoundException) { }
-        catch (UnauthorizedAccessException) { }
-        catch (IOException) { }
+        catch (FileNotFoundException ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "fsync (non-strict)"); }
+        catch (DirectoryNotFoundException ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "fsync (non-strict)"); }
+        catch (UnauthorizedAccessException ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "fsync (non-strict)"); }
+        catch (IOException ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "fsync (non-strict)"); }
     }
 
     private static void SyncFileCore(string filePath)

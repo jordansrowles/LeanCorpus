@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Concurrent indexing path: each DWPT partition now flushes its own segment to disk via `SegmentFlusher.FlushFromDwpt` instead of merging into the main buffer. `MergeDwpt`, `MergeMultiValuedDocValues`, and `AppendMergedStoredField` are deleted. HNSW graph construction is skipped on segments with fewer than 128 documents. (ADR005)
 - `HnswGraph.FromFrozen` no longer allocates a wasted mutable dictionary in the constructor. A private constructor accepts the `frozen` flag and skips mutable-level initialisation, and `_mutableLevels` is no longer `readonly`.
 - `IndexWriter.Dispose` no longer spins indefinitely waiting for in-flight indexing operations. A 30-second timeout prevents a stuck `AddDocument` call from hanging process shutdown.
+- Every swallowed exception across the library now logs via `LeanCorpusActivitySource.TraceSwallowed`, writing to `Debug.WriteLine` so filesystem errors during cleanup, fsync, merge, and event dispatch are no longer silent.
 - `QueryCache` uses `ConcurrentDictionary` with generation-swap eviction instead of `Dictionary`+`Lock`+`LinkedList`. The `TryGet` path is lock-free. `Put` triggers a dictionary swap when the soft entry cap is exceeded. (ADR004)
 - `CodecFormatDescriptor` now carries a `HeaderFormat` field per extension, populated from `CodecFormats`, so version checks use the correct codec format rather than a single hardcoded value.
 

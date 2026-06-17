@@ -171,7 +171,7 @@ public sealed class IndexOutput : IDisposable
                     int fd = (int)_stream.SafeFileHandle.DangerousGetHandle();
                     NativeMethods.posix_fadvise(fd, 0, _stream.Length, NativeMethods.POSIX_FADV_DONTNEED);
                 }
-                catch { /* advisory — never throw from Dispose */ }
+                catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "posix_fadvise during dispose"); }
             }
             ArrayPool<byte>.Shared.Return(_buffer);
             _stream.Dispose();

@@ -194,7 +194,7 @@ public sealed class SearcherManager : IDisposable
         Interlocked.Exchange(ref _lastRefreshErrorAtTicks, DateTime.UtcNow.Ticks);
         var failures = Interlocked.Increment(ref _consecutiveRefreshFailures);
         try { RefreshFailed?.Invoke(this, new RefreshFailedEventArgs(ex, failures)); }
-        catch { /* never let a subscriber's exception break the refresh loop */ }
+        catch (Exception subEx) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(subEx, "refresh-failed event subscriber"); }
     }
 
     private bool TryRefresh()

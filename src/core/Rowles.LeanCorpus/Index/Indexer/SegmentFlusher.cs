@@ -1120,6 +1120,6 @@ internal static class SegmentFlusher
 
     private static void TryDeleteTemporaryFile(string path)
     {
-        try { System.IO.File.Delete(path); } catch { /* best-effort */ }
+        try { System.IO.File.Delete(path); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "temp file delete"); }
     }
 }

@@ -771,28 +771,17 @@ public sealed class SegmentMerger
 
     internal void CleanupSegmentFiles(SegmentInfo seg)
     {
-        var segPrefix = seg.SegmentId + ".";
-        var genPrefix = seg.SegmentId + "_gen_";
-        // Enumerate all files and filter by exact prefix to avoid any risk of
-        // 8.3 short-name collisions on Windows (e.g. "seg_5.*" accidentally
-        // matching "seg_50.seg").
-        foreach (var filePath in Directory.GetFiles(_directory.DirectoryPath))
+        // Delete every file belonging to this segment (any extension).
+        foreach (var filePath in Directory.GetFiles(_directory.DirectoryPath, $"{seg.SegmentId}.*"))
         {
-            var fileName = Path.GetFileName(filePath);
-            if (fileName.StartsWith(segPrefix, StringComparison.Ordinal))
-            {
-                try { _directory.DeleteFile(fileName); }
-                catch { /* best-effort — deferred deletion handles mmap'd files */ }
-            }
+            try { File.Delete(filePath); }
+            catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "merge segment file cleanup"); }
         }
-        foreach (var filePath in Directory.GetFiles(_directory.DirectoryPath))
+        // Also sweep generation-versioned deletion files (e.g. seg_0_gen_3.del).
+        foreach (var filePath in Directory.GetFiles(_directory.DirectoryPath, $"{seg.SegmentId}_gen_*.del"))
         {
-            var fileName = Path.GetFileName(filePath);
-            if (fileName.StartsWith(genPrefix, StringComparison.Ordinal) && fileName.EndsWith(".del", StringComparison.Ordinal))
-            {
-                try { _directory.DeleteFile(fileName); }
-                catch { /* best-effort — deferred deletion handles mmap'd files */ }
-            }
+            try { File.Delete(filePath); }
+            catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "merge del file cleanup"); }
         }
     }
 
@@ -827,7 +816,7 @@ public sealed class SegmentMerger
         if (!File.Exists(filePath))
             return result;
 
-        using var fs = FileOpenRetry.OpenRead(filePath);
+        using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
 
         int fieldCount = reader.ReadInt32();
@@ -946,7 +935,7 @@ public sealed class SegmentMerger
 
     private static void TryDeleteTemporaryFile(string path)
     {
-        try { File.Delete(path); } catch { /* best-effort */ }
+        try { File.Delete(path); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "merge file delete"); }
     }
 
     private static float[] ComputeBBQCentroidMerge(

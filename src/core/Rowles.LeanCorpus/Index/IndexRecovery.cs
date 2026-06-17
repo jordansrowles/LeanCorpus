@@ -265,27 +265,23 @@ public static class IndexRecovery
         var activeSet = new HashSet<string>(activeSegmentIds, StringComparer.Ordinal);
 
         // Find all segment IDs on disk by looking for .seg files
-        var orphanIds = new List<string>();
         foreach (var segFile in Directory.GetFiles(directoryPath, "*.seg"))
         {
             var segId = Path.GetFileNameWithoutExtension(segFile);
-            if (!activeSet.Contains(segId))
-                orphanIds.Add(segId);
-        }
+            if (activeSet.Contains(segId))
+                continue;
 
-        foreach (var segId in orphanIds)
+            // Pattern: segId.* and segId_v_*.* (per-field vector and HNSW files).
+            DeleteByPattern(directoryPath, segId + ".*");
+            DeleteByPattern(directoryPath, segId + "_v_*.*");
+        }
+    }
+
+    private static void DeleteByPattern(string directoryPath, string pattern)
+    {
+        foreach (var path in Directory.GetFiles(directoryPath, pattern))
         {
-            var segPrefix = segId + ".";
-            var vecPrefix = segId + "_v_";
-            foreach (var path in Directory.GetFiles(directoryPath))
-            {
-                var fileName = Path.GetFileName(path);
-                if (fileName.StartsWith(segPrefix, StringComparison.Ordinal) ||
-                    fileName.StartsWith(vecPrefix, StringComparison.Ordinal))
-                {
-                    try { File.Delete(path); } catch { /* best-effort */ }
-                }
-            }
+            try { File.Delete(path); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "orphan cleanup"); }
         }
     }
 

@@ -345,7 +345,7 @@ internal static class StreamingPostingsMerger
 
     private static void TryDeleteTemporaryFile(string path)
     {
-        try { File.Delete(path); } catch { /* best-effort */ }
+        try { File.Delete(path); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "temp postings file delete"); }
     }
 
     private static int VarIntSize(long value)

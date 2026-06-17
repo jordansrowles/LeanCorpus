@@ -659,7 +659,7 @@ public sealed partial class IndexWriter : IDisposable
                 // Delete the pending commit file.
                 var pendingPath = Path.Combine(_directory.DirectoryPath,
                     $"segments_{_preparedGeneration}.pending");
-                try { File.Delete(pendingPath); } catch { /* best-effort */ }
+                try { File.Delete(pendingPath); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "rollback pending-file delete"); }
 
                 // Delete segment files that exist only in the prepared state.
                 if (_preparedSegments is not null)
@@ -691,11 +691,11 @@ public sealed partial class IndexWriter : IDisposable
     {
         foreach (var file in Directory.GetFiles(_directory.DirectoryPath, segId + ".*"))
         {
-            try { File.Delete(file); } catch { /* best-effort */ }
+            try { File.Delete(file); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "segment file delete"); }
         }
         foreach (var file in Directory.GetFiles(_directory.DirectoryPath, segId + "_v_*.*"))
         {
-            try { File.Delete(file); } catch { /* best-effort */ }
+            try { File.Delete(file); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "vector file delete"); }
         }
     }
 
@@ -1144,7 +1144,7 @@ public sealed partial class IndexWriter : IDisposable
         // Release the directory write lock
         _writeLockFile.Dispose();
         var lockPath = Path.Combine(_directory.DirectoryPath, "write.lock");
-        try { File.Delete(lockPath); } catch { /* best-effort */ }
+        try { File.Delete(lockPath); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "write-lock file delete"); }
     }
 
     private void EnterIndexingOperation()
