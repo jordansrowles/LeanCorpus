@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ConcurrentVsSequentialBenchmarks` suite comparing `AddDocumentsConcurrent` and `AddDocumentLockFree` throughput against sequential `AddDocument` at batch sizes of 100, 1000, and 10 000 documents. The `concurrent-write` suite name is registered in both `benchmark.ps1` and `benchmark.sh`.
 - LINQ queryable provider via `LeanQueryable<T>` and the `LeanExpressionVisitor` expression-tree translator. `Where`, `Select`, `First`, `Single`, `Count`, `Any`, `Take`, `Skip`, `OrderBy`, and `OrderByDescending` operators are supported; lambda predicates (`==`, `!=`, `>`, `>=`, `<`, `<=`, `&&`, `||`, `!`, `.Contains()`, `.StartsWith()`, `.EndsWith()`) are translated into native `Query` objects and executed directly against the index with no intermediate SQL or reflection. The Roslyn source generator emits a zero-allocation field-descriptor switch expression and an `AsQueryable(IndexSearcher)` entry point for `[LeanDocument]`-annotated models. `LeanField<TDoc,TVal>` and `LeanFieldBinding<TDoc>` implement `IFieldDescriptor` for AOT-compatible field resolution. Ships with unit, integration, and chaos test suites.
 - Multilingual Wikipedia download script (`scripts/download-wikipedia.sh`) with BCP 47 language code support, jq-based null-delimited record extraction, and exponential backoff rate limiting for 300+ language editions. The PowerShell script (`download-wikipedia.ps1`) gained the same `-Language` parameter for cross-language benchmark data collection.
 - LINQ queries tutorial (`docs/tutorials/searching/07-linq-queries.md`) covering quick start, supported operators, LINQ methods, allocation profile, and AOT compatibility guidance.
@@ -40,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `PushDepth` wired into all nesting codecs to enforce a maximum nesting depth, preventing stack overflows on malformed inputs.
 - All per-codec format versions reset to 1 following the CodecKit migration. Legacy term dictionary v1/v2 codec, `ICompressionProvider` abstraction, and old-format readers removed.
 - Kernel hints (`SequentialScan`, `WriteThrough`) applied to merge I/O paths.
+- Concurrent indexing path: each DWPT partition now flushes its own segment to disk via `SegmentFlusher.FlushFromDwpt` instead of merging into the main buffer. `MergeDwpt`, `MergeMultiValuedDocValues`, and `AppendMergedStoredField` are deleted. HNSW graph construction is skipped on segments with fewer than 128 documents. (ADR005)
+- `QueryCache` uses `ConcurrentDictionary` with generation-swap eviction instead of `Dictionary`+`Lock`+`LinkedList`. The `TryGet` path is lock-free. `Put` triggers a dictionary swap when the soft entry cap is exceeded. (ADR004)
+- `CodecFormatDescriptor` now carries a `HeaderFormat` field per extension, populated from `CodecFormats`, so version checks use the correct codec format rather than a single hardcoded value.
 
 ### Fixed
 
@@ -47,14 +51,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Double-byte-copy in `AddBinaryDocValue`: the string overload encoded to UTF-8 then called the span overload which called `ToArray()` a second time. Both paths now route through a shared core method, allocating once.
 - AOT smoke test script now auto-detects the OS when selecting the runtime identifier.
 - Highlighter and similarity benchmark comparisons against Lucene.NET corrected.
-
+- Every `await` in the library now includes `ConfigureAwait(false)`, preventing continuations from capturing the caller's `SynchronizationContext`.
 
 ## [1.4.0] - 2026-05-29
 
 ### Added
 
 - Soft deletes with configurable retention period. When `IndexWriterConfig.SoftDeletesEnabled` is `true`, `SoftDeleteDocuments(TermQuery)` marks matching documents as deleted in the live-docs bitmap and records a Unix-millisecond timestamp in the `.del` file. Soft-deleted documents are invisible to search but retained on disk until the retention period elapses, at which point merges reclaim the space.
-
 - Per-segment sequence number tracking. When `IndexWriterConfig.TrackSequenceNumbers` is `true`, each document is assigned a monotonically-increasing sequence number and the segment metadata records `MinSequenceNumber` and `MaxSequenceNumber`. `IndexWriter.NextSequenceNumber` exposes the next sequence number that will be assigned.
 - `UpdateDocuments(Query, LeanDocument)` for atomically deleting documents matching a query and adding a replacement. Supports `TermQuery`, `BooleanQuery` of `TermQuery` clauses, and `MatchAllDocsQuery`.
 - `IndexWriter.AddIndexes(MMapDirectory)` to merge all segments from a source directory into the current index. Segments are validated for format compatibility and merged into a single new segment without modifying the source files.
