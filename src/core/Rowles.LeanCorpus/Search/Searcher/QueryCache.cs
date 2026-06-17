@@ -88,8 +88,9 @@ public sealed class QueryCache
         var entry = new CacheEntry(key, result, gen);
 
         var map = _map;
+        bool isNew = !map.ContainsKey(key);
         map[key] = entry; // AddOrUpdate semantics via indexer
-        int newCount = Interlocked.Increment(ref _approxCount);
+        int newCount = isNew ? Interlocked.Increment(ref _approxCount) : Volatile.Read(ref _approxCount);
 
         if (newCount > _maxEntries)
             EvictGeneration(map);

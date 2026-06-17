@@ -133,6 +133,7 @@ public sealed partial class IndexWriter
 
                     newSegments.Add(segInfo);
                     _contentChangedSinceCommit = true;
+                    dwpt.ClearAll();
                     return dwpt;
                 },
                 dwpt => { });
