@@ -166,14 +166,85 @@ if ($newestPerSuite.Count -eq 0) {
 
 Write-Host "Found $($newestPerSuite.Count) suites across all runs." -ForegroundColor Green
 
+# ── Chart.js template ─────────────────────────────────────────────────────────
+# Single @' … '@ here-string so $ symbols are literal.  Placeholders:
+#   CHART_DATA_PLACEHOLDER  →  compact JSON array of {label, meanNs, allocBytes, iterations}
+#   CHART_ID_PLACEHOLDER    →  safe CSS id for the two <canvas> elements
+
+$chartJsTemplate = @'
+(function(){
+var d=CHART_DATA_PLACEHOLDER;
+if(!d||!d.length)return;
+var colors=["#4e79a7","#f28e2b","#e15759","#76b7b2","#59a14f","#edc948","#b07aa1","#ff9da7","#9c755f","#bab0ac"];
+
+// Allocation — horizontal bar
+new Chart(document.getElementById("chart-alloc-CHART_ID_PLACEHOLDER"),{
+  type:"bar",
+  data:{
+    labels:d.map(function(x){return x.label;}),
+    datasets:[{
+      label:"Bytes allocated",
+      data:d.map(function(x){return x.allocBytes;}),
+      backgroundColor:colors[0]
+    }]
+  },
+  options:{
+    indexAxis:"y",
+    responsive:true,
+    maintainAspectRatio:false,
+    plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return fmtBytes(c.raw);}}}},
+    scales:{x:{title:{display:true,text:"Allocated"},ticks:{callback:fmtBytes}}}
+  }
+});
+
+// Performance — bar means with scatter iterations overlay
+var perfLabels=d.map(function(x){return x.label;});
+var perfDatasets=[{
+  type:"bar",
+  label:"Mean",
+  data:d.map(function(x){return x.meanNs;}),
+  backgroundColor:colors.map(function(c){return c+"88";}),
+  order:1
+}];
+d.forEach(function(m,i){
+  perfDatasets.push({
+    type:"scatter",
+    label:m.label,
+    data:m.iterations.map(function(ns){return{x:m.label,y:ns};}),
+    backgroundColor:colors[i%colors.length],
+    pointRadius:3,
+    pointHoverRadius:5,
+    showLine:false,
+    order:0
+  });
+});
+new Chart(document.getElementById("chart-perf-CHART_ID_PLACEHOLDER"),{
+  data:{labels:perfLabels,datasets:perfDatasets},
+  options:{
+    responsive:true,
+    maintainAspectRatio:false,
+    plugins:{tooltip:{callbacks:{label:function(c){var v=c.raw.y||c.raw;return c.dataset.label+": "+fmtNs(v);}}}},
+    scales:{y:{title:{display:true,text:"Time"},ticks:{callback:fmtNs}}}
+  }
+});
+
+function fmtBytes(v){if(v>=1e9)return(v/1e9).toFixed(1)+" GB";if(v>=1e6)return(v/1e6).toFixed(1)+" MB";if(v>=1e3)return(v/1e3).toFixed(1)+" KB";return v+" B";}
+function fmtNs(v){if(v>=1e9)return(v/1e9).toFixed(2)+" s";if(v>=1e6)return(v/1e6).toFixed(2)+" ms";if(v>=1e3)return(v/1e3).toFixed(2)+" μs";return v.toFixed(0)+" ns";}
+})();
+'@
+
 # ── Generate pages ────────────────────────────────────────────────────────────
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
 # Remove old generated files (keep any hand-written content, but since these
-# are all auto-generated, safe to clear *.md that match our suites)
+# are all auto-generated, safe to clear *.md and *.json that match our suites)
 $existingMd = Get-ChildItem $OutputDir -Filter '*.md' -ErrorAction SilentlyContinue
 foreach ($f in $existingMd) {
+    Remove-Item $f.FullName -Force
+}
+$existingJson = Get-ChildItem $OutputDir -Filter '*.json' -ErrorAction SilentlyContinue
+foreach ($f in $existingJson) {
     Remove-Item $f.FullName -Force
 }
 
@@ -221,6 +292,38 @@ foreach ($entry in $sortedSuites) {
     $commitShort = if ($report.commitHash.Length -gt 7) { $report.commitHash.Substring(0, 7) } else { $report.commitHash }
     $docCount    = $report.provenance.effectiveDocCount
 
+    # Find and copy the full BDN JSON alongside the page
+    $jsonBaseName = [System.IO.Path]::GetFileNameWithoutExtension($fileName)
+    $jsonOutName  = "$jsonBaseName.json"
+    $jsonOutPath  = Join-Path $OutputDir $jsonOutName
+    $jsonFiles    = @(Get-ChildItem $suiteResultDir -Recurse -Filter '*-report-full.json' -ErrorAction SilentlyContinue)
+    $chartJson    = '[]'
+    $hasCharts    = $false
+
+    if ($jsonFiles.Count -gt 0) {
+        Copy-Item $jsonFiles[0].FullName $jsonOutPath -Force
+        try {
+            $fullJson = Get-Content $jsonFiles[0].FullName -Raw | ConvertFrom-Json
+            $chartData = @($fullJson.Benchmarks | ForEach-Object {
+                $label = $_.MethodTitle
+                if ($_.Parameters) { $label += " [$($_.Parameters)]" }
+                $resultIters = @($_.Measurements | Where-Object { $_.IterationStage -eq 'Result' } | ForEach-Object { $_.Nanoseconds })
+                [PSCustomObject]@{
+                    label      = $label
+                    meanNs     = [math]::Round($_.Statistics.Mean, 0)
+                    allocBytes = $_.Memory.BytesAllocatedPerOperation
+                    iterations = $resultIters
+                }
+            })
+            $chartJson = ($chartData | ConvertTo-Json -Compress -Depth 4)
+            $hasCharts = ($chartData.Count -gt 0)
+        } catch {
+            Write-Warning "  Failed to parse JSON for '$suiteName', charts skipped."
+        }
+    }
+
+    $chartId = $suiteName -replace '[^a-zA-Z0-9]', '-'
+
     $sb = [System.Text.StringBuilder]::new()
     [void]$sb.AppendLine('---')
     [void]$sb.AppendLine("title: Benchmarks - $displayName")
@@ -231,6 +334,24 @@ foreach ($entry in $sortedSuites) {
     [void]$sb.AppendLine("**.NET** $($report.dotnetVersion) &nbsp;&middot;&nbsp; **Commit** ``$commitShort`` &nbsp;&middot;&nbsp; $runDate &nbsp;&middot;&nbsp; $($docCount.ToString('N0')) docs")
     [void]$sb.AppendLine()
     [void]$sb.AppendLine($tableContent)
+    [void]$sb.AppendLine()
+
+    if ($hasCharts) {
+        [void]$sb.AppendLine("<div class=""benchmark-charts"">")
+        [void]$sb.AppendLine("<h2>Allocation</h2>")
+        [void]$sb.AppendLine("<div style=""max-width:960px""><canvas id=""chart-alloc-$chartId"" style=""max-height:400px""></canvas></div>")
+        [void]$sb.AppendLine("<h2>Performance</h2>")
+        [void]$sb.AppendLine("<div style=""max-width:960px""><canvas id=""chart-perf-$chartId"" style=""max-height:500px""></canvas></div>")
+        [void]$sb.AppendLine("<p><a href=""$jsonOutName"">Full results as JSON</a></p>")
+        [void]$sb.AppendLine("</div>")
+        [void]$sb.AppendLine("<script src=""https://cdn.jsdelivr.net/npm/chart.js@4""></script>")
+        [void]$sb.AppendLine("<script>")
+        $chartJs = $chartJsTemplate
+        $chartJs = $chartJs -replace 'CHART_DATA_PLACEHOLDER', $chartJson.Replace('$', '$$')
+        $chartJs = $chartJs -replace 'CHART_ID_PLACEHOLDER', $chartId
+        [void]$sb.AppendLine($chartJs)
+        [void]$sb.AppendLine("</script>")
+    }
     [void]$sb.AppendLine()
 
     $outPath = Join-Path $OutputDir $fileName
