@@ -79,12 +79,12 @@ public sealed partial class IndexWriter
         if (Config.TrackSequenceNumbers)
         {
             if (buffer.DocCount == 0 && localDocId == 0)
-                CommitState.FlushSeqNoStart = CommitState.NextSequenceNumber;
-            CommitState.NextSequenceNumber++;
+                _flushSeqNoStart = _nextSequenceNumber;
+            _nextSequenceNumber++;
         }
 
         buffer.DocCount++;
-        CommitState.ContentChangedSinceCommit = true;
+        _contentChangedSinceCommit = true;
 
         // Track stored-field RAM (postings tracked accurately via EstimatedBytes)
         for (int i = storedEntryStart; i < buffer.StoredFieldIds.Count; i++)

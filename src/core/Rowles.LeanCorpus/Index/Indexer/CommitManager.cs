@@ -10,162 +10,116 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
 /// Static helpers for the two-phase commit lifecycle, commit-file I/O, and
-/// recovery. All state is passed explicitly — no coupling back to <see cref="IndexWriter"/>.
+/// recovery. All state is accessed via the single <see cref="IndexWriter"/> parameter.
 /// </summary>
 internal static class CommitManager
 {
-    public static void CommitWithLocks(
-        CommitState state,
-        MMapDirectory directory,
-        IndexWriterConfig config,
-        DocumentBufferState buffer,
-        Lock writeLock,
-        Lock mergeIoLock,
-        Lock mergeLock,
-        DwptState? dwptState,
-        SnapshotState snapshotState,
-        MergeState mergeState,
-        SemaphoreSlim? backpressureSemaphore,
-        ref int semaphoreSlotsHeld)
+    public static void CommitWithLocks(IndexWriter writer)
     {
-        // Lock ordering: _mergeIoLock first (so a running merge can finish before we
-        // mutate .del files), then _writeLock. AddDocument holds only _writeLock and
-        // continues to run while a merge IO phase is in progress.
-        lock (mergeIoLock)
-        lock (writeLock)
+        lock (writer.MergeIoLock)
+        lock (writer.WriteLock)
         {
-            if (state.PreparedGeneration >= 0)
+            if (writer.PreparedGeneration >= 0)
             {
-                PublishPreparedCommit(state, directory, config, mergeState, snapshotState, writeLock);
+                PublishPreparedCommit(writer);
                 return;
             }
 
             using var activity = Diagnostics.LeanCorpusActivitySource.Source
                 .StartActivity(Diagnostics.LeanCorpusActivitySource.Commit);
-            activity?.SetTag("index.commit_generation", state.CommitGeneration + 1);
+            activity?.SetTag("index.commit_generation", writer.CommitGeneration + 1);
 
             var sw = Stopwatch.StartNew();
-            CommitCore(state, directory, config, buffer, dwptState, snapshotState, mergeState,
-                backpressureSemaphore, ref semaphoreSlotsHeld, writeLock);
+            CommitCore(writer);
             sw.Stop();
-            config.Metrics.RecordCommit(sw.Elapsed);
+            writer.Config.Metrics.RecordCommit(sw.Elapsed);
 
-            activity?.SetTag("index.segment_count", state.CommittedSegments.Count);
-        }
-
-        // Wait for any background merge triggered by CommitCore to finish so the
-        // on-disk state is consistent before a reader opens the index.
-        // Read mergeState.MergeTask AFTER releasing locks — CommitCore may have
-        // scheduled a new merge that hasn't started yet.
-        Task? merge;
-        lock (mergeLock) { merge = mergeState.MergeTask; }
-        if (merge is { IsCompleted: false })
-        {
-            try { merge.Wait(); }
-            catch (AggregateException) { }
+            activity?.SetTag("index.segment_count", writer.CommittedSegments.Count);
         }
     }
 
-    private static void PublishPreparedCommit(
-        CommitState state,
-        MMapDirectory directory,
-        IndexWriterConfig config,
-        MergeState mergeState,
-        SnapshotState snapshotState,
-        Lock writeLock)
+    private static void PublishPreparedCommit(IndexWriter writer)
     {
-        var dirPath = directory.DirectoryPath;
-        var pendingPath = Path.Combine(dirPath, $"segments_{state.PreparedGeneration}.pending");
-        var finalPath = Path.Combine(dirPath, $"segments_{state.PreparedGeneration}");
+        var dirPath = writer.Directory.DirectoryPath;
+        var pendingPath = Path.Combine(dirPath, $"segments_{writer.PreparedGeneration}.pending");
+        var finalPath = Path.Combine(dirPath, $"segments_{writer.PreparedGeneration}");
 
         File.Move(pendingPath, finalPath, overwrite: false);
 
-        state.CommitGeneration = state.PreparedGeneration;
-        state.ContentToken = state.PreparedContentToken;
-        state.ContentChangedSinceCommit = false;
+        writer.CommitGeneration = writer.PreparedGeneration;
+        writer.ContentToken = writer.PreparedContentToken;
+        writer.ContentChangedSinceCommit = false;
 
-        WriteCommitStats(state, directory);
-        config.DeletionPolicy.OnCommit(dirPath, state.CommitGeneration,
-            SnapshotManager.GetSnapshotProtectedSegments(snapshotState));
+        WriteCommitStats(writer);
+        writer.Config.DeletionPolicy.OnCommit(dirPath, writer.CommitGeneration,
+            SnapshotManager.GetSnapshotProtectedSegments(writer));
 
-        MergeScheduler.ScheduleBackgroundMerge(mergeState, directory, config, snapshotState, state, writeLock);
+        MergeScheduler.ScheduleBackgroundMerge(writer);
 
-        state.PreparedGeneration = -1;
-        state.PreparedSegments = null;
+        writer.PreparedGeneration = -1;
+        writer.PreparedSegments = null;
     }
 
-    private static void CommitCore(
-        CommitState state,
-        MMapDirectory directory,
-        IndexWriterConfig config,
-        DocumentBufferState buffer,
-        DwptState? dwptState,
-        SnapshotState snapshotState,
-        MergeState mergeState,
-        SemaphoreSlim? backpressureSemaphore,
-        ref int semaphoreSlotsHeld,
-        Lock writeLock)
+    private static void CommitCore(IndexWriter writer)
     {
-        var preFlushSegmentCount = state.CommittedSegments.Count;
+        var preFlushSegmentCount = writer.CommittedSegments.Count;
 
-        if (preFlushSegmentCount > 0 && state.PendingDeletes.Count > 0)
+        if (preFlushSegmentCount > 0 && writer.PendingDeletes.Count > 0)
             DeletionApplier.ApplyPendingDeletions(
-                state.PendingDeletes, state.CommittedSegments.GetRange(0, preFlushSegmentCount),
-                directory, state.CommitGeneration,
-                config.DurableCommits);
+                writer.PendingDeletes, writer.CommittedSegments.GetRange(0, preFlushSegmentCount),
+                writer.Directory, writer.CommitGeneration,
+                writer.Config.DurableCommits);
 
-        if (dwptState is not null)
-            DwptManager.FlushDwptPool(dwptState, directory, config, state);
+        DwptManager.FlushDwptPool(writer);
 
-        IndexWriter.FlushSegmentStatic(buffer, config, directory.DirectoryPath, state,
-            backpressureSemaphore, ref semaphoreSlotsHeld);
+        IndexWriter.FlushSegmentStatic(writer);
 
-        if (state.PendingDeletes.Count > 0)
+        if (writer.PendingDeletes.Count > 0)
             DeletionApplier.ApplyPendingDeletions(
-                state.PendingDeletes, state.CommittedSegments,
-                directory, state.CommitGeneration,
-                config.DurableCommits);
+                writer.PendingDeletes, writer.CommittedSegments,
+                writer.Directory, writer.CommitGeneration,
+                writer.Config.DurableCommits);
 
-        if (state.ContentChangedSinceCommit)
-            state.ContentToken++;
+        MergeScheduler.ScheduleBackgroundMerge(writer);
 
-        state.CommitGeneration++;
-        WriteCommitFile(state, directory, config);
-        state.ContentChangedSinceCommit = false;
+        if (writer.ContentChangedSinceCommit)
+            writer.ContentToken++;
 
-        WriteCommitStats(state, directory);
-        config.DeletionPolicy.OnCommit(directory.DirectoryPath, state.CommitGeneration,
-            SnapshotManager.GetSnapshotProtectedSegments(snapshotState));
+        writer.CommitGeneration++;
+        WriteCommitFile(writer);
+        writer.ContentChangedSinceCommit = false;
 
-        MergeScheduler.ScheduleBackgroundMerge(mergeState, directory, config, snapshotState, state, writeLock);
+        WriteCommitStats(writer);
+        writer.Config.DeletionPolicy.OnCommit(writer.Directory.DirectoryPath, writer.CommitGeneration,
+            SnapshotManager.GetSnapshotProtectedSegments(writer));
     }
 
-    public static void WriteCommitFile(CommitState state, MMapDirectory directory, IndexWriterConfig config, bool pending = false, int? generationOverride = null)
+    public static void WriteCommitFile(IndexWriter writer, bool pending = false, int? generationOverride = null)
     {
-        int gen = generationOverride ?? state.CommitGeneration;
-        var dirPath = directory.DirectoryPath;
+        int gen = generationOverride ?? writer.CommitGeneration;
+        var dirPath = writer.Directory.DirectoryPath;
         var commitFile = Path.Combine(dirPath, $"segments_{gen}");
         if (pending)
             commitFile += ".pending";
 
-        var segmentIds = new List<string>(state.CommittedSegments.Count);
-        foreach (var seg in state.CommittedSegments)
+        var segmentIds = new List<string>(writer.CommittedSegments.Count);
+        foreach (var seg in writer.CommittedSegments)
             segmentIds.Add(seg.SegmentId);
         var commitData = new CommitData
         {
             Segments = segmentIds,
             Generation = gen,
-            ContentToken = state.ContentToken
+            ContentToken = writer.ContentToken
         };
         var commitJson = JsonSerializer.Serialize(commitData, LeanCorpusJsonContext.Default.CommitData);
 
         var fileContent = CommitFileFormat.Wrap(commitJson);
 
-        if (config.DurableCommits)
+        if (writer.Config.DurableCommits)
         {
-            var fsyncCutoff = state.LastCommitFsyncUtc == DateTime.MinValue
+            var fsyncCutoff = writer.LastCommitFsyncUtc == DateTime.MinValue
                 ? DateTime.MinValue
-                : state.LastCommitFsyncUtc - TimeSpan.FromSeconds(2);
+                : writer.LastCommitFsyncUtc - TimeSpan.FromSeconds(2);
             foreach (var path in Directory.EnumerateFiles(dirPath))
             {
                 var name = Path.GetFileName(path);
@@ -178,7 +132,7 @@ internal static class CommitManager
 
             DirectoryFsync.Sync(dirPath, strict: true);
             IndexAtomicFileWriter.WriteText(commitFile, fileContent, durable: true);
-            state.LastCommitFsyncUtc = DateTime.UtcNow;
+            writer.LastCommitFsyncUtc = DateTime.UtcNow;
         }
         else
         {
@@ -186,15 +140,15 @@ internal static class CommitManager
         }
     }
 
-    public static void WriteCommitStats(CommitState state, MMapDirectory directory)
+    public static void WriteCommitStats(IndexWriter writer)
     {
-        var dirPath = directory.DirectoryPath;
+        var dirPath = writer.Directory.DirectoryPath;
         int totalDocCount = 0;
         int liveDocCount = 0;
         var fieldLengthSums = new Dictionary<string, long>(StringComparer.Ordinal);
         var fieldDocCounts = new Dictionary<string, int>(StringComparer.Ordinal);
 
-        foreach (var seg in state.CommittedSegments)
+        foreach (var seg in writer.CommittedSegments)
         {
             var segmentStats = SegmentStats.TryLoadFrom(SegmentStats.GetStatsPath(dirPath, seg.SegmentId));
             if (segmentStats is not null &&
@@ -207,7 +161,7 @@ internal static class CommitManager
                 continue;
             }
 
-            AccumulateSegmentStatsByScan(seg, directory, fieldLengthSums, fieldDocCounts,
+            AccumulateSegmentStatsByScan(seg, writer.Directory, fieldLengthSums, fieldDocCounts,
                 ref totalDocCount, ref liveDocCount);
         }
 
@@ -219,7 +173,7 @@ internal static class CommitManager
         }
 
         var stats = new IndexStats(totalDocCount, liveDocCount, avgFieldLengths, fieldDocCounts, fieldLengthSums);
-        stats.WriteTo(IndexStats.GetStatsPath(dirPath, state.CommitGeneration));
+        stats.WriteTo(IndexStats.GetStatsPath(dirPath, writer.CommitGeneration));
     }
 
     private static void AccumulateSegmentStats(
@@ -259,19 +213,18 @@ internal static class CommitManager
         }
     }
 
-    public static void LoadLatestCommit(
-        CommitState state,
-        MMapDirectory directory,
-        IndexWriterConfig config)
+    public static void LoadLatestCommit(IndexWriter writer)
     {
+        var directory = writer.Directory;
+        var config = writer.Config;
         IndexOpenGuard.EnsureNoBlockingMigration(directory, config.CompatibilityMode);
         var recovery = IndexRecovery.RecoverLatestCommit(directory.DirectoryPath);
         if (recovery is null) return;
         IndexOpenGuard.EnsureCanOpenSegments(directory, recovery.SegmentIds, config.CompatibilityMode, forWriting: true);
 
-        state.CommitGeneration = recovery.Generation;
-        state.ContentToken = recovery.ContentToken;
-        state.NextSegmentOrdinal = recovery.SegmentIds.Count;
+        writer.CommitGeneration = recovery.Generation;
+        writer.ContentToken = recovery.ContentToken;
+        writer.NextSegmentOrdinal = recovery.SegmentIds.Count;
 
         var dirPath = directory.DirectoryPath;
         foreach (var segId in recovery.SegmentIds)
@@ -297,19 +250,19 @@ internal static class CommitManager
                 seg.LiveDocCount = seg.DocCount;
             }
 
-            state.CommittedSegments.Add(seg);
+            writer.CommittedSegments.Add(seg);
         }
 
         if (config.TrackSequenceNumbers)
         {
             long maxSeq = 0;
-            foreach (var seg in state.CommittedSegments)
+            foreach (var seg in writer.CommittedSegments)
             {
                 if (seg.MaxSequenceNumber.HasValue && seg.MaxSequenceNumber.Value > maxSeq)
                     maxSeq = seg.MaxSequenceNumber.Value;
             }
-            state.NextSequenceNumber = maxSeq + 1;
-            state.FlushSeqNoStart = state.NextSequenceNumber;
+            writer.NextSequenceNumberMut = maxSeq + 1;
+            writer.FlushSeqNoStart = writer.NextSequenceNumber;
         }
     }
 
@@ -325,38 +278,27 @@ internal static class CommitManager
         }
     }
 
-    public static int CompactWithLocks(
-        CommitState state,
-        MMapDirectory directory,
-        IndexWriterConfig config,
-        DocumentBufferState buffer,
-        Lock writeLock,
-        Lock mergeIoLock,
-        DwptState? dwptState,
-        SnapshotState snapshotState,
-        SemaphoreSlim? backpressureSemaphore,
-        ref int semaphoreSlotsHeld)
+    public static int CompactWithLocks(IndexWriter writer)
     {
-        lock (mergeIoLock)
-        lock (writeLock)
+        lock (writer.MergeIoLock)
+        lock (writer.WriteLock)
         {
-            var dirPath = directory.DirectoryPath;
+            var dirPath = writer.Directory.DirectoryPath;
 
-            if (state.PendingDeletes.Count > 0)
+            if (writer.PendingDeletes.Count > 0)
                 DeletionApplier.ApplyPendingDeletions(
-                    state.PendingDeletes, state.CommittedSegments,
-                    directory, state.CommitGeneration,
-                    config.DurableCommits);
+                    writer.PendingDeletes, writer.CommittedSegments,
+                    writer.Directory, writer.CommitGeneration,
+                    writer.Config.DurableCommits);
 
-            if (buffer.DocCount > 0)
-                IndexWriter.FlushSegmentStatic(buffer, config, dirPath, state,
-                    backpressureSemaphore, ref semaphoreSlotsHeld);
+            if (writer.Buffer.DocCount > 0)
+                IndexWriter.FlushSegmentStatic(writer);
 
-            if (state.CommittedSegments.Count <= 1)
+            if (writer.CommittedSegments.Count <= 1)
                 return 0;
 
-            var segmentsToMerge = state.CommittedSegments.ToList();
-            var protectedSegments = SnapshotManager.GetSnapshotProtectedSegments(snapshotState);
+            var segmentsToMerge = writer.CommittedSegments.ToList();
+            var protectedSegments = SnapshotManager.GetSnapshotProtectedSegments(writer);
 
             var mergeable = segmentsToMerge
                 .Where(s => !protectedSegments.Contains(s.SegmentId))
@@ -367,32 +309,32 @@ internal static class CommitManager
 
             int mergeableCount = mergeable.Count;
 
-            var merger = new SegmentMerger(directory, config.MergePolicy, config.PostingsSkipInterval,
-                config.SoftDeleteRetentionSeconds);
-            int localOrdinal = state.NextSegmentOrdinal;
+            var merger = new SegmentMerger(writer.Directory, writer.Config.MergePolicy, writer.Config.PostingsSkipInterval,
+                writer.Config.SoftDeleteRetentionSeconds);
+            int localOrdinal = writer.NextSegmentOrdinal;
             var merged = merger.MergeAll(mergeable, ref localOrdinal);
 
             if (merged is null)
             {
                 foreach (var seg in mergeable)
-                    state.CommittedSegments.Remove(seg);
+                    writer.CommittedSegments.Remove(seg);
             }
             else
             {
                 foreach (var seg in mergeable)
-                    state.CommittedSegments.Remove(seg);
-                state.CommittedSegments.Add(merged);
+                    writer.CommittedSegments.Remove(seg);
+                writer.CommittedSegments.Add(merged);
             }
 
-            state.ContentToken++;
-            state.CommitGeneration++;
-            state.NextSegmentOrdinal = Math.Max(state.NextSegmentOrdinal, localOrdinal);
-            WriteCommitFile(state, directory, config);
-            WriteCommitStats(state, directory);
-            config.DeletionPolicy.OnCommit(dirPath, state.CommitGeneration, protectedSegments);
+            writer.ContentToken++;
+            writer.CommitGeneration++;
+            writer.NextSegmentOrdinal = Math.Max(writer.NextSegmentOrdinal, localOrdinal);
+            WriteCommitFile(writer);
+            WriteCommitStats(writer);
+            writer.Config.DeletionPolicy.OnCommit(dirPath, writer.CommitGeneration, protectedSegments);
 
             var activeSegments = new HashSet<string>(
-                state.CommittedSegments.Select(static s => s.SegmentId), StringComparer.Ordinal);
+                writer.CommittedSegments.Select(static s => s.SegmentId), StringComparer.Ordinal);
             foreach (var seg in segmentsToMerge)
             {
                 if (!activeSegments.Contains(seg.SegmentId) &&
@@ -406,39 +348,28 @@ internal static class CommitManager
         }
     }
 
-    public static int ForceMerge(
-        CommitState state,
-        MMapDirectory directory,
-        IndexWriterConfig config,
-        DocumentBufferState buffer,
-        Lock writeLock,
-        Lock mergeIoLock,
-        SnapshotState snapshotState,
-        SemaphoreSlim? backpressureSemaphore,
-        ref int semaphoreSlotsHeld,
-        int maxSegments)
+    public static int ForceMerge(IndexWriter writer, int maxSegments)
     {
         int totalMerged = 0;
-        lock (mergeIoLock)
-        lock (writeLock)
+        lock (writer.MergeIoLock)
+        lock (writer.WriteLock)
         {
-            var dirPath = directory.DirectoryPath;
+            var dirPath = writer.Directory.DirectoryPath;
 
-            if (state.PendingDeletes.Count > 0)
+            if (writer.PendingDeletes.Count > 0)
                 DeletionApplier.ApplyPendingDeletions(
-                    state.PendingDeletes, state.CommittedSegments,
-                    directory, state.CommitGeneration,
-                    config.DurableCommits);
+                    writer.PendingDeletes, writer.CommittedSegments,
+                    writer.Directory, writer.CommitGeneration,
+                    writer.Config.DurableCommits);
 
-            if (buffer.DocCount > 0)
-                IndexWriter.FlushSegmentStatic(buffer, config, dirPath, state,
-                    backpressureSemaphore, ref semaphoreSlotsHeld);
+            if (writer.Buffer.DocCount > 0)
+                IndexWriter.FlushSegmentStatic(writer);
 
-            var protectedSegments = SnapshotManager.GetSnapshotProtectedSegments(snapshotState);
+            var protectedSegments = SnapshotManager.GetSnapshotProtectedSegments(writer);
 
-            while (state.CommittedSegments.Count > maxSegments)
+            while (writer.CommittedSegments.Count > maxSegments)
             {
-                var mergeable = state.CommittedSegments
+                var mergeable = writer.CommittedSegments
                     .Where(s => !protectedSegments.Contains(s.SegmentId))
                     .ToList();
 
@@ -446,25 +377,25 @@ internal static class CommitManager
                     break;
 
                 mergeable.Sort(static (a, b) => a.DocCount.CompareTo(b.DocCount));
-                int count = Math.Min(mergeable.Count, state.CommittedSegments.Count - maxSegments + 1);
+                int count = Math.Min(mergeable.Count, writer.CommittedSegments.Count - maxSegments + 1);
                 var toMerge = mergeable.GetRange(0, count);
 
-                var merger = new SegmentMerger(directory, config.MergePolicy, config.PostingsSkipInterval,
-                    config.SoftDeleteRetentionSeconds);
-                int localOrdinal = state.NextSegmentOrdinal;
+                var merger = new SegmentMerger(writer.Directory, writer.Config.MergePolicy, writer.Config.PostingsSkipInterval,
+                    writer.Config.SoftDeleteRetentionSeconds);
+                int localOrdinal = writer.NextSegmentOrdinal;
                 var merged = merger.MergeAll(toMerge, ref localOrdinal);
-                state.NextSegmentOrdinal = Math.Max(state.NextSegmentOrdinal, localOrdinal);
+                writer.NextSegmentOrdinal = Math.Max(writer.NextSegmentOrdinal, localOrdinal);
 
                 if (merged is null)
                 {
                     foreach (var seg in toMerge)
-                        state.CommittedSegments.Remove(seg);
+                        writer.CommittedSegments.Remove(seg);
                 }
                 else
                 {
                     foreach (var seg in toMerge)
-                        state.CommittedSegments.Remove(seg);
-                    state.CommittedSegments.Add(merged);
+                        writer.CommittedSegments.Remove(seg);
+                    writer.CommittedSegments.Add(merged);
                 }
 
                 totalMerged += toMerge.Count;
@@ -472,91 +403,79 @@ internal static class CommitManager
 
             if (totalMerged > 0)
             {
-                state.ContentToken++;
-                state.CommitGeneration++;
-                WriteCommitFile(state, directory, config);
-                WriteCommitStats(state, directory);
-                config.DeletionPolicy.OnCommit(dirPath, state.CommitGeneration, protectedSegments);
+                writer.ContentToken++;
+                writer.CommitGeneration++;
+                WriteCommitFile(writer);
+                WriteCommitStats(writer);
+                writer.Config.DeletionPolicy.OnCommit(dirPath, writer.CommitGeneration, protectedSegments);
             }
         }
         return totalMerged;
     }
 
-    public static int PrepareCommit(
-        CommitState state,
-        MMapDirectory directory,
-        IndexWriterConfig config,
-        DocumentBufferState buffer,
-        Lock writeLock,
-        Lock mergeIoLock,
-        DwptState? dwptState,
-        SemaphoreSlim? backpressureSemaphore,
-        ref int semaphoreSlotsHeld)
+    public static int PrepareCommit(IndexWriter writer)
     {
-        lock (mergeIoLock)
-        lock (writeLock)
+        lock (writer.MergeIoLock)
+        lock (writer.WriteLock)
         {
-            var preFlushSegmentCount = state.CommittedSegments.Count;
-            if (preFlushSegmentCount > 0 && state.PendingDeletes.Count > 0)
+            var preFlushSegmentCount = writer.CommittedSegments.Count;
+            if (preFlushSegmentCount > 0 && writer.PendingDeletes.Count > 0)
                 DeletionApplier.ApplyPendingDeletions(
-                    state.PendingDeletes, state.CommittedSegments.GetRange(0, preFlushSegmentCount),
-                    directory, state.CommitGeneration,
-                    config.DurableCommits);
+                    writer.PendingDeletes, writer.CommittedSegments.GetRange(0, preFlushSegmentCount),
+                    writer.Directory, writer.CommitGeneration,
+                    writer.Config.DurableCommits);
 
-            if (dwptState is not null)
-                DwptManager.FlushDwptPool(dwptState, directory, config, state);
+            DwptManager.FlushDwptPool(writer);
 
-            IndexWriter.FlushSegmentStatic(buffer, config, directory.DirectoryPath, state,
-                backpressureSemaphore, ref semaphoreSlotsHeld);
+            IndexWriter.FlushSegmentStatic(writer);
 
-            if (state.PendingDeletes.Count > 0)
+            if (writer.PendingDeletes.Count > 0)
                 DeletionApplier.ApplyPendingDeletions(
-                    state.PendingDeletes, state.CommittedSegments,
-                    directory, state.CommitGeneration,
-                    config.DurableCommits);
+                    writer.PendingDeletes, writer.CommittedSegments,
+                    writer.Directory, writer.CommitGeneration,
+                    writer.Config.DurableCommits);
 
-            if (state.ContentChangedSinceCommit)
-                state.ContentToken++;
+            if (writer.ContentChangedSinceCommit)
+                writer.ContentToken++;
 
-            int gen = state.CommitGeneration + 1;
-            WriteCommitFile(state, directory, config, pending: true, generationOverride: gen);
-            state.ContentChangedSinceCommit = false;
+            int gen = writer.CommitGeneration + 1;
+            WriteCommitFile(writer, pending: true, generationOverride: gen);
+            writer.ContentChangedSinceCommit = false;
 
-            state.PreparedGeneration = gen;
-            state.PreparedSegments = new List<SegmentInfo>(state.CommittedSegments);
-            state.PreparedContentToken = state.ContentToken;
+            writer.PreparedGeneration = gen;
+            writer.PreparedSegments = new List<SegmentInfo>(writer.CommittedSegments);
+            writer.PreparedContentToken = writer.ContentToken;
 
             return gen;
         }
     }
 
-    public static void RollbackPrepared(
-        CommitState state,
-        string directoryPath)
+    public static void RollbackPrepared(IndexWriter writer)
     {
-        if (state.PreparedGeneration < 0)
+        var directoryPath = writer.Directory.DirectoryPath;
+        if (writer.PreparedGeneration < 0)
             return;
 
         var pendingPath = Path.Combine(directoryPath,
-            $"segments_{state.PreparedGeneration}.pending");
+            $"segments_{writer.PreparedGeneration}.pending");
         try { File.Delete(pendingPath); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "rollback pending-file delete"); }
 
-        if (state.PreparedSegments is not null)
+        if (writer.PreparedSegments is not null)
         {
             var committedIds = new HashSet<string>(
-                state.CommittedSegments.Select(static s => s.SegmentId),
+                writer.CommittedSegments.Select(static s => s.SegmentId),
                 StringComparer.Ordinal);
-            foreach (var seg in state.PreparedSegments)
+            foreach (var seg in writer.PreparedSegments)
             {
                 if (!committedIds.Contains(seg.SegmentId))
                 {
-                    state.CommittedSegments.Remove(seg);
+                    writer.CommittedSegments.Remove(seg);
                     DeleteSegmentFiles(seg.SegmentId, directoryPath);
                 }
             }
         }
 
-        state.PreparedGeneration = -1;
-        state.PreparedSegments = null;
+        writer.PreparedGeneration = -1;
+        writer.PreparedSegments = null;
     }
 }

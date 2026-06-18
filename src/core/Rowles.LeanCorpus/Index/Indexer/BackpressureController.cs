@@ -2,77 +2,64 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
 /// Manages backpressure semaphore acquisition and release for flow control.
-/// All methods are static — operates on <see cref="BackpressureState"/> and parameters.
+/// All methods are static — operates via a single <see cref="IndexWriter"/> parameter.
 /// </summary>
 internal static class BackpressureController
 {
-    public static void AcquireBackpressureSlot(
-        BackpressureState state,
-        Lock writeLock,
-        DocumentBufferState buffer,
-        IndexWriterConfig config,
-        CommitState commitState,
-        string directoryPath)
+    public static void AcquireBackpressureSlot(IndexWriter writer)
     {
-        if (state.BackpressureSemaphore is null) return;
-        if (state.BackpressureSemaphore.Wait(0)) return;
+        if (writer.BackpressureSemaphore is null) return;
+        if (writer.BackpressureSemaphore.Wait(0)) return;
 
-        if (Interlocked.CompareExchange(ref state.FlushElection, 1, 0) == 0)
+        if (Interlocked.CompareExchange(ref writer.FlushElection, 1, 0) == 0)
         {
             try
             {
-                lock (writeLock)
+                lock (writer.WriteLock)
                 {
-                    if (buffer.DocCount > 0)
-                        IndexWriter.FlushSegmentStatic(buffer, config, directoryPath, commitState,
-                            state.BackpressureSemaphore, ref state.SemaphoreSlotsHeld);
+                    if (writer.Buffer.DocCount > 0)
+                        IndexWriter.FlushSegmentStatic(writer);
                 }
             }
             finally
             {
-                Volatile.Write(ref state.FlushElection, 0);
+                Volatile.Write(ref writer.FlushElection, 0);
             }
         }
-        state.BackpressureSemaphore.Wait();
+        writer.BackpressureSemaphore.Wait();
     }
 
     public static async ValueTask AcquireBackpressureSlotAsync(
-        BackpressureState state,
-        Lock writeLock,
-        DocumentBufferState buffer,
-        IndexWriterConfig config,
-        CommitState commitState,
-        string directoryPath,
+        IndexWriter writer,
         CancellationToken cancellationToken)
     {
-        if (state.BackpressureSemaphore is null)
+        if (writer.BackpressureSemaphore is null)
             return;
 
-        if (state.BackpressureSemaphore.Wait(0))
+        if (writer.BackpressureSemaphore.Wait(0))
             return;
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (Interlocked.CompareExchange(ref state.FlushElection, 1, 0) == 0)
+        if (Interlocked.CompareExchange(ref writer.FlushElection, 1, 0) == 0)
         {
             try
             {
-                lock (writeLock)
+                lock (writer.WriteLock)
                 {
-                    if (buffer.DocCount > 0)
-                        IndexWriter.FlushSegmentStatic(buffer, config, directoryPath, commitState,
-                            state.BackpressureSemaphore, ref state.SemaphoreSlotsHeld);
+                    if (writer.Buffer.DocCount > 0)
+                        IndexWriter.FlushSegmentStatic(writer);
                 }
             }
             finally
             {
-                Volatile.Write(ref state.FlushElection, 0);
+                Volatile.Write(ref writer.FlushElection, 0);
             }
         }
 
         try
         {
-            await state.BackpressureSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await writer.BackpressureSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (ObjectDisposedException)
         {
@@ -80,14 +67,14 @@ internal static class BackpressureController
         }
     }
 
-    public static void ReleaseSemaphoreSlots(BackpressureState state, int count)
+    public static void ReleaseSemaphoreSlots(IndexWriter writer, int count)
     {
-        if (state.BackpressureSemaphore is null || count <= 0)
+        if (writer.BackpressureSemaphore is null || count <= 0)
             return;
 
         try
         {
-            state.BackpressureSemaphore.Release(count);
+            writer.BackpressureSemaphore.Release(count);
         }
         catch (ObjectDisposedException)
         {
@@ -96,29 +83,28 @@ internal static class BackpressureController
     }
 
     public static void ReleaseFailedBackpressureSlots(
-        BackpressureState state,
-        Lock writeLock,
+        IndexWriter writer,
         int acquired,
         bool addedToHeldSlots)
     {
-        if (state.BackpressureSemaphore is null || acquired <= 0)
+        if (writer.BackpressureSemaphore is null || acquired <= 0)
             return;
 
         if (!addedToHeldSlots)
         {
-            ReleaseSemaphoreSlots(state, acquired);
+            ReleaseSemaphoreSlots(writer, acquired);
             return;
         }
 
         int toRelease;
-        lock (writeLock)
+        lock (writer.WriteLock)
         {
-            toRelease = Math.Min(acquired, Math.Max(0, state.SemaphoreSlotsHeld));
+            toRelease = Math.Min(acquired, Math.Max(0, writer.SemaphoreSlotsHeld));
             if (toRelease > 0)
-                state.SemaphoreSlotsHeld -= toRelease;
+                writer.SemaphoreSlotsHeld -= toRelease;
         }
 
         if (toRelease > 0)
-            ReleaseSemaphoreSlots(state, toRelease);
+            ReleaseSemaphoreSlots(writer, toRelease);
     }
 }

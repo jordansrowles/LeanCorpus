@@ -1,5 +1,3 @@
-using System.Text.Json;
-using Rowles.LeanCorpus.Serialization;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
@@ -29,11 +27,37 @@ public sealed partial class IndexWriter : IDisposable
     private readonly SpanCountingTokenSink _spanCountingSink = new();
     private readonly SpanPostingTokenSink _spanPostingSink;
 
-    private readonly CommitState _commitState = new();
-    private readonly BackpressureState _backpressureState = new();
-    private readonly MergeState _mergeState = new();
-    private readonly SnapshotState _snapshotState = new();
-    private readonly DwptState _dwptState = new();
+    // --- Commit state ---
+    private long _nextSequenceNumber;
+    private long _flushSeqNoStart;
+    private int _nextSegmentOrdinal;
+    private int _commitGeneration;
+    private long _contentToken;
+    private bool _contentChangedSinceCommit;
+    private int _preparedGeneration = -1;
+    private List<SegmentInfo>? _preparedSegments;
+    private long _preparedContentToken;
+    private readonly List<SegmentInfo> _committedSegments = [];
+    private readonly List<(string field, string term, bool isSoftDelete)> _pendingDeletes = [];
+    private DateTime _lastCommitFsyncUtc = DateTime.MinValue;
+
+    // --- Backpressure state ---
+    private SemaphoreSlim? _backpressureSemaphore;
+    private int _flushElection;
+    private int _semaphoreSlotsHeld;
+
+    // --- Merge state ---
+    private Task? _mergeTask;
+    private readonly CancellationTokenSource _mergeCts = new();
+    private readonly Lock _mergeLock = new();
+    private readonly Lock _mergeIoLock = new();
+
+    // --- Snapshot state ---
+    private readonly List<IndexSnapshot> _heldSnapshots = [];
+
+    // --- DWPT state ---
+    private DocumentsWriterPerThread[]? _dwptPool;
+    private int _dwptCounter;
 
     private readonly Lock _writeLock = new();
     private int _disposed;      // 0 = alive, 1 = disposed (atomically set via Interlocked)
@@ -79,29 +103,15 @@ public sealed partial class IndexWriter : IDisposable
 
         // Initialize backpressure semaphore if MaxQueuedDocs > 0
         if (config.MaxQueuedDocs > 0)
-            _backpressureState.BackpressureSemaphore = new SemaphoreSlim(config.MaxQueuedDocs, config.MaxQueuedDocs);
+            _backpressureSemaphore = new SemaphoreSlim(config.MaxQueuedDocs, config.MaxQueuedDocs);
 
         // Load existing commit state if present
-        CommitManager.LoadLatestCommit(_commitState, _directory, _config);
+        CommitManager.LoadLatestCommit(this);
     }
 
-    /// <summary>
-    /// Returns the sequence number that will be assigned to the next indexed document.
-    /// Only meaningful when <see cref="IndexWriterConfig.TrackSequenceNumbers"/> is enabled.
-    /// </summary>
-    public long NextSequenceNumber => Volatile.Read(ref _commitState.NextSequenceNumber);
+    public long NextSequenceNumber => Volatile.Read(ref _nextSequenceNumber);
+    public bool HasPreparedCommit => _preparedGeneration >= 0;
 
-    /// <summary>
-    /// Returns <c>true</c> if a commit has been prepared via <see cref="PrepareCommit"/>
-    /// but not yet published via <see cref="Commit"/>.
-    /// </summary>
-    public bool HasPreparedCommit => _commitState.PreparedGeneration >= 0;
-
-    /// <summary>
-    /// Indexes a single document. Validates the document against the schema if one is configured.
-    /// May block if <see cref="IndexWriterConfig.MaxQueuedDocs"/> backpressure is enabled.
-    /// Automatically flushes a segment when the RAM or document count threshold is reached.
-    /// </summary>
     public void AddDocument(LeanDocument doc)
     {
         EnterIndexingOperation();
@@ -109,16 +119,15 @@ public sealed partial class IndexWriter : IDisposable
         {
             ValidateDocument(doc);
 
-            BackpressureController.AcquireBackpressureSlot(_backpressureState, _writeLock,
-                _buffer, _config, _commitState, _directory.DirectoryPath);
+            BackpressureController.AcquireBackpressureSlot(this);
 
             bool enteredCore = false;
             try
             {
                 lock (_writeLock)
                 {
-                    if (_backpressureState.BackpressureSemaphore is not null)
-                        _backpressureState.SemaphoreSlotsHeld++;
+                    if (_backpressureSemaphore is not null)
+                        _semaphoreSlotsHeld++;
 
                     if (ShouldThrottleForMerge() && _buffer.DocCount > 0)
                         FlushSegment();
@@ -132,12 +141,12 @@ public sealed partial class IndexWriter : IDisposable
                 if (enteredCore)
                     MarkIndexingFailed();
 
-                if (_backpressureState.BackpressureSemaphore is not null)
+                if (_backpressureSemaphore is not null)
                 {
-                    _backpressureState.BackpressureSemaphore.Release();
+                    _backpressureSemaphore.Release();
                     lock (_writeLock)
                     {
-                        _backpressureState.SemaphoreSlotsHeld--;
+                        _semaphoreSlotsHeld--;
                     }
                 }
                 throw;
@@ -149,9 +158,6 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
-    /// <summary>
-    /// Indexes a batch of documents with a single lock acquisition.
-    /// </summary>
     public void AddDocuments(IReadOnlyList<LeanDocument> documents)
     {
         EnterIndexingOperation();
@@ -160,7 +166,7 @@ public sealed partial class IndexWriter : IDisposable
             ArgumentNullException.ThrowIfNull(documents);
             if (documents.Count == 0) return;
             ValidateDocuments(documents);
-            if (_backpressureState.BackpressureSemaphore is not null && documents.Count > _config.MaxQueuedDocs)
+            if (_backpressureSemaphore is not null && documents.Count > _config.MaxQueuedDocs)
             {
                 foreach (var document in documents)
                     AddDocument(document);
@@ -172,21 +178,20 @@ public sealed partial class IndexWriter : IDisposable
             bool enteredCore = false;
             try
             {
-                if (_backpressureState.BackpressureSemaphore is not null)
+                if (_backpressureSemaphore is not null)
                 {
                     for (int i = 0; i < documents.Count; i++)
                     {
-                        BackpressureController.AcquireBackpressureSlot(_backpressureState, _writeLock,
-                            _buffer, _config, _commitState, _directory.DirectoryPath);
+                        BackpressureController.AcquireBackpressureSlot(this);
                         acquired++;
                     }
                 }
 
                 lock (_writeLock)
                 {
-                    if (_backpressureState.BackpressureSemaphore is not null)
+                    if (_backpressureSemaphore is not null)
                     {
-                        _backpressureState.SemaphoreSlotsHeld += acquired;
+                        _semaphoreSlotsHeld += acquired;
                         addedToHeldSlots = true;
                     }
 
@@ -201,7 +206,7 @@ public sealed partial class IndexWriter : IDisposable
             {
                 if (enteredCore)
                     MarkIndexingFailed();
-                BackpressureController.ReleaseFailedBackpressureSlots(_backpressureState, _writeLock, acquired, addedToHeldSlots);
+                BackpressureController.ReleaseFailedBackpressureSlots(this, acquired, addedToHeldSlots);
                 throw;
             }
         }
@@ -211,9 +216,6 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
-    /// <summary>
-    /// Indexes a block of child documents followed by a parent document atomically.
-    /// </summary>
     public void AddDocumentBlock(IReadOnlyList<LeanDocument> block)
     {
         EnterIndexingOperation();
@@ -223,7 +225,7 @@ public sealed partial class IndexWriter : IDisposable
             if (block.Count < 2)
                 throw new ArgumentException("A document block requires at least one child and one parent document.", nameof(block));
             ValidateDocuments(block);
-            if (_backpressureState.BackpressureSemaphore is not null && block.Count > _config.MaxQueuedDocs)
+            if (_backpressureSemaphore is not null && block.Count > _config.MaxQueuedDocs)
                 throw new InvalidOperationException(
                     $"Document block contains {block.Count} documents, which exceeds MaxQueuedDocs ({_config.MaxQueuedDocs}).");
 
@@ -232,21 +234,20 @@ public sealed partial class IndexWriter : IDisposable
             bool enteredCore = false;
             try
             {
-                if (_backpressureState.BackpressureSemaphore is not null)
+                if (_backpressureSemaphore is not null)
                 {
                     for (int i = 0; i < block.Count; i++)
                     {
-                        BackpressureController.AcquireBackpressureSlot(_backpressureState, _writeLock,
-                            _buffer, _config, _commitState, _directory.DirectoryPath);
+                        BackpressureController.AcquireBackpressureSlot(this);
                         acquired++;
                     }
                 }
 
                 lock (_writeLock)
                 {
-                    if (_backpressureState.BackpressureSemaphore is not null)
+                    if (_backpressureSemaphore is not null)
                     {
-                        _backpressureState.SemaphoreSlotsHeld += acquired;
+                        _semaphoreSlotsHeld += acquired;
                         addedToHeldSlots = true;
                     }
 
@@ -270,7 +271,7 @@ public sealed partial class IndexWriter : IDisposable
             {
                 if (enteredCore)
                     MarkIndexingFailed();
-                BackpressureController.ReleaseFailedBackpressureSlots(_backpressureState, _writeLock, acquired, addedToHeldSlots);
+                BackpressureController.ReleaseFailedBackpressureSlots(this, acquired, addedToHeldSlots);
                 throw;
             }
         }
@@ -280,7 +281,6 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
-    /// <summary>Atomically deletes documents matching the selector and adds the replacement.</summary>
     public void UpdateDocument(string field, string term, LeanDocument replacement)
     {
         EnterIndexingOperation();
@@ -292,16 +292,16 @@ public sealed partial class IndexWriter : IDisposable
             {
                 lock (_writeLock)
                 {
-                    int preFlushSegmentCount = _commitState.CommittedSegments.Count;
+                    int preFlushSegmentCount = _committedSegments.Count;
 
-                    DwptManager.FlushDwptPool(_dwptState, _directory, _config, _commitState);
+                    DwptManager.FlushDwptPool(this);
                     if (_buffer.DocCount > 0)
                         FlushSegment();
 
-                    _commitState.PendingDeletes.Add((field, term, isSoftDelete: false));
+                    _pendingDeletes.Add((field, term, isSoftDelete: false));
                     DeletionApplier.ApplyPendingDeletions(
-                        _commitState.PendingDeletes, _commitState.CommittedSegments.GetRange(0, preFlushSegmentCount),
-                        _directory, _commitState.CommitGeneration, _config.DurableCommits);
+                        _pendingDeletes, _committedSegments.GetRange(0, preFlushSegmentCount),
+                        _directory, _commitGeneration, _config.DurableCommits);
                     enteredCore = true;
                     AddDocumentCore(replacement);
                 }
@@ -319,9 +319,6 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
-    /// <summary>
-    /// Soft-deletes documents matching the given term query.
-    /// </summary>
     public void SoftDeleteDocuments(TermQuery query)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
@@ -331,14 +328,11 @@ public sealed partial class IndexWriter : IDisposable
 
         lock (_writeLock)
         {
-            _commitState.PendingDeletes.Add((query.Field, query.Term, isSoftDelete: true));
-            _commitState.ContentChangedSinceCommit = true;
+            _pendingDeletes.Add((query.Field, query.Term, isSoftDelete: true));
+            _contentChangedSinceCommit = true;
         }
     }
 
-    /// <summary>
-    /// Atomically deletes documents matching the given query and adds the replacement.
-    /// </summary>
     public void UpdateDocuments(Query query, LeanDocument replacement)
     {
         EnterIndexingOperation();
@@ -350,19 +344,19 @@ public sealed partial class IndexWriter : IDisposable
             {
                 lock (_writeLock)
                 {
-                    int preFlushSegmentCount = _commitState.CommittedSegments.Count;
+                    int preFlushSegmentCount = _committedSegments.Count;
 
-                    DwptManager.FlushDwptPool(_dwptState, _directory, _config, _commitState);
+                    DwptManager.FlushDwptPool(this);
                     if (_buffer.DocCount > 0)
                         FlushSegment();
 
-                    var terms = ResolveQueryToTerms(query, _commitState.CommittedSegments.GetRange(0, preFlushSegmentCount));
+                    var terms = ResolveQueryToTerms(query, _committedSegments.GetRange(0, preFlushSegmentCount));
                     foreach (var (f, t) in terms)
-                        _commitState.PendingDeletes.Add((f, t, isSoftDelete: false));
+                        _pendingDeletes.Add((f, t, isSoftDelete: false));
 
                     DeletionApplier.ApplyPendingDeletions(
-                        _commitState.PendingDeletes, _commitState.CommittedSegments.GetRange(0, preFlushSegmentCount),
-                        _directory, _commitState.CommitGeneration, _config.DurableCommits);
+                        _pendingDeletes, _committedSegments.GetRange(0, preFlushSegmentCount),
+                        _directory, _commitGeneration, _config.DurableCommits);
                     enteredCore = true;
                     AddDocumentCore(replacement);
                 }
@@ -432,9 +426,6 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
-    /// <summary>
-    /// Merges all segments from the given source directory into the current index.
-    /// </summary>
     public void AddIndexes(MMapDirectory sourceDirectory)
     {
         EnterIndexingOperation();
@@ -480,22 +471,22 @@ public sealed partial class IndexWriter : IDisposable
 
             lock (_writeLock)
             {
-                DwptManager.FlushDwptPool(_dwptState, _directory, _config, _commitState);
+                DwptManager.FlushDwptPool(this);
                 if (_buffer.DocCount > 0)
                     FlushSegment();
 
                 var merger = new SegmentMerger(_directory, _config.MergePolicy, _config.PostingsSkipInterval,
                     _config.SoftDeleteRetentionSeconds);
-                int localOrdinal = _commitState.NextSegmentOrdinal;
-                _commitState.NextSegmentOrdinal += sourceSegments.Count + 8;
+                int localOrdinal = _nextSegmentOrdinal;
+                _nextSegmentOrdinal += sourceSegments.Count + 8;
 
                 var merged = merger.MergeSegmentsFromDirectory(
                     sourceDirectory, sourceSegments, ref localOrdinal, _config);
                 if (merged is not null)
                 {
-                    _commitState.CommittedSegments.Add(merged);
-                    _commitState.ContentChangedSinceCommit = true;
-                    _commitState.NextSegmentOrdinal = Math.Max(_commitState.NextSegmentOrdinal, localOrdinal);
+                    _committedSegments.Add(merged);
+                    _contentChangedSinceCommit = true;
+                    _nextSegmentOrdinal = Math.Max(_nextSegmentOrdinal, localOrdinal);
                 }
             }
         }
@@ -505,19 +496,12 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
-    /// <summary>
-    /// Flushes all buffered documents and pending deletions to disk, writes a new
-    /// <c>segments_N</c> commit file, and applies the configured deletion policy.
-    /// </summary>
     public void Commit()
     {
         EnterIndexingOperation();
         try
         {
-            CommitManager.CommitWithLocks(_commitState, _directory, _config, _buffer,
-                _writeLock, _mergeState.MergeIoLock, _mergeState.MergeLock,
-                _dwptState, _snapshotState, _mergeState,
-                _backpressureState.BackpressureSemaphore, ref _backpressureState.SemaphoreSlotsHeld);
+            CommitManager.CommitWithLocks(this);
         }
         finally
         {
@@ -525,18 +509,12 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
-    /// <summary>
-    /// Flushes all buffered documents and pending deletions to disk and writes a
-    /// <c>segments_N.pending</c> commit file WITHOUT publishing it as the current commit point.
-    /// </summary>
     public void PrepareCommit()
     {
         EnterIndexingOperation();
         try
         {
-            CommitManager.PrepareCommit(_commitState, _directory, _config, _buffer,
-                _writeLock, _mergeState.MergeIoLock, _dwptState,
-                _backpressureState.BackpressureSemaphore, ref _backpressureState.SemaphoreSlotsHeld);
+            CommitManager.PrepareCommit(this);
         }
         finally
         {
@@ -544,18 +522,15 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
-    /// <summary>
-    /// Discards a prepared commit created by <see cref="PrepareCommit"/>.
-    /// </summary>
     public void Rollback()
     {
         EnterIndexingOperation();
         try
         {
-            lock (_mergeState.MergeIoLock)
+            lock (_mergeIoLock)
             lock (_writeLock)
             {
-                CommitManager.RollbackPrepared(_commitState, _directory.DirectoryPath);
+                CommitManager.RollbackPrepared(this);
             }
         }
         finally
@@ -564,17 +539,12 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
-    /// <summary>
-    /// Force-merges all committed segments into a single segment.
-    /// </summary>
     public int Compact()
     {
         EnterIndexingOperation();
         try
         {
-            return CommitManager.CompactWithLocks(_commitState, _directory, _config, _buffer,
-                _writeLock, _mergeState.MergeIoLock, _dwptState, _snapshotState,
-                _backpressureState.BackpressureSemaphore, ref _backpressureState.SemaphoreSlotsHeld);
+            return CommitManager.CompactWithLocks(this);
         }
         finally
         {
@@ -582,19 +552,13 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
-    /// <summary>
-    /// Force-merges segments until the segment count reaches <paramref name="maxSegments"/> or fewer.
-    /// </summary>
     public int ForceMerge(int maxSegments)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxSegments, 1);
         EnterIndexingOperation();
         try
         {
-            return CommitManager.ForceMerge(_commitState, _directory, _config, _buffer,
-                _writeLock, _mergeState.MergeIoLock, _snapshotState,
-                _backpressureState.BackpressureSemaphore, ref _backpressureState.SemaphoreSlotsHeld,
-                maxSegments);
+            return CommitManager.ForceMerge(this, maxSegments);
         }
         finally
         {
@@ -602,39 +566,23 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
-    /// <summary>
-    /// Returns all committed and flushed segments for near-real-time search.
-    /// </summary>
     public IReadOnlyList<SegmentInfo> GetNrtSegments()
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        return SnapshotManager.GetNrtSegments(_snapshotState, _commitState, _buffer, _config,
-            _directory.DirectoryPath, _writeLock,
-            _backpressureState.BackpressureSemaphore, ref _backpressureState.SemaphoreSlotsHeld);
+        return SnapshotManager.GetNrtSegments(this);
     }
 
-    /// <summary>
-    /// Creates a point-in-time snapshot of the currently committed segments.
-    /// </summary>
     public IndexSnapshot CreateSnapshot()
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        return SnapshotManager.CreateSnapshot(_snapshotState, _commitState, _buffer, _config,
-            _directory.DirectoryPath, _writeLock,
-            _backpressureState.BackpressureSemaphore, ref _backpressureState.SemaphoreSlotsHeld);
+        return SnapshotManager.CreateSnapshot(this);
     }
 
-    /// <summary>
-    /// Releases a previously held snapshot.
-    /// </summary>
     public void ReleaseSnapshot(IndexSnapshot snapshot)
     {
-        SnapshotManager.ReleaseSnapshot(_snapshotState, snapshot, _writeLock);
+        SnapshotManager.ReleaseSnapshot(this, snapshot);
     }
 
-    /// <summary>
-    /// Creates a backup manifest for a held snapshot without copying files.
-    /// </summary>
     public IndexBackupManifest CreateBackupManifest(IndexSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -642,9 +590,6 @@ public sealed partial class IndexWriter : IDisposable
         return SnapshotManager.CreateBackupManifest(snapshot, _directory.DirectoryPath);
     }
 
-    /// <summary>
-    /// Creates a backup for a held snapshot.
-    /// </summary>
     public IndexBackupResult BackupSnapshot(IndexSnapshot snapshot, string backupDirectoryPath, IndexBackupOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -652,9 +597,6 @@ public sealed partial class IndexWriter : IDisposable
         return SnapshotManager.BackupSnapshot(snapshot, backupDirectoryPath, _directory.DirectoryPath, options);
     }
 
-    /// <summary>
-    /// Releases all resources held by this writer, including the directory write lock.
-    /// </summary>
     public void Dispose()
     {
         if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0) return;
@@ -673,25 +615,20 @@ public sealed partial class IndexWriter : IDisposable
             }
         }
 
-        _mergeState.MergeCts.Cancel();
-        try { _mergeState.MergeTask?.Wait(); }
+        _mergeCts.Cancel();
+        try { _mergeTask?.Wait(); }
         catch (AggregateException) { }
         catch (ObjectDisposedException) { }
-        _mergeState.MergeCts.Dispose();
+        _mergeCts.Dispose();
 
-        _backpressureState.BackpressureSemaphore?.Dispose();
+        _backpressureSemaphore?.Dispose();
 
         _writeLockFile.Dispose();
         var lockPath = Path.Combine(_directory.DirectoryPath, "write.lock");
         try { File.Delete(lockPath); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "write-lock file delete"); }
     }
 
-    /// <summary>
-    /// Atomically registers the calling thread as an in-flight indexing operation.
-    /// If the writer has been disposed or is in a failed state, decrements the
-    /// in-flight count and throws rather than allowing the caller to proceed.
-    /// </summary>
-    private void EnterIndexingOperation()
+    internal void EnterIndexingOperation()
     {
         Interlocked.Increment(ref _inFlightAdds);
         if (Volatile.Read(ref _disposed) != 0 || Volatile.Read(ref _indexingFailed) != 0)
@@ -704,23 +641,23 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
-    private void ExitIndexingOperation()
+    internal void ExitIndexingOperation()
     {
         Interlocked.Decrement(ref _inFlightAdds);
     }
 
-    private void MarkIndexingFailed()
+    internal void MarkIndexingFailed()
     {
         Volatile.Write(ref _indexingFailed, 1);
     }
 
-    private void ValidateDocument(LeanDocument doc)
+    internal void ValidateDocument(LeanDocument doc)
     {
         ArgumentNullException.ThrowIfNull(doc);
         _config.Schema?.Validate(doc);
     }
 
-    private void ValidateDocuments(IReadOnlyList<LeanDocument> documents)
+    internal void ValidateDocuments(IReadOnlyList<LeanDocument> documents)
     {
         if (_config.Schema is not { } schema)
         {
@@ -747,7 +684,7 @@ public sealed partial class IndexWriter : IDisposable
     private bool ShouldThrottleForMerge()
     {
         return _config.MergeThrottleSegments > 0
-            && _commitState.CommittedSegments.Count >= _config.MergeThrottleSegments;
+            && _committedSegments.Count >= _config.MergeThrottleSegments;
     }
 
     private long ComputeEstimatedRamBytes()
@@ -757,106 +694,72 @@ public sealed partial class IndexWriter : IDisposable
 
     // --- Internal static helpers called by extracted manager classes ---
 
-    /// <summary>
-    /// Flushes the in-memory buffer to a segment on disk. Called both from IndexWriter
-    /// instance methods and from <see cref="CommitManager"/> / <see cref="BackpressureController"/>.
-    /// </summary>
-    internal static void FlushSegmentStatic(
-        DocumentBufferState buffer,
-        IndexWriterConfig config,
-        string directoryPath,
-        CommitState commitState,
-        SemaphoreSlim? backpressureSemaphore,
-        ref int semaphoreSlotsHeld)
+    internal static void FlushSegmentStatic(IndexWriter writer)
     {
-        if (buffer.DocCount == 0) return;
+        if (writer._buffer.DocCount == 0) return;
 
-        int docCountToFlush = buffer.DocCount;
+        int docCountToFlush = writer._buffer.DocCount;
 
         var segInfo = SegmentFlusher.Flush(
-            buffer, config, directoryPath,
-            ref commitState.NextSegmentOrdinal, commitState.CommitGeneration,
-            commitState.FlushSeqNoStart, commitState.NextSequenceNumber);
+            writer._buffer, writer._config, writer._directory.DirectoryPath,
+            ref writer._nextSegmentOrdinal, writer._commitGeneration,
+            writer._flushSeqNoStart, writer._nextSequenceNumber);
 
-        commitState.CommittedSegments.Add(segInfo);
-        ResetBufferStatic(buffer, commitState);
+        writer._committedSegments.Add(segInfo);
+        ResetBufferStatic(writer);
 
-        if (backpressureSemaphore is not null && docCountToFlush > 0)
+        if (writer._backpressureSemaphore is not null && docCountToFlush > 0)
         {
-            int toRelease = Math.Min(docCountToFlush, semaphoreSlotsHeld);
+            int toRelease = Math.Min(docCountToFlush, writer._semaphoreSlotsHeld);
             if (toRelease > 0)
             {
-                backpressureSemaphore.Release(toRelease);
-                semaphoreSlotsHeld -= toRelease;
+                writer._backpressureSemaphore.Release(toRelease);
+                writer._semaphoreSlotsHeld -= toRelease;
             }
         }
     }
 
-    internal static void ResetBufferStatic(DocumentBufferState buffer, CommitState commitState)
+    internal static void ResetBufferStatic(IndexWriter writer)
     {
-        buffer.Reset();
-        commitState.FlushSeqNoStart = commitState.NextSequenceNumber;
+        writer._buffer.Reset();
+        writer._flushSeqNoStart = writer._nextSequenceNumber;
     }
 
-    /// <summary>Instance-level flush — delegates to the static helper.</summary>
     private void FlushSegment()
     {
-        FlushSegmentStatic(_buffer, _config, _directory.DirectoryPath, _commitState,
-            _backpressureState.BackpressureSemaphore, ref _backpressureState.SemaphoreSlotsHeld);
+        FlushSegmentStatic(this);
     }
 
-    /// <summary>
-    /// Provides access to <see cref="DwptState"/> for the Concurrent indexing partial.
-    /// </summary>
-    internal DwptState DwptState => _dwptState;
-
-    /// <summary>
-    /// Provides access to <see cref="CommitState"/> for partial classes.
-    /// </summary>
-    internal CommitState CommitState => _commitState;
-
-    /// <summary>
-    /// Provides access to <see cref="BackpressureState"/> for partial classes.
-    /// </summary>
-    internal BackpressureState BackpressureState => _backpressureState;
-
-    /// <summary>
-    /// Provides access to <see cref="MergeState"/> for partial classes.
-    /// </summary>
-    internal MergeState MergeState => _mergeState;
-
-    /// <summary>
-    /// Provides access to <see cref="SnapshotState"/> for partial classes.
-    /// </summary>
-    internal SnapshotState SnapshotState => _snapshotState;
-
-    /// <summary>
-    /// Provides access to <see cref="MMapDirectory"/> for partial classes.
-    /// </summary>
-    internal MMapDirectory Directory => _directory;
-
-    /// <summary>
-    /// Provides access to <see cref="IndexWriterConfig"/> for partial classes.
-    /// </summary>
-    internal IndexWriterConfig Config => _config;
-
-    /// <summary>
-    /// Provides access to <see cref="IAnalyser"/> for partial classes.
-    /// </summary>
-    internal IAnalyser DefaultAnalyser => _defaultAnalyser;
-
-    /// <summary>
-    /// Provides access to the write lock for partial classes.
-    /// </summary>
-    internal Lock WriteLock => _writeLock;
-
-    /// <summary>
-    /// Provides access to the buffer for partial classes.
-    /// </summary>
+    // --- Internal accessors for partial classes and manager classes ---
     internal DocumentBufferState Buffer => _buffer;
+    internal MMapDirectory Directory => _directory;
+    internal IndexWriterConfig Config => _config;
+    internal IAnalyser DefaultAnalyser => _defaultAnalyser;
+    internal Lock WriteLock => _writeLock;
+    internal CancellationTokenSource MergeCts => _mergeCts;
+    internal Lock MergeLock => _mergeLock;
+    internal Lock MergeIoLock => _mergeIoLock;
 
-    /// <summary>
-    /// Provides access to the backpressure semaphore for tests and diagnostics.
-    /// </summary>
-    internal SemaphoreSlim? BackpressureSemaphoreForTests => _backpressureState.BackpressureSemaphore;
+    // --- Internal accessors for mutable scalars (managers need ref access) ---
+    internal ref long NextSequenceNumberMut => ref _nextSequenceNumber;
+    internal ref long FlushSeqNoStart => ref _flushSeqNoStart;
+    internal ref int NextSegmentOrdinal => ref _nextSegmentOrdinal;
+    internal ref int CommitGeneration => ref _commitGeneration;
+    internal ref long ContentToken => ref _contentToken;
+    internal ref bool ContentChangedSinceCommit => ref _contentChangedSinceCommit;
+    internal ref int PreparedGeneration => ref _preparedGeneration;
+    internal ref long PreparedContentToken => ref _preparedContentToken;
+    internal ref List<SegmentInfo>? PreparedSegments => ref _preparedSegments;
+    internal ref DateTime LastCommitFsyncUtc => ref _lastCommitFsyncUtc;
+    internal ref int FlushElection => ref _flushElection;
+    internal ref int SemaphoreSlotsHeld => ref _semaphoreSlotsHeld;
+    internal ref Task? MergeTask => ref _mergeTask;
+    internal ref int DwptCounter => ref _dwptCounter;
+
+    internal List<SegmentInfo> CommittedSegments => _committedSegments;
+    internal List<(string field, string term, bool isSoftDelete)> PendingDeletes => _pendingDeletes;
+    internal List<IndexSnapshot> HeldSnapshots => _heldSnapshots;
+    internal DocumentsWriterPerThread[]? DwptPool { get => _dwptPool; set => _dwptPool = value; }
+    internal SemaphoreSlim? BackpressureSemaphore => _backpressureSemaphore;
+    internal SemaphoreSlim? BackpressureSemaphoreForTests => _backpressureSemaphore;
 }

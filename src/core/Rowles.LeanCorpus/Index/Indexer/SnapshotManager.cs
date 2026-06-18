@@ -4,14 +4,14 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
 /// Manages index snapshots, NRT segment access, and backup operations.
-/// All methods are static — operates on <see cref="SnapshotState"/> and parameters.
+/// All methods are static — operates via a single <see cref="IndexWriter"/> parameter.
 /// </summary>
 internal static class SnapshotManager
 {
-    public static HashSet<string> GetSnapshotProtectedSegments(SnapshotState state)
+    public static HashSet<string> GetSnapshotProtectedSegments(IndexWriter writer)
     {
         var ids = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var snap in state.HeldSnapshots)
+        foreach (var snap in writer.HeldSnapshots)
         {
             foreach (var seg in snap.Segments)
                 ids.Add(seg.SegmentId);
@@ -19,44 +19,26 @@ internal static class SnapshotManager
         return ids;
     }
 
-    public static IReadOnlyList<SegmentInfo> GetNrtSegments(
-        SnapshotState snapshotState,
-        CommitState commitState,
-        DocumentBufferState buffer,
-        IndexWriterConfig config,
-        string directoryPath,
-        Lock writeLock,
-        SemaphoreSlim? backpressureSemaphore,
-        ref int semaphoreSlotsHeld)
+    public static IReadOnlyList<SegmentInfo> GetNrtSegments(IndexWriter writer)
     {
-        lock (writeLock)
+        lock (writer.WriteLock)
         {
-            if (buffer.DocCount > 0)
-                IndexWriter.FlushSegmentStatic(buffer, config, directoryPath, commitState,
-                    backpressureSemaphore, ref semaphoreSlotsHeld);
-            return commitState.CommittedSegments.ToList().AsReadOnly();
+            if (writer.Buffer.DocCount > 0)
+                IndexWriter.FlushSegmentStatic(writer);
+            return writer.CommittedSegments.ToList().AsReadOnly();
         }
     }
 
-    public static IndexSnapshot CreateSnapshot(
-        SnapshotState snapshotState,
-        CommitState commitState,
-        DocumentBufferState buffer,
-        IndexWriterConfig config,
-        string directoryPath,
-        Lock writeLock,
-        SemaphoreSlim? backpressureSemaphore,
-        ref int semaphoreSlotsHeld)
+    public static IndexSnapshot CreateSnapshot(IndexWriter writer)
     {
-        lock (writeLock)
+        lock (writer.WriteLock)
         {
-            if (buffer.DocCount > 0)
-                IndexWriter.FlushSegmentStatic(buffer, config, directoryPath, commitState,
-                    backpressureSemaphore, ref semaphoreSlotsHeld);
+            if (writer.Buffer.DocCount > 0)
+                IndexWriter.FlushSegmentStatic(writer);
 
             var snapshot = new IndexSnapshot(
-                commitState.CommitGeneration,
-                commitState.CommittedSegments.Select(s => new SegmentInfo
+                writer.CommitGeneration,
+                writer.CommittedSegments.Select(s => new SegmentInfo
                 {
                     SegmentId = s.SegmentId,
                     DocCount = s.DocCount,
@@ -68,17 +50,17 @@ internal static class SnapshotManager
                     VectorFields = [.. s.VectorFields]
                 }).ToList().AsReadOnly());
 
-            snapshotState.HeldSnapshots.Add(snapshot);
+            writer.HeldSnapshots.Add(snapshot);
             return snapshot;
         }
     }
 
-    public static void ReleaseSnapshot(SnapshotState state, IndexSnapshot snapshot, Lock writeLock)
+    public static void ReleaseSnapshot(IndexWriter writer, IndexSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        lock (writeLock)
+        lock (writer.WriteLock)
         {
-            state.HeldSnapshots.Remove(snapshot);
+            writer.HeldSnapshots.Remove(snapshot);
         }
     }
 

@@ -7,41 +7,31 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
 /// Manages the DocumentsWriterPerThread pool and concurrent indexing paths.
-/// All methods are static — operates on <see cref="DwptState"/> and parameters.
+/// All methods are static — operates via a single <see cref="IndexWriter"/> parameter.
 /// </summary>
 internal static class DwptManager
 {
-    public static void InitialiseDwptPool(DwptState state, IndexWriterConfig config, IAnalyser defaultAnalyser, int threadCount = 0)
+    public static void InitialiseDwptPool(IndexWriter writer, int threadCount = 0)
     {
         if (threadCount <= 0)
             threadCount = Math.Max(1, Environment.ProcessorCount);
 
-        state.DwptPool = new DocumentsWriterPerThread[threadCount];
+        writer.DwptPool = new DocumentsWriterPerThread[threadCount];
         for (int i = 0; i < threadCount; i++)
-            state.DwptPool[i] = CreateThreadLocalDocumentWriter(defaultAnalyser, config);
+            writer.DwptPool[i] = CreateThreadLocalDocumentWriter(writer.DefaultAnalyser, writer.Config);
     }
 
-    public static void AddDocumentLockFree(
-        DwptState state,
-        CommitState commitState,
-        MMapDirectory directory,
-        IndexWriterConfig config,
-        Lock writeLock,
-        LeanDocument doc,
-        Action enterIndexingOperation,
-        Action exitIndexingOperation,
-        Action<LeanDocument> validateDocument,
-        Action markIndexingFailed)
+    public static void AddDocumentLockFree(IndexWriter writer, LeanDocument doc)
     {
-        enterIndexingOperation();
+        writer.EnterIndexingOperation();
         try
         {
-            validateDocument(doc);
+            writer.ValidateDocument(doc);
 
-            var pool = state.DwptPool ?? throw new InvalidOperationException(
+            var pool = writer.DwptPool ?? throw new InvalidOperationException(
                 "DWPT pool not initialised. Call InitialiseDwptPool() first.");
 
-            int slot = (int)((uint)Interlocked.Increment(ref state.DwptCounter) % (uint)pool.Length);
+            int slot = (int)((uint)Interlocked.Increment(ref writer.DwptCounter) % (uint)pool.Length);
             var dwpt = pool[slot];
 
             lock (dwpt)
@@ -49,31 +39,31 @@ internal static class DwptManager
                 dwpt.AddDocument(doc);
             }
 
-            long ramThreshold = (long)(config.RamBufferSizeMB * 1024 * 1024) / pool.Length;
+            long ramThreshold = (long)(writer.Config.RamBufferSizeMB * 1024 * 1024) / pool.Length;
             if (dwpt.EstimatedRamBytes > ramThreshold)
             {
-                lock (writeLock)
+                lock (writer.WriteLock)
                 {
                     lock (dwpt)
                     {
                         if (dwpt.DocCount > 0)
                         {
-                            int ordinal = commitState.NextSegmentOrdinal++;
+                            int ordinal = writer.NextSegmentOrdinal++;
                             long seqEnd = 0, seqStart = 0;
-                            if (config.TrackSequenceNumbers)
+                            if (writer.Config.TrackSequenceNumbers)
                             {
-                                seqEnd = Interlocked.Add(ref commitState.NextSequenceNumber, dwpt.DocCount);
+                                seqEnd = Interlocked.Add(ref writer.NextSequenceNumberMut, dwpt.DocCount);
                                 seqStart = seqEnd - dwpt.DocCount;
                             }
 
                             var segInfo = SegmentFlusher.FlushFromDwpt(
-                                dwpt, config, directory.DirectoryPath,
-                                ordinal, commitState.CommitGeneration,
+                                dwpt, writer.Config, writer.Directory.DirectoryPath,
+                                ordinal, writer.CommitGeneration,
                                 seqStart, seqEnd,
                                 out _);
 
-                            commitState.CommittedSegments.Add(segInfo);
-                            commitState.ContentChangedSinceCommit = true;
+                            writer.CommittedSegments.Add(segInfo);
+                            writer.ContentChangedSinceCommit = true;
                             dwpt.ClearAll();
                         }
                     }
@@ -82,35 +72,25 @@ internal static class DwptManager
         }
         finally
         {
-            exitIndexingOperation();
+            writer.ExitIndexingOperation();
         }
     }
 
-    public static void AddDocumentsConcurrent(
-        DwptState state,
-        CommitState commitState,
-        MMapDirectory directory,
-        IndexWriterConfig config,
-        Lock writeLock,
-        IAnalyser defaultAnalyser,
-        IReadOnlyList<LeanDocument> documents,
-        Action enterIndexingOperation,
-        Action exitIndexingOperation,
-        Action<IReadOnlyList<LeanDocument>> validateDocuments)
+    public static void AddDocumentsConcurrent(IndexWriter writer, IReadOnlyList<LeanDocument> documents)
     {
-        enterIndexingOperation();
+        writer.EnterIndexingOperation();
         try
         {
             ArgumentNullException.ThrowIfNull(documents);
             if (documents.Count == 0) return;
 
-            validateDocuments(documents);
+            writer.ValidateDocuments(documents);
 
             var newSegments = new System.Collections.Concurrent.ConcurrentBag<SegmentInfo>();
 
             Parallel.ForEach(
                 System.Collections.Concurrent.Partitioner.Create(0, documents.Count),
-                () => CreateThreadLocalDocumentWriter(defaultAnalyser, config),
+                () => CreateThreadLocalDocumentWriter(writer.DefaultAnalyser, writer.Config),
                 (range, _, dwpt) =>
                 {
                     for (int i = range.Item1; i < range.Item2; i++)
@@ -118,46 +98,42 @@ internal static class DwptManager
 
                     if (dwpt.DocCount == 0) return dwpt;
 
-                    int ordinal = Interlocked.Increment(ref commitState.NextSegmentOrdinal) - 1;
+                    int ordinal = Interlocked.Increment(ref writer.NextSegmentOrdinal) - 1;
                     long seqEnd = 0, seqStart = 0;
-                    if (config.TrackSequenceNumbers)
+                    if (writer.Config.TrackSequenceNumbers)
                     {
-                        seqEnd = Interlocked.Add(ref commitState.NextSequenceNumber, dwpt.DocCount);
+                        seqEnd = Interlocked.Add(ref writer.NextSequenceNumberMut, dwpt.DocCount);
                         seqStart = seqEnd - dwpt.DocCount;
                     }
 
                     var segInfo = SegmentFlusher.FlushFromDwpt(
-                        dwpt, config, directory.DirectoryPath,
-                        ordinal, commitState.CommitGeneration,
+                        dwpt, writer.Config, writer.Directory.DirectoryPath,
+                        ordinal, writer.CommitGeneration,
                         seqStart, seqEnd,
                         out int _unused);
 
                     newSegments.Add(segInfo);
-                    commitState.ContentChangedSinceCommit = true;
+                    writer.ContentChangedSinceCommit = true;
                     dwpt.ClearAll();
                     return dwpt;
                 },
                 dwpt => { });
 
-            lock (writeLock)
+            lock (writer.WriteLock)
             {
                 foreach (var seg in newSegments)
-                    commitState.CommittedSegments.Add(seg);
+                    writer.CommittedSegments.Add(seg);
             }
         }
         finally
         {
-            exitIndexingOperation();
+            writer.ExitIndexingOperation();
         }
     }
 
-    public static void FlushDwptPool(
-        DwptState state,
-        MMapDirectory directory,
-        IndexWriterConfig config,
-        CommitState commitState)
+    public static void FlushDwptPool(IndexWriter writer)
     {
-        var pool = state.DwptPool;
+        var pool = writer.DwptPool;
         if (pool == null) return;
 
         foreach (var dwpt in pool)
@@ -166,22 +142,22 @@ internal static class DwptManager
             {
                 if (dwpt.DocCount == 0) continue;
 
-                int ordinal = commitState.NextSegmentOrdinal++;
+                int ordinal = writer.NextSegmentOrdinal++;
                 long seqEnd = 0, seqStart = 0;
-                if (config.TrackSequenceNumbers)
+                if (writer.Config.TrackSequenceNumbers)
                 {
-                    seqEnd = Interlocked.Add(ref commitState.NextSequenceNumber, dwpt.DocCount);
+                    seqEnd = Interlocked.Add(ref writer.NextSequenceNumberMut, dwpt.DocCount);
                     seqStart = seqEnd - dwpt.DocCount;
                 }
 
                 var segInfo = SegmentFlusher.FlushFromDwpt(
-                    dwpt, config, directory.DirectoryPath,
-                    ordinal, commitState.CommitGeneration,
+                    dwpt, writer.Config, writer.Directory.DirectoryPath,
+                    ordinal, writer.CommitGeneration,
                     seqStart, seqEnd,
                     out _);
 
-                commitState.CommittedSegments.Add(segInfo);
-                commitState.ContentChangedSinceCommit = true;
+                writer.CommittedSegments.Add(segInfo);
+                writer.ContentChangedSinceCommit = true;
                 dwpt.ClearAll();
             }
         }
