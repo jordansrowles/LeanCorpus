@@ -113,11 +113,31 @@ internal static class DwptManager
                         out int _unused);
 
                     newSegments.Add(segInfo);
+
                     writer.ContentChangedSinceCommit = true;
                     dwpt.ClearAll();
                     return dwpt;
                 },
                 dwpt => { });
+
+            // Verify that every document was accounted for by the parallel
+            // partitions.
+            int totalFlushed = 0;
+            foreach (var seg in newSegments)
+                totalFlushed += seg.DocCount;
+            if (totalFlushed != documents.Count)
+            {
+                throw new InvalidOperationException(
+                    $"AddDocumentsConcurrent document count mismatch: " +
+                    $"input={documents.Count}, flushed={totalFlushed}. " +
+                    $"Some partitions did not index all of their assigned documents.");
+            }
+
+            // Flush the directory metadata to durable storage so that every
+            // segment file created by the parallel partitions is visible in
+            // the directory listing before we add those segments to the
+            // writer's committed list.
+            Store.DirectoryFsync.Sync(writer.Directory.DirectoryPath, strict: false);
 
             lock (writer.WriteLock)
             {
