@@ -38,7 +38,22 @@ public static class IndexBackup
         var succeeded = false;
         try
         {
-            manifest = CreateManifestCore(indexDirectoryPath, options);
+            // Retry on transient file-not-found — a concurrent background merge
+            // may delete segment files between commit selection and file enumeration.
+            const int maxAttempts = 3;
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    manifest = CreateManifestCore(indexDirectoryPath, options);
+                    break;
+                }
+                catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+                {
+                    if (attempt >= maxAttempts) throw;
+                    Thread.Sleep(20 * attempt);
+                }
+            }
             succeeded = true;
             return manifest;
         }
@@ -135,30 +150,44 @@ public static class IndexBackup
             if (SameDirectory(sourceDirectory, backupDirectory))
                 throw new ArgumentException("Backup directory must be different from the source index directory.", nameof(backupDirectoryPath));
 
-            manifest = CreateManifestCore(sourceDirectory, options);
-            PrepareDirectory(backupDirectory, options.OverwriteBackupDirectory, "Backup");
-
-            var copiedFiles = new List<string>(manifest.Files.Count);
-            foreach (var entry in manifest.Files)
+            // Retry on transient file-not-found — a concurrent background merge
+            // may delete segment files between manifest creation and file copy.
+            const int maxAttempts = 3;
+            for (int attempt = 1; ; attempt++)
             {
-                ValidateManifestFileName(entry.FileName);
-                var sourcePath = Path.Combine(sourceDirectory, entry.FileName);
-                var targetPath = Path.Combine(backupDirectory, entry.FileName);
-                CopyFileAtomically(sourcePath, targetPath);
-                copiedFiles.Add(entry.FileName);
+                try
+                {
+                    manifest = CreateManifestCore(sourceDirectory, options);
+                    PrepareDirectory(backupDirectory, options.OverwriteBackupDirectory, "Backup");
+
+                    var copiedFiles = new List<string>(manifest.Files.Count);
+                    foreach (var entry in manifest.Files)
+                    {
+                        ValidateManifestFileName(entry.FileName);
+                        var sourcePath = Path.Combine(sourceDirectory, entry.FileName);
+                        var targetPath = Path.Combine(backupDirectory, entry.FileName);
+                        CopyFileAtomically(sourcePath, targetPath);
+                        copiedFiles.Add(entry.FileName);
+                    }
+
+                    var manifestJson = JsonSerializer.Serialize(manifest, LeanCorpusJsonContext.Default.IndexBackupManifest);
+                    IndexAtomicFileWriter.WriteText(Path.Combine(backupDirectory, ManifestFileName), manifestJson, durable: true);
+
+                    result = new IndexBackupResult
+                    {
+                        Manifest = manifest,
+                        BackupDirectoryPath = backupDirectory,
+                        CopiedFiles = copiedFiles
+                    };
+                    succeeded = true;
+                    return result;
+                }
+                catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+                {
+                    if (attempt >= maxAttempts) throw;
+                    Thread.Sleep(20 * attempt);
+                }
             }
-
-            var manifestJson = JsonSerializer.Serialize(manifest, LeanCorpusJsonContext.Default.IndexBackupManifest);
-            IndexAtomicFileWriter.WriteText(Path.Combine(backupDirectory, ManifestFileName), manifestJson, durable: true);
-
-            result = new IndexBackupResult
-            {
-                Manifest = manifest,
-                BackupDirectoryPath = backupDirectory,
-                CopiedFiles = copiedFiles
-            };
-            succeeded = true;
-            return result;
         }
         finally
         {
