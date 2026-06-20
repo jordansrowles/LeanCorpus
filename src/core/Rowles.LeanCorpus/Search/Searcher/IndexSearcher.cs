@@ -90,14 +90,34 @@ public sealed partial class IndexSearcher : IDisposable
         _useLmScoring = _similarity.RequiresCollectionStatistics;
 
         IndexOpenGuard.EnsureNoBlockingMigration(directory, config.CompatibilityMode);
+
         var (segmentIds, generation) = LoadLatestCommitWithGeneration();
         IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false);
-        foreach (var segId in segmentIds)
+
+        // Load segment readers with a retry loop to handle the narrow window where a
+        // background merge has deleted segment files but the commit file still references
+        // the old segments. Re-reading the commit picks up the merged generation.
+        const int maxAttempts = 3;
+        for (int attempt = 1; ; attempt++)
         {
-            var segPath = Path.Combine(directory.DirectoryPath, segId + ".seg");
-            if (!File.Exists(segPath)) continue;
-            var info = SegmentInfo.ReadFrom(segPath);
-            _readers.Add(new SegmentReader(directory, info));
+            try
+            {
+                _readers.Clear();
+                foreach (var segId in segmentIds)
+                {
+                    var segPath = Path.Combine(directory.DirectoryPath, segId + ".seg");
+                    if (!File.Exists(segPath)) continue;
+                    var info = SegmentInfo.ReadFrom(segPath);
+                    _readers.Add(new SegmentReader(directory, info));
+                }
+                break;
+            }
+            catch (FileNotFoundException) when (attempt < maxAttempts)
+            {
+                Thread.Sleep(10 * attempt);
+                (segmentIds, generation) = LoadLatestCommitWithGeneration();
+                IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false);
+            }
         }
 
         _docBases = AssignDocBases();
