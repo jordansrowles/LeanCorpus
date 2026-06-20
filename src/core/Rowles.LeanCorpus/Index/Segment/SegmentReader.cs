@@ -150,8 +150,17 @@ public sealed partial class SegmentReader : IDisposable
                 _vectorPaths[string.Empty] = legacyVecPath;
         }
 
-        // Stage 2 features: numeric index, numeric doc values, and sorted doc values are now lazy-loaded
-        // to avoid startup regression for simple TermQuery and BooleanQuery operations
+        // Eager-load all DocValues sidecar files while the segment files are guaranteed
+        // to exist. Background merges may delete segment files after a new commit is
+        // written, and lazy loading after that point would observe missing files (TOCTOU
+        // race). Reading now ensures the memory-mapped data is retained even if the
+        // underlying file is unlinked by a concurrent merge.
+        EnsureNumericDocValues();
+        EnsureSortedDocValues();
+        EnsureSortedSetDocValues();
+        EnsureSortedNumericDocValues();
+        EnsureBinaryDocValues();
+        EnsureNumericIndex();
     }
 
     /// <summary>
