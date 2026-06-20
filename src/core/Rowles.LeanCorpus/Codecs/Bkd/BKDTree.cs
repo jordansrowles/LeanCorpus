@@ -17,6 +17,10 @@ internal static class BKDWriter
 
     internal static void Write(string filePath, Dictionary<string, List<(double Value, int DocId)>> fieldPoints, int maxLeafSize = DefaultMaxLeafSize)
     {
+        if (maxLeafSize < 2)
+            throw new ArgumentOutOfRangeException(nameof(maxLeafSize), maxLeafSize,
+                "maxLeafSize must be at least 2. Values below 2 degenerate the tree into a single flat leaf node.");
+
         var bodyBuf = new ArrayBufferWriter<byte>(4096);
         bodyBuf.WriteInt32(fieldPoints.Count);
         foreach (var (field, points) in fieldPoints)
