@@ -1,11 +1,19 @@
 ﻿using BenchmarkDotNet.Attributes;
+using Lucene.Net.Analysis.Standard;
+using Lucene.Net.Util;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Search.Scoring;
-using Rowles.LeanCorpus.Store;
 using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
 using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;
 using LeanStringField = Rowles.LeanCorpus.Document.Fields.StringField;
 using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
+using LuceneDocument = Lucene.Net.Documents.Document;
+using LuceneStringField = Lucene.Net.Documents.StringField;
+using LuceneTextField = Lucene.Net.Documents.TextField;
+using LuceneDoubleField = Lucene.Net.Documents.DoubleField;
+using LuceneRAMDirectory = Lucene.Net.Store.RAMDirectory;
+using LuceneIndexWriter = Lucene.Net.Index.IndexWriter;
+using LuceneIndexWriterConfig = Lucene.Net.Index.IndexWriterConfig;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
@@ -87,6 +95,54 @@ public class IndexSortIndexBenchmarks
             if (Directory.Exists(path))
                 Directory.Delete(path, recursive: true);
         }
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_Index_Unsorted()
+    {
+        using var dir = new LuceneRAMDirectory();
+        var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+        using var writer = new LuceneIndexWriter(
+            dir, new LuceneIndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
+        for (int i = 0; i < _documentsWithPrices.Length; i++)
+        {
+            var (body, price) = _documentsWithPrices[i];
+            var doc = new LuceneDocument();
+            doc.Add(new LuceneStringField("id",
+                i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                Lucene.Net.Documents.Field.Store.NO));
+            doc.Add(new LuceneTextField("body", body, Lucene.Net.Documents.Field.Store.NO));
+            doc.Add(new LuceneDoubleField("price", price, Lucene.Net.Documents.Field.Store.NO));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+        return _documentsWithPrices.Length;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_Index_Sorted()
+    {
+        using var dir = new LuceneRAMDirectory();
+        var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+        using var writer = new LuceneIndexWriter(
+            dir, new LuceneIndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
+        // Pre-sort by price to simulate index-time sort.
+        var sorted = _documentsWithPrices.OrderBy(d => d.Price).ToArray();
+        for (int i = 0; i < sorted.Length; i++)
+        {
+            var (body, price) = sorted[i];
+            var doc = new LuceneDocument();
+            doc.Add(new LuceneStringField("id",
+                i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                Lucene.Net.Documents.Field.Store.NO));
+            doc.Add(new LuceneTextField("body", body, Lucene.Net.Documents.Field.Store.NO));
+            doc.Add(new LuceneDoubleField("price", price, Lucene.Net.Documents.Field.Store.NO));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+        return sorted.Length;
     }
 
     private void IndexDocuments(IndexWriter writer)

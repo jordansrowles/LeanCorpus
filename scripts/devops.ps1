@@ -192,6 +192,7 @@ if ($Command -eq 'test') {
 if ($Command -eq 'benchmark') {
     $suiteDescriptions = [ordered]@{
         all                  = 'All primary benchmark suites'
+        'all-with-explicit'  = 'All primary plus all explicit-only suites'
         index                = 'IndexingBenchmarks'
         query                = 'TermQueryBenchmarks'
         analysis             = 'AnalysisBenchmarks'
@@ -244,6 +245,18 @@ if ($Command -eq 'benchmark') {
         'numeric-aggregator' = 'NumericAggregatorSimdBenchmarks'
         'index-writer'       = 'IndexWriterContentionBenchmarks'
         'concurrent-write'   = 'ConcurrentVsSequentialBenchmarks'
+        merge                = 'MergeBenchmarks'
+        flush                = 'FlushBenchmarks'
+        'docvalues-read'     = 'DocValuesReadBenchmarks'
+        bkd                  = 'BKDTreeBenchmarks'
+        'fst-lookup'         = 'FstLookupBenchmarks'
+        'mmap-io'            = 'MMapDirectoryIOBenchmarks'
+        hnsw                 = 'HnswSearchBenchmarks'
+        vq                   = 'VectorQuantisationBenchmarks'
+        'tv-highlighter'     = 'TermVectorHighlighterBenchmarks'
+        'analysis-parity'    = 'AnalyserParityBenchmarks'
+        'analysis-filters'   = 'TokenFilterBenchmarks'
+        explicit             = 'All explicit-only suites'
     }
 
     $stratDescriptions = [ordered]@{

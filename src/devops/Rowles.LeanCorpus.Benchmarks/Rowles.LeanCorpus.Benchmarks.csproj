@@ -17,6 +17,9 @@
     <PackageReference Include="Lucene.Net.Highlighter" />
     <PackageReference Include="Lucene.Net.Join" />
     <PackageReference Include="Lucene.Net.Queries" />
+    <PackageReference Include="Lucene.Net.Spatial" />
+    <PackageReference Include="Lucene.Net.Facet" />
+    <PackageReference Include="Lucene.Net.Grouping" />
   </ItemGroup>
 
   <PropertyGroup>

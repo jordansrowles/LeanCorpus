@@ -1,10 +1,24 @@
 using BenchmarkDotNet.Attributes;
+using Lucene.Net.Analysis.Standard;
+using Lucene.Net.Index;
+using Lucene.Net.Search;
+using Lucene.Net.Store;
+using Lucene.Net.Util;
 using IODirectory = System.IO.Directory;
 using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
 using LeanIndexSearcher = Rowles.LeanCorpus.Search.Searcher.IndexSearcher;
 using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;
 using LeanStringField = Rowles.LeanCorpus.Document.Fields.StringField;
 using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
+using LuceneDocument = Lucene.Net.Documents.Document;
+using LuceneStringField = Lucene.Net.Documents.StringField;
+using LuceneTextField = Lucene.Net.Documents.TextField;
+using LuceneIndexSearcher = Lucene.Net.Search.IndexSearcher;
+using LuceneDirectoryReader = Lucene.Net.Index.DirectoryReader;
+using LuceneMMapDirectory = Lucene.Net.Store.MMapDirectory;
+using LuceneTermQuery = Lucene.Net.Search.TermQuery;
+using LuceneTerm = Lucene.Net.Index.Term;
+using TermQuery = Rowles.LeanCorpus.Search.Queries.TermQuery;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
@@ -34,11 +48,18 @@ public class CombinedFieldsQueryBenchmarks
     private LeanMMapDirectory? _leanDirectory;
     private LeanIndexSearcher? _leanSearcher;
 
+    // Lucene.NET state
+    private string _luceneIndexPath = string.Empty;
+    private LuceneMMapDirectory? _luceneDirectory;
+    private LuceneDirectoryReader? _luceneReader;
+    private LuceneIndexSearcher? _luceneSearcher;
+
     [GlobalSetup]
     public void Setup()
     {
         var documents = BenchmarkData.BuildDocuments(DocumentCount);
         BuildLeanIndex(documents);
+        BuildLuceneIndex(documents);
     }
 
     [GlobalCleanup]
@@ -47,6 +68,11 @@ public class CombinedFieldsQueryBenchmarks
         _leanSearcher?.Dispose();
         if (!string.IsNullOrWhiteSpace(_leanIndexPath) && IODirectory.Exists(_leanIndexPath))
             IODirectory.Delete(_leanIndexPath, recursive: true);
+
+        _luceneReader?.Dispose();
+        _luceneDirectory?.Dispose();
+        if (!string.IsNullOrWhiteSpace(_luceneIndexPath) && IODirectory.Exists(_luceneIndexPath))
+            IODirectory.Delete(_luceneIndexPath, recursive: true);
     }
 
     [Benchmark(Baseline = true)]
@@ -71,6 +97,45 @@ public class CombinedFieldsQueryBenchmarks
         builder.Add(new TermQuery("body", "government"), Rowles.LeanCorpus.Search.Occur.Should);
         builder.Add(new TermQuery("body", "market"), Rowles.LeanCorpus.Search.Occur.Should);
         return _leanSearcher!.Search(builder.Build(), TopN).TotalHits;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_BooleanQuery_MultiField()
+    {
+        var bq = new Lucene.Net.Search.BooleanQuery();
+        bq.Add(new LuceneTermQuery(new LuceneTerm("title", "government")), Occur.SHOULD);
+        bq.Add(new LuceneTermQuery(new LuceneTerm("title", "market")), Occur.SHOULD);
+        bq.Add(new LuceneTermQuery(new LuceneTerm("body", "government")), Occur.SHOULD);
+        bq.Add(new LuceneTermQuery(new LuceneTerm("body", "market")), Occur.SHOULD);
+        return _luceneSearcher!.Search(bq, TopN).TotalHits;
+    }
+
+    private void BuildLuceneIndex(string[] documents)
+    {
+        _luceneIndexPath = Path.Combine(BenchmarkHelpers.TempRoot, $"lucenenet-bench-combined-{Guid.NewGuid():N}");
+        IODirectory.CreateDirectory(_luceneIndexPath);
+        _luceneDirectory = new LuceneMMapDirectory(new System.IO.DirectoryInfo(_luceneIndexPath));
+        var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+        using var writer = new Lucene.Net.Index.IndexWriter(
+            _luceneDirectory,
+            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
+        for (int i = 0; i < documents.Length; i++)
+        {
+            var doc = new LuceneDocument();
+            doc.Add(new LuceneStringField("id",
+                i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                Lucene.Net.Documents.Field.Store.NO));
+            var body = documents[i];
+            var dot = body.IndexOf('.', StringComparison.Ordinal);
+            var title = dot > 0 && dot <= 120 ? body[..dot] : body[..Math.Min(80, body.Length)];
+            doc.Add(new LuceneTextField("title", title, Lucene.Net.Documents.Field.Store.NO));
+            doc.Add(new LuceneTextField("body", body, Lucene.Net.Documents.Field.Store.NO));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+        _luceneReader = LuceneDirectoryReader.Open(_luceneDirectory);
+        _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
     }
 
     private void BuildLeanIndex(string[] documents)

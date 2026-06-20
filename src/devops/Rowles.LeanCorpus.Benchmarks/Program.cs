@@ -58,6 +58,15 @@ internal static class Program
 
         bool runAll = suites.Contains(BenchmarkSuite.All);
 
+        // Expand 'all-with-explicit' into 'all' + 'explicit'.
+        if (suites.Contains(BenchmarkSuite.AllWithExplicit))
+        {
+            suites.Remove(BenchmarkSuite.AllWithExplicit);
+            suites.Add(BenchmarkSuite.All);
+            suites.Add(BenchmarkSuite.Explicit);
+            runAll = true;
+        }
+
         // Resolve effective run type for metadata (does not affect output path)
         var effectiveRunType = string.IsNullOrEmpty(runType) ? "full" : runType;
 
@@ -224,6 +233,9 @@ internal static class Program
         if (runAll || suites.Contains(BenchmarkSuite.VectorQuantisation))
             RunSuite<VectorQuantisationBenchmarks>("vq", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
+        if (runAll || suites.Contains(BenchmarkSuite.HnswSearch))
+            RunSuite<HnswSearchBenchmarks>("hnsw", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
         // Microbenchmarks — explicit only, not included in --suite all.
         if (suites.Contains(BenchmarkSuite.PackedIntCodec))
             RunSuite<PackedIntCodecBenchmarks>("packed-int-codec", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -236,6 +248,47 @@ internal static class Program
 
         if (suites.Contains(BenchmarkSuite.ConcurrentWrite))
             RunSuite<ConcurrentVsSequentialBenchmarks>("concurrent-write", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        // Subsystem benchmarks — explicit only, not included in --suite all.
+        if (suites.Contains(BenchmarkSuite.Merge))
+            RunSuite<MergeBenchmarks>("merge", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.Flush))
+            RunSuite<FlushBenchmarks>("flush", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.DocValuesRead))
+            RunSuite<DocValuesReadBenchmarks>("docvalues-read", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.BKDTree))
+            RunSuite<BKDTreeBenchmarks>("bkd", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.FstLookup))
+            RunSuite<FstLookupBenchmarks>("fst-lookup", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.MMapIO))
+            RunSuite<MMapDirectoryIOBenchmarks>("mmap-io", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        // Expand 'explicit' meta-suite into all explicit-only suites.
+        if (suites.Contains(BenchmarkSuite.Explicit))
+        {
+            suites.Remove(BenchmarkSuite.Explicit);
+            suites.UnionWith([
+                BenchmarkSuite.TokenBudget,
+                BenchmarkSuite.Diagnostics,
+                BenchmarkSuite.PackedIntCodec,
+                BenchmarkSuite.NumericAggregatorSimd,
+                BenchmarkSuite.IndexWriterContention,
+                BenchmarkSuite.ConcurrentWrite,
+                BenchmarkSuite.Merge,
+                BenchmarkSuite.Flush,
+                BenchmarkSuite.DocValuesRead,
+                BenchmarkSuite.BKDTree,
+                BenchmarkSuite.FstLookup,
+                BenchmarkSuite.MMapIO,
+                BenchmarkSuite.HnswSearch,
+                BenchmarkSuite.VectorQuantisation,
+            ]);
+        }
 
         if (suiteSummaries.Count == 0)
         {
@@ -258,6 +311,9 @@ internal static class Program
         MultiPhraseQueryBenchmarks.CleanupLuceneResources();
         SpanQueryBenchmarks.CleanupLuceneResources();
         GutenbergSearchBenchmarks.CleanupLuceneResources();
+        HnswSearchBenchmarks.CleanupLuceneResources();
+        VectorQuantisationBenchmarks.CleanupLuceneResources();
+        ParallelSearchBenchmarks.CleanupLuceneResources();
 
         // Nuke the entire bench/tmp tree so subsequent runs start clean.
         BenchmarkHelpers.CleanTempRoot();
@@ -347,6 +403,8 @@ internal static class Program
 
             Suites:
               all              Run all primary benchmark suites, including Gutenberg (default)
+              all-with-explicit  Run all primary plus all explicit-only suites
+              explicit         Run all explicit-only suites (tokenbudget, diagnostics, merge, flush, docvalues-read, bkd, fst-lookup, mmap-io, packed-int-codec, numeric-aggregator, index-writer, concurrent-write, hnsw, vq)
               index            IndexingBenchmarks -- bulk indexing throughput (vs Lucene.NET)
               query            TermQueryBenchmarks -- single-term search (vs Lucene.NET)
               analysis         AnalysisBenchmarks -- tokenisation pipeline throughput
@@ -396,11 +454,21 @@ internal static class Program
               ngram               NGramTokeniserBenchmarks -- N-gram tokenisation
               synonym             SynonymBenchmarks -- synonym indexing overhead
               async-index         AsyncIndexingBenchmarks -- sync vs async indexing
+              vq                  VectorQuantisationBenchmarks -- HNSW search with vector quantisation (vs Lucene.NET flat scan)
+              hnsw                HnswSearchBenchmarks -- HNSW graph search vs flat scan (vs Lucene.NET baseline)
               tokenbudget         TokenBudgetBenchmarks -- token budget enforcement overhead (explicit only)
               diagnostics         DiagnosticsBenchmarks -- SlowQueryLog + Analytics hook overhead (explicit only)
               packed-int-codec    PackedIntCodecBenchmarks -- Pack/Unpack scalar loop throughput (explicit only)
               numeric-aggregator  NumericAggregatorSimdBenchmarks -- scalar vs Vector256 aggregation (explicit only)
               index-writer        IndexWriterContentionBenchmarks -- concurrent AddDocument throughput (explicit only)
+              concurrent-write    ConcurrentVsSequentialBenchmarks -- DWPT parallel vs sequential indexing (explicit only)
+
+              merge               MergeBenchmarks -- segment merge throughput (explicit only)
+              flush               FlushBenchmarks -- segment flush latency per doc count (explicit only)
+              docvalues-read      DocValuesReadBenchmarks -- DocValues read throughput (explicit only)
+              bkd                 BKDTreeBenchmarks -- BKD range search throughput (explicit only)
+              fst-lookup          FstLookupBenchmarks -- FST term dictionary lookup (explicit only)
+              mmap-io             MMapDirectoryIOBenchmarks -- raw I/O throughput (explicit only)
 
             Output:
               Results are written to bench/{machine-name}/{yyyy-MM-dd}/{HH-mm}/
@@ -516,6 +584,8 @@ internal static class Program
         return value.ToLowerInvariant() switch
         {
             "all" => BenchmarkSuite.All,
+            "all-with-explicit" or "allwithexplicit" => BenchmarkSuite.AllWithExplicit,
+            "explicit" => BenchmarkSuite.Explicit,
             "index" => BenchmarkSuite.Index,
             "query" => BenchmarkSuite.Query,
             "analysis" => BenchmarkSuite.Analysis,
@@ -527,6 +597,12 @@ internal static class Program
             "numericaggregator" or "numeric-aggregator" => BenchmarkSuite.NumericAggregatorSimd,
             "indexwriter" or "index-writer" => BenchmarkSuite.IndexWriterContention,
             "concurrentwrite" or "concurrent-write" => BenchmarkSuite.ConcurrentWrite,
+            "merge" => BenchmarkSuite.Merge,
+            "flush" => BenchmarkSuite.Flush,
+            "docvalues-read" or "docvaluesread" => BenchmarkSuite.DocValuesRead,
+            "bkd" or "bkd-tree" => BenchmarkSuite.BKDTree,
+            "fst-lookup" or "fstlookup" => BenchmarkSuite.FstLookup,
+            "mmap-io" or "mmapio" => BenchmarkSuite.MMapIO,
             "boolean" => BenchmarkSuite.Boolean,
             "phrase" => BenchmarkSuite.Phrase,
             "prefix" => BenchmarkSuite.Prefix,
@@ -569,6 +645,7 @@ internal static class Program
             "lightenglish" or "light-english" => BenchmarkSuite.LightEnglish,
             "hunspell" => BenchmarkSuite.Hunspell,
             "vectorquantisation" or "vq" => BenchmarkSuite.VectorQuantisation,
+            "hnsw" or "hnsw-search" => BenchmarkSuite.HnswSearch,
             "ngram" => BenchmarkSuite.NGram,
             "synonym" => BenchmarkSuite.Synonym,
             "async-index" or "asyncindex" => BenchmarkSuite.AsyncIndex,
@@ -597,6 +674,8 @@ internal static class Program
     private enum BenchmarkSuite
     {
         All,
+        AllWithExplicit,
+        Explicit,
         Index,
         Query,
         Analysis,
@@ -647,11 +726,18 @@ internal static class Program
         Synonym,
         AsyncIndex,
         VectorQuantisation,
+        HnswSearch,
         AnalysisFiltersV2,
         PatternTokeniser,
         PackedIntCodec,
         NumericAggregatorSimd,
         IndexWriterContention,
         ConcurrentWrite,
+        Merge,
+        Flush,
+        DocValuesRead,
+        BKDTree,
+        FstLookup,
+        MMapIO,
     }
 }

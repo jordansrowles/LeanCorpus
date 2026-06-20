@@ -1,5 +1,8 @@
 using System.Buffers;
 using BenchmarkDotNet.Attributes;
+using Lucene.Net.Analysis.Core;
+using Lucene.Net.Analysis.En;
+using Lucene.Net.Util;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Filters;
@@ -102,6 +105,25 @@ public class LightEnglishStemmerBenchmarks
             count += sink.Count;
         }
 
+        return count;
+    }
+
+    [Benchmark(Description = "Lucene.NET PorterStemFilter")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_PorterStem()
+    {
+        int count = 0;
+        foreach (var word in _words)
+        {
+            // Use the PorterStemFilter from Lucene.NET's analysis-en module.
+            using var reader = new System.IO.StringReader(word);
+            var tokeniser = new WhitespaceTokenizer(LuceneVersion.LUCENE_48, reader);
+            var filter = new PorterStemFilter(tokeniser);
+            filter.Reset();
+            while (filter.IncrementToken())
+                count++;
+            filter.End();
+        }
         return count;
     }
 }
