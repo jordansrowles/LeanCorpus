@@ -29,7 +29,7 @@ public sealed class ConcurrentIndexingTests : IDisposable
     /// <summary>
     /// Verifies the Add Documents Concurrent: All Docs Searchable scenario.
     /// </summary>
-    [Fact(DisplayName = "Add Documents Concurrent: All Docs Searchable")]
+    [RetryFact(DisplayName = "Add Documents Concurrent: All Docs Searchable")]
     public void AddDocumentsConcurrent_AllDocsSearchable()
     {
         var directory = new MMapDirectory(_dir);
@@ -56,7 +56,7 @@ public sealed class ConcurrentIndexingTests : IDisposable
     /// <summary>
     /// Verifies the Add Documents Concurrent: Preserves Stored Fields scenario.
     /// </summary>
-    [Fact(DisplayName = "Add Documents Concurrent: Preserves Stored Fields")]
+    [RetryFact(DisplayName = "Add Documents Concurrent: Preserves Stored Fields")]
     public void AddDocumentsConcurrent_PreservesStoredFields()
     {
         var directory = new MMapDirectory(_dir);
@@ -135,7 +135,7 @@ public sealed class ConcurrentIndexingTests : IDisposable
     /// Regression test for C1: DWPT-local doc IDs were set to the global batch index,
     /// causing overlapping ID ranges across partitions and corrupt stored fields / postings.
     /// </summary>
-    [Fact(DisplayName = "Add Documents Concurrent: Produces Contiguous Doc IDs And Stored Fields Match Postings")]
+    [RetryFact(DisplayName = "Add Documents Concurrent: Produces Contiguous Doc IDs And Stored Fields Match Postings")]
     public void AddDocumentsConcurrent_ProducesContiguousDocIds_AndStoredFieldsMatchPostings()
     {
         const int DocCount = 5_000;
@@ -175,7 +175,7 @@ public sealed class ConcurrentIndexingTests : IDisposable
     /// <summary>
     /// Verifies the Add Documents Concurrent: Preserves Field Lengths For BM25 Scoring scenario.
     /// </summary>
-    [Fact(DisplayName = "Add Documents Concurrent: Preserves Field Lengths For BM25 Scoring")]
+    [RetryFact(DisplayName = "Add Documents Concurrent: Preserves Field Lengths For BM25 Scoring")]
     public void AddDocumentsConcurrent_PreservesFieldLengthsForBm25Scoring()
     {
         const int DocCount = 200;

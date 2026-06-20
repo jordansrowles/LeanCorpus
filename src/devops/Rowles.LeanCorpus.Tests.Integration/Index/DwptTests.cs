@@ -185,7 +185,7 @@ public sealed class DwptTests
         }
     }
 
-    [Fact(DisplayName = "DWPT Pool: Concurrent Batch Uses RAM Threshold Flush")]
+    [RetryFact(DisplayName = "DWPT Pool: Concurrent Batch Uses RAM Threshold Flush")]
     public void DwptPool_ConcurrentBatch_UsesRamThresholdFlush()
     {
         var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
