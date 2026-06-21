@@ -187,7 +187,7 @@ public unsafe struct PostingsEnum : IDisposable
         : (_index >= 0 && _index < _count && _freqs is not null ? _freqs[_index] : 1);
 
     /// <summary>Gets a value indicating whether the cursor has passed the last document.</summary>
-    public bool IsExhausted => _lazyMode ? _blockEnum.IsExhausted : _count == 0;
+    public bool IsExhausted => _lazyMode ? _blockEnum.IsExhausted : _index >= _count;
 
     private PostingsEnum(int[]? docIds, int[]? freqs, int count,
         int[]? positionData = null, int[]? positionStarts = null)

@@ -145,8 +145,14 @@ public class ParallelSearchBenchmarks
         }
         writer.Commit();
 
+        // Use separate directory instances for each searcher to avoid
+        // any shared-state issues when two searchers are open on the
+        // same index concurrently (e.g. eager DocValues loading or
+        // MMapDirectory tracking).
+        var dir2 = new LeanMMapDirectory(s_leanIndexPath);
+
         s_parallelSearcher = new LeanIndexSearcher(
-            directory,
+            dir2,
             new IndexSearcherConfig { ParallelSearch = true });
 
         s_sequentialSearcher = new LeanIndexSearcher(

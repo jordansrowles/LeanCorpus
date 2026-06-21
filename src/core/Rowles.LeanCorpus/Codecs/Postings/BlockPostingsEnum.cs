@@ -351,6 +351,9 @@ public struct BlockPostingsEnum : IDisposable
     private void DecodeTailAtCurrentPosition()
     {
         int tailCount = _docInput.ReadVarInt(ref _cursorPosition);
+        if (tailCount <= 0)
+            throw new InvalidDataException(
+                "Postings data is corrupt: tail block has zero or negative count.");
         int prevDocId = _currentBlockIndex > 0 && _currentBlockIndex <= _skipCount
             ? _skipEntries[_currentBlockIndex - 1].LastDocId : 0;
 
