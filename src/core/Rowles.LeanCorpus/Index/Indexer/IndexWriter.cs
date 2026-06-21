@@ -750,19 +750,33 @@ public sealed partial class IndexWriter : IDisposable
         ref int totalDocCount,
         ref int liveDocCount)
     {
-        using var reader = new SegmentReader(_directory, segment);
-        totalDocCount += reader.MaxDoc;
-        for (int docId = 0; docId < reader.MaxDoc; docId++)
+        SegmentReader? reader = null;
+        try
         {
-            if (!reader.IsLive(docId))
-                continue;
+            reader = new SegmentReader(_directory, segment);
+        }
+        catch (FileNotFoundException)
+        {
+            // A background merge may have deleted this segment's files.
+            // Skip the segment rather than failing the commit.
+            return;
+        }
 
-            liveDocCount++;
-            foreach (var field in segment.FieldNames)
+        using (reader)
+        {
+            totalDocCount += reader.MaxDoc;
+            for (int docId = 0; docId < reader.MaxDoc; docId++)
             {
-                int length = reader.GetFieldLength(docId, field);
-                fieldLengthSums[field] = fieldLengthSums.GetValueOrDefault(field) + length;
-                fieldDocCounts[field] = fieldDocCounts.GetValueOrDefault(field) + 1;
+                if (!reader.IsLive(docId))
+                    continue;
+
+                liveDocCount++;
+                foreach (var field in segment.FieldNames)
+                {
+                    int length = reader.GetFieldLength(docId, field);
+                    fieldLengthSums[field] = fieldLengthSums.GetValueOrDefault(field) + length;
+                    fieldDocCounts[field] = fieldDocCounts.GetValueOrDefault(field) + 1;
+                }
             }
         }
     }
@@ -931,7 +945,20 @@ public sealed partial class IndexWriter : IDisposable
 
         _commitGeneration = recovery.Generation;
         _contentToken = recovery.ContentToken;
-        _nextSegmentOrdinal = recovery.SegmentIds.Count;
+        // Parse the maximum segment ordinal from the segment IDs (e.g. "seg_557" → 557)
+        // rather than using Segments.Count, which is incorrect after merges reduce
+        // the segment count while ordinals keep climbing.
+        int maxOrdinal = 0;
+        foreach (var segId in recovery.SegmentIds)
+        {
+            if (segId.StartsWith("seg_", StringComparison.Ordinal) &&
+                int.TryParse(segId.AsSpan(4), out int ordinal) &&
+                ordinal >= maxOrdinal)
+            {
+                maxOrdinal = ordinal;
+            }
+        }
+        _nextSegmentOrdinal = maxOrdinal + 1;
 
         foreach (var segId in recovery.SegmentIds)
         {

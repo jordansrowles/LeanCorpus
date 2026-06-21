@@ -695,17 +695,28 @@ public sealed class SegmentMerger
 
     internal void CleanupSegmentFiles(SegmentInfo seg)
     {
-        // Delete every file belonging to this segment (any extension).
-        foreach (var filePath in Directory.GetFiles(_directory.DirectoryPath, $"{seg.SegmentId}.*"))
+        var segPrefix = seg.SegmentId + ".";
+        var genPrefix = seg.SegmentId + "_gen_";
+        // Enumerate all files and filter by exact prefix to avoid any risk of
+        // 8.3 short-name collisions on Windows (e.g. "seg_5.*" accidentally
+        // matching "seg_50.seg").
+        foreach (var filePath in Directory.GetFiles(_directory.DirectoryPath))
         {
-            try { File.Delete(filePath); }
-            catch { /* best-effort cleanup */ }
+            var fileName = Path.GetFileName(filePath);
+            if (fileName.StartsWith(segPrefix, StringComparison.Ordinal))
+            {
+                try { File.Delete(filePath); }
+                catch { /* best-effort cleanup */ }
+            }
         }
-        // Also sweep generation-versioned deletion files (e.g. seg_0_gen_3.del).
-        foreach (var filePath in Directory.GetFiles(_directory.DirectoryPath, $"{seg.SegmentId}_gen_*.del"))
+        foreach (var filePath in Directory.GetFiles(_directory.DirectoryPath))
         {
-            try { File.Delete(filePath); }
-            catch { /* best-effort cleanup */ }
+            var fileName = Path.GetFileName(filePath);
+            if (fileName.StartsWith(genPrefix, StringComparison.Ordinal) && fileName.EndsWith(".del", StringComparison.Ordinal))
+            {
+                try { File.Delete(filePath); }
+                catch { /* best-effort cleanup */ }
+            }
         }
     }
 
