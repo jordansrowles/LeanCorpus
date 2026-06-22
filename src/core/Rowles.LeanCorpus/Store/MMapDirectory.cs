@@ -1,4 +1,7 @@
-﻿namespace Rowles.LeanCorpus.Store;
+using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
+
+namespace Rowles.LeanCorpus.Store;
 
 /// <summary>
 /// Primary directory implementation using memory-mapped files for reads
@@ -9,6 +12,13 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
     private readonly List<WeakReference<IndexInput>> _trackedInputs = [];
     private readonly Lock _trackLock = new();
     private volatile bool _disposed;
+
+    // Reference-counted deferred deletion: Windows cannot delete a file while it is
+    // memory-mapped (even with FILE_SHARE_DELETE on the section).  Track how many
+    // IndexInput instances have a given file mapped, and defer File.Delete until
+    // the last mapping is released.
+    private readonly ConcurrentDictionary<string, int> _openFileCounts = new(2, 128, StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> _pendingDeletes = new(2, 128, StringComparer.OrdinalIgnoreCase);
 
     /// <inheritdoc/>
     public override string DirectoryPath { get; }
@@ -41,6 +51,8 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         var filePath = Path.Combine(DirectoryPath, ValidateFileName(fileName));
         var input = new IndexInput(filePath);
+        input.SetOnDisposed(OnInputDisposed);
+        _openFileCounts.AddOrUpdate(filePath, 1, (_, count) => count + 1);
         TrackInput(input);
         return input;
     }
@@ -50,7 +62,7 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var filePath = Path.Combine(DirectoryPath, ValidateFileName(fileName));
-        File.Delete(filePath);
+        TryDeleteOrDefer(filePath);
     }
 
     /// <inheritdoc/>
@@ -86,6 +98,14 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
             }
             _trackedInputs.Clear();
         }
+        // After all inputs are disposed, perform any remaining deferred deletions.
+        foreach (var kvp in _pendingDeletes)
+        {
+            try { File.Delete(kvp.Key); }
+            catch { /* best-effort on teardown */ }
+        }
+        _pendingDeletes.Clear();
+        _openFileCounts.Clear();
     }
 
     private void TrackInput(IndexInput input)
@@ -97,6 +117,52 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
                 _trackedInputs.RemoveAll(r => !r.TryGetTarget(out _));
 
             _trackedInputs.Add(new WeakReference<IndexInput>(input));
+        }
+    }
+
+    /// <summary>
+    /// Callback invoked when an <see cref="IndexInput"/> is disposed after releasing
+    /// its memory-mapped file resources. Decrements the reference count for the file
+    /// and, if it reaches zero and the file is pending deletion, removes it from disk.
+    /// </summary>
+    private void OnInputDisposed(IndexInput input)
+    {
+        var filePath = input.FilePath;
+        if (filePath is null) return;
+
+        int newCount = _openFileCounts.AddOrUpdate(filePath, 0, (_, count) => count - 1);
+        if (newCount <= 0)
+        {
+            _openFileCounts.TryRemove(filePath, out _);
+            if (_pendingDeletes.TryRemove(filePath, out _))
+            {
+                try { File.Delete(filePath); }
+                catch { /* best-effort — will retry on next Dispose/teardown */ }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Attempts to delete the file at <paramref name="filePath"/>. If the file is
+    /// still open (memory-mapped), the deletion is deferred until the last
+    /// <see cref="IndexInput"/> mapping the file is disposed.
+    /// </summary>
+    private void TryDeleteOrDefer(string filePath)
+    {
+        // Fast path: file is not currently mapped.
+        if (!_openFileCounts.ContainsKey(filePath))
+        {
+            try { File.Delete(filePath); }
+            catch { /* best-effort */ }
+            return;
+        }
+
+        // File is still mapped. Try to delete anyway (works on Linux, may fail on Windows).
+        try { File.Delete(filePath); }
+        catch
+        {
+            // Deletion blocked by memory-mapping — defer until last handle is released.
+            _pendingDeletes.TryAdd(filePath, 0);
         }
     }
 

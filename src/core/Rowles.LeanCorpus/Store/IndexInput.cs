@@ -1,4 +1,4 @@
-﻿using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.CodeAnalysis;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -13,6 +13,18 @@ namespace Rowles.LeanCorpus.Store;
 /// </summary>
 public sealed unsafe class IndexInput : IDisposable
 {
+    /// <summary>Full path of the file backing this input. Internal for deferred-deletion tracking.</summary>
+    internal string? FilePath => _filePath;
+
+    /// <summary>
+    /// Registers a callback invoked when this input is disposed, after all memory-mapped
+    /// resources are released. Used by <see cref="MMapDirectory"/> for reference-counted
+    /// deferred file deletion.
+    /// </summary>
+    internal void SetOnDisposed(Action<IndexInput> callback) => _onDisposed = callback;
+
+    private readonly string? _filePath;
+    private Action<IndexInput>? _onDisposed;
     private readonly MemoryMappedFile? _mmf;
     private readonly MemoryMappedViewAccessor? _accessor;
     private readonly long _length;
@@ -27,6 +39,7 @@ public sealed unsafe class IndexInput : IDisposable
     /// <param name="filePath">The full path of the file to open.</param>
     public IndexInput(string filePath)
     {
+        _filePath = filePath;
         var fileInfo = new FileInfo(filePath);
         _length = fileInfo.Length;
 
@@ -39,7 +52,14 @@ public sealed unsafe class IndexInput : IDisposable
             return;
         }
 
-        _mmf = MemoryMappedFile.CreateFromFile(filePath, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
+        // Open with FileShare.Delete so Windows allows File.Delete() while the mapping is
+        // still active. Without this, the merge's CleanupSegmentFiles cannot delete old
+        // segment files that are still mapped by a live IndexSearcher, causing orphan
+        // files to accumulate on disk and fsync storms that stall the writer.
+        var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read,
+            FileShare.Read | FileShare.Delete);
+        _mmf = MemoryMappedFile.CreateFromFile(fs, null, 0,
+            MemoryMappedFileAccess.Read, HandleInheritability.None, leaveOpen: false);
         _accessor = _mmf.CreateViewAccessor(0, _length, MemoryMappedFileAccess.Read);
         _ptr = null;
         _accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref _ptr);
@@ -563,6 +583,10 @@ public sealed unsafe class IndexInput : IDisposable
         }
         _mmf?.Dispose();
         GC.SuppressFinalize(this);
+
+        // Notify the directory that this input's file mapping is released so
+        // any pending-delete file can now be removed.
+        _onDisposed?.Invoke(this);
     }
 
     /// <summary>

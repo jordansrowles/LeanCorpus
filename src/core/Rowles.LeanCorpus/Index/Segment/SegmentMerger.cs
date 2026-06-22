@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Hnsw;
@@ -705,8 +705,8 @@ public sealed class SegmentMerger
             var fileName = Path.GetFileName(filePath);
             if (fileName.StartsWith(segPrefix, StringComparison.Ordinal))
             {
-                try { File.Delete(filePath); }
-                catch { /* best-effort cleanup */ }
+                try { _directory.DeleteFile(fileName); }
+                catch { /* best-effort — deferred deletion handles mmap'd files */ }
             }
         }
         foreach (var filePath in Directory.GetFiles(_directory.DirectoryPath))
@@ -714,8 +714,8 @@ public sealed class SegmentMerger
             var fileName = Path.GetFileName(filePath);
             if (fileName.StartsWith(genPrefix, StringComparison.Ordinal) && fileName.EndsWith(".del", StringComparison.Ordinal))
             {
-                try { File.Delete(filePath); }
-                catch { /* best-effort cleanup */ }
+                try { _directory.DeleteFile(fileName); }
+                catch { /* best-effort — deferred deletion handles mmap'd files */ }
             }
         }
     }
