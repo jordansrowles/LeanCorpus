@@ -597,7 +597,6 @@ public sealed partial class IndexWriter : IDisposable
 
     private void CommitCore()
     {
-        var _tCommit0 = System.Diagnostics.Stopwatch.GetTimestamp();
         // Snapshot the segments that exist BEFORE flushing. Deletions from
         // UpdateDocument must only target these older segments, not the
         // replacement segment that will be flushed next.
@@ -611,10 +610,8 @@ public sealed partial class IndexWriter : IDisposable
         FlushDwptPool();
 
         // Flush any remaining buffered documents
-        var _tCommit1 = System.Diagnostics.Stopwatch.GetTimestamp();
         if (_buffer.DocCount > 0)
             FlushSegment();
-        var _tCommit2 = System.Diagnostics.Stopwatch.GetTimestamp();
 
         // Apply any remaining deletions to ALL segments (including the just-flushed one).
         // This handles the case where DeleteDocuments + Commit are called without UpdateDocument.
@@ -626,15 +623,12 @@ public sealed partial class IndexWriter : IDisposable
 
         // Write segments_N commit file (atomic: write to temp, then rename)
         _commitGeneration++;
-        var _tCommit3 = System.Diagnostics.Stopwatch.GetTimestamp();
         WriteCommitFile(_commitGeneration);
-        var _tCommit4 = System.Diagnostics.Stopwatch.GetTimestamp();
         _contentChangedSinceCommit = false;
 
         // Persist index statistics alongside the commit so IndexSearcher can
         // skip the expensive full-segment scan on construction.
         WriteCommitStats(_commitGeneration);
-        var _tCommit5 = System.Diagnostics.Stopwatch.GetTimestamp();
 
         // Apply deletion policy to prune old commit files
         _config.DeletionPolicy.OnCommit(_directory.DirectoryPath, _commitGeneration, GetSnapshotProtectedSegments());
@@ -643,8 +637,6 @@ public sealed partial class IndexWriter : IDisposable
         // _committedSegments and its files has completed. Scheduling earlier allowed
         // a fast merge to delete segment files the post-commit work still needed.
         ScheduleBackgroundMerge();
-        var _tCommit6 = System.Diagnostics.Stopwatch.GetTimestamp();
-        System.Console.WriteLine($"[COMMIT] gen={_commitGeneration} segs={_committedSegments.Count} flushPrep={System.Diagnostics.Stopwatch.GetElapsedTime(_tCommit0,_tCommit1).TotalMilliseconds:F0}ms flushSeg={System.Diagnostics.Stopwatch.GetElapsedTime(_tCommit1,_tCommit2).TotalMilliseconds:F0}ms writeCommitFile={System.Diagnostics.Stopwatch.GetElapsedTime(_tCommit3,_tCommit4).TotalMilliseconds:F0}ms writeStats={System.Diagnostics.Stopwatch.GetElapsedTime(_tCommit4,_tCommit5).TotalMilliseconds:F0}ms policySched={System.Diagnostics.Stopwatch.GetElapsedTime(_tCommit5,_tCommit6).TotalMilliseconds:F0}ms");
     }
 
     private void WriteCommitFile(int generation)
