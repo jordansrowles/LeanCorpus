@@ -39,9 +39,6 @@ public sealed partial class IndexWriter : IDisposable
     private readonly Lock _writeLock = new();
     private readonly SemaphoreSlim? _backpressureSemaphore;
     private int _flushElection;
-    // Files modified after this time are considered dirty for the next durable commit.
-    // Initialised to MinValue so the first commit fsyncs every file in the directory.
-    private DateTime _lastCommitFsyncUtc = DateTime.MinValue;
     private int _semaphoreSlotsHeld;
     private readonly List<IndexSnapshot> _heldSnapshots = [];
     private int _disposed;      // 0 = alive, 1 = disposed (atomically set via Interlocked)
@@ -600,6 +597,7 @@ public sealed partial class IndexWriter : IDisposable
 
     private void CommitCore()
     {
+        var _tCommit0 = System.Diagnostics.Stopwatch.GetTimestamp();
         // Snapshot the segments that exist BEFORE flushing. Deletions from
         // UpdateDocument must only target these older segments, not the
         // replacement segment that will be flushed next.
@@ -613,8 +611,10 @@ public sealed partial class IndexWriter : IDisposable
         FlushDwptPool();
 
         // Flush any remaining buffered documents
+        var _tCommit1 = System.Diagnostics.Stopwatch.GetTimestamp();
         if (_buffer.DocCount > 0)
             FlushSegment();
+        var _tCommit2 = System.Diagnostics.Stopwatch.GetTimestamp();
 
         // Apply any remaining deletions to ALL segments (including the just-flushed one).
         // This handles the case where DeleteDocuments + Commit are called without UpdateDocument.
@@ -626,12 +626,15 @@ public sealed partial class IndexWriter : IDisposable
 
         // Write segments_N commit file (atomic: write to temp, then rename)
         _commitGeneration++;
+        var _tCommit3 = System.Diagnostics.Stopwatch.GetTimestamp();
         WriteCommitFile(_commitGeneration);
+        var _tCommit4 = System.Diagnostics.Stopwatch.GetTimestamp();
         _contentChangedSinceCommit = false;
 
         // Persist index statistics alongside the commit so IndexSearcher can
         // skip the expensive full-segment scan on construction.
         WriteCommitStats(_commitGeneration);
+        var _tCommit5 = System.Diagnostics.Stopwatch.GetTimestamp();
 
         // Apply deletion policy to prune old commit files
         _config.DeletionPolicy.OnCommit(_directory.DirectoryPath, _commitGeneration, GetSnapshotProtectedSegments());
@@ -640,6 +643,8 @@ public sealed partial class IndexWriter : IDisposable
         // _committedSegments and its files has completed. Scheduling earlier allowed
         // a fast merge to delete segment files the post-commit work still needed.
         ScheduleBackgroundMerge();
+        var _tCommit6 = System.Diagnostics.Stopwatch.GetTimestamp();
+        System.Console.WriteLine($"[COMMIT] gen={_commitGeneration} segs={_committedSegments.Count} flushPrep={System.Diagnostics.Stopwatch.GetElapsedTime(_tCommit0,_tCommit1).TotalMilliseconds:F0}ms flushSeg={System.Diagnostics.Stopwatch.GetElapsedTime(_tCommit1,_tCommit2).TotalMilliseconds:F0}ms writeCommitFile={System.Diagnostics.Stopwatch.GetElapsedTime(_tCommit3,_tCommit4).TotalMilliseconds:F0}ms writeStats={System.Diagnostics.Stopwatch.GetElapsedTime(_tCommit4,_tCommit5).TotalMilliseconds:F0}ms policySched={System.Diagnostics.Stopwatch.GetElapsedTime(_tCommit5,_tCommit6).TotalMilliseconds:F0}ms");
     }
 
     private void WriteCommitFile(int generation)
@@ -664,28 +669,13 @@ public sealed partial class IndexWriter : IDisposable
 
         if (_config.DurableCommits)
         {
-            // Belt-and-braces durability: fsync every segment file modified since the last
-            // commit. The first commit ever (cutoff == MinValue) fsyncs everything; subsequent
-            // commits only fsync newly created or rewritten files. A small skew is subtracted
-            // to tolerate filesystems with low-resolution mtimes and clock drift.
-            var fsyncCutoff = _lastCommitFsyncUtc == DateTime.MinValue
-                ? DateTime.MinValue
-                : _lastCommitFsyncUtc - TimeSpan.FromSeconds(2);
-            foreach (var path in Directory.EnumerateFiles(_directory.DirectoryPath))
-            {
-                var name = Path.GetFileName(path);
-                if (name.StartsWith("segments_", StringComparison.Ordinal)) continue;
-                if (string.Equals(name, "write.lock", StringComparison.Ordinal)) continue;
-                if (name.EndsWith(".tmp", StringComparison.Ordinal)) continue;
-                if (fsyncCutoff != DateTime.MinValue && File.GetLastWriteTimeUtc(path) <= fsyncCutoff) continue;
-                Store.DirectoryFsync.SyncFile(path, strict: true);
-            }
-
-            // Sync the directory itself so any prior file creations are durable before the rename.
+            // Segment data files are immutable once written. They are flushed to disk
+            // at creation time (via Stream.Flush(flushToDisk: true) in each writer or
+            // IndexOutput with durable: true). Only the directory entry sync is needed
+            // here to make file-name metadata durable before the commit marker rename.
             Store.DirectoryFsync.Sync(_directory.DirectoryPath, strict: true);
 
             IndexAtomicFileWriter.WriteText(commitFile, fileContent, durable: true);
-            _lastCommitFsyncUtc = DateTime.UtcNow;
         }
         else
         {
