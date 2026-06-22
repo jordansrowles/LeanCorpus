@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
 using Rowles.LeanCorpus.Store;
 
@@ -41,7 +41,7 @@ internal static class StreamingPostingsMerger
                 else c.Dispose();
             }
 
-            using var posOutput = new IndexOutput(posOutputPath);
+            using var posOutput = new IndexOutput(posOutputPath, durable: true);
             CodecConstants.WriteHeader(posOutput, CodecConstants.PostingsVersion);
             using var blockWriter = new BlockPostingsWriter(posOutput);
 

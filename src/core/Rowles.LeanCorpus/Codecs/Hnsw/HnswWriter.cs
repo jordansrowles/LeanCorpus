@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Codecs.Hnsw;
+namespace Rowles.LeanCorpus.Codecs.Hnsw;
 
 /// <summary>
 /// Writes a frozen <see cref="HnswGraph"/> to disc.
@@ -53,5 +53,6 @@ internal static class HnswWriter
                     writer.Write(n);
             }
         }
+        fs.Flush(flushToDisk: true);
     }
 }

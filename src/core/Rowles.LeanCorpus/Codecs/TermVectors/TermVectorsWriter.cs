@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Codecs.TermVectors;
+namespace Rowles.LeanCorpus.Codecs.TermVectors;
 
 /// <summary>
 /// Writes per-document term vectors to .tvd (data) and .tvx (offset index) files.
@@ -44,6 +44,7 @@ internal static class TermVectorsWriter
             }
         }
 
+        tvdFs.Flush(flushToDisk: true);
         // Write .tvx index
         using var tvxFs = new FileStream(tvxPath, FileMode.Create, FileAccess.Write, FileShare.None);
         using var tvxWriter = new BinaryWriter(tvxFs, System.Text.Encoding.UTF8, leaveOpen: false);
@@ -53,6 +54,7 @@ internal static class TermVectorsWriter
         tvxWriter.Write(docs.Count);
         foreach (var offset in offsets)
             tvxWriter.Write(offset);
+        tvxFs.Flush(flushToDisk: true);
     }
 
     private static void WritePayloads(BinaryWriter writer, TermVectorEntry entry)

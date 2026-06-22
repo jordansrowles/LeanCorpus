@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Codecs.TermVectors;
+namespace Rowles.LeanCorpus.Codecs.TermVectors;
 
 /// <summary>
 /// Streaming variant of <see cref="TermVectorsWriter"/> for the merge path.
@@ -53,6 +53,7 @@ internal sealed class TermVectorsStreamWriter : IDisposable
         if (_disposed) return;
         _disposed = true;
 
+        _tvdStream.Flush(flushToDisk: true);
         _tvdWriter.Flush();
         _tvdWriter.Dispose();
         _tvdStream.Dispose();
@@ -63,6 +64,7 @@ internal sealed class TermVectorsStreamWriter : IDisposable
         tvxWriter.Write(_offsets.Count);
         foreach (var off in _offsets)
             tvxWriter.Write(off);
+        tvxFs.Flush(flushToDisk: true);
     }
 
     private void WritePayloads(TermVectorEntry entry)

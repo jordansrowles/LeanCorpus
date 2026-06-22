@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Codecs.StoredFields;
+namespace Rowles.LeanCorpus.Codecs.StoredFields;
 
 /// <summary>
 /// Streaming variant of <see cref="StoredFieldsWriter"/> for the merge path.
@@ -118,6 +118,7 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
 
         FlushBlock();
 
+        _fdtStream.Flush(flushToDisk: true);
         _fdtWriter.Flush();
         _rawWriter.Dispose();
         _rawStream.Dispose();
@@ -133,5 +134,6 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
         fdxWriter.Write(_blockOffsets.Count);
         foreach (var offset in _blockOffsets)
             fdxWriter.Write(offset);
+        fdxStream.Flush(flushToDisk: true);
     }
 }

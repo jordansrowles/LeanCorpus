@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Postings;
@@ -585,7 +585,7 @@ public static class IndexCodecMigrator
 
         try
         {
-            using (var output = new IndexOutput(temporaryPosPath))
+            using (var output = new IndexOutput(temporaryPosPath, durable: true))
             {
                 CodecConstants.WriteHeader(output, CodecConstants.PostingsVersion);
                 using var blockWriter = new BlockPostingsWriter(output);

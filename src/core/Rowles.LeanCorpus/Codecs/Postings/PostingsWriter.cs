@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Codecs.Postings;
+namespace Rowles.LeanCorpus.Codecs.Postings;
 
 /// <summary>
 /// Writes delta-encoded postings lists for a given term.
@@ -23,6 +23,7 @@ internal static class PostingsWriter
             WriteVarInt(writer, docIds[i] - prev);
             prev = docIds[i];
         }
+        fs.Flush(flushToDisk: true);
     }
 
     /// <summary>Writes a non-negative integer using variable-length encoding (LEB128).</summary>

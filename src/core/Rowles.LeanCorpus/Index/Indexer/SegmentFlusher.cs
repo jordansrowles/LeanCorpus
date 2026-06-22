@@ -70,7 +70,7 @@ internal static class SegmentFlusher
 
         var headerPatches = new List<(long HeaderPos, int DocFreq, long SkipOffset)>(buffer.SortedTermsBuffer.Count);
 
-        using (var posOutput = new IndexOutput(basePath + ".pos"))
+        using (var posOutput = new IndexOutput(basePath + ".pos", durable: true))
         {
             CodecConstants.WriteHeader(posOutput, CodecConstants.PostingsVersion);
 

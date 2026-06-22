@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Codecs.Vectors;
+namespace Rowles.LeanCorpus.Codecs.Vectors;
 
 /// <summary>
 /// Writes dense float vectors with a fixed-dimension layout for implicit offset indexing.
@@ -31,6 +31,7 @@ internal static class VectorWriter
             for (int j = 0; j < dimension; j++)
                 writer.Write(span[j]);
         }
+        fs.Flush(flushToDisk: true);
     }
 
     /// <summary>
@@ -68,5 +69,6 @@ internal static class VectorWriter
             for (int j = 0; j < dimension; j++)
                 writer.Write(span[j]);
         }
+        fs.Flush(flushToDisk: true);
     }
 }

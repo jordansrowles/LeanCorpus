@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Codecs.Bkd;
+namespace Rowles.LeanCorpus.Codecs.Bkd;
 
 /// <summary>
 /// Writes a 1-dimensional BKD tree for numeric point values, enabling O(log N + results) range lookups.
@@ -24,6 +24,7 @@ internal static class BKDWriter
             points.Sort((a, b) => a.Value.CompareTo(b.Value));
             WriteNode(writer, points, 0, points.Count, maxLeafSize);
         }
+        fs.Flush(flushToDisk: true);
     }
 
     private static void WriteNode(BinaryWriter writer, List<(double Value, int DocId)> points, int start, int end, int maxLeafSize)

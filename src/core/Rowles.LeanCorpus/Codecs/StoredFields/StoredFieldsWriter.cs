@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Codecs.StoredFields;
+namespace Rowles.LeanCorpus.Codecs.StoredFields;
 
 /// <summary>
 /// Writes stored field data (.fdt) with configurable compression
@@ -121,6 +121,7 @@ internal static class StoredFieldsWriter
         rawWriter.Dispose();
         rawStream.Dispose();
 
+        fdtStream.Flush(flushToDisk: true);
         fdtWriter.Flush();
 
         using var fdxStream = new FileStream(fdxPath, FileMode.Create, FileAccess.Write, FileShare.None);
@@ -132,6 +133,7 @@ internal static class StoredFieldsWriter
         fdxWriter.Write(blockOffsets.Count);
         foreach (var offset in blockOffsets)
             fdxWriter.Write(offset);
+        fdxStream.Flush(flushToDisk: true);
     }
 
     internal static void Write(string fdtPath, string fdxPath, IReadOnlyList<Dictionary<string, List<string>>> docs,
@@ -213,6 +215,7 @@ internal static class StoredFieldsWriter
         rawWriter.Dispose();
         rawStream.Dispose();
 
+        fdtStream.Flush(flushToDisk: true);
         fdtWriter.Flush();
 
         using var fdxStream = new FileStream(fdxPath, FileMode.Create, FileAccess.Write, FileShare.None);
@@ -224,6 +227,7 @@ internal static class StoredFieldsWriter
         fdxWriter.Write(blockOffsets.Count);
         foreach (var offset in blockOffsets)
             fdxWriter.Write(offset);
+        fdxStream.Flush(flushToDisk: true);
     }
 
     private static void WriteStoredValue(BinaryWriter writer, StoredFieldValue value, Span<byte> encodeBuf)
