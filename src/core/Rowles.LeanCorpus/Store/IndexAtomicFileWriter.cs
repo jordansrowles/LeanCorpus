@@ -17,6 +17,9 @@ internal static class IndexAtomicFileWriter
         });
     }
 
+    private const int MoveRetries = 5;
+    private const int MoveRetryDelayMs = 10;
+
     public static void Write(string path, bool durable, Action<Stream> write)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -32,7 +35,23 @@ internal static class IndexAtomicFileWriter
                     stream.Flush(flushToDisk: true);
             }
 
-            File.Move(tempPath, path, overwrite: true);
+            // On Windows, File.Move with overwrite:true fails with IOException if any handle
+            // — even a transient FileShare.Read from File.ReadAllText (e.g. a concurrent
+            // searcher refresh calling IndexRecovery.TryLoadCommit) — is open on the target.
+            // Retry a few times with a short backoff before giving up.
+            for (int retries = MoveRetries; ; retries--)
+            {
+                try
+                {
+                    File.Move(tempPath, path, overwrite: true);
+                    break;
+                }
+                catch (IOException) when (retries > 0)
+                {
+                    Thread.Sleep(MoveRetryDelayMs);
+                }
+            }
+
             if (durable)
                 DirectoryFsync.Sync(Path.GetDirectoryName(path) ?? string.Empty, strict: true);
         }
