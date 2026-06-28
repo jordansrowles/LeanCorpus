@@ -5,6 +5,7 @@ using Rowles.LeanCorpus.Index.Compatibility;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Serialization;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
 
@@ -256,15 +257,16 @@ internal static class CommitManager
         }
     }
 
-    public static void DeleteSegmentFiles(string segId, string directoryPath)
+    public static void DeleteSegmentFiles(string segId, LeanDirectory directory)
     {
+        var directoryPath = directory.DirectoryPath;
         foreach (var file in Directory.GetFiles(directoryPath, segId + ".*"))
         {
-            try { File.Delete(file); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "segment file delete"); }
+            try { directory.DeleteFile(Path.GetFileName(file)); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "segment file delete"); }
         }
         foreach (var file in Directory.GetFiles(directoryPath, segId + "_v_*.*"))
         {
-            try { File.Delete(file); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "vector file delete"); }
+            try { directory.DeleteFile(Path.GetFileName(file)); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "vector file delete"); }
         }
     }
 
@@ -460,7 +462,7 @@ internal static class CommitManager
                 if (!committedIds.Contains(seg.SegmentId))
                 {
                     writer.CommittedSegments.Remove(seg);
-                    DeleteSegmentFiles(seg.SegmentId, directoryPath);
+                    DeleteSegmentFiles(seg.SegmentId, writer.Directory);
                 }
             }
         }
