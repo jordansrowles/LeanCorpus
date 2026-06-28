@@ -61,7 +61,7 @@ internal sealed class TermVectorsStreamWriter : IDisposable
         long tvdBodyLength = _tvdBuf.WrittenCount;
 
         long headerSize;
-        using (var tvdOutput = new IndexOutput(_tvdPath))
+        using (var tvdOutput = new IndexOutput(_tvdPath, durable: true))
         {
             CodecFileHeader.Write(tvdOutput, CodecFormats.TermVectors, _tvdBuf.WrittenSpan);
             headerSize = tvdOutput.Position - tvdBodyLength;
@@ -76,7 +76,7 @@ internal sealed class TermVectorsStreamWriter : IDisposable
         foreach (var off in _offsets)
             tvxBodyBuf.WriteInt64(off);
 
-        using var tvxOutput = new IndexOutput(_tvxPath);
+        using var tvxOutput = new IndexOutput(_tvxPath, durable: true);
         CodecFileHeader.Write(tvxOutput, CodecFormats.TermVectors, tvxBodyBuf.WrittenSpan);
     }
 

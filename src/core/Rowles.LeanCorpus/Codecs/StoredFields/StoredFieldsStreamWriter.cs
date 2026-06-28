@@ -122,7 +122,7 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
         long fdtBodyLength = _fdtBuf.WrittenCount;
 
         long headerSize;
-        using (var fdtOutput = new IndexOutput(_fdtPath))
+        using (var fdtOutput = new IndexOutput(_fdtPath, durable: true))
         {
             CodecFileHeader.Write(fdtOutput, CodecFormats.StoredFields, _fdtBuf.WrittenSpan);
             headerSize = fdtOutput.Position - fdtBodyLength;
@@ -139,7 +139,7 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
         foreach (var offset in _blockOffsets)
             fdxBodyBuf.WriteInt64(offset);
 
-        using var fdxOutput = new IndexOutput(_fdxPath);
+        using var fdxOutput = new IndexOutput(_fdxPath, durable: true);
         CodecFileHeader.Write(fdxOutput, CodecFormats.StoredFields, fdxBodyBuf.WrittenSpan);
     }
 }

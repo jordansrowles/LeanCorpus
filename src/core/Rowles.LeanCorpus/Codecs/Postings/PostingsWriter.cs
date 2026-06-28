@@ -26,7 +26,7 @@ internal static class PostingsWriter
             prev = docIds[i];
         }
 
-        using var output = new IndexOutput(filePath);
+        using var output = new IndexOutput(filePath, durable: true);
         CodecFileHeader.Write(output, CodecFormats.Postings, bodyBuf.WrittenSpan);
     }
 

@@ -141,7 +141,7 @@ internal static class QuantisedVectorWriter
             ArrayPool<byte>.Shared.Return(writeBuf, clearArray: false);
         }
 
-        using var output = new IndexOutput(filePath);
+        using var output = new IndexOutput(filePath, durable: true);
         CodecFileHeader.Write(output, CodecFormats.QuantisedVectors, bodyBuf.WrittenSpan);
     }
 
@@ -250,7 +250,7 @@ internal static class QuantisedVectorWriter
             ArrayPool<byte>.Shared.Return(writeBuf, clearArray: false);
         }
 
-        using var output = new IndexOutput(filePath);
+        using var output = new IndexOutput(filePath, durable: true);
         CodecFileHeader.Write(output, CodecFormats.QuantisedVectors, bodyBuf.WrittenSpan);
     }
 }

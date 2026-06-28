@@ -46,7 +46,7 @@ internal static class StreamingPostingsMerger
             string tmpPosBody = posOutputPath + ".body.tmp";
             try
             {
-                using (var posOutput = new IndexOutput(tmpPosBody))
+                using (var posOutput = new IndexOutput(tmpPosBody, durable: true))
                 using (var blockWriter = new BlockPostingsWriter(posOutput))
                 {
                     var sortedTerms = new List<string>();
@@ -187,7 +187,7 @@ internal static class StreamingPostingsMerger
                         bumped.CopyTo(body, termBodyOffset + 4);
                     }
 
-                    using (var finalOutput = new IndexOutput(posOutputPath, dropPageCache: true))
+                    using (var finalOutput = new IndexOutput(posOutputPath, durable: true, dropPageCache: true))
                     {
                         finalOutput.WriteByte(Codecs.CodecConstants.PostingsVersion);
                         finalOutput.WriteVarInt(body.Length);

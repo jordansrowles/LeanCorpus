@@ -39,7 +39,6 @@ public sealed partial class IndexWriter : IDisposable
     private long _preparedContentToken;
     private readonly List<SegmentInfo> _committedSegments = [];
     private readonly List<(string field, string term, bool isSoftDelete)> _pendingDeletes = [];
-    private DateTime _lastCommitFsyncUtc = DateTime.MinValue;
 
     // --- Backpressure state ---
     private SemaphoreSlim? _backpressureSemaphore;
@@ -763,7 +762,6 @@ public sealed partial class IndexWriter : IDisposable
     internal ref int PreparedGeneration => ref _preparedGeneration;
     internal ref long PreparedContentToken => ref _preparedContentToken;
     internal ref List<SegmentInfo>? PreparedSegments => ref _preparedSegments;
-    internal ref DateTime LastCommitFsyncUtc => ref _lastCommitFsyncUtc;
     internal ref int FlushElection => ref _flushElection;
     internal ref int SemaphoreSlotsHeld => ref _semaphoreSlotsHeld;
     internal ref Task? MergeTask => ref _mergeTask;

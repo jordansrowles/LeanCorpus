@@ -117,22 +117,12 @@ internal static class CommitManager
 
         if (writer.Config.DurableCommits)
         {
-            var fsyncCutoff = writer.LastCommitFsyncUtc == DateTime.MinValue
-                ? DateTime.MinValue
-                : writer.LastCommitFsyncUtc - TimeSpan.FromSeconds(2);
-            foreach (var path in Directory.EnumerateFiles(dirPath))
-            {
-                var name = Path.GetFileName(path);
-                if (name.StartsWith("segments_", StringComparison.Ordinal)) continue;
-                if (string.Equals(name, "write.lock", StringComparison.Ordinal)) continue;
-                if (name.EndsWith(".tmp", StringComparison.Ordinal)) continue;
-                if (fsyncCutoff != DateTime.MinValue && File.GetLastWriteTimeUtc(path) <= fsyncCutoff) continue;
-                DirectoryFsync.SyncFile(path, strict: true);
-            }
-
+            // Segment data files are immutable once written. They are flushed to disk
+            // at creation time (via Stream.Flush(flushToDisk: true) in each writer or
+            // IndexOutput with durable: true). Only the directory entry sync is needed
+            // here to make file-name metadata durable before the commit marker rename.
             DirectoryFsync.Sync(dirPath, strict: true);
             IndexAtomicFileWriter.WriteText(commitFile, fileContent, durable: true);
-            writer.LastCommitFsyncUtc = DateTime.UtcNow;
         }
         else
         {

@@ -1,5 +1,6 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.Postings;
 
@@ -10,7 +11,7 @@ internal static class PostingsReader
 {
     public static int[] ReadDocIds(string filePath, string term)
     {
-        using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var fs = FileOpenRetry.OpenRead(filePath);
         using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
 
         // Skip CodecKit envelope

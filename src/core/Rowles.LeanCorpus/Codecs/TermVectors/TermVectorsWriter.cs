@@ -55,7 +55,7 @@ internal static class TermVectorsWriter
 
         // Write .tvd file and capture envelope header size for offset computation.
         long headerSize;
-        using (var tvdOutput = new IndexOutput(tvdPath))
+        using (var tvdOutput = new IndexOutput(tvdPath, durable: true))
         {
             CodecFileHeader.Write(tvdOutput, CodecFormats.TermVectors, bodyBuf.WrittenSpan);
             headerSize = tvdOutput.Position - tvdBodyLength;
@@ -73,7 +73,7 @@ internal static class TermVectorsWriter
             tvxBodyBuf.WriteInt64(offset);
 
         // Write .tvx index.
-        using var tvxOutput = new IndexOutput(tvxPath);
+        using var tvxOutput = new IndexOutput(tvxPath, durable: true);
         CodecFileHeader.Write(tvxOutput, CodecFormats.TermVectors, tvxBodyBuf.WrittenSpan);
     }
 

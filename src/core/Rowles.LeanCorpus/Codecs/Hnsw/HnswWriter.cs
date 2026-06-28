@@ -45,7 +45,7 @@ internal static class HnswWriter
             }
         }
 
-        using var output = new IndexOutput(filePath);
+        using var output = new IndexOutput(filePath, durable: true);
         CodecFileHeader.Write(output, CodecFormats.Hnsw, bodyBuf.WrittenSpan);
     }
 }

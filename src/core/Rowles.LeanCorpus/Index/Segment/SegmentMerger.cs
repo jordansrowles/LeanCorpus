@@ -776,13 +776,13 @@ public sealed class SegmentMerger
         // Delete every file belonging to this segment (any extension).
         foreach (var filePath in Directory.GetFiles(_directory.DirectoryPath, $"{seg.SegmentId}.*"))
         {
-            try { File.Delete(filePath); }
+            try { _directory.DeleteFile(Path.GetFileName(filePath)); }
             catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "merge segment file cleanup"); }
         }
         // Also sweep generation-versioned deletion files (e.g. seg_0_gen_3.del).
         foreach (var filePath in Directory.GetFiles(_directory.DirectoryPath, $"{seg.SegmentId}_gen_*.del"))
         {
-            try { File.Delete(filePath); }
+            try { _directory.DeleteFile(Path.GetFileName(filePath)); }
             catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "merge del file cleanup"); }
         }
     }

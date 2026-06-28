@@ -407,7 +407,7 @@ internal static class SegmentFlusher
         string tmpPosBody = basePath + ".pos.body.tmp";
         try
         {
-            using (var posOutput = new IndexOutput(tmpPosBody))
+            using (var posOutput = new IndexOutput(tmpPosBody, durable: true))
             using (var blockWriter = new BlockPostingsWriter(posOutput))
             {
                 foreach (var (qt, acc) in accumulatorTerms)
@@ -778,7 +778,7 @@ internal static class SegmentFlusher
     {
         if (numericIndex.Count == 0) return;
 
-        using var output = new IndexOutput(filePath);
+        using var output = new IndexOutput(filePath, durable: true);
 
         output.WriteInt32(numericIndex.Count);
         foreach (var (fieldName, docValues) in numericIndex)

@@ -3,6 +3,7 @@ using System.IO;
 using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Codecs.StoredFields;
 
 /// <summary>
@@ -42,7 +43,7 @@ internal sealed class StoredFieldsReader : IDisposable
     public static StoredFieldsReader Open(string fdtPath, string fdxPath)
     {
         // Read .fdx to get block offsets
-        using var fdxStream = new FileStream(fdxPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var fdxStream = FileOpenRetry.OpenReadDelete(fdxPath);
         using var fdxReader = new BinaryReader(fdxStream, System.Text.Encoding.UTF8, leaveOpen: false);
 
         byte version = CodecFileHeader.ReadVersion(fdxReader, CodecFormats.StoredFields);
@@ -57,7 +58,7 @@ internal sealed class StoredFieldsReader : IDisposable
             blockOffsets[i] = fdxReader.ReadInt64();
 
         // Open .fdt and read its header to get compression type
-        var fs = new FileStream(fdtPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var fs = FileOpenRetry.OpenReadDelete(fdtPath);
         var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: true);
 
         fs.Seek(0, SeekOrigin.Begin);

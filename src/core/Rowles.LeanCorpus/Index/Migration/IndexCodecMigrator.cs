@@ -559,7 +559,7 @@ public static class IndexCodecMigrator
         try
         {
             // Write body to temp file (no CodecKit envelope yet)
-            using (var bodyOutput = new IndexOutput(temporaryBodyPath))
+            using (var bodyOutput = new IndexOutput(temporaryBodyPath, durable: true))
             using (var blockWriter = new BlockPostingsWriter(bodyOutput))
             {
                 foreach (var (term, postings) in terms)
@@ -592,7 +592,7 @@ public static class IndexCodecMigrator
             byte[] body = System.IO.File.ReadAllBytes(temporaryBodyPath);
             int envelopeOffset = 1 + VarIntSize(body.Length);
 
-            using (var output = new IndexOutput(temporaryPosPath))
+            using (var output = new IndexOutput(temporaryPosPath, durable: true))
             {
                 output.WriteByte(CodecConstants.PostingsVersion);
                 output.WriteVarInt(body.Length);

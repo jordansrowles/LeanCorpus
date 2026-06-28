@@ -123,7 +123,7 @@ internal static class StoredFieldsWriter
 
         // Write .fdt: CodecKit header + body, then measure header size
         long headerSize;
-        using (var fdtOutput = new IndexOutput(fdtPath))
+        using (var fdtOutput = new IndexOutput(fdtPath, durable: true))
         {
             CodecFileHeader.Write(fdtOutput, CodecFormats.StoredFields, fdtBodyBuf.WrittenSpan);
             headerSize = fdtOutput.Position - fdtBodyLength;
@@ -142,7 +142,7 @@ internal static class StoredFieldsWriter
             fdxBodyBuf.WriteInt64(offset);
 
         // Write .fdx: CodecKit header + body
-        using var fdxOutput = new IndexOutput(fdxPath);
+        using var fdxOutput = new IndexOutput(fdxPath, durable: true);
         CodecFileHeader.Write(fdxOutput, CodecFormats.StoredFields, fdxBodyBuf.WrittenSpan);
     }
 
@@ -220,7 +220,7 @@ internal static class StoredFieldsWriter
         long fdtBodyLength = fdtBodyBuf.WrittenCount;
 
         long headerSize;
-        using (var fdtOutput = new IndexOutput(fdtPath))
+        using (var fdtOutput = new IndexOutput(fdtPath, durable: true))
         {
             CodecFileHeader.Write(fdtOutput, CodecFormats.StoredFields, fdtBodyBuf.WrittenSpan);
             headerSize = fdtOutput.Position - fdtBodyLength;
@@ -236,7 +236,7 @@ internal static class StoredFieldsWriter
         foreach (var offset in blockOffsets)
             fdxBodyBuf.WriteInt64(offset);
 
-        using var fdxOutput = new IndexOutput(fdxPath);
+        using var fdxOutput = new IndexOutput(fdxPath, durable: true);
         CodecFileHeader.Write(fdxOutput, CodecFormats.StoredFields, fdxBodyBuf.WrittenSpan);
     }
 
