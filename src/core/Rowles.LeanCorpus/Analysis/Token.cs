@@ -67,39 +67,4 @@ public readonly struct Token
     /// </summary>
     public byte[]? Payload { get; }
 
-    /// <summary>
-    /// Returns a copy of this token with updated text while preserving offsets and metadata.
-    /// </summary>
-    /// <param name="text">The replacement token text.</param>
-    public Token WithText(string text) => new(text, StartOffset, EndOffset, Type, PositionIncrement, Payload);
-
-    /// <summary>
-    /// Returns a copy of this token with updated text and offsets while preserving metadata.
-    /// </summary>
-    /// <param name="text">The replacement token text.</param>
-    /// <param name="startOffset">The replacement start offset.</param>
-    /// <param name="endOffset">The replacement end offset.</param>
-    public Token WithTextAndOffsets(string text, int startOffset, int endOffset)
-        => new(text, startOffset, endOffset, Type, PositionIncrement, Payload);
-
-    /// <summary>
-    /// Returns a copy of this token with a different position increment.
-    /// </summary>
-    /// <param name="positionIncrement">The replacement position increment.</param>
-    public Token WithPositionIncrement(int positionIncrement)
-        => new(Text, StartOffset, EndOffset, Type, positionIncrement, Payload);
-
-    /// <summary>
-    /// Returns a copy of this token with a different type.
-    /// </summary>
-    /// <param name="type">The replacement token type.</param>
-    public Token WithType(string type)
-        => new(Text, StartOffset, EndOffset, type, PositionIncrement, Payload);
-
-    /// <summary>
-    /// Returns a copy of this token with a different payload.
-    /// </summary>
-    /// <param name="payload">The replacement payload bytes.</param>
-    public Token WithPayload(byte[]? payload)
-        => new(Text, StartOffset, EndOffset, Type, PositionIncrement, payload);
 }

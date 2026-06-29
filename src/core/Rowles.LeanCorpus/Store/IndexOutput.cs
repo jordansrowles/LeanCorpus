@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Runtime.CompilerServices;
 
 namespace Rowles.LeanCorpus.Store;
@@ -14,6 +14,7 @@ public sealed class IndexOutput : IDisposable
     private readonly FileStream _stream;
     private readonly byte[] _buffer;
     private readonly bool _durable;
+    private readonly bool _dropPageCache;
     private int _bufferPosition;
     private bool _disposed;
 
@@ -26,15 +27,22 @@ public sealed class IndexOutput : IDisposable
     /// <param name="filePath">The full path of the file to create.</param>
     /// <param name="durable">
     /// When <c>true</c>, <see cref="Dispose"/> calls <c>FileStream.Flush(flushToDisk: true)</c> so the
-    /// file's bytes are persisted to the storage device before the handle is released. Defaults to
+    /// file bytes are persisted to the storage device before the handle is released. Defaults to
     /// <c>false</c> to preserve historic non-durable behaviour for callers that don't need it.
     /// </param>
-    public IndexOutput(string filePath, bool durable = false)
+    /// <param name="dropPageCache">
+    /// When <c>true</c> and running on Linux, <see cref="Dispose"/> calls <c>posix_fadvise(FADV_DONTNEED)</c>
+    /// to release written pages from the page cache after closing. This prevents merge output
+    /// from evicting hot search data from the cache. No effect on Windows or macOS. Defaults to <c>false</c>.
+    /// </param>
+    public IndexOutput(string filePath, bool durable = false, bool dropPageCache = false)
     {
-        _stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
+        _stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None,
+            bufferSize: BufferSize, options: FileOptions.SequentialScan);
         _buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
         _bufferPosition = 0;
         _durable = durable;
+        _dropPageCache = dropPageCache && OperatingSystem.IsLinux();
     }
 
     /// <summary>
@@ -156,6 +164,15 @@ public sealed class IndexOutput : IDisposable
         }
         finally
         {
+            if (_dropPageCache)
+            {
+                try
+                {
+                    int fd = (int)_stream.SafeFileHandle.DangerousGetHandle();
+                    NativeMethods.posix_fadvise(fd, 0, _stream.Length, NativeMethods.POSIX_FADV_DONTNEED);
+                }
+                catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "posix_fadvise during dispose"); }
+            }
             ArrayPool<byte>.Shared.Return(_buffer);
             _stream.Dispose();
         }

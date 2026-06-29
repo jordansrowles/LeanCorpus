@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using Rowles.LeanCorpus.Store;
@@ -6,7 +6,7 @@ using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Codecs.Postings;
 
 /// <summary>
-/// Block-at-a-time postings iterator (v3 format). Reads packed blocks of 128 doc IDs
+/// Block-at-a-time postings iterator. Reads packed blocks of 128 doc IDs
 /// written by <see cref="BlockPostingsWriter"/>. Only the current block is decoded,
 /// keeping memory at a constant ~1 KB (2 × 128 ints) regardless of postings list length.
 /// </summary>
@@ -117,6 +117,18 @@ public struct BlockPostingsEnum : IDisposable
         _cursorPosition = docStartOffset;
     }
 
+    /// <summary>Resets the cursor to before the first document, allowing the list to be re-iterated.</summary>
+    public void Reset()
+    {
+        _blockStart = 0;
+        _blockCount = 0;
+        _indexInBlock = -1;
+        _currentBlockIndex = -1;
+        _exhausted = _docFreq == 0;
+        _nextBlockOffset = _docStartOffset;
+        _cursorPosition = _docStartOffset;
+    }
+
     /// <summary>
     /// Advances to the next document. Returns the doc ID, or <see cref="NoMoreDocs"/>.
     /// </summary>
@@ -212,7 +224,7 @@ public struct BlockPostingsEnum : IDisposable
     /// SIMD branchless advance: loads 4 doc IDs at a time, compares against target,
     /// uses ExtractMostSignificantBits + TrailingZeroCount to find first match.
     /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private int BranchlessAdvanceSimd(int target, int start, int count)
     {
         var targetVec = Vector128.Create(target);
@@ -339,6 +351,9 @@ public struct BlockPostingsEnum : IDisposable
     private void DecodeTailAtCurrentPosition()
     {
         int tailCount = _docInput.ReadVarInt(ref _cursorPosition);
+        if (tailCount <= 0)
+            throw new InvalidDataException(
+                "Postings data is corrupt: tail block has zero or negative count.");
         int prevDocId = _currentBlockIndex > 0 && _currentBlockIndex <= _skipCount
             ? _skipEntries[_currentBlockIndex - 1].LastDocId : 0;
 

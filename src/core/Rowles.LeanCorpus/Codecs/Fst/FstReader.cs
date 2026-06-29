@@ -23,6 +23,7 @@ public sealed class FstReader
     private const byte FlagHasOutput = FstBuilder.FlagHasOutput;
     private const byte FlagHasTarget = FstBuilder.FlagHasTarget;
 
+    private const int MaxStackKey = 256;
     private readonly byte[] _nodes;
     private readonly long _rootAddress;
     private readonly long _count;
@@ -214,9 +215,9 @@ public sealed class FstReader
         // Emit final output for the entry node if it is final.
         if (TryGetFinalOutput(nodeAddr, out long entryFinal))
         {
-            var k = new byte[keyLen];
-            Buffer.BlockCopy(keyBuf, 0, k, 0, keyLen);
-            yield return (k, accumulatedOutput + entryFinal);
+            Span<byte> kBuf = keyLen <= MaxStackKey ? stackalloc byte[keyLen] : new byte[keyLen];
+            keyBuf.AsSpan(0, keyLen).CopyTo(kBuf);
+            yield return (kBuf.ToArray(), accumulatedOutput + entryFinal);
         }
 
         stack.Push(new Frame(nodeAddr, FirstRealArcOffset(nodeAddr), accumulatedOutput, keyLen));
@@ -249,9 +250,9 @@ public sealed class FstReader
                 long childAddr = arc.Target;
                 if (TryGetFinalOutput(childAddr, out long childFinal))
                 {
-                    var k = new byte[childKeyLen];
-                    Buffer.BlockCopy(keyBuf, 0, k, 0, childKeyLen);
-                    yield return (k, childOutput + childFinal);
+                    Span<byte> kBuf = childKeyLen <= MaxStackKey ? stackalloc byte[childKeyLen] : new byte[childKeyLen];
+                    keyBuf.AsSpan(0, childKeyLen).CopyTo(kBuf);
+                    yield return (kBuf.ToArray(), childOutput + childFinal);
                 }
 
                 int firstChildArc = FirstRealArcOffset(childAddr);
@@ -264,9 +265,9 @@ public sealed class FstReader
             else
             {
                 // Targetless arc represents an inline accept (key terminates on this arc).
-                var k = new byte[childKeyLen];
-                Buffer.BlockCopy(keyBuf, 0, k, 0, childKeyLen);
-                yield return (k, childOutput);
+                Span<byte> kBuf = childKeyLen <= MaxStackKey ? stackalloc byte[childKeyLen] : new byte[childKeyLen];
+                keyBuf.AsSpan(0, childKeyLen).CopyTo(kBuf);
+                yield return (kBuf.ToArray(), childOutput);
             }
         }
     }
@@ -282,9 +283,9 @@ public sealed class FstReader
         // Entry node may itself be accepting; check before pushing arcs.
         if (TryGetFinalOutput(startNode, out long startFinal) && automaton.IsAccept(startState))
         {
-            var k = new byte[keyLen];
-            Buffer.BlockCopy(keyBuf, 0, k, 0, keyLen);
-            yield return (k, accumulatedOutput + startFinal, startState);
+            Span<byte> kBuf = keyLen <= MaxStackKey ? stackalloc byte[keyLen] : new byte[keyLen];
+            keyBuf.AsSpan(0, keyLen).CopyTo(kBuf);
+            yield return (kBuf.ToArray(), accumulatedOutput + startFinal, startState);
         }
 
         stack.Push(new IntersectFrame(startNode, FirstRealArcOffset(startNode), accumulatedOutput, startState, keyLen));
@@ -320,9 +321,9 @@ public sealed class FstReader
                 long childAddr = arc.Target;
                 if (TryGetFinalOutput(childAddr, out long childFinal) && automaton.IsAccept(nextState))
                 {
-                    var k = new byte[childKeyLen];
-                    Buffer.BlockCopy(keyBuf, 0, k, 0, childKeyLen);
-                    yield return (k, childOutput + childFinal, nextState);
+                    Span<byte> kBuf = childKeyLen <= MaxStackKey ? stackalloc byte[childKeyLen] : new byte[childKeyLen];
+                    keyBuf.AsSpan(0, childKeyLen).CopyTo(kBuf);
+                    yield return (kBuf.ToArray(), childOutput + childFinal, nextState);
                 }
 
                 int firstChildArc = FirstRealArcOffset(childAddr);
@@ -334,9 +335,9 @@ public sealed class FstReader
             }
             else if (automaton.IsAccept(nextState))
             {
-                var k = new byte[childKeyLen];
-                Buffer.BlockCopy(keyBuf, 0, k, 0, childKeyLen);
-                yield return (k, childOutput, nextState);
+                Span<byte> kBuf = childKeyLen <= MaxStackKey ? stackalloc byte[childKeyLen] : new byte[childKeyLen];
+                keyBuf.AsSpan(0, childKeyLen).CopyTo(kBuf);
+                yield return (kBuf.ToArray(), childOutput, nextState);
             }
         }
     }

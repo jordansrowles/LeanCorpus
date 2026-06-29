@@ -1,246 +1,617 @@
-﻿using System.Buffers;
+using System.Buffers;
+using System.Runtime.CompilerServices;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
 /// Accumulates doc IDs, term frequencies, and positions for a single qualified term
 /// during indexing. Uses ArrayPool-backed buffers to avoid GC pressure from repeated
-/// resize-copy-abandon cycles. Call <see cref="ReturnBuffers"/> after flush to return
-/// rented arrays.
+/// resize-copy-abandon cycles.
 /// </summary>
+/// <remarks>
+/// Positions are stored as VarInt delta-encoded bytes. The first position per posting is
+/// stored as an absolute VarInt; subsequent positions are VarInt deltas from the first.
+/// Call <see cref="ReturnBuffers"/> after flush to return rented arrays.
+/// </remarks>
 internal sealed class PostingAccumulator
 {
-    private static readonly ArrayPool<int> Pool = ArrayPool<int>.Shared;
-
-    private int[] _docIds;
+    private static readonly ArrayPool<int> IntPool = ArrayPool<int>.Shared;
+    private static readonly ArrayPool<byte> BytePool = ArrayPool<byte>.Shared;
+    private int[] _docIds;           // first entry: absolute base; rest: deltas from previous
     private int[] _freqs;
-    private int[] _posStarts;
-    private int[] _posLengths;
-    private int[] _posBuf;
-    private int _posBufUsed;
+    private int[] _posStarts;        // byte offset into _posBuf per posting
+    private int[] _posByteLens;      // byte length of encoded region per posting
+    private byte[] _posBuf;
+    private int _posBufUsed;         // bytes used in _posBuf
+    private int _posBufLen;          // _posBuf array length
     private byte[]?[][]? _payloads;
+    private int[][]? _startOffsets;  // per-posting arrays of start offsets, aligned to positions
+    private int[][]? _endOffsets;    // per-posting arrays of end offsets, aligned to positions
     private int _count;
-    private int _docIdsLen; // logical length (may be < rented array length)
-    private int _posBufLen;
+    private int _docIdsLen;          // logical length (may be < rented array length)
     private long _cachedEstimatedBytes;
     private bool _hasFreqs;
     private bool _hasPositions;
+    private bool _hasOffsets;
+
+    private int _lastAbsoluteDocId;  // last absolute doc ID for delta computation
+    private int[]? _absoluteCache;   // lazily expanded absolute doc IDs
+    private bool _absoluteCacheValid;
 
     private const int NoPositionSentinel = -1;
 
     public PostingAccumulator()
     {
-        _docIds = Pool.Rent(4);
-        _freqs = Pool.Rent(4);
-        _posStarts = Pool.Rent(4);
-        _posLengths = Pool.Rent(4);
-        _posBuf = Pool.Rent(8);
+        _docIds = IntPool.Rent(4);
+        _freqs = IntPool.Rent(4);
+        _posStarts = IntPool.Rent(4);
+        _posByteLens = IntPool.Rent(4);
+
+        _posBuf = BytePool.Rent(16);
         _docIdsLen = 4;
-        _posBufLen = 8;
+        _posBufLen = 16;
         _posBufUsed = 0;
         _count = 0;
+        _lastAbsoluteDocId = -1;
         _cachedEstimatedBytes = RecomputeEstimatedBytes();
     }
 
     public int Count => _count;
 
-    /// <summary>
-    /// Estimated heap bytes consumed by this accumulator's pooled buffers,
-    /// plus a fixed 64-byte overhead for the object itself.
-    /// Cached and updated only when buffers grow, so reads are O(1).
-    /// </summary>
+    /// <summary>First absolute doc ID (the base). Only valid when Count > 0.</summary>
+    public int FirstDocId => _count > 0 ? _docIds[0] : -1;
+
     public long EstimatedBytes => _cachedEstimatedBytes;
 
     private long RecomputeEstimatedBytes()
     {
         const long ObjectOverhead = 64;
-        long bufferBytes = (long)(_docIds.Length + _freqs.Length + _posStarts.Length + _posLengths.Length + _posBuf.Length) * sizeof(int);
+        long bufferBytes = (long)(_docIds.Length + _freqs.Length + _posStarts.Length +
+            _posByteLens.Length) * sizeof(int)
+            + _posBuf.Length;
+        if (_absoluteCache is not null)
+            bufferBytes += _absoluteCache.Length * sizeof(int);
         return ObjectOverhead + bufferBytes;
+    }
+
+    // ─────── Absolute doc ID expansion ───────
+
+    /// <summary>
+    /// Returns absolute doc IDs, expanding from deltas on first call.
+    /// The returned span references an internal cache that is invalidated on mutation.
+    /// </summary>
+    public ReadOnlySpan<int> DocIds
+    {
+        get
+        {
+            if (!_absoluteCacheValid || _absoluteCache is null)
+                ExpandToAbsolute();
+            return _absoluteCache.AsSpan(0, _count);
+        }
+    }
+
+    /// <summary>
+    /// Returns the raw delta-encoded doc IDs: first entry is absolute base,
+    /// subsequent entries are deltas from the previous doc ID.
+    /// </summary>
+    public ReadOnlySpan<int> DocIdDeltas => _docIds.AsSpan(0, _count);
+
+    private void ExpandToAbsolute()
+    {
+        if (_absoluteCache is null || _absoluteCache.Length < _docIdsLen)
+        {
+            if (_absoluteCache is not null) IntPool.Return(_absoluteCache, clearArray: false);
+            _absoluteCache = IntPool.Rent(_docIdsLen);
+        }
+
+        int prev = 0;
+        for (int i = 0; i < _count; i++)
+        {
+            prev += _docIds[i];
+            _absoluteCache[i] = prev;
+        }
+        _absoluteCacheValid = true;
+        _cachedEstimatedBytes = RecomputeEstimatedBytes();
+    }
+
+    private void InvalidateAbsoluteCache()
+    {
+        _absoluteCacheValid = false;
+    }
+
+    // ─────── VarInt helpers ───────
+
+    /// <summary>Decodes the first absolute position from the posting's encoded bytes.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private int GetFirstPosition(int index)
+    {
+        int start = _posStarts[index];
+        if (start == NoPositionSentinel) return 0;
+        ReadVarInt(_posBuf.AsSpan(start), out int first);
+        return first;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int VarIntEncodedSize(int value)
+    {
+        uint v = (uint)value;
+        if (v < 0x80) return 1;
+        if (v < 0x4000) return 2;
+        if (v < 0x200000) return 3;
+        if (v < 0x10000000) return 4;
+        return 5;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int WriteVarInt(Span<byte> dest, int value)
+    {
+        uint v = (uint)value;
+        int i = 0;
+        while (v >= 0x80) { dest[i++] = (byte)(v | 0x80); v >>= 7; }
+        dest[i++] = (byte)v;
+        return i;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static int ReadVarInt(ReadOnlySpan<byte> src, out int value)
+    {
+        uint v = 0; int shift = 0; int i = 0; byte b;
+        do { b = src[i++]; v |= (uint)(b & 0x7F) << shift; shift += 7; } while ((b & 0x80) != 0);
+        value = (int)v;
+        return i;
+    }
+
+    // ─────── Internal write helpers ───────
+
+    private void EnsurePosBufCapacity(int requiredBytes)
+    {
+        if (requiredBytes <= _posBufLen) return;
+        int newLen = Math.Max(_posBufLen * 2, requiredBytes);
+        var newBuf = BytePool.Rent(newLen);
+        if (_posBufUsed > 0) Array.Copy(_posBuf, newBuf, _posBufUsed);
+        BytePool.Return(_posBuf, clearArray: false);
+        _posBuf = newBuf;
+        _posBufLen = newLen;
+        _cachedEstimatedBytes = RecomputeEstimatedBytes();
+    }
+
+    /// <summary>Writes a single delta VarInt for the last posting, relocating if needed.</summary>
+    private void AppendDeltaToLastPosting(int delta)
+    {
+        int idx = _count - 1;
+        int byteLen = _posByteLens[idx];
+        int encodedSize = VarIntEncodedSize(delta);
+
+        if (_posStarts[idx] + byteLen + encodedSize <= _posBufLen && _posStarts[idx] + byteLen >= _posBufUsed - byteLen)
+        {
+            WriteVarInt(_posBuf.AsSpan(_posStarts[idx] + byteLen), delta);
+            _posByteLens[idx] = byteLen + encodedSize;
+            if (_posStarts[idx] + byteLen == _posBufUsed)
+                _posBufUsed += encodedSize;
+        }
+        else
+        {
+            EnsurePosBufCapacity(_posBufUsed + byteLen + encodedSize);
+            Array.Copy(_posBuf, _posStarts[idx], _posBuf, _posBufUsed, byteLen);
+            _posStarts[idx] = _posBufUsed;
+            _posBufUsed += byteLen;
+            _posBufUsed += WriteVarInt(_posBuf.AsSpan(_posBufUsed), delta);
+            _posByteLens[idx] = byteLen + encodedSize;
+        }
+    }
+
+    private void AppendDeltasToLastPosting(ReadOnlySpan<int> deltas)
+    {
+        int idx = _count - 1;
+        int byteLen = _posByteLens[idx];
+        int extraBytes = 0;
+        for (int p = 0; p < deltas.Length; p++)
+            extraBytes += VarIntEncodedSize(deltas[p]);
+
+        EnsurePosBufCapacity(_posBufUsed + byteLen + extraBytes);
+        Array.Copy(_posBuf, _posStarts[idx], _posBuf, _posBufUsed, byteLen);
+        _posStarts[idx] = _posBufUsed;
+        _posBufUsed += byteLen;
+        for (int p = 0; p < deltas.Length; p++)
+            _posBufUsed += WriteVarInt(_posBuf.AsSpan(_posBufUsed), deltas[p]);
+        _posByteLens[idx] = byteLen + extraBytes;
+    }
+
+    /// <summary>Appends a new posting entry with delta doc ID storage.</summary>
+    private void AddNewPosting(int docId, ReadOnlySpan<int> positions)
+    {
+        if (_count == _docIdsLen) Grow();
+
+        int delta;
+        if (_count == 0)
+        {
+            delta = docId;           // first entry: absolute base
+        }
+        else
+        {
+            delta = docId - _lastAbsoluteDocId;
+        }
+
+        int firstPos = positions[0];
+        int totalBytes = VarIntEncodedSize(firstPos);
+        for (int p = 1; p < positions.Length; p++)
+            totalBytes += VarIntEncodedSize(positions[p] - firstPos);
+
+        EnsurePosBufCapacity(_posBufUsed + totalBytes);
+
+        _docIds[_count] = delta;
+        _freqs[_count] = positions.Length;
+        _posStarts[_count] = _posBufUsed;
+
+        _posBufUsed += WriteVarInt(_posBuf.AsSpan(_posBufUsed), firstPos);
+        for (int p = 1; p < positions.Length; p++)
+            _posBufUsed += WriteVarInt(_posBuf.AsSpan(_posBufUsed), positions[p] - firstPos);
+
+        _posByteLens[_count] = totalBytes;
+        _lastAbsoluteDocId = docId;
+        _count++;
+        InvalidateAbsoluteCache();
+    }
+
+    /// <summary>
+    /// Checks whether the last posting matches the given document, using either the
+    /// absolute cache or the tracked last-absolute value.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private bool IsLastDoc(int docId)
+    {
+        return _count > 0 && _lastAbsoluteDocId == docId;
+    }
+
+    // ─────── Raw merge helpers ───────
+
+    /// <summary>
+    /// Returns the VarInt-encoded delta bytes (after the first position), the decoded first
+    /// absolute position, and the frequency. Zero-allocation.
+    /// </summary>
+    internal void GetEncodedPositionDeltas(int index, out ReadOnlySpan<byte> deltas, out int firstPosition, out int freq)
+    {
+        int start = _posStarts[index];
+        if (start == NoPositionSentinel || _freqs[index] == 0)
+        {
+            deltas = ReadOnlySpan<byte>.Empty;
+            firstPosition = 0;
+            freq = 0;
+            return;
+        }
+
+        var src = _posBuf.AsSpan(start, _posByteLens[index]);
+        ReadVarInt(src, out firstPosition);
+        deltas = src.Slice(VarIntEncodedSize(firstPosition));
+        freq = _freqs[index];
+    }
+
+    /// <summary>
+    /// Appends positions for a new document from raw VarInt-encoded delta bytes.
+    /// Used by the merge path (DWPT merge and segment merge).
+    /// </summary>
+    internal void AddEncodedPositions(int docId, int firstPosition, ReadOnlySpan<byte> deltaBytes, int freq)
+    {
+        _hasFreqs = true;
+        _hasPositions = true;
+
+        int firstBytes = VarIntEncodedSize(firstPosition);
+        int totalBytes = firstBytes + deltaBytes.Length;
+
+        if (IsLastDoc(docId))
+        {
+            AppendDeltasToLastPostingRaw(deltaBytes, firstPosition);
+            _freqs[_count - 1] += freq;
+            return;
+        }
+
+        if (_count == _docIdsLen) Grow();
+        EnsurePosBufCapacity(_posBufUsed + totalBytes);
+
+        int delta = _count == 0 ? docId : docId - _lastAbsoluteDocId;
+        _docIds[_count] = delta;
+        _freqs[_count] = freq;
+        _posStarts[_count] = _posBufUsed;
+
+        _posBufUsed += WriteVarInt(_posBuf.AsSpan(_posBufUsed), firstPosition);
+        deltaBytes.CopyTo(_posBuf.AsSpan(_posBufUsed));
+        _posBufUsed += deltaBytes.Length;
+        _posByteLens[_count] = totalBytes;
+        _lastAbsoluteDocId = docId;
+        _count++;
+        InvalidateAbsoluteCache();
+    }
+
+    /// <summary>Appends raw VarInt deltas from firstPos to the last posting without re-encoding.</summary>
+    private void AppendDeltasToLastPostingRaw(ReadOnlySpan<byte> deltaBytes, int firstPosition)
+    {
+        int idx = _count - 1;
+        int byteLen = _posByteLens[idx];
+        EnsurePosBufCapacity(_posBufUsed + deltaBytes.Length);
+
+        int existingFirst = GetFirstPosition(idx);
+        if (existingFirst != firstPosition)
+        {
+            int newBase = existingFirst;
+            int offset = 0;
+            while (offset < deltaBytes.Length)
+            {
+                offset += ReadVarInt(deltaBytes.Slice(offset), out int delta);
+                int abs = firstPosition + delta;
+                int newDelta = abs - newBase;
+                _posBufUsed += WriteVarInt(_posBuf.AsSpan(_posBufUsed), newDelta);
+            }
+            _posByteLens[idx] = _posBufUsed - _posStarts[idx];
+        }
+        else
+        {
+            deltaBytes.CopyTo(_posBuf.AsSpan(_posBufUsed));
+            _posBufUsed += deltaBytes.Length;
+            _posByteLens[idx] = byteLen + deltaBytes.Length;
+        }
+    }
+
+    // ─────── Public API ───────
+
+    /// <summary>
+    /// Adds a posting with the field's index options controlling which data is stored.
+    /// This overload is the primary entry point for the indexing hot path.
+    /// </summary>
+    public void Add(int docId, int position, FieldIndexOptions indexOptions, int startOffset = 0, int endOffset = 0)
+    {
+        if ((int)indexOptions <= (int)FieldIndexOptions.DocsOnly)
+        {
+            // DocsOnly: skip frequency and position data entirely — only track the doc ID.
+            AddDocOnly(docId);
+            return;
+        }
+
+        _hasFreqs = true;
+        if ((int)indexOptions >= (int)FieldIndexOptions.DocsAndFreqsAndPositions)
+            _hasPositions = true;
+
+        if ((int)indexOptions >= (int)FieldIndexOptions.DocsAndFreqsAndPositionsAndOffsets)
+            _hasOffsets = true;
+
+        if (_hasPositions)
+        {
+            if (_hasOffsets && (startOffset != 0 || endOffset != 0))
+            {
+                _hasOffsets = true;
+                Add(docId, position);
+                StoreOffset(docId, _freqs[_count - 1] - 1, startOffset, endOffset);
+                return;
+            }
+            Add(docId, position);
+        }
+        else
+        {
+            // DocsAndFreqs: track freq but not positions.
+            AddDocAndFreq(docId);
+        }
+    }
+
+    /// <summary>
+    /// Adds a posting with a payload and the field's index options.
+    /// Payloads are only stored when positions are enabled.
+    /// </summary>
+    public void AddWithPayload(int docId, int position, byte[]? payload, FieldIndexOptions indexOptions,
+        int startOffset = 0, int endOffset = 0)
+    {
+        if ((int)indexOptions <= (int)FieldIndexOptions.DocsOnly)
+        {
+            AddDocOnly(docId);
+            return;
+        }
+
+        _hasFreqs = true;
+        if ((int)indexOptions >= (int)FieldIndexOptions.DocsAndFreqsAndPositions)
+        {
+            _hasPositions = true;
+            if ((int)indexOptions >= (int)FieldIndexOptions.DocsAndFreqsAndPositionsAndOffsets)
+                _hasOffsets = true;
+
+            if (_hasOffsets && (startOffset != 0 || endOffset != 0))
+            {
+                _hasOffsets = true;
+                AddWithPayload(docId, position, payload, startOffset, endOffset);
+                return;
+            }
+            AddWithPayload(docId, position, payload);
+        }
+        else
+        {
+            // DocsAndFreqs with payload: store freq, discard payload (no positions to attach to).
+            AddDocAndFreq(docId);
+        }
+    }
+
+    /// <summary>
+    /// Adds a doc ID + term frequency without position data.
+    /// Used when <see cref="FieldIndexOptions.DocsAndFreqs"/> is configured.
+    /// </summary>
+    private void AddDocAndFreq(int docId)
+    {
+        if (IsLastDoc(docId))
+        {
+            _freqs[_count - 1]++;
+            return;
+        }
+        if (_count == _docIdsLen) Grow();
+
+        int delta = _count == 0 ? docId : docId - _lastAbsoluteDocId;
+        _docIds[_count] = delta;
+        _freqs[_count] = 1;
+        _posStarts[_count] = NoPositionSentinel;
+        _posByteLens[_count] = 0;
+        _lastAbsoluteDocId = docId;
+        _count++;
+        InvalidateAbsoluteCache();
     }
 
     public void Add(int docId, int position)
     {
         _hasFreqs = true;
         _hasPositions = true;
-
-        if (_count > 0 && _docIds[_count - 1] == docId)
+        if (IsLastDoc(docId))
         {
+            AppendDeltaToLastPosting(position - GetFirstPosition(_count - 1));
             _freqs[_count - 1]++;
-            int freq = _freqs[_count - 1];
-            int start = _posStarts[_count - 1];
-            int allocated = _posLengths[_count - 1];
-            if (freq > allocated)
-            {
-                int newAllocated = allocated * 2;
-                EnsurePosBufCapacity(_posBufUsed + newAllocated);
-                int newStart = _posBufUsed;
-                Array.Copy(_posBuf, start, _posBuf, newStart, freq - 1);
-                _posStarts[_count - 1] = newStart;
-                _posLengths[_count - 1] = newAllocated;
-                _posBuf[newStart + freq - 1] = position;
-                _posBufUsed += newAllocated;
-            }
-            else
-            {
-                _posBuf[start + freq - 1] = position;
-            }
             return;
         }
-
-        if (_count == _docIdsLen)
-            Grow();
-
-        EnsurePosBufCapacity(_posBufUsed + 1);
-        _docIds[_count] = docId;
-        _freqs[_count] = 1;
-        _posStarts[_count] = _posBufUsed;
-        _posLengths[_count] = 1;
-        _posBuf[_posBufUsed] = position;
-        _posBufUsed += 1;
-        _count++;
+        ReadOnlySpan<int> single = stackalloc int[1] { position };
+        AddNewPosting(docId, single);
     }
 
-    /// <summary>
-    /// Bulk-appends a contiguous run of positions for a single doc. Equivalent to
-    /// calling <see cref="Add(int, int)"/> once per position, but with a single
-    /// capacity check and copy. Used by the concurrent merge path.
-    /// </summary>
+    public void Add(int docId, int position, int startOffset, int endOffset)
+    {
+        _hasOffsets = true;
+        Add(docId, position);
+        StoreOffset(docId, _freqs[_count - 1] - 1, startOffset, endOffset);
+    }
+
     public void AddPositions(int docId, ReadOnlySpan<int> positions)
     {
         if (positions.IsEmpty) return;
         _hasFreqs = true;
         _hasPositions = true;
-
-        if (_count > 0 && _docIds[_count - 1] == docId)
+        if (IsLastDoc(docId))
         {
-            int prevFreq = _freqs[_count - 1];
-            int newFreq = prevFreq + positions.Length;
-            int start = _posStarts[_count - 1];
-            int allocated = _posLengths[_count - 1];
-            if (newFreq > allocated)
-            {
-                int newAllocated = allocated;
-                while (newAllocated < newFreq) newAllocated *= 2;
-                EnsurePosBufCapacity(_posBufUsed + newAllocated);
-                int newStart = _posBufUsed;
-                Array.Copy(_posBuf, start, _posBuf, newStart, prevFreq);
-                _posStarts[_count - 1] = newStart;
-                _posLengths[_count - 1] = newAllocated;
-                positions.CopyTo(_posBuf.AsSpan(newStart + prevFreq));
-                _posBufUsed += newAllocated;
-            }
-            else
-            {
-                positions.CopyTo(_posBuf.AsSpan(start + prevFreq));
-            }
-            _freqs[_count - 1] = newFreq;
+            int first = GetFirstPosition(_count - 1);
+            Span<int> deltas = stackalloc int[positions.Length];
+            for (int p = 0; p < positions.Length; p++)
+                deltas[p] = positions[p] - first;
+            AppendDeltasToLastPosting(deltas);
+            _freqs[_count - 1] += positions.Length;
             return;
         }
+        AddNewPosting(docId, positions);
+    }
 
-        if (_count == _docIdsLen)
-            Grow();
+    public void AddDocOnly(int docId)
+    {
+        if (IsLastDoc(docId)) return;
+        if (_count == _docIdsLen) Grow();
 
-        int reserve = positions.Length;
-        EnsurePosBufCapacity(_posBufUsed + reserve);
-        _docIds[_count] = docId;
-        _freqs[_count] = positions.Length;
-        _posStarts[_count] = _posBufUsed;
-        _posLengths[_count] = reserve;
-        positions.CopyTo(_posBuf.AsSpan(_posBufUsed));
-        _posBufUsed += reserve;
+        int delta = _count == 0 ? docId : docId - _lastAbsoluteDocId;
+        _docIds[_count] = delta;
+        _freqs[_count] = 0;
+        _posStarts[_count] = NoPositionSentinel;
+        _posByteLens[_count] = 0;
+        _lastAbsoluteDocId = docId;
         _count++;
+        InvalidateAbsoluteCache();
+    }
+
+    public void AddPositionsWithPayloads(int docId, ReadOnlySpan<int> positions, byte[]?[] payloads)
+    {
+        if (positions.Length == 0) return;
+        _hasFreqs = true;
+        _hasPositions = true;
+        EnsurePayloads();
+
+        if (IsLastDoc(docId))
+        {
+            int idx = _count - 1;
+            int first = GetFirstPosition(idx);
+            Span<int> deltas = stackalloc int[positions.Length];
+            for (int p = 0; p < positions.Length; p++)
+                deltas[p] = positions[p] - first;
+            AppendDeltasToLastPosting(deltas);
+            _freqs[idx] += positions.Length;
+
+            int freq = _freqs[idx];
+            if (freq > _payloads![idx]!.Length) Array.Resize(ref _payloads[idx], freq);
+            for (int p = 0; p < positions.Length; p++)
+                _payloads[idx]![freq - positions.Length + p] = payloads[p];
+        }
+        else
+        {
+            AddNewPosting(docId, positions);
+            int newIdx = _count - 1;
+            _payloads![newIdx] = new byte[]?[positions.Length];
+            Array.Copy(payloads, _payloads[newIdx], positions.Length);
+        }
     }
 
     public void AddWithPayload(int docId, int position, byte[]? payload)
     {
         _hasFreqs = true;
         _hasPositions = true;
+        EnsurePayloads();
 
-        if (_payloads == null)
+        if (IsLastDoc(docId))
         {
-            _payloads = new byte[]?[_docIdsLen][];
-            for (int i = 0; i < _count; i++)
-            {
-                int freq = _freqs[i] > 0 ? _freqs[i] : 0;
-                _payloads[i] = new byte[]?[freq];
-            }
-        }
+            int idx = _count - 1;
+            AppendDeltaToLastPosting(position - GetFirstPosition(idx));
+            _freqs[idx]++;
 
-        if (_count > 0 && _docIds[_count - 1] == docId)
-        {
-            _freqs[_count - 1]++;
-            int freq = _freqs[_count - 1];
-            int start = _posStarts[_count - 1];
-            int allocated = _posLengths[_count - 1];
-            if (freq > allocated)
-            {
-                int newAllocated = allocated * 2;
-                EnsurePosBufCapacity(_posBufUsed + newAllocated);
-                int newStart = _posBufUsed;
-                Array.Copy(_posBuf, start, _posBuf, newStart, freq - 1);
-                _posStarts[_count - 1] = newStart;
-                _posLengths[_count - 1] = newAllocated;
-                _posBuf[newStart + freq - 1] = position;
-                _posBufUsed += newAllocated;
-                Array.Resize(ref _payloads[_count - 1], newAllocated);
-            }
-            else
-            {
-                _posBuf[start + freq - 1] = position;
-            }
-            _payloads[_count - 1][freq - 1] = payload;
+            int freq = _freqs[idx];
+            if (freq > _payloads![idx]!.Length) Array.Resize(ref _payloads[idx], freq);
+            _payloads[idx]![freq - 1] = payload;
             return;
         }
 
-        if (_count == _docIdsLen)
-            Grow();
-
-        EnsurePosBufCapacity(_posBufUsed + 1);
-        _docIds[_count] = docId;
-        _freqs[_count] = 1;
-        _posStarts[_count] = _posBufUsed;
-        _posLengths[_count] = 1;
-        _posBuf[_posBufUsed] = position;
-        _posBufUsed += 1;
-        _payloads[_count] = new byte[]?[1];
-        _payloads[_count][0] = payload;
-        _count++;
+        ReadOnlySpan<int> single = stackalloc int[1] { position };
+        AddNewPosting(docId, single);
+        int newIdx = _count - 1;
+        _payloads![newIdx] = new byte[]?[1];
+        _payloads[newIdx]![0] = payload;
     }
 
-    public void AddPositionsWithPayloads(int docId, ReadOnlySpan<int> positions, byte[]?[]? payloads)
+    public void AddWithPayload(int docId, int position, byte[]? payload, int startOffset, int endOffset)
     {
-        if (positions.IsEmpty)
-            return;
-
-        if (payloads is not null && payloads.Length != positions.Length)
-            throw new ArgumentException("Payload count must match the position count.", nameof(payloads));
-
-        if (payloads is null)
-        {
-            AddPositions(docId, positions);
-            return;
-        }
-
-        for (int i = 0; i < positions.Length; i++)
-            AddWithPayload(docId, positions[i], payloads[i]);
+        _hasOffsets = true;
+        AddWithPayload(docId, position, payload);
+        StoreOffset(docId, -1, startOffset, endOffset);
     }
 
-    public void AddDocOnly(int docId)
+    private void EnsurePayloads()
     {
-        if (_count > 0 && _docIds[_count - 1] == docId)
-            return;
-
-        if (_count == _docIdsLen)
-            Grow();
-
-        _docIds[_count] = docId;
-        _freqs[_count] = 0;
-        _posStarts[_count] = NoPositionSentinel;
-        _posLengths[_count] = 0;
-        _count++;
+        if (_payloads is not null) return;
+        _payloads = new byte[]?[_docIdsLen][];
+        for (int i = 0; i < _count; i++)
+        {
+            int f = _freqs[i] > 0 ? _freqs[i] : 0;
+            _payloads[i] = new byte[]?[f];
+        }
     }
 
-    public ReadOnlySpan<int> DocIds => _docIds.AsSpan(0, _count);
+    private void EnsureOffsets()
+    {
+        if (_startOffsets is not null) return;
+        _startOffsets = new int[_docIdsLen][];
+        _endOffsets = new int[_docIdsLen][];
+        for (int i = 0; i < _count; i++)
+        {
+            int f = _freqs[i] > 0 ? _freqs[i] : 0;
+            _startOffsets[i] = new int[f];
+            _endOffsets[i] = new int[f];
+        }
+    }
+
+    private void StoreOffset(int docId, int positionIndex, int startOffset, int endOffset)
+    {
+        EnsureOffsets();
+        if (IsLastDoc(docId))
+        {
+            int idx = _count - 1;
+            int freq = _freqs[idx];
+            int posIdx = positionIndex >= 0 ? positionIndex : freq - 1;
+            _startOffsets![idx] ??= new int[freq];
+            _endOffsets![idx] ??= new int[freq];
+            if (freq > _startOffsets[idx]!.Length) Array.Resize(ref _startOffsets[idx], freq);
+            if (freq > _endOffsets[idx]!.Length) Array.Resize(ref _endOffsets[idx], freq);
+            _startOffsets[idx]![posIdx] = startOffset;
+            _endOffsets[idx]![posIdx] = endOffset;
+        }
+        else
+        {
+            int idx = _count - 1;
+            _startOffsets![idx] = new int[1] { startOffset };
+            _endOffsets![idx] = new int[1] { endOffset };
+        }
+    }
 
     public int GetFreq(int index) => _freqs[index];
 
@@ -248,7 +619,21 @@ internal sealed class PostingAccumulator
     {
         int start = _posStarts[index];
         if (start == NoPositionSentinel) return ReadOnlySpan<int>.Empty;
-        return _posBuf.AsSpan(start, _freqs[index]);
+        int freq = _freqs[index];
+        if (freq == 0) return ReadOnlySpan<int>.Empty;
+        var src = _posBuf.AsSpan(start, _posByteLens[index]);
+        var result = new int[freq];
+        int pos = 0;
+
+        pos += ReadVarInt(src, out int firstPos);
+        result[0] = firstPos;
+
+        for (int i = 1; i < freq; i++)
+        {
+            pos += ReadVarInt(src.Slice(pos), out int delta);
+            result[i] = firstPos + delta;
+        }
+        return result;
     }
 
     public byte[]? GetPayload(int docIndex, int positionIndex)
@@ -262,131 +647,139 @@ internal sealed class PostingAccumulator
         return docPayloads[positionIndex];
     }
 
+    public (int[]? Starts, int[]? Ends) GetOffsets(int index)
+    {
+        if (_startOffsets == null || (uint)index >= (uint)_count)
+            return (null, null);
+        return (_startOffsets[index], _endOffsets![index]);
+    }
+
     public bool HasPayloads => _payloads != null;
-
+    public bool HasOffsets => _hasOffsets;
     public bool HasFreqs => _hasFreqs;
-
     public bool HasPositions => _hasPositions;
 
-    /// <summary>
-    /// Translates doc IDs using the inverse permutation and re-sorts entries so
-    /// doc IDs remain in ascending order (required by the postings codec).
-    /// </summary>
     public void RemapDocIds(int[] inversePerm)
     {
         if (_count == 0) return;
 
-        // Build (newDocId, originalIndex) pairs, sort by newDocId
-        var entries = Pool.Rent(_count);
-        var origIdxs = Pool.Rent(_count);
+        // Expand to absolute, remap, sort, re-delta
+        if (!_absoluteCacheValid || _absoluteCache is null)
+            ExpandToAbsolute();
+
+        var entries = IntPool.Rent(_count);
+        var origIdxs = IntPool.Rent(_count);
         for (int i = 0; i < _count; i++)
         {
-            entries[i] = inversePerm[_docIds[i]];
+            entries[i] = inversePerm[_absoluteCache![i]];
             origIdxs[i] = i;
         }
         Array.Sort(entries, origIdxs, 0, _count);
 
-        // Rebuild parallel arrays in sorted order using temp buffers
-        var newFreqs = Pool.Rent(_docIdsLen);
-        var newPosStarts = Pool.Rent(_docIdsLen);
-        var newPosLengths = Pool.Rent(_docIdsLen);
+        var newFreqs = IntPool.Rent(_docIdsLen);
+        var newPosStarts = IntPool.Rent(_docIdsLen);
+        var newPosByteLens = IntPool.Rent(_docIdsLen);
         byte[]?[][]? newPayloads = _payloads is not null ? new byte[]?[_docIdsLen][] : null;
-
-        // Compact positions into a new flat buffer
-        var newPosBuf = Pool.Rent(_posBufLen);
+        int[][]? newStartOffsets = _startOffsets is not null ? new int[_docIdsLen][] : null;
+        int[][]? newEndOffsets = _endOffsets is not null ? new int[_docIdsLen][] : null;
+        var newPosBuf = BytePool.Rent(_posBufLen);
         int newPosBufUsed = 0;
 
+        int prevAbs = 0;
         for (int i = 0; i < _count; i++)
         {
             int orig = origIdxs[i];
-            _docIds[i] = entries[i];
+            int newAbs = entries[i];
+            _docIds[i] = i == 0 ? newAbs : newAbs - prevAbs;
+            prevAbs = newAbs;
             newFreqs[i] = _freqs[orig];
+
             int posStart = _posStarts[orig];
-            int freq = _freqs[orig];
-            if (posStart == NoPositionSentinel || freq == 0)
+            int byteLen = _posByteLens[orig];
+
+            if (posStart == NoPositionSentinel || _freqs[orig] == 0)
             {
                 newPosStarts[i] = NoPositionSentinel;
-                newPosLengths[i] = 0;
+                newPosByteLens[i] = 0;
             }
             else
             {
                 newPosStarts[i] = newPosBufUsed;
-                newPosLengths[i] = freq;
-                Array.Copy(_posBuf, posStart, newPosBuf, newPosBufUsed, freq);
-                newPosBufUsed += freq;
+                newPosByteLens[i] = byteLen;
+                Array.Copy(_posBuf, posStart, newPosBuf, newPosBufUsed, byteLen);
+                newPosBufUsed += byteLen;
             }
             if (newPayloads is not null)
                 newPayloads[i] = _payloads![orig];
+            if (newStartOffsets is not null)
+                newStartOffsets[i] = _startOffsets![orig];
+            if (newEndOffsets is not null)
+                newEndOffsets[i] = _endOffsets![orig];
         }
 
-        Pool.Return(entries);
-        Pool.Return(origIdxs);
-        Pool.Return(_freqs);
-        Pool.Return(_posStarts);
-        Pool.Return(_posLengths);
-        Pool.Return(_posBuf);
+        _lastAbsoluteDocId = prevAbs;
+        InvalidateAbsoluteCache();
+
+        IntPool.Return(entries);
+        IntPool.Return(origIdxs);
+        IntPool.Return(_freqs);
+        IntPool.Return(_posStarts);
+        IntPool.Return(_posByteLens);
+        BytePool.Return(_posBuf);
 
         _freqs = newFreqs;
         _posStarts = newPosStarts;
-        _posLengths = newPosLengths;
+        _posByteLens = newPosByteLens;
         _posBuf = newPosBuf;
         _posBufUsed = newPosBufUsed;
         _posBufLen = _posBuf.Length;
         _payloads = newPayloads;
+        _startOffsets = newStartOffsets;
+        _endOffsets = newEndOffsets;
         _cachedEstimatedBytes = RecomputeEstimatedBytes();
+
+        // Invalidate absolute cache and re-expand with new remapped order
+        _absoluteCacheValid = false;
     }
 
-    /// <summary>Returns all pooled arrays. Call once after flush; do not use the accumulator afterwards.</summary>
     public void ReturnBuffers()
     {
-        if (_docIds.Length > 0) Pool.Return(_docIds, clearArray: false);
-        if (_freqs.Length > 0) Pool.Return(_freqs, clearArray: false);
-        if (_posStarts.Length > 0) Pool.Return(_posStarts, clearArray: false);
-        if (_posLengths.Length > 0) Pool.Return(_posLengths, clearArray: false);
-        if (_posBuf.Length > 0) Pool.Return(_posBuf, clearArray: false);
-        _docIds = [];
-        _freqs = [];
-        _posStarts = [];
-        _posLengths = [];
-        _posBuf = [];
-        _payloads = null;
-        _count = 0;
-        _docIdsLen = 0;
-        _posBufLen = 0;
-        _posBufUsed = 0;
-        _hasFreqs = false;
-        _hasPositions = false;
-        _cachedEstimatedBytes = 64; // object overhead only
+        if (_docIds.Length > 0) IntPool.Return(_docIds, clearArray: false);
+        if (_freqs.Length > 0) IntPool.Return(_freqs, clearArray: false);
+        if (_posStarts.Length > 0) IntPool.Return(_posStarts, clearArray: false);
+        if (_posByteLens.Length > 0) IntPool.Return(_posByteLens, clearArray: false);
+        if (_posBuf.Length > 0) BytePool.Return(_posBuf, clearArray: false);
+        if (_absoluteCache is not null) IntPool.Return(_absoluteCache, clearArray: false);
+        _docIds = []; _freqs = []; _posStarts = []; _posByteLens = [];
+        _posBuf = []; _payloads = null; _absoluteCache = null;
+        _startOffsets = null; _endOffsets = null;
+        _count = 0; _docIdsLen = 0; _posBufLen = 0; _posBufUsed = 0;
+        _lastAbsoluteDocId = -1;
+        _hasFreqs = false; _hasPositions = false; _hasOffsets = false;
+        _absoluteCacheValid = false;
+        _cachedEstimatedBytes = 64;
     }
 
     private void Grow()
     {
         int newLen = _docIdsLen * 2;
-        GrowArray(ref _docIds, _docIdsLen, newLen);
-        GrowArray(ref _freqs, _docIdsLen, newLen);
-        GrowArray(ref _posStarts, _docIdsLen, newLen);
-        GrowArray(ref _posLengths, _docIdsLen, newLen);
-        if (_payloads != null)
-            Array.Resize(ref _payloads, newLen);
+        GrowIntArray(ref _docIds, _docIdsLen, newLen);
+        GrowIntArray(ref _freqs, _docIdsLen, newLen);
+        GrowIntArray(ref _posStarts, _docIdsLen, newLen);
+        GrowIntArray(ref _posByteLens, _docIdsLen, newLen);
+        if (_startOffsets != null) Array.Resize(ref _startOffsets, newLen);
+        if (_endOffsets != null) Array.Resize(ref _endOffsets, newLen);
+        if (_payloads != null) Array.Resize(ref _payloads, newLen);
         _docIdsLen = newLen;
+        InvalidateAbsoluteCache();
         _cachedEstimatedBytes = RecomputeEstimatedBytes();
     }
 
-    private void EnsurePosBufCapacity(int required)
+    private static void GrowIntArray(ref int[] arr, int usedLength, int newMinLength)
     {
-        if (required <= _posBufLen) return;
-        int newLen = Math.Max(_posBufLen * 2, required);
-        GrowArray(ref _posBuf, _posBufUsed, newLen);
-        _posBufLen = newLen;
-        _cachedEstimatedBytes = RecomputeEstimatedBytes();
-    }
-
-    private static void GrowArray(ref int[] arr, int usedLength, int newMinLength)
-    {
-        var newArr = Pool.Rent(newMinLength);
-        if (usedLength > 0)
-            Array.Copy(arr, newArr, usedLength);
-        Pool.Return(arr, clearArray: false);
+        var newArr = IntPool.Rent(newMinLength);
+        if (usedLength > 0) Array.Copy(arr, newArr, usedLength);
+        IntPool.Return(arr, clearArray: false);
         arr = newArr;
     }
 }

@@ -135,11 +135,15 @@ public sealed class ConcurrentFieldCoverageTests : IDisposable
         }
 
         using var searcher = new IndexSearcher(directory);
-        var reader = searcher.GetSegmentReaders()[0];
+        var values = new List<string>();
+        foreach (var reader in searcher.GetSegmentReaders())
+        {
+            var segmentValues = reader.GetSortedDocValues("category");
+            if (segmentValues is not null)
+                values.AddRange(segmentValues.Where(static v => v is not null)!);
+        }
 
-        var values = reader.GetSortedDocValues("category");
-        Assert.NotNull(values);
-        Assert.Equal(20, values!.Length);
+        Assert.Equal(20, values.Count);
         Assert.All(values, v => Assert.Contains(v, new[] { "even", "odd" }));
     }
 

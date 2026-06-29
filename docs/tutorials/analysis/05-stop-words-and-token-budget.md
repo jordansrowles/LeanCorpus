@@ -2,28 +2,24 @@
 
 ## Stop words
 
-`StopWordFilter` drops tokens that match a supplied set. The library ships
-`StopWords.English` and equivalents for other supported languages. `StandardAnalyser`,
-`StemmedAnalyser`, `LanguageAnalyser`, and `IcuAnalyser` all use stop words as part of
-their built-in pipelines.
+`StopWordFilter` drops tokens matching a supplied set. Ships `StopWords.English` and equivalents for other languages.
 
 ```csharp
 var filter = new StopWordFilter(StopWords.English);
 ```
 
-Stop word removal happens at analysis time. Both index-time and query-time analysers
-must apply the same set, otherwise removed query terms produce zero hits.
+`StandardAnalyser`, `StemmedAnalyser`, `LanguageAnalyser`, and `IcuAnalyser` all include stop words in their built-in pipelines.
 
-## The token budget
+Index-time and query-time analysers must use the same set. Removed query terms produce zero hits.
 
-Per-document token count is capped via `IndexWriterConfig.MaxTokensPerDocument`
-(default `0`, unlimited). When the cap is hit, behaviour is governed by
-`TokenBudgetPolicy`:
+## Token budget
+
+Per-document token count is capped via `IndexWriterConfig.MaxTokensPerDocument` (default `0`, unlimited). When hit:
 
 | Policy | Behaviour |
 |---|---|
-| `Truncate` (default) | Silently stop processing additional tokens. |
-| `Reject` | Throw, refusing the document. |
+| `Truncate` (default) | Silently stop processing further tokens |
+| `Reject` | Throw, refusing the document |
 
 ```csharp
 var config = new IndexWriterConfig
@@ -33,8 +29,7 @@ var config = new IndexWriterConfig
 };
 ```
 
-A finite budget is useful when ingesting unknown user content where pathological
-documents would otherwise dominate buffer memory.
+Useful when ingesting unknown user content where pathological documents would dominate buffer memory.
 
 ## See also
 

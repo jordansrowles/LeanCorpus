@@ -1,17 +1,18 @@
 # Field types
 
-LeanCorpus ships six built-in field types. All implement
-<xref:Rowles.LeanCorpus.Document.Fields.IField>.
+Seven built-in field types. All implement `IField`.
 
-| Type | Indexed | Stored opt-in | Notes |
+| Type | Indexed | Stored | Use |
 |---|---|---|---|
-| `TextField` | yes (analysed) | yes | Tokenised body text. |
-| `StringField` | yes (whole value) | yes | Identifiers, tags, enums. Not analysed. |
-| `NumericField` | yes (BKD point) | yes | Long, double, etc. Range queries. |
-| `VectorField` | no | flat `.vec` file | Dense float vectors for ANN. |
-| `BinaryField` | no | yes | Raw byte values. Binary doc-values backed. |
+| `TextField` | yes (analysed) | opt-in | Body text, tokenised and analysed |
+| `StringField` | yes (whole value) | opt-in | Identifiers, tags, enums — not analysed |
+| `NumericField` | yes (BKD point) | opt-in | Long, double, etc. — range queries |
+| `VectorField` | indexed via `.vec` | flat `.vec` file | Dense float vectors for ANN |
+| `BinaryField` | doc-values backed | yes | Raw byte arrays |
+| `StoredField` | values-only | yes | String, int, long, double — retrieval only |
+| `GeoPointField` | yes (two numeric) | yes | Latitude/longitude — geo queries |
 
-## Examples
+## Index a document
 
 ```csharp
 using Rowles.LeanCorpus.Document;
@@ -23,19 +24,21 @@ doc.Add(new TextField("body", "Full text goes here"));
 doc.Add(new NumericField("price", 29.99));
 doc.Add(new VectorField("embedding", new float[] { 0.1f, 0.2f, 0.3f }));
 doc.Add(new BinaryField("raw", new byte[] { 0x01, 0x02, 0x03 }));
+doc.Add(new StoredField("source", "import"));
+doc.Add(new GeoPointField("location", 51.5074, -0.1278));
+writer.AddDocument(doc);
 ```
 
-## Stored vs indexed
+## Indexed vs stored
 
-- **Indexed**: searchable. Drives query matching and scoring.
-- **Stored**: round-tripped on retrieval (`IndexSearcher.GetStoredFields(docId)`).
+- **Indexed**: drives query matching and scoring.
+- **Stored**: available via `IndexSearcher.GetStoredFields(docId)`.
 
-A field can be both. Vectors are not "indexed" in the inverted sense; they live in `.vec`.
+A field can be both. Vectors and stored-only fields live in `.vec` and `.fdt`, not the inverted index.
 
 ## Geo points
 
-`GeoPointField` writes two numeric fields under the names `name_lat` and `name_lon`.
-Use those names directly with `GeoBoundingBoxQuery` or `GeoDistanceQuery`.
+`GeoPointField` writes two numeric sub-fields: `name_lat` and `name_lon`. Query them directly with `GeoBoundingBoxQuery` or `GeoDistanceQuery`.
 
 ## See also
 

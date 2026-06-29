@@ -56,8 +56,11 @@
         "files": [ "assets/**" ]
       },
       {
-        "files": [ "coverage/**" ]
+        "files": [ "benchmarks/*.json", "benchmarks/benchmark-charts.js" ]
       },
+      {
+        "files": [ "coverage/**" ]
+      }
     ],
     "globalMetadata": {
       "_appTitle": "LeanCorpus",

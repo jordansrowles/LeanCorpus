@@ -1,7 +1,6 @@
 ﻿# Filtered vector search
 
-`VectorQuery` accepts an optional filter query. Use it when semantic search must
-respect tenant, category, visibility or date constraints.
+`VectorQuery` accepts an optional filter for tenant, category, visibility, or date constraints.
 
 ```csharp
 var filter = new BooleanQueryBuilder()
@@ -22,16 +21,15 @@ var hits = searcher.Search(query, topN: 20);
 
 ## Filter strategy
 
-LeanCorpus chooses the cheapest path per segment:
+LeanCorpus picks the cheapest path per segment:
 
 | Filter shape | Strategy |
 |---|---|
-| Very selective | Scan only the matched docs |
-| Moderately selective | Traverse HNSW with an allow-list |
-| Loose | Traverse HNSW, post-filter, then retry if needed |
+| Very selective | Scan matched docs only |
+| Moderate | Traverse HNSW with an allow-list |
+| Loose | Traverse HNSW, post-filter, retry if needed |
 
-For broad filters, increase `efSearch` or `oversamplingFactor` if recall matters
-more than latency.
+For broad filters, increase `efSearch` or `oversamplingFactor` when recall trumps latency.
 
 ## See also
 

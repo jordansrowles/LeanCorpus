@@ -594,6 +594,7 @@ public sealed unsafe class IndexInput : IDisposable
     /// </summary>
     ~IndexInput()
     {
+        if (_disposed) return;
         if (_accessor is not null)
         {
             _accessor.SafeMemoryMappedViewHandle.ReleasePointer();

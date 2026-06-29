@@ -1,6 +1,9 @@
 using System.Buffers;
+using System.IO;
+using System.Text;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
-
 namespace Rowles.LeanCorpus.Codecs.StoredFields;
 
 /// <summary>
@@ -43,27 +46,10 @@ internal sealed class StoredFieldsReader : IDisposable
         using var fdxStream = FileOpenRetry.OpenReadDelete(fdxPath);
         using var fdxReader = new BinaryReader(fdxStream, System.Text.Encoding.UTF8, leaveOpen: false);
 
-        int firstInt = fdxReader.ReadInt32();
-        int blockSize;
-        int docCount;
-        int blockCount;
-        byte version;
-
-        if (firstInt == CodecConstants.Magic)
-        {
-            version = fdxReader.ReadByte();
-            blockSize = fdxReader.ReadInt32();
-            docCount = fdxReader.ReadInt32();
-            blockCount = fdxReader.ReadInt32();
-        }
-        else
-        {
-            fdxStream.Seek(0, SeekOrigin.Begin);
-            version = fdxReader.ReadByte();
-            blockSize = fdxReader.ReadInt32();
-            docCount = fdxReader.ReadInt32();
-            blockCount = fdxReader.ReadInt32();
-        }
+        byte version = CodecFileHeader.ReadVersion(fdxReader, CodecFormats.StoredFields);
+        int blockSize = fdxReader.ReadInt32();
+        int docCount = fdxReader.ReadInt32();
+        int blockCount = fdxReader.ReadInt32();
 
         ValidateSupportedVersion(version, "stored fields index (.fdx)");
 
@@ -75,34 +61,12 @@ internal sealed class StoredFieldsReader : IDisposable
         var fs = FileOpenRetry.OpenReadDelete(fdtPath);
         var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: true);
 
-        FieldCompressionPolicy compression;
-        int fdtFirst = reader.ReadInt32();
-        if (fdtFirst == CodecConstants.Magic)
-        {
-            byte fdtVersion = reader.ReadByte();
-            int fdtBlockSize = reader.ReadInt32();
-            ValidateSupportedVersion(fdtVersion, "stored fields data (.fdt)");
-            ValidateMatchingHeaders(fdtPath, fdxPath, fdtVersion, version, fdtBlockSize, blockSize);
-            if (fdtVersion >= 5)
-            {
-                compression = (FieldCompressionPolicy)reader.ReadByte();
-            }
-            else
-            {
-                // v4: Brotli
-                compression = FieldCompressionPolicy.Brotli;
-            }
-        }
-        else
-        {
-            // Pre-magic: Brotli
-            fs.Seek(0, SeekOrigin.Begin);
-            byte fdtVersion = reader.ReadByte();
-            int fdtBlockSize = reader.ReadInt32();
-            ValidateSupportedVersion(fdtVersion, "stored fields data (.fdt)");
-            ValidateMatchingHeaders(fdtPath, fdxPath, fdtVersion, version, fdtBlockSize, blockSize);
-            compression = FieldCompressionPolicy.Brotli;
-        }
+        fs.Seek(0, SeekOrigin.Begin);
+        byte fdtVersion = CodecFileHeader.ReadVersion(reader, CodecFormats.StoredFields);
+        int fdtBlockSize = reader.ReadInt32();
+        ValidateSupportedVersion(fdtVersion, "stored fields data (.fdt)");
+        ValidateMatchingHeaders(fdtPath, fdxPath, fdtVersion, version, fdtBlockSize, blockSize);
+        var compression = (FieldCompressionPolicy)reader.ReadByte();
 
         return new StoredFieldsReader(fs, reader, blockSize, blockOffsets, compression, version);
     }
@@ -182,17 +146,9 @@ internal sealed class StoredFieldsReader : IDisposable
             {
                 for (int v = 0; v < valueCount; v++)
                 {
-                    if (_version >= 6)
-                    {
-                        br.ReadByte(); // kind
-                        int valueLength = br.ReadInt32();
-                        br.BaseStream.Seek(valueLength, SeekOrigin.Current);
-                    }
-                    else
-                    {
-                        int valueLength = br.ReadInt32();
-                        br.BaseStream.Seek(valueLength, SeekOrigin.Current);
-                    }
+                    br.ReadByte(); // kind
+                    int valueLength = br.ReadInt32();
+                    br.BaseStream.Seek(valueLength, SeekOrigin.Current);
                 }
                 continue;
             }
@@ -200,23 +156,16 @@ internal sealed class StoredFieldsReader : IDisposable
             var values = new List<StoredFieldValue>(valueCount);
             for (int v = 0; v < valueCount; v++)
             {
-                if (_version >= 6)
+                var kind = (StoredFieldValueKind)br.ReadByte();
+                int valueLength = br.ReadInt32();
+                if (kind == StoredFieldValueKind.Binary)
                 {
-                    var kind = (StoredFieldValueKind)br.ReadByte();
-                    int valueLength = br.ReadInt32();
-                    if (kind == StoredFieldValueKind.Binary)
-                    {
-                        values.Add(StoredFieldValue.FromBinary(br.ReadBytes(valueLength)));
-                    }
-                    else
-                    {
-                        values.Add(StoredFieldValue.FromString(System.Text.Encoding.UTF8.GetString(br.ReadBytes(valueLength))));
-                    }
-                    continue;
+                    values.Add(StoredFieldValue.FromBinary(br.ReadBytes(valueLength)));
                 }
-
-                int valueLen = br.ReadInt32();
-                values.Add(StoredFieldValue.FromString(System.Text.Encoding.UTF8.GetString(br.ReadBytes(valueLen))));
+                else
+                {
+                    values.Add(StoredFieldValue.FromString(System.Text.Encoding.UTF8.GetString(br.ReadBytes(valueLength))));
+                }
             }
             fields[name] = values;
         }
@@ -237,20 +186,10 @@ internal sealed class StoredFieldsReader : IDisposable
             int valueCount = br.ReadInt32();
             if (string.Equals(name, field, StringComparison.Ordinal) && valueCount > 0)
                 return true;
-
             for (int v = 0; v < valueCount; v++)
             {
-                int valueLength;
-                if (_version >= 6)
-                {
-                    _ = br.ReadByte();
-                    valueLength = br.ReadInt32();
-                }
-                else
-                {
-                    valueLength = br.ReadInt32();
-                }
-
+                var kind = (StoredFieldValueKind)br.ReadByte();
+                int valueLength = br.ReadInt32();
                 br.BaseStream.Seek(valueLength, SeekOrigin.Current);
             }
         }

@@ -1,4 +1,7 @@
-﻿using Rowles.LeanCorpus.Store;
+using System.Text;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
 
@@ -14,7 +17,7 @@ internal static class SortedSetDocValuesReader
             return values;
 
         using var input = new IndexInput(filePath);
-        CodecConstants.ReadHeaderVersion(input, CodecConstants.SortedSetDocValuesVersion, "sorted-set doc values (.dss)");
+        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.SortedSetDocValues);
 
         int fieldCount = input.ReadInt32();
         for (int f = 0; f < fieldCount; f++)
@@ -88,6 +91,6 @@ internal static class SortedSetDocValuesReader
         int length = input.ReadVarInt();
         if (length < 0)
             throw new InvalidDataException("Negative string length in sorted-set DocValues.");
-        return System.Text.Encoding.UTF8.GetString(input.ReadBytes(length));
+        return Encoding.UTF8.GetString(input.ReadBytes(length));
     }
 }

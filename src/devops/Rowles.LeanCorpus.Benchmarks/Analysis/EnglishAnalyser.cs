@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Filters;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
@@ -26,5 +26,5 @@ internal sealed class EnglishAnalyser : IAnalyser
         new PorterStemmerFilter());
 
     /// <inheritdoc/>
-    public List<Token> Analyse(ReadOnlySpan<char> input) => _pipeline.Analyse(input);
+    public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink) => _pipeline.Analyse(input, sink);
 }

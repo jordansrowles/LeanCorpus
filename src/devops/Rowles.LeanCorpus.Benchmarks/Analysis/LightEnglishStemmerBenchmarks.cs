@@ -1,4 +1,8 @@
+using System.Buffers;
 using BenchmarkDotNet.Attributes;
+using Lucene.Net.Analysis.Core;
+using Lucene.Net.Analysis.En;
+using Lucene.Net.Util;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Filters;
@@ -8,6 +12,8 @@ namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
 /// Measures LightEnglishStemmer throughput against Porter stemmer.
+/// Both paths use the zero-allocation <see cref="ISpanStemmer"/> contract
+/// so the allocation column reflects only unavoidable overhead.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -17,6 +23,8 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [SimpleJob]
 public class LightEnglishStemmerBenchmarks
 {
+    private const int MaxWordLength = 256;
+
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
 
     [ParamsSource(nameof(DocCounts))]
@@ -43,10 +51,27 @@ public class LightEnglishStemmerBenchmarks
     public int LightEnglish_Stem()
     {
         int count = 0;
-        foreach (var word in _words)
+        char[]? rented = null;
+        try
         {
-            _lightStemmer.Stem(word);
-            count++;
+            // Reuse a single pooled buffer for the entire benchmark iteration.
+            Span<char> buf = (rented = ArrayPool<char>.Shared.Rent(MaxWordLength)).AsSpan(0, MaxWordLength);
+            foreach (var word in _words)
+            {
+                if (word.Length > buf.Length)
+                {
+                    // Rare: word exceeds the pre-rented buffer. Grow and re-rent.
+                    ArrayPool<char>.Shared.Return(rented);
+                    buf = (rented = ArrayPool<char>.Shared.Rent(word.Length)).AsSpan(0, word.Length);
+                }
+
+                _lightStemmer.Stem(word.AsSpan(), buf);
+                count++;
+            }
+        }
+        finally
+        {
+            if (rented is not null) ArrayPool<char>.Shared.Return(rented);
         }
         return count;
     }
@@ -66,18 +91,39 @@ public class LightEnglishStemmerBenchmarks
             batch.Add(new Token(word, 0, word.Length));
             if (batch.Count >= 1000)
             {
-                filter.Apply(batch);
-                count += batch.Count;
+                var sink = new CountingTokenSink();
+                foreach (var t in batch) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, sink);
+                count += sink.Count;
                 batch.Clear();
             }
         }
 
         if (batch.Count > 0)
         {
-            filter.Apply(batch);
-            count += batch.Count;
+            var sink = new CountingTokenSink();
+            foreach (var t in batch) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, sink);
+            count += sink.Count;
         }
 
+        return count;
+    }
+
+    [Benchmark(Description = "Lucene.NET PorterStemFilter")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_PorterStem()
+    {
+        int count = 0;
+        foreach (var word in _words)
+        {
+            // Use the PorterStemFilter from Lucene.NET's analysis-en module.
+            using var reader = new System.IO.StringReader(word);
+            var tokeniser = new WhitespaceTokenizer(LuceneVersion.LUCENE_48, reader);
+            var filter = new PorterStemFilter(tokeniser);
+            filter.Reset();
+            while (filter.IncrementToken())
+                count++;
+            filter.End();
+        }
         return count;
     }
 }

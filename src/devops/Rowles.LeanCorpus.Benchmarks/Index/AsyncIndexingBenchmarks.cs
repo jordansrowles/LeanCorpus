@@ -18,7 +18,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
 [KeepBenchmarkFiles]
-[SimpleJob]
+[SimpleJob(warmupCount: 2, iterationCount: 5)]
 public class AsyncIndexingBenchmarks
 {
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
@@ -46,7 +46,7 @@ public class AsyncIndexingBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_AddDocument_Sync()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"leancorpus-bench-async-sync-{Guid.NewGuid():N}");
+        var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-async-sync-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(path);
         try
         {
@@ -70,7 +70,7 @@ public class AsyncIndexingBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public async Task<int> LeanCorpus_AddDocumentAsync_Sequential()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"leancorpus-bench-async-seq-{Guid.NewGuid():N}");
+        var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-async-seq-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(path);
         try
         {
@@ -94,7 +94,7 @@ public class AsyncIndexingBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public async Task<int> LeanCorpus_AddDocumentsAsync_Batch()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"leancorpus-bench-async-batch-{Guid.NewGuid():N}");
+        var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-async-batch-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(path);
         try
         {

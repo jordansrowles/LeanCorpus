@@ -1,6 +1,10 @@
 ﻿param(
-    [string]$RuntimeIdentifier = "win-x64"
+    [string]$RuntimeIdentifier
 )
+
+if (-not $RuntimeIdentifier) {
+    $RuntimeIdentifier = if ($IsLinux) { "linux-x64" } elseif ($IsMacOS) { "osx-x64" } else { "win-x64" }
+}
 
 $ErrorActionPreference = "Stop"
 

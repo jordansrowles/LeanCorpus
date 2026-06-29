@@ -1,3 +1,8 @@
+using System.Buffers;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Store;
+
 namespace Rowles.LeanCorpus.Codecs.Postings;
 
 /// <summary>
@@ -8,33 +13,32 @@ internal static class PostingsWriter
 {
     internal static void Write(string filePath, string term, int[] docIds)
     {
-        using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
-        using var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false);
+        var bodyBuf = new ArrayBufferWriter<byte>(4096);
 
-        CodecConstants.WriteHeader(writer, CodecConstants.PostingsVersion);
-
-        writer.Write(term.Length);
-        writer.Write(term.ToCharArray());
-        writer.Write(docIds.Length);
+        bodyBuf.WriteInt32(term.Length);
+        bodyBuf.WriteChars(term.AsSpan());
+        bodyBuf.WriteInt32(docIds.Length);
 
         int prev = 0;
         for (int i = 0; i < docIds.Length; i++)
         {
-            WriteVarInt(writer, docIds[i] - prev);
+            WriteVarInt(bodyBuf, docIds[i] - prev);
             prev = docIds[i];
         }
-        fs.Flush(flushToDisk: true);
+
+        using var output = new IndexOutput(filePath, durable: true);
+        CodecFileHeader.Write(output, CodecFormats.Postings, bodyBuf.WrittenSpan);
     }
 
     /// <summary>Writes a non-negative integer using variable-length encoding (LEB128).</summary>
-    public static void WriteVarInt(BinaryWriter writer, int value)
+    public static void WriteVarInt(IBufferWriter<byte> writer, int value)
     {
         uint v = (uint)value;
         while (v >= 0x80)
         {
-            writer.Write((byte)(v | 0x80));
+            writer.WriteByte((byte)(v | 0x80));
             v >>= 7;
         }
-        writer.Write((byte)v);
+        writer.WriteByte((byte)v);
     }
 }

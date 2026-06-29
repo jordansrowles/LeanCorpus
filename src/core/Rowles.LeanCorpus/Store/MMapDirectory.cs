@@ -179,6 +179,11 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
         if (fileName.Contains('/') || fileName.Contains('\\') || fileName.Contains(".."))
             throw new ArgumentException("File name must not contain path separators or traversal segments.", nameof(fileName));
 
+        // Colon creates alternate data streams on Windows (e.g. "foo:bar"
+        // writes to an ADS on file "foo" rather than creating "foo:bar").
+        if (fileName.Contains(':'))
+            throw new ArgumentException("File name must not contain a colon.", nameof(fileName));
+
         foreach (var c in fileName)
         {
             if (char.IsControl(c))

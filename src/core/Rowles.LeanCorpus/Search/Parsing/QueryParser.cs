@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis.Analysers;
 namespace Rowles.LeanCorpus.Search.Parsing;
 
 /// <summary>
@@ -11,6 +11,7 @@ public sealed class QueryParser
     private readonly string _defaultField;
     private readonly IAnalyser _analyser;
     private readonly bool _lenient;
+    private int _depth;
 
     /// <summary>Initialises a new <see cref="QueryParser"/> with the given default field and analyser.</summary>
     /// <param name="defaultField">The field used when no explicit <c>field:</c> prefix is present in the query string.</param>
@@ -64,56 +65,72 @@ public sealed class QueryParser
 
     private Query ParseExpression(List<QToken> tokens, ref int pos)
     {
-        var clauses = new List<BooleanClause>();
-
-        while (pos < tokens.Count)
+        const int maxDepth = 64;
+        if (++_depth > maxDepth)
         {
-            if (tokens[pos].Type == QTokenType.RParen)
-                break;
-
-            var occur = Occur.Should;
-            int operatorOffset = tokens[pos].Offset;
-            if (tokens[pos].Type == QTokenType.Plus)
-            {
-                occur = Occur.Must;
-                pos++;
-            }
-            else if (tokens[pos].Type == QTokenType.Minus)
-            {
-                occur = Occur.MustNot;
-                pos++;
-            }
-
-            if (pos >= tokens.Count)
-            {
-                if (_lenient) break;
-                throw new QueryParseException(
-                    "A required or prohibited operator must be followed by a query clause.",
-                    operatorOffset);
-            }
-
-            Query? subQuery;
-            if (_lenient)
-            {
-                try { subQuery = ParseClause(tokens, ref pos); }
-                catch (QueryParseException) { break; }
-            }
-            else
-            {
-                subQuery = ParseClause(tokens, ref pos);
-            }
-
-            if (subQuery is not null)
-                clauses.Add(new BooleanClause(subQuery, occur));
+            _depth--;
+            throw new QueryParseException(
+                $"Query nesting depth exceeds the maximum of {maxDepth}. " +
+                "Simplify the query by reducing nested parentheses.");
         }
 
-        if (clauses.Count == 1 && clauses[0].Occur == Occur.Should)
-            return clauses[0].Query;
+        try
+        {
+            var clauses = new List<BooleanClause>();
 
-        var builder = new BooleanQuery.Builder();
-        foreach (var c in clauses)
-            builder.Add(c.Query, c.Occur);
-        return builder.Build();
+            while (pos < tokens.Count)
+            {
+                if (tokens[pos].Type == QTokenType.RParen)
+                    break;
+
+                var occur = Occur.Should;
+                int operatorOffset = tokens[pos].Offset;
+                if (tokens[pos].Type == QTokenType.Plus)
+                {
+                    occur = Occur.Must;
+                    pos++;
+                }
+                else if (tokens[pos].Type == QTokenType.Minus)
+                {
+                    occur = Occur.MustNot;
+                    pos++;
+                }
+
+                if (pos >= tokens.Count)
+                {
+                    if (_lenient) break;
+                    throw new QueryParseException(
+                        "A required or prohibited operator must be followed by a query clause.",
+                        operatorOffset);
+                }
+
+                Query? subQuery;
+                if (_lenient)
+                {
+                    try { subQuery = ParseClause(tokens, ref pos); }
+                    catch (QueryParseException) { break; }
+                }
+                else
+                {
+                    subQuery = ParseClause(tokens, ref pos);
+                }
+
+                if (subQuery is not null)
+                    clauses.Add(new BooleanClause(subQuery, occur));
+            }
+
+            if (clauses.Count == 1 && clauses[0].Occur == Occur.Should)
+                return clauses[0].Query;
+
+            var builder = new BooleanQuery.Builder();
+            foreach (var c in clauses)
+                builder.Add(c.Query, c.Occur);
+            return builder.Build();
+        }
+        finally
+        {
+            _depth--;
+        }
     }
 
     private Query? ParseClause(List<QToken> tokens, ref int pos)
@@ -234,8 +251,10 @@ public sealed class QueryParser
 
     private PhraseQuery BuildPhraseQuery(string field, string phraseText)
     {
-        var analysedTokens = _analyser.Analyse(phraseText.AsSpan());
-        var terms = analysedTokens.Select(t => t.Text).ToArray();
+        var tokens = new List<Analysis.Token>();
+        var sink = new CapturingSink(tokens);
+        _analyser.Analyse(phraseText.AsSpan(), sink);
+        var terms = tokens.Select(t => t.Text).ToArray();
         return terms.Length > 0 ? new PhraseQuery(field, terms) : new PhraseQuery(field, phraseText.Split(' '));
     }
 
@@ -271,8 +290,19 @@ public sealed class QueryParser
 
     private string AnalyseTerm(string term)
     {
-        var tokens = _analyser.Analyse(term.AsSpan());
+        var tokens = new List<Analysis.Token>();
+        var sink = new CapturingSink(tokens);
+        _analyser.Analyse(term.AsSpan(), sink);
         return tokens.Count > 0 ? tokens[0].Text : string.Empty;
+    }
+
+    private sealed class CapturingSink : Analysis.ISpanTokenSink
+    {
+        private readonly List<Analysis.Token> _tokens;
+        public CapturingSink(List<Analysis.Token> tokens) => _tokens = tokens;
+        public void Add(ReadOnlySpan<char> text, int startOffset, int endOffset,
+            string type = Analysis.Token.DefaultType, int positionIncrement = 1, byte[]? payload = null)
+            => _tokens.Add(new Analysis.Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload));
     }
 
     private static List<QToken> Tokenize(string input, bool lenient)

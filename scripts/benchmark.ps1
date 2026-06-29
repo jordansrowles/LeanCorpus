@@ -103,16 +103,21 @@
 #>
 [CmdletBinding(PositionalBinding = $false)]
 param(
-    [ValidateSet('all', 'index', 'query', 'analysis', 'boolean', 'phrase',
+    [ValidateSet('all', 'all-with-explicit', 'explicit', 'index', 'query', 'analysis', 'analysis-parity',
+                 'analysis-filters', 'boolean', 'phrase',
                  'prefix', 'fuzzy', 'wildcard', 'deletion', 'deletion-queue', 'deletion-commit',
                  'suggester', 'schemajson', 'indexsort', 'blockjoin', 'blockjoin-index', 'blockjoin-search',
                  'range', 'regexp', 'dismax', 'multiphrase', 'span',
-                 'mlt', 'highlighter', 'searcher-mgr',
+                 'mlt', 'highlighter', 'tv-highlighter', 'searcher-mgr',
                  'combined', 'terminset', 'aggregation', 'query-cache',
                  'parallel', 'function-score', 'geo', 'collapse-facet', 'similarity',
                  'stemmer', 'kstemmer', 'lightenglish', 'hunspell', 'ngram', 'synonym', 'async-index',
+                 'hnsw', 'vq',
                  'gutenberg-analysis', 'gutenberg-index', 'gutenberg-search',
-                 'tokenbudget', 'diagnostics')]
+                 'tokenbudget', 'diagnostics',
+                 'analysis-filters-v2', 'pattern-tokeniser',
+                 'packed-int-codec', 'numeric-aggregator', 'index-writer', 'concurrent-write',
+                 'merge', 'flush', 'docvalues-read', 'bkd', 'fst-lookup', 'mmap-io')]
     [string]$Suite = 'all',
 
     [ValidateSet('default', 'fast', 'quick-compare', 'intense', 'stress', 'exhaustive')]
@@ -177,9 +182,12 @@ if ($BenchmarkArgs -and $BenchmarkArgs.Count -gt 0 -and $BenchmarkArgs[0] -eq '-
 
 $suiteDescriptions = [ordered]@{
     all                  = 'Run all primary benchmark suites, including Gutenberg (default)'
+    'all-with-explicit' = 'Run all primary benchmark suites plus all explicit-only suites'
     index                = 'IndexingBenchmarks          -- bulk indexing throughput (vs Lucene.NET)'
     query                = 'TermQueryBenchmarks         -- single-term search (vs Lucene.NET)'
     analysis             = 'AnalysisBenchmarks          -- tokenisation pipeline'
+    'analysis-filters-v2' = 'NewTokenFilterBenchmarks    -- new filter parity (Classic, PatternReplace, CommonGrams, HyphenatedWords, Caching)'
+    'pattern-tokeniser'  = 'PatternTokeniserBenchmarks  -- regex tokenisation (vs Lucene.NET PatternTokenizer)'
     boolean              = 'BooleanQueryBenchmarks      -- deterministic BooleanQuery clause shapes'
     phrase               = 'PhraseQueryBenchmarks       -- exact and slop phrase'
     prefix               = 'PrefixQueryBenchmarks       -- prefix matching (vs Lucene.NET)'
@@ -223,6 +231,22 @@ $suiteDescriptions = [ordered]@{
     'gutenberg-search'   = 'GutenbergSearch             -- search on real ebook data'
     tokenbudget          = 'TokenBudgetBenchmarks       -- token budget enforcement overhead (explicit only)'
     diagnostics          = 'DiagnosticsBenchmarks       -- SlowQueryLog + Analytics overhead (explicit only)'
+    'packed-int-codec'   = 'PackedIntCodecBenchmarks    -- Pack/Unpack scalar loop throughput (explicit only)'
+    'numeric-aggregator' = 'NumericAggregatorSimdBenchmarks -- scalar vs Vector256 aggregation (explicit only)'
+    'index-writer'       = 'IndexWriterContentionBenchmarks -- concurrent AddDocument throughput (explicit only)'
+    'concurrent-write'   = 'ConcurrentVsSequentialBenchmarks -- DWPT parallel vs sequential indexing throughput (explicit only)'
+    merge                = 'MergeBenchmarks             -- segment merge throughput (explicit only)'
+    flush                = 'FlushBenchmarks             -- segment flush latency per doc count (explicit only)'
+    'docvalues-read'     = 'DocValuesReadBenchmarks     -- DocValues read throughput (explicit only)'
+    bkd                  = 'BKDTreeBenchmarks           -- BKD range search throughput (explicit only)'
+    'fst-lookup'         = 'FstLookupBenchmarks         -- FST term dictionary lookup (explicit only)'
+    'mmap-io'            = 'MMapDirectoryIOBenchmarks   -- raw I/O throughput (explicit only)'
+    hnsw                 = 'HnswSearchBenchmarks        -- HNSW graph search vs flat scan (explicit only)'
+    vq                   = 'VectorQuantisationBenchmarks -- HNSW search with vector quantisation (explicit only)'
+    'tv-highlighter'     = 'TermVectorHighlighterBenchmarks -- term-vector highlighter (standalone)'
+    'analysis-parity'    = 'AnalyserParityBenchmarks    -- lightweight analyser parity'
+    'analysis-filters'   = 'TokenFilterBenchmarks       -- token filter allocation and throughput'
+    explicit             = 'All explicit-only suites (tokenbudget, diagnostics, merge, flush, docvalues-read, bkd, fst-lookup, mmap-io, packed-int-codec, numeric-aggregator, index-writer, concurrent-write, hnsw, vq)'
 }
 
 $stratDescriptions = [ordered]@{
@@ -325,12 +349,15 @@ switch ($Strat) {
     }
     'intense' {
         $stratDocCount = 10000
+        $stratJobArgs = @('--job', 'default')
     }
     'stress' {
         $stratDocCount = 50000
+        $stratJobArgs = @('--job', 'default')
     }
     'exhaustive' {
         $stratDocCount = 100000
+        $stratJobArgs = @('--job', 'default')
     }
 }
 

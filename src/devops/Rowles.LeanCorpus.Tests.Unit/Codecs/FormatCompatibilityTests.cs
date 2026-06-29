@@ -1,6 +1,8 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.Fst;
 using Rowles.LeanCorpus.Codecs.Bkd;
@@ -16,8 +18,8 @@ using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Tests.Unit.Codecs;
 
 /// <summary>
-/// Tests codec format versioning (magic number + version byte) to ensure
-/// backward compatibility and proper format validation.
+/// Tests codec format versioning (CodecKit header envelope: version byte + VarInt64 body length) to ensure
+/// proper format validation and forward/backward compatibility.
 /// </summary>
 [Trait("Category", "Codecs")]
 public sealed class FormatCompatibilityTests : IDisposable
@@ -54,93 +56,105 @@ public sealed class FormatCompatibilityTests : IDisposable
     }
 
     /// <summary>
-    /// Verifies the Write Header: Then Validate Header Round Trips scenario.
+    /// Helper for writing LEB128 VarInt64 to a BinaryWriter.
     /// </summary>
-    [Fact(DisplayName = "Write Header: Then Validate Header Round Trips")]
-    public void WriteHeader_ThenValidateHeader_RoundTrips()
+    private static void WriteVarInt64(BinaryWriter w, long value)
+    {
+        ulong v = (ulong)value;
+        while (v >= 0x80)
+        {
+            w.Write((byte)(v | 0x80));
+            v >>= 7;
+        }
+        w.Write((byte)v);
+    }
+
+    /// <summary>
+    /// Verifies the Write Header: Then Read Header Round Trips scenario.
+    /// </summary>
+    [Fact(DisplayName = "Write Header: Then Read Header Round Trips")]
+    public void WriteHeader_ThenReadHeader_RoundTrips()
     {
         // Arrange
         var filePath = Path.Combine(_tempDirectory, "roundtrip_header.dat");
-        const byte expectedVersion = 3;
+        const byte expectedVersion = CodecConstants.PostingsVersion;
+        byte[] body = [];
 
-        // Act - Write header using BinaryWriter
+        // Act - Write header using BinaryWriter via CodecFileHeader
         using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            CodecConstants.WriteHeader(writer, expectedVersion);
+            CodecFileHeader.Write(writer, CodecFormats.Postings, body);
         }
 
-        // Assert - Validate header using BinaryReader
+        // Assert - Read version using CodecFileHeader.ReadVersion
         using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
         using (var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            // Should not throw
-            CodecConstants.ValidateHeader(reader, expectedVersion, "TestFile");
+            byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.Postings);
+            Assert.Equal(expectedVersion, version);
 
-            // Verify we're positioned right after the header
-            Assert.Equal(CodecConstants.HeaderSize, fs.Position);
+            // Verify we're positioned right after the header envelope
+            // CodecKit envelope: [version:byte][bodyLength:VarInt64]
+            // bodyLength=0 → VarInt is 1 byte → total header = 2
+            Assert.Equal(2, fs.Position);
         }
     }
 
     /// <summary>
-    /// Verifies the Validate Header: Wrong Magic Throws Invalid Data Exception scenario.
+    /// Verifies that a corrupt CodecKit header (truncated VarInt64) throws InvalidDataException.
     /// </summary>
-    [Fact(DisplayName = "Validate Header: Wrong Magic Throws Invalid Data Exception")]
-    public void ValidateHeader_WrongMagic_ThrowsInvalidDataException()
+    [Fact(DisplayName = "Validate Header: Corrupt CodecKit Header Throws Invalid Data Exception")]
+    public void ValidateHeader_CorruptHeader_ThrowsInvalidDataException()
     {
         // Arrange
-        var filePath = Path.Combine(_tempDirectory, "wrong_magic.dat");
-        const int wrongMagic = unchecked((int)0xDEADBEEF); // Not the correct magic number
-        const byte version = 1;
+        var filePath = Path.Combine(_tempDirectory, "corrupt_header.dat");
 
-        // Act - Write wrong magic number
+        // Act - Write a truncated CodecKit envelope where the VarInt has its
+        // continuation bit set but no following byte exists.
         using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            writer.Write(wrongMagic); // Wrong magic
-            writer.Write(version);
+            writer.Write((byte)1);    // version
+            writer.Write((byte)0x80); // truncated VarInt (continuation marker, no more data)
         }
 
-        // Assert - Should throw InvalidDataException with descriptive message
+        // Assert - Should throw InvalidDataException
         using var readFs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         using var reader = new BinaryReader(readFs, System.Text.Encoding.UTF8, leaveOpen: false);
 
         var exception = Assert.Throws<InvalidDataException>(() =>
-            CodecConstants.ValidateHeader(reader, version, "TestFile"));
+            CodecFileHeader.Read(reader, CodecFormats.Postings));
 
-        Assert.Contains("Invalid TestFile file", exception.Message);
-        Assert.Contains("0x4C4C4E31", exception.Message); // Expected magic
-        Assert.Contains("0xDEADBEEF", exception.Message); // Actual magic
+        Assert.Contains("CodecKit file is corrupt or truncated", exception.Message);
     }
 
     /// <summary>
-    /// Verifies the Validate Header: Version Too New Throws Invalid Data Exception scenario.
+    /// Verifies that an unknown (forward-compat) version reads successfully and preserves
+    /// the version and raw body bytes.
     /// </summary>
-    [Fact(DisplayName = "Validate Header: Version Too New Throws Invalid Data Exception")]
-    public void ValidateHeader_VersionTooNew_ThrowsInvalidDataException()
+    [Fact(DisplayName = "Validate Header: Unknown Version Reads As Forward Compat")]
+    public void ValidateHeader_UnknownVersion_ReadsAsForwardCompatible()
     {
         // Arrange
-        var filePath = Path.Combine(_tempDirectory, "version_too_new.dat");
+        var filePath = Path.Combine(_tempDirectory, "unknown_version.dat");
         const byte fileVersion = 5;
-        const byte maxSupportedVersion = 3;
 
-        // Act - Write a version that's too new
+        // Act - Write a CodecKit header with a version that doesn't exist in CodecFormats.Postings
         using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            CodecConstants.WriteHeader(writer, fileVersion);
+            writer.Write((byte)fileVersion);
+            WriteVarInt64(writer, 0); // no body content
         }
 
-        // Assert - Should throw InvalidDataException about unsupported version
+        // Assert - Should succeed (forward compatibility)
         using var readFs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         using var reader = new BinaryReader(readFs, System.Text.Encoding.UTF8, leaveOpen: false);
 
-        var exception = Assert.Throws<InvalidDataException>(() =>
-            CodecConstants.ValidateHeader(reader, maxSupportedVersion, "TestFile"));
-
-        Assert.Contains("Unsupported TestFile format version 5", exception.Message);
-        Assert.Contains("supports up to version 3", exception.Message);
-        Assert.Contains("Please upgrade LeanCorpus", exception.Message);
+        var result = CodecFileHeader.Read(reader, CodecFormats.Postings);
+        Assert.Equal(fileVersion, result.Version);
+        Assert.Empty(result.Body);
     }
 
     /// <summary>
@@ -151,25 +165,24 @@ public sealed class FormatCompatibilityTests : IDisposable
     {
         // Arrange
         var filePath = Path.Combine(_tempDirectory, "older_version.dat");
-        const byte fileVersion = 1;
-        const byte maxSupportedVersion = 3;
+        byte[] body = [];
 
-        // Act - Write an older version
+        // Act - Write header using CodecFileHeader.Write
         using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            CodecConstants.WriteHeader(writer, fileVersion);
+            CodecFileHeader.Write(writer, CodecFormats.Postings, body);
         }
 
-        // Assert - Should succeed (backward compatibility)
+        // Assert - Should succeed
         using var readFs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         using var reader = new BinaryReader(readFs, System.Text.Encoding.UTF8, leaveOpen: false);
 
-        // Should not throw
-        CodecConstants.ValidateHeader(reader, maxSupportedVersion, "TestFile");
+        byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.Postings);
+        Assert.Equal(CodecConstants.PostingsVersion, version);
 
-        // Verify position after validation
-        Assert.Equal(CodecConstants.HeaderSize, readFs.Position);
+        // Verify position after reading version
+        Assert.Equal(2, readFs.Position);
     }
 
     /// <summary>
@@ -204,7 +217,7 @@ public sealed class FormatCompatibilityTests : IDisposable
         GC.WaitForPendingFinalizers();
         GC.Collect();
 
-        // Assert - Verify that .dic and .pos files start with the correct magic number
+        // Assert - Verify that .dic and .pos files start with the correct CodecKit header
         var dicFiles = System.IO.Directory.GetFiles(indexPath, "*.dic");
         var posFiles = System.IO.Directory.GetFiles(indexPath, "*.pos");
 
@@ -217,10 +230,7 @@ public sealed class FormatCompatibilityTests : IDisposable
             using var fs = new FileStream(dicFile, FileMode.Open, FileAccess.Read, FileShare.Read);
             using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
 
-            int magic = reader.ReadInt32();
-            byte version = reader.ReadByte();
-
-            Assert.Equal(CodecConstants.Magic, magic);
+            byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.TermDictionary);
             Assert.Equal(CodecConstants.TermDictionaryVersion, version);
         }
 
@@ -230,41 +240,36 @@ public sealed class FormatCompatibilityTests : IDisposable
             using var fs = new FileStream(posFile, FileMode.Open, FileAccess.Read, FileShare.Read);
             using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
 
-            int magic = reader.ReadInt32();
-            byte version = reader.ReadByte();
-
-            Assert.Equal(CodecConstants.Magic, magic);
+            byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.Postings);
             Assert.Equal(CodecConstants.PostingsVersion, version);
         }
     }
 
-    /// <summary>
-    /// Verifies the Magic Number: Is Correct Ascii Representation scenario.
-    /// </summary>
-    [Fact(DisplayName = "Magic Number: Is Correct Ascii Representation")]
-    public void MagicNumber_IsCorrectAsciiRepresentation()
-    {
-        // Arrange - Magic number should be "LLN1" in ASCII
-        const int magic = CodecConstants.Magic;
-        
-        // Act - Convert magic to bytes and then to ASCII string
-        var bytes = BitConverter.GetBytes(magic);
-        var ascii = System.Text.Encoding.ASCII.GetString(bytes);
-
-        // Assert - Should spell "LLN1" (little-endian on most systems)
-        Assert.Equal("1NLL", ascii); // Little-endian: reversed byte order
-        Assert.Equal(0x4C4C4E31, magic); // Hex representation
-    }
+    // MagicNumber_IsCorrectAsciiRepresentation removed — CodecKit has no magic bytes.
 
     /// <summary>
-    /// Verifies the Header Size: Matches Expected Layout scenario.
+    /// Verifies the CodecKit header size matches expected layout.
+    /// CodecKit envelope: [version:byte][bodyLength:VarInt64].
+    /// For an empty body (bodyLength=0), VarInt64 is a single 0x00 byte, so total = 2.
     /// </summary>
-    [Fact(DisplayName = "Header Size: Matches Expected Layout")]
-    public void HeaderSize_MatchesExpectedLayout()
+    [Fact(DisplayName = "Header Size: Matches CodecKit Envelope Layout")]
+    public void HeaderSize_MatchesCodecKitLayout()
     {
-        // Arrange & Assert - Header is 4 bytes (magic) + 1 byte (version)
-        Assert.Equal(5, CodecConstants.HeaderSize);
-        Assert.Equal(sizeof(int) + sizeof(byte), CodecConstants.HeaderSize);
+        // Arrange & Act - Write a CodecKit header with empty body
+        var filePath = Path.Combine(_tempDirectory, "headersize.dat");
+
+        using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
+        using (var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
+        {
+            CodecFileHeader.Write(writer, CodecFormats.Postings, []);
+        }
+
+        // Assert - Read raw bytes and verify structure
+        var bytes = File.ReadAllBytes(filePath);
+
+        Assert.Equal(2, bytes.Length);
+        Assert.Equal(CodecConstants.PostingsVersion, bytes[0]); // version byte
+        Assert.Equal(0x00, bytes[1]);                           // VarInt(0) = single 0x00
     }
 
     /// <summary>
@@ -296,26 +301,26 @@ public sealed class FormatCompatibilityTests : IDisposable
     {
         // Arrange
         var filePath = Path.Combine(_tempDirectory, "indexoutput_header.dat");
-        const byte expectedVersion = 2;
+        const byte expectedVersion = CodecConstants.PostingsVersion;
+        byte[] body = [];
 
-        // Act - Write using IndexOutput
+        // Act - Write using IndexOutput via CodecFileHeader
         using (var output = new IndexOutput(filePath))
         {
-            CodecConstants.WriteHeader(output, expectedVersion);
+            CodecFileHeader.Write(output, CodecFormats.Postings, body);
             output.Flush();
         }
 
-        // Assert - Read raw bytes and verify
+        // Assert - Read raw bytes and verify CodecKit structure
         var bytes = File.ReadAllBytes(filePath);
-        
-        Assert.Equal(CodecConstants.HeaderSize, bytes.Length);
-        
-        // Verify magic (4 bytes)
-        int magic = BitConverter.ToInt32(bytes, 0);
-        Assert.Equal(CodecConstants.Magic, magic);
-        
-        // Verify version (1 byte)
-        Assert.Equal(expectedVersion, bytes[4]);
+
+        Assert.Equal(2, bytes.Length);
+
+        // Verify version byte
+        Assert.Equal(expectedVersion, bytes[0]);
+
+        // Verify VarInt(0) body length
+        Assert.Equal(0x00, bytes[1]);
     }
 
     /// <summary>
@@ -326,75 +331,76 @@ public sealed class FormatCompatibilityTests : IDisposable
     {
         // Arrange
         var filePath = Path.Combine(_tempDirectory, "indexinput_header.dat");
-        const byte expectedVersion = 3;
+        byte[] body = [];
 
         // Write header using IndexOutput
         using (var output = new IndexOutput(filePath))
         {
-            CodecConstants.WriteHeader(output, expectedVersion);
+            CodecFileHeader.Write(output, CodecFormats.Postings, body);
             output.Flush();
         }
 
         // Act & Assert - Read and validate using IndexInput
         using var input = new IndexInput(filePath);
-        
+
         // Should not throw
-        CodecConstants.ValidateHeader(input, expectedVersion, "TestFile");
-        
-        // Verify position after validation
-        Assert.Equal(CodecConstants.HeaderSize, input.Position);
+        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.Postings);
+
+        // Verify version
+        Assert.Equal(CodecConstants.PostingsVersion, version);
+
+        // Verify position after reading version header
+        Assert.Equal(2, input.Position);
     }
 
     /// <summary>
-    /// Verifies the Validate Header: With Index Input Wrong Magic Throws scenario.
+    /// Verifies the Validate Header: With Index Input Wrong Data Throws scenario.
     /// </summary>
-    [Fact(DisplayName = "Validate Header: With Index Input Wrong Magic Throws")]
-    public void ValidateHeader_WithIndexInput_WrongMagic_Throws()
+    [Fact(DisplayName = "Validate Header: With Index Input Wrong Data Throws")]
+    public void ValidateHeader_WithIndexInput_WrongData_Throws()
     {
         // Arrange
-        var filePath = Path.Combine(_tempDirectory, "indexinput_wrong_magic.dat");
+        var filePath = Path.Combine(_tempDirectory, "indexinput_wrong_data.dat");
 
-        // Write wrong header using IndexOutput
+        // Write a truncated CodecKit header using IndexOutput
         using (var output = new IndexOutput(filePath))
         {
-            output.WriteInt32(unchecked((int)0xBADC0FFE)); // Wrong magic
-            output.WriteByte(1);
+            output.WriteByte(1);    // version
+            output.WriteByte(0x80); // truncated VarInt (continuation marker, no more data)
             output.Flush();
         }
 
         // Act & Assert
         using var input = new IndexInput(filePath);
-        
+
         var exception = Assert.Throws<InvalidDataException>(() =>
-            CodecConstants.ValidateHeader(input, 1, "TestFile"));
-        
-        Assert.Contains("Invalid TestFile file", exception.Message);
+            CodecFileHeader.Read(input, CodecFormats.Postings));
+
+        Assert.Contains("CodecKit file is corrupt or truncated", exception.Message);
     }
 
     /// <summary>
-    /// Verifies the Validate Header: With Index Input Version Too New Throws scenario.
+    /// Verifies the Validate Header: With Index Input Unknown Version Reads scenario.
     /// </summary>
-    [Fact(DisplayName = "Validate Header: With Index Input Version Too New Throws")]
-    public void ValidateHeader_WithIndexInput_VersionTooNew_Throws()
+    [Fact(DisplayName = "Validate Header: With Index Input Unknown Version Reads")]
+    public void ValidateHeader_WithIndexInput_UnknownVersion_Reads()
     {
         // Arrange
-        var filePath = Path.Combine(_tempDirectory, "indexinput_version_new.dat");
-        const byte fileVersion = 10;
-        const byte maxVersion = 3;
+        var filePath = Path.Combine(_tempDirectory, "indexinput_unknown_version.dat");
 
-        // Write header with newer version
+        // Write a CodecKit header with an unknown version
         using (var output = new IndexOutput(filePath))
         {
-            CodecConstants.WriteHeader(output, fileVersion);
+            output.WriteByte(10); // unknown version
+            output.WriteByte(0);  // VarInt(0) — no body
             output.Flush();
         }
 
         // Act & Assert
         using var input = new IndexInput(filePath);
-        
-        var exception = Assert.Throws<InvalidDataException>(() =>
-            CodecConstants.ValidateHeader(input, maxVersion, "TestFile"));
-        
-        Assert.Contains($"Unsupported TestFile format version {fileVersion}", exception.Message);
+
+        var result = CodecFileHeader.Read(input, CodecFormats.Postings);
+        Assert.Equal(10, result.Version);
+        Assert.Empty(result.Body);
     }
 }

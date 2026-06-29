@@ -1,10 +1,8 @@
 ﻿# Searcher manager
 
-`SearcherManager` keeps a current `IndexSearcher` open and swaps in a fresh one
-when a new commit is detected. Use it to share a searcher across many concurrent
-queries.
+`SearcherManager` keeps a current `IndexSearcher` open and swaps in a fresh one when a new commit lands. Share one searcher across many concurrent queries.
 
-## Set up
+## Setup
 
 ```csharp
 using Rowles.LeanCorpus.Search.Searcher;
@@ -18,41 +16,25 @@ using var manager = new SearcherManager(dir, new SearcherManagerConfig
 });
 ```
 
-A background loop polls for new commits at `RefreshInterval`.
+A background loop polls at `RefreshInterval`.
 
 ## Acquire and release
-
-Prefer `AcquireLease` for new code:
 
 ```csharp
 using var lease = manager.AcquireLease();
 var hits = lease.Searcher.Search(query, 10);
 ```
 
-The older acquire/release pair is still available:
-
-```csharp
-var searcher = manager.Acquire();
-try
-{
-    var hits = searcher.Search(query, 10);
-}
-finally
-{
-    manager.Release(searcher);
-}
-```
-
-Or use the convenience method:
+Or the convenience method:
 
 ```csharp
 var hits = manager.UsingSearcher(s => s.Search(query, 10));
 ```
 
-## Forcing a refresh
+## Force refresh
 
 ```csharp
-bool refreshed = manager.MaybeRefresh();          // sync
+bool refreshed = manager.MaybeRefresh();
 bool refreshedAsync = await manager.MaybeRefreshAsync();
 ```
 
@@ -60,7 +42,7 @@ Returns `true` when a newer commit was loaded.
 
 ## Refresh failures
 
-Refresh errors are captured instead of crashing the background loop:
+Errors are captured instead of crashing the background loop:
 
 ```csharp
 manager.RefreshFailed += (_, e) =>
@@ -74,4 +56,3 @@ if (manager.LastRefreshError is not null)
 
 - [Refresh failures](04-refresh-failures.md)
 - <xref:Rowles.LeanCorpus.Search.Searcher.SearcherManager>
-- <xref:Rowles.LeanCorpus.Search.Searcher.SearcherManagerConfig>

@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Search.Searcher;
+namespace Rowles.LeanCorpus.Search.Searcher;
 
 /// <summary>
 /// Partial class containing utility methods (GetStoredFields, Explain, Suggest, SearchWithFacets, etc.).
@@ -93,7 +93,9 @@ public sealed partial class IndexSearcher
         }
 
         float idf = Bm25Scorer.Idf(_totalDocCount, globalDF);
-        float score = _similarity.Score(tf, docLength, avgDocLength, _totalDocCount, globalDF);
+        long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
+        var (f1, f2, f3) = ComputeTermFactors(globalDF, avgDocLength, collectionFreq, query.Field);
+        float score = ScoreTerm(f1, f2, f3, tf, docLength);
         if (query.Boost != 1.0f) score *= query.Boost;
         float indexBoost = reader.GetFieldBoost(localDocId, query.Field);
         if (indexBoost != 1.0f) score *= indexBoost;
@@ -299,13 +301,9 @@ public sealed partial class IndexSearcher
             return (results, []);
 
         var matches = SearchAllMatches(query, results.TotalHits);
-        var seenDocs = new HashSet<int>();
-        foreach (var scoreDoc in matches.ScoreDocs)
-            seenDocs.Add(scoreDoc.DocId);
-        var matchingDocIds = seenDocs.ToArray();
 
         var aggs = NumericAggregator.Aggregate(
-            matchingDocIds, aggregations, _readers, _docBases, _totalDocCount);
+            matches.ScoreDocs.AsSpan(), aggregations, _readers, _docBases, _totalDocCount);
 
         return (results, aggs);
     }
@@ -406,48 +404,100 @@ public sealed partial class IndexSearcher
         int readerIdx = ResolveReaderIndex(mlt.DocId);
         var reader = _readers[readerIdx];
         int localDocId = mlt.DocId - _docBases[readerIdx];
+        int segmentCount = _readers.Count;
 
-        // Collect (term, field, tfidfScore) across all requested fields
-        var candidates = new List<(string Field, string Term, float Score)>();
+        // Bounded min-heap (priority = score). We keep the smallest score at the
+        // top so we can evict the weakest candidate when the heap exceeds MaxQueryTerms.
+        int capacity = p.MaxQueryTerms;
+        var heap = new PriorityQueue<(float Score, string Field, string Term), float>(capacity);
 
-        foreach (var field in mlt.Fields)
+        // Reusable buffer for stack-like qualified term construction (avoids per-term string alloc).
+        char[]? qtRented = null;
+        int qtBufCap = 256;
+        try
         {
-            var tv = reader.GetTermVectors(localDocId);
-            if (tv is null || !tv.TryGetValue(field, out var entries)) continue;
-
-            foreach (var entry in entries)
+            foreach (var field in mlt.Fields)
             {
-                if (entry.Term.Length < p.MinWordLength) continue;
-                if (entry.Freq < p.MinTermFreq) continue;
+                var tv = reader.GetTermVectors(localDocId);
+                if (tv is null || !tv.TryGetValue(field, out var entries)) continue;
 
-                // Compute document frequency across all segments
-                var qt = string.Concat(field, "\x00", entry.Term);
-                int docFreq = 0;
-                foreach (var r in _readers)
-                    docFreq += r.GetDocFreqByQualified(qt);
+                int fieldLen = field.Length;
+                foreach (var entry in entries)
+                {
+                    if (entry.Term.Length < p.MinWordLength) continue;
+                    if (entry.Freq < p.MinTermFreq) continue;
 
-                if (docFreq < p.MinDocFreq || docFreq > p.MaxDocFreq) continue;
+                    float tf = entry.Freq;
 
-                float tf = entry.Freq;
-                float idf = MathF.Log((float)_totalDocCount / (docFreq + 1));
-                candidates.Add((field, entry.Term, tf * idf));
+                    // Build qualified term "field\0term" into reusable buffer.
+                    int qtLen = fieldLen + 1 + entry.Term.Length;
+                    if (qtLen > qtBufCap)
+                    {
+                        if (qtRented is not null) System.Buffers.ArrayPool<char>.Shared.Return(qtRented);
+                        qtBufCap = qtLen;
+                        qtRented = System.Buffers.ArrayPool<char>.Shared.Rent(qtBufCap);
+                    }
+                    char[] buf = qtRented ??= System.Buffers.ArrayPool<char>.Shared.Rent(qtBufCap);
+                    field.AsSpan().CopyTo(buf);
+                    buf[fieldLen] = '\0';
+                    entry.Term.AsSpan().CopyTo(buf.AsSpan(fieldLen + 1));
+                    ReadOnlySpan<char> qt = buf.AsSpan(0, qtLen);
+
+                    // Fast path: MinDocFreq <= 1 with multiple segments — use local
+                    // segment's docFreq scaled by segment count as an IDF approximation.
+                    if (p.MinDocFreq <= 1 && segmentCount > 1)
+                    {
+                        int currDocFreq = reader.GetDocFreqByQualified(qt);
+                        if (currDocFreq < 1) continue;
+                        float estimatedGlobal = (float)currDocFreq * segmentCount;
+                        float idf = MathF.Log((float)_totalDocCount / (estimatedGlobal + 1));
+                        float score = tf * idf;
+                        EnqueueCandidate(heap, capacity, score, field, entry.Term);
+                        continue;
+                    }
+
+                    // Full cross-segment scan for MinDocFreq > 1 or single-segment index.
+                    {
+                        int docFreq = 0;
+                        foreach (var r in _readers)
+                        {
+                            docFreq += r.GetDocFreqByQualified(qt);
+                            if (docFreq > p.MaxDocFreq)
+                                goto nextTerm;
+                        }
+
+                        if (docFreq < p.MinDocFreq) continue;
+
+                        float idf = MathF.Log((float)_totalDocCount / (docFreq + 1));
+                        float score = tf * idf;
+                        EnqueueCandidate(heap, capacity, score, field, entry.Term);
+                    }
+                nextTerm: ;
+                }
             }
         }
+        finally
+        {
+            if (qtRented is not null) System.Buffers.ArrayPool<char>.Shared.Return(qtRented);
+        }
 
-        if (candidates.Count == 0)
+        if (heap.Count == 0)
             return TopDocs.Empty;
 
-        // Sort by score descending, take top N terms
-        candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
-        int termCount = Math.Min(candidates.Count, p.MaxQueryTerms);
+        // Dequeue into a list (ascending score order; we'll iterate in reverse).
+        int termCount = heap.Count;
+        var candidates = new List<(float Score, string Field, string Term)>(termCount);
+        // Ensure we have capacity to hold all entries temporarily when dequeuing.
+        while (heap.TryDequeue(out var c, out _))
+            candidates.Add(c);
 
-        // Build a BooleanQuery with Should clauses
+        // Build a BooleanQuery with Should clauses (highest score first).
         var boolQBuilder = new BooleanQuery.Builder();
-        float maxScore = candidates[0].Score;
+        float maxScore = candidates[termCount - 1].Score;
 
-        for (int i = 0; i < termCount; i++)
+        for (int i = termCount - 1; i >= 0; i--)
         {
-            var (field, term, score) = candidates[i];
+            var (score, field, term) = candidates[i];
             var tq = new TermQuery(field, term);
             if (p.BoostByScore && maxScore > 0)
                 tq.Boost = score / maxScore;
@@ -455,8 +505,23 @@ public sealed partial class IndexSearcher
         }
 
         var boolQ = boolQBuilder.Build();
-
-        // Execute via the existing search path (bypasses cache to avoid recursion)
         return SearchCore(boolQ, topN + 1);
+    }
+
+    /// <summary>Enqueues a candidate into a bounded min-heap, evicting the
+    /// lowest-scoring entry when capacity is exceeded.</summary>
+    private static void EnqueueCandidate(
+        PriorityQueue<(float Score, string Field, string Term), float> heap,
+        int capacity, float score, string field, string term)
+    {
+        if (heap.Count < capacity)
+        {
+            heap.Enqueue((score, field, term), score);
+        }
+        else if (score > heap.Peek().Score)
+        {
+            heap.Dequeue();
+            heap.Enqueue((score, field, term), score);
+        }
     }
 }

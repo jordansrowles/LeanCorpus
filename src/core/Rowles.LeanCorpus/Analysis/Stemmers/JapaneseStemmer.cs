@@ -17,13 +17,21 @@
 ///   <item>Lemmatisation using the analyser's dictionary base-form output</item>
 ///   <item>Kana normalisation (hiragana ↔ katakana, full-width → half-width)</item>
 /// </list>
-/// This class is provided so the <c>IStemmer</c> pipeline compiles uniformly
+/// This class is provided so the <c>ISpanStemmer</c> pipeline compiles uniformly
 /// across all supported languages.
 /// </para>
 /// </remarks>
-public sealed class JapaneseStemmer : IStemmer
+public sealed class JapaneseStemmer : ISpanStemmer
 {
     /// <inheritdoc/>
+    /// <remarks>Returns <paramref name="word"/> unchanged.</remarks>
+    public int Stem(ReadOnlySpan<char> word, Span<char> output)
+    {
+        word.CopyTo(output);
+        return word.Length;
+    }
+
+    /// <summary>Convenience overload returning the stemmed string.</summary>
     /// <remarks>Returns <paramref name="word"/> unchanged.</remarks>
     public string Stem(string word) => word;
 }

@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Runtime.CompilerServices;
 namespace Rowles.LeanCorpus.Search.Searcher;
 
@@ -96,7 +96,7 @@ public sealed partial class IndexSearcher
                 ExecuteRangeQuery(rq, reader, ref collector);
                 break;
             case PhraseQuery pq:
-                ExecutePhraseQuery(pq, reader, ref collector);
+                ExecutePhraseQuery(pq, reader, globalDFs, ref collector);
                 break;
             case MultiPhraseQuery mpq:
                 ExecuteMultiPhraseQuery(mpq, reader, ref collector);
@@ -175,8 +175,9 @@ public sealed partial class IndexSearcher
         if (postings.IsExhausted) return;
 
         int docFreq = globalDFs.GetValueOrDefault((query.Field, query.Term), postings.DocFreq);
+        long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
         float avgDocLength = _stats.GetAvgFieldLength(query.Field);
-        var factors = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
+        var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
         int docBase = reader.DocBase;
         float boost = query.Boost;
         reader.TryGetFieldLengths(query.Field, out var fieldLengths);
@@ -191,7 +192,7 @@ public sealed partial class IndexSearcher
 
             int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                 ? fieldLengths[docId] : 1;
-            float score = _similarity.ScorePrecomputed(factors.Factor1, factors.Factor2, postings.Freq, docLength);
+            float score = ScoreTerm(f1, f2, f3, postings.Freq, docLength);
             if (hasQueryBoost) score *= boost;
             score = ApplyFieldBoost(fieldBoosts, docId, score);
             collector.Collect(docBase + docId, score);
@@ -241,10 +242,10 @@ public sealed partial class IndexSearcher
         ref TopNCollector collector, int mustCount, int shouldCount, int mustNotCount)
     {
         var mustEnums = mustCount > 0 ? new PostingsEnum[mustCount] : null;
-        var mustFactors = mustCount > 0 ? new (float Idf, float K1BOverAvgDL)[mustCount] : null;
+        var mustFactors = mustCount > 0 ? new (float Idf, float K1BOverAvgDL, float CollectionProb)[mustCount] : null;
         var mustFields = mustCount > 0 ? new string[mustCount] : null;
         var shouldEnums = shouldCount > 0 ? new PostingsEnum[shouldCount] : null;
-        var shouldFactors = shouldCount > 0 ? new (float Idf, float K1BOverAvgDL)[shouldCount] : null;
+        var shouldFactors = shouldCount > 0 ? new (float Idf, float K1BOverAvgDL, float CollectionProb)[shouldCount] : null;
         var shouldFields = shouldCount > 0 ? new string[shouldCount] : null;
         var mustNotEnums = mustNotCount > 0 ? new PostingsEnum[mustNotCount] : null;
 
@@ -259,20 +260,21 @@ public sealed partial class IndexSearcher
                 var postings = reader.GetPostingsEnum(qt);
 
                 int docFreq = globalDFs.GetValueOrDefault((tq.Field, tq.Term), postings.DocFreq);
+                long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
                 float avgDocLength = _stats.GetAvgFieldLength(tq.Field);
-                var factors = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
+                var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, tq.Field);
 
                 switch (clause.Occur)
                 {
                     case Occur.Must:
                         mustEnums![mi] = postings;
-                        mustFactors![mi] = factors;
+                        mustFactors![mi] = (f1, f2, f3);
                         mustFields![mi] = tq.Field;
                         mi++;
                         break;
                     case Occur.Should:
                         shouldEnums![si] = postings;
-                        shouldFactors![si] = factors;
+                        shouldFactors![si] = (f1, f2, f3);
                         shouldFields![si] = tq.Field;
                         si++;
                         break;
@@ -355,8 +357,8 @@ public sealed partial class IndexSearcher
                     for (int i = 0; i < mustCount; i++)
                     {
                         int docLength = mustFieldLens![i] is { } mfl && (uint)docId < (uint)mfl.Length ? mfl[docId] : 1;
-                        score += ApplyFieldBoost(mustFieldBoosts![i], docId, _similarity.ScorePrecomputed(
-                            mustFactors![i].Idf, mustFactors[i].K1BOverAvgDL,
+                        score += ApplyFieldBoost(mustFieldBoosts![i], docId, ScoreTerm(
+                            mustFactors![i].Idf, mustFactors[i].K1BOverAvgDL, mustFactors[i].CollectionProb,
                             mustEnums[i].Freq, docLength));
                     }
 
@@ -366,8 +368,8 @@ public sealed partial class IndexSearcher
                         if (shouldEnums![i].Advance(docId) && shouldEnums[i].DocId == docId)
                         {
                             int docLength = shouldFieldLens![i] is { } sfl && (uint)docId < (uint)sfl.Length ? sfl[docId] : 1;
-                            score += ApplyFieldBoost(shouldFieldBoosts![i], docId, _similarity.ScorePrecomputed(
-                                shouldFactors![i].Idf, shouldFactors[i].K1BOverAvgDL,
+                            score += ApplyFieldBoost(shouldFieldBoosts![i], docId, ScoreTerm(
+                                shouldFactors![i].Idf, shouldFactors[i].K1BOverAvgDL, shouldFactors[i].CollectionProb,
                                 shouldEnums[i].Freq, docLength));
                         }
                     }
@@ -378,58 +380,65 @@ public sealed partial class IndexSearcher
             else
             {
                 // Should-only: streaming OR merge across all Should PostingsEnums.
-                // Uses stackalloc to track current docId per enum — no heap allocation.
-                Span<int> currentDocs = stackalloc int[shouldCount];
-                for (int i = 0; i < shouldCount; i++)
-                    currentDocs[i] = shouldEnums![i].MoveNext() ? shouldEnums[i].DocId : int.MaxValue;
-
-                while (true)
+                // Linear scan for N <= 16 (branch-predictor-friendly), heap for larger N.
+                const int HeapThreshold = 16;
+                var localShouldEnums = shouldEnums!;
+                if (shouldCount <= HeapThreshold)
                 {
-                    // Find minimum docId across all enums
-                    int minDoc = int.MaxValue;
+                    Span<int> currentDocs = stackalloc int[shouldCount];
                     for (int i = 0; i < shouldCount; i++)
-                    {
-                        if (currentDocs[i] < minDoc)
-                            minDoc = currentDocs[i];
-                    }
-                    if (minDoc == int.MaxValue) break;
+                        currentDocs[i] = localShouldEnums[i].MoveNext() ? localShouldEnums[i].DocId : int.MaxValue;
 
-                    if (hasDeletions && !reader.IsLive(minDoc))
+                    while (true)
                     {
+                        int minDoc = int.MaxValue;
+                        for (int i = 0; i < shouldCount; i++)
+                        {
+                            if (currentDocs[i] < minDoc)
+                                minDoc = currentDocs[i];
+                        }
+                        if (minDoc == int.MaxValue) break;
+
+                        if (hasDeletions && !reader.IsLive(minDoc))
+                        {
+                            for (int i = 0; i < shouldCount; i++)
+                            {
+                                if (currentDocs[i] == minDoc)
+                                    currentDocs[i] = localShouldEnums[i].MoveNext() ? localShouldEnums[i].DocId : int.MaxValue;
+                            }
+                            continue;
+                        }
+
+                        float score = 0f;
                         for (int i = 0; i < shouldCount; i++)
                         {
                             if (currentDocs[i] == minDoc)
-                                currentDocs[i] = shouldEnums![i].MoveNext() ? shouldEnums[i].DocId : int.MaxValue;
+                            {
+                                int docLength = shouldFieldLens![i] is { } fl && (uint)minDoc < (uint)fl.Length ? fl[minDoc] : 1;
+                                score += ApplyFieldBoost(shouldFieldBoosts![i], minDoc, ScoreTerm(
+                                    shouldFactors![i].Idf, shouldFactors[i].K1BOverAvgDL, shouldFactors[i].CollectionProb,
+                                    localShouldEnums[i].Freq, docLength));
+                                currentDocs[i] = localShouldEnums[i].MoveNext() ? localShouldEnums[i].DocId : int.MaxValue;
+                            }
                         }
-                        continue;
-                    }
 
-                    // Sum scores for all enums positioned at minDoc (using per-field lengths)
-                    float score = 0f;
-                    for (int i = 0; i < shouldCount; i++)
-                    {
-                        if (currentDocs[i] == minDoc)
+                        bool excluded = false;
+                        for (int i = 0; i < mustNotCount; i++)
                         {
-                            int docLength = shouldFieldLens![i] is { } sfl && (uint)minDoc < (uint)sfl.Length ? sfl[minDoc] : 1;
-                            score += ApplyFieldBoost(shouldFieldBoosts![i], minDoc, _similarity.ScorePrecomputed(
-                                shouldFactors![i].Idf, shouldFactors[i].K1BOverAvgDL,
-                                shouldEnums![i].Freq, docLength));
-                            currentDocs[i] = shouldEnums[i].MoveNext() ? shouldEnums[i].DocId : int.MaxValue;
+                            if (mustNotEnums![i].Advance(minDoc) && mustNotEnums[i].DocId == minDoc)
+                            {
+                                excluded = true;
+                                break;
+                            }
                         }
+                        if (!excluded)
+                            collector.Collect(docBase + minDoc, score);
                     }
-
-                    // Check MustNot exclusion (Advance is forward-only; minDoc is monotonic)
-                    bool excluded = false;
-                    for (int i = 0; i < mustNotCount; i++)
-                    {
-                        if (mustNotEnums![i].Advance(minDoc) && mustNotEnums[i].DocId == minDoc)
-                        {
-                            excluded = true;
-                            break;
-                        }
-                    }
-                    if (!excluded)
-                        collector.Collect(docBase + minDoc, score);
+                }
+                else
+                {
+                    ExecuteShouldOnlyHeap(localShouldEnums, shouldFieldLens!, shouldFieldBoosts!, shouldFactors!,
+                        mustNotEnums, reader, ref collector, docBase, hasDeletions, shouldCount, mustNotCount);
                 }
             }
         }
@@ -643,18 +652,83 @@ public sealed partial class IndexSearcher
                     using var postings = reader.GetPostingsEnum(qt);
                     if (postings.IsExhausted) break;
                     int docFreq = globalDFs.GetValueOrDefault((tq.Field, tq.Term), postings.DocFreq);
+                    long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
                     float avgDocLength = _stats.GetAvgFieldLength(tq.Field);
-                    var factors = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
+                    var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, tq.Field);
                     reader.TryGetFieldLengths(tq.Field, out var fieldLengths);
-                    while (postings.MoveNext())
+                    // For selective queries (fewer than 2 batches), use an inline loop to avoid
+                    // stackalloc + two-pass batch overhead. The batch+SIMD path only pays off
+                    // when there are many matches per term (high docFreq).
+                    const int batchSize = 128;
+                    if (docFreq < batchSize * 2)
                     {
-                        int docId = postings.DocId;
-                        if (!reader.IsLive(docId)) continue;
-                        int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
-                            ? fieldLengths[docId] : 1;
-                        float score = _similarity.ScorePrecomputed(factors.Factor1, factors.Factor2, postings.Freq, docLength);
-                        score = ApplyFieldBoost(reader, docId, tq.Field, score);
-                        results.Add(new ScoreDoc(docId, score));
+                        while (postings.MoveNext())
+                        {
+                            int docId = postings.DocId;
+                            if (!reader.IsLive(docId)) continue;
+                            int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
+                                ? fieldLengths[docId] : 1;
+                            float score = ScoreTerm(f1, f2, f3, postings.Freq, docLength);
+                            score = ApplyFieldBoost(reader, docId, tq.Field, score);
+                            results.Add(new ScoreDoc(docId, score));
+                        }
+                    }
+                    else
+                    {
+                        bool useBm25Batch = _similarity is Bm25Similarity;
+                        Span<int> docIds = stackalloc int[batchSize];
+                        Span<int> termFreqs = stackalloc int[batchSize];
+                        Span<int> docLengths = stackalloc int[batchSize];
+                        Span<float> batchScores = stackalloc float[batchSize];
+                        int batchCount = 0;
+                        while (postings.MoveNext())
+                        {
+                            int docId = postings.DocId;
+                            if (!reader.IsLive(docId)) continue;
+                            docIds[batchCount] = docId;
+                            termFreqs[batchCount] = postings.Freq;
+                            docLengths[batchCount] = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
+                                ? fieldLengths[docId] : 1;
+                            batchCount++;
+                            if (batchCount == batchSize)
+                            {
+                                if (useBm25Batch)
+                                {
+                                    Bm25Scorer.ScorePrecomputedBatch(f1, f2,
+                                        termFreqs, docLengths, batchScores);
+                                }
+                                else
+                                {
+                                    for (int j = 0; j < batchSize; j++)
+                                        batchScores[j] = ScoreTerm(f1, f2, f3, termFreqs[j], docLengths[j]);
+                                }
+                                for (int j = 0; j < batchSize; j++)
+                                {
+                                    float score = ApplyFieldBoost(reader, docIds[j], tq.Field, batchScores[j]);
+                                    results.Add(new ScoreDoc(docIds[j], score));
+                                }
+                                batchCount = 0;
+                            }
+                        }
+                        if (batchCount > 0)
+                        {
+                            if (useBm25Batch)
+                            {
+                                Bm25Scorer.ScorePrecomputedBatch(f1, f2,
+                                    termFreqs.Slice(0, batchCount), docLengths.Slice(0, batchCount),
+                                    batchScores.Slice(0, batchCount));
+                            }
+                            else
+                            {
+                                for (int j = 0; j < batchCount; j++)
+                                    batchScores[j] = ScoreTerm(f1, f2, f3, termFreqs[j], docLengths[j]);
+                            }
+                            for (int j = 0; j < batchCount; j++)
+                            {
+                                float score = ApplyFieldBoost(reader, docIds[j], tq.Field, batchScores[j]);
+                                results.Add(new ScoreDoc(docIds[j], score));
+                            }
+                        }
                     }
                     break;
                 }
@@ -768,5 +842,149 @@ public sealed partial class IndexSearcher
                 }
         }
         return results;
+    }
+
+    // --- Should-only heap merge for large clause counts (MoreLikeThis, etc.) ---
+
+    private void ExecuteShouldOnlyHeap(
+        PostingsEnum[] se, int[]?[] sfl, float[]?[] sfb,
+        (float Idf, float K1BOverAvgDL, float CollectionProb)[] shouldFactors,
+        PostingsEnum[]? mustNotEnums,
+        SegmentReader reader, ref TopNCollector collector,
+        int docBase, bool hasDeletions, int shouldCount, int mustNotCount)
+    {
+        Span<int> heapDocs = stackalloc int[shouldCount];
+        Span<int> heapIdx = stackalloc int[shouldCount];
+        int heapSize = 0;
+
+        // Build initial heap
+        for (int i = 0; i < shouldCount; i++)
+        {
+            if (se[i].MoveNext())
+            {
+                heapDocs[heapSize] = se[i].DocId;
+                heapIdx[heapSize] = i;
+                heapSize++;
+                SiftUp(heapDocs, heapIdx, heapSize - 1);
+            }
+        }
+
+        while (heapSize > 0)
+        {
+            int minDoc = heapDocs[0];
+
+            if (!hasDeletions || reader.IsLive(minDoc))
+            {
+                // Sum scores for all enums at minDoc — scan the full array (shouldCount is small enough)
+                float score = 0f;
+                bool advanced = false;
+                for (int i = 0; i < shouldCount; i++)
+                {
+                    if (se[i].DocId == minDoc)
+                    {
+                        int docLength = sfl[i] is { } fl && (uint)minDoc < (uint)fl.Length ? fl[minDoc] : 1;
+                        score += ApplyFieldBoost(sfb[i], minDoc, ScoreTerm(
+                            shouldFactors[i].Idf, shouldFactors[i].K1BOverAvgDL, shouldFactors[i].CollectionProb,
+                            se[i].Freq, docLength));
+                        // Advance this enum out of the current doc
+                        if (se[i].MoveNext())
+                            advanced = true;
+                    }
+                }
+
+                // Check MustNot
+                bool excluded = false;
+                for (int i = 0; i < mustNotCount; i++)
+                {
+                    if (mustNotEnums![i].Advance(minDoc) && mustNotEnums[i].DocId == minDoc)
+                    {
+                        excluded = true;
+                        break;
+                    }
+                }
+                if (!excluded)
+                    collector.Collect(docBase + minDoc, score);
+
+                // If any enum advanced, we must be at a new doc — rebuild heap
+                if (advanced)
+                {
+                    heapSize = 0;
+                    for (int i = 0; i < shouldCount; i++)
+                    {
+                        if (!se[i].IsExhausted)
+                        {
+                            heapDocs[heapSize] = se[i].DocId;
+                            heapIdx[heapSize] = i;
+                            heapSize++;
+                        }
+                    }
+                    // Heapify: sift down from the middle
+                    for (int i = (heapSize >> 1) - 1; i >= 0; i--)
+                        SiftDown(heapDocs, heapIdx, i, heapSize);
+                }
+                else
+                {
+                    break; // all enums exhausted
+                }
+            }
+            else
+            {
+                // Deleted doc — advance all enums at minDoc and rebuild
+                for (int i = 0; i < shouldCount; i++)
+                {
+                    if (se[i].DocId == minDoc)
+                        se[i].MoveNext();
+                }
+                heapSize = 0;
+                for (int i = 0; i < shouldCount; i++)
+                {
+                    if (!se[i].IsExhausted)
+                    {
+                        heapDocs[heapSize] = se[i].DocId;
+                        heapIdx[heapSize] = i;
+                        heapSize++;
+                    }
+                }
+                for (int i = (heapSize >> 1) - 1; i >= 0; i--)
+                    SiftDown(heapDocs, heapIdx, i, heapSize);
+            }
+        }
+    }
+
+    // --- Binary min-heap helpers ---
+
+    private static void SiftUp(Span<int> heapDocs, Span<int> heapIdx, int idx)
+    {
+        int doc = heapDocs[idx];
+        int enumIdx = heapIdx[idx];
+        while (idx > 0)
+        {
+            int parent = (idx - 1) >> 1;
+            if (heapDocs[parent] <= doc) break;
+            heapDocs[idx] = heapDocs[parent];
+            heapIdx[idx] = heapIdx[parent];
+            idx = parent;
+        }
+        heapDocs[idx] = doc;
+        heapIdx[idx] = enumIdx;
+    }
+
+    private static void SiftDown(Span<int> heapDocs, Span<int> heapIdx, int idx, int heapSize)
+    {
+        int doc = heapDocs[idx];
+        int enumIdx = heapIdx[idx];
+        while (true)
+        {
+            int child = (idx << 1) + 1;
+            if (child >= heapSize) break;
+            if (child + 1 < heapSize && heapDocs[child + 1] < heapDocs[child])
+                child++;
+            if (doc <= heapDocs[child]) break;
+            heapDocs[idx] = heapDocs[child];
+            heapIdx[idx] = heapIdx[child];
+            idx = child;
+        }
+        heapDocs[idx] = doc;
+        heapIdx[idx] = enumIdx;
     }
 }

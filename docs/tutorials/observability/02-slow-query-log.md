@@ -2,7 +2,7 @@
 
 `SlowQueryLog` writes one JSON line per query that exceeds a latency threshold.
 
-## Wire it up
+## Setup
 
 ```csharp
 using Rowles.LeanCorpus.Diagnostics;
@@ -23,14 +23,9 @@ var writer = new StringWriter();
 var log = new SlowQueryLog(thresholdMs: 25.0, writer);
 ```
 
-## Log entry
+## Entry format
 
-Each line contains: `Timestamp` (UTC), `QueryType`, `Query` (string form),
-`ElapsedMs`, `TotalHits`.
-
-## Reading entries
-
-The file is JSON Lines. Parse each line with the schema above.
+Each line: `Timestamp` (UTC), `QueryType`, `Query` (string form), `ElapsedMs`, `TotalHits`. The file is JSON Lines.
 
 ## See also
 

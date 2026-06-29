@@ -28,7 +28,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
 [KeepBenchmarkFiles]
-[SimpleJob]
+[SimpleJob(warmupCount: 1, iterationCount: 3)]
 [InvocationCount(1)]
 public class BlockJoinIndexBenchmarks
 {
@@ -51,7 +51,7 @@ public class BlockJoinIndexBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanLucene_IndexBlocks()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"leancorpus-bench-block-index-{Guid.NewGuid():N}");
+        var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-block-index-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
 
         try
@@ -69,7 +69,7 @@ public class BlockJoinIndexBenchmarks
         }
         finally
         {
-            DeleteDirectory(path);
+            BenchmarkHelpers.DeleteDirectory(path);
         }
     }
 
@@ -77,7 +77,7 @@ public class BlockJoinIndexBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_IndexBlocks()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"lucenenet-bench-block-index-{Guid.NewGuid():N}");
+        var path = Path.Combine(BenchmarkHelpers.TempRoot, $"lucenenet-bench-block-index-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
 
         try
@@ -94,7 +94,7 @@ public class BlockJoinIndexBenchmarks
         }
         finally
         {
-            DeleteDirectory(path);
+            BenchmarkHelpers.DeleteDirectory(path);
         }
     }
 
@@ -152,11 +152,7 @@ public class BlockJoinIndexBenchmarks
         }
     }
 
-    internal static void DeleteDirectory(string path)
-    {
-        if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
-            Directory.Delete(path, recursive: true);
-    }
+
 }
 
 /// <summary>
@@ -206,8 +202,8 @@ public class BlockJoinSearchBenchmarks
         _luceneReader?.Dispose();
         _luceneDirectory?.Dispose();
 
-        BlockJoinIndexBenchmarks.DeleteDirectory(_leanIndexPath);
-        BlockJoinIndexBenchmarks.DeleteDirectory(_luceneIndexPath);
+        BenchmarkHelpers.DeleteDirectory(_leanIndexPath);
+        BenchmarkHelpers.DeleteDirectory(_luceneIndexPath);
     }
 
     [Benchmark(Baseline = true)]
@@ -232,7 +228,7 @@ public class BlockJoinSearchBenchmarks
 
     private void BuildLeanIndex()
     {
-        _leanIndexPath = Path.Combine(Path.GetTempPath(), $"leancorpus-bench-block-search-{Guid.NewGuid():N}");
+        _leanIndexPath = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-block-search-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_leanIndexPath);
 
         _leanDirectory = new LeanMMapDirectory(_leanIndexPath);
@@ -251,7 +247,7 @@ public class BlockJoinSearchBenchmarks
 
     private void BuildLuceneIndex()
     {
-        _luceneIndexPath = Path.Combine(Path.GetTempPath(), $"lucenenet-bench-block-search-{Guid.NewGuid():N}");
+        _luceneIndexPath = Path.Combine(BenchmarkHelpers.TempRoot, $"lucenenet-bench-block-search-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_luceneIndexPath);
 
         _luceneDirectory = new LuceneMMapDirectory(new DirectoryInfo(_luceneIndexPath));

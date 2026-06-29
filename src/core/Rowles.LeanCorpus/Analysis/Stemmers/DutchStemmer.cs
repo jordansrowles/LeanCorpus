@@ -1,70 +1,81 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Stemmers;
+namespace Rowles.LeanCorpus.Analysis.Stemmers;
 
 /// <summary>
 /// Dutch Snowball-inspired stemmer. Handles common Dutch inflectional and
 /// derivational suffixes. Expects lowercased input. Dutch vowel sequences (ij, oe,
 /// eu, ui) are not decomposed here; apply normalisation upstream if needed.
 /// </summary>
-public sealed class DutchStemmer : IStemmer
+public sealed class DutchStemmer : ISpanStemmer
 {
     /// <inheritdoc/>
     public string Stem(string word)
     {
-        if (word.Length <= 3) return word;
-
         Span<char> buf = word.Length <= 64
             ? stackalloc char[word.Length]
             : new char[word.Length];
-        word.AsSpan().CopyTo(buf);
-        int len = buf.Length;
+        int len = Stem(word.AsSpan(), buf);
+        return len < 0 ? word : new string(buf[..len]);
+    }
+
+    /// <inheritdoc/>
+    public int Stem(ReadOnlySpan<char> word, Span<char> output)
+    {
+        if (word.Length <= 3)
+        {
+            if (output.Length < word.Length) return -1;
+            word.CopyTo(output);
+            return word.Length;
+        }
+        if (output.Length < word.Length) return -1;
+        word.CopyTo(output);
+        int len = word.Length;
 
         // Step 1: Derivational suffixes
-        len = RemoveSuffix(buf, len, "heden", "heid")
-           ?? RemoveSuffix(buf, len, "heden", "heid")
-           ?? RemoveSuffix(buf, len, "heden", "")
-           ?? RemoveSuffix(buf, len, "heid", "")
-           ?? RemoveSuffix(buf, len, "ingen", "")
-           ?? RemoveSuffix(buf, len, "ing", "")
-           ?? RemoveSuffix(buf, len, "lijk", "")
-           ?? RemoveSuffix(buf, len, "baar", "")
-           ?? RemoveSuffix(buf, len, "zaam", "")
-           ?? RemoveSuffix(buf, len, "ster", "")
-           ?? RemoveSuffix(buf, len, "achtig", "")
-           ?? RemoveSuffix(buf, len, "erij", "")
-           ?? RemoveSuffix(buf, len, "isme", "")
-           ?? RemoveSuffix(buf, len, "ist", "")
-           ?? buf.Length;
+        len = RemoveSuffix(output, len, "heden", "heid")
+           ?? RemoveSuffix(output, len, "heden", "heid")
+           ?? RemoveSuffix(output, len, "heden", "")
+           ?? RemoveSuffix(output, len, "heid", "")
+           ?? RemoveSuffix(output, len, "ingen", "")
+           ?? RemoveSuffix(output, len, "ing", "")
+           ?? RemoveSuffix(output, len, "lijk", "")
+           ?? RemoveSuffix(output, len, "baar", "")
+           ?? RemoveSuffix(output, len, "zaam", "")
+           ?? RemoveSuffix(output, len, "ster", "")
+           ?? RemoveSuffix(output, len, "achtig", "")
+           ?? RemoveSuffix(output, len, "erij", "")
+           ?? RemoveSuffix(output, len, "isme", "")
+           ?? RemoveSuffix(output, len, "ist", "")
+           ?? len;
 
         // Step 2: Verb endings
-        len = RemoveSuffix(buf, len, "enden", "")
-           ?? RemoveSuffix(buf, len, "ende", "")
-           ?? RemoveSuffix(buf, len, "enden", "")
-           ?? RemoveSuffix(buf, len, "tten", "t")
-           ?? RemoveSuffix(buf, len, "dden", "d")
-           ?? RemoveSuffix(buf, len, "ten", "")
-           ?? RemoveSuffix(buf, len, "den", "")
-           ?? RemoveSuffix(buf, len, "tte", "t")
-           ?? RemoveSuffix(buf, len, "dde", "d")
-           ?? RemoveSuffix(buf, len, "te", "")
-           ?? RemoveSuffix(buf, len, "de", "")
+        len = RemoveSuffix(output, len, "enden", "")
+           ?? RemoveSuffix(output, len, "ende", "")
+           ?? RemoveSuffix(output, len, "enden", "")
+           ?? RemoveSuffix(output, len, "tten", "t")
+           ?? RemoveSuffix(output, len, "dden", "d")
+           ?? RemoveSuffix(output, len, "ten", "")
+           ?? RemoveSuffix(output, len, "den", "")
+           ?? RemoveSuffix(output, len, "tte", "t")
+           ?? RemoveSuffix(output, len, "dde", "d")
+           ?? RemoveSuffix(output, len, "te", "")
+           ?? RemoveSuffix(output, len, "de", "")
            ?? len;
 
         // Step 3: Plural / noun inflections
-        len = RemoveSuffix(buf, len, "eren", "")
-           ?? RemoveSuffix(buf, len, "eren", "")
-           ?? RemoveSuffix(buf, len, "ens", "")
-           ?? RemoveSuffix(buf, len, "ers", "")
-           ?? RemoveSuffix(buf, len, "en", "")
-           ?? RemoveSuffix(buf, len, "es", "")
-           ?? RemoveSuffix(buf, len, "s", "")
+        len = RemoveSuffix(output, len, "eren", "")
+           ?? RemoveSuffix(output, len, "eren", "")
+           ?? RemoveSuffix(output, len, "ens", "")
+           ?? RemoveSuffix(output, len, "ers", "")
+           ?? RemoveSuffix(output, len, "en", "")
+           ?? RemoveSuffix(output, len, "es", "")
+           ?? RemoveSuffix(output, len, "s", "")
            ?? len;
 
         // Remove trailing 'e' if stem > 2 chars
-        if (len > 3 && buf[len - 1] == 'e')
+        if (len > 3 && output[len - 1] == 'e')
             len--;
 
-        var result = buf[..len];
-        return result.SequenceEqual(word.AsSpan()) ? word : new string(result);
+        return len;
     }
 
     private static int? RemoveSuffix(Span<char> buf, int len, ReadOnlySpan<char> suffix, ReadOnlySpan<char> replacement)

@@ -54,8 +54,7 @@ public sealed class AsyncIndexingTests : IClassFixture<TestDirectoryFixture>
 
     private static SemaphoreSlim? GetSemaphore(IndexWriter writer)
     {
-        var field = typeof(IndexWriter).GetField("_backpressureSemaphore", BindingFlags.Instance | BindingFlags.NonPublic);
-        return field?.GetValue(writer) as SemaphoreSlim;
+        return writer.BackpressureSemaphoreForTests;
     }
 
     private static async IAsyncEnumerable<LeanDocument> StreamDocs(

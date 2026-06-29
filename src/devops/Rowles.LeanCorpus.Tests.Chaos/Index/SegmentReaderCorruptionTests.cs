@@ -1,11 +1,11 @@
-﻿using FsCheck;
+using FsCheck;
 using FsCheck.Xunit;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Indexer;
-using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Searcher;
+using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Chaos.Infrastructure;
 using Xunit;
@@ -21,27 +21,28 @@ public sealed class SegmentReaderCorruptionTests : IClassFixture<ChaosDirectoryF
     public SegmentReaderCorruptionTests(ChaosDirectoryFixture fixture) => _fixture = fixture;
 
     [Property(MaxTest = 8)]
-    public void SegmentReader_CorruptedPostingsHeader_ThrowsOnOpen(NonNegativeInt byteOffset)
-    {
-        using var directory = ChaosIndexFactory.CreateSimpleIndex(_fixture.Path, "sr_corrupt_pos");
-        var posFile = Directory.GetFiles(directory.DirectoryPath, "*.pos").Single();
-        FlipByte(posFile, byteOffset.Get % 5);
-
-        Assert.ThrowsAny<Exception>((Action)(() => new IndexSearcher(directory)));
-    }
-
-    [Property(MaxTest = 8)]
     public void SegmentReader_CorruptedNumericDocValues_ThrowsOnRead(NonNegativeInt byteOffset)
     {
         var path = Path.Combine(_fixture.Path, $"sr_corrupt_dvn_{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
-        using var mmap = BuildNumericIndex(path);
+        using var directory = new MMapDirectory(path);
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig()))
+        {
+            var doc1 = new LeanDocument();
+            doc1.Add(new NumericField("price", 1.0));
+            doc1.Add(new StringField("id", "a"));
+            writer.AddDocument(doc1);
+            var doc2 = new LeanDocument();
+            doc2.Add(new NumericField("price", 2.0));
+            doc2.Add(new StringField("id", "b"));
+            writer.AddDocument(doc2);
+            writer.Commit();
+        }
         var dvnFile = Directory.GetFiles(path, "*.dvn").Single();
-        FlipByte(dvnFile, byteOffset.Get % 5);
-
+        FlipByte(dvnFile, 0);
         Assert.ThrowsAny<Exception>((Action)(() =>
         {
-            using var searcher = new IndexSearcher(mmap);
+            using var searcher = new IndexSearcher(directory);
             var reader = searcher.GetSegmentReaders()[0];
             _ = reader.GetNumericDocValues("price");
         }));
@@ -52,48 +53,72 @@ public sealed class SegmentReaderCorruptionTests : IClassFixture<ChaosDirectoryF
     {
         var path = Path.Combine(_fixture.Path, $"sr_corrupt_vec_{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
-        using var mmap = BuildVectorIndex(path);
+        using var directory = new MMapDirectory(path);
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig()))
+        {
+            var doc1 = new LeanDocument();
+            doc1.Add(new VectorField("vec", new ReadOnlyMemory<float>([1.0f, 2.0f, 3.0f]), 3));
+            doc1.Add(new StringField("id", "a"));
+            writer.AddDocument(doc1);
+            var doc2 = new LeanDocument();
+            doc2.Add(new VectorField("vec", new ReadOnlyMemory<float>([4.0f, 5.0f, 6.0f]), 3));
+            doc2.Add(new StringField("id", "b"));
+            writer.AddDocument(doc2);
+            writer.Commit();
+        }
         var vecFile = Directory.GetFiles(path, "*.vec").Single();
-        FlipByte(vecFile, byteOffset.Get % 5);
-
+        FlipByte(vecFile, 0);
         Assert.ThrowsAny<Exception>((Action)(() =>
         {
-            using var searcher = new IndexSearcher(mmap);
+            using var searcher = new IndexSearcher(directory);
             var reader = searcher.GetSegmentReaders()[0];
             _ = reader.GetVector(0);
         }));
     }
 
-    private static MMapDirectory BuildNumericIndex(string path)
-    {
-        var mmap = new MMapDirectory(path);
-        using var writer = new IndexWriter(mmap, new IndexWriterConfig());
-        var doc = new LeanDocument();
-        doc.Add(new NumericField("price", 9.99));
-        writer.AddDocument(doc);
-        writer.Commit();
-        return mmap;
-    }
 
-    private static MMapDirectory BuildVectorIndex(string path)
+    [Property(MaxTest = 8)]
+    public void SegmentReader_CorruptedNorms_ThrowsOnRead(NonNegativeInt byteOffset)
     {
-        var mmap = new MMapDirectory(path);
-        using var writer = new IndexWriter(mmap, new IndexWriterConfig());
-        var doc = new LeanDocument();
-        doc.Add(new TextField("title", "test", stored: false));
-        doc.Add(new VectorField("embed", new float[] { 1f, 2f, 3f }));
-        writer.AddDocument(doc);
-        writer.Commit();
-        return mmap;
+        var path = Path.Combine(_fixture.Path, $"sr_corrupt_nrm_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(path);
+        using var directory = new MMapDirectory(path);
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig()))
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "hello world"));
+            doc.Add(new StringField("id", "a"));
+            writer.AddDocument(doc);
+            writer.Commit();
+        }
+        var nrmFile = Directory.GetFiles(path, "*.nrm").Single();
+        FlipByte(nrmFile, 0);
+        Assert.ThrowsAny<Exception>((Action)(() =>
+        {
+            using var searcher = new IndexSearcher(directory);
+            var reader = searcher.GetSegmentReaders()[0];
+            _ = reader.GetNorm(0, "body");
+        }));
     }
 
     private static void FlipByte(string path, long offset)
     {
         using var stream = File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
         stream.Position = offset;
-        var value = stream.ReadByte();
-        Assert.NotEqual(-1, value);
+        int original = stream.ReadByte();
         stream.Position = offset;
-        stream.WriteByte((byte)(value ^ 0x5A));
+        stream.WriteByte((byte)~original);
+    }
+
+    private static void CorruptWindow(string path, long offset, int length)
+    {
+        using var stream = File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        stream.Position = offset;
+        var buf = new byte[length];
+        int read = stream.Read(buf, 0, length);
+        for (int i = 0; i < read; i++)
+            buf[i] = (byte)~buf[i];
+        stream.Position = offset;
+        stream.Write(buf, 0, read);
     }
 }

@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
@@ -44,7 +44,7 @@ public sealed class IndexFormatInspectorTests : IClassFixture<TestDirectoryFixtu
         var dictionaryPath = Directory.GetFiles(directory.DirectoryPath, "*.dic").Single();
         using (var stream = File.Open(dictionaryPath, FileMode.Open, FileAccess.Write, FileShare.None))
         {
-            stream.Position = sizeof(int);
+            stream.Position = 0;
             stream.WriteByte((byte)(CodecConstants.TermDictionaryVersion + 1));
         }
 

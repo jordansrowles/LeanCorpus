@@ -1,9 +1,11 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Filters;
+using Rowles.LeanCorpus.Analysis;
+
+namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
 /// Emits Metaphone encodings for tokens.
 /// </summary>
-public sealed class MetaphoneFilter : ITokenFilter
+public sealed class MetaphoneFilter : ISpanTokenFilter
 {
     private readonly bool _inject;
 
@@ -17,32 +19,33 @@ public sealed class MetaphoneFilter : ITokenFilter
     }
 
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
-    {
-        var result = new List<Token>(tokens.Count * (_inject ? 2 : 1));
-        for (int i = 0; i < tokens.Count; i++)
-        {
-            var token = tokens[i];
-            string code = PhoneticEncoding.EncodeMetaphone(token.Text);
-            if (string.IsNullOrEmpty(code))
-            {
-                result.Add(token);
-                continue;
-            }
 
-            if (_inject)
-            {
-                result.Add(token);
-                if (!string.Equals(code, token.Text, StringComparison.Ordinal))
-                    result.Add(new Token(code, token.StartOffset, token.EndOffset, token.Type, positionIncrement: 0, token.Payload));
-            }
-            else
-            {
-                result.Add(token.WithText(code));
-            }
+    /// <inheritdoc/>
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
+    {
+        string code = PhoneticEncoding.EncodeMetaphone(new string(text));
+        if (string.IsNullOrEmpty(code))
+        {
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+            return;
         }
 
-        tokens.Clear();
-        tokens.AddRange(result);
+        if (_inject)
+        {
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+            if (!string.Equals(code, new string(text), StringComparison.Ordinal))
+                sink.Add(code.AsSpan(), startOffset, endOffset, type, 0, payload);
+        }
+        else
+        {
+            sink.Add(code.AsSpan(), startOffset, endOffset, type, positionIncrement, payload);
+        }
     }
 }

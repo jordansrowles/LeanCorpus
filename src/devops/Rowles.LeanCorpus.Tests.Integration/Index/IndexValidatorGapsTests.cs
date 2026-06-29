@@ -255,8 +255,8 @@ public sealed class IndexValidatorGapsTests : IDisposable
         using (var stream = File.OpenWrite(Path.Combine(dir, segId + ".fdt")))
         using (var writer = new BinaryWriter(stream))
         {
-            writer.Write(CodecConstants.Magic);
             writer.Write((byte)(CodecConstants.StoredFieldsVersion + 1));
+            writer.Write((byte)0); // VarInt64 bodyLen = 0
         }
 
         var mmap = new MMapDirectory(dir);
@@ -300,8 +300,8 @@ public sealed class IndexValidatorGapsTests : IDisposable
         using (var stream = File.OpenWrite(Path.Combine(dir, segId + ".fdx")))
         using (var writer = new BinaryWriter(stream))
         {
-            writer.Write(CodecConstants.Magic);
             writer.Write((byte)(CodecConstants.StoredFieldsVersion + 1));
+            writer.Write((byte)0); // VarInt64 bodyLen = 0
         }
 
         var mmap = new MMapDirectory(dir);
@@ -324,8 +324,8 @@ public sealed class IndexValidatorGapsTests : IDisposable
         using (var stream = File.OpenWrite(Path.Combine(dir, segId + ".fdx")))
         using (var writer = new BinaryWriter(stream))
         {
-            writer.Write(CodecConstants.Magic);
             writer.Write(CodecConstants.StoredFieldsVersion);
+            writer.Write((byte)5); // VarInt bodyLen
             writer.Write(128);  // blockSize
             writer.Write(99);   // docCount - wrong (segment has 1)
             writer.Write(0);    // blockCount
@@ -350,8 +350,8 @@ public sealed class IndexValidatorGapsTests : IDisposable
         using (var stream = File.OpenWrite(Path.Combine(dir, segId + ".fdx")))
         using (var writer = new BinaryWriter(stream))
         {
-            writer.Write(CodecConstants.Magic);
             writer.Write(CodecConstants.StoredFieldsVersion);
+            writer.Write((byte)5); // VarInt bodyLen
             writer.Write(128);  // blockSize
             writer.Write(1);    // docCount
             writer.Write(1);    // blockCount = 1 → write one offset
@@ -626,38 +626,60 @@ public sealed class IndexValidatorGapsTests : IDisposable
         writer.Write(value);
     }
 
+    /// <summary>
+    /// Returns the file offset where the body begins after the CodecKit envelope
+    /// (version byte + VarInt64 body length).
+    /// </summary>
+    private static int FindBodyStartOffset(string path)
+    {
+        using var readStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var reader = new BinaryReader(readStream);
+        reader.ReadByte(); // version
+        // Consume VarInt64 body length (LEB128)
+        int shift = 0;
+        while (shift < 70)
+        {
+            byte b = reader.ReadByte();
+            if ((b & 0x80) == 0) break;
+            shift += 7;
+        }
+        return (int)readStream.Position;
+    }
+
     private static void PatchVectorCount(string path, int count)
     {
-        // Vector file layout: magic(4) version(1) count(4) dimension(4) ...
+        // CodecKit vector layout: [version][VarInt64 bodyLen][body: int32 count, int32 dim, byte dataFmt, ...]
+        int bodyStart = FindBodyStartOffset(path);
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.None);
-        stream.Seek(5, SeekOrigin.Begin);
+        stream.Seek(bodyStart, SeekOrigin.Begin);
         using var writer = new BinaryWriter(stream);
         writer.Write(count);
     }
 
     private static void PatchVectorDimension(string path, int dimension)
     {
-        // Vector file layout: magic(4) version(1) count(4) dimension(4) ...
+        int bodyStart = FindBodyStartOffset(path);
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.None);
-        stream.Seek(9, SeekOrigin.Begin);
+        stream.Seek(bodyStart + 4, SeekOrigin.Begin); // skip count (int32)
         using var writer = new BinaryWriter(stream);
         writer.Write(dimension);
     }
 
     private static void PatchHnswDimension(string path, int dimension)
     {
-        // HNSW file layout: magic(4) version(1) dimension(4) normalised(1) ...
+        // CodecKit HNSW layout: [version][VarInt64 bodyLen][body: int32 dim, byte normalised, ...]
+        int bodyStart = FindBodyStartOffset(path);
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.None);
-        stream.Seek(5, SeekOrigin.Begin);
+        stream.Seek(bodyStart, SeekOrigin.Begin);
         using var writer = new BinaryWriter(stream);
         writer.Write(dimension);
     }
 
     private static void PatchHnswNormalised(string path, bool normalised)
     {
-        // HNSW file layout: magic(4) version(1) dimension(4) normalised(1) ...
+        int bodyStart = FindBodyStartOffset(path);
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.None);
-        stream.Seek(9, SeekOrigin.Begin);
+        stream.Seek(bodyStart + 4, SeekOrigin.Begin); // skip dimension (int32)
         using var writer = new BinaryWriter(stream);
         writer.Write((byte)(normalised ? 1 : 0));
     }

@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Filters;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
@@ -36,7 +36,7 @@ FLAG long
     [Fact(DisplayName = "Analysis Expansion: Token Budget Rejects Runaway Alternates")]
     public void AnalysisExpansion_TokenBudget_RejectsRunawayAlternates()
     {
-        var analyser = Analyser.FromTokeniser(
+        var analyser = new Analyser(
             new Uax29UrlEmailTokeniser(),
             new LowercaseFilter(),
             new MetaphoneFilter(),

@@ -41,4 +41,10 @@ public sealed class VectorField : IField
 
     /// <inheritdoc/>
     public float Boost { get; }
+
+    /// <inheritdoc/>
+    public bool StoreDocValues => false;
+
+    /// <inheritdoc/>
+    public FieldIndexOptions IndexOptions => FieldIndexOptions.DocsOnly;
 }

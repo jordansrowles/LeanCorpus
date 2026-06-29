@@ -1,4 +1,6 @@
-﻿using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
 
@@ -14,7 +16,7 @@ internal static class BinaryDocValuesReader
             return values;
 
         using var input = new IndexInput(filePath);
-        CodecConstants.ReadHeaderVersion(input, CodecConstants.BinaryDocValuesVersion, "binary doc values (.dvb)");
+        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.BinaryDocValues);
 
         int fieldCount = input.ReadInt32();
         for (int f = 0; f < fieldCount; f++)

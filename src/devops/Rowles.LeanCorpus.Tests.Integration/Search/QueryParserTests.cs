@@ -209,4 +209,14 @@ public sealed class QueryParserTests
     {
         Assert.Throws<QueryParseException>(() => _parser.Parse(query));
     }
+
+    /// <summary>
+    /// Verifies that excessive nesting depth throws QueryParseException.
+    /// </summary>
+    [Fact(DisplayName = "Parse: Excessive Nesting Depth Throws Query Parse Exception")]
+    public void Parse_ExcessiveNestingDepth_ThrowsQueryParseException()
+    {
+        var deep = new string('(', 65) + "term" + new string(')', 65);
+        Assert.Throws<QueryParseException>(() => _parser.Parse(deep));
+    }
 }

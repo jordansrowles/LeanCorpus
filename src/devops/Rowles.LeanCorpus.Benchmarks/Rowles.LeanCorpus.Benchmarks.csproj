@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\..\core\Rowles.LeanCorpus\Rowles.LeanCorpus.csproj" />
@@ -14,11 +14,20 @@
     <PackageReference Include="Lucene.Net" />
     <PackageReference Include="Lucene.Net.Analysis.Common" />
     <PackageReference Include="Lucene.Net.Suggest" />
+    <PackageReference Include="Lucene.Net.Highlighter" />
     <PackageReference Include="Lucene.Net.Join" />
+    <PackageReference Include="Lucene.Net.Queries" />
+    <PackageReference Include="Lucene.Net.Spatial" />
+    <PackageReference Include="Lucene.Net.Facet" />
+    <PackageReference Include="Lucene.Net.Grouping" />
   </ItemGroup>
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Rowles.LeanCorpus.Profiling" />
+  </ItemGroup>
 
 </Project>

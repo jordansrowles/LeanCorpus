@@ -1,4 +1,7 @@
-﻿using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Codecs.Vectors;
@@ -14,20 +17,20 @@ public static class IndexValidator
 {
     private static readonly string[] RequiredExtensions = [".seg", ".dic", ".pos", ".fdt", ".fdx", ".nrm"];
 
-    private static readonly (string Extension, byte Version, string FileType)[] HeaderChecks =
+    private static readonly (string Extension, byte Version, ICodec<byte[]> Format, string FileType)[] HeaderChecks =
     [
-        (".dic", CodecConstants.TermDictionaryVersion, "term dictionary (.dic)"),
-        (".pos", CodecConstants.PostingsVersion, "postings (.pos)"),
-        (".nrm", CodecConstants.NormsVersion, "norms (.nrm)"),
-        (".dvn", CodecConstants.NumericDocValuesVersion, "numeric doc values (.dvn)"),
-        (".dvs", CodecConstants.SortedDocValuesVersion, "sorted doc values (.dvs)"),
-        (".dss", CodecConstants.SortedSetDocValuesVersion, "sorted-set doc values (.dss)"),
-        (".dsn", CodecConstants.SortedNumericDocValuesVersion, "sorted-numeric doc values (.dsn)"),
-        (".dvb", CodecConstants.BinaryDocValuesVersion, "binary doc values (.dvb)"),
-        (".bkd", CodecConstants.BKDVersion, "BKD tree (.bkd)"),
-        (".fln", CodecConstants.FieldLengthVersion, "field lengths (.fln)"),
-        (".tvd", CodecConstants.TermVectorsVersion, "term vectors data (.tvd)"),
-        (".tvx", CodecConstants.TermVectorsVersion, "term vectors index (.tvx)")
+        (".dic", CodecConstants.TermDictionaryVersion, CodecFormats.TermDictionary, "term dictionary (.dic)"),
+        (".pos", CodecConstants.PostingsVersion, CodecFormats.Postings, "postings (.pos)"),
+        (".nrm", CodecConstants.NormsVersion, CodecFormats.Norms, "norms (.nrm)"),
+        (".dvn", CodecConstants.NumericDocValuesVersion, CodecFormats.NumericDocValues, "numeric doc values (.dvn)"),
+        (".dvs", CodecConstants.SortedDocValuesVersion, CodecFormats.SortedDocValues, "sorted doc values (.dvs)"),
+        (".dss", CodecConstants.SortedSetDocValuesVersion, CodecFormats.SortedSetDocValues, "sorted-set doc values (.dss)"),
+        (".dsn", CodecConstants.SortedNumericDocValuesVersion, CodecFormats.SortedNumericDocValues, "sorted-numeric doc values (.dsn)"),
+        (".dvb", CodecConstants.BinaryDocValuesVersion, CodecFormats.BinaryDocValues, "binary doc values (.dvb)"),
+        (".bkd", CodecConstants.BKDVersion, CodecFormats.Bkd, "BKD tree (.bkd)"),
+        (".fln", CodecConstants.FieldLengthVersion, CodecFormats.FieldLengths, "field lengths (.fln)"),
+        (".tvd", CodecConstants.TermVectorsVersion, CodecFormats.TermVectors, "term vectors data (.tvd)"),
+        (".tvx", CodecConstants.TermVectorsVersion, CodecFormats.TermVectors, "term vectors index (.tvx)")
     ];
 
     /// <summary>
@@ -133,22 +136,7 @@ public static class IndexValidator
     }
 
     private static bool IsRecognisedTemporaryFile(string fileName)
-        => fileName is "migration_state.json.tmp"
-           || (fileName.StartsWith("segments_", StringComparison.Ordinal) && fileName.EndsWith(".tmp", StringComparison.Ordinal))
-           || (fileName.StartsWith("stats_", StringComparison.Ordinal) && fileName.EndsWith(".json.tmp", StringComparison.Ordinal))
-           || fileName.EndsWith(".dic.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".pos.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".dvn.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".dvs.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".dss.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".dsn.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".dvb.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".fln.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".fdt.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".fdx.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".seg.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".stats.json.tmp", StringComparison.Ordinal)
-           || (fileName.Contains("_gen_", StringComparison.Ordinal) && fileName.EndsWith(".del.tmp", StringComparison.Ordinal));
+        => Codecs.CodecKit.Formats.CodecFormats.IsRecognisedTemporaryFile(fileName);
 
     private static void CheckSegment(string dirPath, string segmentId, IndexCheckOptions options, IndexCheckResult result)
     {
@@ -222,12 +210,12 @@ public static class IndexValidator
 
     private static void CheckHeaders(string basePath, string segmentId, IndexCheckOptions options, IndexCheckResult result)
     {
-        foreach (var (extension, version, fileType) in HeaderChecks)
+        foreach (var (extension, version, format, fileType) in HeaderChecks)
         {
             if (!options.IncludeOptionalSidecars && !IsRequiredHeader(extension))
                 continue;
 
-            IndexFileInspector.CheckCodecHeader(basePath + extension, version, fileType, segmentId, result);
+            IndexFileInspector.CheckCodecHeader(basePath + extension, version, format, fileType, segmentId, result);
         }
 
         if (options.IncludeOptionalSidecars)
@@ -257,20 +245,22 @@ public static class IndexValidator
         {
             using var stream = File.OpenRead(fdtPath);
             using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: false);
-            int magic = reader.ReadInt32();
-            if (magic != CodecConstants.Magic)
+            byte version;
+            try
+            {
+                version = CodecFileHeader.ReadVersion(reader, CodecFormats.StoredFields);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
             {
                 result.AddIssue(
                     IndexCheckSeverity.Error,
                     IndexCheckIssueCodes.InvalidStoredFieldHeader,
-                    $"Invalid stored fields data file: expected magic 0x{CodecConstants.Magic:X8}, got 0x{magic:X8}.",
+                    $"Invalid stored fields data file: {ex.Message}",
                     fileName,
                     segmentId,
                     false);
                 return;
             }
-
-            byte version = reader.ReadByte();
             if (version > CodecConstants.StoredFieldsVersion)
             {
                 result.AddIssue(
@@ -282,21 +272,17 @@ public static class IndexValidator
                     false);
                 return;
             }
-
             reader.ReadInt32();
-            if (version >= 5)
+            byte policyByte = reader.ReadByte();
+            if (!CompressionCodecRegistry.TryGet(policyByte, out _))
             {
-                byte policyByte = reader.ReadByte();
-                if (!CompressionCodecRegistry.TryGet(policyByte, out _))
-                {
-                    result.AddIssue(
-                        IndexCheckSeverity.Error,
-                        IndexCheckIssueCodes.UnregisteredCompressionPolicy,
-                        $"Stored fields use unregistered compression policy byte {policyByte}.",
-                        fileName,
-                        segmentId,
-                        false);
-                }
+                result.AddIssue(
+                    IndexCheckSeverity.Error,
+                    IndexCheckIssueCodes.UnregisteredCompressionPolicy,
+                    $"Stored fields use unregistered compression policy byte {policyByte}.",
+                    fileName,
+                    segmentId,
+                    false);
             }
         }
         catch (Exception ex) when (ex is IOException or EndOfStreamException)
@@ -323,20 +309,22 @@ public static class IndexValidator
             using var stream = File.OpenRead(fdxPath);
             using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: false);
 
-            int magic = reader.ReadInt32();
-            if (magic != CodecConstants.Magic)
+            byte version;
+            try
+            {
+                version = CodecFileHeader.ReadVersion(reader, CodecFormats.StoredFields);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
             {
                 result.AddIssue(
                     IndexCheckSeverity.Error,
                     IndexCheckIssueCodes.InvalidStoredFieldHeader,
-                    $"Invalid stored fields index file: expected magic 0x{CodecConstants.Magic:X8}, got 0x{magic:X8}.",
+                    $"Invalid stored fields index file: {ex.Message}",
                     fileName,
                     segmentId,
                     false);
                 return;
             }
-
-            byte version = reader.ReadByte();
             if (version > CodecConstants.StoredFieldsVersion)
             {
                 result.AddIssue(
@@ -477,9 +465,24 @@ public static class IndexValidator
         {
             using var stream = File.OpenRead(vectorPath);
             using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: false);
-            int magic = reader.ReadInt32();
-            byte version = reader.ReadByte();
-            if (magic != CodecConstants.Magic || version > CodecConstants.VectorVersion)
+            byte version;
+            try
+            {
+                version = CodecFileHeader.ReadVersion(reader, CodecFormats.Vectors);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
+            {
+                result.AddIssue(
+                    IndexCheckSeverity.Error,
+                    IndexCheckIssueCodes.InvalidVectorHeader,
+                    $"Invalid vector header for field '{vectorField.FieldName}': {ex.Message}",
+                    fileName,
+                    segmentId,
+                    false);
+                return;
+            }
+
+            if (version > CodecConstants.VectorVersion)
             {
                 result.AddIssue(
                     IndexCheckSeverity.Error,
@@ -535,9 +538,24 @@ public static class IndexValidator
         {
             using var stream = File.OpenRead(hnswPath);
             using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: false);
-            int magic = reader.ReadInt32();
-            byte version = reader.ReadByte();
-            if (magic != CodecConstants.Magic || version > CodecConstants.HnswVersion)
+            byte version;
+            try
+            {
+                version = CodecFileHeader.ReadVersion(reader, CodecFormats.Hnsw);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
+            {
+                result.AddIssue(
+                    IndexCheckSeverity.Error,
+                    IndexCheckIssueCodes.InvalidHnswHeader,
+                    $"Invalid HNSW header for field '{vectorField.FieldName}': {ex.Message}",
+                    fileName,
+                    segmentId,
+                    false);
+                return;
+            }
+
+            if (version > CodecConstants.HnswVersion)
             {
                 result.AddIssue(
                     IndexCheckSeverity.Error,

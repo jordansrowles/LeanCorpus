@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Search.Scoring;
+using Rowles.LeanCorpus.Search.Scoring;
 
 namespace Rowles.LeanCorpus.Tests.Integration.Search.Scoring;
 
@@ -25,12 +25,14 @@ public sealed class IndexStatsTests : IDisposable
 
     private static IndexStats Build(
         Dictionary<string, float>? avgLengths = null,
-        Dictionary<string, int>? docCounts = null)
+        Dictionary<string, int>? docCounts = null,
+        Dictionary<string, long>? lengthSums = null)
         => new(
             totalDocCount: 100,
             liveDocCount: 90,
             avgFieldLengths: avgLengths ?? new(StringComparer.Ordinal) { ["body"] = 12.5f },
-            fieldDocCounts: docCounts ?? new(StringComparer.Ordinal) { ["body"] = 85 });
+            fieldDocCounts: docCounts ?? new(StringComparer.Ordinal) { ["body"] = 85 },
+            fieldLengthSums: lengthSums ?? new(StringComparer.Ordinal) { ["body"] = 12_500 });
 
     // ── Accessors ─────────────────────────────────────────────────────────────
 
@@ -70,6 +72,26 @@ public sealed class IndexStatsTests : IDisposable
         Assert.Equal(90, stats.LiveDocCount);
     }
 
+    [Fact(DisplayName = "IndexStats: GetFieldLengthSum Returns Stored Sum")]
+    public void GetFieldLengthSum_ReturnsStoredValue()
+    {
+        var sums = new Dictionary<string, long>(StringComparer.Ordinal)
+        {
+            ["body"] = 12_500,
+            ["title"] = 3_200
+        };
+        var stats = Build(lengthSums: sums);
+        Assert.Equal(12_500L, stats.GetFieldLengthSum("body"));
+        Assert.Equal(3_200L, stats.GetFieldLengthSum("title"));
+    }
+
+    [Fact(DisplayName = "IndexStats: GetFieldLengthSum Defaults To Zero For Unknown Field")]
+    public void GetFieldLengthSum_DefaultsToZero()
+    {
+        var stats = Build();
+        Assert.Equal(0L, stats.GetFieldLengthSum("missing"));
+    }
+
     // ── Internal copies ───────────────────────────────────────────────────────
 
     [Fact(DisplayName = "IndexStats: GetAvgFieldLengths Returns Independent Copy")]
@@ -102,6 +124,7 @@ public sealed class IndexStatsTests : IDisposable
         Assert.Equal(0, e.LiveDocCount);
         Assert.Equal(1.0f, e.GetAvgFieldLength("any"));
         Assert.Equal(0, e.GetFieldDocCount("any"));
+        Assert.Equal(0L, e.GetFieldLengthSum("any"));
     }
 
     // ── WriteTo / TryLoadFrom ─────────────────────────────────────────────────
@@ -111,7 +134,8 @@ public sealed class IndexStatsTests : IDisposable
     {
         var stats = Build(
             avgLengths: new(StringComparer.Ordinal) { ["title"] = 5.0f, ["body"] = 25.0f },
-            docCounts: new(StringComparer.Ordinal) { ["title"] = 40, ["body"] = 80 });
+            docCounts: new(StringComparer.Ordinal) { ["title"] = 40, ["body"] = 80 },
+            lengthSums: new(StringComparer.Ordinal) { ["title"] = 5_000, ["body"] = 2_500 });
 
         var path = Path.Combine(_dir, "stats_1.json");
         stats.WriteTo(path);
@@ -124,6 +148,8 @@ public sealed class IndexStatsTests : IDisposable
         Assert.Equal(25.0f, loaded.GetAvgFieldLength("body"));
         Assert.Equal(40, loaded.GetFieldDocCount("title"));
         Assert.Equal(80, loaded.GetFieldDocCount("body"));
+        Assert.Equal(5_000L, loaded.GetFieldLengthSum("title"));
+        Assert.Equal(2_500L, loaded.GetFieldLengthSum("body"));
     }
 
     [Fact(DisplayName = "IndexStats: TryLoadFrom Returns Null For Missing File")]

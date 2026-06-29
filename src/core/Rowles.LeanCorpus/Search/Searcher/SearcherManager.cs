@@ -88,13 +88,18 @@ public sealed class SearcherManager : IDisposable
     /// </summary>
     public SearcherLease AcquireLease()
     {
+        var spinWait = new SpinWait();
+        const long timeoutTicks = 30 * TimeSpan.TicksPerSecond;
+        long started = Environment.TickCount64;
         while (true)
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             var sr = _current;
             if (sr.TryIncrementRef())
                 return new SearcherLease(sr.Searcher, sr.DecrementRef);
-            Thread.SpinWait(1);
+            spinWait.SpinOnce();
+            if (spinWait.NextSpinWillYield && Environment.TickCount64 - started > timeoutTicks)
+                throw new TimeoutException("SearcherManager.AcquireLease timed out after 30 seconds. The current searcher reference may be stuck.");
         }
     }
 
@@ -104,15 +109,18 @@ public sealed class SearcherManager : IDisposable
     /// </summary>
     public IndexSearcher Acquire()
     {
+        var spinWait = new SpinWait();
+        const long timeoutTicks = 30 * TimeSpan.TicksPerSecond;
+        long started = Environment.TickCount64;
         while (true)
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             var sr = _current;
             if (sr.TryIncrementRef())
                 return sr.Searcher;
-            // The ref was retired between reading _current and incrementing;
-            // _current has already been swapped to a live ref — spin and retry.
-            Thread.SpinWait(1);
+            spinWait.SpinOnce();
+            if (spinWait.NextSpinWillYield && Environment.TickCount64 - started > timeoutTicks)
+                throw new TimeoutException("SearcherManager.Acquire timed out after 30 seconds. The current searcher reference may be stuck.");
         }
     }
 
@@ -176,13 +184,18 @@ public sealed class SearcherManager : IDisposable
         {
             try
             {
-                await Task.Delay(_config.RefreshInterval, ct);
+                await Task.Delay(_config.RefreshInterval, ct).ConfigureAwait(false);
                 if (TryRefresh())
                     Interlocked.Increment(ref _unobservedBackgroundRefreshes);
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
             {
+                RecordRefreshFailure(ex);
+            }
+            catch (Exception ex)
+            {
+                // The refresh loop must never exit on an unexpected exception.
                 RecordRefreshFailure(ex);
             }
         }
@@ -194,7 +207,7 @@ public sealed class SearcherManager : IDisposable
         Interlocked.Exchange(ref _lastRefreshErrorAtTicks, DateTime.UtcNow.Ticks);
         var failures = Interlocked.Increment(ref _consecutiveRefreshFailures);
         try { RefreshFailed?.Invoke(this, new RefreshFailedEventArgs(ex, failures)); }
-        catch { /* never let a subscriber's exception break the refresh loop */ }
+        catch (Exception subEx) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(subEx, "refresh-failed event subscriber"); }
     }
 
     private bool TryRefresh()
@@ -211,6 +224,12 @@ public sealed class SearcherManager : IDisposable
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
         {
+            RecordRefreshFailure(ex);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            // The refresh loop must never exit on an unexpected exception.
             RecordRefreshFailure(ex);
             return false;
         }

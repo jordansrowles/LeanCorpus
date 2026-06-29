@@ -1,4 +1,7 @@
-﻿using Rowles.LeanCorpus.Store;
+using System.Buffers;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
 
@@ -13,22 +16,24 @@ internal static class BinaryDocValuesWriter
         int docCount,
         bool durable = false)
     {
-        using var output = new IndexOutput(filePath, durable);
-        CodecConstants.WriteHeader(output, CodecConstants.BinaryDocValuesVersion);
-        output.WriteInt32(fields.Count);
+        var bodyBuf = new ArrayBufferWriter<byte>(4096);
+        bodyBuf.WriteInt32(fields.Count);
 
         foreach (var (fieldName, values) in fields)
-            WriteFieldBlock(output, fieldName, values, docCount);
+            WriteFieldBlock(bodyBuf, fieldName, values, docCount);
+
+        using var output = new IndexOutput(filePath, durable);
+        CodecFileHeader.Write(output, CodecFormats.BinaryDocValues, bodyBuf.WrittenSpan);
     }
 
     internal static void WriteFieldBlock(
-        IndexOutput output,
+        IBufferWriter<byte> bw,
         string fieldName,
         IReadOnlyList<byte[]>?[] values,
         int docCount)
     {
-        WriteString(output, fieldName);
-        output.WriteInt32(docCount);
+        bw.WriteString(fieldName);
+        bw.WriteInt32(docCount);
 
         var starts = new int[docCount + 1];
         var allValues = new List<byte[]>();
@@ -41,9 +46,9 @@ internal static class BinaryDocValuesWriter
         starts[docCount] = allValues.Count;
 
         for (int i = 0; i < starts.Length; i++)
-            output.WriteInt32(starts[i]);
+            bw.WriteInt32(starts[i]);
 
-        output.WriteInt32(allValues.Count);
+        bw.WriteInt32(allValues.Count);
         var byteOffsets = new int[allValues.Count + 1];
         int totalBytes = 0;
         for (int i = 0; i < allValues.Count; i++)
@@ -54,16 +59,9 @@ internal static class BinaryDocValuesWriter
         byteOffsets[^1] = totalBytes;
 
         for (int i = 0; i < byteOffsets.Length; i++)
-            output.WriteInt32(byteOffsets[i]);
+            bw.WriteInt32(byteOffsets[i]);
 
         foreach (var value in allValues)
-            output.WriteBytes(value);
-    }
-
-    private static void WriteString(IndexOutput output, string value)
-    {
-        var bytes = System.Text.Encoding.UTF8.GetBytes(value);
-        output.WriteVarInt(bytes.Length);
-        output.WriteBytes(bytes);
+            bw.WriteBytes(value);
     }
 }

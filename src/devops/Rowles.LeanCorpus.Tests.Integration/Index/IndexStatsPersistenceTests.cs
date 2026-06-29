@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Indexer;
@@ -182,7 +182,8 @@ public sealed class IndexStatsPersistenceTests : IDisposable
             ["title"] = 9800,
             ["body"] = 9500,
         };
-        var original = new IndexStats(10000, 9800, avgLengths, docCounts);
+        var original = new IndexStats(10000, 9800, avgLengths, docCounts,
+            new Dictionary<string, long>(StringComparer.Ordinal) { ["title"] = 50000, ["body"] = 1350000 });
 
         var path = Path.Combine(_dir, "test_stats.json");
         original.WriteTo(path);

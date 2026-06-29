@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Tokenisers;
+namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 
 using Rowles.LeanCorpus.Analysis;
 
@@ -8,12 +8,11 @@ using Rowles.LeanCorpus.Analysis;
 /// overlapping 2-character tokens, which is the standard approach for
 /// unsegmented CJK text.
 /// </summary>
-public sealed class CJKBigramTokeniser : ITokeniser
+public sealed class CJKBigramTokeniser : ISpanTokeniser
 {
     /// <inheritdoc/>
-    public List<Token> Tokenise(ReadOnlySpan<char> input)
+    public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
-        var tokens = new List<Token>();
         int i = 0;
 
         while (i < input.Length)
@@ -30,12 +29,12 @@ public sealed class CJKBigramTokeniser : ITokeniser
                 if (runLen == 1)
                 {
                     // Single CJK character — emit as unigram
-                    tokens.Add(new Token(input.Slice(runStart, 1).ToString(), runStart, runEnd));
+                    sink.Add(input.Slice(runStart, 1), runStart, runEnd);
                 }
                 else
                 {
                     for (int j = runStart; j < runEnd - 1; j++)
-                        tokens.Add(new Token(input.Slice(j, 2).ToString(), j, j + 2));
+                        sink.Add(input.Slice(j, 2), j, j + 2);
                 }
             }
             else if (char.IsLetterOrDigit(input[i]))
@@ -44,20 +43,19 @@ public sealed class CJKBigramTokeniser : ITokeniser
                 int start = i;
                 while (i < input.Length && char.IsLetterOrDigit(input[i]))
                     i++;
-                tokens.Add(new Token(
-                    input.Slice(start, i - start).ToString(),
+                sink.Add(
+                    input[start..i],
                     start,
                     i,
-                    UnicodeTokenisation.ClassifyTokenType(input.Slice(start, i - start))));
+                    UnicodeTokenisation.ClassifyTokenType(input[start..i]));
             }
             else
             {
                 i++; // skip whitespace/punctuation
             }
         }
-
-        return tokens;
     }
+
 
     /// <summary>
     /// Returns true if the character is in a CJK unified ideograph range

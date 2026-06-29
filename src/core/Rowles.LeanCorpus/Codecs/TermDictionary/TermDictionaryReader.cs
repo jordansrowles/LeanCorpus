@@ -1,24 +1,25 @@
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.RegularExpressions;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.Fst;
 using Rowles.LeanCorpus.Store;
-namespace Rowles.LeanCorpus.Codecs.TermDictionary;
 
+namespace Rowles.LeanCorpus.Codecs.TermDictionary;
 /// <summary>
-/// Reads a v3 .dic file: a real FST (Daciuk minimal acyclic transducer) emitting postings
+/// Reads a .dic file: a real FST (Daciuk minimal acyclic transducer) emitting postings
 /// offsets as outputs. All query primitives are thin wrappers around <see cref="FstReader"/>:
 /// exact lookups are O(key length) arc walks; prefix/wildcard/fuzzy queries are native
-/// FST × automaton intersections. v1 and v2 dictionaries are not accepted in the live read
+/// FST × automaton intersections. Legacy dictionaries are not accepted in the live read
 /// path; the migrator must upgrade them first.
 /// </summary>
 internal sealed class TermDictionaryReader : IDisposable
 {
     private readonly FstReader _fst;
-    private readonly Lock _fuzzyCacheLock = new();
-    private readonly Dictionary<FuzzyCacheKey, List<(string Term, long Offset, int Distance)>> _fuzzyCache = new();
-    private readonly Lock _wildcardCacheLock = new();
-    private readonly Dictionary<string, WildcardAutomaton> _wildcardCache = new(StringComparer.Ordinal);
+    private ConcurrentDictionary<FuzzyCacheKey, List<(string Term, long Offset, int Distance)>> _fuzzyCache = new();
+    private ConcurrentDictionary<string, Lazy<WildcardAutomaton>> _wildcardCache = new(StringComparer.Ordinal);
     private const int MaxFuzzyCacheEntries = 128;
     private const int MaxWildcardCacheEntries = 64;
     private bool _disposed;
@@ -28,29 +29,19 @@ internal sealed class TermDictionaryReader : IDisposable
         _fst = fst;
     }
 
-    /// <summary>Opens a v3 dictionary; throws with a clear "run migrate" hint for older versions.</summary>
+    /// <summary>Opens a dictionary; throws with a clear "run migrate" hint for older versions.</summary>
     public static TermDictionaryReader Open(string filePath)
     {
         using var input = new IndexInput(filePath);
 
-        int magic = input.ReadInt32();
-        if (magic != CodecConstants.Magic)
+        var result = CodecFileHeader.Read(input, CodecFormats.TermDictionary);
+        byte version = result.Version;
+        if (version > CodecConstants.TermDictionaryVersion)
             throw new InvalidDataException(
-                $"Invalid term dictionary (.dic) file: expected magic 0x{CodecConstants.Magic:X8}, got 0x{magic:X8}.");
-
-        byte version = input.ReadByte();
-        if (version != CodecConstants.TermDictionaryVersion)
-            throw new InvalidDataException(
-                $"Unsupported term dictionary format version {version}. This build expects v{CodecConstants.TermDictionaryVersion}. " +
+                $"Unsupported term dictionary format version {version}. This build supports up to v{CodecConstants.TermDictionaryVersion}. " +
                 "Run 'leancorpus-cli migrate' (or IndexCodecMigrator) to upgrade the segment.");
 
-        long remaining = input.Length - input.Position;
-        if (remaining < 0 || remaining > int.MaxValue)
-            throw new InvalidDataException("Term dictionary FST blob length is out of range.");
-
-        var span = input.ReadSpan((int)remaining);
-        var blob = span.ToArray();
-        var fst = FstReader.Open(blob);
+        var fst = FstReader.Open(result.Body);
         return new TermDictionaryReader(fst);
     }
 
@@ -136,18 +127,82 @@ internal sealed class TermDictionaryReader : IDisposable
         return results;
     }
 
+    /// <summary>
+    /// Returns qualified terms and offsets matching a wildcard pattern where the FST
+    /// traversal is pre-narrowed by a known leading literal prefix (≥2 characters).
+    /// Callers needing term strings (e.g. for cross-segment DF lookup) should use
+    /// this; callers needing only offsets should use
+    /// <see cref="GetTermOffsetsMatchingWithPrefix"/> instead.
+    /// </summary>
+    internal List<(string Term, long Offset)> GetTermsMatchingWithPrefix(
+        string field, ReadOnlySpan<char> leadingPrefix, ReadOnlySpan<char> fullPattern)
+    {
+        var suffixPattern = fullPattern.Slice(leadingPrefix.Length);
+        var wildcard = GetOrAddWildcardAutomaton(suffixPattern);
+
+        int totalCharLen = field.Length + 1 + leadingPrefix.Length;
+        Span<char> qualChars = totalCharLen <= 256
+            ? stackalloc char[totalCharLen]
+            : new char[totalCharLen];
+        field.AsSpan().CopyTo(qualChars);
+        qualChars[field.Length] = '\0';
+        leadingPrefix.CopyTo(qualChars.Slice(field.Length + 1));
+
+        var qualifierUtf8 = Encoding.UTF8.GetBytes(qualChars.ToArray());
+        var results = new List<(string, long)>();
+        foreach (var (key, output, _) in _fst.IntersectAutomaton(wildcard, qualifierUtf8))
+            results.Add((Encoding.UTF8.GetString(key), output));
+        return results;
+    }
+
+    /// <summary>
+    /// Collects postings offsets for terms matching a wildcard pattern where the FST
+    /// traversal is pre-narrowed by a known leading literal prefix (≥2 characters).
+    /// The prefix is walked in the FST ahead of time, and only the suffix pattern
+    /// is matched via automaton intersection. Allocation-light: no per-term strings.
+    /// </summary>
+    internal List<long> GetTermOffsetsMatchingWithPrefix(
+        string field, ReadOnlySpan<char> leadingPrefix, ReadOnlySpan<char> fullPattern)
+    {
+        // Strip the leading prefix from the pattern so the wildcard automaton
+        // only needs to match the suffix following the pre-walked FST prefix.
+        var suffixPattern = fullPattern.Slice(leadingPrefix.Length);
+        var wildcard = GetOrAddWildcardAutomaton(suffixPattern);
+
+        // Build the full qualifier: "field\0leadingPrefix" (zero heap when ≤256 chars).
+        int totalCharLen = field.Length + 1 + leadingPrefix.Length;
+        Span<char> qualChars = totalCharLen <= 256
+            ? stackalloc char[totalCharLen]
+            : new char[totalCharLen];
+        field.AsSpan().CopyTo(qualChars);
+        qualChars[field.Length] = '\0';
+        leadingPrefix.CopyTo(qualChars.Slice(field.Length + 1));
+
+        Span<byte> qualStack = stackalloc byte[256];
+        var qualifierUtf8 = EncodeUtf8(qualChars, qualStack, out byte[]? rented);
+        var results = new List<long>();
+        try
+        {
+            _fst.CollectIntersectOutputs(wildcard, qualifierUtf8, results);
+        }
+        finally
+        {
+            if (rented is not null) System.Buffers.ArrayPool<byte>.Shared.Return(rented);
+        }
+        return results;
+    }
+
     private WildcardAutomaton GetOrAddWildcardAutomaton(ReadOnlySpan<char> pattern)
     {
         var key = pattern.ToString();
-        lock (_wildcardCacheLock)
-        {
-            if (_wildcardCache.TryGetValue(key, out var cached)) return cached;
-            if (_wildcardCache.Count >= MaxWildcardCacheEntries)
-                _wildcardCache.Clear();
-            var built = new WildcardAutomaton(key);
-            _wildcardCache[key] = built;
-            return built;
-        }
+        var cache = _wildcardCache;
+        var lazy = cache.GetOrAdd(key,
+            _ => new Lazy<WildcardAutomaton>(() => new WildcardAutomaton(key), LazyThreadSafetyMode.ExecutionAndPublication));
+
+        if (cache.Count > MaxWildcardCacheEntries)
+            Interlocked.CompareExchange(ref _wildcardCache, new(StringComparer.Ordinal), cache);
+
+        return lazy.Value;
     }
 
     private static ReadOnlySpan<byte> EncodeUtf8(ReadOnlySpan<char> chars, Span<byte> stackBuffer, out byte[]? rented)
@@ -199,27 +254,15 @@ internal sealed class TermDictionaryReader : IDisposable
     }
 
     private bool TryGetFuzzyCache(FuzzyCacheKey key, out List<(string Term, long Offset, int Distance)> results)
-    {
-        lock (_fuzzyCacheLock)
-        {
-            if (_fuzzyCache.TryGetValue(key, out var cached))
-            {
-                results = cached;
-                return true;
-            }
-        }
-        results = [];
-        return false;
-    }
+        => _fuzzyCache.TryGetValue(key, out results!);
 
     private void StoreFuzzyCache(FuzzyCacheKey key, List<(string Term, long Offset, int Distance)> results)
     {
-        lock (_fuzzyCacheLock)
-        {
-            if (_fuzzyCache.Count >= MaxFuzzyCacheEntries)
-                _fuzzyCache.Clear();
-            _fuzzyCache[key] = results;
-        }
+        var cache = _fuzzyCache;
+        cache[key] = results;
+
+        if (cache.Count > MaxFuzzyCacheEntries)
+            Interlocked.CompareExchange(ref _fuzzyCache, new(), cache);
     }
 
     private readonly record struct FuzzyCacheKey(string FieldPrefix, string QueryTerm, int MaxEdits, int MaxExpansions);

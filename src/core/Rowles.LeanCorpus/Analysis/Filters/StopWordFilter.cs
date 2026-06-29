@@ -1,4 +1,4 @@
-﻿using System.Collections.Frozen;
+using System.Collections.Frozen;
 
 namespace Rowles.LeanCorpus.Analysis.Filters;
 
@@ -6,7 +6,7 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 /// Removes common English stop words from a token list using a frozen set
 /// for fast, allocation-free lookups.
 /// </summary>
-public sealed class StopWordFilter : ITokenFilter
+public sealed class StopWordFilter : ISpanTokenFilter
 {
     /// <summary>
     /// The classic 33-word English stop word list used by the default analyser.
@@ -121,8 +121,17 @@ public sealed class StopWordFilter : ITokenFilter
         => _stopWords.GetAlternateLookup<ReadOnlySpan<char>>().Contains(term);
 
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        tokens.RemoveAll(t => _stopWords.Contains(t.Text));
+        if (!IsStopWord(text))
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
     }
+
 }

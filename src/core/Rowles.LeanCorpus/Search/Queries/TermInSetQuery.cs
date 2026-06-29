@@ -23,7 +23,7 @@ public sealed class TermInSetQuery : Query
             {
                 cached = new string[_terms.Length];
                 for (int i = 0; i < _terms.Length; i++)
-                    cached[i] = string.Concat(Field, "\x00", _terms[i]);
+                    cached[i] = QualifiedTermHelpers.BuildQualifiedTermString(Field, _terms[i]);
                 _cachedQualifiedTerms = cached;
             }
 

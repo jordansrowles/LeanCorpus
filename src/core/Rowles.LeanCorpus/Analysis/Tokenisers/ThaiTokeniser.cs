@@ -12,7 +12,7 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// <see cref="FromStream"/>. A starter lexicon is available in the repository
 /// under <c>lexicons/thai-dict.txt</c>.
 /// </remarks>
-public sealed class ThaiTokeniser : ITokeniser
+public sealed class ThaiTokeniser : ISpanTokeniser
 {
     /// <summary>Token type emitted for Thai segments.</summary>
     public const string ThaiType = "thai";
@@ -78,9 +78,8 @@ public sealed class ThaiTokeniser : ITokeniser
     }
 
     /// <inheritdoc/>
-    public List<Token> Tokenise(ReadOnlySpan<char> input)
+    public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
-        var tokens = new List<Token>();
         int i = 0;
 
         while (i < input.Length)
@@ -91,18 +90,17 @@ public sealed class ThaiTokeniser : ITokeniser
                 while (runEnd < input.Length && UnicodeTokenisation.IsThai(input[runEnd]))
                     runEnd++;
 
-                TokeniseThaiRun(input, i, runEnd, tokens);
+                TokeniseThaiRun(input, i, runEnd, sink);
                 i = runEnd;
                 continue;
             }
 
-            UnicodeTokenisation.TokeniseNonThaiSpan(input, tokens, ref i);
+            UnicodeTokenisation.TokeniseNonThaiSpan(input, sink, ref i);
         }
-
-        return tokens;
     }
 
-    private void TokeniseThaiRun(ReadOnlySpan<char> input, int start, int end, List<Token> tokens)
+
+    private void TokeniseThaiRun(ReadOnlySpan<char> input, int start, int end, ISpanTokenSink sink)
     {
         int i = start;
         while (i < end)
@@ -110,13 +108,13 @@ public sealed class ThaiTokeniser : ITokeniser
             int matchLength = TryFindLongestLexiconMatch(input, i, end);
             if (matchLength > 0)
             {
-                tokens.Add(new Token(input.Slice(i, matchLength).ToString(), i, i + matchLength, ThaiType));
+                sink.Add(input.Slice(i, matchLength), i, i + matchLength, ThaiType);
                 i += matchLength;
                 continue;
             }
 
             int clusterEnd = ReadThaiCluster(input, i, end);
-            tokens.Add(new Token(input[i..clusterEnd].ToString(), i, clusterEnd, ThaiType));
+            sink.Add(input[i..clusterEnd], i, clusterEnd, ThaiType);
             i = clusterEnd;
         }
     }

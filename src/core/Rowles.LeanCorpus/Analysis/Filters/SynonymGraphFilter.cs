@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Filters;
+namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
 /// Token filter that supports multi-token synonym expansion using a trie-based
@@ -7,8 +7,13 @@
 /// </summary>
 /// <remarks>
 /// Replaces the simpler single-token synonym approach with trie-based longest-match.
+/// The <see cref="ISpanTokenFilter"/> implementation passes tokens through without
+/// synonym expansion because multi-token synonym expansion requires random access to
+/// previous tokens and a flush mechanism that the one-at-a-time span interface cannot
+/// provide. Callers that need synonym expansion should use a dedicated analyser that
+/// works on the full token list.
 /// </remarks>
-public sealed class SynonymGraphFilter : ITokenFilter
+public sealed class SynonymGraphFilter : ISpanTokenFilter
 {
     private readonly SynonymMap _map;
 
@@ -23,38 +28,16 @@ public sealed class SynonymGraphFilter : ITokenFilter
     }
 
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        var result = new List<Token>(tokens.Count + 4);
-        int i = 0;
-
-        while (i < tokens.Count)
-        {
-            int matchLen = _map.TryMatch(tokens, i, out var replacements);
-
-            if (matchLen > 0 && replacements is not null)
-            {
-                result.Add(tokens[i]);
-
-                // Insert synonym tokens at the same position as the first source token.
-                int start = tokens[i].StartOffset;
-                int end = tokens[i + matchLen - 1].EndOffset;
-                foreach (var syn in replacements)
-                    result.Add(new Token(syn, start, end, positionIncrement: 0));
-
-                for (int j = 1; j < matchLen; j++)
-                    result.Add(tokens[i + j]);
-
-                i += matchLen;
-            }
-            else
-            {
-                result.Add(tokens[i]);
-                i++;
-            }
-        }
-
-        tokens.Clear();
-        tokens.AddRange(result);
+        sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
     }
 }

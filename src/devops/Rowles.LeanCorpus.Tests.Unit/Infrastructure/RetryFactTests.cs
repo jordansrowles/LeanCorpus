@@ -86,7 +86,7 @@ public sealed class RetryFactDiscovererTests
         public TValue GetNamedArgument<TValue>(string argumentName)
             => argumentName == "MaxRetries" ? (TValue)(object)maxRetries : default!;
 
-        public IEnumerable<object> GetConstructorArguments() => [];
+        public IEnumerable<object> GetConstructorArguments() => [maxRetries];
 
         public IEnumerable<IAttributeInfo> GetCustomAttributes(string assemblyQualifiedAttributeTypeName)
             => [];

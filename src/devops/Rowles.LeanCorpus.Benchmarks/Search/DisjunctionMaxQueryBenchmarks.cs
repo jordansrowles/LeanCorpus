@@ -2,15 +2,11 @@ using BenchmarkDotNet.Attributes;
 using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Index;
 using Lucene.Net.Search;
-using Lucene.Net.Store;
 using Lucene.Net.Util;
 using IODirectory = System.IO.Directory;
-using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
 using LeanIndexSearcher = Rowles.LeanCorpus.Search.Searcher.IndexSearcher;
-using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;
-using LeanStringField = Rowles.LeanCorpus.Document.Fields.StringField;
-using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
 using LuceneIndexSearcher = Lucene.Net.Search.IndexSearcher;
+using LuceneMMapDirectory = Lucene.Net.Store.MMapDirectory;
 using LuceneStringField = Lucene.Net.Documents.StringField;
 using LuceneTextField = Lucene.Net.Documents.TextField;
 
@@ -37,33 +33,28 @@ public class DisjunctionMaxQueryBenchmarks
     [Params(0.0f, 0.1f, 0.5f)]
     public float TieBreakerMultiplier { get; set; } = 0.1f;
 
-    private string _leanIndexPath = string.Empty;
-    private LeanMMapDirectory? _leanDirectory;
-    private LeanIndexSearcher? _leanSearcher;
+    // Lucene.NET fields — built once per class regardless of [Params] combos
+    private static readonly Lock s_luceneGate = new();
+    private static bool s_luceneBuilt;
+    private static LuceneMMapDirectory? s_luceneDirectory;
+    private static StandardAnalyzer? s_luceneAnalyzer;
+    private static DirectoryReader? s_luceneReader;
+    private static LuceneIndexSearcher? s_luceneSearcher;
 
-    private RAMDirectory? _luceneDirectory;
-    private StandardAnalyzer? _luceneAnalyzer;
-    private DirectoryReader? _luceneReader;
-    private LuceneIndexSearcher? _luceneSearcher;
+    private LeanIndexSearcher? _leanSearcher;
 
     [GlobalSetup]
     public void Setup()
     {
-        var documents = BenchmarkData.BuildDocuments(DocumentCount);
-        BuildLeanIndex(documents);
-        BuildLuceneIndex(documents);
+        SharedStandardIndex.EnsureInitialised(DocumentCount);
+        _leanSearcher = SharedStandardIndex.LeanSearcher;
+        EnsureLuceneIndex();
     }
 
     [GlobalCleanup]
     public void Cleanup()
     {
-        _leanSearcher?.Dispose();
-        if (!string.IsNullOrWhiteSpace(_leanIndexPath) && IODirectory.Exists(_leanIndexPath))
-            IODirectory.Delete(_leanIndexPath, recursive: true);
-
-        _luceneReader?.Dispose();
-        _luceneAnalyzer?.Dispose();
-        _luceneDirectory?.Dispose();
+        // Lean resources owned by SharedStandardIndex; Lucene persists for class lifetime.
     }
 
     [Benchmark(Baseline = true)]
@@ -88,46 +79,73 @@ public class DisjunctionMaxQueryBenchmarks
             new Lucene.Net.Search.TermQuery(new Term("body", "people"))
         };
         var q = new Lucene.Net.Search.DisjunctionMaxQuery(disjuncts, TieBreakerMultiplier);
-        return _luceneSearcher!.Search(q, TopN).TotalHits;
+        return s_luceneSearcher!.Search(q, TopN).TotalHits;
     }
 
-    private void BuildLeanIndex(string[] documents)
-    {
-        _leanIndexPath = Path.Combine(Path.GetTempPath(), $"leancorpus-bench-dismax-{Guid.NewGuid():N}");
-        IODirectory.CreateDirectory(_leanIndexPath);
-        _leanDirectory = new LeanMMapDirectory(_leanIndexPath);
-        using var writer = new Rowles.LeanCorpus.Index.Indexer.IndexWriter(
-            _leanDirectory,
-            new Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig { MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 });
-        for (int i = 0; i < documents.Length; i++)
-        {
-            var doc = new LeanDocument();
-            doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-            doc.Add(new LeanTextField("body", documents[i]));
-            writer.AddDocument(doc);
-        }
-        writer.Commit();
-        _leanSearcher = new LeanIndexSearcher(_leanDirectory);
-    }
+    // --- One-shot Lucene index builder ---
 
-    private void BuildLuceneIndex(string[] documents)
+    private static void EnsureLuceneIndex()
     {
-        _luceneDirectory = new RAMDirectory();
-        _luceneAnalyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
-        using var writer = new Lucene.Net.Index.IndexWriter(
-            _luceneDirectory,
-            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, _luceneAnalyzer));
-        for (int i = 0; i < documents.Length; i++)
+        if (s_luceneBuilt)
+            return;
+
+        lock (s_luceneGate)
         {
-            var doc = new Lucene.Net.Documents.Document
+            if (s_luceneBuilt)
+                return;
+
+            var documents = SharedStandardIndex.Documents;
+            var path = Path.Combine(BenchmarkHelpers.TempRoot,
+                $"lucenenet-shared-stdidx-{Guid.NewGuid():N}");
+            IODirectory.CreateDirectory(path);
+
+            s_luceneDirectory = new LuceneMMapDirectory(new DirectoryInfo(path));
+            s_luceneAnalyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+
+            using (var writer = new Lucene.Net.Index.IndexWriter(
+                s_luceneDirectory,
+                new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, s_luceneAnalyzer)))
             {
-                new LuceneStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture), Lucene.Net.Documents.Field.Store.NO),
-                new LuceneTextField("body", documents[i], Lucene.Net.Documents.Field.Store.NO)
-            };
-            writer.AddDocument(doc);
+                for (int i = 0; i < documents.Length; i++)
+                {
+                    var doc = new Lucene.Net.Documents.Document
+                    {
+                        new LuceneStringField("id",
+                            i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                            Lucene.Net.Documents.Field.Store.NO),
+                        new LuceneTextField("body", documents[i],
+                            Lucene.Net.Documents.Field.Store.NO)
+                    };
+                    writer.AddDocument(doc);
+                }
+
+                writer.Commit();
+            }
+
+            s_luceneReader = DirectoryReader.Open(s_luceneDirectory);
+            s_luceneSearcher = new LuceneIndexSearcher(s_luceneReader);
+            s_luceneBuilt = true;
         }
-        writer.Commit();
-        _luceneReader = DirectoryReader.Open(_luceneDirectory);
-        _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
+    }
+
+    public static void CleanupLuceneResources()
+    {
+        if (!s_luceneBuilt)
+            return;
+
+        lock (s_luceneGate)
+        {
+            if (!s_luceneBuilt)
+                return;
+
+            s_luceneSearcher = null;
+            s_luceneReader?.Dispose();
+            s_luceneReader = null;
+            s_luceneAnalyzer?.Dispose();
+            s_luceneAnalyzer = null;
+            s_luceneDirectory?.Dispose();
+            s_luceneDirectory = null;
+            s_luceneBuilt = false;
+        }
     }
 }

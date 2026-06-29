@@ -58,7 +58,7 @@ internal static class UnicodeTokenisation
     /// Used by <see cref="IcuTokeniser"/> and <see cref="ThaiTokeniser"/> to avoid duplicating the
     /// same Unicode word-consumption loop.
     /// </summary>
-    internal static void TokeniseNonThaiSpan(ReadOnlySpan<char> input, List<Token> tokens, ref int i)
+    internal static void TokeniseNonThaiSpan(ReadOnlySpan<char> input, ISpanTokenSink sink, ref int i)
     {
         if (!IsWordStart(input[i]))
         {
@@ -69,7 +69,7 @@ internal static class UnicodeTokenisation
         int start = i;
         i = ConsumeWord(input, start);
         var span = input[start..i];
-        tokens.Add(new Token(span.ToString(), start, i, ClassifyTokenType(span)));
+        sink.Add(span, start, i, ClassifyTokenType(span));
     }
 
     public static bool TryReadUrl(ReadOnlySpan<char> input, int start, out int end)
@@ -153,19 +153,28 @@ internal static class UnicodeTokenisation
         return end > start && sawDomainDot;
     }
 
-    public static void AddShiftedTokens(List<Token> target, List<Token> source, int offset, string? typeOverride = null)
+    /// <summary>
+    /// An <see cref="ISpanTokenSink"/> that shifts all incoming token offsets by a fixed amount
+    /// and optionally overrides the token type before forwarding to the wrapped sink.
+    /// </summary>
+    internal sealed class OffsetShiftingSink : ISpanTokenSink
     {
-        for (int i = 0; i < source.Count; i++)
+        private readonly ISpanTokenSink _inner;
+        private readonly int _offset;
+        private readonly string? _typeOverride;
+
+        public OffsetShiftingSink(ISpanTokenSink inner, int offset, string? typeOverride = null)
         {
-            var token = source[i];
-            var shifted = new Token(
-                token.Text,
-                token.StartOffset + offset,
-                token.EndOffset + offset,
-                typeOverride ?? token.Type,
-                token.PositionIncrement,
-                token.Payload);
-            target.Add(shifted);
+            _inner = inner;
+            _offset = offset;
+            _typeOverride = typeOverride;
+        }
+
+        public void Add(ReadOnlySpan<char> text, int startOffset, int endOffset,
+            string type = Token.DefaultType, int positionIncrement = 1, byte[]? payload = null)
+        {
+            _inner.Add(text, startOffset + _offset, endOffset + _offset,
+                _typeOverride ?? type, positionIncrement, payload);
         }
     }
 

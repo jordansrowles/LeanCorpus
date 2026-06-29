@@ -61,6 +61,8 @@ declare -A SUITE_DESC=(
     [index]="IndexingBenchmarks          -- bulk indexing throughput (vs Lucene.NET)"
     [query]="TermQueryBenchmarks         -- single-term search (vs Lucene.NET)"
     [analysis]="AnalysisBenchmarks          -- tokenisation pipeline"
+    ["analysis-filters-v2"]="NewTokenFilterBenchmarks    -- new filter parity (Classic, PatternReplace, CommonGrams, HyphenatedWords, Caching)"
+    ["pattern-tokeniser"]="PatternTokeniserBenchmarks  -- regex tokenisation (vs Lucene.NET PatternTokenizer)"
     [boolean]="BooleanQueryBenchmarks      -- deterministic BooleanQuery clause shapes"
     [phrase]="PhraseQueryBenchmarks       -- exact and slop phrase"
     [prefix]="PrefixQueryBenchmarks        -- prefix matching (vs Lucene.NET)"
@@ -104,6 +106,10 @@ declare -A SUITE_DESC=(
     ["gutenberg-search"]="GutenbergSearch             -- search on real ebook data"
     [tokenbudget]="TokenBudgetBenchmarks     -- token budget enforcement overhead (explicit only)"
     [diagnostics]="DiagnosticsBenchmarks     -- SlowQueryLog + Analytics overhead (explicit only)"
+    ["packed-int-codec"]="PackedIntCodecBenchmarks    -- Pack/Unpack scalar loop throughput (explicit only)"
+    ["numeric-aggregator"]="NumericAggregatorSimdBenchmarks -- scalar vs Vector256 aggregation (explicit only)"
+    ["index-writer"]="IndexWriterContentionBenchmarks -- concurrent AddDocument throughput (explicit only)"
+    ["concurrent-write"]="ConcurrentVsSequentialBenchmarks -- DWPT parallel vs sequential indexing throughput (explicit only)"
 )
 
 SUITE_ORDER=(
@@ -114,6 +120,8 @@ SUITE_ORDER=(
     combined terminset aggregation query-cache parallel function-score geo collapse-facet similarity
     stemmer kstemmer lightenglish hunspell ngram synonym async-index
     gutenberg-analysis gutenberg-index gutenberg-search tokenbudget diagnostics
+    analysis-filters-v2 pattern-tokeniser
+    packed-int-codec numeric-aggregator index-writer concurrent-write
 )
 
 declare -A STRAT_DESC=(
@@ -327,12 +335,15 @@ case "$STRAT" in
         ;;
     intense)
         STRAT_DOC_COUNT=10000
+        STRAT_JOB_ARGS=(--job default)
         ;;
     stress)
         STRAT_DOC_COUNT=50000
+        STRAT_JOB_ARGS=(--job default)
         ;;
     exhaustive)
         STRAT_DOC_COUNT=100000
+        STRAT_JOB_ARGS=(--job default)
         ;;
 esac
 

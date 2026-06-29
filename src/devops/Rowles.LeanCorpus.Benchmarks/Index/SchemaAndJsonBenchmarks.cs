@@ -39,7 +39,7 @@ public class SchemaAndJsonBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_Index_NoSchema()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"leancorpus-bench-schema-{Guid.NewGuid():N}");
+        var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-schema-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
 
         try
@@ -73,7 +73,7 @@ public class SchemaAndJsonBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_Index_WithSchema()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"leancorpus-bench-schema-{Guid.NewGuid():N}");
+        var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-schema-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
 
         try

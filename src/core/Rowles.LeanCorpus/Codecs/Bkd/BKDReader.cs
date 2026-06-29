@@ -1,4 +1,7 @@
-﻿namespace Rowles.LeanCorpus.Codecs.Bkd;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+
+namespace Rowles.LeanCorpus.Codecs.Bkd;
 
 /// <summary>
 /// Reads a 1-dimensional BKD tree for efficient numeric range lookups.
@@ -19,7 +22,7 @@ internal sealed class BKDReader : IDisposable
     {
         var input = new Store.IndexInput(filePath);
 
-        CodecConstants.ValidateHeader(input, CodecConstants.BKDVersion, "BKD tree (.bkd)");
+        CodecFileHeader.ReadVersion(input, CodecFormats.Bkd);
 
         int fieldCount = input.ReadInt32();
         var offsets = new Dictionary<string, long>(fieldCount, StringComparer.Ordinal);

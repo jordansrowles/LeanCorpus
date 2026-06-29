@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
 using Rowles.LeanCorpus.Document;
@@ -275,17 +275,13 @@ public sealed class AnalysisIntegrationTests : IClassFixture<TestDirectoryFixtur
         Assert.Equal(1, results.TotalHits);
     }
 
-    private sealed class SpanOnlyNGramAnalyser : IAnalyser, ISpanAnalyser
+    private sealed class SpanOnlyNGramAnalyser : IAnalyser
     {
         private readonly NGramTokeniser _tokeniser = new(2, 2);
 
-        public List<Token> Analyse(ReadOnlySpan<char> input)
-            => throw new InvalidOperationException("Legacy analysis path should not be used.");
-
-        public bool TryAnalyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
+        public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
         {
             _tokeniser.Tokenise(input, sink);
-            return true;
         }
     }
 

@@ -1,3 +1,8 @@
+using System.Buffers;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Store;
+
 namespace Rowles.LeanCorpus.Codecs.TermVectors;
 
 /// <summary>
@@ -7,43 +12,43 @@ namespace Rowles.LeanCorpus.Codecs.TermVectors;
 /// </summary>
 internal sealed class TermVectorsStreamWriter : IDisposable
 {
+    private readonly string _tvdPath;
     private readonly string _tvxPath;
-    private readonly FileStream _tvdStream;
-    private readonly BinaryWriter _tvdWriter;
+    private readonly ArrayBufferWriter<byte> _tvdBuf;
     private readonly List<long> _offsets;
     private bool _disposed;
 
     internal TermVectorsStreamWriter(string tvdPath, string tvxPath)
     {
+        _tvdPath = tvdPath;
         _tvxPath = tvxPath;
-        _tvdStream = new FileStream(tvdPath, FileMode.Create, FileAccess.Write, FileShare.None);
-        _tvdWriter = new BinaryWriter(_tvdStream, System.Text.Encoding.UTF8, leaveOpen: false);
-        CodecConstants.WriteHeader(_tvdWriter, CodecConstants.TermVectorsVersion);
+        _tvdBuf = new ArrayBufferWriter<byte>(4096);
         _offsets = new List<long>();
     }
 
     internal void AddDocument(IReadOnlyDictionary<string, List<TermVectorEntry>>? fields)
     {
-        _offsets.Add(_tvdStream.Position);
+        _offsets.Add(_tvdBuf.WrittenCount);
         if (fields is null)
         {
-            _tvdWriter.Write(0);
+            _tvdBuf.WriteInt32(0);
             return;
         }
 
-        _tvdWriter.Write(fields.Count);
+        _tvdBuf.WriteInt32(fields.Count);
         foreach (var (fieldName, entries) in fields)
         {
-            _tvdWriter.Write(fieldName);
-            _tvdWriter.Write(entries.Count);
+            _tvdBuf.WriteString(fieldName);
+            _tvdBuf.WriteInt32(entries.Count);
             foreach (var entry in entries)
             {
-                _tvdWriter.Write(entry.Term);
-                _tvdWriter.Write(entry.Freq);
-                _tvdWriter.Write(entry.Positions.Length);
+                _tvdBuf.WriteString(entry.Term);
+                _tvdBuf.WriteInt32(entry.Freq);
+                _tvdBuf.WriteInt32(entry.Positions.Length);
                 foreach (var pos in entry.Positions)
-                    _tvdWriter.Write(pos);
+                    _tvdBuf.WriteInt32(pos);
                 WritePayloads(entry);
+                WriteOffsets(entry);
             }
         }
     }
@@ -53,25 +58,48 @@ internal sealed class TermVectorsStreamWriter : IDisposable
         if (_disposed) return;
         _disposed = true;
 
-        _tvdStream.Flush(flushToDisk: true);
-        _tvdWriter.Flush();
-        _tvdWriter.Dispose();
-        _tvdStream.Dispose();
+        long tvdBodyLength = _tvdBuf.WrittenCount;
 
-        using var tvxFs = new FileStream(_tvxPath, FileMode.Create, FileAccess.Write, FileShare.None);
-        using var tvxWriter = new BinaryWriter(tvxFs, System.Text.Encoding.UTF8, leaveOpen: false);
-        CodecConstants.WriteHeader(tvxWriter, CodecConstants.TermVectorsVersion);
-        tvxWriter.Write(_offsets.Count);
+        long headerSize;
+        using (var tvdOutput = new IndexOutput(_tvdPath, durable: true))
+        {
+            CodecFileHeader.Write(tvdOutput, CodecFormats.TermVectors, _tvdBuf.WrittenSpan);
+            headerSize = tvdOutput.Position - tvdBodyLength;
+        }
+
+        // Re-base body-relative offsets to file-absolute positions.
+        for (int i = 0; i < _offsets.Count; i++)
+            _offsets[i] += headerSize;
+
+        var tvxBodyBuf = new ArrayBufferWriter<byte>(1024);
+        tvxBodyBuf.WriteInt32(_offsets.Count);
         foreach (var off in _offsets)
-            tvxWriter.Write(off);
-        tvxFs.Flush(flushToDisk: true);
+            tvxBodyBuf.WriteInt64(off);
+
+        using var tvxOutput = new IndexOutput(_tvxPath, durable: true);
+        CodecFileHeader.Write(tvxOutput, CodecFormats.TermVectors, tvxBodyBuf.WrittenSpan);
+    }
+
+    private void WriteOffsets(TermVectorEntry entry)
+    {
+        bool hasOffsets = entry.StartOffsets is { Length: > 0 } && entry.EndOffsets is { Length: > 0 };
+        _tvdBuf.WriteByte(hasOffsets ? (byte)1 : (byte)0);
+        if (!hasOffsets) return;
+
+        if (entry.StartOffsets!.Length != entry.Positions.Length || entry.EndOffsets!.Length != entry.Positions.Length)
+            throw new InvalidDataException($"Term vector offset count for term '{entry.Term}' must match the position count.");
+
+        for (int i = 0; i < entry.StartOffsets.Length; i++)
+            _tvdBuf.WriteInt32(entry.StartOffsets[i]);
+        for (int i = 0; i < entry.EndOffsets.Length; i++)
+            _tvdBuf.WriteInt32(entry.EndOffsets[i]);
     }
 
     private void WritePayloads(TermVectorEntry entry)
     {
         bool hasPayloads = entry.Payloads is { Length: > 0 } payloads
             && payloads.Any(static payload => payload is { Length: > 0 });
-        _tvdWriter.Write(hasPayloads);
+        _tvdBuf.WriteByte(hasPayloads ? (byte)1 : (byte)0);
 
         if (!hasPayloads)
             return;
@@ -82,9 +110,9 @@ internal sealed class TermVectorsStreamWriter : IDisposable
         for (int i = 0; i < entry.Payloads.Length; i++)
         {
             var payload = entry.Payloads[i];
-            _tvdWriter.Write(payload?.Length ?? 0);
+            _tvdBuf.WriteInt32(payload?.Length ?? 0);
             if (payload is { Length: > 0 })
-                _tvdWriter.Write(payload);
+                _tvdBuf.WriteBytes(payload);
         }
     }
 }

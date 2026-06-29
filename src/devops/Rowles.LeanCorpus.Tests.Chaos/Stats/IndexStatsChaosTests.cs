@@ -19,7 +19,8 @@ public sealed class IndexStatsChaosTests : IClassFixture<ChaosDirectoryFixture>
         totalDocCount: 50,
         liveDocCount: 50,
         avgFieldLengths: new(StringComparer.Ordinal) { ["body"] = 8.0f },
-        fieldDocCounts: new(StringComparer.Ordinal) { ["body"] = 50 });
+        fieldDocCounts: new(StringComparer.Ordinal) { ["body"] = 50 },
+        fieldLengthSums: new(StringComparer.Ordinal) { ["body"] = 400L });
 
     /// <summary>
     /// When the destination file exists and is read-only, <see cref="File.Move"/> throws

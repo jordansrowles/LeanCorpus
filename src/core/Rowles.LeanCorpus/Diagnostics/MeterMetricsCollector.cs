@@ -1,4 +1,4 @@
-﻿using System.Diagnostics.Metrics;
+using System.Diagnostics.Metrics;
 
 namespace Rowles.LeanCorpus.Diagnostics;
 
@@ -31,25 +31,46 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
     private readonly Histogram<double> _hnswBuildDuration;
     private readonly Histogram<long> _hnswBuildSize;
 
-    // Interlocked shadow counters so GetSnapshot() remains fully functional.
+#pragma warning disable CS0169 // padding fields for false-sharing prevention
+    // ── Cache line 1: Search ──
     private long _snSearchCount;
     private long _snSearchTotalMs;
     private long _snSearchMaxMs;
+    private long _padSn1_0, _padSn1_1, _padSn1_2, _padSn1_3, _padSn1_4;
+
+    // ── Cache line 2: Cache ──
     private long _snCacheHits;
     private long _snCacheMisses;
+    private long _padSn2_0, _padSn2_1, _padSn2_2, _padSn2_3, _padSn2_4, _padSn2_5;
+
+    // ── Cache line 3: Flush ──
     private long _snFlushCount;
     private long _snFlushTotalMs;
+    private long _padSn3_0, _padSn3_1, _padSn3_2, _padSn3_3, _padSn3_4, _padSn3_5;
+
+    // ── Cache line 4: Merge ──
     private long _snMergeCount;
     private long _snMergeSegments;
     private long _snMergeTotalMs;
+    private long _padSn4_0, _padSn4_1, _padSn4_2, _padSn4_3, _padSn4_4;
+
+    // ── Cache line 5: Commit ──
     private long _snCommitCount;
     private long _snCommitTotalMs;
+    private long _padSn5_0, _padSn5_1, _padSn5_2, _padSn5_3, _padSn5_4, _padSn5_5;
+
+    // ── Cache line 6: HNSW ──
     private long _snHnswSearchCount;
     private long _snHnswSearchTotalMs;
     private long _snHnswNodesVisited;
     private long _snHnswBuildCount;
     private long _snHnswBuildTotalMs;
     private long _snHnswNodesBuilt;
+    private long _padSn6_0, _padSn6_1;
+
+#pragma warning restore CS0169
+
+    // ── Cache line 7: Latency (array = 64 B) ──
     private readonly long[] _snLatencyBuckets = new long[8];
     private static readonly int[] BucketThresholdsMs = [1, 5, 10, 50, 100, 500, 1000];
 

@@ -1,6 +1,6 @@
 ﻿# Articles
 
-Short notes on the larger pieces of LeanCorpus.
+Short notes on the larger pieces.
 
 - [Aspire telemetry](01-aspire-telemetry.md)
 - [HNSW vector search](02-hnsw-vector-search.md)
@@ -8,3 +8,7 @@ Short notes on the larger pieces of LeanCorpus.
 - [Reliable commits](04-reliable-commits.md)
 - [Codecs](05-codecs.md)
 - [Source generator diagnostics](06-source-generator-diagnostics.md)
+
+## Architecture Decision Records
+
+- [ADR index](ADRs/index.md)

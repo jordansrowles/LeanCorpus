@@ -1,93 +1,104 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Stemmers;
+namespace Rowles.LeanCorpus.Analysis.Stemmers;
 
 /// <summary>
 /// Spanish Snowball-inspired stemmer. Handles common Spanish inflectional and
 /// derivational suffixes. Expects lowercased, UTF-8 normalized input;
 /// accented vowels (á, é, í, ó, ú) are treated as distinct characters.
 /// </summary>
-public sealed class SpanishStemmer : IStemmer
+public sealed class SpanishStemmer : ISpanStemmer
 {
     /// <inheritdoc/>
     public string Stem(string word)
     {
-        if (word.Length <= 3) return word;
-
         Span<char> buf = word.Length <= 64
             ? stackalloc char[word.Length]
             : new char[word.Length];
-        word.AsSpan().CopyTo(buf);
-        int len = buf.Length;
+        int len = Stem(word.AsSpan(), buf);
+        return len < 0 ? word : new string(buf[..len]);
+    }
+
+    /// <inheritdoc/>
+    public int Stem(ReadOnlySpan<char> word, Span<char> output)
+    {
+        if (word.Length <= 3)
+        {
+            if (output.Length < word.Length) return -1;
+            word.CopyTo(output);
+            return word.Length;
+        }
+        if (output.Length < word.Length) return -1;
+        word.CopyTo(output);
+        int len = word.Length;
 
         // Step 1: Derivational suffixes (longest match first)
-        len = RemoveSuffix(buf, len, "amientos", "")
-           ?? RemoveSuffix(buf, len, "imientos", "")
-           ?? RemoveSuffix(buf, len, "amiento", "")
-           ?? RemoveSuffix(buf, len, "imiento", "")
-           ?? RemoveSuffix(buf, len, "aciones", "")
-           ?? RemoveSuffix(buf, len, "ución", "")
-           ?? RemoveSuffix(buf, len, "uciones", "")
-           ?? RemoveSuffix(buf, len, "ación", "")
-           ?? RemoveSuffix(buf, len, "idades", "")
-           ?? RemoveSuffix(buf, len, "idad", "")
-           ?? RemoveSuffix(buf, len, "mente", "")
-           ?? RemoveSuffix(buf, len, "ismos", "")
-           ?? RemoveSuffix(buf, len, "ismo", "")
-           ?? RemoveSuffix(buf, len, "istas", "")
-           ?? RemoveSuffix(buf, len, "ista", "")
-           ?? RemoveSuffix(buf, len, "ibles", "")
-           ?? RemoveSuffix(buf, len, "ible", "")
-           ?? RemoveSuffix(buf, len, "ables", "")
-           ?? RemoveSuffix(buf, len, "able", "")
-           ?? buf.Length;
+        len = RemoveSuffix(output, len, "amientos", "")
+           ?? RemoveSuffix(output, len, "imientos", "")
+           ?? RemoveSuffix(output, len, "amiento", "")
+           ?? RemoveSuffix(output, len, "imiento", "")
+           ?? RemoveSuffix(output, len, "aciones", "")
+           ?? RemoveSuffix(output, len, "ución", "")
+           ?? RemoveSuffix(output, len, "uciones", "")
+           ?? RemoveSuffix(output, len, "ación", "")
+           ?? RemoveSuffix(output, len, "idades", "")
+           ?? RemoveSuffix(output, len, "idad", "")
+           ?? RemoveSuffix(output, len, "mente", "")
+           ?? RemoveSuffix(output, len, "ismos", "")
+           ?? RemoveSuffix(output, len, "ismo", "")
+           ?? RemoveSuffix(output, len, "istas", "")
+           ?? RemoveSuffix(output, len, "ista", "")
+           ?? RemoveSuffix(output, len, "ibles", "")
+           ?? RemoveSuffix(output, len, "ible", "")
+           ?? RemoveSuffix(output, len, "ables", "")
+           ?? RemoveSuffix(output, len, "able", "")
+           ?? len;
 
         // Step 2: Verb endings — present/past participle, infinitive, gerund
-        len = RemoveSuffix(buf, len, "ándose", "")
-           ?? RemoveSuffix(buf, len, "iéndose", "")
-           ?? RemoveSuffix(buf, len, "ándome", "")
-           ?? RemoveSuffix(buf, len, "ando", "")
-           ?? RemoveSuffix(buf, len, "iendo", "")
-           ?? RemoveSuffix(buf, len, "aron", "")
-           ?? RemoveSuffix(buf, len, "ieron", "")
-           ?? RemoveSuffix(buf, len, "adas", "")
-           ?? RemoveSuffix(buf, len, "idas", "")
-           ?? RemoveSuffix(buf, len, "ados", "")
-           ?? RemoveSuffix(buf, len, "idos", "")
-           ?? RemoveSuffix(buf, len, "ada", "")
-           ?? RemoveSuffix(buf, len, "ida", "")
-           ?? RemoveSuffix(buf, len, "ado", "")
-           ?? RemoveSuffix(buf, len, "ido", "")
-           ?? RemoveSuffix(buf, len, "aban", "")
-           ?? RemoveSuffix(buf, len, "ían", "")
-           ?? RemoveSuffix(buf, len, "arán", "")
-           ?? RemoveSuffix(buf, len, "erán", "")
-           ?? RemoveSuffix(buf, len, "irán", "")
-           ?? RemoveSuffix(buf, len, "aron", "")
-           ?? RemoveSuffix(buf, len, "aré", "")
-           ?? RemoveSuffix(buf, len, "eré", "")
-           ?? RemoveSuffix(buf, len, "iré", "")
-           ?? RemoveSuffix(buf, len, "amos", "")
-           ?? RemoveSuffix(buf, len, "emos", "")
-           ?? RemoveSuffix(buf, len, "imos", "")
-           ?? RemoveSuffix(buf, len, "aban", "")
-           ?? RemoveSuffix(buf, len, "abas", "")
-           ?? RemoveSuffix(buf, len, "aba", "")
-           ?? RemoveSuffix(buf, len, "ías", "")
-           ?? RemoveSuffix(buf, len, "ía", "")
-           ?? RemoveSuffix(buf, len, "ar", "")
-           ?? RemoveSuffix(buf, len, "er", "")
-           ?? RemoveSuffix(buf, len, "ir", "")
+        len = RemoveSuffix(output, len, "ándose", "")
+           ?? RemoveSuffix(output, len, "iéndose", "")
+           ?? RemoveSuffix(output, len, "ándome", "")
+           ?? RemoveSuffix(output, len, "ando", "")
+           ?? RemoveSuffix(output, len, "iendo", "")
+           ?? RemoveSuffix(output, len, "aron", "")
+           ?? RemoveSuffix(output, len, "ieron", "")
+           ?? RemoveSuffix(output, len, "adas", "")
+           ?? RemoveSuffix(output, len, "idas", "")
+           ?? RemoveSuffix(output, len, "ados", "")
+           ?? RemoveSuffix(output, len, "idos", "")
+           ?? RemoveSuffix(output, len, "ada", "")
+           ?? RemoveSuffix(output, len, "ida", "")
+           ?? RemoveSuffix(output, len, "ado", "")
+           ?? RemoveSuffix(output, len, "ido", "")
+           ?? RemoveSuffix(output, len, "aban", "")
+           ?? RemoveSuffix(output, len, "ían", "")
+           ?? RemoveSuffix(output, len, "arán", "")
+           ?? RemoveSuffix(output, len, "erán", "")
+           ?? RemoveSuffix(output, len, "irán", "")
+           ?? RemoveSuffix(output, len, "aron", "")
+           ?? RemoveSuffix(output, len, "aré", "")
+           ?? RemoveSuffix(output, len, "eré", "")
+           ?? RemoveSuffix(output, len, "iré", "")
+           ?? RemoveSuffix(output, len, "amos", "")
+           ?? RemoveSuffix(output, len, "emos", "")
+           ?? RemoveSuffix(output, len, "imos", "")
+           ?? RemoveSuffix(output, len, "aban", "")
+           ?? RemoveSuffix(output, len, "abas", "")
+           ?? RemoveSuffix(output, len, "aba", "")
+           ?? RemoveSuffix(output, len, "ías", "")
+           ?? RemoveSuffix(output, len, "ía", "")
+           ?? RemoveSuffix(output, len, "ar", "")
+           ?? RemoveSuffix(output, len, "er", "")
+           ?? RemoveSuffix(output, len, "ir", "")
            ?? len;
 
         // Step 3: Remove gender/number suffixes
-        len = RemoveSuffix(buf, len, "os", "")
-           ?? RemoveSuffix(buf, len, "as", "")
-           ?? RemoveSuffix(buf, len, "es", "")
-           ?? RemoveSuffix(buf, len, "o", "")
-           ?? RemoveSuffix(buf, len, "a", "")
+        len = RemoveSuffix(output, len, "os", "")
+           ?? RemoveSuffix(output, len, "as", "")
+           ?? RemoveSuffix(output, len, "es", "")
+           ?? RemoveSuffix(output, len, "o", "")
+           ?? RemoveSuffix(output, len, "a", "")
            ?? len;
 
-        var result = buf[..len];
-        return result.SequenceEqual(word.AsSpan()) ? word : new string(result);
+        return len;
     }
 
     private static int? RemoveSuffix(Span<char> buf, int len, ReadOnlySpan<char> suffix, ReadOnlySpan<char> replacement)

@@ -65,4 +65,14 @@ public sealed class StoredField : IField
 
     /// <inheritdoc/>
     public float Boost => 1.0f;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <see cref="StoredField"/> populates <c>BinaryDocValues</c> with the UTF-8 representation
+    /// of its string value, so this defaults to <c>true</c>.
+    /// </remarks>
+    public bool StoreDocValues => true;
+
+    /// <inheritdoc/>
+    public FieldIndexOptions IndexOptions => FieldIndexOptions.DocsOnly;
 }

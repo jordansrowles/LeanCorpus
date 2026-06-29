@@ -1,47 +1,37 @@
 ﻿# Source generator diagnostics
 
-`LeanCorpus.SourceGen` reports LCGEN diagnostics when an annotated model cannot produce safe, direct mapping code.
+`LeanCorpus.SourceGen` reports LCGEN diagnostics when an annotated model can't produce safe mapping code.
 
 | ID | Meaning | Fix |
 |---|---|---|
-| LCGEN001 | Property type is unsupported for the selected field attribute. | Use a supported CLR type or a different attribute. |
-| LCGEN002 | Two or more properties use the same generated field name. | Give each mapped property a unique field name. |
-| LCGEN003 | Field name is null, empty, or contains control characters. | Use a non-empty LeanCorpus field name. |
-| LCGEN004 | `FromStoredDocument` cannot materialise a mapped member from stored fields. | Store the field, remove unsupported vector mapping from round-tripped models, or avoid `FromStoredDocument`. |
-| LCGEN005 | A property has more than one Lean field attribute. | Keep exactly one mapping attribute, or use `[LeanIgnore]`. |
-| LCGEN006 | A temporal or decimal numeric property has no encoding. | Set `Encoding = LeanNumericEncoding...`. |
-| LCGEN007 | A vector property has no positive dimension. | Set `Dimension` to the expected vector length. |
-| LCGEN008 | A collection shape is unsupported. | Use `string[]`, `IReadOnlyList<string>`, or `float[]` for vectors. |
-| LCGEN009 | A geo-point property is not `LeanGeoLocation`. | Change the property type to `LeanGeoLocation` or `LeanGeoLocation?`. |
-| LCGEN010 | The document target is generic or nested. | Move the mapped model to a non-generic, non-nested type. |
-| LCGEN011 | A mapped property is not accessible to generated code. | Use a public, internal, or protected-internal instance property with an accessible getter. |
-| LCGEN012 | The generated materialiser cannot construct or assign the model. | Add an accessible parameterless constructor and assignable mapped members, or remove unmapped `required` members. |
-| LCGEN013 | `DecimalAsString` was combined with `Stored = false`. | Keep `Stored = true`; decimal-as-string is stored-only by design. |
+| LCGEN001 | Property type unsupported for the selected field attribute | Use a supported CLR type or a different attribute |
+| LCGEN002 | Two properties use the same generated field name | Give each a unique field name |
+| LCGEN003 | Field name is null, empty, or has control characters | Use a valid name |
+| LCGEN004 | `FromStoredDocument` can't materialise a member from stored fields | Store the field or remove unsupported vector mapping |
+| LCGEN005 | Property has more than one Lean field attribute | Keep exactly one, or use `[LeanIgnore]` |
+| LCGEN006 | Temporal or decimal numeric property has no encoding | Set `Encoding = LeanNumericEncoding...` |
+| LCGEN007 | Vector property has no positive dimension | Set `Dimension` |
+| LCGEN008 | Collection shape unsupported | Use `string[]`, `IReadOnlyList<string>`, or `float[]` for vectors |
+| LCGEN009 | Geo-point property is not `LeanGeoLocation` | Change to `LeanGeoLocation` or `LeanGeoLocation?` |
+| LCGEN010 | Document target is generic or nested | Move to a non-generic, non-nested type |
+| LCGEN011 | Mapped property not accessible to generated code | Use a public, internal, or protected-internal instance property with an accessible getter |
+| LCGEN012 | Generated materialiser can't construct or assign the model | Add a parameterless constructor and assignable mapped members, or remove unmapped `required` members |
+| LCGEN013 | `DecimalAsString` combined with `Stored = false` | Keep `Stored = true`; decimal-as-string is stored-only |
 
 ## Examples
 
 ```csharp
-// LCGEN006
+// LCGEN006 — missing encoding on a temporal field
 [LeanNumeric("published")]
 public DateTimeOffset Published { get; init; }
-```
-
-Fix:
-
-```csharp
+// Fix:
 [LeanNumeric("published", Encoding = LeanNumericEncoding.UnixMilliseconds)]
 public DateTimeOffset Published { get; init; }
-```
 
-```csharp
-// LCGEN013
+// LCGEN013 — DecimalAsString must be stored
 [LeanNumeric("amount", Encoding = LeanNumericEncoding.DecimalAsString, Stored = false)]
 public decimal Amount { get; init; }
-```
-
-Fix:
-
-```csharp
+// Fix:
 [LeanNumeric("amount", Encoding = LeanNumericEncoding.DecimalAsString)]
 public decimal Amount { get; init; }
 ```

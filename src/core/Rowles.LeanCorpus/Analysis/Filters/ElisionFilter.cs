@@ -1,11 +1,12 @@
-﻿using System.Collections.Frozen;
+using System.Collections.Frozen;
+using Rowles.LeanCorpus.Analysis;
 
 namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
 /// Removes configured elided articles before straight or curly apostrophes.
 /// </summary>
-public sealed class ElisionFilter : ITokenFilter
+public sealed class ElisionFilter : ISpanTokenFilter
 {
     private static readonly string[] DefaultArticles =
     [
@@ -26,24 +27,35 @@ public sealed class ElisionFilter : ITokenFilter
     }
 
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+
+    /// <inheritdoc/>
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        for (int i = 0; i < tokens.Count; i++)
+        int apostrophe = IndexOfApostrophe(text);
+        if (apostrophe <= 0 || apostrophe == text.Length - 1)
         {
-            var token = tokens[i];
-            int apostrophe = IndexOfApostrophe(token.Text);
-            if (apostrophe <= 0 || apostrophe == token.Text.Length - 1)
-                continue;
-
-            if (!_articles.GetAlternateLookup<ReadOnlySpan<char>>().Contains(token.Text.AsSpan(0, apostrophe)))
-                continue;
-
-            int newStart = token.StartOffset + apostrophe + 1;
-            tokens[i] = token.WithTextAndOffsets(token.Text[(apostrophe + 1)..], newStart, token.EndOffset);
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+            return;
         }
+
+        if (!_articles.GetAlternateLookup<ReadOnlySpan<char>>().Contains(text[..apostrophe]))
+        {
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+            return;
+        }
+
+        int newStart = startOffset + apostrophe + 1;
+        sink.Add(text[(apostrophe + 1)..], newStart, endOffset, type, positionIncrement, payload);
     }
 
-    private static int IndexOfApostrophe(string text)
+    private static int IndexOfApostrophe(ReadOnlySpan<char> text)
     {
         for (int i = 0; i < text.Length; i++)
         {

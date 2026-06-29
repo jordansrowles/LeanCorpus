@@ -23,4 +23,14 @@ public interface ISpanTokenFilter
         int positionIncrement,
         byte[]? payload,
         ISpanTokenSink sink);
+
+    /// <summary>
+    /// Called after all tokens have been processed, allowing stateful filters to flush
+    /// buffered tokens into the pipeline. The default implementation is a no-op.
+    /// </summary>
+    /// <param name="sink">The next sink in the analysis pipeline.</param>
+    void Finish(ISpanTokenSink sink)
+    {
+        // Default no-op for stateless filters.
+    }
 }

@@ -17,4 +17,23 @@ public interface IField
 
     /// <summary>Index-time boost applied to queries that score this field.</summary>
     float Boost { get; }
+
+    /// <summary>
+    /// Whether to populate DocValues (sorted, sorted-set, numeric, binary) for this field.
+    /// When <c>false</c>, no DocValues sidecar files are produced for the field.
+    /// Default: <c>true</c> for <see cref="StringField"/> and <see cref="NumericField"/>;
+    /// <c>false</c> for <see cref="TextField"/>, <see cref="StoredField"/>, and <see cref="BinaryField"/>.
+    /// </summary>
+    bool StoreDocValues { get; }
+
+    /// <summary>
+    /// Controls which postings data (doc IDs, frequencies, positions, offsets)
+    /// is written to the inverted index. Lower levels reduce disk usage and
+    /// indexing time but disable phrase queries and scoring features.
+    /// Default: <see cref="FieldIndexOptions.DocsAndFreqsAndPositions"/>
+    /// for <see cref="TextField"/>;
+    /// <see cref="FieldIndexOptions.DocsAndFreqs"/> for <see cref="StringField"/>;
+    /// <see cref="FieldIndexOptions.DocsOnly"/> for <see cref="NumericField"/>.
+    /// </summary>
+    FieldIndexOptions IndexOptions { get; }
 }

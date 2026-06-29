@@ -1,37 +1,26 @@
 ﻿# Concurrent indexing
 
-`IndexWriter` is thread-safe for `AddDocument`. For high-throughput ingest, the
-concurrent path uses per-thread document writers (DWPTs).
+`IndexWriter` is thread-safe for `AddDocument`. For high-throughput ingest, use the concurrent path.
 
 ## Multi-threaded add
 
 ```csharp
 var docs = LoadDocuments();
-
 Parallel.ForEach(docs, doc => writer.AddDocument(doc));
-
 writer.Commit();
 ```
 
-## Tuning
-
-`IndexWriterConfig.MaxQueuedDocs` (default `20_000`) caps the in-flight queue per
-DWPT. `MaxBufferedDocs` and `RamBufferSizeMB` together govern when a flush fires.
-
-## Lock-free fast path
-
-For workloads that never need to reorder buffered docs, `AddDocumentLockFree`
-bypasses the global lock. Use through the higher-level helper:
+## Concurrent pipeline
 
 ```csharp
 writer.AddDocumentsConcurrent(docs);
 ```
 
-This explicitly requests the concurrent ingestion pipeline.
+`MaxQueuedDocs` (default `20_000`) caps the in-flight queue. `MaxBufferedDocs` and `RamBufferSizeMB` govern when a flush fires.
 
-## Initialising the DWPT pool
+## Pre-warm DWPT pool
 
-DWPTs are created lazily. To pre-warm:
+DWPTs are created lazily. Pre-warm for consistent latency:
 
 ```csharp
 writer.InitialiseDwptPool();

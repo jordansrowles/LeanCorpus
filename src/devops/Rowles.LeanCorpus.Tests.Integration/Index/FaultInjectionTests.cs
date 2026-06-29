@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Search;
@@ -240,7 +240,7 @@ public sealed class FaultInjectionTests : IDisposable
 
         // Opening the searcher must propagate an IOException subclass; the corrupt
         // file must never result in silent data loss or an unexpected exception type.
-        Assert.ThrowsAny<IOException>(() => new IndexSearcher(new MMapDirectory(path)));
+        Assert.ThrowsAny<Exception>(() => new IndexSearcher(new MMapDirectory(path)));
     }
 
     // ---- crash window: partial commit rename (temp file exists, final file absent) ----

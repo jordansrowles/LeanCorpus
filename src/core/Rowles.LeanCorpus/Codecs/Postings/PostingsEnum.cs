@@ -1,6 +1,8 @@
 using System.Buffers;
 using System.Runtime.CompilerServices;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 
 namespace Rowles.LeanCorpus.Codecs.Postings;
 
@@ -25,7 +27,7 @@ public unsafe struct PostingsEnum : IDisposable
     private int[]? _positionData;
     private int[]? _positionStarts;
 
-    // Lazy block-at-a-time mode (v3): delegates to BlockPostingsEnum
+    // Lazy block-at-a-time mode: delegates to BlockPostingsEnum
     // instead of pre-decoding all doc IDs/frequencies into ArrayPool arrays.
     private BlockPostingsEnum _blockEnum;
     private readonly bool _lazyMode;
@@ -40,7 +42,7 @@ public unsafe struct PostingsEnum : IDisposable
     // Prevents the IndexInput from being disposed/GC'd while this PostingsEnum holds a raw pointer
     private readonly IndexInput? _sourceInput;
 
-    // v2 payload support
+    // Payload support
     private readonly bool _hasPayloads;
     private long[]? _payloadByteOffsets;
     private int[]? _payloadLengths;
@@ -177,7 +179,7 @@ public unsafe struct PostingsEnum : IDisposable
     public int DocFreq => _lazyMode ? _blockEnum.DocFreqCount : _count;
 
     /// <summary>Gets the current document ID, or -1 if the cursor has not been advanced or is exhausted.</summary>
-    public int DocId => _lazyMode ? (_blockEnum.IsExhausted ? -1 : _blockEnum.DocId)
+    public int DocId => _lazyMode ? _blockEnum.DocId
         : (_index >= 0 && _index < _count ? _docIds![_index] : -1);
 
     /// <summary>Gets the term frequency in the current document. Returns 1 if frequency data is unavailable.</summary>
@@ -185,7 +187,7 @@ public unsafe struct PostingsEnum : IDisposable
         : (_index >= 0 && _index < _count && _freqs is not null ? _freqs[_index] : 1);
 
     /// <summary>Gets a value indicating whether the cursor has passed the last document.</summary>
-    public bool IsExhausted => _lazyMode ? _blockEnum.IsExhausted : _count == 0;
+    public bool IsExhausted => _lazyMode ? _blockEnum.IsExhausted : _index >= _count;
 
     private PostingsEnum(int[]? docIds, int[]? freqs, int count,
         int[]? positionData = null, int[]? positionStarts = null)
@@ -291,49 +293,14 @@ public unsafe struct PostingsEnum : IDisposable
     }
 
     /// <summary>Creates a PostingsEnum by reading from a memory-mapped IndexInput at the specified offset.</summary>
-    public static PostingsEnum Create(IndexInput input, long offset, byte postingsVersion = 2)
-    {
-        if (postingsVersion >= 3)
-            return CreateV3(input, offset);
-
-        long cursor = offset;
-        int count = input.ReadInt32(ref cursor);
-        if (count <= 0)
-            return Empty;
-
-        int skipCount = input.ReadInt32(ref cursor);
-        if (skipCount > 0)
-            cursor += skipCount * 8L;
-
-        var docIds = ArrayPool<int>.Shared.Rent(count);
-        int prev = 0;
-        for (int i = 0; i < count; i++)
-        {
-            prev += input.ReadVarInt(ref cursor);
-            docIds[i] = prev;
-        }
-
-        bool hasFreqs = input.ReadBoolean(ref cursor);
-        int[]? freqs = null;
-        if (hasFreqs)
-        {
-            freqs = ArrayPool<int>.Shared.Rent(count);
-            for (int i = 0; i < count; i++)
-                freqs[i] = input.ReadVarInt(ref cursor);
-        }
-
-        return new PostingsEnum(docIds, freqs, count);
-    }
-
-    /// <summary>Lazy v3 block-at-a-time postings — no upfront ArrayPool rental.</summary>
-    private static PostingsEnum CreateV3(IndexInput input, long offset)
+    public static PostingsEnum Create(IndexInput input, long offset)
     {
         long cursor = offset;
         int docFreq = input.ReadInt32(ref cursor);
         long skipOffset = input.ReadInt64(ref cursor);
-        input.ReadBoolean(ref cursor); // hasFreqs (always decoded by BlockPostingsEnum)
-        input.ReadBoolean(ref cursor); // hasPositions
-        input.ReadBoolean(ref cursor); // hasPayloads
+        input.ReadBoolean(ref cursor);
+        input.ReadBoolean(ref cursor);
+        input.ReadBoolean(ref cursor);
 
         if (docFreq <= 0) return Empty;
 
@@ -347,73 +314,7 @@ public unsafe struct PostingsEnum : IDisposable
     /// During creation, only per-doc byte offsets and position counts are recorded.
     /// Actual position values are decoded on-demand via <see cref="GetCurrentPositions"/>.
     /// </summary>
-    public static PostingsEnum CreateWithPositions(IndexInput input, long offset, byte postingsVersion = 2)
-    {
-        if (postingsVersion >= 3)
-            return CreateV3WithPositions(input, offset);
-
-        long cursor = offset;
-        int count = input.ReadInt32(ref cursor);
-        if (count <= 0)
-            return Empty;
-
-        int skipCount = input.ReadInt32(ref cursor);
-        if (skipCount > 0)
-            cursor += skipCount * 8L;
-
-        var docIds = ArrayPool<int>.Shared.Rent(count);
-        int prev = 0;
-        for (int i = 0; i < count; i++)
-        {
-            prev += input.ReadVarInt(ref cursor);
-            docIds[i] = prev;
-        }
-
-        bool hasFreqs = input.ReadBoolean(ref cursor);
-        int[]? freqs = null;
-        if (hasFreqs)
-        {
-            freqs = ArrayPool<int>.Shared.Rent(count);
-            for (int i = 0; i < count; i++)
-                freqs[i] = input.ReadVarInt(ref cursor);
-        }
-
-        bool hasPositions = input.ReadBoolean(ref cursor);
-
-        bool hasPayloads = false;
-        if (postingsVersion >= 2)
-            hasPayloads = input.ReadBoolean(ref cursor);
-
-        if (!hasPositions)
-            return new PostingsEnum(docIds, freqs, count);
-
-        // Record per-doc byte offsets for lazy position decoding
-        var positionByteOffsets = RentPosOffsets(count);
-        var positionCounts = RentPosCounts(count);
-
-        for (int i = 0; i < count; i++)
-        {
-            int posCount = input.ReadVarInt(ref cursor);
-            positionCounts[i] = posCount;
-            positionByteOffsets[i] = cursor;
-            // Skip past position VarInts (and inline payloads for v2)
-            for (int j = 0; j < posCount; j++)
-            {
-                input.ReadVarInt(ref cursor); // position delta
-                if (hasPayloads)
-                {
-                    int payloadLen = input.ReadVarInt(ref cursor);
-                    if (payloadLen > 0)
-                        cursor += payloadLen;
-                }
-            }
-        }
-
-        return new PostingsEnum(docIds, freqs, count, positionByteOffsets, positionCounts, input.BasePointer, input, hasPayloads);
-    }
-
-    /// <summary>Eagerly decodes v3 block-packed postings with lazy position data.</summary>
-    private static PostingsEnum CreateV3WithPositions(IndexInput input, long offset)
+    public static PostingsEnum CreateWithPositions(IndexInput input, long offset)
     {
         long cursor = offset;
         int docFreq = input.ReadInt32(ref cursor);
@@ -426,15 +327,10 @@ public unsafe struct PostingsEnum : IDisposable
 
         long docStartOffset = cursor;
 
-        // Lazy doc traversal for large postings: avoid renting docIds/freqs arrays.
-        // BlockPostingsEnum stays alive for on-demand doc iteration whilst position
-        // metadata is preloaded for GetCurrentPositions random access.
         if (docFreq > MaxPositionPreloadDocs && hasPositions)
         {
             var blockEnumLazy = BlockPostingsEnum.Create(input, docStartOffset, skipOffset, docFreq);
 
-            // Position data follows the skip table.
-            // Skip table: int32 skipCount (4 bytes) + skipCount × 15 bytes per entry.
             long posCursor = skipOffset;
             int posSkipCount = input.ReadInt32(ref posCursor);
             posCursor += (long)posSkipCount * 15;
@@ -463,11 +359,9 @@ public unsafe struct PostingsEnum : IDisposable
                 input.BasePointer, input, hasPayloads);
         }
 
-        // Decode doc IDs + freqs via BlockPostingsEnum
         var blockEnum = BlockPostingsEnum.Create(input, docStartOffset, skipOffset, docFreq);
         var docIds = ArrayPool<int>.Shared.Rent(docFreq);
         int[]? freqs = hasFreqs ? ArrayPool<int>.Shared.Rent(docFreq) : null;
-
         int idx = 0;
         while (blockEnum.NextDoc() != BlockPostingsEnum.NoMoreDocs)
         {
@@ -479,7 +373,6 @@ public unsafe struct PostingsEnum : IDisposable
         if (!hasPositions)
             return new PostingsEnum(docIds, freqs, docFreq);
 
-        // Position data follows the skip table (int32 skipCount + skipCount × 15 bytes per entry)
         long posSkipCursor = skipOffset;
         int skipCount = input.ReadInt32(ref posSkipCursor);
         posSkipCursor += (long)skipCount * 15;
@@ -494,7 +387,7 @@ public unsafe struct PostingsEnum : IDisposable
             positionByteOffsets[i] = posSkipCursor;
             for (int j = 0; j < posCount; j++)
             {
-                input.ReadVarInt(ref posSkipCursor); // position delta
+                input.ReadVarInt(ref posSkipCursor);
                 if (hasPayloads)
                 {
                     int payloadLen = input.ReadVarInt(ref posSkipCursor);
@@ -653,7 +546,7 @@ public unsafe struct PostingsEnum : IDisposable
     }
 
     /// <summary>Resets the cursor to before the first document, allowing the list to be re-iterated.</summary>
-    public void Reset() => _index = -1;
+    public void Reset() { if (_lazyMode) _blockEnum.Reset(); _index = -1; }
 
     /// <summary>
     /// Advances to the first document >= targetDocId. Returns true if found.
@@ -798,6 +691,12 @@ public unsafe struct PostingsEnum : IDisposable
     public static byte ValidateFileHeader(IndexInput input)
     {
         input.Seek(0);
-        return CodecConstants.ReadHeaderVersion(input, CodecConstants.PostingsVersion, "postings (.pos)");
+        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.Postings);
+        if (version > CodecConstants.PostingsVersion)
+            throw new InvalidDataException(
+                $"Unsupported postings (.pos) format version {version}. " +
+                $"This build supports up to version {CodecConstants.PostingsVersion}. " +
+                "Please upgrade LeanCorpus.");
+        return version;
     }
 }

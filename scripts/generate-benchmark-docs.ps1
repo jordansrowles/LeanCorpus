@@ -1,12 +1,11 @@
 <#
 .SYNOPSIS
-    Generates DocFX benchmark pages from BDN output files.
+    Generates DocFX benchmark pages from BDN output files — one page per suite.
 
 .DESCRIPTION
-    For each machine directory under bench/, finds the latest completed run,
-    copies the BDN-generated markdown tables into a single page per machine
-    under docs/benchmarks/, and appends the raw report.json as a collapsible
-    block. Also generates a toc.yml covering all machines found.
+    For each machine directory under bench/, scans all completed runs and keeps the
+    newest run per suite. Writes one markdown page per suite into docs/benchmarks/
+    and generates a toc.yml listing all suites.
 
     Run this before docfx build; docs.ps1 calls it automatically.
 
@@ -18,7 +17,7 @@
 
 .EXAMPLE
     .\scripts\generate-benchmark-docs.ps1
-    Generates pages for all machines from their latest completed run.
+    Generates per-suite pages from all machines' latest runs.
 #>
 param(
     [string]$BenchDir  = '',
@@ -39,26 +38,59 @@ $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
 # ── Suite display names ───────────────────────────────────────────────────────
 
 $suiteNames = @{
-    'analysis'         = 'Analysis'
-    'blockjoin'        = 'Block-Join'
-    'blockjoin-index'  = 'Block-Join (index)'
-    'blockjoin-search' = 'Block-Join (search)'
-    'boolean'          = 'Boolean queries'
-    'compound-index'   = 'Compound file (index)'
-    'compound-search'  = 'Compound file (search)'
-    'deletion'         = 'Deletion'
-    'deletion-queue'   = 'Deletion (queue)'
-    'deletion-commit'  = 'Deletion (commit)'
-    'fuzzy'            = 'Fuzzy queries'
-    'index'            = 'Indexing'
-    'indexsort-index'  = 'Index-sort (index)'
-    'indexsort-search' = 'Index-sort (search)'
-    'phrase'           = 'Phrase queries'
-    'prefix'           = 'Prefix queries'
-    'query'            = 'Term queries'
-    'schemajson'       = 'Schema and JSON'
-    'suggester'        = 'Suggester'
-    'wildcard'         = 'Wildcard queries'
+    'aggregation'         = 'Aggregation'
+    'analysis'            = 'Analysis'
+    'analysis-filters'    = 'Analysis filters'
+    'analysis-filters-v2' = 'Analysis filters v2'
+    'analysis-parity'     = 'Analysis parity'
+    'async-index'         = 'Async index'
+    'blockjoin'           = 'Block-Join'
+    'blockjoin-index'     = 'Block-Join (index)'
+    'blockjoin-search'    = 'Block-Join (search)'
+    'boolean'             = 'Boolean queries'
+    'collapse-facet'      = 'Collapse and facet'
+    'combined'            = 'Combined queries'
+    'compound-index'      = 'Compound file (index)'
+    'compound-search'     = 'Compound file (search)'
+    'deletion'            = 'Deletion'
+    'deletion-commit'     = 'Deletion (commit)'
+    'deletion-queue'      = 'Deletion (queue)'
+    'dismax'              = 'Disjunction max'
+    'function-score'      = 'Function score'
+    'fuzzy'               = 'Fuzzy queries'
+    'geo'                 = 'Geo queries'
+    'gutenberg-analysis'  = 'Gutenberg analysis'
+    'gutenberg-index'     = 'Gutenberg index'
+    'gutenberg-search'    = 'Gutenberg search'
+    'highlighter'         = 'Highlighter'
+    'hunspell'            = 'Hunspell'
+    'index'               = 'Indexing'
+    'indexsort-index'     = 'Index-sort (index)'
+    'indexsort-search'    = 'Index-sort (search)'
+    'kstemmer'            = 'KStemmer'
+    'lightenglish'        = 'Light English stemmer'
+    'mlt'                 = 'More like this'
+    'multiphrase'         = 'Multi-phrase'
+    'ngram'               = 'N-gram'
+    'parallel'            = 'Parallel indexing'
+    'pattern-tokeniser'   = 'Pattern tokeniser'
+    'phrase'              = 'Phrase queries'
+    'prefix'              = 'Prefix queries'
+    'query'               = 'Term queries'
+    'query-cache'         = 'Query cache'
+    'range'               = 'Range queries'
+    'regexp'              = 'Regexp queries'
+    'schemajson'          = 'Schema and JSON'
+    'searcher-mgr'        = 'Searcher manager'
+    'similarity'          = 'Similarity'
+    'span'                = 'Span queries'
+    'stemmer'             = 'Stemmer'
+    'suggester'           = 'Suggester'
+    'synonym'             = 'Synonym'
+    'terminset'           = 'Term in set'
+    'tv-highlighter'      = 'Term-vector highlighter'
+    'vq'                  = 'Vector queries'
+    'wildcard'            = 'Wildcard queries'
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -66,6 +98,7 @@ $suiteNames = @{
 # Extracts just the GFM table rows from a BDN markdown file, skipping the
 # environment code block that BDN prepends.
 function Get-TableContent([string]$path) {
+    if (-not (Test-Path $path)) { return $null }
     $lines = Get-Content $path -Encoding UTF8
     for ($i = 0; $i -lt $lines.Count; $i++) {
         if ($lines[$i] -match '^\|') {
@@ -75,116 +108,333 @@ function Get-TableContent([string]$path) {
     return $null
 }
 
-# HTML-escapes a string for embedding in a <pre> block.
-function ConvertTo-HtmlEncoded([string]$text) {
-    return $text -replace '&', '&amp;' -replace '<', '&lt;' -replace '>', '&gt;'
-}
+# ── Collect runs ──────────────────────────────────────────────────────────────
 
-# ── Main ──────────────────────────────────────────────────────────────────────
-
-$machines = @(Get-ChildItem $BenchDir -Directory | Sort-Object Name)
+$machines = @(Get-ChildItem $BenchDir -Directory | Where-Object { $_.Name -ne 'data' } | Sort-Object Name)
 
 if ($machines.Count -eq 0) {
     Write-Warning "No machine directories found in $BenchDir"
     exit 0
 }
 
-New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
-
-$tocEntries = [System.Collections.Generic.List[string]]::new()
+# Map: suiteName -> { runDir, report, generatedAtUtc }
+$newestPerSuite = @{}
 
 foreach ($machine in $machines) {
-    Write-Host "Processing: $($machine.Name)" -ForegroundColor Cyan
+    Write-Host "Scanning: $($machine.Name)" -ForegroundColor Cyan
 
-    # Find the latest completed run by scanning for report.json files.
-    # Directory names are YYYY-MM-DD/HH-MM so lexicographic descending = newest first.
-    $reportFiles = Get-ChildItem $machine.FullName -Recurse -Filter 'report.json' |
-                   Sort-Object { $_.FullName } -Descending
+    # Walk all date/time dirs
+    $dateDirs = Get-ChildItem $machine.FullName -Directory | Sort-Object Name -Descending
 
-    $report     = $null
-    $reportPath = $null
-    $runDir     = $null
+    foreach ($dateDir in $dateDirs) {
+        $timeDirs = Get-ChildItem $dateDir.FullName -Directory | Sort-Object Name -Descending
 
-    foreach ($rf in $reportFiles) {
-        $candidate = Get-Content $rf.FullName -Raw | ConvertFrom-Json
-        if ($candidate.totalBenchmarkCount -gt 0) {
-            $report     = $candidate
-            $reportPath = $rf.FullName
-            $runDir     = $rf.DirectoryName
-            break
+        foreach ($timeDir in $timeDirs) {
+            $reportPath = Join-Path $timeDir.FullName 'report.json'
+            if (-not (Test-Path $reportPath)) { continue }
+
+            try {
+                $report = Get-Content $reportPath -Raw | ConvertFrom-Json
+            } catch {
+                Write-Warning "  Failed to parse $reportPath, skipping."
+                continue
+            }
+
+            if ($report.totalBenchmarkCount -le 0) { continue }
+
+            foreach ($suite in $report.suites) {
+                $name = $suite.suiteName
+
+                # Keep the newest run for this suite
+                if (-not $newestPerSuite.ContainsKey($name)) {
+                    $newestPerSuite[$name] = @{
+                        RunDir          = $timeDir.FullName
+                        Report          = $report
+                        GeneratedAtUtc  = $report.generatedAtUtc
+                        Machine         = $machine.Name
+                    }
+                }
+            }
         }
     }
+}
 
-    if ($null -eq $report) {
-        Write-Warning "  No completed run found, skipping."
+if ($newestPerSuite.Count -eq 0) {
+    Write-Warning "No suites found in any run."
+    exit 0
+}
+
+Write-Host "Found $($newestPerSuite.Count) suites across all runs." -ForegroundColor Green
+
+# ── Generate pages ────────────────────────────────────────────────────────────
+
+New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+
+# Remove old generated files (keep any hand-written content, but since these
+# are all auto-generated, safe to clear *.md and *.json that match our suites)
+$existingMd = Get-ChildItem $OutputDir -Filter '*.md' -ErrorAction SilentlyContinue
+foreach ($f in $existingMd) {
+    Remove-Item $f.FullName -Force
+}
+$existingJson = Get-ChildItem $OutputDir -Filter '*.json' -ErrorAction SilentlyContinue
+foreach ($f in $existingJson) {
+    Remove-Item $f.FullName -Force
+}
+
+$tocEntries = [System.Collections.Generic.List[string]]::new()
+$pageCount   = 0
+
+# Sort suites by display name for a stable TOC order
+$sortedSuites = $newestPerSuite.GetEnumerator() |
+    Sort-Object { $suiteNames[$_.Key] ?? $_.Key }
+
+foreach ($entry in $sortedSuites) {
+    $suiteName  = $entry.Key
+    $data       = $entry.Value
+    $report     = $data.Report
+    $runDir     = $data.RunDir
+    $machine    = $data.Machine
+
+    # File name: prefix with machine only when multiple machines exist
+    if ($machines.Count -gt 1) {
+        $fileName = "$machine-$suiteName.md"
+    } else {
+        $fileName = "$suiteName.md"
+    }
+
+    $displayName = if ($suiteNames.ContainsKey($suiteName)) { $suiteNames[$suiteName] } else { $suiteName }
+
+    # Find the BDN markdown file for this suite
+    $suiteResultDir = Join-Path $runDir $suiteName
+    $mdFiles = @(Get-ChildItem $suiteResultDir -Recurse -Filter '*-report-github.md' -ErrorAction SilentlyContinue)
+
+    if ($mdFiles.Count -eq 0) {
+        Write-Warning "  No markdown for '$suiteName', skipping."
         continue
     }
 
-    $runDate     = ([datetime]$report.generatedAtUtc).ToUniversalTime().ToString('d MMMM yyyy HH:mm UTC')
-    $commitShort = if ($report.commitHash.Length -gt 7) { $report.commitHash.Substring(0, 7) } else { $report.commitHash }
+    $tableContent = Get-TableContent $mdFiles[0].FullName
 
-    Write-Host "  Run: $($report.runId)  ($($report.totalBenchmarkCount) benchmarks)" -ForegroundColor DarkGray
-
-    $sb = [System.Text.StringBuilder]::new()
-
-    # Front matter
-    [void]$sb.AppendLine('---')
-    [void]$sb.AppendLine("title: Benchmarks - $($machine.Name)")
-    [void]$sb.AppendLine('---')
-    [void]$sb.AppendLine()
-
-    # Page header
-    [void]$sb.AppendLine("# Benchmarks: $($machine.Name)")
-    [void]$sb.AppendLine()
-    [void]$sb.AppendLine("**.NET** $($report.dotnetVersion) &nbsp;&middot;&nbsp; **Commit** ``$commitShort`` &nbsp;&middot;&nbsp; $runDate &nbsp;&middot;&nbsp; $($report.totalBenchmarkCount) benchmarks")
-    [void]$sb.AppendLine()
-
-    # Suite sections — copy BDN markdown tables directly
-    foreach ($suite in $report.suites) {
-        $displayName = if ($suiteNames.ContainsKey($suite.suiteName)) { $suiteNames[$suite.suiteName] } else { $suite.suiteName }
-
-        $mdFiles = @(Get-ChildItem (Join-Path $runDir $suite.suiteName) -Recurse -Filter '*-report-github.md' -ErrorAction SilentlyContinue)
-
-        if ($mdFiles.Count -eq 0) {
-            Write-Warning "  No markdown file for suite '$($suite.suiteName)', skipping."
-            continue
-        }
-
-        $tableContent = Get-TableContent $mdFiles[0].FullName
-
-        if ([string]::IsNullOrWhiteSpace($tableContent)) {
-            Write-Warning "  No table found in $($mdFiles[0].Name), skipping."
-            continue
-        }
-
-        [void]$sb.AppendLine("## $displayName")
-        [void]$sb.AppendLine()
-        [void]$sb.AppendLine($tableContent)
-        [void]$sb.AppendLine()
+    if ([string]::IsNullOrWhiteSpace($tableContent)) {
+        Write-Warning "  No table in $($mdFiles[0].Name), skipping."
+        continue
     }
 
-    # Collapsible raw JSON block
-    $rawJson      = Get-Content $reportPath -Raw
-    $encodedJson  = ConvertTo-HtmlEncoded $rawJson
+    # Build page
+    $runDate     = ([datetime]$report.generatedAtUtc).ToUniversalTime().ToString('d MMMM yyyy HH:mm UTC')
+    $commitShort = if ($report.commitHash.Length -gt 7) { $report.commitHash.Substring(0, 7) } else { $report.commitHash }
+    $docCount    = $report.provenance.effectiveDocCount
 
-    [void]$sb.AppendLine('<details>')
-    [void]$sb.AppendLine('<summary>Full data (report.json)</summary>')
+    # Find and copy the full BDN JSON alongside the page
+    $jsonBaseName = [System.IO.Path]::GetFileNameWithoutExtension($fileName)
+    $jsonOutName  = "$jsonBaseName.json"
+    $jsonOutPath  = Join-Path $OutputDir $jsonOutName
+    $jsonFiles    = @(Get-ChildItem $suiteResultDir -Recurse -Filter '*-report-full.json' -ErrorAction SilentlyContinue)
+    $hasCharts    = $false
+
+    if ($jsonFiles.Count -gt 0) {
+        Copy-Item $jsonFiles[0].FullName $jsonOutPath -Force
+        $hasCharts = $true
+    }
+
+    $chartId = $suiteName -replace '[^a-zA-Z0-9]', '-'
+
+    $sb = [System.Text.StringBuilder]::new()
+    [void]$sb.AppendLine('---')
+    [void]$sb.AppendLine("title: Benchmarks - $displayName")
+    [void]$sb.AppendLine('---')
     [void]$sb.AppendLine()
-    [void]$sb.AppendLine("<pre><code class=`"lang-json`">$encodedJson</code></pre>")
+    [void]$sb.AppendLine("# $displayName")
     [void]$sb.AppendLine()
-    [void]$sb.AppendLine('</details>')
+    [void]$sb.AppendLine("**.NET** $($report.dotnetVersion) &nbsp;&middot;&nbsp; **Commit** ``$commitShort`` &nbsp;&middot;&nbsp; $runDate &nbsp;&middot;&nbsp; $($docCount.ToString('N0')) docs")
+    [void]$sb.AppendLine()
+    [void]$sb.AppendLine($tableContent)
+    [void]$sb.AppendLine()
 
-    # Write output
-    $outFile = Join-Path $OutputDir "$($machine.Name).md"
-    $sb.ToString() | Set-Content $outFile -Encoding UTF8
-    Write-Host "  Written: $outFile" -ForegroundColor Green
+    if ($hasCharts) {
+        [void]$sb.AppendLine("<div class=""benchmark-chart"">")
+        [void]$sb.AppendLine("<p style=""margin-bottom:4px""><label>Time scale: <select id=""chart-scale-$chartId""><option value=""log2"" selected>Log2</option><option value=""log10"">Log10</option><option value=""linear"">Linear</option></select></label> <label>Width: <input type=""range"" id=""chart-width-$chartId"" min=""400"" max=""1400"" value=""960"" step=""20"" style=""vertical-align:middle""></label> <label>Height: <input type=""range"" id=""chart-height-$chartId"" min=""200"" max=""900"" value=""500"" step=""20"" style=""vertical-align:middle""></label></p>")
+        [void]$sb.AppendLine("<div id=""chart-wrap-$chartId"" style=""max-width:960px""><canvas id=""chart-bench-$chartId"" style=""height:500px""></canvas></div>")
+        [void]$sb.AppendLine("<p><a href=""$jsonOutName"">Full results as JSON</a></p>")
+        [void]$sb.AppendLine("</div>")
+        [void]$sb.AppendLine("<script src=""benchmark-charts.js""></script>")
+    }
+    [void]$sb.AppendLine()
 
-    $tocEntries.Add("- name: $($machine.Name)")
-    $tocEntries.Add("  href: $($machine.Name).md")
+    $outPath = Join-Path $OutputDir $fileName
+    $sb.ToString() | Set-Content $outPath -Encoding UTF8
+    Write-Host "  $fileName" -ForegroundColor Green
+    $pageCount++
+
+    $tocEntries.Add("- name: $displayName")
+    $tocEntries.Add("  href: $fileName")
 }
 
-# toc.yml
+# ── benchmark-charts.js ───────────────────────────────────────────────────────
+
+$benchmarkChartsJs = @'
+(function(){
+"use strict";
+
+var canvas = document.querySelector("canvas[id^='chart-bench-']");
+if(!canvas)return;
+var suite = canvas.id.replace("chart-bench-","");
+var jsonUrl = suite + ".json";
+
+var chartJs = document.createElement("script");
+chartJs.src = "https://cdn.jsdelivr.net/npm/chart.js@4";
+chartJs.onload = function(){ fetch(jsonUrl).then(function(r){return r.json();}).then(render).catch(function(){}); };
+document.head.appendChild(chartJs);
+
+function render(full){
+  var benchmarks = full.Benchmarks;
+  if(!benchmarks||!benchmarks.length)return;
+
+  var colors=["#4e79a7","#f28e2b","#e15759","#76b7b2","#59a14f","#edc948","#b07aa1","#ff9da7","#9c755f","#bab0ac"];
+
+  var chartData=[];
+  benchmarks.forEach(function(b){
+    var label=b.MethodTitle;
+    if(b.Parameters)label+=" ["+b.Parameters+"]";
+    var iters=[];
+    b.Measurements.forEach(function(m){if(m.IterationStage==="Result")iters.push(m.Nanoseconds);});
+    chartData.push({
+      label:label,
+      meanNs:Math.round(b.Statistics.Mean),
+      allocBytes:b.Memory.BytesAllocatedPerOperation,
+      iterations:iters
+    });
+  });
+
+  var labels=chartData.map(function(x){return x.label;});
+
+  var datasets=[];
+
+  datasets.push({
+    type:"bar",
+    label:"Allocated",
+    data:chartData.map(function(x){return x.allocBytes;}),
+    backgroundColor:colors[0]+"cc",
+    yAxisID:"y",
+    order:1
+  });
+
+  datasets.push({
+    type:"line",
+    label:"Mean time",
+    data:chartData.map(function(x){return x.meanNs;}),
+    borderColor:"#e15759",
+    backgroundColor:"#e1575933",
+    yAxisID:"y1",
+    pointRadius:4,
+    pointHoverRadius:6,
+    order:0
+  });
+
+  chartData.forEach(function(m,i){
+    datasets.push({
+      type:"scatter",
+      label:m.label,
+      data:m.iterations.map(function(ns){return{x:m.label,y:ns};}),
+      backgroundColor:colors[i%colors.length]+"55",
+      yAxisID:"y1",
+      pointRadius:2,
+      pointHoverRadius:4,
+      showLine:false,
+      order:2
+    });
+  });
+
+  var chart = new Chart(canvas,{
+    data:{labels:labels,datasets:datasets},
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      interaction:{mode:"index",intersect:false},
+      plugins:{
+        legend:{labels:{generateLabels:function(chart){var d=chart.data.datasets;return[{text:d[0].label,fillStyle:d[0].backgroundColor,strokeStyle:d[0].borderColor,hidden:!chart.isDatasetVisible(0),datasetIndex:0},{text:d[1].label,fillStyle:d[1].backgroundColor||d[1].borderColor,strokeStyle:d[1].borderColor,hidden:!chart.isDatasetVisible(1),datasetIndex:1,pointStyle:"circle",pointStyleWidth:8}];}}},
+        tooltip:{callbacks:{label:function(c){var v=c.raw.y||c.raw;if(c.dataset.yAxisID==="y")return fmtBytes(v);return fmtNs(v);}}}
+      },
+      scales:{
+        y:{
+          type:"linear",
+          position:"left",
+          title:{display:true,text:"Allocated"},
+          ticks:{callback:fmtBytes},
+          grid:{drawOnChartArea:false}
+        },
+        y1:makeScale("log2")
+      }
+    }
+  });
+
+  // Scale switcher
+  var sel = document.getElementById("chart-scale-"+suite);
+  if(sel){
+    sel.addEventListener("change",function(){
+      chart.options.scales.y1 = makeScale(this.value);
+      chart.update();
+    });
+  }
+
+  // Width / height sliders
+  var wrap = document.getElementById("chart-wrap-"+suite);
+  var widthSlider = document.getElementById("chart-width-"+suite);
+  var heightSlider = document.getElementById("chart-height-"+suite);
+  if(widthSlider && wrap){
+    widthSlider.addEventListener("input",function(){
+      wrap.style.maxWidth = this.value + "px";
+      chart.resize();
+    });
+  }
+  if(heightSlider){
+    heightSlider.addEventListener("input",function(){
+      canvas.style.height = this.value + "px";
+      chart.resize();
+    });
+  }
+
+  function makeScale(mode){
+    var base = {
+      type:"logarithmic",
+      position:"right",
+      title:{display:true,text:"Time (log\u2082)"},
+      ticks:{callback:fmtNs}
+    };
+    if(mode==="log10"){
+      base.title.text = "Time (log\u2081\u2080)";
+    } else if(mode==="linear"){
+      base.type = "linear";
+      base.title.text = "Time (linear)";
+    } else {
+      // log2 — afterBuildTicks to show powers of 2
+      base.afterBuildTicks = function(axis){
+        var min = axis.min, max = axis.max;
+        var ticks = [];
+        var v = Math.pow(2, Math.floor(Math.log2(min||1)));
+        while(v <= max){ ticks.push({value:v}); v *= 2; }
+        axis.ticks = ticks;
+      };
+    }
+    return base;
+  }
+
+  function fmtBytes(v){if(v>=1e9)return(v/1e9).toFixed(1)+" GB";if(v>=1e6)return(v/1e6).toFixed(1)+" MB";if(v>=1e3)return(v/1e3).toFixed(1)+" KB";return v+" B";}
+  function fmtNs(v){if(v>=1e9)return(v/1e9).toFixed(2)+" s";if(v>=1e6)return(v/1e6).toFixed(2)+" ms";if(v>=1e3)return(v/1e3).toFixed(2)+" μs";return v.toFixed(0)+" ns";}
+}})();
+
+'@
+
+$benchmarkChartsJs | Set-Content (Join-Path $OutputDir 'benchmark-charts.js') -Encoding UTF8
+Write-Host "Written: benchmark-charts.js" -ForegroundColor Green
+
+# ── toc.yml ───────────────────────────────────────────────────────────────────
+
 if ($tocEntries.Count -gt 0) {
     $tocEntries | Set-Content (Join-Path $OutputDir 'toc.yml') -Encoding UTF8
-    Write-Host "Written: $(Join-Path $OutputDir 'toc.yml')" -ForegroundColor Green
+    Write-Host "Written: toc.yml ($pageCount suites)" -ForegroundColor Green
+} else {
+    Write-Warning "No pages generated."
 }
+
+Write-Host "Done. $pageCount benchmark pages written." -ForegroundColor Cyan

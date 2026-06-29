@@ -1,7 +1,6 @@
 ﻿# Snapshots and deletion policies
 
-A snapshot pins a specific commit so its segment files survive future deletion
-policy passes. Use it to take consistent backups while indexing continues.
+A snapshot pins a commit so its segment files survive deletion policy passes. Use for consistent backups while indexing continues.
 
 ## Take a snapshot
 
@@ -17,18 +16,16 @@ finally
 }
 ```
 
-The snapshot exposes the commit `Generation` and the list of segment IDs the
-commit references.
+The snapshot exposes the commit `Generation` and the list of segment IDs.
 
 ## Deletion policies
 
-`IndexWriterConfig.DeletionPolicy` controls which old commits and segments survive
-after each commit:
+`IndexWriterConfig.DeletionPolicy` controls which old commits survive:
 
 | Policy | Behaviour |
 |---|---|
-| `KeepLatestCommitPolicy` (default) | Retains only the newest commit. |
-| `KeepLastNCommitsPolicy(n)` | Retains the last `n` generations. |
+| `KeepLatestCommitPolicy` (default) | Only the newest commit |
+| `KeepLastNCommitsPolicy(n)` | Last `n` generations |
 
 ```csharp
 var config = new IndexWriterConfig
@@ -37,10 +34,9 @@ var config = new IndexWriterConfig
 };
 ```
 
-Active snapshots always protect their segments, regardless of policy.
+Active snapshots always protect their segments regardless of policy.
 
 ## See also
 
 - <xref:Rowles.LeanCorpus.Index.Indexer.IndexWriter.CreateSnapshot%2A>
 - <xref:Rowles.LeanCorpus.Index.Indexer.KeepLastNCommitsPolicy>
-- <xref:Rowles.LeanCorpus.Index.Indexer.KeepLatestCommitPolicy>

@@ -1,86 +1,97 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Stemmers;
+namespace Rowles.LeanCorpus.Analysis.Stemmers;
 
 /// <summary>
 /// Italian Snowball-inspired stemmer. Handles common Italian inflectional and
 /// derivational suffixes. Expects lowercased, UTF-8 normalized input.
 /// </summary>
-public sealed class ItalianStemmer : IStemmer
+public sealed class ItalianStemmer : ISpanStemmer
 {
     /// <inheritdoc/>
     public string Stem(string word)
     {
-        if (word.Length <= 3) return word;
-
         Span<char> buf = word.Length <= 64
             ? stackalloc char[word.Length]
             : new char[word.Length];
-        word.AsSpan().CopyTo(buf);
-        int len = buf.Length;
+        int len = Stem(word.AsSpan(), buf);
+        return len < 0 ? word : new string(buf[..len]);
+    }
+
+    /// <inheritdoc/>
+    public int Stem(ReadOnlySpan<char> word, Span<char> output)
+    {
+        if (word.Length <= 3)
+        {
+            if (output.Length < word.Length) return -1;
+            word.CopyTo(output);
+            return word.Length;
+        }
+        if (output.Length < word.Length) return -1;
+        word.CopyTo(output);
+        int len = word.Length;
 
         // Step 1: Derivational suffixes
-        len = RemoveSuffix(buf, len, "azioni", "")
-           ?? RemoveSuffix(buf, len, "azione", "")
-           ?? RemoveSuffix(buf, len, "amenti", "")
-           ?? RemoveSuffix(buf, len, "amento", "")
-           ?? RemoveSuffix(buf, len, "imenti", "")
-           ?? RemoveSuffix(buf, len, "imento", "")
-           ?? RemoveSuffix(buf, len, "ità", "")
-           ?? RemoveSuffix(buf, len, "mente", "")
-           ?? RemoveSuffix(buf, len, "ismi", "")
-           ?? RemoveSuffix(buf, len, "ismo", "")
-           ?? RemoveSuffix(buf, len, "isti", "")
-           ?? RemoveSuffix(buf, len, "ista", "")
-           ?? RemoveSuffix(buf, len, "ibili", "")
-           ?? RemoveSuffix(buf, len, "ibile", "")
-           ?? RemoveSuffix(buf, len, "abili", "")
-           ?? RemoveSuffix(buf, len, "abile", "")
-           ?? buf.Length;
+        len = RemoveSuffix(output, len, "azioni", "")
+           ?? RemoveSuffix(output, len, "azione", "")
+           ?? RemoveSuffix(output, len, "amenti", "")
+           ?? RemoveSuffix(output, len, "amento", "")
+           ?? RemoveSuffix(output, len, "imenti", "")
+           ?? RemoveSuffix(output, len, "imento", "")
+           ?? RemoveSuffix(output, len, "ità", "")
+           ?? RemoveSuffix(output, len, "mente", "")
+           ?? RemoveSuffix(output, len, "ismi", "")
+           ?? RemoveSuffix(output, len, "ismo", "")
+           ?? RemoveSuffix(output, len, "isti", "")
+           ?? RemoveSuffix(output, len, "ista", "")
+           ?? RemoveSuffix(output, len, "ibili", "")
+           ?? RemoveSuffix(output, len, "ibile", "")
+           ?? RemoveSuffix(output, len, "abili", "")
+           ?? RemoveSuffix(output, len, "abile", "")
+           ?? len;
 
         // Step 2: Verb endings — infinitive, gerund, past participle
-        len = RemoveSuffix(buf, len, "andosi", "")
-           ?? RemoveSuffix(buf, len, "endosi", "")
-           ?? RemoveSuffix(buf, len, "ando", "")
-           ?? RemoveSuffix(buf, len, "endo", "")
-           ?? RemoveSuffix(buf, len, "arono", "")
-           ?? RemoveSuffix(buf, len, "erono", "")
-           ?? RemoveSuffix(buf, len, "irono", "")
-           ?? RemoveSuffix(buf, len, "ati", "")
-           ?? RemoveSuffix(buf, len, "ute", "")
-           ?? RemoveSuffix(buf, len, "uti", "")
-           ?? RemoveSuffix(buf, len, "ite", "")
-           ?? RemoveSuffix(buf, len, "iti", "")
-           ?? RemoveSuffix(buf, len, "ate", "")
-           ?? RemoveSuffix(buf, len, "ato", "")
-           ?? RemoveSuffix(buf, len, "uta", "")
-           ?? RemoveSuffix(buf, len, "uto", "")
-           ?? RemoveSuffix(buf, len, "ita", "")
-           ?? RemoveSuffix(buf, len, "ito", "")
-           ?? RemoveSuffix(buf, len, "avano", "")
-           ?? RemoveSuffix(buf, len, "evano", "")
-           ?? RemoveSuffix(buf, len, "ivano", "")
-           ?? RemoveSuffix(buf, len, "anno", "")
-           ?? RemoveSuffix(buf, len, "erei", "")
-           ?? RemoveSuffix(buf, len, "irei", "")
-           ?? RemoveSuffix(buf, len, "arsi", "")
-           ?? RemoveSuffix(buf, len, "ersi", "")
-           ?? RemoveSuffix(buf, len, "irsi", "")
-           ?? RemoveSuffix(buf, len, "are", "")
-           ?? RemoveSuffix(buf, len, "ere", "")
-           ?? RemoveSuffix(buf, len, "ire", "")
+        len = RemoveSuffix(output, len, "andosi", "")
+           ?? RemoveSuffix(output, len, "endosi", "")
+           ?? RemoveSuffix(output, len, "ando", "")
+           ?? RemoveSuffix(output, len, "endo", "")
+           ?? RemoveSuffix(output, len, "arono", "")
+           ?? RemoveSuffix(output, len, "erono", "")
+           ?? RemoveSuffix(output, len, "irono", "")
+           ?? RemoveSuffix(output, len, "ati", "")
+           ?? RemoveSuffix(output, len, "ute", "")
+           ?? RemoveSuffix(output, len, "uti", "")
+           ?? RemoveSuffix(output, len, "ite", "")
+           ?? RemoveSuffix(output, len, "iti", "")
+           ?? RemoveSuffix(output, len, "ate", "")
+           ?? RemoveSuffix(output, len, "ato", "")
+           ?? RemoveSuffix(output, len, "uta", "")
+           ?? RemoveSuffix(output, len, "uto", "")
+           ?? RemoveSuffix(output, len, "ita", "")
+           ?? RemoveSuffix(output, len, "ito", "")
+           ?? RemoveSuffix(output, len, "avano", "")
+           ?? RemoveSuffix(output, len, "evano", "")
+           ?? RemoveSuffix(output, len, "ivano", "")
+           ?? RemoveSuffix(output, len, "anno", "")
+           ?? RemoveSuffix(output, len, "erei", "")
+           ?? RemoveSuffix(output, len, "irei", "")
+           ?? RemoveSuffix(output, len, "arsi", "")
+           ?? RemoveSuffix(output, len, "ersi", "")
+           ?? RemoveSuffix(output, len, "irsi", "")
+           ?? RemoveSuffix(output, len, "are", "")
+           ?? RemoveSuffix(output, len, "ere", "")
+           ?? RemoveSuffix(output, len, "ire", "")
            ?? len;
 
         // Step 3: Noun/adjective gender & number
-        len = RemoveSuffix(buf, len, "osi", "")
-           ?? RemoveSuffix(buf, len, "ose", "")
-           ?? RemoveSuffix(buf, len, "osi", "")
-           ?? RemoveSuffix(buf, len, "i", "")
-           ?? RemoveSuffix(buf, len, "e", "")
-           ?? RemoveSuffix(buf, len, "a", "")
-           ?? RemoveSuffix(buf, len, "o", "")
+        len = RemoveSuffix(output, len, "osi", "")
+           ?? RemoveSuffix(output, len, "ose", "")
+           ?? RemoveSuffix(output, len, "osi", "")
+           ?? RemoveSuffix(output, len, "i", "")
+           ?? RemoveSuffix(output, len, "e", "")
+           ?? RemoveSuffix(output, len, "a", "")
+           ?? RemoveSuffix(output, len, "o", "")
            ?? len;
 
-        var result = buf[..len];
-        return result.SequenceEqual(word.AsSpan()) ? word : new string(result);
+        return len;
     }
 
     private static int? RemoveSuffix(Span<char> buf, int len, ReadOnlySpan<char> suffix, ReadOnlySpan<char> replacement)

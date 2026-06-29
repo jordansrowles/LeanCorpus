@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.Fst;
 using Rowles.LeanCorpus.Codecs.Bkd;
@@ -112,13 +112,11 @@ public sealed class VarIntAndSkipTests : IClassFixture<TestDirectoryFixture>
         // Verify PostingsWriter.WriteVarInt (BinaryWriter) and IndexInput.ReadVarInt are compatible
         var path = FilePath("varint_compat.bin");
         int[] values = [0, 42, 128, 1000, 100_000, int.MaxValue];
+        var buf = new System.Buffers.ArrayBufferWriter<byte>();
+        foreach (var v in values)
+            PostingsWriter.WriteVarInt(buf, v);
 
-        using (var fs = File.Create(path))
-        using (var bw = new BinaryWriter(fs))
-        {
-            foreach (var v in values)
-                PostingsWriter.WriteVarInt(bw, v);
-        }
+        System.IO.File.WriteAllBytes(path, buf.WrittenSpan.ToArray());
 
         using var input = new IndexInput(path);
         foreach (var expected in values)

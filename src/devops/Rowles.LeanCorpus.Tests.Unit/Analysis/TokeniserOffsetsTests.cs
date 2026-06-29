@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
 
@@ -72,7 +72,9 @@ public class TokeniserOffsetsTests
     public void TokeniseOffsets_MatchesTokenise()
     {
         const string input = "Hello, world! This is a test.";
-        var tokens = _tokeniser.Tokenise(input);
+        var matSink = new MaterialisingTokenSink();
+        _tokeniser.Tokenise(input, matSink);
+        var tokens = matSink.Tokens;
         var offsets = new List<(int Start, int End)>();
         _tokeniser.TokeniseOffsets(input, offsets);
 

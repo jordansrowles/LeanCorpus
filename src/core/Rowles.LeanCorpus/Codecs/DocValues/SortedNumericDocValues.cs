@@ -1,5 +1,7 @@
-﻿using System.Buffers;
+using System.Buffers;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
 
@@ -14,22 +16,24 @@ internal static class SortedNumericDocValuesWriter
         int docCount,
         bool durable = false)
     {
-        using var output = new IndexOutput(filePath, durable);
-        CodecConstants.WriteHeader(output, CodecConstants.SortedNumericDocValuesVersion);
-        output.WriteInt32(fields.Count);
+        var bodyBuf = new ArrayBufferWriter<byte>(4096);
+        bodyBuf.WriteInt32(fields.Count);
 
         foreach (var (fieldName, values) in fields)
-            WriteFieldBlock(output, fieldName, values, docCount);
+            WriteFieldBlock(bodyBuf, fieldName, values, docCount);
+
+        using var output = new IndexOutput(filePath, durable);
+        CodecFileHeader.Write(output, CodecFormats.SortedNumericDocValues, bodyBuf.WrittenSpan);
     }
 
     internal static void WriteFieldBlock(
-        IndexOutput output,
+        IBufferWriter<byte> bw,
         string fieldName,
         IReadOnlyList<double>?[] values,
         int docCount)
     {
-        WriteString(output, fieldName);
-        output.WriteInt32(docCount);
+        bw.WriteString(fieldName);
+        bw.WriteInt32(docCount);
 
         var starts = new int[docCount + 1];
         var flattened = new List<double>();
@@ -62,10 +66,10 @@ internal static class SortedNumericDocValuesWriter
         starts[docCount] = flattened.Count;
 
         for (int i = 0; i < starts.Length; i++)
-            output.WriteInt32(starts[i]);
+            bw.WriteInt32(starts[i]);
 
-        output.WriteInt32(flattened.Count);
-        WritePackedDoubles(output, flattened);
+        bw.WriteInt32(flattened.Count);
+        WritePackedDoubles(bw, flattened);
     }
 
     private static bool IsSorted(IReadOnlyList<double> values)
@@ -79,12 +83,12 @@ internal static class SortedNumericDocValuesWriter
         return true;
     }
 
-    private static void WritePackedDoubles(IndexOutput output, IReadOnlyList<double> values)
+    private static void WritePackedDoubles(IBufferWriter<byte> bw, IReadOnlyList<double> values)
     {
         if (values.Count == 0)
         {
-            output.WriteInt64(0);
-            output.WriteByte(0);
+            bw.WriteInt64(0L);
+            bw.WriteByte((byte)0);
             return;
         }
 
@@ -97,10 +101,10 @@ internal static class SortedNumericDocValuesWriter
             if (bits > max) max = bits;
         }
 
-        output.WriteInt64(min);
+        bw.WriteInt64(min);
         ulong range = (ulong)max - (ulong)min;
         int bitsPerValue = range == 0 ? 0 : 64 - System.Numerics.BitOperations.LeadingZeroCount(range);
-        output.WriteByte((byte)bitsPerValue);
+        bw.WriteByte((byte)bitsPerValue);
 
         if (bitsPerValue == 0)
             return;
@@ -121,7 +125,7 @@ internal static class SortedNumericDocValuesWriter
                 remaining -= take;
                 if (accBits == 8)
                 {
-                    output.WriteByte(accum);
+                    bw.WriteByte(accum);
                     accum = 0;
                     accBits = 0;
                 }
@@ -129,13 +133,7 @@ internal static class SortedNumericDocValuesWriter
         }
 
         if (accBits > 0)
-            output.WriteByte(accum);
+            bw.WriteByte(accum);
     }
 
-    private static void WriteString(IndexOutput output, string value)
-    {
-        var bytes = System.Text.Encoding.UTF8.GetBytes(value);
-        output.WriteVarInt(bytes.Length);
-        output.WriteBytes(bytes);
-    }
 }

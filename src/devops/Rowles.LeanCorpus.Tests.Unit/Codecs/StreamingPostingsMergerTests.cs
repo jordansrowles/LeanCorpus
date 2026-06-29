@@ -1,4 +1,5 @@
-﻿using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
 using Rowles.LeanCorpus.Store;
@@ -112,33 +113,56 @@ public sealed class StreamingPostingsMergerTests : IDisposable
         var dicPath = Path.Combine(_dir, name + ".dic");
         var offsets = new Dictionary<string, long>(StringComparer.Ordinal);
         var terms = postings.Keys.OrderBy(term => term, StringComparer.Ordinal).ToList();
-
-        using (var output = new IndexOutput(posPath))
+        // Build body into a temporary file first, then write the final file
+        // with a CodecKit header.
+        var bodyPath = Path.Combine(_dir, name + ".tmp");
+        byte[] body;
+        using (var bodyOut = new IndexOutput(bodyPath))
         {
-            CodecConstants.WriteHeader(output, CodecConstants.PostingsVersion);
-            using var blockWriter = new BlockPostingsWriter(output);
+            using var blockWriter = new BlockPostingsWriter(bodyOut);
             foreach (var term in terms)
             {
-                long headerPos = output.Position;
-                output.WriteInt32(0);
-                output.WriteInt64(0L);
-                output.WriteBoolean(true);
-                output.WriteBoolean(false);
-                output.WriteBoolean(false);
+                long headerPos = bodyOut.Position;
+                bodyOut.WriteInt32(0);
+                bodyOut.WriteInt64(0L);
+                bodyOut.WriteBoolean(true);
+                bodyOut.WriteBoolean(false);
+                bodyOut.WriteBoolean(false);
 
                 blockWriter.StartTerm();
                 foreach (int docId in postings[term].OrderBy(docId => docId))
                     blockWriter.AddPosting(docId, 1);
 
                 var meta = blockWriter.FinishTerm();
-                long endPos = output.Position;
-                output.Seek(headerPos);
-                output.WriteInt32(meta.DocFreq);
-                output.WriteInt64(meta.SkipOffset);
-                output.Seek(endPos);
+                long endPos = bodyOut.Position;
+                bodyOut.Seek(headerPos);
+                bodyOut.WriteInt32(meta.DocFreq);
+                bodyOut.WriteInt64(meta.SkipOffset);
+                bodyOut.Seek(endPos);
                 offsets[term] = headerPos;
             }
         }
+        body = File.ReadAllBytes(bodyPath);
+        File.Delete(bodyPath);
+
+        // Adjust skipOffset values inside body for CodecKit envelope
+        int headerSize = 1 + VarInt64Size(body.Length);
+        foreach (var term in terms)
+        {
+            int termBodyOffset = (int)offsets[term];
+            // skipOffset is at termBodyOffset + 4 (after docFreq Int32)
+            long skipOffset = BitConverter.ToInt64(body, termBodyOffset + 4);
+            byte[] patched = BitConverter.GetBytes(skipOffset + headerSize);
+            patched.CopyTo(body, termBodyOffset + 4);
+        }
+
+        // Write final .pos file with CodecKit header
+        using (var output = new IndexOutput(posPath))
+            CodecFileHeader.Write(output, CodecFormats.Postings, body);
+
+        // Adjust offsets to account for the CodecKit header
+        foreach (var term in terms)
+            offsets[term] += headerSize;
 
         TermDictionaryWriter.Write(dicPath, terms, offsets);
         int maxOldId = -1;
@@ -154,6 +178,13 @@ public sealed class StreamingPostingsMergerTests : IDisposable
         };
     }
 
+    private static int VarInt64Size(long value)
+    {
+        int size = 0;
+        do { size++; value >>= 7; } while (value != 0);
+        return size;
+    }
+
     private static int[] ReadDocIds(string dicPath, string posPath, string term)
     {
         using var dic = TermDictionaryReader.Open(dicPath);
@@ -161,8 +192,7 @@ public sealed class StreamingPostingsMergerTests : IDisposable
             return [];
 
         using var input = new IndexInput(posPath);
-        byte version = PostingsEnum.ValidateFileHeader(input);
-        var postings = PostingsEnum.Create(input, offset, version);
+        var postings = PostingsEnum.Create(input, offset);
         try
         {
             var docIds = new List<int>();

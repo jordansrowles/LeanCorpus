@@ -1,5 +1,6 @@
-﻿using System.Numerics;
+using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 
 namespace Rowles.LeanCorpus.Codecs.Postings;
@@ -110,6 +111,7 @@ public static class PackedIntCodec
     /// Remaining bytes hold the tightly packed data (<c>numBits × 16</c> bytes).
     /// When all values are zero, only 1 byte is written.
     /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static int Pack(ReadOnlySpan<int> values, Span<byte> output)
     {
         if (values.Length < BlockSize)
@@ -124,6 +126,12 @@ public static class PackedIntCodec
         int totalDataBytes = numBits * 16; // numBits × 128 / 8
         if (output.Length < 1 + totalDataBytes)
             throw new ArgumentException("Output buffer is too small.", nameof(output));
+
+        if (Vector128.IsHardwareAccelerated && numBits == 8)
+        {
+            Pack8(values, output);
+            return 1 + totalDataBytes;
+        }
 
         ulong buffer = 0;
         int bufferedBits = 0;
@@ -156,6 +164,7 @@ public static class PackedIntCodec
     /// <see cref="Pack"/>; the caller is responsible for reading that header to obtain
     /// <paramref name="numBits"/>.
     /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void Unpack(ReadOnlySpan<byte> input, int numBits, Span<int> output)
     {
         if (output.Length < BlockSize)
@@ -169,6 +178,13 @@ public static class PackedIntCodec
 
         if (numBits is < 1 or > 32)
             throw new ArgumentOutOfRangeException(nameof(numBits), "Bit width must be between 1 and 32.");
+
+        if (Vector128.IsHardwareAccelerated)
+        {
+            if (numBits == 8) { Unpack8(input, output); return; }
+            if (numBits == 16) { Unpack16(input, output); return; }
+            if (numBits == 32) { Unpack32(input, output); return; }
+        }
 
         ulong mask = (1UL << numBits) - 1;
         ulong buffer = 0;
@@ -264,6 +280,79 @@ public static class PackedIntCodec
                 throw new InvalidDataException(
                     "Postings data is corrupt: doc ID delta overflow during prefix-sum integration.", ex);
             }
+        }
+    }
+
+    private static void Unpack8(ReadOnlySpan<byte> input, Span<int> output)
+    {
+        ref byte inRef = ref MemoryMarshal.GetReference(input);
+        ref int outRef = ref MemoryMarshal.GetReference(output);
+
+        for (int i = 0; i < BlockSize; i += 16)
+        {
+            Vector128<byte> v = Vector128.LoadUnsafe(ref inRef, (nuint)i);
+
+            Vector128<ushort> w0 = Vector128.WidenLower(v);
+            Vector128<ushort> w1 = Vector128.WidenUpper(v);
+
+            Vector128<uint> u0 = Vector128.WidenLower(w0);
+            Vector128<uint> u1 = Vector128.WidenUpper(w0);
+            Vector128<uint> u2 = Vector128.WidenLower(w1);
+            Vector128<uint> u3 = Vector128.WidenUpper(w1);
+
+            u0.AsInt32().StoreUnsafe(ref outRef, (nuint)i);
+            u1.AsInt32().StoreUnsafe(ref outRef, (nuint)(i + 4));
+            u2.AsInt32().StoreUnsafe(ref outRef, (nuint)(i + 8));
+            u3.AsInt32().StoreUnsafe(ref outRef, (nuint)(i + 12));
+        }
+    }
+
+    private static void Unpack16(ReadOnlySpan<byte> input, Span<int> output)
+    {
+        ref ushort inRef = ref Unsafe.As<byte, ushort>(ref MemoryMarshal.GetReference(input));
+        ref int outRef = ref MemoryMarshal.GetReference(output);
+
+        for (int i = 0; i < BlockSize; i += 8)
+        {
+            Vector128<ushort> v = Vector128.LoadUnsafe(ref inRef, (nuint)i);
+
+            Vector128<uint> u0 = Vector128.WidenLower(v);
+            Vector128<uint> u1 = Vector128.WidenUpper(v);
+
+            u0.AsInt32().StoreUnsafe(ref outRef, (nuint)i);
+            u1.AsInt32().StoreUnsafe(ref outRef, (nuint)(i + 4));
+        }
+    }
+
+    private static void Unpack32(ReadOnlySpan<byte> input, Span<int> output)
+    {
+        ref uint inRef = ref Unsafe.As<byte, uint>(ref MemoryMarshal.GetReference(input));
+        ref int outRef = ref MemoryMarshal.GetReference(output);
+
+        for (int i = 0; i < BlockSize; i += 4)
+        {
+            Vector128<uint> v = Vector128.LoadUnsafe(ref inRef, (nuint)i);
+            v.AsInt32().StoreUnsafe(ref outRef, (nuint)i);
+        }
+    }
+
+    private static void Pack8(ReadOnlySpan<int> values, Span<byte> output)
+    {
+        ref int valRef = ref MemoryMarshal.GetReference(values);
+        ref byte outRef = ref output[1];
+
+        for (int i = 0; i < BlockSize; i += 16)
+        {
+            Vector128<int> v0 = Vector128.LoadUnsafe(ref valRef, (nuint)i);
+            Vector128<int> v1 = Vector128.LoadUnsafe(ref valRef, (nuint)(i + 4));
+            Vector128<int> v2 = Vector128.LoadUnsafe(ref valRef, (nuint)(i + 8));
+            Vector128<int> v3 = Vector128.LoadUnsafe(ref valRef, (nuint)(i + 12));
+
+            Vector128<ushort> s01 = Vector128.Narrow(v0.AsUInt32(), v1.AsUInt32());
+            Vector128<ushort> s23 = Vector128.Narrow(v2.AsUInt32(), v3.AsUInt32());
+            Vector128<byte> b = Vector128.Narrow(s01, s23);
+
+            b.StoreUnsafe(ref outRef, (nuint)i);
         }
     }
 }

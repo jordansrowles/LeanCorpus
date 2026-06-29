@@ -1,11 +1,13 @@
-﻿using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Util;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
 
 /// <summary>
 /// Reads per-document numeric values from a column-stride .dvn file.
-/// Returns the dense value arrays alongside per-field presence bitmaps (v2 files only).
+/// Returns the dense value arrays alongside per-field presence bitmaps.
 /// A null presence entry means all documents carry a value for that field.
 /// </summary>
 internal static class NumericDocValuesReader
@@ -19,7 +21,11 @@ internal static class NumericDocValuesReader
 
         using var input = new IndexInput(filePath);
 
-        byte version = CodecConstants.ReadHeaderVersion(input, CodecConstants.NumericDocValuesVersion, "numeric doc values (.dvn)");
+        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.NumericDocValues);
+        if (version > CodecConstants.NumericDocValuesVersion)
+            throw new InvalidDataException(
+                $"Unsupported numeric doc values (.dvn) format version {version}. " +
+                $"This build supports up to v{CodecConstants.NumericDocValuesVersion}.");
 
         int fieldCount = input.ReadInt32();
 
@@ -31,19 +37,15 @@ internal static class NumericDocValuesReader
                 nameBytes[b] = input.ReadByte();
             string fieldName = System.Text.Encoding.UTF8.GetString(nameBytes);
 
-            // Presence block is only present in v2+ files.
+            // Presence block (current format)
             RoaringBitmap? fieldPresence = null;
-            if (version >= 2)
+            int presenceByteCount = input.ReadInt32();
+            if (presenceByteCount > 0)
             {
-                int presenceByteCount = input.ReadInt32();
-                if (presenceByteCount > 0)
-                {
-                    var bitmapBytes = input.ReadBytes(presenceByteCount);
-                    using var ms = new System.IO.MemoryStream(bitmapBytes);
-                    using var br = new System.IO.BinaryReader(ms);
-                    fieldPresence = RoaringBitmap.Deserialise(br);
-                }
-                // presenceByteCount == 0 means all docs present; fieldPresence stays null.
+                var bitmapBytes = input.ReadBytes(presenceByteCount);
+                using var ms = new System.IO.MemoryStream(bitmapBytes);
+                using var br = new System.IO.BinaryReader(ms);
+                fieldPresence = RoaringBitmap.Deserialise(br);
             }
             presence[fieldName] = fieldPresence;
 

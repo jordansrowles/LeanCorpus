@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Index.Segment;
 
@@ -16,7 +16,7 @@ public sealed partial class SegmentReader
         if (!TryGetCachedOffset(qualifiedTerm, out long offset))
             return PostingsEnum.Empty;
 
-        return PostingsEnum.Create(_posInput, offset, _postingsVersion);
+        return PostingsEnum.Create(_posInput, offset);
     }
 
     /// <summary>
@@ -24,7 +24,7 @@ public sealed partial class SegmentReader
     /// Use when the offset was already obtained from a term scan (e.g. prefix/wildcard).
     /// </summary>
     public PostingsEnum GetPostingsEnumAtOffset(long offset)
-        => PostingsEnum.Create(_posInput, offset, _postingsVersion);
+        => PostingsEnum.Create(_posInput, offset);
 
     /// <summary>
     /// Returns a PostingsEnum with decoded positions for phrase queries.
@@ -34,7 +34,7 @@ public sealed partial class SegmentReader
         if (!TryGetCachedOffset(qualifiedTerm, out long offset))
             return PostingsEnum.Empty;
 
-        return PostingsEnum.CreateWithPositions(_posInput, offset, _postingsVersion);
+        return PostingsEnum.CreateWithPositions(_posInput, offset);
     }
 
     /// <summary>Returns positional data for a term in a specific document, or null if unavailable.</summary>
@@ -88,166 +88,35 @@ public sealed partial class SegmentReader
 
     private int[] ReadPostingsAtOffset(long offset)
     {
-        if (_postingsVersion >= 3)
-        {
-            using var pe = PostingsEnum.Create(_posInput, offset, _postingsVersion);
-            var ids = new int[pe.DocFreq];
-            int i = 0;
-            while (pe.MoveNext()) ids[i++] = pe.DocId;
-            return ids;
-        }
-
-        long cursor = offset;
-        int count = _posInput.ReadInt32(ref cursor);
-        // Skip past skip entries
-        int skipCount = _posInput.ReadInt32(ref cursor);
-        if (skipCount > 0)
-            cursor += skipCount * 8L;
-        var docIds = new int[count];
-        int prev = 0;
-        for (int i = 0; i < count; i++)
-        {
-            prev = ReadNextDocId(_posInput, prev, ref cursor);
-            docIds[i] = prev;
-        }
-        return docIds;
+        using var pe = PostingsEnum.Create(_posInput, offset);
+        var ids = new int[pe.DocFreq];
+        int i = 0;
+        while (pe.MoveNext()) ids[i++] = pe.DocId;
+        return ids;
     }
 
     private int ReadTermFrequency(long offset, int targetDocId)
     {
-        if (_postingsVersion >= 3)
+        using var pe = PostingsEnum.Create(_posInput, offset);
+        while (pe.MoveNext())
         {
-            using var pe = PostingsEnum.Create(_posInput, offset, _postingsVersion);
-            while (pe.MoveNext())
-            {
-                if (pe.DocId == targetDocId) return pe.Freq;
-                if (pe.DocId > targetDocId) return 0;
-            }
-            return 0;
+            if (pe.DocId == targetDocId) return pe.Freq;
+            if (pe.DocId > targetDocId) return 0;
         }
-
-        long cursor = offset;
-        int count = _posInput.ReadInt32(ref cursor);
-        // Skip past skip entries
-        int skipCount = _posInput.ReadInt32(ref cursor);
-        if (skipCount > 0)
-            cursor += skipCount * 8L;
-
-        var ids = new int[count];
-        int prev = 0;
-        for (int i = 0; i < count; i++)
-        {
-            prev = ReadNextDocId(_posInput, prev, ref cursor);
-            ids[i] = prev;
-        }
-
-        bool hasFreqs = _posInput.ReadBoolean(ref cursor);
-        if (!hasFreqs) return 1;
-
-        for (int i = 0; i < count; i++)
-        {
-            int freq = _posInput.ReadVarInt(ref cursor);
-            if (ids[i] == targetDocId)
-                return freq;
-        }
-
         return 0;
     }
 
     private int[]? ReadPositionsAtOffset(long offset, int docId)
     {
-        if (_postingsVersion >= 3)
+        using var pe = PostingsEnum.CreateWithPositions(_posInput, offset);
+        while (pe.MoveNext())
         {
-            using var pe = PostingsEnum.CreateWithPositions(_posInput, offset, _postingsVersion);
-            while (pe.MoveNext())
-            {
-                if (pe.DocId == docId)
-                    return pe.GetCurrentPositions().ToArray();
-                if (pe.DocId > docId)
-                    return null;
-            }
-            return null;
+            if (pe.DocId == docId)
+                return pe.GetCurrentPositions().ToArray();
+            if (pe.DocId > docId)
+                return null;
         }
-
-        long cursor = offset;
-        int count = _posInput.ReadInt32(ref cursor);
-        // Skip past skip entries
-        int skipCount = _posInput.ReadInt32(ref cursor);
-        if (skipCount > 0)
-            cursor += skipCount * 8L;
-
-        // Stream through doc IDs to find target index (zero alloc)
-        int targetIndex = -1;
-        int prev = 0;
-        for (int i = 0; i < count; i++)
-        {
-            prev = ReadNextDocId(_posInput, prev, ref cursor);
-            if (prev == docId && targetIndex < 0)
-                targetIndex = i;
-        }
-        if (targetIndex < 0) return null;
-
-        bool hasFreqs = _posInput.ReadBoolean(ref cursor);
-        if (hasFreqs)
-        {
-            for (int i = 0; i < count; i++)
-                _posInput.ReadVarInt(ref cursor); // skip freqs
-        }
-
-        bool hasPositions = _posInput.ReadBoolean(ref cursor);
-
-        bool hasPayloads = false;
-        if (_postingsVersion >= 2)
-            hasPayloads = _posInput.ReadBoolean(ref cursor);
-
-        if (!hasPositions) return null;
-
-        for (int i = 0; i < targetIndex; i++)
-        {
-            int posCount = _posInput.ReadVarInt(ref cursor);
-            for (int j = 0; j < posCount; j++)
-            {
-                _posInput.ReadVarInt(ref cursor); // position delta
-                if (hasPayloads)
-                {
-                    int payloadLen = _posInput.ReadVarInt(ref cursor);
-                    if (payloadLen > 0)
-                        cursor += payloadLen;
-                }
-            }
-        }
-
-        int targetPosCount = _posInput.ReadVarInt(ref cursor);
-        var positions = new int[targetPosCount];
-        int prevPos = 0;
-        for (int i = 0; i < targetPosCount; i++)
-        {
-            prevPos += _posInput.ReadVarInt(ref cursor);
-            positions[i] = prevPos;
-            if (hasPayloads)
-            {
-                int payloadLen = _posInput.ReadVarInt(ref cursor);
-                if (payloadLen > 0)
-                    cursor += payloadLen;
-            }
-        }
-
-        return positions;
+        return null;
     }
 
-    private static int ReadNextDocId(IndexInput input, int previous, ref long position)
-    {
-        int delta = input.ReadVarInt(ref position);
-        if (delta < 0)
-            throw new InvalidDataException("Postings data is corrupt: negative delta encountered.");
-
-        try
-        {
-            return checked(previous + delta);
-        }
-        catch (OverflowException ex)
-        {
-            throw new InvalidDataException("Postings data is corrupt: doc ID delta overflow.", ex);
-        }
-    }
 }

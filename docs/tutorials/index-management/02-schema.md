@@ -1,14 +1,10 @@
 ﻿# Schema validation
 
-`IndexSchema` declares the expected field set and type per field. When attached to
-the writer, every `AddDocument` call is validated.
+`IndexSchema` declares the expected field set. Attach to the writer and every `AddDocument` is validated.
 
-## Define a schema
+## Define
 
 ```csharp
-using Rowles.LeanCorpus.Index.Indexer;
-using Rowles.LeanCorpus.Document.Fields;
-
 var schema = new IndexSchema { StrictMode = true }
     .Add(new FieldMapping("id",    FieldType.String) { IsStored = true, IsRequired = true })
     .Add(new FieldMapping("title", FieldType.Text)   { IsRequired = true })
@@ -19,47 +15,41 @@ var config = new IndexWriterConfig { Schema = schema };
 
 ## Generated schemas
 
-If the source generator package is installed, annotated models can produce the same schema without restating field names:
+With the source generator:
 
 ```csharp
-using Rowles.LeanCorpus.Mapping.Attributes;
-
 [LeanDocument]
 public partial class Product
 {
     [LeanString("id", Required = true)]
     public required string Id { get; init; }
-
     [LeanText("title", Required = true)]
     public required string Title { get; init; }
-
     [LeanNumeric("price")]
     public double Price { get; init; }
 }
 
-var config = new IndexWriterConfig
-{
-    Schema = ProductIndex.CreateSchema()
-};
+var config = new IndexWriterConfig { Schema = ProductIndex.CreateSchema() };
 ```
 
-`ProductIndex.CreateSchema()` uses the `[LeanDocument(StrictSchema = ...)]` default, and `ProductIndex.CreateSchema(strict: false)` can override it at the call site.
+`ProductIndex.CreateSchema()` uses the `[LeanDocument(StrictSchema = ...)]` default. Override with `ProductIndex.CreateSchema(strict: false)`.
 
-## Strict vs lax mode
+## Strict vs lax
 
-- `StrictMode = false` (default): unknown fields are accepted silently.
+- `StrictMode = false` (default): unknown fields accepted silently.
 - `StrictMode = true`: unknown fields throw `SchemaValidationException`.
 
-Required fields, when missing, throw regardless of mode. Type mismatches always
-throw.
+Required fields throw regardless of mode. Type mismatches always throw.
 
 ## Per-field analyser
 
-A `FieldMapping` can override the writer's default analyser for that field by
-setting `Analyser`.
+A `FieldMapping` can override the writer's default analyser:
+
+```csharp
+new FieldMapping("title", FieldType.Text) { Analyser = new EnglishStemmerAnalyser() }
+```
 
 ## See also
 
 - <xref:Rowles.LeanCorpus.Index.Indexer.IndexSchema>
 - <xref:Rowles.LeanCorpus.Index.Indexer.FieldMapping>
-- <xref:Rowles.LeanCorpus.Mapping.LeanDocumentMap`1>

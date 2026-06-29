@@ -1,11 +1,19 @@
-﻿<Project>
+<Project>
   <PropertyGroup>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Rowles.LeanCorpus' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Compression.LZ4' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Compression.Snappy' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Compression.Zstandard' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Cli' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Benchmarks' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Benchmarks.Compression' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.Shared' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.Unit' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.Integration' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.Chaos' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.CompressionParity' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.SourceGen'">
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Rowles.LeanCorpus' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Compression.LZ4' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Compression.Snappy' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Compression.Zstandard' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Cli' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.Shared' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.Unit' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.Integration' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.Chaos' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.CompressionParity' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.SourceGen'">
     <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
+    <TieredPGO>true</TieredPGO>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+  </PropertyGroup>
+  <!-- Benchmark projects: disable PGO and Server GC to avoid measurement artifacts (zero allocation tracking, timing noise) -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Benchmarks' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Benchmarks.Compression' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Profiling'">
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
+    <TieredPGO>false</TieredPGO>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Benchmarks.Compression' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.Shared' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.Unit' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.Integration' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.Chaos' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.CompressionParity' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.SourceGen'">

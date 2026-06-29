@@ -1,4 +1,6 @@
-﻿using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
 
@@ -14,7 +16,7 @@ internal static class SortedNumericDocValuesReader
             return values;
 
         using var input = new IndexInput(filePath);
-        CodecConstants.ReadHeaderVersion(input, CodecConstants.SortedNumericDocValuesVersion, "sorted-numeric doc values (.dsn)");
+        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.SortedNumericDocValues);
 
         int fieldCount = input.ReadInt32();
         for (int f = 0; f < fieldCount; f++)

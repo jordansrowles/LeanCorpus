@@ -1,4 +1,6 @@
-﻿using System.Buffers;
+using Rowles.LeanCorpus.Analysis.Filters;
+using Rowles.LeanCorpus.Analysis.Tokenisers;
+
 namespace Rowles.LeanCorpus.Analysis.Analysers;
 
 /// <summary>
@@ -8,16 +10,12 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// </summary>
 /// <remarks>
 /// Instances are safe to share across threads provided the supplied
-/// <see cref="ITokeniser"/> and <see cref="IStemmer"/> are also thread-safe.
-/// Per-call scratch buffers are rented from <see cref="ArrayPool{T}"/> and
-/// returned before the method exits.
+/// <see cref="ISpanTokeniser"/> and <see cref="Stemmers.ISpanStemmer"/> are also thread-safe.
+/// The inner <see cref="Analyser"/> pipeline maintains per-instance buffers.
 /// </remarks>
 public sealed class LanguageAnalyser : IAnalyser
 {
-    private readonly ITokeniser _tokeniser;
-    private readonly StopWordFilter _stopWordFilter;
-    private readonly IStemmer? _stemmer;
-    private readonly KeywordMarkerFilter? _keywordMarker;
+    private readonly Analyser _inner;
 
     /// <summary>
     /// Initialises a new <see cref="LanguageAnalyser"/> with the specified tokeniser, stop words, and optional stemmer.
@@ -27,52 +25,31 @@ public sealed class LanguageAnalyser : IAnalyser
     /// <param name="stemmer">Optional stemmer to reduce tokens to their root form, or <see langword="null"/> to skip stemming.</param>
     /// <param name="keywordMarker">Optional keyword marker used to skip stemming for selected token text.</param>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="tokeniser"/> is <see langword="null"/>.</exception>
-    public LanguageAnalyser(ITokeniser tokeniser, IEnumerable<string>? stopWords, IStemmer? stemmer, KeywordMarkerFilter? keywordMarker = null)
+    public LanguageAnalyser(ISpanTokeniser tokeniser, IEnumerable<string>? stopWords, ISpanStemmer? stemmer, KeywordMarkerFilter? keywordMarker = null)
     {
-        _tokeniser = tokeniser ?? throw new ArgumentNullException(nameof(tokeniser));
-        _stopWordFilter = new StopWordFilter(stopWords);
-        _stemmer = stemmer;
-        _keywordMarker = keywordMarker;
+        ArgumentNullException.ThrowIfNull(tokeniser);
+        var stopWordFilter = new StopWordFilter(stopWords);
+
+        if (stemmer is not null)
+        {
+            _inner = new Analyser(
+                tokeniser,
+                new LowercaseFilter(),
+                stopWordFilter,
+                new StemTokenFilter(stemmer, keywordMarker));
+        }
+        else
+        {
+            _inner = new Analyser(
+                tokeniser,
+                new LowercaseFilter(),
+                stopWordFilter);
+        }
     }
 
     /// <inheritdoc/>
-    public List<Token> Analyse(ReadOnlySpan<char> input)
+    public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
-        var rawTokens = _tokeniser.Tokenise(input);
-        var result = new List<Token>(rawTokens.Count);
-
-        char[]? rented = null;
-        try
-        {
-            for (int i = 0; i < rawTokens.Count; i++)
-            {
-                var t = rawTokens[i];
-                var span = t.Text.AsSpan();
-                int len = span.Length;
-
-                if (rented is null || rented.Length < len)
-                {
-                    if (rented is not null) ArrayPool<char>.Shared.Return(rented);
-                    rented = ArrayPool<char>.Shared.Rent(Math.Max(len, 64));
-                }
-
-                span.ToLowerInvariant(rented.AsSpan(0, len));
-                string text = new string(rented, 0, len);
-
-                if (_stopWordFilter.IsStopWord(text))
-                    continue;
-
-                if (_stemmer is not null && (_keywordMarker is null || !_keywordMarker.IsKeyword(text)))
-                    text = _stemmer.Stem(text);
-
-                result.Add(new Token(text, t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload));
-            }
-        }
-        finally
-        {
-            if (rented is not null) ArrayPool<char>.Shared.Return(rented);
-        }
-
-        return result;
+        _inner.Clone().Analyse(input, sink);
     }
 }

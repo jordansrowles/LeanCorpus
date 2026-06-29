@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Analysis;
@@ -24,7 +24,10 @@ public class StopWordFilterTests
             new("a", 7, 8),
         };
 
-        _filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) _filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         Assert.Empty(tokens);
     }
@@ -41,7 +44,10 @@ public class StopWordFilterTests
             new("fox", 6, 9),
         };
 
-        _filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) _filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         Assert.Equal(2, tokens.Count);
     }
@@ -60,7 +66,10 @@ public class StopWordFilterTests
             new("fox", 16, 19),
         };
 
-        _filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) _filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         Assert.Equal(3, tokens.Count);
         Assert.Equal("quick", tokens[0].Text);

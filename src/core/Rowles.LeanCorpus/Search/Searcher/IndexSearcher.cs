@@ -1,4 +1,5 @@
-﻿using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis.Analysers;
+using System.Runtime.CompilerServices;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Compatibility;
 using Rowles.LeanCorpus.Store;
@@ -17,6 +18,7 @@ public sealed partial class IndexSearcher : IDisposable
     private readonly IndexStats _stats;
     private readonly ISimilarity _similarity;
     private readonly IndexSearcherConfig _config;
+    private readonly bool _useLmScoring;
     [ThreadStatic] private static PostingsEnum[]? t_postingsBuffer;
     [ThreadStatic] private static ScoreDoc[]? t_collectorHeapCache;
     [ThreadStatic] private static HashSet<(string Field, string Term)>? t_docFreqTermsBuf;
@@ -29,6 +31,29 @@ public sealed partial class IndexSearcher : IDisposable
 
     /// <summary>The query result cache, or null if caching is disabled.</summary>
     public QueryCache? Cache => _queryCache;
+
+    /// <summary>Computes scoring factors for a term, dispatching to LM or classic path.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private (float F1, float F2, float F3) ComputeTermFactors(
+        int docFreq, float avgDocLength, long collectionFreq, string field)
+    {
+        long totalTerms = _useLmScoring ? _stats.GetFieldLengthSum(field) : 0;
+        return _similarity.PrecomputeLmFactors(_totalDocCount, docFreq, avgDocLength, collectionFreq, totalTerms);
+    }
+
+    /// <summary>Scores a term via the unified language-model path.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private float ScoreTerm(float f1, float f2, float f3, int tf, int docLength)
+        => _similarity.ScoreLmPrecomputed(f1, f2, f3, tf, docLength);
+
+    /// <summary>Computes the collection frequency for a term across all segments.</summary>
+    private long GetGlobalCollectionFreq(string qualifiedTerm)
+    {
+        long total = 0;
+        foreach (var reader in _readers)
+            total += reader.GetCollectionFrequency(qualifiedTerm);
+        return total;
+    }
 
     /// <summary>The metrics collector for this searcher.</summary>
     public Diagnostics.IMetricsCollector Metrics => _config.Metrics;
@@ -62,15 +87,37 @@ public sealed partial class IndexSearcher : IDisposable
         _config = config;
         _similarity = config.Similarity;
 
+        _useLmScoring = _similarity.RequiresCollectionStatistics;
+
         IndexOpenGuard.EnsureNoBlockingMigration(directory, config.CompatibilityMode);
+
         var (segmentIds, generation) = LoadLatestCommitWithGeneration();
         IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false);
-        foreach (var segId in segmentIds)
+
+        // Load segment readers with a retry loop to handle the narrow window where a
+        // background merge has deleted segment files but the commit file still references
+        // the old segments. Re-reading the commit picks up the merged generation.
+        const int maxAttempts = 3;
+        for (int attempt = 1; ; attempt++)
         {
-            var segPath = Path.Combine(directory.DirectoryPath, segId + ".seg");
-            if (!File.Exists(segPath)) continue;
-            var info = SegmentInfo.ReadFrom(segPath);
-            _readers.Add(new SegmentReader(directory, info));
+            try
+            {
+                _readers.Clear();
+                foreach (var segId in segmentIds)
+                {
+                    var segPath = Path.Combine(directory.DirectoryPath, segId + ".seg");
+                    if (!File.Exists(segPath)) continue;
+                    var info = SegmentInfo.ReadFrom(segPath);
+                    _readers.Add(new SegmentReader(directory, info));
+                }
+                break;
+            }
+            catch (FileNotFoundException) when (attempt < maxAttempts)
+            {
+                Thread.Sleep(10 * attempt);
+                (segmentIds, generation) = LoadLatestCommitWithGeneration();
+                IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false);
+            }
         }
 
         _docBases = AssignDocBases();
@@ -108,6 +155,8 @@ public sealed partial class IndexSearcher : IDisposable
         _directory = directory;
         _config = config;
         _similarity = config.Similarity;
+
+        _useLmScoring = _similarity.RequiresCollectionStatistics;
         IndexOpenGuard.EnsureNoBlockingMigration(directory, config.CompatibilityMode);
         IndexOpenGuard.EnsureCanOpenSegments(
             directory,
@@ -443,7 +492,7 @@ public sealed partial class IndexSearcher : IDisposable
             avgFieldLengths[field] = count > 0 ? (float)sum / count : 1.0f;
         }
 
-        return new IndexStats(_totalDocCount, liveDocCount, avgFieldLengths, fieldDocCounts);
+        return new IndexStats(_totalDocCount, liveDocCount, avgFieldLengths, fieldDocCounts, fieldLengthSums);
     }
 
     private static bool ShouldSkipGlobalDocFreqs(Query query) =>
@@ -464,7 +513,7 @@ public sealed partial class IndexSearcher : IDisposable
 
     private (List<string> SegmentIds, int Generation) LoadLatestCommitWithGeneration()
     {
-        var recovery = IndexRecovery.RecoverLatestCommit(_directory.DirectoryPath);
+        var recovery = IndexRecovery.RecoverLatestCommit(_directory.DirectoryPath, cleanupOrphans: false);
         return recovery is not null
             ? (recovery.SegmentIds, recovery.Generation)
             : ([], 0);
@@ -711,6 +760,7 @@ public sealed partial class IndexSearcher : IDisposable
             postingsArr[i] = _readers[i].GetPostingsEnum(qt);
             globalDF += postingsArr[i].DocFreq;
         }
+        long globalCollectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
 
         if (globalDF == 0)
         {
@@ -720,8 +770,9 @@ public sealed partial class IndexSearcher : IDisposable
         }
 
         // Phase 2: score using already-decoded postings
+        // Phase 2: score using already-decoded postings
         float avgDocLength = _stats.GetAvgFieldLength(query.Field);
-        var (idf, k1BOverAvgDL) = _similarity.PrecomputeFactors(_totalDocCount, globalDF, avgDocLength);
+        var (f1, f2, f3) = ComputeTermFactors(globalDF, avgDocLength, globalCollectionFreq, query.Field);
         float boost = query.Boost;
 
         // Reuse the backing ScoreDoc[] across queries to avoid per-query allocation
@@ -749,7 +800,7 @@ public sealed partial class IndexSearcher : IDisposable
                     int tf = postings.Freq;
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                         ? fieldLengths[docId] : 1;
-                    float score = _similarity.ScorePrecomputed(idf, k1BOverAvgDL, tf, docLength);
+                    float score = ScoreTerm(f1, f2, f3, tf, docLength);
                     if (boost != 1.0f) score *= boost;
                     score = ApplyFieldBoost(reader, docId, query.Field, score);
                     collector.Collect(docBase + docId, score);
@@ -764,5 +815,4 @@ public sealed partial class IndexSearcher : IDisposable
 
         return collector.ToTopDocs();
     }
-
 }

@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
 using System.Text;
 
@@ -46,8 +46,8 @@ public sealed class TermDictionaryReaderGapsTests : IDisposable
         using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write))
         using (var writer = new BinaryWriter(fs))
         {
-            writer.Write(CodecConstants.Magic);
             writer.Write((byte)99);
+            writer.Write((byte)0);
         }
 
         Assert.Throws<InvalidDataException>(() => TermDictionaryReader.Open(path));
@@ -116,7 +116,7 @@ public sealed class TermDictionaryReaderGapsTests : IDisposable
             ("body\0beta", 22L));
 
         var ex = Assert.Throws<InvalidDataException>(() => TermDictionaryReader.Open(path));
-        Assert.Contains("migrate", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("too small", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact(DisplayName = "TermDictionaryReader: V2 Dictionary Is Rejected With Migrate Hint")]
@@ -126,7 +126,8 @@ public sealed class TermDictionaryReaderGapsTests : IDisposable
         using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write))
         using (var writer = new BinaryWriter(fs))
         {
-            CodecConstants.WriteHeader(writer, version: 2);
+            writer.Write((byte)2);
+            writer.Write((byte)0);
             writer.Write(0);
             writer.Write(0);
         }
@@ -162,7 +163,8 @@ public sealed class TermDictionaryReaderGapsTests : IDisposable
 
         using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
         using var writer = new BinaryWriter(fs, Encoding.UTF8);
-        CodecConstants.WriteHeader(writer, version: 1);
+        writer.Write((byte)1);
+        writer.Write((byte)0);
         writer.Write(1);
         WriteV1Entry(writer, "skip\0ignored", -1L);
 

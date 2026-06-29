@@ -270,17 +270,20 @@ internal sealed class DemoWorker(IMeterFactory meterFactory, ILogger<DemoWorker>
     /// </summary>
     private static Query[] BuildQueries()
     {
-        var boolProgrammingDesign = new BooleanQuery();
-        boolProgrammingDesign.Add(new TermQuery("genre", "programming"), Occur.Must);
-        boolProgrammingDesign.Add(new TermQuery("title", "design"),      Occur.Should);
+        var boolProgrammingDesign = new BooleanQuery.Builder()
+            .Add(new TermQuery("genre", "programming"), Occur.Must)
+            .Add(new TermQuery("title", "design"),      Occur.Should)
+            .Build();
 
-        var boolAuthorOrTitle = new BooleanQuery();
-        boolAuthorOrTitle.Add(new TermQuery("author", "martin"),      Occur.Should);
-        boolAuthorOrTitle.Add(new TermQuery("title",  "refactoring"), Occur.Should);
+        var boolAuthorOrTitle = new BooleanQuery.Builder()
+            .Add(new TermQuery("author", "martin"),      Occur.Should)
+            .Add(new TermQuery("title",  "refactoring"), Occur.Should)
+            .Build();
 
-        var boolArchitectureNotManagement = new BooleanQuery();
-        boolArchitectureNotManagement.Add(new TermQuery("genre", "architecture"), Occur.Must);
-        boolArchitectureNotManagement.Add(new TermQuery("genre", "management"),   Occur.MustNot);
+        var boolArchitectureNotManagement = new BooleanQuery.Builder()
+            .Add(new TermQuery("genre", "architecture"), Occur.Must)
+            .Add(new TermQuery("genre", "management"),   Occur.MustNot)
+            .Build();
 
         return
         [

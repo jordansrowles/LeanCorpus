@@ -6,7 +6,7 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 
 /// <summary>
 /// Generic analyser that runs tokenise → lowercase → stop-word removal → stem
-/// using the supplied <see cref="IStemmer"/>.
+/// using the supplied <see cref="ISpanStemmer"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -26,7 +26,7 @@ public sealed class StemmerAnalyser : IAnalyser
     /// Initialises a new <see cref="StemmerAnalyser"/> with the given stemmer.
     /// </summary>
     /// <param name="stemmer">The stemmer to apply after tokenisation, lowercasing, and stop-word removal.</param>
-    public StemmerAnalyser(IStemmer stemmer)
+    public StemmerAnalyser(ISpanStemmer stemmer)
     {
         ArgumentNullException.ThrowIfNull(stemmer);
         _inner = new Analyser(
@@ -37,7 +37,10 @@ public sealed class StemmerAnalyser : IAnalyser
     }
 
     /// <inheritdoc/>
-    public List<Token> Analyse(ReadOnlySpan<char> input) => _inner.Analyse(input);
+    public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
+    {
+        _inner.Analyse(input, sink);
+    }
 
     /// <summary>
     /// Creates a <see cref="StemmerAnalyser"/> using the Porter stemmer.
@@ -77,20 +80,29 @@ public sealed class StemmerAnalyser : IAnalyser
     /// Creates a <see cref="StemmerAnalyser"/> that uses a named stemmer.
     /// Resolves the stemmer from the provided callback, useful with DI.
     /// </summary>
-    public static StemmerAnalyser FromStemmer(IStemmer stemmer) => new(stemmer);
+    public static StemmerAnalyser FromStemmer(ISpanStemmer stemmer) => new(stemmer);
 }
 
 /// <summary>
-/// Adapter that wraps <see cref="HunspellStemFilter"/>'s behaviour behind <see cref="IStemmer"/>.
+/// Adapter that wraps <see cref="HunspellStemFilter"/>'s behaviour behind <see cref="ISpanStemmer"/>.
 /// Used to plug Hunspell into the <see cref="StemmerAnalyser"/> pipeline.
 /// </summary>
-internal sealed class HunspellStemmerAdapter : IStemmer
+internal sealed class HunspellStemmerAdapter : ISpanStemmer
 {
     private readonly HunspellDictionary _dictionary;
 
     public HunspellStemmerAdapter(HunspellDictionary dictionary)
     {
         _dictionary = dictionary ?? throw new ArgumentNullException(nameof(dictionary));
+    }
+
+    public int Stem(ReadOnlySpan<char> word, Span<char> output)
+    {
+        string wordStr = word.ToString();
+        var stems = _dictionary.Stem(wordStr);
+        string result = stems.Count > 0 ? stems[0] : wordStr;
+        result.AsSpan().CopyTo(output);
+        return result.Length;
     }
 
     public string Stem(string word)
@@ -101,10 +113,14 @@ internal sealed class HunspellStemmerAdapter : IStemmer
 }
 
 /// <summary>
-/// Adapter that exposes <see cref="PorterStemmerFilter.Stem"/> through <see cref="IStemmer"/>.
+/// Adapter that exposes Porter stemming through <see cref="ISpanStemmer"/>.
 /// </summary>
-public sealed class PorterStemmer : IStemmer
+public sealed class PorterStemmer : ISpanStemmer
 {
     /// <inheritdoc/>
+    public int Stem(ReadOnlySpan<char> word, Span<char> output) =>
+        PorterStemmerFilter.Stem(word, output);
+
+    /// <summary>Convenience overload returning a stemmed string.</summary>
     public string Stem(string word) => PorterStemmerFilter.Stem(word);
 }

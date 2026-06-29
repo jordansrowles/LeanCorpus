@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Wrapper: ./scripts/devops test|benchmark|docs [...]
+exec pwsh -NoProfile -File "$(dirname "$0")/devops.ps1" "$@"

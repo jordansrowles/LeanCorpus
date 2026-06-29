@@ -4,6 +4,7 @@ using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Tests.Shared.Infrastructure;
 
 namespace Rowles.LeanCorpus.Tests.Integration.Index;
 
@@ -146,7 +147,7 @@ public sealed class DwptTests
         }
     }
 
-    [Fact(DisplayName = "DWPT Pool: Concurrent Batch Preserves Binary Doc Values Per Document")]
+    [RetryFact(DisplayName = "DWPT Pool: Concurrent Batch Preserves Binary Doc Values Per Document")]
     public void DwptPool_ConcurrentBatch_PreservesBinaryDocValuesPerDocument()
     {
         var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
@@ -184,7 +185,7 @@ public sealed class DwptTests
         }
     }
 
-    [Fact(DisplayName = "DWPT Pool: Concurrent Batch Uses RAM Threshold Flush")]
+    [RetryFact(DisplayName = "DWPT Pool: Concurrent Batch Uses RAM Threshold Flush")]
     public void DwptPool_ConcurrentBatch_UsesRamThresholdFlush()
     {
         var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());

@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Simd;
 using Rowles.LeanCorpus.Util;
@@ -28,11 +28,17 @@ internal sealed class HnswGraph
     private readonly Random _rng;
     private readonly double _levelMultiplier;
 
+    // Quantisation dispatch: set based on the IVectorSource type.
+    private readonly VectorQuantisation _vectorQuantisation;
+    private readonly IBBQVectorSource? _bbqSource;
+    private readonly IInt8VectorSource? _int8Source;
+
     // Layer 0 is the base; index increases with sparsity.
-    private readonly List<Dictionary<int, List<int>>> _mutableLevels;
+    private List<Dictionary<int, List<int>>> _mutableLevels;
 
     // Populated after Freeze: stable adjacency arrays for thread-safe reads.
-    private List<Dictionary<int, int[]>>? _frozenLevels;
+    // volatile ensures the frozen graph is fully visible to all threads on ARM64.
+    private volatile List<FrozenLevel>? _frozenLevels;
 
     /// <summary>Vector dimension; matches <see cref="IVectorSource.Dimension"/>.</summary>
     public int Dimension => _vectors.Dimension;
@@ -62,6 +68,36 @@ internal sealed class HnswGraph
     public bool IsReadOnly => _frozenLevels is not null;
 
     public HnswGraph(IVectorSource vectors, HnswBuildConfig config, long seed)
+        : this(vectors, config, seed, frozen: false)
+    {
+        _mutableLevels = [new Dictionary<int, List<int>>()];
+    }
+
+    /// <summary>
+    /// Builds an <see cref="HnswGraph"/> from pre-loaded adjacency. Used by the reader to materialise
+    /// a graph from a .hnsw file. The graph is created in the read-only state immediately.
+    /// </summary>
+    internal static HnswGraph FromFrozen(
+        IVectorSource vectors,
+        HnswBuildConfig config,
+        long seed,
+        List<FrozenLevel> levels,
+        int entryPoint,
+        int maxLevel,
+        int nodeCount)
+    {
+        // Use the frozen constructor to skip allocating a mutable dictionary that would
+        // never be used: every accessor already checks _frozenLevels before _mutableLevels.
+        return new HnswGraph(vectors, config, seed, frozen: true)
+        {
+            EntryPoint = entryPoint,
+            MaxLevel = maxLevel,
+            NodeCount = nodeCount,
+            _frozenLevels = levels,
+        };
+    }
+
+    private HnswGraph(IVectorSource vectors, HnswBuildConfig config, long seed, bool frozen)
     {
         ArgumentNullException.ThrowIfNull(vectors);
         ArgumentNullException.ThrowIfNull(config);
@@ -75,30 +111,26 @@ internal sealed class HnswGraph
         Seed = seed;
         _rng = new Random(unchecked((int)seed));
         _levelMultiplier = 1.0 / Math.Log(M);
-        _mutableLevels = [new Dictionary<int, List<int>>()];
-    }
+        _mutableLevels = [];
 
-    /// <summary>
-    /// Builds an <see cref="HnswGraph"/> from pre-loaded adjacency. Used by the reader to materialise
-    /// a graph from a .hnsw file. The graph is created in the read-only state immediately.
-    /// </summary>
-    internal static HnswGraph FromFrozen(
-        IVectorSource vectors,
-        HnswBuildConfig config,
-        long seed,
-        List<Dictionary<int, int[]>> levels,
-        int entryPoint,
-        int maxLevel,
-        int nodeCount)
-    {
-        var graph = new HnswGraph(vectors, config, seed)
+        if (vectors is QuantisedVectorSource qvs)
         {
-            EntryPoint = entryPoint,
-            MaxLevel = maxLevel,
-            NodeCount = nodeCount,
-            _frozenLevels = levels,
-        };
-        return graph;
+            _vectorQuantisation = qvs.Quantisation;
+            if (qvs.Quantisation == VectorQuantisation.BBQ)
+                _bbqSource = qvs;
+            else if (qvs.Quantisation == VectorQuantisation.Int8)
+                _int8Source = qvs;
+        }
+        else if (vectors is BBQMemoryVectorSource bbqMem)
+        {
+            _vectorQuantisation = VectorQuantisation.BBQ;
+            _bbqSource = bbqMem;
+        }
+        else if (vectors is Int8QuantisedMemoryVectorSource int8Mem)
+        {
+            _vectorQuantisation = VectorQuantisation.Int8;
+            _int8Source = int8Mem;
+        }
     }
 
     /// <summary>Marks the graph as immutable. Required before search can be called concurrently.</summary>
@@ -106,14 +138,9 @@ internal sealed class HnswGraph
     {
         if (IsReadOnly) return;
 
-        var frozen = new List<Dictionary<int, int[]>>(_mutableLevels.Count);
+        var frozen = new List<FrozenLevel>(_mutableLevels.Count);
         foreach (var level in _mutableLevels)
-        {
-            var dict = new Dictionary<int, int[]>(level.Count);
-            foreach (var (docId, neighbours) in level)
-                dict[docId] = neighbours.ToArray();
-            frozen.Add(dict);
-        }
+            frozen.Add(FrozenLevel.FromMutable(level));
         _frozenLevels = frozen;
         _mutableLevels.Clear();
     }
@@ -131,8 +158,11 @@ internal sealed class HnswGraph
         foreach (var level in _frozenLevels)
         {
             var dict = new Dictionary<int, List<int>>(level.Count);
-            foreach (var (docId, neighbours) in level)
-                dict[docId] = [.. neighbours];
+            for (int i = 0; i < level.NodeIds.Length; i++)
+            {
+                int docId = level.NodeIds[i];
+                dict[docId] = [.. level.GetNeighbours(docId)];
+            }
             _mutableLevels.Add(dict);
         }
         _frozenLevels = null;
@@ -142,7 +172,7 @@ internal sealed class HnswGraph
     internal bool ContainsNode(int docId)
     {
         if (_frozenLevels is not null)
-            return _frozenLevels.Count > 0 && _frozenLevels[0].ContainsKey(docId);
+            return _frozenLevels.Count > 0 && _frozenLevels[0].ContainsNode(docId);
         return _mutableLevels.Count > 0 && _mutableLevels[0].ContainsKey(docId);
     }
 
@@ -280,9 +310,7 @@ internal sealed class HnswGraph
     internal IReadOnlyList<int> GetNeighbours(int docId, int level)
     {
         if (_frozenLevels is not null)
-        {
-            return _frozenLevels[level].TryGetValue(docId, out var arr) ? arr : Array.Empty<int>();
-        }
+            return _frozenLevels[level].GetNeighbours(docId);
         return _mutableLevels[level].TryGetValue(docId, out var list) ? list : (IReadOnlyList<int>)Array.Empty<int>();
     }
 
@@ -290,7 +318,7 @@ internal sealed class HnswGraph
     internal IEnumerable<int> GetNodesAtLevel(int level)
     {
         if (_frozenLevels is not null)
-            return _frozenLevels[level].Keys;
+            return _frozenLevels[level].NodeIds;
         return _mutableLevels[level].Keys;
     }
 
@@ -314,17 +342,18 @@ internal sealed class HnswGraph
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private int LevelDegree(int level) => level == 0 ? M0 : M;
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private int GreedyDescent(ReadOnlySpan<float> query, int entry, int level)
     {
         int current = entry;
-        float currentDist = Distance(query, _vectors.GetVector(current));
+        float currentDist = QueryDistance(query, current);
         bool improved;
         do
         {
             improved = false;
             foreach (var n in NeighboursAt(current, level))
             {
-                float d = Distance(query, _vectors.GetVector(n));
+                float d = QueryDistance(query, n);
                 if (d < currentDist)
                 {
                     currentDist = d;
@@ -339,7 +368,7 @@ internal sealed class HnswGraph
     private IReadOnlyList<int> NeighboursAt(int docId, int level)
     {
         if (_frozenLevels is not null)
-            return _frozenLevels[level].TryGetValue(docId, out var arr) ? arr : Array.Empty<int>();
+            return _frozenLevels[level].GetNeighbours(docId);
         return _mutableLevels[level].TryGetValue(docId, out var list) ? list : (IReadOnlyList<int>)Array.Empty<int>();
     }
 
@@ -364,7 +393,7 @@ internal sealed class HnswGraph
         {
             if (visited.Add(ep))
             {
-                float d = Distance(query, _vectors.GetVector(ep));
+                float d = QueryDistance(query, ep);
                 frontier.Enqueue(ep, d);
                 if (allowList is null || allowList.Contains(ep))
                 {
@@ -386,7 +415,7 @@ internal sealed class HnswGraph
             {
                 if (!visited.Add(neighbour)) continue;
 
-                float d = Distance(query, _vectors.GetVector(neighbour));
+                float d = QueryDistance(query, neighbour);
                 bool resultsFull = results.Count >= ef;
                 bool eligibleForResults = allowList is null || allowList.Contains(neighbour);
 
@@ -458,11 +487,93 @@ internal sealed class HnswGraph
         foreach (var n in kept) list.Add(n.DocId);
     }
 
+    /// <summary>
+    /// Distance between a query vector and a stored vector identified by docId.
+    /// For BBQ, uses PopCount on raw bit-packed data to avoid dequantisation overhead.
+    /// For all other quantisation modes, dequantises (if needed) and uses dot product.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private float QueryDistance(ReadOnlySpan<float> query, int docId)
+    {
+        if (_vectorQuantisation == VectorQuantisation.BBQ && _bbqSource is not null)
+        {
+            var bits = _bbqSource.GetRawVector(docId);
+            return BBQDistanceComputer.Distance(query, _bbqSource.Centroid, bits, _vectors.Dimension);
+        }
+        if (_vectorQuantisation == VectorQuantisation.Int8 && _int8Source is not null)
+        {
+            var raw = _int8Source.GetRawVector(docId);
+            return Int8DistanceComputer.Distance(query, raw, _int8Source.Min, _int8Source.Alpha);
+        }
+        return -SimdVectorOps.DotProduct(query, _vectors.GetVector(docId));
+    }
+
+    /// <summary>
+    /// Distance between two already-dequantised vectors. Used for stored-vs-stored
+    /// performance-critical enough to warrant quantisation-specific paths.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static float Distance(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
     {
         // Vectors are expected to be L2-normalised; dot product then equals cosine similarity.
         // Convert to a distance where smaller is better.
         return -SimdVectorOps.DotProduct(a, b);
+    }
+
+    /// <summary>
+    /// Frozen (read-only) adjacency for a single level. Replaces
+    /// <c>Dictionary&lt;int, int[]&gt;</c> with parallel sorted arrays
+    /// for cache-friendly sequential access during search.
+    /// </summary>
+    internal sealed class FrozenLevel
+    {
+        private readonly int[] _sortedDocIds;
+        private readonly int[][] _neighbourArrays;
+
+        internal FrozenLevel(int[] sortedDocIds, int[][] neighbourArrays)
+        {
+            _sortedDocIds = sortedDocIds;
+            _neighbourArrays = neighbourArrays;
+        }
+
+        internal int Count => _sortedDocIds.Length;
+
+        /// <summary>Binary search for cache-friendly O(log N) lookup.</summary>
+        internal bool ContainsNode(int docId)
+            => Array.BinarySearch(_sortedDocIds, docId) >= 0;
+
+        internal int[] GetNeighbours(int docId)
+        {
+            int idx = Array.BinarySearch(_sortedDocIds, docId);
+            return idx >= 0 ? _neighbourArrays[idx] : Array.Empty<int>();
+        }
+
+        /// <summary>Sorted doc IDs at this level — used by the writer.</summary>
+        internal int[] NodeIds => _sortedDocIds;
+
+        /// <summary>Creates a <c>Dictionary&lt;int, int[]&gt;</c> from this level.</summary>
+        internal Dictionary<int, int[]> ToDictionary()
+        {
+            var dict = new Dictionary<int, int[]>(_sortedDocIds.Length);
+            for (int i = 0; i < _sortedDocIds.Length; i++)
+                dict[_sortedDocIds[i]] = _neighbourArrays[i];
+            return dict;
+        }
+
+        /// <summary>Builds a <see cref="FrozenLevel"/> from a mutable dictionary, sorting by doc ID.</summary>
+        internal static FrozenLevel FromMutable(Dictionary<int, List<int>> mutable)
+        {
+            var docIds = new int[mutable.Count];
+            var neighbourArrays = new int[mutable.Count][];
+            int i = 0;
+            foreach (var (docId, neighbours) in mutable)
+            {
+                docIds[i] = docId;
+                neighbourArrays[i] = neighbours.ToArray();
+                i++;
+            }
+            Array.Sort(docIds, neighbourArrays);
+            return new FrozenLevel(docIds, neighbourArrays);
+        }
     }
 }

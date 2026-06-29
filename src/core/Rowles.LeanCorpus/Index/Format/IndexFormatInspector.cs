@@ -1,10 +1,14 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text.Json;
 using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Serialization;
 using Rowles.LeanCorpus.Store;
+
 
 namespace Rowles.LeanCorpus.Index.Format;
 
@@ -278,30 +282,23 @@ public static class IndexFormatInspector
             return true;
         }
 
+        var format = descriptor.HeaderFormat;
+        if (format is null)
+        {
+            inventory = null!;
+            return false;
+        }
+
         var hasValidMagic = false;
         byte? version = null;
         try
         {
             using var stream = File.OpenRead(filePath);
             using var reader = new BinaryReader(stream);
-            int magic = reader.ReadInt32();
-            hasValidMagic = magic == CodecConstants.Magic;
-            if (hasValidMagic)
-            {
-                version = reader.ReadByte();
-            }
-            else
-            {
-                issues.Add(CreateIssue(
-                    IndexCheckSeverity.Error,
-                    IndexCheckIssueCodes.InvalidCodecMagic,
-                    $"Invalid {descriptor.CodecName} file: expected magic 0x{CodecConstants.Magic:X8}, got 0x{magic:X8}.",
-                    fileName,
-                    segmentId,
-                    false));
-            }
+            version = CodecFileHeader.ReadVersion(reader, format);
+            hasValidMagic = true;
         }
-        catch (Exception ex) when (ex is IOException or EndOfStreamException)
+        catch (Exception ex) when (ex is IOException or EndOfStreamException or InvalidDataException)
         {
             issues.Add(CreateIssue(
                 IndexCheckSeverity.Error,

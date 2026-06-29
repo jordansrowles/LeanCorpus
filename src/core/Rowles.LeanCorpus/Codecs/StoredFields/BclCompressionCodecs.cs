@@ -1,4 +1,4 @@
-﻿using System.IO.Compression;
+using System.IO.Compression;
 
 namespace Rowles.LeanCorpus.Codecs.StoredFields;
 
@@ -32,13 +32,17 @@ internal sealed class DeflateCompressionCodec : IBufferedFieldCompressionCodec
 
     public byte[] Compress(ReadOnlySpan<byte> raw)
     {
-        var (data, length) = CompressToBuffer(raw);
-        return data.AsSpan(0, length).ToArray();
+        using var output = new MemoryStream();
+        using (var deflate = new DeflateStream(output, CompressionLevel.Fastest, leaveOpen: true))
+            deflate.Write(raw);
+        return CompressionBufferHelper.TrimBuffer(output);
     }
 
     public byte[] Decompress(ReadOnlySpan<byte> compressed, int originalSize)
     {
-        using var input = new MemoryStream(compressed.ToArray());
+        using var input = new MemoryStream(compressed.Length);
+        input.Write(compressed);
+        input.Position = 0;
         using var deflate = new DeflateStream(input, CompressionMode.Decompress);
         var raw = new byte[originalSize];
         deflate.ReadExactly(raw);
@@ -70,13 +74,17 @@ internal sealed class BrotliCompressionCodec : IBufferedFieldCompressionCodec
 
     public byte[] Compress(ReadOnlySpan<byte> raw)
     {
-        var (data, length) = CompressToBuffer(raw);
-        return data.AsSpan(0, length).ToArray();
+        using var output = new MemoryStream();
+        using (var brotli = new BrotliStream(output, CompressionLevel.Fastest, leaveOpen: true))
+            brotli.Write(raw);
+        return CompressionBufferHelper.TrimBuffer(output);
     }
 
     public byte[] Decompress(ReadOnlySpan<byte> compressed, int originalSize)
     {
-        using var input = new MemoryStream(compressed.ToArray());
+        using var input = new MemoryStream(compressed.Length);
+        input.Write(compressed);
+        input.Position = 0;
         using var brotli = new BrotliStream(input, CompressionMode.Decompress);
         var raw = new byte[originalSize];
         brotli.ReadExactly(raw);
@@ -99,5 +107,23 @@ internal sealed class BrotliCompressionCodec : IBufferedFieldCompressionCodec
         var raw = new byte[originalSize];
         brotli.ReadExactly(raw);
         return raw;
+    }
+}
+
+/// <summary>
+/// Returns a correctly-sized copy of a MemoryStream's internal buffer without the extra
+/// allocation incurred by <see cref="MemoryStream.ToArray"/>.
+/// </summary>
+internal static class CompressionBufferHelper
+{
+    internal static byte[] TrimBuffer(MemoryStream stream)
+    {
+        int len = (int)stream.Length;
+        byte[] buf = stream.GetBuffer();
+        if (buf.Length == len)
+            return buf;
+        var result = new byte[len];
+        Array.Copy(buf, result, len);
+        return result;
     }
 }

@@ -1,9 +1,10 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
 using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Backup;
 using Rowles.LeanCorpus.Index.Migration;
 using Rowles.LeanCorpus.Index.Segment;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Search.Scoring;
 
 namespace Rowles.LeanCorpus.Serialization;
@@ -11,6 +12,7 @@ namespace Rowles.LeanCorpus.Serialization;
 [JsonSerializable(typeof(CommitData))]
 [JsonSerializable(typeof(SegmentInfo))]
 [JsonSerializable(typeof(VectorFieldInfo))]
+[JsonSerializable(typeof(VectorQuantisation))]
 [JsonSerializable(typeof(IndexStatsDto))]
 [JsonSerializable(typeof(SegmentStatsDto))]
 [JsonSerializable(typeof(SearchEvent))]

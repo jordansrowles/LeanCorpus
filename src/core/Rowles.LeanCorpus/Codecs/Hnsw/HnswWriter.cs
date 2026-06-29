@@ -1,18 +1,12 @@
+using System.Buffers;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Store;
+
 namespace Rowles.LeanCorpus.Codecs.Hnsw;
 
 /// <summary>
 /// Writes a frozen <see cref="HnswGraph"/> to disc.
-/// File format (version 1):
-/// <code>
-/// [magic:int32][version:byte=1]
-/// [dimension:int32][normalised:byte][M:int32][M0:int32][efConstruction:int32]
-/// [seed:int64][entryPoint:int32][maxLevel:int32][nodeCount:int32]
-/// [levelCount:int32]
-/// for each level (descending from max to 0):
-///   [nodeCount:int32]
-///   for each node:
-///     [docId:int32][neighbourCount:int32][neighbours:int32[]]
-/// </code>
 /// </summary>
 internal static class HnswWriter
 {
@@ -22,37 +16,36 @@ internal static class HnswWriter
         if (!graph.IsReadOnly)
             throw new InvalidOperationException("HnswGraph must be frozen before writing.");
 
-        using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
-        using var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false);
+        var bodyBuf = new ArrayBufferWriter<byte>(4096);
 
-        CodecConstants.WriteHeader(writer, CodecConstants.HnswVersion);
-
-        writer.Write(dimension);
-        writer.Write((byte)(normalised ? 1 : 0));
-        writer.Write(graph.M);
-        writer.Write(graph.M0);
-        writer.Write(graph.EfConstruction);
-        writer.Write(graph.Seed);
-        writer.Write(graph.EntryPoint);
-        writer.Write(graph.MaxLevel);
-        writer.Write(graph.NodeCount);
+        bodyBuf.WriteInt32(dimension);
+        bodyBuf.WriteByte((byte)(normalised ? 1 : 0));
+        bodyBuf.WriteInt32(graph.M);
+        bodyBuf.WriteInt32(graph.M0);
+        bodyBuf.WriteInt32(graph.EfConstruction);
+        bodyBuf.WriteInt64(graph.Seed);
+        bodyBuf.WriteInt32(graph.EntryPoint);
+        bodyBuf.WriteInt32(graph.MaxLevel);
+        bodyBuf.WriteInt32(graph.NodeCount);
 
         int levelCount = graph.LevelCount;
-        writer.Write(levelCount);
+        bodyBuf.WriteInt32(levelCount);
 
         for (int level = levelCount - 1; level >= 0; level--)
         {
             var nodes = graph.GetNodesAtLevel(level).ToArray();
-            writer.Write(nodes.Length);
+            bodyBuf.WriteInt32(nodes.Length);
             foreach (var docId in nodes)
             {
                 var neighbours = graph.GetNeighbours(docId, level);
-                writer.Write(docId);
-                writer.Write(neighbours.Count);
+                bodyBuf.WriteInt32(docId);
+                bodyBuf.WriteInt32(neighbours.Count);
                 foreach (var n in neighbours)
-                    writer.Write(n);
+                    bodyBuf.WriteInt32(n);
             }
         }
-        fs.Flush(flushToDisk: true);
+
+        using var output = new IndexOutput(filePath, durable: true);
+        CodecFileHeader.Write(output, CodecFormats.Hnsw, bodyBuf.WrittenSpan);
     }
 }

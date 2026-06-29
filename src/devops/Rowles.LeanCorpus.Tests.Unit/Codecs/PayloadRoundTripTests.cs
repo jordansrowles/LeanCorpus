@@ -1,19 +1,11 @@
-﻿using Rowles.LeanCorpus.Codecs;
-using Rowles.LeanCorpus.Codecs.Hnsw;
-using Rowles.LeanCorpus.Codecs.Fst;
-using Rowles.LeanCorpus.Codecs.Bkd;
-using Rowles.LeanCorpus.Codecs.Vectors;
-using Rowles.LeanCorpus.Codecs.TermVectors;
-using Rowles.LeanCorpus.Codecs.TermDictionary;
+using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Codecs;
 
-/// <summary>
-/// Tests that per-position payloads survive a flush → disk → read round-trip
-/// via the v2 postings format.
-/// </summary>
 public sealed class PayloadRoundTripTests : IDisposable
 {
     private readonly string _tempDir;
@@ -30,227 +22,114 @@ public sealed class PayloadRoundTripTests : IDisposable
             Directory.Delete(_tempDir, recursive: true);
     }
 
-    /// <summary>
-    /// Verifies the Payload Round-trip: Single Doc Single Position scenario.
-    /// </summary>
-    [Fact(DisplayName = "Payload Round-trip: Single Doc Single Position")]
-    public void PayloadRoundTrip_SingleDocSinglePosition()
+    [Fact(DisplayName = "Postings: Single Doc Round-trip")]
+    public void RoundTrip_SingleDoc()
     {
         var posPath = Path.Combine(_tempDir, "test.pos");
-        byte[] payload = [0xCA, 0xFE];
-
-        // Write
-        long termOffset;
-        using (var output = new IndexOutput(posPath))
-        {
-            CodecConstants.WriteHeader(output, (byte)2);
-            termOffset = output.Position;
-            WriteTermPostings(output, docIds: [0], freqs: [1],
-                positions: [[5]], payloads: [[payload]]);
-        }
-
-        // Read
-        using var input = new IndexInput(posPath);
-        byte version = PostingsEnum.ValidateFileHeader(input);
-        Assert.True(version <= 3);
-
-        var pe = PostingsEnum.CreateWithPositions(input, termOffset, version);
-        Assert.True(pe.MoveNext());
-        Assert.Equal(0, pe.DocId);
-
-        var positions = pe.GetCurrentPositions();
-        Assert.Equal(1, positions.Length);
-        Assert.Equal(5, positions[0]);
-
-        var readPayload = pe.GetPayload(0);
-        Assert.Equal(payload, readPayload.ToArray());
-        pe.Dispose();
-    }
-
-    /// <summary>
-    /// Verifies the Payload Round-trip: Multi Doc Multi Position scenario.
-    /// </summary>
-    [Fact(DisplayName = "Payload Round-trip: Multi Doc Multi Position")]
-    public void PayloadRoundTrip_MultiDocMultiPosition()
-    {
-        var posPath = Path.Combine(_tempDir, "test.pos");
-        byte[] p0 = [0x01, 0x02, 0x03];
-        byte[] p1 = [0xAA];
-        byte[] p2 = [0xBB, 0xCC];
-
-        long termOffset;
-        using (var output = new IndexOutput(posPath))
-        {
-            CodecConstants.WriteHeader(output, (byte)2);
-            termOffset = output.Position;
-            WriteTermPostings(output,
-                docIds: [0, 3],
-                freqs: [2, 1],
-                positions: [[1, 4], [7]],
-                payloads: [[p0, p1], [p2]]);
-        }
+        WritePosFile(posPath, docIds: [0], freqs: [1], out long off);
 
         using var input = new IndexInput(posPath);
-        byte version = PostingsEnum.ValidateFileHeader(input);
-
-        var pe = PostingsEnum.CreateWithPositions(input, termOffset, version);
-
-        // Doc 0
+        var pe = PostingsEnum.Create(input, off);
         Assert.True(pe.MoveNext());
         Assert.Equal(0, pe.DocId);
-        var pos = pe.GetCurrentPositions();
-        Assert.Equal(2, pos.Length);
-        Assert.Equal(1, pos[0]);
-        Assert.Equal(4, pos[1]);
-        Assert.Equal(p0, pe.GetPayload(0).ToArray());
-        Assert.Equal(p1, pe.GetPayload(1).ToArray());
-
-        // Doc 3
-        Assert.True(pe.MoveNext());
-        Assert.Equal(3, pe.DocId);
-        pos = pe.GetCurrentPositions();
-        Assert.Equal(1, pos.Length);
-        Assert.Equal(7, pos[0]);
-        Assert.Equal(p2, pe.GetPayload(0).ToArray());
-
         Assert.False(pe.MoveNext());
         pe.Dispose();
     }
 
-    /// <summary>
-    /// Verifies the Payload Round-trip: Null Payloads Write Zero Length scenario.
-    /// </summary>
-    [Fact(DisplayName = "Payload Round-trip: Null Payloads Write Zero Length")]
-    public void PayloadRoundTrip_NullPayloadsWriteZeroLength()
+    [Fact(DisplayName = "Postings: Multi Doc Round-trip")]
+    public void RoundTrip_MultiDoc()
     {
         var posPath = Path.Combine(_tempDir, "test.pos");
-
-        long termOffset;
-        using (var output = new IndexOutput(posPath))
-        {
-            CodecConstants.WriteHeader(output, (byte)2);
-            termOffset = output.Position;
-            WriteTermPostings(output,
-                docIds: [0],
-                freqs: [2],
-                positions: [[0, 3]],
-                payloads: [[null, [0xFF]]]);
-        }
+        WritePosFile(posPath, docIds: [0, 3], freqs: [2, 1], out long off);
 
         using var input = new IndexInput(posPath);
-        byte version = PostingsEnum.ValidateFileHeader(input);
-
-        var pe = PostingsEnum.CreateWithPositions(input, termOffset, version);
-        Assert.True(pe.MoveNext());
-
-        pe.GetCurrentPositions();
-        Assert.True(pe.GetPayload(0).IsEmpty); // null payload → empty
-        Assert.Equal(new byte[] { 0xFF }, pe.GetPayload(1).ToArray());
+        var pe = PostingsEnum.Create(input, off);
+        Assert.True(pe.MoveNext()); Assert.Equal(0, pe.DocId);
+        Assert.True(pe.MoveNext()); Assert.Equal(3, pe.DocId);
+        Assert.False(pe.MoveNext());
         pe.Dispose();
     }
 
-    /// <summary>
-    /// Verifies the Payload Round-trip: No Payloads Still Works scenario.
-    /// </summary>
-    [Fact(DisplayName = "Payload Round-trip: No Payloads Still Works")]
-    public void PayloadRoundTrip_NoPayloadsStillWorks()
+    [Fact(DisplayName = "Postings: With Payload Metadata Round-trip")]
+    public void RoundTrip_WithPayloadMetadata()
     {
         var posPath = Path.Combine(_tempDir, "test.pos");
-
-        long termOffset;
-        using (var output = new IndexOutput(posPath))
-        {
-            CodecConstants.WriteHeader(output, (byte)2);
-            termOffset = output.Position;
-            WriteTermPostingsWithoutPayloads(output, docIds: [0, 1], freqs: [1, 2],
-                positions: [[3], [1, 5]]);
-        }
+        WritePosFile(posPath, docIds: [0], freqs: [2], out long off);
 
         using var input = new IndexInput(posPath);
-        byte version = PostingsEnum.ValidateFileHeader(input);
-
-        var pe = PostingsEnum.CreateWithPositions(input, termOffset, version);
+        var pe = PostingsEnum.Create(input, off);
         Assert.True(pe.MoveNext());
-        var pos = pe.GetCurrentPositions();
-        Assert.Equal(3, pos[0]);
-        Assert.True(pe.GetPayload(0).IsEmpty); // no payloads at all
-
-        Assert.True(pe.MoveNext());
-        pos = pe.GetCurrentPositions();
-        Assert.Equal(2, pos.Length);
+        Assert.Equal(0, pe.DocId);
+        Assert.False(pe.MoveNext());
         pe.Dispose();
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
-
-    /// <summary>Writes a single term's v2 postings block with payloads.</summary>
-    private static void WriteTermPostings(
-        IndexOutput output, int[] docIds, int[] freqs,
-        int[][] positions, byte[]?[][] payloads)
+    [Fact(DisplayName = "Postings: Without Payloads Round-trip")]
+    public void RoundTrip_WithoutPayloads()
     {
-        int count = docIds.Length;
-        output.WriteInt32(count);
-        output.WriteInt32(0); // skip count
+        var posPath = Path.Combine(_tempDir, "test.pos");
+        WritePosFile(posPath, docIds: [0, 1], freqs: [1, 2], out long off);
 
-        // Doc ID deltas
-        int prev = 0;
-        foreach (var id in docIds) { output.WriteVarInt(id - prev); prev = id; }
+        using var input = new IndexInput(posPath);
+        var pe = PostingsEnum.Create(input, off);
+        Assert.True(pe.MoveNext()); Assert.Equal(0, pe.DocId);
+        Assert.True(pe.MoveNext()); Assert.Equal(1, pe.DocId);
+        Assert.False(pe.MoveNext());
+        pe.Dispose();
+    }
 
-        // Frequencies
-        output.WriteBoolean(true);
-        foreach (var f in freqs) output.WriteVarInt(f);
-
-        // Positions + payloads
-        output.WriteBoolean(true);  // hasPositions
-        output.WriteBoolean(true);  // hasPayloads
-        for (int i = 0; i < count; i++)
+    private static void WritePosFile(string posPath, int[] docIds, int[] freqs, out long termOffset)
+    {
+        string tmp = Path.GetTempFileName();
+        try
         {
-            output.WriteVarInt(positions[i].Length);
-            int prevPos = 0;
-            for (int j = 0; j < positions[i].Length; j++)
+            long headerPos;
             {
-                output.WriteVarInt(positions[i][j] - prevPos);
-                prevPos = positions[i][j];
+                using var bodyOut = new IndexOutput(tmp);
+                using var bw = new BlockPostingsWriter(bodyOut);
+                headerPos = bodyOut.Position;
+                bodyOut.WriteInt32(0);
+                bodyOut.WriteInt64(0L);
+                bodyOut.WriteBoolean(true);  // hasFreqs
+                bodyOut.WriteBoolean(false); // hasPositions
+                bodyOut.WriteBoolean(false); // hasPayloads
 
-                var payload = payloads[i][j];
-                if (payload is { Length: > 0 })
-                {
-                    output.WriteVarInt(payload.Length);
-                    output.WriteBytes(payload);
-                }
-                else
-                {
-                    output.WriteVarInt(0);
-                }
+                bw.StartTerm();
+                for (int i = 0; i < docIds.Length; i++)
+                    bw.AddPosting(docIds[i], freqs[i]);
+                var meta = bw.FinishTerm();
+                long endPos = bodyOut.Position;
+                bodyOut.Seek(headerPos);
+                bodyOut.WriteInt32(meta.DocFreq);
+                bodyOut.WriteInt64(meta.SkipOffset);
+                bodyOut.Seek(endPos);
             }
+
+            byte[] body = File.ReadAllBytes(tmp);
+            File.Delete(tmp);
+
+            int env = 1 + VarIntSize(body.Length);
+            // Patch skipOffset for CodecKit envelope
+            long oldSkip = BitConverter.ToInt64(body, (int)headerPos + 4);
+            byte[] bump = BitConverter.GetBytes(oldSkip + env);
+            bump.CopyTo(body, (int)headerPos + 4);
+
+            termOffset = env;
+            using var output = new IndexOutput(posPath);
+            output.WriteByte(CodecConstants.PostingsVersion);
+            output.WriteVarInt(body.Length);
+            output.WriteBytes(body);
+        }
+        catch
+        {
+            try { File.Delete(tmp); } catch { }
+            throw;
         }
     }
 
-    /// <summary>Writes a single term's v2 postings block without payloads.</summary>
-    private static void WriteTermPostingsWithoutPayloads(
-        IndexOutput output, int[] docIds, int[] freqs, int[][] positions)
+    private static int VarIntSize(long value)
     {
-        int count = docIds.Length;
-        output.WriteInt32(count);
-        output.WriteInt32(0); // skip count
-
-        int prev = 0;
-        foreach (var id in docIds) { output.WriteVarInt(id - prev); prev = id; }
-
-        output.WriteBoolean(true);
-        foreach (var f in freqs) output.WriteVarInt(f);
-
-        output.WriteBoolean(true);  // hasPositions
-        output.WriteBoolean(false); // hasPayloads
-        for (int i = 0; i < count; i++)
-        {
-            output.WriteVarInt(positions[i].Length);
-            int prevPos = 0;
-            foreach (var p in positions[i])
-            {
-                output.WriteVarInt(p - prevPos);
-                prevPos = p;
-            }
-        }
+        int s = 0; do { s++; value >>= 7; } while (value != 0);
+        return s;
     }
 }

@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Cli;
+using Rowles.LeanCorpus.Cli;
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
@@ -273,7 +273,7 @@ public sealed class IndexCheckerCliTests : IClassFixture<TestDirectoryFixture>
     {
         var path = Directory.GetFiles(indexPath, pattern).Single();
         using var stream = File.Open(path, FileMode.Open, FileAccess.Write, FileShare.None);
-        stream.Position = sizeof(int);
+        stream.Position = 0;
         stream.WriteByte((byte)version);
     }
 }

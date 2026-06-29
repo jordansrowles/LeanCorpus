@@ -1,4 +1,5 @@
-﻿namespace Rowles.LeanCorpus.Tests.Unit.Analysis;
+namespace Rowles.LeanCorpus.Tests.Unit.Analysis;
+using Rowles.LeanCorpus.Analysis.Analysers;
 
 /// <summary>
 /// Unit tests for <see cref="KeywordMarkerFilter"/> covering the null-guard,
@@ -20,7 +21,10 @@ public sealed class KeywordMarkerFilterTests
     {
         var filter = new KeywordMarkerFilter(["stop"]);
         var tokens = new List<Rowles.LeanCorpus.Analysis.Token> { new("stop", 0, 4) };
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
         Assert.Single(tokens);
     }
 

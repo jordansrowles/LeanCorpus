@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Index;
@@ -176,8 +176,8 @@ public sealed class IndexValidatorTests : IClassFixture<TestDirectoryFixture>
         File.WriteAllBytes(System.IO.Path.Combine(path, segId + ".fdt"), [0x01]);
         File.WriteAllBytes(System.IO.Path.Combine(path, segId + ".fdx"), [0x01]);
 
-        // .nrm is too small (< 4 bytes)
-        File.WriteAllBytes(System.IO.Path.Combine(path, segId + ".nrm"), [0x01, 0x02]);
+        // .nrm is empty — CodecFileHeader.ReadVersion will throw EndOfStreamException
+        File.WriteAllBytes(System.IO.Path.Combine(path, segId + ".nrm"), []);
 
         // Write a valid commit file pointing to this segment
         var segJson = $"{{\"Segments\":[\"{segId}\"],\"Generation\":1}}";
@@ -225,7 +225,7 @@ public sealed class IndexValidatorTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         var dssFile = Directory.GetFiles(dir.DirectoryPath, "*.dss").Single();
-        File.WriteAllBytes(dssFile, [0x01, 0x02, 0x03, 0x04, 0x00]);
+        File.WriteAllBytes(dssFile, [0x01]);
 
         var result = IndexValidator.Check(dir);
 
@@ -243,9 +243,20 @@ public sealed class IndexValidatorTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         var fdtFile = Directory.GetFiles(dir.DirectoryPath, "*.fdt").Single();
+        // Find the compression policy byte offset in the CodecKit-format .fdt file.
+        // Layout: [version:1][VarInt64 bodyLen][blockSize:int32][compression:byte]...
+        int compressionOffset;
+        using (var readStream = File.OpenRead(fdtFile))
+        using (var reader = new BinaryReader(readStream))
+        {
+            reader.ReadByte(); // version
+            while ((reader.ReadByte() & 0x80) != 0) { } // skip VarInt64 bodyLen
+            reader.ReadInt32(); // skip blockSize
+            compressionOffset = (int)readStream.Position;
+        }
         using (var stream = File.Open(fdtFile, FileMode.Open, FileAccess.Write, FileShare.None))
         {
-            stream.Seek(9, SeekOrigin.Begin);
+            stream.Position = compressionOffset;
             stream.WriteByte(250);
         }
 
@@ -314,7 +325,8 @@ public sealed class IndexValidatorTests : IClassFixture<TestDirectoryFixture>
         using (var stream = File.Create(dssFile))
         using (var binaryWriter = new BinaryWriter(stream))
         {
-            CodecConstants.WriteHeader(binaryWriter, CodecConstants.SortedSetDocValuesVersion);
+            binaryWriter.Write(CodecConstants.SortedSetDocValuesVersion);
+            binaryWriter.Write((byte)0); // VarInt bodyLen = 0
             binaryWriter.Write(1);
             binaryWriter.Write((byte)3);
             binaryWriter.Write(System.Text.Encoding.UTF8.GetBytes("tag"));

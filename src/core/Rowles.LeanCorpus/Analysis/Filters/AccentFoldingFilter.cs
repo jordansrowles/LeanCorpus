@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Text;
 
 namespace Rowles.LeanCorpus.Analysis.Filters;
@@ -8,18 +8,20 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 /// (e.g., é→e, ñ→n, ü→u) for language-neutral matching.
 /// Uses Unicode canonical decomposition followed by stripping combining marks.
 /// </summary>
-public sealed class AccentFoldingFilter : ITokenFilter
+public sealed class AccentFoldingFilter : ISpanTokenFilter
 {
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        for (int i = 0; i < tokens.Count; i++)
-        {
-            var t = tokens[i];
-            var folded = Fold(t.Text);
-            if (!ReferenceEquals(folded, t.Text))
-                tokens[i] = t.WithText(folded);
-        }
+        var folded = Fold(new string(text));
+        sink.Add(folded.AsSpan(), startOffset, endOffset, type, positionIncrement, payload);
     }
 
     /// <summary>

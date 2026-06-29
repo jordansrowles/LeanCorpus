@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel;
+using System.Linq;
 using Xunit;
 using Xunit.Abstractions;
 using Xunit.Sdk;
@@ -31,7 +32,11 @@ public sealed class RetryFactDiscoverer : IXunitTestCaseDiscoverer
         ITestMethod testMethod,
         IAttributeInfo factAttribute)
     {
-        var maxRetries = factAttribute.GetNamedArgument<int>("MaxRetries");
+        // MaxRetries is a constructor parameter, not a named property assignment.
+        // GetNamedArgument returns 0 when the attribute user doesn't write
+        // MaxRetries=… explicitly, causing the test to never execute.
+        var ctorArgs = factAttribute.GetConstructorArguments().ToList();
+        var maxRetries = ctorArgs is { Count: > 0 } && ctorArgs[0] is int v ? v : 3;
         yield return new RetryTestCase(
             _diagnostics,
             discoveryOptions.MethodDisplayOrDefault(),

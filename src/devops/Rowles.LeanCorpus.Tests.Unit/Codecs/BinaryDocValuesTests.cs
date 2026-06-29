@@ -1,5 +1,6 @@
-﻿using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.DocValues;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Codecs;
 
@@ -83,7 +84,7 @@ public sealed class BinaryDocValuesTests : IDisposable
     private static int StartsOffset(string fieldName)
     {
         int byteCount = System.Text.Encoding.UTF8.GetByteCount(fieldName);
-        return CodecConstants.HeaderSize + sizeof(int) + VarIntLength(byteCount) + byteCount + sizeof(int);
+        return 2 + sizeof(int) + VarIntLength(byteCount) + byteCount + sizeof(int);
     }
 
     private static int VarIntLength(int value)

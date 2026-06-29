@@ -1,15 +1,14 @@
-﻿# Writer configuration
+# Writer configuration
 
-<xref:Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig> exposes the knobs that affect
-buffering, merging, compression, and analysis.
+`IndexWriterConfig` controls buffering, merging, compression, and analysis.
 
-## Common settings
+## Common setup
 
 ```csharp
 var config = new IndexWriterConfig
 {
     DefaultAnalyser = new StandardAnalyser(),
-    RamBufferSizeMB = 256.0,
+    RamBufferSizeMB = 512.0,
     MaxBufferedDocs = 10_000,
     MaxQueuedDocs   = 20_000,
     MergeThreshold  = 10,
@@ -21,31 +20,45 @@ var config = new IndexWriterConfig
 
 ## Defaults
 
-| Setting | Default |
-|---|---|
-| `RamBufferSizeMB` | `256.0` |
-| `MaxBufferedDocs` | `10_000` |
-| `MaxQueuedDocs` | `20_000` |
-| `DefaultAnalyser` | `StandardAnalyser` |
-| `Similarity` | `Bm25Similarity.Instance` |
-| `DeletionPolicy` | `KeepLatestCommitPolicy` |
-| `DurableCommits` | `true` |
-| `CompressionPolicy` | `Deflate` |
-| `StoredFieldBlockSize` | `16` |
-| `PostingsSkipInterval` | `128` |
-| `MergeThreshold` | `10` |
-| `BKDMaxLeafSize` | `512` |
-| `MaxTokensPerDocument` | `0` (unlimited) |
-| `TokenBudgetPolicy` | `Truncate` |
-| `Metrics` | `NullMetricsCollector.Instance` |
+| Setting | Default | What it does |
+|---|---|---|
+| `RamBufferSizeMB` | `512.0` | Memory buffer before flush |
+| `MaxBufferedDocs` | `10_000` | Doc count before flush |
+| `MaxQueuedDocs` | `20_000` | Backpressure cap; `AddDocument` blocks past this |
+| `DefaultAnalyser` | `StandardAnalyser` | Analyser for fields without a mapping |
+| `Similarity` | `Bm25Similarity.Instance` | Scoring model |
+| `DeletionPolicy` | `KeepLatestCommitPolicy` | Which old commits survive |
+| `DurableCommits` | `true` | `fsync` before declaring commit successful |
+| `CompressionPolicy` | `Deflate` | Stored field compression |
+| `StoredFieldBlockSize` | `16` | Docs per compression block |
+| `PostingsSkipInterval` | `128` | Postings skip-list frequency |
+| `MergeThreshold` | `10` | Segment count that triggers a merge |
+| `BKDMaxLeafSize` | `512` | BKD tree leaf capacity |
+| `MaxTokensPerDocument` | `0` (unlimited) | Token cap per document |
+| `TokenBudgetPolicy` | `Truncate` | What happens when the cap is hit |
+| `StoreTermVectors` | `false` | Whether to persist term vectors |
+| `Metrics` | `NullMetricsCollector.Instance` | Metrics backend |
 
-## What each knob affects
+## Per-field boosts and sort
 
-- **`RamBufferSizeMB` / `MaxBufferedDocs`**: in-memory buffer before a flush.
-- **`MergeThreshold`**: number of segments before a background merge runs.
-- **`DurableCommits`**: when true, fsyncs before declaring a commit successful.
-- **`Schema`**: optional <xref:Rowles.LeanCorpus.Index.Indexer.IndexSchema>; rejects
-  bad documents at `AddDocument` time.
+```csharp
+var config = new IndexWriterConfig
+{
+    FieldBoosts = new Dictionary<string, float> { ["title"] = 3.0f },
+    IndexSort = new IndexSort(new SortField("publishedAt", SortFieldType.Long, descending: true)),
+};
+```
+
+## Schema validation
+
+```csharp
+var schema = new IndexSchema { StrictMode = true }
+    .Add(new FieldMapping("id",    FieldType.String) { IsRequired = true })
+    .Add(new FieldMapping("title", FieldType.Text)   { IsRequired = true })
+    .Add(new FieldMapping("price", FieldType.Numeric));
+
+var config = new IndexWriterConfig { Schema = schema };
+```
 
 ## See also
 

@@ -1,4 +1,4 @@
-﻿# Rowles.LeanCorpus
+# Rowles.LeanCorpus
 
 (formerly LeanLucene ([see](https://github.com/jordansrowles/LeanCorpus/issues/22)))
 
@@ -135,7 +135,7 @@ finally { mgr.Release(searcher); }
 
 ## IndexWriter
 
-Buffers documents in memory and flushes immutable segments to disk. Auto-flushes when `RamBufferSizeMB` (default 256 MB) or `MaxBufferedDocs` (default 10,000) is reached. Background segment merges run after each commit.
+Buffers documents in memory and flushes immutable segments to disk. Auto-flushes when `RamBufferSizeMB` (default 512 MB) or `MaxBufferedDocs` (default 10,000) is reached. Background segment merges run after each commit.
 
 ```csharp
 var config = new IndexWriterConfig

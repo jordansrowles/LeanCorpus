@@ -1,9 +1,9 @@
-﻿using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.Postings;
 
 /// <summary>
-/// Writes postings in packed block format (v3).
+/// Writes postings in packed block format.
 /// Doc IDs and frequencies are written in 128-int delta-encoded packed blocks,
 /// with VarInt encoding for the tail (remaining &lt; 128 values).
 /// Skip data is emitted after every block for efficient <c>Advance()</c>.
@@ -112,7 +112,7 @@ internal sealed class BlockPostingsWriter : IDisposable
             _docOut.WriteInt64(skip.DocByteOffset);
             if (_posOut != null)
                 _docOut.WriteInt64(skip.PosFileOffset);
-            // Impact metadata (v3+)
+            // Impact metadata
             _docOut.WriteByte((byte)(skip.MaxFreqInBlock & 0xFF));
             _docOut.WriteByte((byte)(skip.MaxFreqInBlock >> 8));
             _docOut.WriteByte(skip.MaxNormInBlock);

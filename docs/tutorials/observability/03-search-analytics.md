@@ -1,9 +1,6 @@
 ﻿# Search analytics
 
-`SearchAnalytics` is an in-memory ring buffer of recent search events. Older
-entries are dropped when the buffer is full.
-
-## Set up
+`SearchAnalytics` is an in-memory ring buffer of recent search events.
 
 ```csharp
 using Rowles.LeanCorpus.Diagnostics;
@@ -12,7 +9,7 @@ var analytics = new SearchAnalytics(capacity: 1000);
 var config = new IndexSearcherConfig { SearchAnalytics = analytics };
 ```
 
-## Read recent events
+## Read events
 
 ```csharp
 var recent = analytics.GetRecentEvents(count: 50);
@@ -20,17 +17,16 @@ foreach (var e in recent)
     Console.WriteLine($"{e.Timestamp:O} {e.QueryType} {e.ElapsedMs}ms hits={e.TotalHits} cache={e.CacheHit}");
 ```
 
-`GetRecentEvents` and `DrainEvents` consume entries; events read once are not
-returned by subsequent calls.
+`GetRecentEvents` and `DrainEvents` consume entries; events read once are not returned again.
 
-## Export as JSON
+## Export
 
 ```csharp
 using var writer = new StreamWriter("./events.json");
 analytics.ExportJson(writer);
 ```
 
-Writes a JSON array. The buffer is drained.
+Writes a JSON array; drains the buffer.
 
 ## Event fields
 
@@ -39,4 +35,3 @@ Writes a JSON array. The buffer is drained.
 ## See also
 
 - <xref:Rowles.LeanCorpus.Diagnostics.SearchAnalytics>
-- <xref:Rowles.LeanCorpus.Diagnostics.SearchEvent>

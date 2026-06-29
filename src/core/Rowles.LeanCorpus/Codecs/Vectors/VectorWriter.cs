@@ -1,3 +1,8 @@
+using System.Buffers;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Store;
+
 namespace Rowles.LeanCorpus.Codecs.Vectors;
 
 /// <summary>
@@ -8,19 +13,16 @@ internal static class VectorWriter
 {
     internal static void Write(string filePath, ReadOnlyMemory<float>[] vectors)
     {
-        using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
-        using var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false);
-
-        CodecConstants.WriteHeader(writer, CodecConstants.VectorVersion);
-
         int dimension = 0;
         for (int i = 0; i < vectors.Length; i++)
         {
             if (vectors[i].Length > 0) { dimension = vectors[i].Length; break; }
         }
 
-        writer.Write(vectors.Length);
-        writer.Write(dimension);
+        var bodyBuf = new ArrayBufferWriter<byte>(4096);
+        bodyBuf.WriteInt32(vectors.Length);
+        bodyBuf.WriteInt32(dimension);
+        bodyBuf.WriteByte(0); // data-format: float32
 
         Span<float> zero = dimension <= 256 ? stackalloc float[dimension] : new float[dimension];
         zero.Clear();
@@ -29,9 +31,11 @@ internal static class VectorWriter
         {
             var span = vectors[i].Length == dimension ? vectors[i].Span : zero;
             for (int j = 0; j < dimension; j++)
-                writer.Write(span[j]);
+                bodyBuf.WriteSingle(span[j]);
         }
-        fs.Flush(flushToDisk: true);
+
+        using var output = new IndexOutput(filePath, durable: true);
+        CodecFileHeader.Write(output, CodecFormats.Vectors, bodyBuf.WrittenSpan);
     }
 
     /// <summary>
@@ -42,33 +46,83 @@ internal static class VectorWriter
         string filePath,
         int docCount,
         int dimension,
-        IReadOnlyDictionary<int, ReadOnlyMemory<float>> vectorsByDoc)
+        IReadOnlyDictionary<int, ReadOnlyMemory<float>> vectorsByDoc,
+        VectorQuantisation quantisation = VectorQuantisation.None)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(docCount);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dimension);
 
-        using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
-        using var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false);
-
-        CodecConstants.WriteHeader(writer, CodecConstants.VectorVersion);
-        writer.Write(docCount);
-        writer.Write(dimension);
+        var bodyBuf = new ArrayBufferWriter<byte>(4096);
+        bodyBuf.WriteInt32(docCount);
+        bodyBuf.WriteInt32(dimension);
+        bodyBuf.WriteByte((byte)quantisation); // data-format byte: 0 = float32, 1 = int8
 
         Span<float> zero = dimension <= 256 ? stackalloc float[dimension] : new float[dimension];
         zero.Clear();
 
-        for (int i = 0; i < docCount; i++)
+        if (quantisation == VectorQuantisation.Int8)
         {
-            ReadOnlySpan<float> span = zero;
-            if (vectorsByDoc.TryGetValue(i, out var v))
+            // Compute per-segment min/max
+            float min = float.MaxValue, max = float.MinValue;
+            foreach (var v in vectorsByDoc.Values)
             {
-                if (v.Length != dimension)
-                    throw new InvalidDataException($"Vector for document {i} has dimension {v.Length}; expected {dimension}.");
-                span = v.Span;
+                var sp = v.Span;
+                for (int j = 0; j < sp.Length; j++)
+                {
+                    float val = sp[j];
+                    if (val < min) min = val;
+                    if (val > max) max = val;
+                }
             }
-            for (int j = 0; j < dimension; j++)
-                writer.Write(span[j]);
+            if (MathF.Abs(max - min) < 1e-8f) max = min + 1f;
+            float alpha = (max - min) / 255f;
+
+            bodyBuf.WriteSingle(min);
+            bodyBuf.WriteSingle(alpha);
+
+            // Pack int8 bytes
+            byte[] buf = ArrayPool<byte>.Shared.Rent(dimension);
+            try
+            {
+                for (int i = 0; i < docCount; i++)
+                {
+                    ReadOnlySpan<float> span = zero;
+                    if (vectorsByDoc.TryGetValue(i, out var v))
+                    {
+                        if (v.Length != dimension)
+                            throw new InvalidDataException($"Vector for document {i} has dimension {v.Length}; expected {dimension}.");
+                        span = v.Span;
+                    }
+                    for (int j = 0; j < dimension; j++)
+                    {
+                        float clamped = Math.Clamp((span[j] - min) / alpha + 0.5f, 0f, 255f);
+                        buf[j] = (byte)clamped;
+                    }
+                    bodyBuf.WriteBytes(buf, 0, dimension);
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buf, clearArray: false);
+            }
         }
-        fs.Flush(flushToDisk: true);
+        else
+        {
+            for (int i = 0; i < docCount; i++)
+            {
+                ReadOnlySpan<float> span = zero;
+                if (vectorsByDoc.TryGetValue(i, out var v))
+                {
+                    if (v.Length != dimension)
+                        throw new InvalidDataException($"Vector for document {i} has dimension {v.Length}; expected {dimension}.");
+                    span = v.Span;
+                }
+                for (int j = 0; j < dimension; j++)
+                    bodyBuf.WriteSingle(span[j]);
+            }
+        }
+
+        using var output = new IndexOutput(filePath, durable: true);
+        CodecFileHeader.Write(output, CodecFormats.Vectors, bodyBuf.WrittenSpan);
     }
 }
