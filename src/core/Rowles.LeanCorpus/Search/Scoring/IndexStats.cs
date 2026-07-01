@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using Rowles.LeanCorpus.Serialization;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Search.Scoring;
 
@@ -91,15 +92,26 @@ public sealed class IndexStats
             // Stats are an optimisation sidecar. If a Windows reader has the old file
             // open, keep the previous stats rather than failing an otherwise durable commit.
         }
-        catch (IOException) when (File.Exists(path))
-        {
-            // Same sidecar rule as above: the next commit will publish fresh stats.
-        }
         catch (FileNotFoundException) when (File.Exists(path))
         {
             // The tmp was consumed by a concurrent move (shouldn't happen with
             // unique names, but defend against environmental interference).
-            // The destination exists — accept that as success.
+            // The destination exists; accept that as success.
+        }
+        catch (IOException) when (File.Exists(path))
+        {
+            // Existing stats file is locked (concurrent searcher read, antivirus, etc.).
+            // Keep the previous stats; the next commit will publish fresh ones.
+        }
+        catch (IOException)
+        {
+            // File.Move failed even though the destination does not exist.
+            // This can happen on Windows when a transient handle (antivirus,
+            // background searcher refresh) briefly pins the temp file or the
+            // target directory entry. Stats are a best-effort sidecar; the
+            // commit file (segments_N) is already durable. IndexSearcher falls
+            // back to ComputeStats() when TryLoadFrom returns null, so a
+            // missing stats file is harmless.
         }
         finally
         {
@@ -119,7 +131,7 @@ public sealed class IndexStats
         if (!File.Exists(path)) return null;
         try
         {
-            var json = File.ReadAllText(path);
+            var json = FileOpenRetry.ReadAllText(path);
             var dto = JsonSerializer.Deserialize(json, LeanCorpusJsonContext.Default.IndexStatsDto);
             if (dto is null) return null;
             return new IndexStats(

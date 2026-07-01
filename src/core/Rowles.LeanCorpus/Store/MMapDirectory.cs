@@ -134,6 +134,10 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
         if (newCount <= 0)
         {
             _openFileCounts.TryRemove(filePath, out _);
+
+            // Try the pending-delete path first; if TryDeleteOrDefer hasn't
+            // added the file yet (TOCTOU), the file stays on disk. It will be
+            // cleaned up on a subsequent merge or by Dispose().
             if (_pendingDeletes.TryRemove(filePath, out _))
             {
                 try { File.Delete(filePath); }
@@ -149,7 +153,7 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
     /// </summary>
     private void TryDeleteOrDefer(string filePath)
     {
-        // Fast path: file is not currently mapped.
+        // Fast path: file is not currently tracked as mapped.
         if (!_openFileCounts.ContainsKey(filePath))
         {
             try { File.Delete(filePath); }
@@ -157,12 +161,22 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
             return;
         }
 
-        // File is still mapped. Try to delete anyway (works on Linux, may fail on Windows).
+        // File is mapped. Try to delete anyway (works on Linux, may fail on Windows).
         try { File.Delete(filePath); }
         catch
         {
             // Deletion blocked by memory-mapping — defer until last handle is released.
             _pendingDeletes.TryAdd(filePath, 0);
+
+            // TOCTOU guard: OnInputDisposed may have fired between the failed
+            // File.Delete and TryAdd above. If the count is now zero, all mappings
+            // are released; try the delete one more time.
+            if (!_openFileCounts.ContainsKey(filePath))
+            {
+                _pendingDeletes.TryRemove(filePath, out _);
+                try { File.Delete(filePath); }
+                catch { /* best-effort */ }
+            }
         }
     }
 

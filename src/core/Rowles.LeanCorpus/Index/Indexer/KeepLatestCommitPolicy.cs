@@ -19,10 +19,15 @@ public sealed class KeepLatestCommitPolicy : IIndexDeletionPolicy
             if (CommitDeletionPolicy.ReferencesProtectedSegment(file, protectedSegmentIds))
                 continue;
 
-            File.Delete(file);
+            // If a concurrent reader (background searcher refresh) holds a handle
+            // on the old segments_N without FileShare.Delete, Windows raises
+            // IOException. Tolerate transient failures; the next commit will retry.
+            try { File.Delete(file); } catch { /* best-effort */ }
         }
 
-        // Prune old stats files
+        // Prune old stats files. If a concurrent reader (background
+        // searcher refresh) holds a handle, Windows raises IOException;
+        // stats are a best-effort sidecar, so tolerate deletion failures.
         foreach (var file in Directory.GetFiles(directoryPath, "stats_*.json"))
         {
             var name = Path.GetFileNameWithoutExtension(file); // "stats_N"
@@ -33,7 +38,7 @@ public sealed class KeepLatestCommitPolicy : IIndexDeletionPolicy
             if (CommitDeletionPolicy.ReferencesProtectedSegment(commitFile, protectedSegmentIds))
                 continue;
 
-            File.Delete(file);
+            try { File.Delete(file); } catch { /* best-effort */ }
         }
     }
 }
