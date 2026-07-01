@@ -26,7 +26,7 @@ internal static class HnswReader
         bool? expectedNormalised,
         IReadOnlyDictionary<int, int>? docIdRemap)
     {
-        using var fs = FileOpenRetry.OpenRead(filePath);
+        using var fs = FileOpenRetry.OpenReadDelete(filePath);
         using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
 
         CodecConstants.ValidateHeader(reader, CodecConstants.HnswVersion, "HNSW");

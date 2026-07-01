@@ -1,6 +1,7 @@
 ﻿using System.Buffers;
 using System.Collections;
 using System.Numerics;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Util;
 
@@ -630,7 +631,7 @@ public sealed class RoaringBitmap : IEnumerable<int>
     /// <returns>The deserialised bitmap.</returns>
     public static RoaringBitmap Deserialise(string filePath)
     {
-        using var stream = File.OpenRead(filePath);
+        using var stream = FileOpenRetry.OpenReadDelete(filePath);
         using var reader = new BinaryReader(stream);
         return Deserialise(reader);
     }

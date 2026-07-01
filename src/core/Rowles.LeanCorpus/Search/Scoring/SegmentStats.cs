@@ -77,7 +77,7 @@ internal sealed class SegmentStats
 
         try
         {
-            var json = File.ReadAllText(path);
+            var json = FileOpenRetry.ReadAllText(path);
             var dto = JsonSerializer.Deserialize(json, LeanCorpusJsonContext.Default.SegmentStatsDto);
             if (dto is null)
                 return null;

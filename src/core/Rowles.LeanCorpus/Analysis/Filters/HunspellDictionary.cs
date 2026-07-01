@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Analysis.Filters;
 
@@ -32,8 +33,8 @@ public sealed class HunspellDictionary
     public static HunspellDictionary FromFile(string affixPath, string dictionaryPath,
         int maxGeneratedFormsPerEntry = DefaultMaxGeneratedFormsPerEntry)
     {
-        var affixText = File.ReadAllText(affixPath);
-        var dictionaryText = File.ReadAllText(dictionaryPath);
+        var affixText = FileOpenRetry.ReadAllText(affixPath);
+        var dictionaryText = FileOpenRetry.ReadAllText(dictionaryPath);
         return ParseCached(affixText, dictionaryText, maxGeneratedFormsPerEntry);
     }
 

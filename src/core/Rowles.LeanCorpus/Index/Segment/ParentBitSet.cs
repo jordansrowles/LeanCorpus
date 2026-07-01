@@ -108,7 +108,7 @@ internal sealed class ParentBitSet
     /// <summary>Reads a bitset from a binary file (.pbs).</summary>
     public static ParentBitSet ReadFrom(string filePath)
     {
-        using var fs = FileOpenRetry.OpenRead(filePath);
+        using var fs = FileOpenRetry.OpenReadDelete(filePath);
         using var br = new BinaryReader(fs);
         int length = br.ReadInt32();
         int wordCount = br.ReadInt32();

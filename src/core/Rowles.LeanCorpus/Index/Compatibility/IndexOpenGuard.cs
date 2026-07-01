@@ -68,7 +68,7 @@ internal static class IndexOpenGuard
 
         try
         {
-            using var stream = File.OpenRead(filePath);
+            using var stream = FileOpenRetry.OpenReadDelete(filePath);
             using var reader = new BinaryReader(stream);
             if (reader.ReadInt32() != Codecs.CodecConstants.Magic)
                 return false;

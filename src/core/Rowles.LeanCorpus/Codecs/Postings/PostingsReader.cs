@@ -9,7 +9,7 @@ internal static class PostingsReader
 {
     public static int[] ReadDocIds(string filePath, string term)
     {
-        using var fs = FileOpenRetry.OpenRead(filePath);
+        using var fs = FileOpenRetry.OpenReadDelete(filePath);
         using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
 
         CodecConstants.ValidateHeader(reader, CodecConstants.PostingsVersion, "postings (.pos)");

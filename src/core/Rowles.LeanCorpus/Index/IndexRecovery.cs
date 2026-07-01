@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using Rowles.LeanCorpus.Serialization;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Index;
 
@@ -173,7 +174,7 @@ public static class IndexRecovery
             if (!File.Exists(path)) return false;
             try
             {
-                using var fs = File.OpenRead(path);
+                using var fs = FileOpenRetry.OpenReadDelete(path);
                 using var reader = new BinaryReader(fs);
                 Codecs.CodecConstants.ValidateHeader(reader, version, fileType);
             }

@@ -1,4 +1,6 @@
-﻿namespace Rowles.LeanCorpus.Index;
+﻿using Rowles.LeanCorpus.Store;
+
+namespace Rowles.LeanCorpus.Index;
 
 /// <summary>
 /// On-disk format helpers for <c>segments_N</c> commit files. Commits written by
@@ -27,7 +29,7 @@ internal static class CommitFileFormat
     /// </summary>
     public static string ReadJson(string path)
     {
-        var raw = File.ReadAllText(path);
+        var raw = FileOpenRetry.ReadAllText(path);
         return StripAndValidate(raw)
             ?? throw new InvalidDataException(
                 $"Commit file '{path}' has a CRC mismatch; the file is likely the result of a torn write.");
@@ -39,7 +41,7 @@ internal static class CommitFileFormat
     /// </summary>
     public static string? TryReadJson(string path)
     {
-        var raw = File.ReadAllText(path);
+        var raw = FileOpenRetry.ReadAllText(path);
         return StripAndValidate(raw);
     }
 

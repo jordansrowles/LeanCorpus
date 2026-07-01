@@ -127,7 +127,7 @@ internal sealed class LiveDocs
     /// </summary>
     public static LiveDocs Deserialise(string filePath, int maxDoc)
     {
-        using var fs = FileOpenRetry.OpenRead(filePath);
+        using var fs = FileOpenRetry.OpenReadDelete(filePath);
         using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8);
 
         var deletedDocs = RoaringBitmap.Deserialise(reader);

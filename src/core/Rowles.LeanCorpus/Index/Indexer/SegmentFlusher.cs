@@ -131,7 +131,7 @@ internal static class SegmentFlusher
             }
         }
 
-        using (var patchStream = new FileStream(basePath + ".pos", FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (var patchStream = FileOpenRetry.Open(basePath + ".pos", FileMode.Open, FileAccess.ReadWrite, FileShare.None))
         {
             Span<byte> patch = stackalloc byte[12];
             for (int i = 0; i < headerPatches.Count; i++)

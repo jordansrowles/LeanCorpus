@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Serialization;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Index;
 
@@ -173,7 +174,7 @@ internal static class IndexFileInspector
         var fileName = Path.GetFileName(filePath);
         try
         {
-            using var stream = File.OpenRead(filePath);
+            using var stream = FileOpenRetry.OpenReadDelete(filePath);
             using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: false);
             int magic = reader.ReadInt32();
             if (magic != CodecConstants.Magic)

@@ -255,7 +255,7 @@ public static class IndexValidator
         var fileName = Path.GetFileName(fdtPath);
         try
         {
-            using var stream = File.OpenRead(fdtPath);
+            using var stream = FileOpenRetry.OpenReadDelete(fdtPath);
             using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: false);
             int magic = reader.ReadInt32();
             if (magic != CodecConstants.Magic)
@@ -320,7 +320,7 @@ public static class IndexValidator
         var fileName = Path.GetFileName(fdxPath);
         try
         {
-            using var stream = File.OpenRead(fdxPath);
+            using var stream = FileOpenRetry.OpenReadDelete(fdxPath);
             using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: false);
 
             int magic = reader.ReadInt32();
@@ -475,7 +475,7 @@ public static class IndexValidator
         var fileName = Path.GetFileName(vectorPath);
         try
         {
-            using var stream = File.OpenRead(vectorPath);
+            using var stream = FileOpenRetry.OpenReadDelete(vectorPath);
             using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: false);
             int magic = reader.ReadInt32();
             byte version = reader.ReadByte();
@@ -533,7 +533,7 @@ public static class IndexValidator
         var fileName = Path.GetFileName(hnswPath);
         try
         {
-            using var stream = File.OpenRead(hnswPath);
+            using var stream = FileOpenRetry.OpenReadDelete(hnswPath);
             using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: false);
             int magic = reader.ReadInt32();
             byte version = reader.ReadByte();

@@ -69,7 +69,7 @@ public sealed class SegmentInfo
     /// <exception cref="InvalidDataException">Thrown if the file cannot be deserialised or fails validation.</exception>
     public static SegmentInfo ReadFrom(string filePath)
     {
-        var json = File.ReadAllText(filePath);
+        var json = FileOpenRetry.ReadAllText(filePath);
         var info = JsonSerializer.Deserialize(json, LeanCorpusJsonContext.Default.SegmentInfo)
             ?? throw new InvalidDataException("Failed to deserialise segment info.");
         info.Validate();
