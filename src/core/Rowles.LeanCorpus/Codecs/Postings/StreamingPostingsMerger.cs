@@ -324,7 +324,7 @@ internal static class StreamingPostingsMerger
                     }
                     posArr[j] = arr;
                     if (payloadArr is not null)
-                        payloadArr[j] = docPayloads ?? [];
+                        payloadArr[j] = docPayloads!;
                 }
                 positions = posArr;
                 payloads = payloadArr;
