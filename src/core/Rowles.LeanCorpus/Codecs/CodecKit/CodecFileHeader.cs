@@ -56,7 +56,7 @@ public static class CodecFileHeader
 
     public static void Write(IndexOutput output, ICodec<byte[]> format, byte[] body)
     {
-        var writer = new Adapters.IndexOutputBuffer(output);
+        using var writer = new Adapters.IndexOutputBuffer(output);
         var ctx = new CodecContext(CodecOptions.Default, CodecRegistry.Default);
         format.Encode(body, writer, ctx);
     }
@@ -68,7 +68,7 @@ public static class CodecFileHeader
     /// </summary>
     public static void Write(IndexOutput output, ICodec<byte[]> format, ReadOnlySpan<byte> body)
     {
-        var writer = new Adapters.IndexOutputBuffer(output);
+        using var writer = new Adapters.IndexOutputBuffer(output);
         var ctx = new CodecContext(CodecOptions.Default, CodecRegistry.Default);
 
         if (format is VersionEnvelopeCodec<byte[], byte> envelope)

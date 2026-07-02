@@ -9,7 +9,7 @@ namespace Rowles.LeanCorpus.Codecs.CodecKit.Adapters;
 /// Uses a small internal buffer; <see cref="Advance"/> flushes filled bytes
 /// to the underlying output.
 /// </summary>
-internal sealed class IndexOutputBuffer : IBufferWriter<byte>
+internal sealed class IndexOutputBuffer : IBufferWriter<byte>, IDisposable
 {
     private readonly IndexOutput _output;
     private byte[] _buffer;
