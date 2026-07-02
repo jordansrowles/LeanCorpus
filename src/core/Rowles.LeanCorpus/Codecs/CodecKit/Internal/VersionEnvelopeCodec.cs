@@ -118,7 +118,7 @@ internal sealed class VersionEnvelopeCodec<TBase, TVersion> : ICodec<TBase> wher
 
     public void Encode(TBase value, IBufferWriter<byte> writer, CodecContext context)
     {
-        if (value == null)
+        if (EqualityComparer<TBase>.Default.Equals(value, default))
             throw new ArgumentNullException(nameof(value));
 
 
