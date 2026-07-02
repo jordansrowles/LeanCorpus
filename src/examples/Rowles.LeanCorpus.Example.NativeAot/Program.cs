@@ -1,4 +1,5 @@
-﻿using System.Linq;
+﻿using Rowles.LeanCorpus.Example.NativeAot;
+using System.Linq;
 using System.Text;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
@@ -900,6 +901,8 @@ static void Assert(bool condition, string message)
 }
 
 /// <summary>Captures tokens into a list for assertions.</summary>
+namespace Rowles.LeanCorpus.Example.NativeAot
+{
 file sealed class MaterialisingTokenSink : ISpanTokenSink
 {
     public List<Token> Tokens { get; } = [];
@@ -963,4 +966,5 @@ file sealed class NativeSmokeDocMap : LeanDocumentMap<NativeSmokeDoc>
         foreach (var f in Fields) s.Add(new FieldMapping(f.Name, f.FieldType) { IsStored = f.IsStored, IsIndexed = f.IsIndexed, IsRequired = f.IsRequired });
         return s;
     }
+}
 }
