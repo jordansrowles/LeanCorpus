@@ -36,7 +36,7 @@ internal static class BackpressureController
         if (writer.BackpressureSemaphore is null)
             return;
 
-        if (writer.BackpressureSemaphore.Wait(0))
+        if (await writer.BackpressureSemaphore.WaitAsync(TimeSpan.Zero, CancellationToken.None).ConfigureAwait(false))
             return;
 
         cancellationToken.ThrowIfCancellationRequested();
