@@ -41,7 +41,8 @@ public static class IndexBackup
             // Retry on transient file-not-found — a concurrent background merge
             // may delete segment files between commit selection and file enumeration.
             const int maxAttempts = 3;
-            for (int attempt = 1; ; attempt++)
+            int attempt = 1;
+            while (true)
             {
                 try
                 {
@@ -53,6 +54,7 @@ public static class IndexBackup
                     if (attempt >= maxAttempts) throw;
                     Thread.Sleep(20 * attempt);
                 }
+                attempt++;
             }
             succeeded = true;
             return manifest;
@@ -153,7 +155,8 @@ public static class IndexBackup
             // Retry on transient file-not-found — a concurrent background merge
             // may delete segment files between manifest creation and file copy.
             const int maxAttempts = 3;
-            for (int attempt = 1; ; attempt++)
+            int attempt = 1;
+            while (true)
             {
                 try
                 {
@@ -187,6 +190,7 @@ public static class IndexBackup
                     if (attempt >= maxAttempts) throw;
                     Thread.Sleep(20 * attempt);
                 }
+                attempt++;
             }
         }
         finally
