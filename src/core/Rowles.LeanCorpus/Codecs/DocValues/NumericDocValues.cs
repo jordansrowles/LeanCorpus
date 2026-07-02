@@ -83,7 +83,7 @@ internal static class NumericDocValuesWriter
         }
 
         output.WriteInt64(min);
-        ulong range = (ulong)max - (ulong)min;
+        ulong range = (ulong)(max - min);
         int bitsPerValue = range == 0 ? 0 : 64 - System.Numerics.BitOperations.LeadingZeroCount(range);
         output.WriteByte((byte)bitsPerValue);
 
@@ -93,7 +93,7 @@ internal static class NumericDocValuesWriter
         int accBits = 0;
         for (int i = 0; i < docCount; i++)
         {
-            ulong delta = (ulong)BitConverter.DoubleToInt64Bits(values[i]) - (ulong)min;
+            ulong delta = (ulong)(BitConverter.DoubleToInt64Bits(values[i]) - min);
             int remaining = bitsPerValue;
             while (remaining > 0)
             {
@@ -154,7 +154,7 @@ internal static class NumericDocValuesWriter
         }
 
         bw.WriteInt64(min);
-        ulong range = (ulong)max - (ulong)min;
+        ulong range = (ulong)(max - min);
         int bitsPerValue = range == 0 ? 0 : 64 - System.Numerics.BitOperations.LeadingZeroCount(range);
         bw.WriteByte((byte)bitsPerValue);
 
@@ -164,7 +164,7 @@ internal static class NumericDocValuesWriter
         int accBits = 0;
         for (int i = 0; i < docCount; i++)
         {
-            ulong delta = (ulong)BitConverter.DoubleToInt64Bits(values[i]) - (ulong)min;
+            ulong delta = (ulong)(BitConverter.DoubleToInt64Bits(values[i]) - min);
             int remaining = bitsPerValue;
             while (remaining > 0)
             {
