@@ -2,7 +2,6 @@ using BenchmarkDotNet.Attributes;
 using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Index;
 using Lucene.Net.Search;
-using Lucene.Net.Store;
 using Lucene.Net.Util;
 using Rowles.LeanCorpus.Search.Searcher;
 using IODirectory = System.IO.Directory;
@@ -37,6 +36,9 @@ namespace Rowles.LeanCorpus.Benchmarks;
 public class QueryCacheBenchmarks
 {
     private const int TopN = 25;
+    private const string FieldBody = "body";
+    private const string QueryTerm1 = "government";
+    private const string QueryTerm2 = "market";
 
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
 
@@ -67,51 +69,47 @@ public class QueryCacheBenchmarks
     {
         _cachedSearcher?.Dispose();
         _uncachedSearcher?.Dispose();
-        if (!string.IsNullOrWhiteSpace(_leanIndexPath) && IODirectory.Exists(_leanIndexPath))
-            IODirectory.Delete(_leanIndexPath, recursive: true);
+        DeleteDir(_leanIndexPath);
 
         _luceneReader?.Dispose();
         _luceneDirectory?.Dispose();
-        if (!string.IsNullOrWhiteSpace(_luceneIndexPath) && IODirectory.Exists(_luceneIndexPath))
-            IODirectory.Delete(_luceneIndexPath, recursive: true);
+        DeleteDir(_luceneIndexPath);
     }
 
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_NoCache()
-        => _uncachedSearcher!.Search(new TermQuery("body", "government"), TopN).TotalHits;
+        => _uncachedSearcher!.Search(new TermQuery(FieldBody, QueryTerm1), TopN).TotalHits;
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_WithCache()
-        => _cachedSearcher!.Search(new TermQuery("body", "government"), TopN).TotalHits;
+        => _cachedSearcher!.Search(new TermQuery(FieldBody, QueryTerm1), TopN).TotalHits;
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_WithCache_BooleanQuery()
-    {
-        var builder = new Rowles.LeanCorpus.Search.Queries.BooleanQuery.Builder();
-        builder.Add(new TermQuery("body", "government"), Rowles.LeanCorpus.Search.Occur.Must);
-        builder.Add(new TermQuery("body", "market"), Rowles.LeanCorpus.Search.Occur.Should);
-        return _cachedSearcher!.Search(builder.Build(), TopN).TotalHits;
-    }
+        => _cachedSearcher!.Search(BuildBooleanQuery(), TopN).TotalHits;
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_NoCache_BooleanQuery()
-    {
-        var builder = new Rowles.LeanCorpus.Search.Queries.BooleanQuery.Builder();
-        builder.Add(new TermQuery("body", "government"), Rowles.LeanCorpus.Search.Occur.Must);
-        builder.Add(new TermQuery("body", "market"), Rowles.LeanCorpus.Search.Occur.Should);
-        return _uncachedSearcher!.Search(builder.Build(), TopN).TotalHits;
-    }
+        => _uncachedSearcher!.Search(BuildBooleanQuery(), TopN).TotalHits;
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_TermQuery()
     {
-        var q = new LuceneTermQuery(new LuceneTerm("body", "government"));
+        var q = new LuceneTermQuery(new LuceneTerm(FieldBody, QueryTerm1));
         return _luceneSearcher!.Search(q, TopN).TotalHits;
+    }
+
+    private static Rowles.LeanCorpus.Search.Queries.BooleanQuery BuildBooleanQuery()
+    {
+        var builder = new Rowles.LeanCorpus.Search.Queries.BooleanQuery.Builder();
+        builder.Add(new TermQuery(FieldBody, QueryTerm1), Rowles.LeanCorpus.Search.Occur.Must);
+        builder.Add(new TermQuery(FieldBody, QueryTerm2), Rowles.LeanCorpus.Search.Occur.Should);
+        return builder.Build();
     }
 
     private void BuildLuceneIndex(string[] documents)
@@ -123,16 +121,13 @@ public class QueryCacheBenchmarks
         using var writer = new Lucene.Net.Index.IndexWriter(
             _luceneDirectory,
             new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
-        for (int i = 0; i < documents.Length; i++)
+        AddDocuments(documents, (id, body) =>
         {
             var doc = new LuceneDocument();
-            doc.Add(new LuceneStringField("id",
-                i.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                Lucene.Net.Documents.Field.Store.NO));
-            doc.Add(new LuceneTextField("body", documents[i],
-                Lucene.Net.Documents.Field.Store.NO));
+            doc.Add(new LuceneStringField("id", id, Lucene.Net.Documents.Field.Store.NO));
+            doc.Add(new LuceneTextField(FieldBody, body, Lucene.Net.Documents.Field.Store.NO));
             writer.AddDocument(doc);
-        }
+        });
         writer.Commit();
         _luceneReader = LuceneDirectoryReader.Open(_luceneDirectory);
         _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
@@ -146,13 +141,13 @@ public class QueryCacheBenchmarks
         using var writer = new Rowles.LeanCorpus.Index.Indexer.IndexWriter(
             _leanDirectory,
             new Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig { MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 });
-        for (int i = 0; i < documents.Length; i++)
+        AddDocuments(documents, (id, body) =>
         {
             var doc = new LeanDocument();
-            doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-            doc.Add(new LeanTextField("body", documents[i]));
+            doc.Add(new LeanStringField("id", id));
+            doc.Add(new LeanTextField(FieldBody, body));
             writer.AddDocument(doc);
-        }
+        });
         writer.Commit();
 
         _cachedSearcher = new LeanIndexSearcher(
@@ -162,5 +157,19 @@ public class QueryCacheBenchmarks
         _uncachedSearcher = new LeanIndexSearcher(
             _leanDirectory,
             new IndexSearcherConfig { EnableQueryCache = false });
+    }
+
+    private static void AddDocuments(
+        string[] documents,
+        Action<string, string> add)
+    {
+        for (int i = 0; i < documents.Length; i++)
+            add(i.ToString(System.Globalization.CultureInfo.InvariantCulture), documents[i]);
+    }
+
+    private static void DeleteDir(string path)
+    {
+        if (!string.IsNullOrWhiteSpace(path) && IODirectory.Exists(path))
+            IODirectory.Delete(path, recursive: true);
     }
 }

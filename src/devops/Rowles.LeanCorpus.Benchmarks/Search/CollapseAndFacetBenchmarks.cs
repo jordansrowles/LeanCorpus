@@ -2,7 +2,6 @@ using BenchmarkDotNet.Attributes;
 using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Index;
 using Lucene.Net.Search;
-using Lucene.Net.Store;
 using Lucene.Net.Util;
 using IODirectory = System.IO.Directory;
 using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
@@ -36,6 +35,9 @@ public class CollapseAndFacetBenchmarks
 {
     private const int TopN = 25;
     private const int CategoryCount = 10;
+    private const string FieldBody = "body";
+    private const string FieldCategory = "category";
+    private const string QueryTerm = "government";
 
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
 
@@ -45,17 +47,23 @@ public class CollapseAndFacetBenchmarks
     private string _leanIndexPath = string.Empty;
     private LeanMMapDirectory? _leanDirectory;
     private LeanIndexSearcher? _leanSearcher;
+    private TermQuery? _leanQuery;
+    private CollapseField? _leanCollapse;
 
     // Lucene.NET index state
     private string _luceneIndexPath = string.Empty;
     private LuceneMMapDirectory? _luceneDirectory;
     private LuceneDirectoryReader? _luceneReader;
     private LuceneIndexSearcher? _luceneSearcher;
+    private LuceneTermQuery? _luceneQuery;
 
     [GlobalSetup]
     public void Setup()
     {
         var documents = BenchmarkData.BuildDocuments(DocumentCount);
+        _leanQuery = new TermQuery(FieldBody, QueryTerm);
+        _leanCollapse = new CollapseField(FieldCategory);
+        _luceneQuery = new LuceneTermQuery(new LuceneTerm(FieldBody, QueryTerm));
         BuildLeanIndex(documents);
         BuildLuceneIndex(documents);
     }
@@ -64,34 +72,28 @@ public class CollapseAndFacetBenchmarks
     public void Cleanup()
     {
         _leanSearcher?.Dispose();
-        if (!string.IsNullOrWhiteSpace(_leanIndexPath) && IODirectory.Exists(_leanIndexPath))
-            IODirectory.Delete(_leanIndexPath, recursive: true);
+        DeleteDir(_leanIndexPath);
 
         _luceneReader?.Dispose();
         _luceneDirectory?.Dispose();
-        if (!string.IsNullOrWhiteSpace(_luceneIndexPath) && IODirectory.Exists(_luceneIndexPath))
-            IODirectory.Delete(_luceneIndexPath, recursive: true);
+        DeleteDir(_luceneIndexPath);
     }
 
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_BaseSearch()
-        => _leanSearcher!.Search(new TermQuery("body", "government"), TopN).TotalHits;
+        => _leanSearcher!.Search(_leanQuery!, TopN).TotalHits;
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_SearchWithCollapse()
-        => _leanSearcher!.SearchWithCollapse(
-            new TermQuery("body", "government"),
-            TopN,
-            new CollapseField("category")).TotalHits;
+        => _leanSearcher!.SearchWithCollapse(_leanQuery!, TopN, _leanCollapse!).TotalHits;
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_SearchWithFacets()
     {
-        var (results, _) = _leanSearcher!.SearchWithFacets(
-            new TermQuery("body", "government"), TopN, "category");
+        var (results, _) = _leanSearcher!.SearchWithFacets(_leanQuery!, TopN, FieldCategory);
         return results.TotalHits;
     }
 
@@ -99,35 +101,26 @@ public class CollapseAndFacetBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_SearchWithCollapseAndFacets()
     {
-        // Collapse first, then get facets from the collapsed result set
-        var collapsed = _leanSearcher!.SearchWithCollapse(
-            new TermQuery("body", "government"),
-            TopN,
-            new CollapseField("category"));
+        var collapsed = _leanSearcher!.SearchWithCollapse(_leanQuery!, TopN, _leanCollapse!);
         return collapsed.TotalHits;
     }
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_TermQuery()
-    {
-        var q = new LuceneTermQuery(new LuceneTerm("body", "government"));
-        return _luceneSearcher!.Search(q, TopN).TotalHits;
-    }
+        => _luceneSearcher!.Search(_luceneQuery!, TopN).TotalHits;
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_SearchWithCollapse()
     {
-        var q = new LuceneTermQuery(new LuceneTerm("body", "government"));
-        var hits = _luceneSearcher!.Search(q, TopN);
-        // Manual collapse by category field using stored fields.
+        var hits = _luceneSearcher!.Search(_luceneQuery!, TopN);
         var seen = new HashSet<string>();
         int collapsedCount = 0;
         foreach (var sd in hits.ScoreDocs)
         {
             var doc = _luceneSearcher.Doc(sd.Doc);
-            var category = doc.Get("category");
+            var category = doc.Get(FieldCategory);
             if (category is not null && seen.Add(category))
                 collapsedCount++;
         }
@@ -143,17 +136,12 @@ public class CollapseAndFacetBenchmarks
         using var writer = new Lucene.Net.Index.IndexWriter(
             _luceneDirectory,
             new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
-        for (int i = 0; i < documents.Length; i++)
+        foreach (var (i, id, category, body) in EnumerateDocuments(documents))
         {
-            var category = $"cat{i % CategoryCount}";
             var doc = new LuceneDocument();
-            doc.Add(new LuceneStringField("id",
-                i.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                Lucene.Net.Documents.Field.Store.NO));
-            doc.Add(new LuceneTextField("body", documents[i],
-                Lucene.Net.Documents.Field.Store.NO));
-            doc.Add(new LuceneStringField("category", category,
-                Lucene.Net.Documents.Field.Store.YES));
+            doc.Add(new LuceneStringField("id", id, Lucene.Net.Documents.Field.Store.NO));
+            doc.Add(new LuceneTextField(FieldBody, body, Lucene.Net.Documents.Field.Store.NO));
+            doc.Add(new LuceneStringField(FieldCategory, category, Lucene.Net.Documents.Field.Store.YES));
             writer.AddDocument(doc);
         }
         writer.Commit();
@@ -169,16 +157,28 @@ public class CollapseAndFacetBenchmarks
         using var writer = new Rowles.LeanCorpus.Index.Indexer.IndexWriter(
             _leanDirectory,
             new Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig { MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 });
-        for (int i = 0; i < documents.Length; i++)
+        foreach (var (i, id, category, body) in EnumerateDocuments(documents))
         {
-            var category = $"cat{i % CategoryCount}";
             var doc = new LeanDocument();
-            doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-            doc.Add(new LeanTextField("body", documents[i]));
-            doc.Add(new LeanStringField("category", category, stored: true));
+            doc.Add(new LeanStringField("id", id));
+            doc.Add(new LeanTextField(FieldBody, body));
+            doc.Add(new LeanStringField(FieldCategory, category, stored: true));
             writer.AddDocument(doc);
         }
         writer.Commit();
         _leanSearcher = new LeanIndexSearcher(_leanDirectory);
+    }
+
+    private static IEnumerable<(int Index, string Id, string Category, string Body)> EnumerateDocuments(string[] documents)
+    {
+        for (int i = 0; i < documents.Length; i++)
+            yield return (i, i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                $"cat{i % CategoryCount}", documents[i]);
+    }
+
+    private static void DeleteDir(string path)
+    {
+        if (!string.IsNullOrWhiteSpace(path) && IODirectory.Exists(path))
+            IODirectory.Delete(path, recursive: true);
     }
 }
