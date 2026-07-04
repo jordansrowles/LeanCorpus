@@ -1,4 +1,5 @@
-﻿using BenchmarkDotNet.Attributes;
+﻿using System.Runtime.CompilerServices;
+using BenchmarkDotNet.Attributes;
 using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Util;
 using Rowles.LeanCorpus.Codecs;
@@ -153,6 +154,7 @@ public class HnswSearchBenchmarks
     }
 
     [Benchmark(Baseline = true, Description = "Flat scan")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public int FlatScan()
     {
         var q = new LeanVectorQuery("emb", _query, topK: 10);
@@ -160,6 +162,7 @@ public class HnswSearchBenchmarks
     }
 
     [Benchmark(Description = "HNSW two-phase")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public int Hnsw()
     {
         var q = new LeanVectorQuery("emb", _query, topK: 10, efSearch: 64);
@@ -167,6 +170,7 @@ public class HnswSearchBenchmarks
     }
 
     [Benchmark(Description = "Lucene.NET flat scan")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_FlatScan()
     {
         // Brute-force cosine scan over all vectors stored in Lucene.NET.
