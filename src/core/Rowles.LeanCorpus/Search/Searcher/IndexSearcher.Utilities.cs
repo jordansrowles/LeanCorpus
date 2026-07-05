@@ -505,7 +505,31 @@ public sealed partial class IndexSearcher
         }
 
         var boolQ = boolQBuilder.Build();
-        return SearchCore(boolQ, topN + 1);
+        var results = SearchCore(boolQ, topN);
+
+        // Exclude the source document from results.
+        var scoreDocs = results.ScoreDocs;
+        int sourceIdx = -1;
+        for (int i = 0; i < scoreDocs.Length; i++)
+        {
+            if (scoreDocs[i].DocId == mlt.DocId)
+            {
+                sourceIdx = i;
+                break;
+            }
+        }
+
+        if (sourceIdx < 0)
+            return results;
+
+        // Build a new array without the source document.
+        var filtered = new ScoreDoc[scoreDocs.Length - 1];
+        if (sourceIdx > 0)
+            Array.Copy(scoreDocs, 0, filtered, 0, sourceIdx);
+        if (sourceIdx < scoreDocs.Length - 1)
+            Array.Copy(scoreDocs, sourceIdx + 1, filtered, sourceIdx, scoreDocs.Length - sourceIdx - 1);
+
+        return new TopDocs(results.TotalHits - 1, filtered, results.IsPartial);
     }
 
     /// <summary>Enqueues a candidate into a bounded min-heap, evicting the
