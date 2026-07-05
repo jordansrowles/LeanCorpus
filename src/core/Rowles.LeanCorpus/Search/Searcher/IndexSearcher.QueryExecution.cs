@@ -623,7 +623,7 @@ public sealed partial class IndexSearcher
             {
                 int d = candidateIds[c];
                 if (!inCandidate[d] || !reader.IsLive(d)) continue;
-                collector.Collect(docBase + d, scores[d] != 0 ? scores[d] : 1.0f);
+                collector.Collect(docBase + d, scores[d]);
             }
         }
         finally
