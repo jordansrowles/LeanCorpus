@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 
 namespace Rowles.LeanCorpus.Analysis.Filters;
@@ -7,6 +8,7 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 /// </summary>
 public sealed class DecimalDigitFilter : ISpanTokenFilter
 {
+    private const int StackThreshold = 128;
 
     /// <inheritdoc/>
     public void Apply(
@@ -18,10 +20,36 @@ public sealed class DecimalDigitFilter : ISpanTokenFilter
         byte[]? payload,
         ISpanTokenSink sink)
     {
-        sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+        ArgumentNullException.ThrowIfNull(sink);
+
+        int index = IndexOfNormalisableDigit(text);
+        if (index < 0)
+        {
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+            return;
+        }
+
+        char[]? rented = null;
+        try
+        {
+            Span<char> buffer = text.Length <= StackThreshold
+                ? stackalloc char[text.Length]
+                : (rented = ArrayPool<char>.Shared.Rent(text.Length));
+
+            text.CopyTo(buffer);
+            for (int i = index; i < text.Length; i++)
+                buffer[i] = NormaliseDigit(buffer[i]);
+
+            sink.Add(buffer[..text.Length], startOffset, endOffset, type, positionIncrement, payload);
+        }
+        finally
+        {
+            if (rented is not null)
+                ArrayPool<char>.Shared.Return(rented);
+        }
     }
 
-    private static int IndexOfNormalisableDigit(string text)
+    private static int IndexOfNormalisableDigit(ReadOnlySpan<char> text)
     {
         for (int i = 0; i < text.Length; i++)
         {

@@ -651,9 +651,10 @@ public class AnalysisSmokeTests
     public void DecimalDigitFilter()
     {
         var dd = new DecimalDigitFilter();
-        var sink = new CountingTokenSink();
+        var sink = new MaterialisingTokenSink();
         dd.Apply("\u0661\u0662\u0663".AsSpan(), 0, 3, Token.DefaultType, 1, null, sink);
-        Assert.True(sink.Count >= 1, $"DecimalDigitFilter expected >=1 token, got {sink.Count}");
+        Assert.True(sink.Tokens.Count == 1 && sink.Tokens[0].Text == "123",
+            $"DecimalDigitFilter expected '123', got '{(sink.Tokens.Count > 0 ? sink.Tokens[0].Text : "null")}'");
     }
 
     [Fact]
