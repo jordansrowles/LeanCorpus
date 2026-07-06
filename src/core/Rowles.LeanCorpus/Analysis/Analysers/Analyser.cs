@@ -22,14 +22,19 @@ public sealed class Analyser : IAnalyser
         _filters = filters;
     }
 
-    /// <summary>Creates a new <see cref="Analyser"/> sharing the same tokeniser and filters.</summary>
+    /// <summary>Creates a new <see cref="Analyser"/> with cloned filter instances.</summary>
     /// <remarks>
-    /// The shared filter references are safe for sequential use because each
-    /// <see cref="Analyse"/> call ends with <see cref="ISpanTokenFilter.Finish"/>,
-    /// which resets filter state. For concurrent use, create separate analyser
-    /// instances with their own filter chains.
+    /// Each filter's <see cref="ISpanTokenFilter.Clone"/> is called to produce
+    /// independent state. Stateless filters return themselves; stateful filters
+    /// return fresh instances. The tokeniser is shared (must be thread-safe).
     /// </remarks>
-    internal Analyser Clone() => new(_tokeniser, _filters);
+    internal Analyser Clone()
+    {
+        var filters = new ISpanTokenFilter[_filters.Length];
+        for (int i = 0; i < _filters.Length; i++)
+            filters[i] = _filters[i].Clone();
+        return new Analyser(_tokeniser, filters);
+    }
 
     /// <inheritdoc/>
     public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)

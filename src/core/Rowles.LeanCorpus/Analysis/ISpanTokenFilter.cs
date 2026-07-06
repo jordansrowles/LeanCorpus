@@ -33,4 +33,11 @@ public interface ISpanTokenFilter
     {
         // Default no-op for stateless filters.
     }
+
+    /// <summary>
+    /// Creates an independent copy of this filter with the same configuration
+    /// but fresh state. The default returns <c>this</c>, which is safe for
+    /// stateless filters. Stateful filters must override to return a new instance.
+    /// </summary>
+    ISpanTokenFilter Clone() => this;
 }

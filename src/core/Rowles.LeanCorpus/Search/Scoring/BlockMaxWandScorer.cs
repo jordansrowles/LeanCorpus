@@ -1,73 +1,17 @@
 ﻿using System.Runtime.CompilerServices;
+using Rowles.LeanCorpus.Codecs.Postings;
 
 namespace Rowles.LeanCorpus.Search.Scoring;
 
 /// <summary>
-/// Block-Max WAND (Weak AND) scorer for top-K query evaluation.
-/// Uses per-block impact metadata (maxFreq, maxNorm) stored in skip data
+/// Block-Max WAND (Weak AND) scorer for top-K disjunctive query evaluation.
+/// Uses per-block impact metadata (maxFreq, maxNorm) from skip entries
 /// to skip entire 128-doc blocks whose maximum possible score contribution
-/// falls below the current threshold θ (score of the Kth-best doc seen so far).
+/// falls below the current threshold (score of the Kth-best doc seen so far).
 /// </summary>
-/// <remarks>
-/// This scorer works with any BM25-based scoring function. For each postings list,
-/// the block's maximum possible score is precomputed from <c>maxFreqInBlock</c>
-/// and <c>maxNormInBlock</c>. If no block can beat the current threshold, the
-/// entire term is skipped.
-/// </remarks>
 internal sealed class BlockMaxWandScorer
 {
-    /// <summary>
-    /// Represents a single term's postings along with its precomputed block-max scores.
-    /// </summary>
-    internal sealed class TermScorer
-    {
-        public BlockPostingsEnum Postings;
-        public float[] BlockMaxScores; // one per skip entry (per block)
-        public float MaxScore;         // global max score across all blocks
-        public int CurrentDoc;
-
-        public TermScorer(BlockPostingsEnum postings, float idf, float k1, float b, float avgDl)
-        {
-            Postings = postings;
-            var skipEntries = postings.SkipEntries;
-            BlockMaxScores = new float[skipEntries.Length];
-            MaxScore = 0f;
-
-            for (int i = 0; i < skipEntries.Length; i++)
-            {
-                ref readonly var skip = ref skipEntries[i];
-                float maxFreq = skip.MaxFreqInBlock;
-                float maxNorm = skip.MaxNormInBlock > 0
-                    ? skip.MaxNormInBlock / 255f
-                    : 1f; // fallback: assume norm = 1 (average)
-
-                float dl = 1f / (maxNorm + float.Epsilon); // approximate field length
-                float tf = maxFreq;
-                float score = idf * ((tf * (k1 + 1f)) / (tf + k1 * (1f - b + b * (dl / avgDl))));
-                BlockMaxScores[i] = score;
-                if (score > MaxScore) MaxScore = score;
-            }
-
-            CurrentDoc = BlockPostingsEnum.NoMoreDocs;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public float GetBlockMaxScore(int blockIndex)
-        {
-            if (blockIndex < 0 || blockIndex >= BlockMaxScores.Length)
-                return MaxScore; // tail — use global max as conservative estimate
-            return BlockMaxScores[blockIndex];
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int GetBlockIndex(int docId)
-        {
-            return docId / PackedIntCodec.BlockSize;
-        }
-    }
-
     private readonly TermScorer[] _scorers;
-    private readonly TopNCollector _collector;
     private readonly float _k1;
     private readonly float _b;
     private readonly float _avgDl;
@@ -80,28 +24,29 @@ internal sealed class BlockMaxWandScorer
     /// <summary>Number of blocks fully scored.</summary>
     public int BlocksScored => _blocksScored;
 
-    public BlockMaxWandScorer(TermScorer[] scorers, int topN, float k1 = 1.2f, float b = 0.75f, float avgDl = 100f)
+    public BlockMaxWandScorer(TermScorer[] scorers, float k1 = 1.2f, float b = 0.75f, float avgDl = 100f)
     {
         _scorers = scorers;
-        _collector = new TopNCollector(topN);
         _k1 = k1;
         _b = b;
         _avgDl = avgDl;
     }
 
     /// <summary>
-    /// Executes the Block-Max WAND algorithm for a disjunctive (OR) query
-    /// over all term scorers. Returns top-K results.
+    /// Executes Block-Max WAND, collecting results into <paramref name="collector"/>.
+    /// Uses the collector's MinScore as the dynamic WAND threshold.
     /// </summary>
-    public (int DocId, float Score)[] Score()
+    public void ScoreInto(ref TopNCollector collector)
     {
-        // Initialise all scorers to their first document
+        // Initialise all scorers to their first document.
         foreach (var scorer in _scorers)
+        {
             scorer.CurrentDoc = scorer.Postings.NextDoc();
+        }
 
         while (true)
         {
-            // Find the minimum current doc across all non-exhausted scorers
+            // Find the document with the smallest ID among non-exhausted scorers.
             int minDoc = BlockPostingsEnum.NoMoreDocs;
             foreach (var scorer in _scorers)
             {
@@ -110,11 +55,12 @@ internal sealed class BlockMaxWandScorer
             }
 
             if (minDoc == BlockPostingsEnum.NoMoreDocs)
-                break; // all exhausted
+                break;
 
-            float threshold = _collector.MinScore;
+            float threshold = collector.MinScore;
 
-            // Check if any combination of block-max scores can beat threshold
+            // Compute the sum of block-max scores for the block containing minDoc.
+            // If this sum cannot beat the threshold, skip the entire block.
             int blockIndex = minDoc / PackedIntCodec.BlockSize;
             float sumBlockMax = 0f;
             foreach (var scorer in _scorers)
@@ -123,104 +69,153 @@ internal sealed class BlockMaxWandScorer
                     sumBlockMax += scorer.GetBlockMaxScore(blockIndex);
             }
 
-            if (sumBlockMax <= threshold && _collector.Count >= _collector.Capacity)
+            if (sumBlockMax <= threshold && collector.TotalHits >= collector.Capacity)
             {
-                // Skip: no combination of docs in this block can beat the threshold
                 _blocksSkipped++;
                 int nextBlockStart = (blockIndex + 1) * PackedIntCodec.BlockSize;
                 foreach (var scorer in _scorers)
                 {
                     if (scorer.CurrentDoc < nextBlockStart && scorer.CurrentDoc != BlockPostingsEnum.NoMoreDocs)
+                    {
                         scorer.CurrentDoc = scorer.Postings.Advance(nextBlockStart);
+                    }
                 }
                 continue;
             }
 
             _blocksScored++;
 
-            // Score all docs at minDoc
+            // Score all terms present at minDoc using BM25.
             float totalScore = 0f;
             foreach (var scorer in _scorers)
             {
                 if (scorer.CurrentDoc == minDoc)
                 {
-                    totalScore += scorer.Postings.Freq; // simplified — caller provides proper IDF weighting
+                    totalScore += scorer.ScoreCurrent();
                     scorer.CurrentDoc = scorer.Postings.NextDoc();
                 }
             }
 
-            _collector.TryAdd(minDoc, totalScore);
+            collector.Collect(minDoc, totalScore);
         }
-
-        return _collector.GetTopN();
     }
 
     /// <summary>
-    /// Simple min-heap-based top-N collector.
+    /// Convenience method that creates a temporary collector and returns results.
+    /// Used by tests.
     /// </summary>
-    internal sealed class TopNCollector
+    public TopDocs Score(int topN)
     {
-        private readonly (int DocId, float Score)[] _heap;
-        private int _count;
+        var collector = new TopNCollector(topN);
+        ScoreInto(ref collector);
+        return collector.ToTopDocs();
+    }
 
-        public int Count => _count;
-        public int Capacity { get; }
-        public float MinScore => _count >= Capacity ? _heap[0].Score : 0f;
+    /// <summary>
+    /// A single term's postings list with precomputed per-block maximum BM25 scores.
+    /// </summary>
+    internal sealed class TermScorer
+    {
+        public BlockPostingsEnum Postings;
+        public float[] BlockMaxScores; // one per skip entry (per 128-doc block)
+        public float MaxScore;         // global max across all blocks
+        public int CurrentDoc;
 
-        public TopNCollector(int capacity)
+        private readonly float _idf;
+        private readonly float _k1;
+        private readonly float _b;
+        private readonly float _avgDl;
+        private readonly int[]? _fieldLengths;
+        private readonly float[]? _fieldBoosts;
+
+        /// <summary>
+        /// Initialises a new <see cref="TermScorer"/>.
+        /// </summary>
+        /// <param name="postings">The postings list for this term.</param>
+        /// <param name="idf">Precomputed IDF weight.</param>
+        /// <param name="k1">BM25 k1 parameter.</param>
+        /// <param name="b">BM25 b parameter.</param>
+        /// <param name="avgDl">Average document length in the collection.</param>
+        /// <param name="fieldLengths">Per-document field lengths, or null to assume average length.</param>
+        /// <param name="fieldBoosts">Per-document field boosts, or null for no boosting.</param>
+        public TermScorer(BlockPostingsEnum postings, float idf, float k1, float b, float avgDl,
+            int[]? fieldLengths = null, float[]? fieldBoosts = null)
         {
-            Capacity = capacity;
-            _heap = new (int, float)[capacity];
+            Postings = postings;
+            _idf = idf;
+            _k1 = k1;
+            _b = b;
+            _avgDl = avgDl;
+            _fieldLengths = fieldLengths;
+            _fieldBoosts = fieldBoosts;
+
+            var skipEntries = postings.SkipEntries;
+            BlockMaxScores = new float[skipEntries.Length];
+            MaxScore = 0f;
+
+            for (int i = 0; i < skipEntries.Length; i++)
+            {
+                ref readonly var skip = ref skipEntries[i];
+                float maxFreq = skip.MaxFreqInBlock;
+                float maxNorm = skip.MaxNormInBlock > 0
+                    ? skip.MaxNormInBlock / 255f
+                    : 1f;
+
+                // The norm byte encodes doc-length quantisation. Use the
+                // smallest length (largest norm → shortest doc) which gives the
+                // highest possible BM25 score for the block.
+                float dl = 1f / (maxNorm + float.Epsilon);
+                float score = ComputeBM25(maxFreq, dl);
+                BlockMaxScores[i] = score;
+                if (score > MaxScore) MaxScore = score;
+            }
+
+            CurrentDoc = BlockPostingsEnum.NoMoreDocs;
+        }
+
+        /// <summary>
+        /// Scores the document the postings enum is currently positioned on
+        /// using full BM25.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public float ScoreCurrent()
+        {
+            int tf = Postings.Freq;
+            int docId = Postings.DocId;
+            float dl = _fieldLengths is not null && (uint)docId < (uint)_fieldLengths.Length
+                ? _fieldLengths[docId]
+                : _avgDl;
+
+            float score = ComputeBM25(tf, dl);
+
+            if (_fieldBoosts is not null && (uint)docId < (uint)_fieldBoosts.Length)
+            {
+                float boost = _fieldBoosts[docId];
+                if (boost != 1.0f)
+                    score *= boost;
+            }
+
+            return score;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void TryAdd(int docId, float score)
+        private float ComputeBM25(float tf, float dl)
         {
-            if (_count < Capacity)
-            {
-                _heap[_count++] = (docId, score);
-                if (_count == Capacity)
-                    BuildMinHeap();
-            }
-            else if (score > _heap[0].Score)
-            {
-                _heap[0] = (docId, score);
-                SiftDown(0);
-            }
+            return _idf * ((tf * (_k1 + 1f)) / (tf + _k1 * (1f - _b + _b * (dl / _avgDl))));
         }
 
-        public (int DocId, float Score)[] GetTopN()
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public float GetBlockMaxScore(int blockIndex)
         {
-            var result = new (int DocId, float Score)[_count];
-            Array.Copy(_heap, result, _count);
-            Array.Sort(result, (a, b) => b.Score.CompareTo(a.Score)); // descending
-            return result;
+            if (blockIndex < 0 || blockIndex >= BlockMaxScores.Length)
+                return MaxScore;
+            return BlockMaxScores[blockIndex];
         }
 
-        private void BuildMinHeap()
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int GetBlockIndex(int docId)
         {
-            for (int i = _count / 2 - 1; i >= 0; i--)
-                SiftDown(i);
-        }
-
-        private void SiftDown(int i)
-        {
-            while (true)
-            {
-                int left = 2 * i + 1;
-                int right = 2 * i + 2;
-                int smallest = i;
-
-                if (left < _count && _heap[left].Score < _heap[smallest].Score)
-                    smallest = left;
-                if (right < _count && _heap[right].Score < _heap[smallest].Score)
-                    smallest = right;
-
-                if (smallest == i) break;
-
-                (_heap[i], _heap[smallest]) = (_heap[smallest], _heap[i]);
-                i = smallest;
-            }
+            return docId / PackedIntCodec.BlockSize;
         }
     }
 }

@@ -126,6 +126,9 @@ public sealed class CommonGramsFilter : ISpanTokenFilter
         }
     }
 
+    /// <inheritdoc/>
+    public ISpanTokenFilter Clone() => new CommonGramsFilter(_commonWords, _separator);
+
     /// <summary>
     /// Builds a bigram string from two spans and sends it to the sink with
     /// <c>positionIncrement = 0</c> (same position as the first word).

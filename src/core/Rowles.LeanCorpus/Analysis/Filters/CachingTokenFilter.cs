@@ -63,8 +63,22 @@ public sealed class CachingTokenFilter : ISpanTokenFilter
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Does not clear captured tokens. Call <see cref="Reset"/> explicitly
+    /// when you are done reading <see cref="Tokens"/> and ready for the next
+    /// analysis pass. Automatic reset on Finish would defeat the purpose of
+    /// this filter, which exists to be inspected after analysis completes.
+    /// </remarks>
     public void Finish(ISpanTokenSink sink)
     {
-        Reset();
+        // No-op: tokens are kept for inspection. Call Reset() explicitly.
     }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Returns <c>this</c> — cloning would defeat the purpose of this filter,
+    /// which exists to be inspected after analysis. Callers that need a fresh
+    /// capture should create a new <see cref="CachingTokenFilter"/> directly.
+    /// </remarks>
+    public ISpanTokenFilter Clone() => this;
 }

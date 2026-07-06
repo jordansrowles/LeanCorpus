@@ -85,6 +85,9 @@ public sealed class HyphenatedWordsFilter : ISpanTokenFilter
         Flush(sink);
     }
 
+    /// <inheritdoc/>
+    public ISpanTokenFilter Clone() => new HyphenatedWordsFilter(_separator, _initialCapacity);
+
     private void AppendText(ReadOnlySpan<char> text)
     {
         EnsureCapacity(text.Length);

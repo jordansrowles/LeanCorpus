@@ -19,6 +19,9 @@ public struct TopNCollector
     /// <summary>Gets the maximum number of documents this collector can retain.</summary>
     public int Capacity => _maxSize;
 
+    /// <summary>Gets the score of the lowest-ranked document currently in the top-N, or <see cref="float.NegativeInfinity"/> if fewer than N documents have been collected.</summary>
+    public float MinScore => _minScore;
+
     /// <summary>Initialises a new <see cref="TopNCollector"/> with the specified capacity.</summary>
     /// <param name="maxSize">Maximum number of top-scoring documents to retain.</param>
     public TopNCollector(int maxSize)

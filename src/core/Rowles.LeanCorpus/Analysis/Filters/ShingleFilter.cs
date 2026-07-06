@@ -112,6 +112,9 @@ public sealed class ShingleFilter : ISpanTokenFilter
         _buffer.Clear();
     }
 
+    /// <inheritdoc/>
+    public ISpanTokenFilter Clone() => new ShingleFilter(_minShingleSize, _maxShingleSize, _outputUnigrams, _tokenSeparator);
+
     private string CreateShingle(int start, int count)
     {
         string separator = _tokenSeparator;

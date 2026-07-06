@@ -42,4 +42,7 @@ public sealed class LimitTokenCountFilter : ISpanTokenFilter
     {
         _count = 0;
     }
+
+    /// <inheritdoc/>
+    public ISpanTokenFilter Clone() => new LimitTokenCountFilter(_maxTokenCount);
 }

@@ -63,4 +63,7 @@ public sealed class UniqueTokenFilter : ISpanTokenFilter
         _firstToken = true;
         _currentPosition = 0;
     }
+
+    /// <inheritdoc/>
+    public ISpanTokenFilter Clone() => new UniqueTokenFilter();
 }

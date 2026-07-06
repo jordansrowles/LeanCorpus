@@ -189,6 +189,14 @@ public unsafe struct PostingsEnum : IDisposable
     /// <summary>Gets a value indicating whether the cursor has passed the last document.</summary>
     public bool IsExhausted => _lazyMode ? _blockEnum.IsExhausted : _index >= _count;
 
+    /// <summary>
+    /// Gets the underlying BlockPostingsEnum, or throws if the enum was
+    /// eagerly decoded (in which case block-level metadata isn't available).
+    /// </summary>
+    internal BlockPostingsEnum BlockEnum =>
+        _lazyMode ? _blockEnum : throw new InvalidOperationException(
+            "Block-level metadata is not available for eagerly-decoded postings.");
+
     private PostingsEnum(int[]? docIds, int[]? freqs, int count,
         int[]? positionData = null, int[]? positionStarts = null)
     {

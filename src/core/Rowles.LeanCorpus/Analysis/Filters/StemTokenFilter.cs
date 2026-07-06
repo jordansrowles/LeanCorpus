@@ -96,4 +96,7 @@ public sealed class StemTokenFilter : ISpanTokenFilter
         }
     }
 
+    /// <inheritdoc/>
+    public ISpanTokenFilter Clone() => new StemTokenFilter(_stemmer, _keywordMarker);
+
 }

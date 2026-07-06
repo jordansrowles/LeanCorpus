@@ -91,4 +91,7 @@ public sealed class SynonymGraphFilter : ISpanTokenFilter
 
         _buffer.Clear();
     }
+
+    /// <inheritdoc/>
+    public ISpanTokenFilter Clone() => new SynonymGraphFilter(_map);
 }

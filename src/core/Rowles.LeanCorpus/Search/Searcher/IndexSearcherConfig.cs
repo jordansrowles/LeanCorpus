@@ -55,4 +55,13 @@ public sealed class IndexSearcherConfig
     /// <see cref="Diagnostics.SearchEvent"/> in a bounded ring buffer. Default: null (disabled).
     /// </summary>
     public Diagnostics.SearchAnalytics? SearchAnalytics { get; set; }
+
+    /// <summary>
+    /// Enable Block-Max WAND scoring for disjunctive (OR) queries.
+    /// When true, the searcher uses per-block impact metadata to skip
+    /// non-competitive blocks during top-K evaluation. Most effective for
+    /// large OR queries against indexes with many documents per term.
+    /// Default: false.
+    /// </summary>
+    public bool EnableBlockMaxWand { get; set; }
 }
