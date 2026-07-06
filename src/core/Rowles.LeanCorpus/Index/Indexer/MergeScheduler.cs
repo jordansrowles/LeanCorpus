@@ -105,6 +105,10 @@ internal static class MergeScheduler
                     lock (writer.WriteLock)
                     {
                         if (ct.IsCancellationRequested) return;
+                        // A prepared commit is pending, defer this merge until
+                        // the prepared commit is published or rolled back, so we
+                        // don't collide on the commit generation number.
+                        if (writer.PreparedGeneration >= 0) return;
                         sourceSegments = writer.CommittedSegments.ToArray();
                         protectedSegments = SnapshotManager.GetSnapshotProtectedSegments(writer);
                         int reservation = Math.Max(8, sourceSegments.Length);

@@ -290,6 +290,10 @@ internal static class CommitManager
         lock (writer.MergeIoLock)
         lock (writer.WriteLock)
         {
+            if (writer.PreparedGeneration >= 0)
+                throw new InvalidOperationException(
+                    "Cannot compact while a prepared commit is pending. Call Commit() or Rollback() first.");
+
             var dirPath = writer.Directory.DirectoryPath;
 
             if (writer.PendingDeletes.Count > 0)
@@ -361,6 +365,10 @@ internal static class CommitManager
         lock (writer.MergeIoLock)
         lock (writer.WriteLock)
         {
+            if (writer.PreparedGeneration >= 0)
+                throw new InvalidOperationException(
+                    "Cannot force-merge while a prepared commit is pending. Call Commit() or Rollback() first.");
+
             var dirPath = writer.Directory.DirectoryPath;
 
             if (writer.PendingDeletes.Count > 0)
