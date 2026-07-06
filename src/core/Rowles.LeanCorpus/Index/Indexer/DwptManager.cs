@@ -86,7 +86,10 @@ internal static class DwptManager
 
             writer.ValidateDocuments(documents);
 
-            var newSegments = new System.Collections.Concurrent.ConcurrentBag<SegmentInfo>();
+            // Phase 1: analyse documents in parallel. Each thread gets its own
+            // DWPT and accumulates documents from its assigned partitions.
+            // No I/O or shared mutable state is touched here.
+            var threadDwpts = new System.Collections.Concurrent.ConcurrentBag<DocumentsWriterPerThread>();
 
             Parallel.ForEach(
                 System.Collections.Concurrent.Partitioner.Create(0, documents.Count),
@@ -95,10 +98,34 @@ internal static class DwptManager
                 {
                     for (int i = range.Item1; i < range.Item2; i++)
                         dwpt.AddDocument(documents[i]);
+                    return dwpt;
+                },
+                dwpt =>
+                {
+                    if (dwpt.DocCount > 0)
+                        threadDwpts.Add(dwpt);
+                });
 
-                    if (dwpt.DocCount == 0) return dwpt;
+            // Verify that every document was accounted for.
+            int totalAnalysed = 0;
+            foreach (var dwpt in threadDwpts)
+                totalAnalysed += dwpt.DocCount;
+            if (totalAnalysed != documents.Count)
+            {
+                throw new InvalidOperationException(
+                    $"AddDocumentsConcurrent document count mismatch: " +
+                    $"input={documents.Count}, analysed={totalAnalysed}. " +
+                    $"Some partitions did not index all of their assigned documents.");
+            }
 
-                    int ordinal = Interlocked.Increment(ref writer.NextSegmentOrdinal) - 1;
+            // Phase 2: flush segments and publish under WriteLock so that
+            // concurrent deletes and commits cannot interleave between
+            // segment creation and visibility.
+            lock (writer.WriteLock)
+            {
+                foreach (var dwpt in threadDwpts)
+                {
+                    int ordinal = writer.NextSegmentOrdinal++;
                     long seqEnd = 0, seqStart = 0;
                     if (writer.Config.TrackSequenceNumbers)
                     {
@@ -110,40 +137,18 @@ internal static class DwptManager
                         dwpt, writer.Config, writer.Directory.DirectoryPath,
                         ordinal, writer.CommitGeneration,
                         seqStart, seqEnd,
-                        out int _unused);
+                        out _);
 
-                    newSegments.Add(segInfo);
-
-                    writer.ContentChangedSinceCommit = true;
+                    writer.CommittedSegments.Add(segInfo);
                     dwpt.ClearAll();
-                    return dwpt;
-                },
-                dwpt => { });
+                }
 
-            // Verify that every document was accounted for by the parallel
-            // partitions.
-            int totalFlushed = 0;
-            foreach (var seg in newSegments)
-                totalFlushed += seg.DocCount;
-            if (totalFlushed != documents.Count)
-            {
-                throw new InvalidOperationException(
-                    $"AddDocumentsConcurrent document count mismatch: " +
-                    $"input={documents.Count}, flushed={totalFlushed}. " +
-                    $"Some partitions did not index all of their assigned documents.");
+                writer.ContentChangedSinceCommit = true;
             }
 
-            // Flush the directory metadata to durable storage so that every
-            // segment file created by the parallel partitions is visible in
-            // the directory listing before we add those segments to the
-            // writer's committed list.
+            // Flush directory metadata so all new segment files are visible
+            // in the directory listing.
             Store.DirectoryFsync.Sync(writer.Directory.DirectoryPath, strict: false);
-
-            lock (writer.WriteLock)
-            {
-                foreach (var seg in newSegments)
-                    writer.CommittedSegments.Add(seg);
-            }
         }
         finally
         {
