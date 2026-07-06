@@ -252,6 +252,15 @@ internal static class StoredFieldsWriter
             return;
         }
 
+        if (value.IsLong)
+        {
+            writer.WriteInt32(sizeof(long));
+            Span<byte> bytes = stackalloc byte[sizeof(long)];
+            System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(bytes, value.LongValue);
+            writer.WriteBytes(bytes);
+            return;
+        }
+
         var text = value.StringValue ?? string.Empty;
         int valueByteCount = Encoding.UTF8.GetByteCount(text);
         Span<byte> valueBuf = valueByteCount <= encodeBuf.Length ? encodeBuf : new byte[valueByteCount];

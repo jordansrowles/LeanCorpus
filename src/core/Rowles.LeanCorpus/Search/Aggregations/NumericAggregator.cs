@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using Rowles.LeanCorpus.Search.Scoring;
 
 namespace Rowles.LeanCorpus.Search.Aggregations;
@@ -105,7 +105,10 @@ public static class NumericAggregator
         return results;
     }
 
+
+
     private readonly record struct FieldAccessor(
+        bool IsInt64,
         bool IsSortedNumeric,
         bool IsSingleNumeric);
 
@@ -122,10 +125,14 @@ public static class NumericAggregator
 
             // Sorted-numeric takes priority — it's the multi-value form.
             if (reader.GetSortedNumericDocValues(fieldName) is not null)
-                return new FieldAccessor(IsSortedNumeric: true, IsSingleNumeric: false);
+                return new FieldAccessor(IsInt64: false, IsSortedNumeric: true, IsSingleNumeric: false);
+            if (reader.GetSortedInt64DocValues(fieldName) is not null)
+                return new FieldAccessor(IsInt64: true, IsSortedNumeric: true, IsSingleNumeric: false);
 
-            // Either sparse .num index or dense .dvn array.
-            return new FieldAccessor(IsSortedNumeric: false, IsSingleNumeric: true);
+            // Either sparse .num/.numl index or dense .dvn/.dvnl array.
+            if (reader.GetInt64DocValues(fieldName) is not null || reader.GetNumericDocValues(fieldName) is null)
+                return new FieldAccessor(IsInt64: true, IsSortedNumeric: false, IsSingleNumeric: true);
+            return new FieldAccessor(IsInt64: false, IsSortedNumeric: false, IsSingleNumeric: true);
         }
 
         return default;
@@ -162,7 +169,35 @@ public static class NumericAggregator
             var (readerIdx, localDocId) = ResolveDoc(globalDocId, segments);
             var reader = readers[readerIdx];
 
-            if (accessor.IsSortedNumeric)
+            if (accessor.IsInt64)
+            {
+                if (accessor.IsSortedNumeric)
+                {
+                    if (reader.TryGetSortedInt64DocValues(req.Field, localDocId, out var values))
+                    {
+                        foreach (long value in values)
+                        {
+                            count++;
+                            double d = value;
+                            if (d < min) min = d;
+                            if (d > max) max = d;
+                            sum += d;
+                        }
+                    }
+                }
+                else if (accessor.IsSingleNumeric)
+                {
+                    if (reader.TryGetInt64Value(req.Field, localDocId, out long value))
+                    {
+                        count++;
+                        double d = value;
+                        if (d < min) min = d;
+                        if (d > max) max = d;
+                        sum += d;
+                    }
+                }
+            }
+            else if (accessor.IsSortedNumeric)
             {
                 if (reader.TryGetSortedNumericDocValues(req.Field, localDocId, out var values))
                 {
@@ -219,7 +254,35 @@ public static class NumericAggregator
             var (readerIdx, localDocId) = ResolveDoc(globalDocId, segments);
             var reader = readers[readerIdx];
 
-            if (accessor.IsSortedNumeric)
+            if (accessor.IsInt64)
+            {
+                if (accessor.IsSortedNumeric)
+                {
+                    if (reader.TryGetSortedInt64DocValues(req.Field, localDocId, out var docValues))
+                    {
+                        foreach (long value in docValues)
+                        {
+                            double d = value;
+                            values.Add(d);
+                            if (d < min) min = d;
+                            if (d > max) max = d;
+                            sum += d;
+                        }
+                    }
+                }
+                else if (accessor.IsSingleNumeric)
+                {
+                    if (reader.TryGetInt64Value(req.Field, localDocId, out long value))
+                    {
+                        double d = value;
+                        values.Add(d);
+                        if (d < min) min = d;
+                        if (d > max) max = d;
+                        sum += d;
+                    }
+                }
+            }
+            else if (accessor.IsSortedNumeric)
             {
                 if (reader.TryGetSortedNumericDocValues(req.Field, localDocId, out var docValues))
                 {

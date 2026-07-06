@@ -99,6 +99,22 @@ public sealed partial class IndexSearcher
             collector.Collect(docBase + match.DocId, ApplyFieldBoost(reader, match.DocId, query.Field, score));
     }
 
+    private void ExecuteInt64PointInSetQuery(Int64PointInSetQuery query, SegmentReader reader, ref TopNCollector collector)
+    {
+        if (query.Points.Count == 0)
+            return;
+
+        var pointSet = query.Points.ToHashSet();
+        var matches = reader.GetInt64PointsInSet(query.Field, pointSet);
+        if (matches.Count == 0)
+            return;
+
+        int docBase = reader.DocBase;
+        float score = query.Boost != 1.0f ? query.Boost : 1.0f;
+        foreach (var match in matches)
+            collector.Collect(docBase + match.DocId, ApplyFieldBoost(reader, match.DocId, query.Field, score));
+    }
+
     private void ExecuteCombinedFieldsQuery(
         CombinedFieldsQuery query,
         SegmentReader reader,
@@ -245,6 +261,41 @@ public sealed partial class IndexSearcher
 
             var stored = reader.GetStoredFields(docId, new HashSet<string> { query.Field });
             if (stored.TryGetValue(query.Field, out var values) && values.Count > 0 && double.TryParse(values[0], out var val))
+            {
+                if (val >= query.Min && val <= query.Max)
+                    localCollector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, query.Field, score));
+            }
+        }
+
+        collector = localCollector;
+    }
+
+    private void ExecuteInt64RangeQuery(Int64RangeQuery query, SegmentReader reader, ref TopNCollector collector)
+    {
+        int docBase = reader.DocBase;
+        float score = query.Boost != 1.0f ? query.Boost : 1.0f;
+        var localCollector = collector;
+        if (reader.VisitInt64Range(query.Field, query.Min, query.Max, (docId, _) =>
+            localCollector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, query.Field, score))))
+        {
+            collector = localCollector;
+            return;
+        }
+
+        for (int docId = 0; docId < reader.MaxDoc; docId++)
+        {
+            if (!reader.IsLive(docId))
+                continue;
+
+            if (reader.TryGetInt64Value(query.Field, docId, out var int64Value))
+            {
+                if (int64Value >= query.Min && int64Value <= query.Max)
+                    collector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, query.Field, score));
+                continue;
+            }
+
+            var stored = reader.GetStoredFields(docId, new HashSet<string> { query.Field });
+            if (stored.TryGetValue(query.Field, out var values) && values.Count > 0 && long.TryParse(values[0], out var val))
             {
                 if (val >= query.Min && val <= query.Max)
                     localCollector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, query.Field, score));

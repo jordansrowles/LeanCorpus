@@ -48,6 +48,14 @@ public sealed partial class IndexWriter
                         AppendStoredField(nf.Name, StoredFieldValue.FromString(nf.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)), storeDocValues: nf.StoreDocValues);
                     }
                     break;
+                case Int64Field lf:
+                    TrackFieldBoost(lf.Name, localDocId, lf.Boost);
+                    IndexInt64Field(lf.Name, lf.Value, localDocId, lf.StoreDocValues);
+                    if (lf.IsStored)
+                    {
+                        AppendStoredField(lf.Name, StoredFieldValue.FromString(lf.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)), storeDocValues: lf.StoreDocValues);
+                    }
+                    break;
                 case VectorField vf:
                     TrackFieldBoost(vf.Name, localDocId, vf.Boost);
                     if (!buffer.Vectors.TryGetValue(vf.Name, out var perField))
@@ -247,6 +255,47 @@ public sealed partial class IndexWriter
         {
             fieldMap = new Dictionary<int, List<double>>();
             Buffer.SortedNumericDocValues[fieldName] = fieldMap;
+        }
+
+        if (!fieldMap.TryGetValue(docId, out var values))
+        {
+            values = [];
+            fieldMap[docId] = values;
+        }
+
+        values.Add(value);
+    }
+
+    private void IndexInt64Field(string fieldName, long value, int docId, bool storeDocValues = true)
+    {
+        if (!Buffer.Int64Index.TryGetValue(fieldName, out var fieldMap))
+        {
+            fieldMap = new Dictionary<int, long>();
+            Buffer.Int64Index[fieldName] = fieldMap;
+        }
+        fieldMap[docId] = value;
+
+        if (storeDocValues)
+        {
+            if (!Buffer.Int64DocValues.TryGetValue(fieldName, out var dvList))
+            {
+                dvList = new List<long>();
+                Buffer.Int64DocValues[fieldName] = dvList;
+            }
+            while (dvList.Count <= docId)
+                dvList.Add(0);
+            dvList[docId] = value;
+
+            AddSortedInt64DocValue(fieldName, docId, value);
+        }
+    }
+
+    private void AddSortedInt64DocValue(string fieldName, int docId, long value)
+    {
+        if (!Buffer.Int64SortedDocValues.TryGetValue(fieldName, out var fieldMap))
+        {
+            fieldMap = new Dictionary<int, List<long>>();
+            Buffer.Int64SortedDocValues[fieldName] = fieldMap;
         }
 
         if (!fieldMap.TryGetValue(docId, out var values))

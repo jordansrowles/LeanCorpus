@@ -45,10 +45,13 @@ internal sealed class DocumentsWriterPerThread
     private readonly Dictionary<string, int> _storedFieldNameToId = new(StringComparer.Ordinal);
 
     internal readonly Dictionary<string, Dictionary<int, double>> NumericIndex = new();
+    internal readonly Dictionary<string, Dictionary<int, long>> Int64Index = new();
     internal readonly Dictionary<string, List<double>> NumericDocValues = new(StringComparer.Ordinal);
+    internal readonly Dictionary<string, List<long>> Int64DocValues = new(StringComparer.Ordinal);
     internal readonly Dictionary<string, List<string?>> SortedDocValues = new(StringComparer.Ordinal);
     internal readonly Dictionary<string, Dictionary<int, List<string>>> SortedSetDocValues = new(StringComparer.Ordinal);
     internal readonly Dictionary<string, Dictionary<int, List<double>>> SortedNumericDocValues = new(StringComparer.Ordinal);
+    internal readonly Dictionary<string, Dictionary<int, List<long>>> Int64SortedDocValues = new(StringComparer.Ordinal);
     internal readonly Dictionary<string, Dictionary<int, List<byte[]>>> BinaryDocValues = new(StringComparer.Ordinal);
     internal readonly Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> Vectors = new(StringComparer.Ordinal);
     internal readonly HashSet<string> FieldNames = new(StringComparer.Ordinal);
@@ -83,10 +86,13 @@ internal sealed class DocumentsWriterPerThread
         StoredFieldIdToName.Clear();
         _storedFieldNameToId.Clear();
         NumericIndex.Clear();
+        Int64Index.Clear();
         NumericDocValues.Clear();
+        Int64DocValues.Clear();
         SortedDocValues.Clear();
         SortedSetDocValues.Clear();
         SortedNumericDocValues.Clear();
+        Int64SortedDocValues.Clear();
         BinaryDocValues.Clear();
         Vectors.Clear();
         FieldNames.Clear();
@@ -137,6 +143,16 @@ internal sealed class DocumentsWriterPerThread
                     {
                         var storedValue = nf.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
                         AppendStored(nf.Name, StoredFieldValue.FromString(storedValue), storeDocValues: nf.StoreDocValues);
+                        _estimatedRamBytes += 48;
+                    }
+                    break;
+                case Int64Field lf:
+                    TrackFieldBoost(lf.Name, localDocId, lf.Boost);
+                    IndexInt64Field(lf.Name, lf.Value, localDocId, lf.StoreDocValues);
+                    if (lf.IsStored)
+                    {
+                        var storedValue = lf.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                        AppendStored(lf.Name, StoredFieldValue.FromString(storedValue), storeDocValues: lf.StoreDocValues);
                         _estimatedRamBytes += 48;
                     }
                     break;
@@ -290,6 +306,47 @@ internal sealed class DocumentsWriterPerThread
         {
             fieldMap = new Dictionary<int, List<double>>();
             SortedNumericDocValues[fieldName] = fieldMap;
+        }
+
+        if (!fieldMap.TryGetValue(docId, out var values))
+        {
+            values = [];
+            fieldMap[docId] = values;
+        }
+
+        values.Add(value);
+    }
+
+    private void IndexInt64Field(string fieldName, long value, int docId, bool storeDocValues = true)
+    {
+        FieldNames.Add(fieldName);
+        if (!Int64Index.TryGetValue(fieldName, out var fieldMap))
+        {
+            fieldMap = new Dictionary<int, long>();
+            Int64Index[fieldName] = fieldMap;
+        }
+        fieldMap[docId] = value;
+
+        if (storeDocValues)
+        {
+            if (!Int64DocValues.TryGetValue(fieldName, out var dvList))
+            {
+                dvList = new List<long>();
+                Int64DocValues[fieldName] = dvList;
+            }
+            while (dvList.Count <= docId) dvList.Add(0);
+            dvList[docId] = value;
+            AddSortedInt64DocValue(fieldName, docId, value);
+        }
+        _estimatedRamBytes += 24;
+    }
+
+    private void AddSortedInt64DocValue(string fieldName, int docId, long value)
+    {
+        if (!Int64SortedDocValues.TryGetValue(fieldName, out var fieldMap))
+        {
+            fieldMap = new Dictionary<int, List<long>>();
+            Int64SortedDocValues[fieldName] = fieldMap;
         }
 
         if (!fieldMap.TryGetValue(docId, out var values))

@@ -95,6 +95,9 @@ public sealed partial class IndexSearcher
             case RangeQuery rq:
                 ExecuteRangeQuery(rq, reader, ref collector);
                 break;
+            case Int64RangeQuery irq:
+                ExecuteInt64RangeQuery(irq, reader, ref collector);
+                break;
             case PhraseQuery pq:
                 ExecutePhraseQuery(pq, reader, globalDFs, ref collector);
                 break;
@@ -142,6 +145,9 @@ public sealed partial class IndexSearcher
                 break;
             case PointInSetQuery pisq:
                 ExecutePointInSetQuery(pisq, reader, ref collector);
+                break;
+            case Int64PointInSetQuery ipisq:
+                ExecuteInt64PointInSetQuery(ipisq, reader, ref collector);
                 break;
             case CombinedFieldsQuery cfq:
                 ExecuteCombinedFieldsQuery(cfq, reader, globalDFs, ref collector);

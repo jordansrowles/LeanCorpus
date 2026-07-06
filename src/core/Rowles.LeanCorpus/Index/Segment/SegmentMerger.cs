@@ -258,12 +258,15 @@ public sealed class SegmentMerger
         internal StoredFieldsStreamWriter? StoredWriter { get; set; }
         internal TermVectorsStreamWriter? TermVectorWriter { get; set; }
         internal Dictionary<string, Dictionary<int, double>> NumericFields { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, Dictionary<int, long>> Int64Fields { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, int[]> FieldLengths { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, float[]> FieldBoosts { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, double[]> NumericDocValues { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, long[]> Int64DocValues { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, string?[]> SortedDocValues { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, IReadOnlyList<string>?[]> SortedSetDocValues { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, IReadOnlyList<double>?[]> SortedNumericDocValues { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, IReadOnlyList<long>?[]> Int64SortedDocValues { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, IReadOnlyList<byte[]>?[]> BinaryDocValues { get; } = new(StringComparer.Ordinal);
         internal ParentBitSet? ParentBitSet { get; set; }
         internal Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> Vectors { get; } = new(StringComparer.Ordinal);
@@ -325,6 +328,12 @@ public sealed class SegmentMerger
                 Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".dvb"));
             var segNumericIndex = ReadNumericIndex(
                 Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".num"));
+            var segInt64Index = ReadInt64Index(
+                Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".numl"));
+            var segInt64Dvs = Int64DocValuesReader.Read(
+                Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".dvnl"));
+            var segInt64SortedDvs = Int64SortedNumericDocValuesReader.Read(
+                Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".dsnl"));
 
             // Pre-build a name->VectorFieldInfo dictionary so the per-doc/per-field
             // loop body avoids an O(N) LINQ scan for each posting.
@@ -354,6 +363,17 @@ public sealed class SegmentMerger
                     fieldMap[remapDocId] = numVal;
                 }
 
+                foreach (var (field, values) in segInt64Index)
+                {
+                    if (!values.TryGetValue(oldDocId, out long intVal)) continue;
+                    if (!ctx.Int64Fields.TryGetValue(field, out var fieldMap))
+                    {
+                        fieldMap = new Dictionary<int, long>();
+                        ctx.Int64Fields[field] = fieldMap;
+                    }
+                    fieldMap[remapDocId] = intVal;
+                }
+
                 foreach (var (field, fl) in segFieldLengths)
                 {
                     if ((uint)oldDocId >= (uint)fl.Length) continue;
@@ -380,6 +400,20 @@ public sealed class SegmentMerger
                     dst[remapDocId] = arr[oldDocId];
                 }
 
+                foreach (var (field, arr) in segInt64Dvs.Values)
+                {
+                    if ((uint)oldDocId >= (uint)arr.Length) continue;
+                    if (segInt64Dvs.Presence.TryGetValue(field, out var presenceBitmap) &&
+                        presenceBitmap is not null && !presenceBitmap.Contains(oldDocId))
+                        continue;
+                    if (!ctx.Int64DocValues.TryGetValue(field, out var dst))
+                    {
+                        dst = new long[ctx.TotalDocs];
+                        ctx.Int64DocValues[field] = dst;
+                    }
+                    dst[remapDocId] = arr[oldDocId];
+                }
+
                 foreach (var (field, arr) in segSortedDvs.Values)
                 {
                     if ((uint)oldDocId >= (uint)arr.Length) continue;
@@ -397,6 +431,7 @@ public sealed class SegmentMerger
 
                 CopyMergedMultiValues(segSortedSetDvs, ctx.SortedSetDocValues, oldDocId, remapDocId, ctx.TotalDocs);
                 CopyMergedMultiValues(segSortedNumericDvs, ctx.SortedNumericDocValues, oldDocId, remapDocId, ctx.TotalDocs);
+                CopyMergedMultiValues(segInt64SortedDvs, ctx.Int64SortedDocValues, oldDocId, remapDocId, ctx.TotalDocs);
                 CopyMergedMultiValues(segBinaryDvs, ctx.BinaryDocValues, oldDocId, remapDocId, ctx.TotalDocs);
 
                 if (ctx.TermVectorWriter is not null)
@@ -617,6 +652,8 @@ public sealed class SegmentMerger
     {
         if (ctx.NumericFields.Count > 0)
             WriteNumericIndex(basePath + ".num", ctx.NumericFields);
+        if (ctx.Int64Fields.Count > 0)
+            WriteInt64Index(basePath + ".numl", ctx.Int64Fields);
     }
 
     private static void WriteFieldLengthsAndStats(
@@ -675,6 +712,17 @@ public sealed class SegmentMerger
                 TryDeleteTemporaryFile(tmpBody);
             }
         }
+        if (ctx.Int64DocValues.Count > 0)
+        {
+            var int64Presence = new Dictionary<string, IReadOnlySet<int>>(ctx.Int64DocValues.Count, StringComparer.Ordinal);
+            foreach (var field in ctx.Int64DocValues.Keys)
+            {
+                if (ctx.Int64Fields.TryGetValue(field, out var sparseMap))
+                    int64Presence[field] = sparseMap.Keys.ToHashSet();
+            }
+            Int64DocValuesWriter.Write(basePath + ".dvnl", ctx.Int64DocValues, ctx.TotalDocs, int64Presence);
+        }
+
         if (ctx.SortedDocValues.Count > 0)
         {
             string tmpBody = basePath + ".dvs.body.tmp";
@@ -714,6 +762,8 @@ public sealed class SegmentMerger
             SortedSetDocValuesWriter.Write(basePath + ".dss", ctx.SortedSetDocValues, ctx.TotalDocs);
         if (ctx.SortedNumericDocValues.Count > 0)
             SortedNumericDocValuesWriter.Write(basePath + ".dsn", ctx.SortedNumericDocValues, ctx.TotalDocs);
+        if (ctx.Int64SortedDocValues.Count > 0)
+            Int64SortedNumericDocValuesWriter.Write(basePath + ".dsnl", ctx.Int64SortedDocValues, ctx.TotalDocs);
         if (ctx.BinaryDocValues.Count > 0)
             BinaryDocValuesWriter.Write(basePath + ".dvb", ctx.BinaryDocValues, ctx.TotalDocs);
     }
@@ -752,17 +802,31 @@ public sealed class SegmentMerger
 
     private static void WriteBkdTree(MergeContext ctx, string basePath)
     {
-        if (ctx.NumericFields.Count == 0) return;
-        var bkdData = new Dictionary<string, List<(double Value, int DocId)>>(StringComparer.Ordinal);
-        foreach (var (field, values) in ctx.NumericFields)
+        if (ctx.NumericFields.Count > 0)
         {
-            var points = new List<(double Value, int DocId)>(values.Count);
-            foreach (var (docId, value) in values)
-                points.Add((value, docId));
-            bkdData[field] = points;
-        }
-        if (bkdData.Count > 0)
+            var bkdData = new Dictionary<string, List<(double Value, int DocId)>>(StringComparer.Ordinal);
+            foreach (var (field, values) in ctx.NumericFields)
+            {
+                var points = new List<(double Value, int DocId)>(values.Count);
+                foreach (var (docId, value) in values)
+                    points.Add((value, docId));
+                bkdData[field] = points;
+            }
             BKDWriter.Write(basePath + ".bkd", bkdData);
+        }
+
+        if (ctx.Int64Fields.Count > 0)
+        {
+            var int64BkdData = new Dictionary<string, List<(long Value, int DocId)>>(StringComparer.Ordinal);
+            foreach (var (field, values) in ctx.Int64Fields)
+            {
+                var points = new List<(long Value, int DocId)>(values.Count);
+                foreach (var (docId, value) in values)
+                    points.Add((value, docId));
+                int64BkdData[field] = points;
+            }
+            Int64BKDWriter.Write(basePath + ".bkdl", int64BkdData);
+        }
     }
 
     private static void WriteParentBitSet(MergeContext ctx, string basePath)
@@ -812,6 +876,25 @@ public sealed class SegmentMerger
         }
     }
 
+    private static void WriteInt64Index(string filePath, Dictionary<string, Dictionary<int, long>> int64Index)
+    {
+        using var output = new IndexOutput(filePath);
+
+        output.WriteInt32(int64Index.Count);
+        foreach (var (fieldName, docValues) in int64Index)
+        {
+            var fieldBytes = System.Text.Encoding.UTF8.GetBytes(fieldName);
+            output.WriteVarInt(fieldBytes.Length);
+            output.WriteBytes(fieldBytes);
+            output.WriteInt32(docValues.Count);
+            foreach (var (docId, value) in docValues)
+            {
+                output.WriteInt32(docId);
+                output.WriteInt64(value);
+            }
+        }
+    }
+
     private static Dictionary<string, Dictionary<int, double>> ReadNumericIndex(string filePath)
     {
         var result = new Dictionary<string, Dictionary<int, double>>(StringComparer.Ordinal);
@@ -831,6 +914,33 @@ public sealed class SegmentMerger
             {
                 int docId = reader.ReadInt32();
                 double value = reader.ReadDouble();
+                fieldMap[docId] = value;
+            }
+            result[fieldName] = fieldMap;
+        }
+
+        return result;
+    }
+
+    private static Dictionary<string, Dictionary<int, long>> ReadInt64Index(string filePath)
+    {
+        var result = new Dictionary<string, Dictionary<int, long>>(StringComparer.Ordinal);
+        if (!File.Exists(filePath))
+            return result;
+
+        using var fs = FileOpenRetry.OpenReadDelete(filePath);
+        using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
+
+        int fieldCount = reader.ReadInt32();
+        for (int f = 0; f < fieldCount; f++)
+        {
+            string fieldName = reader.ReadString();
+            int entryCount = reader.ReadInt32();
+            var fieldMap = new Dictionary<int, long>(entryCount);
+            for (int e = 0; e < entryCount; e++)
+            {
+                int docId = reader.ReadInt32();
+                long value = reader.ReadInt64();
                 fieldMap[docId] = value;
             }
             result[fieldName] = fieldMap;

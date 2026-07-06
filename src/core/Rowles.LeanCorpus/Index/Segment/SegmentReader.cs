@@ -39,16 +39,22 @@ public sealed partial class SegmentReader : IDisposable
 
     // Lazy-loaded Stage 2 features (thread-safe via LazyInitializer)
     private Dictionary<string, Dictionary<int, double>>? _numericIndex;
+    private Dictionary<string, Dictionary<int, long>>? _int64Index;
     private Dictionary<string, double[]>? _numericDocValues;
     private Dictionary<string, Util.RoaringBitmap?>? _numericDocValuesPresence;
+    private Dictionary<string, long[]>? _int64DocValues;
+    private Dictionary<string, Util.RoaringBitmap?>? _int64DocValuesPresence;
     private Dictionary<string, string[]>? _sortedDocValues;
     private Dictionary<string, Util.RoaringBitmap?>? _sortedDocValuesPresence;
     private Dictionary<string, string[][]>? _sortedSetDocValues;
     private Dictionary<string, double[][]>? _sortedNumericDocValues;
+    private Dictionary<string, long[][]>? _int64SortedDocValues;
     private Dictionary<string, byte[][][]>? _binaryDocValues;
     private TermVectorsReader? _termVectorsReader;
     private Codecs.Bkd.BKDReader? _bkdReader;
     private bool _bkdReaderLoaded;
+    private Codecs.Bkd.Int64BKDReader? _int64BkdReader;
+    private bool _int64BkdReaderLoaded;
     private object? _lazyInitLock;
     private readonly string _basePath;
     private ParentBitSet? _parentBitSet;
@@ -412,6 +418,7 @@ public sealed partial class SegmentReader : IDisposable
         _vectorPaths.Clear();
         _termVectorsReader?.Dispose();
         _bkdReader?.Dispose();
+        _int64BkdReader?.Dispose();
     }
 
     private sealed class TermOffsetCache

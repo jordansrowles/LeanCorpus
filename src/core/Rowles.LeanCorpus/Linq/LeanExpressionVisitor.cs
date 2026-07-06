@@ -178,6 +178,7 @@ public readonly struct LeanExpressionVisitor
         return descriptor.FieldType switch
         {
             FieldType.Numeric => new RangeQuery(descriptor.Name, ToDouble(value), ToDouble(value)),
+            FieldType.Int64 => new Int64RangeQuery(descriptor.Name, ToInt64(value), ToInt64(value)),
             _ => new TermQuery(descriptor.Name, ToStringValue(value)),
         };
     }
@@ -193,6 +194,7 @@ public readonly struct LeanExpressionVisitor
         Query inner = descriptor.FieldType switch
         {
             FieldType.Numeric => new RangeQuery(descriptor.Name, ToDouble(value), ToDouble(value)),
+            FieldType.Int64 => new Int64RangeQuery(descriptor.Name, ToInt64(value), ToInt64(value)),
             _ => new TermQuery(descriptor.Name, ToStringValue(value)),
         };
 
@@ -222,9 +224,22 @@ public readonly struct LeanExpressionVisitor
 
         EnsureIndexed(descriptor);
 
-        if (descriptor.FieldType != FieldType.Numeric)
+        if (descriptor.FieldType is not FieldType.Numeric and not FieldType.Int64)
             throw new NotSupportedException(
                 $"Range operators (>, >=, <, <=) can only be used with numeric fields. Field '{descriptor.Name}' is of type {descriptor.FieldType}.");
+
+        if (descriptor.FieldType == FieldType.Int64)
+        {
+            long l = ToInt64(value);
+            return side switch
+            {
+                RangeSide.LowerInclusive => new Int64RangeQuery(descriptor.Name, l, long.MaxValue),
+                RangeSide.LowerExclusive => new Int64RangeQuery(descriptor.Name, l + 1, long.MaxValue),
+                RangeSide.UpperInclusive => new Int64RangeQuery(descriptor.Name, long.MinValue, l),
+                RangeSide.UpperExclusive => new Int64RangeQuery(descriptor.Name, long.MinValue, l - 1),
+                _ => throw new NotSupportedException($"Unexpected range side: {side}"),
+            };
+        }
 
         double d = ToDouble(value);
 
@@ -386,18 +401,44 @@ public readonly struct LeanExpressionVisitor
         }
 
         // Case B: ids.Contains(d.Field) — the value IS a document field,
-        // the collection is a captured variable → TermInSetQuery.
+        // the collection is a captured variable → point-in-set or term-in-set query.
         if (memberOrValue is MemberExpression valMember && TryResolveField(valMember, out var valDesc))
         {
             EnsureIndexed(valDesc);
-            var terms = GetCollectionValues(collection);
-            if (terms.Count == 0)
-                return new MatchNoDocsQuery();
-            return new TermInSetQuery(valDesc.Name, terms);
+            return valDesc.FieldType switch
+            {
+                FieldType.Numeric => CreateNumericPointInSetQuery(valDesc.Name, collection),
+                FieldType.Int64 => CreateInt64PointInSetQuery(valDesc.Name, collection),
+                _ => CreateTermInSetQuery(valDesc.Name, collection),
+            };
         }
 
         throw new NotSupportedException(
             "Enumerable.Contains requires a document field on one side, e.g. d.Tags.Contains(value) or ids.Contains(d.Field).");
+    }
+
+    private static Query CreateNumericPointInSetQuery(string fieldName, Expression collection)
+    {
+        var values = GetNumericCollectionValues(collection);
+        if (values.Count == 0)
+            return new MatchNoDocsQuery();
+        return new PointInSetQuery(fieldName, values);
+    }
+
+    private static Query CreateInt64PointInSetQuery(string fieldName, Expression collection)
+    {
+        var values = GetInt64CollectionValues(collection);
+        if (values.Count == 0)
+            return new MatchNoDocsQuery();
+        return new Int64PointInSetQuery(fieldName, values);
+    }
+
+    private static Query CreateTermInSetQuery(string fieldName, Expression collection)
+    {
+        var terms = GetCollectionValues(collection);
+        if (terms.Count == 0)
+            return new MatchNoDocsQuery();
+        return new TermInSetQuery(fieldName, terms);
     }
 
     /// <summary>
@@ -426,6 +467,46 @@ public readonly struct LeanExpressionVisitor
         }
 
         return terms;
+    }
+
+    /// <summary>
+    /// Extracts double values from a collection expression (constant array or list).
+    /// </summary>
+    private static List<double> GetNumericCollectionValues(Expression expr)
+    {
+        var value = GetConstantValue(expr);
+        var values = new List<double>();
+
+        if (value is IEnumerable enumerable)
+        {
+            foreach (var item in enumerable)
+            {
+                if (item is not null)
+                    values.Add(ToDouble(item));
+            }
+        }
+
+        return values;
+    }
+
+    /// <summary>
+    /// Extracts 64-bit integer values from a collection expression (constant array or list).
+    /// </summary>
+    private static List<long> GetInt64CollectionValues(Expression expr)
+    {
+        var value = GetConstantValue(expr);
+        var values = new List<long>();
+
+        if (value is IEnumerable enumerable)
+        {
+            foreach (var item in enumerable)
+            {
+                if (item is not null)
+                    values.Add(ToInt64(item));
+            }
+        }
+
+        return values;
     }
 
     /// <summary>
@@ -585,6 +666,18 @@ public readonly struct LeanExpressionVisitor
             short s => s,
             byte b => b,
             _ => Convert.ToDouble(value, CultureInfo.InvariantCulture),
+        };
+    }
+
+    private static long ToInt64(object value)
+    {
+        return value switch
+        {
+            long l => l,
+            int i => i,
+            short s => s,
+            byte b => b,
+            _ => Convert.ToInt64(value, CultureInfo.InvariantCulture),
         };
     }
 

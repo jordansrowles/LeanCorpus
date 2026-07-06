@@ -190,6 +190,9 @@ internal static class SegmentFlusher
         // Numeric field index
         WriteNumericIndex(source.NumericIndex, basePath + ".num");
 
+        // 64-bit integer field index
+        WriteInt64Index(source.Int64Index, basePath + ".numl");
+
         // Vectors
         if (source.Vectors.Count > 0)
         {
@@ -319,6 +322,26 @@ internal static class SegmentFlusher
             foreach (var arr in dvnReturnList) ArrayPool<double>.Shared.Return(arr, clearArray: false);
         }
 
+        if (source.Int64DocValues.Count > 0)
+        {
+            var dvnl = new Dictionary<string, long[]>(source.Int64DocValues.Count, StringComparer.Ordinal);
+            var dvnlReturnList = new List<long[]>(source.Int64DocValues.Count);
+            var dvnlPresence = new Dictionary<string, IReadOnlySet<int>>(source.Int64Index.Count, StringComparer.Ordinal);
+            foreach (var (field, list) in source.Int64DocValues)
+            {
+                var arr = ArrayPool<long>.Shared.Rent(docCount);
+                Array.Clear(arr, 0, docCount);
+                for (int i = 0; i < Math.Min(list.Count, docCount); i++)
+                    arr[i] = list[i];
+                dvnl[field] = arr;
+                dvnlReturnList.Add(arr);
+                if (source.Int64Index.TryGetValue(field, out var sparseMap))
+                    dvnlPresence[field] = sparseMap.Keys.ToHashSet();
+            }
+            Int64DocValuesWriter.Write(basePath + ".dvnl", dvnl, docCount, dvnlPresence);
+            foreach (var arr in dvnlReturnList) ArrayPool<long>.Shared.Return(arr, clearArray: false);
+        }
+
         if (source.SortedDocValues.Count > 0)
         {
             var dvs = new Dictionary<string, string?[]>(source.SortedDocValues.Count, StringComparer.Ordinal);
@@ -337,6 +360,9 @@ internal static class SegmentFlusher
 
         if (source.SortedNumericDocValues.Count > 0)
             SortedNumericDocValuesWriter.Write(basePath + ".dsn", ToDenseMultiValueColumns(source.SortedNumericDocValues, docCount), docCount);
+
+        if (source.Int64SortedDocValues.Count > 0)
+            Int64SortedNumericDocValuesWriter.Write(basePath + ".dsnl", ToDenseMultiValueColumns(source.Int64SortedDocValues, docCount), docCount);
 
         if (source.BinaryDocValues.Count > 0)
             BinaryDocValuesWriter.Write(basePath + ".dvb", ToDenseMultiValueColumns(source.BinaryDocValues, docCount), docCount);
@@ -358,6 +384,25 @@ internal static class SegmentFlusher
             }
             if (bkdData.Count > 0)
                 BKDWriter.Write(basePath + ".bkd", bkdData, config.BKDMaxLeafSize);
+        }
+
+        // 64-bit integer BKD tree
+        if (source.Int64Index.Count > 0)
+        {
+            var int64BkdData = new Dictionary<string, List<(long Value, int DocId)>>(source.Int64Index.Count, StringComparer.Ordinal);
+            foreach (var (field, docMap) in source.Int64Index)
+            {
+                var points = new List<(long Value, int DocId)>(docMap.Count);
+                foreach (var (docId, value) in docMap)
+                {
+                    if (docId < docCount)
+                        points.Add((value, docId));
+                }
+                if (points.Count > 0)
+                    int64BkdData[field] = points;
+            }
+            if (int64BkdData.Count > 0)
+                Int64BKDWriter.Write(basePath + ".bkdl", int64BkdData, config.BKDMaxLeafSize);
         }
 
         flushSw.Stop();
@@ -791,6 +836,27 @@ internal static class SegmentFlusher
             {
                 output.WriteInt32(docId);
                 output.WriteInt64(System.BitConverter.DoubleToInt64Bits(value));
+            }
+        }
+    }
+
+    private static void WriteInt64Index(Dictionary<string, Dictionary<int, long>> int64Index, string filePath)
+    {
+        if (int64Index.Count == 0) return;
+
+        using var output = new IndexOutput(filePath, durable: true);
+
+        output.WriteInt32(int64Index.Count);
+        foreach (var (fieldName, docValues) in int64Index)
+        {
+            var fieldBytes = System.Text.Encoding.UTF8.GetBytes(fieldName);
+            output.WriteVarInt(fieldBytes.Length);
+            output.WriteBytes(fieldBytes);
+            output.WriteInt32(docValues.Count);
+            foreach (var (docId, value) in docValues)
+            {
+                output.WriteInt32(docId);
+                output.WriteInt64(value);
             }
         }
     }

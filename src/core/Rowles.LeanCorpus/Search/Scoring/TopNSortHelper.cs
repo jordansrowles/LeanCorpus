@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Search.Scoring;
+namespace Rowles.LeanCorpus.Search.Scoring;
 
 /// <summary>
 /// Heap-based partial sort that returns the top-N elements of a parallel
@@ -38,6 +38,39 @@ internal static class TopNSortHelper
         {
             double k = keys[i];
             // Beats root => replace root and sift down.
+            if (descending ? k > heapKeys[0] : k < heapKeys[0])
+            {
+                heapKeys[0] = k;
+                heapDocs[0] = docs[i];
+                SiftDown(heapKeys, heapDocs, 0, topN, descending);
+            }
+        }
+
+        Array.Sort(heapKeys, heapDocs, 0, topN);
+        if (descending) Array.Reverse(heapDocs, 0, topN);
+        return heapDocs;
+    }
+
+    /// <summary>64-bit integer-keyed variant of <see cref="SelectTopN(ScoreDoc[], double[], int, bool)"/>.</summary>
+    public static ScoreDoc[] SelectTopN(ScoreDoc[] docs, long[] keys, int topN, bool descending)
+    {
+        int n = docs.Length;
+        if (topN >= n)
+        {
+            Array.Sort(keys, docs, 0, n);
+            if (descending) Array.Reverse(docs, 0, n);
+            return docs;
+        }
+
+        var heapKeys = new long[topN];
+        var heapDocs = new ScoreDoc[topN];
+        Array.Copy(keys, heapKeys, topN);
+        Array.Copy(docs, heapDocs, topN);
+        BuildHeap(heapKeys, heapDocs, descending);
+
+        for (int i = topN; i < n; i++)
+        {
+            long k = keys[i];
             if (descending ? k > heapKeys[0] : k < heapKeys[0])
             {
                 heapKeys[0] = k;
@@ -91,6 +124,12 @@ internal static class TopNSortHelper
             SiftDown(keys, docs, i, keys.Length, descending);
     }
 
+    private static void BuildHeap(long[] keys, ScoreDoc[] docs, bool descending)
+    {
+        for (int i = keys.Length / 2 - 1; i >= 0; i--)
+            SiftDown(keys, docs, i, keys.Length, descending);
+    }
+
     private static void BuildHeap(string[] keys, ScoreDoc[] docs, bool descending)
     {
         for (int i = keys.Length / 2 - 1; i >= 0; i--)
@@ -98,6 +137,22 @@ internal static class TopNSortHelper
     }
 
     private static void SiftDown(double[] keys, ScoreDoc[] docs, int i, int size, bool descending)
+    {
+        while (true)
+        {
+            int worst = i;
+            int left = 2 * i + 1;
+            int right = 2 * i + 2;
+            if (left < size && IsWorse(keys[left], keys[worst], descending)) worst = left;
+            if (right < size && IsWorse(keys[right], keys[worst], descending)) worst = right;
+            if (worst == i) return;
+            (keys[i], keys[worst]) = (keys[worst], keys[i]);
+            (docs[i], docs[worst]) = (docs[worst], docs[i]);
+            i = worst;
+        }
+    }
+
+    private static void SiftDown(long[] keys, ScoreDoc[] docs, int i, int size, bool descending)
     {
         while (true)
         {
@@ -133,6 +188,9 @@ internal static class TopNSortHelper
     // Ascending top-N keeps small keys, so the worst element is the largest (max-heap root).
     // Descending top-N keeps large keys, so the worst element is the smallest (min-heap root).
     private static bool IsWorse(double a, double b, bool descending)
+        => descending ? a < b : a > b;
+
+    private static bool IsWorse(long a, long b, bool descending)
         => descending ? a < b : a > b;
 
     private static bool IsWorse(string a, string b, bool descending)

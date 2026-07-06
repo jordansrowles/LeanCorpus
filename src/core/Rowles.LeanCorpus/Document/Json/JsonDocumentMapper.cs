@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 
 namespace Rowles.LeanCorpus.Document.Json;
 
@@ -33,7 +33,11 @@ public static class JsonDocumentMapper
 
     private static void MapElement(LeanDocument doc, JsonElement element, string prefix, JsonMappingOptions options, int depth)
     {
-        if (depth > options.MaxDepth) return;
+        if (depth > options.MaxDepth)
+        {
+            throw new InvalidOperationException(
+                $"JSON document exceeds the configured maximum mapping depth of {options.MaxDepth}.");
+        }
 
         switch (element.ValueKind)
         {
@@ -54,14 +58,17 @@ public static class JsonDocumentMapper
 
             case JsonValueKind.String:
                 var str = element.GetString() ?? string.Empty;
-                if (str.Length <= options.StringFieldMaxLength)
+                if (options.StringFieldMaxLength > 0 && str.Length <= options.StringFieldMaxLength)
                     doc.Add(new StringField(prefix, str));
                 else
                     doc.Add(new TextField(prefix, str));
                 break;
 
             case JsonValueKind.Number:
-                doc.Add(new NumericField(prefix, element.GetDouble()));
+                if (element.TryGetInt64(out var longValue))
+                    doc.Add(new Int64Field(prefix, longValue));
+                else
+                    doc.Add(new NumericField(prefix, element.GetDouble()));
                 break;
 
             case JsonValueKind.True:

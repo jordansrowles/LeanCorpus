@@ -36,7 +36,7 @@ internal static class CodecFormats
         ]));
 
         // All other formats are at v1.
-        foreach (var ext in new[] { "fln","ndv","sdv","bdv","ssdv","sndv","fdt","pos","tim","hnsw","vec","qvec","bkd","rbm" })
+        foreach (var ext in new[] { "fln","ndv","sdv","bdv","ssdv","sndv","fdt","pos","tim","hnsw","vec","qvec","bkd","rbm","ldv","lsdv","lbkd" })
             reg.Register(new CodecFormat(ext, [
                 new CodecVersionStep(1, $"{ext}-v1", Codec.BytesOwnedRemaining())
             ]));
@@ -57,6 +57,9 @@ internal static class CodecFormats
     internal static readonly ICodec<byte[]> Vectors = Create("vec", CodecConstants.VectorVersion);
     internal static readonly ICodec<byte[]> QuantisedVectors = Create("qvec", CodecConstants.QuantisedVectorVersion);
     internal static readonly ICodec<byte[]> Bkd = Create("bkd", CodecConstants.BKDVersion);
+    internal static readonly ICodec<byte[]> Int64DocValues = Create("ldv", CodecConstants.Int64DocValuesVersion);
+    internal static readonly ICodec<byte[]> Int64SortedNumericDocValues = Create("lsdv", CodecConstants.Int64SortedNumericDocValuesVersion);
+    internal static readonly ICodec<byte[]> Int64Bkd = Create("lbkd", CodecConstants.Int64BKDVersion);
     internal static readonly ICodec<byte[]> RoaringBitmap = Create("rbm", CodecConstants.RoaringBitmapVersion);
 
     private static ICodec<byte[]> Create(string ext, byte currentVersion)
@@ -110,14 +113,18 @@ internal static class CodecFormats
         "fdt", "fdx",
         // Doc values (on-disk conventions)
         "dvn", "dvs", "dss", "dsn", "dvb",
+        // 64-bit integer doc values
+        "dvnl", "dsnl",
         // Term vectors
         "tvd", "tvx",
         // Vectors & HNSW
         "vec", "vq", "hnsw",
         // BKD tree & roaring bitmaps
         "bkd", "rbm",
+        // Long BKD tree
+        "bkdl",
         // Numeric index
-        "num",
+        "num", "numl",
         // Parent bitset
         "pbs",
         // Deletions (also matched by _gen_ prefix below)

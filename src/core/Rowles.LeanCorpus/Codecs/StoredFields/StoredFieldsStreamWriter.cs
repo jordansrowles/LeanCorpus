@@ -71,6 +71,13 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
                     _rawBuf.WriteInt32(bytes.Length);
                     _rawBuf.WriteBytes(bytes);
                 }
+                else if (value.IsLong)
+                {
+                    _rawBuf.WriteInt32(sizeof(long));
+                    byte[] bytes = new byte[sizeof(long)];
+                    System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(bytes, value.LongValue);
+                    _rawBuf.WriteBytes(bytes);
+                }
                 else
                 {
                     var text = value.StringValue ?? string.Empty;

@@ -35,6 +35,9 @@ internal sealed class DocumentBufferState
     // Per-field numeric values for range indexing: field  ->  docId  ->  value
     public Dictionary<string, Dictionary<int, double>> NumericIndex = new();
 
+    // Per-field 64-bit integer values for range indexing: field  ->  docId  ->  value
+    public Dictionary<string, Dictionary<int, long>> Int64Index = new();
+
     // Buffered vectors: field  ->  docId  ->  vector
     public Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> Vectors = new(StringComparer.Ordinal);
 
@@ -55,9 +58,11 @@ internal sealed class DocumentBufferState
 
     // DocValues accumulators: field  ->  per-doc values
     public Dictionary<string, List<double>> NumericDocValues = new(StringComparer.Ordinal);
+    public Dictionary<string, List<long>> Int64DocValues = new(StringComparer.Ordinal);
     public Dictionary<string, List<string?>> SortedDocValues = new(StringComparer.Ordinal);
     public Dictionary<string, Dictionary<int, List<string>>> SortedSetDocValues = new(StringComparer.Ordinal);
     public Dictionary<string, Dictionary<int, List<double>>> SortedNumericDocValues = new(StringComparer.Ordinal);
+    public Dictionary<string, Dictionary<int, List<long>>> Int64SortedDocValues = new(StringComparer.Ordinal);
     public Dictionary<string, Dictionary<int, List<byte[]>>> BinaryDocValues = new(StringComparer.Ordinal);
 
     // Sorted terms buffer (used during flush)
@@ -227,11 +232,14 @@ internal sealed class DocumentBufferState
         TermPool.Clear();
         FieldNames.Clear();
         NumericIndex.Clear();
+        Int64Index.Clear();
         Vectors.Clear();
         NumericDocValues.Clear();
+        Int64DocValues.Clear();
         SortedDocValues.Clear();
         SortedSetDocValues.Clear();
         SortedNumericDocValues.Clear();
+        Int64SortedDocValues.Clear();
         BinaryDocValues.Clear();
         FieldBoosts.Clear();
         SortedTermsBuffer.Clear();

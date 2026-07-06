@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Document.Fields;
+namespace Rowles.LeanCorpus.Document.Fields;
 
 /// <summary>Categorises the kind of data a field holds.</summary>
 public enum FieldType
@@ -14,6 +14,9 @@ public enum FieldType
 
     /// <summary>Numeric value for range filters and sorting.</summary>
     Numeric,
+
+    /// <summary>64-bit signed integer value for exact-match and range filters.</summary>
+    Int64,
 
     /// <summary>Dense float vector for semantic search.</summary>
     Vector,

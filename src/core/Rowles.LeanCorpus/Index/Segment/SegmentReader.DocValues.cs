@@ -39,6 +39,48 @@ public sealed partial class SegmentReader
         return _numericDocValues;
     }
 
+    /// <summary>Lazy-loads the 64-bit integer index (.numl) for range queries.</summary>
+    private Dictionary<string, Dictionary<int, long>> EnsureInt64Index()
+    {
+        return LazyInitializer.EnsureInitialized(ref _int64Index, ref _lazyInitLock, () =>
+        {
+            var numlPath = _basePath + ".numl";
+            return File.Exists(numlPath)
+                ? ReadInt64Index(numlPath)
+                : new Dictionary<string, Dictionary<int, long>>();
+        })!;
+    }
+
+    /// <summary>Lazy-loads 64-bit integer doc values (.dvnl) and their presence bitmaps.</summary>
+    private Dictionary<string, long[]> EnsureInt64DocValues()
+    {
+        if (_int64DocValues is not null) return _int64DocValues;
+
+        var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
+        lock (lockObj)
+        {
+            if (_int64DocValues is not null) return _int64DocValues;
+            var (vals, pres) = Int64DocValuesReader.Read(_basePath + ".dvnl");
+            _int64DocValuesPresence = pres;
+            _int64DocValues = vals;
+        }
+        return _int64DocValues;
+    }
+
+    /// <summary>Lazy-loads 64-bit integer sorted-numeric doc values (.dsnl).</summary>
+    private Dictionary<string, long[][]> EnsureInt64SortedDocValues()
+    {
+        if (_int64SortedDocValues is not null) return _int64SortedDocValues;
+
+        var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
+        lock (lockObj)
+        {
+            if (_int64SortedDocValues is not null) return _int64SortedDocValues;
+            _int64SortedDocValues = Int64SortedNumericDocValuesReader.Read(_basePath + ".dsnl");
+        }
+        return _int64SortedDocValues;
+    }
+
     /// <summary>Lazy-loads sorted doc values (.dvs) and their presence bitmaps.</summary>
     private Dictionary<string, string[]> EnsureSortedDocValues()
     {
@@ -129,6 +171,34 @@ public sealed partial class SegmentReader
     }
 
     /// <summary>
+    /// Tries to get a 64-bit integer field value for a document from the .numl index.
+    /// </summary>
+    public bool TryGetInt64Value(string field, int docId, out long value)
+    {
+        value = 0;
+        var int64Index = EnsureInt64Index();
+        if (int64Index.TryGetValue(field, out var fieldMap))
+            return fieldMap.TryGetValue(docId, out value);
+
+        var int64DocValues = EnsureInt64DocValues();
+        if (int64DocValues.TryGetValue(field, out var dvArr) && (uint)docId < (uint)dvArr.Length)
+        {
+            if (_int64DocValuesPresence is not null &&
+                _int64DocValuesPresence.TryGetValue(field, out var presenceBitmap) &&
+                presenceBitmap is not null &&
+                !presenceBitmap.Contains(docId))
+            {
+                return false;
+            }
+
+            value = dvArr[docId];
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Tries to get a string DocValues field value for a document.
     /// </summary>
     public bool TryGetSortedDocValue(string field, int docId, out string value)
@@ -182,6 +252,20 @@ public sealed partial class SegmentReader
     }
 
     /// <summary>
+    /// Tries to get 64-bit integer sorted-numeric DocValues for a document.
+    /// </summary>
+    public bool TryGetSortedInt64DocValues(string field, int docId, out IReadOnlyList<long> values)
+    {
+        values = [];
+        var docValues = EnsureInt64SortedDocValues();
+        if (!docValues.TryGetValue(field, out var arr) || (uint)docId >= (uint)arr.Length || arr[docId].Length == 0)
+            return false;
+
+        values = arr[docId];
+        return true;
+    }
+
+    /// <summary>
     /// Tries to get binary DocValues for a document.
     /// </summary>
     public bool TryGetBinaryDocValues(string field, int docId, out IReadOnlyList<byte[]> values)
@@ -215,11 +299,19 @@ public sealed partial class SegmentReader
     public byte[][][]? GetBinaryDocValues(string field)
         => EnsureBinaryDocValues().GetValueOrDefault(field);
 
+    /// <summary>Returns the Int64DocValues array for a field, or null if unavailable.</summary>
+    public long[]? GetInt64DocValues(string field)
+        => EnsureInt64DocValues().GetValueOrDefault(field);
+
+    /// <summary>Returns the Int64SortedNumericDocValues array for a field, or null if unavailable.</summary>
+    public long[][]? GetSortedInt64DocValues(string field)
+        => EnsureInt64SortedDocValues().GetValueOrDefault(field);
+
     /// <summary>
     /// Returns <see langword="true"/> when a numeric field with the given name exists
     /// in this segment, regardless of which documents have values for it.
     /// Checks the sparse numeric index (.num), dense numeric doc values (.dvn),
-    /// and sorted-numeric doc values (.dsn).
+    /// sorted-numeric doc values (.dsn), and the 64-bit integer equivalents.
     /// </summary>
     public bool HasNumericField(string field)
     {
@@ -228,6 +320,12 @@ public sealed partial class SegmentReader
         if (EnsureNumericDocValues().ContainsKey(field))
             return true;
         if (EnsureSortedNumericDocValues().ContainsKey(field))
+            return true;
+        if (EnsureInt64Index().ContainsKey(field))
+            return true;
+        if (EnsureInt64DocValues().ContainsKey(field))
+            return true;
+        if (EnsureInt64SortedDocValues().ContainsKey(field))
             return true;
         return false;
     }
@@ -338,6 +436,112 @@ public sealed partial class SegmentReader
         return results;
     }
 
+    /// <summary>
+    /// Returns all document IDs that have a 64-bit integer value in the given field within the specified range.
+    /// </summary>
+    public List<(int DocId, long Value)> GetInt64Range(string field, long min, long max)
+    {
+        var results = new List<(int, long)>();
+        VisitInt64Range(field, min, max, (docId, value) => results.Add((docId, value)));
+        return results;
+    }
+
+    internal bool VisitInt64Range(string field, long min, long max, Action<int, long> visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+
+        var bkd = EnsureInt64BkdReader();
+        if (bkd is not null && bkd.HasField(field))
+        {
+            bkd.VisitRange(field, min, max, (docId, value) =>
+            {
+                if (_liveDocs is null || IsLive(docId))
+                    visitor(docId, value);
+            });
+            return true;
+        }
+
+        var int64Index = EnsureInt64Index();
+        if (int64Index.TryGetValue(field, out var fieldMap))
+        {
+            foreach (var (docId, value) in fieldMap)
+            {
+                if (value >= min && value <= max && IsLive(docId))
+                    visitor(docId, value);
+            }
+
+            return true;
+        }
+
+        var int64DocValues = EnsureInt64DocValues();
+        if (!int64DocValues.TryGetValue(field, out var values))
+            return false;
+
+        RoaringBitmap? presenceBitmap = null;
+        _int64DocValuesPresence?.TryGetValue(field, out presenceBitmap);
+        for (int docId = 0; docId < values.Length; docId++)
+        {
+            if (!IsLive(docId))
+                continue;
+
+            if (presenceBitmap is not null && !presenceBitmap.Contains(docId))
+                continue;
+
+            long value = values[docId];
+            if (value >= min && value <= max)
+                visitor(docId, value);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Returns all document IDs whose 64-bit integer point value is equal to any value in the supplied set.
+    /// </summary>
+    public List<(int DocId, long Value)> GetInt64PointsInSet(string field, IReadOnlySet<long> values)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+
+        var results = new List<(int, long)>();
+        if (values.Count == 0)
+            return results;
+
+        var bkd = EnsureInt64BkdReader();
+        if (bkd is not null && bkd.HasField(field))
+        {
+            try
+            {
+                var raw = bkd.ExactSetQuery(field, values);
+                if (_liveDocs is null)
+                    return raw;
+
+                results.Capacity = raw.Count;
+                foreach (var hit in raw)
+                {
+                    if (IsLive(hit.DocId))
+                        results.Add(hit);
+                }
+                return results;
+            }
+            catch (EndOfStreamException)
+            {
+                // BKD file is corrupt or truncated — fall back to the numeric index.
+            }
+        }
+
+        var int64Index = EnsureInt64Index();
+        if (!int64Index.TryGetValue(field, out var fieldMap))
+            return results;
+
+        foreach (var (docId, value) in fieldMap)
+        {
+            if (values.Contains(value) && IsLive(docId))
+                results.Add((docId, value));
+        }
+
+        return results;
+    }
+
     /// <summary>Returns <see langword="true"/> when the document contains at least one value for the named field.</summary>
     public bool HasFieldValue(string field, int docId)
     {
@@ -349,9 +553,11 @@ public sealed partial class SegmentReader
         }
 
         if (TryGetNumericValue(field, docId, out _) ||
+            TryGetInt64Value(field, docId, out _) ||
             TryGetSortedDocValue(field, docId, out _) ||
             TryGetSortedSetDocValues(field, docId, out var sortedSetValues) && sortedSetValues.Count > 0 ||
             TryGetSortedNumericDocValues(field, docId, out var sortedNumericValues) && sortedNumericValues.Count > 0 ||
+            TryGetSortedInt64DocValues(field, docId, out var sortedInt64Values) && sortedInt64Values.Count > 0 ||
             TryGetBinaryDocValues(field, docId, out var binaryValues) && binaryValues.Count > 0)
         {
             return true;
@@ -392,6 +598,37 @@ public sealed partial class SegmentReader
             Volatile.Write(ref _bkdReaderLoaded, true);
         }
         return _bkdReader;
+    }
+
+    /// <summary>
+    /// Lazily opens the 64-bit integer BKD reader for this segment if a .bkdl file is present.
+    /// Returns null when there is no file or it cannot be opened.
+    /// </summary>
+    private Codecs.Bkd.Int64BKDReader? EnsureInt64BkdReader()
+    {
+        if (Volatile.Read(ref _int64BkdReaderLoaded)) return _int64BkdReader;
+
+        var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
+        lock (lockObj)
+        {
+            if (_int64BkdReaderLoaded) return _int64BkdReader;
+
+            var bkdPath = _basePath + ".bkdl";
+            if (File.Exists(bkdPath))
+            {
+                try
+                {
+                    _int64BkdReader = Codecs.Bkd.Int64BKDReader.Open(bkdPath);
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException)
+                {
+                    // Corrupt or unreadable .bkdl: fall back to the linear scan path.
+                    _int64BkdReader = null;
+                }
+            }
+            Volatile.Write(ref _int64BkdReaderLoaded, true);
+        }
+        return _int64BkdReader;
     }
 
     /// <summary>Returns whether this segment has vector data.</summary>
@@ -515,6 +752,29 @@ public sealed partial class SegmentReader
             {
                 int docId = reader.ReadInt32();
                 double value = reader.ReadDouble();
+                fieldMap[docId] = value;
+            }
+            result[fieldName] = fieldMap;
+        }
+        return result;
+    }
+
+    private static Dictionary<string, Dictionary<int, long>> ReadInt64Index(string filePath)
+    {
+        var result = new Dictionary<string, Dictionary<int, long>>();
+        using var fs = FileOpenRetry.OpenReadDelete(filePath);
+        using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
+
+        int fieldCount = reader.ReadInt32();
+        for (int f = 0; f < fieldCount; f++)
+        {
+            string fieldName = reader.ReadString();
+            int entryCount = reader.ReadInt32();
+            var fieldMap = new Dictionary<int, long>(entryCount);
+            for (int e = 0; e < entryCount; e++)
+            {
+                int docId = reader.ReadInt32();
+                long value = reader.ReadInt64();
                 fieldMap[docId] = value;
             }
             result[fieldName] = fieldMap;

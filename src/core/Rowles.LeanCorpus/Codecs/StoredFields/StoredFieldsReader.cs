@@ -112,8 +112,17 @@ internal sealed class StoredFieldsReader : IDisposable
             var strings = new List<string>(entries.Count);
             foreach (var entry in entries)
             {
-                if (!entry.IsBinary && entry.StringValue is not null)
+                if (entry.IsBinary)
+                    continue;
+
+                if (entry.IsLong)
+                {
+                    strings.Add(entry.LongValue.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                }
+                else if (entry.StringValue is not null)
+                {
                     strings.Add(entry.StringValue);
+                }
             }
 
             if (strings.Count > 0)
@@ -161,6 +170,12 @@ internal sealed class StoredFieldsReader : IDisposable
                 if (kind == StoredFieldValueKind.Binary)
                 {
                     values.Add(StoredFieldValue.FromBinary(br.ReadBytes(valueLength)));
+                }
+                else if (kind == StoredFieldValueKind.Long)
+                {
+                    var bytes = br.ReadBytes(valueLength);
+                    long value = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(bytes);
+                    values.Add(StoredFieldValue.FromLong(value));
                 }
                 else
                 {

@@ -176,29 +176,50 @@ internal static class DocumentMapEmitter
     {
         bool nullable = f.IsNullable;
         string accessor = nullable && IsValueType(f) ? prop + ".Value" : prop;
-        string projection = f.NumericKind switch
+        string ctor;
+        string projection;
+        switch (f.NumericKind)
         {
-            NumericKind.Integral or NumericKind.FloatingPoint => "(double)" + accessor,
-            NumericKind.DateTimeOffset => f.NumericEncoding switch
-            {
-                "UnixMilliseconds" => "LeanNumericEncoders.ToUnixMilliseconds(" + accessor + ")",
-                "UnixSeconds" => "LeanNumericEncoders.ToUnixSeconds(" + accessor + ")",
-                "UtcTicks" => "LeanNumericEncoders.ToUtcTicks(" + accessor + ")",
-                _ => "(double)" + accessor + ".UtcTicks",
-            },
-            NumericKind.DateOnly => "LeanNumericEncoders.ToDayNumber(" + accessor + ")",
-            NumericKind.TimeOnly => "LeanNumericEncoders.ToTimeOnlyTicks(" + accessor + ")",
-            _ => "(double)" + accessor,
-        };
+            case NumericKind.Integral:
+                ctor = "Int64Field";
+                projection = "(long)" + accessor;
+                break;
+            case NumericKind.FloatingPoint:
+                ctor = "NumericField";
+                projection = "(double)" + accessor;
+                break;
+            case NumericKind.DateTimeOffset:
+                ctor = "NumericField";
+                projection = f.NumericEncoding switch
+                {
+                    "UnixMilliseconds" => "LeanNumericEncoders.ToUnixMilliseconds(" + accessor + ")",
+                    "UnixSeconds" => "LeanNumericEncoders.ToUnixSeconds(" + accessor + ")",
+                    "UtcTicks" => "LeanNumericEncoders.ToUtcTicks(" + accessor + ")",
+                    _ => "(double)" + accessor + ".UtcTicks",
+                };
+                break;
+            case NumericKind.DateOnly:
+                ctor = "NumericField";
+                projection = "LeanNumericEncoders.ToDayNumber(" + accessor + ")";
+                break;
+            case NumericKind.TimeOnly:
+                ctor = "NumericField";
+                projection = "LeanNumericEncoders.ToTimeOnlyTicks(" + accessor + ")";
+                break;
+            default:
+                ctor = "NumericField";
+                projection = "(double)" + accessor;
+                break;
+        }
 
         if (nullable)
         {
             sb.Append("        if (").Append(prop).AppendLine(" is not null)");
-            sb.Append("            doc.Add(new NumericField(").Append(name).Append(", ").Append(projection).Append(", ").Append(B(f.IsStored)).AppendLine("));");
+            sb.Append("            doc.Add(new ").Append(ctor).Append("(").Append(name).Append(", ").Append(projection).Append(", ").Append(B(f.IsStored)).AppendLine("));");
         }
         else
         {
-            sb.Append("        doc.Add(new NumericField(").Append(name).Append(", ").Append(projection).Append(", ").Append(B(f.IsStored)).AppendLine("));");
+            sb.Append("        doc.Add(new ").Append(ctor).Append("(").Append(name).Append(", ").Append(projection).Append(", ").Append(B(f.IsStored)).AppendLine("));");
         }
     }
 
@@ -361,26 +382,25 @@ internal static class DocumentMapEmitter
 
     private static string DecodeNumeric(FieldModel f, string raw)
     {
-        string parse = $"double.Parse({raw}!, NumberStyles.Float, CultureInfo.InvariantCulture)";
-        string fromDouble = f.NumericKind switch
+        string fromValue = f.NumericKind switch
         {
-            NumericKind.Integral => $"checked(({UnderlyingTypeName(f)})((long){parse}))",
-            NumericKind.FloatingPoint => $"({UnderlyingTypeName(f)}){parse}",
+            NumericKind.Integral => $"checked(({UnderlyingTypeName(f)})(long.Parse({raw}!, NumberStyles.Integer, CultureInfo.InvariantCulture)))",
+            NumericKind.FloatingPoint => $"({UnderlyingTypeName(f)})double.Parse({raw}!, NumberStyles.Float, CultureInfo.InvariantCulture)",
             NumericKind.DateTimeOffset => f.NumericEncoding switch
             {
-                "UnixMilliseconds" => $"LeanNumericEncoders.FromUnixMilliseconds({parse})",
-                "UnixSeconds" => $"LeanNumericEncoders.FromUnixSeconds({parse})",
-                "UtcTicks" => $"LeanNumericEncoders.FromUtcTicks({parse})",
-                _ => $"LeanNumericEncoders.FromUtcTicks({parse})",
+                "UnixMilliseconds" => $"LeanNumericEncoders.FromUnixMilliseconds(double.Parse({raw}!, NumberStyles.Float, CultureInfo.InvariantCulture))",
+                "UnixSeconds" => $"LeanNumericEncoders.FromUnixSeconds(double.Parse({raw}!, NumberStyles.Float, CultureInfo.InvariantCulture))",
+                "UtcTicks" => $"LeanNumericEncoders.FromUtcTicks(double.Parse({raw}!, NumberStyles.Float, CultureInfo.InvariantCulture))",
+                _ => $"LeanNumericEncoders.FromUtcTicks(double.Parse({raw}!, NumberStyles.Float, CultureInfo.InvariantCulture))",
             },
-            NumericKind.DateOnly => $"LeanNumericEncoders.FromDayNumber({parse})",
-            NumericKind.TimeOnly => $"LeanNumericEncoders.FromTimeOnlyTicks({parse})",
-            _ => parse,
+            NumericKind.DateOnly => $"LeanNumericEncoders.FromDayNumber(double.Parse({raw}!, NumberStyles.Float, CultureInfo.InvariantCulture))",
+            NumericKind.TimeOnly => $"LeanNumericEncoders.FromTimeOnlyTicks(double.Parse({raw}!, NumberStyles.Float, CultureInfo.InvariantCulture))",
+            _ => $"double.Parse({raw}!, NumberStyles.Float, CultureInfo.InvariantCulture)",
         };
 
-        if (f.IsRequired) return fromDouble;
+        if (f.IsRequired) return fromValue;
         // nullable: when raw is null, default
-        return $"({raw} is null ? default({f.PropertyTypeFullName}) : {fromDouble})";
+        return $"({raw} is null ? default({f.PropertyTypeFullName}) : {fromValue})";
     }
 
     private static string DecodeGeoPoint(FieldModel f, string raw)
@@ -428,7 +448,7 @@ internal static class DocumentMapEmitter
     {
         FieldKind.Text => "Text",
         FieldKind.String => "String",
-        FieldKind.Numeric => "Numeric",
+        FieldKind.Numeric => f.NumericKind == NumericKind.Integral ? "Int64" : "Numeric",
         FieldKind.Vector => "Vector",
         FieldKind.GeoPoint => "Numeric",
         FieldKind.StoredString => "Stored",

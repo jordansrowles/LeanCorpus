@@ -19,11 +19,14 @@ internal interface IFlushSource
     List<StoredFieldValue> StoredFieldValues { get; }
     List<string> StoredFieldIdToName { get; }
     Dictionary<string, Dictionary<int, double>> NumericIndex { get; }
+    Dictionary<string, Dictionary<int, long>> Int64Index { get; }
     Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> Vectors { get; }
     Dictionary<string, List<double>> NumericDocValues { get; }
+    Dictionary<string, List<long>> Int64DocValues { get; }
     Dictionary<string, List<string?>> SortedDocValues { get; }
     Dictionary<string, Dictionary<int, List<string>>> SortedSetDocValues { get; }
     Dictionary<string, Dictionary<int, List<double>>> SortedNumericDocValues { get; }
+    Dictionary<string, Dictionary<int, List<long>>> Int64SortedDocValues { get; }
     Dictionary<string, Dictionary<int, List<byte[]>>> BinaryDocValues { get; }
     int PostingsCount { get; }
     void CopySortedPostings((string Term, PostingAccumulator Acc)[] target);
@@ -47,11 +50,14 @@ internal readonly struct BufferFlushSource : IFlushSource
     public List<StoredFieldValue> StoredFieldValues => _b.StoredFieldValues;
     public List<string> StoredFieldIdToName => _b.StoredFieldIdToName;
     public Dictionary<string, Dictionary<int, double>> NumericIndex => _b.NumericIndex;
+    public Dictionary<string, Dictionary<int, long>> Int64Index => _b.Int64Index;
     public Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> Vectors => _b.Vectors;
     public Dictionary<string, List<double>> NumericDocValues => _b.NumericDocValues;
+    public Dictionary<string, List<long>> Int64DocValues => _b.Int64DocValues;
     public Dictionary<string, List<string?>> SortedDocValues => _b.SortedDocValues;
     public Dictionary<string, Dictionary<int, List<string>>> SortedSetDocValues => _b.SortedSetDocValues;
     public Dictionary<string, Dictionary<int, List<double>>> SortedNumericDocValues => _b.SortedNumericDocValues;
+    public Dictionary<string, Dictionary<int, List<long>>> Int64SortedDocValues => _b.Int64SortedDocValues;
     public Dictionary<string, Dictionary<int, List<byte[]>>> BinaryDocValues => _b.BinaryDocValues;
     public int PostingsCount => _b.PostingsCount;
 
@@ -80,11 +86,14 @@ internal readonly struct DwptFlushSource : IFlushSource
     public List<StoredFieldValue> StoredFieldValues => _d.StoredValues;
     public List<string> StoredFieldIdToName => _d.StoredFieldIdToName;
     public Dictionary<string, Dictionary<int, double>> NumericIndex => _d.NumericIndex;
+    public Dictionary<string, Dictionary<int, long>> Int64Index => _d.Int64Index;
     public Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> Vectors => _d.Vectors;
     public Dictionary<string, List<double>> NumericDocValues => _d.NumericDocValues;
+    public Dictionary<string, List<long>> Int64DocValues => _d.Int64DocValues;
     public Dictionary<string, List<string?>> SortedDocValues => _d.SortedDocValues;
     public Dictionary<string, Dictionary<int, List<string>>> SortedSetDocValues => _d.SortedSetDocValues;
     public Dictionary<string, Dictionary<int, List<double>>> SortedNumericDocValues => _d.SortedNumericDocValues;
+    public Dictionary<string, Dictionary<int, List<long>>> Int64SortedDocValues => _d.Int64SortedDocValues;
     public Dictionary<string, Dictionary<int, List<byte[]>>> BinaryDocValues => _d.BinaryDocValues;
     public int PostingsCount => _d.Postings.Count;
 
