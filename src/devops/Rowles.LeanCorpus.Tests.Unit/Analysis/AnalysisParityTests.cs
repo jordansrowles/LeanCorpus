@@ -194,43 +194,53 @@ public class AnalysisParityTests
     }
 
     /// <summary>
-    /// Verifies the Unique Token Filter: Removes Global Duplicates scenario.
+    /// Verifies the Unique Token Filter: Deduplicates At Same Position scenario.
     /// </summary>
-    [Fact(DisplayName = "Unique Token Filter: Removes Global Duplicates")]
+    [Fact(DisplayName = "Unique Token Filter: Deduplicates At Same Position")]
     public void UniqueTokenFilter_RemovesGlobalDuplicates()
     {
-        var tokens = new List<Token> { new("a", 0, 1), new("b", 2, 3), new("a", 4, 5) };
-        var filter = new UniqueTokenFilter();
-
-        var matSink = new MaterialisingTokenSink();
-        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
-        tokens.Clear();
-        tokens.AddRange(matSink.Tokens);
-
-        Assert.Equal(["a", "b", "a"], tokens.Select(t => t.Text));
-    }
-
-    /// <summary>
-    /// Verifies the Unique Token Filter: Same Position Mode Keeps Later Position scenario.
-    /// </summary>
-    [Fact(DisplayName = "Unique Token Filter: Same Position Mode Keeps Later Position")]
-    public void UniqueTokenFilter_SamePositionModeKeepsLaterPosition()
-    {
+        // Same position: "a", "b", "a" → only first "a" and "b" pass through.
         var tokens = new List<Token>
         {
-            new("fast", 0, 4),
-            new("quick", 0, 4),
-            new("fast", 0, 4),
-            new("fast", 5, 9),
+            new("a", 0, 1, positionIncrement: 1),
+            new("b", 2, 3, positionIncrement: 0),
+            new("a", 4, 5, positionIncrement: 0),
         };
         var filter = new UniqueTokenFilter();
 
         var matSink = new MaterialisingTokenSink();
         foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        filter.Finish(matSink);
         tokens.Clear();
         tokens.AddRange(matSink.Tokens);
 
-        Assert.Equal(["fast", "quick", "fast", "fast"], tokens.Select(t => t.Text));
+        Assert.Equal(["a", "b"], tokens.Select(t => t.Text));
+    }
+
+    /// <summary>
+    /// Verifies the Unique Token Filter: Different Positions Not Deduplicated scenario.
+    /// </summary>
+    [Fact(DisplayName = "Unique Token Filter: Different Positions Not Deduplicated")]
+    public void UniqueTokenFilter_SamePositionModeKeepsLaterPosition()
+    {
+        var tokens = new List<Token>
+        {
+            new("fast", 0, 4, positionIncrement: 1),
+            new("quick", 0, 4, positionIncrement: 0),
+            new("fast", 0, 4, positionIncrement: 0),
+            new("fast", 5, 9, positionIncrement: 1),
+        };
+        var filter = new UniqueTokenFilter();
+
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        filter.Finish(matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
+
+        // Position 0: "fast" (kept), "quick" (kept), "fast" (dup, dropped)
+        // Position 1: "fast" (kept — different position)
+        Assert.Equal(["fast", "quick", "fast"], tokens.Select(t => t.Text));
     }
 
     /// <summary>
@@ -353,6 +363,7 @@ public class AnalysisParityTests
     }
 
     /// <summary>
+    /// <summary>
     /// Verifies the Word Delimiter Filter: Splits Compound Token scenario.
     /// </summary>
     [Fact(DisplayName = "Word Delimiter Filter: Splits Compound Token")]
@@ -366,9 +377,9 @@ public class AnalysisParityTests
         tokens.Clear();
         tokens.AddRange(matSink.Tokens);
 
-        Assert.Equal(["WiFi4Schools_test"], tokens.Select(t => t.Text));
-        Assert.Equal(10, tokens[0].StartOffset);
-        Assert.Equal(27, tokens[0].EndOffset);
+        // "WiFi4Schools_test" with default settings splits into
+        // "Wi", "Fi", "4", "Schools", "test".
+        Assert.Equal(["Wi", "Fi", "4", "Schools", "test"], tokens.Select(t => t.Text));
     }
 
     /// <summary>
@@ -378,15 +389,24 @@ public class AnalysisParityTests
     public void WordDelimiterFilter_PreservesOriginalAndConcatenates()
     {
         var tokens = new List<Token> { new("abc-123-def", 0, 11) };
-        var filter = new WordDelimiterFilter();
+        var filter = new WordDelimiterFilter
+        {
+            CatenateWords = true,
+            CatenateNumbers = true,
+            CatenateAll = true,
+            PreserveOriginal = true,
+        };
 
         var matSink = new MaterialisingTokenSink();
         foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
         tokens.Clear();
         tokens.AddRange(matSink.Tokens);
 
-        Assert.Equal(["abc-123-def"], tokens.Select(t => t.Text));
-        Assert.Equal(0, tokens[0].StartOffset);
-        Assert.Equal(11, tokens[0].EndOffset);
+        // Parts: "abc", "123", "def" (in order)
+        // CatenateWords: "abcdef"
+        // CatenateNumbers: "123" (single part, skipped — count > 1 needed)
+        // CatenateAll: "abc123def"
+        // PreserveOriginal: "abc-123-def"
+        Assert.Equal(["abc", "123", "def", "abcdef", "abc123def", "abc-123-def"], tokens.Select(t => t.Text));
     }
 }
