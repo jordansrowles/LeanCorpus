@@ -88,5 +88,7 @@ public sealed class SynonymGraphFilter : ISpanTokenFilter
                 i++;
             }
         }
+
+        _buffer.Clear();
     }
 }

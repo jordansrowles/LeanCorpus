@@ -61,4 +61,10 @@ public sealed class CachingTokenFilter : ISpanTokenFilter
         // Forward unchanged to the next stage.
         sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
     }
+
+    /// <inheritdoc/>
+    public void Finish(ISpanTokenSink sink)
+    {
+        Reset();
+    }
 }

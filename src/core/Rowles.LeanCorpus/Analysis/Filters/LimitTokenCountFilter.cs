@@ -36,4 +36,10 @@ public sealed class LimitTokenCountFilter : ISpanTokenFilter
             sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
         }
     }
+
+    /// <inheritdoc/>
+    public void Finish(ISpanTokenSink sink)
+    {
+        _count = 0;
+    }
 }

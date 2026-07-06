@@ -108,6 +108,8 @@ public sealed class ShingleFilter : ISpanTokenFilter
                     payload: null);
             }
         }
+
+        _buffer.Clear();
     }
 
     private string CreateShingle(int start, int count)
