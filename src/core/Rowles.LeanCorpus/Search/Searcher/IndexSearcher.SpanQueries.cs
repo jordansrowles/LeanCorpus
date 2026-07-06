@@ -171,14 +171,19 @@ public sealed partial class IndexSearcher
             reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
             bool hasDeletions = reader.HasDeletions;
             reader.TryGetFieldLengths(query.Field, out var fieldLengths);
-
-            // Compute scoring factors from the leader (rarest) term
-            var leaderTermQuery = (SpanTermQuery)query.Clauses[leaderIdx];
-            var leaderQt = leaderTermQuery.CachedQualifiedTerm!;
-            int leaderDocFreq = globalDFs.GetValueOrDefault((query.Field, leaderTermQuery.Term), postings[leaderIdx].DocFreq);
-            long leaderCollectionFreq = _useLmScoring ? GetGlobalCollectionFreq(leaderQt) : 0;
             float avgDocLength = _stats.GetAvgFieldLength(query.Field);
-            var (f1, f2, f3) = ComputeTermFactors(leaderDocFreq, avgDocLength, leaderCollectionFreq, query.Field);
+
+            // Compute scoring factors for every clause, not just the leader.
+            // Each clause contributes its own IDF weight to the span score.
+            var termFactors = new (float F1, float F2, float F3)[termCount];
+            for (int i = 0; i < termCount; i++)
+            {
+                var clause = (SpanTermQuery)query.Clauses[i];
+                var qt = clause.CachedQualifiedTerm!;
+                int docFreq = globalDFs.GetValueOrDefault((query.Field, clause.Term), postings[i].DocFreq);
+                long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
+                termFactors[i] = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
+            }
 
             while (postings[leaderIdx].MoveNext())
             {
@@ -204,7 +209,15 @@ public sealed partial class IndexSearcher
                 {
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                         ? fieldLengths[docId] : 1;
-                    float score = ScoreTerm(f1, f2, f3, postings[leaderIdx].Freq, docLength);
+                    // Sum scores across all clauses using the leader's term frequency
+                    // as an estimate of the span frequency.
+                    float score = 0;
+                    int leaderTf = postings[leaderIdx].Freq;
+                    for (int i = 0; i < termCount; i++)
+                    {
+                        var (f1, f2, f3) = termFactors[i];
+                        score += ScoreTerm(f1, f2, f3, leaderTf, docLength);
+                    }
                     if (Math.Abs(boost - 1.0f) > 1e-6f) score *= boost;
                     collector.Collect(docBase + docId, ApplyFieldBoost(fieldBoosts, docId, score));
                 }

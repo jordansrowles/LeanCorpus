@@ -47,13 +47,17 @@ public sealed partial class IndexSearcher
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
         bool hasDeletions = reader.HasDeletions;
         reader.TryGetFieldLengths(query.Field, out var fieldLengths);
-
-        // Compute scoring factors from the leader (rarest) term
-        var leaderQt = qualifiedTerms[leaderIdx];
-        int leaderDocFreq = globalDFs.GetValueOrDefault((query.Field, query.Terms[leaderIdx]), postingsArr[leaderIdx].DocFreq);
-        long leaderCollectionFreq = _useLmScoring ? GetGlobalCollectionFreq(leaderQt) : 0;
         float avgDocLength = _stats.GetAvgFieldLength(query.Field);
-        var (f1, f2, f3) = ComputeTermFactors(leaderDocFreq, avgDocLength, leaderCollectionFreq, query.Field);
+
+        // Compute scoring factors for every term, not just the leader.
+        // Each term contributes its own IDF weight to the phrase score.
+        var termFactors = new (float F1, float F2, float F3)[termCount];
+        for (int i = 0; i < termCount; i++)
+        {
+            int docFreq = globalDFs.GetValueOrDefault((query.Field, query.Terms[i]), postingsArr[i].DocFreq);
+            long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qualifiedTerms[i]) : 0;
+            termFactors[i] = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
+        }
 
         // Streaming merge: iterate leader, advance followers
         while (postingsArr[leaderIdx].MoveNext())
@@ -89,7 +93,15 @@ public sealed partial class IndexSearcher
             {
                 int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                     ? fieldLengths[docId] : 1;
-                float score = ScoreTerm(f1, f2, f3, postingsArr[leaderIdx].Freq, docLength);
+                // Sum scores across all terms using the leader's term frequency
+                // as an estimate of the phrase frequency.
+                float score = 0;
+                int leaderTf = postingsArr[leaderIdx].Freq;
+                for (int i = 0; i < termCount; i++)
+                {
+                    var (f1, f2, f3) = termFactors[i];
+                    score += ScoreTerm(f1, f2, f3, leaderTf, docLength);
+                }
                 if (Math.Abs(boost - 1.0f) > 1e-6f) score *= boost;
                 collector.Collect(docBase + docId, ApplyFieldBoost(fieldBoosts, docId, score));
             }
