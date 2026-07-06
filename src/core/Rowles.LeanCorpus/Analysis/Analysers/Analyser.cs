@@ -24,9 +24,10 @@ public sealed class Analyser : IAnalyser
 
     /// <summary>Creates a new <see cref="Analyser"/> sharing the same tokeniser and filters.</summary>
     /// <remarks>
-    /// After the tokeniser and all filters have been made stateless per-call, the shared references
-    /// are safe. Only <see cref="FilteringSpanTokenSink"/> needs to be per-instance, which this
-    /// method ensures by constructing a fresh <see cref="Analyser"/>.
+    /// The shared filter references are safe for sequential use because each
+    /// <see cref="Analyse"/> call ends with <see cref="ISpanTokenFilter.Finish"/>,
+    /// which resets filter state. For concurrent use, create separate analyser
+    /// instances with their own filter chains.
     /// </remarks>
     internal Analyser Clone() => new(_tokeniser, _filters);
 

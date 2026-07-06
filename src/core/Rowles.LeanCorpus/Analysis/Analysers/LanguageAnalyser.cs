@@ -9,9 +9,8 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// for language-specific analysis pipelines.
 /// </summary>
 /// <remarks>
-/// Instances are safe to share across threads provided the supplied
-/// <see cref="ISpanTokeniser"/> and <see cref="Stemmers.ISpanStemmer"/> are also thread-safe.
-/// The inner <see cref="Analyser"/> pipeline maintains per-instance buffers.
+/// Instances are not safe to share across threads. Each thread should use its own
+/// <see cref="LanguageAnalyser"/> instance.
 /// </remarks>
 public sealed class LanguageAnalyser : IAnalyser
 {
@@ -50,6 +49,6 @@ public sealed class LanguageAnalyser : IAnalyser
     /// <inheritdoc/>
     public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
-        _inner.Clone().Analyse(input, sink);
+        _inner.Analyse(input, sink);
     }
 }
