@@ -386,10 +386,16 @@ public sealed partial class IndexSearcher
             else
             {
                 // Should-only: streaming OR merge across all Should PostingsEnums.
-                // Linear scan for N <= 16 (branch-predictor-friendly), heap for larger N.
                 const int HeapThreshold = 16;
                 var localShouldEnums = shouldEnums!;
-                if (shouldCount <= HeapThreshold)
+
+                // WAND path: use block-max scoring to skip non-competitive blocks.
+                if (_config.EnableBlockMaxWand && mustNotCount == 0)
+                {
+                    ExecuteShouldOnlyWand(localShouldEnums, shouldFieldLens!, shouldFieldBoosts!,
+                        shouldFactors!, shouldFields!, reader, ref collector);
+                }
+                else if (shouldCount <= HeapThreshold)
                 {
                     Span<int> currentDocs = stackalloc int[shouldCount];
                     for (int i = 0; i < shouldCount; i++)
@@ -848,6 +854,37 @@ public sealed partial class IndexSearcher
                 }
         }
         return results;
+    }
+
+    // --- Should-only WAND for block-max skipping ---
+
+    private void ExecuteShouldOnlyWand(
+        PostingsEnum[] shouldEnums,
+        int[]?[] shouldFieldLens,
+        float[]?[] shouldFieldBoosts,
+        (float Idf, float K1BOverAvgDL, float CollectionProb)[] shouldFactors,
+        string[] shouldFields,
+        SegmentReader reader,
+        ref TopNCollector collector)
+    {
+        int shouldCount = shouldEnums.Length;
+        var scorers = new BlockMaxWandScorer.TermScorer[shouldCount];
+
+        for (int i = 0; i < shouldCount; i++)
+        {
+            var blockEnum = shouldEnums[i].BlockEnum;
+            var (f1, f2, f3) = shouldFactors[i];
+            float avgDl = _stats.GetAvgFieldLength(shouldFields[i]);
+
+            scorers[i] = new BlockMaxWandScorer.TermScorer(
+                blockEnum, f1, f2, f3,
+                _similarity.ScoreLmPrecomputed,
+                avgDl,
+                shouldFieldLens[i], shouldFieldBoosts[i]);
+        }
+
+        var wand = new BlockMaxWandScorer(scorers);
+        wand.ScoreInto(ref collector);
     }
 
     // --- Should-only heap merge for large clause counts (MoreLikeThis, etc.) ---
