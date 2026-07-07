@@ -317,6 +317,14 @@ public static class IndexBackup
                 var sourcePath = Path.Combine(backupDirectory, entry.FileName);
                 var targetPath = Path.Combine(targetDirectory, entry.FileName);
                 CopyFileAtomically(sourcePath, targetPath);
+
+                // Verify the copy is faithful against the manifest checksum.
+                var targetChecksum = ComputeFileCrc32(targetPath);
+                if (targetChecksum != entry.Crc32)
+                    throw new InvalidDataException(
+                        $"Restored file '{entry.FileName}' has CRC-32 {targetChecksum:x8}, " +
+                        $"expected {entry.Crc32:x8}. The copy may be corrupt.");
+
                 restoredFiles.Add(entry.FileName);
             }
 
