@@ -283,6 +283,24 @@ public class AnalysisParityTests
     }
 
     /// <summary>
+    /// Verifies the Reverse String Filter handles tokens longer than the stackalloc threshold.
+    /// </summary>
+    [Fact(DisplayName = "Reverse String Filter: Handles Long Token Via ArrayPool")]
+    public void ReverseStringFilter_HandlesLongTokenViaArrayPool()
+    {
+        // 200 chars — exceeds the 128-char stackalloc threshold.
+        string longText = new('a', 200);
+        var filter = new ReverseStringFilter();
+        var matSink = new MaterialisingTokenSink();
+        filter.Apply(longText.AsSpan(), 0, 200, "word", 1, null, matSink);
+        var tokens = matSink.Tokens.ToList();
+
+        Assert.Single(tokens);
+        Assert.Equal(200, tokens[0].Text.Length);
+        Assert.Equal(new string('a', 200), tokens[0].Text); // reversed palindrome is identical
+    }
+
+    /// <summary>
     /// Verifies the Elision Filter: Removes Default French Article scenario.
     /// </summary>
     [Fact(DisplayName = "Elision Filter: Removes Default French Article")]

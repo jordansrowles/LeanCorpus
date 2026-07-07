@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
@@ -5,6 +7,7 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 /// </summary>
 public sealed class ReverseStringFilter : ISpanTokenFilter
 {
+    private const int StackallocThreshold = 128;
 
     /// <inheritdoc/>
     public void Apply(
@@ -16,9 +19,26 @@ public sealed class ReverseStringFilter : ISpanTokenFilter
         byte[]? payload,
         ISpanTokenSink sink)
     {
-        Span<char> reversed = stackalloc char[text.Length];
-        text.CopyTo(reversed);
-        reversed.Reverse();
-        sink.Add(reversed, startOffset, endOffset, type, positionIncrement, payload);
+        if (text.Length <= StackallocThreshold)
+        {
+            Span<char> reversed = stackalloc char[text.Length];
+            text.CopyTo(reversed);
+            reversed.Reverse();
+            sink.Add(reversed, startOffset, endOffset, type, positionIncrement, payload);
+        }
+        else
+        {
+            char[] rented = ArrayPool<char>.Shared.Rent(text.Length);
+            try
+            {
+                text.CopyTo(rented);
+                rented.AsSpan(0, text.Length).Reverse();
+                sink.Add(rented.AsSpan(0, text.Length), startOffset, endOffset, type, positionIncrement, payload);
+            }
+            finally
+            {
+                ArrayPool<char>.Shared.Return(rented);
+            }
+        }
     }
 }
