@@ -107,10 +107,14 @@ public sealed class StreamingPostingsMergerTests : IDisposable
     private StreamingPostingsMerger.Source WriteSource(
         string name,
         Dictionary<string, int[]> postings,
-        IReadOnlyDictionary<int, int> docIdMap)
+        IReadOnlyDictionary<int, int> docIdMap,
+        IReadOnlyDictionary<string, float[]>? fieldNorms = null)
     {
         var posPath = Path.Combine(_dir, name + ".pos");
         var dicPath = Path.Combine(_dir, name + ".dic");
+        var nrmPath = Path.Combine(_dir, name + ".nrm");
+        int docCount = fieldNorms?.Values.FirstOrDefault()?.Length ?? 0;
+        NormsWriter.Write(nrmPath, fieldNorms ?? new Dictionary<string, float[]>(), docCount: docCount);
         var offsets = new Dictionary<string, long>(StringComparer.Ordinal);
         var terms = postings.Keys.OrderBy(term => term, StringComparer.Ordinal).ToList();
         // Build body into a temporary file first, then write the final file
@@ -174,8 +178,52 @@ public sealed class StreamingPostingsMergerTests : IDisposable
         {
             DicPath = dicPath,
             PosPath = posPath,
+            NormsPath = nrmPath,
             DocIdMap = docMapArr
         };
+    }
+
+    [Fact(DisplayName = "StreamingPostingsMerger: Preserves per-document norms in skip entries")]
+    public void Merge_PreservesNormsInSkipEntries()
+    {
+        // 130 docs creates one full 128-doc block plus a tail, so one skip entry is emitted.
+        var docIds = Enumerable.Range(0, 130).ToArray();
+        var norms = new byte[130];
+        Array.Fill(norms, (byte)50);
+        norms[0] = 200;
+
+        var fieldNorms = new Dictionary<string, float[]>(StringComparer.Ordinal)
+        {
+            ["body"] = norms.Select(n => n / 255f).ToArray()
+        };
+        var postings = new Dictionary<string, int[]>(StringComparer.Ordinal)
+        {
+            ["body\0term"] = docIds
+        };
+        var source = WriteSource("norms", postings, docIds.ToDictionary(id => id), fieldNorms);
+
+        var outPos = Path.Combine(_dir, "merged_norms.pos");
+        var outDic = Path.Combine(_dir, "merged_norms.dic");
+        var result = StreamingPostingsMerger.Merge([source], outPos, outDic);
+
+        Assert.Equal(["body\0term"], result.SortedTerms);
+
+        using var input = new IndexInput(outPos);
+        _ = PostingsEnum.ValidateFileHeader(input);
+        using var dic = TermDictionaryReader.Open(outDic);
+        long offset = dic.EnumerateAllTerms().Single(t => t.Term == "body\0term").Offset;
+
+        input.Seek(offset);
+        int docFreq = input.ReadInt32();
+        long skipOffset = input.ReadInt64();
+        input.ReadBoolean(); // hasFreqs
+        input.ReadBoolean(); // hasPositions
+        input.ReadBoolean(); // hasPayloads
+        long docStart = input.Position;
+
+        var enumv = BlockPostingsEnum.Create(input, docStart, skipOffset, docFreq);
+        Assert.Equal(1, enumv.SkipEntries.Length);
+        Assert.Equal((byte)200, enumv.SkipEntries[0].MaxNormInBlock);
     }
 
     private static int VarInt64Size(long value)

@@ -393,7 +393,7 @@ public sealed partial class IndexSearcher
                 if (_config.EnableBlockMaxWand && mustNotCount == 0)
                 {
                     ExecuteShouldOnlyWand(localShouldEnums, shouldFieldLens!, shouldFieldBoosts!,
-                        shouldFactors!, shouldFields!, reader, ref collector);
+                        shouldFactors!, shouldFields!, reader, hasDeletions, ref collector);
                 }
                 else if (shouldCount <= HeapThreshold)
                 {
@@ -865,6 +865,7 @@ public sealed partial class IndexSearcher
         (float Idf, float K1BOverAvgDL, float CollectionProb)[] shouldFactors,
         string[] shouldFields,
         SegmentReader reader,
+        bool hasDeletions,
         ref TopNCollector collector)
     {
         int shouldCount = shouldEnums.Length;
@@ -884,7 +885,7 @@ public sealed partial class IndexSearcher
         }
 
         var wand = new BlockMaxWandScorer(scorers);
-        wand.ScoreInto(ref collector);
+        wand.ScoreInto(ref collector, hasDeletions ? reader.IsLive : null);
     }
 
     // --- Should-only heap merge for large clause counts (MoreLikeThis, etc.) ---

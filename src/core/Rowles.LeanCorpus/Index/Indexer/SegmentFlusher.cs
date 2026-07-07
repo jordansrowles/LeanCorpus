@@ -2,6 +2,7 @@ using System.Buffers;
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Codecs.Bkd;
 using Rowles.LeanCorpus.Codecs.TermVectors;
@@ -132,23 +133,13 @@ internal static class SegmentFlusher
         };
         segInfo.WriteTo(basePath + ".seg");
 
-        // Sort qualified terms for the dictionary.
-        int postingsCount = source.PostingsCount;
-        var accumulatorTerms = new (string Term, PostingAccumulator Acc)[postingsCount];
-        source.CopySortedPostings(accumulatorTerms);
-        Array.Sort(accumulatorTerms, static (a, b) => string.CompareOrdinal(a.Term, b.Term));
-
-        var (postingsOffsets, sortedTermsList) = WritePostingsBody(accumulatorTerms, basePath);
-        var sortedTermsBuffer = sortedTermsList;
-
-        TermDictionaryWriter.Write(basePath + ".dic", sortedTermsBuffer, postingsOffsets);
-
-        // Norms and field lengths
+        // Norms and field lengths (computed before postings so impact metadata can carry norms).
         var normFields = new HashSet<string>(source.DocTokenCounts.Keys, StringComparer.Ordinal);
         foreach (var fieldName in source.FieldBoosts.Keys)
             normFields.Add(fieldName);
 
         var fieldNorms = new Dictionary<string, float[]>(normFields.Count, StringComparer.Ordinal);
+        var quantisedNorms = new Dictionary<string, byte[]>(normFields.Count, StringComparer.Ordinal);
         var fieldLengths = new Dictionary<string, int[]>(source.DocTokenCounts.Count, StringComparer.Ordinal);
         var normsReturnList = new List<float[]>(normFields.Count);
         var lengthsReturnList = new List<int[]>(source.DocTokenCounts.Count);
@@ -156,6 +147,7 @@ internal static class SegmentFlusher
         {
             source.DocTokenCounts.TryGetValue(fieldName, out var counts);
             var norms = ArrayPool<float>.Shared.Rent(docCount);
+            var qNorms = new byte[docCount];
             int[]? lengths = counts is not null ? ArrayPool<int>.Shared.Rent(docCount) : null;
             int countsLen = counts?.Length ?? 0;
             for (int i = 0; i < docCount; i++)
@@ -165,15 +157,30 @@ internal static class SegmentFlusher
                     : 1;
                 if (lengths is not null)
                     lengths[i] = tokenCount;
-                norms[i] = 1.0f / (1.0f + Math.Max(1, tokenCount));
+                float norm = 1.0f / (1.0f + Math.Max(1, tokenCount));
+                norms[i] = norm;
+                qNorms[i] = NormsWriter.QuantiseNorm(norm);
             }
             fieldNorms[fieldName] = norms;
+            quantisedNorms[fieldName] = qNorms;
             if (lengths is not null)
                 fieldLengths[fieldName] = lengths;
             normsReturnList.Add(norms);
             if (lengths is not null)
                 lengthsReturnList.Add(lengths);
         }
+
+        // Sort qualified terms for the dictionary.
+        int postingsCount = source.PostingsCount;
+        var accumulatorTerms = new (string Term, PostingAccumulator Acc)[postingsCount];
+        source.CopySortedPostings(accumulatorTerms);
+        Array.Sort(accumulatorTerms, static (a, b) => string.CompareOrdinal(a.Term, b.Term));
+
+        var (postingsOffsets, sortedTermsList) = WritePostingsBody(accumulatorTerms, basePath, quantisedNorms);
+        var sortedTermsBuffer = sortedTermsList;
+
+        TermDictionaryWriter.Write(basePath + ".dic", sortedTermsBuffer, postingsOffsets);
+
         NormsWriter.Write(basePath + ".nrm", fieldNorms, docCount: docCount, sparseFieldBoosts: source.FieldBoosts);
         foreach (var arr in normsReturnList) ArrayPool<float>.Shared.Return(arr, clearArray: false);
 
@@ -441,7 +448,8 @@ internal static class SegmentFlusher
     /// </summary>
     private static (Dictionary<string, long> PostingsOffsets, List<string> SortedTerms) WritePostingsBody(
         (string Term, PostingAccumulator Acc)[] accumulatorTerms,
-        string basePath)
+        string basePath,
+        IReadOnlyDictionary<string, byte[]> quantisedNorms)
     {
         int postingsCount = accumulatorTerms.Length;
         var postingsOffsets = new Dictionary<string, long>(postingsCount, StringComparer.Ordinal);
@@ -460,6 +468,9 @@ internal static class SegmentFlusher
                     sortedTerms.Add(qt);
                     var ids = acc.DocIds;
 
+                    string fieldName = QualifiedTermHelpers.GetFieldName(qt).ToString();
+                    quantisedNorms.TryGetValue(fieldName, out var fieldNormBytes);
+
                     bool hasFreqs = acc.HasFreqs;
                     bool hasPositions = acc.HasPositions;
                     bool hasPayloads = acc.HasPayloads;
@@ -474,7 +485,13 @@ internal static class SegmentFlusher
 
                     blockWriter.StartTerm();
                     for (int i = 0; i < ids.Length; i++)
-                        blockWriter.AddPosting(ids[i], hasFreqs ? acc.GetFreq(i) : 1);
+                    {
+                        int docId = ids[i];
+                        byte norm = fieldNormBytes is not null && (uint)docId < (uint)fieldNormBytes.Length
+                            ? fieldNormBytes[docId]
+                            : (byte)0;
+                        blockWriter.AddPosting(docId, hasFreqs ? acc.GetFreq(i) : 1, norm);
+                    }
                     var meta = blockWriter.FinishTerm();
 
                     if (hasPositions)

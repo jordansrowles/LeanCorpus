@@ -9,6 +9,14 @@ internal static class QualifiedTermHelpers
     public static int QualifiedTermLength(ReadOnlySpan<char> field, ReadOnlySpan<char> term)
         => field.Length + 1 + term.Length;
 
+    /// <summary>Returns the field-name portion of a qualified term, or the whole string if unqualified.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static ReadOnlySpan<char> GetFieldName(ReadOnlySpan<char> qualifiedTerm)
+    {
+        int separator = qualifiedTerm.IndexOf('\0');
+        return separator < 0 ? qualifiedTerm : qualifiedTerm[..separator];
+    }
+
     /// <summary>
     /// Writes "field\0term" into the caller-provided buffer.
     /// The buffer MUST be at least <see cref="QualifiedTermLength"/> chars long.

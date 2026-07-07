@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using Rowles.LeanCorpus.Codecs.Postings;
 
 namespace Rowles.LeanCorpus.Search.Scoring;
@@ -26,7 +26,9 @@ internal sealed class BlockMaxWandScorer
     /// <summary>
     /// Executes Block-Max WAND, collecting results into <paramref name="collector"/>.
     /// </summary>
-    public void ScoreInto(ref TopNCollector collector)
+    /// <param name="collector">The collector to receive scored documents.</param>
+    /// <param name="isLive">Optional predicate that returns <see langword="true"/> for live documents. Deleted documents are skipped.</param>
+    public void ScoreInto(ref TopNCollector collector, Func<int, bool>? isLive = null)
     {
         foreach (var scorer in _scorers)
             scorer.CurrentDoc = scorer.Postings.NextDoc();
@@ -77,7 +79,8 @@ internal sealed class BlockMaxWandScorer
                 }
             }
 
-            collector.Collect(minDoc, totalScore);
+            if (isLive is null || isLive(minDoc))
+                collector.Collect(minDoc, totalScore);
         }
     }
 
@@ -139,6 +142,7 @@ internal sealed class BlockMaxWandScorer
             }
 
             CurrentDoc = BlockPostingsEnum.NoMoreDocs;
+            UpdateMaxScoreWithTail();
         }
 
         /// <summary>
@@ -167,9 +171,13 @@ internal sealed class BlockMaxWandScorer
                 ref readonly var skip = ref skipEntries[i];
                 // maxNorm quantises 1/(1+docLength) to 0-255. Largest norm
                 // → shortest doc → highest LM score.
+                // When no norm metadata is available, assume the shortest possible
+                // document length so the bound remains safe for similarities whose
+                // maximum score for a fixed term frequency occurs at minimum length
+                // (BM25 and all built-in language models).
                 float minDl = skip.MaxNormInBlock > 0
                     ? (255f / skip.MaxNormInBlock - 1f)
-                    : avgDl;
+                    : 1f;
                 if (minDl < 1f) minDl = 1f;
                 float score = _scoreFunc((int)skip.MaxFreqInBlock, (int)minDl);
                 BlockMaxScores[i] = score;
@@ -177,6 +185,33 @@ internal sealed class BlockMaxWandScorer
             }
 
             CurrentDoc = BlockPostingsEnum.NoMoreDocs;
+            UpdateMaxScoreWithTail();
+        }
+
+        /// <summary>
+        /// Scans the tail block (docs not covered by skip entries) to ensure
+        /// <see cref="MaxScore"/> is a safe upper bound for the entire postings list.
+        /// </summary>
+        private void UpdateMaxScoreWithTail()
+        {
+            int skipCount = BlockMaxScores.Length;
+            int tailStartIndex = skipCount * PackedIntCodec.BlockSize;
+            if (tailStartIndex >= Postings.DocFreqCount)
+                return;
+
+            int targetDocId = skipCount > 0
+                ? Postings.SkipEntries[skipCount - 1].LastDocId + 1
+                : 0;
+
+            Postings.Advance(targetDocId);
+            while (Postings.DocId != BlockPostingsEnum.NoMoreDocs)
+            {
+                float score = ScoreCurrent();
+                if (score > MaxScore)
+                    MaxScore = score;
+                Postings.NextDoc();
+            }
+            Postings.Reset();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

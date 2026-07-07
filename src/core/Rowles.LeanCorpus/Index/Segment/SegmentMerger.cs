@@ -295,6 +295,7 @@ public sealed class SegmentMerger
             {
                 DicPath = segBase + ".dic",
                 PosPath = segBase + ".pos",
+                NormsPath = segBase + ".nrm",
                 DocIdMap = map,
             });
         }

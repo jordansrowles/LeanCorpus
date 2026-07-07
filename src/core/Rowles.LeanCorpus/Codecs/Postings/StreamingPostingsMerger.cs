@@ -28,19 +28,28 @@ internal static class StreamingPostingsMerger
     {
         internal required string DicPath { get; init; }
         internal required string PosPath { get; init; }
+        internal required string NormsPath { get; init; }
         internal required int[] DocIdMap { get; init; }
     }
 
     internal static Result Merge(IReadOnlyList<Source> sources, string posOutputPath, string dicOutputPath)
     {
         var cursors = new List<Cursor>(sources.Count);
+        var cursorNorms = new List<NormsData>(sources.Count);
         try
         {
             foreach (var s in sources)
             {
                 var c = Cursor.Open(s);
-                if (c.HasMore) cursors.Add(c);
-                else c.Dispose();
+                if (c.HasMore)
+                {
+                    cursors.Add(c);
+                    cursorNorms.Add(NormsReader.Read(s.NormsPath));
+                }
+                else
+                {
+                    c.Dispose();
+                }
             }
 
             string tmpPosBody = posOutputPath + ".body.tmp";
@@ -96,6 +105,8 @@ internal static class StreamingPostingsMerger
                         blockWriter.StartTerm();
                         positionStream.Clear();
 
+                        string fieldName = QualifiedTermHelpers.GetFieldName(currentTerm).ToString();
+
                         foreach (int idx in participants)
                         {
                             var cursor = cursors[idx];
@@ -103,13 +114,18 @@ internal static class StreamingPostingsMerger
                             try
                             {
                                 var docMap = cursor.Source.DocIdMap;
+                                var norms = cursorNorms[idx].Norms;
+                                norms.TryGetValue(fieldName, out var fieldNormBytes);
                                 for (int j = 0; j < count; j++)
                                 {
                                     int oldId = oldIds[j];
                                     if ((uint)oldId >= (uint)docMap.Length) continue;
                                     int newId = docMap[oldId];
                                     if (newId < 0) continue;
-                                    blockWriter.AddPosting(newId, hasFreqs ? freqs[j] : 1);
+                                    byte norm = fieldNormBytes is not null && (uint)oldId < (uint)fieldNormBytes.Length
+                                        ? fieldNormBytes[oldId]
+                                        : (byte)0;
+                                    blockWriter.AddPosting(newId, hasFreqs ? freqs[j] : 1, norm);
                                     if (hasPositions)
                                     {
                                         int[] p = positions is null ? Array.Empty<int>() : (positions[j] ?? Array.Empty<int>());

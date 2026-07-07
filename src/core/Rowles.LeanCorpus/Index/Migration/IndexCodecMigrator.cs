@@ -547,6 +547,8 @@ public static class IndexCodecMigrator
                 .ToList();
         }
 
+        var normsData = NormsReader.Read(basePath + ".nrm");
+
         var postingsOffsets = new Dictionary<string, long>(terms.Count, StringComparer.Ordinal);
         var headerPatches = new List<(long HeaderPos, int DocFreq, long SkipOffset)>(terms.Count);
 
@@ -568,6 +570,9 @@ public static class IndexCodecMigrator
                     bool hasPositions = postings.Any(static posting => posting.Positions.Length > 0);
                     bool hasPayloads = postings.Any(static posting => posting.Payloads.Any(static payload => payload.Length > 0));
 
+                    string fieldName = QualifiedTermHelpers.GetFieldName(term).ToString();
+                    normsData.Norms.TryGetValue(fieldName, out var fieldNormBytes);
+
                     long headerPos = bodyOutput.Position;
                     postingsOffsets[term] = headerPos;
                     bodyOutput.WriteInt32(0);
@@ -578,7 +583,13 @@ public static class IndexCodecMigrator
 
                     blockWriter.StartTerm();
                     foreach (var posting in postings)
-                        blockWriter.AddPosting(posting.DocId, hasFreqs ? posting.Frequency : 1);
+                    {
+                        int docId = posting.DocId;
+                        byte norm = fieldNormBytes is not null && (uint)docId < (uint)fieldNormBytes.Length
+                            ? fieldNormBytes[docId]
+                            : (byte)0;
+                        blockWriter.AddPosting(docId, hasFreqs ? posting.Frequency : 1, norm);
+                    }
                     var metadata = blockWriter.FinishTerm();
 
                     if (hasPositions)

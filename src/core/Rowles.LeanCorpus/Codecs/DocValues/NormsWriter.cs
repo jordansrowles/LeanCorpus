@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
@@ -13,6 +14,11 @@ namespace Rowles.LeanCorpus.Codecs.DocValues;
 /// </summary>
 internal static class NormsWriter
 {
+    /// <summary>Quantises a float norm in [0,1] to a single byte, matching the on-disc format.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static byte QuantiseNorm(float norm)
+        => (byte)Math.Clamp(MathF.Round(norm * 255f), 0f, 255f);
+
     internal static void Write(
         string filePath,
         IReadOnlyDictionary<string, float[]> fieldNorms,
@@ -35,10 +41,7 @@ internal static class NormsWriter
             PostingsWriter.WriteVarInt(bodyBuf, count);
 
             for (int i = 0; i < count; i++)
-            {
-                byte quantised = (byte)Math.Clamp(MathF.Round(norms[i] * 255f), 0f, 255f);
-                bodyBuf.WriteByte(quantised);
-            }
+                bodyBuf.WriteByte(QuantiseNorm(norms[i]));
 
             if (sparseFieldBoosts is not null && sparseFieldBoosts.TryGetValue(fieldName, out var sparseBoosts))
             {
