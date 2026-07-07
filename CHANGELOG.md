@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `FieldType.Int64` and `Int64Field`, and the pipeline infrastructure (3dfb10a1)
+- Added codec constants, format entries, and file extension table entries for `.numl`, `.dvnl`, `.dsnl`, and `.bkdl` (3dfb10a1)
 - `ConcurrentVsSequentialBenchmarks` suite comparing `AddDocumentsConcurrent` and `AddDocumentLockFree` throughput against sequential `AddDocument` at batch sizes of 100, 1000, and 10 000 documents. The `concurrent-write` suite name is registered in both `benchmark.ps1` and `benchmark.sh`.
 - LINQ queryable provider via `LeanQueryable<T>` and the `LeanExpressionVisitor` expression-tree translator. `Where`, `Select`, `First`, `Single`, `Count`, `Any`, `Take`, `Skip`, `OrderBy`, and `OrderByDescending` operators are supported; lambda predicates (`==`, `!=`, `>`, `>=`, `<`, `<=`, `&&`, `||`, `!`, `.Contains()`, `.StartsWith()`, `.EndsWith()`) are translated into native `Query` objects and executed directly against the index with no intermediate SQL or reflection. The Roslyn source generator emits a zero-allocation field-descriptor switch expression and an `AsQueryable(IndexSearcher)` entry point for `[LeanDocument]`-annotated models. `LeanField<TDoc,TVal>` and `LeanFieldBinding<TDoc>` implement `IFieldDescriptor` for AOT-compatible field resolution. Ships with unit, integration, and chaos test suites.
 - Multilingual Wikipedia download script (`scripts/download-wikipedia.sh`) with BCP 47 language code support, jq-based null-delimited record extraction, and exponential backoff rate limiting for 300+ language editions. The PowerShell script (`download-wikipedia.ps1`) gained the same `-Language` parameter for cross-language benchmark data collection.
@@ -24,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Highlighter.ExtractTerms now collects terms from WildcardQuery, FuzzyQuery, TermInSetQuery, MultiPhraseQuery, CombinedFieldsQuery, and wrapper queries (ConstantScoreQuery, DisjunctionMaxQuery, FunctionScoreQuery), so highlighting works across more query families (503be7c2)
+- IndexCodecMigrator now uses a mandatory staging directory for all migrations, writes migrated segments under new IDs, and atomically publishes the new commit; --in-place flag removed from CLI (d97a9927)
+- ICollector is now wired into IndexSearcher via Search(Query, ICollector); Count(Query) returns total hits without materialising a scored heap; CountCollector is now thread-safe (19bf3cdb)
+- QueryCache is now owned by SearcherManager and shared across searcher refreshes, so cached results survive when content hasn't changed (7ee5f977)
+- FlushDwptPool now asserts that the caller holds WriteLock, making the lock contract explicit and catching misuse in debug builds (84cbc9fc)
+- Moved AOT smoke console project into an xUnit 3 AOT test project. (e6741301, 7a79c1b1)
 - KStemmer rule lookup uses a `FrozenDictionary` keyed by the last two characters of each suffix, with a one-character fallback, replacing linear scan of all rules. `StemTokenFilter` added a character-based pre-filter that skips buffer allocation for tokens whose last character cannot begin a stemming suffix (~85% of tokens).
 - Wildcard query execution pre-narrows the FST traversal by walking a known literal prefix (≥2 characters) ahead of the automaton intersection, avoiding per-candidate string materialisation for suffix-only pattern matching. `TermDictionaryReader` gained `GetTermsMatchingWithPrefix` and `GetTermOffsetsMatchingWithPrefix`; `IndexSearcher` and `SegmentReader` plumb through the prefix-narrowed overloads.
 - Pending deletion in `IndexWriter` is now applied via a single FST prefix scan per unique field rather than per-term individual lookups, matching against a `HashSet<string>` of bare terms per field. Hard and soft deletes share the same scan infrastructure.
@@ -55,6 +63,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Merged segments now inherit the active commit generation instead of being hard-coded to 0, so retention, backup, and migration tooling sees correct metadata (bda24522)
+- SegmentMerger.MergeVectors now uses the configured HnswBuildConfig instead of defaults when rebuilding vector graphs during merge (2737b7e9)
+- ReverseStringFilter now uses `ArrayPool<char>` for tokens longer than 128 characters instead of unbounded stackalloc, preventing stack overflow on pathologically long tokens (14b5406c)
+- IndexBackup.Restore now verifies restored files against manifest CRC-32 checksums after copy, catching hardware errors during restore (98ded332)
+- IndexOutputBuffer.Advance(0) no longer discards unflushed buffered bytes by resetting the write position (b03f761b)
+- AddIndexes now correctly reads source segment files from the foreign directory instead of the target, fixing cross-directory index import (c24efd41)
+- BlockMaxWandScorer
+	- now uses per-document norms in block skip entries for tighter upper bounds; deleted documents are correctly excluded from WAND results (52a553c5)
+	- now uses LM scoring with proper block-max upper bounds and is wired into the disjunctive query path behind EnableBlockMaxWand (6a3aa769)
+	- now scores with proper BM25 and block-max bounds; stateful filters reset between documents and clone correctly for concurrent use (42862187)
+- Analyser.Clone() now deep-clones every filter so LanguageAnalyser is safe for concurrent use; stateful filters reset in Finish() and return fresh instances from Clone() (42862187)
+- Stateful analysis filters (SynonymGraphFilter, ShingleFilter, LimitTokenCountFilter, CachingTokenFilter) now reset their state between documents, preventing token leakage across multi-document pipelines (94fec8cf)
+- PackDelta now validates monotonic non-negative input, catching corrupt postings data before it gets packed (345854c4)
+- Phrase and SpanNear queries now score as a sum of all term weights rather than using only the rarest term (fed34fc8)
+- `StemTokenFilter` no longer skips stemming based on an English-centric suffix-letter pre-filter, fixing incomplete stems for non-English languages (ee28d923)
+- `WordDelimiterFilter` and `UniqueTokenFilter` are now fully implemented and tested (10fac633)
+- `JsonDocumentMapper`/`JsonMappingOptions` fixes (3dfb10a1)
+  - Depth overflow now throws instead of silently dropping data
+  - `JsonMappingOptions` validates `MaxDepth` and `StringFieldMaxLength`
+  - JSON strings now default to `StringField`
+- `ForceMerge` now cleans up segment files for merged segments, matching the behaviour of Compact and preventing unbounded disk growth (643a349f)
+- `Compact`, `ForceMerge`, and background merges now refuse to run while a two-phase prepared commit is pending, preventing commit-generation collisions that would throw `IOException` on publish (ebadf8d1)
+- `AddDocumentsConcurrent` now flushes segments under `WriteLock` so concurrent deletes and commits cannot interleave between segment creation and visibility (90e7a528)
+- `ExecuteFilterToBitmap` no longer mutates the shared `SegmentReader.DocBase`. Now subtracts the captured base from collected global IDs, eliminating a data race on concurrent vector-filter searches (b4488e0e)
+- `NumericAggregator` no longer probes only docId 0 to resolve field type; now checks field existence across all three numeric stores, fixing silent zero results when the field was absent from the first document (ef8c9033)
+- Boolean index scoring fallback no longer inflates legitimate zero scores to 1.0f (ffd46248)
+- `MoreLikeThis` now excludes the source document. (6974ebda)
+- Properly wired `IndexOfNormalisableDigit`/`NormaliseDigit` helpers into `Apply`. Add several tests. Updated `AnalysisSmokeTests` to assert actual normalised values rather than just token count. (1cd3010b, c0f1192d)
 - `Compact()`, `WriteNorms()`, `PushDepth`, and `CodecFormat` validation bugs caught by codec audit.
 - Double-byte-copy in `AddBinaryDocValue`: the string overload encoded to UTF-8 then called the span overload which called `ToArray()` a second time. Both paths now route through a shared core method, allocating once.
 - AOT smoke test script now auto-detects the OS when selecting the runtime identifier.
