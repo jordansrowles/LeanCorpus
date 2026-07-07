@@ -2,7 +2,7 @@ namespace Rowles.LeanCorpus.Search.Highlighting;
 
 /// <summary>
 /// Flattens a <see cref="Query"/> tree into a per-field map of
-/// <c>(term → weighted phrase positions)</c> for use by
+/// <c>(term to weighted phrase positions)</c> for use by
 /// <see cref="TermVectorHighlighter"/>.
 /// </summary>
 /// <remarks>
@@ -51,6 +51,27 @@ public sealed class FieldQuery
 
     /// <summary>All fields referenced by the query.</summary>
     public IEnumerable<string> Fields => _fieldMap.Keys;
+
+    /// <summary>
+    /// Returns the maximum phrase length across all terms in the given field,
+    /// or 0 if there are no phrase-constrained terms.
+    /// </summary>
+    internal int GetMaxPhraseLength(string field)
+    {
+        if (!_fieldMap.TryGetValue(field, out var termMap))
+            return 0;
+        int maxLength = 0;
+        foreach (var info in termMap.Values)
+        {
+            if (info.Positions is not null && info.Positions.Count > 0)
+            {
+                int length = info.Positions.Max() + 1;
+                if (length > maxLength)
+                    maxLength = length;
+            }
+        }
+        return maxLength;
+    }
 
     // -- internal helpers --
 

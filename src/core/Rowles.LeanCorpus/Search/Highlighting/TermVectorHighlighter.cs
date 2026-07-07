@@ -176,32 +176,91 @@ public sealed class TermVectorHighlighter : IHighlighter
         IReadOnlyList<TermVectorEntry> termVectors,
         FieldQuery fieldQuery)
     {
-        // Build a set of all term-vector positions that have ANY query term match.
-        var allMatchingPositions = new HashSet<int>();
-        foreach (var m in matches)
-            allMatchingPositions.Add(m.Position);
+        // Determine the maximum phrase length across all fields.
+        int maxPhraseLength = 0;
+        foreach (var field in fieldQuery.Fields)
+            maxPhraseLength = Math.Max(maxPhraseLength, fieldQuery.GetMaxPhraseLength(field));
 
-        // For each phrase-constrained match, validate adjacency.
-        // A phrase match is valid only if the term is part of a chain of
-        // matching terms at consecutive positions.
+        if (maxPhraseLength < 2)
+            return;
+
+        // Build a position-to-terms map for O(1) window checks.
+        var posToTerms = new Dictionary<int, HashSet<string>>();
+        foreach (var m in matches)
+        {
+            if (!posToTerms.TryGetValue(m.Position, out var set))
+            {
+                set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                posToTerms[m.Position] = set;
+            }
+        }
+        // We can't recover the term text from Match, so we build a parallel lookup.
+        var posToPhraseTerms = new Dictionary<int, HashSet<string>>();
+        for (int i = 0; i < matches.Count; i++)
+        {
+            var m = matches[i];
+            if (!m.IsPhrase) continue;
+            if (!posToPhraseTerms.TryGetValue(m.Position, out var set))
+            {
+                set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                posToPhraseTerms[m.Position] = set;
+            }
+        }
+
+        // Fill the term sets from term vectors.
+        foreach (var entry in termVectors)
+        {
+            if (entry.Positions is null) continue;
+            for (int p = 0; p < entry.Positions.Length; p++)
+            {
+                int pos = entry.Positions[p];
+                if (posToTerms.TryGetValue(pos, out var set))
+                    set.Add(entry.Term);
+                if (posToPhraseTerms.TryGetValue(pos, out var ps))
+                    ps.Add(entry.Term);
+            }
+        }
+
+        // For each phrase-flagged match, verify it participates in a complete phrase window.
         for (int i = matches.Count - 1; i >= 0; i--)
         {
             var m = matches[i];
             if (!m.IsPhrase)
                 continue;
 
-            // Check if this position has a neighbour at +1 that also matches.
-            // This is a simple adjacency check — it validates that at least
-            // two query terms appear consecutively.
-            bool hasAdjacentMatch = allMatchingPositions.Contains(m.Position + 1)
-                                 || allMatchingPositions.Contains(m.Position - 1);
+            int pos = m.Position;
+            bool valid = false;
 
-            if (!hasAdjacentMatch)
+            // Try every possible window start that includes this position.
+            int windowStart = Math.Max(0, pos - maxPhraseLength + 1);
+            int windowEnd = pos;
+            for (int ws = windowStart; ws <= windowEnd && !valid; ws++)
+            {
+                valid = IsPhraseWindowSatisfied(ws, maxPhraseLength, posToPhraseTerms);
+            }
+
+            if (!valid)
             {
                 matches.RemoveAt(i);
-                allMatchingPositions.Remove(m.Position);
+                posToTerms.Remove(pos);
+                posToPhraseTerms.Remove(pos);
             }
         }
+    }
+
+    /// <summary>
+    /// Returns true if every position in the window [start, start+length) has at least one
+    /// phrase-constrained matching term.
+    /// </summary>
+    private static bool IsPhraseWindowSatisfied(
+        int start, int length, Dictionary<int, HashSet<string>> posToPhraseTerms)
+    {
+        for (int i = 0; i < length; i++)
+        {
+            if (!posToPhraseTerms.ContainsKey(start + i))
+                return false;
+        }
+        return true;
     }
 
     // -- Step 3: Boundary scan --
