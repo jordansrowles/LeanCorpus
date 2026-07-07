@@ -1,3 +1,4 @@
+using System.Globalization;
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
@@ -246,8 +247,6 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
             new IndexCodecMigrationOptions
             {
                 DryRun = false,
-                UseStagingDirectory = false,
-                AllowInPlaceMigration = true,
             });
 
         Assert.True(result.Succeeded);
@@ -271,8 +270,6 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
             new IndexCodecMigrationOptions
             {
                 DryRun = false,
-                UseStagingDirectory = false,
-                AllowInPlaceMigration = true,
                 ValidateBeforeMigration = true,
                 ValidateAfterMigration = false,
             });
@@ -296,8 +293,6 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
             new IndexCodecMigrationOptions
             {
                 DryRun = false,
-                UseStagingDirectory = false,
-                AllowInPlaceMigration = true,
                 ValidateBeforeMigration = true,
                 ValidateAfterMigration = false,
             });
@@ -321,8 +316,6 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
             new IndexCodecMigrationOptions
             {
                 DryRun = false,
-                UseStagingDirectory = false,
-                AllowInPlaceMigration = true,
                 ValidateBeforeMigration = false,
                 ValidateAfterMigration = false,
             });
@@ -377,30 +370,6 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         AssertIndexReadable(path);
     }
 
-    [Fact(DisplayName = "Migrate: In-place migration rewrites in source directory")]
-    public void Migrate_InPlace_RewritesInSource()
-    {
-        var path = CreateCurrentVersionIndex("migrate_inplace");
-        DowngradeVersionByte(path, "*.fln", 0);
-
-        var result = IndexCodecMigrator.Migrate(
-            new MMapDirectory(path),
-            new IndexCodecMigrationOptions
-            {
-                DryRun = false,
-                AllowInPlaceMigration = true,
-                UseStagingDirectory = false,
-                ValidateBeforeMigration = false,
-                ValidateAfterMigration = false,
-            });
-
-        Assert.True(result.Succeeded);
-        Assert.Null(result.StagingDirectory);
-        Assert.NotEmpty(result.ExecutedActions);
-        Assert.Equal(CodecConstants.FieldLengthVersion, ReadVersionByte(path, "*.fln"));
-        AssertIndexReadable(path);
-    }
-
     [Fact(DisplayName = "Migrate: Staging directory already exists fails")]
     public void Migrate_Staging_AlreadyExists_Fails()
     {
@@ -447,8 +416,6 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
             new IndexCodecMigrationOptions
             {
                 DryRun = false,
-                UseStagingDirectory = false,
-                AllowInPlaceMigration = true,
                 ValidateBeforeMigration = false,
                 ValidateAfterMigration = false,
             });
@@ -500,8 +467,6 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
             new IndexCodecMigrationOptions
             {
                 DryRun = false,
-                UseStagingDirectory = false,
-                AllowInPlaceMigration = true,
                 ValidateBeforeMigration = false,
                 ValidateAfterMigration = false,
             });
@@ -538,8 +503,6 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
             new IndexCodecMigrationOptions
             {
                 DryRun = false,
-                UseStagingDirectory = false,
-                AllowInPlaceMigration = true,
                 ValidateBeforeMigration = false,
                 ValidateAfterMigration = false,
             });
@@ -561,8 +524,6 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
             new IndexCodecMigrationOptions
             {
                 DryRun = false,
-                UseStagingDirectory = false,
-                AllowInPlaceMigration = true,
                 ValidateBeforeMigration = false,
                 ValidateAfterMigration = false,
             });
@@ -589,8 +550,6 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
             new IndexCodecMigrationOptions
             {
                 DryRun = false,
-                UseStagingDirectory = false,
-                AllowInPlaceMigration = true,
                 ValidateBeforeMigration = false,
                 ValidateAfterMigration = false,
             });
@@ -670,31 +629,6 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         AssertIndexReadable(path);
     }
 
-    [Fact(DisplayName = "Migrate: In-place validation filters migration marker issue")]
-    public void Migrate_InPlace_FiltersMigrationMarker()
-    {
-        var path = CreateCurrentVersionIndex("migrate_inplace_marker");
-        DowngradeVersionByte(path, "*.fln", 0);
-
-        var result = IndexCodecMigrator.Migrate(
-            new MMapDirectory(path),
-            new IndexCodecMigrationOptions
-            {
-                DryRun = false,
-                AllowInPlaceMigration = true,
-                UseStagingDirectory = false,
-                ValidateBeforeMigration = false,
-                ValidateAfterMigration = true,
-            });
-
-        Assert.True(result.Succeeded);
-        if (result.ValidationResult is not null)
-        {
-            Assert.DoesNotContain(result.ValidationResult.DetailedIssues,
-                issue => issue.Code == IndexCheckIssueCodes.MigrationInProgress);
-        }
-    }
-
     [Fact(DisplayName = "Migrate: Exception during rewrite caught and marker written")]
     public void Migrate_ExceptionDuringRewrite_CaughtAndMarked()
     {
@@ -710,8 +644,6 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
             new IndexCodecMigrationOptions
             {
                 DryRun = false,
-                UseStagingDirectory = false,
-                AllowInPlaceMigration = true,
                 ValidateBeforeMigration = false,
                 ValidateAfterMigration = false,
             });
@@ -724,6 +656,152 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
             Assert.Contains(result.Issues, issue =>
                 issue.Code == IndexCheckIssueCodes.UnsupportedMigrationPath);
         }
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  Atomic publish and crash safety
+    // ═══════════════════════════════════════════════════
+
+    [Fact(DisplayName = "Migrate: New segment IDs are generated for rewritten segments")]
+    public void Migrate_AtomicPublish_NewSegmentIdsGenerated()
+    {
+        var path = CreateCurrentVersionIndex("migrate_new_seg_ids");
+        DowngradeVersionByte(path, "*.fln", 0);
+
+        var originalCommit = IndexFileInspector.FindCommitFiles(path)[0];
+        var result = IndexCodecMigrator.Migrate(
+            new MMapDirectory(path),
+            new IndexCodecMigrationOptions
+            {
+                DryRun = false,
+                ValidateBeforeMigration = false,
+                ValidateAfterMigration = false,
+            });
+
+        Assert.True(result.Succeeded);
+        var newCommit = IndexFileInspector.FindCommitFiles(path)[0];
+        Assert.True(newCommit.Generation > originalCommit.Generation);
+        Assert.Contains(newCommit.Generation.ToString(CultureInfo.InvariantCulture), newCommit.FilePath);
+        Assert.All(IndexRecovery.RecoverLatestCommit(path, cleanupOrphans: false)!.SegmentIds,
+            segmentId => Assert.Contains("_migrated_", segmentId, StringComparison.Ordinal));
+    }
+
+    [Fact(DisplayName = "Migrate: Old commit and old segment files are cleaned up after publish")]
+    public void Migrate_AtomicPublish_OldCommitAndSegmentsCleanedUp()
+    {
+        var path = CreateCurrentVersionIndex("migrate_cleanup_old");
+        DowngradeVersionByte(path, "*.fln", 0);
+
+        var originalCommit = IndexFileInspector.FindCommitFiles(path)[0];
+        var result = IndexCodecMigrator.Migrate(
+            new MMapDirectory(path),
+            new IndexCodecMigrationOptions
+            {
+                DryRun = false,
+                ValidateBeforeMigration = false,
+                ValidateAfterMigration = false,
+            });
+
+        Assert.True(result.Succeeded);
+        Assert.False(File.Exists(originalCommit.FilePath), "Old commit file should have been removed.");
+        Assert.False(File.Exists(Path.Combine(path, $"stats_{originalCommit.Generation}.json")), "Old stats file should have been removed.");
+        var newSegmentId = IndexRecovery.RecoverLatestCommit(path, cleanupOrphans: false)!.SegmentIds[0];
+        Assert.NotEmpty(Directory.GetFiles(path, $"{newSegmentId}.*"));
+    }
+
+    [Fact(DisplayName = "Migrate: Latest commit references only current-version files")]
+    public void Migrate_AtomicPublish_LatestCommitIsCurrentVersion()
+    {
+        var path = CreateCurrentVersionIndex("migrate_latest_current");
+        DowngradeVersionByte(path, "*.fln", 0);
+        DowngradeVersionByte(path, "*.dvn", 0);
+
+        var result = IndexCodecMigrator.Migrate(
+            new MMapDirectory(path),
+            new IndexCodecMigrationOptions
+            {
+                DryRun = false,
+                ValidateBeforeMigration = false,
+                ValidateAfterMigration = true,
+            });
+
+        Assert.True(result.Succeeded,
+            $"Migration failed: {string.Join("; ", result.Issues.Select(i => $"{i.Code}: {i.Message}"))}");
+        Assert.NotNull(result.ValidationResult);
+        Assert.DoesNotContain(result.ValidationResult.DetailedIssues,
+            issue => issue.Severity == IndexCheckSeverity.Error);
+    }
+
+    [Fact(DisplayName = "Migrate: Failed migration leaves source commit generation unchanged")]
+    public void Migrate_FailedMigration_LeavesSourceCommitUnchanged()
+    {
+        var path = CreateCurrentVersionIndex("migrate_failed_unchanged");
+        // Downgrade a file to create a real migration action, then corrupt the .dic file
+        // so validation-before blocks before any rewrite.
+        DowngradeVersionByte(path, "*.fln", 0);
+        var dicPath = Directory.GetFiles(path, "*.dic").Single();
+        File.WriteAllText(dicPath, "corrupt");
+
+        var originalCommit = IndexFileInspector.FindCommitFiles(path)[0];
+
+        var preValidation = IndexValidator.Check(new MMapDirectory(path), new IndexCheckOptions { Deep = true });
+        var preValidationErrors = string.Join("; ", preValidation.DetailedIssues.Where(i => i.Severity == IndexCheckSeverity.Error).Select(i => $"{i.Code}: {i.Message}"));
+
+        var result = IndexCodecMigrator.Migrate(
+            new MMapDirectory(path),
+            new IndexCodecMigrationOptions
+            {
+                DryRun = false,
+                ValidateBeforeMigration = true,
+                ValidateAfterMigration = false,
+            });
+
+        Assert.False(result.Succeeded,
+            $"Migration should have failed. Pre-validation errors: {preValidationErrors}. Result issues: {string.Join("; ", result.Issues.Select(i => $"{i.Code}: {i.Message}"))}");
+        var afterCommit = IndexFileInspector.FindCommitFiles(path)[0];
+        Assert.Equal(originalCommit.Generation, afterCommit.Generation);
+        Assert.Equal(originalCommit.FilePath, afterCommit.FilePath);
+    }
+
+    [Fact(DisplayName = "Migrate: Recovery completes an already-published migration")]
+    public void Migrate_Recovery_CompletesInterruptedPublish()
+    {
+        var path = CreateCurrentVersionIndex("migrate_recovery_complete");
+        DowngradeVersionByte(path, "*.fln", 0);
+
+        var originalCommit = IndexFileInspector.FindCommitFiles(path)[0];
+
+        var firstResult = IndexCodecMigrator.Migrate(
+            new MMapDirectory(path),
+            new IndexCodecMigrationOptions
+            {
+                DryRun = false,
+                ValidateBeforeMigration = false,
+                ValidateAfterMigration = false,
+            });
+        Assert.True(firstResult.Succeeded);
+
+        // Simulate a crash where the marker was not updated to Published.
+        IndexMigrationRecovery.WriteMarker(
+            path,
+            new IndexMigrationMarker
+            {
+                State = IndexMigrationState.InProgress,
+                SourceDirectory = path,
+                StagingDirectory = firstResult.StagingDirectory ?? string.Empty,
+                SourceCommitGeneration = originalCommit.Generation,
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                UpdatedAtUtc = DateTimeOffset.UtcNow,
+                PlannedActions = []
+            },
+            durable: true);
+
+        var secondResult = IndexCodecMigrator.Migrate(
+            new MMapDirectory(path),
+            new IndexCodecMigrationOptions { DryRun = false });
+
+        Assert.True(secondResult.Succeeded);
+        Assert.Equal(IndexMigrationState.Published, IndexMigrationRecovery.GetState(path).State);
     }
 
     [Fact(DisplayName = "Migrate: OutOfMemoryException bubbles up uncaught")]

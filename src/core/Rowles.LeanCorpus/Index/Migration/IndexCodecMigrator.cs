@@ -9,7 +9,9 @@ using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
 using Rowles.LeanCorpus.Index.Format;
 using Rowles.LeanCorpus.Index.Segment;
+using Rowles.LeanCorpus.Serialization;
 using Rowles.LeanCorpus.Store;
+using System.Text.Json;
 
 namespace Rowles.LeanCorpus.Index.Migration;
 
@@ -140,8 +142,10 @@ public static class IndexCodecMigrator
         IndexCodecMigrationOptions options,
         out bool usesStaging)
     {
-        usesStaging = false;
+        usesStaging = true;
         var plan = PlanCore(directory, options);
+        TryRecoverInterruptedMigration(directory.DirectoryPath, plan);
+
         if (options.DryRun)
         {
             return new IndexCodecMigrationResult
@@ -223,17 +227,42 @@ public static class IndexCodecMigrator
         }
 
         var sourceDirectory = directory.DirectoryPath;
-        usesStaging = options.UseStagingDirectory || !options.AllowInPlaceMigration;
-        var targetDirectory = usesStaging
-            ? ResolveStagingDirectory(sourceDirectory, options.StagingDirectory)
-            : sourceDirectory;
+
+        if (plan.Inventory.CommitGeneration is not int sourceCommitGeneration)
+        {
+            var issues = new List<IndexCheckIssue>(plan.Issues)
+            {
+                new()
+                {
+                    Severity = IndexCheckSeverity.Error,
+                    Code = IndexCheckIssueCodes.NoCommitFile,
+                    Message = "Cannot perform an atomic codec migration: no readable commit file exists.",
+                    IsRepairable = false,
+                    SuggestedActions = IndexRepairRecommendations.ForIssue(IndexCheckIssueCodes.NoCommitFile)
+                }
+            };
+
+            return new IndexCodecMigrationResult
+            {
+                Succeeded = false,
+                DryRun = false,
+                SourceDirectory = sourceDirectory,
+                StagingDirectory = options.StagingDirectory,
+                ExecutedActions = [],
+                ValidationResult = null,
+                Issues = issues
+            };
+        }
+
+        var targetDirectory = ResolveStagingDirectory(sourceDirectory, options.StagingDirectory);
+        var segmentIdMap = BuildSegmentIdMap(plan.Actions, sourceCommitGeneration);
         var now = DateTimeOffset.UtcNow;
         var marker = new IndexMigrationMarker
         {
-            State = usesStaging ? IndexMigrationState.Prepared : IndexMigrationState.InProgress,
+            State = IndexMigrationState.Prepared,
             SourceDirectory = sourceDirectory,
             StagingDirectory = targetDirectory,
-            SourceCommitGeneration = plan.Inventory.CommitGeneration,
+            SourceCommitGeneration = sourceCommitGeneration,
             CreatedAtUtc = now,
             UpdatedAtUtc = now,
             PlannedActions = plan.Actions
@@ -244,31 +273,34 @@ public static class IndexCodecMigrator
         try
         {
             IndexMigrationRecovery.WriteMarker(sourceDirectory, marker, durable: true);
-            if (usesStaging)
-            {
-                PrepareStagingDirectory(sourceDirectory, targetDirectory);
-                IndexMigrationRecovery.WriteMarker(
-                    sourceDirectory,
-                    marker with { State = IndexMigrationState.InProgress, UpdatedAtUtc = DateTimeOffset.UtcNow },
-                    durable: true);
-                currentState = IndexMigrationState.InProgress;
-            }
+            PrepareStagingDirectory(sourceDirectory, targetDirectory);
+            IndexMigrationRecovery.WriteMarker(
+                sourceDirectory,
+                marker with { State = IndexMigrationState.InProgress, UpdatedAtUtc = DateTimeOffset.UtcNow },
+                durable: true);
+            currentState = IndexMigrationState.InProgress;
 
+            CleanupTemporaryFiles(targetDirectory);
+
+            var rewrittenTargetPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var rewrittenStoredFieldSegments = new HashSet<string>(StringComparer.Ordinal);
             foreach (var action in plan.Actions)
             {
-                ExecuteRewrite(targetDirectory, action, rewrittenStoredFieldSegments);
+                ExecuteRewrite(targetDirectory, action, rewrittenStoredFieldSegments, segmentIdMap, rewrittenTargetPaths);
                 executed.Add(action);
             }
+
+            MigrateSegmentSidecars(targetDirectory, segmentIdMap, rewrittenTargetPaths);
+
+            var newCommitGeneration = sourceCommitGeneration + 1;
+            WriteMigratedCommit(targetDirectory, plan, segmentIdMap, newCommitGeneration);
+            CopyMigratedStats(sourceDirectory, targetDirectory, sourceCommitGeneration, newCommitGeneration);
 
             IndexCheckResult? validationResult = null;
             if (options.ValidateAfterMigration)
             {
                 using var target = new MMapDirectory(targetDirectory);
                 validationResult = IndexValidator.Check(target, new IndexCheckOptions { Deep = true });
-                if (!usesStaging)
-                    validationResult = RemoveMigrationMarkerIssue(validationResult);
-
                 if (HasErrors(validationResult))
                 {
                     IndexMigrationRecovery.WriteMarker(
@@ -280,7 +312,7 @@ public static class IndexCodecMigrator
                         Succeeded = false,
                         DryRun = false,
                         SourceDirectory = sourceDirectory,
-                        StagingDirectory = usesStaging ? targetDirectory : null,
+                        StagingDirectory = targetDirectory,
                         ExecutedActions = executed,
                         ValidationResult = validationResult,
                         Issues = validationResult.DetailedIssues
@@ -288,31 +320,26 @@ public static class IndexCodecMigrator
                 }
             }
 
-            if (usesStaging)
-            {
-                IndexMigrationRecovery.WriteMarker(
-                    sourceDirectory,
-                    marker with { State = IndexMigrationState.ReadyToPublish, UpdatedAtUtc = DateTimeOffset.UtcNow },
-                    durable: true);
-                currentState = IndexMigrationState.ReadyToPublish;
-                PublishStagingDirectory(sourceDirectory, targetDirectory);
-            }
+            PublishStagingFiles(sourceDirectory, targetDirectory);
+            DirectoryFsync.Sync(sourceDirectory, strict: false);
 
             IndexMigrationRecovery.WriteMarker(
                 sourceDirectory,
                 marker with { State = IndexMigrationState.Published, UpdatedAtUtc = DateTimeOffset.UtcNow },
                 durable: true);
             currentState = IndexMigrationState.Published;
-            var resultIssues = plan.Issues;
-            if (usesStaging && TryDeleteStagingDirectory(targetDirectory, out var cleanupIssue))
-                resultIssues = [.. resultIssues, cleanupIssue];
+
+            var resultIssues = new List<IndexCheckIssue>(plan.Issues);
+            CleanupMigratedSourceFiles(sourceDirectory, segmentIdMap, sourceCommitGeneration, resultIssues);
+            if (TryDeleteStagingDirectory(targetDirectory, out var cleanupIssue))
+                resultIssues.Add(cleanupIssue);
 
             return new IndexCodecMigrationResult
             {
                 Succeeded = true,
                 DryRun = false,
                 SourceDirectory = sourceDirectory,
-                StagingDirectory = usesStaging ? targetDirectory : null,
+                StagingDirectory = targetDirectory,
                 ExecutedActions = executed,
                 ValidationResult = validationResult,
                 Issues = resultIssues
@@ -320,7 +347,7 @@ public static class IndexCodecMigrator
         }
         catch (Exception ex) when (IsMigrationFailure(ex))
         {
-            if (currentState is not IndexMigrationState.ReadyToPublish and not IndexMigrationState.Published)
+            if (currentState is not IndexMigrationState.Published)
             {
                 IndexMigrationRecovery.WriteMarker(
                     sourceDirectory,
@@ -345,12 +372,50 @@ public static class IndexCodecMigrator
                 Succeeded = false,
                 DryRun = false,
                 SourceDirectory = sourceDirectory,
-                StagingDirectory = usesStaging ? targetDirectory : null,
+                StagingDirectory = targetDirectory,
                 ExecutedActions = executed,
                 ValidationResult = null,
                 Issues = issues
             };
         }
+    }
+
+    private static void TryRecoverInterruptedMigration(string sourceDirectory, IndexCodecMigrationPlan plan)
+    {
+        var marker = IndexMigrationRecovery.GetState(sourceDirectory);
+        if (marker.State is IndexMigrationState.None or IndexMigrationState.Published)
+            return;
+
+        if (marker.SourceCommitGeneration is int sourceGen)
+        {
+            var commits = IndexFileInspector.FindCommitFiles(sourceDirectory);
+            var maxGen = commits.Count > 0 ? commits[0].Generation : (int?)null;
+            if (maxGen > sourceGen)
+            {
+                IndexMigrationRecovery.WriteMarker(
+                    sourceDirectory,
+                    marker with { State = IndexMigrationState.Published, UpdatedAtUtc = DateTimeOffset.UtcNow },
+                    durable: true);
+
+                if (!string.IsNullOrWhiteSpace(marker.StagingDirectory) &&
+                    Directory.Exists(marker.StagingDirectory) &&
+                    !PathsEqual(marker.StagingDirectory, sourceDirectory))
+                {
+                    TryDeleteDirectory(marker.StagingDirectory);
+                }
+
+                return;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(marker.StagingDirectory) &&
+            Directory.Exists(marker.StagingDirectory) &&
+            !PathsEqual(marker.StagingDirectory, sourceDirectory))
+        {
+            TryDeleteDirectory(marker.StagingDirectory);
+        }
+
+        IndexMigrationRecovery.Abandon(sourceDirectory);
     }
 
     private static bool TryDeleteStagingDirectory(string stagingDirectory, out IndexCheckIssue issue)
@@ -375,6 +440,20 @@ public static class IndexCodecMigrator
         }
     }
 
+    private static void TryDeleteDirectory(string directoryPath)
+    {
+        try { Directory.Delete(directoryPath, recursive: true); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try { File.Delete(path); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
     private static bool IsMigrationFailure(Exception ex)
         => ex is not OutOfMemoryException and not AccessViolationException;
 
@@ -390,34 +469,6 @@ public static class IndexCodecMigrator
         => (issue.Code == IndexCheckIssueCodes.PostingsReadFailure || issue.Code == IndexCheckIssueCodes.StoredFieldsReadFailure)
            && issue.Message is not null
            && issue.Message.Contains("term dictionary format", StringComparison.OrdinalIgnoreCase);
-
-    private static IndexCheckResult RemoveMigrationMarkerIssue(IndexCheckResult result)
-    {
-        var filtered = new IndexCheckResult
-        {
-            SegmentsChecked = result.SegmentsChecked,
-            DocumentsChecked = result.DocumentsChecked,
-            FilesChecked = result.FilesChecked,
-            CommitGeneration = result.CommitGeneration
-        };
-
-        foreach (var issue in result.DetailedIssues)
-        {
-            if (issue.Code == IndexCheckIssueCodes.MigrationInProgress)
-                continue;
-
-            filtered.AddIssue(
-                issue.Severity,
-                issue.Code,
-                issue.Message,
-                issue.FileName,
-                issue.SegmentId,
-                issue.IsRepairable,
-                issue.SuggestedActions);
-        }
-
-        return filtered;
-    }
 
     private static string ResolveStagingDirectory(string sourceDirectory, string? requestedStagingDirectory)
     {
@@ -448,7 +499,144 @@ public static class IndexCodecMigrator
         }
     }
 
-    private static void PublishStagingDirectory(string sourceDirectory, string stagingDirectory)
+    private static Dictionary<string, string> BuildSegmentIdMap(IReadOnlyList<IndexCodecMigrationAction> actions, int sourceCommitGeneration)
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var action in actions)
+        {
+            if (action.SegmentId is null || map.ContainsKey(action.SegmentId))
+                continue;
+
+            map[action.SegmentId] = $"{action.SegmentId}_migrated_{sourceCommitGeneration}";
+        }
+
+        return map;
+    }
+
+    private static string GetTargetFileName(string sourceFileName, string? segmentId, IReadOnlyDictionary<string, string> segmentIdMap)
+    {
+        if (segmentId is null || !segmentIdMap.TryGetValue(segmentId, out var newSegmentId))
+            return sourceFileName;
+
+        if (!sourceFileName.StartsWith(segmentId, StringComparison.Ordinal))
+            return sourceFileName;
+
+        return newSegmentId + sourceFileName.Substring(segmentId.Length);
+    }
+
+    private static void CleanupTemporaryFiles(string directoryPath)
+    {
+        foreach (var tmpFile in Directory.GetFiles(directoryPath, "*.tmp"))
+        {
+            TryDeleteFile(tmpFile);
+        }
+    }
+
+    private static void MigrateSegmentSidecars(
+        string targetDirectory,
+        IReadOnlyDictionary<string, string> segmentIdMap,
+        HashSet<string> rewrittenTargetPaths)
+    {
+        foreach (var (oldSegmentId, newSegmentId) in segmentIdMap)
+        {
+            var oldSegPath = Path.Combine(targetDirectory, oldSegmentId + ".seg");
+            if (File.Exists(oldSegPath))
+            {
+                var info = SegmentInfo.ReadFrom(oldSegPath);
+                var newInfo = new SegmentInfo
+                {
+                    SegmentId = newSegmentId,
+                    DocCount = info.DocCount,
+                    LiveDocCount = info.LiveDocCount,
+                    CommitGeneration = info.CommitGeneration,
+                    FieldNames = info.FieldNames,
+                    IndexSortFields = info.IndexSortFields,
+                    VectorFields = info.VectorFields,
+                    DelGeneration = info.DelGeneration,
+                    MinSequenceNumber = info.MinSequenceNumber,
+                    MaxSequenceNumber = info.MaxSequenceNumber,
+                    EarliestSoftDeleteTimestamp = info.EarliestSoftDeleteTimestamp
+                };
+                newInfo.WriteTo(Path.Combine(targetDirectory, newSegmentId + ".seg"));
+            }
+
+            foreach (var oldFile in FindSegmentFiles(targetDirectory, oldSegmentId))
+            {
+                var fileName = Path.GetFileName(oldFile);
+                var newFileName = newSegmentId + fileName.Substring(oldSegmentId.Length);
+                var newPath = Path.Combine(targetDirectory, newFileName);
+
+                if (File.Exists(newPath) ||
+                    rewrittenTargetPaths.Contains(newPath) ||
+                    fileName.EndsWith(".seg", StringComparison.Ordinal))
+                {
+                    TryDeleteFile(oldFile);
+                }
+                else
+                {
+                    File.Move(oldFile, newPath, overwrite: false);
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<string> FindSegmentFiles(string directoryPath, string segmentId)
+    {
+        foreach (var file in Directory.EnumerateFiles(directoryPath))
+        {
+            var name = Path.GetFileName(file);
+            if (!name.StartsWith(segmentId, StringComparison.Ordinal))
+                continue;
+
+            var tail = name.Substring(segmentId.Length);
+            if (tail.StartsWith(".", StringComparison.Ordinal) ||
+                tail.StartsWith("_gen_", StringComparison.Ordinal) ||
+                tail.StartsWith("_v_", StringComparison.Ordinal))
+            {
+                yield return file;
+            }
+        }
+    }
+
+    private static void WriteMigratedCommit(
+        string targetDirectory,
+        IndexCodecMigrationPlan plan,
+        IReadOnlyDictionary<string, string> segmentIdMap,
+        int newGeneration)
+    {
+        var segmentIds = new List<string>(plan.Inventory.SegmentIds.Count);
+        foreach (var segId in plan.Inventory.SegmentIds)
+        {
+            segmentIds.Add(segmentIdMap.TryGetValue(segId, out var newId) ? newId : segId);
+        }
+
+        var commitData = new CommitData
+        {
+            Segments = segmentIds,
+            Generation = newGeneration,
+            ContentToken = plan.Inventory.ContentToken ?? 0
+        };
+        var json = JsonSerializer.Serialize(commitData, LeanCorpusJsonContext.Default.CommitData);
+        var content = CommitFileFormat.Wrap(json);
+        var commitPath = Path.Combine(targetDirectory, $"segments_{newGeneration}");
+        IndexAtomicFileWriter.WriteText(commitPath, content, durable: true);
+    }
+
+    private static void CopyMigratedStats(string sourceDirectory, string targetDirectory, int sourceGeneration, int newGeneration)
+    {
+        var sourceStats = Path.Combine(sourceDirectory, $"stats_{sourceGeneration}.json");
+        if (!File.Exists(sourceStats))
+            return;
+
+        var targetStats = Path.Combine(targetDirectory, $"stats_{newGeneration}.json");
+        IndexAtomicFileWriter.Write(targetStats, durable: true, stream =>
+        {
+            using var source = new FileStream(sourceStats, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            source.CopyTo(stream);
+        });
+    }
+
+    private static void PublishStagingFiles(string sourceDirectory, string stagingDirectory)
     {
         foreach (var file in Directory.EnumerateFiles(stagingDirectory))
         {
@@ -456,53 +644,95 @@ public static class IndexCodecMigrator
             if (string.Equals(name, IndexMigrationRecovery.MarkerFileName, StringComparison.Ordinal))
                 continue;
 
-            File.Copy(file, Path.Combine(sourceDirectory, name), overwrite: true);
+            var targetPath = Path.Combine(sourceDirectory, name);
+            if (File.Exists(targetPath))
+                continue;
+
+            PublishFileAtomically(file, targetPath);
         }
+    }
+
+    private static void PublishFileAtomically(string sourcePath, string targetPath)
+    {
+        IndexAtomicFileWriter.Write(targetPath, durable: true, stream =>
+        {
+            using var source = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            source.CopyTo(stream);
+        });
+    }
+
+    private static void CleanupMigratedSourceFiles(
+        string sourceDirectory,
+        IReadOnlyDictionary<string, string> segmentIdMap,
+        int oldGeneration,
+        List<IndexCheckIssue> issues)
+    {
+        foreach (var oldSegmentId in segmentIdMap.Keys)
+        {
+            foreach (var file in FindSegmentFiles(sourceDirectory, oldSegmentId))
+            {
+                TryDeleteFile(file);
+            }
+        }
+
+        TryDeleteFile(Path.Combine(sourceDirectory, $"segments_{oldGeneration}"));
+        TryDeleteFile(Path.Combine(sourceDirectory, $"stats_{oldGeneration}.json"));
     }
 
     private static void ExecuteRewrite(
         string targetDirectory,
         IndexCodecMigrationAction action,
-        HashSet<string> rewrittenStoredFieldSegments)
+        HashSet<string> rewrittenStoredFieldSegments,
+        IReadOnlyDictionary<string, string> segmentIdMap,
+        HashSet<string> rewrittenTargetPaths)
     {
         if (action.Kind != IndexCodecMigrationActionKind.RewriteFile)
             return;
 
-        var filePath = Path.Combine(targetDirectory, action.SourcePath);
-        switch (Path.GetExtension(action.SourcePath))
+        var sourceFileName = action.SourcePath;
+        var targetFileName = GetTargetFileName(sourceFileName, action.SegmentId, segmentIdMap);
+        var sourcePath = Path.Combine(targetDirectory, sourceFileName);
+        var targetPath = Path.Combine(targetDirectory, targetFileName);
+        rewrittenTargetPaths.Add(targetPath);
+
+        switch (Path.GetExtension(targetFileName))
         {
             case ".dic":
-                RewriteTermDictionary(filePath);
+                RewriteTermDictionary(sourcePath);
                 break;
             case ".pos":
-                RewritePostings(targetDirectory, action);
+                RewritePostings(targetDirectory, action, segmentIdMap);
                 break;
             case ".nrm":
-                RewriteNorms(filePath);
+                RewriteNorms(sourcePath, targetPath);
                 break;
             case ".dvn":
-                RewriteNumericDocValues(filePath);
+                RewriteNumericDocValues(sourcePath, targetPath);
                 break;
             case ".dvs":
-                RewriteSortedDocValues(filePath);
+                RewriteSortedDocValues(sourcePath, targetPath);
                 break;
             case ".dss":
-                RewriteSortedSetDocValues(filePath);
+                RewriteSortedSetDocValues(sourcePath, targetPath);
                 break;
             case ".dsn":
-                RewriteSortedNumericDocValues(filePath);
+                RewriteSortedNumericDocValues(sourcePath, targetPath);
                 break;
             case ".dvb":
-                RewriteBinaryDocValues(filePath);
+                RewriteBinaryDocValues(sourcePath, targetPath);
                 break;
             case ".fln":
-                RewriteFieldLengths(filePath);
+                RewriteFieldLengths(sourcePath, targetPath);
                 break;
             case ".fdt":
             case ".fdx":
-                if (action.SegmentId is not null && !rewrittenStoredFieldSegments.Add(action.SegmentId))
-                    return;
-                RewriteStoredFields(targetDirectory, action);
+                if (action.SegmentId is not null)
+                {
+                    var segmentKey = segmentIdMap.TryGetValue(action.SegmentId, out var newId) ? newId : action.SegmentId;
+                    if (!rewrittenStoredFieldSegments.Add(segmentKey))
+                        return;
+                }
+                RewriteStoredFields(targetDirectory, action, segmentIdMap);
                 break;
             default:
                 throw new InvalidDataException($"No migration writer is registered for '{action.SourcePath}'.");
@@ -530,15 +760,21 @@ public static class IndexCodecMigrator
             "Re-index the data with the current version of LeanCorpus.");
     }
 
-    private static void RewritePostings(string targetDirectory, IndexCodecMigrationAction action)
+    private static void RewritePostings(string targetDirectory, IndexCodecMigrationAction action, IReadOnlyDictionary<string, string> segmentIdMap)
     {
         if (action.SegmentId is null)
             throw new InvalidDataException($"Postings action for '{action.SourcePath}' has no segment ID.");
 
-        var basePath = Path.Combine(targetDirectory, action.SegmentId);
+        var sourceSegmentId = action.SegmentId;
+        if (!segmentIdMap.TryGetValue(sourceSegmentId, out var targetSegmentId))
+            targetSegmentId = sourceSegmentId;
+
+        var sourceBase = Path.Combine(targetDirectory, sourceSegmentId);
+        var targetBase = Path.Combine(targetDirectory, targetSegmentId);
+
         List<(string Term, List<PostingRow> Postings)> terms;
-        using (var dictionary = TermDictionaryReader.Open(basePath + ".dic"))
-        using (var input = new IndexInput(basePath + ".pos"))
+        using (var dictionary = TermDictionaryReader.Open(sourceBase + ".dic"))
+        using (var input = new IndexInput(sourceBase + ".pos"))
         {
             _ = PostingsEnum.ValidateFileHeader(input);
             terms = dictionary
@@ -547,13 +783,13 @@ public static class IndexCodecMigrator
                 .ToList();
         }
 
-        var normsData = NormsReader.Read(basePath + ".nrm");
+        var normsData = NormsReader.Read(sourceBase + ".nrm");
 
         var postingsOffsets = new Dictionary<string, long>(terms.Count, StringComparer.Ordinal);
         var headerPatches = new List<(long HeaderPos, int DocFreq, long SkipOffset)>(terms.Count);
 
-        var posPath = basePath + ".pos";
-        var dicPath = basePath + ".dic";
+        var posPath = targetBase + ".pos";
+        var dicPath = targetBase + ".dic";
         var temporaryPosPath = posPath + ".tmp";
         var temporaryDicPath = dicPath + ".tmp";
         var temporaryBodyPath = posPath + ".body.tmp";
@@ -644,9 +880,9 @@ public static class IndexCodecMigrator
         }
     }
 
-    private static void RewriteNumericDocValues(string path)
+    private static void RewriteNumericDocValues(string sourcePath, string targetPath)
     {
-        var (values, presence) = NumericDocValuesReader.Read(path);
+        var (values, presence) = NumericDocValuesReader.Read(sourcePath);
         var docCount = values.Count == 0 ? 0 : values.Values.Max(static field => field.Length);
         var presenceSets = new Dictionary<string, IReadOnlySet<int>>(StringComparer.Ordinal);
         foreach (var (field, bitmap) in presence)
@@ -655,23 +891,23 @@ public static class IndexCodecMigrator
                 presenceSets[field] = bitmap.ToHashSet();
         }
 
-        WriteSingleFileAtomically(path, temporaryPath => NumericDocValuesWriter.Write(temporaryPath, values, docCount, presenceSets));
+        WriteSingleFileAtomically(sourcePath, targetPath, temporaryPath => NumericDocValuesWriter.Write(temporaryPath, values, docCount, presenceSets));
     }
 
-    private static void RewriteSortedDocValues(string path)
+    private static void RewriteSortedDocValues(string sourcePath, string targetPath)
     {
-        var (values, _) = SortedDocValuesReader.Read(path);
+        var (values, _) = SortedDocValuesReader.Read(sourcePath);
         var docCount = values.Count == 0 ? 0 : values.Values.Max(static field => field.Length);
         var nullableValues = values.ToDictionary(
             static item => item.Key,
             static item => item.Value.Select(static value => (string?)value).ToArray(),
             StringComparer.Ordinal);
-        WriteSingleFileAtomically(path, temporaryPath => SortedDocValuesWriter.Write(temporaryPath, nullableValues, docCount));
+        WriteSingleFileAtomically(sourcePath, targetPath, temporaryPath => SortedDocValuesWriter.Write(temporaryPath, nullableValues, docCount));
     }
 
-    private static void RewriteNorms(string path)
+    private static void RewriteNorms(string sourcePath, string targetPath)
     {
-        var values = NormsReader.Read(path);
+        var values = NormsReader.Read(sourcePath);
         var fieldNorms = values.Norms.ToDictionary(
             static item => item.Key,
             static item =>
@@ -688,56 +924,56 @@ public static class IndexCodecMigrator
             : null;
 
         var docCount = fieldNorms.Count == 0 ? 0 : fieldNorms.Values.Max(static field => field.Length);
-        WriteSingleFileAtomically(path, temporaryPath => NormsWriter.Write(temporaryPath, fieldNorms, fieldBoosts, docCount));
+        WriteSingleFileAtomically(sourcePath, targetPath, temporaryPath => NormsWriter.Write(temporaryPath, fieldNorms, fieldBoosts, docCount));
     }
 
-    private static void RewriteSortedSetDocValues(string path)
+    private static void RewriteSortedSetDocValues(string sourcePath, string targetPath)
     {
-        var values = SortedSetDocValuesReader.Read(path);
+        var values = SortedSetDocValuesReader.Read(sourcePath);
         var docCount = values.Count == 0 ? 0 : values.Values.Max(static field => field.Length);
         var columns = new Dictionary<string, IReadOnlyList<string>?[]>(values.Count, StringComparer.Ordinal);
         foreach (var (field, fieldValues) in values)
             columns[field] = fieldValues;
 
-        WriteSingleFileAtomically(path, temporaryPath => SortedSetDocValuesWriter.Write(temporaryPath, columns, docCount));
+        WriteSingleFileAtomically(sourcePath, targetPath, temporaryPath => SortedSetDocValuesWriter.Write(temporaryPath, columns, docCount));
     }
 
-    private static void RewriteSortedNumericDocValues(string path)
+    private static void RewriteSortedNumericDocValues(string sourcePath, string targetPath)
     {
-        var values = SortedNumericDocValuesReader.Read(path);
+        var values = SortedNumericDocValuesReader.Read(sourcePath);
         var docCount = values.Count == 0 ? 0 : values.Values.Max(static field => field.Length);
         var columns = new Dictionary<string, IReadOnlyList<double>?[]>(values.Count, StringComparer.Ordinal);
         foreach (var (field, fieldValues) in values)
             columns[field] = fieldValues;
 
-        WriteSingleFileAtomically(path, temporaryPath => SortedNumericDocValuesWriter.Write(temporaryPath, columns, docCount));
+        WriteSingleFileAtomically(sourcePath, targetPath, temporaryPath => SortedNumericDocValuesWriter.Write(temporaryPath, columns, docCount));
     }
 
-    private static void RewriteBinaryDocValues(string path)
+    private static void RewriteBinaryDocValues(string sourcePath, string targetPath)
     {
-        var values = BinaryDocValuesReader.Read(path);
+        var values = BinaryDocValuesReader.Read(sourcePath);
         var docCount = values.Count == 0 ? 0 : values.Values.Max(static field => field.Length);
         var columns = new Dictionary<string, IReadOnlyList<byte[]>?[]>(values.Count, StringComparer.Ordinal);
         foreach (var (field, fieldValues) in values)
             columns[field] = fieldValues;
 
-        WriteSingleFileAtomically(path, temporaryPath => BinaryDocValuesWriter.Write(temporaryPath, columns, docCount));
+        WriteSingleFileAtomically(sourcePath, targetPath, temporaryPath => BinaryDocValuesWriter.Write(temporaryPath, columns, docCount));
     }
 
-    private static void RewriteFieldLengths(string path)
+    private static void RewriteFieldLengths(string sourcePath, string targetPath)
     {
-        var values = FieldLengthReader.TryRead(path) ?? new Dictionary<string, int[]>(StringComparer.Ordinal);
+        var values = FieldLengthReader.TryRead(sourcePath) ?? new Dictionary<string, int[]>(StringComparer.Ordinal);
         var docCount = values.Count == 0 ? 0 : values.Values.Max(static field => field.Length);
-        WriteSingleFileAtomically(path, temporaryPath => FieldLengthWriter.Write(temporaryPath, values, docCount));
+        WriteSingleFileAtomically(sourcePath, targetPath, temporaryPath => FieldLengthWriter.Write(temporaryPath, values, docCount));
     }
 
-    private static void WriteSingleFileAtomically(string path, Action<string> writeTemporary)
+    private static void WriteSingleFileAtomically(string sourcePath, string targetPath, Action<string> writeTemporary)
     {
-        var temporaryPath = path + ".tmp";
+        var temporaryPath = targetPath + ".tmp";
         try
         {
             writeTemporary(temporaryPath);
-            File.Move(temporaryPath, path, overwrite: true);
+            File.Move(temporaryPath, targetPath, overwrite: true);
         }
         catch
         {
@@ -784,21 +1020,27 @@ public static class IndexCodecMigrator
         }
     }
 
-    private static void RewriteStoredFields(string targetDirectory, IndexCodecMigrationAction action)
+    private static void RewriteStoredFields(string targetDirectory, IndexCodecMigrationAction action, IReadOnlyDictionary<string, string> segmentIdMap)
     {
         if (action.SegmentId is null)
             throw new InvalidDataException($"Stored fields action for '{action.SourcePath}' has no segment ID.");
 
-        var basePath = Path.Combine(targetDirectory, action.SegmentId);
-        var info = SegmentInfo.ReadFrom(basePath + ".seg");
-        var fdtPath = basePath + ".fdt";
-        var fdxPath = basePath + ".fdx";
+        var sourceSegmentId = action.SegmentId;
+        if (!segmentIdMap.TryGetValue(sourceSegmentId, out var targetSegmentId))
+            targetSegmentId = sourceSegmentId;
+
+        var sourceBase = Path.Combine(targetDirectory, sourceSegmentId);
+        var targetBase = Path.Combine(targetDirectory, targetSegmentId);
+
+        var info = SegmentInfo.ReadFrom(sourceBase + ".seg");
+        var fdtPath = targetBase + ".fdt";
+        var fdxPath = targetBase + ".fdx";
         var temporaryFdtPath = fdtPath + ".tmp";
         var temporaryFdxPath = fdxPath + ".tmp";
 
         try
         {
-            using (var reader = StoredFieldsReader.Open(fdtPath, fdxPath))
+            using (var reader = StoredFieldsReader.Open(sourceBase + ".fdt", sourceBase + ".fdx"))
             {
                 StoredFieldsWriter.Write(
                     temporaryFdtPath,
@@ -862,6 +1104,12 @@ public static class IndexCodecMigrator
             });
         }
     }
+
+    private static bool PathsEqual(string left, string right)
+        => string.Equals(
+            Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            StringComparison.OrdinalIgnoreCase);
 
     private sealed record PostingRow(int DocId, int Frequency, int[] Positions, byte[][] Payloads);
 
