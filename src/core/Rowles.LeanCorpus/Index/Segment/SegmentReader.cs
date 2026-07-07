@@ -66,6 +66,9 @@ public sealed partial class SegmentReader : IDisposable
     /// <summary>Gets the segment metadata for this reader.</summary>
     public SegmentInfo Info => _info;
 
+    /// <summary>Gets the directory this reader was opened from.</summary>
+    internal MMapDirectory Directory => _directory;
+
     /// <summary>Gets the total number of documents in this segment, including deleted documents.</summary>
     public int MaxDoc => _info.DocCount;
 

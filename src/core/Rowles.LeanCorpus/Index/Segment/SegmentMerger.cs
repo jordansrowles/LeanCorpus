@@ -164,7 +164,7 @@ public sealed class SegmentMerger
         // Phase 1: build per-segment doc-id remap (live docs only).
         // Use int[] with -1 sentinel; flat arrays beat Dictionary on both lookup
         // cost and allocation pressure for the hot streaming-merge inner loop.
-        var perSegmentMaps = new List<(SegmentInfo Seg, int[] DocIdMap)>(segments.Count);
+        var perSegmentMaps = new List<(SegmentInfo Seg, int[] DocIdMap, string DirectoryPath)>(segments.Count);
         int newDocId = 0;
         foreach (var segInfo in segments)
         {
@@ -174,14 +174,14 @@ public sealed class SegmentMerger
             {
                 docIdMap[oldDocId] = reader.IsLive(oldDocId) ? newDocId++ : -1;
             }
-            perSegmentMaps.Add((segInfo, docIdMap));
+            perSegmentMaps.Add((segInfo, docIdMap, reader.Directory.DirectoryPath));
         }
 
         // Check soft-delete retention: if a doc is soft-deleted and its timestamp
         // is still within the retention window, keep it (treat it as live for merge purposes).
         for (int i = 0; i < perSegmentMaps.Count; i++)
         {
-            var (segInfo, docIdMap) = perSegmentMaps[i];
+            var (segInfo, docIdMap, _) = perSegmentMaps[i];
             var reader = readers[segInfo.SegmentId];
 
             if (!ShouldRetainSoftDeletes(segInfo)) continue;
@@ -274,7 +274,7 @@ public sealed class SegmentMerger
         internal Dictionary<string, bool> VectorFieldNormalised { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, bool> VectorFieldHadHnsw { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, VectorQuantisation> VectorFieldQuantisation { get; } = new(StringComparer.Ordinal);
-        internal Dictionary<string, List<(SegmentInfo Seg, Dictionary<int, int> OldToNew)>> VectorFieldRemaps { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, List<(SegmentInfo Seg, Dictionary<int, int> OldToNew, string DirectoryPath)>> VectorFieldRemaps { get; } = new(StringComparer.Ordinal);
 
         internal MergeContext(int totalDocs, HashSet<string> fieldNames)
         {
@@ -284,13 +284,13 @@ public sealed class SegmentMerger
     }
 
     private void MergePostings(
-        IReadOnlyList<(SegmentInfo Seg, int[] DocIdMap)> sources,
+        IReadOnlyList<(SegmentInfo Seg, int[] DocIdMap, string DirectoryPath)> sources,
         string basePath)
     {
         var merger = new List<StreamingPostingsMerger.Source>(sources.Count);
-        foreach (var (seg, map) in sources)
+        foreach (var (seg, map, dirPath) in sources)
         {
-            var segBase = Path.Combine(_directory.DirectoryPath, seg.SegmentId);
+            var segBase = Path.Combine(dirPath, seg.SegmentId);
             merger.Add(new StreamingPostingsMerger.Source
             {
                 DicPath = segBase + ".dic",
@@ -303,38 +303,38 @@ public sealed class SegmentMerger
     }
 
     private void AccumulateDocPayloads(
-        IReadOnlyList<(SegmentInfo Seg, int[] DocIdMap)> sources,
+        IReadOnlyList<(SegmentInfo Seg, int[] DocIdMap, string DirectoryPath)> sources,
         IReadOnlyDictionary<string, SegmentReader> readers,
         MergeContext ctx)
     {
-        foreach (var (segInfo, docIdMap) in sources)
+        foreach (var (segInfo, docIdMap, dirPath) in sources)
         {
             var reader = readers[segInfo.SegmentId];
             bool segHasTermVectors = reader.HasTermVectors;
             var segParentBitSet = reader.GetParentBitSet();
 
-            var flnPath = Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".fln");
+            var flnPath = Path.Combine(dirPath, segInfo.SegmentId + ".fln");
             var segFieldLengths = FieldLengthReader.TryRead(flnPath)
                 ?? new Dictionary<string, int[]>(StringComparer.Ordinal);
 
             var segNumericDvs = NumericDocValuesReader.Read(
-                Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".dvn"));
+                Path.Combine(dirPath, segInfo.SegmentId + ".dvn"));
             var segSortedDvs = SortedDocValuesReader.Read(
-                Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".dvs"));
+                Path.Combine(dirPath, segInfo.SegmentId + ".dvs"));
             var segSortedSetDvs = SortedSetDocValuesReader.Read(
-                Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".dss"));
+                Path.Combine(dirPath, segInfo.SegmentId + ".dss"));
             var segSortedNumericDvs = SortedNumericDocValuesReader.Read(
-                Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".dsn"));
+                Path.Combine(dirPath, segInfo.SegmentId + ".dsn"));
             var segBinaryDvs = BinaryDocValuesReader.Read(
-                Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".dvb"));
+                Path.Combine(dirPath, segInfo.SegmentId + ".dvb"));
             var segNumericIndex = ReadNumericIndex(
-                Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".num"));
+                Path.Combine(dirPath, segInfo.SegmentId + ".num"));
             var segInt64Index = ReadInt64Index(
-                Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".numl"));
+                Path.Combine(dirPath, segInfo.SegmentId + ".numl"));
             var segInt64Dvs = Int64DocValuesReader.Read(
-                Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".dvnl"));
+                Path.Combine(dirPath, segInfo.SegmentId + ".dvnl"));
             var segInt64SortedDvs = Int64SortedNumericDocValuesReader.Read(
-                Path.Combine(_directory.DirectoryPath, segInfo.SegmentId + ".dsnl"));
+                Path.Combine(dirPath, segInfo.SegmentId + ".dsnl"));
 
             // Pre-build a name->VectorFieldInfo dictionary so the per-doc/per-field
             // loop body avoids an O(N) LINQ scan for each posting.
@@ -463,13 +463,13 @@ public sealed class SegmentMerger
 
                         if (!ctx.VectorFieldRemaps.TryGetValue(vfName, out var remapList))
                         {
-                            remapList = new List<(SegmentInfo, Dictionary<int, int>)>();
+                            remapList = new List<(SegmentInfo, Dictionary<int, int>, string)>();
                             ctx.VectorFieldRemaps[vfName] = remapList;
                         }
                         var entry = remapList.FirstOrDefault(t => ReferenceEquals(t.Seg, segInfo));
                         if (entry.OldToNew is null)
                         {
-                            entry = (segInfo, new Dictionary<int, int>());
+                            entry = (segInfo, new Dictionary<int, int>(), dirPath);
                             remapList.Add(entry);
                         }
                         entry.OldToNew[oldDocId] = remapDocId;
@@ -489,7 +489,7 @@ public sealed class SegmentMerger
     }
 
     private static void WriteNorms(
-        IReadOnlyList<(SegmentInfo Seg, int[] DocIdMap)> perSegmentMaps,
+        IReadOnlyList<(SegmentInfo Seg, int[] DocIdMap, string DirectoryPath)> perSegmentMaps,
         IReadOnlyDictionary<string, SegmentReader> readers,
         IReadOnlyCollection<string> fieldNames,
         string basePath,
@@ -502,7 +502,7 @@ public sealed class SegmentMerger
             var norms = new float[totalDocs];
             var boosts = new float[totalDocs];
             Array.Fill(boosts, 1.0f);
-            foreach (var (segInfo, docIdMap) in perSegmentMaps)
+            foreach (var (segInfo, docIdMap, _) in perSegmentMaps)
             {
                 var reader = readers[segInfo.SegmentId];
                 for (int oldDocId = 0; oldDocId < segInfo.DocCount; oldDocId++)
@@ -586,7 +586,7 @@ public sealed class SegmentMerger
                     if (seed.OldToNew is not null && seed.OldToNew.Count > 0)
                     {
                         var seedHnswPath = Codecs.Vectors.VectorFilePaths.HnswFile(
-                            Path.Combine(_directory.DirectoryPath, seed.Seg.SegmentId), fieldName);
+                            Path.Combine(seed.DirectoryPath, seed.Seg.SegmentId), fieldName);
                         if (File.Exists(seedHnswPath))
                         {
                             try
