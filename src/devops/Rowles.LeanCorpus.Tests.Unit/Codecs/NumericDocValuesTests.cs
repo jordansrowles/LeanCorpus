@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Codecs.DocValues;
+using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Codecs;
@@ -120,5 +120,71 @@ public sealed class NumericDocValuesTests : IDisposable
         var result = NumericDocValuesReader.Read(path);
 
         Assert.Equal(values, result.Values["v"]);
+    }
+
+    /// <summary>
+    /// Verifies that a bits-per-value header larger than 64 is rejected.
+    /// </summary>
+    [Fact(DisplayName = "Read: BitsPerValue Above 64 Throws")]
+    public void Read_BitsPerValueAbove64_Throws()
+    {
+        const string fieldName = "a";
+        var path = Path.Combine(_dir, "bad-bits.dvn");
+        NumericDocValuesWriter.Write(path, new Dictionary<string, double[]> { [fieldName] = [1.0] }, 1);
+
+        long offset = BitsPerValueByteOffset(path, fieldName);
+        OverwriteByte(path, offset, 65);
+
+        Assert.Throws<InvalidDataException>(() => NumericDocValuesReader.Read(path));
+    }
+
+    /// <summary>
+    /// Verifies that a field declaring more packed bytes than the file contains is rejected.
+    /// </summary>
+    [Fact(DisplayName = "Read: Truncated Packed Data Throws")]
+    public void Read_TruncatedPackedData_Throws()
+    {
+        const string fieldName = "a";
+        var path = Path.Combine(_dir, "trunc.dvn");
+        NumericDocValuesWriter.Write(path, new Dictionary<string, double[]> { [fieldName] = [1.0, 2.0, 3.0] }, 3);
+
+        long offset = BitsPerValueByteOffset(path, fieldName) + 1; // first packed byte
+        var bytes = File.ReadAllBytes(path);
+        File.WriteAllBytes(path, bytes.AsSpan(0, (int)offset).ToArray());
+
+        Assert.Throws<InvalidDataException>(() => NumericDocValuesReader.Read(path));
+    }
+
+    private static long BitsPerValueByteOffset(string path, string fieldName)
+    {
+        int nameLen = System.Text.Encoding.UTF8.GetByteCount(fieldName);
+        long bodyOffset = ComputeBodyOffset(path);
+        // body: fieldCount(4) + nameLen varint(1) + name bytes + presenceCount(4) + docCount(4) + min(8) + bitsPerValue(1)
+        return bodyOffset + 4 + 1 + nameLen + 4 + 4 + 8;
+    }
+
+    private static long ComputeBodyOffset(string path)
+    {
+        var bytes = File.ReadAllBytes(path);
+        long offset = 1; // skip version byte
+        while (offset < bytes.Length)
+        {
+            if ((bytes[offset] & 0x80) == 0)
+            {
+                offset++;
+                break;
+            }
+
+            offset++;
+        }
+
+        return offset;
+    }
+
+    private static void OverwriteByte(string path, long offset, byte value)
+    {
+        var bytes = File.ReadAllBytes(path);
+        bytes[offset] = value;
+        File.WriteAllBytes(path, bytes);
     }
 }

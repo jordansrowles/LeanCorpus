@@ -57,6 +57,19 @@ internal static class SortedNumericDocValuesReader
     {
         long min = input.ReadInt64();
         int bitsPerValue = input.ReadByte();
+
+        if ((uint)bitsPerValue > 64)
+            throw new InvalidDataException(
+                $"Invalid bits-per-value {bitsPerValue} for sorted-numeric doc values; must be between 0 and 64.");
+
+        if (bitsPerValue > 0)
+        {
+            long expectedPackedBytes = ((long)bitsPerValue * valueCount + 7) / 8;
+            if (input.Position + expectedPackedBytes > input.Length)
+                throw new InvalidDataException(
+                    $"Sorted-numeric doc values declare {bitsPerValue} bits per value for {valueCount} values, but the file does not contain the expected packed data.");
+        }
+
         var values = new double[valueCount];
 
         if (valueCount == 0)

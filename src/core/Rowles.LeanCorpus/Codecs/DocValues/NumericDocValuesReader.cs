@@ -53,6 +53,18 @@ internal static class NumericDocValuesReader
             long min = input.ReadInt64();
             int bitsPerValue = input.ReadByte();
 
+            if ((uint)bitsPerValue > 64)
+                throw new InvalidDataException(
+                    $"Invalid bits-per-value {bitsPerValue} for numeric doc values field '{fieldName}'; must be between 0 and 64.");
+
+            if (bitsPerValue > 0)
+            {
+                long expectedPackedBytes = ((long)bitsPerValue * docCount + 7) / 8;
+                if (input.Position + expectedPackedBytes > input.Length)
+                    throw new InvalidDataException(
+                        $"Numeric doc values field '{fieldName}' declares {bitsPerValue} bits per value for {docCount} documents, but the file does not contain the expected packed data.");
+            }
+
             var fieldValues = new double[docCount];
             if (bitsPerValue == 0)
             {
