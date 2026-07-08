@@ -448,21 +448,30 @@ internal sealed class HnswGraph
     /// Diversity-preserving neighbour selection (Algorithm 4 of the HNSW paper).
     /// Picks up to <paramref name="m"/> elements from the candidate list, accepting
     /// each only when it is closer to the query than to every already-selected element.
+    /// Uses a local vector cache to avoid repeated dequantisation of the same stored
+    /// vectors (BBQ and Int8 formats allocate on every GetVector call).
     /// </summary>
     private List<(int DocId, float Distance)> SelectNeighboursHeuristic(
         ReadOnlySpan<float> query,
         List<(int DocId, float Distance)> sortedCandidates,
         int m)
     {
+        // Cache dequantised vectors for the duration of this call. Keys are doc IDs,
+        // values are the float[] backing the dequantised vector. Avoids re-allocating
+        // and re-dequantising the same vector for every pairwise comparison in the
+        // inner loop — particularly impactful for BBQ and Int8 formats.
+        var cache = new Dictionary<int, float[]>(sortedCandidates.Count + m);
+
         var selected = new List<(int DocId, float Distance)>(m);
         foreach (var c in sortedCandidates)
         {
             if (selected.Count >= m) break;
             bool good = true;
-            var candidateVec = _vectors.GetVector(c.DocId);
+            var candidateVec = GetOrCacheVector(c.DocId, cache);
             foreach (var s in selected)
             {
-                float dToSelected = Distance(candidateVec, _vectors.GetVector(s.DocId));
+                var selectedVec = GetOrCacheVector(s.DocId, cache);
+                float dToSelected = Distance(candidateVec, selectedVec);
                 if (dToSelected < c.Distance)
                 {
                     good = false;
@@ -472,6 +481,22 @@ internal sealed class HnswGraph
             if (good) selected.Add(c);
         }
         return selected;
+    }
+
+    /// <summary>
+    /// Returns a <see cref="ReadOnlySpan{Float}"/> for the stored vector at
+    /// <paramref name="docId"/>, consulting <paramref name="cache"/> first.
+    /// When the underlying source allocates on every call (BBQ, Int8), this
+    /// eliminates redundant dequantisation within a single graph operation.
+    /// </summary>
+    private ReadOnlySpan<float> GetOrCacheVector(int docId, Dictionary<int, float[]> cache)
+    {
+        if (cache.TryGetValue(docId, out var arr))
+            return arr;
+        var span = _vectors.GetVector(docId);
+        arr = span.ToArray();
+        cache[docId] = arr;
+        return arr;
     }
 
     private void PruneNeighbours(int docId, int level, int degree)
