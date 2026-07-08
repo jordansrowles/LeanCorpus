@@ -90,4 +90,41 @@ internal static class BBQDistanceComputer
         // Both are dequantised float arrays; use standard dot product.
         return -Search.Simd.SimdVectorOps.DotProduct(a, b);
     }
+
+    /// <summary>
+    /// Computes Hamming-based distance between two bit-packed stored vectors.
+    /// Uses the same metric as query-vs-stored search, ensuring graph construction
+    /// optimises for the distance function actually used at search time.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static float Distance(ReadOnlySpan<byte> bitsA, ReadOnlySpan<byte> bitsB, int dimension)
+    {
+        int packedBytes = (dimension + 7) / 8;
+        int matching = 0;
+
+        ref byte aRef = ref MemoryMarshal.GetReference(bitsA);
+        ref byte bRef = ref MemoryMarshal.GetReference(bitsB);
+        int fullChunks = packedBytes / 8;
+
+        for (int chunk = 0; chunk < fullChunks; chunk++)
+        {
+            ulong aUlong = Unsafe.ReadUnaligned<ulong>(ref Unsafe.AddByteOffset(ref aRef, chunk * 8));
+            ulong bUlong = Unsafe.ReadUnaligned<ulong>(ref Unsafe.AddByteOffset(ref bRef, chunk * 8));
+            ulong matchBits = ~(aUlong ^ bUlong); // XNOR
+            matching += BitOperations.PopCount(matchBits);
+        }
+
+        // Tail: remaining < 64 bits
+        int tailStart = fullChunks * 8 * 8;
+        for (int j = tailStart; j < dimension; j++)
+        {
+            int byteIdx = j / 8;
+            int bitIdx = j % 8;
+            bool bitA = ((Unsafe.AddByteOffset(ref aRef, byteIdx) >> bitIdx) & 1) == 1;
+            bool bitB = ((Unsafe.AddByteOffset(ref bRef, byteIdx) >> bitIdx) & 1) == 1;
+            if (bitA == bitB) matching++;
+        }
+
+        return -(2f * matching - dimension);
+    }
 }

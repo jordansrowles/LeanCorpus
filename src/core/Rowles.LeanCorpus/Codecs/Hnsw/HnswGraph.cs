@@ -211,7 +211,7 @@ internal sealed class HnswGraph
             // candidates is in arbitrary order; convert to a sorted distance ascending list for selection.
             var sorted = SortAscByDistance(candidates);
             int degree = LevelDegree(l);
-            var neighbours = SelectNeighboursHeuristic(query, sorted, degree);
+            var neighbours = SelectNeighboursHeuristic(sorted, degree);
 
             // Bidirectional linking: add neighbours to the new node and vice versa, pruning back-edges as needed.
             _mutableLevels[l][docId] = neighbours.Select(n => n.DocId).ToList();
@@ -444,34 +444,18 @@ internal sealed class HnswGraph
         return list;
     }
 
-    /// <summary>
-    /// Diversity-preserving neighbour selection (Algorithm 4 of the HNSW paper).
-    /// Picks up to <paramref name="m"/> elements from the candidate list, accepting
-    /// each only when it is closer to the query than to every already-selected element.
-    /// Uses a local vector cache to avoid repeated dequantisation of the same stored
-    /// vectors (BBQ and Int8 formats allocate on every GetVector call).
-    /// </summary>
     private List<(int DocId, float Distance)> SelectNeighboursHeuristic(
-        ReadOnlySpan<float> query,
         List<(int DocId, float Distance)> sortedCandidates,
         int m)
     {
-        // Cache dequantised vectors for the duration of this call. Keys are doc IDs,
-        // values are the float[] backing the dequantised vector. Avoids re-allocating
-        // and re-dequantising the same vector for every pairwise comparison in the
-        // inner loop — particularly impactful for BBQ and Int8 formats.
-        var cache = new Dictionary<int, float[]>(sortedCandidates.Count + m);
-
         var selected = new List<(int DocId, float Distance)>(m);
         foreach (var c in sortedCandidates)
         {
             if (selected.Count >= m) break;
             bool good = true;
-            var candidateVec = GetOrCacheVector(c.DocId, cache);
             foreach (var s in selected)
             {
-                var selectedVec = GetOrCacheVector(s.DocId, cache);
-                float dToSelected = Distance(candidateVec, selectedVec);
+                float dToSelected = StoredDistance(c.DocId, s.DocId);
                 if (dToSelected < c.Distance)
                 {
                     good = false;
@@ -483,31 +467,14 @@ internal sealed class HnswGraph
         return selected;
     }
 
-    /// <summary>
-    /// Returns a <see cref="ReadOnlySpan{Float}"/> for the stored vector at
-    /// <paramref name="docId"/>, consulting <paramref name="cache"/> first.
-    /// When the underlying source allocates on every call (BBQ, Int8), this
-    /// eliminates redundant dequantisation within a single graph operation.
-    /// </summary>
-    private ReadOnlySpan<float> GetOrCacheVector(int docId, Dictionary<int, float[]> cache)
-    {
-        if (cache.TryGetValue(docId, out var arr))
-            return arr;
-        var span = _vectors.GetVector(docId);
-        arr = span.ToArray();
-        cache[docId] = arr;
-        return arr;
-    }
-
     private void PruneNeighbours(int docId, int level, int degree)
     {
         var list = _mutableLevels[level][docId];
-        var nodeVec = _vectors.GetVector(docId);
         var ranked = new List<(int DocId, float Distance)>(list.Count);
         foreach (var n in list)
-            ranked.Add((DocId: n, Distance: Distance(nodeVec, _vectors.GetVector(n))));
+            ranked.Add((DocId: n, Distance: StoredDistance(docId, n)));
         ranked.Sort(static (a, b) => a.Distance.CompareTo(b.Distance));
-        var kept = SelectNeighboursHeuristic(nodeVec, ranked, degree);
+        var kept = SelectNeighboursHeuristic(ranked, degree);
         list.Clear();
         foreach (var n in kept) list.Add(n.DocId);
     }
@@ -534,14 +501,36 @@ internal sealed class HnswGraph
     }
 
     /// <summary>
-    /// Distance between two already-dequantised vectors. Used for stored-vs-stored
-    /// performance-critical enough to warrant quantisation-specific paths.
+    /// Distance between two already-dequantised float vectors. Used for stored-vs-stored
+    /// comparisons. Callers should prefer <see cref="StoredDistance"/> which uses
+    /// quantisation-aware metrics (BBQ Hamming, Int8 fused) for correct graph topology.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static float Distance(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
     {
         // Vectors are expected to be L2-normalised; dot product then equals cosine similarity.
         // Convert to a distance where smaller is better.
+        return -SimdVectorOps.DotProduct(a, b);
+    }
+
+    /// <summary>
+    /// Quantisation-aware distance between two stored vectors. Uses the same metric
+    /// as query-vs-stored search so the graph topology is optimised for the distance
+    /// function actually used at query time. For BBQ this is Hamming distance on
+    /// bit-packed data; for unquantised vectors it falls back to dot product.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private float StoredDistance(int docIdA, int docIdB)
+    {
+        if (_vectorQuantisation == VectorQuantisation.BBQ && _bbqSource is not null)
+        {
+            var bitsA = _bbqSource.GetRawVector(docIdA);
+            var bitsB = _bbqSource.GetRawVector(docIdB);
+            return BBQDistanceComputer.Distance(bitsA, bitsB, _vectors.Dimension);
+        }
+        // Int8 and unquantised: dequantised dot product is correct (same metric as search).
+        var a = _vectors.GetVector(docIdA);
+        var b = _vectors.GetVector(docIdB);
         return -SimdVectorOps.DotProduct(a, b);
     }
 
