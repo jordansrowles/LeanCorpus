@@ -442,72 +442,78 @@ public readonly struct LeanExpressionVisitor
     }
 
     /// <summary>
+    /// Maximum number of terms or values allowed in a Contains() collection.
+    /// Prevents unbounded materialisation of captured collections that could OOM
+    /// or hang on lazy/infinite enumerables.
+    /// </summary>
+    private const int MaxInSetTerms = 10_000;
+
+    /// <summary>
+    /// Extracts items from a captured collection with a hard size cap.
+    /// Only accepts concrete collections (ICollection) so Count can be checked
+    /// before materialisation. Rejects lazy/infinite enumerables outright.
+    /// </summary>
+    private static List<T> GetCappedCollectionValues<T>(object value, Func<object, T> convert, string typeLabel)
+    {
+        if (value is not ICollection col)
+        {
+            throw new NotSupportedException(
+                $"Contains() requires a concrete collection such as an array, List<T>, or HashSet<T>. " +
+                $"Lazy enumerables (e.g. iterator methods, LINQ queries) are not supported because they " +
+                $"cannot be checked for size without full materialisation.");
+        }
+
+        if (col.Count > MaxInSetTerms)
+        {
+            throw new NotSupportedException(
+                $"Contains() collection has {col.Count:N0} items, which exceeds the maximum of {MaxInSetTerms:N0}. " +
+                $"Reduce the collection size or use a different filter strategy.");
+        }
+
+        var results = new List<T>();
+        foreach (var item in col)
+        {
+            if (item is not null)
+                results.Add(convert(item));
+        }
+
+        return results;
+    }
+
+    /// <summary>
     /// Extracts string values from a collection expression (constant array or list).
     /// </summary>
     private static List<string> GetCollectionValues(Expression expr)
     {
         var value = GetConstantValue(expr);
-        var terms = new List<string>();
 
         // String is IEnumerable<char> — treat as a single value, not a collection.
         if (value is string s)
         {
+            var terms = new List<string>();
             if (!string.IsNullOrEmpty(s))
                 terms.Add(s);
-        }
-        else if (value is IEnumerable enumerable)
-        {
-            foreach (var item in enumerable)
-            {
-                if (item is string si && !string.IsNullOrEmpty(si))
-                    terms.Add(si);
-                else if (item is not null)
-                    terms.Add(Convert.ToString(item, CultureInfo.InvariantCulture)!);
-            }
+            return terms;
         }
 
-        return terms;
+        return GetCappedCollectionValues(value, item =>
+            item is string si && !string.IsNullOrEmpty(si)
+                ? si
+                : Convert.ToString(item, CultureInfo.InvariantCulture)!,
+            "string");
     }
 
     /// <summary>
     /// Extracts double values from a collection expression (constant array or list).
     /// </summary>
     private static List<double> GetNumericCollectionValues(Expression expr)
-    {
-        var value = GetConstantValue(expr);
-        var values = new List<double>();
-
-        if (value is IEnumerable enumerable)
-        {
-            foreach (var item in enumerable)
-            {
-                if (item is not null)
-                    values.Add(ToDouble(item));
-            }
-        }
-
-        return values;
-    }
+        => GetCappedCollectionValues(GetConstantValue(expr), ToDouble, "numeric");
 
     /// <summary>
     /// Extracts 64-bit integer values from a collection expression (constant array or list).
     /// </summary>
     private static List<long> GetInt64CollectionValues(Expression expr)
-    {
-        var value = GetConstantValue(expr);
-        var values = new List<long>();
-
-        if (value is IEnumerable enumerable)
-        {
-            foreach (var item in enumerable)
-            {
-                if (item is not null)
-                    values.Add(ToInt64(item));
-            }
-        }
-
-        return values;
-    }
+        => GetCappedCollectionValues(GetConstantValue(expr), ToInt64, "int64");
 
     /// <summary>
     /// Tries to resolve which side of a binary expression is the member access

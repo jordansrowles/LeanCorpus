@@ -632,4 +632,70 @@ public sealed class LinqEndToEndTests : IClassFixture<TestDirectoryFixture>
             IsRequired = isRequired;
         }
     }
+
+    // === Contains collection size limits ===
+
+    [Fact(DisplayName = "Contains: oversized array throws NotSupportedException")]
+    public void Contains_OversizedArray_Throws()
+    {
+        var q = BuildQueryable(nameof(Contains_OversizedArray_Throws));
+        var hugeIds = Enumerable.Range(0, 20_000).ToArray();
+
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            q.Where(a => hugeIds.Contains(a.Year)).ToList());
+        Assert.Contains("10,000", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact(DisplayName = "Contains: oversized List<T> throws NotSupportedException")]
+    public void Contains_OversizedList_Throws()
+    {
+        var q = BuildQueryable(nameof(Contains_OversizedList_Throws));
+        var hugeTerms = Enumerable.Range(0, 15_000).Select(i => $"term-{i}").ToList();
+
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            q.Where(a => hugeTerms.Contains(a.Status!)).ToList());
+        Assert.Contains("10,000", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact(DisplayName = "Contains: non-constant enumerable rejected")]
+    public void Contains_NonConstantEnumerable_Rejected()
+    {
+        var q = BuildQueryable(nameof(Contains_NonConstantEnumerable_Rejected));
+
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            q.Where(a => InfiniteInts().Contains(a.Year)).ToList());
+        Assert.Contains("constant value", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact(DisplayName = "Contains: non-constant string enumerable rejected")]
+    public void Contains_NonConstantStringEnumerable_Rejected()
+    {
+        var q = BuildQueryable(nameof(Contains_NonConstantStringEnumerable_Rejected));
+
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            q.Where(a => InfiniteStrings().Contains(a.Status!)).ToList());
+        Assert.Contains("constant value", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact(DisplayName = "Contains: collection at the limit succeeds")]
+    public void Contains_AtLimit_Succeeds()
+    {
+        var q = BuildQueryable(nameof(Contains_AtLimit_Succeeds));
+        var ids = Enumerable.Range(1, 10_000).ToArray();
+        // Should not throw — 10_000 is exactly at the limit.
+        var results = q.Where(a => ids.Contains(a.Year)).ToList();
+        Assert.NotNull(results);
+    }
+
+    private static IEnumerable<int> InfiniteInts()
+    {
+        int i = 0;
+        while (true) yield return i++;
+    }
+
+    private static IEnumerable<string> InfiniteStrings()
+    {
+        int i = 0;
+        while (true) yield return $"s{i++}";
+    }
 }
