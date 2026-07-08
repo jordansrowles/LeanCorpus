@@ -67,18 +67,13 @@ internal static class IndexOpenGuard
             return false;
         }
 
-        try
-        {
-            using var stream = FileOpenRetry.OpenReadDelete(filePath);
-            using var reader = new BinaryReader(stream);
-            version = CodecFileHeader.ReadVersion(reader, descriptor.HeaderFormat!);
-            currentVersion = descriptor.CurrentVersion.Value;
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException or EndOfStreamException or UnauthorizedAccessException or InvalidDataException)
-        {
-            return false;
-        }
+        // Let IO / data-corruption exceptions propagate so that unreadable
+        // segment files are not silently skipped during compatibility checks.
+        using var stream = FileOpenRetry.OpenReadDelete(filePath);
+        using var reader = new BinaryReader(stream);
+        version = CodecFileHeader.ReadVersion(reader, descriptor.HeaderFormat!);
+        currentVersion = descriptor.CurrentVersion.Value;
+        return true;
     }
 
     private static string GetCodecExtension(string filePath)
