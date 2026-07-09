@@ -5,10 +5,11 @@ using Rowles.LeanCorpus.Codecs.CodecKit;
 namespace Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 
 /// <summary>
-/// CodecKit format declarations for all codec file types.
-/// Each wraps the existing body as opaque bytes in a <c>VersionEnvelope</c>
+/// CodecKit format declarations for codec file types.
+/// Most formats wrap the body as opaque bytes in a <c>VersionEnvelope</c>
 /// providing version dispatch and forward compatibility.
-/// When dual-format read is wired, these replace the manual magic+version header.
+/// Stored fields (.fdt/.fdx) are registered for migration but are written
+/// directly via <see cref="StoredFieldsFileHeader"/> without a CodecKit envelope.
 /// </summary>
 internal static class CodecFormats
 {
@@ -35,8 +36,15 @@ internal static class CodecFormats
             new CodecVersionStep(2, "nrm-v2", Codec.BytesOwnedRemaining())
         ]));
 
+        // Stored fields — v1 used a CodecKit envelope; v2 streams without a body-length prefix.
+        foreach (var ext in new[] { "fdt", "fdx" })
+            reg.Register(new CodecFormat(ext, [
+                new CodecVersionStep(1, $"{ext}-v1", Codec.BytesOwnedRemaining()),
+                new CodecVersionStep(2, $"{ext}-v2", Codec.BytesOwnedRemaining())
+            ]));
+
         // All other formats are at v1.
-        foreach (var ext in new[] { "fln","ndv","sdv","bdv","ssdv","sndv","fdt","pos","tim","hnsw","vec","qvec","bkd","rbm","ldv","lsdv","lbkd" })
+        foreach (var ext in new[] { "fln","ndv","sdv","bdv","ssdv","sndv","pos","tim","hnsw","vec","qvec","bkd","rbm","ldv","lsdv","lbkd" })
             reg.Register(new CodecFormat(ext, [
                 new CodecVersionStep(1, $"{ext}-v1", Codec.BytesOwnedRemaining())
             ]));
@@ -49,7 +57,6 @@ internal static class CodecFormats
     internal static readonly ICodec<byte[]> BinaryDocValues = Create("bdv", CodecConstants.BinaryDocValuesVersion);
     internal static readonly ICodec<byte[]> SortedSetDocValues = Create("ssdv", CodecConstants.SortedSetDocValuesVersion);
     internal static readonly ICodec<byte[]> SortedNumericDocValues = Create("sndv", CodecConstants.SortedNumericDocValuesVersion);
-    internal static readonly ICodec<byte[]> StoredFields = Create("fdt", CodecConstants.StoredFieldsVersion);
     internal static readonly ICodec<byte[]> Postings = Create("pos", CodecConstants.PostingsVersion);
     internal static readonly ICodec<byte[]> TermVectors = Create("tvx", CodecConstants.TermVectorsVersion);
     internal static readonly ICodec<byte[]> TermDictionary = Create("tim", CodecConstants.TermDictionaryVersion);

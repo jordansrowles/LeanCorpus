@@ -3,9 +3,11 @@ using Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
 namespace Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 
 /// <summary>
-/// Stored fields data (.fdt) wire format.
-/// Layout: [blockSize:Int32LE][compression:UInt8]
-/// then repeated blocks: [docCount:Int32LE][rawLen:Int32LE][compLen:Int32LE][intraOffsets:Int32LE*docCount][compressed bytes].
+/// Legacy stored fields body codec used by the v1 CodecKit envelope.
+/// Current writers stream the v2 format directly via <see cref="StoredFieldsFileHeader"/>
+/// and no longer buffer the entire body.
+/// Layout (v1 envelope body): [blockSize:Int32LE][compression:UInt8][blocksLen:Int32LE][blocks:UInt8*]
+/// where each block is [docCount:Int32LE][rawLen:Int32LE][compLen:Int32LE][intraOffsets:Int32LE*docCount][compressed bytes].
 /// </summary>
 internal static class StoredFieldsFormat
 {

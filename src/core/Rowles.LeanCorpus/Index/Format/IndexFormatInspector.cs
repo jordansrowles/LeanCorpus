@@ -4,6 +4,7 @@ using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Serialization;
@@ -283,19 +284,26 @@ public static class IndexFormatInspector
         }
 
         var format = descriptor.HeaderFormat;
-        if (format is null)
-        {
-            inventory = null!;
-            return false;
-        }
-
         var hasValidMagic = false;
         byte? version = null;
         try
         {
             using var stream = FileOpenRetry.OpenReadDelete(filePath);
             using var reader = new BinaryReader(stream);
-            version = CodecFileHeader.ReadVersion(reader, format);
+            if (extension is ".fdt" or ".fdx")
+            {
+                version = StoredFieldsFileHeader.ReadVersion(reader);
+            }
+            else if (format is not null)
+            {
+                version = CodecFileHeader.ReadVersion(reader, format);
+            }
+            else
+            {
+                inventory = null!;
+                return false;
+            }
+
             hasValidMagic = true;
         }
         catch (Exception ex) when (ex is IOException or EndOfStreamException or InvalidDataException)

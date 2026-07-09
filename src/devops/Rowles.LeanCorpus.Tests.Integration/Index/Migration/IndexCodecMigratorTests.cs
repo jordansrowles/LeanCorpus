@@ -88,6 +88,62 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
     }
 
     /// <summary>
+    /// Re-wraps current v2 stored-fields files as v1 CodecKit envelopes.
+    /// Used to exercise the stored-fields migration path.
+    /// </summary>
+    private static void DowngradeStoredFieldsToV1(string indexPath)
+    {
+        var fdtPath = Directory.GetFiles(indexPath, "*.fdt").Single();
+        var fdxPath = Directory.GetFiles(indexPath, "*.fdx").Single();
+
+        // Re-wrap .fdt: v2 body is everything after the version byte.
+        var fdtBytes = File.ReadAllBytes(fdtPath);
+        var fdtBody = fdtBytes.AsSpan(1);
+        int fdtHeaderSize;
+        using (var fs = new FileStream(fdtPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            fs.WriteByte(1);
+            fdtHeaderSize = 1 + WriteVarInt64(fs, fdtBody.Length);
+            fs.Write(fdtBody);
+        }
+
+        // Re-wrap .fdx and shift block offsets by the extra v1 header bytes.
+        var fdxBytes = File.ReadAllBytes(fdxPath);
+        var fdxBody = fdxBytes.AsSpan(1);
+        int blockSize = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(fdxBody);
+        int docCount = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(fdxBody.Slice(4));
+        int blockCount = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(fdxBody.Slice(8));
+        long headerDelta = fdtHeaderSize - 1;
+
+        using (var fs = new FileStream(fdxPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            fs.WriteByte(1);
+            int fdxHeaderSize = 1 + WriteVarInt64(fs, fdxBody.Length);
+            fs.Write(fdxBody.Slice(0, 12));
+            for (int i = 0; i < blockCount; i++)
+            {
+                long offset = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(fdxBody.Slice(12 + i * 8));
+                System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(
+                    fdxBody.Slice(12 + i * 8), offset + headerDelta);
+            }
+            fs.Write(fdxBody.Slice(12, blockCount * 8));
+        }
+    }
+
+    private static int WriteVarInt64(Stream stream, long value)
+    {
+        int bytesWritten = 0;
+        while (value >= 0x80)
+        {
+            stream.WriteByte((byte)(value | 0x80));
+            value >>= 7;
+            bytesWritten++;
+        }
+        stream.WriteByte((byte)value);
+        return bytesWritten + 1;
+    }
+
+    /// <summary>
     /// Verifies the index is queryable after migration.
     /// </summary>
     private static void AssertIndexReadable(string indexPath, string term = "hello")
@@ -516,8 +572,7 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
     public void Migrate_Rewrite_StoredFields()
     {
         var path = CreateCurrentVersionIndex("migrate_rewrite_fdt");
-        DowngradeVersionByte(path, "*.fdt", 0);
-        DowngradeVersionByte(path, "*.fdx", 0);
+        DowngradeStoredFieldsToV1(path);
 
         var result = IndexCodecMigrator.Migrate(
             new MMapDirectory(path),
@@ -528,9 +583,49 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
                 ValidateAfterMigration = false,
             });
 
-        Assert.True(result.Succeeded);
+        Assert.True(result.Succeeded,
+            $"Migration failed. Issues: {string.Join("; ", result.Issues.Select(i => $"{i.Code}: {i.Message}"))}");
         Assert.Equal(CodecConstants.StoredFieldsVersion, ReadVersionByte(path, "*.fdt"));
         Assert.Equal(CodecConstants.StoredFieldsVersion, ReadVersionByte(path, "*.fdx"));
+        AssertIndexReadable(path);
+    }
+
+    [Fact(DisplayName = "Migrate: Rewrite stored fields preserves source compression policy")]
+    public void Migrate_Rewrite_StoredFields_PreservesCompression()
+    {
+        var path = CreateCurrentVersionIndex("migrate_rewrite_fdt_compression");
+        var fdtPath = Directory.GetFiles(path, "*.fdt").Single();
+        var fdxPath = Directory.GetFiles(path, "*.fdx").Single();
+
+        // Recreate stored fields with no compression so we can distinguish it from Deflate.
+        var doc = new Dictionary<string, List<StoredFieldValue>>(StringComparer.Ordinal)
+        {
+            ["body"] = [StoredFieldValue.FromString("hello world test migration")],
+            ["count"] = [StoredFieldValue.FromLong(42)],
+            ["id"] = [StoredFieldValue.FromString("doc-1")]
+        };
+
+        File.Delete(fdtPath);
+        File.Delete(fdxPath);
+        StoredFieldsWriter.Write(fdtPath, fdxPath, 1, _ => doc, compression: FieldCompressionPolicy.None);
+        DowngradeStoredFieldsToV1(path);
+
+        var result = IndexCodecMigrator.Migrate(
+            new MMapDirectory(path),
+            new IndexCodecMigrationOptions
+            {
+                DryRun = false,
+                ValidateBeforeMigration = false,
+                ValidateAfterMigration = false,
+            });
+
+        Assert.True(result.Succeeded,
+            $"Migration failed. Issues: {string.Join("; ", result.Issues.Select(i => $"{i.Code}: {i.Message}"))}");
+
+        var migratedFdtPath = Directory.GetFiles(path, "*.fdt").Single();
+        var migratedFdxPath = Directory.GetFiles(path, "*.fdx").Single();
+        using var reader = StoredFieldsReader.Open(migratedFdtPath, migratedFdxPath);
+        Assert.Equal(FieldCompressionPolicy.None, reader.Compression);
         AssertIndexReadable(path);
     }
 

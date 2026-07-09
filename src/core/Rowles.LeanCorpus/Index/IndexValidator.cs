@@ -248,7 +248,7 @@ public static class IndexValidator
             byte version;
             try
             {
-                version = CodecFileHeader.ReadVersion(reader, CodecFormats.StoredFields);
+                version = StoredFieldsFileHeader.ReadVersion(reader);
             }
             catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
             {
@@ -263,6 +263,23 @@ public static class IndexValidator
             }
             if (version > CodecConstants.StoredFieldsVersion)
             {
+                try
+                {
+                    reader.ReadInt32(); // blockSize
+                    reader.ReadByte();  // compression
+                }
+                catch (EndOfStreamException)
+                {
+                    result.AddIssue(
+                        IndexCheckSeverity.Error,
+                        IndexCheckIssueCodes.InvalidStoredFieldHeader,
+                        $"Invalid stored fields data file: header is truncated.",
+                        fileName,
+                        segmentId,
+                        false);
+                    return;
+                }
+
                 result.AddIssue(
                     IndexCheckSeverity.Error,
                     IndexCheckIssueCodes.UnsupportedStoredFieldVersion,
@@ -312,7 +329,7 @@ public static class IndexValidator
             byte version;
             try
             {
-                version = CodecFileHeader.ReadVersion(reader, CodecFormats.StoredFields);
+                version = StoredFieldsFileHeader.ReadVersion(reader);
             }
             catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
             {
@@ -327,6 +344,24 @@ public static class IndexValidator
             }
             if (version > CodecConstants.StoredFieldsVersion)
             {
+                try
+                {
+                    reader.ReadInt32(); // blockSize
+                    reader.ReadInt32(); // docCount
+                    reader.ReadInt32(); // blockCount
+                }
+                catch (EndOfStreamException)
+                {
+                    result.AddIssue(
+                        IndexCheckSeverity.Error,
+                        IndexCheckIssueCodes.InvalidStoredFieldHeader,
+                        $"Invalid stored fields index file: header is truncated.",
+                        fileName,
+                        segmentId,
+                        false);
+                    return;
+                }
+
                 result.AddIssue(
                     IndexCheckSeverity.Error,
                     IndexCheckIssueCodes.UnsupportedStoredFieldVersion,

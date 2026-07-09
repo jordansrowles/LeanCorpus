@@ -1047,7 +1047,7 @@ public static class IndexCodecMigrator
                     temporaryFdxPath,
                     info.DocCount,
                     reader.ReadDocumentValues,
-                    compression: FieldCompressionPolicy.Deflate);
+                    compression: reader.Compression);
             }
 
             File.Move(temporaryFdtPath, fdtPath, overwrite: true);

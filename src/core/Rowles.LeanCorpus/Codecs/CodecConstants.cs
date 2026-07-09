@@ -2,7 +2,8 @@ namespace Rowles.LeanCorpus.Codecs;
 
 /// <summary>
 /// Format version constants for all codec file types.
-/// Every codec file uses the CodecKit format: [byte version][VarInt64 bodyLen][body].
+/// Most codec files use the CodecKit envelope: [byte version][VarInt64 bodyLen][body].
+/// Stored fields (.fdt/.fdx) use a streaming v2 layout without a body-length prefix.
 /// </summary>
 internal static class CodecConstants
 {

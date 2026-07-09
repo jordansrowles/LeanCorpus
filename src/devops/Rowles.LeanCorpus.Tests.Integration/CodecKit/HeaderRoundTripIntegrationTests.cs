@@ -2,6 +2,7 @@ using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Document.Fields;
@@ -61,8 +62,9 @@ public sealed class HeaderRoundTripIntegrationTests : IClassFixture<TestDirector
         Assert.NotEmpty(fdtFiles);
         foreach (var fdtFile in fdtFiles)
         {
-            using var input = new IndexInput(fdtFile);
-            byte version = CodecFileHeader.ReadVersion(input, CodecFormats.StoredFields);
+            using var fs = new FileStream(fdtFile, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
+            byte version = StoredFieldsFileHeader.ReadVersion(reader);
             Assert.Equal(CodecConstants.StoredFieldsVersion, version);
         }
 

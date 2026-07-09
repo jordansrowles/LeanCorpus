@@ -1,25 +1,23 @@
 using System.Buffers;
 using System.Text;
-using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.StoredFields;
 
 /// <summary>
 /// Streaming variant of <see cref="StoredFieldsWriter"/> for the merge path.
-/// Documents are added one at a time and flushed in 16-doc blocks so that
-/// at most a single block sits in RAM rather than the whole merged segment.
+/// Documents are added one at a time and flushed in blocks so that at most one
+/// raw block sits in RAM rather than the whole merged segment.
 /// </summary>
 internal sealed class StoredFieldsStreamWriter : IDisposable
 {
     private const int DefaultBlockSize = 16;
 
+    private readonly IndexOutput _fdtOutput;
     private readonly string _fdtPath;
     private readonly string _fdxPath;
     private readonly int _blockSize;
     private readonly FieldCompressionPolicy _compression;
-    private readonly ArrayBufferWriter<byte> _fdtBuf;
     private readonly ArrayBufferWriter<byte> _rawBuf;
     private readonly List<long> _blockOffsets;
     private readonly List<int> _intraOffsets;
@@ -32,18 +30,16 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
         int blockSize = DefaultBlockSize, FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate)
     {
         _fdtPath = fdtPath;
+        _fdtOutput = new IndexOutput(fdtPath, durable: true);
         _fdxPath = fdxPath;
         _blockSize = blockSize;
         _compression = compression;
 
-        _fdtBuf = new ArrayBufferWriter<byte>(4096);
         _rawBuf = new ArrayBufferWriter<byte>(4096);
         _blockOffsets = new List<long>();
         _intraOffsets = new List<int>(blockSize);
 
-        // Write body prefix: blockSize and compression byte (required by StoredFieldsReader)
-        _fdtBuf.WriteInt32(blockSize);
-        _fdtBuf.WriteByte((byte)compression);
+        StoredFieldsFileHeader.WriteV2FdtHeader(_fdtOutput, blockSize, compression);
     }
 
     internal void AddDocument(IReadOnlyDictionary<string, IReadOnlyList<StoredFieldValue>> fields)
@@ -51,6 +47,7 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
         _intraOffsets.Add((int)_rawBuf.WrittenCount);
 
         Span<byte> encodeBuf = stackalloc byte[512];
+        Span<byte> longBytes = stackalloc byte[sizeof(long)];
 
         _rawBuf.WriteInt32(fields.Count);
         foreach (var (name, values) in fields)
@@ -74,9 +71,8 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
                 else if (value.IsLong)
                 {
                     _rawBuf.WriteInt32(sizeof(long));
-                    byte[] bytes = new byte[sizeof(long)];
-                    System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(bytes, value.LongValue);
-                    _rawBuf.WriteBytes(bytes);
+                    System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(longBytes, value.LongValue);
+                    _rawBuf.WriteBytes(longBytes);
                 }
                 else
                 {
@@ -106,13 +102,13 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
 
         var (compData, compLength) = StoredFieldCompression.Compress(rawData, _compression);
 
-        _blockOffsets.Add(_fdtBuf.WrittenCount);
-        _fdtBuf.WriteInt32(_docsInBlock);
-        _fdtBuf.WriteInt32(rawLength);
-        _fdtBuf.WriteInt32(compLength);
+        _blockOffsets.Add(_fdtOutput.Position);
+        _fdtOutput.WriteInt32(_docsInBlock);
+        _fdtOutput.WriteInt32(rawLength);
+        _fdtOutput.WriteInt32(compLength);
         for (int i = 0; i < _docsInBlock; i++)
-            _fdtBuf.WriteInt32(_intraOffsets[i]);
-        _fdtBuf.WriteBytes(compData.AsSpan(0, compLength));
+            _fdtOutput.WriteInt32(_intraOffsets[i]);
+        _fdtOutput.WriteBytes(compData.AsSpan(0, compLength));
 
         _rawBuf.Clear();
         _intraOffsets.Clear();
@@ -124,29 +120,33 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
         if (_disposed) return;
         _disposed = true;
 
-        FlushBlock();
-
-        long fdtBodyLength = _fdtBuf.WrittenCount;
-
-        long headerSize;
-        using (var fdtOutput = new IndexOutput(_fdtPath, durable: true))
+        try
         {
-            CodecFileHeader.Write(fdtOutput, CodecFormats.StoredFields, _fdtBuf.WrittenSpan);
-            headerSize = fdtOutput.Position - fdtBodyLength;
+            FlushBlock();
+        }
+        finally
+        {
+            _fdtOutput.Dispose();
         }
 
-        // Re-base body-relative block offsets to file-absolute positions.
-        for (int i = 0; i < _blockOffsets.Count; i++)
-            _blockOffsets[i] += headerSize;
+        try
+        {
+            using var fdxOutput = new IndexOutput(_fdxPath, durable: true);
+            StoredFieldsFileHeader.WriteV2FdxHeader(fdxOutput, _blockSize, _docCount, _blockOffsets.Count);
+            foreach (var offset in _blockOffsets)
+                fdxOutput.WriteInt64(offset);
+        }
+        catch
+        {
+            TryDeleteFile(_fdtPath);
+            throw;
+        }
+    }
 
-        var fdxBodyBuf = new ArrayBufferWriter<byte>(1024);
-        fdxBodyBuf.WriteInt32(_blockSize);
-        fdxBodyBuf.WriteInt32(_docCount);
-        fdxBodyBuf.WriteInt32(_blockOffsets.Count);
-        foreach (var offset in _blockOffsets)
-            fdxBodyBuf.WriteInt64(offset);
-
-        using var fdxOutput = new IndexOutput(_fdxPath, durable: true);
-        CodecFileHeader.Write(fdxOutput, CodecFormats.StoredFields, fdxBodyBuf.WrittenSpan);
+    private static void TryDeleteFile(string path)
+    {
+        try { File.Delete(path); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 }

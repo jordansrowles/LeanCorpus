@@ -243,14 +243,12 @@ public sealed class IndexValidatorTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         var fdtFile = Directory.GetFiles(dir.DirectoryPath, "*.fdt").Single();
-        // Find the compression policy byte offset in the CodecKit-format .fdt file.
-        // Layout: [version:1][VarInt64 bodyLen][blockSize:int32][compression:byte]...
+        // v2 .fdt layout: [version:1][blockSize:int32][compression:byte]...
         int compressionOffset;
         using (var readStream = File.OpenRead(fdtFile))
         using (var reader = new BinaryReader(readStream))
         {
             reader.ReadByte(); // version
-            while ((reader.ReadByte() & 0x80) != 0) { } // skip VarInt64 bodyLen
             reader.ReadInt32(); // skip blockSize
             compressionOffset = (int)readStream.Position;
         }

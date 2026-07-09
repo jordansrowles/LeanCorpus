@@ -8,7 +8,7 @@ LeanCorpus benchmarks against Lucene.Net 4.8.0-beta00016 (the Java Lucene 4.8 po
 |---|---|---|
 | Inverted index (postings) | Block-based delta-encoded VarInt + FOR bit-packing | Multiple `PostingsFormat` implementations |
 | Doc values (column store) | Numeric, Binary, Sorted, SortedSet, SortedNumeric | Same set via `DocValuesFormat` |
-| Stored fields | Block-compressed (.fdt/.fdx); per-field compression policy | `StoredFieldsFormat` |
+| Stored fields | Block-compressed (.fdt/.fdx); streaming v2 writer; per-field compression policy | `StoredFieldsReader`, `StoredFieldsWriter` |
 | Term vectors | Offsets only (.tvd/.tvx) | Positions + offsets |
 | Points / BKD tree | `BKDTree` for numeric and geo range indexing | `PointValues` BKD tree |
 | HNSW vector search | `HnswGraph` + `VectorQuery` | ❌ |

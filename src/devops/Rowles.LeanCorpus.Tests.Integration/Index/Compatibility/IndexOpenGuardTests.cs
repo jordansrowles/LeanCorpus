@@ -74,7 +74,7 @@ public sealed class IndexOpenGuardTests : IClassFixture<TestDirectoryFixture>
     {
         var dir = new MMapDirectory(SubDir(nameof(EnsureCanOpenSegments_OlderVersion_ForWriting_Throws)));
         var segPath = Path.Combine(dir.DirectoryPath, "seg_0.fdt");
-        WriteCodecFile(segPath, CodecFormats.StoredFields, 1, [0x01]); // current is higher
+        WriteCodecFile(segPath, CodecFormats.TermDictionary, 1, [0x01]); // current is higher
 
         var ex = Assert.Throws<InvalidDataException>(() =>
             IndexOpenGuard.EnsureCanOpenSegments(dir, ["seg_0"], IndexOpenCompatibilityMode.Strict, forWriting: true));
@@ -86,7 +86,7 @@ public sealed class IndexOpenGuardTests : IClassFixture<TestDirectoryFixture>
     {
         var dir = new MMapDirectory(SubDir(nameof(EnsureCanOpenSegments_OlderVersion_ReadOnly_Succeeds)));
         var segPath = Path.Combine(dir.DirectoryPath, "seg_0.fdt");
-        WriteCodecFile(segPath, CodecFormats.StoredFields, 1, [0x01]); // current is higher
+        WriteCodecFile(segPath, CodecFormats.TermDictionary, 1, [0x01]); // current is higher
 
         // Should not throw for read-only open.
         IndexOpenGuard.EnsureCanOpenSegments(dir, ["seg_0"], IndexOpenCompatibilityMode.Strict, forWriting: false);

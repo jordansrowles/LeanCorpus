@@ -46,6 +46,8 @@ CodecFileHeader.Write(output, CodecFormats.Norms, bodyBuf.WrittenSpan);
 
 `CodecFileHeader.Write` looks up the current version from `CodecConstants` and writes `[version:byte][VarInt64 bodyLen][body bytes]`.
 
+> **Exception:** stored fields (.fdt/.fdx) stream directly to `IndexOutput` through `StoredFieldsFileHeader` and do not use `CodecFileHeader.Write`. They still register `fdt`/`fdx` version steps in `CodecMigrationRegistry` so readers can dispatch between the legacy v1 envelope and the streaming v2 layout.
+
 ## Wire into a reader
 
 ```csharp
@@ -80,7 +82,7 @@ public static class CodecConstants
 {
     public const int NormsVersion          = 2;
     public const int PostingsVersion       = 1;
-    public const int StoredFieldsVersion   = 1;
+    public const int StoredFieldsVersion   = 2;
     public const int TermVectorsVersion    = 2;
     public const int HnswVersion           = 1;
     public const int VectorVersion         = 1;

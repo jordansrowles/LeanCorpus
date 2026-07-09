@@ -129,14 +129,14 @@ public sealed class CodecFileHeaderTests : IDisposable
 
         using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
-            CodecFileHeader.Write(writer, CodecFormats.StoredFields, body);
+            CodecFileHeader.Write(writer, CodecFormats.Postings, body);
 
         using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         using (var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.StoredFields);
+            byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.Postings);
 
-            Assert.Equal(CodecConstants.StoredFieldsVersion, version);
+            Assert.Equal(CodecConstants.PostingsVersion, version);
             // Version (1) + VarInt(3) = 1 byte → total header = 2 bytes
             Assert.Equal(2, fs.Position);
         }
@@ -500,7 +500,7 @@ public sealed class CodecFileHeaderTests : IDisposable
     }
 
     // ═══════════════════════════════════════════════════
-    //  All 16 CodecFormats produce correct version byte
+    //  All CodecKit-envelope formats produce correct version byte
     // ═══════════════════════════════════════════════════
 
     private static readonly (ICodec<byte[]> Format, byte ExpectedVersion, string Name)[] AllFormats =
@@ -512,7 +512,6 @@ public sealed class CodecFileHeaderTests : IDisposable
         (CodecFormats.BinaryDocValues, CodecConstants.BinaryDocValuesVersion, "BinaryDocValues"),
         (CodecFormats.SortedSetDocValues, CodecConstants.SortedSetDocValuesVersion, "SortedSetDocValues"),
         (CodecFormats.SortedNumericDocValues, CodecConstants.SortedNumericDocValuesVersion, "SortedNumericDocValues"),
-        (CodecFormats.StoredFields, CodecConstants.StoredFieldsVersion, "StoredFields"),
         (CodecFormats.Postings, CodecConstants.PostingsVersion, "Postings"),
         (CodecFormats.TermVectors, CodecConstants.TermVectorsVersion, "TermVectors"),
         (CodecFormats.TermDictionary, CodecConstants.TermDictionaryVersion, "TermDictionary"),
@@ -523,8 +522,8 @@ public sealed class CodecFileHeaderTests : IDisposable
         (CodecFormats.RoaringBitmap, CodecConstants.RoaringBitmapVersion, "RoaringBitmap"),
     ];
 
-    [Fact(DisplayName = "All 16 CodecFormats produce correct version byte in header")]
-    public void All16Formats_ProduceCorrectVersion()
+    [Fact(DisplayName = "All CodecKit-envelope formats produce correct version byte in header")]
+    public void AllEnvelopeFormats_ProduceCorrectVersion()
     {
         foreach (var (format, expectedVersion, name) in AllFormats)
         {

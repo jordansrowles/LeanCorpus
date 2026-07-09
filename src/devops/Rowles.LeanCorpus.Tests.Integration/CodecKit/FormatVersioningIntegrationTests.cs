@@ -105,7 +105,6 @@ public sealed class FormatVersioningIntegrationTests : IClassFixture<TestDirecto
         var formats = new[]
         {
             (CodecFormats.Postings, CodecConstants.PostingsVersion),
-            (CodecFormats.StoredFields, CodecConstants.StoredFieldsVersion),
             (CodecFormats.TermDictionary, CodecConstants.TermDictionaryVersion),
             (CodecFormats.TermVectors, CodecConstants.TermVectorsVersion),
         };

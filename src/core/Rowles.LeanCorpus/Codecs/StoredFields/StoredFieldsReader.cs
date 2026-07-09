@@ -1,9 +1,8 @@
 using System.Buffers;
 using System.IO;
 using System.Text;
-using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
+
 namespace Rowles.LeanCorpus.Codecs.StoredFields;
 
 /// <summary>
@@ -15,6 +14,7 @@ internal sealed class StoredFieldsReader : IDisposable
     private readonly FileStream _fs;
     private readonly BinaryReader _reader;
     private readonly int _blockSize;
+    private readonly int _docCount;
     private readonly long[] _blockOffsets;
     private readonly FieldCompressionPolicy _compression;
     private readonly byte _version;
@@ -30,15 +30,29 @@ internal sealed class StoredFieldsReader : IDisposable
 
     private bool _disposed;
 
-    private StoredFieldsReader(FileStream fs, BinaryReader reader, int blockSize, long[] blockOffsets, FieldCompressionPolicy compression, byte version)
+    private StoredFieldsReader(
+        FileStream fs,
+        BinaryReader reader,
+        int blockSize,
+        int docCount,
+        long[] blockOffsets,
+        FieldCompressionPolicy compression,
+        byte version)
     {
         _fs = fs;
         _reader = reader;
         _blockSize = blockSize;
+        _docCount = docCount;
         _blockOffsets = blockOffsets;
         _compression = compression;
         _version = version;
     }
+
+    /// <summary>Number of documents indexed in this stored-fields file.</summary>
+    internal int DocCount => _docCount;
+
+    /// <summary>Compression policy used for the blocks in this file.</summary>
+    internal FieldCompressionPolicy Compression => _compression;
 
     public static StoredFieldsReader Open(string fdtPath, string fdxPath)
     {
@@ -46,12 +60,17 @@ internal sealed class StoredFieldsReader : IDisposable
         using var fdxStream = FileOpenRetry.OpenReadDelete(fdxPath);
         using var fdxReader = new BinaryReader(fdxStream, System.Text.Encoding.UTF8, leaveOpen: false);
 
-        byte version = CodecFileHeader.ReadVersion(fdxReader, CodecFormats.StoredFields);
-        int blockSize = fdxReader.ReadInt32();
+        byte fdxVersion = StoredFieldsFileHeader.ReadVersion(fdxReader);
+        if (fdxVersion > StoredFieldsFileHeader.V2)
+        {
+            throw new InvalidDataException(
+                $"Unsupported stored fields index (.fdx) format version {fdxVersion}. " +
+                $"This build supports up to version {StoredFieldsFileHeader.V2}.");
+        }
+
+        int fdxBlockSize = fdxReader.ReadInt32();
         int docCount = fdxReader.ReadInt32();
         int blockCount = fdxReader.ReadInt32();
-
-        ValidateSupportedVersion(version, "stored fields index (.fdx)");
 
         var blockOffsets = new long[blockCount];
         for (int i = 0; i < blockCount; i++)
@@ -62,24 +81,19 @@ internal sealed class StoredFieldsReader : IDisposable
         var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: true);
 
         fs.Seek(0, SeekOrigin.Begin);
-        byte fdtVersion = CodecFileHeader.ReadVersion(reader, CodecFormats.StoredFields);
-        int fdtBlockSize = reader.ReadInt32();
-        ValidateSupportedVersion(fdtVersion, "stored fields data (.fdt)");
-        ValidateMatchingHeaders(fdtPath, fdxPath, fdtVersion, version, fdtBlockSize, blockSize);
-        var compression = (FieldCompressionPolicy)reader.ReadByte();
-
-        return new StoredFieldsReader(fs, reader, blockSize, blockOffsets, compression, version);
-    }
-
-    private static void ValidateSupportedVersion(byte version, string fileType)
-    {
-        if (version > CodecConstants.StoredFieldsVersion)
+        byte fdtVersion = StoredFieldsFileHeader.ReadVersion(reader);
+        if (fdtVersion > StoredFieldsFileHeader.V2)
         {
             throw new InvalidDataException(
-                $"Unsupported {fileType} format version {version}. " +
-                $"This build supports up to version {CodecConstants.StoredFieldsVersion}. " +
-                "Please upgrade LeanCorpus.");
+                $"Unsupported stored fields data (.fdt) format version {fdtVersion}. " +
+                $"This build supports up to version {StoredFieldsFileHeader.V2}.");
         }
+
+        int fdtBlockSize = reader.ReadInt32();
+        ValidateMatchingHeaders(fdtPath, fdxPath, fdtVersion, fdxVersion, fdtBlockSize, fdxBlockSize);
+        var compression = (FieldCompressionPolicy)reader.ReadByte();
+
+        return new StoredFieldsReader(fs, reader, fdtBlockSize, docCount, blockOffsets, compression, fdtVersion);
     }
 
     private static void ValidateMatchingHeaders(
@@ -214,6 +228,9 @@ internal sealed class StoredFieldsReader : IDisposable
 
     private BinaryReader PositionDocumentReader(int docId)
     {
+        if ((uint)docId >= (uint)_docCount)
+            throw new ArgumentOutOfRangeException(nameof(docId), docId, $"docId must be in the range [0, {_docCount}).");
+
         int blockIndex = docId / _blockSize;
         int docInBlock = docId % _blockSize;
 

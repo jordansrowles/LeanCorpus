@@ -19,7 +19,7 @@ This section is for contributors adding or evolving codec formats. End users don
 
 ## How it fits in
 
-At write time, a segment flusher builds the body bytes for each codec file (postings, doc values, stored fields, etc.), then calls `CodecFileHeader.Write(output, CodecFormats.Postings, bodySpan)`. The header writes the current version byte and length-prefixed body.
+At write time, a segment flusher builds the body bytes for most codec files (postings, doc values, etc.) and calls `CodecFileHeader.Write(output, CodecFormats.Postings, bodySpan)`. The header writes the current version byte and length-prefixed body. Stored fields (.fdt/.fdx) stream directly to `IndexOutput` via `StoredFieldsFileHeader` and only buffer block offsets for the index.
 
 At read time, `CodecFileHeader.ReadVersion(input, CodecFormats.Postings)` reads the version byte and dispatches to the correct `CodecVersionStep`'s reader codec.
 
