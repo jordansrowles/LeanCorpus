@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- v2 stored-fields format that streams compressed blocks directly to disk instead of buffering the entire segment body, eliminating out-of-memory risk on large segments (b69a4c0f)
+- StoredFieldsReader.DocCount and StoredFieldsReader.Compression properties exposing metadata from the stored-fields file headers (b69a4c0f)
 - `IndexSearcher.Search(Query, SearchOptions)` and `SearchAsync(Query, SearchOptions, CancellationToken)` overloads that honour `StreamResults` for per-segment streaming without a global top-N heap (5573b0c1)
 - `IndexOpenGuard` integration tests (877682f5)
 - Added `FieldType.Int64` and `Int64Field`, and the pipeline infrastructure (3dfb10a1)
@@ -129,6 +131,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- CodecFormats.StoredFields static field — the stored-fields format no longer uses the CodecKit envelope and writes headers directly through StoredFieldsFileHeader (b69a4c0f)
 - Dead `NumericFields` buffer (`List<Dictionary<string, double>>`) from `DocumentBufferState` and `IndexWriter.FieldProcessing`; it allocated an empty dictionary for every document containing a numeric field but was never read, while the actual numeric index lives in `NumericIndex` (614846ad)
 
 ## [1.4.1] - 2026-06-13
