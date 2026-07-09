@@ -576,6 +576,101 @@ public sealed partial class IndexSearcher : IDisposable
         }
     }
 
+    /// <summary>
+    /// Executes a query and returns results as an <see cref="IEnumerable{ScoreDoc}"/>.
+    /// When <see cref="SearchOptions.StreamResults"/> is true, results are yielded
+    /// per-segment without building a global top-N heap. When false, results are
+    /// materialised from a global top-N search and then yielded.
+    /// </summary>
+    /// <param name="query">The query to execute.</param>
+    /// <param name="options">Per-query resource controls. <see cref="SearchOptions.StreamResults"/>
+    /// determines whether results are streamed or materialised.</param>
+    public IEnumerable<ScoreDoc> Search(Query query, SearchOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (_readers.Count == 0)
+            yield break;
+
+        if (options.StreamResults)
+        {
+            int perSegment = DerivePerSegmentTopN(options);
+            foreach (var sd in SearchStreaming(query, perSegment, options))
+                yield return sd;
+            yield break;
+        }
+
+        // Non-streaming: materialise a global top-N then yield results.
+        int topN = DerivePerSegmentTopN(options);
+        var result = Search(query, topN, options);
+        foreach (var sd in result.ScoreDocs)
+            yield return sd;
+    }
+
+    /// <summary>
+    /// Executes a query asynchronously and yields matches in segment order.
+    /// Honours <see cref="SearchOptions.Timeout"/>, <see cref="SearchOptions.MaxResultBytes"/>,
+    /// and both <paramref name="cancellationToken"/> and <see cref="SearchOptions.CancellationToken"/>.
+    /// Results are not globally sorted by score.
+    /// </summary>
+    /// <param name="query">The query to execute.</param>
+    /// <param name="options">Per-query resource controls.</param>
+    /// <param name="cancellationToken">A cancellation token combined with
+    /// <see cref="SearchOptions.CancellationToken"/>.</param>
+    public async IAsyncEnumerable<ScoreDoc> SearchAsync(
+        Query query,
+        SearchOptions options,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (_readers.Count == 0)
+            yield break;
+
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            options.CancellationToken, cancellationToken);
+        var ct = linkedCts.Token;
+
+        int perSegment = DerivePerSegmentTopN(options);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        long? deadlineTicks = options.Timeout.HasValue
+            ? (long)(options.Timeout.Value.TotalSeconds * System.Diagnostics.Stopwatch.Frequency)
+            : null;
+
+        var globalDFs = PrecomputeGlobalDocFreqsForSearch(query);
+        long perSegmentBytes = (long)perSegment * Scoring.ScoreDoc.EstimatedBytes;
+        long emittedBytes = 0;
+
+        foreach (var reader in _readers)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (deadlineTicks.HasValue && sw.ElapsedTicks > deadlineTicks.Value)
+                yield break;
+            if (emittedBytes + perSegmentBytes > options.MaxResultBytes)
+                yield break;
+
+            var segmentCollector = new TopNCollector(perSegment);
+            ExecuteQuery(query, reader, globalDFs, ref segmentCollector);
+            var segmentDocs = segmentCollector.ToTopDocs();
+            emittedBytes += (long)segmentDocs.ScoreDocs.Length * Scoring.ScoreDoc.EstimatedBytes;
+
+            foreach (var sd in segmentDocs.ScoreDocs)
+                yield return sd;
+
+            // Yield control back to the caller between segments.
+            await Task.Yield();
+        }
+    }
+
+    private static int DerivePerSegmentTopN(SearchOptions options)
+    {
+        if (options.MaxResultBytes == long.MaxValue)
+            return 256;
+        return Math.Max(1, (int)Math.Min(256, options.MaxResultBytes / Scoring.ScoreDoc.EstimatedBytes));
+    }
+
     private IndexStats ComputeStats()
     {
         if (_readers.Count == 0)
