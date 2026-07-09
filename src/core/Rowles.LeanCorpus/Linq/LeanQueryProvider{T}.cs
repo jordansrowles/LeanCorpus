@@ -521,7 +521,7 @@ public sealed class LeanQueryProvider<TDocument> : IQueryProvider
         if (_searchOptions is not null)
         {
             topDocs = sort is not null
-                ? _searcher.Search(query, fetchCount, sort) // Sort + SearchOptions not currently combined
+                ? _searcher.Search(query, fetchCount, sort, _searchOptions)
                 : _searcher.Search(query, fetchCount, _searchOptions);
         }
         else if (sort is not null)

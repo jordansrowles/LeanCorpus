@@ -14,17 +14,45 @@ public sealed partial class IndexSearcher
     /// by the requested field without performing a full sort over every match.
     /// </summary>
     public TopDocs Search(Query query, int topN, SortField sort)
+        => Search(query, topN, sort, SearchOptions.Default);
+
+    /// <summary>
+    /// Searches with a custom sort order and resource controls.
+    /// Honours <see cref="SearchOptions.Timeout"/>, <see cref="SearchOptions.CancellationToken"/>,
+    /// and <see cref="SearchOptions.MaxResultBytes"/>.
+    /// </summary>
+    public TopDocs Search(Query query, int topN, SortField sort, SearchOptions options)
     {
+        ArgumentNullException.ThrowIfNull(options);
+
         if (sort.Type == SortFieldType.Score)
-            return Search(query, topN);
+            return Search(query, topN, options);
 
         if (topN <= 0)
+            return TopDocs.Empty;
+
+        long topNBytes = checked((long)topN * Scoring.ScoreDoc.EstimatedBytes);
+        if (topNBytes > options.MaxResultBytes)
+            throw new ArgumentException(
+                $"MaxResultBytes ({options.MaxResultBytes}) is smaller than the requested top-N heap ({topNBytes} bytes).",
+                nameof(options));
+
+        // Check cancellation and timeout before the expensive full fetch.
+        options.CancellationToken.ThrowIfCancellationRequested();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        long? deadlineTicks = options.Timeout.HasValue
+            ? sw.ElapsedTicks + (long)(options.Timeout.Value.TotalSeconds * System.Diagnostics.Stopwatch.Frequency)
+            : null;
+        if (deadlineTicks.HasValue && sw.ElapsedTicks > deadlineTicks.Value)
             return TopDocs.Empty;
 
         // We still need every match to pick the top-N by sort key, but topN itself
         // bounds how many we return. _totalDocCount is the upper bound on matches.
         var allDocs = Search(query, _totalDocCount);
         if (allDocs.TotalHits == 0) return TopDocs.Empty;
+
+        bool partial = options.CancellationToken.IsCancellationRequested
+            || (deadlineTicks.HasValue && sw.ElapsedTicks > deadlineTicks.Value);
 
         var docs = allDocs.ScoreDocs;
         int effectiveN = Math.Min(topN, docs.Length);
@@ -38,7 +66,10 @@ public sealed partial class IndexSearcher
             _ => docs.Length > effectiveN ? docs[..effectiveN] : docs
         };
 
-        return new TopDocs(allDocs.TotalHits, sorted);
+        sw.Stop();
+        return partial
+            ? new TopDocs(allDocs.TotalHits, sorted, isPartial: true)
+            : new TopDocs(allDocs.TotalHits, sorted);
     }
 
     private static ScoreDoc[] SelectTopByDocId(ScoreDoc[] docs, int topN, bool descending)
