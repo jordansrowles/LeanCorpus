@@ -5,7 +5,7 @@ namespace Rowles.LeanCorpus.Diagnostics;
 
 internal static class LeanCorpusMaintenanceMetrics
 {
-    private static readonly Meter Meter = new("Rowles.LeanCorpus");
+    internal static readonly Meter Meter = new("Rowles.LeanCorpus");
 
     private static readonly Counter<long> FormatInspectCount = Meter.CreateCounter<long>(
         "leancorpus.index.format.inspect.count",

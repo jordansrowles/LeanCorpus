@@ -88,8 +88,8 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
         }
         else
         {
-            _meter = new Meter("Rowles.LeanCorpus");
-            _ownsMeter = true;
+            _meter = LeanCorpusMaintenanceMetrics.Meter;
+            _ownsMeter = false;
         }
 
         _searchDuration = _meter.CreateHistogram<double>(
