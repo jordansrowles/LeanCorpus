@@ -247,6 +247,7 @@ public sealed partial class IndexSearcher
             return;
         }
 
+        var fieldSet = new HashSet<string> { query.Field };
         for (int docId = 0; docId < reader.MaxDoc; docId++)
         {
             if (!reader.IsLive(docId))
@@ -259,7 +260,7 @@ public sealed partial class IndexSearcher
                 continue;
             }
 
-            var stored = reader.GetStoredFields(docId, new HashSet<string> { query.Field });
+            var stored = reader.GetStoredFields(docId, fieldSet);
             if (stored.TryGetValue(query.Field, out var values) && values.Count > 0 && double.TryParse(values[0], out var val))
             {
                 if (val >= query.Min && val <= query.Max)
@@ -282,6 +283,7 @@ public sealed partial class IndexSearcher
             return;
         }
 
+        var intFieldSet = new HashSet<string> { query.Field };
         for (int docId = 0; docId < reader.MaxDoc; docId++)
         {
             if (!reader.IsLive(docId))
@@ -294,7 +296,7 @@ public sealed partial class IndexSearcher
                 continue;
             }
 
-            var stored = reader.GetStoredFields(docId, new HashSet<string> { query.Field });
+            var stored = reader.GetStoredFields(docId, intFieldSet);
             if (stored.TryGetValue(query.Field, out var values) && values.Count > 0 && long.TryParse(values[0], out var val))
             {
                 if (val >= query.Min && val <= query.Max)
