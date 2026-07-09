@@ -84,6 +84,9 @@ public sealed class FstBuilder
     internal const byte FlagHasOutput = 0b_0010_0000; // bit 5
     internal const byte FlagHasTarget = 0b_0001_0000; // bit 4
 
+    /// <summary>Maximum number of bytes needed to VarInt-encode a 64-bit value.</summary>
+    internal const int MaxVarInt64Size = 10;
+
     // -- Header magic bytes ("FST1") -----------------------------------------
     internal static ReadOnlySpan<byte> HeaderMagic => "FST1"u8;
 
@@ -505,6 +508,34 @@ public sealed class FstBuilder
         while ((b & 0x80) != 0);
 
         return unchecked((long)result);
+    }
+
+    /// <summary>
+    /// Bounds-checked VarInt read. Returns false when the value cannot be decoded
+    /// because it would read past <paramref name="end"/> or exceeds <see cref="MaxVarInt64Size"/> bytes.
+    /// On success, <paramref name="offset"/> is advanced past the consumed bytes.
+    /// </summary>
+    internal static bool TryReadVarInt(ReadOnlySpan<byte> buffer, ref int offset, int end, out long value)
+    {
+        value = 0;
+        ulong result = 0;
+        int shift = 0;
+        int remaining = 0;
+        while (remaining < MaxVarInt64Size)
+        {
+            if (offset >= end)
+                return false;
+            byte b = buffer[offset++];
+            remaining++;
+            result |= (ulong)(b & 0x7F) << shift;
+            if ((b & 0x80) == 0)
+            {
+                value = unchecked((long)result);
+                return true;
+            }
+            shift += 7;
+        }
+        return false;
     }
 
     /// <summary>

@@ -336,7 +336,7 @@ public sealed partial class IndexSearcher : IDisposable
     public int Count(Query query)
     {
         if (query is MatchAllDocsQuery)
-            return _totalDocCount;
+            return _stats.LiveDocCount;
 
         if (_readers.Count == 0)
             return 0;

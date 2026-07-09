@@ -775,8 +775,9 @@ public sealed class FstReader
     private bool TryGetFinalOutput(long nodeAddr, out long finalOutput)
     {
         finalOutput = 0;
-        if (nodeAddr < 0 || nodeAddr >= _nodes.Length) return false;
+        if (nodeAddr < 0 || nodeAddr + 1 >= _nodes.Length) return false;
         int pos = (int)nodeAddr;
+        int end = _nodes.Length;
         var span = _nodes.AsSpan();
         byte flags = span[pos];
         byte label = span[pos + 1];
@@ -788,7 +789,8 @@ public sealed class FstReader
             if ((flags & FlagHasOutput) != 0)
             {
                 int p = pos + 2;
-                finalOutput = FstBuilder.ReadVarInt(span, ref p);
+                if (!FstBuilder.TryReadVarInt(span, ref p, end, out finalOutput))
+                    return false;
             }
             return true;
         }
@@ -797,7 +799,8 @@ public sealed class FstReader
         if (label == 0xFF && (flags & FlagIsFinal) != 0 && (flags & FlagHasOutput) != 0)
         {
             int p = pos + 2;
-            finalOutput = FstBuilder.ReadVarInt(span, ref p);
+            if (!FstBuilder.TryReadVarInt(span, ref p, end, out finalOutput))
+                return false;
             return true;
         }
 
@@ -817,8 +820,9 @@ public sealed class FstReader
     /// </summary>
     private int FirstRealArcOffset(long nodeAddr)
     {
-        if (nodeAddr < 0 || nodeAddr >= _nodes.Length) return -1;
+        if (nodeAddr < 0 || nodeAddr + 1 >= _nodes.Length) return -1;
         int pos = (int)nodeAddr;
+        int end = _nodes.Length;
         var span = _nodes.AsSpan();
         byte flags = span[pos];
         byte label = span[pos + 1];
@@ -831,7 +835,8 @@ public sealed class FstReader
         if (label == 0xFF && (flags & FlagIsFinal) != 0 && (flags & FlagHasOutput) != 0)
         {
             int p = pos + 2;
-            _ = FstBuilder.ReadVarInt(span, ref p);
+            if (!FstBuilder.TryReadVarInt(span, ref p, end, out _))
+                return -1;
             return p;
         }
 
@@ -871,15 +876,27 @@ public sealed class FstReader
 
     private Arc DecodeArc(ref int pos)
     {
+        int end = _nodes.Length;
+        // Need at least flags + label (2 bytes).
+        if (pos + 1 >= end)
+            return new Arc(0, NoAddress, 0, false, true, false, false);
+
         var span = _nodes.AsSpan();
         byte flags = span[pos++];
         byte label = span[pos++];
+
         long target = NoAddress;
         long output = 0;
         if ((flags & FlagHasTarget) != 0)
-            target = FstBuilder.ReadVarInt(span, ref pos);
+        {
+            if (!FstBuilder.TryReadVarInt(span, ref pos, end, out target))
+                return new Arc(0, NoAddress, 0, false, true, false, false);
+        }
         if ((flags & FlagHasOutput) != 0)
-            output = FstBuilder.ReadVarInt(span, ref pos);
+        {
+            if (!FstBuilder.TryReadVarInt(span, ref pos, end, out output))
+                return new Arc(0, NoAddress, 0, false, true, false, false);
+        }
         return new Arc(label, target, output,
             (flags & FlagIsFinal) != 0,
             (flags & FlagIsLastArc) != 0,

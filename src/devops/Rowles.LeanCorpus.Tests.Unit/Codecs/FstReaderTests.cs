@@ -503,4 +503,102 @@ public sealed class FstReaderTests
             .ToList();
         Assert.Equal(keys.Count, enumerated.Count);
     }
+
+    // ── Corruption / bounds-checking tests ────────────────────────────────
+
+    [Fact]
+    public void Truncated_Node_At_LastByte_Does_Not_Crash()
+    {
+        // Node section has a single byte — reading flags+label would go OOB.
+        var blob = MakeBlob(rootAddress: 0, count: 1, nodes: new byte[] { 0x00 });
+        var reader = FstReader.Open(blob);
+
+        // All traversal paths should return empty/false, not throw.
+        Assert.False(reader.TryGetOutput("a"u8, out _));
+        Assert.Empty(reader.EnumerateAll());
+        Assert.Empty(reader.EnumerateWithPrefix("a"u8));
+    }
+
+    [Fact]
+    public void Truncated_Arc_Missing_VarInt_Does_Not_Crash()
+    {
+        // A node whose first (and only) arc has flags indicating target + output
+        // but the node section ends right after the label byte.
+        byte flags = FstBuilder.FlagIsLastArc | FstBuilder.FlagHasTarget | FstBuilder.FlagHasOutput;
+        byte label = (byte)'a';
+        var nodes = new byte[] { flags, label };
+        var blob = MakeBlob(rootAddress: 0, count: 1, nodes: nodes);
+        var reader = FstReader.Open(blob);
+
+        // Must not throw — exact results from corrupt data are undefined.
+        _ = reader.TryGetOutput("a"u8, out _);
+        Assert.Empty(reader.EnumerateWithPrefix("a"u8));
+    }
+
+    [Fact]
+    public void Arc_With_ContinuationByte_Overflow_Does_Not_Crash()
+    {
+        // An arc with FlagHasTarget, followed by 12 bytes of 0x80 (continuation),
+        // exceeding MaxVarInt64Size. The reader must not loop forever or read past buffer.
+        byte flags = FstBuilder.FlagIsLastArc | FstBuilder.FlagHasTarget;
+        byte label = (byte)'x';
+        var nodes = new byte[2 + 12];
+        nodes[0] = flags;
+        nodes[1] = label;
+        for (int i = 0; i < 12; i++)
+            nodes[2 + i] = 0x80;
+
+        var blob = MakeBlob(rootAddress: 0, count: 1, nodes: nodes);
+        var reader = FstReader.Open(blob);
+
+        // Must not throw or loop forever.
+        _ = reader.TryGetOutput("x"u8, out _);
+        Assert.Empty(reader.EnumerateWithPrefix("x"u8));
+    }
+
+    [Fact]
+    public void Bogus_RootAddress_Does_Not_Crash()
+    {
+        // rootAddress points into the header area (before node data).
+        var blob = MakeBlob(rootAddress: -5, count: 1, nodes: [0x00]);
+        var reader = FstReader.Open(blob);
+
+        Assert.False(reader.TryGetOutput("a"u8, out _));
+        Assert.Empty(reader.EnumerateAll());
+    }
+
+    [Fact]
+    public void Arc_With_Both_VarInts_But_Only_Room_For_One_Does_Not_Crash()
+    {
+        // Flags say target and output. The target VarInt is a single valid byte,
+        // but the output byte is a continuation (0x80) with no following bytes,
+        // forcing TryReadVarInt to fail at the buffer boundary.
+        byte flags = FstBuilder.FlagIsLastArc | FstBuilder.FlagHasTarget | FstBuilder.FlagHasOutput;
+        byte label = (byte)'z';
+        var nodes = new byte[4];
+        nodes[0] = flags;
+        nodes[1] = label;
+        nodes[2] = 0x01; // target = 1, a single-byte VarInt
+        nodes[3] = 0x80; // continuation — expects more bytes but buffer ends
+
+        var blob = MakeBlob(rootAddress: 0, count: 1, nodes: nodes);
+        var reader = FstReader.Open(blob);
+
+        // Must not throw.
+        _ = reader.TryGetOutput("z"u8, out _);
+        Assert.Empty(reader.EnumerateWithPrefix("z"u8));
+    }
+
+    private static byte[] MakeBlob(long rootAddress, long count, byte[] nodes)
+    {
+        // Build a minimal FST1 blob: [magic 4B][rootAddress VarInt][count VarInt][nodes...]
+        int headerSize = 4 + FstBuilder.VarIntSize(rootAddress) + FstBuilder.VarIntSize(count);
+        var blob = new byte[headerSize + nodes.Length];
+        "FST1"u8.CopyTo(blob);
+        int pos = 4;
+        pos += FstBuilder.WriteVarInt(blob, pos, rootAddress);
+        FstBuilder.WriteVarInt(blob, pos, count);
+        Buffer.BlockCopy(nodes, 0, blob, headerSize, nodes.Length);
+        return blob;
+    }
 }
