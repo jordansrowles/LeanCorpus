@@ -30,6 +30,12 @@ internal sealed class StoredFieldsReader : IDisposable
 
     private bool _disposed;
 
+    /// <summary>Maximum decompressed byte size for a single stored fields block (256 MB).</summary>
+    internal const int MaxDecompressedBlockBytes = 256 * 1024 * 1024;
+
+    /// <summary>Maximum documents per block. Guards against corrupt headers.</summary>
+    internal const int MaxBlockSize = 100_000;
+
     private StoredFieldsReader(
         FileStream fs,
         BinaryReader reader,
@@ -39,6 +45,9 @@ internal sealed class StoredFieldsReader : IDisposable
         FieldCompressionPolicy compression,
         byte version)
     {
+        if (blockSize is < 1 or > MaxBlockSize)
+            throw new InvalidDataException($"Stored fields block size {blockSize} is out of range [1, {MaxBlockSize}].");
+
         _fs = fs;
         _reader = reader;
         _blockSize = blockSize;
@@ -259,6 +268,17 @@ internal sealed class StoredFieldsReader : IDisposable
         int docCount = _reader.ReadInt32();
         int rawLength = _reader.ReadInt32();
         int compLength = _reader.ReadInt32();
+
+        // Guard against corrupt or malicious block headers.
+        if ((uint)docCount > (uint)_blockSize)
+            throw new InvalidDataException($"Stored fields block has {docCount} documents but block size is {_blockSize}.");
+        if (rawLength <= 0 || rawLength > MaxDecompressedBlockBytes)
+            throw new InvalidDataException($"Stored fields block rawLength {rawLength} exceeds maximum {MaxDecompressedBlockBytes}.");
+        if (compLength <= 0 || compLength > MaxDecompressedBlockBytes)
+            throw new InvalidDataException($"Stored fields block compLength {compLength} exceeds maximum {MaxDecompressedBlockBytes}.");
+        // Compression should not expand data beyond a 2x ratio; reject obvious bombs.
+        if (compLength > rawLength * 2)
+            throw new InvalidDataException($"Stored fields block compressed length {compLength} exceeds 2x raw length {rawLength}.");
 
         var intraOffsets = new int[docCount];
         for (int i = 0; i < docCount; i++)

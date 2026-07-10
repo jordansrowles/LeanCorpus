@@ -156,6 +156,56 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         Assert.Contains("format version", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact(DisplayName = "Stored Fields: reader rejects decompression bomb with oversized rawLength")]
+    public void Reader_RejectsDecompressionBomb()
+    {
+        var path = Path.Combine(_fixture.Path, $"sf-bomb-{Guid.NewGuid():N}");
+        var docs = new Dictionary<string, List<string>>[]
+        {
+            new() { ["title"] = new List<string> { "test" } }
+        };
+        StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", docs);
+
+        // Overwrite rawLength in the first block header with a value exceeding the limit.
+        // .fdt layout: [version:1][blockSize:4][compression:1] then [docCount:4][rawLength:4][compLength:4]...
+        // rawLength is at offset 1 + 4 + 1 + 4 = 10
+        using (var fs = new FileStream(path + ".fdt", FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            fs.Position = 10;
+            var bombLength = BitConverter.GetBytes(StoredFieldsReader.MaxDecompressedBlockBytes + 1);
+            fs.Write(bombLength);
+        }
+
+        using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
+        var ex = Assert.Throws<InvalidDataException>(() => reader.ReadDocument(0));
+        Assert.Contains("rawLength", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("exceeds maximum", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "Stored Fields: reader rejects block with docCount exceeding blockSize")]
+    public void Reader_RejectsOversizedDocCount()
+    {
+        var path = Path.Combine(_fixture.Path, $"sf-doccnt-{Guid.NewGuid():N}");
+        var docs = new Dictionary<string, List<string>>[]
+        {
+            new() { ["title"] = new List<string> { "test" } }
+        };
+        StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", docs);
+
+        // Overwrite docCount in the first block header to exceed blockSize (default 16).
+        // docCount is at offset 1 + 4 + 1 = 6
+        using (var fs = new FileStream(path + ".fdt", FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            fs.Position = 6;
+            fs.Write(BitConverter.GetBytes(9999));
+        }
+
+        using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
+        var ex = Assert.Throws<InvalidDataException>(() => reader.ReadDocument(0));
+        Assert.Contains("documents", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+
     private static int RewriteAsV1(string filePath)
     {
         var bytes = File.ReadAllBytes(filePath);
