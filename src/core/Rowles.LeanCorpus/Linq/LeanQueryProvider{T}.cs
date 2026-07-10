@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using Rowles.LeanCorpus.Mapping;
@@ -24,14 +23,6 @@ public sealed class LeanQueryProvider<TDocument> : IQueryProvider
     private ISet<string>? _storedFieldNames;
 
     // Cache compiled Select projections keyed by expression shape.
-    // Static — shared across all TDocument instantiations. The default
-    // ConcurrentDictionary reference-equality comparer prevents collisions
-    // between identically-shaped selectors on different document types.
-    // Lifetime is AppDomain-scoped; acceptable for typical workloads.
-    private static readonly ConcurrentDictionary<Expression, Delegate> s_projectionCache = new();
-
-    // Cache boxed wrapper delegates for the fallback projection path (uncommon element types).
-    private static readonly ConcurrentDictionary<Expression, Func<TDocument, object?>> s_boxedWrapperCache = new();
 
     /// <summary>
     /// Initialises a new <see cref="LeanQueryProvider{TDocument}"/>.
@@ -580,9 +571,7 @@ public sealed class LeanQueryProvider<TDocument> : IQueryProvider
     /// </summary>
     private static object ApplyProjection(List<TDocument> source, LambdaExpression selector)
     {
-        var compiled = s_projectionCache.GetOrAdd(
-            selector,
-            static s => ((LambdaExpression)s).Compile(preferInterpretation: true));
+        var compiled = ((LambdaExpression)selector).Compile(preferInterpretation: true);
 
         var elementType = selector.ReturnType;
 
@@ -633,23 +622,16 @@ public sealed class LeanQueryProvider<TDocument> : IQueryProvider
     }
 
     /// <summary>
-    /// Compiles a <c>Func&lt;TDocument, object?&gt;</c> that calls the
-    /// selector delegate and boxes the result. Used only for the fallback
-    /// projection path when the element type is not in the fast switch.
-    /// The compiled wrapper is cached in <see cref="s_projectionCache"/>
-    /// keyed by the original selector expression.
+    /// Compiles a boxed wrapper for the fallback projection path (uncommon element types).
     /// </summary>
     private static Func<TDocument, object?> CompileBoxedWrapper(
         LambdaExpression selector, Delegate compiledDelegate)
     {
-        return s_boxedWrapperCache.GetOrAdd(selector, _ =>
-        {
-            var param = Expression.Parameter(typeof(TDocument), "doc");
-            var invoke = Expression.Invoke(Expression.Constant(compiledDelegate), param);
-            var body = Expression.Convert(invoke, typeof(object));
-            return Expression.Lambda<Func<TDocument, object?>>(body, param)
-                .Compile(preferInterpretation: true);
-        });
+        var param = Expression.Parameter(typeof(TDocument), "doc");
+        var invoke = Expression.Invoke(Expression.Constant(compiledDelegate), param);
+        var body = Expression.Convert(invoke, typeof(object));
+        return Expression.Lambda<Func<TDocument, object?>>(body, param)
+            .Compile(preferInterpretation: true);
     }
 
     private static List<T> ProjectToList<T>(List<TDocument> source, Func<TDocument, T> projection)

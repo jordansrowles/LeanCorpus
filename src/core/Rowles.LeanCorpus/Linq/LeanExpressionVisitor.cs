@@ -1,5 +1,4 @@
 using System.Collections;
-using System.Collections.Concurrent;
 using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
@@ -630,9 +629,6 @@ public readonly struct LeanExpressionVisitor
         };
     }
 
-    // Cache for compiled member-access delegates, keyed by expression shape.
-    // Avoids recompilation of captured-variable reads on every query.
-    private static readonly ConcurrentDictionary<Expression, Func<object?>> s_memberAccessorCache = new();
 
     /// <summary>
     /// Evaluates a <see cref="MemberExpression"/> (typically a closure-captured
@@ -642,10 +638,9 @@ public readonly struct LeanExpressionVisitor
     /// </summary>
     private static object EvaluateMemberExpression(Expression memberExpr)
     {
-        var accessor = s_memberAccessorCache.GetOrAdd(memberExpr, static e =>
-            Expression.Lambda<Func<object?>>(
-                Expression.Convert(e, typeof(object))
-            ).Compile(preferInterpretation: true));
+        var accessor = Expression.Lambda<Func<object?>>(
+            Expression.Convert(memberExpr, typeof(object))
+        ).Compile(preferInterpretation: true);
 
         return accessor()!;
     }
