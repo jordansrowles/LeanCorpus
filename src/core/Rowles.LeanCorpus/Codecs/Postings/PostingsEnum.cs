@@ -39,6 +39,7 @@ public unsafe struct PostingsEnum : IDisposable
     private int _lastDecodedPosCount; // number of valid positions in _lazyPosBuffer
     // Prevents the IndexInput from being disposed/GC'd while this PostingsEnum holds a raw pointer
     private readonly IndexInput? _sourceInput;
+    private readonly long _posDataEnd; // exclusive byte offset bound for _posBasePtr reads
 
     // Payload support
     private readonly bool _hasPayloads;
@@ -212,6 +213,7 @@ public unsafe struct PostingsEnum : IDisposable
         _lastDecodedPosIndex = -1;
         _lastDecodedPosCount = 0;
         _sourceInput = null;
+        _posDataEnd = 0;
         _hasPayloads = false;
         _payloadByteOffsets = null;
         _payloadLengths = null;
@@ -238,6 +240,7 @@ public unsafe struct PostingsEnum : IDisposable
         _lastDecodedPosIndex = -1;
         _lastDecodedPosCount = 0;
         _sourceInput = sourceInput;
+        _posDataEnd = sourceInput?.Length ?? 0;
         _hasPayloads = hasPayloads;
         _payloadByteOffsets = null;
         _payloadLengths = null;
@@ -265,6 +268,7 @@ public unsafe struct PostingsEnum : IDisposable
         _lastDecodedPosIndex = -1;
         _lastDecodedPosCount = 0;
         _sourceInput = null;
+        _posDataEnd = 0;
         _hasPayloads = false;
         _payloadByteOffsets = null;
         _payloadLengths = null;
@@ -292,6 +296,7 @@ public unsafe struct PostingsEnum : IDisposable
         _lastDecodedPosIndex = -1;
         _lastDecodedPosCount = 0;
         _sourceInput = sourceInput;
+        _posDataEnd = sourceInput?.Length ?? 0;
         _hasPayloads = hasPayloads;
         _payloadByteOffsets = null;
         _payloadLengths = null;
@@ -463,21 +468,30 @@ public unsafe struct PostingsEnum : IDisposable
                 }
             }
 
-            // Decode VarInt position deltas (and payload offsets) directly from mmap'd memory
+            // Decode VarInt position deltas (and payload offsets) directly from mmap'd memory.
             long pos = _positionByteOffsets[_index];
+            // Guard against corrupt offset pointing past the mapped region.
+            if ((ulong)pos >= (ulong)_posDataEnd)
+                return ReadOnlySpan<int>.Empty;
+
             int prevPos = 0;
             for (int j = 0; j < posCount; j++)
             {
-                int delta = ReadVarIntFromPtr(_posBasePtr, ref pos);
+                if (!TryReadVarIntFromPtr(_posBasePtr, ref pos, _posDataEnd, out int delta))
+                    return ReadOnlySpan<int>.Empty;
                 prevPos += delta;
                 _lazyPosBuffer[j] = prevPos;
 
                 if (_hasPayloads)
                 {
-                    int payloadLen = ReadVarIntFromPtr(_posBasePtr, ref pos);
+                    if (!TryReadVarIntFromPtr(_posBasePtr, ref pos, _posDataEnd, out int payloadLen))
+                        return ReadOnlySpan<int>.Empty;
                     _payloadLengths![j] = payloadLen;
                     _payloadByteOffsets![j] = pos;
-                    pos += payloadLen;
+                    long nextPos = pos + (long)(uint)payloadLen;
+                    if (nextPos > _posDataEnd || nextPos < pos)
+                        return ReadOnlySpan<int>.Empty;
+                    pos = nextPos;
                 }
             }
 
@@ -491,20 +505,27 @@ public unsafe struct PostingsEnum : IDisposable
         return ReadOnlySpan<int>.Empty;
     }
 
-    /// <summary>Reads a VarInt directly from a raw byte pointer at the given position.</summary>
+    /// <summary>Reads a VarInt from a raw byte pointer with bounds checking.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int ReadVarIntFromPtr(byte* ptr, ref long position)
+    private static bool TryReadVarIntFromPtr(byte* ptr, ref long position, long end, out int value)
     {
+        value = 0;
         uint result = 0;
         int shift = 0;
+        int remaining = 0;
         byte b;
         do
         {
+            if (position >= end) return false;
             b = ptr[position++];
+            remaining++;
+            if (remaining > 5) return false; // VarInt for int32 max 5 bytes
             result |= (uint)(b & 0x7F) << shift;
             shift += 7;
         } while ((b & 0x80) != 0);
-        return (int)result;
+        if (result > int.MaxValue) return false;
+        value = (int)result;
+        return true;
     }
 
     /// <summary>
@@ -528,7 +549,11 @@ public unsafe struct PostingsEnum : IDisposable
         if (len <= 0)
             return ReadOnlySpan<byte>.Empty;
 
-        return new ReadOnlySpan<byte>(_posBasePtr + _payloadByteOffsets[positionIndex], len);
+        long offset = _payloadByteOffsets[positionIndex];
+        if ((ulong)offset + (ulong)(uint)len > (ulong)_posDataEnd)
+            return ReadOnlySpan<byte>.Empty;
+
+        return new ReadOnlySpan<byte>(_posBasePtr + offset, len);
     }
 
     /// <summary>Advances the cursor to the next document. Returns <see langword="true"/> if a document was found.</summary>
