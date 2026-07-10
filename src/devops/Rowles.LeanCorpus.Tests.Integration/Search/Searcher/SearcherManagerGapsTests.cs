@@ -235,6 +235,24 @@ public sealed class SearcherManagerGapsTests : IDisposable
         mgr.MaybeRefresh(); // succeeds → counter resets to 0
         Assert.Equal(0, mgr.ConsecutiveRefreshFailures);
     }
+    // ── Exception handling: transient caught, fatal propagated ─────────────────
+
+    [Fact(DisplayName = "SearcherManager: Non-transient exception propagates through MaybeRefresh")]
+    public void MaybeRefresh_NonTransientException_Propagates()
+    {
+        using var dir = BuildIndex("smgr_fatal_prop");
+        using var mgr = new SearcherManager(dir);
+
+        // Null out _directory via reflection so TryRefreshCore throws NullReferenceException,
+        // which is not in the transient-exception when filter and must propagate.
+        var directoryField = typeof(SearcherManager).GetField("_directory",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(directoryField);
+        directoryField.SetValue(mgr, null);
+
+        Assert.Throws<NullReferenceException>(() => mgr.MaybeRefresh());
+    }
+
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
