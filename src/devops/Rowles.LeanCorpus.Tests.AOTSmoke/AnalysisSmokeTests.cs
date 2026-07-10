@@ -778,7 +778,7 @@ public class AnalysisSmokeTests
             }
             catch (NotSupportedException)
             {
-                Assert.True(false, $"AnalyserFactory.Create('{lang}') threw NotSupportedException unexpectedly");
+                Assert.Fail($"AnalyserFactory.Create('{lang}') threw NotSupportedException unexpectedly");
             }
         }
     }

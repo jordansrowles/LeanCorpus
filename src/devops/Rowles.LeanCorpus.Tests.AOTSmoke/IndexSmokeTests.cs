@@ -106,25 +106,25 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
             });
 
             // --- Core queries ---
-            Assert.Equal(3, searcher.Search(new TermQuery("status", "active"), 10).TotalHits);
-            Assert.Equal(1, searcher.Search(new PhraseQuery("title", "native", "aot"), 10).TotalHits);
-            Assert.Equal(1, searcher.Search(new PrefixQuery("title", "nat"), 10).TotalHits);
-            Assert.Equal(1, searcher.Search(new RegexpQuery("code", "^nat"), 10).TotalHits);
-            Assert.Equal(2, searcher.Search(new RangeQuery("year", 2024, 2026), 10).TotalHits);
-            Assert.Equal(2, searcher.Search(new GeoDistanceQuery("location", 51.5074, -0.1278, 250_000), 10).TotalHits);
-            Assert.Equal(2, searcher.Search(new GeoBoundingBoxQuery("location", 51.0, 52.0, -3.0, 0.5), 10).TotalHits);
-            var vectorResults = searcher.Search(new VectorQuery("embedding", [1f, 0f, 0f, 0f], topK: 2), 2);
+            Assert.Equal(3, searcher.Search(new TermQuery("status", "active"), 10, TestContext.Current.CancellationToken).TotalHits);
+            Assert.Equal(1, searcher.Search(new PhraseQuery("title", "native", "aot"), 10, TestContext.Current.CancellationToken).TotalHits);
+            Assert.Equal(1, searcher.Search(new PrefixQuery("title", "nat"), 10, TestContext.Current.CancellationToken).TotalHits);
+            Assert.Equal(1, searcher.Search(new RegexpQuery("code", "^nat"), 10, TestContext.Current.CancellationToken).TotalHits);
+            Assert.Equal(2, searcher.Search(new RangeQuery("year", 2024, 2026), 10, TestContext.Current.CancellationToken).TotalHits);
+            Assert.Equal(2, searcher.Search(new GeoDistanceQuery("location", 51.5074, -0.1278, 250_000), 10, TestContext.Current.CancellationToken).TotalHits);
+            Assert.Equal(2, searcher.Search(new GeoBoundingBoxQuery("location", 51.0, 52.0, -3.0, 0.5), 10, TestContext.Current.CancellationToken).TotalHits);
+            var vectorResults = searcher.Search(new VectorQuery("embedding", [1f, 0f, 0f, 0f], topK: 2), 2, TestContext.Current.CancellationToken);
             Assert.Equal(2, vectorResults.ScoreDocs.Length);
 
-            Assert.Equal(1, searcher.Search(new WildcardQuery("title", "corp*"), 10).TotalHits);
-            Assert.Equal(1, searcher.Search(new FuzzyQuery("title", "nativ", maxEdits: 1), 10).TotalHits);
+            Assert.Equal(1, searcher.Search(new WildcardQuery("title", "corp*"), 10, TestContext.Current.CancellationToken).TotalHits);
+            Assert.Equal(1, searcher.Search(new FuzzyQuery("title", "nativ", maxEdits: 1), 10, TestContext.Current.CancellationToken).TotalHits);
 
             {
                 var bq = new BooleanQuery.Builder()
                     .Add(new TermQuery("status", "active"), Occur.Must)
                     .Add(new TermQuery("status", "archived"), Occur.MustNot)
                     .Build();
-                Assert.Equal(3, searcher.Search(bq, 10).TotalHits);
+                Assert.Equal(3, searcher.Search(bq, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
@@ -132,13 +132,13 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
                     .Add(new TermQuery("status", "active"), Occur.Should)
                     .Add(new TermQuery("status", "archived"), Occur.Should)
                     .Build();
-                Assert.Equal(4, searcher.Search(bq, 10).TotalHits);
+                Assert.Equal(4, searcher.Search(bq, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
                 var parser = new QueryParser("title", new StandardAnalyser());
                 var parsed = parser.Parse("native aot");
-                var result = searcher.Search(parsed, 10);
+                var result = searcher.Search(parsed, 10, TestContext.Current.CancellationToken);
                 Assert.True(result.TotalHits >= 1,
                     $"query parser 'native aot' returned {result.TotalHits} hit(s), expected >=1.");
             }
@@ -146,7 +146,7 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
             {
                 var parser = new QueryParser("title", new StandardAnalyser());
                 var parsed = parser.Parse("status:active");
-                var result = searcher.Search(parsed, 10);
+                var result = searcher.Search(parsed, 10, TestContext.Current.CancellationToken);
                 Assert.True(result.TotalHits >= 3,
                     $"query parser 'status:active' returned {result.TotalHits} hit(s), expected >=3.");
             }
@@ -154,19 +154,19 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
             {
                 var parser = new QueryParser("title", new StandardAnalyser());
                 var parsed = parser.Parse("\"native aot\"");
-                var result = searcher.Search(parsed, 10);
+                var result = searcher.Search(parsed, 10, TestContext.Current.CancellationToken);
                 Assert.True(result.TotalHits >= 1,
                     $"query parser '\"native aot\"' returned {result.TotalHits} hit(s), expected >=1.");
             }
 
             {
                 var q = new TermInSetQuery("status", ["active", "archived"]);
-                Assert.Equal(4, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(4, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
                 var q = new MatchAllDocsQuery();
-                Assert.Equal(4, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(4, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
@@ -180,7 +180,7 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
                 var q = new CombinedFieldsQuery(
                     fields: new[] { "title", "body" },
                     terms: new[] { "native", "aot" });
-                Assert.Equal(1, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(1, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
@@ -188,7 +188,7 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
                     fields: new[] { "title", "body" },
                     terms: new[] { "native", "nonexistent" },
                     minimumShouldMatch: 2);
-                var result = searcher.Search(q, 10);
+                var result = searcher.Search(q, 10, TestContext.Current.CancellationToken);
                 Assert.True(result.TotalHits == 0,
                     $"combined fields minShouldMatch=2 expected 0 hits, got {result.TotalHits}");
             }
@@ -196,7 +196,7 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
             {
                 var inner = new TermQuery("status", "active");
                 var q = new ConstantScoreQuery(inner);
-                var result = searcher.Search(q, 10);
+                var result = searcher.Search(q, 10, TestContext.Current.CancellationToken);
                 Assert.True(result.TotalHits == 3,
                     $"constant score query expected 3 hits, got {result.TotalHits}");
                 Assert.True(result.ScoreDocs.All(sd => sd.Score == 1.0f),
@@ -206,7 +206,7 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
             {
                 var inner = new TermQuery("status", "active");
                 var q = new ConstantScoreQuery(inner, score: 2.5f);
-                var result = searcher.Search(q, 10);
+                var result = searcher.Search(q, 10, TestContext.Current.CancellationToken);
                 Assert.True(result.TotalHits == 3,
                     $"constant score (2.5) query expected 3 hits, got {result.TotalHits}");
                 Assert.True(result.ScoreDocs.All(sd => sd.Score == 2.5f),
@@ -218,7 +218,7 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
                     .Add(new TermQuery("title", "native"))
                     .Add(new TermQuery("title", "fast"))
                     .Freeze();
-                Assert.Equal(2, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(2, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
@@ -227,17 +227,17 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
                     .Add(new TermQuery("title", "native"))
                     .Add(new TermQuery("title", "corpus"))
                     .Build();
-                Assert.Equal(2, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(2, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
                 var q = new FieldExistsQuery("status");
-                Assert.Equal(4, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(4, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
                 var q = new FieldExistsQuery("nonexistent_field");
-                var result = searcher.Search(q, 10);
+                var result = searcher.Search(q, 10, TestContext.Current.CancellationToken);
                 Assert.True(result.TotalHits == 0,
                     $"field exists (nonexistent) expected 0 hits, got {result.TotalHits}");
             }
@@ -245,31 +245,31 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
             {
                 var inner = new TermQuery("status", "active");
                 var q = new FunctionScoreQuery(inner, "year", ScoreMode.Multiply);
-                Assert.Equal(3, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(3, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
                 var inner = new TermQuery("status", "active");
                 var q = new FunctionScoreQuery(inner, "year", ScoreMode.Replace);
-                Assert.Equal(3, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(3, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
                 var inner = new TermQuery("status", "active");
                 var q = new FunctionScoreQuery(inner, "year", ScoreMode.Sum);
-                Assert.Equal(3, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(3, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
                 var source = new IntervalsTermSource("title", "native");
                 var q = new IntervalsQuery(source);
-                Assert.Equal(1, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(1, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
                 var source = new IntervalsPhraseSource("title", "fast", "corpus");
                 var q = new IntervalsQuery(source);
-                Assert.Equal(1, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(1, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
@@ -277,7 +277,7 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
                     new IntervalsTermSource("title", "native"),
                     new IntervalsTermSource("title", "fast"));
                 var q = new IntervalsQuery(source);
-                Assert.Equal(2, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(2, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
@@ -286,12 +286,12 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
                     new IntervalsTermSource("title", "native"),
                     new IntervalsTermSource("title", "aot"));
                 var q = new IntervalsQuery(source);
-                Assert.Equal(1, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(1, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
                 var q = new MatchNoDocsQuery();
-                var result = searcher.Search(q, 10);
+                var result = searcher.Search(q, 10, TestContext.Current.CancellationToken);
                 Assert.True(result.TotalHits == 0,
                     $"match no docs expected 0 hits, got {result.TotalHits}");
             }
@@ -299,7 +299,7 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
             {
                 var q = new MatchNoDocsQuery("test reason");
                 Assert.True(q.Reason == "test reason", "MatchNoDocsQuery Reason mismatch");
-                var result = searcher.Search(q, 10);
+                var result = searcher.Search(q, 10, TestContext.Current.CancellationToken);
                 Assert.True(result.TotalHits == 0,
                     $"match no docs (reason) expected 0 hits, got {result.TotalHits}");
             }
@@ -330,7 +330,7 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
                 var q = new MultiPhraseQuery(
                     field: "title",
                     termGroups: new[] { new[] { "native" }, new[] { "aot", "search" } });
-                Assert.Equal(1, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(1, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
@@ -338,24 +338,24 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
                     field: "title",
                     termGroups: new[] { new[] { "native" }, new[] { "search" } },
                     slop: 1);
-                Assert.Equal(1, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(1, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
                 var q = new PointInSetQuery("year", 2024, 2025);
-                Assert.Equal(2, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(2, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
                 var q = new PointInSetQuery("year", new[] { 2023.0 });
-                Assert.Equal(1, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(1, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
                 var q = new RrfQuery(k: 60)
                     .Add(new TermQuery("title", "native"))
                     .Add(new TermQuery("title", "fast"));
-                Assert.Equal(2, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(2, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
@@ -379,19 +379,19 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
             {
                 var q = new TermRangeQuery("code", "api", "native",
                     includeLower: true, includeUpper: true);
-                Assert.Equal(3, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(3, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
                 var q = new TermRangeQuery("code", "api", "recover",
                     includeLower: false, includeUpper: true);
-                Assert.Equal(3, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(3, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
                 var q = new TermRangeQuery("code", "api", null,
                     includeLower: true, includeUpper: true);
-                Assert.Equal(4, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(4, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
@@ -409,7 +409,7 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
                     },
                     slop: 2,
                     inOrder: true);
-                Assert.Equal(1, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(1, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
@@ -421,21 +421,21 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
                     },
                     slop: 2,
                     inOrder: false);
-                Assert.Equal(1, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(1, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
                 var q = new SpanOrQuery(
                     new SpanTermQuery("title", "native"),
                     new SpanTermQuery("title", "fast"));
-                Assert.Equal(2, searcher.Search(q, 10).TotalHits);
+                Assert.Equal(2, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
                 var include = new SpanTermQuery("title", "corpus");
                 var exclude = new SpanTermQuery("title", "native");
                 var q = new SpanNotQuery(include, exclude);
-                var result = searcher.Search(q, 10);
+                var result = searcher.Search(q, 10, TestContext.Current.CancellationToken);
                 Assert.True(result.TotalHits >= 1,
                     $"span not query expected >=1 hit, got {result.TotalHits}");
             }
@@ -460,13 +460,13 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
             }
 
             {
-                var sorted = searcher.Search(new MatchAllDocsQuery(), 10, SortField.DocId);
+                var sorted = searcher.Search(new MatchAllDocsQuery(), 10, SortField.DocId, TestContext.Current.CancellationToken);
                 Assert.True(sorted.ScoreDocs.Length >= 1,
                     $"docid sort returned {sorted.ScoreDocs.Length} doc(s), expected >=1.");
             }
 
             {
-                var sorted = searcher.Search(new MatchAllDocsQuery(), 10, SortField.Score);
+                var sorted = searcher.Search(new MatchAllDocsQuery(), 10, SortField.Score, TestContext.Current.CancellationToken);
                 Assert.True(sorted.ScoreDocs.Length >= 1,
                     $"score sort returned {sorted.ScoreDocs.Length} doc(s), expected >=1.");
             }
@@ -478,7 +478,7 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
                 $"collapsed search returned {collapsed.TotalHits} group(s), expected 2.");
 
             // --- Stored fields ---
-            var storedResult = searcher.Search(new TermQuery("id", "doc-1"), 1);
+            var storedResult = searcher.Search(new TermQuery("id", "doc-1"), 1, TestContext.Current.CancellationToken);
             Assert.Equal(1, storedResult.TotalHits);
             var stored = searcher.GetStoredFields(storedResult.ScoreDocs[0].DocId);
             Assert.True(stored.TryGetValue("title", out var title) && title.Contains("native aot search"),
