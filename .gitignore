@@ -3,6 +3,9 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+
+# Source-generator output
+*.g.cs
 # Benchmark results (ignore output, keep data)
 bench/*
 bench/data/*.tar.gz
