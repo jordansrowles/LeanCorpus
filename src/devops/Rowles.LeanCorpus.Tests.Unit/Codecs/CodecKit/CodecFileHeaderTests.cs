@@ -47,14 +47,14 @@ public sealed class CodecFileHeaderTests : IDisposable
 
         using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
-            CodecFileHeader.Write(writer, CodecFormats.Postings, body);
+            CodecFileHeader.Write(writer, CodecFormats.TermDictionary, body);
 
         using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         using (var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            var result = CodecFileHeader.Read(reader, CodecFormats.Postings);
+            var result = CodecFileHeader.Read(reader, CodecFormats.TermDictionary);
 
-            Assert.Equal(CodecConstants.PostingsVersion, result.Version);
+            Assert.Equal(CodecConstants.TermDictionaryVersion, result.Version);
             Assert.Empty(result.Body);
         }
     }
@@ -67,14 +67,14 @@ public sealed class CodecFileHeaderTests : IDisposable
 
         using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
-            CodecFileHeader.Write(writer, CodecFormats.Postings, body);
+            CodecFileHeader.Write(writer, CodecFormats.TermDictionary, body);
 
         using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         using (var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            var result = CodecFileHeader.Read(reader, CodecFormats.Postings);
+            var result = CodecFileHeader.Read(reader, CodecFormats.TermDictionary);
 
-            Assert.Equal(CodecConstants.PostingsVersion, result.Version);
+            Assert.Equal(CodecConstants.TermDictionaryVersion, result.Version);
             Assert.Equal(body, result.Body);
         }
     }
@@ -88,14 +88,14 @@ public sealed class CodecFileHeaderTests : IDisposable
 
         using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
-            CodecFileHeader.Write(writer, CodecFormats.Postings, body);
+            CodecFileHeader.Write(writer, CodecFormats.TermDictionary, body);
 
         using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         using (var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            var result = CodecFileHeader.Read(reader, CodecFormats.Postings);
+            var result = CodecFileHeader.Read(reader, CodecFormats.TermDictionary);
 
-            Assert.Equal(CodecConstants.PostingsVersion, result.Version);
+            Assert.Equal(CodecConstants.TermDictionaryVersion, result.Version);
             Assert.Equal(body, result.Body);
         }
     }
@@ -109,14 +109,14 @@ public sealed class CodecFileHeaderTests : IDisposable
 
         using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
-            CodecFileHeader.Write(writer, CodecFormats.Postings, body);
+            CodecFileHeader.Write(writer, CodecFormats.TermDictionary, body);
 
         using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         using (var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            var result = CodecFileHeader.Read(reader, CodecFormats.Postings);
+            var result = CodecFileHeader.Read(reader, CodecFormats.TermDictionary);
 
-            Assert.Equal(CodecConstants.PostingsVersion, result.Version);
+            Assert.Equal(CodecConstants.TermDictionaryVersion, result.Version);
             Assert.Equal(body, result.Body);
         }
     }
@@ -129,14 +129,14 @@ public sealed class CodecFileHeaderTests : IDisposable
 
         using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
-            CodecFileHeader.Write(writer, CodecFormats.Postings, body);
+            CodecFileHeader.Write(writer, CodecFormats.TermDictionary, body);
 
         using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         using (var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.Postings);
+            byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.TermDictionary);
 
-            Assert.Equal(CodecConstants.PostingsVersion, version);
+            Assert.Equal(CodecConstants.TermDictionaryVersion, version);
             // Version (1) + VarInt(3) = 1 byte → total header = 2 bytes
             Assert.Equal(2, fs.Position);
         }
@@ -154,14 +154,14 @@ public sealed class CodecFileHeaderTests : IDisposable
 
         using (var output = new IndexOutput(path))
         {
-            CodecFileHeader.Write(output, CodecFormats.Postings, body);
+            CodecFileHeader.Write(output, CodecFormats.TermDictionary, body);
             output.Flush();
         }
 
         using var input = new IndexInput(path);
-        var result = CodecFileHeader.Read(input, CodecFormats.Postings);
+        var result = CodecFileHeader.Read(input, CodecFormats.TermDictionary);
 
-        Assert.Equal(CodecConstants.PostingsVersion, result.Version);
+        Assert.Equal(CodecConstants.TermDictionaryVersion, result.Version);
         Assert.Empty(result.Body);
     }
 
@@ -173,14 +173,14 @@ public sealed class CodecFileHeaderTests : IDisposable
 
         using (var output = new IndexOutput(path))
         {
-            CodecFileHeader.Write(output, CodecFormats.Postings, body);
+            CodecFileHeader.Write(output, CodecFormats.TermDictionary, body);
             output.Flush();
         }
 
         using var input = new IndexInput(path);
-        var result = CodecFileHeader.Read(input, CodecFormats.Postings);
+        var result = CodecFileHeader.Read(input, CodecFormats.TermDictionary);
 
-        Assert.Equal(CodecConstants.PostingsVersion, result.Version);
+        Assert.Equal(CodecConstants.TermDictionaryVersion, result.Version);
         Assert.Equal(body, result.Body);
     }
 
@@ -193,14 +193,14 @@ public sealed class CodecFileHeaderTests : IDisposable
 
         using (var output = new IndexOutput(path))
         {
-            CodecFileHeader.Write(output, CodecFormats.Postings, body);
+            CodecFileHeader.Write(output, CodecFormats.TermDictionary, body);
             output.Flush();
         }
 
         using var input = new IndexInput(path);
-        var result = CodecFileHeader.Read(input, CodecFormats.Postings);
+        var result = CodecFileHeader.Read(input, CodecFormats.TermDictionary);
 
-        Assert.Equal(CodecConstants.PostingsVersion, result.Version);
+        Assert.Equal(CodecConstants.TermDictionaryVersion, result.Version);
         Assert.Equal(body, result.Body);
     }
 
@@ -258,7 +258,7 @@ public sealed class CodecFileHeaderTests : IDisposable
         using (var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
             Assert.ThrowsAny<Exception>(() =>
-                CodecFileHeader.Read(reader, CodecFormats.Postings));
+                CodecFileHeader.Read(reader, CodecFormats.TermDictionary));
         }
     }
 
@@ -270,7 +270,7 @@ public sealed class CodecFileHeaderTests : IDisposable
 
         using var input = new IndexInput(path);
         Assert.ThrowsAny<Exception>(() =>
-            CodecFileHeader.Read(input, CodecFormats.Postings));
+            CodecFileHeader.Read(input, CodecFormats.TermDictionary));
     }
 
     [Fact(DisplayName = "Truncated VarInt via BinaryReader (ReadVersion) throws")]
@@ -287,7 +287,7 @@ public sealed class CodecFileHeaderTests : IDisposable
         using (var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
             Assert.ThrowsAny<Exception>(() =>
-                CodecFileHeader.ReadVersion(reader, CodecFormats.Postings));
+                CodecFileHeader.ReadVersion(reader, CodecFormats.TermDictionary));
         }
     }
 
@@ -304,7 +304,7 @@ public sealed class CodecFileHeaderTests : IDisposable
 
         using var input = new IndexInput(path);
         Assert.Throws<InvalidDataException>(() =>
-            CodecFileHeader.Read(input, CodecFormats.Postings));
+            CodecFileHeader.Read(input, CodecFormats.TermDictionary));
     }
 
     [Fact(DisplayName = "Malformed VarInt >10 continuation bytes via BinaryReader throws")]
@@ -322,7 +322,7 @@ public sealed class CodecFileHeaderTests : IDisposable
         using (var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
             Assert.Throws<InvalidDataException>(() =>
-                CodecFileHeader.ReadVersion(reader, CodecFormats.Postings));
+                CodecFileHeader.ReadVersion(reader, CodecFormats.TermDictionary));
         }
     }
 
@@ -340,7 +340,7 @@ public sealed class CodecFileHeaderTests : IDisposable
 
         using var input = new IndexInput(path);
         Assert.Throws<InvalidDataException>(() =>
-            CodecFileHeader.ReadVersion(input, CodecFormats.Postings));
+            CodecFileHeader.ReadVersion(input, CodecFormats.TermDictionary));
     }
 
     [Fact(DisplayName = "Unknown version (forward compat) succeeds and returns raw body")]
@@ -360,7 +360,7 @@ public sealed class CodecFileHeaderTests : IDisposable
         using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         using (var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            var result = CodecFileHeader.Read(reader, CodecFormats.Postings);
+            var result = CodecFileHeader.Read(reader, CodecFormats.TermDictionary);
 
             Assert.Equal(unknownVersion, result.Version);
             Assert.Equal(body, result.Body);
@@ -383,7 +383,7 @@ public sealed class CodecFileHeaderTests : IDisposable
         }
 
         using var input = new IndexInput(path);
-        var result = CodecFileHeader.Read(input, CodecFormats.Postings);
+        var result = CodecFileHeader.Read(input, CodecFormats.TermDictionary);
 
         Assert.Equal(unknownVersion, result.Version);
         Assert.Equal(body, result.Body);
@@ -411,14 +411,14 @@ public sealed class CodecFileHeaderTests : IDisposable
         using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var w = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            WriteBinaryHeader(w, CodecConstants.PostingsVersion, 0);
+            WriteBinaryHeader(w, CodecConstants.TermDictionaryVersion, 0);
         }
 
         using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         using (var r = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            byte version = CodecFileHeader.ReadVersion(r, CodecFormats.Postings);
-            Assert.Equal(CodecConstants.PostingsVersion, version);
+            byte version = CodecFileHeader.ReadVersion(r, CodecFormats.TermDictionary);
+            Assert.Equal(CodecConstants.TermDictionaryVersion, version);
             Assert.Equal(2, fs.Position); // 1 version + 1 VarInt
         }
     }
@@ -430,14 +430,14 @@ public sealed class CodecFileHeaderTests : IDisposable
         using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var w = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            WriteBinaryHeader(w, CodecConstants.PostingsVersion, 127);
+            WriteBinaryHeader(w, CodecConstants.TermDictionaryVersion, 127);
         }
 
         using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         using (var r = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            byte version = CodecFileHeader.ReadVersion(r, CodecFormats.Postings);
-            Assert.Equal(CodecConstants.PostingsVersion, version);
+            byte version = CodecFileHeader.ReadVersion(r, CodecFormats.TermDictionary);
+            Assert.Equal(CodecConstants.TermDictionaryVersion, version);
             Assert.Equal(2, fs.Position);
         }
     }
@@ -449,14 +449,14 @@ public sealed class CodecFileHeaderTests : IDisposable
         using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var w = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            WriteBinaryHeader(w, CodecConstants.PostingsVersion, 128);
+            WriteBinaryHeader(w, CodecConstants.TermDictionaryVersion, 128);
         }
 
         using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         using (var r = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            byte version = CodecFileHeader.ReadVersion(r, CodecFormats.Postings);
-            Assert.Equal(CodecConstants.PostingsVersion, version);
+            byte version = CodecFileHeader.ReadVersion(r, CodecFormats.TermDictionary);
+            Assert.Equal(CodecConstants.TermDictionaryVersion, version);
             Assert.Equal(3, fs.Position); // 1 version + 2 VarInt
         }
     }
@@ -468,14 +468,14 @@ public sealed class CodecFileHeaderTests : IDisposable
         using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var w = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            WriteBinaryHeader(w, CodecConstants.PostingsVersion, 16383);
+            WriteBinaryHeader(w, CodecConstants.TermDictionaryVersion, 16383);
         }
 
         using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         using (var r = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            byte version = CodecFileHeader.ReadVersion(r, CodecFormats.Postings);
-            Assert.Equal(CodecConstants.PostingsVersion, version);
+            byte version = CodecFileHeader.ReadVersion(r, CodecFormats.TermDictionary);
+            Assert.Equal(CodecConstants.TermDictionaryVersion, version);
             Assert.Equal(3, fs.Position);
         }
     }
@@ -487,14 +487,14 @@ public sealed class CodecFileHeaderTests : IDisposable
         using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var w = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            WriteBinaryHeader(w, CodecConstants.PostingsVersion, 16384);
+            WriteBinaryHeader(w, CodecConstants.TermDictionaryVersion, 16384);
         }
 
         using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         using (var r = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            byte version = CodecFileHeader.ReadVersion(r, CodecFormats.Postings);
-            Assert.Equal(CodecConstants.PostingsVersion, version);
+            byte version = CodecFileHeader.ReadVersion(r, CodecFormats.TermDictionary);
+            Assert.Equal(CodecConstants.TermDictionaryVersion, version);
             Assert.Equal(4, fs.Position);
         }
     }
@@ -512,7 +512,7 @@ public sealed class CodecFileHeaderTests : IDisposable
         (CodecFormats.BinaryDocValues, CodecConstants.BinaryDocValuesVersion, "BinaryDocValues"),
         (CodecFormats.SortedSetDocValues, CodecConstants.SortedSetDocValuesVersion, "SortedSetDocValues"),
         (CodecFormats.SortedNumericDocValues, CodecConstants.SortedNumericDocValuesVersion, "SortedNumericDocValues"),
-        (CodecFormats.Postings, CodecConstants.PostingsVersion, "Postings"),
+        (CodecFormats.TermDictionary, CodecConstants.TermDictionaryVersion, "TermDictionary"),
         (CodecFormats.TermVectors, CodecConstants.TermVectorsVersion, "TermVectors"),
         (CodecFormats.TermDictionary, CodecConstants.TermDictionaryVersion, "TermDictionary"),
         (CodecFormats.Hnsw, CodecConstants.HnswVersion, "Hnsw"),

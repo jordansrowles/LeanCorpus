@@ -80,56 +80,27 @@ public sealed class PayloadRoundTripTests : IDisposable
 
     private static void WritePosFile(string posPath, int[] docIds, int[] freqs, out long termOffset)
     {
-        string tmp = Path.GetTempFileName();
-        try
-        {
-            long headerPos;
-            {
-                using var bodyOut = new IndexOutput(tmp);
-                using var bw = new BlockPostingsWriter(bodyOut);
-                headerPos = bodyOut.Position;
-                bodyOut.WriteInt32(0);
-                bodyOut.WriteInt64(0L);
-                bodyOut.WriteBoolean(true);  // hasFreqs
-                bodyOut.WriteBoolean(false); // hasPositions
-                bodyOut.WriteBoolean(false); // hasPayloads
+        using var output = new IndexOutput(posPath);
+        PostingsFileHeader.WriteV2Header(output);
 
-                bw.StartTerm();
-                for (int i = 0; i < docIds.Length; i++)
-                    bw.AddPosting(docIds[i], freqs[i]);
-                var meta = bw.FinishTerm();
-                long endPos = bodyOut.Position;
-                bodyOut.Seek(headerPos);
-                bodyOut.WriteInt32(meta.DocFreq);
-                bodyOut.WriteInt64(meta.SkipOffset);
-                bodyOut.Seek(endPos);
-            }
+        using var bw = new BlockPostingsWriter(output);
+        long headerPos = output.Position;
+        output.WriteInt32(0);     // docFreq placeholder
+        output.WriteInt64(0L);    // skipOffset placeholder
+        output.WriteBoolean(true);  // hasFreqs
+        output.WriteBoolean(false); // hasPositions
+        output.WriteBoolean(false); // hasPayloads
 
-            byte[] body = File.ReadAllBytes(tmp);
-            File.Delete(tmp);
+        bw.StartTerm();
+        for (int i = 0; i < docIds.Length; i++)
+            bw.AddPosting(docIds[i], freqs[i]);
+        var meta = bw.FinishTerm();
+        long endPos = output.Position;
+        output.Seek(headerPos);
+        output.WriteInt32(meta.DocFreq);
+        output.WriteInt64(meta.SkipOffset);
+        output.Seek(endPos);
 
-            int env = 1 + VarIntSize(body.Length);
-            // Patch skipOffset for CodecKit envelope
-            long oldSkip = BitConverter.ToInt64(body, (int)headerPos + 4);
-            byte[] bump = BitConverter.GetBytes(oldSkip + env);
-            bump.CopyTo(body, (int)headerPos + 4);
-
-            termOffset = env;
-            using var output = new IndexOutput(posPath);
-            output.WriteByte(CodecConstants.PostingsVersion);
-            output.WriteVarInt(body.Length);
-            output.WriteBytes(body);
-        }
-        catch
-        {
-            try { File.Delete(tmp); } catch { }
-            throw;
-        }
-    }
-
-    private static int VarIntSize(long value)
-    {
-        int s = 0; do { s++; value >>= 7; } while (value != 0);
-        return s;
+        termOffset = headerPos; // v2: offset is absolute, no envelope
     }
 }

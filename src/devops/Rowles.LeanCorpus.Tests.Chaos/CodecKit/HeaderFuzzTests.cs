@@ -27,7 +27,7 @@ public sealed class HeaderFuzzTests : IClassFixture<ChaosDirectoryFixture>
 
         try
         {
-            CodecFileHeader.Read(reader, CodecFormats.Postings);
+            CodecFileHeader.Read(reader, CodecFormats.TermDictionary);
             // Success is fine
         }
         catch (Exception)
@@ -46,7 +46,7 @@ public sealed class HeaderFuzzTests : IClassFixture<ChaosDirectoryFixture>
 
         try
         {
-            CodecFileHeader.Read(input, CodecFormats.Postings);
+            CodecFileHeader.Read(input, CodecFormats.TermDictionary);
         }
         catch (Exception)
         {
@@ -61,14 +61,14 @@ public sealed class HeaderFuzzTests : IClassFixture<ChaosDirectoryFixture>
 
         using (var output = new IndexOutput(path))
         {
-            CodecFileHeader.Write(output, CodecFormats.Postings, body);
+            CodecFileHeader.Write(output, CodecFormats.TermDictionary, body);
             output.Flush();
         }
 
         using var input = new IndexInput(path);
-        var result = CodecFileHeader.Read(input, CodecFormats.Postings);
+        var result = CodecFileHeader.Read(input, CodecFormats.TermDictionary);
 
-        Assert.Equal(CodecFormats_decode_version(CodecFormats.Postings), result.Version);
+        Assert.Equal(CodecFormats_decode_version(CodecFormats.TermDictionary), result.Version);
         Assert.Equal(body, result.Body);
     }
 
@@ -90,12 +90,12 @@ public sealed class HeaderFuzzTests : IClassFixture<ChaosDirectoryFixture>
 
         using (var output = new IndexOutput(path))
         {
-            CodecFileHeader.Write(output, CodecFormats.Postings, body);
+            CodecFileHeader.Write(output, CodecFormats.TermDictionary, body);
             output.Flush();
         }
 
         using var input = new IndexInput(path);
-        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.Postings);
+        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.TermDictionary);
 
         // Read remaining bytes (past header)
         long remaining = input.Length - input.Position;

@@ -1,6 +1,4 @@
 using System.Buffers;
-using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.Postings;
@@ -27,7 +25,8 @@ internal static class PostingsWriter
         }
 
         using var output = new IndexOutput(filePath, durable: true);
-        CodecFileHeader.Write(output, CodecFormats.Postings, bodyBuf.WrittenSpan);
+        PostingsFileHeader.WriteV2Header(output);
+        output.WriteBytes(bodyBuf.WrittenSpan);
     }
 
     /// <summary>Writes a non-negative integer using variable-length encoding (LEB128).</summary>

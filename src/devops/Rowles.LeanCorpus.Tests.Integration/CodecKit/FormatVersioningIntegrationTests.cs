@@ -51,7 +51,7 @@ public sealed class FormatVersioningIntegrationTests : IClassFixture<TestDirecto
     {
         // The CodecFormats use CodecConstants values which are all 1.
         // Version 0 would be handled by the unknown delegate.
-        var codec = CodecFormats.Postings;
+        var codec = CodecFormats.TermDictionary;
         byte[] body = [0x42];
         // Write manually with version=0 to a temp file
         var path = Path.Combine(_fixture.Path, $"v0_{Guid.NewGuid():N}.dat");
@@ -87,7 +87,7 @@ public sealed class FormatVersioningIntegrationTests : IClassFixture<TestDirecto
         using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         using (var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            var result = CodecFileHeader.Read(reader, CodecFormats.Postings);
+            var result = CodecFileHeader.Read(reader, CodecFormats.TermDictionary);
             Assert.Equal(0, result.Version);
             Assert.Equal(body, result.Body);
         }
@@ -104,7 +104,6 @@ public sealed class FormatVersioningIntegrationTests : IClassFixture<TestDirecto
 
         var formats = new[]
         {
-            (CodecFormats.Postings, CodecConstants.PostingsVersion),
             (CodecFormats.TermDictionary, CodecConstants.TermDictionaryVersion),
             (CodecFormats.TermVectors, CodecConstants.TermVectorsVersion),
         };

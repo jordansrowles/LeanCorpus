@@ -9,6 +9,7 @@ using Rowles.LeanCorpus.Codecs.Bkd;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Codecs.TermVectors;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
+using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
@@ -77,21 +78,21 @@ public sealed class FormatCompatibilityTests : IDisposable
     {
         // Arrange
         var filePath = Path.Combine(_tempDirectory, "roundtrip_header.dat");
-        const byte expectedVersion = CodecConstants.PostingsVersion;
+        const byte expectedVersion = CodecConstants.TermDictionaryVersion;
         byte[] body = [];
 
         // Act - Write header using BinaryWriter via CodecFileHeader
         using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            CodecFileHeader.Write(writer, CodecFormats.Postings, body);
+            CodecFileHeader.Write(writer, CodecFormats.TermDictionary, body);
         }
 
         // Assert - Read version using CodecFileHeader.ReadVersion
         using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
         using (var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.Postings);
+            byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.TermDictionary);
             Assert.Equal(expectedVersion, version);
 
             // Verify we're positioned right after the header envelope
@@ -124,7 +125,7 @@ public sealed class FormatCompatibilityTests : IDisposable
         using var reader = new BinaryReader(readFs, System.Text.Encoding.UTF8, leaveOpen: false);
 
         var exception = Assert.Throws<InvalidDataException>(() =>
-            CodecFileHeader.Read(reader, CodecFormats.Postings));
+            CodecFileHeader.Read(reader, CodecFormats.TermDictionary));
 
         Assert.Contains("CodecKit file is corrupt or truncated", exception.Message);
     }
@@ -140,7 +141,7 @@ public sealed class FormatCompatibilityTests : IDisposable
         var filePath = Path.Combine(_tempDirectory, "unknown_version.dat");
         const byte fileVersion = 5;
 
-        // Act - Write a CodecKit header with a version that doesn't exist in CodecFormats.Postings
+        // Act - Write a CodecKit header with a version that doesn't exist in CodecFormats.TermDictionary
         using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
@@ -152,7 +153,7 @@ public sealed class FormatCompatibilityTests : IDisposable
         using var readFs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         using var reader = new BinaryReader(readFs, System.Text.Encoding.UTF8, leaveOpen: false);
 
-        var result = CodecFileHeader.Read(reader, CodecFormats.Postings);
+        var result = CodecFileHeader.Read(reader, CodecFormats.TermDictionary);
         Assert.Equal(fileVersion, result.Version);
         Assert.Empty(result.Body);
     }
@@ -171,15 +172,15 @@ public sealed class FormatCompatibilityTests : IDisposable
         using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            CodecFileHeader.Write(writer, CodecFormats.Postings, body);
+            CodecFileHeader.Write(writer, CodecFormats.TermDictionary, body);
         }
 
         // Assert - Should succeed
         using var readFs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         using var reader = new BinaryReader(readFs, System.Text.Encoding.UTF8, leaveOpen: false);
 
-        byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.Postings);
-        Assert.Equal(CodecConstants.PostingsVersion, version);
+        byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.TermDictionary);
+        Assert.Equal(CodecConstants.TermDictionaryVersion, version);
 
         // Verify position after reading version
         Assert.Equal(2, readFs.Position);
@@ -240,7 +241,7 @@ public sealed class FormatCompatibilityTests : IDisposable
             using var fs = new FileStream(posFile, FileMode.Open, FileAccess.Read, FileShare.Read);
             using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
 
-            byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.Postings);
+            byte version = PostingsFileHeader.ReadVersion(reader);
             Assert.Equal(CodecConstants.PostingsVersion, version);
         }
     }
@@ -261,14 +262,14 @@ public sealed class FormatCompatibilityTests : IDisposable
         using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            CodecFileHeader.Write(writer, CodecFormats.Postings, []);
+            CodecFileHeader.Write(writer, CodecFormats.TermDictionary, []);
         }
 
         // Assert - Read raw bytes and verify structure
         var bytes = File.ReadAllBytes(filePath);
 
         Assert.Equal(2, bytes.Length);
-        Assert.Equal(CodecConstants.PostingsVersion, bytes[0]); // version byte
+        Assert.Equal(CodecConstants.TermDictionaryVersion, bytes[0]); // version byte
         Assert.Equal(0x00, bytes[1]);                           // VarInt(0) = single 0x00
     }
 
@@ -280,7 +281,7 @@ public sealed class FormatCompatibilityTests : IDisposable
     {
         // Arrange & Assert - Verify all per-codec version constants exist and are valid
         Assert.True(CodecConstants.TermDictionaryVersion > 0);
-        Assert.True(CodecConstants.PostingsVersion > 0);
+        Assert.True(CodecConstants.TermDictionaryVersion > 0);
         Assert.True(CodecConstants.NormsVersion > 0);
         Assert.True(CodecConstants.VectorVersion > 0);
         Assert.True(CodecConstants.StoredFieldsVersion > 0);
@@ -301,13 +302,13 @@ public sealed class FormatCompatibilityTests : IDisposable
     {
         // Arrange
         var filePath = Path.Combine(_tempDirectory, "indexoutput_header.dat");
-        const byte expectedVersion = CodecConstants.PostingsVersion;
+        const byte expectedVersion = CodecConstants.TermDictionaryVersion;
         byte[] body = [];
 
         // Act - Write using IndexOutput via CodecFileHeader
         using (var output = new IndexOutput(filePath))
         {
-            CodecFileHeader.Write(output, CodecFormats.Postings, body);
+            CodecFileHeader.Write(output, CodecFormats.TermDictionary, body);
             output.Flush();
         }
 
@@ -336,7 +337,7 @@ public sealed class FormatCompatibilityTests : IDisposable
         // Write header using IndexOutput
         using (var output = new IndexOutput(filePath))
         {
-            CodecFileHeader.Write(output, CodecFormats.Postings, body);
+            CodecFileHeader.Write(output, CodecFormats.TermDictionary, body);
             output.Flush();
         }
 
@@ -344,10 +345,10 @@ public sealed class FormatCompatibilityTests : IDisposable
         using var input = new IndexInput(filePath);
 
         // Should not throw
-        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.Postings);
+        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.TermDictionary);
 
         // Verify version
-        Assert.Equal(CodecConstants.PostingsVersion, version);
+        Assert.Equal(CodecConstants.TermDictionaryVersion, version);
 
         // Verify position after reading version header
         Assert.Equal(2, input.Position);
@@ -374,7 +375,7 @@ public sealed class FormatCompatibilityTests : IDisposable
         using var input = new IndexInput(filePath);
 
         var exception = Assert.Throws<InvalidDataException>(() =>
-            CodecFileHeader.Read(input, CodecFormats.Postings));
+            CodecFileHeader.Read(input, CodecFormats.TermDictionary));
 
         Assert.Contains("CodecKit file is corrupt or truncated", exception.Message);
     }
@@ -399,7 +400,7 @@ public sealed class FormatCompatibilityTests : IDisposable
         // Act & Assert
         using var input = new IndexInput(filePath);
 
-        var result = CodecFileHeader.Read(input, CodecFormats.Postings);
+        var result = CodecFileHeader.Read(input, CodecFormats.TermDictionary);
         Assert.Equal(10, result.Version);
         Assert.Empty(result.Body);
     }

@@ -1,16 +1,14 @@
 using System.Buffers;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
 using Rowles.LeanCorpus.Store;
-using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 
 namespace Rowles.LeanCorpus.Codecs.Postings;
 
 /// <summary>
 /// Streaming k-way merge of per-segment postings into a single merged segment.
 /// Iterates terms in sorted order across all source segments without ever
-/// materialising the full term-doc map in memory. Per-term position data is
-/// the only buffered state, bounded by the document frequency of one term.
+/// materialising the full term-doc map in memory. Position data is streamed
+/// doc-by-doc from source cursors directly to the merged output.
 /// </summary>
 internal static class StreamingPostingsMerger
 {
@@ -52,178 +50,124 @@ internal static class StreamingPostingsMerger
                 }
             }
 
-            string tmpPosBody = posOutputPath + ".body.tmp";
-            try
+            // Write v2 header directly to final output — no temp file, no envelope.
+            using var posOutput = new IndexOutput(posOutputPath, durable: true, dropPageCache: true);
+            PostingsFileHeader.WriteV2Header(posOutput);
+            using var blockWriter = new BlockPostingsWriter(posOutput);
+
+            var sortedTerms = new List<string>();
+            var offsets = new Dictionary<string, long>(StringComparer.Ordinal);
+
+            // Min-heap of cursor indices, ordered by current term (then by source order
+            // so the lowest-numbered segment wins ties — keeps doc IDs monotonic).
+            var heap = new PriorityQueue<int, (string Term, int Idx)>(cursors.Count, TermAndIndexComparer.Instance);
+            for (int i = 0; i < cursors.Count; i++)
+                heap.Enqueue(i, (cursors[i].CurrentTerm, i));
+
+            var participants = new List<int>(cursors.Count);
+
+            while (heap.Count > 0)
             {
-                using (var posOutput = new IndexOutput(tmpPosBody, durable: true))
-                using (var blockWriter = new BlockPostingsWriter(posOutput))
+                heap.TryPeek(out _, out var minPriority);
+                string currentTerm = minPriority.Term;
+
+                participants.Clear();
+                while (heap.Count > 0 && heap.TryPeek(out _, out var topPriority) &&
+                       string.CompareOrdinal(topPriority.Term, currentTerm) == 0)
                 {
-                    var sortedTerms = new List<string>();
-                    var offsets = new Dictionary<string, long>(StringComparer.Ordinal);
+                    participants.Add(heap.Dequeue());
+                }
 
-                    // Min-heap of cursor indices, ordered by current term (then by source order
-                    // so the lowest-numbered segment wins ties — keeps doc IDs monotonic).
-                    var heap = new PriorityQueue<int, (string Term, int Idx)>(cursors.Count, TermAndIndexComparer.Instance);
-                    for (int i = 0; i < cursors.Count; i++)
-                        heap.Enqueue(i, (cursors[i].CurrentTerm, i));
+                participants.Sort();
 
-                    var participants = new List<int>(cursors.Count);
-                    var positionStream = new List<(int DocId, int[] Positions, byte[]?[]? Payloads)>();
+                bool hasFreqs = false;
+                bool hasPositions = false;
+                bool hasPayloads = false;
+                foreach (int idx in participants)
+                {
+                    cursors[idx].PeekFlags(out bool f, out bool p, out bool pl);
+                    hasFreqs |= f;
+                    hasPositions |= p;
+                    hasPayloads |= pl;
+                }
 
-                    while (heap.Count > 0)
+                long headerPos = posOutput.Position;
+                posOutput.WriteInt32(0);     // docFreq placeholder
+                posOutput.WriteInt64(0L);    // skipOffset placeholder
+                posOutput.WriteBoolean(hasFreqs);
+                posOutput.WriteBoolean(hasPositions);
+                posOutput.WriteBoolean(hasPayloads);
+
+                blockWriter.StartTerm();
+
+                string fieldName = QualifiedTermHelpers.GetFieldName(currentTerm).ToString();
+
+                foreach (int idx in participants)
+                {
+                    var cursor = cursors[idx];
+                    cursor.DecodeCurrentPostings(out var oldIds, out int count, out var freqs,
+                        out bool curHasPositions, out bool curHasPayloads);
+                    try
                     {
-                        heap.TryPeek(out _, out var minPriority);
-                        string currentTerm = minPriority.Term;
-
-                        participants.Clear();
-                        while (heap.Count > 0 && heap.TryPeek(out _, out var topPriority) &&
-                               string.CompareOrdinal(topPriority.Term, currentTerm) == 0)
+                        var docMap = cursor.Source.DocIdMap;
+                        var norms = cursorNorms[idx].Norms;
+                        norms.TryGetValue(fieldName, out var fieldNormBytes);
+                        for (int j = 0; j < count; j++)
                         {
-                            participants.Add(heap.Dequeue());
-                        }
-
-                        participants.Sort();
-
-                        bool hasFreqs = false;
-                        bool hasPositions = false;
-                        bool hasPayloads = false;
-                        foreach (int idx in participants)
-                        {
-                            cursors[idx].PeekFlags(out bool f, out bool p, out bool pl);
-                            hasFreqs |= f;
-                            hasPositions |= p;
-                            hasPayloads |= pl;
-                        }
-
-                        long headerPos = posOutput.Position;
-                        posOutput.WriteInt32(0);
-                        posOutput.WriteInt64(0L);
-                        posOutput.WriteBoolean(hasFreqs);
-                        posOutput.WriteBoolean(hasPositions);
-                        posOutput.WriteBoolean(hasPayloads);
-
-                        blockWriter.StartTerm();
-                        positionStream.Clear();
-
-                        string fieldName = QualifiedTermHelpers.GetFieldName(currentTerm).ToString();
-
-                        foreach (int idx in participants)
-                        {
-                            var cursor = cursors[idx];
-                            cursor.DecodeCurrent(out var oldIds, out int count, out var freqs, out var positions, out var payloads);
-                            try
-                            {
-                                var docMap = cursor.Source.DocIdMap;
-                                var norms = cursorNorms[idx].Norms;
-                                norms.TryGetValue(fieldName, out var fieldNormBytes);
-                                for (int j = 0; j < count; j++)
-                                {
-                                    int oldId = oldIds[j];
-                                    if ((uint)oldId >= (uint)docMap.Length) continue;
-                                    int newId = docMap[oldId];
-                                    if (newId < 0) continue;
-                                    byte norm = fieldNormBytes is not null && (uint)oldId < (uint)fieldNormBytes.Length
-                                        ? fieldNormBytes[oldId]
-                                        : (byte)0;
-                                    blockWriter.AddPosting(newId, hasFreqs ? freqs[j] : 1, norm);
-                                    if (hasPositions)
-                                    {
-                                        int[] p = positions is null ? Array.Empty<int>() : (positions[j] ?? Array.Empty<int>());
-                                        byte[]?[]? pl = payloads is null ? null : payloads[j];
-                                        positionStream.Add((newId, p, pl));
-                                    }
-                                }
-                            }
-                            finally
-                            {
-                                ArrayPool<int>.Shared.Return(oldIds);
-                                ArrayPool<int>.Shared.Return(freqs);
-                            }
-                        }
-
-                        var meta = blockWriter.FinishTerm();
-
-                        if (hasPositions)
-                        {
-                            positionStream.Sort(static (a, b) => a.DocId.CompareTo(b.DocId));
-                            foreach (var (_, pos, payloadsForDoc) in positionStream)
-                            {
-                                posOutput.WriteVarInt(pos.Length);
-                                int prev = 0;
-                                for (int i = 0; i < pos.Length; i++)
-                                {
-                                    int p = pos[i];
-                                    posOutput.WriteVarInt(p - prev);
-                                    prev = p;
-                                    if (hasPayloads)
-                                    {
-                                        var payload = payloadsForDoc is not null && i < payloadsForDoc.Length
-                                            ? payloadsForDoc[i]
-                                            : null;
-                                        posOutput.WriteVarInt(payload?.Length ?? 0);
-                                        if (payload is { Length: > 0 })
-                                            posOutput.WriteBytes(payload);
-                                    }
-                                }
-                            }
-                        }
-
-                        long endPos = posOutput.Position;
-                        posOutput.Seek(headerPos);
-                        posOutput.WriteInt32(meta.DocFreq);
-                        posOutput.WriteInt64(meta.SkipOffset);
-                        posOutput.Seek(endPos);
-
-                        if (meta.DocFreq > 0)
-                        {
-                            sortedTerms.Add(currentTerm);
-                            offsets[currentTerm] = headerPos;
-                        }
-
-                        foreach (int idx in participants)
-                        {
-                            cursors[idx].Advance();
-                            if (cursors[idx].HasMore)
-                                heap.Enqueue(idx, (cursors[idx].CurrentTerm, idx));
+                            int oldId = oldIds[j];
+                            if ((uint)oldId >= (uint)docMap.Length) continue;
+                            int newId = docMap[oldId];
+                            if (newId < 0) continue;
+                            byte norm = fieldNormBytes is not null && (uint)oldId < (uint)fieldNormBytes.Length
+                                ? fieldNormBytes[oldId]
+                                : (byte)0;
+                            blockWriter.AddPosting(newId, hasFreqs ? freqs[j] : 1, norm);
                         }
                     }
-
-                    blockWriter.Dispose();
-                    posOutput.Dispose();
-
-                    byte[] body = File.ReadAllBytes(tmpPosBody);
-                    int envelopeOffset = 1 + VarIntSize(body.Length);
-
-                    // Patch skipOffset values inside body to account for CodecKit envelope
-                    foreach (var kv in offsets)
+                    finally
                     {
-                        int termBodyOffset = (int)kv.Value;
-                        long oldSkip = BitConverter.ToInt64(body, termBodyOffset + 4);
-                        byte[] bumped = BitConverter.GetBytes(oldSkip + envelopeOffset);
-                        bumped.CopyTo(body, termBodyOffset + 4);
+                        ArrayPool<int>.Shared.Return(oldIds);
+                        ArrayPool<int>.Shared.Return(freqs);
                     }
+                }
 
-                    using (var finalOutput = new IndexOutput(posOutputPath, durable: true, dropPageCache: true))
+                var meta = blockWriter.FinishTerm();
+
+                // Stream position data doc-by-doc from source cursors.
+                // Docs are already in merged doc-ID order (participants sorted by segment index,
+                // segment 0 remapped IDs < segment 1 < ...), so no sort is needed.
+                if (hasPositions)
+                {
+                    foreach (int idx in participants)
                     {
-                        finalOutput.WriteByte(Codecs.CodecConstants.PostingsVersion);
-                        finalOutput.WriteVarInt(body.Length);
-                        finalOutput.WriteBytes(body);
+                        var cursor = cursors[idx];
+                        cursor.WritePositionsForTerm(posOutput, hasPayloads);
                     }
+                }
 
-                    // Re-base offsets to account for CodecKit envelope
-                    var rekeyedOffsets = new Dictionary<string, long>(offsets.Count, StringComparer.Ordinal);
-                    foreach (var kv in offsets)
-                        rekeyedOffsets[kv.Key] = kv.Value + envelopeOffset;
+                long endPos = posOutput.Position;
+                posOutput.Seek(headerPos);
+                posOutput.WriteInt32(meta.DocFreq);
+                posOutput.WriteInt64(meta.SkipOffset);
+                posOutput.Seek(endPos);
 
-                    TermDictionaryWriter.Write(dicOutputPath, sortedTerms, rekeyedOffsets, dropPageCache: true);
-                    return new Result(sortedTerms, rekeyedOffsets);
+                if (meta.DocFreq > 0)
+                {
+                    sortedTerms.Add(currentTerm);
+                    offsets[currentTerm] = headerPos;
+                }
+
+                foreach (int idx in participants)
+                {
+                    cursors[idx].Advance();
+                    if (cursors[idx].HasMore)
+                        heap.Enqueue(idx, (cursors[idx].CurrentTerm, idx));
                 }
             }
-            finally
-            {
-                TryDeleteTemporaryFile(tmpPosBody);
-            }
 
+            // v2 has no envelope, so offsets are already correct — no rekeying needed.
+            TermDictionaryWriter.Write(dicOutputPath, sortedTerms, offsets, dropPageCache: true);
+            return new Result(sortedTerms, offsets);
         }
         finally
         {
@@ -249,6 +193,12 @@ internal static class StreamingPostingsMerger
         private readonly List<(string Term, long Offset)> _terms;
         private int _index;
 
+        // State for streaming position reads
+        private int _decodedDocCount;
+        private bool _decodedHasPositions;
+        private bool _decodedHasPayloads;
+        private long _decodedPosDataStart;
+
         private Cursor(Source src, TermDictionaryReader dic, IndexInput pos, List<(string, long)> terms)
         {
             Source = src;
@@ -263,7 +213,7 @@ internal static class StreamingPostingsMerger
             var dic = TermDictionaryReader.Open(src.DicPath);
             var pos = new IndexInput(src.PosPath);
             pos.Prefetch();
-            CodecFileHeader.ReadVersion(pos, CodecFormats.Postings);
+            PostingsFileHeader.ReadVersion(pos);
             var terms = dic.EnumerateAllTerms();
             return new Cursor(src, dic, pos, terms);
         }
@@ -292,14 +242,21 @@ internal static class StreamingPostingsMerger
             }
         }
 
-        internal void DecodeCurrent(out int[] oldIds, out int count, out int[] freqs, out int[]?[]? positions, out byte[]?[][]? payloads)
+        /// <summary>
+        /// Decodes doc IDs and frequencies for the current term. Sets up internal state
+        /// so that <see cref="WritePositionsForTerm"/> can stream position data doc-by-doc.
+        /// Callers must return <paramref name="oldIds"/> and <paramref name="freqs"/> to
+        /// <see cref="ArrayPool{T}.Shared"/> when done.
+        /// </summary>
+        internal void DecodeCurrentPostings(out int[] oldIds, out int count, out int[] freqs,
+            out bool hasPositions, out bool hasPayloads)
         {
             _pos.Seek(CurrentOffset);
             count = _pos.ReadInt32();
             long skipOffset = _pos.ReadInt64();
             bool hasFreqs = _pos.ReadBoolean();
-            bool hasPositions = _pos.ReadBoolean();
-            bool hasPayloads = _pos.ReadBoolean();
+            hasPositions = _pos.ReadBoolean();
+            hasPayloads = _pos.ReadBoolean();
 
             long docStart = _pos.Position;
             var enumv = BlockPostingsEnum.Create(_pos, docStart, skipOffset, count);
@@ -313,43 +270,63 @@ internal static class StreamingPostingsMerger
                 idx++;
             }
 
+            _decodedDocCount = count;
+            _decodedHasPositions = hasPositions;
+            _decodedHasPayloads = hasPayloads;
+
             if (hasPositions)
             {
+                // Position source stream at the start of position data (past skip data).
                 _pos.Seek(skipOffset);
                 int skipCount = _pos.ReadInt32();
                 _pos.Seek(_pos.Position + (long)skipCount * 15);
+                _decodedPosDataStart = _pos.Position;
+            }
+        }
 
-                var posArr = new int[count][];
-                byte[]?[][]? payloadArr = hasPayloads ? new byte[]?[count][] : null;
-                for (int j = 0; j < count; j++)
-                {
-                    int pc = _pos.ReadVarInt();
-                    var arr = new int[pc];
-                    byte[]?[]? docPayloads = hasPayloads ? new byte[]?[pc] : null;
-                    int prevPos = 0;
-                    for (int k = 0; k < pc; k++)
-                    {
-                        prevPos += _pos.ReadVarInt();
-                        arr[k] = prevPos;
-                        if (hasPayloads)
-                        {
-                            int payloadLen = _pos.ReadVarInt();
-                            if (payloadLen > 0)
-                                docPayloads![k] = _pos.ReadBytes(payloadLen);
-                        }
-                    }
-                    posArr[j] = arr;
-                    if (payloadArr is not null)
-                        payloadArr[j] = docPayloads!;
-                }
-                positions = posArr;
-                payloads = payloadArr;
-            }
-            else
+        /// <summary>
+        /// Streams one doc's position block from the source file to <paramref name="output"/>.
+        /// Must be called exactly <c>count</c> times after <see cref="DecodeCurrentPostings"/>,
+        /// in the same order as the doc IDs returned by that method.
+        /// </summary>
+        internal void WriteDocPositions(IndexOutput output, bool hasPayloads)
+        {
+            int posCount = _pos.ReadVarInt();
+            output.WriteVarInt(posCount);
+
+            // Copy position deltas (byte-identical in source and merged output).
+            for (int i = 0; i < posCount; i++)
             {
-                positions = null;
-                payloads = null;
+                byte b;
+                do
+                {
+                    b = _pos.ReadByte();
+                    output.WriteByte(b);
+                } while ((b & 0x80) != 0);
             }
+
+            if (hasPayloads)
+            {
+                for (int i = 0; i < posCount; i++)
+                {
+                    int payloadLen = _pos.ReadVarInt();
+                    output.WriteVarInt(payloadLen);
+                    if (payloadLen > 0)
+                        output.WriteBytes(_pos.ReadBytes(payloadLen));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Writes all position data for the current term by streaming one doc at a time
+        /// through <see cref="WriteDocPositions"/>.
+        /// </summary>
+        internal void WritePositionsForTerm(IndexOutput output, bool hasPayloads)
+        {
+            if (!_decodedHasPositions) return;
+
+            for (int i = 0; i < _decodedDocCount; i++)
+                WriteDocPositions(output, hasPayloads);
         }
 
         public void Dispose()
@@ -357,17 +334,5 @@ internal static class StreamingPostingsMerger
             _pos.Dispose();
             _dic.Dispose();
         }
-    }
-
-    private static void TryDeleteTemporaryFile(string path)
-    {
-        try { File.Delete(path); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "temp postings file delete"); }
-    }
-
-    private static int VarIntSize(long value)
-    {
-        int size = 0;
-        do { size++; value >>= 7; } while (value != 0);
-        return size;
     }
 }

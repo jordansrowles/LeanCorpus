@@ -91,8 +91,6 @@ public sealed class CodecsTests : IClassFixture<TestDirectoryFixture>
         var docIds = new[] { 2, 5, 9 };
         var filePath = Path.Combine(_fixture.Path, "posfile_delta.pos");
         {
-            using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
-            using var writer = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: false);
             using var bodyMs = new MemoryStream();
             using var bodyWriter = new BinaryWriter(bodyMs, Encoding.UTF8, leaveOpen: false);
             bodyWriter.Write(3);
@@ -107,7 +105,9 @@ public sealed class CodecsTests : IClassFixture<TestDirectoryFixture>
             WriteVarInt(bodyWriter, 2);
             WriteVarInt(bodyWriter, 3);
             bodyWriter.Flush();
-            CodecFileHeader.Write(writer, CodecFormats.Postings, bodyMs.ToArray());
+            using var output = new IndexOutput(filePath);
+            PostingsFileHeader.WriteV2Header(output);
+            output.WriteBytes(bodyMs.ToArray());
         }
         var readIds = PostingsReader.ReadDocIds(filePath, "testterm");
         Assert.Equal(docIds, readIds);
@@ -120,10 +120,8 @@ public sealed class CodecsTests : IClassFixture<TestDirectoryFixture>
     public void PosFile_DeltaDecodingOverflow_ThrowsInvalidDataException()
     {
         var filePath = System.IO.Path.Combine(_fixture.Path, "posfile_overflow.pos");
-        using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
-        using (var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
+        using (var ms = new System.IO.MemoryStream())
         {
-            using var ms = new System.IO.MemoryStream();
             using var innerWriter = new System.IO.BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: false);
             // Write v3 header: docFreq, skipOffset, hasFreqs, hasPositions, hasPayloads
             innerWriter.Write(2); // docFreq
@@ -139,7 +137,9 @@ public sealed class CodecsTests : IClassFixture<TestDirectoryFixture>
             WriteVarInt(innerWriter, 1);
             innerWriter.Flush();
             byte[] body = ms.ToArray();
-            CodecFileHeader.Write(writer, CodecFormats.Postings, body);
+            using var output = new IndexOutput(filePath);
+            PostingsFileHeader.WriteV2Header(output);
+            output.WriteBytes(body);
         }
 
         Assert.Throws<InvalidDataException>(() => PostingsReader.ReadDocIds(filePath, "overflow"));

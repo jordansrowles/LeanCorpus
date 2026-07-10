@@ -53,7 +53,7 @@ public sealed class HeaderRoundTripIntegrationTests : IClassFixture<TestDirector
         foreach (var posFile in posFiles)
         {
             using var input = new IndexInput(posFile);
-            byte version = CodecFileHeader.ReadVersion(input, CodecFormats.Postings);
+            byte version = PostingsFileHeader.ReadVersion(input);
             Assert.Equal(CodecConstants.PostingsVersion, version);
         }
 
@@ -135,7 +135,7 @@ public sealed class HeaderRoundTripIntegrationTests : IClassFixture<TestDirector
         Assert.NotEmpty(posFiles);
         byte[] bytes = File.ReadAllBytes(posFiles[0]);
         // Keep version, truncate VarInt by removing everything after byte 2
-        Array.Resize(ref bytes, 1); // Only version byte, no VarInt
+        Array.Resize(ref bytes, 0); // No bytes at all — missing version byte for v2
         File.WriteAllBytes(posFiles[0], bytes);
 
         Assert.ThrowsAny<Exception>(() => new IndexSearcher(dir));
@@ -169,7 +169,7 @@ public sealed class HeaderRoundTripIntegrationTests : IClassFixture<TestDirector
         foreach (var posFile in posFiles)
         {
             using var input = new IndexInput(posFile);
-            byte version = CodecFileHeader.ReadVersion(input, CodecFormats.Postings);
+            byte version = PostingsFileHeader.ReadVersion(input);
             Assert.Equal(CodecConstants.PostingsVersion, version);
         }
     }

@@ -1,5 +1,7 @@
 using Rowles.LeanCorpus.Index.Migration;
 using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.Postings;
+using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Index.Format;
 using Rowles.LeanCorpus.Store;
 
@@ -71,7 +73,18 @@ internal static class IndexOpenGuard
         // segment files are not silently skipped during compatibility checks.
         using var stream = FileOpenRetry.OpenReadDelete(filePath);
         using var reader = new BinaryReader(stream);
-        version = CodecFileHeader.ReadVersion(reader, descriptor.HeaderFormat!);
+        if (extension is ".pos")
+        {
+            version = PostingsFileHeader.ReadVersion(reader);
+        }
+        else if (extension is ".fdt" or ".fdx")
+        {
+            version = StoredFieldsFileHeader.ReadVersion(reader);
+        }
+        else
+        {
+            version = CodecFileHeader.ReadVersion(reader, descriptor.HeaderFormat!);
+        }
         currentVersion = descriptor.CurrentVersion.Value;
         return true;
     }

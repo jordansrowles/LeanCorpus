@@ -1,5 +1,3 @@
-using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.Postings;
@@ -15,7 +13,7 @@ internal static class PostingsReader
         using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
 
         // Skip CodecKit envelope
-        CodecFileHeader.ReadVersion(reader, CodecFormats.Postings);
+        PostingsFileHeader.ReadVersion(reader);
 
         // Read header
         int docFreq = reader.ReadInt32();

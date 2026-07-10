@@ -10,7 +10,7 @@ internal static class CodecFormatTable
     private static readonly Dictionary<string, CodecFormatDescriptor> Descriptors = new(StringComparer.OrdinalIgnoreCase)
     {
         [".dic"] = new("Term dictionary", CodecConstants.TermDictionaryVersion, HasHeader: true, HeaderFormat: CodecFormats.TermDictionary),
-        [".pos"] = new("Postings", CodecConstants.PostingsVersion, HasHeader: true, HeaderFormat: CodecFormats.Postings),
+        [".pos"] = new("Postings", CodecConstants.PostingsVersion, HasHeader: true, HeaderFormat: null),
         [".nrm"] = new("Norms", CodecConstants.NormsVersion, HasHeader: true, HeaderFormat: CodecFormats.Norms),
         [".vec"] = new("Vectors", CodecConstants.VectorVersion, HasHeader: true, HeaderFormat: CodecFormats.Vectors),
         [".vq"]  = new("Quantised vectors", CodecConstants.QuantisedVectorVersion, HasHeader: true, HeaderFormat: CodecFormats.QuantisedVectors),

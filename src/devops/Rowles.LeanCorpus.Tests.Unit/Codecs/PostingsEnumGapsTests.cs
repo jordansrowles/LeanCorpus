@@ -27,14 +27,8 @@ public sealed class PostingsEnumGapsTests : IDisposable
     public void ValidateFileHeader_ValidHeader_ReturnsVersion()
     {
         var path = Path.Combine(_dir, "test_valid.pos");
-        using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write))
-        using (var bw = new BinaryWriter(fs))
-        {
-            using var bodyMs = new MemoryStream();
-            using var bodyWriter = new BinaryWriter(bodyMs, Encoding.UTF8, leaveOpen: false);
-            bodyWriter.Flush();
-            CodecFileHeader.Write(bw, CodecFormats.Postings, bodyMs.ToArray());
-        }
+        using (var output = new IndexOutput(path))
+            PostingsFileHeader.WriteV2Header(output);
 
         using var input = new IndexInput(path);
         byte version = PostingsEnum.ValidateFileHeader(input);
@@ -131,54 +125,36 @@ public sealed class PostingsEnumGapsTests : IDisposable
     private (string Path, long Offset) WriteCurrentFormatPostings()
     {
         var path = Path.Combine(_dir, Guid.NewGuid().ToString("N") + ".pos");
-        string tmp = Path.Combine(_dir, "tmp." + Guid.NewGuid().ToString("N"));
 
         long offset;
-        using (var bodyOut = new IndexOutput(tmp))
+        using (var output = new IndexOutput(path))
         {
-            long headerPos = bodyOut.Position;
-            bodyOut.WriteInt32(0);             // docFreq placeholder
-            bodyOut.WriteInt64(0L);             // skipOffset placeholder
-            bodyOut.WriteBoolean(true);         // hasFreqs
-            bodyOut.WriteBoolean(false);        // hasPositions
-            bodyOut.WriteBoolean(false);        // hasPayloads
+            PostingsFileHeader.WriteV2Header(output);
 
-            using var blockWriter = new BlockPostingsWriter(bodyOut);
+            long headerPos = output.Position;
+            output.WriteInt32(0);             // docFreq placeholder
+            output.WriteInt64(0L);             // skipOffset placeholder
+            output.WriteBoolean(true);         // hasFreqs
+            output.WriteBoolean(false);        // hasPositions
+            output.WriteBoolean(false);        // hasPayloads
+
+            using var blockWriter = new BlockPostingsWriter(output);
             blockWriter.StartTerm();
             blockWriter.AddPosting(2, 1);
             blockWriter.AddPosting(5, 2);
             blockWriter.AddPosting(9, 3);
             var meta = blockWriter.FinishTerm();
-            long endPos = bodyOut.Position;
-            bodyOut.Seek(headerPos);
-            bodyOut.WriteInt32(meta.DocFreq);
-            bodyOut.WriteInt64(meta.SkipOffset);
-            bodyOut.Seek(endPos);
+            long endPos = output.Position;
+            output.Seek(headerPos);
+            output.WriteInt32(meta.DocFreq);
+            output.WriteInt64(meta.SkipOffset);
+            output.Seek(endPos);
+
+            offset = headerPos; // v2: offset is absolute file position, no envelope to account for
         }
 
-        byte[] body = File.ReadAllBytes(tmp);
-        File.Delete(tmp);
-
-        int envelopeSize = 1 + VarIntSize(body.Length);
-        // Patch skipOffset inside body to account for CodecKit envelope
-        long oldSkip = BitConverter.ToInt64(body, 4); // skipOffset is at body[4..11]
-        byte[] bumped = BitConverter.GetBytes(oldSkip + envelopeSize);
-        bumped.CopyTo(body, 4);
-
-        offset = envelopeSize;
-        using (var output = new IndexOutput(path))
-        {
-            output.WriteByte(CodecConstants.PostingsVersion);
-            output.WriteVarInt(body.Length);
-            output.WriteBytes(body);
-        }
         return (path, offset);
     }
 
-    private static int VarIntSize(long value)
-    {
-        int size = 0;
-        do { size++; value >>= 7; } while (value != 0);
-        return size;
-    }
+    // VarIntSize removed — v2 postings format no longer needs envelope offset computation.
 }

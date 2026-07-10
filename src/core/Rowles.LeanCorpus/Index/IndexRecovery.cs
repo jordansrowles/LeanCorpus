@@ -2,6 +2,8 @@ using System.Text.Json;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Codecs.Postings;
+using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Serialization;
 using Rowles.LeanCorpus.Store;
 
@@ -94,7 +96,6 @@ public static class IndexRecovery
     private static readonly (string Ext, ICodec<byte[]> Format)[] HeaderChecks =
     [
         (".dic", CodecFormats.TermDictionary),
-        (".pos", CodecFormats.Postings),
         (".nrm", CodecFormats.Norms),
     ];
 
@@ -169,6 +170,31 @@ public static class IndexRecovery
             using var fs = FileOpenRetry.OpenReadDelete(path);
                 using var reader = new BinaryReader(fs);
                 CodecFileHeader.ReadVersion(reader, format);
+            }
+
+            // .pos uses PostingsFileHeader, not the CodecKit envelope
+            {
+                var posPath = basePath + ".pos";
+                if (!File.Exists(posPath)) return false;
+                using var posFs = FileOpenRetry.OpenReadDelete(posPath);
+                using var posReader = new BinaryReader(posFs);
+                PostingsFileHeader.ReadVersion(posReader);
+            }
+
+            // .fdt/.fdx use StoredFieldsFileHeader, not the CodecKit envelope
+            {
+                var fdtPath = basePath + ".fdt";
+                if (!File.Exists(fdtPath)) return false;
+                using var fdtFs = FileOpenRetry.OpenReadDelete(fdtPath);
+                using var fdtReader = new BinaryReader(fdtFs);
+                StoredFieldsFileHeader.ReadVersion(fdtReader);
+            }
+            {
+                var fdxPath = basePath + ".fdx";
+                if (!File.Exists(fdxPath)) return false;
+                using var fdxFs = FileOpenRetry.OpenReadDelete(fdxPath);
+                using var fdxReader = new BinaryReader(fdxFs);
+                StoredFieldsFileHeader.ReadVersion(fdxReader);
             }
 
             foreach (var vf in segInfo.VectorFields)

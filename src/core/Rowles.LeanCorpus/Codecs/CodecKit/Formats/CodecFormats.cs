@@ -43,12 +43,29 @@ internal static class CodecFormats
                 new CodecVersionStep(2, $"{ext}-v2", Codec.BytesOwnedRemaining())
             ]));
 
+        // Postings — v1 used CodecKit envelope; v2 streams directly without body-length prefix.
+        reg.Register(new CodecFormat("pos", [
+            new CodecVersionStep(1, "pos-v1", Codec.BytesOwnedRemaining()),
+            new CodecVersionStep(2, "pos-v2", Codec.BytesOwnedRemaining())
+        ]));
+
         // All other formats are at v1.
-        foreach (var ext in new[] { "fln","ndv","sdv","bdv","ssdv","sndv","pos","tim","hnsw","vec","qvec","bkd","rbm","ldv","lsdv","lbkd" })
+        foreach (var ext in new[] { "fln","ndv","sdv","bdv","ssdv","sndv","tim","hnsw","vec","qvec","bkd","rbm","ldv","lsdv","lbkd" })
             reg.Register(new CodecFormat(ext, [
                 new CodecVersionStep(1, $"{ext}-v1", Codec.BytesOwnedRemaining())
             ]));
     }
+
+    // Postings is a legacy v1-only codec for tests and backward compatibility.
+    // v2 postings bypass the CodecKit envelope entirely — use PostingsFileHeader instead.
+    internal static readonly ICodec<byte[]> Postings = Codec.VersionEnvelope<byte[], byte>(
+        versionCodec: Codec.UInt8,
+        bodyLengthCodec: Codec.VarInt64,
+        unknown: (ver, body) => body,
+        cases:
+        [
+            Codec.VersionCase<byte[], byte[]>((byte)1, "pos-v1", Codec.BytesOwnedRemaining()),
+        ]);
 
     internal static readonly ICodec<byte[]> Norms = Create("nrm", CodecConstants.NormsVersion);
     internal static readonly ICodec<byte[]> FieldLengths = Create("fln", CodecConstants.FieldLengthVersion);
@@ -57,7 +74,6 @@ internal static class CodecFormats
     internal static readonly ICodec<byte[]> BinaryDocValues = Create("bdv", CodecConstants.BinaryDocValuesVersion);
     internal static readonly ICodec<byte[]> SortedSetDocValues = Create("ssdv", CodecConstants.SortedSetDocValuesVersion);
     internal static readonly ICodec<byte[]> SortedNumericDocValues = Create("sndv", CodecConstants.SortedNumericDocValuesVersion);
-    internal static readonly ICodec<byte[]> Postings = Create("pos", CodecConstants.PostingsVersion);
     internal static readonly ICodec<byte[]> TermVectors = Create("tvx", CodecConstants.TermVectorsVersion);
     internal static readonly ICodec<byte[]> TermDictionary = Create("tim", CodecConstants.TermDictionaryVersion);
     internal static readonly ICodec<byte[]> Hnsw = Create("hnsw", CodecConstants.HnswVersion);

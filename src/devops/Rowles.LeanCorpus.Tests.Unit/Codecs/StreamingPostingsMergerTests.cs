@@ -118,57 +118,37 @@ public sealed class StreamingPostingsMergerTests : IDisposable
         NormsWriter.Write(nrmPath, fieldNorms ?? new Dictionary<string, float[]>(), docCount: docCount);
         var offsets = new Dictionary<string, long>(StringComparer.Ordinal);
         var terms = postings.Keys.OrderBy(term => term, StringComparer.Ordinal).ToList();
-        // Build body into a temporary file first, then write the final file
-        // with a CodecKit header.
-        var bodyPath = Path.Combine(_dir, name + ".tmp");
-        byte[] body;
-        using (var bodyOut = new IndexOutput(bodyPath))
+
+        // Write v2 postings directly — no temp file, no envelope patching.
+        using (var posOutput = new IndexOutput(posPath))
         {
-            using var blockWriter = new BlockPostingsWriter(bodyOut);
+            PostingsFileHeader.WriteV2Header(posOutput);
+
+            using var blockWriter = new BlockPostingsWriter(posOutput);
             foreach (var term in terms)
             {
-                long headerPos = bodyOut.Position;
-                bodyOut.WriteInt32(0);
-                bodyOut.WriteInt64(0L);
-                bodyOut.WriteBoolean(true);
-                bodyOut.WriteBoolean(false);
-                bodyOut.WriteBoolean(false);
+                long headerPos = posOutput.Position;
+                posOutput.WriteInt32(0);     // docFreq placeholder
+                posOutput.WriteInt64(0L);    // skipOffset placeholder
+                posOutput.WriteBoolean(true);
+                posOutput.WriteBoolean(false);
+                posOutput.WriteBoolean(false);
 
                 blockWriter.StartTerm();
                 foreach (int docId in postings[term].OrderBy(docId => docId))
                     blockWriter.AddPosting(docId, 1);
 
                 var meta = blockWriter.FinishTerm();
-                long endPos = bodyOut.Position;
-                bodyOut.Seek(headerPos);
-                bodyOut.WriteInt32(meta.DocFreq);
-                bodyOut.WriteInt64(meta.SkipOffset);
-                bodyOut.Seek(endPos);
+                long endPos = posOutput.Position;
+                posOutput.Seek(headerPos);
+                posOutput.WriteInt32(meta.DocFreq);
+                posOutput.WriteInt64(meta.SkipOffset);
+                posOutput.Seek(endPos);
                 offsets[term] = headerPos;
             }
         }
-        body = File.ReadAllBytes(bodyPath);
-        File.Delete(bodyPath);
 
-        // Adjust skipOffset values inside body for CodecKit envelope
-        int headerSize = 1 + VarInt64Size(body.Length);
-        foreach (var term in terms)
-        {
-            int termBodyOffset = (int)offsets[term];
-            // skipOffset is at termBodyOffset + 4 (after docFreq Int32)
-            long skipOffset = BitConverter.ToInt64(body, termBodyOffset + 4);
-            byte[] patched = BitConverter.GetBytes(skipOffset + headerSize);
-            patched.CopyTo(body, termBodyOffset + 4);
-        }
-
-        // Write final .pos file with CodecKit header
-        using (var output = new IndexOutput(posPath))
-            CodecFileHeader.Write(output, CodecFormats.Postings, body);
-
-        // Adjust offsets to account for the CodecKit header
-        foreach (var term in terms)
-            offsets[term] += headerSize;
-
+        // v2 has no envelope — offsets are already correct.
         TermDictionaryWriter.Write(dicPath, terms, offsets);
         int maxOldId = -1;
         foreach (var k in docIdMap.Keys) if (k > maxOldId) maxOldId = k;
@@ -226,14 +206,6 @@ public sealed class StreamingPostingsMergerTests : IDisposable
         Assert.Equal(1, enumv.SkipEntries.Length);
         Assert.Equal((byte)200, enumv.SkipEntries[0].MaxNormInBlock);
     }
-
-    private static int VarInt64Size(long value)
-    {
-        int size = 0;
-        do { size++; value >>= 7; } while (value != 0);
-        return size;
-    }
-
     private static int[] ReadDocIds(string dicPath, string posPath, string term)
     {
         using var dic = TermDictionaryReader.Open(dicPath);

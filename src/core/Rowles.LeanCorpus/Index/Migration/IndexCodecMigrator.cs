@@ -786,20 +786,21 @@ public static class IndexCodecMigrator
         var normsData = NormsReader.Read(sourceBase + ".nrm");
 
         var postingsOffsets = new Dictionary<string, long>(terms.Count, StringComparer.Ordinal);
-        var headerPatches = new List<(long HeaderPos, int DocFreq, long SkipOffset)>(terms.Count);
 
         var posPath = targetBase + ".pos";
         var dicPath = targetBase + ".dic";
         var temporaryPosPath = posPath + ".tmp";
         var temporaryDicPath = dicPath + ".tmp";
-        var temporaryBodyPath = posPath + ".body.tmp";
 
         try
         {
-            // Write body to temp file (no CodecKit envelope yet)
-            using (var bodyOutput = new IndexOutput(temporaryBodyPath, durable: true))
-            using (var blockWriter = new BlockPostingsWriter(bodyOutput))
+            // Write v2 directly — no temp body file, no envelope.
+            using (var bodyOutput = new IndexOutput(temporaryPosPath, durable: true))
             {
+                PostingsFileHeader.WriteV2Header(bodyOutput);
+
+                using var blockWriter = new BlockPostingsWriter(bodyOutput);
+
                 foreach (var (term, postings) in terms)
                 {
                     bool hasFreqs = postings.Any(static posting => posting.Frequency != 1);
@@ -811,8 +812,8 @@ public static class IndexCodecMigrator
 
                     long headerPos = bodyOutput.Position;
                     postingsOffsets[term] = headerPos;
-                    bodyOutput.WriteInt32(0);
-                    bodyOutput.WriteInt64(0L);
+                    bodyOutput.WriteInt32(0);     // docFreq placeholder
+                    bodyOutput.WriteInt64(0L);    // skipOffset placeholder
                     bodyOutput.WriteBoolean(hasFreqs);
                     bodyOutput.WriteBoolean(hasPositions);
                     bodyOutput.WriteBoolean(hasPayloads);
@@ -831,40 +832,18 @@ public static class IndexCodecMigrator
                     if (hasPositions)
                         WritePositionRows(bodyOutput, postings, hasPayloads);
 
-                    headerPatches.Add((headerPos, metadata.DocFreq, metadata.SkipOffset));
+                    // Patch term header in place — v2 has no envelope, offsets are file-absolute.
+                    long endPos = bodyOutput.Position;
+                    bodyOutput.Seek(headerPos);
+                    bodyOutput.WriteInt32(metadata.DocFreq);
+                    bodyOutput.WriteInt64(metadata.SkipOffset);
+                    bodyOutput.Seek(endPos);
                 }
             }
 
-            // Read body and write CodecKit envelope + body to final temp path
-            byte[] body = System.IO.File.ReadAllBytes(temporaryBodyPath);
-            int envelopeOffset = 1 + VarIntSize(body.Length);
-
-            using (var output = new IndexOutput(temporaryPosPath, durable: true))
-            {
-                output.WriteByte(CodecConstants.PostingsVersion);
-                output.WriteVarInt(body.Length);
-                output.WriteBytes(body);
-            }
-
-            // Patch header placeholders with offset for CodecKit envelope
-            using (var patchStream = new System.IO.FileStream(temporaryPosPath, System.IO.FileMode.Open, System.IO.FileAccess.ReadWrite, System.IO.FileShare.None))
-            {
-                Span<byte> patch = stackalloc byte[12];
-                foreach (var (headerPos, docFreq, skipOffset) in headerPatches)
-                {
-                    patchStream.Seek(headerPos + envelopeOffset, System.IO.SeekOrigin.Begin);
-                    System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(patch, docFreq);
-                    System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(patch[4..], skipOffset + envelopeOffset);
-                    patchStream.Write(patch);
-                }
-            }
-
-            // Re-base offsets for final file
-            var rekeyedOffsets = new Dictionary<string, long>(postingsOffsets.Count, StringComparer.Ordinal);
-            foreach (var kv in postingsOffsets)
-                rekeyedOffsets[kv.Key] = kv.Value + envelopeOffset;
-
-            TermDictionaryWriter.Write(temporaryDicPath, rekeyedOffsets.Keys.Order(StringComparer.Ordinal).ToList(), rekeyedOffsets);
+            // v2 has no envelope — offsets are already correct.
+            TermDictionaryWriter.Write(temporaryDicPath,
+                postingsOffsets.Keys.Order(StringComparer.Ordinal).ToList(), postingsOffsets);
             File.Move(temporaryPosPath, posPath, overwrite: true);
             File.Move(temporaryDicPath, dicPath, overwrite: true);
         }
@@ -873,10 +852,6 @@ public static class IndexCodecMigrator
             TryDeleteTemporaryFile(temporaryPosPath);
             TryDeleteTemporaryFile(temporaryDicPath);
             throw;
-        }
-        finally
-        {
-            TryDeleteTemporaryFile(temporaryBodyPath);
         }
     }
 
@@ -1112,11 +1087,4 @@ public static class IndexCodecMigrator
             StringComparison.OrdinalIgnoreCase);
 
     private sealed record PostingRow(int DocId, int Frequency, int[] Positions, byte[][] Payloads);
-
-    private static int VarIntSize(long value)
-    {
-        int size = 0;
-        do { size++; value >>= 7; } while (value != 0);
-        return size;
-    }
 }

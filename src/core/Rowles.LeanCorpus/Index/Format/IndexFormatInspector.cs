@@ -4,6 +4,7 @@ using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Diagnostics;
@@ -293,6 +294,10 @@ public static class IndexFormatInspector
             if (extension is ".fdt" or ".fdx")
             {
                 version = StoredFieldsFileHeader.ReadVersion(reader);
+            }
+            else if (extension is ".pos")
+            {
+                version = PostingsFileHeader.ReadVersion(reader);
             }
             else if (format is not null)
             {

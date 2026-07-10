@@ -10,7 +10,7 @@ internal static class CodecConstants
     // Baseline format versions for 2.0.0. TermVectors is at v2 due to the tvx offset-array
     // addition; all other formats start at v1.
     public const byte TermDictionaryVersion = 1;
-    public const byte PostingsVersion = 1;
+    public const byte PostingsVersion = 2;
     public const byte NormsVersion = 2;
     public const byte VectorVersion = 1;
     public const byte QuantisedVectorVersion = 1;
