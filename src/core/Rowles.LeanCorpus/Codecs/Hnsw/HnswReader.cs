@@ -53,6 +53,17 @@ internal static class HnswReader
         int nodeCount = reader.ReadInt32();
         int levelCount = reader.ReadInt32();
 
+        // Defend against malformed files that could cause OOM or corrupt reads.
+        if (maxLevel < 0)
+            throw new InvalidDataException(
+                $"HNSW file at '{filePath}' has negative maxLevel ({maxLevel}).");
+        if (nodeCount < 0)
+            throw new InvalidDataException(
+                $"HNSW file at '{filePath}' has negative nodeCount ({nodeCount}).");
+        if (levelCount < 0 || levelCount > maxLevel + 1)
+            throw new InvalidDataException(
+                $"HNSW file at '{filePath}' has levelCount {levelCount} but maxLevel is {maxLevel} (valid range 0..{maxLevel + 1}).");
+
         // Collect per-level (docId, neighbours) pairs, then sort by docId.
         var levels = new List<HnswGraph.FrozenLevel>(levelCount);
         for (int i = 0; i < levelCount; i++)
@@ -61,6 +72,9 @@ internal static class HnswReader
         for (int level = levelCount - 1; level >= 0; level--)
         {
             int nodes = reader.ReadInt32();
+            if (nodes < 0 || nodes > nodeCount)
+                throw new InvalidDataException(
+                    $"HNSW file at '{filePath}' level {level} declares {nodes} nodes (valid range 0..{nodeCount}).");
             var docIds = new List<int>(nodes);
             var neighbourLists = new List<int[]>(nodes);
 
@@ -68,6 +82,9 @@ internal static class HnswReader
             {
                 int docId = reader.ReadInt32();
                 int neighCount = reader.ReadInt32();
+                if (neighCount < 0 || neighCount > nodeCount)
+                    throw new InvalidDataException(
+                        $"HNSW file at '{filePath}' node {docId} at level {level} has neighCount {neighCount} (valid range 0..{nodeCount}).");
                 var arr = new int[neighCount];
                 for (int k = 0; k < neighCount; k++)
                     arr[k] = reader.ReadInt32();
