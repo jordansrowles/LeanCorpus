@@ -16,7 +16,7 @@ public sealed partial class IndexSearcher
 
     private void ExecuteMatchAllDocsQuery(MatchAllDocsQuery query, SegmentReader reader, ref TopNCollector collector)
     {
-        float score = query.Boost != 1.0f ? query.Boost : 1.0f;
+        float score = query.Boost;
         int docBase = reader.DocBase;
         for (int docId = 0; docId < reader.MaxDoc; docId++)
         {
@@ -31,7 +31,7 @@ public sealed partial class IndexSearcher
 
     private void ExecuteFieldExistsQuery(FieldExistsQuery query, SegmentReader reader, ref TopNCollector collector)
     {
-        float score = query.Boost != 1.0f ? query.Boost : 1.0f;
+        float score = query.Boost;
         int docBase = reader.DocBase;
         for (int docId = 0; docId < reader.MaxDoc; docId++)
         {
@@ -66,7 +66,7 @@ public sealed partial class IndexSearcher
             }
 
             int docBase = reader.DocBase;
-            float score = query.Boost != 1.0f ? query.Boost : 1.0f;
+            float score = query.Boost;
             for (int i = 0; i < docCount; i++)
             {
                 int docId = docIds[i];
@@ -94,7 +94,7 @@ public sealed partial class IndexSearcher
             return;
 
         int docBase = reader.DocBase;
-        float score = query.Boost != 1.0f ? query.Boost : 1.0f;
+        float score = query.Boost;
         foreach (var match in matches)
             collector.Collect(docBase + match.DocId, ApplyFieldBoost(reader, match.DocId, query.Field, score));
     }
@@ -110,7 +110,7 @@ public sealed partial class IndexSearcher
             return;
 
         int docBase = reader.DocBase;
-        float score = query.Boost != 1.0f ? query.Boost : 1.0f;
+        float score = query.Boost;
         foreach (var match in matches)
             collector.Collect(docBase + match.DocId, ApplyFieldBoost(reader, match.DocId, query.Field, score));
     }
@@ -192,7 +192,7 @@ public sealed partial class IndexSearcher
             }
 
             int docBase = reader.DocBase;
-            float queryBoost = query.Boost != 1.0f ? query.Boost : 1.0f;
+            float queryBoost = query.Boost;
             for (int i = 0; i < docCount; i++)
             {
                 int docId = docIds[i];
@@ -238,7 +238,7 @@ public sealed partial class IndexSearcher
     private void ExecuteRangeQuery(RangeQuery query, SegmentReader reader, ref TopNCollector collector)
     {
         int docBase = reader.DocBase;
-        float score = query.Boost != 1.0f ? query.Boost : 1.0f;
+        float score = query.Boost;
         var localCollector = collector;
         if (reader.VisitNumericRange(query.Field, query.Min, query.Max, (docId, _) =>
             localCollector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, query.Field, score))))
@@ -472,7 +472,7 @@ public sealed partial class IndexSearcher
             int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                 ? fieldLengths[docId] : 1;
             float score = ScoreTerm(f1, f2, f3, tf, docLength);
-            if (boost != 1.0f) score *= boost;
+            score *= boost;
             score = ApplyFieldBoost(fieldBoosts, docId, score);
             if (!seen[docId])
             {
@@ -655,7 +655,7 @@ public sealed partial class IndexSearcher
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                         ? fieldLengths[docId] : 1;
                     float score = ScoreTerm(f1, f2, f3, tf, docLength) * distanceFactor;
-                    if (boost != 1.0f) score *= boost;
+                    score *= boost;
                     score = ApplyFieldBoost(fieldBoosts, docId, score);
                     if (!seen[docId])
                     {
@@ -707,7 +707,7 @@ public sealed partial class IndexSearcher
                 int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                     ? fieldLengths[docId] : 1;
                 float score = ScoreTerm(f1, f2, f3, tf, docLength);
-                if (boost != 1.0f) score *= boost;
+                score *= boost;
                 score = ApplyFieldBoost(reader, docId, query.Field, score);
                 collector.Collect(docBase + docId, score);
             }
@@ -781,7 +781,7 @@ public sealed partial class IndexSearcher
                 int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                     ? fieldLengths[docId] : 1;
                 float score = ScoreTerm(f1, f2, f3, tf, docLength);
-                if (boost != 1.0f) score *= boost;
+                score *= boost;
                 score = ApplyFieldBoost(reader, docId, query.Field, score);
                 collector.Collect(docBase + docId, score);
             }
@@ -831,7 +831,7 @@ public sealed partial class IndexSearcher
         ExecuteQuery(query.Inner, reader, globalDFs, ref innerCollector);
 
         float constantScore = query.ConstantScore;
-        if (query.Boost != 1.0f) constantScore *= query.Boost;
+        constantScore *= query.Boost;
 
         foreach (var sd in innerCollector.ToTopDocs().ScoreDocs)
             collector.Collect(sd.DocId, ApplyFieldBoost(reader, sd.DocId - reader.DocBase, query.Field, constantScore));
@@ -873,7 +873,7 @@ public sealed partial class IndexSearcher
         foreach (var (docId, (max, otherSum)) in docScores)
         {
             float score = max + tieBreaker * otherSum;
-            if (boost != 1.0f) score *= boost;
+            score *= boost;
             collector.Collect(docId, score);
         }
     }
@@ -920,8 +920,7 @@ public sealed partial class IndexSearcher
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                         ? fieldLengths[docId] : 1;
                     float score = ScoreTerm(f1, f2, f3, postings.Freq, docLength);
-                    if (termBoost != 1.0f)
-                        score *= termBoost;
+                    score *= termBoost;
                     score = ApplyFieldBoost(fieldBoosts, docId, score);
 
                     if (!seen[docId])
@@ -951,8 +950,7 @@ public sealed partial class IndexSearcher
             {
                 int docId = docIds[i];
                 float score = maxScores[docId] + tieBreaker * otherScores[docId];
-                if (queryBoost != 1.0f)
-                    score *= queryBoost;
+                score *= queryBoost;
                 collector.Collect(docBase + docId, score);
             }
 
@@ -1167,7 +1165,7 @@ public sealed partial class IndexSearcher
     private void ExecuteGeoBoundingBoxQuery(GeoBoundingBoxQuery query, SegmentReader reader, ref TopNCollector collector)
     {
         int docBase = reader.DocBase;
-        float score = query.Boost != 1.0f ? query.Boost : 1.0f;
+        float score = query.Boost;
         string latField = query.Field + "_lat";
         string lonField = query.Field + "_lon";
 
@@ -1187,7 +1185,7 @@ public sealed partial class IndexSearcher
     private void ExecuteGeoDistanceQuery(GeoDistanceQuery query, SegmentReader reader, ref TopNCollector collector)
     {
         int docBase = reader.DocBase;
-        float score = query.Boost != 1.0f ? query.Boost : 1.0f;
+        float score = query.Boost;
         string latField = query.Field + "_lat";
         string lonField = query.Field + "_lon";
 
