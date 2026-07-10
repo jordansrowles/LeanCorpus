@@ -71,6 +71,8 @@ public struct BlockPostingsEnum : IDisposable
         // Use a local cursor so we do not mutate the shared docInput._position.
         long cursor = skipOffset;
         int skipCount = docInput.ReadInt32(ref cursor);
+        if (skipCount < 0)
+            throw new InvalidDataException("Postings data is corrupt: negative skip count.");
         int loadCount = Math.Min(skipCount, MaxPreloadedSkipEntries);
         var skipEntries = ArrayPool<SkipEntry>.Shared.Rent(Math.Max(loadCount, 1));
         for (int i = 0; i < loadCount; i++)
@@ -317,6 +319,9 @@ public struct BlockPostingsEnum : IDisposable
 
         // Decode doc IDs (delta-encoded)
         int docNumBits = _docInput.ReadByte(ref _cursorPosition);
+        if (docNumBits > 32)
+            throw new InvalidDataException(
+                $"Postings data is corrupt: docNumBits={docNumBits} exceeds 32.");
         int docPackedBytes = docNumBits * 16;
         int prevDocId = _currentBlockIndex > 0
             ? _skipEntries[_currentBlockIndex - 1].LastDocId : 0;
@@ -334,6 +339,9 @@ public struct BlockPostingsEnum : IDisposable
 
         // Decode frequencies (stored as freq-1, bit-packed with embedded numBits header)
         int freqNumBits = _docInput.ReadByte(ref _cursorPosition);
+        if (freqNumBits > 32)
+            throw new InvalidDataException(
+                $"Postings data is corrupt: freqNumBits={freqNumBits} exceeds 32.");
         if (freqNumBits == 0)
         {
             Array.Fill(_freqBlock, 0, 0, BlockSize); // all freq-1 = 0, i.e. freq = 1
@@ -354,6 +362,9 @@ public struct BlockPostingsEnum : IDisposable
         if (tailCount <= 0)
             throw new InvalidDataException(
                 "Postings data is corrupt: tail block has zero or negative count.");
+        if (tailCount > BlockSize)
+            throw new InvalidDataException(
+                $"Postings data is corrupt: tailCount={tailCount} exceeds BlockSize={BlockSize}.");
         int prevDocId = _currentBlockIndex > 0 && _currentBlockIndex <= _skipCount
             ? _skipEntries[_currentBlockIndex - 1].LastDocId : 0;
 
