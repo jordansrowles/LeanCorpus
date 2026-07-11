@@ -21,7 +21,7 @@ public sealed class MergeFailureTests : IClassFixture<TestDirectoryFixture>
     }
 
     [Fact(DisplayName = "Background merge failure marks writer failed and gates next AddDocument")]
-    public void BackgroundMergeFailure_MarksWriterFailed()
+    public async Task BackgroundMergeFailure_MarksWriterFailed()
     {
         var dirPath = SubDir("bg_merge_fail");
         var dir = new MMapDirectory(dirPath);
@@ -48,8 +48,8 @@ public sealed class MergeFailureTests : IClassFixture<TestDirectoryFixture>
             var task = writer.MergeTask;
             if (task is not null)
             {
-                try { task.Wait(TimeSpan.FromSeconds(30)); }
-                catch (AggregateException) { /* expected: merge failed */ }
+                try { await task.WaitAsync(TimeSpan.FromSeconds(30)); }
+                catch (Exception) { /* expected: merge failed */ }
             }
 
             // Writer should now be gated.

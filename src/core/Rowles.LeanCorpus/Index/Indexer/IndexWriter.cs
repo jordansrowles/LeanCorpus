@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
@@ -58,6 +59,10 @@ public sealed partial class IndexWriter : IDisposable
     private DocumentsWriterPerThread[]? _dwptPool;
     private int _dwptCounter;
 
+    // --- Async write channel ---
+    private readonly Channel<AsyncWriteCommand> _asyncWriteChannel;
+    private readonly Task _asyncWriteConsumer;
+
     private readonly Lock _writeLock = new();
     private int _disposed;      // 0 = alive, 1 = disposed (atomically set via Interlocked)
     private int _closing;       // 0 = open, 1 = Dispose has started draining (prevents TOCTOU)
@@ -111,6 +116,15 @@ public sealed partial class IndexWriter : IDisposable
 
         // Load existing commit state if present
         CommitManager.LoadLatestCommit(this);
+
+        // Start async write consumer
+        var channelCapacity = config.MaxQueuedDocs > 0 ? config.MaxQueuedDocs : 4096;
+        _asyncWriteChannel = Channel.CreateBounded<AsyncWriteCommand>(new BoundedChannelOptions(channelCapacity)
+        {
+            SingleWriter = false, SingleReader = true, FullMode = BoundedChannelFullMode.Wait
+        });
+        _asyncWriteConsumer = Task.Factory.StartNew(RunAsyncWriteLoop, CancellationToken.None,
+            TaskCreationOptions.LongRunning, TaskScheduler.Default);
     }
 
     public long NextSequenceNumber => Volatile.Read(ref _nextSequenceNumber);
@@ -644,6 +658,10 @@ public sealed partial class IndexWriter : IDisposable
 
         _backpressureSemaphore?.Dispose();
 
+
+        _asyncWriteChannel.Writer.Complete();
+        try { _asyncWriteConsumer.Wait(TimeSpan.FromSeconds(30)); }
+        catch (AggregateException) { }
         _writeLockFile.Dispose();
         var lockPath = Path.Combine(_directory.DirectoryPath, "write.lock");
         try { File.Delete(lockPath); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "write-lock file delete"); }
@@ -765,7 +783,72 @@ public sealed partial class IndexWriter : IDisposable
         FlushSegmentStatic(this);
     }
 
-    // --- Internal accessors for partial classes and manager classes ---
+
+    // --- Async write channel types and consumer ---
+    private enum AsyncWriteKind { Single, Batch, Block }
+    private readonly record struct AsyncWriteCommand(
+        object Payload, AsyncWriteKind Kind, TaskCompletionSource Tcs);
+
+    private async Task RunAsyncWriteLoop()
+    {
+        var reader = _asyncWriteChannel.Reader;
+        while (await reader.WaitToReadAsync().ConfigureAwait(false))
+        {
+            while (reader.TryRead(out var cmd))
+            {
+                if (Volatile.Read(ref _disposed) != 0)
+                {
+                    cmd.Tcs.TrySetException(new ObjectDisposedException(nameof(IndexWriter)));
+                    continue;
+                }
+                try
+                {
+                    ProcessAsyncWriteCommand(cmd);
+                    cmd.Tcs.TrySetResult();
+                }
+                catch (Exception ex)
+                {
+                    if (ex is not ObjectDisposedException)
+                        MarkIndexingFailed();
+                    cmd.Tcs.TrySetException(ex);
+                }
+            }
+        }
+    }
+
+    private void ProcessAsyncWriteCommand(AsyncWriteCommand cmd)
+    {
+        lock (_writeLock)
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+                throw new ObjectDisposedException(nameof(IndexWriter));
+            switch (cmd.Kind)
+            {
+                case AsyncWriteKind.Single:
+                    AddDocumentCore((LeanDocument)cmd.Payload);
+                    break;
+                case AsyncWriteKind.Batch:
+                    var docs = (IReadOnlyList<LeanDocument>)cmd.Payload;
+                    for (int i = 0; i < docs.Count; i++)
+                        AddDocumentCore(docs[i]);
+                    break;
+                case AsyncWriteKind.Block:
+                    var block = (IReadOnlyList<LeanDocument>)cmd.Payload;
+                    for (int i = 0; i < block.Count; i++)
+                    {
+                        if (i == block.Count - 1)
+                        {
+                            _buffer.ParentDocIds ??= new HashSet<int>();
+                            _buffer.ParentDocIds.Add(_buffer.DocCount);
+                        }
+                        AddDocumentCore(block[i], suppressFlush: true);
+                    }
+                    if (ShouldFlush())
+                        FlushSegment();
+                    break;
+            }
+        }
+    }
     internal DocumentBufferState Buffer => _buffer;
     internal MMapDirectory Directory => _directory;
     internal IndexWriterConfig Config => _config;

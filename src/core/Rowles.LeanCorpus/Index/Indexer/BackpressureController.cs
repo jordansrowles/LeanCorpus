@@ -29,43 +29,7 @@ internal static class BackpressureController
         writer.BackpressureSemaphore.Wait();
     }
 
-    public static async ValueTask AcquireBackpressureSlotAsync(
-        IndexWriter writer,
-        CancellationToken cancellationToken)
-    {
-        if (writer.BackpressureSemaphore is null)
-            return;
 
-        if (await writer.BackpressureSemaphore.WaitAsync(TimeSpan.Zero, CancellationToken.None).ConfigureAwait(false))
-            return;
-
-        cancellationToken.ThrowIfCancellationRequested();
-
-        if (Interlocked.CompareExchange(ref writer.FlushElection, 1, 0) == 0)
-        {
-            try
-            {
-                lock (writer.WriteLock)
-                {
-                    if (writer.Buffer.DocCount > 0)
-                        IndexWriter.FlushSegmentStatic(writer);
-                }
-            }
-            finally
-            {
-                Volatile.Write(ref writer.FlushElection, 0);
-            }
-        }
-
-        try
-        {
-            await writer.BackpressureSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (ObjectDisposedException)
-        {
-            // Semaphore disposed during shutdown — caller's disposed check catches this.
-        }
-    }
 
     public static void ReleaseSemaphoreSlots(IndexWriter writer, int count)
     {

@@ -10,44 +10,10 @@ public sealed partial class IndexWriter
         try
         {
             ValidateDocument(doc);
-
-            await BackpressureController.AcquireBackpressureSlotAsync(this, cancellationToken).ConfigureAwait(false);
-
-            bool addedToHeldSlots = false;
-            bool throttled = false;
-            bool enteredCore = false;
-            try
-            {
-                lock (_writeLock)
-                {
-                    if (Volatile.Read(ref _disposed) != 0)
-                        throw new ObjectDisposedException(nameof(IndexWriter));
-
-                    if (_backpressureSemaphore is not null)
-                    {
-                        _semaphoreSlotsHeld++;
-                        addedToHeldSlots = true;
-                    }
-
-                    if (ShouldThrottleForMerge())
-                    {
-                        throttled = true;
-                    }
-
-                    enteredCore = true;
-                    AddDocumentCore(doc);
-                }
-            }
-            catch
-            {
-                if (enteredCore)
-                    MarkIndexingFailed();
-                BackpressureController.ReleaseFailedBackpressureSlots(this, acquired: 1, addedToHeldSlots);
-                throw;
-            }
-
-            if (throttled)
-                ThrottleMerge();
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var cmd = new AsyncWriteCommand(doc, AsyncWriteKind.Single, tcs);
+            await _asyncWriteChannel.Writer.WriteAsync(cmd, cancellationToken).ConfigureAwait(false);
+            await tcs.Task.ConfigureAwait(false);
         }
         finally
         {
@@ -61,8 +27,7 @@ public sealed partial class IndexWriter
         try
         {
             ArgumentNullException.ThrowIfNull(documents);
-            if (documents.Count == 0)
-                return;
+            if (documents.Count == 0) return;
             ValidateDocuments(documents);
 
             if (_backpressureSemaphore is not null && documents.Count > _config.MaxQueuedDocs)
@@ -72,45 +37,10 @@ public sealed partial class IndexWriter
                 return;
             }
 
-            int acquired = 0;
-            bool addedToHeldSlots = false;
-            bool enteredCore = false;
-            try
-            {
-                if (_backpressureSemaphore is not null)
-                {
-                    for (int i = 0; i < documents.Count; i++)
-                    {
-                        await BackpressureController.AcquireBackpressureSlotAsync(this, cancellationToken).ConfigureAwait(false);
-                        acquired++;
-                    }
-                }
-
-                lock (_writeLock)
-                {
-                    if (Volatile.Read(ref _disposed) != 0)
-                        throw new ObjectDisposedException(nameof(IndexWriter));
-
-                    if (_backpressureSemaphore is not null)
-                    {
-                        _semaphoreSlotsHeld += acquired;
-                        addedToHeldSlots = true;
-                    }
-
-                    for (int i = 0; i < documents.Count; i++)
-                    {
-                        enteredCore = true;
-                        AddDocumentCore(documents[i]);
-                    }
-                }
-            }
-            catch
-            {
-                if (enteredCore)
-                    MarkIndexingFailed();
-                BackpressureController.ReleaseFailedBackpressureSlots(this, acquired, addedToHeldSlots);
-                throw;
-            }
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var cmd = new AsyncWriteCommand(documents, AsyncWriteKind.Batch, tcs);
+            await _asyncWriteChannel.Writer.WriteAsync(cmd, cancellationToken).ConfigureAwait(false);
+            await tcs.Task.ConfigureAwait(false);
         }
         finally
         {
@@ -165,54 +95,10 @@ public sealed partial class IndexWriter
                     $"Document block contains {block.Count} documents, which exceeds MaxQueuedDocs ({_config.MaxQueuedDocs}).");
             }
 
-            int acquired = 0;
-            bool addedToHeldSlots = false;
-            bool enteredCore = false;
-            try
-            {
-                if (_backpressureSemaphore is not null)
-                {
-                    for (int i = 0; i < block.Count; i++)
-                    {
-                        await BackpressureController.AcquireBackpressureSlotAsync(this, cancellationToken).ConfigureAwait(false);
-                        acquired++;
-                    }
-                }
-
-                lock (_writeLock)
-                {
-                    if (Volatile.Read(ref _disposed) != 0)
-                        throw new ObjectDisposedException(nameof(IndexWriter));
-
-                    if (_backpressureSemaphore is not null)
-                    {
-                        _semaphoreSlotsHeld += acquired;
-                        addedToHeldSlots = true;
-                    }
-
-                    for (int i = 0; i < block.Count; i++)
-                    {
-                        if (i == block.Count - 1)
-                        {
-                            _buffer.ParentDocIds ??= new HashSet<int>();
-                            _buffer.ParentDocIds.Add(_buffer.DocCount);
-                        }
-
-                        enteredCore = true;
-                        AddDocumentCore(block[i], suppressFlush: true);
-                    }
-
-                    if (ShouldFlush())
-                        FlushSegment();
-                }
-            }
-            catch
-            {
-                if (enteredCore)
-                    MarkIndexingFailed();
-                BackpressureController.ReleaseFailedBackpressureSlots(this, acquired, addedToHeldSlots);
-                throw;
-            }
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var cmd = new AsyncWriteCommand(block, AsyncWriteKind.Block, tcs);
+            await _asyncWriteChannel.Writer.WriteAsync(cmd, cancellationToken).ConfigureAwait(false);
+            await tcs.Task.ConfigureAwait(false);
         }
         finally
         {
