@@ -6,12 +6,14 @@ namespace Rowles.LeanCorpus.Codecs.Postings;
 /// <summary>
 /// Manual header read/write for postings files.
 /// v1 used the CodecKit envelope: [version:byte][VarInt64 bodyLen][body].
-/// v2 streams directly: [version:byte][body].
+/// v2 streams directly: [version:byte][body] (ADR008 custom header).
+/// v3 uses the CodecKit trailer: [version:byte][body][bodyLen:int64].
 /// </summary>
 internal static class PostingsFileHeader
 {
     internal const byte V1 = 1;
     internal const byte V2 = 2;
+    internal const byte V3 = 3;
 
     /// <summary>
     /// Reads the version byte and skips any v1-only VarInt64 length prefix.
@@ -38,14 +40,6 @@ internal static class PostingsFileHeader
             SkipVarInt64(input);
 
         return version;
-    }
-
-    /// <summary>
-    /// Writes the v2 header: a single version byte. Body follows immediately.
-    /// </summary>
-    internal static void WriteV2Header(IndexOutput output)
-    {
-        output.WriteByte(V2);
     }
 
     private static void SkipVarInt64(BinaryReader reader)

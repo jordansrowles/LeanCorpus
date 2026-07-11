@@ -11,10 +11,10 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
 
     public StoredFieldsStreamingTests(TestDirectoryFixture fixture) => _fixture = fixture;
 
-    [Fact(DisplayName = "Stored Fields v2: writer emits version 2")]
-    public void Writer_EmitsVersion2()
+    [Fact(DisplayName = "Stored Fields v3: writer emits version 3")]
+    public void Writer_EmitsVersion3()
     {
-        var path = Path.Combine(_fixture.Path, $"sf-v2-{Guid.NewGuid():N}");
+        var path = Path.Combine(_fixture.Path, $"sf-v3-{Guid.NewGuid():N}");
         var docs = new[]
         {
             new Dictionary<string, List<StoredFieldValue>>(StringComparer.Ordinal)
@@ -25,8 +25,8 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
 
         StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", docs.Length, docId => docs[docId]);
 
-        Assert.Equal(StoredFieldsFileHeader.V2, File.ReadAllBytes(path + ".fdt")[0]);
-        Assert.Equal(StoredFieldsFileHeader.V2, File.ReadAllBytes(path + ".fdx")[0]);
+        Assert.Equal(StoredFieldsFileHeader.V3, File.ReadAllBytes(path + ".fdt")[0]);
+        Assert.Equal(StoredFieldsFileHeader.V3, File.ReadAllBytes(path + ".fdx")[0]);
     }
 
     [Fact(DisplayName = "Stored Fields v2: round-trip many documents")]
@@ -149,8 +149,8 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
     public void Reader_RejectsFutureVersion()
     {
         var path = Path.Combine(_fixture.Path, $"sf-future-{Guid.NewGuid():N}");
-        File.WriteAllBytes(path + ".fdt", [(byte)(StoredFieldsFileHeader.V2 + 1), 16, 0, 0, 0, 0]);
-        File.WriteAllBytes(path + ".fdx", [(byte)(StoredFieldsFileHeader.V2 + 1), 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        File.WriteAllBytes(path + ".fdt", [(byte)(StoredFieldsFileHeader.V3 + 1), 16, 0, 0, 0, 0]);
+        File.WriteAllBytes(path + ".fdx", [(byte)(StoredFieldsFileHeader.V3 + 1), 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
         var ex = Assert.Throws<InvalidDataException>(() => StoredFieldsReader.Open(path + ".fdt", path + ".fdx"));
         Assert.Contains("format version", ex.Message, StringComparison.OrdinalIgnoreCase);

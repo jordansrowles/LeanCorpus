@@ -47,4 +47,32 @@ internal static class FieldLengthReader
 
         return result;
     }
+
+    internal static IEnumerable<(string Name, int[] Lengths)> EnumerateFields(string filePath)
+    {
+        if (!File.Exists(filePath)) yield break;
+
+        using var input = new IndexInput(filePath);
+        byte version = CodecFileHeader.ReadVersionAndSkipHeader(input);
+
+        int fieldCount = input.ReadInt32();
+
+        for (int f = 0; f < fieldCount; f++)
+        {
+            int nameLen = input.ReadInt32();
+            var nameBytes = new byte[nameLen];
+            for (int b = 0; b < nameLen; b++)
+                nameBytes[b] = input.ReadByte();
+            string fieldName = Encoding.UTF8.GetString(nameBytes);
+
+            int docCount = input.ReadInt32();
+            var lengths = new int[docCount];
+
+            // Current format: VarInt encoding
+            for (int d = 0; d < docCount; d++)
+                lengths[d] = input.ReadVarInt();
+
+            yield return (fieldName, lengths);
+        }
+    }
 }

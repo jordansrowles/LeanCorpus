@@ -70,11 +70,11 @@ internal sealed class StoredFieldsReader : IDisposable
         using var fdxReader = new BinaryReader(fdxStream, System.Text.Encoding.UTF8, leaveOpen: false);
 
         byte fdxVersion = StoredFieldsFileHeader.ReadVersion(fdxReader);
-        if (fdxVersion > StoredFieldsFileHeader.V2)
+        if (fdxVersion > StoredFieldsFileHeader.V3)
         {
             throw new InvalidDataException(
                 $"Unsupported stored fields index (.fdx) format version {fdxVersion}. " +
-                $"This build supports up to version {StoredFieldsFileHeader.V2}.");
+                $"This build supports up to version {StoredFieldsFileHeader.V3}.");
         }
 
         int fdxBlockSize = fdxReader.ReadInt32();
@@ -91,11 +91,11 @@ internal sealed class StoredFieldsReader : IDisposable
 
         fs.Seek(0, SeekOrigin.Begin);
         byte fdtVersion = StoredFieldsFileHeader.ReadVersion(reader);
-        if (fdtVersion > StoredFieldsFileHeader.V2)
+        if (fdtVersion > StoredFieldsFileHeader.V3)
         {
             throw new InvalidDataException(
                 $"Unsupported stored fields data (.fdt) format version {fdtVersion}. " +
-                $"This build supports up to version {StoredFieldsFileHeader.V2}.");
+                $"This build supports up to version {StoredFieldsFileHeader.V3}.");
         }
 
         int fdtBlockSize = reader.ReadInt32();

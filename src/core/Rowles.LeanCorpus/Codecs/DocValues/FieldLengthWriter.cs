@@ -13,6 +13,22 @@ namespace Rowles.LeanCorpus.Codecs.DocValues;
 /// </summary>
 internal static class FieldLengthWriter
 {
+
+    internal static void WriteFieldBlock(IBufferWriter<byte> bw, string fieldName, int[] lengths)
+    {
+        int count = lengths.Length;
+        var fieldBytes = Encoding.UTF8.GetBytes(fieldName);
+        bw.WriteInt32(fieldBytes.Length);
+        bw.WriteBytes(fieldBytes);
+        bw.WriteInt32(count);
+
+        for (int i = 0; i < count; i++)
+        {
+            int val = Math.Clamp(lengths[i], 0, ushort.MaxValue);
+            bw.Write7BitEncodedInt(val);
+        }
+    }
+
     internal static void Write(string filePath, IReadOnlyDictionary<string, int[]> fieldTokenCounts, int docCount = -1, bool durable = false)
     {
         var bodyBuf = new ArrayBufferWriter<byte>(4096);
@@ -21,17 +37,7 @@ internal static class FieldLengthWriter
 
         foreach (var (fieldName, counts) in fieldTokenCounts)
         {
-            int count = docCount >= 0 ? docCount : counts.Length;
-            var fieldBytes = Encoding.UTF8.GetBytes(fieldName);
-            bodyBuf.WriteInt32(fieldBytes.Length);
-            bodyBuf.WriteBytes(fieldBytes);
-            bodyBuf.WriteInt32(count);
-
-            for (int i = 0; i < count; i++)
-            {
-                int val = Math.Clamp(counts[i], 0, ushort.MaxValue);
-                bodyBuf.Write7BitEncodedInt(val);
-            }
+            WriteFieldBlock(bodyBuf, fieldName, counts);
         }
 
         using var output = new IndexOutput(filePath, durable);

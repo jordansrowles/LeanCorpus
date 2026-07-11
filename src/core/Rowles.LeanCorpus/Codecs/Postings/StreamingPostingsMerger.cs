@@ -1,3 +1,4 @@
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using System.Buffers;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
 using Rowles.LeanCorpus.Store;
@@ -50,9 +51,9 @@ internal static class StreamingPostingsMerger
                 }
             }
 
-            // Write v2 header directly to final output — no temp file, no envelope.
+            // Write v3 header via CodecKit trailer format.
             using var posOutput = new IndexOutput(posOutputPath, durable: true, dropPageCache: true);
-            PostingsFileHeader.WriteV2Header(posOutput);
+            using var scope = CodecFileHeader.BeginStreamingWrite(posOutput, CodecConstants.PostingsVersion);
             using var blockWriter = new BlockPostingsWriter(posOutput);
 
             var sortedTerms = new List<string>();

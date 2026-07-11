@@ -1,3 +1,4 @@
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using System.Buffers;
 using Rowles.LeanCorpus.Store;
 
@@ -25,7 +26,7 @@ internal static class PostingsWriter
         }
 
         using var output = new IndexOutput(filePath, durable: true);
-        PostingsFileHeader.WriteV2Header(output);
+        using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.PostingsVersion);
         output.WriteBytes(bodyBuf.WrittenSpan);
     }
 

@@ -1,7 +1,8 @@
 # ADR008: Streaming codec formats bypass the CodecKit envelope
 
 - **Date:** 2026-07-09
-- **Status:** Accepted
+- **Status:** Deprecated
+- **Superseeded by**: ADR009
 
 ## Context
 

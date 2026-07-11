@@ -2,10 +2,9 @@ name: Build
 
 on:
   push:
-    branches: [main, '1.4.0']
+    branches: [main, '[0-9]*']
   pull_request:
-    branches: [main, '1.4.0']
-
+    branches: [main, '[0-9]*']
 jobs:
   build:
     if: |

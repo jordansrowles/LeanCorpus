@@ -81,7 +81,7 @@ public sealed class PayloadRoundTripTests : IDisposable
     private static void WritePosFile(string posPath, int[] docIds, int[] freqs, out long termOffset)
     {
         using var output = new IndexOutput(posPath);
-        PostingsFileHeader.WriteV2Header(output);
+        using var _scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.PostingsVersion);
 
         using var bw = new BlockPostingsWriter(output);
         long headerPos = output.Position;

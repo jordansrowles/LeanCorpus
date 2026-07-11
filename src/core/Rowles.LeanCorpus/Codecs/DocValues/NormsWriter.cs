@@ -19,6 +19,33 @@ internal static class NormsWriter
     internal static byte QuantiseNorm(float norm)
         => (byte)Math.Clamp(MathF.Round(norm * 255f), 0f, 255f);
 
+
+    internal static void WriteFieldBlock(
+        IBufferWriter<byte> bw,
+        string fieldName,
+        float[] values,
+        float[]? boosts,
+        int docCount)
+    {
+        var fieldBytes = Encoding.UTF8.GetBytes(fieldName);
+        PostingsWriter.WriteVarInt(bw, fieldBytes.Length);
+        bw.WriteBytes(fieldBytes);
+
+        PostingsWriter.WriteVarInt(bw, docCount);
+
+        for (int i = 0; i < docCount; i++)
+            bw.WriteByte(QuantiseNorm(values[i]));
+
+        if (boosts is not null)
+        {
+            WriteDenseBoosts(bw, boosts, docCount);
+        }
+        else
+        {
+            PostingsWriter.WriteVarInt(bw, 0);
+        }
+    }
+
     internal static void Write(
         string filePath,
         IReadOnlyDictionary<string, float[]> fieldNorms,
@@ -34,26 +61,25 @@ internal static class NormsWriter
         foreach (var (fieldName, norms) in fieldNorms)
         {
             int count = docCount >= 0 ? docCount : norms.Length;
-            var fieldBytes = Encoding.UTF8.GetBytes(fieldName);
-            PostingsWriter.WriteVarInt(bodyBuf, fieldBytes.Length);
-            bodyBuf.WriteBytes(fieldBytes);
-
-            PostingsWriter.WriteVarInt(bodyBuf, count);
-
-            for (int i = 0; i < count; i++)
-                bodyBuf.WriteByte(QuantiseNorm(norms[i]));
 
             if (sparseFieldBoosts is not null && sparseFieldBoosts.TryGetValue(fieldName, out var sparseBoosts))
             {
+                // Sparse boosts handled inline; write header + norms then sparse boosts
+                var fieldBytes = Encoding.UTF8.GetBytes(fieldName);
+                PostingsWriter.WriteVarInt(bodyBuf, fieldBytes.Length);
+                bodyBuf.WriteBytes(fieldBytes);
+
+                PostingsWriter.WriteVarInt(bodyBuf, count);
+
+                for (int i = 0; i < count; i++)
+                    bodyBuf.WriteByte(QuantiseNorm(norms[i]));
+
                 WriteSparseBoosts(bodyBuf, sparseBoosts, count);
-            }
-            else if (fieldBoosts is not null && fieldBoosts.TryGetValue(fieldName, out var boosts))
-            {
-                WriteDenseBoosts(bodyBuf, boosts, count);
             }
             else
             {
-                PostingsWriter.WriteVarInt(bodyBuf, 0);
+                float[]? boosts = fieldBoosts is not null && fieldBoosts.TryGetValue(fieldName, out var dense) ? dense : null;
+                WriteFieldBlock(bodyBuf, fieldName, norms, boosts, count);
             }
         }
 

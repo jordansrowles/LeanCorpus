@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace Rowles.LeanCorpus.Store;
 
@@ -116,6 +117,64 @@ public sealed class IndexOutput : IDisposable
             FlushBuffer();
 
         _buffer[_bufferPosition++] = value;
+    }
+
+    /// <summary>
+    /// Writes a non-negative integer using 7-bit encoding,
+    /// compatible with <see cref="System.IO.BinaryWriter.Write7BitEncodedInt"/>.
+    /// Small values (0–127) consume a single byte.
+    /// </summary>
+    public void Write7BitEncodedInt(int value)
+    {
+        uint v = (uint)value;
+        Span<byte> buf = stackalloc byte[5];
+        int pos = 0;
+        while (v >= 0x80)
+        {
+            buf[pos++] = (byte)(v | 0x80);
+            v >>= 7;
+        }
+        buf[pos++] = (byte)v;
+        WriteBytes(buf[..pos]);
+    }
+
+    /// <summary>
+    /// Writes a length-prefixed UTF-8 string, compatible with
+    /// <see cref="System.IO.BinaryWriter.Write(string)"/>.
+    /// </summary>
+    public void WriteString(string value)
+    {
+        int byteCount = Encoding.UTF8.GetByteCount(value);
+        Write7BitEncodedInt(byteCount);
+        if (byteCount <= 256)
+        {
+            Span<byte> buf = stackalloc byte[256];
+            Encoding.UTF8.GetBytes(value, buf);
+            WriteBytes(buf[..byteCount]);
+        }
+        else
+        {
+            WriteBytes(Encoding.UTF8.GetBytes(value));
+        }
+    }
+
+    /// <summary>
+    /// Writes a char span as raw UTF-8 bytes (no length prefix).
+    /// Compatible with <see cref="System.IO.BinaryWriter.Write(char[])"/>.
+    /// </summary>
+    public void WriteChars(ReadOnlySpan<char> chars)
+    {
+        int byteCount = Encoding.UTF8.GetByteCount(chars);
+        if (byteCount <= 256)
+        {
+            Span<byte> buf = stackalloc byte[256];
+            Encoding.UTF8.GetBytes(chars, buf);
+            WriteBytes(buf[..byteCount]);
+        }
+        else
+        {
+            WriteBytes(Encoding.UTF8.GetBytes(chars.ToArray(), 0, chars.Length));
+        }
     }
 
     /// <summary>

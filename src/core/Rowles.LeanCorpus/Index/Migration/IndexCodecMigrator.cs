@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
+using System.Buffers;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using System.Diagnostics;
 using Rowles.LeanCorpus.Codecs;
@@ -770,78 +771,72 @@ public static class IndexCodecMigrator
         var sourceBase = Path.Combine(targetDirectory, sourceSegmentId);
         var targetBase = Path.Combine(targetDirectory, targetSegmentId);
 
-        List<(string Term, List<PostingRow> Postings)> terms;
-        using (var dictionary = TermDictionaryReader.Open(sourceBase + ".dic"))
-        using (var input = new IndexInput(sourceBase + ".pos"))
-        {
-            _ = PostingsEnum.ValidateFileHeader(input);
-            terms = dictionary
-                .EnumerateAllTerms()
-                .Select(term => (term.Term, ReadPostingRows(input, term.Offset)))
-                .ToList();
-        }
-
         var normsData = NormsReader.Read(sourceBase + ".nrm");
-
-        var postingsOffsets = new Dictionary<string, long>(terms.Count, StringComparer.Ordinal);
 
         var posPath = targetBase + ".pos";
         var dicPath = targetBase + ".dic";
         var temporaryPosPath = posPath + ".tmp";
         var temporaryDicPath = dicPath + ".tmp";
 
+        var postingsOffsets = new Dictionary<string, long>(StringComparer.Ordinal);
+        var termList = new List<string>();
+
         try
         {
-            // Write v2 directly — no temp body file, no envelope.
-            using (var bodyOutput = new IndexOutput(temporaryPosPath, durable: true))
+            // Open input and output together so lazy enumeration can stream.
+            using var dictionary = TermDictionaryReader.Open(sourceBase + ".dic");
+            using var input = new IndexInput(sourceBase + ".pos");
+            _ = PostingsEnum.ValidateFileHeader(input);
+
+            using var bodyOutput = new IndexOutput(temporaryPosPath, durable: true);
+            using var scope = CodecFileHeader.BeginStreamingWrite(bodyOutput, CodecConstants.PostingsVersion);
+            using var blockWriter = new BlockPostingsWriter(bodyOutput);
+
+            foreach (var (term, offset) in dictionary.EnumerateTerms())
             {
-                PostingsFileHeader.WriteV2Header(bodyOutput);
+                var postings = ReadPostingRows(input, offset);
+                termList.Add(term);
 
-                using var blockWriter = new BlockPostingsWriter(bodyOutput);
+                bool hasFreqs = postings.Any(static p => p.Frequency != 1);
+                bool hasPositions = postings.Any(static p => p.Positions.Length > 0);
+                bool hasPayloads = postings.Any(static p => p.Payloads.Any(static pl => pl.Length > 0));
 
-                foreach (var (term, postings) in terms)
+                string fieldName = QualifiedTermHelpers.GetFieldName(term).ToString();
+                normsData.Norms.TryGetValue(fieldName, out var fieldNormBytes);
+
+                long headerPos = bodyOutput.Position;
+                postingsOffsets[term] = headerPos;
+                bodyOutput.WriteInt32(0);     // docFreq placeholder
+                bodyOutput.WriteInt64(0L);    // skipOffset placeholder
+                bodyOutput.WriteBoolean(hasFreqs);
+                bodyOutput.WriteBoolean(hasPositions);
+                bodyOutput.WriteBoolean(hasPayloads);
+
+                blockWriter.StartTerm();
+                foreach (var posting in postings)
                 {
-                    bool hasFreqs = postings.Any(static posting => posting.Frequency != 1);
-                    bool hasPositions = postings.Any(static posting => posting.Positions.Length > 0);
-                    bool hasPayloads = postings.Any(static posting => posting.Payloads.Any(static payload => payload.Length > 0));
-
-                    string fieldName = QualifiedTermHelpers.GetFieldName(term).ToString();
-                    normsData.Norms.TryGetValue(fieldName, out var fieldNormBytes);
-
-                    long headerPos = bodyOutput.Position;
-                    postingsOffsets[term] = headerPos;
-                    bodyOutput.WriteInt32(0);     // docFreq placeholder
-                    bodyOutput.WriteInt64(0L);    // skipOffset placeholder
-                    bodyOutput.WriteBoolean(hasFreqs);
-                    bodyOutput.WriteBoolean(hasPositions);
-                    bodyOutput.WriteBoolean(hasPayloads);
-
-                    blockWriter.StartTerm();
-                    foreach (var posting in postings)
-                    {
-                        int docId = posting.DocId;
-                        byte norm = fieldNormBytes is not null && (uint)docId < (uint)fieldNormBytes.Length
-                            ? fieldNormBytes[docId]
-                            : (byte)0;
-                        blockWriter.AddPosting(docId, hasFreqs ? posting.Frequency : 1, norm);
-                    }
-                    var metadata = blockWriter.FinishTerm();
-
-                    if (hasPositions)
-                        WritePositionRows(bodyOutput, postings, hasPayloads);
-
-                    // Patch term header in place — v2 has no envelope, offsets are file-absolute.
-                    long endPos = bodyOutput.Position;
-                    bodyOutput.Seek(headerPos);
-                    bodyOutput.WriteInt32(metadata.DocFreq);
-                    bodyOutput.WriteInt64(metadata.SkipOffset);
-                    bodyOutput.Seek(endPos);
+                    int docId = posting.DocId;
+                    byte norm = fieldNormBytes is not null && (uint)docId < (uint)fieldNormBytes.Length
+                        ? fieldNormBytes[docId]
+                        : (byte)0;
+                    blockWriter.AddPosting(docId, hasFreqs ? posting.Frequency : 1, norm);
                 }
-            }
+                var metadata = blockWriter.FinishTerm();
 
-            // v2 has no envelope — offsets are already correct.
-            TermDictionaryWriter.Write(temporaryDicPath,
-                postingsOffsets.Keys.Order(StringComparer.Ordinal).ToList(), postingsOffsets);
+                if (hasPositions)
+                    WritePositionRows(bodyOutput, postings, hasPayloads);
+
+                // Patch term header in place; trailer has no VarInt64, offsets are file-absolute.
+                long endPos = bodyOutput.Position;
+                bodyOutput.Seek(headerPos);
+                bodyOutput.WriteInt32(metadata.DocFreq);
+                bodyOutput.WriteInt64(metadata.SkipOffset);
+                bodyOutput.Seek(endPos);
+            }
+            // scope.Dispose() writes 8-byte trailer here.
+
+            // Terms are in FST sorted byte order; TermDictionaryWriter re-encodes + re-sorts.
+            TermDictionaryWriter.Write(temporaryDicPath, termList, postingsOffsets);
             File.Move(temporaryPosPath, posPath, overwrite: true);
             File.Move(temporaryDicPath, dicPath, overwrite: true);
         }
@@ -855,104 +850,219 @@ public static class IndexCodecMigrator
 
     private static void RewriteNumericDocValues(string sourcePath, string targetPath)
     {
-        var (values, presence) = NumericDocValuesReader.Read(sourcePath);
-        var docCount = values.Count == 0 ? 0 : values.Values.Max(static field => field.Length);
+        // First pass: count fields, find max docCount, collect presence metadata.
+        int fieldCount = 0;
+        int maxDocCount = 0;
         var presenceSets = new Dictionary<string, IReadOnlySet<int>>(StringComparer.Ordinal);
-        foreach (var (field, bitmap) in presence)
+        foreach (var (name, values, pres) in NumericDocValuesReader.EnumerateFields(sourcePath))
         {
-            if (bitmap is not null)
-                presenceSets[field] = bitmap.ToHashSet();
+            fieldCount++;
+            if (values.Length > maxDocCount) maxDocCount = values.Length;
+            if (pres is not null) presenceSets[name] = pres.ToHashSet();
         }
 
-        WriteSingleFileAtomically(sourcePath, targetPath, temporaryPath => NumericDocValuesWriter.Write(temporaryPath, values, docCount, presenceSets));
+        var temporaryPath = targetPath + ".tmp";
+        var fieldBuf = new ArrayBufferWriter<byte>(4096);
+        try
+        {
+            using var output = new IndexOutput(temporaryPath, durable: true);
+            using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.NumericDocValuesVersion);
+            scope.Output.WriteInt32(fieldCount);
+            foreach (var (fieldName, fieldValues, _) in NumericDocValuesReader.EnumerateFields(sourcePath))
+            {
+                presenceSets.TryGetValue(fieldName, out var pres);
+                fieldBuf.Clear();
+                NumericDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount, pres);
+                scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+            }
+            File.Move(temporaryPath, targetPath, overwrite: true);
+        }
+        catch { TryDeleteTemporaryFile(temporaryPath); throw; }
     }
 
     private static void RewriteSortedDocValues(string sourcePath, string targetPath)
     {
-        var (values, _) = SortedDocValuesReader.Read(sourcePath);
-        var docCount = values.Count == 0 ? 0 : values.Values.Max(static field => field.Length);
-        var nullableValues = values.ToDictionary(
-            static item => item.Key,
-            static item => item.Value.Select(static value => (string?)value).ToArray(),
-            StringComparer.Ordinal);
-        WriteSingleFileAtomically(sourcePath, targetPath, temporaryPath => SortedDocValuesWriter.Write(temporaryPath, nullableValues, docCount));
+        // First pass: count fields, find max docCount.
+        int fieldCount = 0;
+        int maxDocCount = 0;
+        foreach (var (_, values) in SortedDocValuesReader.EnumerateFields(sourcePath))
+        {
+            fieldCount++;
+            if (values.Length > maxDocCount) maxDocCount = values.Length;
+        }
+        var temporaryPath = targetPath + ".tmp";
+        var fieldBuf = new ArrayBufferWriter<byte>(4096);
+        try
+        {
+            using var output = new IndexOutput(temporaryPath, durable: true);
+            using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.SortedDocValuesVersion);
+            scope.Output.WriteInt32(fieldCount);
+            foreach (var (fieldName, fieldValues) in SortedDocValuesReader.EnumerateFields(sourcePath))
+            {
+                var nullableValues = fieldValues.Select(static v => (string?)v).ToArray();
+                fieldBuf.Clear();
+                SortedDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, nullableValues, maxDocCount);
+                scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+            }
+            File.Move(temporaryPath, targetPath, overwrite: true);
+        }
+        catch { TryDeleteTemporaryFile(temporaryPath); throw; }
     }
 
     private static void RewriteNorms(string sourcePath, string targetPath)
     {
-        var values = NormsReader.Read(sourcePath);
-        var fieldNorms = values.Norms.ToDictionary(
-            static item => item.Key,
-            static item =>
+        // First pass: count fields, find max docCount, collect boosts.
+        int fieldCount = 0;
+        int maxDocCount = 0;
+        var boosts = new Dictionary<string, float[]>(StringComparer.Ordinal);
+        foreach (var (name, normBytes, fieldBoosts) in NormsReader.EnumerateFields(sourcePath))
+        {
+            fieldCount++;
+            if (normBytes.Length > maxDocCount) maxDocCount = normBytes.Length;
+            if (fieldBoosts is not null) boosts[name] = fieldBoosts;
+        }
+        var fieldBoostsRef = boosts.Count > 0 ? boosts : null;
+
+        var temporaryPath = targetPath + ".tmp";
+        var fieldBuf = new ArrayBufferWriter<byte>(4096);
+        try
+        {
+            using var output = new IndexOutput(temporaryPath, durable: true);
+            using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.NormsVersion);
+            scope.Output.WriteInt32(fieldCount);
+            foreach (var (fieldName, normBytes, _) in NormsReader.EnumerateFields(sourcePath))
             {
-                var norms = new float[item.Value.Length];
-                for (int i = 0; i < item.Value.Length; i++)
-                    norms[i] = item.Value[i] / 255f;
-                return norms;
-            },
-            StringComparer.Ordinal);
-
-        IReadOnlyDictionary<string, float[]>? fieldBoosts = values.Boosts.Count > 0
-            ? values.Boosts
-            : null;
-
-        var docCount = fieldNorms.Count == 0 ? 0 : fieldNorms.Values.Max(static field => field.Length);
-        WriteSingleFileAtomically(sourcePath, targetPath, temporaryPath => NormsWriter.Write(temporaryPath, fieldNorms, fieldBoosts, docCount));
+                var norms = new float[normBytes.Length];
+                for (int i = 0; i < normBytes.Length; i++)
+                    norms[i] = normBytes[i] / 255f;
+                float[]? fb = null;
+                fieldBoostsRef?.TryGetValue(fieldName, out fb);
+                fieldBuf.Clear();
+                NormsWriter.WriteFieldBlock(fieldBuf, fieldName, norms, fb, maxDocCount);
+                scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+            }
+            File.Move(temporaryPath, targetPath, overwrite: true);
+        }
+        catch { TryDeleteTemporaryFile(temporaryPath); throw; }
     }
 
     private static void RewriteSortedSetDocValues(string sourcePath, string targetPath)
     {
-        var values = SortedSetDocValuesReader.Read(sourcePath);
-        var docCount = values.Count == 0 ? 0 : values.Values.Max(static field => field.Length);
-        var columns = new Dictionary<string, IReadOnlyList<string>?[]>(values.Count, StringComparer.Ordinal);
-        foreach (var (field, fieldValues) in values)
-            columns[field] = fieldValues;
+        int fieldCount = 0;
+        int maxDocCount = 0;
+        foreach (var (_, values) in SortedSetDocValuesReader.EnumerateFields(sourcePath))
+        {
+            fieldCount++;
+            if (values.Length > maxDocCount) maxDocCount = values.Length;
+        }
 
-        WriteSingleFileAtomically(sourcePath, targetPath, temporaryPath => SortedSetDocValuesWriter.Write(temporaryPath, columns, docCount));
+        var temporaryPath = targetPath + ".tmp";
+        var fieldBuf = new ArrayBufferWriter<byte>(4096);
+        try
+        {
+            using var output = new IndexOutput(temporaryPath, durable: true);
+            using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.SortedSetDocValuesVersion);
+            scope.Output.WriteInt32(fieldCount);
+            foreach (var (fieldName, fieldValues) in SortedSetDocValuesReader.EnumerateFields(sourcePath))
+            {
+                fieldBuf.Clear();
+                SortedSetDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
+                scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+            }
+            File.Move(temporaryPath, targetPath, overwrite: true);
+        }
+        catch { TryDeleteTemporaryFile(temporaryPath); throw; }
     }
 
     private static void RewriteSortedNumericDocValues(string sourcePath, string targetPath)
     {
-        var values = SortedNumericDocValuesReader.Read(sourcePath);
-        var docCount = values.Count == 0 ? 0 : values.Values.Max(static field => field.Length);
-        var columns = new Dictionary<string, IReadOnlyList<double>?[]>(values.Count, StringComparer.Ordinal);
-        foreach (var (field, fieldValues) in values)
-            columns[field] = fieldValues;
+        int fieldCount = 0;
+        int maxDocCount = 0;
+        foreach (var (_, values) in SortedNumericDocValuesReader.EnumerateFields(sourcePath))
+        {
+            fieldCount++;
+            if (values.Length > maxDocCount) maxDocCount = values.Length;
+        }
 
-        WriteSingleFileAtomically(sourcePath, targetPath, temporaryPath => SortedNumericDocValuesWriter.Write(temporaryPath, columns, docCount));
+        var temporaryPath = targetPath + ".tmp";
+        var fieldBuf = new ArrayBufferWriter<byte>(4096);
+        try
+        {
+            using var output = new IndexOutput(temporaryPath, durable: true);
+            using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.SortedNumericDocValuesVersion);
+            scope.Output.WriteInt32(fieldCount);
+            foreach (var (fieldName, fieldValues) in SortedNumericDocValuesReader.EnumerateFields(sourcePath))
+            {
+                fieldBuf.Clear();
+                SortedNumericDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
+                scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+            }
+            File.Move(temporaryPath, targetPath, overwrite: true);
+        }
+        catch { TryDeleteTemporaryFile(temporaryPath); throw; }
     }
 
     private static void RewriteBinaryDocValues(string sourcePath, string targetPath)
     {
-        var values = BinaryDocValuesReader.Read(sourcePath);
-        var docCount = values.Count == 0 ? 0 : values.Values.Max(static field => field.Length);
-        var columns = new Dictionary<string, IReadOnlyList<byte[]>?[]>(values.Count, StringComparer.Ordinal);
-        foreach (var (field, fieldValues) in values)
-            columns[field] = fieldValues;
+        int fieldCount = 0;
+        int maxDocCount = 0;
+        foreach (var (_, values) in BinaryDocValuesReader.EnumerateFields(sourcePath))
+        {
+            fieldCount++;
+            if (values.Length > maxDocCount) maxDocCount = values.Length;
+        }
 
-        WriteSingleFileAtomically(sourcePath, targetPath, temporaryPath => BinaryDocValuesWriter.Write(temporaryPath, columns, docCount));
+        var temporaryPath = targetPath + ".tmp";
+        var fieldBuf = new ArrayBufferWriter<byte>(4096);
+        try
+        {
+            using var output = new IndexOutput(temporaryPath, durable: true);
+            using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.BinaryDocValuesVersion);
+            scope.Output.WriteInt32(fieldCount);
+            foreach (var (fieldName, fieldValues) in BinaryDocValuesReader.EnumerateFields(sourcePath))
+            {
+                fieldBuf.Clear();
+                BinaryDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
+                scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+            }
+            File.Move(temporaryPath, targetPath, overwrite: true);
+        }
+        catch { TryDeleteTemporaryFile(temporaryPath); throw; }
     }
 
     private static void RewriteFieldLengths(string sourcePath, string targetPath)
     {
-        var values = FieldLengthReader.TryRead(sourcePath) ?? new Dictionary<string, int[]>(StringComparer.Ordinal);
-        var docCount = values.Count == 0 ? 0 : values.Values.Max(static field => field.Length);
-        WriteSingleFileAtomically(sourcePath, targetPath, temporaryPath => FieldLengthWriter.Write(temporaryPath, values, docCount));
-    }
+        // TryRead returns null when the file does not exist; EnumerateFields would throw.
+        if (!File.Exists(sourcePath))
+        {
+            // Nothing to rewrite; copy empty if needed.
+            return;
+        }
 
-    private static void WriteSingleFileAtomically(string sourcePath, string targetPath, Action<string> writeTemporary)
-    {
+        int fieldCount = 0;
+        int maxDocCount = 0;
+        foreach (var (_, lengths) in FieldLengthReader.EnumerateFields(sourcePath))
+        {
+            fieldCount++;
+            if (lengths.Length > maxDocCount) maxDocCount = lengths.Length;
+        }
+
         var temporaryPath = targetPath + ".tmp";
+        var fieldBuf = new ArrayBufferWriter<byte>(4096);
         try
         {
-            writeTemporary(temporaryPath);
+            using var output = new IndexOutput(temporaryPath, durable: true);
+            using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.FieldLengthVersion);
+            scope.Output.WriteInt32(fieldCount);
+            foreach (var (fieldName, lengths) in FieldLengthReader.EnumerateFields(sourcePath))
+            {
+                fieldBuf.Clear();
+                FieldLengthWriter.WriteFieldBlock(fieldBuf, fieldName, lengths);
+                scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+            }
             File.Move(temporaryPath, targetPath, overwrite: true);
         }
-        catch
-        {
-            TryDeleteTemporaryFile(temporaryPath);
-            throw;
-        }
+        catch { TryDeleteTemporaryFile(temporaryPath); throw; }
     }
 
     private static List<PostingRow> ReadPostingRows(IndexInput input, long offset)

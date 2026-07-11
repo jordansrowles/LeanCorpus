@@ -28,7 +28,7 @@ internal static class SortedDocValuesWriter
         CodecFileHeader.Write(output, CodecFormats.SortedDocValues, bodyBuf.WrittenSpan);
     }
 
-    private static void WriteFieldBlock(IBufferWriter<byte> bw, string fieldName, string?[] values, int docCount)
+    internal static void WriteFieldBlock(IBufferWriter<byte> bw, string fieldName, string?[] values, int docCount)
     {
         bw.WriteString(fieldName);
 
