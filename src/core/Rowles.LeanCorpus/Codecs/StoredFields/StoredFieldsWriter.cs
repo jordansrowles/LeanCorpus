@@ -1,5 +1,7 @@
 using System.Buffers;
 using System.Text;
+using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.StoredFields;
@@ -23,7 +25,9 @@ internal static class StoredFieldsWriter
         int docCount = docStarts.Count;
 
         using var fdtOutput = new IndexOutput(fdtPath, durable: true);
-        StoredFieldsFileHeader.WriteV2FdtHeader(fdtOutput, blockSize, compression);
+        using var fdtScope = CodecFileHeader.BeginStreamingWrite(fdtOutput, CodecConstants.StoredFieldsVersion);
+        fdtScope.Output.WriteInt32(blockSize);
+        fdtScope.Output.WriteByte((byte)compression);
 
         var blockOffsets = new List<long>();
         var rawBuf = new ArrayBufferWriter<byte>(4096);
@@ -138,7 +142,9 @@ internal static class StoredFieldsWriter
         FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate)
     {
         using var fdtOutput = new IndexOutput(fdtPath, durable: true);
-        StoredFieldsFileHeader.WriteV2FdtHeader(fdtOutput, blockSize, compression);
+        using var fdtScope = CodecFileHeader.BeginStreamingWrite(fdtOutput, CodecConstants.StoredFieldsVersion);
+        fdtScope.Output.WriteInt32(blockSize);
+        fdtScope.Output.WriteByte((byte)compression);
 
         var blockOffsets = new List<long>();
         var rawBuf = new ArrayBufferWriter<byte>(4096);
@@ -191,7 +197,7 @@ internal static class StoredFieldsWriter
     private static void WriteFdx(string fdxPath, int blockSize, int docCount, List<long> blockOffsets)
     {
         using var fdxOutput = new IndexOutput(fdxPath, durable: true);
-        StoredFieldsFileHeader.WriteV2FdxHeader(fdxOutput, blockSize, docCount, blockOffsets.Count);
+        StoredFieldsFileHeader.WriteV3FdxHeader(fdxOutput, blockSize, docCount, blockOffsets.Count);
         foreach (var offset in blockOffsets)
             fdxOutput.WriteInt64(offset);
     }

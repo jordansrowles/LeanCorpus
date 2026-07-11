@@ -106,7 +106,7 @@ public sealed class CodecsTests : IClassFixture<TestDirectoryFixture>
             WriteVarInt(bodyWriter, 3);
             bodyWriter.Flush();
             using var output = new IndexOutput(filePath);
-            PostingsFileHeader.WriteV2Header(output);
+            using var _scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.PostingsVersion);
             output.WriteBytes(bodyMs.ToArray());
         }
         var readIds = PostingsReader.ReadDocIds(filePath, "testterm");
@@ -138,7 +138,7 @@ public sealed class CodecsTests : IClassFixture<TestDirectoryFixture>
             innerWriter.Flush();
             byte[] body = ms.ToArray();
             using var output = new IndexOutput(filePath);
-            PostingsFileHeader.WriteV2Header(output);
+            using var _scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.PostingsVersion);
             output.WriteBytes(body);
         }
 

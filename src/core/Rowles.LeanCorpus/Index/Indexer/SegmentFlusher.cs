@@ -460,7 +460,7 @@ internal static class SegmentFlusher
         string posPath = basePath + ".pos";
         using (var posOutput = new IndexOutput(posPath, durable: true, dropPageCache: true))
         {
-            PostingsFileHeader.WriteV2Header(posOutput);
+            using var scope = CodecFileHeader.BeginStreamingWrite(posOutput, CodecConstants.PostingsVersion);
 
             using var blockWriter = new BlockPostingsWriter(posOutput);
 

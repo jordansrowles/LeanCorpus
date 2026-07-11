@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.Postings;
@@ -122,7 +123,7 @@ public sealed class StreamingPostingsMergerTests : IDisposable
         // Write v2 postings directly — no temp file, no envelope patching.
         using (var posOutput = new IndexOutput(posPath))
         {
-            PostingsFileHeader.WriteV2Header(posOutput);
+            using var _scope = CodecFileHeader.BeginStreamingWrite(posOutput, CodecConstants.PostingsVersion);
 
             using var blockWriter = new BlockPostingsWriter(posOutput);
             foreach (var term in terms)

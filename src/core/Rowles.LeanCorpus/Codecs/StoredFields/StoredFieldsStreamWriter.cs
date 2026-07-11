@@ -1,5 +1,7 @@
 using System.Buffers;
 using System.Text;
+using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.StoredFields;
@@ -14,6 +16,7 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
     private const int DefaultBlockSize = 16;
 
     private readonly IndexOutput _fdtOutput;
+    private readonly CodecFileHeader.StreamingWriteScope _fdtScope;
     private readonly string _fdtPath;
     private readonly string _fdxPath;
     private readonly int _blockSize;
@@ -39,7 +42,9 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
         _blockOffsets = new List<long>();
         _intraOffsets = new List<int>(blockSize);
 
-        StoredFieldsFileHeader.WriteV2FdtHeader(_fdtOutput, blockSize, compression);
+        _fdtScope = CodecFileHeader.BeginStreamingWrite(_fdtOutput, CodecConstants.StoredFieldsVersion);
+        _fdtScope.Output.WriteInt32(blockSize);
+        _fdtScope.Output.WriteByte((byte)compression);
     }
 
     internal void AddDocument(IReadOnlyDictionary<string, IReadOnlyList<StoredFieldValue>> fields)
@@ -123,6 +128,7 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
         try
         {
             FlushBlock();
+            _fdtScope.Dispose();
         }
         finally
         {
@@ -132,7 +138,7 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
         try
         {
             using var fdxOutput = new IndexOutput(_fdxPath, durable: true);
-            StoredFieldsFileHeader.WriteV2FdxHeader(fdxOutput, _blockSize, _docCount, _blockOffsets.Count);
+            StoredFieldsFileHeader.WriteV3FdxHeader(fdxOutput, _blockSize, _docCount, _blockOffsets.Count);
             foreach (var offset in _blockOffsets)
                 fdxOutput.WriteInt64(offset);
         }

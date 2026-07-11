@@ -6,12 +6,14 @@ namespace Rowles.LeanCorpus.Codecs.StoredFields;
 /// <summary>
 /// Manual header read/write for stored-fields files.
 /// v1 used the CodecKit envelope: [version:byte][VarInt64 bodyLen][body].
-/// v2 streams directly: [version:byte][body] with body fields read by the caller.
+/// v2 streams directly: [version:byte][body] (ADR008 custom header).
+/// v3 uses the CodecKit trailer: [version:byte][body][bodyLen:int64].
 /// </summary>
 internal static class StoredFieldsFileHeader
 {
     internal const byte V1 = 1;
     internal const byte V2 = 2;
+    internal const byte V3 = 3;
 
     /// <summary>Size of the v2 .fdt header: version + blockSize + compression.</summary>
     internal const int V2FdtHeaderSize = sizeof(byte) + sizeof(int) + sizeof(byte);
@@ -33,6 +35,19 @@ internal static class StoredFieldsFileHeader
         return version;
     }
 
+    /// <summary>
+    /// Writes the v3 .fdx header: a single version byte followed by block metadata.
+    /// Body format is identical to v2; only the version byte changes (v2 to v3).
+    /// </summary>
+    internal static void WriteV3FdxHeader(IndexOutput output, int blockSize, int docCount, int blockCount)
+    {
+        output.WriteByte(V3);
+        output.WriteInt32(blockSize);
+        output.WriteInt32(docCount);
+        output.WriteInt32(blockCount);
+    }
+
+    // Deprecated by v3 trailer; kept until Phase C cutover.
     internal static void WriteV2FdtHeader(IndexOutput output, int blockSize, FieldCompressionPolicy compression)
     {
         output.WriteByte(V2);
@@ -40,6 +55,7 @@ internal static class StoredFieldsFileHeader
         output.WriteByte((byte)compression);
     }
 
+    // Deprecated by v3 trailer; kept until Phase C cutover.
     internal static void WriteV2FdxHeader(IndexOutput output, int blockSize, int docCount, int blockCount)
     {
         output.WriteByte(V2);

@@ -28,8 +28,9 @@ public sealed class PostingsEnumGapsTests : IDisposable
     {
         var path = Path.Combine(_dir, "test_valid.pos");
         using (var output = new IndexOutput(path))
-            PostingsFileHeader.WriteV2Header(output);
-
+        {
+            using var _scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.PostingsVersion);
+        }
         using var input = new IndexInput(path);
         byte version = PostingsEnum.ValidateFileHeader(input);
         Assert.Equal(CodecConstants.PostingsVersion, version);
@@ -129,7 +130,7 @@ public sealed class PostingsEnumGapsTests : IDisposable
         long offset;
         using (var output = new IndexOutput(path))
         {
-            PostingsFileHeader.WriteV2Header(output);
+            using var _scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.PostingsVersion);
 
             long headerPos = output.Position;
             output.WriteInt32(0);             // docFreq placeholder

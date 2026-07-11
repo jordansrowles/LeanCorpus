@@ -2,6 +2,7 @@ using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
+using System.Collections.Generic;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
 
@@ -66,6 +67,61 @@ internal static class SortedSetDocValuesReader
         }
 
         return values;
+    }
+
+    internal static IEnumerable<(string Name, IReadOnlyList<string>?[] Values)> EnumerateFields(string filePath)
+    {
+        if (!File.Exists(filePath))
+            yield break;
+
+        using var input = new IndexInput(filePath);
+        byte version = CodecFileHeader.ReadVersionAndSkipHeader(input);
+
+        int fieldCount = input.ReadInt32();
+        for (int f = 0; f < fieldCount; f++)
+        {
+            string fieldName = ReadString(input);
+            int docCount = input.ReadInt32();
+            int ordCount = input.ReadInt32();
+            var ordTable = new string[ordCount];
+            for (int i = 0; i < ordTable.Length; i++)
+                ordTable[i] = ReadString(input);
+
+            var starts = new int[docCount + 1];
+            for (int i = 0; i < starts.Length; i++)
+                starts[i] = input.ReadInt32();
+
+            int totalOrdinals = input.ReadInt32();
+            ValidateStarts(starts, totalOrdinals, fieldName);
+
+            var ordinals = new int[totalOrdinals];
+            for (int i = 0; i < ordinals.Length; i++)
+            {
+                int ord = input.ReadVarInt();
+                if ((uint)ord >= (uint)ordTable.Length)
+                    throw new InvalidDataException($"Invalid sorted-set DocValues ordinal {ord} for field '{fieldName}'.");
+                ordinals[i] = ord;
+            }
+
+            var perDoc = new IReadOnlyList<string>[docCount];
+            for (int docId = 0; docId < docCount; docId++)
+            {
+                int start = starts[docId];
+                int end = starts[docId + 1];
+                if (end == start)
+                {
+                    perDoc[docId] = Array.Empty<string>();
+                    continue;
+                }
+
+                var docValues = new string[end - start];
+                for (int i = 0; i < docValues.Length; i++)
+                    docValues[i] = ordTable[ordinals[start + i]];
+                perDoc[docId] = docValues;
+            }
+
+            yield return (fieldName, perDoc);
+        }
     }
 
     private static void ValidateStarts(int[] starts, int totalValues, string fieldName)

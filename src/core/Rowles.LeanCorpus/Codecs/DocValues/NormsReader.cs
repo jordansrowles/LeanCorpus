@@ -21,8 +21,76 @@ internal static class NormsReader
         {
             1 => ReadV1Body(input),
             2 => ReadV2Body(input),
+            3 => ReadV2Body(input), // v3 trailer wrapper, same body format as v2
             _ => throw new NotSupportedException($"Unsupported norms version: {version}")
         };
+    }
+
+    internal static IEnumerable<(string Name, byte[] NormBytes, float[]? Boosts)> EnumerateFields(string filePath)
+    {
+        using var input = new IndexInput(filePath);
+
+        byte version = CodecFileHeader.ReadVersionAndSkipHeader(input);
+
+        int fieldCount;
+        Func<IndexInput, int> readLen, readCount, readBoostCount, readDocId;
+        switch (version)
+        {
+            case 1:
+                fieldCount = input.ReadInt32();
+                readLen = static i => i.ReadInt32();
+                readCount = static i => i.ReadInt32();
+                readBoostCount = static i => i.ReadInt32();
+                readDocId = static i => i.ReadInt32();
+                break;
+            case 2:
+                fieldCount = input.ReadVarInt();
+                readLen = static i => i.ReadVarInt();
+                readCount = static i => i.ReadVarInt();
+                readBoostCount = static i => i.ReadVarInt();
+                readDocId = static i => i.ReadVarInt();
+                break;
+            case 3:
+                fieldCount = input.ReadVarInt();
+                readLen = static i => i.ReadVarInt();
+                readCount = static i => i.ReadVarInt();
+                readBoostCount = static i => i.ReadVarInt();
+                readDocId = static i => i.ReadVarInt();
+                break;
+            default:
+                throw new NotSupportedException($"Unsupported norms version: {version}");
+        }
+
+        for (int f = 0; f < fieldCount; f++)
+        {
+            int fieldNameLen = readLen(input);
+
+            byte[] nameBytes = input.ReadBytes(fieldNameLen);
+            string fieldName = Encoding.UTF8.GetString(nameBytes, 0, fieldNameLen);
+
+            int docCount = readCount(input);
+
+            byte[] norms = input.ReadBytes(docCount);
+
+            int boostCount = readBoostCount(input);
+            if ((uint)boostCount > (uint)docCount)
+                throw new InvalidDataException($"Invalid norms file: boost count {boostCount} exceeds document count {docCount} for field '{fieldName}'.");
+
+            float[]? boosts = null;
+            for (int i = 0; i < boostCount; i++)
+            {
+                int docId = readDocId(input);
+                float boost = input.ReadSingle();
+
+                if ((uint)docId >= (uint)docCount)
+                    throw new InvalidDataException($"Invalid norms file: boost doc ID {docId} is outside field '{fieldName}' document count {docCount}.");
+
+                boosts ??= CreateDefaultBoosts(docCount);
+                boosts[docId] = boost;
+            }
+
+            yield return (fieldName, norms, boosts);
+        }
     }
 
     private static NormsData ReadV1Body(IndexInput input)

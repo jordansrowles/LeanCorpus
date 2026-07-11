@@ -115,7 +115,7 @@ internal static class NumericDocValuesWriter
             output.WriteByte(accum);
     }
 
-    private static void WriteFieldBlock(
+    internal static void WriteFieldBlock(
         IBufferWriter<byte> bw,
         string fieldName,
         double[] values,

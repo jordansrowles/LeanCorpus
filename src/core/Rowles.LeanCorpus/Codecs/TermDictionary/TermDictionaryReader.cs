@@ -311,6 +311,13 @@ internal sealed class TermDictionaryReader : IDisposable
         return results;
     }
 
+    /// <summary>Lazily enumerates all (term, offset) pairs in sorted byte order.</summary>
+    internal IEnumerable<(string Term, long Offset)> EnumerateTerms()
+    {
+        foreach (var (key, output) in _fst.EnumerateAll())
+            yield return (Encoding.UTF8.GetString(key), output);
+    }
+
     public List<(string Term, long Offset)> GetTermsInRange(
         string fieldPrefix, string? lower, string? upper, bool includeLower = true, bool includeUpper = true)
     {

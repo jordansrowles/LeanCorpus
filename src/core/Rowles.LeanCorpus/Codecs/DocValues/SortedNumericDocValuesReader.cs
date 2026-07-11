@@ -1,6 +1,7 @@
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using System.Collections.Generic;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
 
@@ -51,6 +52,47 @@ internal static class SortedNumericDocValuesReader
         }
 
         return values;
+    }
+
+    internal static IEnumerable<(string Name, IReadOnlyList<double>?[] Values)> EnumerateFields(string filePath)
+    {
+        if (!File.Exists(filePath))
+            yield break;
+
+        using var input = new IndexInput(filePath);
+        byte version = CodecFileHeader.ReadVersionAndSkipHeader(input);
+
+        int fieldCount = input.ReadInt32();
+        for (int f = 0; f < fieldCount; f++)
+        {
+            string fieldName = ReadString(input);
+            int docCount = input.ReadInt32();
+            var starts = new int[docCount + 1];
+            for (int i = 0; i < starts.Length; i++)
+                starts[i] = input.ReadInt32();
+
+            int valueCount = input.ReadInt32();
+            ValidateStarts(starts, valueCount, fieldName);
+            var flattened = ReadPackedDoubles(input, valueCount);
+
+            var perDoc = new IReadOnlyList<double>[docCount];
+            for (int docId = 0; docId < docCount; docId++)
+            {
+                int start = starts[docId];
+                int end = starts[docId + 1];
+                if (end == start)
+                {
+                    perDoc[docId] = Array.Empty<double>();
+                    continue;
+                }
+
+                var docValues = new double[end - start];
+                Array.Copy(flattened, start, docValues, 0, docValues.Length);
+                perDoc[docId] = docValues;
+            }
+
+            yield return (fieldName, perDoc);
+        }
     }
 
     private static double[] ReadPackedDoubles(IndexInput input, int valueCount)
