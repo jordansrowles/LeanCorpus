@@ -718,7 +718,7 @@ public sealed partial class IndexWriter : IDisposable
         if (task is not null)
         {
             try { task.Wait(TimeSpan.FromMinutes(2)); }
-            catch (AggregateException) { /* merge failed -- do not block indexing forever */ }
+            catch (AggregateException) { MarkIndexingFailed(); }
         }
     }
 
