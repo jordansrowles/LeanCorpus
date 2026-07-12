@@ -871,11 +871,7 @@ public static class IndexCodecMigrator
                 }
                 // scope.Dispose() writes 8-byte trailer here.
             }
-            // Force finalizer cleanup of MMF handles before we move files over
-            // the same paths. Windows can stall releasing memory-mapped file handles
-            // even after Dispose, especially under CI with AV scanners.
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
+            // dictionary and input are now disposed, MMF handles released.
 
             // Terms are in FST sorted byte order; TermDictionaryWriter re-encodes + re-sorts.
             TermDictionaryWriter.Write(temporaryDicPath, termList, postingsOffsets);
@@ -892,14 +888,16 @@ public static class IndexCodecMigrator
 
     private static void RewriteNumericDocValues(string sourcePath, string targetPath)
     {
-        // First pass: count fields, find max docCount.
-        int fieldCount = 0;
+        // Single pass: enumerate once into memory, so the MMF handle releases
+        // before the Move. Two-pass enumeration opens IndexInput twice on the
+        // same file, causing LLIDX040 on Windows.
+        var allFields = NumericDocValuesReader.EnumerateFields(sourcePath).ToList();
+        if (allFields.Count == 0)
+            return;
+
         int maxDocCount = 0;
-        foreach (var (_, values, _) in NumericDocValuesReader.EnumerateFields(sourcePath))
-        {
-            fieldCount++;
+        foreach (var (_, values, _) in allFields)
             if (values.Length > maxDocCount) maxDocCount = values.Length;
-        }
 
         var temporaryPath = targetPath + ".tmp";
         var fieldBuf = new ArrayBufferWriter<byte>(4096);
@@ -907,8 +905,8 @@ public static class IndexCodecMigrator
         {
             using var output = new IndexOutput(temporaryPath, durable: true);
             using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.NumericDocValuesVersion);
-            scope.Output.WriteInt32(fieldCount);
-            foreach (var (fieldName, fieldValues, pres) in NumericDocValuesReader.EnumerateFields(sourcePath))
+            scope.Output.WriteInt32(allFields.Count);
+            foreach (var (fieldName, fieldValues, pres) in allFields)
             {
                 var presenceSet = pres is not null ? pres.ToHashSet() : null;
                 fieldBuf.Clear();
@@ -922,22 +920,22 @@ public static class IndexCodecMigrator
 
     private static void RewriteSortedDocValues(string sourcePath, string targetPath)
     {
-        // First pass: count fields, find max docCount.
-        int fieldCount = 0;
+        var allFields = SortedDocValuesReader.EnumerateFields(sourcePath).ToList();
+        if (allFields.Count == 0)
+            return;
+
         int maxDocCount = 0;
-        foreach (var (_, values) in SortedDocValuesReader.EnumerateFields(sourcePath))
-        {
-            fieldCount++;
+        foreach (var (_, values) in allFields)
             if (values.Length > maxDocCount) maxDocCount = values.Length;
-        }
+
         var temporaryPath = targetPath + ".tmp";
         var fieldBuf = new ArrayBufferWriter<byte>(4096);
         try
         {
             using var output = new IndexOutput(temporaryPath, durable: true);
             using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.SortedDocValuesVersion);
-            scope.Output.WriteInt32(fieldCount);
-            foreach (var (fieldName, fieldValues) in SortedDocValuesReader.EnumerateFields(sourcePath))
+            scope.Output.WriteInt32(allFields.Count);
+            foreach (var (fieldName, fieldValues) in allFields)
             {
                 var nullableValues = fieldValues.Select(static v => (string?)v).ToArray();
                 fieldBuf.Clear();
@@ -983,13 +981,13 @@ public static class IndexCodecMigrator
 
     private static void RewriteSortedSetDocValues(string sourcePath, string targetPath)
     {
-        int fieldCount = 0;
+        var allFields = SortedSetDocValuesReader.EnumerateFields(sourcePath).ToList();
+        if (allFields.Count == 0)
+            return;
+
         int maxDocCount = 0;
-        foreach (var (_, values) in SortedSetDocValuesReader.EnumerateFields(sourcePath))
-        {
-            fieldCount++;
+        foreach (var (_, values) in allFields)
             if (values.Length > maxDocCount) maxDocCount = values.Length;
-        }
 
         var temporaryPath = targetPath + ".tmp";
         var fieldBuf = new ArrayBufferWriter<byte>(4096);
@@ -997,8 +995,8 @@ public static class IndexCodecMigrator
         {
             using var output = new IndexOutput(temporaryPath, durable: true);
             using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.SortedSetDocValuesVersion);
-            scope.Output.WriteInt32(fieldCount);
-            foreach (var (fieldName, fieldValues) in SortedSetDocValuesReader.EnumerateFields(sourcePath))
+            scope.Output.WriteInt32(allFields.Count);
+            foreach (var (fieldName, fieldValues) in allFields)
             {
                 fieldBuf.Clear();
                 SortedSetDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
@@ -1011,13 +1009,13 @@ public static class IndexCodecMigrator
 
     private static void RewriteSortedNumericDocValues(string sourcePath, string targetPath)
     {
-        int fieldCount = 0;
+        var allFields = SortedNumericDocValuesReader.EnumerateFields(sourcePath).ToList();
+        if (allFields.Count == 0)
+            return;
+
         int maxDocCount = 0;
-        foreach (var (_, values) in SortedNumericDocValuesReader.EnumerateFields(sourcePath))
-        {
-            fieldCount++;
+        foreach (var (_, values) in allFields)
             if (values.Length > maxDocCount) maxDocCount = values.Length;
-        }
 
         var temporaryPath = targetPath + ".tmp";
         var fieldBuf = new ArrayBufferWriter<byte>(4096);
@@ -1025,8 +1023,8 @@ public static class IndexCodecMigrator
         {
             using var output = new IndexOutput(temporaryPath, durable: true);
             using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.SortedNumericDocValuesVersion);
-            scope.Output.WriteInt32(fieldCount);
-            foreach (var (fieldName, fieldValues) in SortedNumericDocValuesReader.EnumerateFields(sourcePath))
+            scope.Output.WriteInt32(allFields.Count);
+            foreach (var (fieldName, fieldValues) in allFields)
             {
                 fieldBuf.Clear();
                 SortedNumericDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
@@ -1039,13 +1037,13 @@ public static class IndexCodecMigrator
 
     private static void RewriteBinaryDocValues(string sourcePath, string targetPath)
     {
-        int fieldCount = 0;
+        var allFields = BinaryDocValuesReader.EnumerateFields(sourcePath).ToList();
+        if (allFields.Count == 0)
+            return;
+
         int maxDocCount = 0;
-        foreach (var (_, values) in BinaryDocValuesReader.EnumerateFields(sourcePath))
-        {
-            fieldCount++;
+        foreach (var (_, values) in allFields)
             if (values.Length > maxDocCount) maxDocCount = values.Length;
-        }
 
         var temporaryPath = targetPath + ".tmp";
         var fieldBuf = new ArrayBufferWriter<byte>(4096);
@@ -1053,8 +1051,8 @@ public static class IndexCodecMigrator
         {
             using var output = new IndexOutput(temporaryPath, durable: true);
             using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.BinaryDocValuesVersion);
-            scope.Output.WriteInt32(fieldCount);
-            foreach (var (fieldName, fieldValues) in BinaryDocValuesReader.EnumerateFields(sourcePath))
+            scope.Output.WriteInt32(allFields.Count);
+            foreach (var (fieldName, fieldValues) in allFields)
             {
                 fieldBuf.Clear();
                 BinaryDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
@@ -1067,20 +1065,16 @@ public static class IndexCodecMigrator
 
     private static void RewriteFieldLengths(string sourcePath, string targetPath)
     {
-        // TryRead returns null when the file does not exist; EnumerateFields would throw.
         if (!FileOpenRetry.FileExists(sourcePath))
-        {
-            // Nothing to rewrite; copy empty if needed.
             return;
-        }
 
-        int fieldCount = 0;
+        var allFields = FieldLengthReader.EnumerateFields(sourcePath).ToList();
+        if (allFields.Count == 0)
+            return;
+
         int maxDocCount = 0;
-        foreach (var (_, lengths) in FieldLengthReader.EnumerateFields(sourcePath))
-        {
-            fieldCount++;
+        foreach (var (_, lengths) in allFields)
             if (lengths.Length > maxDocCount) maxDocCount = lengths.Length;
-        }
 
         var temporaryPath = targetPath + ".tmp";
         var fieldBuf = new ArrayBufferWriter<byte>(4096);
@@ -1088,8 +1082,8 @@ public static class IndexCodecMigrator
         {
             using var output = new IndexOutput(temporaryPath, durable: true);
             using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.FieldLengthVersion);
-            scope.Output.WriteInt32(fieldCount);
-            foreach (var (fieldName, lengths) in FieldLengthReader.EnumerateFields(sourcePath))
+            scope.Output.WriteInt32(allFields.Count);
+            foreach (var (fieldName, lengths) in allFields)
             {
                 fieldBuf.Clear();
                 FieldLengthWriter.WriteFieldBlock(fieldBuf, fieldName, lengths);
