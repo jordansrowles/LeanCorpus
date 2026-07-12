@@ -268,6 +268,11 @@ public sealed partial class IndexSearcher : IDisposable
         if (query is TermQuery tq)
             return SearchTermQuery(tq, topN);
 
+        // Fast path for FunctionScoreQuery wrapping a TermQuery: inline scoring,
+        // reuse ThreadStatic postings buffer, skip PrecomputeGlobalDocFreqs.
+        if (query is FunctionScoreQuery fsq && fsq.Inner is TermQuery fsqTq)
+            return SearchFunctionScoreTermQuery(fsqTq, fsq, topN);
+
         // Fast path for BooleanQuery with all-TermQuery clauses — compute
         // global DFs inline without the generic PrecomputeGlobalDocFreqs tree walk
         if (query is BooleanQuery bq && IsAllTermQueryBoolean(bq))
@@ -451,6 +456,8 @@ public sealed partial class IndexSearcher : IDisposable
             return ExecuteBlockJoinQuery(bjq, topN);
         if (query is TermQuery tq)
             return SearchTermQuery(tq, topN);
+        if (query is FunctionScoreQuery fsqCt && fsqCt.Inner is TermQuery fsqCtTq)
+            return SearchFunctionScoreTermQuery(fsqCtTq, fsqCt, topN);
         // Fast path for BooleanQuery with all-TermQuery clauses
         if (query is BooleanQuery bq && IsAllTermQueryBoolean(bq))
             return SearchBooleanTermQueryFast(bq, topN);
@@ -1041,6 +1048,88 @@ public sealed partial class IndexSearcher : IDisposable
                     score = ApplyFieldBoost(reader, docId, query.Field, score);
                     collector.Collect(docBase + docId, score);
                     sideCollector?.Collect(docBase + docId, score, reader, docId);
+                }
+            }
+        }
+        finally
+        {
+            for (int i = 0; i < readerCount; i++)
+                postingsArr[i].Dispose();
+        }
+
+        return collector.ToTopDocs();
+    }
+
+    /// <summary>Fast path for FunctionScoreQuery wrapping a TermQuery.
+    /// Same per-segment postings scan and BM25 scoring as SearchTermQuery,
+    /// but combines the numeric field value inline after field boost and
+    /// before the top-N collector. Skipping the generic SearchCore dispatch
+    /// avoids PrecomputeGlobalDocFreqs, per-segment ExecuteQuery, and
+    /// Parallel.ForEach delegate allocations.</summary>
+    private TopDocs SearchFunctionScoreTermQuery(TermQuery tq, FunctionScoreQuery fsq, int topN)
+    {
+        // Open postings for the inner term across all segments.
+        var qt = tq.CachedQualifiedTerm ??= string.Concat(tq.Field, "\x00", tq.Term);
+        int readerCount = _readers.Count;
+
+        if (t_postingsBuffer is null || t_postingsBuffer.Length < readerCount)
+            t_postingsBuffer = new PostingsEnum[readerCount];
+        var postingsArr = t_postingsBuffer;
+        int globalDF = 0;
+        for (int i = 0; i < readerCount; i++)
+        {
+            postingsArr[i] = _readers[i].GetPostingsEnum(qt);
+            globalDF += postingsArr[i].DocFreq;
+        }
+        long globalCollectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
+
+        if (globalDF == 0)
+        {
+            for (int i = 0; i < readerCount; i++)
+                postingsArr[i].Dispose();
+            return TopDocs.Empty;
+        }
+
+        // Compute BM25 factors once from the global doc frequency.
+        float avgDocLength = _stats.GetAvgFieldLength(tq.Field);
+        var (f1, f2, f3) = ComputeTermFactors(globalDF, avgDocLength, globalCollectionFreq, tq.Field);
+        float boost = tq.Boost;
+
+        // Reuse the ThreadStatic collector heap.
+        if (t_collectorHeapCache is null || t_collectorHeapCache.Length < topN)
+            t_collectorHeapCache = new ScoreDoc[topN];
+        var collector = new TopNCollector(t_collectorHeapCache, topN);
+
+        try
+        {
+            for (int i = 0; i < readerCount; i++)
+            {
+                ref var postings = ref postingsArr[i];
+                if (postings.IsExhausted) continue;
+
+                var reader = _readers[i];
+                int docBase = reader.DocBase;
+                bool hasDeletions = reader.HasDeletions;
+                reader.TryGetFieldLengths(tq.Field, out var fieldLengths);
+
+                // Single pass: BM25, field boost, function score, then top-N collect.
+                while (postings.MoveNext())
+                {
+                    int docId = postings.DocId;
+                    if (hasDeletions && !reader.IsLive(docId)) continue;
+
+                    int tf = postings.Freq;
+                    int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
+                        ? fieldLengths[docId] : 1;
+                    float score = ScoreTerm(f1, f2, f3, tf, docLength);
+                    if (boost != 1.0f) score *= boost;
+                    score = ApplyFieldBoost(reader, docId, tq.Field, score);
+
+                    // Modify the field-boosted BM25 score with the numeric doc value.
+                    if (reader.TryGetNumericValue(fsq.NumericField, docId, out double fieldValue))
+                        score = FunctionScoreQuery.Combine(score, fieldValue, fsq.Mode);
+
+                    collector.Collect(docBase + docId, score * fsq.Boost);
                 }
             }
         }
