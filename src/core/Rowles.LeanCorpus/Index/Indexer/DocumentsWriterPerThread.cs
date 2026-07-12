@@ -14,7 +14,7 @@ internal sealed class DocumentsWriterPerThread
 {
     private readonly IAnalyser _analyser;
     private readonly Dictionary<string, IAnalyser> _fieldAnalysers;
-    private readonly bool _storePayloads;
+    private readonly IndexWriterConfig _config;
     internal readonly Dictionary<string, PostingAccumulator> Postings = new(StringComparer.Ordinal);
 
     /// <summary>Stored-field name-to-ID mapping exposed for <see cref="SegmentFlusher.FlushFromDwpt"/>.</summary>
@@ -68,11 +68,11 @@ internal sealed class DocumentsWriterPerThread
     /// <summary>Estimated RAM usage in bytes for this DWPT's buffers.</summary>
     public long EstimatedRamBytes => Volatile.Read(ref _estimatedRamBytes);
 
-    public DocumentsWriterPerThread(IAnalyser defaultAnalyser, Dictionary<string, IAnalyser> fieldAnalysers, bool storePayloads)
+    public DocumentsWriterPerThread(IAnalyser defaultAnalyser, Dictionary<string, IAnalyser> fieldAnalysers, IndexWriterConfig config)
     {
         _analyser = defaultAnalyser;
         _fieldAnalysers = fieldAnalysers;
-        _storePayloads = storePayloads;
+        _config = config;
         _spanPostingSink = new SpanPostingTokenSink(this);
     }
 
@@ -210,9 +210,18 @@ internal sealed class DocumentsWriterPerThread
 
     private void IndexTextField(string fieldName, string value, int docId, FieldIndexOptions indexOptions)
     {
+        ReadOnlySpan<char> input = value.AsSpan();
+        string? filtered = null;
+        if (_config.CharFilters.Count > 0)
+        {
+            filtered = value;
+            foreach (var cf in _config.CharFilters)
+                filtered = cf.Filter(filtered.AsSpan());
+            input = filtered.AsSpan();
+        }
         var analyser = _fieldAnalysers.GetValueOrDefault(fieldName, _analyser);
         _spanPostingSink.Reset(fieldName, docId, indexOptions);
-        analyser.Analyse(value.AsSpan(), _spanPostingSink);
+        analyser.Analyse(input, _spanPostingSink);
         AddTokenCount(fieldName, docId, _spanPostingSink.AcceptedCount);
         FieldNames.Add(fieldName);
     }
@@ -497,18 +506,22 @@ internal sealed class DocumentsWriterPerThread
             var qualifiedTerm = _owner.GetOrCreateQualifiedTerm(_fieldName, text);
 
             var acc = _owner.GetOrCreateAccumulator(qualifiedTerm);
-
-            if (_owner._storePayloads && (acc.HasPayloads || payload is { Length: > 0 }))
+            if (_owner._config.StorePayloads && (acc.HasPayloads || payload is { Length: > 0 }))
             {
-                acc.AddWithPayload(_docId, _position, payload, _fieldIndexOptions, startOffset, endOffset);
+                if (_owner._config.StoreTermVectors)
+                    acc.AddWithPayload(_docId, _position, payload, _fieldIndexOptions, startOffset, endOffset);
+                else
+                    acc.AddWithPayload(_docId, _position, payload, _fieldIndexOptions);
                 _owner._estimatedRamBytes += 12 + (payload?.Length ?? 0);
             }
             else
             {
-                acc.Add(_docId, _position, _fieldIndexOptions, startOffset, endOffset);
+                if (_owner._config.StoreTermVectors)
+                    acc.Add(_docId, _position, _fieldIndexOptions, startOffset, endOffset);
+                else
+                    acc.Add(_docId, _position, _fieldIndexOptions);
                 _owner._estimatedRamBytes += 12;
             }
-
             AcceptedCount++;
         }
     }

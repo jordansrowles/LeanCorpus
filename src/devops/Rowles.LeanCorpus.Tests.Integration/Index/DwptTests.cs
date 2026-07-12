@@ -227,7 +227,7 @@ public sealed class DwptTests
     {
         // Arrange — create a DWPT directly (internal class, accessible via InternalsVisibleTo)
         var analyser = new StandardAnalyser();
-        var dwpt = new DocumentsWriterPerThread(analyser, new Dictionary<string, IAnalyser>(), storePayloads: false);
+        var dwpt = new DocumentsWriterPerThread(analyser, new Dictionary<string, IAnalyser>(), new IndexWriterConfig());
 
         Assert.Equal(0, dwpt.EstimatedRamBytes);
 
@@ -279,6 +279,36 @@ public sealed class DwptTests
             // Verify segment files were written
             var segFiles = Directory.GetFiles(dir, "*.seg");
             Assert.NotEmpty(segFiles);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "DWPT Pool: StoreTermVectors writes .tvd/.tvx")]
+    public void DwptPool_StoreTermVectors_WritesTermVectorFiles()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(dir);
+
+        try
+        {
+            var config = new IndexWriterConfig
+            {
+                StoreTermVectors = true,
+                MaxBufferedDocs = 10,
+                MergeThrottleSegments = 0
+            };
+            var mmap = new MMapDirectory(dir);
+            using var writer = new IndexWriter(mmap, config);
+            writer.InitialiseDwptPool(threadCount: 1);
+            writer.AddDocumentLockFree(CreateDocument(1));
+            writer.Commit();
+
+            // .tvd and .tvx should exist for segments written via DWPT flush.
+            Assert.NotEmpty(Directory.GetFiles(dir, "*.tvd"));
+            Assert.NotEmpty(Directory.GetFiles(dir, "*.tvx"));
         }
         finally
         {

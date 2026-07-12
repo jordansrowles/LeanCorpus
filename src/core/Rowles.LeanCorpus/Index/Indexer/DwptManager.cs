@@ -223,6 +223,6 @@ internal static class DwptManager
             };
         }
 
-        return new DocumentsWriterPerThread(threadLocalDefaultAnalyser, threadLocalFieldAnalysers, config.StorePayloads);
+        return new DocumentsWriterPerThread(threadLocalDefaultAnalyser, threadLocalFieldAnalysers, config);
     }
 }

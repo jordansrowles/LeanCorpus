@@ -48,42 +48,7 @@ internal static class SegmentFlusher
         // Term vectors
         if (config.StoreTermVectors)
         {
-            var tvDocs = new Dictionary<string, List<TermVectorEntry>>?[buffer.DocCount];
-
-            foreach (var (qt, acc) in buffer.EnumeratePostings())
-            {
-                if (!acc.HasPositions) continue;
-                int sep = qt.IndexOf('\x00');
-                if (sep < 0) continue;
-                string fld = qt[..sep];
-                string trm = qt[(sep + 1)..];
-
-                var ids = acc.DocIds;
-                for (int i = 0; i < ids.Length; i++)
-                {
-                    int docId = ids[i];
-                    if (docId >= buffer.DocCount) continue;
-                    var perDoc = tvDocs[docId] ??= new Dictionary<string, List<TermVectorEntry>>(StringComparer.Ordinal);
-                    if (!perDoc.TryGetValue(fld, out var terms))
-                    {
-                        terms = [];
-                        perDoc[fld] = terms;
-                    }
-                    int freq = acc.GetFreq(i);
-                    var posSpan = acc.GetPositions(i);
-                    var positions = posSpan.IsEmpty ? [] : posSpan.ToArray();
-                    byte[]?[]? payloads = null;
-                    if (acc.HasPayloads && positions.Length > 0)
-                    {
-                        payloads = new byte[]?[positions.Length];
-                        for (int p = 0; p < positions.Length; p++)
-                            payloads[p] = acc.GetPayload(i, p);
-                    }
-                    var (starts, ends) = acc.GetOffsets(i);
-                    terms.Add(new TermVectorEntry(trm, freq, positions, payloads, starts, ends));
-                }
-            }
-            TermVectorsWriter.Write(basePath + ".tvd", basePath + ".tvx", tvDocs);
+            WriteTermVectors(basePath, buffer.DocCount, buffer.EnumeratePostings());
         }
 
         // Parent bitset
@@ -418,6 +383,47 @@ internal static class SegmentFlusher
         return segInfo;
     }
 
+    private static void WriteTermVectors(
+        string basePath, int docCount, IEnumerable<(string Term, PostingAccumulator Acc)> terms)
+    {
+        var tvDocs = new Dictionary<string, List<TermVectorEntry>>?[docCount];
+
+        foreach (var (qt, acc) in terms)
+        {
+            if (!acc.HasPositions) continue;
+            int sep = qt.IndexOf('\x00');
+            if (sep < 0) continue;
+            string fld = qt[..sep];
+            string trm = qt[(sep + 1)..];
+
+            var ids = acc.DocIds;
+            for (int i = 0; i < ids.Length; i++)
+            {
+                int docId = ids[i];
+                if (docId >= docCount) continue;
+                var perDoc = tvDocs[docId] ??= new Dictionary<string, List<TermVectorEntry>>(StringComparer.Ordinal);
+                if (!perDoc.TryGetValue(fld, out var termsList))
+                {
+                    termsList = [];
+                    perDoc[fld] = termsList;
+                }
+                int freq = acc.GetFreq(i);
+                var posSpan = acc.GetPositions(i);
+                var positions = posSpan.IsEmpty ? [] : posSpan.ToArray();
+                byte[]?[]? payloads = null;
+                if (acc.HasPayloads && positions.Length > 0)
+                {
+                    payloads = new byte[]?[positions.Length];
+                    for (int p = 0; p < positions.Length; p++)
+                        payloads[p] = acc.GetPayload(i, p);
+                }
+                var (starts, ends) = acc.GetOffsets(i);
+                termsList.Add(new TermVectorEntry(trm, freq, positions, payloads, starts, ends));
+            }
+        }
+        TermVectorsWriter.Write(basePath + ".tvd", basePath + ".tvx", tvDocs);
+    }
+
     /// <summary>
     /// Writes a segment directly from a <see cref="DocumentsWriterPerThread"/> buffer
     /// without merging into the main <see cref="DocumentBufferState"/>. Each DWPT
@@ -436,9 +442,28 @@ internal static class SegmentFlusher
     {
         var segId = $"seg_{nextSegmentOrdinal}";
         nextOrdinal = nextSegmentOrdinal + 1;
-        const int minDocsForHnsw = 128;
-        return FlushCore(new DwptFlushSource(dwpt), config, directoryPath, segId,
-            commitGeneration, flushSeqNoStart, nextSequenceNumber, minDocsForHnsw);
+        var segInfo = FlushCore(new DwptFlushSource(dwpt), config, directoryPath, segId,
+            commitGeneration, flushSeqNoStart, nextSequenceNumber, minDocsForHnsw: 0);
+
+        var basePath = Path.Combine(directoryPath, segId);
+
+        // Term vectors
+        if (config.StoreTermVectors)
+        {
+            WriteTermVectors(basePath, dwpt.DocCount,
+                dwpt.Postings.Select(kvp => (kvp.Key, kvp.Value)));
+        }
+
+        // Parent bitset: DWPT always has null ParentDocIds (not supported on concurrent path).
+        if (dwpt.ParentDocIds is { Count: > 0 })
+        {
+            var pbs = new ParentBitSet(dwpt.DocCount);
+            foreach (var pid in dwpt.ParentDocIds)
+                pbs.Set(pid);
+            pbs.WriteTo(basePath + ".pbs");
+        }
+
+        return segInfo;
     }
 
     /// <summary>
