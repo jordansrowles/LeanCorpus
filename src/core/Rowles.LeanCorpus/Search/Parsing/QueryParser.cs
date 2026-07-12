@@ -350,22 +350,84 @@ public sealed class QueryParser
                 continue;
             }
 
-            // Regular term
+            // Regular term (supports backslash escaping)
             {
                 int start = i;
-                while (i < input.Length && !char.IsWhiteSpace(input[i]) &&
-                       input[i] != '(' && input[i] != ')' && input[i] != ':' &&
-                       input[i] != '"' && input[i] != '~' && input[i] != '^')
+                bool hasEscapes = false;
+
+                while (i < input.Length)
                 {
+                    char ch = input[i];
+
+                    if (ch == '\\' && i + 1 < input.Length)
+                    {
+                        hasEscapes = true;
+                        i += 2; // skip backslash and escaped char
+                        continue;
+                    }
+
+                    if (char.IsWhiteSpace(ch) || ch == '(' || ch == ')' ||
+                        ch == ':' || ch == '"' || ch == '~' || ch == '^')
+                    {
+                        break;
+                    }
+
                     i++;
                 }
-                tokens.Add(new QToken(QTokenType.Term, input[start..i], start));
+
+                string termValue;
+                if (hasEscapes)
+                {
+                    var raw = input.AsSpan(start, i - start);
+                    termValue = Unescape(raw);
+                }
+                else
+                {
+                    termValue = input[start..i];
+                }
+
+                tokens.Add(new QToken(QTokenType.Term, termValue, start));
             }
         }
 
         return tokens;
     }
 
+
+    /// <summary>
+    /// Returns a copy of <paramref name="raw"/> with backslash escapes resolved.
+    /// <c>\x</c> produces literal <c>x</c>; only backslash-prefixed pairs are
+    /// recognised; a trailing lone backslash is treated as literal.
+    /// </summary>
+    private static string Unescape(ReadOnlySpan<char> raw)
+    {
+        int escapes = 0;
+        for (int j = 0; j < raw.Length; j++)
+        {
+            if (raw[j] == '\\' && j + 1 < raw.Length)
+            {
+                escapes++;
+                j++; // skip escaped char
+            }
+        }
+
+        return string.Create(raw.Length - escapes, raw, static (dest, src) =>
+        {
+            int di = 0;
+            for (int si = 0; si < src.Length; si++)
+            {
+                if (src[si] == '\\' && si + 1 < src.Length)
+                {
+                    si++; // skip backslash
+                    dest[di++] = src[si];
+                }
+                else
+                {
+                    dest[di++] = src[si];
+                }
+            }
+        });
+    }
     private enum QTokenType { Term, Phrase, Plus, Minus, LParen, RParen, Colon, Tilde, Caret }
 
     private readonly record struct QToken(QTokenType Type, string Value, int Offset);
