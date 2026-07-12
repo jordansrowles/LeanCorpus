@@ -31,14 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `FunctionScoreQuery` with a `TermQuery` inner now takes a dedicated `SearchCore` fast path, reusing `ThreadStatic` buffers and eliminating the generic-path `PrecomputeGlobalDocFreqs` and `Parallel.ForEach` overhead (a04036a42)
 - `SearchWithAggregations`, `SearchWithCollapse`, and `SearchWithFacets` now use a single-pass postings iteration with side-collectors instead of executing two full searches (dfecfdd58)
 - `ExecuteFunctionScoreQuery` uses inline scoring for TermQuery inners, eliminating the intermediate `TopNCollector(reader.MaxDoc)` allocation (dfecfdd58)
 - `ExecuteShouldOnlyHeap` uses proper multi-way heap merge instead of full heap rebuild per iteration, and the heap threshold is raised from 16 to 64 (dfecfdd58)
 - `ExecuteMoreLikeThis` caches extracted candidate terms with ConcurrentDictionary generation-swap eviction and uses string-based qualified term lookups for FST cache hits (dfecfdd58)
-- `ApplyPendingDeletions` routes numeric id-field delete terms to only the segment containing the target document, reducing FST lookups from O(K*S) to O(K); non-numeric id terms pass through to all segments unchanged (dfecfdd58)
-- `ComputeSortPermutation` uses `Array.Sort(keys, perm)` for single-numeric-field sorts, avoiding 133K delegate invocations per 10K-doc flush (dfecfdd58)
-- LuceneNet `AggregationBenchmarks` and `CollapseAndFacetBenchmarks` now aggregate over all matching documents instead of only top-25, matching LeanCorpus semantics (dfecfdd58)
-- `LeanCorpus_SearchWithCollapseAndFacets` benchmark now exercises both the collapse and facets search paths (dfecfdd58)
 - All `File.*/Directory.*/FileStream` calls across 15 files now route through FileOpenRetry wrappers, including IndexCodecMigrator, IndexRecovery, CommitManager, IndexWriter, deletion policies, SegmentMerger, IndexStats, IndexBackup, IndexMigrationRecovery, StoredFieldsStreamWriter, ParentBitSet, RoaringBitmap, SlowQueryLog, KStemLexicon, and ThaiTokeniser (839078bcb)
 - IndexAtomicFileWriter.Write uses FileOpenRetry.Move and FileOpenRetry.Delete instead of its own inline retry loop (839078bcb)
 - During file teardown and cleanup bare exceptions are now routed through `TraceSwallowed` so suppressed IO and permission errors are observable in diagnostic tooling (7f373517e)
@@ -87,6 +84,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- SearchWithFacets now falls back to a two-pass search for non-TermQuery queries, fixing facet collection for MatchAllDocsQuery and other complex query types (9d653096b)
 - `FileOpenRetry.Open` now catches `IOException` (the exception Windows throws for file-locking) in addition to `UnauthorizedAccessException`, so the retry backoff actually fires instead of propagating immediately to callers (c892a4362)
 - `RewriteTermDictionary` no longer holds an MMF-backed `IndexInput` open on the source `.dic` file after the version probe, preventing `IOException` ("file in use by another process") when the subsequent `File.Copy` or `File.Move` runs on Windows (e064ac2f4)
 - `QueryParser` now supports backslash escaping (`\:`, `\\`, `\+`, etc.) in term tokens so values containing colons such as URLs, timestamps, and file paths are not prematurely split at `:` (2f3318d7d)
