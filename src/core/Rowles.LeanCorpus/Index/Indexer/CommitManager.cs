@@ -44,7 +44,7 @@ internal static class CommitManager
         var pendingPath = Path.Combine(dirPath, $"segments_{writer.PreparedGeneration}.pending");
         var finalPath = Path.Combine(dirPath, $"segments_{writer.PreparedGeneration}");
 
-        File.Move(pendingPath, finalPath, overwrite: false);
+        FileOpenRetry.Move(pendingPath, finalPath, overwrite: false);
 
         writer.CommitGeneration = writer.PreparedGeneration;
         writer.ContentToken = writer.PreparedContentToken;
@@ -232,7 +232,7 @@ internal static class CommitManager
         foreach (var segId in recovery.SegmentIds)
         {
             var segPath = Path.Combine(dirPath, segId + ".seg");
-            if (!File.Exists(segPath))
+            if (!FileOpenRetry.FileExists(segPath))
                 continue;
 
             var seg = SegmentInfo.ReadFrom(segPath);
@@ -241,7 +241,7 @@ internal static class CommitManager
             var delPath = seg.DelGeneration.HasValue
                 ? basePath + $"_gen_{seg.DelGeneration.Value}.del"
                 : basePath + ".del";
-            if (File.Exists(delPath))
+            if (FileOpenRetry.FileExists(delPath))
             {
                 var liveDocs = LiveDocs.Deserialise(delPath, seg.DocCount);
                 seg.LiveDocCount = liveDocs.LiveCount;
@@ -271,11 +271,11 @@ internal static class CommitManager
     public static void DeleteSegmentFiles(string segId, LeanDirectory directory)
     {
         var directoryPath = directory.DirectoryPath;
-        foreach (var file in Directory.GetFiles(directoryPath, segId + ".*"))
+        foreach (var file in FileOpenRetry.GetFiles(directoryPath, segId + ".*"))
         {
             try { directory.DeleteFile(Path.GetFileName(file)); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "segment file delete"); }
         }
-        foreach (var file in Directory.GetFiles(directoryPath, segId + "_v_*.*"))
+        foreach (var file in FileOpenRetry.GetFiles(directoryPath, segId + "_v_*.*"))
         {
             try { directory.DeleteFile(Path.GetFileName(file)); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "vector file delete"); }
         }
@@ -479,7 +479,7 @@ internal static class CommitManager
 
         var pendingPath = Path.Combine(directoryPath,
             $"segments_{writer.PreparedGeneration}.pending");
-        try { File.Delete(pendingPath); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "rollback pending-file delete"); }
+        try { FileOpenRetry.Delete(pendingPath); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "rollback pending-file delete"); }
 
         if (writer.PreparedSegments is not null)
         {

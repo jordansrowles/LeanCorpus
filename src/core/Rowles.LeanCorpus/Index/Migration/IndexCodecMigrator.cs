@@ -1,6 +1,5 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using System.IO;
-using System.Threading;
 using System.Buffers;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using System.Diagnostics;
@@ -425,7 +424,7 @@ public static class IndexCodecMigrator
     {
         try
         {
-            Directory.Delete(stagingDirectory, recursive: true);
+            FileOpenRetry.DeleteDirectory(stagingDirectory, recursive: true);
             issue = null!;
             return false;
         }
@@ -445,13 +444,13 @@ public static class IndexCodecMigrator
 
     private static void TryDeleteDirectory(string directoryPath)
     {
-        try { Directory.Delete(directoryPath, recursive: true); }
+        try { FileOpenRetry.DeleteDirectory(directoryPath, recursive: true); }
         catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "migrator directory delete"); }
     }
 
     private static void TryDeleteFile(string path)
     {
-        try { File.Delete(path); }
+        try { FileOpenRetry.Delete(path); }
         catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "migrator file delete"); }
     }
 
@@ -486,8 +485,8 @@ public static class IndexCodecMigrator
         if (Directory.Exists(stagingDirectory))
             throw new IOException($"Staging directory '{stagingDirectory}' already exists.");
 
-        Directory.CreateDirectory(stagingDirectory);
-        foreach (var file in Directory.EnumerateFiles(sourceDirectory))
+        FileOpenRetry.CreateDirectory(stagingDirectory);
+        foreach (var file in FileOpenRetry.EnumerateFiles(sourceDirectory, "*"))
         {
             var name = Path.GetFileName(file);
             if (string.Equals(name, "write.lock", StringComparison.Ordinal) ||
@@ -496,7 +495,7 @@ public static class IndexCodecMigrator
                 continue;
             }
 
-            File.Copy(file, Path.Combine(stagingDirectory, name), overwrite: false);
+            FileOpenRetry.Copy(file, Path.Combine(stagingDirectory, name), overwrite: false);
         }
     }
 
@@ -527,7 +526,7 @@ public static class IndexCodecMigrator
 
     private static void CleanupTemporaryFiles(string directoryPath)
     {
-        foreach (var tmpFile in Directory.GetFiles(directoryPath, "*.tmp"))
+        foreach (var tmpFile in FileOpenRetry.GetFiles(directoryPath, "*.tmp"))
         {
             TryDeleteFile(tmpFile);
         }
@@ -541,7 +540,7 @@ public static class IndexCodecMigrator
         foreach (var (oldSegmentId, newSegmentId) in segmentIdMap)
         {
             var oldSegPath = Path.Combine(targetDirectory, oldSegmentId + ".seg");
-            if (File.Exists(oldSegPath))
+            if (FileOpenRetry.FileExists(oldSegPath))
             {
                 var info = SegmentInfo.ReadFrom(oldSegPath);
                 var newInfo = new SegmentInfo
@@ -567,7 +566,7 @@ public static class IndexCodecMigrator
                 var newFileName = newSegmentId + fileName.Substring(oldSegmentId.Length);
                 var newPath = Path.Combine(targetDirectory, newFileName);
 
-                if (File.Exists(newPath) ||
+                if (FileOpenRetry.FileExists(newPath) ||
                     rewrittenTargetPaths.Contains(newPath) ||
                     fileName.EndsWith(".seg", StringComparison.Ordinal))
                 {
@@ -575,7 +574,7 @@ public static class IndexCodecMigrator
                 }
                 else
                 {
-                    File.Move(oldFile, newPath, overwrite: false);
+                    FileOpenRetry.Move(oldFile, newPath, overwrite: false);
                 }
             }
         }
@@ -583,7 +582,7 @@ public static class IndexCodecMigrator
 
     private static IEnumerable<string> FindSegmentFiles(string directoryPath, string segmentId)
     {
-        foreach (var file in Directory.EnumerateFiles(directoryPath))
+        foreach (var file in FileOpenRetry.EnumerateFiles(directoryPath, "*"))
         {
             var name = Path.GetFileName(file);
             if (!name.StartsWith(segmentId, StringComparison.Ordinal))
@@ -626,13 +625,13 @@ public static class IndexCodecMigrator
     private static void CopyMigratedStats(string sourceDirectory, string targetDirectory, int sourceGeneration, int newGeneration)
     {
         var sourceStats = Path.Combine(sourceDirectory, $"stats_{sourceGeneration}.json");
-        if (!File.Exists(sourceStats))
+        if (!FileOpenRetry.FileExists(sourceStats))
             return;
 
         var targetStats = Path.Combine(targetDirectory, $"stats_{newGeneration}.json");
         IndexAtomicFileWriter.Write(targetStats, durable: true, stream =>
         {
-            using var source = new FileStream(sourceStats, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            using var source = FileOpenRetry.OpenReadDelete(sourceStats);
             source.CopyTo(stream);
         });
     }
@@ -641,7 +640,7 @@ public static class IndexCodecMigrator
     {
         // Collect staging file names, excluding the recovery marker.
         var stagingFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in Directory.EnumerateFiles(stagingDirectory))
+        foreach (var file in FileOpenRetry.EnumerateFiles(stagingDirectory, "*"))
         {
             var name = Path.GetFileName(file);
             if (string.Equals(name, IndexMigrationRecovery.MarkerFileName, StringComparison.Ordinal))
@@ -650,7 +649,7 @@ public static class IndexCodecMigrator
         }
 
         // Delete source files absent from staging (preserve write.lock and marker).
-        foreach (var file in Directory.EnumerateFiles(sourceDirectory))
+        foreach (var file in FileOpenRetry.EnumerateFiles(sourceDirectory, "*"))
         {
             var name = Path.GetFileName(file);
             if (string.Equals(name, "write.lock", StringComparison.Ordinal) ||
@@ -671,7 +670,7 @@ public static class IndexCodecMigrator
     {
         IndexAtomicFileWriter.Write(targetPath, durable: true, stream =>
         {
-            using var source = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            using var source = FileOpenRetry.OpenReadDelete(sourcePath);
             source.CopyTo(stream);
         });
     }
@@ -757,7 +756,7 @@ public static class IndexCodecMigrator
     private static void RewriteTermDictionary(string sourcePath, string targetPath)
     {
         byte version;
-        using var fs = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        using var fs = FileOpenRetry.OpenReadDelete(sourcePath);
         using var br = new BinaryReader(fs);
         try
         {
@@ -773,7 +772,7 @@ public static class IndexCodecMigrator
         {
             // No format change; copy to target if the segment ID was renamed.
             if (!string.Equals(sourcePath, targetPath, StringComparison.Ordinal))
-                RetryFileOperation(() => File.Copy(sourcePath, targetPath, overwrite: true));
+                FileOpenRetry.Copy(sourcePath, targetPath, overwrite: true);
             return;
         }
 
@@ -790,7 +789,7 @@ public static class IndexCodecMigrator
             var sorted = new List<string>(offsets.Keys);
             sorted.Sort(StringComparer.Ordinal);
             TermDictionaryWriter.Write(temporaryPath, sorted, offsets, durable: true);
-            RetryFileOperation(() => File.Move(temporaryPath, targetPath, overwrite: true));
+            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
         }
         catch { TryDeleteTemporaryFile(temporaryPath); throw; }
     }
@@ -873,8 +872,8 @@ public static class IndexCodecMigrator
 
             // Terms are in FST sorted byte order; TermDictionaryWriter re-encodes + re-sorts.
             TermDictionaryWriter.Write(temporaryDicPath, termList, postingsOffsets);
-            File.Move(temporaryPosPath, posPath, overwrite: true);
-            File.Move(temporaryDicPath, dicPath, overwrite: true);
+            FileOpenRetry.Move(temporaryPosPath, posPath, overwrite: true);
+            FileOpenRetry.Move(temporaryDicPath, dicPath, overwrite: true);
         }
         catch
         {
@@ -909,7 +908,7 @@ public static class IndexCodecMigrator
                 NumericDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount, presenceSet);
                 scope.Output.WriteBytes(fieldBuf.WrittenSpan);
             }
-            File.Move(temporaryPath, targetPath, overwrite: true);
+            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
         }
         catch { TryDeleteTemporaryFile(temporaryPath); throw; }
     }
@@ -938,7 +937,7 @@ public static class IndexCodecMigrator
                 SortedDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, nullableValues, maxDocCount);
                 scope.Output.WriteBytes(fieldBuf.WrittenSpan);
             }
-            File.Move(temporaryPath, targetPath, overwrite: true);
+            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
         }
         catch { TryDeleteTemporaryFile(temporaryPath); throw; }
     }
@@ -970,7 +969,7 @@ public static class IndexCodecMigrator
                 NormsWriter.WriteFieldBlock(fieldBuf, fieldName, norms, fieldBoosts, maxDocCount);
                 scope.Output.WriteBytes(fieldBuf.WrittenSpan);
             }
-            File.Move(temporaryPath, targetPath, overwrite: true);
+            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
         }
         catch { TryDeleteTemporaryFile(temporaryPath); throw; }
     }
@@ -998,7 +997,7 @@ public static class IndexCodecMigrator
                 SortedSetDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
                 scope.Output.WriteBytes(fieldBuf.WrittenSpan);
             }
-            File.Move(temporaryPath, targetPath, overwrite: true);
+            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
         }
         catch { TryDeleteTemporaryFile(temporaryPath); throw; }
     }
@@ -1026,7 +1025,7 @@ public static class IndexCodecMigrator
                 SortedNumericDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
                 scope.Output.WriteBytes(fieldBuf.WrittenSpan);
             }
-            File.Move(temporaryPath, targetPath, overwrite: true);
+            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
         }
         catch { TryDeleteTemporaryFile(temporaryPath); throw; }
     }
@@ -1054,7 +1053,7 @@ public static class IndexCodecMigrator
                 BinaryDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
                 scope.Output.WriteBytes(fieldBuf.WrittenSpan);
             }
-            File.Move(temporaryPath, targetPath, overwrite: true);
+            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
         }
         catch { TryDeleteTemporaryFile(temporaryPath); throw; }
     }
@@ -1062,7 +1061,7 @@ public static class IndexCodecMigrator
     private static void RewriteFieldLengths(string sourcePath, string targetPath)
     {
         // TryRead returns null when the file does not exist; EnumerateFields would throw.
-        if (!File.Exists(sourcePath))
+        if (!FileOpenRetry.FileExists(sourcePath))
         {
             // Nothing to rewrite; copy empty if needed.
             return;
@@ -1089,7 +1088,7 @@ public static class IndexCodecMigrator
                 FieldLengthWriter.WriteFieldBlock(fieldBuf, fieldName, lengths);
                 scope.Output.WriteBytes(fieldBuf.WrittenSpan);
             }
-            File.Move(temporaryPath, targetPath, overwrite: true);
+            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
         }
         catch { TryDeleteTemporaryFile(temporaryPath); throw; }
     }
@@ -1162,8 +1161,8 @@ public static class IndexCodecMigrator
                     compression: reader.Compression);
             }
 
-            File.Move(temporaryFdtPath, fdtPath, overwrite: true);
-            File.Move(temporaryFdxPath, fdxPath, overwrite: true);
+            FileOpenRetry.Move(temporaryFdtPath, fdtPath, overwrite: true);
+            FileOpenRetry.Move(temporaryFdxPath, fdxPath, overwrite: true);
         }
         catch
         {
@@ -1174,34 +1173,11 @@ public static class IndexCodecMigrator
     }
 
 
-    /// <summary>
-    /// Executes <paramref name="operation"/> with retry on <see cref="IOException"/>,
-    /// matching the <see cref="Store.FileOpenRetry"/> backoff pattern so that callers
-    /// are resilient to transient Windows file-locking after memory-mapped reads.
-    /// </summary>
-    private static void RetryFileOperation(Action operation)
-    {
-        const int maxRetries = 5;
-        const int delayMs = 10;
-        int retries = maxRetries;
-        while (true)
-        {
-            try
-            {
-                operation();
-                return;
-            }
-            catch (IOException) when (retries-- > 0)
-            {
-                Thread.Sleep(delayMs);
-            }
-        }
-    }
     private static void TryDeleteTemporaryFile(string path)
     {
         try
         {
-            File.Delete(path);
+            FileOpenRetry.Delete(path);
         }
         catch (IOException)
         {

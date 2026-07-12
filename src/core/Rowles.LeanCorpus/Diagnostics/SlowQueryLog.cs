@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using Rowles.LeanCorpus.Serialization;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Diagnostics;
 
@@ -31,7 +32,7 @@ public sealed class SlowQueryLog : IDisposable
     /// <summary>Creates a slow query log that appends to a file.</summary>
     public static SlowQueryLog ToFile(double thresholdMs, string filePath)
     {
-        var stream = new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.Read);
+        var stream = FileOpenRetry.Open(filePath, FileMode.Append, FileAccess.Write, FileShare.Read);
         var writer = new StreamWriter(stream) { AutoFlush = true };
         return new SlowQueryLog(thresholdMs, writer, ownsWriter: true);
     }

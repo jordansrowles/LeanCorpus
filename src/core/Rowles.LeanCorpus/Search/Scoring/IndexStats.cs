@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using Rowles.LeanCorpus.Serialization;
 using Rowles.LeanCorpus.Store;
@@ -97,23 +98,25 @@ public sealed class IndexStats
         // (test harness cleanup, antivirus, etc), tolerate it provided the
         // destination ended up with content.
         var tmp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        File.WriteAllText(tmp, json);
+        using (var fs = FileOpenRetry.Open(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+        using (var sw = new StreamWriter(fs, Encoding.UTF8))
+            sw.Write(json);
         try
         {
-            File.Move(tmp, path, overwrite: true);
+            FileOpenRetry.Move(tmp, path, overwrite: true);
         }
-        catch (UnauthorizedAccessException) when (File.Exists(path))
+        catch (UnauthorizedAccessException) when (FileOpenRetry.FileExists(path))
         {
             // Stats are an optimisation sidecar. If a Windows reader has the old file
             // open, keep the previous stats rather than failing an otherwise durable commit.
         }
-        catch (FileNotFoundException) when (File.Exists(path))
+        catch (FileNotFoundException) when (FileOpenRetry.FileExists(path))
         {
             // The tmp was consumed by a concurrent move (shouldn't happen with
             // unique names, but defend against environmental interference).
             // The destination exists; accept that as success.
         }
-        catch (IOException) when (File.Exists(path))
+        catch (IOException) when (FileOpenRetry.FileExists(path))
         {
             // Existing stats file is locked (concurrent searcher read, antivirus, etc.).
             // Keep the previous stats; the next commit will publish fresh ones.
@@ -130,9 +133,9 @@ public sealed class IndexStats
         }
         finally
         {
-            if (File.Exists(tmp))
+            if (FileOpenRetry.FileExists(tmp))
             {
-                try { File.Delete(tmp); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "stats temp file delete"); }
+                try { FileOpenRetry.Delete(tmp); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "stats temp file delete"); }
             }
         }
     }

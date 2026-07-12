@@ -151,7 +151,7 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
 
     private static void TryDeleteFile(string path)
     {
-        try { File.Delete(path); }
+        try { FileOpenRetry.Delete(path); }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
     }

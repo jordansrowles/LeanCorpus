@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Reflection;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Analysis.Stemmers;
 
@@ -85,7 +86,7 @@ public sealed class KStemLexicon : IKStemLexicon
         if (!Path.IsPathRooted(path))
             path = Path.Combine(AppContext.BaseDirectory, path);
 
-        return From(File.ReadLines(path, System.Text.Encoding.UTF8));
+        return From(FileOpenRetry.ReadLines(path, System.Text.Encoding.UTF8));
     }
 
     /// <summary>

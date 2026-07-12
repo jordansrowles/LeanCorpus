@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using Rowles.LeanCorpus.Serialization;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Index.Migration;
 
@@ -70,7 +71,7 @@ public static class IndexMigrationRecovery
             Directory.Exists(marker.StagingDirectory) &&
             !PathsEqual(marker.StagingDirectory, indexPath))
         {
-            Directory.Delete(marker.StagingDirectory, recursive: true);
+            FileOpenRetry.DeleteDirectory(marker.StagingDirectory, recursive: true);
         }
 
         DeleteMarkerFiles(indexPath);
@@ -103,8 +104,8 @@ public static class IndexMigrationRecovery
 
     private static void DeleteMarkerFiles(string indexPath)
     {
-        File.Delete(Path.Combine(indexPath, MarkerFileName));
-        File.Delete(Path.Combine(indexPath, TemporaryMarkerFileName));
+        FileOpenRetry.Delete(Path.Combine(indexPath, MarkerFileName));
+        FileOpenRetry.Delete(Path.Combine(indexPath, TemporaryMarkerFileName));
     }
 
     private static bool PathsEqual(string left, string right)

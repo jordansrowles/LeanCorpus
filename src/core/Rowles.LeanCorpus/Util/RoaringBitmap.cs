@@ -629,7 +629,7 @@ public sealed class RoaringBitmap : IEnumerable<int>
     /// <param name="filePath">The file path to write to.</param>
     public void Serialise(string filePath)
     {
-        using var stream = File.Create(filePath);
+        using var stream = FileOpenRetry.Open(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
         using var writer = new BinaryWriter(stream);
         Serialise(writer);
     }

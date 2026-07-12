@@ -70,4 +70,108 @@ internal static class FileOpenRetry
             }
         }
     }
+
+    /// <summary>
+    /// Deletes a file, retrying on <see cref="IOException"/> (file locked by AV or pending mmap release).
+    /// <see cref="FileNotFoundException"/> and <see cref="DirectoryNotFoundException"/> are swallowed
+    /// so callers can use this for best-effort cleanup without pre-checking existence.
+    /// </summary>
+    internal static void Delete(string path)
+    {
+        int retries = MaxRetries;
+        while (true)
+        {
+            try
+            {
+                File.Delete(path);
+                return;
+            }
+            catch (IOException) when (retries-- > 0) { Thread.Sleep(RetryDelayMs); }
+            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(RetryDelayMs); }
+            catch (FileNotFoundException) { return; }
+            catch (DirectoryNotFoundException) { return; }
+        }
+    }
+
+    /// <summary>
+    /// Moves a file, retrying on <see cref="IOException"/> (target or source locked).
+    /// </summary>
+    internal static void Move(string sourcePath, string destPath, bool overwrite = false)
+    {
+        int retries = MaxRetries;
+        while (true)
+        {
+            try
+            {
+                File.Move(sourcePath, destPath, overwrite);
+                return;
+            }
+            catch (IOException) when (retries-- > 0) { Thread.Sleep(RetryDelayMs); }
+            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(RetryDelayMs); }
+        }
+    }
+
+    /// <summary>
+    /// Copies a file, retrying on <see cref="IOException"/> (source or target locked).
+    /// </summary>
+    internal static void Copy(string sourcePath, string destPath, bool overwrite = false)
+    {
+        int retries = MaxRetries;
+        while (true)
+        {
+            try
+            {
+                File.Copy(sourcePath, destPath, overwrite);
+                return;
+            }
+            catch (IOException) when (retries-- > 0) { Thread.Sleep(RetryDelayMs); }
+            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(RetryDelayMs); }
+        }
+    }
+
+    /// <summary>Thin wrapper around File.Exists for centralised I/O.</summary>
+    internal static bool FileExists(string path) => File.Exists(path);
+
+    /// <summary>Thin wrapper around Directory.CreateDirectory for centralised I/O.</summary>
+    internal static void CreateDirectory(string path) => Directory.CreateDirectory(path);
+
+    /// <summary>
+    /// Deletes a directory, retrying on <see cref="IOException"/> (files within still locked).
+    /// <see cref="DirectoryNotFoundException"/> is swallowed.
+    /// </summary>
+    internal static void DeleteDirectory(string path, bool recursive)
+    {
+        int retries = MaxRetries;
+        while (true)
+        {
+            try
+            {
+                Directory.Delete(path, recursive);
+                return;
+            }
+            catch (IOException) when (retries-- > 0) { Thread.Sleep(RetryDelayMs); }
+            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(RetryDelayMs); }
+            catch (DirectoryNotFoundException) { return; }
+        }
+    }
+
+    /// <summary>Thin wrapper around Directory.EnumerateFiles for centralised I/O.</summary>
+    internal static IEnumerable<string> EnumerateFiles(string path, string pattern) =>
+        Directory.EnumerateFiles(path, pattern);
+
+    /// <summary>Thin wrapper around Directory.GetFiles for centralised I/O.</summary>
+    internal static string[] GetFiles(string path, string pattern) => Directory.GetFiles(path, pattern);
+
+    /// <summary>
+    /// Reads lines from a text file with retry on open, using
+    /// <see cref="FileShare.Read"/> and <see cref="FileShare.Delete"/>.
+    /// </summary>
+    internal static IEnumerable<string> ReadLines(string path, Encoding encoding)
+    {
+        using var fs = OpenReadDelete(path);
+        using var sr = new StreamReader(fs, encoding);
+        string? line;
+        while ((line = sr.ReadLine()) is not null)
+            yield return line;
+    }
 }

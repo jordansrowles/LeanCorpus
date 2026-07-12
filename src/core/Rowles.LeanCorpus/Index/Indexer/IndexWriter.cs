@@ -103,7 +103,7 @@ public sealed partial class IndexWriter : IDisposable
         var lockPath = Path.Combine(directory.DirectoryPath, "write.lock");
         try
         {
-            _writeLockFile = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
+            _writeLockFile = FileOpenRetry.Open(lockPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
         }
         catch (IOException)
         {
@@ -427,7 +427,7 @@ public sealed partial class IndexWriter : IDisposable
                 {
                     var basePath = Path.Combine(_directory.DirectoryPath, seg.SegmentId);
                     var dicPath = basePath + ".dic";
-                    if (!File.Exists(dicPath)) continue;
+                    if (!FileOpenRetry.FileExists(dicPath)) continue;
 
                     using var dicReader = Codecs.TermDictionary.TermDictionaryReader.Open(dicPath);
                     foreach (var (qualifiedTerm, _) in dicReader.EnumerateAllTerms())
@@ -472,14 +472,14 @@ public sealed partial class IndexWriter : IDisposable
             foreach (var segId in recovery.SegmentIds)
             {
                 var segPath = Path.Combine(sourceDirectory.DirectoryPath, segId + ".seg");
-                if (!File.Exists(segPath))
+                if (!FileOpenRetry.FileExists(segPath))
                     throw new InvalidDataException($"Segment file not found: {segPath}");
 
                 var seg = SegmentInfo.ReadFrom(segPath);
                 var delPath = seg.DelGeneration.HasValue
                     ? Path.Combine(sourceDirectory.DirectoryPath, $"{segId}_gen_{seg.DelGeneration.Value}.del")
                     : Path.Combine(sourceDirectory.DirectoryPath, segId + ".del");
-                if (File.Exists(delPath))
+                if (FileOpenRetry.FileExists(delPath))
                 {
                     var liveDocs = LiveDocs.Deserialise(delPath, seg.DocCount);
                     seg.LiveDocCount = liveDocs.LiveCount;
@@ -665,7 +665,7 @@ public sealed partial class IndexWriter : IDisposable
         catch (AggregateException) { }
         _writeLockFile.Dispose();
         var lockPath = Path.Combine(_directory.DirectoryPath, "write.lock");
-        try { File.Delete(lockPath); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "write-lock file delete"); }
+        try { FileOpenRetry.Delete(lockPath); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "write-lock file delete"); }
     }
 
     internal void EnterIndexingOperation()

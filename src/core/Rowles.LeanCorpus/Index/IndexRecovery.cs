@@ -66,7 +66,7 @@ public static class IndexRecovery
         if (!Directory.Exists(directoryPath))
             return result;
 
-        foreach (var file in Directory.GetFiles(directoryPath, "segments_*"))
+        foreach (var file in FileOpenRetry.GetFiles(directoryPath, "segments_*"))
         {
             var fileName = Path.GetFileName(file);
             // Skip temp files and pending commit files
@@ -166,7 +166,7 @@ public static class IndexRecovery
             foreach (var (ext, format) in HeaderChecks)
             {
                 var path = basePath + ext;
-                if (!File.Exists(path)) return false;
+                if (!FileOpenRetry.FileExists(path)) return false;
             using var fs = FileOpenRetry.OpenReadDelete(path);
                 using var reader = new BinaryReader(fs);
                 CodecFileHeader.ReadVersion(reader, format);
@@ -175,7 +175,7 @@ public static class IndexRecovery
             // .pos uses PostingsFileHeader, not the CodecKit envelope
             {
                 var posPath = basePath + ".pos";
-                if (!File.Exists(posPath)) return false;
+                if (!FileOpenRetry.FileExists(posPath)) return false;
                 using var posFs = FileOpenRetry.OpenReadDelete(posPath);
                 using var posReader = new BinaryReader(posFs);
                 PostingsFileHeader.ReadVersion(posReader);
@@ -184,14 +184,14 @@ public static class IndexRecovery
             // .fdt/.fdx use StoredFieldsFileHeader, not the CodecKit envelope
             {
                 var fdtPath = basePath + ".fdt";
-                if (!File.Exists(fdtPath)) return false;
+                if (!FileOpenRetry.FileExists(fdtPath)) return false;
                 using var fdtFs = FileOpenRetry.OpenReadDelete(fdtPath);
                 using var fdtReader = new BinaryReader(fdtFs);
                 StoredFieldsFileHeader.ReadVersion(fdtReader);
             }
             {
                 var fdxPath = basePath + ".fdx";
-                if (!File.Exists(fdxPath)) return false;
+                if (!FileOpenRetry.FileExists(fdxPath)) return false;
                 using var fdxFs = FileOpenRetry.OpenReadDelete(fdxPath);
                 using var fdxReader = new BinaryReader(fdxFs);
                 StoredFieldsFileHeader.ReadVersion(fdxReader);
@@ -202,11 +202,11 @@ public static class IndexRecovery
                 var vecPath = vf.Quantisation != Codecs.Vectors.VectorQuantisation.None
                     ? Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, vf.FieldName)
                     : Codecs.Vectors.VectorFilePaths.VectorFile(basePath, vf.FieldName);
-                if (!File.Exists(vecPath)) return false;
+                if (!FileOpenRetry.FileExists(vecPath)) return false;
                 if (vf.HasHnsw)
                 {
                     var hnswPath = Codecs.Vectors.VectorFilePaths.HnswFile(basePath, vf.FieldName);
-                    if (!File.Exists(hnswPath)) return false;
+                    if (!FileOpenRetry.FileExists(hnswPath)) return false;
                 }
             }
 
@@ -227,22 +227,22 @@ public static class IndexRecovery
     /// </summary>
     private static void PromotePendingCommits(string directoryPath)
     {
-        foreach (var pendingFile in Directory.GetFiles(directoryPath, "segments_*.pending"))
+        foreach (var pendingFile in FileOpenRetry.GetFiles(directoryPath, "segments_*.pending"))
         {
             var fileName = Path.GetFileName(pendingFile);
             // Strip ".pending" suffix to get the target segments_N name.
             var finalName = fileName.Substring(0, fileName.Length - ".pending".Length);
             var finalPath = Path.Combine(directoryPath, finalName);
 
-            if (!File.Exists(finalPath))
+            if (!FileOpenRetry.FileExists(finalPath))
             {
-                try { File.Move(pendingFile, finalPath); }
+                try { FileOpenRetry.Move(pendingFile, finalPath); }
                 catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "pending commit promote move"); }
             }
             else
             {
                 // Both .pending and final exist — the final commit won, discard the stale pending.
-                try { File.Delete(pendingFile); }
+                try { FileOpenRetry.Delete(pendingFile); }
                 catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "stale pending file delete"); }
             }
         }
@@ -256,12 +256,12 @@ public static class IndexRecovery
         if (!Directory.Exists(directoryPath))
             return;
 
-        foreach (var tmpFile in Directory.GetFiles(directoryPath, "*.tmp"))
+        foreach (var tmpFile in FileOpenRetry.GetFiles(directoryPath, "*.tmp"))
         {
             if (!IsRecognisedTemporaryFile(Path.GetFileName(tmpFile)))
                 continue;
 
-            try { File.Delete(tmpFile); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "temp file cleanup"); }
+            try { FileOpenRetry.Delete(tmpFile); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "temp file cleanup"); }
         }
     }
 
@@ -278,7 +278,7 @@ public static class IndexRecovery
         var activeSet = new HashSet<string>(activeSegmentIds, StringComparer.Ordinal);
 
         // Find all segment IDs on disk by looking for .seg files
-        foreach (var segFile in Directory.GetFiles(directoryPath, "*.seg"))
+        foreach (var segFile in FileOpenRetry.GetFiles(directoryPath, "*.seg"))
         {
             var segId = Path.GetFileNameWithoutExtension(segFile);
             if (activeSet.Contains(segId))
@@ -292,9 +292,9 @@ public static class IndexRecovery
 
     private static void DeleteByPattern(string directoryPath, string pattern)
     {
-        foreach (var path in Directory.GetFiles(directoryPath, pattern))
+        foreach (var path in FileOpenRetry.GetFiles(directoryPath, pattern))
         {
-            try { File.Delete(path); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "orphan cleanup"); }
+            try { FileOpenRetry.Delete(path); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "orphan cleanup"); }
         }
     }
 

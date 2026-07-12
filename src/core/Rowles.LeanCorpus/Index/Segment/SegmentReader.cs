@@ -92,13 +92,13 @@ public sealed partial class SegmentReader : IDisposable
 
         var fdtPath = _basePath + ".fdt";
         var fdxPath = _basePath + ".fdx";
-        if (File.Exists(fdtPath) && File.Exists(fdxPath))
+        if (FileOpenRetry.FileExists(fdtPath) && FileOpenRetry.FileExists(fdxPath))
             _storedReader = StoredFieldsReader.Open(fdtPath, fdxPath);
 
         var delPath = info.DelGeneration.HasValue
             ? _basePath + $"_gen_{info.DelGeneration.Value}.del"
             : _basePath + ".del";
-        if (File.Exists(delPath))
+        if (FileOpenRetry.FileExists(delPath))
             _liveDocs = LiveDocs.Deserialise(delPath, info.DocCount);
 
         // Load per-field norms

@@ -502,9 +502,9 @@ public static class IndexBackup
     private static void ClearDirectory(string directoryPath)
     {
         foreach (var file in Directory.EnumerateFiles(directoryPath))
-            File.Delete(file);
+            FileOpenRetry.Delete(file);
         foreach (var directory in Directory.EnumerateDirectories(directoryPath))
-            Directory.Delete(directory, recursive: true);
+            FileOpenRetry.DeleteDirectory(directory, recursive: true);
     }
 
     private static void CopyFileAtomically(string sourcePath, string targetPath)
@@ -512,7 +512,7 @@ public static class IndexBackup
         Directory.CreateDirectory(Path.GetDirectoryName(targetPath) ?? string.Empty);
         IndexAtomicFileWriter.Write(targetPath, durable: true, stream =>
         {
-            using var source = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            using var source = FileOpenRetry.Open(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
             source.CopyTo(stream);
         });
     }

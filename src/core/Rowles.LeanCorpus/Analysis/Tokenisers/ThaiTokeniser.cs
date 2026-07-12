@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using System.Globalization;
 
+using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 
 /// <summary>
@@ -51,7 +52,7 @@ public sealed class ThaiTokeniser : ISpanTokeniser
     public static ThaiTokeniser FromFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return new ThaiTokeniser(File.ReadLines(path, System.Text.Encoding.UTF8));
+        return new ThaiTokeniser(FileOpenRetry.ReadLines(path, System.Text.Encoding.UTF8));
     }
 
     /// <summary>

@@ -597,7 +597,7 @@ public sealed class SegmentMerger
                     {
                         var seedHnswPath = Codecs.Vectors.VectorFilePaths.HnswFile(
                             Path.Combine(seed.DirectoryPath, seed.Seg.SegmentId), fieldName);
-                        if (File.Exists(seedHnswPath))
+                        if (FileOpenRetry.FileExists(seedHnswPath))
                         {
                             try
                             {
@@ -714,7 +714,12 @@ public sealed class SegmentMerger
                     }
                 }
 
-                byte[] body = File.ReadAllBytes(tmpBody);
+                byte[] body;
+                using (var fs = FileOpenRetry.OpenReadDelete(tmpBody))
+                {
+                    body = new byte[fs.Length];
+                    fs.ReadExactly(body);
+                }
                 using (var output = new Store.IndexOutput(basePath + ".dvn"))
                     CodecFileHeader.Write(output, CodecFormats.NumericDocValues, body);
             }
@@ -760,7 +765,12 @@ public sealed class SegmentMerger
                     }
                 }
 
-                byte[] body = File.ReadAllBytes(tmpBody);
+                byte[] body;
+                using (var fs = FileOpenRetry.OpenReadDelete(tmpBody))
+                {
+                    body = new byte[fs.Length];
+                    fs.ReadExactly(body);
+                }
                 using (var output = new Store.IndexOutput(basePath + ".dvs"))
                     CodecFileHeader.Write(output, CodecFormats.SortedDocValues, body);
             }
@@ -849,13 +859,13 @@ public sealed class SegmentMerger
     internal void CleanupSegmentFiles(SegmentInfo seg)
     {
         // Delete every file belonging to this segment (any extension).
-        foreach (var filePath in Directory.GetFiles(_directory.DirectoryPath, $"{seg.SegmentId}.*"))
+        foreach (var filePath in FileOpenRetry.GetFiles(_directory.DirectoryPath, $"{seg.SegmentId}.*"))
         {
             try { _directory.DeleteFile(Path.GetFileName(filePath)); }
             catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "merge segment file cleanup"); }
         }
         // Also sweep generation-versioned deletion files (e.g. seg_0_gen_3.del).
-        foreach (var filePath in Directory.GetFiles(_directory.DirectoryPath, $"{seg.SegmentId}_gen_*.del"))
+        foreach (var filePath in FileOpenRetry.GetFiles(_directory.DirectoryPath, $"{seg.SegmentId}_gen_*.del"))
         {
             try { _directory.DeleteFile(Path.GetFileName(filePath)); }
             catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "merge del file cleanup"); }
@@ -909,7 +919,7 @@ public sealed class SegmentMerger
     private static Dictionary<string, Dictionary<int, double>> ReadNumericIndex(string filePath)
     {
         var result = new Dictionary<string, Dictionary<int, double>>(StringComparer.Ordinal);
-        if (!File.Exists(filePath))
+        if (!FileOpenRetry.FileExists(filePath))
             return result;
 
         using var fs = FileOpenRetry.OpenReadDelete(filePath);
@@ -936,7 +946,7 @@ public sealed class SegmentMerger
     private static Dictionary<string, Dictionary<int, long>> ReadInt64Index(string filePath)
     {
         var result = new Dictionary<string, Dictionary<int, long>>(StringComparer.Ordinal);
-        if (!File.Exists(filePath))
+        if (!FileOpenRetry.FileExists(filePath))
             return result;
 
         using var fs = FileOpenRetry.OpenReadDelete(filePath);
@@ -1059,7 +1069,7 @@ public sealed class SegmentMerger
 
     private static void TryDeleteTemporaryFile(string path)
     {
-        try { File.Delete(path); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "merge file delete"); }
+        try { FileOpenRetry.Delete(path); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "merge file delete"); }
     }
 
     private static float[] ComputeBBQCentroidMerge(

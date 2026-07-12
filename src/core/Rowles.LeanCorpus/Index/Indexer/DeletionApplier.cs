@@ -50,7 +50,7 @@ internal static class DeletionApplier
             var dicPath = basePath + ".dic";
             var posPath = basePath + ".pos";
 
-            if (!File.Exists(dicPath) || !File.Exists(posPath))
+            if (!FileOpenRetry.FileExists(dicPath) || !FileOpenRetry.FileExists(posPath))
                 continue;
 
             using var dicReader = TermDictionaryReader.Open(dicPath);
@@ -59,7 +59,7 @@ internal static class DeletionApplier
                 ? basePath + $"_gen_{seg.DelGeneration.Value}.del"
                 : basePath + ".del";
 
-            var liveDocs = File.Exists(existingDelPath)
+            var liveDocs = FileOpenRetry.FileExists(existingDelPath)
                 ? LiveDocs.Deserialise(existingDelPath, seg.DocCount)
                 : new LiveDocs(seg.DocCount);
 

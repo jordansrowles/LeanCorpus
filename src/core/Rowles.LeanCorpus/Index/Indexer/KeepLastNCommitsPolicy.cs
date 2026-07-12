@@ -1,4 +1,5 @@
-﻿using Rowles.LeanCorpus.Diagnostics;
+using Rowles.LeanCorpus.Diagnostics;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
 
@@ -28,7 +29,7 @@ public sealed class KeepLastNCommitsPolicy : IIndexDeletionPolicy
         int threshold = currentGeneration - _maxCommits;
         if (threshold <= 0) return;
 
-        foreach (var file in Directory.GetFiles(directoryPath, "segments_*"))
+        foreach (var file in FileOpenRetry.GetFiles(directoryPath, "segments_*"))
         {
             var name = Path.GetFileName(file);
             if (!CommitDeletionPolicy.TryParseCommitGeneration(name, out int gen) || gen > threshold)
@@ -40,13 +41,13 @@ public sealed class KeepLastNCommitsPolicy : IIndexDeletionPolicy
             // If a concurrent reader (background searcher refresh) holds a handle
             // on the old segments_N without FileShare.Delete, Windows raises
             // IOException. Tolerate transient failures; the next commit will retry.
-            try { File.Delete(file); } catch (Exception ex) { LeanCorpusActivitySource.TraceSwallowed(ex, "commit file delete"); }
+            try { FileOpenRetry.Delete(file); } catch (Exception ex) { LeanCorpusActivitySource.TraceSwallowed(ex, "commit file delete"); }
         }
 
         // Prune old stats files. If a concurrent reader (background
         // searcher refresh) holds a handle, Windows raises IOException;
         // stats are a best-effort sidecar, so tolerate deletion failures.
-        foreach (var file in Directory.GetFiles(directoryPath, "stats_*.json"))
+        foreach (var file in FileOpenRetry.GetFiles(directoryPath, "stats_*.json"))
         {
             var name = Path.GetFileNameWithoutExtension(file);
             if (!CommitDeletionPolicy.TryParseStatsGeneration(name, out int gen) || gen > threshold)
@@ -56,7 +57,7 @@ public sealed class KeepLastNCommitsPolicy : IIndexDeletionPolicy
             if (CommitDeletionPolicy.ReferencesProtectedSegment(commitFile, protectedSegmentIds))
                 continue;
 
-            try { File.Delete(file); } catch (Exception ex) { LeanCorpusActivitySource.TraceSwallowed(ex, "stats file delete"); }
+            try { FileOpenRetry.Delete(file); } catch (Exception ex) { LeanCorpusActivitySource.TraceSwallowed(ex, "stats file delete"); }
         }
     }
 }
