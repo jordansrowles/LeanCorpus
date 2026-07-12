@@ -3,6 +3,7 @@ using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
+using System.Collections.Concurrent;
 
 namespace Rowles.LeanCorpus.Tests.Integration.Index;
 
@@ -144,5 +145,59 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
 
         Assert.Throws<ObjectDisposedException>(() =>
             writer.DeleteDocuments(new TermQuery("body", "anything")));
+    }
+
+    /// <summary>
+    /// 8 producers index large documents with MaxBufferedDocs=1 (forcing a flush on every
+    /// document) while the main thread calls Dispose after 50 ms. Verifies that the
+    /// backpressure semaphore release in FlushSegmentStatic does not throw
+    /// ObjectDisposedException after Dispose has torn down the semaphore.
+    /// </summary>
+    [Fact(DisplayName = "Dispose: During slow segment flush no semaphore disposed race")]
+    public async Task Dispose_DuringSlowSegmentFlush_NoSemaphoreDisposedRace()
+    {
+        var dir = SubDir("h12_slow_flush");
+        var config = new IndexWriterConfig { MaxBufferedDocs = 1, RamBufferSizeMB = 1024 };
+        var writer = new IndexWriter(new MMapDirectory(dir), config);
+
+        const int producerCount = 8;
+        var exceptions = new ConcurrentBag<Exception>();
+        var started = new ManualResetEventSlim();
+        var tasks = new Task[producerCount];
+
+        for (int t = 0; t < producerCount; t++)
+        {
+            tasks[t] = Task.Run(() =>
+            {
+                started.Wait();
+                try
+                {
+                    // Each doc triggers a flush because MaxBufferedDocs=1
+                    for (int i = 0; i < 10_000; i++)
+                    {
+                        var doc = new LeanDocument();
+                        doc.Add(new TextField("body", new string('x', 10_000)));
+                        writer.AddDocument(doc);
+                    }
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Expected: EnterIndexingOperation rejects after Dispose
+                }
+                catch (Exception ex)
+                {
+                    exceptions.Add(ex);
+                }
+            });
+        }
+
+        // Start all producers, wait briefly, then dispose
+        started.Set();
+        await Task.Delay(50);
+        writer.Dispose();
+        await Task.WhenAll(tasks);
+
+        var unexpected = exceptions.Where(ex => ex is not ObjectDisposedException).ToList();
+        Assert.Empty(unexpected);
     }
 }

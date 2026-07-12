@@ -164,7 +164,7 @@ public sealed partial class IndexWriter : IDisposable
 
                 if (_backpressureSemaphore is not null)
                 {
-                    _backpressureSemaphore.Release();
+                    BackpressureController.ReleaseSemaphoreSlots(this, 1);
                     lock (_writeLock)
                     {
                         _semaphoreSlotsHeld--;
@@ -643,6 +643,7 @@ public sealed partial class IndexWriter : IDisposable
                             $"IndexWriter.Dispose timed out after 30 seconds waiting for " +
                             $"{Volatile.Read(ref _inFlightAdds)} in-flight indexing operation(s) to complete."),
                         "dispose-drain-timeout");
+                    MarkIndexingFailed();
                     break;
                 }
                 Thread.Sleep(1);
@@ -766,7 +767,7 @@ public sealed partial class IndexWriter : IDisposable
             int toRelease = Math.Min(docCountToFlush, writer._semaphoreSlotsHeld);
             if (toRelease > 0)
             {
-                writer._backpressureSemaphore.Release(toRelease);
+                BackpressureController.ReleaseSemaphoreSlots(writer, toRelease);
                 writer._semaphoreSlotsHeld -= toRelease;
             }
         }
