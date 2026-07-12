@@ -56,7 +56,7 @@ jobs:
           dotnet test src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-build --logger "trx;LogFileName=sourcegen-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
 
       - name: Run Native AOT smoke tests
-        run: dotnet run --project src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-build
+        run: dotnet run --project src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-build --framework net10.0
 
       - name: Upload test results
         if: always()
@@ -129,7 +129,7 @@ jobs:
           dotnet test src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-build --logger "trx;LogFileName=sourcegen-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
 
       - name: Run Native AOT smoke tests
-        run: dotnet run --project src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-build
+        run: dotnet run --project src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-build --framework net10.0
 
       - name: Upload test results
         if: always()

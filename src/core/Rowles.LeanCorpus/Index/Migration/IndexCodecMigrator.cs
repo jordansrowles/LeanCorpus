@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
+using System.IO;
 using System.Buffers;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using System.Diagnostics;
@@ -755,17 +756,16 @@ public static class IndexCodecMigrator
     private static void RewriteTermDictionary(string sourcePath, string targetPath)
     {
         byte version;
-        using (var probe = new IndexInput(sourcePath))
+        using var fs = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        using var br = new BinaryReader(fs);
+        try
         {
-            try
-            {
-                version = CodecFileHeader.ReadVersion(probe, CodecFormats.TermDictionary);
-            }
-            catch (Exception ex) when (ex is InvalidDataException)
-            {
-                throw new InvalidDataException(
-                    $"Invalid term dictionary file '{sourcePath}': {ex.Message}", ex);
-            }
+            version = CodecFileHeader.ReadVersion(br, CodecFormats.TermDictionary);
+        }
+        catch (Exception ex) when (ex is InvalidDataException)
+        {
+            throw new InvalidDataException(
+                $"Invalid term dictionary file '{sourcePath}': {ex.Message}", ex);
         }
 
         if (version == CodecConstants.TermDictionaryVersion)
