@@ -1,9 +1,9 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Filters;
+namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
 /// Truncates token text to a maximum character length.
 /// </summary>
-public sealed class TruncateTokenFilter : ITokenFilter
+public sealed class TruncateTokenFilter : ISpanTokenFilter
 {
     private readonly int _maxLength;
 
@@ -20,15 +20,20 @@ public sealed class TruncateTokenFilter : ITokenFilter
     }
 
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
-    {
-        for (int i = 0; i < tokens.Count; i++)
-        {
-            var token = tokens[i];
-            if (token.Text.Length <= _maxLength)
-                continue;
 
-            tokens[i] = token.WithTextAndOffsets(token.Text[.._maxLength], token.StartOffset, token.StartOffset + _maxLength);
-        }
+    /// <inheritdoc/>
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
+    {
+        if (text.Length > _maxLength)
+            sink.Add(text[.._maxLength], startOffset, startOffset + _maxLength, type, positionIncrement, payload);
+        else
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
     }
 }

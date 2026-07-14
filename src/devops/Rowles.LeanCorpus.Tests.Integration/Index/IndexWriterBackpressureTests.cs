@@ -31,9 +31,7 @@ public sealed class IndexWriterBackpressureTests : IClassFixture<TestDirectoryFi
 
     private static SemaphoreSlim? GetSemaphore(IndexWriter writer)
     {
-        var field = typeof(IndexWriter).GetField("_backpressureSemaphore",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-        return field?.GetValue(writer) as SemaphoreSlim;
+        return writer.BackpressureSemaphoreForTests;
     }
 
     private static LeanDocument MakeDoc(string body)

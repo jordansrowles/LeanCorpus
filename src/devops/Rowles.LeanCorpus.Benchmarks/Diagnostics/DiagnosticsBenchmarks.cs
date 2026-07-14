@@ -40,7 +40,7 @@ public class DiagnosticsBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        _indexPath = Path.Combine(Path.GetTempPath(), $"leancorpus-bench-diag-{Guid.NewGuid():N}");
+        _indexPath = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-diag-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_indexPath);
 
         _directory = new LeanMMapDirectory(_indexPath);

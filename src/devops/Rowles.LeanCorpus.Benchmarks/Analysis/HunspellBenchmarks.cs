@@ -1,4 +1,8 @@
 using BenchmarkDotNet.Attributes;
+using Lucene.Net.Analysis.Core;
+using Lucene.Net.Analysis.Hunspell;
+using Lucene.Net.Analysis.Miscellaneous;
+using Lucene.Net.Util;
 using Rowles.LeanCorpus.Analysis.Filters;
 using Rowles.LeanCorpus.Analysis.Stemmers;
 
@@ -62,6 +66,31 @@ walk/RD
         {
             var stems = _dictionary.Stem(word);
             count += stems.Count;
+        }
+        return count;
+    }
+
+    [Benchmark(Description = "Lucene.NET HunspellStemFilter")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_HunspellStem()
+    {
+        // Build the Lucene.NET Hunspell dictionary.
+        using var affixStream = new MemoryStream(
+            System.Text.Encoding.UTF8.GetBytes(AffixText));
+        using var dictStream = new MemoryStream(
+            System.Text.Encoding.UTF8.GetBytes(DictionaryText));
+        var dict = new Lucene.Net.Analysis.Hunspell.Dictionary(affixStream, dictStream);
+        int count = 0;
+        foreach (var word in _words)
+        {
+            using var reader = new System.IO.StringReader(word);
+            var tokeniser = new KeywordTokenizer(reader);
+            var filter = new Lucene.Net.Analysis.Hunspell.HunspellStemFilter(
+                tokeniser, dict, dedup: true, longestOnly: false);
+            filter.Reset();
+            while (filter.IncrementToken())
+                count++;
+            filter.End();
         }
         return count;
     }

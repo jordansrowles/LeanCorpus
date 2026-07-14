@@ -1,4 +1,4 @@
-﻿using FsCheck;
+using FsCheck;
 using FsCheck.Xunit;
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Index.Compatibility;
@@ -35,7 +35,7 @@ public sealed class GuardrailChaosTests : IClassFixture<ChaosDirectoryFixture>
     private static void WriteCodecVersion(string path, int version)
     {
         using var stream = File.Open(path, FileMode.Open, FileAccess.Write, FileShare.None);
-        stream.Position = sizeof(int);
+        stream.Position = 0;
         stream.WriteByte((byte)version);
     }
 }

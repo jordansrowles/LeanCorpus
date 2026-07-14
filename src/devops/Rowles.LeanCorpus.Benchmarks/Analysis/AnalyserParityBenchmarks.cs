@@ -1,5 +1,6 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 using Lucene.Net.Analysis;
+using Rowles.LeanCorpus.Analysis.Analysers;
 using Lucene.Net.Analysis.Core;
 using Lucene.Net.Util;
 using LeanKeywordAnalyser = Rowles.LeanCorpus.Analysis.Analysers.KeywordAnalyser;
@@ -26,6 +27,7 @@ public class AnalyserParityBenchmarks
     private WhitespaceAnalyzer _luceneWhitespace = null!;
     private KeywordAnalyzer _luceneKeyword = null!;
     private SimpleAnalyzer _luceneSimple = null!;
+    private CountingTokenSink _sink = null!;
 
     [GlobalSetup]
     public void Setup()
@@ -36,6 +38,7 @@ public class AnalyserParityBenchmarks
         _luceneWhitespace = new WhitespaceAnalyzer(LuceneVersion.LUCENE_48);
         _luceneKeyword = new KeywordAnalyzer();
         _luceneSimple = new SimpleAnalyzer(LuceneVersion.LUCENE_48);
+        _sink = new CountingTokenSink();
     }
 
     [GlobalCleanup]
@@ -76,12 +79,14 @@ public class AnalyserParityBenchmarks
     public int LuceneNet_Simple()
         => AnalyseLucene(_luceneSimple);
 
-    private static int AnalyseLean(Rowles.LeanCorpus.Analysis.Analysers.IAnalyser analyser)
+    private int AnalyseLean(Rowles.LeanCorpus.Analysis.Analysers.IAnalyser analyser)
     {
-        int total = 0;
         for (int i = 0; i < 100; i++)
-            total += analyser.Analyse(Sample.AsSpan()).Count;
-        return total;
+        {
+            _sink.Reset();
+            analyser.Analyse(Sample.AsSpan(), _sink);
+        }
+        return _sink.Count;
     }
 
     private static int AnalyseLucene(Analyzer analyser)

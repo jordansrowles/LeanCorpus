@@ -1,4 +1,4 @@
-﻿using System.CommandLine;
+using System.CommandLine;
 using System.Text;
 using System.Text.Json;
 using Rowles.LeanCorpus.Index;
@@ -236,7 +236,6 @@ public static class IndexCheckerCli
         var indexPath = new Argument<string>("index-path") { Description = "Path to the LeanCorpus index directory." };
         var dryRun = BoolOption("--dry-run", "Report migration actions without modifying files.");
         var execute = BoolOption("--execute", "Run the migration. Dry-run is used by default.");
-        var inPlace = BoolOption("--in-place", "Allow migration in the source index directory.");
         var json = BoolOption("--json", "Write JSON instead of text.");
         var staging = StringOption("--staging", "Use an explicit staging directory.");
         var outputPath = StringOption("--output", "Write the report to a file.");
@@ -244,14 +243,12 @@ public static class IndexCheckerCli
         command.Add(indexPath);
         command.Add(dryRun);
         command.Add(execute);
-        command.Add(inPlace);
         command.Add(json);
         command.Add(staging);
         command.Add(outputPath);
         command.SetAction(result => RunMigrate(
             GetRequiredValue(result, indexPath),
             !result.GetValue(execute) || result.GetValue(dryRun),
-            result.GetValue(inPlace),
             result.GetValue(staging),
             result.GetValue(json),
             result.GetValue(outputPath),
@@ -353,7 +350,6 @@ public static class IndexCheckerCli
     private static int RunMigrate(
         string indexPath,
         bool dryRun,
-        bool inPlace,
         string? staging,
         bool json,
         string? outputPath,
@@ -366,8 +362,6 @@ public static class IndexCheckerCli
             var options = new IndexCodecMigrationOptions
             {
                 DryRun = dryRun,
-                UseStagingDirectory = !inPlace,
-                AllowInPlaceMigration = inPlace,
                 StagingDirectory = string.IsNullOrWhiteSpace(staging) ? null : Path.GetFullPath(staging)
             };
             var result = dryRun

@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Search;
@@ -361,6 +361,40 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         using var searcher = new IndexSearcher(dir);
         var query = BuildBooleanQuery(
             (new TermQuery("body", "fast"), Occur.Must));
+        var results = searcher.Search(query, 10);
+
+        Assert.Equal(2, results.TotalHits);
+        var docIds = results.ScoreDocs.Select(sd => sd.DocId).ToHashSet();
+        Assert.DoesNotContain(1, docIds);
+    }
+
+    /// <summary>
+    /// Verifies the WAND path excludes deleted documents when block-max skipping is enabled.
+    /// </summary>
+    [Fact(DisplayName = "WAND Deleted Docs: Excluded From Results")]
+    public void Wand_DeletedDocs_ExcludedFromResults()
+    {
+        var dir = new MMapDirectory(SubDir("bool_stream_wand_deleted"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        var texts = new[] { "fast search", "fast indexing", "fast querying" };
+        foreach (var text in texts)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", text));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        // Delete doc 1
+        writer.DeleteDocuments(new TermQuery("body", "indexing"));
+        writer.Commit();
+
+        var config = new IndexSearcherConfig { EnableBlockMaxWand = true };
+        using var searcher = new IndexSearcher(dir, config);
+        var query = BuildBooleanQuery(
+            (new TermQuery("body", "fast"), Occur.Should),
+            (new TermQuery("body", "search"), Occur.Should));
         var results = searcher.Search(query, 10);
 
         Assert.Equal(2, results.TotalHits);

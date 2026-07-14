@@ -1,5 +1,8 @@
-﻿using System.IO.MemoryMappedFiles;
+using System.Collections.Generic;
 using System.Text;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
 
@@ -11,98 +14,139 @@ internal static class NormsReader
 {
     public static NormsData Read(string filePath)
     {
-        var fileInfo = new FileInfo(filePath);
-        if (!fileInfo.Exists || fileInfo.Length == 0)
-            return new NormsData();
+        using var input = new IndexInput(filePath);
 
-        using var mmf = MemoryMappedFile.CreateFromFile(filePath, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
-        using var accessor = mmf.CreateViewAccessor(0, fileInfo.Length, MemoryMappedFileAccess.Read);
+        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.Norms);
 
-        long offset = 0;
+        return version switch
+        {
+            0 or 2 or 3 => ReadV2Body(input), // v0 is a test downgrade; v3 has same body format as v2
+            1 => ReadV1Body(input),
+            _ => throw new NotSupportedException($"Unsupported norms version: {version}")
+        };
+    }
 
-        // Validate header: magic (4 bytes) + version (1 byte)
-        int magic = accessor.ReadInt32(offset);
-        offset += 4;
-        if (magic != CodecConstants.Magic)
-            throw new InvalidDataException(
-                $"Invalid norms file: expected magic 0x{CodecConstants.Magic:X8}, got 0x{magic:X8}. " +
-                "The file may be corrupted or from an incompatible version.");
+    internal static List<(string Name, byte[] NormBytes, float[]? Boosts)> EnumerateFields(string filePath)
+    {
+        using var input = new IndexInput(filePath);
 
-        byte version = accessor.ReadByte(offset);
-        offset += 1;
-        if (version > CodecConstants.NormsVersion)
-            throw new InvalidDataException(
-                $"Unsupported norms format version {version}. " +
-                $"This build supports up to version {CodecConstants.NormsVersion}. " +
-                "Please upgrade LeanCorpus.");
+        byte version = CodecFileHeader.ReadVersionAndSkipHeader(input);
 
-        int fieldCount = accessor.ReadInt32(offset);
-        offset += 4;
+        int fieldCount;
+        Func<IndexInput, int> readLen, readCount, readBoostCount, readDocId;
+        switch (version)
+        {
+            case 1:
+                fieldCount = input.ReadInt32();
+                readLen = static i => i.ReadInt32();
+                readCount = static i => i.ReadInt32();
+                readBoostCount = static i => i.ReadInt32();
+                readDocId = static i => i.ReadInt32();
+                break;
+            case 0:
+            case 2:
+                fieldCount = input.ReadVarInt();
+                readLen = static i => i.ReadVarInt();
+                readCount = static i => i.ReadVarInt();
+                readBoostCount = static i => i.ReadVarInt();
+                readDocId = static i => i.ReadVarInt();
+                break;
+            case 3:
+                fieldCount = input.ReadVarInt();
+                readLen = static i => i.ReadVarInt();
+                readCount = static i => i.ReadVarInt();
+                readBoostCount = static i => i.ReadVarInt();
+                readDocId = static i => i.ReadVarInt();
+                break;
+            default:
+                throw new NotSupportedException($"Unsupported norms version: {version}");
+        }
 
+        var results = new List<(string Name, byte[] NormBytes, float[]? Boosts)>(fieldCount);
+        for (int f = 0; f < fieldCount; f++)
+        {
+            int fieldNameLen = readLen(input);
+
+            byte[] nameBytes = input.ReadBytes(fieldNameLen);
+            string fieldName = Encoding.UTF8.GetString(nameBytes, 0, fieldNameLen);
+
+            int docCount = readCount(input);
+
+            byte[] norms = input.ReadBytes(docCount);
+
+            int boostCount = readBoostCount(input);
+            if ((uint)boostCount > (uint)docCount)
+                throw new InvalidDataException($"Invalid norms file: boost count {boostCount} exceeds document count {docCount} for field '{fieldName}'.");
+
+            float[]? boosts = null;
+            for (int i = 0; i < boostCount; i++)
+            {
+                int docId = readDocId(input);
+                float boost = input.ReadSingle();
+
+                if ((uint)docId >= (uint)docCount)
+                    throw new InvalidDataException($"Invalid norms file: boost doc ID {docId} is outside field '{fieldName}' document count {docCount}.");
+
+                boosts ??= CreateDefaultBoosts(docCount);
+                boosts[docId] = boost;
+            }
+
+            results.Add((fieldName, norms, boosts));
+        }
+
+        return results;
+    }
+
+    private static NormsData ReadV1Body(IndexInput input)
+    {
+        int fieldCount = input.ReadInt32();
+        return ReadFields(input, fieldCount, readLen: static i => i.ReadInt32(), readCount: static i => i.ReadInt32(), readBoostCount: static i => i.ReadInt32(), readDocId: static i => i.ReadInt32());
+    }
+
+    private static NormsData ReadV2Body(IndexInput input)
+    {
+        int fieldCount = input.ReadVarInt();
+        return ReadFields(input, fieldCount, readLen: static i => i.ReadVarInt(), readCount: static i => i.ReadVarInt(), readBoostCount: static i => i.ReadVarInt(), readDocId: static i => i.ReadVarInt());
+    }
+
+    private static NormsData ReadFields(IndexInput input, int fieldCount,
+        Func<IndexInput, int> readLen, Func<IndexInput, int> readCount,
+        Func<IndexInput, int> readBoostCount, Func<IndexInput, int> readDocId)
+    {
         var result = new NormsData();
-        Span<byte> nameBuf = stackalloc byte[256];
 
         for (int f = 0; f < fieldCount; f++)
         {
-            int fieldNameLen = accessor.ReadInt32(offset);
-            offset += 4;
+            int fieldNameLen = readLen(input);
 
-            byte[] nameBytes = fieldNameLen <= 256 ? nameBuf[..fieldNameLen].ToArray() : new byte[fieldNameLen];
-            accessor.ReadArray(offset, nameBytes, 0, fieldNameLen);
+            byte[] nameBytes = input.ReadBytes(fieldNameLen);
             string fieldName = Encoding.UTF8.GetString(nameBytes, 0, fieldNameLen);
-            offset += fieldNameLen;
 
-            int docCount = accessor.ReadInt32(offset);
-            offset += 4;
+            int docCount = readCount(input);
 
-            var norms = new byte[docCount];
-            accessor.ReadArray(offset, norms, 0, docCount);
-            offset += docCount;
+            byte[] norms = input.ReadBytes(docCount);
 
             result.Norms[fieldName] = norms;
 
-            if (version >= 3)
+            int boostCount = readBoostCount(input);
+            if ((uint)boostCount > (uint)docCount)
+                throw new InvalidDataException($"Invalid norms file: boost count {boostCount} exceeds document count {docCount} for field '{fieldName}'.");
+
+            float[]? boosts = null;
+            for (int i = 0; i < boostCount; i++)
             {
-                int boostCount = accessor.ReadInt32(offset);
-                offset += sizeof(int);
-                if ((uint)boostCount > (uint)docCount)
-                    throw new InvalidDataException($"Invalid norms file: boost count {boostCount} exceeds document count {docCount} for field '{fieldName}'.");
+                int docId = readDocId(input);
+                float boost = input.ReadSingle();
 
-                float[]? boosts = null;
-                for (int i = 0; i < boostCount; i++)
-                {
-                    int docId = accessor.ReadInt32(offset);
-                    offset += sizeof(int);
-                    float boost = accessor.ReadSingle(offset);
-                    offset += sizeof(float);
+                if ((uint)docId >= (uint)docCount)
+                    throw new InvalidDataException($"Invalid norms file: boost doc ID {docId} is outside field '{fieldName}' document count {docCount}.");
 
-                    if ((uint)docId >= (uint)docCount)
-                        throw new InvalidDataException($"Invalid norms file: boost doc ID {docId} is outside field '{fieldName}' document count {docCount}.");
-
-                    boosts ??= CreateDefaultBoosts(docCount);
-                    boosts[docId] = boost;
-                }
-
-                if (boosts is not null)
-                    result.Boosts[fieldName] = boosts;
+                boosts ??= CreateDefaultBoosts(docCount);
+                boosts[docId] = boost;
             }
-            else if (version >= 2)
-            {
-                float[]? boosts = null;
-                for (int i = 0; i < docCount; i++)
-                {
-                    float boost = accessor.ReadSingle(offset);
-                    offset += sizeof(float);
-                    if (boost == 1.0f)
-                        continue;
 
-                    boosts ??= CreateDefaultBoosts(docCount);
-                    boosts[i] = boost;
-                }
-
-                if (boosts is not null)
-                    result.Boosts[fieldName] = boosts;
-            }
+            if (boosts is not null)
+                result.Boosts[fieldName] = boosts;
         }
 
         return result;

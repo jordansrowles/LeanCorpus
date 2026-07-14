@@ -5,13 +5,14 @@ namespace Rowles.LeanCorpus.Analysis.Stemmers;
 /// <summary>
 /// Lexicon-validated English stemmer inspired by Krovetz stemming.
 /// </summary>
-public sealed class KStemmer : IStemmer
+public sealed class KStemmer : ISpanStemmer
 {
     private sealed record MorphRule(
         string Suffix,
         string Replacement,
         int MinRootLength,
-        Func<string, bool>? StemCondition = null);
+        Func<string, bool>? StemCondition = null,
+        Func<ReadOnlySpan<char>, bool>? SpanCondition = null);
 
     private static readonly FrozenDictionary<string, string> Exceptions =
         new Dictionary<string, string>(StringComparer.Ordinal)
@@ -128,16 +129,22 @@ public sealed class KStemmer : IStemmer
         new("ses", "s", 2),
         new("es", "e", 2),
         new("es", "", 2),
-        new("s", "", 3, static candidate =>
-            !candidate.EndsWith("ss", StringComparison.Ordinal) &&
-            !candidate.EndsWith("us", StringComparison.Ordinal) &&
-            !candidate.EndsWith("is", StringComparison.Ordinal)),
+        new("s", "", 3,
+            StemCondition: null,
+            SpanCondition: static candidate =>
+                !candidate.EndsWith("ss") &&
+                !candidate.EndsWith("us") &&
+                !candidate.EndsWith("is")),
         new("ied", "y", 2),
         new("ied", "ie", 2),
         new("ed", "e", 2),
-        new("ed", "", 2, ContainsVowel),
+        new("ed", "", 2,
+            StemCondition: null,
+            SpanCondition: ContainsVowelSpan),
         new("ing", "e", 2),
-        new("ing", "", 2, ContainsVowel)
+        new("ing", "", 2,
+            StemCondition: null,
+            SpanCondition: ContainsVowelSpan)
     ];
 
     private static readonly MorphRule[] DerivationalRules =
@@ -236,6 +243,11 @@ public sealed class KStemmer : IStemmer
 
     private readonly IKStemLexicon _lexicon;
 
+    // Rule lookup tables keyed by last 2 characters of the suffix for O(1) dispatch.
+    // Suffixes shorter than 2 chars use the single character as the key.
+    private readonly FrozenDictionary<string, MorphRule[]> _inflectionalBySuffix;
+    private readonly FrozenDictionary<string, MorphRule[]> _derivationalBySuffix;
+
     /// <summary>
     /// Initialises a new <see cref="KStemmer"/> with the supplied base-form lexicon.
     /// </summary>
@@ -246,75 +258,272 @@ public sealed class KStemmer : IStemmer
     public KStemmer(IKStemLexicon lexicon)
     {
         _lexicon = lexicon ?? throw new ArgumentNullException(nameof(lexicon));
+        _inflectionalBySuffix = BuildRuleLookup(InflectionalRules);
+        _derivationalBySuffix = BuildRuleLookup(DerivationalRules);
+    }
+
+    /// <summary>Builds a lookup dictionary keyed by the last 2 characters of each rule's suffix.</summary>
+    private static FrozenDictionary<string, MorphRule[]> BuildRuleLookup(MorphRule[] rules)
+    {
+        var dict = new Dictionary<string, List<MorphRule>>(rules.Length, StringComparer.Ordinal);
+        foreach (var rule in rules)
+        {
+            string key = rule.Suffix.Length >= 2
+                ? rule.Suffix[^2..]
+                : rule.Suffix; // 1-char suffix uses itself as key
+            if (!dict.TryGetValue(key, out var list))
+            {
+                list = new List<MorphRule>(4);
+                dict[key] = list;
+            }
+            list.Add(rule);
+        }
+        return dict.ToFrozenDictionary(
+            kvp => kvp.Key,
+            kvp => kvp.Value.ToArray(),
+            StringComparer.Ordinal);
     }
 
     /// <inheritdoc/>
+    public int Stem(ReadOnlySpan<char> word, Span<char> output)
+    {
+        if (word.Length <= 2)
+        {
+            word.CopyTo(output);
+            return word.Length;
+        }
+
+        // Lowercase into output via SIMD, then delegate to the shared core.
+        int len = word.Length;
+        AsciiCharInspector.AsciiToLower(word, output);
+
+        return StemCore(output, len);
+    }
+
+    /// <summary>
+    /// Same as <c>Stem(ReadOnlySpan{char}, Span{char})</c> but assumes the input is already lowercased.
+    /// Callers who have already lowercased via <see cref="Filters.LowercaseFilter"/>
+    /// can use this to avoid a redundant per-character <c>ToLowerInvariant</c> pass.
+    /// </summary>
+    public int StemPreLowered(ReadOnlySpan<char> word, Span<char> output)
+    {
+        if (word.Length <= 2)
+        {
+            word.CopyTo(output);
+            return word.Length;
+        }
+
+        // Pre-filter: all stemming suffixes end in one of these characters.
+        // Words whose last character isn't in this set can't possibly be stemmed
+        // and don't need the output buffer populated (caller uses len==text.Length to
+        // forward the original span, skipping the buffer read).
+        char last = word[word.Length - 1];
+        bool mayStem = last is 's' or 'd' or 'g' or 'r' or 'y' or 't' or 'l' or 'e' or 'c' or 'm' or 'p';
+
+        if (!mayStem)
+            return word.Length;
+
+        // Fast path: if the word is in the lexicon it won't be stemmed.
+        // (ProtectedWords like "corpus" are covered by SpanConditions on the rules —
+        // e.g. the "s" rule excludes endings of "us"/"ss"/"is".)
+        if (_lexicon.ContainsPreLowered(word))
+            return word.Length;
+
+        // Exception words also bypass the full stemming pipeline.
+        var exLookup = Exceptions.GetAlternateLookup<ReadOnlySpan<char>>();
+        if (exLookup.TryGetValue(word, out var replacement))
+        {
+            if (output.Length < replacement.Length) return -1;
+            replacement.AsSpan().CopyTo(output);
+            return replacement.Length;
+        }
+
+        // Non-dictionary word: copy into output buffer and run the stemming rules.
+        // StemPreLowered already checked exceptions and lexicon; skip those checks here.
+        word.CopyTo(output);
+        return ApplyRulesCore(output, word.Length);
+    }
+
+    /// <summary>Core stemming logic operating on the already-lowered word in <paramref name="output"/>.
+    /// Called from <c>Stem(ReadOnlySpan{char}, Span{char})</c> which hasn't pre-checked exceptions or the lexicon.</summary>
+    private int StemCore(Span<char> output, int len)
+    {
+        var lowered = output[..len];
+
+        // Check exceptions.
+        var exLookup = Exceptions.GetAlternateLookup<ReadOnlySpan<char>>();
+        if (exLookup.TryGetValue(lowered, out var replacement))
+        {
+            if (output.Length < replacement.Length) return -1;
+            replacement.AsSpan().CopyTo(output);
+            return replacement.Length;
+        }
+
+        // Check lexicon (ProtectedWords handled by rule SpanConditions).
+        if (_lexicon.ContainsPreLowered(lowered))
+            return len;
+
+        return ApplyRulesCore(output, len);
+    }
+
+    /// <summary>Applies inflectional and derivational rules without re-checking
+    /// exceptions or the lexicon (caller has already done so).</summary>
+    private int ApplyRulesCore(Span<char> output, int len)
+    {
+        // Apply inflectional rules, then derivational.
+        if (TryRulesSpan(output, len, _inflectionalBySuffix, out int inflectedLen))
+            len = inflectedLen;
+
+        if (TryRulesSpan(output, len, _derivationalBySuffix, out int derivedLen))
+            len = derivedLen;
+
+        return len;
+    }
+
+    /// <summary>
+    /// Convenience overload returning a stemmed string.
+    /// </summary>
     public string Stem(string word)
     {
         ArgumentNullException.ThrowIfNull(word);
-
-        string lower = word.ToLowerInvariant();
-        if (lower.Length <= 2)
-            return lower;
-
-        if (Exceptions.TryGetValue(lower, out var exception))
-            return exception;
-
-        if (ProtectedWords.Contains(lower) || _lexicon.Contains(lower))
-            return lower;
-
-        string inflectionBase = TryRules(lower, InflectionalRules) ?? lower;
-        return TryRules(inflectionBase, DerivationalRules) ?? inflectionBase;
+        int bufSize = word.Length + 4; // +4 for rare expansion (e.g. "mice"→"mouse")
+        Span<char> buf = bufSize <= 128
+            ? stackalloc char[bufSize]
+            : new char[bufSize];
+        int len = Stem(word.AsSpan(), buf);
+        return new string(buf[..len]);
     }
 
-    private string? TryRules(string word, IReadOnlyList<MorphRule> rules)
+    private bool TryRulesSpan(Span<char> output, int len, FrozenDictionary<string, MorphRule[]> lookup, out int resultLen)
     {
-        for (int i = 0; i < rules.Count; i++)
+        var word = output[..len];
+
+        if (len < 1)
         {
-            var rule = rules[i];
-            if (!word.EndsWith(rule.Suffix, StringComparison.Ordinal))
+            resultLen = 0;
+            return false;
+        }
+
+        // Look up candidate rules by the last 2 characters of the word.
+        // Use AlternateLookup with ReadOnlySpan<char> to avoid string allocation.
+        var spanLookup = lookup.GetAlternateLookup<ReadOnlySpan<char>>();
+
+        MorphRule[]? candidateRules = null;
+        if (len >= 2)
+        {
+            spanLookup.TryGetValue(word[^2..], out candidateRules);
+        }
+
+        if (candidateRules is null)
+        {
+            // Fall back to 1-char key (e.g. rule "s" matches any word ending in *s).
+            spanLookup.TryGetValue(word[^1..], out candidateRules);
+        }
+
+        if (candidateRules is null)
+        {
+            resultLen = 0;
+            return false;
+        }
+
+        for (int i = 0; i < candidateRules.Length; i++)
+        {
+            var rule = candidateRules[i];
+            if (!word.EndsWith(rule.Suffix))
                 continue;
 
-            int rootLength = word.Length - rule.Suffix.Length;
+            int rootLength = len - rule.Suffix.Length;
             if (rootLength < rule.MinRootLength)
                 continue;
 
-            string root = word[..rootLength];
-            string candidate = rule.Replacement.Length == 0
-                ? root
-                : string.Concat(root, rule.Replacement);
+            var root = word[..rootLength];
 
-            if (rule.StemCondition is not null && !rule.StemCondition(candidate))
-                continue;
+            // Build candidate in a stackalloc buffer.
+#pragma warning disable CA2014 // stackalloc in loop — bounded by word length (<128 typically)
+            Span<char> candBuf = stackalloc char[len];
+#pragma warning restore CA2014
+            root.CopyTo(candBuf);
+            int candLen = rootLength;
 
-            if (_lexicon.Contains(candidate))
-                return candidate;
+            if (rule.Replacement.Length > 0)
+            {
+                rule.Replacement.AsSpan().CopyTo(candBuf[candLen..]);
+                candLen += rule.Replacement.Length;
+            }
 
-            string undoubled = UndoubleTrailingConsonant(candidate);
-            if (!ReferenceEquals(undoubled, candidate) && _lexicon.Contains(undoubled))
-                return undoubled;
+            var candidate = candBuf[..candLen];
 
-            string withE = candidate + 'e';
-            if (_lexicon.Contains(withE))
-                return withE;
+            // Check StemCondition (string-based, backwards compat) or SpanCondition (zero-alloc).
+            if (rule.SpanCondition is not null)
+            {
+                if (!rule.SpanCondition(candidate))
+                    continue;
+            }
+            else if (rule.StemCondition is not null)
+            {
+                string candStr = candidate.ToString();
+                if (!rule.StemCondition(candStr))
+                    continue;
+            }
+
+            if (_lexicon.ContainsPreLowered(candidate))
+            {
+                candidate.CopyTo(output);
+                resultLen = candLen;
+                return true;
+            }
+
+            // Try undoubled.
+            int undLen = UndoubleTrailingConsonantSpan(candBuf, candLen);
+            if (undLen != candLen && _lexicon.ContainsPreLowered(candBuf[..undLen]))
+            {
+                candBuf[..undLen].CopyTo(output);
+                resultLen = undLen;
+                return true;
+            }
+
+            // Try with 'e' appended.
+            if (candLen < candBuf.Length)
+            {
+                candBuf[candLen] = 'e';
+                int withELen = candLen + 1;
+                if (_lexicon.ContainsPreLowered(candBuf[..withELen]))
+                {
+                    candBuf[..withELen].CopyTo(output);
+                    resultLen = withELen;
+                    return true;
+                }
+            }
         }
 
-        return null;
+        resultLen = 0;
+        return false;
     }
 
-    private static string UndoubleTrailingConsonant(string value)
+    private static int UndoubleTrailingConsonantSpan(Span<char> value, int len)
     {
-        if (value.Length < 2)
-            return value;
+        if (len < 2)
+            return len;
 
-        char last = value[^1];
-        if (last == value[^2] && !IsVowel(last) && last is not ('l' or 's' or 'z'))
-            return value[..^1];
+        char last = value[len - 1];
+        if (last == value[len - 2] && !IsVowel(last) && last is not ('l' or 's' or 'z'))
+            return len - 1;
 
-        return value;
+        return len;
     }
 
     private static bool ContainsVowel(string value)
+    {
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (IsVowel(value[i]))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool ContainsVowelSpan(ReadOnlySpan<char> value)
     {
         for (int i = 0; i < value.Length; i++)
         {

@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Search.Searcher;
+namespace Rowles.LeanCorpus.Search.Searcher;
 
 /// <summary>
 /// Partial class containing span query execution logic (SpanNear, SpanOr, SpanNot).
@@ -24,7 +24,7 @@ public sealed partial class IndexSearcher
     private void ExecuteSpanNearQuery(SpanNearQuery query, SegmentReader reader,
         Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
-        if (TryExecuteSpanNearTermQuery(query, reader, excludedDocs: null, query.Boost, ref collector))
+        if (TryExecuteSpanNearTermQuery(query, reader, excludedDocs: null, query.Boost, globalDFs, ref collector))
             return;
 
         // Collect spans per clause
@@ -101,7 +101,7 @@ public sealed partial class IndexSearcher
     private void ExecuteSpanOrQuery(SpanOrQuery query, SegmentReader reader,
         Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
-        if (TryExecuteSpanOrTermQuery(query, reader, ref collector))
+        if (TryExecuteSpanOrTermQuery(query, reader, globalDFs, ref collector))
             return;
 
         var seen = new HashSet<int>();
@@ -120,7 +120,7 @@ public sealed partial class IndexSearcher
     private void ExecuteSpanNotQuery(SpanNotQuery query, SegmentReader reader,
         Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
-        if (TryExecuteSpanNotTermQuery(query, reader, ref collector))
+        if (TryExecuteSpanNotTermQuery(query, reader, globalDFs, ref collector))
             return;
 
         var includeSpans = CollectSpans(query.Include, reader);
@@ -141,7 +141,7 @@ public sealed partial class IndexSearcher
     }
 
     private bool TryExecuteSpanNearTermQuery(SpanNearQuery query, SegmentReader reader, bool[]? excludedDocs,
-        float boost, ref TopNCollector collector)
+        float boost, Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
         int termCount = query.Clauses.Count;
         if (termCount == 0)
@@ -167,11 +167,23 @@ public sealed partial class IndexSearcher
                 if (postings[i].DocFreq < postings[leaderIdx].DocFreq)
                     leaderIdx = i;
             }
-
             int docBase = reader.DocBase;
-            float score = boost != 1.0f ? boost : 1.0f;
             reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
             bool hasDeletions = reader.HasDeletions;
+            reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+            float avgDocLength = _stats.GetAvgFieldLength(query.Field);
+
+            // Compute scoring factors for every clause, not just the leader.
+            // Each clause contributes its own IDF weight to the span score.
+            var termFactors = new (float F1, float F2, float F3)[termCount];
+            for (int i = 0; i < termCount; i++)
+            {
+                var clause = (SpanTermQuery)query.Clauses[i];
+                var qt = clause.CachedQualifiedTerm!;
+                int docFreq = globalDFs.GetValueOrDefault((query.Field, clause.Term), postings[i].DocFreq);
+                long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
+                termFactors[i] = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
+            }
 
             while (postings[leaderIdx].MoveNext())
             {
@@ -194,7 +206,21 @@ public sealed partial class IndexSearcher
                 }
 
                 if (allMatch && HasSpanNearPositions(postings, termCount, query.Slop, query.InOrder))
+                {
+                    int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
+                        ? fieldLengths[docId] : 1;
+                    // Sum scores across all clauses using the leader's term frequency
+                    // as an estimate of the span frequency.
+                    float score = 0;
+                    int leaderTf = postings[leaderIdx].Freq;
+                    for (int i = 0; i < termCount; i++)
+                    {
+                        var (f1, f2, f3) = termFactors[i];
+                        score += ScoreTerm(f1, f2, f3, leaderTf, docLength);
+                    }
+                    if (Math.Abs(boost - 1.0f) > 1e-6f) score *= boost;
                     collector.Collect(docBase + docId, ApplyFieldBoost(fieldBoosts, docId, score));
+                }
             }
 
             return true;
@@ -206,7 +232,8 @@ public sealed partial class IndexSearcher
         }
     }
 
-    private bool TryExecuteSpanOrTermQuery(SpanOrQuery query, SegmentReader reader, ref TopNCollector collector)
+    private bool TryExecuteSpanOrTermQuery(SpanOrQuery query, SegmentReader reader,
+        Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
         foreach (var clause in query.Clauses)
         {
@@ -218,9 +245,11 @@ public sealed partial class IndexSearcher
         var docIds = EnsureScratch(ref t_patternDocIds, reader.MaxDoc);
         int docCount = 0;
         int docBase = reader.DocBase;
-        float score = query.Boost != 1.0f ? query.Boost : 1.0f;
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
         bool hasDeletions = reader.HasDeletions;
+        float avgDocLength = _stats.GetAvgFieldLength(query.Field);
+        reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+        float boost = query.Boost;
 
         try
         {
@@ -229,6 +258,10 @@ public sealed partial class IndexSearcher
                 var termQuery = (SpanTermQuery)clause;
                 var qualifiedTerm = termQuery.CachedQualifiedTerm ??= string.Concat(termQuery.Field, "\x00", termQuery.Term);
                 using var postings = reader.GetPostingsEnum(qualifiedTerm);
+                int docFreq = globalDFs.GetValueOrDefault((termQuery.Field, termQuery.Term), postings.DocFreq);
+                long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qualifiedTerm) : 0;
+                var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
+
                 while (postings.MoveNext())
                 {
                     int docId = postings.DocId;
@@ -237,6 +270,10 @@ public sealed partial class IndexSearcher
 
                     seen[docId] = true;
                     docIds[docCount++] = docId;
+                    int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
+                        ? fieldLengths[docId] : 1;
+                    float score = ScoreTerm(f1, f2, f3, postings.Freq, docLength);
+                    if (Math.Abs(boost - 1.0f) > 1e-6f) score *= boost;
                     collector.Collect(docBase + docId, ApplyFieldBoost(fieldBoosts, docId, score));
                 }
             }
@@ -253,7 +290,8 @@ public sealed partial class IndexSearcher
         }
     }
 
-    private bool TryExecuteSpanNotTermQuery(SpanNotQuery query, SegmentReader reader, ref TopNCollector collector)
+    private bool TryExecuteSpanNotTermQuery(SpanNotQuery query, SegmentReader reader,
+        Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
         if (query.Include is not SpanNearQuery includeNear || !IsSpanTermDocSetQuery(query.Exclude))
             return false;
@@ -265,7 +303,7 @@ public sealed partial class IndexSearcher
         try
         {
             MarkExcludedSpanTermDocs(query.Exclude, reader, excluded, excludedDocIds, ref excludedCount);
-            return TryExecuteSpanNearTermQuery(includeNear, reader, excluded, query.Boost, ref collector);
+            return TryExecuteSpanNearTermQuery(includeNear, reader, excluded, query.Boost, globalDFs, ref collector);
         }
         finally
         {

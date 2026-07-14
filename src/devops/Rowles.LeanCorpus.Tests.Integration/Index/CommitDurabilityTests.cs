@@ -6,6 +6,7 @@ using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Simd;
 using Rowles.LeanCorpus.Search.Parsing;
 using Rowles.LeanCorpus.Search.Highlighting;
+using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Tests.Integration.Index;
@@ -29,7 +30,7 @@ public class CommitDurabilityTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_dir, true); } catch { }
+        TestDirectoryFixture.TryDeleteDirectory(_dir);
     }
 
     /// <summary>

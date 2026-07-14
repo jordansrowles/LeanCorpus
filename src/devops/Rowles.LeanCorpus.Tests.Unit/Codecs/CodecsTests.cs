@@ -1,4 +1,7 @@
-﻿using Rowles.LeanCorpus.Codecs;
+using System.Text;
+using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.Fst;
 using Rowles.LeanCorpus.Codecs.Bkd;
@@ -78,23 +81,35 @@ public sealed class CodecsTests : IClassFixture<TestDirectoryFixture>
 
         TermDictionaryWriter.Write(filePath + ".dic", terms, offsets);
         using var reader = TermDictionaryReader.Open(filePath + ".dic");
-
         var target = terms[5000];
         Assert.True(reader.TryGetPostingsOffset(target, out _));
     }
 
-    /// <summary>
-    /// Verifies the Pos File: Delta Encoding Ids Restored Correctly scenario.
-    /// </summary>
     [Fact(DisplayName = "Pos File: Delta Encoding Ids Restored Correctly")]
     public void PosFile_DeltaEncoding_IdsRestoredCorrectly()
     {
-        var filePath = System.IO.Path.Combine(_fixture.Path, "posfile_delta");
-        var docIds = new[] { 1, 5, 9, 100, 101 };
-
-        PostingsWriter.Write(filePath + ".pos", "testterm", docIds);
-        var readIds = PostingsReader.ReadDocIds(filePath + ".pos", "testterm");
-
+        var docIds = new[] { 2, 5, 9 };
+        var filePath = Path.Combine(_fixture.Path, "posfile_delta.pos");
+        {
+            using var bodyMs = new MemoryStream();
+            using var bodyWriter = new BinaryWriter(bodyMs, Encoding.UTF8, leaveOpen: false);
+            bodyWriter.Write(3);
+            bodyWriter.Write(0L);
+            bodyWriter.Write(true);
+            bodyWriter.Write(false);
+            bodyWriter.Write(false);
+            WriteVarInt(bodyWriter, 2);
+            WriteVarInt(bodyWriter, 3);
+            WriteVarInt(bodyWriter, 4);
+            WriteVarInt(bodyWriter, 1);
+            WriteVarInt(bodyWriter, 2);
+            WriteVarInt(bodyWriter, 3);
+            bodyWriter.Flush();
+            using var output = new IndexOutput(filePath);
+            using var _scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.PostingsVersion);
+            output.WriteBytes(bodyMs.ToArray());
+        }
+        var readIds = PostingsReader.ReadDocIds(filePath, "testterm");
         Assert.Equal(docIds, readIds);
     }
 
@@ -105,14 +120,26 @@ public sealed class CodecsTests : IClassFixture<TestDirectoryFixture>
     public void PosFile_DeltaDecodingOverflow_ThrowsInvalidDataException()
     {
         var filePath = System.IO.Path.Combine(_fixture.Path, "posfile_overflow.pos");
-        using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
-        using (var writer = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false))
+        using (var ms = new System.IO.MemoryStream())
         {
-            writer.Write("overflow".Length);
-            writer.Write("overflow".ToCharArray());
-            writer.Write(2); // count
-            WriteVarInt(writer, int.MaxValue);
-            WriteVarInt(writer, 1); // overflows cumulative doc ID
+            using var innerWriter = new System.IO.BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: false);
+            // Write v3 header: docFreq, skipOffset, hasFreqs, hasPositions, hasPayloads
+            innerWriter.Write(2); // docFreq
+            innerWriter.Write(0L); // skipOffset = 0
+            innerWriter.Write(true); // hasFreqs
+            innerWriter.Write(false); // hasPositions
+            innerWriter.Write(false); // hasPayloads
+            // Doc ID deltas: all int.MaxValue to force overflow
+            WriteVarInt(innerWriter, int.MaxValue);
+            WriteVarInt(innerWriter, int.MaxValue);
+            // Frequencies
+            WriteVarInt(innerWriter, 1);
+            WriteVarInt(innerWriter, 1);
+            innerWriter.Flush();
+            byte[] body = ms.ToArray();
+            using var output = new IndexOutput(filePath);
+            using var _scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.PostingsVersion);
+            output.WriteBytes(body);
         }
 
         Assert.Throws<InvalidDataException>(() => PostingsReader.ReadDocIds(filePath, "overflow"));

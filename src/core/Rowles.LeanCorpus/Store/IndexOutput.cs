@@ -1,5 +1,6 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace Rowles.LeanCorpus.Store;
 
@@ -14,6 +15,7 @@ public sealed class IndexOutput : IDisposable
     private readonly FileStream _stream;
     private readonly byte[] _buffer;
     private readonly bool _durable;
+    private readonly bool _dropPageCache;
     private int _bufferPosition;
     private bool _disposed;
 
@@ -26,15 +28,22 @@ public sealed class IndexOutput : IDisposable
     /// <param name="filePath">The full path of the file to create.</param>
     /// <param name="durable">
     /// When <c>true</c>, <see cref="Dispose"/> calls <c>FileStream.Flush(flushToDisk: true)</c> so the
-    /// file's bytes are persisted to the storage device before the handle is released. Defaults to
+    /// file bytes are persisted to the storage device before the handle is released. Defaults to
     /// <c>false</c> to preserve historic non-durable behaviour for callers that don't need it.
     /// </param>
-    public IndexOutput(string filePath, bool durable = false)
+    /// <param name="dropPageCache">
+    /// When <c>true</c> and running on Linux, <see cref="Dispose"/> calls <c>posix_fadvise(FADV_DONTNEED)</c>
+    /// to release written pages from the page cache after closing. This prevents merge output
+    /// from evicting hot search data from the cache. No effect on Windows or macOS. Defaults to <c>false</c>.
+    /// </param>
+    public IndexOutput(string filePath, bool durable = false, bool dropPageCache = false)
     {
-        _stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
+        _stream = FileOpenRetry.Open(filePath, FileMode.Create, FileAccess.Write, FileShare.None,
+            bufferSize: BufferSize, options: FileOptions.SequentialScan);
         _buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
         _bufferPosition = 0;
         _durable = durable;
+        _dropPageCache = dropPageCache && OperatingSystem.IsLinux();
     }
 
     /// <summary>
@@ -111,6 +120,64 @@ public sealed class IndexOutput : IDisposable
     }
 
     /// <summary>
+    /// Writes a non-negative integer using 7-bit encoding,
+    /// compatible with <see cref="System.IO.BinaryWriter.Write7BitEncodedInt"/>.
+    /// Small values (0–127) consume a single byte.
+    /// </summary>
+    public void Write7BitEncodedInt(int value)
+    {
+        uint v = (uint)value;
+        Span<byte> buf = stackalloc byte[5];
+        int pos = 0;
+        while (v >= 0x80)
+        {
+            buf[pos++] = (byte)(v | 0x80);
+            v >>= 7;
+        }
+        buf[pos++] = (byte)v;
+        WriteBytes(buf[..pos]);
+    }
+
+    /// <summary>
+    /// Writes a length-prefixed UTF-8 string, compatible with
+    /// <see cref="System.IO.BinaryWriter.Write(string)"/>.
+    /// </summary>
+    public void WriteString(string value)
+    {
+        int byteCount = Encoding.UTF8.GetByteCount(value);
+        Write7BitEncodedInt(byteCount);
+        if (byteCount <= 256)
+        {
+            Span<byte> buf = stackalloc byte[256];
+            Encoding.UTF8.GetBytes(value, buf);
+            WriteBytes(buf[..byteCount]);
+        }
+        else
+        {
+            WriteBytes(Encoding.UTF8.GetBytes(value));
+        }
+    }
+
+    /// <summary>
+    /// Writes a char span as raw UTF-8 bytes (no length prefix).
+    /// Compatible with <see cref="System.IO.BinaryWriter.Write(char[])"/>.
+    /// </summary>
+    public void WriteChars(ReadOnlySpan<char> chars)
+    {
+        int byteCount = Encoding.UTF8.GetByteCount(chars);
+        if (byteCount <= 256)
+        {
+            Span<byte> buf = stackalloc byte[256];
+            Encoding.UTF8.GetBytes(chars, buf);
+            WriteBytes(buf[..byteCount]);
+        }
+        else
+        {
+            WriteBytes(Encoding.UTF8.GetBytes(chars.ToArray(), 0, chars.Length));
+        }
+    }
+
+    /// <summary>
     /// Writes a non-negative integer using variable-length encoding (LEB128).
     /// Small values (0–127) consume a single byte. Encodes into a local buffer
     /// then writes all bytes in one call to reduce per-byte overhead.
@@ -156,6 +223,14 @@ public sealed class IndexOutput : IDisposable
         }
         finally
         {
+            if (_dropPageCache)
+            {
+                try
+                {
+                    NativeMethods.posix_fadvise(_stream.SafeFileHandle, 0, _stream.Length, NativeMethods.POSIX_FADV_DONTNEED);
+                }
+                catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "posix_fadvise during dispose"); }
+            }
             ArrayPool<byte>.Shared.Return(_buffer);
             _stream.Dispose();
         }

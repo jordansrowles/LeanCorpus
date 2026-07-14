@@ -194,24 +194,21 @@ public sealed class FieldFeatureIntegrationTests : IClassFixture<TestDirectoryFi
 
     private sealed class PayloadAnnotatingAnalyser : IAnalyser
     {
-        public List<Token> Analyse(ReadOnlySpan<char> input)
+        public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
         {
-            var tokens = new List<Token>();
             int offset = 0;
             foreach (var term in input.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries))
             {
                 int start = input.ToString().IndexOf(term, offset, StringComparison.Ordinal);
                 int end = start + term.Length;
-                tokens.Add(new Token(
-                    term.ToLowerInvariant(),
+                sink.Add(
+                    term.ToLowerInvariant().AsSpan(),
                     start,
                     end,
                     positionIncrement: 1,
-                    payload: System.Text.Encoding.ASCII.GetBytes(term.ToUpperInvariant())));
+                    payload: System.Text.Encoding.ASCII.GetBytes(term.ToUpperInvariant()));
                 offset = end;
             }
-
-            return tokens;
         }
     }
 }

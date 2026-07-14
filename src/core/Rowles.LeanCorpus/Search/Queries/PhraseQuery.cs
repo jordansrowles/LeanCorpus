@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Search.Queries;
+namespace Rowles.LeanCorpus.Search.Queries;
 
 /// <summary>
 /// Exact ordered phrase match using positional data, with optional slop.
@@ -27,7 +27,7 @@ public sealed class PhraseQuery : Query
             {
                 cached = new string[Terms.Length];
                 for (int i = 0; i < Terms.Length; i++)
-                    cached[i] = string.Concat(Field, "\x00", Terms[i]);
+                    cached[i] = QualifiedTermHelpers.BuildQualifiedTermString(Field, Terms[i]);
                 _cachedQualifiedTerms = cached;
             }
             return cached;

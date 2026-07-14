@@ -1,9 +1,8 @@
 ﻿# Token filters
 
-Token filters run after tokenisation. They can rewrite token text, drop tokens, add
-derived tokens, or constrain the stream before indexing.
+Token filters run after tokenisation and before stemming. They rewrite, drop, or add tokens.
 
-## Build a custom pipeline
+## Build a pipeline
 
 ```csharp
 using Rowles.LeanCorpus.Analysis;
@@ -17,23 +16,22 @@ var analyser = new Analyser(
     new PorterStemmerFilter());
 ```
 
-## Token filters by role
+## Filters by role
 
 | Role | Filters |
-|---|---|
-| Normalisation | `LowercaseFilter`, `AccentFoldingFilter`, `DecimalDigitFilter`, `ReverseStringFilter`, `WordDelimiterFilter`, `TruncateTokenFilter` |
-| Selection and limits | `StopWordFilter`, `LengthFilter`, `UniqueTokenFilter`, `KeepWordFilter`, `TypeTokenFilter`, `LimitTokenCountFilter` |
-| Stemming and morphology | `PorterStemmerFilter`, `HunspellStemFilter`, `KeywordMarkerFilter` |
-| Synonyms and graphs | `SynonymGraphFilter`, `FlattenGraphFilter`, `ShingleFilter` |
-| Language and text cleanup | `ElisionFilter` |
+| Normalisation | `LowercaseFilter`, `AccentFoldingFilter`, `ClassicFilter`, `DecimalDigitFilter`, `HyphenatedWordsFilter`, `PatternReplaceFilter`, `ReverseStringFilter`, `WordDelimiterFilter`, `TruncateTokenFilter` |
+| Selection | `StopWordFilter`, `LengthFilter`, `UniqueTokenFilter`, `KeepWordFilter`, `TypeTokenFilter`, `LimitTokenCountFilter` |
+| Stemming | `PorterStemmerFilter`, `HunspellStemFilter`, `KeywordMarkerFilter` |
+| Synonyms | `SynonymGraphFilter`, `FlattenGraphFilter`, `CommonGramsFilter`, `ShingleFilter` |
+| Language | `ElisionFilter` |
 | Phonetics | `MetaphoneFilter`, `PhoneticAlternatesFilter` |
+| Caching | `CachingTokenFilter` |
 
-`KeywordMarkerFilter` is not a text-rewriting filter on its own. It marks tokens that
-compatible analysers should leave untouched during stemming.
+`KeywordMarkerFilter` marks tokens that compatible stemmers should skip.
 
 ## Char filters
 
-Char filters mutate the input text before tokenisation. LeanCorpus ships:
+Char filters mutate the input before tokenisation:
 
 - `HtmlStripCharFilter`
 - `MappingCharFilter`
@@ -43,8 +41,7 @@ Attach them through `IndexWriterConfig.CharFilters`.
 
 ## Order matters
 
-Filters run left to right. Lowercase before stop words. Apply stemming after both.
-Place synonym expansion after the normalisation steps it depends on.
+Lowercase before stop words. Stemming after both. Synonym expansion after normalisation.
 
 ## See also
 
@@ -52,4 +49,3 @@ Place synonym expansion after the normalisation steps it depends on.
 - [Tokenisers](02-tokenisers.md)
 - [Stemmers](04-stemmers.md)
 - <xref:Rowles.LeanCorpus.Analysis.Analysers.Analyser>
-- <xref:Rowles.LeanCorpus.Analysis.ITokenFilter>

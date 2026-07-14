@@ -102,7 +102,7 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
         foreach (var kvp in _pendingDeletes)
         {
             try { File.Delete(kvp.Key); }
-            catch { /* best-effort on teardown */ }
+            catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "deferred file delete during dispose"); }
         }
         _pendingDeletes.Clear();
         _openFileCounts.Clear();
@@ -141,7 +141,7 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
             if (_pendingDeletes.TryRemove(filePath, out _))
             {
                 try { File.Delete(filePath); }
-                catch { /* best-effort — will retry on next Dispose/teardown */ }
+                catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "deferred file delete on input disposed"); }
             }
         }
     }
@@ -157,7 +157,7 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
         if (!_openFileCounts.ContainsKey(filePath))
         {
             try { File.Delete(filePath); }
-            catch { /* best-effort */ }
+            catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "fast-path file delete"); }
             return;
         }
 
@@ -175,7 +175,7 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
             {
                 _pendingDeletes.TryRemove(filePath, out _);
                 try { File.Delete(filePath); }
-                catch { /* best-effort */ }
+                catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "TOCTOU retry file delete"); }
             }
         }
     }
@@ -192,6 +192,11 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
         // every separator and every traversal segment explicitly.
         if (fileName.Contains('/') || fileName.Contains('\\') || fileName.Contains(".."))
             throw new ArgumentException("File name must not contain path separators or traversal segments.", nameof(fileName));
+
+        // Colon creates alternate data streams on Windows (e.g. "foo:bar"
+        // writes to an ADS on file "foo" rather than creating "foo:bar").
+        if (fileName.Contains(':'))
+            throw new ArgumentException("File name must not contain a colon.", nameof(fileName));
 
         foreach (var c in fileName)
         {

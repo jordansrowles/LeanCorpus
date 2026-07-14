@@ -1,33 +1,24 @@
 # Stemmers
 
-Stemmers reduce related word forms to a broader shared term. This usually improves
-recall, but it can also make matching less precise.
+Stemmers reduce related word forms to a shared root. Improves recall; can reduce precision.
 
 ## English stemmers
 
 | Type | Behaviour | Notes |
 |---|---|---|
-| `EnglishStemmer` | Porter-based English stemming | Default choice for most English search. `AnalyserFactory.Create("en")` uses this. |
-| `LightEnglishStemmer` | Lighter suffix stripping | Less aggressive than Porter. Use it only when you want that trade-off explicitly. |
-| `KStemmer` | Lexicon-validated English stemming inspired by Krovetz | Requires a `KStemLexicon` loaded via `KStemLexicon.FromFile`. Does not embed a default lexicon. |
+| `EnglishStemmer` | Porter-based | Default for English. `AnalyserFactory.Create("en")` uses it |
+| `LightEnglishStemmer` | Lighter suffix stripping | Less aggressive than Porter |
+| `KStemmer` | Lexicon-validated (Krovetz-inspired) | Needs `KStemLexicon.FromFile` |
+| `HunspellStemmer` | Hunspell dictionary-based | Needs `.aff`/`.dic` files. Handles irregular forms |
 
-| `HunspellStemmer` | Hunspell dictionary-based stemming | Requires a `HunspellDictionary` loaded from `.aff`/`.dic` files. |
-
-`StemmedAnalyser` also applies Porter stemming through `PorterStemmerFilter`, so it
-lines up more closely with `EnglishStemmer` than with `LightEnglishStemmer`.
+`StemmedAnalyser` also applies Porter stemming via `PorterStemmerFilter`.
 
 ## Hunspell stemming
 
-`HunspellStemmer` uses Hunspell dictionaries for morphological stemming. It covers
-many languages and handles irregular forms better than algorithmic stemmers:
-
 ```csharp
 using Rowles.LeanCorpus.Analysis.Stemmers;
-using Rowles.LeanCorpus.Store;
 
-var dict = HunspellDictionary.FromFiles(
-    new MMapDirectory("/dictionaries/en_US"));
-
+var dict = HunspellDictionary.FromFiles(new MMapDirectory("/dictionaries/en_US"));
 var stemmer = new HunspellStemmer(dict);
 
 var analyser = new StemmerAnalyser(
@@ -35,34 +26,23 @@ var analyser = new StemmerAnalyser(
     stemmer: stemmer);
 ```
 
-Alternatively, use `HunspellStemFilter` in a custom pipeline to keep the stemmer
-separate from the tokeniser chain.
+## Other languages
 
-## Other built-in stemmers
+`ArabicStemmer`, `ChineseStemmer`, `DutchStemmer`, `FrenchStemmer`, `GermanStemmer`, `ItalianStemmer`, `JapaneseStemmer`, `KoreanStemmer`, `PortugueseStemmer`, `RussianStemmer`, `SpanishStemmer`.
 
-LeanCorpus also ships `ArabicStemmer`, `ChineseStemmer`, `DutchStemmer`,
-`FrenchStemmer`, `GermanStemmer`, `ItalianStemmer`, `JapaneseStemmer`,
-`KoreanStemmer`, `PortugueseStemmer`, `RussianStemmer`, and `SpanishStemmer`.
+Use with `LanguageAnalyser` or a custom pipeline.
 
-These are exposed as `IStemmer` implementations for use with `LanguageAnalyser` or
-your own custom analyser pipeline.
+## Choosing
 
-## Choosing one
-
-- Start with `EnglishStemmer` for ordinary English full-text search.
-- Use `LightEnglishStemmer` only when Porter stemming is clearly too aggressive for your corpus.
-- Use `KStemmer` when false stems are more costly than missed stems. Provide a `KStemLexicon` via `KStemLexicon.FromFile`.
-- Use `LanguageAnalyser` when you want stop words and stemming packaged together for a supported language.
-- Skip stemming entirely when exact forms matter more than recall.
+- `EnglishStemmer` for ordinary English search.
+- `LightEnglishStemmer` when Porter is too aggressive.
+- `KStemmer` when false stems are worse than missed stems.
+- `LanguageAnalyser` for packaged stop words + stemming for a supported language.
+- Skip stemming when exact forms matter more than recall.
 
 ## Example
 
 ```csharp
-using Rowles.LeanCorpus.Analysis;
-using Rowles.LeanCorpus.Analysis.Analysers;
-using Rowles.LeanCorpus.Analysis.Stemmers;
-using Rowles.LeanCorpus.Analysis.Tokenisers;
-
 var analyser = new LanguageAnalyser(
     tokeniser: new Tokeniser(),
     stopWords: StopWords.English,

@@ -1,12 +1,13 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Filters;
+namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
 /// Truncates the token stream after a fixed number of emitted tokens.
 /// </summary>
-public sealed class LimitTokenCountFilter : ITokenFilter
+public sealed class LimitTokenCountFilter : ISpanTokenFilter
 {
     private readonly int _maxTokenCount;
 
+    private int _count;
     /// <summary>
     /// Initialises a new <see cref="LimitTokenCountFilter"/>.
     /// </summary>
@@ -18,9 +19,30 @@ public sealed class LimitTokenCountFilter : ITokenFilter
     }
 
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+
+    /// <inheritdoc/>
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        if (tokens.Count > _maxTokenCount)
-            tokens.RemoveRange(_maxTokenCount, tokens.Count - _maxTokenCount);
+        if (_count < _maxTokenCount)
+        {
+            _count++;
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+        }
     }
+
+    /// <inheritdoc/>
+    public void Finish(ISpanTokenSink sink)
+    {
+        _count = 0;
+    }
+
+    /// <inheritdoc/>
+    public ISpanTokenFilter Clone() => new LimitTokenCountFilter(_maxTokenCount);
 }

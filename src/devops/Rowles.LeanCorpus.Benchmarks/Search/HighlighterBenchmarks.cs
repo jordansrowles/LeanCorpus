@@ -39,6 +39,11 @@ public class HighlighterBenchmarks
     {
         _documents = BenchmarkData.BuildDocuments(DocumentCount);
         _highlighter = new Highlighter("<b>", "</b>");
+
+        // Lucene.NET highlighter setup
+        _luceneAnalyzer = new Lucene.Net.Analysis.Standard.StandardAnalyzer(Lucene.Net.Util.LuceneVersion.LUCENE_48);
+        _luceneTwoTermQuery = BuildLuceneQuery(TwoTerms);
+        _luceneFiveTermQuery = BuildLuceneQuery(FiveTerms);
     }
 
     [Benchmark(Baseline = true)]
@@ -59,5 +64,59 @@ public class HighlighterBenchmarks
         foreach (var doc in _documents)
             total += _highlighter.GetBestFragment(doc, FiveTerms, MaxSnippetLength).Length;
         return total;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_Highlight_TwoTerms()
+    {
+        int total = 0;
+        var scorer = new Lucene.Net.Search.Highlight.QueryScorer(_luceneTwoTermQuery);
+        var formatter = new Lucene.Net.Search.Highlight.SimpleHTMLFormatter("<b>", "</b>");
+        var hl = new Lucene.Net.Search.Highlight.Highlighter(formatter, scorer);
+        foreach (var doc in _documents)
+        {
+            var fragment = hl.GetBestFragment(_luceneAnalyzer, "body", doc);
+            if (fragment is not null)
+                total += fragment.Length;
+        }
+        return total;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_Highlight_FiveTerms()
+    {
+        int total = 0;
+        var scorer = new Lucene.Net.Search.Highlight.QueryScorer(_luceneFiveTermQuery);
+        var formatter = new Lucene.Net.Search.Highlight.SimpleHTMLFormatter("<b>", "</b>");
+        var hl = new Lucene.Net.Search.Highlight.Highlighter(formatter, scorer);
+        foreach (var doc in _documents)
+        {
+            var fragment = hl.GetBestFragment(_luceneAnalyzer, "body", doc);
+            if (fragment is not null)
+                total += fragment.Length;
+        }
+        return total;
+    }
+
+    // --- Lucene.NET state ---
+
+    private Lucene.Net.Analysis.Standard.StandardAnalyzer _luceneAnalyzer = null!;
+    private Lucene.Net.Search.Query _luceneTwoTermQuery = null!;
+    private Lucene.Net.Search.Query _luceneFiveTermQuery = null!;
+
+    private static Lucene.Net.Search.Query BuildLuceneQuery(IReadOnlySet<string> terms)
+    {
+        var bq = new Lucene.Net.Search.BooleanQuery();
+        foreach (var term in terms)
+            bq.Add(new Lucene.Net.Search.TermQuery(new Lucene.Net.Index.Term("body", term)), Lucene.Net.Search.Occur.SHOULD);
+        return bq;
+    }
+
+    [GlobalCleanup]
+    public void Cleanup()
+    {
+        _luceneAnalyzer?.Dispose();
     }
 }

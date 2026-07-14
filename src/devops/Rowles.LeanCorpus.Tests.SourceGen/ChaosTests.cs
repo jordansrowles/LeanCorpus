@@ -116,7 +116,7 @@ public sealed class ChaosTests
         var result = GeneratorTestHarness.Run(source);
         Assert.Empty(result.GeneratorDiagnostics);
         Assert.Empty(result.CompilationErrors);
-        Assert.Contains("checked((sbyte)((long)", result.CombinedSource);
+        Assert.Contains("checked((sbyte)(long.Parse", result.CombinedSource);
     }
 
     [Fact]
@@ -244,6 +244,7 @@ public sealed class ChaosTests
         Assert.Equal(Document.Fields.FieldType.Text, schema.Mappings["title"].FieldType);
         Assert.Equal(Document.Fields.FieldType.Text, schema.Mappings["tag"].FieldType);
         Assert.Equal(Document.Fields.FieldType.Numeric, schema.Mappings["price"].FieldType);
+        Assert.Equal(Document.Fields.FieldType.Int64, schema.Mappings["count"].FieldType);
         Assert.Equal(Document.Fields.FieldType.Numeric, schema.Mappings["at"].FieldType);
         Assert.Equal(Document.Fields.FieldType.Stored, schema.Mappings["amount"].FieldType);
         Assert.Equal(Document.Fields.FieldType.Binary, schema.Mappings["blob"].FieldType);

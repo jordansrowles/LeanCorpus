@@ -1,10 +1,16 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text.Json;
 using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Codecs.Postings;
+using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Serialization;
 using Rowles.LeanCorpus.Store;
+
 
 namespace Rowles.LeanCorpus.Index.Format;
 
@@ -278,30 +284,34 @@ public static class IndexFormatInspector
             return true;
         }
 
+        var format = descriptor.HeaderFormat;
         var hasValidMagic = false;
         byte? version = null;
         try
         {
             using var stream = FileOpenRetry.OpenReadDelete(filePath);
             using var reader = new BinaryReader(stream);
-            int magic = reader.ReadInt32();
-            hasValidMagic = magic == CodecConstants.Magic;
-            if (hasValidMagic)
+            if (extension is ".fdt" or ".fdx")
             {
-                version = reader.ReadByte();
+                version = StoredFieldsFileHeader.ReadVersion(reader);
+            }
+            else if (extension is ".pos")
+            {
+                version = PostingsFileHeader.ReadVersion(reader);
+            }
+            else if (format is not null)
+            {
+                version = CodecFileHeader.ReadVersion(reader, format);
             }
             else
             {
-                issues.Add(CreateIssue(
-                    IndexCheckSeverity.Error,
-                    IndexCheckIssueCodes.InvalidCodecMagic,
-                    $"Invalid {descriptor.CodecName} file: expected magic 0x{CodecConstants.Magic:X8}, got 0x{magic:X8}.",
-                    fileName,
-                    segmentId,
-                    false));
+                inventory = null!;
+                return false;
             }
+
+            hasValidMagic = true;
         }
-        catch (Exception ex) when (ex is IOException or EndOfStreamException)
+        catch (Exception ex) when (ex is IOException or EndOfStreamException or InvalidDataException)
         {
             issues.Add(CreateIssue(
                 IndexCheckSeverity.Error,

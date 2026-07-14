@@ -1,8 +1,6 @@
 ﻿# Refresh failures
 
-`SearcherManager` polls for new commits in the background. If a commit file is
-temporarily unreadable or invalid, the manager keeps the current searcher alive
-and records the failure.
+`SearcherManager` polls for new commits in the background. If a commit file is temporarily unreadable, the manager keeps the current searcher alive and records the failure.
 
 ```csharp
 manager.RefreshFailed += (_, e) =>
@@ -14,7 +12,7 @@ manager.RefreshFailed += (_, e) =>
 };
 ```
 
-You can also poll the last error:
+Poll the last error:
 
 ```csharp
 if (manager.LastRefreshError is { } error)
@@ -30,4 +28,3 @@ if (manager.LastRefreshError is { } error)
 
 - [Searcher manager](01-searcher-manager.md)
 - <xref:Rowles.LeanCorpus.Search.Searcher.RefreshFailedEventArgs>
-- <xref:Rowles.LeanCorpus.Search.Searcher.SearcherLease>

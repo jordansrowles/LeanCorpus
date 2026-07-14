@@ -53,7 +53,7 @@ public sealed class NullabilityTests
             """;
         var result = GeneratorTestHarness.Run(source);
         // Count is nullable value type, so IsRequired should be false.
-        Assert.Contains("\"count\", FieldType.Numeric, true, true, false", result.CombinedSource);
+        Assert.Contains("\"count\", FieldType.Int64, true, true, false", result.CombinedSource);
     }
 
     [Fact]
@@ -70,6 +70,6 @@ public sealed class NullabilityTests
             }
             """;
         var result = GeneratorTestHarness.Run(source);
-        Assert.Contains("\"count\", FieldType.Numeric, true, true, false", result.CombinedSource);
+        Assert.Contains("\"count\", FieldType.Int64, true, true, false", result.CombinedSource);
     }
 }

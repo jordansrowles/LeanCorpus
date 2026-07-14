@@ -98,7 +98,7 @@ internal sealed class ParentBitSet
     /// <summary>Writes the bitset to a binary file (.pbs).</summary>
     public void WriteTo(string filePath)
     {
-        using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
+        using var fs = FileOpenRetry.Open(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
         using var bw = new BinaryWriter(fs);
         bw.Write(_length);
         bw.Write(_bits.Length);

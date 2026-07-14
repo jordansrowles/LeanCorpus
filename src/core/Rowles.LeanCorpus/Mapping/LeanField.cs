@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Linq;
 
 namespace Rowles.LeanCorpus.Mapping;
 
@@ -9,7 +10,7 @@ namespace Rowles.LeanCorpus.Mapping;
 /// </summary>
 /// <typeparam name="TDocument">The mapped document model type.</typeparam>
 /// <typeparam name="TValue">The CLR value type for this field.</typeparam>
-public sealed class LeanField<TDocument, TValue>
+public sealed class LeanField<TDocument, TValue> : IFieldDescriptor
 {
     /// <summary>
     /// Initialises a new <see cref="LeanField{TDocument, TValue}"/>.

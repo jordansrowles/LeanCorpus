@@ -22,14 +22,11 @@ public sealed class SearchOptions
     public long MaxResultBytes { get; init; } = long.MaxValue;
 
     /// <summary>
-    /// When true, callers are expected to invoke <c>IndexSearcher.SearchStreaming</c>
-    /// instead of <c>Search</c>. The streaming path yields per-segment results in
-    /// segment order without building a global top-N heap. Default: false.
+    /// When true, <c>IndexSearcher.Search(Query, SearchOptions)</c> and
+    /// <c>SearchAsync</c> yield per-segment results in segment order without building
+    /// a global top-N heap. When false, results are materialised from a global top-N
+    /// search before yielding. Default: false.
     /// </summary>
-    /// <remarks>
-    /// Setting this on a regular <c>Search</c> call has no effect: the top-N path is
-    /// always fully materialised. Use <c>SearchStreaming</c> to honour the flag.
-    /// </remarks>
     public bool StreamResults { get; init; }
 
     /// <summary>

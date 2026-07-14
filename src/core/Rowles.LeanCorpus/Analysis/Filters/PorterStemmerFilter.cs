@@ -1,21 +1,75 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Filters;
+using System.Buffers;
+namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
-/// Porter Stemming Algorithm implementation as an ITokenFilter.
+/// Porter Stemming Algorithm implementation as an ISpanTokenFilter.
 /// Based on the Porter 1980 specification for English stemming.
 /// Operates on tokens in-place, replacing text with stemmed form.
 /// </summary>
-public sealed class PorterStemmerFilter : ITokenFilter
+public sealed class PorterStemmerFilter : ISpanTokenFilter
 {
-    /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+    private readonly KeywordMarkerFilter? _keywordMarker;
+
+    /// <summary>
+    /// Initialises a new <see cref="PorterStemmerFilter"/> that stems all tokens.
+    /// </summary>
+    public PorterStemmerFilter() { }
+
+    /// <summary>
+    /// Initialises a new <see cref="PorterStemmerFilter"/> with optional keyword marker support.
+    /// </summary>
+    /// <param name="keywordMarker">Keywords that should bypass stemming, or <see langword="null"/> to stem all tokens.</param>
+    public PorterStemmerFilter(KeywordMarkerFilter? keywordMarker)
     {
-        for (int i = 0; i < tokens.Count; i++)
+        _keywordMarker = keywordMarker;
+    }
+    /// <inheritdoc/>
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+
+        if (_keywordMarker?.IsKeyword(text) == true)
         {
-            var t = tokens[i];
-            var stemmed = Stem(t.Text);
-            if (!ReferenceEquals(stemmed, t.Text))
-                tokens[i] = t.WithText(stemmed);
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+            return;
+        }
+
+
+        if (text.Length <= 2)
+        {
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+            return;
+        }
+
+        const int StackThreshold = 128;
+        char[]? rented = null;
+        try
+        {
+            Span<char> buf = text.Length <= StackThreshold
+                ? stackalloc char[text.Length]
+                : (rented = ArrayPool<char>.Shared.Rent(text.Length)).AsSpan(0, text.Length);
+
+            int len = Stem(text, buf);
+
+            if (len == text.Length && buf[..len].SequenceEqual(text))
+            {
+                sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+            }
+            else
+            {
+                sink.Add(buf[..len], startOffset, endOffset, type, positionIncrement, payload);
+            }
+        }
+        finally
+        {
+            if (rented is not null) ArrayPool<char>.Shared.Return(rented);
         }
     }
 
@@ -26,22 +80,52 @@ public sealed class PorterStemmerFilter : ITokenFilter
         Span<char> buf = word.Length <= 64
             ? stackalloc char[word.Length]
             : new char[word.Length];
-        word.AsSpan().CopyTo(buf);
-        int len = buf.Length;
-
-        len = Step1a(buf, len);
-        len = Step1b(buf, len);
-        len = Step1c(buf, len);
-        len = Step2(buf, len);
-        len = Step3(buf, len);
-        len = Step4(buf, len);
-        len = Step5a(buf, len);
-        len = Step5b(buf, len);
-
-        var result = buf[..len];
-        return result.SequenceEqual(word.AsSpan()) ? word : new string(result);
+        int len = Stem(word.AsSpan(), buf);
+        return len == word.Length && buf[..len].SequenceEqual(word.AsSpan())
+            ? word
+            : new string(buf[..len]);
     }
 
+    internal static string Stem(ReadOnlySpan<char> word)
+    {
+        if (word.Length <= 2) return word.ToString();
+
+        Span<char> buf = word.Length <= 64
+            ? stackalloc char[word.Length]
+            : new char[word.Length];
+        int len = Stem(word, buf);
+        return len == word.Length && buf[..len].SequenceEqual(word)
+            ? new string(word)
+            : new string(buf[..len]);
+    }
+
+    /// <summary>
+    /// Stems <paramref name="word"/> into the caller-provided <paramref name="buffer"/>.
+    /// Caller must ensure <c>buffer.Length >= word.Length</c>.
+    /// Returns the length of the stemmed result.
+    /// </summary>
+    internal static int Stem(ReadOnlySpan<char> word, Span<char> buffer)
+    {
+        if (word.Length <= 2)
+        {
+            if (word.Length > 0) word.CopyTo(buffer);
+            return word.Length;
+        }
+
+        word.CopyTo(buffer);
+        int len = word.Length;
+
+        len = Step1a(buffer, len);
+        len = Step1b(buffer, len);
+        len = Step1c(buffer, len);
+        len = Step2(buffer, len);
+        len = Step3(buffer, len);
+        len = Step4(buffer, len);
+        len = Step5a(buffer, len);
+        len = Step5b(buffer, len);
+
+        return len;
+    }
     private static bool IsConsonant(ReadOnlySpan<char> s, int i)
     {
         char c = s[i];

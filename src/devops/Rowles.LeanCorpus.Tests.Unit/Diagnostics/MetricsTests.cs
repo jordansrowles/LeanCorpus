@@ -2,6 +2,7 @@
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Diagnostics;
 
@@ -20,8 +21,7 @@ public class MetricsTests : IDisposable
 
     public void Dispose()
     {
-        try { if (Directory.Exists(_dir)) Directory.Delete(_dir, true); }
-        catch { }
+        TestDirectoryFixture.TryDeleteDirectory(_dir);
     }
 
     /// <summary>

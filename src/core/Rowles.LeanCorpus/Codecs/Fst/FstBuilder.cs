@@ -84,6 +84,9 @@ public sealed class FstBuilder
     internal const byte FlagHasOutput = 0b_0010_0000; // bit 5
     internal const byte FlagHasTarget = 0b_0001_0000; // bit 4
 
+    /// <summary>Maximum number of bytes needed to VarInt-encode a 64-bit value.</summary>
+    internal const int MaxVarInt64Size = 10;
+
     // -- Header magic bytes ("FST1") -----------------------------------------
     internal static ReadOnlySpan<byte> HeaderMagic => "FST1"u8;
 
@@ -278,7 +281,7 @@ public sealed class FstBuilder
     private long CompileNode(UncompiledNode node)
     {
         long hash = HashNode(node);
-        if (_registry.TryGetValue(hash, out long existingAddress))
+        if (_registry.TryGetValue(hash, out long existingAddress) && NodeMatches(existingAddress, node))
         {
             node.CompiledAddress = existingAddress;
             return existingAddress;
@@ -415,6 +418,95 @@ public sealed class FstBuilder
         return unchecked((long)hash);
     }
 
+    /// <summary>
+    /// Verifies that the serialised node at <paramref name="address"/> in <c>_buffer</c>
+    /// matches the labels, targets, outputs, and final state of <paramref name="node"/>.
+    /// Used to guard against hash collisions during deduplication.
+    /// </summary>
+    private bool NodeMatches(long address, UncompiledNode node)
+    {
+        var span = _buffer.AsSpan();
+        int pos = (int)address;
+        int end = _position;
+
+        if (node.NumArcs == 0)
+        {
+            // Final-only node: flags + 0x00 sentinel label + optional VarInt output.
+            if (pos + 1 >= end) return false;
+            byte flags = span[pos];
+            if (span[pos + 1] != 0x00) return false;
+            if ((flags & FlagIsLastArc) == 0) return false;
+            bool compiledIsFinal = (flags & FlagIsFinal) != 0;
+            if (compiledIsFinal != node.IsFinal) return false;
+            if (compiledIsFinal)
+            {
+                bool compiledHasOutput = (flags & FlagHasOutput) != 0;
+                if (compiledHasOutput != (node.FinalOutput != 0)) return false;
+                if (compiledHasOutput)
+                {
+                    pos += 2;
+                    if (!TryReadVarInt(span, ref pos, end, out long fo)) return false;
+                    if (fo != node.FinalOutput) return false;
+                }
+            }
+            return true;
+        }
+
+        // Skip optional virtual final-output arc (label 0xFF, flags include IsFinal & HasOutput).
+        bool compiledIsFinal2 = false;
+        long compiledFinalOutput = 0;
+        if ((span[pos] & FlagIsFinal) != 0 && span[pos + 1] == 0xFF)
+        {
+            compiledIsFinal2 = true;
+            pos += 2;
+            if (!TryReadVarInt(span, ref pos, end, out compiledFinalOutput)) return false;
+        }
+
+        // Compare real arcs.
+        for (int i = 0; i < node.NumArcs; i++)
+        {
+            if (pos + 1 >= end) return false;
+            byte flags = span[pos++];
+            byte label = span[pos++];
+
+            if (label != node.Labels[i]) return false;
+
+            // First real arc carries IsFinal when final output is zero.
+            if (i == 0 && (flags & FlagIsFinal) != 0)
+            {
+                compiledIsFinal2 = true;
+                compiledFinalOutput = 0;
+            }
+
+            bool isLast = (flags & FlagIsLastArc) != 0;
+            bool expectLast = i == node.NumArcs - 1;
+            if (isLast != expectLast) return false;
+
+            bool hasTarget = (flags & FlagHasTarget) != 0;
+            bool expectTarget = node.Targets[i] != NoAddress;
+            if (hasTarget != expectTarget) return false;
+            if (hasTarget)
+            {
+                if (!TryReadVarInt(span, ref pos, end, out long target)) return false;
+                if (target != node.Targets[i]) return false;
+            }
+
+            bool hasOutput = (flags & FlagHasOutput) != 0;
+            bool expectOutput = node.Outputs[i] != 0;
+            if (hasOutput != expectOutput) return false;
+            if (hasOutput)
+            {
+                if (!TryReadVarInt(span, ref pos, end, out long output)) return false;
+                if (output != node.Outputs[i]) return false;
+            }
+        }
+
+        if (compiledIsFinal2 != node.IsFinal || compiledFinalOutput != node.FinalOutput)
+            return false;
+
+        return true;
+    }
+
     // -----------------------------------------------------------------------
     //  Utility methods
     // -----------------------------------------------------------------------
@@ -505,6 +597,34 @@ public sealed class FstBuilder
         while ((b & 0x80) != 0);
 
         return unchecked((long)result);
+    }
+
+    /// <summary>
+    /// Bounds-checked VarInt read. Returns false when the value cannot be decoded
+    /// because it would read past <paramref name="end"/> or exceeds <see cref="MaxVarInt64Size"/> bytes.
+    /// On success, <paramref name="offset"/> is advanced past the consumed bytes.
+    /// </summary>
+    internal static bool TryReadVarInt(ReadOnlySpan<byte> buffer, ref int offset, int end, out long value)
+    {
+        value = 0;
+        ulong result = 0;
+        int shift = 0;
+        int remaining = 0;
+        while (remaining < MaxVarInt64Size)
+        {
+            if (offset >= end)
+                return false;
+            byte b = buffer[offset++];
+            remaining++;
+            result |= (ulong)(b & 0x7F) << shift;
+            if ((b & 0x80) == 0)
+            {
+                value = unchecked((long)result);
+                return true;
+            }
+            shift += 7;
+        }
+        return false;
     }
 
     /// <summary>

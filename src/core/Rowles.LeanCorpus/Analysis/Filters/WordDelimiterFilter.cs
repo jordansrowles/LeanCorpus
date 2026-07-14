@@ -1,192 +1,363 @@
-﻿using Rowles.LeanCorpus.Analysis.Tokenisers;
-
 namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
-/// Splits compound tokens on delimiters, case changes, and letter-number boundaries.
+/// Splits compound tokens on word delimiters, case transitions, and
+/// letter-digit boundaries.
 /// </summary>
-public sealed class WordDelimiterFilter : ITokenFilter
+/// <remarks>
+/// <para>For example, <c>"WiFi4Schools_test"</c> splits into
+/// <c>"Wi"</c>, <c>"Fi"</c>, <c>"4"</c>, <c>"Schools"</c>, <c>"test"</c>.
+/// With <see cref="CatenateWords"/> the filter also emits
+/// <c>"WiFi"</c>, <c>"Schools"</c>, and <c>"WiFiSchools"</c>.
+/// With <see cref="PreserveOriginal"/> the original token is emitted too.</para>
+/// <para>Sub-tokens are emitted at the same position
+/// (<c>positionIncrement == 0</c>) so downstream filters see them as
+/// alternatives.</para>
+/// </remarks>
+public sealed class WordDelimiterFilter : ISpanTokenFilter
 {
-    private readonly bool _splitOnCaseChange;
-    private readonly bool _splitOnNumerics;
-    private readonly bool _preserveOriginal;
-    private readonly bool _concatenateWords;
-    private readonly bool _concatenateNumbers;
+    private static readonly char[] DefaultDelimiters =
+        ['-', '_', '.', '/', '\\', '&', '+', '#', ',', ';', ':'];
+
+    private readonly char[] _delimiters;
+
+    /// <summary>
+    /// When true, word sub-tokens are emitted.
+    /// </summary>
+    public bool GenerateWordParts { get; init; } = true;
+
+    /// <summary>
+    /// When true, number sub-tokens are emitted.
+    /// </summary>
+    public bool GenerateNumberParts { get; init; } = true;
+
+    /// <summary>
+    /// When true, runs of word parts are concatenated and emitted.
+    /// </summary>
+    public bool CatenateWords { get; init; }
+
+    /// <summary>
+    /// When true, runs of number parts are concatenated and emitted.
+    /// </summary>
+    public bool CatenateNumbers { get; init; }
+
+    /// <summary>
+    /// When true, all word and number parts are concatenated and emitted.
+    /// </summary>
+    public bool CatenateAll { get; init; }
+
+    /// <summary>
+    /// When true, split on lowercase-to-uppercase transitions within a token.
+    /// </summary>
+    public bool SplitOnCaseChange { get; init; } = true;
+
+    /// <summary>
+    /// When true, split between letters and digits.
+    /// </summary>
+    public bool SplitOnNumerics { get; init; } = true;
+
+    /// <summary>
+    /// When true, strip trailing English possessives (<c>'s</c> or <c>'</c>)
+    /// before splitting.
+    /// </summary>
+    public bool StemEnglishPossessive { get; init; } = true;
+
+    /// <summary>
+    /// When true, emit the original token text alongside the split parts.
+    /// </summary>
+    public bool PreserveOriginal { get; init; }
 
     /// <summary>
     /// Initialises a new <see cref="WordDelimiterFilter"/>.
     /// </summary>
-    /// <param name="splitOnCaseChange">Whether lower-to-upper and acronym-word boundaries should split.</param>
-    /// <param name="splitOnNumerics">Whether letter-number boundaries should split.</param>
-    /// <param name="preserveOriginal">Whether the original token should be retained when it is split.</param>
-    /// <param name="concatenateWords">Whether letter parts should be concatenated into an additional token.</param>
-    /// <param name="concatenateNumbers">Whether numeric parts should be concatenated into an additional token.</param>
-    public WordDelimiterFilter(
-        bool splitOnCaseChange = true,
-        bool splitOnNumerics = true,
-        bool preserveOriginal = false,
-        bool concatenateWords = false,
-        bool concatenateNumbers = false)
+    /// <param name="delimiters">
+    /// Characters that act as word delimiters. Defaults to common punctuation.
+    /// </param>
+    public WordDelimiterFilter(char[]? delimiters = null)
     {
-        _splitOnCaseChange = splitOnCaseChange;
-        _splitOnNumerics = splitOnNumerics;
-        _preserveOriginal = preserveOriginal;
-        _concatenateWords = concatenateWords;
-        _concatenateNumbers = concatenateNumbers;
+        _delimiters = delimiters ?? DefaultDelimiters;
     }
 
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        if (tokens.Count == 0)
-            return;
+        ArgumentNullException.ThrowIfNull(sink);
 
-        var result = new List<Token>(tokens.Count);
-        var parts = new List<Part>(4);
+        ReadOnlySpan<char> working = text;
+        int workingEndOffset = endOffset;
 
-        for (int i = 0; i < tokens.Count; i++)
+        // Strip trailing English possessive.
+        if (StemEnglishPossessive && working.Length > 1)
         {
-            var token = tokens[i];
-            parts.Clear();
-            Split(token.Text, parts);
-
-            if (parts.Count == 0)
-                continue;
-
-            bool unchanged = parts.Count == 1 && parts[0].Start == 0 && parts[0].End == token.Text.Length;
-            if (unchanged)
+            if (working.EndsWith("'s".AsSpan()) || working.EndsWith("'S".AsSpan()))
             {
-                result.Add(token);
-                continue;
+                working = working[..^2];
+                workingEndOffset -= 2;
             }
-
-            if (_preserveOriginal)
-                result.Add(token);
-
-            for (int j = 0; j < parts.Count; j++)
-                result.Add(CreatePartToken(token, parts[j]));
-
-            if (_concatenateWords)
-                AddConcatenation(result, token, parts, PartKind.Word);
-
-            if (_concatenateNumbers)
-                AddConcatenation(result, token, parts, PartKind.Number);
+            else if (working[^1] == '\'')
+            {
+                working = working[..^1];
+                workingEndOffset--;
+            }
         }
 
-        tokens.Clear();
-        tokens.AddRange(result);
-    }
-
-    private void Split(string text, List<Part> parts)
-    {
-        int i = 0;
-        while (i < text.Length)
+        if (working.IsEmpty)
         {
-            while (i < text.Length && IsDelimiter(text[i]))
-                i++;
-
-            if (i >= text.Length)
-                break;
-
-            int start = i;
-            PartKind kind = char.IsDigit(text[i]) ? PartKind.Number : PartKind.Word;
-            i++;
-
-            while (i < text.Length && !IsDelimiter(text[i]) && !IsBoundary(text, i, kind))
-                i++;
-
-            parts.Add(new Part(start, i, kind));
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+            return;
         }
-    }
 
-    private bool IsBoundary(string text, int index, PartKind currentKind)
-    {
-        char previous = text[index - 1];
-        char current = text[index];
+        // Build sub-token spans.
+        var parts = new List<(int RelStart, int RelEnd, bool IsNumber)>();
+        SplitIntoParts(working, parts);
 
-        if (_splitOnNumerics && char.IsDigit(previous) != char.IsDigit(current))
-            return true;
+        if (parts.Count == 0)
+        {
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+            return;
+        }
 
-        if (!_splitOnCaseChange || currentKind == PartKind.Number)
-            return false;
-
-        if (char.IsLower(previous) && char.IsUpper(current))
-            return true;
-
-        return char.IsUpper(previous)
-            && char.IsUpper(current)
-            && index + 1 < text.Length
-            && char.IsLower(text[index + 1]);
-    }
-
-    private static bool IsDelimiter(char c) => !char.IsLetterOrDigit(c);
-
-    private static Token CreatePartToken(Token source, Part part)
-    {
-        string text = source.Text[part.Start..part.End];
-        return new Token(
-            text,
-            source.StartOffset + part.Start,
-            source.StartOffset + part.End,
-            part.Kind == PartKind.Number ? UnicodeTokenisation.NumberType : source.Type,
-            source.PositionIncrement,
-            source.Payload);
-    }
-
-    private static void AddConcatenation(List<Token> result, Token source, List<Part> parts, PartKind kind)
-    {
-        int first = -1;
-        int last = -1;
-        int count = 0;
-        int length = 0;
+        bool emittedAny = false;
+        var wordRunIndices = new List<int>(parts.Count);
+        var numberRunIndices = new List<int>(parts.Count);
 
         for (int i = 0; i < parts.Count; i++)
         {
-            if (parts[i].Kind != kind)
-                continue;
+            var (relStart, relEnd, isNumber) = parts[i];
 
-            if (first < 0)
-                first = i;
-            last = i;
-            count++;
-            length += parts[i].End - parts[i].Start;
+            if (isNumber)
+            {
+                if (GenerateNumberParts)
+                {
+                    EmitPart(working, relStart, relEnd, startOffset + relStart,
+                        startOffset + relEnd,
+                        emittedAny ? 0 : positionIncrement, sink);
+                    emittedAny = true;
+                }
+
+                if (CatenateNumbers)
+                    numberRunIndices.Add(i);
+            }
+            else
+            {
+                if (GenerateWordParts)
+                {
+                    EmitPart(working, relStart, relEnd, startOffset + relStart,
+                        startOffset + relEnd,
+                        emittedAny ? 0 : positionIncrement, sink);
+                    emittedAny = true;
+                }
+
+                if (CatenateWords)
+                    wordRunIndices.Add(i);
+            }
         }
 
-        if (count < 2 || first < 0 || last < 0)
-            return;
-
-        string text = string.Create(length, (source.Text, parts, kind), static (buffer, state) =>
+        // Flush concatenation runs.
+        if (CatenateWords && wordRunIndices.Count > 1)
         {
-            int offset = 0;
-            for (int i = 0; i < state.parts.Count; i++)
+            EmitCatenatedParts(working, parts, wordRunIndices, startOffset,
+                emittedAny ? 0 : positionIncrement, sink);
+            emittedAny = true;
+        }
+
+        if (CatenateNumbers && numberRunIndices.Count > 1)
+        {
+            EmitCatenatedParts(working, parts, numberRunIndices, startOffset,
+                emittedAny ? 0 : positionIncrement, sink);
+            emittedAny = true;
+        }
+
+        if (CatenateAll && parts.Count > 0)
+        {
+            var allIndices = new List<int>(parts.Count);
+            for (int i = 0; i < parts.Count; i++)
+                allIndices.Add(i);
+            EmitCatenatedParts(working, parts, allIndices, startOffset,
+                emittedAny ? 0 : positionIncrement, sink);
+            emittedAny = true;
+        }
+
+        if (PreserveOriginal)
+        {
+            sink.Add(text, startOffset, endOffset, type,
+                emittedAny ? 0 : positionIncrement, payload);
+            emittedAny = true;
+        }
+
+        // If nothing was emitted (all parts filtered), emit original.
+        if (!emittedAny)
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+    }
+
+    private static void EmitPart(
+        ReadOnlySpan<char> source, int relStart, int relEnd,
+        int absStart, int absEnd,
+        int posInc, ISpanTokenSink sink)
+    {
+        sink.Add(source[relStart..relEnd], absStart, absEnd,
+            Token.DefaultType, posInc, null);
+    }
+
+    private static void EmitCatenatedParts(
+        ReadOnlySpan<char> source,
+        List<(int RelStart, int RelEnd, bool IsNumber)> parts,
+        List<int> indices,
+        int startOffset,
+        int posInc,
+        ISpanTokenSink sink)
+    {
+        if (indices.Count == 0) return;
+
+        if (indices.Count == 1)
+        {
+            var (relStart, relEnd, _) = parts[indices[0]];
+            sink.Add(source[relStart..relEnd], startOffset + relStart,
+                startOffset + relEnd, Token.DefaultType, posInc, null);
+            return;
+        }
+
+        // Calculate total character length.
+        int totalLen = 0;
+        for (int j = 0; j < indices.Count; j++)
+        {
+            int i = indices[j];
+            totalLen += parts[i].RelEnd - parts[i].RelStart;
+        }
+
+        char[]? rented = null;
+        Span<char> buf = totalLen <= 256
+            ? stackalloc char[totalLen]
+            : (rented = System.Buffers.ArrayPool<char>.Shared.Rent(totalLen)).AsSpan(0, totalLen);
+
+        int pos = 0;
+        for (int j = 0; j < indices.Count; j++)
+        {
+            int i = indices[j];
+            var (relStart, relEnd, _) = parts[i];
+            var span = source[relStart..relEnd];
+            span.CopyTo(buf[pos..]);
+            pos += span.Length;
+        }
+
+        int absStart = startOffset + parts[indices[0]].RelStart;
+        int absEnd = startOffset + parts[indices[^1]].RelEnd;
+        sink.Add(buf, absStart, absEnd, Token.DefaultType, posInc, null);
+
+        if (rented is not null)
+            System.Buffers.ArrayPool<char>.Shared.Return(rented);
+    }
+
+    private void SplitIntoParts(
+        ReadOnlySpan<char> text,
+        List<(int RelStart, int RelEnd, bool IsNumber)> parts)
+    {
+        parts.Clear();
+
+        if (text.IsEmpty) return;
+
+        int runStart = 0;
+        CharKind prevKind = Classify(text[0]);
+
+        for (int i = 1; i < text.Length; i++)
+        {
+            CharKind kind = Classify(text[i]);
+
+            if (kind == CharKind.Delimiter)
             {
-                var part = state.parts[i];
-                if (part.Kind != state.kind)
-                    continue;
-
-                state.Text.AsSpan(part.Start, part.End - part.Start).CopyTo(buffer[offset..]);
-                offset += part.End - part.Start;
+                if (prevKind != CharKind.Delimiter)
+                    AddPart(parts, runStart, i, prevKind == CharKind.Digit);
+                runStart = i + 1;
+                prevKind = kind;
+                continue;
             }
-        });
 
-        result.Add(new Token(
-            text,
-            source.StartOffset + parts[first].Start,
-            source.StartOffset + parts[last].End,
-            source.Type,
-            positionIncrement: 0));
+            if (prevKind == CharKind.Delimiter)
+            {
+                runStart = i;
+                prevKind = kind;
+                continue;
+            }
+
+            bool shouldSplit = false;
+
+            if (kind != prevKind)
+            {
+                if (SplitOnNumerics &&
+                    (prevKind == CharKind.Digit || kind == CharKind.Digit))
+                {
+                    shouldSplit = true;
+                }
+                else if (SplitOnCaseChange &&
+                         prevKind == CharKind.Lower && kind == CharKind.Upper)
+                {
+                    shouldSplit = true;
+                }
+                else if (SplitOnCaseChange &&
+                         prevKind == CharKind.Upper && kind == CharKind.Lower)
+                {
+                    // UPPER → lower: split before the last uppercase if the
+                    // uppercase run is longer than one character.
+                    // "POWERShot" → "POWER", "Shot"
+                    if (i - runStart > 1)
+                    {
+                        AddPart(parts, runStart, i - 1, false);
+                        runStart = i - 1;
+                    }
+                }
+            }
+
+            if (shouldSplit)
+            {
+                AddPart(parts, runStart, i, prevKind == CharKind.Digit);
+                runStart = i;
+            }
+
+            prevKind = kind;
+        }
+
+        // Emit the final run.
+        if (prevKind != CharKind.Delimiter && runStart < text.Length)
+            AddPart(parts, runStart, text.Length, prevKind == CharKind.Digit);
     }
 
-    private enum PartKind
+    private static void AddPart(
+        List<(int, int, bool)> parts, int start, int end, bool isNumber)
     {
-        Word,
-        Number
+        if (end > start)
+            parts.Add((start, end, isNumber));
     }
 
-    private readonly struct Part(int start, int end, PartKind kind)
+    [System.Runtime.CompilerServices.MethodImpl(
+        System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    private CharKind Classify(char c)
     {
-        public int Start { get; } = start;
-        public int End { get; } = end;
-        public PartKind Kind { get; } = kind;
+        if (IsDelimiter(c)) return CharKind.Delimiter;
+        if (char.IsDigit(c)) return CharKind.Digit;
+        if (char.IsLower(c)) return CharKind.Lower;
+        if (char.IsUpper(c)) return CharKind.Upper;
+        return CharKind.Lower;
+    }
+
+    private bool IsDelimiter(char c)
+    {
+        foreach (char d in _delimiters)
+            if (c == d) return true;
+        return false;
+    }
+
+    private enum CharKind : byte
+    {
+        Delimiter,
+        Digit,
+        Lower,
+        Upper
     }
 }

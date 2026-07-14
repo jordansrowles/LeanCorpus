@@ -1,5 +1,6 @@
 ﻿using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Codecs;
 
@@ -18,7 +19,7 @@ public sealed class BlockPostingsWriterTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_tempDir, true); } catch { }
+        TestDirectoryFixture.TryDeleteDirectory(_tempDir);
     }
 
     /// <summary>

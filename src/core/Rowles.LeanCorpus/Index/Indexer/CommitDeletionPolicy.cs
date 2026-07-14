@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+using System.Text.Json;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
 
@@ -20,7 +21,7 @@ internal static class CommitDeletionPolicy
 
     internal static bool ReferencesProtectedSegment(string commitFilePath, IReadOnlySet<string> protectedSegmentIds)
     {
-        if (protectedSegmentIds.Count == 0 || !File.Exists(commitFilePath))
+        if (protectedSegmentIds.Count == 0 || !FileOpenRetry.FileExists(commitFilePath))
             return false;
 
         using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(CommitFileFormat.ReadJson(commitFilePath)));

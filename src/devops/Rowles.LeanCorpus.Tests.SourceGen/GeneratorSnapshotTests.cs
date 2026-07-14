@@ -154,6 +154,48 @@ public sealed class GeneratorSnapshotTests
     }
 
     [Fact]
+    public void Emits_Int64Field_for_integral_property()
+    {
+        const string source = """
+            using Rowles.LeanCorpus.Mapping.Attributes;
+            namespace Sample;
+            [LeanDocument]
+            public partial class Inventory
+            {
+                [LeanString("id", Required = true)] public required string Id { get; init; }
+                [LeanNumeric("count")] public int Count { get; init; }
+            }
+            """;
+        var result = GeneratorTestHarness.Run(source);
+        Assert.Empty(result.GeneratorDiagnostics);
+        Assert.Empty(result.CompilationErrors);
+        var src = result.CombinedSource;
+        Assert.Contains("new Int64Field(Fields.Count.Name, (long)value.Count", src);
+        Assert.Contains("\"count\", FieldType.Int64", src);
+    }
+
+    [Fact]
+    public void Emits_NumericField_for_floating_point_property()
+    {
+        const string source = """
+            using Rowles.LeanCorpus.Mapping.Attributes;
+            namespace Sample;
+            [LeanDocument]
+            public partial class Reading
+            {
+                [LeanString("id", Required = true)] public required string Id { get; init; }
+                [LeanNumeric("temperature")] public double Temperature { get; init; }
+            }
+            """;
+        var result = GeneratorTestHarness.Run(source);
+        Assert.Empty(result.GeneratorDiagnostics);
+        Assert.Empty(result.CompilationErrors);
+        var src = result.CombinedSource;
+        Assert.Contains("new NumericField(Fields.Temperature.Name, (double)value.Temperature", src);
+        Assert.Contains("\"temperature\", FieldType.Numeric", src);
+    }
+
+    [Fact]
     public void Emits_vector_dimension_guard_and_blocks_FromStoredDocument()
     {
         const string source = """

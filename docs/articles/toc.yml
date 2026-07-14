@@ -12,3 +12,7 @@
   href: 05-codecs.md
 - name: Source generator diagnostics
   href: 06-source-generator-diagnostics.md
+- name: Feature comparison
+  href: 07-feature-comparison.md
+- name: ADRs
+  href: ADRs/index.md

@@ -1,42 +1,36 @@
 # Analysis overview
 
-Analysis turns raw text into the terms that LeanCorpus stores and queries. In most
-applications, the same analysis pipeline should run at index-time and query-time so
-that the stored terms and query terms line up.
+Analysis turns raw text into the terms LeanCorpus stores and queries. Use the same pipeline at index-time and query-time so terms line up.
 
-## The moving parts
+## The parts
 
-| Component | Role | Typical starting point |
+| Component | Role | Starting point |
 |---|---|---|
 | `IAnalyser` | End-to-end pipeline | `StandardAnalyser`, `StemmedAnalyser`, `LanguageAnalyser`, `IcuAnalyser` |
 | `ITokeniser` | Splits input into tokens | `Tokeniser`, `Uax29UrlEmailTokeniser`, `IcuTokeniser` |
 | `ITokenFilter` | Rewrites or drops tokens | `LowercaseFilter`, `StopWordFilter`, `SynonymGraphFilter` |
-| `ICharFilter` | Rewrites the input text before tokenisation | `HtmlStripCharFilter`, `MappingCharFilter`, `PatternReplaceCharFilter` |
-| `IStemmer` | Reduces tokens to broader term roots | `EnglishStemmer`, `FrenchStemmer`, `GermanStemmer` |
+| `ICharFilter` | Rewrites input text before tokenisation | `HtmlStripCharFilter`, `MappingCharFilter`, `PatternReplaceCharFilter` |
+| `IStemmer` | Reduces tokens to root forms | `EnglishStemmer`, `FrenchStemmer`, `GermanStemmer` |
 
 ## What to start with
 
-- Use `StandardAnalyser` when lowercase normalisation and stop-word removal are enough.
-- Use `StemmedAnalyser` when you want the standard pipeline plus Porter-based English stemming.
-- Use `AnalyserFactory.Create("en")` or another language code when you want a built-in language pipeline.
-- Use `IcuAnalyser` or `IcuTokeniser` when Unicode-heavy text needs better segmentation than the basic tokeniser.
-- Use `Analyser` directly when you need a custom tokeniser and filter chain.
+- `StandardAnalyser` for general text with lowercase and stop-word removal.
+- `StemmedAnalyser` for English text where broader recall matters.
+- `AnalyserFactory.Create("en")` (or another language code) for a built-in language pipeline.
+- `IcuAnalyser` or `IcuTokeniser` when Unicode segmentation matters.
+- `Analyser` directly for a custom tokeniser and filter chain.
 
 ## English stemming choices
 
-LeanCorpus currently exposes more than one public English stemmer. They are not interchangeable.
-
-| Type | Behaviour | When to use it |
+| Type | Behaviour | When |
 |---|---|---|
-| `EnglishStemmer` | Porter-based English stemming | Default choice for most English full-text search. This is the English stemmer used by `AnalyserFactory.Create("en")`. |
-| `LightEnglishStemmer` | Lighter suffix stripping with a smaller rule set | Use only when you specifically want less aggressive stemming. |
-| `KStemmer` | Lexicon-validated English stemming inspired by Krovetz | Uses a lexicon loaded from disk via `KStemLexicon.FromFile`, with optional `IKStemLexicon` override support. |
+| `EnglishStemmer` | Porter-based | Default for English. Used by `AnalyserFactory.Create("en")`. |
+| `LightEnglishStemmer` | Lighter suffix stripping | When Porter is too aggressive. |
+| `KStemmer` | Lexicon-validated (Krovetz-inspired) | When false stems cost more than missed stems. Needs `KStemLexicon.FromFile`. |
 
-`StemmedAnalyser` also uses Porter stemming. If you want one default English choice for
-consumer-facing documentation, treat `EnglishStemmer` as that default and reach for
-`LightEnglishStemmer` or `KStemmer` only deliberately.
+`StemmedAnalyser` also uses Porter stemming.
 
-## Build a pipeline
+## Custom pipeline
 
 ```csharp
 using Rowles.LeanCorpus.Analysis;

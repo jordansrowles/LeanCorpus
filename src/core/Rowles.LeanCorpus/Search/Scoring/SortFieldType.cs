@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Search.Scoring;
+namespace Rowles.LeanCorpus.Search.Scoring;
 
 /// <summary>Specifies the data type and sort behaviour for a field-based sort criterion.</summary>
 public enum SortFieldType
@@ -9,6 +9,8 @@ public enum SortFieldType
     DocId,
     /// <summary>Sort by a numeric stored/indexed field.</summary>
     Numeric,
+    /// <summary>Sort by a 64-bit integer stored/indexed field.</summary>
+    Int64,
     /// <summary>Sort by a string stored field (lexicographic).</summary>
     String
 }

@@ -4,8 +4,12 @@
 
 .DESCRIPTION
     Uses the Wikipedia MediaWiki API to download the introductory text of randomly
-    selected English Wikipedia articles as plain-text .txt files in
-    bench/data/wikipedia/ for use in text analysis and indexing benchmarks.
+    selected Wikipedia articles as plain-text .txt files in
+    bench/data/wikipedia/{language}/. Each article is written to its own file,
+    named with a random GUID (e.g. 7a3b2c1d-...txt).
+
+    Specify a BCP 47 language code (e.g. en, fr, de, zh, ja) to target that
+    language edition of Wikipedia. All language editions use the same API.
 
     Note: The Wikimedia abstract dump format was discontinued in 2024. This script
     uses the API's random-page generator with plaintext extracts instead.
@@ -15,56 +19,51 @@
 
     Licence: Article text is CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
 
+.PARAMETER Language
+    BCP 47 language code. Defaults to "en". Sets the Wikipedia language edition
+    to download from (e.g. "fr" for fr.wikipedia.org).
+
 .PARAMETER OutputDir
-    Override the output directory. Defaults to bench/data/wikipedia relative
+    Override the output directory. Defaults to bench/data/wikipedia/{language} relative
     to the repository root.
 
 .PARAMETER ArticleCount
     Total number of articles to download. Default: 5000.
 
-.PARAMETER ArticlesPerFile
-    Number of articles per output file. Default: 500.
-
 .EXAMPLE
     .\scripts\download-wikipedia.ps1
-    Downloads 5,000 article introductions (~250 KB-1 MB of text).
+    Downloads 5,000 English article introductions, one file per article.
 
 .EXAMPLE
-    .\scripts\download-wikipedia.ps1 -ArticleCount 20000 -ArticlesPerFile 1000
-    Downloads 20,000 articles, 1,000 per file.
+    .\scripts\download-wikipedia.ps1 -Language fr -ArticleCount 2000
+    Downloads 2,000 French article introductions, one file per article.
+
+.EXAMPLE
+    .\scripts\download-wikipedia.ps1 -Language zh -ArticleCount 10000
+    Downloads 10,000 Chinese article introductions, one file per article.
 #>
 param(
+    [string]$Language = 'en',
     [string]$OutputDir = '',
-    [int]$ArticleCount = 5000,
-    [int]$ArticlesPerFile = 500
+    [int]$ArticleCount = 5000
 )
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
 if ([string]::IsNullOrEmpty($OutputDir)) {
-    $OutputDir = Join-Path $repoRoot "bench\data\wikipedia"
+    $OutputDir = Join-Path $repoRoot "bench\data\wikipedia\$Language"
 }
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
-$apiBase  = "https://en.wikipedia.org/w/api.php"
-$headers  = @{ 'Api-User-Agent' = 'BenchmarkDataBot/1.0 (benchmark testing; non-commercial)' }
+$apiBase  = "https://${Language}.wikipedia.org/w/api.php"
+$headers  = @{ 'Api-User-Agent' = "BenchmarkDataBot/1.0 ($Language benchmark testing; non-commercial)" }
 $batchSize = 50  # max allowed by the random generator
 
 $totalFetched = 0
-$batchIndex   = 0
-$batchLines   = [System.Collections.Generic.List[string]]::new($ArticlesPerFile * 3)
 
-function FlushBatch {
-    param([System.Collections.Generic.List[string]]$Lines, [int]$Index, [string]$Dir)
-    $outFile = Join-Path $Dir ("batch-{0:D4}.txt" -f $Index)
-    [System.IO.File]::WriteAllLines($outFile, $Lines)
-    $count = [int]($Lines.Count / 3)
-    Write-Host ("  Saved batch {0:D4}: {1} articles -> {2}" -f $Index, $count, $outFile) -ForegroundColor Green
-    $Lines.Clear()
-}
-
-Write-Host "Downloading $ArticleCount Wikipedia article introductions..." -ForegroundColor Cyan
+Write-Host "Downloading $ArticleCount Wikipedia ($Language) article introductions..." -ForegroundColor Cyan
+Write-Host "API:    $apiBase"
 Write-Host "Output: $OutputDir"
 Write-Host ""
 
@@ -82,16 +81,11 @@ while ($totalFetched -lt $ArticleCount) {
         foreach ($page in $pages) {
             $extract = ($page.extract ?? '').Trim()
             if ($extract.Length -gt 50) {
-                $batchLines.Add($page.title)
-                $batchLines.Add($extract)
-                $batchLines.Add('')
+                # Write each article to its own GUID-named file: title on line 1, extract on line 2
+                $outFile = Join-Path $OutputDir "$([guid]::NewGuid()).txt"
+                "$($page.title)`n$extract" | Set-Content -Path $outFile -NoNewline
                 $totalFetched++
             }
-        }
-
-        if ($batchLines.Count -ge ($ArticlesPerFile * 3)) {
-            FlushBatch -Lines $batchLines -Index $batchIndex -Dir $OutputDir
-            $batchIndex++
         }
 
         Write-Host "  $totalFetched / $ArticleCount articles..." -ForegroundColor DarkGray
@@ -103,10 +97,6 @@ while ($totalFetched -lt $ArticleCount) {
     Start-Sleep -Milliseconds 500
 }
 
-if ($batchLines.Count -gt 0) {
-    FlushBatch -Lines $batchLines -Index $batchIndex -Dir $OutputDir
-}
-
 Write-Host ""
-Write-Host "Complete: $totalFetched articles in $($batchIndex + 1) file(s)." -ForegroundColor Yellow
+Write-Host "Complete: $totalFetched articles." -ForegroundColor Yellow
 Write-Host "Data in: $OutputDir"

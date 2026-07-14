@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using Rowles.LeanCorpus.Analysis;
 
 namespace Rowles.LeanCorpus.Analysis.Filters;
@@ -6,20 +6,13 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 /// <summary>
 /// Performs an in-place lowercase transformation on tokens or a character buffer.
 /// </summary>
-public sealed class LowercaseFilter : ITokenFilter, ISpanTokenFilter
+public sealed class LowercaseFilter : ISpanTokenFilter
 {
+    // SIMD-accelerated search values for uppercase ASCII letters A-Z.
+    private static readonly System.Buffers.SearchValues<char> UppercaseLetters =
+        System.Buffers.SearchValues.Create("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
 
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
-    {
-        for (int i = 0; i < tokens.Count; i++)
-        {
-            var t = tokens[i];
-            var lower = t.Text.ToLowerInvariant();
-            if (!ReferenceEquals(lower, t.Text))
-                tokens[i] = t.WithText(lower);
-        }
-    }
 
     /// <summary>
     /// Lowercases all characters in the provided character buffer in place.
@@ -27,8 +20,7 @@ public sealed class LowercaseFilter : ITokenFilter, ISpanTokenFilter
     /// <param name="buffer">The character buffer to transform.</param>
     public void Apply(Span<char> buffer)
     {
-        for (int i = 0; i < buffer.Length; i++)
-            buffer[i] = char.ToLowerInvariant(buffer[i]);
+        AsciiCharInspector.AsciiToLowerInPlace(buffer);
     }
 
     /// <inheritdoc/>
@@ -43,36 +35,38 @@ public sealed class LowercaseFilter : ITokenFilter, ISpanTokenFilter
     {
         ArgumentNullException.ThrowIfNull(sink);
 
-        int uppercaseIndex = IndexOfUppercase(text);
+        int uppercaseIndex = text.IndexOfAny(UppercaseLetters);
         if (uppercaseIndex < 0)
         {
             sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
             return;
         }
 
-        char[] buf = ArrayPool<char>.Shared.Rent(text.Length);
+        const int StackThreshold = 128;
+        char[]? rentedArr = null;
         try
         {
-            text.CopyTo(buf);
-            for (int i = uppercaseIndex; i < text.Length; i++)
-                buf[i] = char.ToLowerInvariant(buf[i]);
-
-            sink.Add(buf.AsSpan(0, text.Length), startOffset, endOffset, type, positionIncrement, payload);
+            if (text.Length <= StackThreshold)
+            {
+                Span<char> buf = stackalloc char[text.Length];
+                text.CopyTo(buf);
+                for (int i = uppercaseIndex; i < text.Length; i++)
+                    buf[i] = char.ToLowerInvariant(buf[i]);
+                sink.Add(buf[..text.Length], startOffset, endOffset, type, positionIncrement, payload);
+            }
+            else
+            {
+                rentedArr = ArrayPool<char>.Shared.Rent(text.Length);
+                Span<char> buf = rentedArr;
+                text.CopyTo(buf);
+                for (int i = uppercaseIndex; i < text.Length; i++)
+                    buf[i] = char.ToLowerInvariant(buf[i]);
+                sink.Add(buf[..text.Length], startOffset, endOffset, type, positionIncrement, payload);
+            }
         }
         finally
         {
-            ArrayPool<char>.Shared.Return(buf);
+            if (rentedArr is not null) ArrayPool<char>.Shared.Return(rentedArr);
         }
-    }
-
-    private static int IndexOfUppercase(ReadOnlySpan<char> text)
-    {
-        for (int i = 0; i < text.Length; i++)
-        {
-            if (char.IsUpper(text[i]))
-                return i;
-        }
-
-        return -1;
     }
 }

@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
 
@@ -18,7 +18,9 @@ public class TokeniserTests
     [Fact(DisplayName = "Tokenise: Sentence With Words Returns Tokens With Correct Offsets")]
     public void Tokenise_SentenceWithWords_ReturnsTokensWithCorrectOffsets()
     {
-        var tokens = _tokeniser.Tokenise("The quick brown fox");
+        var matSink = new MaterialisingTokenSink();
+        _tokeniser.Tokenise("The quick brown fox", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Equal(4, tokens.Count);
 
@@ -45,7 +47,9 @@ public class TokeniserTests
     [Fact(DisplayName = "Tokenise: Input With Punctuation Excludes Punctuation From Tokens")]
     public void Tokenise_InputWithPunctuation_ExcludesPunctuationFromTokens()
     {
-        var tokens = _tokeniser.Tokenise("hello, world!");
+        var matSink = new MaterialisingTokenSink();
+        _tokeniser.Tokenise("hello, world!", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Equal(2, tokens.Count);
         Assert.Equal("hello", tokens[0].Text);
@@ -58,7 +62,9 @@ public class TokeniserTests
     [Fact(DisplayName = "Tokenise: Empty Input Returns Empty List")]
     public void Tokenise_EmptyInput_ReturnsEmptyList()
     {
-        var tokens = _tokeniser.Tokenise(ReadOnlySpan<char>.Empty);
+        var matSink = new MaterialisingTokenSink();
+        _tokeniser.Tokenise(ReadOnlySpan<char>.Empty, matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Empty(tokens);
     }
@@ -69,7 +75,9 @@ public class TokeniserTests
     [Fact(DisplayName = "Tokenise: Only Whitespace And Punctuation Returns Empty List")]
     public void Tokenise_OnlyWhitespaceAndPunctuation_ReturnsEmptyList()
     {
-        var tokens = _tokeniser.Tokenise("  , . ! ");
+        var matSink = new MaterialisingTokenSink();
+        _tokeniser.Tokenise("  , . ! ", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Empty(tokens);
     }
@@ -80,7 +88,9 @@ public class TokeniserTests
     [Fact(DisplayName = "Tokenise: Single Word Returns Single Token")]
     public void Tokenise_SingleWord_ReturnsSingleToken()
     {
-        var tokens = _tokeniser.Tokenise("hello");
+        var matSink = new MaterialisingTokenSink();
+        _tokeniser.Tokenise("hello", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Single(tokens);
         Assert.Equal("hello", tokens[0].Text);

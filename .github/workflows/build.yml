@@ -1,11 +1,10 @@
-﻿name: Build
+name: Build
 
 on:
   push:
-    branches: [main, '1.4.0']
+    branches: [main, '[0-9]*']
   pull_request:
-    branches: [main, '1.4.0']
-
+    branches: [main, '[0-9]*']
 jobs:
   build:
     if: |
@@ -36,6 +35,8 @@ jobs:
           dotnet restore src/devops/Rowles.LeanCorpus.Tests.Integration/Rowles.LeanCorpus.Tests.Integration.csproj
           dotnet restore src/devops/Rowles.LeanCorpus.Tests.Chaos/Rowles.LeanCorpus.Tests.Chaos.csproj
           dotnet restore src/devops/Rowles.LeanCorpus.Tests.CompressionParity/Rowles.LeanCorpus.Tests.CompressionParity.csproj
+          dotnet restore src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj
+          dotnet restore src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj
 
       - name: Build tests
         run: |
@@ -43,23 +44,19 @@ jobs:
           dotnet build src/devops/Rowles.LeanCorpus.Tests.Integration/Rowles.LeanCorpus.Tests.Integration.csproj -c Release --no-restore
           dotnet build src/devops/Rowles.LeanCorpus.Tests.Chaos/Rowles.LeanCorpus.Tests.Chaos.csproj -c Release --no-restore
           dotnet build src/devops/Rowles.LeanCorpus.Tests.CompressionParity/Rowles.LeanCorpus.Tests.CompressionParity.csproj -c Release --no-restore
+          dotnet build src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-restore
+          dotnet build src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-restore
 
       - name: Test
         run: |
-          dotnet test src/devops/Rowles.LeanCorpus.Tests.Unit/Rowles.LeanCorpus.Tests.Unit.csproj -c Release --no-build --logger "trx;LogFileName=unit-test-results.trx"
-          dotnet test src/devops/Rowles.LeanCorpus.Tests.Integration/Rowles.LeanCorpus.Tests.Integration.csproj -c Release --no-build --logger "trx;LogFileName=integration-test-results.trx"
-          dotnet test src/devops/Rowles.LeanCorpus.Tests.Chaos/Rowles.LeanCorpus.Tests.Chaos.csproj -c Release --no-build --logger "trx;LogFileName=chaos-test-results.trx"
-          dotnet test src/devops/Rowles.LeanCorpus.Tests.CompressionParity/Rowles.LeanCorpus.Tests.CompressionParity.csproj -c Release --no-build --logger "trx;LogFileName=compression-parity-test-results.trx"
+          dotnet test src/devops/Rowles.LeanCorpus.Tests.Unit/Rowles.LeanCorpus.Tests.Unit.csproj -c Release --no-build --logger "trx;LogFileName=unit-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
+          dotnet test src/devops/Rowles.LeanCorpus.Tests.Integration/Rowles.LeanCorpus.Tests.Integration.csproj -c Release --no-build --logger "trx;LogFileName=integration-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
+          CHAOS_ITERATIONS=1000 dotnet test src/devops/Rowles.LeanCorpus.Tests.Chaos/Rowles.LeanCorpus.Tests.Chaos.csproj -c Release --no-build --logger "trx;LogFileName=chaos-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
+          dotnet test src/devops/Rowles.LeanCorpus.Tests.CompressionParity/Rowles.LeanCorpus.Tests.CompressionParity.csproj -c Release --no-build --logger "trx;LogFileName=compression-parity-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
+          dotnet test src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-build --logger "trx;LogFileName=sourcegen-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
 
-      - name: Publish Native AOT smoke
-        run: dotnet publish src/examples/Rowles.LeanCorpus.Example.NativeAot/Rowles.LeanCorpus.Example.NativeAot.csproj -c Release -r linux-x64 --self-contained true -p:PublishAot=true -p:WarningsAsErrors=IL2026%3BIL3050%3BIL2070%3BIL2072%3BIL2075%3BIL2090
-
-      - name: Run Native AOT smoke
-        run: src/examples/Rowles.LeanCorpus.Example.NativeAot/bin/Release/net10.0/linux-x64/publish/Rowles.LeanCorpus.Example.NativeAot
-
-      - name: Build docs
-        shell: pwsh
-        run: ./scripts/docs.ps1 -SkipBenchmarks
+      - name: Run Native AOT smoke tests
+        run: dotnet run --project src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-build --framework net10.0
 
       - name: Upload test results
         if: always()
@@ -71,7 +68,129 @@ jobs:
             src/devops/Rowles.LeanCorpus.Tests.Integration/TestResults/*.trx
             src/devops/Rowles.LeanCorpus.Tests.Chaos/TestResults/*.trx
             src/devops/Rowles.LeanCorpus.Tests.CompressionParity/TestResults/*.trx
+            src/devops/Rowles.LeanCorpus.Tests.SourceGen/TestResults/*.trx
           if-no-files-found: ignore
+
+      - name: Upload coverage results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-results
+          path: coverage-results/**/coverage.cobertura.xml
+          if-no-files-found: ignore
+
+  windows-build:
+    if: |
+      github.event_name == 'pull_request' ||
+      startsWith(github.event.head_commit.message, '[build]') ||
+      startsWith(github.event.head_commit.message, '[deploy]')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup .NET 11 preview
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Add .NET tools to PATH
+        run: echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Restore tests
+        run: |
+          dotnet restore src/devops/Rowles.LeanCorpus.Tests.Unit/Rowles.LeanCorpus.Tests.Unit.csproj
+          dotnet restore src/devops/Rowles.LeanCorpus.Tests.Integration/Rowles.LeanCorpus.Tests.Integration.csproj
+          dotnet restore src/devops/Rowles.LeanCorpus.Tests.Chaos/Rowles.LeanCorpus.Tests.Chaos.csproj
+          dotnet restore src/devops/Rowles.LeanCorpus.Tests.CompressionParity/Rowles.LeanCorpus.Tests.CompressionParity.csproj
+          dotnet restore src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj
+          dotnet restore src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj
+
+      - name: Build tests
+        run: |
+          dotnet build src/devops/Rowles.LeanCorpus.Tests.Unit/Rowles.LeanCorpus.Tests.Unit.csproj -c Release --no-restore
+          dotnet build src/devops/Rowles.LeanCorpus.Tests.Integration/Rowles.LeanCorpus.Tests.Integration.csproj -c Release --no-restore
+          dotnet build src/devops/Rowles.LeanCorpus.Tests.Chaos/Rowles.LeanCorpus.Tests.Chaos.csproj -c Release --no-restore
+          dotnet build src/devops/Rowles.LeanCorpus.Tests.CompressionParity/Rowles.LeanCorpus.Tests.CompressionParity.csproj -c Release --no-restore
+          dotnet build src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-restore
+          dotnet build src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-restore
+
+      - name: Test
+        run: |
+          dotnet test src/devops/Rowles.LeanCorpus.Tests.Unit/Rowles.LeanCorpus.Tests.Unit.csproj -c Release --no-build --logger "trx;LogFileName=unit-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
+          dotnet test src/devops/Rowles.LeanCorpus.Tests.Integration/Rowles.LeanCorpus.Tests.Integration.csproj -c Release --no-build --logger "trx;LogFileName=integration-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
+          $env:CHAOS_ITERATIONS = "1000"; dotnet test src/devops/Rowles.LeanCorpus.Tests.Chaos/Rowles.LeanCorpus.Tests.Chaos.csproj -c Release --no-build --logger "trx;LogFileName=chaos-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
+          dotnet test src/devops/Rowles.LeanCorpus.Tests.CompressionParity/Rowles.LeanCorpus.Tests.CompressionParity.csproj -c Release --no-build --logger "trx;LogFileName=compression-parity-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
+          dotnet test src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-build --logger "trx;LogFileName=sourcegen-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
+
+      - name: Run Native AOT smoke tests
+        run: dotnet run --project src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-build --framework net10.0
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-windows
+          path: |
+            src/devops/Rowles.LeanCorpus.Tests.Unit/TestResults/*.trx
+            src/devops/Rowles.LeanCorpus.Tests.Integration/TestResults/*.trx
+            src/devops/Rowles.LeanCorpus.Tests.Chaos/TestResults/*.trx
+            src/devops/Rowles.LeanCorpus.Tests.CompressionParity/TestResults/*.trx
+            src/devops/Rowles.LeanCorpus.Tests.SourceGen/TestResults/*.trx
+          if-no-files-found: ignore
+
+      - name: Upload coverage results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-results-windows
+          path: coverage-results/**/coverage.cobertura.xml
+          if-no-files-found: ignore
+
+  deploy:
+    needs: build
+    if: startsWith(github.event.head_commit.message, '[deploy]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup .NET 11 preview
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Add .NET tools to PATH
+        run: echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Download coverage results
+        uses: actions/download-artifact@v7
+        with:
+          name: coverage-results
+          path: coverage-results
+
+      - name: Restore core library
+        run: dotnet restore src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj
+
+      - name: Build core library
+        run: dotnet build src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj -c Release --no-restore
+
+      - name: Build docs
+        shell: pwsh
+        run: ./scripts/docs.ps1
+
+      - name: Copy coverage into docs site
+        run: cp -r docs/coverage docs/site/coverage
 
       - name: Upload docs artifact
         uses: actions/upload-artifact@v7

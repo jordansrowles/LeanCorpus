@@ -15,6 +15,7 @@ namespace Rowles.LeanCorpus.Tests.Integration.Search;
 public sealed class QueryParserTests
 {
     private readonly QueryParser _parser = new("body", new StandardAnalyser());
+    private readonly QueryParser _keywordParser = new("body", new KeywordAnalyser());
 
     /// <summary>
     /// Verifies the Parse: Single Term Returns Term Query scenario.
@@ -208,5 +209,72 @@ public sealed class QueryParserTests
     public void Parse_InvalidSyntax_ThrowsQueryParseException(string query)
     {
         Assert.Throws<QueryParseException>(() => _parser.Parse(query));
+    }
+
+    /// <summary>
+    /// Verifies that excessive nesting depth throws QueryParseException.
+    /// </summary>
+    [Fact(DisplayName = "Parse: Excessive Nesting Depth Throws Query Parse Exception")]
+    public void Parse_ExcessiveNestingDepth_ThrowsQueryParseException()
+    {
+        var deep = new string('(', 65) + "term" + new string(')', 65);
+        Assert.Throws<QueryParseException>(() => _parser.Parse(deep));
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  Backslash escaping
+    // ═══════════════════════════════════════════════════
+
+    [Fact(DisplayName = "Parse: Escaped colon in field value returns correct term")]
+    public void Parse_EscapedColon_ReturnsTermWithColon()
+    {
+        var query = _keywordParser.Parse(@"url:https\://example.com/path");
+        var tq = Assert.IsType<TermQuery>(query);
+        Assert.Equal("url", tq.Field);
+        Assert.Equal("https://example.com/path", tq.Term);
+    }
+
+    [Fact(DisplayName = "Parse: Multiple escaped colons in timestamp")]
+    public void Parse_EscapedTimestamp_ReturnsTermWithColons()
+    {
+        var query = _keywordParser.Parse(@"ts:2024\:01\:15T10\:30\:00");
+        var tq = Assert.IsType<TermQuery>(query);
+        Assert.Equal("ts", tq.Field);
+        Assert.Equal("2024:01:15T10:30:00", tq.Term);
+    }
+
+    [Fact(DisplayName = "Parse: Escaped colon and backslash in file path")]
+    public void Parse_EscapedFilePath_ReturnsTermWithBackslashAndColon()
+    {
+        var query = _keywordParser.Parse(@"path:C\:\\Users\\foo.txt");
+        var tq = Assert.IsType<TermQuery>(query);
+        Assert.Equal("path", tq.Field);
+        Assert.Equal(@"C:\Users\foo.txt", tq.Term);
+    }
+
+    [Fact(DisplayName = "Parse: Escaped colon in unfielded term")]
+    public void Parse_EscapedColon_Unfielded_ReturnsTermWithColon()
+    {
+        var query = _keywordParser.Parse(@"hello\:world");
+        var tq = Assert.IsType<TermQuery>(query);
+        Assert.Equal("body", tq.Field);
+        Assert.Equal("hello:world", tq.Term);
+    }
+
+    [Fact(DisplayName = "Parse: Escaped operators become literal")]
+    public void Parse_EscapedOperators_ReturnLiteral()
+    {
+        var query = _keywordParser.Parse(@"a\+b\-c\(d\)e\~f\^g\""h");
+        var tq = Assert.IsType<TermQuery>(query);
+        Assert.Equal("a+b-c(d)e~f^g\"h", tq.Term);
+    }
+
+    [Fact(DisplayName = "Parse: No escapes uses span fast path")]
+    public void Parse_NoEscapes_StillWorks()
+    {
+        var query = _parser.Parse("normal:term");
+        var tq = Assert.IsType<TermQuery>(query);
+        Assert.Equal("normal", tq.Field);
+        Assert.Equal("term", tq.Term);
     }
 }

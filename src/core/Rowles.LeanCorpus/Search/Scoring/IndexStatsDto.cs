@@ -1,4 +1,4 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
 
 namespace Rowles.LeanCorpus.Search.Scoring;
 
@@ -15,4 +15,6 @@ internal sealed class IndexStatsDto
 
     [JsonPropertyName("fieldDocCounts")]
     public Dictionary<string, int>? FieldDocCounts { get; set; }
+    [JsonPropertyName("fieldLengthSums")]
+    public Dictionary<string, long>? FieldLengthSums { get; set; }
 }

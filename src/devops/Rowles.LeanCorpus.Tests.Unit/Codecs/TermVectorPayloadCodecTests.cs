@@ -30,8 +30,8 @@ public sealed class TermVectorPayloadCodecTests : IClassFixture<TestDirectoryFix
 
         using var reader = TermVectorsReader.Open(path + ".tvd", path + ".tvx");
         var termVectors = reader.GetTermVector(0);
-        var hello = Assert.Single(termVectors["body"].Where(static entry => entry.Term == "hello"));
-        var world = Assert.Single(termVectors["body"].Where(static entry => entry.Term == "world"));
+        var hello = Assert.Single(termVectors["body"], static entry => entry.Term == "hello");
+        var world = Assert.Single(termVectors["body"], static entry => entry.Term == "world");
 
         Assert.Equal(new byte[] { 0x01 }, hello.Payloads![0]);
         Assert.Null(hello.Payloads![1]);

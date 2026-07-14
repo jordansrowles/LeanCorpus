@@ -1,4 +1,5 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
 namespace Rowles.LeanCorpus.Store;
 
@@ -30,4 +31,10 @@ internal static unsafe partial class NativeMethods
     // POSIX: madvise (Linux/macOS)
     [LibraryImport("libc", SetLastError = false)]
     internal static partial int madvise(nint addr, nuint length, int advice);
+
+    // POSIX: posix_fadvise (Linux only — no macOS or Windows equivalent)
+    [LibraryImport("libc", SetLastError = false)]
+    internal static partial int posix_fadvise(SafeFileHandle fd, long offset, long length, int advice);
+
+    internal const int POSIX_FADV_DONTNEED = 4;
 }

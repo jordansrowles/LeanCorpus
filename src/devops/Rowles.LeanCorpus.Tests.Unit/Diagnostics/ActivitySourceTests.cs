@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Diagnostics;
 
@@ -44,7 +45,7 @@ public sealed class ActivitySourceTests : IDisposable
         _listener.Dispose();
         _testSource.Dispose();
         foreach (var a in _captured) a.Dispose();
-        try { if (Directory.Exists(_dir)) Directory.Delete(_dir, true); } catch { }
+        TestDirectoryFixture.TryDeleteDirectory(_dir);
     }
 
     /// <summary>
@@ -165,7 +166,7 @@ public sealed class ActivitySourceTests : IDisposable
         writer.Commit();
         writer.Dispose();
 
-        try { Directory.Delete(noListenPath, true); } catch { }
+        TestDirectoryFixture.TryDeleteDirectory(noListenPath);
 
         // Our listener is disposed, so writes above should not flow into _captured.
         // Activities from other parallel tests can still produce items via *their* listeners

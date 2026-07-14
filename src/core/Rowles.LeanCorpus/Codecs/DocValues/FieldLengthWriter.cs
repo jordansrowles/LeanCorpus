@@ -1,4 +1,7 @@
-﻿using System.Text;
+using System.Buffers;
+using System.Text;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
@@ -10,26 +13,34 @@ namespace Rowles.LeanCorpus.Codecs.DocValues;
 /// </summary>
 internal static class FieldLengthWriter
 {
+
+    internal static void WriteFieldBlock(IBufferWriter<byte> bw, string fieldName, int[] lengths)
+    {
+        int count = lengths.Length;
+        var fieldBytes = Encoding.UTF8.GetBytes(fieldName);
+        bw.WriteInt32(fieldBytes.Length);
+        bw.WriteBytes(fieldBytes);
+        bw.WriteInt32(count);
+
+        for (int i = 0; i < count; i++)
+        {
+            int val = Math.Clamp(lengths[i], 0, ushort.MaxValue);
+            bw.Write7BitEncodedInt(val);
+        }
+    }
+
     internal static void Write(string filePath, IReadOnlyDictionary<string, int[]> fieldTokenCounts, int docCount = -1, bool durable = false)
     {
-        using var output = new IndexOutput(filePath, durable);
+        var bodyBuf = new ArrayBufferWriter<byte>(4096);
 
-        CodecConstants.WriteHeader(output, CodecConstants.FieldLengthVersion);
-        output.WriteInt32(fieldTokenCounts.Count);
+        bodyBuf.WriteInt32(fieldTokenCounts.Count);
 
         foreach (var (fieldName, counts) in fieldTokenCounts)
         {
-            int count = docCount >= 0 ? docCount : counts.Length;
-            var fieldBytes = Encoding.UTF8.GetBytes(fieldName);
-            output.WriteInt32(fieldBytes.Length);
-            output.WriteBytes(fieldBytes);
-            output.WriteInt32(count);
-
-            for (int i = 0; i < count; i++)
-            {
-                int val = Math.Clamp(counts[i], 0, ushort.MaxValue);
-                output.WriteVarInt(val);
-            }
+            WriteFieldBlock(bodyBuf, fieldName, counts);
         }
+
+        using var output = new IndexOutput(filePath, durable);
+        CodecFileHeader.Write(output, CodecFormats.FieldLengths, bodyBuf.WrittenSpan);
     }
 }

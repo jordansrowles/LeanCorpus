@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Search.Scoring;
+namespace Rowles.LeanCorpus.Search.Scoring;
 
 /// <summary>
 /// Specifies a field and direction for sorting search results.
@@ -34,6 +34,10 @@ public sealed class SortField
     /// <summary>Creates a numeric sort on the given field.</summary>
     public static SortField Numeric(string fieldName, bool descending = false)
         => new(SortFieldType.Numeric, fieldName, descending);
+
+    /// <summary>Creates a 64-bit integer sort on the given field.</summary>
+    public static SortField Int64(string fieldName, bool descending = false)
+        => new(SortFieldType.Int64, fieldName, descending);
 
     /// <summary>Creates a string sort on the given field.</summary>
     public static SortField String(string fieldName, bool descending = false)

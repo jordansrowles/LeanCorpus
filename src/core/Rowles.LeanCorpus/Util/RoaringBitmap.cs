@@ -1,6 +1,8 @@
 ﻿using System.Buffers;
 using System.Collections;
 using System.Numerics;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Util;
@@ -495,10 +497,13 @@ public sealed class RoaringBitmap : IEnumerable<int>
         var payload = payloadStream.ToArray();
         var crc = Crc32.Compute(payload);
 
-        Codecs.CodecConstants.WriteHeader(writer, Codecs.CodecConstants.RoaringBitmapVersion);
-        writer.Write(payload.Length);
-        writer.Write(payload);
-        writer.Write(crc);
+        // Body: [payloadLength:int32][payload:bytes][crc:uint32]
+        var bodyBuf = new ArrayBufferWriter<byte>(payload.Length + 16);
+        bodyBuf.WriteInt32(payload.Length);
+        bodyBuf.WriteBytes(payload);
+        bodyBuf.WriteInt32((int)crc);
+
+        CodecFileHeader.Write(writer, CodecFormats.RoaringBitmap, bodyBuf.WrittenSpan);
     }
 
     private void WritePayload(BinaryWriter writer)
@@ -544,15 +549,18 @@ public sealed class RoaringBitmap : IEnumerable<int>
     /// <exception cref="InvalidDataException">Thrown if the magic, version, length or CRC is invalid.</exception>
     public static RoaringBitmap Deserialise(BinaryReader reader)
     {
-        Codecs.CodecConstants.ValidateHeader(reader, Codecs.CodecConstants.RoaringBitmapVersion, "Roaring bitmap");
-        int payloadLen = reader.ReadInt32();
+        var result = CodecFileHeader.Read(reader, CodecFormats.RoaringBitmap);
+        using var bodyStream = new MemoryStream(result.Body);
+        using var bodyReader = new BinaryReader(bodyStream);
+
+        int payloadLen = bodyReader.ReadInt32();
         if (payloadLen < 0)
             throw new InvalidDataException($"Invalid Roaring bitmap payload length: {payloadLen}.");
-        var payload = reader.ReadBytes(payloadLen);
+        var payload = bodyReader.ReadBytes(payloadLen);
         if (payload.Length != payloadLen)
             throw new InvalidDataException(
                 $"Roaring bitmap truncated: expected {payloadLen} payload bytes, got {payload.Length}.");
-        uint expectedCrc = reader.ReadUInt32();
+        uint expectedCrc = bodyReader.ReadUInt32();
         uint actualCrc = Crc32.Compute(payload);
         if (expectedCrc != actualCrc)
             throw new InvalidDataException(
@@ -621,7 +629,7 @@ public sealed class RoaringBitmap : IEnumerable<int>
     /// <param name="filePath">The file path to write to.</param>
     public void Serialise(string filePath)
     {
-        using var stream = File.Create(filePath);
+        using var stream = FileOpenRetry.Open(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
         using var writer = new BinaryWriter(stream);
         Serialise(writer);
     }

@@ -39,6 +39,13 @@ public sealed class IndexSearcherConfig
     public int QueryCacheMaxEntries { get; set; } = 1024;
 
     /// <summary>
+    /// Optional shared query cache. When set, <see cref="IndexSearcher"/> uses this
+    /// cache instead of creating a per-instance one. <see cref="SearcherManager"/>
+    /// sets this to persist the cache across searcher refreshes.
+    /// </summary>
+    internal QueryCache? SharedCache { get; set; }
+
+    /// <summary>
     /// Metrics collector for search latency, cache hit/miss, etc.
     /// Default: <see cref="Diagnostics.NullMetricsCollector"/> (no-op).
     /// </summary>
@@ -55,4 +62,13 @@ public sealed class IndexSearcherConfig
     /// <see cref="Diagnostics.SearchEvent"/> in a bounded ring buffer. Default: null (disabled).
     /// </summary>
     public Diagnostics.SearchAnalytics? SearchAnalytics { get; set; }
+
+    /// <summary>
+    /// Enable Block-Max WAND scoring for disjunctive (OR) queries.
+    /// When true, the searcher uses per-block impact metadata to skip
+    /// non-competitive blocks during top-K evaluation. Most effective for
+    /// large OR queries against indexes with many documents per term.
+    /// Default: false.
+    /// </summary>
+    public bool EnableBlockMaxWand { get; set; }
 }

@@ -23,4 +23,21 @@ public interface ISpanTokenFilter
         int positionIncrement,
         byte[]? payload,
         ISpanTokenSink sink);
+
+    /// <summary>
+    /// Called after all tokens have been processed, allowing stateful filters to flush
+    /// buffered tokens into the pipeline. The default implementation is a no-op.
+    /// </summary>
+    /// <param name="sink">The next sink in the analysis pipeline.</param>
+    void Finish(ISpanTokenSink sink)
+    {
+        // Default no-op for stateless filters.
+    }
+
+    /// <summary>
+    /// Creates an independent copy of this filter with the same configuration
+    /// but fresh state. The default returns <c>this</c>, which is safe for
+    /// stateless filters. Stateful filters must override to return a new instance.
+    /// </summary>
+    ISpanTokenFilter Clone() => this;
 }

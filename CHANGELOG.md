@@ -1,17 +1,185 @@
-
-
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.4.1] - 2026-07-15
+
+## [2.0.0] - Work In Progress
 
 ### Added
 
-- `IndexSearcher.GetStoredFields(int, ISet<string>?)` and `GetStoredBinaryFields(int, ISet<string>?)` overloads that accept an optional set of field names to load. When provided, only the requested fields are decoded and allocated, reducing memory pressure when callers only need specific fields.
-- Corresponding overloads on `SegmentReader.GetStoredFields` and `SegmentReader.GetStoredBinaryFields`.
-- Internal callers (`ResolveNumeric`, `ResolveString`, `ExecuteRangeQuery`, `SearchWithFacets`) now pass targeted field sets when falling back to stored fields, avoiding loading unused fields.
+- `Search(Query, int, SortField)` detects index-sort match and returns early after collecting topN live docs from postings iteration without scoring (dfecfdd58)
+- `FileOpenRetry.Move`, `.Copy`, `.Delete`, `.DeleteDirectory`, `.CreateDirectory`, `.ReadLines`, `.FileExists`, `.EnumerateFiles`, `.GetFiles` with 5×10ms retry on `IOException`/`UnauthorizedAccessException` to absorb transient Windows file locks from Defender and mmap handle release (839078bcb)
+- `ScheduleBackgroundMerge` now logs merge exceptions via `TraceSwallowed("background-merge")` for diagnosability (d50b1f881)
+- CodecKit trailer format (`[version][body][bodyLen:int64]`) enabling zero-buffer streaming writes across all codec types (b69a4c0f, 3d3c1524c)
+- `StoredFieldsReader.DocCount` and `StoredFieldsReader.Compression` properties exposing metadata from the stored-fields file headers (b69a4c0f)
+- `IndexSearcher.Search(Query, SearchOptions)` and `SearchAsync(Query, SearchOptions, CancellationToken)` overloads that honour `StreamResults` for per-segment streaming without a global top-N heap (5573b0c1)
+- `IndexOpenGuard` integration tests (877682f5)
+- Added `FieldType.Int64` and `Int64Field`, and the pipeline infrastructure (3dfb10a1)
+- Added codec constants, format entries, and file extension table entries for `.numl`, `.dvnl`, `.dsnl`, and `.bkdl` (3dfb10a1)
+- `ConcurrentVsSequentialBenchmarks` suite comparing `AddDocumentsConcurrent` and `AddDocumentLockFree` throughput against sequential `AddDocument` at batch sizes of 100, 1000, and 10 000 documents. The `concurrent-write` suite name is registered in both `benchmark.ps1` and `benchmark.sh`.
+- LINQ queryable provider via `LeanQueryable<T>` and the `LeanExpressionVisitor` expression-tree translator. `Where`, `Select`, `First`, `Single`, `Count`, `Any`, `Take`, `Skip`, `OrderBy`, and `OrderByDescending` operators are supported; lambda predicates (`==`, `!=`, `>`, `>=`, `<`, `<=`, `&&`, `||`, `!`, `.Contains()`, `.StartsWith()`, `.EndsWith()`) are translated into native `Query` objects and executed directly against the index with no intermediate SQL or reflection. The Roslyn source generator emits a zero-allocation field-descriptor switch expression and an `AsQueryable(IndexSearcher)` entry point for `[LeanDocument]`-annotated models. `LeanField<TDoc,TVal>` and `LeanFieldBinding<TDoc>` implement `IFieldDescriptor` for AOT-compatible field resolution. Ships with unit, integration, and chaos test suites.
+- Multilingual Wikipedia download script (`scripts/download-wikipedia.sh`) with BCP 47 language code support, jq-based null-delimited record extraction, and exponential backoff rate limiting for 300+ language editions. The PowerShell script (`download-wikipedia.ps1`) gained the same `-Language` parameter for cross-language benchmark data collection.
+- LINQ queries tutorial (`docs/tutorials/searching/07-linq-queries.md`) covering quick start, supported operators, LINQ methods, allocation profile, and AOT compatibility guidance.
+- Vector quantisation: scalar (float32 → int8) and binary (BBQ) with a `VectorQuantisation` enum (`None`, `Int8`, `BBQ`), configurable per-field via `VectorFieldInfo.Quantisation` and globally via `IndexWriterConfig.VectorQuantisation`. HNSW graphs are built against quantised representations; includes `Int8DistanceComputer` and `BBQDistanceComputer` for distance-aware KNN retrieval, plus an Int8 fast path in HNSW distance computation.
+- CodecKit: a composable binary codec framework with primitive codecs (VarInt, VarUInt, fixed-width integers, byte sequences), combinators (fixed-frame, length-prefixed, bytes-owned), integrity wrappers (CRC32, xxHash32, xxHash64 with header or trailer placement, version envelope), Deflate compression wrapping, and an immutable `CodecRegistry`. Ships with unit, integration, chaos, and compression-parity test suites.
+- Five new scoring models: `Bm25PlusSimilarity`, `Bm25LSimilarity`, and three TF-IDF variants (`TfIdfAugmentedSimilarity`, `TfIdfDoubleNormSimilarity`, `TfIdfPivotedSimilarity`).
+- Three language-model similarities: `LMJelinekMercerSimilarity` (linear interpolation), `DirichletSimilarity` (Bayesian smoothing), and `LMAbsoluteDiscountingSimilarity` (absolute discounting). All consume `CollectionStatistics` for term probability estimation.
+- `PostingsHighlighter` and `TermVectorHighlighter` for snippet extraction using stored term-vector offsets without re-analysing the original text. `HybridHighlighter` combines stored-field re-analysis with term-vector snippet placement.
+- `StoreDocValues` flag on `StringField`, `TextField`, and `NumericField` (defaults: `true` for `StringField`/`NumericField`, `false` for `TextField`). When `false`, the field skips populating sorted, sorted-set, numeric, and binary DocValues, cutting per-document buffer overhead and shrinking the flush I/O footprint.
+- Profiling project with `ActivitySource`-based phased breakdown of indexing time (`add_document`, `analyse`, `flush`, `commit`, `merge`), plus a deletion-phased benchmark.
+
+### Changed
+
+- `FunctionScoreQuery` with a `TermQuery` inner now takes a dedicated `SearchCore` fast path, reusing `ThreadStatic` buffers and eliminating the generic-path `PrecomputeGlobalDocFreqs` and `Parallel.ForEach` overhead (a04036a42)
+- `SearchWithAggregations`, `SearchWithCollapse`, and `SearchWithFacets` now use a single-pass postings iteration with side-collectors instead of executing two full searches (dfecfdd58)
+- `ExecuteFunctionScoreQuery` uses inline scoring for TermQuery inners, eliminating the intermediate `TopNCollector(reader.MaxDoc)` allocation (dfecfdd58)
+- `ExecuteShouldOnlyHeap` uses proper multi-way heap merge instead of full heap rebuild per iteration, and the heap threshold is raised from 16 to 64 (dfecfdd58)
+- `ExecuteMoreLikeThis` caches extracted candidate terms with ConcurrentDictionary generation-swap eviction and uses string-based qualified term lookups for FST cache hits (dfecfdd58)
+- All `File.*/Directory.*/FileStream` calls across 15 files now route through FileOpenRetry wrappers, including IndexCodecMigrator, IndexRecovery, CommitManager, IndexWriter, deletion policies, SegmentMerger, IndexStats, IndexBackup, IndexMigrationRecovery, StoredFieldsStreamWriter, ParentBitSet, RoaringBitmap, SlowQueryLog, KStemLexicon, and ThaiTokeniser (839078bcb)
+- IndexAtomicFileWriter.Write uses FileOpenRetry.Move and FileOpenRetry.Delete instead of its own inline retry loop (839078bcb)
+- During file teardown and cleanup bare exceptions are now routed through `TraceSwallowed` so suppressed IO and permission errors are observable in diagnostic tooling (7f373517e)
+- Replaced exact float equality checks on Boost with `Math.Abs` epsilon comparison (`1e-6f`) in four locations flagged by SonarQube (190de56de)
+- Postings (`.pos`) now uses a v2 streaming format without a body-length prefix, eliminating full-body buffering during merge, flush and migration (285c54f72)
+- Test cleanup across 33 files now uses `TestDirectoryFixture.TryDeleteDirectory` with a GC+retry loop instead of silently swallowing `Directory.Delete` failures (6421de1b)
+- Highlighter.ExtractTerms now collects terms from WildcardQuery, FuzzyQuery, TermInSetQuery, MultiPhraseQuery, CombinedFieldsQuery, and wrapper queries (ConstantScoreQuery, DisjunctionMaxQuery, FunctionScoreQuery), so highlighting works across more query families (503be7c2)
+- IndexCodecMigrator now uses a mandatory staging directory for all migrations, writes migrated segments under new IDs, and atomically publishes the new commit; --in-place flag removed from CLI (d97a9927)
+- ICollector is now wired into IndexSearcher via Search(Query, ICollector); Count(Query) returns total hits without materialising a scored heap; CountCollector is now thread-safe (19bf3cdb)
+- QueryCache is now owned by SearcherManager and shared across searcher refreshes, so cached results survive when content hasn't changed (7ee5f977)
+- FlushDwptPool now asserts that the caller holds WriteLock, making the lock contract explicit and catching misuse in debug builds (84cbc9fc)
+- Moved AOT smoke console project into an xUnit 3 AOT test project. (e6741301, 7a79c1b1)
+- `ShingleFilter` and `SynonymGraphFilter` now buffer tokens in `Apply` and generate expansions in `Finish` instead of being pass-through stubs.
+- `SnowballStemmer` abstract base replaces seven duplicated `RemoveSuffix` implementations with a configurable N-step pipeline, pre/post-processing hooks, and per-language suffix arrays (Italian, Portuguese, Spanish, Dutch, French, German, Russian).
+- `SharedStandardIndex` now builds and caches a shared Lucene.NET index alongside the LeanCorpus one, stripping ~500 lines of duplicated Lucene setup/teardown from ten search benchmark suites.
+- `IndexWriter.Dispose` drain timeout changed from throwing to logging via `TraceSwallowed`.
+- `CombinedFieldsQueryBenchmarks`, `QueryCacheBenchmarks`, and `CollapseAndFacetBenchmarks` use shared `AddDocuments` helpers and pre-built queries to cut duplicated index construction.
+- KStemmer rule lookup uses a `FrozenDictionary` keyed by the last two characters of each suffix, with a one-character fallback, replacing linear scan of all rules. `StemTokenFilter` added a character-based pre-filter that skips buffer allocation for tokens whose last character cannot begin a stemming suffix (~85% of tokens).
+- Wildcard query execution pre-narrows the FST traversal by walking a known literal prefix (≥2 characters) ahead of the automaton intersection, avoiding per-candidate string materialisation for suffix-only pattern matching. `TermDictionaryReader` gained `GetTermsMatchingWithPrefix` and `GetTermOffsetsMatchingWithPrefix`; `IndexSearcher` and `SegmentReader` plumb through the prefix-narrowed overloads.
+- Pending deletion in `IndexWriter` is now applied via a single FST prefix scan per unique field rather than per-term individual lookups, matching against a `HashSet<string>` of bare terms per field. Hard and soft deletes share the same scan infrastructure.
+- `Highlighter` detects matching tokens inline during tokenisation via `OffsetCapturingSink`, removing the separate O(n) post-tokenisation match scan and its associated `List<int>` buffer.
+- MoreLikeThis candidate selection replaced `List<(float,string,string)>` + `Sort` with a bounded `PriorityQueue` min-heap and a reusable pooled `char[]` buffer for qualified-term construction, eliminating per-term string allocations in the cross-segment DF scan.
+- Benchmark temp directories now live under `bench/tmp/` (resolved relative to the repository root) instead of the system temp directory. A new `BenchmarkHelpers` class centralises Create, Delete, and full-tree cleanup; `Program.cs` cleans stale temp directories before and after the full benchmark run. Static Lucene.NET index resources are explicitly cleaned up by each search benchmark class. `CountingTokenSink` is reused as a field across benchmark iterations to avoid skewing allocation measurements.
+- Positions in `PostingAccumulator` are now stored as VarInt delta-encoded bytes instead of raw `int[]`, eliminating ~32 MB of GC pressure per 20K-document indexing run.
+- The indexing hot path uses an open-addressing byte-ref hash table (`BytesRefHash`) for postings accumulation, removing per-token string allocations during tokenisation.
+- Character-offset array allocation in `PostingAccumulator` is gated on `IndexWriterConfig.StoreTermVectors`, reducing per-term allocations by ~5× when term vectors are disabled.
+- `ScoreTerm` scoring made branchless via DIM devirtualisation, and phrase queries now intersect candidate documents before decoding positional data.
+- SIMD-accelerated ASCII lowercasing added to stemmers, `LowercaseFilter`, and `StandardAnalyser` via `AsciiCharInspector`.
+- `Analyser` constructor now accepts `ISpanTokeniser` directly; `IStemmer` removed in favour of `ISpanStemmer`. `AnalyserFactory` provides static construction helpers.
+- `RamBufferSizeMB` default raised from 16 to 512.
+- `PushDepth` wired into all nesting codecs to enforce a maximum nesting depth, preventing stack overflows on malformed inputs.
+- All per-codec format versions reset to 1 following the CodecKit migration. Legacy term dictionary v1/v2 codec, `ICompressionProvider` abstraction, and old-format readers removed.
+- Kernel hints (`SequentialScan`, `WriteThrough`) applied to merge I/O paths.
+- Concurrent indexing path: each DWPT partition now flushes its own segment to disk via `SegmentFlusher.FlushFromDwpt` instead of merging into the main buffer. `MergeDwpt`, `MergeMultiValuedDocValues`, and `AppendMergedStoredField` are deleted. HNSW graph construction is skipped on segments with fewer than 128 documents. (ADR005)
+- `HnswGraph.FromFrozen` no longer allocates a wasted mutable dictionary in the constructor. A private constructor accepts the `frozen` flag and skips mutable-level initialisation, and `_mutableLevels` is no longer `readonly`.
+- `IndexWriter.Dispose` no longer spins indefinitely waiting for in-flight indexing operations. A 30-second timeout prevents a stuck `AddDocument` call from hanging process shutdown.
+- Every swallowed exception across the library now logs via `LeanCorpusActivitySource.TraceSwallowed`, writing to `Debug.WriteLine` so filesystem errors during cleanup, fsync, merge, and event dispatch are no longer silent.
+- `AddDocumentsConcurrent` now clears the DWPT between `Parallel.ForEach` ranges, preventing accumulated document data from inflating segment doc counts when a thread processes multiple ranges. `QueryCache.Put` no longer increments the approximate count on duplicate keys.
+- `Commit` now waits for the background merge to finish before returning, preventing a race where a reader opened immediately after commit could see a new commit referencing segment files the merge had not yet flushed to disk.
+- `QueryCache` uses `ConcurrentDictionary` with generation-swap eviction instead of `Dictionary`+`Lock`+`LinkedList`. The `TryGet` path is lock-free. `Put` triggers a dictionary swap when the soft entry cap is exceeded. (ADR004)
+- `CodecFormatDescriptor` now carries a `HeaderFormat` field per extension, populated from `CodecFormats`, so version checks use the correct codec format rather than a single hardcoded value.
+- CodecKit extension points previously marked `internal` are now `public` so third-party codec authors can register custom checksums and formats: `ChecksumAlgorithmId`, `ChecksumPlacement`, `IChecksumProvider`, `CodecFileHeader`, and `CodecFormat`.
+- The CodecKit exception hierarchy was reorganised with three purpose-built public base classes. `CodecFormatException` covers structural problems (unknown version, trailing data, insufficient data), `CodecIntegrityException` covers checksum and hash failures, and `CodecResourceException` covers allocation and overflow errors. The intermediate `FormatViolationException` was removed and its subtypes distributed to the new bases. `CodecValidationException` was made public.
+- Norms format bumped to v2. `NormsReader` reads both v1 and v2 on open; `NormsWriter` produces v2. A migration path upgrades v1 `.nrm` files in place.
+- `SearcherManager.Acquire` and `AcquireLease` spin-waits now throw `TimeoutException` after 30 seconds instead of spinning indefinitely, matching the timeout applied to `IndexWriter.Dispose`.
+
+### Fixed
+
+- SearchWithFacets now falls back to a two-pass search for non-TermQuery queries, fixing facet collection for MatchAllDocsQuery and other complex query types (9d653096b)
+- `FileOpenRetry.Open` now catches `IOException` (the exception Windows throws for file-locking) in addition to `UnauthorizedAccessException`, so the retry backoff actually fires instead of propagating immediately to callers (c892a4362)
+- `RewriteTermDictionary` no longer holds an MMF-backed `IndexInput` open on the source `.dic` file after the version probe, preventing `IOException` ("file in use by another process") when the subsequent `File.Copy` or `File.Move` runs on Windows (e064ac2f4)
+- `QueryParser` now supports backslash escaping (`\:`, `\\`, `\+`, etc.) in term tokens so values containing colons such as URLs, timestamps, and file paths are not prematurely split at `:` (2f3318d7d)
+- `EvaluateMemberExpression` now rejects non-field member access (properties, static members, chained access) with a clear `NotSupportedException` instead of silently compiling and invoking arbitrary code such as `DateTime.Now` or `someObj.ExpensiveProperty` during query translation (2961ef826)
+- `RewriteTermDictionary` now correctly rewrites `.dic` files from older CodecKit versions by re-encoding the FST at the current envelope version instead of throwing `InvalidDataException` (904be6020)
+- `IndexWriter.Dispose` no longer throws `ObjectDisposedException` from `SemaphoreSlim.Release` when the 30-second drain timeout expires while in-flight threads are still flushing segments (81ab65fa5)
+- Concurrently indexed segments (via `AddDocumentLockFree`/`AddDocumentsConcurrent`) now write `.tvd`/`.tvx` term vectors, apply char filters, and conditionally drop token offsets when `StoreTermVectors` is false, matching the sequential indexing output (bcfd778d6)
+- Async indexing methods no longer block thread-pool threads on `_writeLock` after await, preventing pool starvation under concurrent `async` writes (42c2e01fb)
+- `AcquireBackpressureSlotAsync` swallowed `ObjectDisposedException` during shutdown and returned without a backpressure slot; removed and replaced by channel-based serialisation (42c2e01fb)
+- `RewriteNorms` no longer buffers every field's boost arrays in a dictionary during migration, preventing OOM on indexes with many boosted fields (9f989508a)
+- `RewriteNumericDocValues` no longer buffers every field's presence sets in a dictionary during migration, preventing OOM on indexes with many sparse numeric fields (9f989508a)
+- Background segment merge failures no longer go unobserved; the writer is marked as failed and future operations throw `InvalidOperationException` with a clear message instead of silently accumulating segments (d50b1f881)
+- `PublishStagingFiles` no longer skips existing files or leaves source files absent from staging, preventing mixed-format indexes after codec migration (ba3fb8dc1)
+- LZ4, Snappy, and Zstandard compression codecs now survive Native AOT trimming with `DynamicDependency` annotations and AOT smoke coverage for explicit `Register()` calls Bumped all three: 1.0.0 to 1.0.1 (6baef8281)
+- Floating-point inequality comparisons with exact values in boost checks (3d3c1524c)
+- `StoredFieldsReader` no longer allocates unbounded byte arrays from file-declared lengths, enabling compression-bomb denial-of-service (7efc69fc8)
+- `SearcherManager` refresh loop caught and suppressed fatal exceptions, causing thrashing on `OutOfMemoryException` (d1ebf824b)
+- `RrfQuery`, `MoreLikeThisQuery`, and `BlockJoinQuery` no longer return zero results when searched via the `CancellationToken` or `SearchOptions` overloads (2011ed19b)
+- `ForceMerge` and `Compact` could silently drop segments when merging segments containing only dead documents (adfce1628)
+- Resolved all xUnit2020 and xUnit1051 analyser warnings in the AOT smoke test project (56a1db09a)
+- `SortedDocValuesReader` now validates unpacked ordinals against the ord-table size and rejects `bitsPerOrd > 63,` preventing crashes on corrupt or empty sorted `DocValues` fields (2ae3dd75b)
+- `BKDReader` now validates node markers, leaf counts against remaining file bytes, and caps recursion depth at 64 to prevent crashes from corrupt `.bkd` files (6811f49fe)
+- `BlockPostingsEnum` now validates `skipCount`, `docNumBits`, `freqNumBits`, and `tailCount` before consuming them, preventing crashes from corrupt `.pos` files (5b891d42b)
+- Validate position/payload VarInt reads, payload length advances, and payload span bounds against file length in PostingsEnum to prevent access violations from corrupt postings data (ee12b524d)
+- Verify `FstBuilder` node content equality on hash hit to prevent silent suffix corruption from 64-bit FNV-1a collisions (25ba8d2fb)
+- `HnswReader` now validates header and per-node counts against `nodeCount` to prevent OOM/corrupt reads from malformed `.hnsw` files (f86b7c37f)
+- `FstReader` arc decoder now validates buffer bounds on corrupt FST data, and `Count()` correctly excludes soft-deleted documents (34e903cd0)
+- `MergeThrottleSegments` now blocks `AddDocument` until a background merge completes rather than performing a pointless extra flush (1b7a7b3a8)
+- Range and Int64 range queries no longer allocate a `HashSet<string>` per document when falling back to stored fields (234ab977)
+- `CombinedFieldsQuery.FieldWeights` no longer allocates a new dictionary on every access (944b03f4)
+- Prefix, wildcard, fuzzy, range, regex, and automaton term dictionary lookups no longer allocate UTF-8 byte arrays per call (d5f77b6f)
+- Duplicate Meter instances with name `Rowles.LeanCorpus` that could cause telemetry listener collisions (4f23137a)
+- `IndexOpenGuard` no longer silently skips segments whose codec files cannot be read; IO exceptions and data-corruption errors now propagate so that corrupt or unreadable segment files are detected rather than bypassed as if they were unsupported versions (485fe74a)
+- HNSW
+  - `QuantisedVectorWriter` no longer quantises every vector twice; packed bytes (Int8) and bit-packed data (BBQ) are stored during the first quantisation pass and written directly in the second, eliminating the duplicate computation pass  (3a0a5ec7)
+  - HNSW graph construction for BBQ-quantised vectors now uses Hamming distance (via PopCount on raw bit-packed data) for stored-vs-stored comparisons, matching the query-time distance metric and eliminating the recall degradation caused by optimising the graph for dot-product on dequantised vectors (c1e9344d)
+  - HNSW graph construction and search no longer repeatedly dequantises the same stored vectors (c9aeb7ae)
+  - `SelectNeighboursHeuristic` now caches dequantised vectors per call, eliminating the inner-loop `O(m * k)` allocations for quantised formats (BBQ, Int8) (c9aeb7ae)
+- `NumericDocValuesReader` and `SortedNumericDocValuesReader` now reject `bitsPerValue > 64` and validate packed-bytes length, preventing out-of-bounds reads on malformed doc-value files (7f7525b2)
+- `TermVectorHighlighter` now validates the full phrase window instead of only checking immediate neighbours, so phrase highlighting no longer triggers on terms that are adjacent but in the wrong order or from different phrases (087e58d6) 
+- Merged segments now inherit the active commit generation instead of being hard-coded to 0, so retention, backup, and migration tooling sees correct metadata (bda24522)
+- SegmentMerger.MergeVectors now uses the configured HnswBuildConfig instead of defaults when rebuilding vector graphs during merge (2737b7e9)
+- ReverseStringFilter now uses `ArrayPool<char>` for tokens longer than 128 characters instead of unbounded stackalloc, preventing stack overflow on pathologically long tokens (14b5406c)
+- IndexBackup.Restore now verifies restored files against manifest CRC-32 checksums after copy, catching hardware errors during restore (98ded332)
+- IndexOutputBuffer.Advance(0) no longer discards unflushed buffered bytes by resetting the write position (b03f761b)
+- AddIndexes now correctly reads source segment files from the foreign directory instead of the target, fixing cross-directory index import (c24efd41)
+- BlockMaxWandScorer
+  - now uses per-document norms in block skip entries for tighter upper bounds; deleted documents are correctly excluded from WAND results (52a553c5)
+  - now uses LM scoring with proper block-max upper bounds and is wired into the disjunctive query path behind EnableBlockMaxWand (6a3aa769)
+  - now scores with proper BM25 and block-max bounds; stateful filters reset between documents and clone correctly for concurrent use (42862187)
+- Analyser.Clone() now deep-clones every filter so LanguageAnalyser is safe for concurrent use; stateful filters reset in Finish() and return fresh instances from Clone() (42862187)
+- Stateful analysis filters (SynonymGraphFilter, ShingleFilter, LimitTokenCountFilter, CachingTokenFilter) now reset their state between documents, preventing token leakage across multi-document pipelines (94fec8cf)
+- PackDelta now validates monotonic non-negative input, catching corrupt postings data before it gets packed (345854c4)
+- Phrase and SpanNear queries now score as a sum of all term weights rather than using only the rarest term (fed34fc8)
+- `StemTokenFilter` no longer skips stemming based on an English-centric suffix-letter pre-filter, fixing incomplete stems for non-English languages (ee28d923)
+- `WordDelimiterFilter` and `UniqueTokenFilter` are now fully implemented and tested (10fac633)
+- `JsonDocumentMapper`/`JsonMappingOptions` fixes (3dfb10a1)
+  - Depth overflow now throws instead of silently dropping data
+  - `JsonMappingOptions` validates `MaxDepth` and `StringFieldMaxLength`
+  - JSON strings now default to `StringField`
+- `ForceMerge` now cleans up segment files for merged segments, matching the behaviour of Compact and preventing unbounded disk growth (643a349f)
+- `Compact`, `ForceMerge`, and background merges now refuse to run while a two-phase prepared commit is pending, preventing commit-generation collisions that would throw `IOException` on publish (ebadf8d1)
+- `AddDocumentsConcurrent` now flushes segments under `WriteLock` so concurrent deletes and commits cannot interleave between segment creation and visibility (90e7a528)
+- `ExecuteFilterToBitmap` no longer mutates the shared `SegmentReader.DocBase`. Now subtracts the captured base from collected global IDs, eliminating a data race on concurrent vector-filter searches (b4488e0e)
+- `NumericAggregator` no longer probes only docId 0 to resolve field type; now checks field existence across all three numeric stores, fixing silent zero results when the field was absent from the first document (ef8c9033)
+- Boolean index scoring fallback no longer inflates legitimate zero scores to 1.0f (ffd46248)
+- `MoreLikeThis` now excludes the source document. (6974ebda)
+- Properly wired `IndexOfNormalisableDigit`/`NormaliseDigit` helpers into `Apply`. Add several tests. Updated `AnalysisSmokeTests` to assert actual normalised values rather than just token count. (1cd3010b, c0f1192d)
+- `Compact()`, `WriteNorms()`, `PushDepth`, and `CodecFormat` validation bugs caught by codec audit.
+- Double-byte-copy in `AddBinaryDocValue`: the string overload encoded to UTF-8 then called the span overload which called `ToArray()` a second time. Both paths now route through a shared core method, allocating once.
+- AOT smoke test script now auto-detects the OS when selecting the runtime identifier.
+- Highlighter and similarity benchmark comparisons against Lucene.NET corrected.
+- Every `await` in the library now includes `ConfigureAwait(false)`, preventing continuations from capturing the caller's `SynchronizationContext`.
+- `GetVector(int docId)` in `SegmentReader.DocValues` now iterates all vector fields instead of returning on the first iteration, fixing a bug where only one field was ever checked.
+- `NumericDocValues` bit-packing range calculation uses signed subtraction to keep the compiler happy on unsigned underflow in unchecked arithmetic.
+- `IndexOutputBuffer` now implements `IDisposable`; callers use `using` blocks to return rented arrays to the pool.
+- `posix_fadvise` P/Invoke accepts a `SafeFileHandle` directly instead of unsafely extracting the raw fd.
+- `BackpressureController.AcquireBackpressureSlotAsync` uses `WaitAsync` instead of a blocking `Wait(0)` on the async path.
+- `IndexBackup` retry loops converted from `for(;;)` to `while(true)` so the stop condition and incrementer stay close to the exit check.
+- AOT example file-scoped types moved into a named namespace.
+- Floating-point equality on `RamBufferSizeMB` and scoring boosts replaced with range comparisons.
+- Generic null checks across CodecKit (`CaseDefinition`, `ChoiceCodec`, `OptionalCodec`, `VersionedCodec`, `VersionEnvelopeCodec`) switched to `is null` so the compiler's nullable analysis stays accurate.
+- Benchmark regex instances include a timeout, silencing ReDoS hotspot noise.
+
+### Removed
+
+- Dead second deletion pass in `CommitCore` that flushed and re-checked an already-cleared pending-deletes list (d6bfc72da)
+- CodecFormats.StoredFields static field — the stored-fields format no longer uses the CodecKit envelope and writes headers directly through StoredFieldsFileHeader (b69a4c0f)
+- Dead `NumericFields` buffer (`List<Dictionary<string, double>>`) from `DocumentBufferState` and `IndexWriter.FieldProcessing`; it allocated an empty dictionary for every document containing a numeric field but was never read, while the actual numeric index lives in `NumericIndex` (614846ad)
+
+## [1.4.1] - 2026-06-13
+
+### Added
+
+- `GetStoredFields` overload with an optional `fieldsToLoad` parameter for selective stored-field retrieval, reducing allocations when only a subset of fields is needed.
 
 ## [1.4.0] - 2026-05-29
 

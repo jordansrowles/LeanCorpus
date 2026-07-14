@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Xunit;
 
@@ -30,14 +30,21 @@ public sealed class LanguageAnalyserConcurrencyTests
 
         // Single-threaded baseline.
         var baseline = inputs
-            .Select(t => analyser.Analyse(t).Select(tok => tok.Text).ToArray())
+            .Select(t =>
+            {
+                var matSink = new MaterialisingTokenSink();
+                analyser.Analyse(t, matSink);
+                return matSink.Tokens.Select(tok => tok.Text).ToArray();
+            })
             .ToArray();
 
         const int iterations = 200;
         Parallel.For(0, iterations * inputs.Length, i =>
         {
             var idx = i % inputs.Length;
-            var actual = analyser.Analyse(inputs[idx]).Select(t => t.Text).ToArray();
+            var matSink = new MaterialisingTokenSink();
+            analyser.Analyse(inputs[idx], matSink);
+            var actual = matSink.Tokens.Select(t => t.Text).ToArray();
             Assert.Equal(baseline[idx], actual);
         });
     }

@@ -1,30 +1,21 @@
 ﻿# Vector search
 
-LeanCorpus stores dense float vectors per segment and builds an HNSW graph at
-flush time by default. Searches use HNSW when a graph is present, then rerank the
-shortlist with exact cosine similarity.
+Dense float vectors are stored per segment with an HNSW graph built at flush time. Searches use HNSW when present, then rerank the shortlist with exact cosine similarity.
 
-## Index a vector
+## Index
 
 ```csharp
-using Rowles.LeanCorpus.Document.Fields;
-
 var doc = new LeanDocument();
 doc.Add(new StringField("id", "v1"));
 doc.Add(new VectorField("embedding", new float[] { 0.1f, 0.2f, 0.3f, 0.4f }));
 writer.AddDocument(doc);
 ```
 
-All vectors written to the same field must have the same dimensionality.
-
-Vector fields are normalised at index time by default. This keeps cosine search
-cheap and consistent.
+All vectors in the same field must have the same dimensionality. Vectors are normalised at index time by default (keeps cosine search cheap).
 
 ## Query
 
 ```csharp
-using Rowles.LeanCorpus.Search.Queries;
-
 var query = new VectorQuery(
     "embedding",
     queryVector,
@@ -35,15 +26,11 @@ var query = new VectorQuery(
 var hits = searcher.Search(query, topN: 10);
 ```
 
-The score is cosine similarity, range `[-1, 1]` (typically `[0, 1]` for normalised
-vectors).
+Score is cosine similarity, range `[-1, 1]` (typically `[0, 1]` for normalised vectors).
 
 ## Build settings
 
 ```csharp
-using Rowles.LeanCorpus.Codecs.Hnsw;
-using Rowles.LeanCorpus.Index.Indexer;
-
 var config = new IndexWriterConfig
 {
     NormaliseVectors = true,
@@ -60,20 +47,50 @@ Set `HnswSeed` for reproducible graph builds.
 
 ## Hybrid retrieval
 
-Combine a vector query with a text query through [RRF](04-rrf.md), or add a
-filter directly to `VectorQuery`:
+Combine vector with text via RRF:
+
+```csharp
+var rrf = new RrfQuery()
+    .Add(new TermQuery("body", "machine learning"))
+    .Add(new VectorQuery("embedding", queryVector, topK: 50));
+```
+
+Or add a filter directly:
 
 ```csharp
 var filter = new TermQuery("category", "docs");
 var query = new VectorQuery("embedding", queryVector, topK: 10, filter: filter);
 ```
 
-## Implementation note
+## Fallback
 
-If no HNSW graph exists, LeanCorpus falls back to a flat SIMD scan. Vector
-readers are opened lazily, so non-vector searches do not pay the mmap cost.
+If no HNSW graph exists, falls back to a flat SIMD scan. Vector readers are opened lazily, so non-vector searches don't pay the mmap cost.
+
+## Quantisation
+
+BBQ (binary quantisation) compresses float32 vectors 32× into single-bit buckets. The HNSW graph is built over the compressed space, and the shortlist is reranked with exact cosine distance:
+
+```csharp
+var config = new IndexWriterConfig
+{
+    BuildHnswOnFlush = true,
+    VectorQuantisation = new BBQVectorQuantisationConfig()
+};
+```
+
+Int8 scalar quantisation is also available, compressing 4× with a per-vector min/max scale:
+
+```csharp
+var config = new IndexWriterConfig
+{
+    VectorQuantisation = new Int8QuantisationConfig()
+};
+```
+
+Quantised vectors reduce storage and HNSW graph memory at the cost of a small recall penalty. Use BBQ for disk-bound workloads; Int8 when precision matters more.
 
 ## See also
 
-- <xref:Rowles.LeanCorpus.Search.Queries.VectorQuery>
 - [Filtered vector search](08-filtered-vector-search.md)
+- [Reciprocal rank fusion](04-rrf.md)
+- <xref:Rowles.LeanCorpus.Search.Queries.VectorQuery>

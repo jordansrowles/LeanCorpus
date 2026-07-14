@@ -1,5 +1,6 @@
 ﻿using System.Runtime.CompilerServices;
 using K4os.Compression.LZ4;
+using System.Diagnostics.CodeAnalysis;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 
 namespace Rowles.LeanCorpus.Compression.LZ4;
@@ -69,6 +70,7 @@ public static class Lz4Compression
     }
 
 #pragma warning disable CA2255
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(Lz4CompressionCodec))]
     [ModuleInitializer]
 #pragma warning restore CA2255
     internal static void Initialise()

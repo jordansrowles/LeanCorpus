@@ -1,19 +1,7 @@
 ﻿using BenchmarkDotNet.Attributes;
-using Lucene.Net.Analysis.Standard;
-using Lucene.Net.Documents;
 using Lucene.Net.Index;
 using Lucene.Net.Search;
-using Lucene.Net.Util;
-using IODirectory = System.IO.Directory;
-using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
 using LeanIndexSearcher = Rowles.LeanCorpus.Search.Searcher.IndexSearcher;
-using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;
-using LeanStringField = Rowles.LeanCorpus.Document.Fields.StringField;
-using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
-using LuceneIndexSearcher = Lucene.Net.Search.IndexSearcher;
-using LuceneMMapDirectory = Lucene.Net.Store.MMapDirectory;
-using LuceneStringField = Lucene.Net.Documents.StringField;
-using LuceneTextField = Lucene.Net.Documents.TextField;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
@@ -38,24 +26,15 @@ public class BooleanQueryBenchmarks
     [Params("Must2Common", "Must3Mixed", "Should2Common", "Should4Mixed", "MustNotCommon")]
     public string BooleanShape { get; set; } = "Must2Common";
 
-    private string _leanIndexPath = string.Empty;
-    private LeanMMapDirectory? _leanDirectory;
     private LeanIndexSearcher? _leanSearcher;
     private Rowles.LeanCorpus.Search.Query? _leanQuery;
-
-    private string _luceneIndexPath = string.Empty;
-    private LuceneMMapDirectory? _luceneDirectory;
-    private StandardAnalyzer? _luceneAnalyzer;
-    private DirectoryReader? _luceneReader;
-    private LuceneIndexSearcher? _luceneSearcher;
     private Lucene.Net.Search.Query? _luceneQuery;
 
     [GlobalSetup]
     public void Setup()
     {
-        var documents = BenchmarkData.BuildDocuments(DocumentCount);
-        BuildLeanIndex(documents);
-        BuildLuceneIndex(documents);
+        SharedStandardIndex.EnsureInitialised(DocumentCount);
+        _leanSearcher = SharedStandardIndex.LeanSearcher;
         _leanQuery = BuildLeanQuery(BooleanShape);
         _luceneQuery = BuildLuceneQuery(BooleanShape);
     }
@@ -63,15 +42,7 @@ public class BooleanQueryBenchmarks
     [GlobalCleanup]
     public void Cleanup()
     {
-        _leanSearcher?.Dispose();
-        if (!string.IsNullOrWhiteSpace(_leanIndexPath) && IODirectory.Exists(_leanIndexPath))
-            IODirectory.Delete(_leanIndexPath, recursive: true);
-
-        _luceneReader?.Dispose();
-        _luceneAnalyzer?.Dispose();
-        _luceneDirectory?.Dispose();
-        if (!string.IsNullOrWhiteSpace(_luceneIndexPath) && IODirectory.Exists(_luceneIndexPath))
-            IODirectory.Delete(_luceneIndexPath, recursive: true);
+        // All resources are owned by SharedStandardIndex; do not dispose.
     }
 
     [Benchmark(Baseline = true)]
@@ -85,60 +56,7 @@ public class BooleanQueryBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_BooleanQuery()
     {
-        return _luceneSearcher!.Search(_luceneQuery!, TopN).TotalHits;
-    }
-
-    // --- Index builders ---
-
-    private void BuildLeanIndex(string[] documents)
-    {
-        _leanIndexPath = Path.Combine(Path.GetTempPath(), $"leancorpus-bench-bool-{Guid.NewGuid():N}");
-        IODirectory.CreateDirectory(_leanIndexPath);
-
-        _leanDirectory = new LeanMMapDirectory(_leanIndexPath);
-        using (var writer = new Rowles.LeanCorpus.Index.Indexer.IndexWriter(
-            _leanDirectory,
-            new Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig { MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 }))
-        {
-            for (int i = 0; i < documents.Length; i++)
-            {
-                var doc = new LeanDocument();
-                doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-                doc.Add(new LeanTextField("body", documents[i]));
-                writer.AddDocument(doc);
-            }
-            writer.Commit();
-        }
-
-        _leanSearcher = new LeanIndexSearcher(_leanDirectory);
-    }
-
-    private void BuildLuceneIndex(string[] documents)
-    {
-        _luceneIndexPath = Path.Combine(Path.GetTempPath(), $"lucenenet-bench-bool-{Guid.NewGuid():N}");
-        IODirectory.CreateDirectory(_luceneIndexPath);
-
-        _luceneDirectory = new LuceneMMapDirectory(new DirectoryInfo(_luceneIndexPath));
-        _luceneAnalyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
-
-        using (var writer = new Lucene.Net.Index.IndexWriter(
-            _luceneDirectory,
-            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, _luceneAnalyzer)))
-        {
-            for (int i = 0; i < documents.Length; i++)
-            {
-                var doc = new Lucene.Net.Documents.Document
-                {
-                    new LuceneStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture), Field.Store.NO),
-                    new LuceneTextField("body", documents[i], Field.Store.NO)
-                };
-                writer.AddDocument(doc);
-            }
-            writer.Commit();
-        }
-
-        _luceneReader = DirectoryReader.Open(_luceneDirectory);
-        _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
+        return SharedStandardIndex.LuceneSearcher.Search(_luceneQuery!, TopN).TotalHits;
     }
 
     private static Rowles.LeanCorpus.Search.Query BuildLeanQuery(string shape)

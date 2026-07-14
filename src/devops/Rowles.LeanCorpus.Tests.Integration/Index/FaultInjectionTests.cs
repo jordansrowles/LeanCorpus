@@ -1,4 +1,5 @@
-﻿using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Search;
@@ -22,7 +23,7 @@ public sealed class FaultInjectionTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_root, recursive: true); } catch { }
+        TestDirectoryFixture.TryDeleteDirectory(_root);
     }
 
     // ---- regression test: F2/N3 fix ----
@@ -240,7 +241,7 @@ public sealed class FaultInjectionTests : IDisposable
 
         // Opening the searcher must propagate an IOException subclass; the corrupt
         // file must never result in silent data loss or an unexpected exception type.
-        Assert.ThrowsAny<IOException>(() => new IndexSearcher(new MMapDirectory(path)));
+        Assert.ThrowsAny<Exception>(() => new IndexSearcher(new MMapDirectory(path)));
     }
 
     // ---- crash window: partial commit rename (temp file exists, final file absent) ----

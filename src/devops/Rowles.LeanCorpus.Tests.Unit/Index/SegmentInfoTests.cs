@@ -1,3 +1,4 @@
+using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 namespace Rowles.LeanCorpus.Tests.Unit.Index;
 
 /// <summary>
@@ -17,7 +18,7 @@ public sealed class SegmentInfoTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_dir, true); } catch { }
+        TestDirectoryFixture.TryDeleteDirectory(_dir);
     }
 
     [Fact(DisplayName = "SegmentInfo.ReadFrom: JSON Null Deserialise Throws InvalidDataException")]

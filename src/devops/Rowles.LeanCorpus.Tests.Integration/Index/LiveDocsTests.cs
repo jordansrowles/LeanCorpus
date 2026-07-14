@@ -231,4 +231,53 @@ public sealed class LiveDocsTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(1, searcher.Search(new TermQuery("id", "bravo"), 10).TotalHits);
         Assert.Equal(1, searcher.Search(new TermQuery("id", "delta"), 10).TotalHits);
     }
+
+    /// <summary>
+    /// Verifies that soft deletes are applied to committed segments during
+    /// commit and that the list is cleared; the single pre-flush application
+    /// in CommitCore suffices (no second pass is needed).
+    /// </summary>
+    [Fact(DisplayName = "Soft Delete: Commit Applies Deletes Once And Clears Pending List")]
+    public void SoftDelete_CommitAppliesDeletesOnce_AndClearsPendingList()
+    {
+        var subDir = System.IO.Path.Combine(_fixture.Path, "sd_commit_once");
+        System.IO.Directory.CreateDirectory(subDir);
+
+        var dir = new MMapDirectory(subDir);
+        var config = new IndexWriterConfig
+        {
+            MaxBufferedDocs = 2,
+            SoftDeletesEnabled = true,
+            SoftDeleteRetentionSeconds = 3600
+        };
+
+        using (var writer = new IndexWriter(dir, config))
+        {
+            // Index 6 documents across multiple segments (flush every 2)
+            for (int i = 1; i <= 6; i++)
+            {
+                var doc = new LeanDocument();
+                doc.Add(new StringField("id", $"doc-{i}"));
+                doc.Add(new TextField("body", $"content number {i}"));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+
+            // Soft-delete three of them
+            writer.SoftDeleteDocuments(new TermQuery("id", "doc-1"));
+            writer.SoftDeleteDocuments(new TermQuery("id", "doc-3"));
+            writer.SoftDeleteDocuments(new TermQuery("id", "doc-5"));
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+
+        Assert.Equal(3, searcher.Stats.LiveDocCount);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc-1"), 10).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc-3"), 10).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc-5"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "doc-2"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "doc-4"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "doc-6"), 10).TotalHits);
+    }
 }

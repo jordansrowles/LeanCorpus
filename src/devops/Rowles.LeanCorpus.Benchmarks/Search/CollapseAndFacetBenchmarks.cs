@@ -1,10 +1,23 @@
 using BenchmarkDotNet.Attributes;
+using Lucene.Net.Analysis.Standard;
+using Lucene.Net.Index;
+using Lucene.Net.Search;
+using Lucene.Net.Util;
 using IODirectory = System.IO.Directory;
 using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
 using LeanIndexSearcher = Rowles.LeanCorpus.Search.Searcher.IndexSearcher;
 using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;
 using LeanStringField = Rowles.LeanCorpus.Document.Fields.StringField;
 using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
+using LuceneDocument = Lucene.Net.Documents.Document;
+using LuceneStringField = Lucene.Net.Documents.StringField;
+using LuceneTextField = Lucene.Net.Documents.TextField;
+using LuceneIndexSearcher = Lucene.Net.Search.IndexSearcher;
+using LuceneDirectoryReader = Lucene.Net.Index.DirectoryReader;
+using LuceneMMapDirectory = Lucene.Net.Store.MMapDirectory;
+using LuceneTermQuery = Lucene.Net.Search.TermQuery;
+using LuceneTerm = Lucene.Net.Index.Term;
+using TermQuery = Rowles.LeanCorpus.Search.Queries.TermQuery;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
@@ -22,6 +35,9 @@ public class CollapseAndFacetBenchmarks
 {
     private const int TopN = 25;
     private const int CategoryCount = 10;
+    private const string FieldBody = "body";
+    private const string FieldCategory = "category";
+    private const string QueryTerm = "government";
 
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
 
@@ -31,41 +47,53 @@ public class CollapseAndFacetBenchmarks
     private string _leanIndexPath = string.Empty;
     private LeanMMapDirectory? _leanDirectory;
     private LeanIndexSearcher? _leanSearcher;
+    private TermQuery? _leanQuery;
+    private CollapseField? _leanCollapse;
+
+    // Lucene.NET index state
+    private string _luceneIndexPath = string.Empty;
+    private LuceneMMapDirectory? _luceneDirectory;
+    private LuceneDirectoryReader? _luceneReader;
+    private LuceneIndexSearcher? _luceneSearcher;
+    private LuceneTermQuery? _luceneQuery;
 
     [GlobalSetup]
     public void Setup()
     {
         var documents = BenchmarkData.BuildDocuments(DocumentCount);
+        _leanQuery = new TermQuery(FieldBody, QueryTerm);
+        _leanCollapse = new CollapseField(FieldCategory);
+        _luceneQuery = new LuceneTermQuery(new LuceneTerm(FieldBody, QueryTerm));
         BuildLeanIndex(documents);
+        BuildLuceneIndex(documents);
     }
 
     [GlobalCleanup]
     public void Cleanup()
     {
         _leanSearcher?.Dispose();
-        if (!string.IsNullOrWhiteSpace(_leanIndexPath) && IODirectory.Exists(_leanIndexPath))
-            IODirectory.Delete(_leanIndexPath, recursive: true);
+        DeleteDir(_leanIndexPath);
+
+        _luceneReader?.Dispose();
+        _luceneDirectory?.Dispose();
+        DeleteDir(_luceneIndexPath);
     }
 
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_BaseSearch()
-        => _leanSearcher!.Search(new TermQuery("body", "government"), TopN).TotalHits;
+        => _leanSearcher!.Search(_leanQuery!, TopN).TotalHits;
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_SearchWithCollapse()
-        => _leanSearcher!.SearchWithCollapse(
-            new TermQuery("body", "government"),
-            TopN,
-            new CollapseField("category")).TotalHits;
+        => _leanSearcher!.SearchWithCollapse(_leanQuery!, TopN, _leanCollapse!).TotalHits;
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_SearchWithFacets()
     {
-        var (results, _) = _leanSearcher!.SearchWithFacets(
-            new TermQuery("body", "government"), TopN, "category");
+        var (results, _) = _leanSearcher!.SearchWithFacets(_leanQuery!, TopN, FieldCategory);
         return results.TotalHits;
     }
 
@@ -73,32 +101,85 @@ public class CollapseAndFacetBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_SearchWithCollapseAndFacets()
     {
-        // Collapse first, then get facets from the collapsed result set
-        var collapsed = _leanSearcher!.SearchWithCollapse(
-            new TermQuery("body", "government"),
-            TopN,
-            new CollapseField("category"));
-        return collapsed.TotalHits;
+        var collapsed = _leanSearcher!.SearchWithCollapse(_leanQuery!, TopN, _leanCollapse!);
+        var (_, facets) = _leanSearcher!.SearchWithFacets(_leanQuery!, TopN, FieldCategory);
+        return collapsed.TotalHits + facets.Count;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_TermQuery()
+        => _luceneSearcher!.Search(_luceneQuery!, TopN).TotalHits;
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_SearchWithCollapse()
+    {
+        var hits = _luceneSearcher!.Search(_luceneQuery!, _luceneReader!.MaxDoc);
+        var seen = new HashSet<string>();
+        int collapsedCount = 0;
+        foreach (var sd in hits.ScoreDocs)
+        {
+            var doc = _luceneSearcher.Doc(sd.Doc);
+            var category = doc.Get(FieldCategory);
+            if (category is not null && seen.Add(category))
+                collapsedCount++;
+        }
+        return collapsedCount;
+    }
+
+    private void BuildLuceneIndex(string[] documents)
+    {
+        _luceneIndexPath = Path.Combine(BenchmarkHelpers.TempRoot, $"lucenenet-bench-collapse-{Guid.NewGuid():N}");
+        IODirectory.CreateDirectory(_luceneIndexPath);
+        _luceneDirectory = new LuceneMMapDirectory(new System.IO.DirectoryInfo(_luceneIndexPath));
+        var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+        using var writer = new Lucene.Net.Index.IndexWriter(
+            _luceneDirectory,
+            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
+        foreach (var (i, id, category, body) in EnumerateDocuments(documents))
+        {
+            var doc = new LuceneDocument();
+            doc.Add(new LuceneStringField("id", id, Lucene.Net.Documents.Field.Store.NO));
+            doc.Add(new LuceneTextField(FieldBody, body, Lucene.Net.Documents.Field.Store.NO));
+            doc.Add(new LuceneStringField(FieldCategory, category, Lucene.Net.Documents.Field.Store.YES));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+        _luceneReader = LuceneDirectoryReader.Open(_luceneDirectory);
+        _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
     }
 
     private void BuildLeanIndex(string[] documents)
     {
-        _leanIndexPath = Path.Combine(Path.GetTempPath(), $"leancorpus-bench-collapse-{Guid.NewGuid():N}");
+        _leanIndexPath = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-collapse-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(_leanIndexPath);
         _leanDirectory = new LeanMMapDirectory(_leanIndexPath);
         using var writer = new Rowles.LeanCorpus.Index.Indexer.IndexWriter(
             _leanDirectory,
             new Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig { MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 });
-        for (int i = 0; i < documents.Length; i++)
+        foreach (var (i, id, category, body) in EnumerateDocuments(documents))
         {
-            var category = $"cat{i % CategoryCount}";
             var doc = new LeanDocument();
-            doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-            doc.Add(new LeanTextField("body", documents[i]));
-            doc.Add(new LeanStringField("category", category, stored: true));
+            doc.Add(new LeanStringField("id", id));
+            doc.Add(new LeanTextField(FieldBody, body));
+            doc.Add(new LeanStringField(FieldCategory, category, stored: true));
             writer.AddDocument(doc);
         }
         writer.Commit();
         _leanSearcher = new LeanIndexSearcher(_leanDirectory);
+    }
+
+    private static IEnumerable<(int Index, string Id, string Category, string Body)> EnumerateDocuments(string[] documents)
+    {
+        for (int i = 0; i < documents.Length; i++)
+            yield return (i, i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                $"cat{i % CategoryCount}", documents[i]);
+    }
+
+    private static void DeleteDir(string path)
+    {
+        if (!string.IsNullOrWhiteSpace(path) && IODirectory.Exists(path))
+            IODirectory.Delete(path, recursive: true);
     }
 }

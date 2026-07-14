@@ -4,7 +4,7 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// Tokeniser for common MediaWiki markup including headings, links, categories,
 /// emphasis markup, citations, URLs, and plain body text.
 /// </summary>
-public sealed class MediaWikiTokeniser : ITokeniser
+public sealed class MediaWikiTokeniser : ISpanTokeniser
 {
     /// <summary>Token type emitted for MediaWiki categories.</summary>
     public const string CategoryType = "mediawiki.category";
@@ -44,21 +44,20 @@ public sealed class MediaWikiTokeniser : ITokeniser
     }
 
     /// <inheritdoc/>
-    public List<Token> Tokenise(ReadOnlySpan<char> input)
+    public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
         string text = input.ToString();
-        var tokens = new List<Token>();
         int i = 0;
 
         while (i < text.Length)
         {
-            if (TryReadHeading(text, ref i, tokens)
-                || TryReadTag(text, ref i, "<ref>", "</ref>", CitationType, tokens)
-                || TryReadQuoted(text, ref i, "'''", BoldType, tokens)
-                || TryReadQuoted(text, ref i, "''", ItalicType, tokens)
-                || TryReadCategory(text, ref i, tokens)
-                || TryReadInternalLink(text, ref i, tokens)
-                || TryReadExternalLink(text, ref i, tokens))
+            if (TryReadHeading(text, ref i, sink)
+                || TryReadTag(text, ref i, "<ref>", "</ref>", CitationType, sink)
+                || TryReadQuoted(text, ref i, "'''", BoldType, sink)
+                || TryReadQuoted(text, ref i, "''", ItalicType, sink)
+                || TryReadCategory(text, ref i, sink)
+                || TryReadInternalLink(text, ref i, sink)
+                || TryReadExternalLink(text, ref i, sink))
             {
                 continue;
             }
@@ -70,14 +69,13 @@ public sealed class MediaWikiTokeniser : ITokeniser
                 continue;
             }
 
-            AddShifted(tokens, _plainTokeniser.Tokenise(text.AsSpan(i, next - i)), i, typeOverride: null);
+            _plainTokeniser.Tokenise(text.AsSpan(i, next - i), new UnicodeTokenisation.OffsetShiftingSink(sink, i));
             i = next;
         }
-
-        return tokens;
     }
 
-    private bool TryReadHeading(string text, ref int index, List<Token> tokens)
+
+    private bool TryReadHeading(string text, ref int index, ISpanTokenSink sink)
     {
         if (text[index] != '=' || (index > 0 && text[index - 1] != '\n'))
             return false;
@@ -104,12 +102,13 @@ public sealed class MediaWikiTokeniser : ITokeniser
         while (contentEnd > contentStart && char.IsWhiteSpace(text[contentEnd - 1]))
             contentEnd--;
 
-        AddShifted(tokens, _icuTokeniser.Tokenise(text.AsSpan(contentStart, contentEnd - contentStart)), contentStart, HeadingType);
+        _icuTokeniser.Tokenise(text.AsSpan(contentStart, contentEnd - contentStart),
+            new UnicodeTokenisation.OffsetShiftingSink(sink, contentStart, HeadingType));
         index = lineEnd;
         return true;
     }
 
-    private bool TryReadQuoted(string text, ref int index, string delimiter, string type, List<Token> tokens)
+    private bool TryReadQuoted(string text, ref int index, string delimiter, string type, ISpanTokenSink sink)
     {
         if (!text.AsSpan(index).StartsWith(delimiter, StringComparison.Ordinal))
             return false;
@@ -119,12 +118,13 @@ public sealed class MediaWikiTokeniser : ITokeniser
         if (end < 0)
             return false;
 
-        AddShifted(tokens, _icuTokeniser.Tokenise(text.AsSpan(contentStart, end - contentStart)), contentStart, type);
+        _icuTokeniser.Tokenise(text.AsSpan(contentStart, end - contentStart),
+            new UnicodeTokenisation.OffsetShiftingSink(sink, contentStart, type));
         index = end + delimiter.Length;
         return true;
     }
 
-    private bool TryReadTag(string text, ref int index, string startTag, string endTag, string type, List<Token> tokens)
+    private bool TryReadTag(string text, ref int index, string startTag, string endTag, string type, ISpanTokenSink sink)
     {
         if (!text.AsSpan(index).StartsWith(startTag, StringComparison.OrdinalIgnoreCase))
             return false;
@@ -134,12 +134,13 @@ public sealed class MediaWikiTokeniser : ITokeniser
         if (end < 0)
             return false;
 
-        AddShifted(tokens, _icuTokeniser.Tokenise(text.AsSpan(contentStart, end - contentStart)), contentStart, type);
+        _icuTokeniser.Tokenise(text.AsSpan(contentStart, end - contentStart),
+            new UnicodeTokenisation.OffsetShiftingSink(sink, contentStart, type));
         index = end + endTag.Length;
         return true;
     }
 
-    private bool TryReadCategory(string text, ref int index, List<Token> tokens)
+    private bool TryReadCategory(string text, ref int index, ISpanTokenSink sink)
     {
         const string prefix = "[[Category:";
         if (!text.AsSpan(index).StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
@@ -152,12 +153,13 @@ public sealed class MediaWikiTokeniser : ITokeniser
 
         int pipe = text.IndexOf('|', contentStart, end - contentStart);
         int labelStart = pipe >= 0 ? pipe + 1 : contentStart;
-        AddShifted(tokens, _icuTokeniser.Tokenise(text.AsSpan(labelStart, end - labelStart)), labelStart, CategoryType);
+        _icuTokeniser.Tokenise(text.AsSpan(labelStart, end - labelStart),
+            new UnicodeTokenisation.OffsetShiftingSink(sink, labelStart, CategoryType));
         index = end + 2;
         return true;
     }
 
-    private bool TryReadInternalLink(string text, ref int index, List<Token> tokens)
+    private bool TryReadInternalLink(string text, ref int index, ISpanTokenSink sink)
     {
         if (!text.AsSpan(index).StartsWith("[[", StringComparison.Ordinal))
             return false;
@@ -169,12 +171,13 @@ public sealed class MediaWikiTokeniser : ITokeniser
 
         int pipe = text.LastIndexOf('|', end - 1, end - contentStart);
         int labelStart = pipe >= contentStart ? pipe + 1 : contentStart;
-        AddShifted(tokens, _icuTokeniser.Tokenise(text.AsSpan(labelStart, end - labelStart)), labelStart, InternalLinkType);
+        _icuTokeniser.Tokenise(text.AsSpan(labelStart, end - labelStart),
+            new UnicodeTokenisation.OffsetShiftingSink(sink, labelStart, InternalLinkType));
         index = end + 2;
         return true;
     }
 
-    private bool TryReadExternalLink(string text, ref int index, List<Token> tokens)
+    private bool TryReadExternalLink(string text, ref int index, ISpanTokenSink sink)
     {
         if (text[index] != '[' || index + 1 >= text.Length || text[index + 1] == '[')
             return false;
@@ -187,9 +190,12 @@ public sealed class MediaWikiTokeniser : ITokeniser
         if (closing < 0)
             return false;
 
-        tokens.Add(new Token(text[contentStart..urlEnd], contentStart, urlEnd, ExternalLinkType));
+        sink.Add(text.AsSpan(contentStart, urlEnd - contentStart), contentStart, urlEnd, ExternalLinkType);
         if (urlEnd < closing && char.IsWhiteSpace(text[urlEnd]))
-            AddShifted(tokens, _plainTokeniser.Tokenise(text.AsSpan(urlEnd + 1, closing - urlEnd - 1)), urlEnd + 1, ExternalLinkType);
+        {
+            _plainTokeniser.Tokenise(text.AsSpan(urlEnd + 1, closing - urlEnd - 1),
+                new UnicodeTokenisation.OffsetShiftingSink(sink, urlEnd + 1, ExternalLinkType));
+        }
 
         index = closing + 1;
         return true;
@@ -207,9 +213,5 @@ public sealed class MediaWikiTokeniser : ITokeniser
 
         return next;
     }
-
-    private static void AddShifted(List<Token> destination, List<Token> source, int baseOffset, string? typeOverride)
-    {
-        UnicodeTokenisation.AddShiftedTokens(destination, source, baseOffset, typeOverride);
-    }
 }
+

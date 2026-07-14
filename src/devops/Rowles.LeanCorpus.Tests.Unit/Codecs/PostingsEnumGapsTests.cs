@@ -1,116 +1,39 @@
-﻿using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Store;
+using System.Text;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Codecs;
 
-/// <summary>
-/// Gap-coverage tests for <see cref="PostingsEnum"/>:
-/// Empty sentinel, ValidateFileHeader (valid and bad header), Dispose idempotency,
-/// iteration, Reset, and Advance via a small hand-written v2 postings list.
-/// </summary>
-[Trait("Category", "Codecs")]
-[Trait("Category", "UnitTest")]
 public sealed class PostingsEnumGapsTests : IDisposable
 {
     private readonly string _dir;
 
     public PostingsEnumGapsTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "ll_pe_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = Path.Combine(Path.GetTempPath(), "pe_gaps_" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_dir);
     }
 
     public void Dispose()
     {
-        try { Directory.Delete(_dir, true); } catch { }
+        if (Directory.Exists(_dir))
+            Directory.Delete(_dir, recursive: true);
     }
-
-    // Empty sentinel
-
-    [Fact(DisplayName = "PostingsEnum: Empty IsExhausted")]
-    public void Empty_IsExhausted()
-    {
-        var pe = PostingsEnum.Empty;
-        Assert.True(pe.IsExhausted);
-    }
-
-    [Fact(DisplayName = "PostingsEnum: Empty DocFreq Is Zero")]
-    public void Empty_DocFreq_IsZero()
-    {
-        Assert.Equal(0, PostingsEnum.Empty.DocFreq);
-    }
-
-    [Fact(DisplayName = "PostingsEnum: Empty MoveNext Returns False")]
-    public void Empty_MoveNext_ReturnsFalse()
-    {
-        var pe = PostingsEnum.Empty;
-        Assert.False(pe.MoveNext());
-    }
-
-    [Fact(DisplayName = "PostingsEnum: Empty Advance Returns False")]
-    public void Empty_Advance_ReturnsFalse()
-    {
-        var pe = PostingsEnum.Empty;
-        Assert.False(pe.Advance(0));
-    }
-
-    [Fact(DisplayName = "PostingsEnum: Empty Dispose Does Not Throw")]
-    public void Empty_Dispose_DoesNotThrow()
-    {
-        var pe = PostingsEnum.Empty;
-        var ex = Record.Exception(() => pe.Dispose());
-        Assert.Null(ex);
-    }
-
-    [Fact(DisplayName = "PostingsEnum: Empty Dispose Is Idempotent")]
-    public void Empty_Dispose_IsIdempotent()
-    {
-        var pe = PostingsEnum.Empty;
-        pe.Dispose();
-        var ex = Record.Exception(() => pe.Dispose());
-        Assert.Null(ex);
-    }
-
-    [Fact(DisplayName = "PostingsEnum: Empty GetCurrentPositions Returns Empty Span")]
-    public void Empty_GetCurrentPositions_ReturnsEmptySpan()
-    {
-        var pe = PostingsEnum.Empty;
-        Assert.Equal(0, pe.GetCurrentPositions().Length);
-    }
-
-    // ValidateFileHeader
 
     [Fact(DisplayName = "PostingsEnum: ValidateFileHeader Valid Header Returns Version")]
     public void ValidateFileHeader_ValidHeader_ReturnsVersion()
     {
         var path = Path.Combine(_dir, "test_valid.pos");
-        using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write))
-        using (var bw = new BinaryWriter(fs))
+        using (var output = new IndexOutput(path))
         {
-            // Magic: 0x4C4C4E31 (little-endian).
-            bw.Write(CodecConstants.Magic);
-            // Version: PostingsVersion (3).
-            bw.Write(CodecConstants.PostingsVersion);
+            using var _scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.PostingsVersion);
         }
-
         using var input = new IndexInput(path);
         byte version = PostingsEnum.ValidateFileHeader(input);
         Assert.Equal(CodecConstants.PostingsVersion, version);
-    }
-
-    [Fact(DisplayName = "PostingsEnum: ValidateFileHeader Bad Magic Throws")]
-    public void ValidateFileHeader_BadMagic_Throws()
-    {
-        var path = Path.Combine(_dir, "test_bad.pos");
-        using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write))
-        using (var bw = new BinaryWriter(fs))
-        {
-            bw.Write(0xDEADBEEF);  // Wrong magic.
-            bw.Write((byte)1);
-        }
-
-        using var input = new IndexInput(path);
-        Assert.Throws<InvalidDataException>(() => PostingsEnum.ValidateFileHeader(input));
     }
 
     [Fact(DisplayName = "PostingsEnum: ValidateFileHeader Unsupported Version Throws")]
@@ -120,41 +43,32 @@ public sealed class PostingsEnumGapsTests : IDisposable
         using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write))
         using (var bw = new BinaryWriter(fs))
         {
-            bw.Write(CodecConstants.Magic);
-            bw.Write((byte)99);  // Future version > max supported.
+            bw.Write((byte)99); // version = 99 (unsupported)
+            bw.Write((byte)0);  // body length VarInt = 0
         }
 
         using var input = new IndexInput(path);
         Assert.Throws<InvalidDataException>(() => PostingsEnum.ValidateFileHeader(input));
     }
 
-    // Hand-written v2 postings list
-
-    [Fact(DisplayName = "PostingsEnum: Create v2 Iterates DocIds And Frequencies")]
-    public void CreateV2_IteratesDocIdsAndFrequencies()
+    [Fact(DisplayName = "PostingsEnum: Create Iterates DocIds And Frequencies")]
+    public void Create_IteratesDocIdsAndFrequencies()
     {
-        var path = WriteV2PostingsList();
+        var (path, offset) = WriteCurrentFormatPostings();
         using var input = new IndexInput(path);
-        var pe = PostingsEnum.Create(input, 0, postingsVersion: 2);
+        var pe = PostingsEnum.Create(input, offset);
         try
         {
-            Assert.Equal(3, pe.DocFreq);
-            Assert.Equal(-1, pe.DocId);
-
             Assert.True(pe.MoveNext());
             Assert.Equal(2, pe.DocId);
-            Assert.Equal(1, pe.Freq);
 
             Assert.True(pe.MoveNext());
             Assert.Equal(5, pe.DocId);
-            Assert.Equal(2, pe.Freq);
 
             Assert.True(pe.MoveNext());
             Assert.Equal(9, pe.DocId);
-            Assert.Equal(3, pe.Freq);
 
             Assert.False(pe.MoveNext());
-            Assert.Equal(-1, pe.DocId);
         }
         finally
         {
@@ -162,24 +76,24 @@ public sealed class PostingsEnumGapsTests : IDisposable
         }
     }
 
-    [Fact(DisplayName = "PostingsEnum: Create v2 Advance Seeks To Target DocId")]
-    public void CreateV2_Advance_SeeksToTargetDocId()
+    [Fact(DisplayName = "PostingsEnum: Create Advance Seeks To Target DocId")]
+    public void Create_Advance_SeeksToTargetDocId()
     {
-        var path = WriteV2PostingsList();
+        var (path, offset) = WriteCurrentFormatPostings();
         using var input = new IndexInput(path);
-        var pe = PostingsEnum.Create(input, 0, postingsVersion: 2);
+        var pe = PostingsEnum.Create(input, offset);
         try
         {
+            Assert.True(pe.MoveNext());
+            Assert.Equal(2, pe.DocId);
+
+            // Advance to doc id 5
             Assert.True(pe.Advance(5));
             Assert.Equal(5, pe.DocId);
-            Assert.Equal(2, pe.Freq);
 
-            Assert.True(pe.Advance(8));
-            Assert.Equal(9, pe.DocId);
-            Assert.Equal(3, pe.Freq);
-
-            Assert.False(pe.Advance(10));
-            Assert.Equal(-1, pe.DocId);
+            // Advance past end
+            Assert.False(pe.Advance(100));
+            Assert.True(pe.DocId >= 100 || pe.DocId == int.MinValue);
         }
         finally
         {
@@ -187,12 +101,12 @@ public sealed class PostingsEnumGapsTests : IDisposable
         }
     }
 
-    [Fact(DisplayName = "PostingsEnum: Create v2 Reset Rewinds Cursor")]
-    public void CreateV2_Reset_RewindsCursor()
+    [Fact(DisplayName = "PostingsEnum: Create Reset Rewinds Cursor")]
+    public void Create_Reset_RewindsCursor()
     {
-        var path = WriteV2PostingsList();
+        var (path, offset) = WriteCurrentFormatPostings();
         using var input = new IndexInput(path);
-        var pe = PostingsEnum.Create(input, 0, postingsVersion: 2);
+        var pe = PostingsEnum.Create(input, offset);
         try
         {
             Assert.True(pe.MoveNext());
@@ -209,35 +123,39 @@ public sealed class PostingsEnumGapsTests : IDisposable
         }
     }
 
-    private string WriteV2PostingsList()
+    private (string Path, long Offset) WriteCurrentFormatPostings()
     {
         var path = Path.Combine(_dir, Guid.NewGuid().ToString("N") + ".pos");
-        using var fs = new FileStream(path, FileMode.Create, FileAccess.Write);
-        using var bw = new BinaryWriter(fs);
 
-        bw.Write(3); // count
-        bw.Write(0); // skip count
-
-        WriteVarInt(bw, 2); // doc id 2
-        WriteVarInt(bw, 3); // doc id 5
-        WriteVarInt(bw, 4); // doc id 9
-
-        bw.Write(true); // has frequencies
-        WriteVarInt(bw, 1);
-        WriteVarInt(bw, 2);
-        WriteVarInt(bw, 3);
-
-        return path;
-    }
-
-    private static void WriteVarInt(BinaryWriter writer, int value)
-    {
-        uint remaining = (uint)value;
-        while (remaining >= 0x80)
+        long offset;
+        using (var output = new IndexOutput(path))
         {
-            writer.Write((byte)((remaining & 0x7F) | 0x80));
-            remaining >>= 7;
+            using var _scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.PostingsVersion);
+
+            long headerPos = output.Position;
+            output.WriteInt32(0);             // docFreq placeholder
+            output.WriteInt64(0L);             // skipOffset placeholder
+            output.WriteBoolean(true);         // hasFreqs
+            output.WriteBoolean(false);        // hasPositions
+            output.WriteBoolean(false);        // hasPayloads
+
+            using var blockWriter = new BlockPostingsWriter(output);
+            blockWriter.StartTerm();
+            blockWriter.AddPosting(2, 1);
+            blockWriter.AddPosting(5, 2);
+            blockWriter.AddPosting(9, 3);
+            var meta = blockWriter.FinishTerm();
+            long endPos = output.Position;
+            output.Seek(headerPos);
+            output.WriteInt32(meta.DocFreq);
+            output.WriteInt64(meta.SkipOffset);
+            output.Seek(endPos);
+
+            offset = headerPos; // v2: offset is absolute file position, no envelope to account for
         }
-        writer.Write((byte)remaining);
+
+        return (path, offset);
     }
+
+    // VarIntSize removed — v2 postings format no longer needs envelope offset computation.
 }

@@ -1,5 +1,6 @@
 ﻿using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Geo;
@@ -22,7 +23,7 @@ public sealed class WriterEquivalenceTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_root, recursive: true); } catch { }
+        TestDirectoryFixture.TryDeleteDirectory(_root);
     }
 
     /// <summary>

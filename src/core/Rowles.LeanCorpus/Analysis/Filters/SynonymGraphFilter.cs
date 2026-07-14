@@ -1,4 +1,4 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Filters;
+namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
 /// Token filter that supports multi-token synonym expansion using a trie-based
@@ -6,11 +6,13 @@
 /// and inserts replacement tokens at the same position offsets.
 /// </summary>
 /// <remarks>
-/// Replaces the simpler single-token synonym approach with trie-based longest-match.
+/// Buffers tokens during <see cref="Apply"/> and performs trie-based longest-match
+/// synonym expansion in <see cref="ISpanTokenFilter.Finish"/>.
 /// </remarks>
-public sealed class SynonymGraphFilter : ITokenFilter
+public sealed class SynonymGraphFilter : ISpanTokenFilter
 {
     private readonly SynonymMap _map;
+    private readonly List<Token> _buffer = new();
 
     /// <summary>
     /// Initialises a new <see cref="SynonymGraphFilter"/> with the specified synonym map.
@@ -23,38 +25,73 @@ public sealed class SynonymGraphFilter : ITokenFilter
     }
 
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        var result = new List<Token>(tokens.Count + 4);
+        ArgumentNullException.ThrowIfNull(sink);
+
+        // Materialise the text — the span is transient.
+        _buffer.Add(new Token(
+            text.ToString(),
+            startOffset,
+            endOffset,
+            type,
+            positionIncrement,
+            payload));
+
+        // Pass through unchanged; synonym expansion happens in Finish.
+        sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+    }
+
+    /// <inheritdoc/>
+    public void Finish(ISpanTokenSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+
+        if (_buffer.Count == 0)
+            return;
+
+        // The buffered tokens were already emitted as pass-through by Apply.
+        // Now emit synonym replacements: for each position where a synonym
+        // matches, inject replacement tokens at position 0 (same position).
         int i = 0;
-
-        while (i < tokens.Count)
+        while (i < _buffer.Count)
         {
-            int matchLen = _map.TryMatch(tokens, i, out var replacements);
-
-            if (matchLen > 0 && replacements is not null)
+            int matchLen = _map.TryMatch(_buffer, i, out var replacements);
+            if (matchLen > 0)
             {
-                result.Add(tokens[i]);
+                var first = _buffer[i];
+                var last = _buffer[i + matchLen - 1];
 
-                // Insert synonym tokens at the same position as the first source token.
-                int start = tokens[i].StartOffset;
-                int end = tokens[i + matchLen - 1].EndOffset;
-                foreach (var syn in replacements)
-                    result.Add(new Token(syn, start, end, positionIncrement: 0));
-
-                for (int j = 1; j < matchLen; j++)
-                    result.Add(tokens[i + j]);
-
+                // Emit replacement tokens at the same position as the first
+                // matched source token.
+                for (int r = 0; r < replacements!.Length; r++)
+                {
+                    sink.Add(
+                        replacements[r].AsSpan(),
+                        first.StartOffset,
+                        last.EndOffset,
+                        first.Type,
+                        positionIncrement: r == 0 ? 1 : 0,
+                        payload: null);
+                }
                 i += matchLen;
             }
             else
             {
-                result.Add(tokens[i]);
                 i++;
             }
         }
 
-        tokens.Clear();
-        tokens.AddRange(result);
+        _buffer.Clear();
     }
+
+    /// <inheritdoc/>
+    public ISpanTokenFilter Clone() => new SynonymGraphFilter(_map);
 }

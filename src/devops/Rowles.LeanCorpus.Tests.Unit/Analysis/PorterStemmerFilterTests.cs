@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Analysis;
@@ -13,9 +13,9 @@ public sealed class PorterStemmerFilterTests
 
     private string Stem(string word)
     {
-        var tokens = new List<Token> { new(word, 0, word.Length) };
-        _filter.Apply(tokens);
-        return tokens[0].Text;
+        var matSink = new MaterialisingTokenSink();
+        _filter.Apply(word.AsSpan(), 0, word.Length, Token.DefaultType, 1, null, matSink);
+        return matSink.Tokens[0].Text;
     }
 
     /// <summary>
@@ -44,7 +44,10 @@ public sealed class PorterStemmerFilterTests
     public void Apply_EmptyList_NoChanges()
     {
         var tokens = new List<Token>();
-        _filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) _filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
         Assert.Empty(tokens);
     }
 
@@ -71,7 +74,10 @@ public sealed class PorterStemmerFilterTests
             new("cats", 8, 12),
             new("happily", 13, 20)
         };
-        _filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) _filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         Assert.Equal("run", tokens[0].Text);
         Assert.Equal("cat", tokens[1].Text);
@@ -86,7 +92,10 @@ public sealed class PorterStemmerFilterTests
     {
         var token = new Token("run", 0, 3);
         var tokens = new List<Token> { token };
-        _filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) _filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
         // Token should still be "run" — no double-stemming
         Assert.Equal("run", tokens[0].Text);
     }

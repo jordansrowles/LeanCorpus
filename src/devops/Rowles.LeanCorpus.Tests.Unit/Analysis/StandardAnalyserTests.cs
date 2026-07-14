@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Analysis;
@@ -18,7 +18,9 @@ public class StandardAnalyserTests
     public void Analyse_AllStopWords_ReturnsOnlyNonStopWords()
     {
         // "to", "be", "or", "not" are all stop words in the extended list; only "live" survives.
-        var result = _analyser.Analyse("to be or not to live");
+        var matSink = new MaterialisingTokenSink();
+        _analyser.Analyse("to be or not to live", matSink);
+        var result = matSink.Tokens;
 
         Assert.Single(result);
         Assert.Equal("live", result[0].Text);
@@ -30,7 +32,9 @@ public class StandardAnalyserTests
     [Fact(DisplayName = "Analyse: Mixed Case With Stop Words Returns Lowercased Non Stop Words")]
     public void Analyse_MixedCaseWithStopWords_ReturnsLowercasedNonStopWords()
     {
-        var result = _analyser.Analyse("Running quickly in THE forest");
+        var matSink = new MaterialisingTokenSink();
+        _analyser.Analyse("Running quickly in THE forest", matSink);
+        var result = matSink.Tokens;
 
         Assert.Equal(3, result.Count);
         Assert.Equal("running", result[0].Text);
@@ -44,7 +48,9 @@ public class StandardAnalyserTests
     [Fact(DisplayName = "Analyse: After Returns Token")]
     public void Analyse_After_ReturnsToken()
     {
-        var result = _analyser.Analyse("after");
+        var matSink = new MaterialisingTokenSink();
+        _analyser.Analyse("after", matSink);
+        var result = matSink.Tokens;
 
         Assert.Single(result);
         Assert.Equal("after", result[0].Text);
@@ -56,7 +62,9 @@ public class StandardAnalyserTests
     [Fact(DisplayName = "Analyse: Empty Input Returns Empty List")]
     public void Analyse_EmptyInput_ReturnsEmptyList()
     {
-        var result = _analyser.Analyse(ReadOnlySpan<char>.Empty);
+        var matSink = new MaterialisingTokenSink();
+        _analyser.Analyse(ReadOnlySpan<char>.Empty, matSink);
+        var result = matSink.Tokens;
 
         Assert.Empty(result);
     }
@@ -67,7 +75,9 @@ public class StandardAnalyserTests
     [Fact(DisplayName = "Analyse: Single Non Stop Word Returns Single Lowercased Token")]
     public void Analyse_SingleNonStopWord_ReturnsSingleLowercasedToken()
     {
-        var result = _analyser.Analyse("Hello");
+        var matSink = new MaterialisingTokenSink();
+        _analyser.Analyse("Hello", matSink);
+        var result = matSink.Tokens;
 
         Assert.Single(result);
         Assert.Equal("hello", result[0].Text);

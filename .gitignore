@@ -3,8 +3,15 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+
+# Source-generator output
+*.g.cs
+# Benchmark results (ignore output, keep data)
 bench/*
+bench/data/*.tar.gz
 coverage-report/
+coverage-results/
+StrykerOutput/
 
 .netcoredbg_hist
 
@@ -65,6 +72,8 @@ dlldata.c
 # DocFX generated artefacts
 docs/api/
 !docs/api/index.md
+docs/benchmarks/
+docs/coverage/
 docs/site/
 
 # Benchmark Results

@@ -1,10 +1,12 @@
-﻿using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.Fst;
 using Rowles.LeanCorpus.Codecs.Bkd;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Codecs.TermVectors;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Xunit.Abstractions;
@@ -772,10 +774,7 @@ public sealed class FSTDictionaryTests : IClassFixture<TestDirectoryFixture>
         WriteDictionary(path, ["body\0test"], new Dictionary<string, long> { ["body\0test"] = 1 });
 
         using var input = new IndexInput(path);
-        int magic = input.ReadInt32();
-        byte version = input.ReadByte();
-        Assert.Equal(CodecConstants.Magic, magic);
+        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.TermDictionary);
         Assert.Equal(CodecConstants.TermDictionaryVersion, version);
-        Assert.Equal(3, version);
     }
 }

@@ -1,8 +1,9 @@
-﻿using System.Reflection;
+using System.Reflection;
 using System.Reflection.Emit;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
+using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Xunit.Abstractions;
@@ -293,5 +294,299 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         // Should complete without hanging (backpressure triggers flush, not deadlock)
         var segFiles = System.IO.Directory.GetFiles(SubDir("merge_bp"), "*.seg");
         Assert.NotEmpty(segFiles);
+    }
+
+    /// <summary>
+    /// Verifies that merge throttling reduces segment count when the threshold is exceeded.
+    /// </summary>
+    [Fact(DisplayName = "Merge Throttle: Reduces Segment Count After Threshold")]
+    public void MergeThrottle_ReducesSegmentCount_AfterThreshold()
+    {
+        var dir = new MMapDirectory(SubDir("merge_throttle_count"));
+        // TieredMergePolicy(2): merge when 2+ segments exist in the same tier.
+        var config = new IndexWriterConfig
+        {
+            MaxBufferedDocs = 2,        // flush every 2 docs
+            MergeThrottleSegments = 3,  // throttle at 3 segments
+            MergePolicy = new TieredMergePolicy(2)
+        };
+        using var writer = new IndexWriter(dir, config);
+
+        // Index 12 docs → 6 flushes → 6 segments. Throttle fires at 3, so merges
+        // should reduce the count before we finish.
+        for (int i = 0; i < 12; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", $"doc {i}"));
+            writer.AddDocument(doc);
+        }
+
+        writer.Commit();
+
+        int segmentCount = System.IO.Directory.GetFiles(SubDir("merge_throttle_count"), "*.seg").Length;
+        // With throttle+merge, should be fewer than the 6 unmerged segments.
+        Assert.True(segmentCount < 6, $"Expected fewer than 6 segments, got {segmentCount}");
+    }
+
+    /// <summary>
+    /// Verifies that Compact force-merges multiple segments into one and reclaims
+    /// disk space from soft-deleted documents past their retention window.
+    /// </summary>
+    [Fact(DisplayName = "Compact force-merges segments and drops expired soft-deletes")]
+    public void Compact_ForceMergesSegments_AndDropsExpiredSoftDeletes()
+    {
+        var dir = new MMapDirectory(SubDir("compact_sd"));
+        var config = new IndexWriterConfig
+        {
+            MaxBufferedDocs = 3,                   // flush every 3 docs to produce multiple segments
+            SoftDeletesEnabled = true,
+            SoftDeleteRetentionSeconds = 0.001,    // effectively immediate expiry
+            MergeThreshold = 10                    // keep tiered merge from interfering
+        };
+
+        using var writer = new IndexWriter(dir, config);
+
+        // Index 12 documents to create 4 segments (3 docs per flush)
+        for (int i = 1; i <= 12; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("id", $"doc-{i}"));
+            doc.Add(new TextField("body", $"content number {i}"));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        // Verify we have multiple segments
+        var initialSegFiles = System.IO.Directory.GetFiles(SubDir("compact_sd"), "*.seg");
+        Assert.True(initialSegFiles.Length > 1, $"Expected multiple segments, got {initialSegFiles.Length}");
+
+        // Soft-delete documents 1-6
+        for (int i = 1; i <= 6; i++)
+            writer.SoftDeleteDocuments(new Rowles.LeanCorpus.Search.Queries.TermQuery("id", $"doc-{i}"));
+        writer.Commit();
+
+        // Give the soft-delete retention window time to expire
+        System.Threading.Thread.Sleep(100);
+
+        // Compact — should merge all segments into one, dropping expired soft-deletes
+        int merged = writer.Compact();
+        Assert.True(merged > 1, $"Expected multiple segments merged, got {merged}");
+
+        // Verify only one segment remains
+        var finalSegFiles = System.IO.Directory.GetFiles(SubDir("compact_sd"), "*.seg");
+        Assert.Single(finalSegFiles);
+
+        // Verify we can search the remaining documents
+        using var reader = new Rowles.LeanCorpus.Index.Segment.SegmentReader(dir,
+            Rowles.LeanCorpus.Index.Segment.SegmentInfo.ReadFrom(finalSegFiles[0]));
+        Assert.True(reader.MaxDoc >= 6, $"Expected at least 6 live docs, got {reader.MaxDoc}");
+    }
+    /// <summary>
+    /// Verifies that soft-deleted documents still within the retention window
+    /// are preserved during Compact rather than being physically dropped.
+    /// </summary>
+    [Fact(DisplayName = "Compact preserves soft-deletes within retention window")]
+    public void Compact_PreservesSoftDeletes_WithinRetentionWindow()
+    {
+        var dir = new MMapDirectory(SubDir("compact_sd_retain"));
+        var config = new IndexWriterConfig
+        {
+            MaxBufferedDocs = 3,               // flush every 3 docs
+            SoftDeletesEnabled = true,
+            SoftDeleteRetentionSeconds = 3600, // 1 hour — well beyond test duration
+            MergeThreshold = 10                // keep tiered merge from interfering
+        };
+
+        using var writer = new IndexWriter(dir, config);
+
+        // Index 9 documents to create 3 segments
+        for (int i = 1; i <= 9; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("id", $"doc-{i}"));
+            doc.Add(new TextField("body", $"content number {i}"));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        // Soft-delete documents 1-3 (first segment loses all its docs)
+        for (int i = 1; i <= 3; i++)
+            writer.SoftDeleteDocuments(new Rowles.LeanCorpus.Search.Queries.TermQuery("id", $"doc-{i}"));
+        writer.Commit();
+
+        // Compact immediately — retention window has not elapsed
+        int merged = writer.Compact();
+        Assert.True(merged > 1, $"Expected multiple segments merged, got {merged}");
+
+        // Verify only one segment remains
+        var finalSegFiles = System.IO.Directory.GetFiles(SubDir("compact_sd_retain"), "*.seg");
+        Assert.Single(finalSegFiles);
+
+        // All 9 documents should still be present — the soft-deleted docs
+        // are within the retention window and must survive the merge.
+        using var reader = new Rowles.LeanCorpus.Index.Segment.SegmentReader(dir,
+            Rowles.LeanCorpus.Index.Segment.SegmentInfo.ReadFrom(finalSegFiles[0]));
+        Assert.Equal(9, reader.MaxDoc);
+    }
+
+    /// <summary>
+    /// Verifies that Compact is a no-op when there is only one segment.
+    /// </summary>
+    [Fact(DisplayName = "Compact returns zero when only one segment exists")]
+    public void Compact_ReturnsZero_WhenSingleSegment()
+    {
+        var dir = new MMapDirectory(SubDir("compact_one"));
+        var config = new IndexWriterConfig { MaxBufferedDocs = 10 };
+
+        using var writer = new IndexWriter(dir, config);
+
+        for (int i = 1; i <= 3; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", $"doc {i}"));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        // Should be a single segment after explicit commit + flush
+        int merged = writer.Compact();
+        Assert.Equal(0, merged);
+    }
+
+    /// <summary>
+    /// Verifies that segments held by an active snapshot are excluded from Compact
+    /// and only unprotected segments are merged. After the snapshot is released,
+    /// a second Compact merges the remaining segments.
+    /// </summary>
+    [Fact(DisplayName = "Compact excludes snapshot-protected segments")]
+    public void Compact_ExcludesSnapshotProtectedSegments()
+    {
+        var dir = new MMapDirectory(SubDir("compact_snapshot"));
+        var config = new IndexWriterConfig
+        {
+            MaxBufferedDocs = 3,    // flush every 3 docs
+            MergeThreshold = 10     // keep tiered merge from interfering
+        };
+
+        using var writer = new IndexWriter(dir, config);
+
+        // Create 2 segments by indexing 6 documents
+        for (int i = 1; i <= 6; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", $"doc {i}"));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        var initialSegs = System.IO.Directory.GetFiles(SubDir("compact_snapshot"), "*.seg");
+        Assert.True(initialSegs.Length >= 2, $"Expected at least 2 segments, got {initialSegs.Length}");
+
+        // Hold a snapshot — both segments are now protected
+        var snapshot = writer.CreateSnapshot();
+
+        // Compact should be a no-op because all segments are protected
+        int merged = writer.Compact();
+        Assert.Equal(0, merged);
+
+        // Release the snapshot — segments are no longer protected
+        writer.ReleaseSnapshot(snapshot);
+
+        // Now Compact should merge everything into one segment
+        merged = writer.Compact();
+        Assert.True(merged > 1, $"Expected multiple segments merged, got {merged}");
+
+        var finalSegs = System.IO.Directory.GetFiles(SubDir("compact_snapshot"), "*.seg");
+        Assert.Single(finalSegs);
+    }
+
+
+    /// <summary>
+    /// Verifies that ForceMerge preserves source segments when MergeAll returns null.
+    /// Segments are created by explicit commit after each batch, which ensures the
+    /// term dictionary is fully written before deletes are applied.
+    /// </summary>
+    [Fact(DisplayName = "ForceMerge preserves source segments when all docs are dead")]
+    public void ForceMerge_PreservesSourceSegments_WhenAllDocsDead()
+    {
+        var dir = new MMapDirectory(SubDir("fm_preserve"));
+        var config = new IndexWriterConfig { MaxBufferedDocs = 100, MergeThreshold = 10 };
+
+        using var writer = new IndexWriter(dir, config);
+
+        // Create 3 segments explicitly: commit after each batch
+        for (int batch = 0; batch < 3; batch++)
+        {
+            for (int i = 1; i <= 3; i++)
+            {
+                var doc = new LeanDocument();
+                doc.Add(new StringField("id", $"batch{batch}-doc{i}"));
+                doc.Add(new TextField("body", $"content {batch * 3 + i}"));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        var initialSegs = System.IO.Directory.GetFiles(SubDir("fm_preserve"), "*.seg");
+        Assert.True(initialSegs.Length >= 3, $"Expected at least 3 segments, got {initialSegs.Length}");
+
+        // Hard-delete all documents by body field
+        for (int batch = 0; batch < 3; batch++)
+            for (int i = 1; i <= 3; i++)
+                writer.DeleteDocuments(new Rowles.LeanCorpus.Search.Queries.TermQuery("id", $"batch{batch}-doc{i}"));
+        writer.Commit();
+        // Verify deletes took effect
+        Assert.All(writer.CommittedSegments, s => Assert.Equal(0, s.LiveDocCount));
+
+        // ForceMerge to 1 segment. All docs are dead so merge returns null.
+        // Source segments must be preserved, not dropped.
+        int merged = writer.ForceMerge(1);
+        Assert.Equal(0, merged);
+
+        var finalSegs = System.IO.Directory.GetFiles(SubDir("fm_preserve"), "*.seg");
+        Assert.True(finalSegs.Length >= 3, $"Expected source segments preserved, got {finalSegs.Length}");
+    }
+
+    /// <summary>
+    /// Verifies that Compact preserves source segments when all documents
+    /// in those segments are dead.
+    /// </summary>
+    [Fact(DisplayName = "Compact preserves source segments when all docs are dead")]
+    public void Compact_PreservesSourceSegments_WhenAllDocsDead()
+    {
+        var dir = new MMapDirectory(SubDir("compact_preserve"));
+        var config = new IndexWriterConfig { MaxBufferedDocs = 100, MergeThreshold = 10 };
+
+        using var writer = new IndexWriter(dir, config);
+
+        // Create 3 segments explicitly
+        for (int batch = 0; batch < 3; batch++)
+        {
+            for (int i = 1; i <= 3; i++)
+            {
+                var doc = new LeanDocument();
+                doc.Add(new StringField("id", $"batch{batch}-doc{i}"));
+                doc.Add(new TextField("body", $"content {batch * 3 + i}"));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        var initialSegs = System.IO.Directory.GetFiles(SubDir("compact_preserve"), "*.seg");
+        Assert.True(initialSegs.Length >= 3, $"Expected at least 3 segments, got {initialSegs.Length}");
+
+        // Hard-delete all documents
+        for (int batch = 0; batch < 3; batch++)
+            for (int i = 1; i <= 3; i++)
+                writer.DeleteDocuments(new Rowles.LeanCorpus.Search.Queries.TermQuery("id", $"batch{batch}-doc{i}"));
+        writer.Commit();
+
+        Assert.All(writer.CommittedSegments, s => Assert.Equal(0, s.LiveDocCount));
+
+        int merged = writer.Compact();
+        Assert.Equal(0, merged);
+
+        var finalSegs = System.IO.Directory.GetFiles(SubDir("compact_preserve"), "*.seg");
+        Assert.True(finalSegs.Length >= 3, $"Expected source segments preserved, got {finalSegs.Length}");
     }
 }

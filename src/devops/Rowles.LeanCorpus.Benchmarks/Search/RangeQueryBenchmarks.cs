@@ -38,33 +38,28 @@ public class RangeQueryBenchmarks
     [Params(0.01, 0.1, 0.5)]
     public double RangeWidth { get; set; } = 0.1;
 
-    private string _leanIndexPath = string.Empty;
-    private LeanMMapDirectory? _leanDirectory;
-    private LeanIndexSearcher? _leanSearcher;
-
-    private RAMDirectory? _luceneDirectory;
-    private StandardAnalyzer? _luceneAnalyzer;
-    private DirectoryReader? _luceneReader;
-    private LuceneIndexSearcher? _luceneSearcher;
+    // Index state — built once, shared across RangeWidth [Params] combos
+    private static readonly System.Threading.Lock s_gate = new();
+    private static int s_lastDocCount;
+    private static bool s_built;
+    private static string s_leanIndexPath = string.Empty;
+    private static LeanMMapDirectory? s_leanDirectory;
+    private static LeanIndexSearcher? s_leanSearcher;
+    private static RAMDirectory? s_luceneDirectory;
+    private static StandardAnalyzer? s_luceneAnalyzer;
+    private static DirectoryReader? s_luceneReader;
+    private static LuceneIndexSearcher? s_luceneSearcher;
 
     [GlobalSetup]
     public void Setup()
     {
-        var docs = BenchmarkData.BuildDocumentsWithPrices(DocumentCount);
-        BuildLeanIndex(docs);
-        BuildLuceneIndex(docs);
+        EnsureIndexes();
     }
 
     [GlobalCleanup]
     public void Cleanup()
     {
-        _leanSearcher?.Dispose();
-        if (!string.IsNullOrWhiteSpace(_leanIndexPath) && IODirectory.Exists(_leanIndexPath))
-            IODirectory.Delete(_leanIndexPath, recursive: true);
-
-        _luceneReader?.Dispose();
-        _luceneAnalyzer?.Dispose();
-        _luceneDirectory?.Dispose();
+        // Static resources persist for the lifetime of the benchmark class.
     }
 
     [Benchmark(Baseline = true)]
@@ -72,7 +67,7 @@ public class RangeQueryBenchmarks
     public int LeanCorpus_RangeQuery()
     {
         double span = 1000.0 * RangeWidth;
-        return _leanSearcher!.Search(new RangeQuery("price", 100, 100 + span), TopN).TotalHits;
+        return s_leanSearcher!.Search(new RangeQuery("price", 100, 100 + span), TopN).TotalHits;
     }
 
     [Benchmark]
@@ -81,48 +76,72 @@ public class RangeQueryBenchmarks
     {
         double span = 1000.0 * RangeWidth;
         var q = NumericRangeQuery.NewDoubleRange("price", 100.0, 100.0 + span, minInclusive: true, maxInclusive: true);
-        return _luceneSearcher!.Search(q, TopN).TotalHits;
+        return s_luceneSearcher!.Search(q, TopN).TotalHits;
     }
 
-    private void BuildLeanIndex((string Body, double Price)[] docs)
+    private void EnsureIndexes()
     {
-        _leanIndexPath = Path.Combine(Path.GetTempPath(), $"leancorpus-bench-range-{Guid.NewGuid():N}");
-        IODirectory.CreateDirectory(_leanIndexPath);
-        _leanDirectory = new LeanMMapDirectory(_leanIndexPath);
-        using var writer = new Rowles.LeanCorpus.Index.Indexer.IndexWriter(
-            _leanDirectory,
-            new Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig { MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 });
-        for (int i = 0; i < docs.Length; i++)
-        {
-            var doc = new LeanDocument();
-            doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-            doc.Add(new LeanTextField("body", docs[i].Body));
-            doc.Add(new LeanNumericField("price", docs[i].Price));
-            writer.AddDocument(doc);
-        }
-        writer.Commit();
-        _leanSearcher = new LeanIndexSearcher(_leanDirectory);
-    }
+        if (s_built && s_lastDocCount == DocumentCount)
+            return;
 
-    private void BuildLuceneIndex((string Body, double Price)[] docs)
-    {
-        _luceneDirectory = new RAMDirectory();
-        _luceneAnalyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
-        using var writer = new Lucene.Net.Index.IndexWriter(
-            _luceneDirectory,
-            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, _luceneAnalyzer));
-        for (int i = 0; i < docs.Length; i++)
+        lock (s_gate)
         {
-            var doc = new Lucene.Net.Documents.Document
+            if (s_built && s_lastDocCount == DocumentCount)
+                return;
+
+            var docs = BenchmarkData.BuildDocumentsWithPrices(DocumentCount);
+
+            // LeanCorpus
+            s_leanIndexPath = Path.Combine(BenchmarkHelpers.TempRoot,
+                $"leancorpus-bench-range-{Guid.NewGuid():N}");
+            IODirectory.CreateDirectory(s_leanIndexPath);
+            s_leanDirectory = new LeanMMapDirectory(s_leanIndexPath);
+            using (var writer = new Rowles.LeanCorpus.Index.Indexer.IndexWriter(
+                s_leanDirectory,
+                new Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig
+                { MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 }))
             {
-                new StringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture), Field.Store.NO),
-                new Lucene.Net.Documents.TextField("body", docs[i].Body, Field.Store.NO),
-                new DoubleField("price", docs[i].Price, Field.Store.NO)
-            };
-            writer.AddDocument(doc);
+                for (int i = 0; i < docs.Length; i++)
+                {
+                    var doc = new LeanDocument();
+                    doc.Add(new LeanStringField("id",
+                        i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+                    doc.Add(new LeanTextField("body", docs[i].Body));
+                    doc.Add(new LeanNumericField("price", docs[i].Price));
+                    writer.AddDocument(doc);
+                }
+                writer.Commit();
+            }
+            s_leanSearcher = new LeanIndexSearcher(s_leanDirectory);
+
+            // Lucene.NET
+            s_luceneDirectory = new RAMDirectory();
+            s_luceneAnalyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+            using (var writer = new Lucene.Net.Index.IndexWriter(
+                s_luceneDirectory,
+                new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, s_luceneAnalyzer)))
+            {
+                for (int i = 0; i < docs.Length; i++)
+                {
+                    var doc = new Lucene.Net.Documents.Document
+                    {
+                        new StringField("id",
+                            i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                            Field.Store.NO),
+                        new Lucene.Net.Documents.TextField("body", docs[i].Body,
+                            Field.Store.NO),
+                        new DoubleField("price", docs[i].Price, Field.Store.NO)
+                    };
+                    writer.AddDocument(doc);
+                }
+                writer.Commit();
+            }
+            s_luceneReader = DirectoryReader.Open(s_luceneDirectory);
+            s_luceneSearcher = new LuceneIndexSearcher(s_luceneReader);
+
+            s_lastDocCount = DocumentCount;
+            s_built = true;
         }
-        writer.Commit();
-        _luceneReader = DirectoryReader.Open(_luceneDirectory);
-        _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
     }
+
 }

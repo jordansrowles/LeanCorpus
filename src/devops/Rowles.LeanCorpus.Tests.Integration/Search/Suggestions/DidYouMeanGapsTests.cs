@@ -1,5 +1,6 @@
 ﻿using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Search.Suggestions;
 using Rowles.LeanCorpus.Store;
 
@@ -22,7 +23,7 @@ public sealed class DidYouMeanGapsTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_dir, true); } catch { }
+        TestDirectoryFixture.TryDeleteDirectory(_dir);
     }
 
     private IndexSearcher BuildSearcher()

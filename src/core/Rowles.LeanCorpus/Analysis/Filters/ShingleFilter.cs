@@ -1,14 +1,21 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Filters;
+namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
 /// Emits contiguous token shingles for phrase-oriented analysis.
 /// </summary>
-public sealed class ShingleFilter : ITokenFilter
+/// <remarks>
+/// Buffers tokens during <see cref="Apply"/> and generates shingles covering
+/// <see cref="MinShingleSize"/> to <see cref="MaxShingleSize"/> tokens in
+/// <see cref="ISpanTokenFilter.Finish"/>. When <see cref="OutputUnigrams"/> is
+/// <c>true</c>, original tokens are emitted alongside shingles.
+/// </remarks>
+public sealed class ShingleFilter : ISpanTokenFilter
 {
     private readonly int _minShingleSize;
     private readonly int _maxShingleSize;
     private readonly bool _outputUnigrams;
     private readonly string _tokenSeparator;
+    private readonly List<Token> _buffer = new();
 
     /// <summary>
     /// Initialises a new <see cref="ShingleFilter"/>.
@@ -31,53 +38,92 @@ public sealed class ShingleFilter : ITokenFilter
         _tokenSeparator = tokenSeparator;
     }
 
+    /// <summary>
+    /// Gets the minimum number of source tokens in a shingle.
+    /// </summary>
+    public int MinShingleSize => _minShingleSize;
+
+    /// <summary>
+    /// Gets the maximum number of source tokens in a shingle.
+    /// </summary>
+    public int MaxShingleSize => _maxShingleSize;
+
+    /// <summary>
+    /// Gets whether original tokens are emitted alongside shingles.
+    /// </summary>
+    public bool OutputUnigrams => _outputUnigrams;
+
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        if (tokens.Count == 0)
-            return;
+        ArgumentNullException.ThrowIfNull(sink);
 
-        int shingleCapacity = 0;
-        for (int size = _minShingleSize; size <= _maxShingleSize; size++)
-        {
-            if (tokens.Count >= size)
-                shingleCapacity += tokens.Count - size + 1;
-        }
+        // Materialise the text — the span is transient.
+        var token = new Token(
+            text.ToString(),
+            startOffset,
+            endOffset,
+            type,
+            positionIncrement,
+            payload);
 
-        if (shingleCapacity == 0 && _outputUnigrams)
-            return;
+        _buffer.Add(token);
 
-        var result = new List<Token>(_outputUnigrams ? tokens.Count + shingleCapacity : shingleCapacity);
         if (_outputUnigrams)
-            result.AddRange(tokens);
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+    }
 
-        for (int start = 0; start < tokens.Count; start++)
+    /// <inheritdoc/>
+    public void Finish(ISpanTokenSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+
+        if (_buffer.Count == 0)
+            return;
+
+        int maxSize = Math.Min(_maxShingleSize, _buffer.Count);
+
+        for (int size = _minShingleSize; size <= maxSize; size++)
         {
-            int remaining = tokens.Count - start;
-            int maxSize = Math.Min(_maxShingleSize, remaining);
-            for (int size = _minShingleSize; size <= maxSize; size++)
+            for (int start = 0; start <= _buffer.Count - size; start++)
             {
-                string text = CreateShingle(tokens, start, size, _tokenSeparator);
-                result.Add(new Token(
-                    text,
-                    tokens[start].StartOffset,
-                    tokens[start + size - 1].EndOffset,
-                    tokens[start].Type,
-                    positionIncrement: 0));
+                var shingleText = CreateShingle(start, size);
+
+                var first = _buffer[start];
+                var last = _buffer[start + size - 1];
+
+                sink.Add(
+                    shingleText.AsSpan(),
+                    first.StartOffset,
+                    last.EndOffset,
+                    first.Type,
+                    positionIncrement: 0,
+                    payload: null);
             }
         }
 
-        tokens.Clear();
-        tokens.AddRange(result);
+        _buffer.Clear();
     }
 
-    private static string CreateShingle(List<Token> tokens, int start, int count, string separator)
-    {
-        int length = separator.Length * (count - 1);
-        for (int i = 0; i < count; i++)
-            length += tokens[start + i].Text.Length;
+    /// <inheritdoc/>
+    public ISpanTokenFilter Clone() => new ShingleFilter(_minShingleSize, _maxShingleSize, _outputUnigrams, _tokenSeparator);
 
-        return string.Create(length, (tokens, start, count, separator), static (buffer, state) =>
+    private string CreateShingle(int start, int count)
+    {
+        string separator = _tokenSeparator;
+        int sepLen = separator.Length;
+        int totalLength = sepLen * (count - 1);
+        for (int i = 0; i < count; i++)
+            totalLength += _buffer[start + i].Text.Length;
+
+        return string.Create(totalLength, (start, count, separator, _buffer), static (buffer, state) =>
         {
             int offset = 0;
             for (int i = 0; i < state.count; i++)
@@ -88,7 +134,7 @@ public sealed class ShingleFilter : ITokenFilter
                     offset += state.separator.Length;
                 }
 
-                string text = state.tokens[state.start + i].Text;
+                string text = state._buffer[state.start + i].Text;
                 text.AsSpan().CopyTo(buffer[offset..]);
                 offset += text.Length;
             }

@@ -19,18 +19,21 @@ public sealed class IcuAnalyser : IAnalyser
     /// <param name="additionalFilters">Optional extra filters applied after stop-word removal.</param>
     public IcuAnalyser(
         IEnumerable<string>? stopWords = null,
-        Tokenisers.ITokeniser? thaiTokeniser = null,
-        params ITokenFilter[] additionalFilters)
+        Tokenisers.ISpanTokeniser? thaiTokeniser = null,
+        params ISpanTokenFilter[] additionalFilters)
     {
-        var filters = new List<ITokenFilter>(2 + additionalFilters.Length)
+        var filters = new List<ISpanTokenFilter>(2 + additionalFilters.Length)
         {
             new LowercaseFilter(),
             new StopWordFilter(stopWords)
         };
         filters.AddRange(additionalFilters);
-        _inner = Analyser.FromTokeniser(new Tokenisers.IcuTokeniser(thaiTokeniser), filters.ToArray());
+        _inner = new Analyser(new Tokenisers.IcuTokeniser(thaiTokeniser), filters.ToArray());
     }
 
     /// <inheritdoc/>
-    public List<Token> Analyse(ReadOnlySpan<char> input) => _inner.Analyse(input);
+    public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
+    {
+        _inner.Analyse(input, sink);
+    }
 }

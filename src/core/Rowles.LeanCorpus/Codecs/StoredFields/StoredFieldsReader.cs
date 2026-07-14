@@ -1,4 +1,6 @@
 using System.Buffers;
+using System.IO;
+using System.Text;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.StoredFields;
@@ -12,6 +14,7 @@ internal sealed class StoredFieldsReader : IDisposable
     private readonly FileStream _fs;
     private readonly BinaryReader _reader;
     private readonly int _blockSize;
+    private readonly int _docCount;
     private readonly long[] _blockOffsets;
     private readonly FieldCompressionPolicy _compression;
     private readonly byte _version;
@@ -27,15 +30,38 @@ internal sealed class StoredFieldsReader : IDisposable
 
     private bool _disposed;
 
-    private StoredFieldsReader(FileStream fs, BinaryReader reader, int blockSize, long[] blockOffsets, FieldCompressionPolicy compression, byte version)
+    /// <summary>Maximum decompressed byte size for a single stored fields block (256 MB).</summary>
+    internal const int MaxDecompressedBlockBytes = 256 * 1024 * 1024;
+
+    /// <summary>Maximum documents per block. Guards against corrupt headers.</summary>
+    internal const int MaxBlockSize = 100_000;
+
+    private StoredFieldsReader(
+        FileStream fs,
+        BinaryReader reader,
+        int blockSize,
+        int docCount,
+        long[] blockOffsets,
+        FieldCompressionPolicy compression,
+        byte version)
     {
+        if (blockSize is < 1 or > MaxBlockSize)
+            throw new InvalidDataException($"Stored fields block size {blockSize} is out of range [1, {MaxBlockSize}].");
+
         _fs = fs;
         _reader = reader;
         _blockSize = blockSize;
+        _docCount = docCount;
         _blockOffsets = blockOffsets;
         _compression = compression;
         _version = version;
     }
+
+    /// <summary>Number of documents indexed in this stored-fields file.</summary>
+    internal int DocCount => _docCount;
+
+    /// <summary>Compression policy used for the blocks in this file.</summary>
+    internal FieldCompressionPolicy Compression => _compression;
 
     public static StoredFieldsReader Open(string fdtPath, string fdxPath)
     {
@@ -43,29 +69,17 @@ internal sealed class StoredFieldsReader : IDisposable
         using var fdxStream = FileOpenRetry.OpenReadDelete(fdxPath);
         using var fdxReader = new BinaryReader(fdxStream, System.Text.Encoding.UTF8, leaveOpen: false);
 
-        int firstInt = fdxReader.ReadInt32();
-        int blockSize;
-        int docCount;
-        int blockCount;
-        byte version;
-
-        if (firstInt == CodecConstants.Magic)
+        byte fdxVersion = StoredFieldsFileHeader.ReadVersion(fdxReader);
+        if (fdxVersion > StoredFieldsFileHeader.V3)
         {
-            version = fdxReader.ReadByte();
-            blockSize = fdxReader.ReadInt32();
-            docCount = fdxReader.ReadInt32();
-            blockCount = fdxReader.ReadInt32();
-        }
-        else
-        {
-            fdxStream.Seek(0, SeekOrigin.Begin);
-            version = fdxReader.ReadByte();
-            blockSize = fdxReader.ReadInt32();
-            docCount = fdxReader.ReadInt32();
-            blockCount = fdxReader.ReadInt32();
+            throw new InvalidDataException(
+                $"Unsupported stored fields index (.fdx) format version {fdxVersion}. " +
+                $"This build supports up to version {StoredFieldsFileHeader.V3}.");
         }
 
-        ValidateSupportedVersion(version, "stored fields index (.fdx)");
+        int fdxBlockSize = fdxReader.ReadInt32();
+        int docCount = fdxReader.ReadInt32();
+        int blockCount = fdxReader.ReadInt32();
 
         var blockOffsets = new long[blockCount];
         for (int i = 0; i < blockCount; i++)
@@ -75,47 +89,20 @@ internal sealed class StoredFieldsReader : IDisposable
         var fs = FileOpenRetry.OpenReadDelete(fdtPath);
         var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: true);
 
-        FieldCompressionPolicy compression;
-        int fdtFirst = reader.ReadInt32();
-        if (fdtFirst == CodecConstants.Magic)
-        {
-            byte fdtVersion = reader.ReadByte();
-            int fdtBlockSize = reader.ReadInt32();
-            ValidateSupportedVersion(fdtVersion, "stored fields data (.fdt)");
-            ValidateMatchingHeaders(fdtPath, fdxPath, fdtVersion, version, fdtBlockSize, blockSize);
-            if (fdtVersion >= 5)
-            {
-                compression = (FieldCompressionPolicy)reader.ReadByte();
-            }
-            else
-            {
-                // v4: Brotli
-                compression = FieldCompressionPolicy.Brotli;
-            }
-        }
-        else
-        {
-            // Pre-magic: Brotli
-            fs.Seek(0, SeekOrigin.Begin);
-            byte fdtVersion = reader.ReadByte();
-            int fdtBlockSize = reader.ReadInt32();
-            ValidateSupportedVersion(fdtVersion, "stored fields data (.fdt)");
-            ValidateMatchingHeaders(fdtPath, fdxPath, fdtVersion, version, fdtBlockSize, blockSize);
-            compression = FieldCompressionPolicy.Brotli;
-        }
-
-        return new StoredFieldsReader(fs, reader, blockSize, blockOffsets, compression, version);
-    }
-
-    private static void ValidateSupportedVersion(byte version, string fileType)
-    {
-        if (version > CodecConstants.StoredFieldsVersion)
+        fs.Seek(0, SeekOrigin.Begin);
+        byte fdtVersion = StoredFieldsFileHeader.ReadVersion(reader);
+        if (fdtVersion > StoredFieldsFileHeader.V3)
         {
             throw new InvalidDataException(
-                $"Unsupported {fileType} format version {version}. " +
-                $"This build supports up to version {CodecConstants.StoredFieldsVersion}. " +
-                "Please upgrade LeanCorpus.");
+                $"Unsupported stored fields data (.fdt) format version {fdtVersion}. " +
+                $"This build supports up to version {StoredFieldsFileHeader.V3}.");
         }
+
+        int fdtBlockSize = reader.ReadInt32();
+        ValidateMatchingHeaders(fdtPath, fdxPath, fdtVersion, fdxVersion, fdtBlockSize, fdxBlockSize);
+        var compression = (FieldCompressionPolicy)reader.ReadByte();
+
+        return new StoredFieldsReader(fs, reader, fdtBlockSize, docCount, blockOffsets, compression, fdtVersion);
     }
 
     private static void ValidateMatchingHeaders(
@@ -148,8 +135,17 @@ internal sealed class StoredFieldsReader : IDisposable
             var strings = new List<string>(entries.Count);
             foreach (var entry in entries)
             {
-                if (!entry.IsBinary && entry.StringValue is not null)
+                if (entry.IsBinary)
+                    continue;
+
+                if (entry.IsLong)
+                {
+                    strings.Add(entry.LongValue.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                }
+                else if (entry.StringValue is not null)
+                {
                     strings.Add(entry.StringValue);
+                }
             }
 
             if (strings.Count > 0)
@@ -182,17 +178,9 @@ internal sealed class StoredFieldsReader : IDisposable
             {
                 for (int v = 0; v < valueCount; v++)
                 {
-                    if (_version >= 6)
-                    {
-                        br.ReadByte(); // kind
-                        int valueLength = br.ReadInt32();
-                        br.BaseStream.Seek(valueLength, SeekOrigin.Current);
-                    }
-                    else
-                    {
-                        int valueLength = br.ReadInt32();
-                        br.BaseStream.Seek(valueLength, SeekOrigin.Current);
-                    }
+                    br.ReadByte(); // kind
+                    int valueLength = br.ReadInt32();
+                    br.BaseStream.Seek(valueLength, SeekOrigin.Current);
                 }
                 continue;
             }
@@ -200,23 +188,22 @@ internal sealed class StoredFieldsReader : IDisposable
             var values = new List<StoredFieldValue>(valueCount);
             for (int v = 0; v < valueCount; v++)
             {
-                if (_version >= 6)
+                var kind = (StoredFieldValueKind)br.ReadByte();
+                int valueLength = br.ReadInt32();
+                if (kind == StoredFieldValueKind.Binary)
                 {
-                    var kind = (StoredFieldValueKind)br.ReadByte();
-                    int valueLength = br.ReadInt32();
-                    if (kind == StoredFieldValueKind.Binary)
-                    {
-                        values.Add(StoredFieldValue.FromBinary(br.ReadBytes(valueLength)));
-                    }
-                    else
-                    {
-                        values.Add(StoredFieldValue.FromString(System.Text.Encoding.UTF8.GetString(br.ReadBytes(valueLength))));
-                    }
-                    continue;
+                    values.Add(StoredFieldValue.FromBinary(br.ReadBytes(valueLength)));
                 }
-
-                int valueLen = br.ReadInt32();
-                values.Add(StoredFieldValue.FromString(System.Text.Encoding.UTF8.GetString(br.ReadBytes(valueLen))));
+                else if (kind == StoredFieldValueKind.Long)
+                {
+                    var bytes = br.ReadBytes(valueLength);
+                    long value = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(bytes);
+                    values.Add(StoredFieldValue.FromLong(value));
+                }
+                else
+                {
+                    values.Add(StoredFieldValue.FromString(System.Text.Encoding.UTF8.GetString(br.ReadBytes(valueLength))));
+                }
             }
             fields[name] = values;
         }
@@ -237,20 +224,10 @@ internal sealed class StoredFieldsReader : IDisposable
             int valueCount = br.ReadInt32();
             if (string.Equals(name, field, StringComparison.Ordinal) && valueCount > 0)
                 return true;
-
             for (int v = 0; v < valueCount; v++)
             {
-                int valueLength;
-                if (_version >= 6)
-                {
-                    _ = br.ReadByte();
-                    valueLength = br.ReadInt32();
-                }
-                else
-                {
-                    valueLength = br.ReadInt32();
-                }
-
+                var kind = (StoredFieldValueKind)br.ReadByte();
+                int valueLength = br.ReadInt32();
                 br.BaseStream.Seek(valueLength, SeekOrigin.Current);
             }
         }
@@ -260,6 +237,9 @@ internal sealed class StoredFieldsReader : IDisposable
 
     private BinaryReader PositionDocumentReader(int docId)
     {
+        if ((uint)docId >= (uint)_docCount)
+            throw new ArgumentOutOfRangeException(nameof(docId), docId, $"docId must be in the range [0, {_docCount}).");
+
         int blockIndex = docId / _blockSize;
         int docInBlock = docId % _blockSize;
 
@@ -288,6 +268,17 @@ internal sealed class StoredFieldsReader : IDisposable
         int docCount = _reader.ReadInt32();
         int rawLength = _reader.ReadInt32();
         int compLength = _reader.ReadInt32();
+
+        // Guard against corrupt or malicious block headers.
+        if ((uint)docCount > (uint)_blockSize)
+            throw new InvalidDataException($"Stored fields block has {docCount} documents but block size is {_blockSize}.");
+        if (rawLength <= 0 || rawLength > MaxDecompressedBlockBytes)
+            throw new InvalidDataException($"Stored fields block rawLength {rawLength} exceeds maximum {MaxDecompressedBlockBytes}.");
+        if (compLength <= 0 || compLength > MaxDecompressedBlockBytes)
+            throw new InvalidDataException($"Stored fields block compLength {compLength} exceeds maximum {MaxDecompressedBlockBytes}.");
+        // Compression should not expand data beyond a 2x ratio; reject obvious bombs.
+        if (compLength > rawLength * 2)
+            throw new InvalidDataException($"Stored fields block compressed length {compLength} exceeds 2x raw length {rawLength}.");
 
         var intraOffsets = new int[docCount];
         for (int i = 0; i < docCount; i++)

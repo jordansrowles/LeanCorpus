@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Diagnostics;
+using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Search;
@@ -24,7 +25,7 @@ public sealed class IndexSearcherAdvancedTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_dir, true); } catch { }
+        TestDirectoryFixture.TryDeleteDirectory(_dir);
     }
 
     private string SubDir(string name)

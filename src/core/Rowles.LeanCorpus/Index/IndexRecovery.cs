@@ -1,4 +1,9 @@
-﻿using System.Text.Json;
+using System.Text.Json;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Codecs.Postings;
+using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Serialization;
 using Rowles.LeanCorpus.Store;
 
@@ -25,7 +30,10 @@ public static class IndexRecovery
     {
         // Clean up any leftover temp files from interrupted commits (writer-side only).
         if (cleanupOrphans)
+        {
             CleanupTempFiles(directoryPath);
+            PromotePendingCommits(directoryPath);
+        }
 
         var commitFiles = FindCommitFiles(directoryPath);
         if (commitFiles.Count == 0)
@@ -58,11 +66,12 @@ public static class IndexRecovery
         if (!Directory.Exists(directoryPath))
             return result;
 
-        foreach (var file in Directory.GetFiles(directoryPath, "segments_*"))
+        foreach (var file in FileOpenRetry.GetFiles(directoryPath, "segments_*"))
         {
             var fileName = Path.GetFileName(file);
-            // Skip temp files
-            if (fileName.EndsWith(".tmp", StringComparison.Ordinal))
+            // Skip temp files and pending commit files
+            if (fileName.EndsWith(".tmp", StringComparison.Ordinal) ||
+                fileName.EndsWith(".pending", StringComparison.Ordinal))
                 continue;
             var genStr = fileName.AsSpan("segments_".Length);
             if (int.TryParse(genStr, out int gen))
@@ -81,14 +90,13 @@ public static class IndexRecovery
     private static readonly string[] RequiredSegmentExtensions = [".seg", ".dic", ".pos", ".nrm", ".fdt", ".fdx"];
 
     /// <summary>
-    /// Per-extension expected codec magic header version. Files that exist but fail header
-    /// validation cause the commit to be rejected and recovery to fall back.
+    /// Per-extension codec format for dual-format header validation.
+    /// Files that exist but fail header validation cause the commit to be rejected.
     /// </summary>
-    private static readonly (string Ext, byte Version, string FileType)[] HeaderChecks =
+    private static readonly (string Ext, ICodec<byte[]> Format)[] HeaderChecks =
     [
-        (".dic", Codecs.CodecConstants.TermDictionaryVersion, "term dictionary"),
-        (".pos", Codecs.CodecConstants.PostingsVersion, "postings"),
-        (".nrm", Codecs.CodecConstants.NormsVersion, "norms"),
+        (".dic", CodecFormats.TermDictionary),
+        (".nrm", CodecFormats.Norms),
     ];
 
     /// <summary>
@@ -103,15 +111,13 @@ public static class IndexRecovery
         {
             var json = CommitFileFormat.TryReadJson(commitFilePath);
             if (json is null)
-                return null; // CRC mismatch — torn write
+                return null;
             var commitData = JsonSerializer.Deserialize(json, LeanCorpusJsonContext.Default.CommitData);
             if (commitData is null || commitData.Segments is null)
                 return null;
 
-            // Validate deserialised data
             try { commitData.Validate(); } catch (InvalidDataException) { return null; }
 
-            // Validate generation matches
             if (commitData.Generation != generation)
                 return null;
 
@@ -134,72 +140,112 @@ public static class IndexRecovery
         }
         catch (JsonException)
         {
-            return null; // corrupt JSON
+            return null;
         }
         catch (IOException)
         {
-            return null; // file read error
+            return null;
+        }
+    }
+
+    private static bool ValidateSegment(string directoryPath, string segId)
+    {
+        try
+        {
+            var basePath = Path.Combine(directoryPath, segId);
+            foreach (var ext in RequiredSegmentExtensions)
+            {
+                var path = basePath + ext;
+                var info = new FileInfo(path);
+                if (!info.Exists || info.Length == 0)
+                    return false;
+            }
+
+            var segInfo = Segment.SegmentInfo.ReadFrom(basePath + ".seg");
+
+            foreach (var (ext, format) in HeaderChecks)
+            {
+                var path = basePath + ext;
+                if (!FileOpenRetry.FileExists(path)) return false;
+            using var fs = FileOpenRetry.OpenReadDelete(path);
+                using var reader = new BinaryReader(fs);
+                CodecFileHeader.ReadVersion(reader, format);
+            }
+
+            // .pos uses PostingsFileHeader, not the CodecKit envelope
+            {
+                var posPath = basePath + ".pos";
+                if (!FileOpenRetry.FileExists(posPath)) return false;
+                using var posFs = FileOpenRetry.OpenReadDelete(posPath);
+                using var posReader = new BinaryReader(posFs);
+                PostingsFileHeader.ReadVersion(posReader);
+            }
+
+            // .fdt/.fdx use StoredFieldsFileHeader, not the CodecKit envelope
+            {
+                var fdtPath = basePath + ".fdt";
+                if (!FileOpenRetry.FileExists(fdtPath)) return false;
+                using var fdtFs = FileOpenRetry.OpenReadDelete(fdtPath);
+                using var fdtReader = new BinaryReader(fdtFs);
+                StoredFieldsFileHeader.ReadVersion(fdtReader);
+            }
+            {
+                var fdxPath = basePath + ".fdx";
+                if (!FileOpenRetry.FileExists(fdxPath)) return false;
+                using var fdxFs = FileOpenRetry.OpenReadDelete(fdxPath);
+                using var fdxReader = new BinaryReader(fdxFs);
+                StoredFieldsFileHeader.ReadVersion(fdxReader);
+            }
+
+            foreach (var vf in segInfo.VectorFields)
+            {
+                var vecPath = vf.Quantisation != Codecs.Vectors.VectorQuantisation.None
+                    ? Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, vf.FieldName)
+                    : Codecs.Vectors.VectorFilePaths.VectorFile(basePath, vf.FieldName);
+                if (!FileOpenRetry.FileExists(vecPath)) return false;
+                if (vf.HasHnsw)
+                {
+                    var hnswPath = Codecs.Vectors.VectorFilePaths.HnswFile(basePath, vf.FieldName);
+                    if (!FileOpenRetry.FileExists(hnswPath)) return false;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException
+            or UnauthorizedAccessException or JsonException)
+        {
+            return false;
         }
     }
 
     /// <summary>
-    /// Returns true if every required file for the given segment exists, is non-empty,
-    /// and the optional vector and HNSW files declared in the segment metadata are present.
+    /// Promotes orphaned <c>segments_N.pending</c> files to full commits.
+    /// An orphaned pending file (no corresponding <c>segments_N</c>) indicates a crash
+    /// after <c>PrepareCommit</c> but before <c>Commit</c>. The prepared data is complete
+    /// and should be recovered.
     /// </summary>
-    private static bool ValidateSegment(string directoryPath, string segId)
+    private static void PromotePendingCommits(string directoryPath)
     {
-        var basePath = Path.Combine(directoryPath, segId);
-        foreach (var ext in RequiredSegmentExtensions)
+        foreach (var pendingFile in FileOpenRetry.GetFiles(directoryPath, "segments_*.pending"))
         {
-            var path = basePath + ext;
-            var info = new FileInfo(path);
-            if (!info.Exists || info.Length == 0)
-                return false;
-        }
+            var fileName = Path.GetFileName(pendingFile);
+            // Strip ".pending" suffix to get the target segments_N name.
+            var finalName = fileName.Substring(0, fileName.Length - ".pending".Length);
+            var finalPath = Path.Combine(directoryPath, finalName);
 
-        Segment.SegmentInfo segInfo;
-        try
-        {
-            segInfo = Segment.SegmentInfo.ReadFrom(basePath + ".seg");
-        }
-        catch (Exception)
-        {
-            return false;
-        }
-
-        // Validate codec headers on the per-segment files that carry them.
-        foreach (var (ext, version, fileType) in HeaderChecks)
-        {
-            var path = basePath + ext;
-            if (!File.Exists(path)) return false;
-            try
+            if (!FileOpenRetry.FileExists(finalPath))
             {
-                using var fs = FileOpenRetry.OpenReadDelete(path);
-                using var reader = new BinaryReader(fs);
-                Codecs.CodecConstants.ValidateHeader(reader, version, fileType);
+                try { FileOpenRetry.Move(pendingFile, finalPath); }
+                catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "pending commit promote move"); }
             }
-            catch (Exception)
+            else
             {
-                return false;
+                // Both .pending and final exist — the final commit won, discard the stale pending.
+                try { FileOpenRetry.Delete(pendingFile); }
+                catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "stale pending file delete"); }
             }
         }
-
-        // .del file presence is intentionally NOT validated here. A missing .del
-        // is treated as a fully-live segment by the reader, which is the documented
-        // graceful-degradation behaviour for fault-injection scenarios.
-
-        foreach (var vf in segInfo.VectorFields)
-        {
-            var vecPath = Codecs.Vectors.VectorFilePaths.VectorFile(basePath, vf.FieldName);
-            if (!File.Exists(vecPath)) return false;
-            if (vf.HasHnsw)
-            {
-                var hnswPath = Codecs.Vectors.VectorFilePaths.HnswFile(basePath, vf.FieldName);
-                if (!File.Exists(hnswPath)) return false;
-            }
-        }
-
-        return true;
     }
 
     /// <summary>
@@ -210,32 +256,17 @@ public static class IndexRecovery
         if (!Directory.Exists(directoryPath))
             return;
 
-        foreach (var tmpFile in Directory.GetFiles(directoryPath, "*.tmp"))
+        foreach (var tmpFile in FileOpenRetry.GetFiles(directoryPath, "*.tmp"))
         {
             if (!IsRecognisedTemporaryFile(Path.GetFileName(tmpFile)))
                 continue;
 
-            try { File.Delete(tmpFile); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            try { FileOpenRetry.Delete(tmpFile); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "temp file cleanup"); }
         }
     }
 
     private static bool IsRecognisedTemporaryFile(string fileName)
-        => fileName is "migration_state.json.tmp"
-           || (fileName.StartsWith("segments_", StringComparison.Ordinal) && fileName.EndsWith(".tmp", StringComparison.Ordinal))
-           || (fileName.StartsWith("stats_", StringComparison.Ordinal) && fileName.EndsWith(".json.tmp", StringComparison.Ordinal))
-           || fileName.EndsWith(".dic.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".pos.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".dvn.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".dvs.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".dss.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".dsn.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".dvb.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".fln.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".fdt.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".fdx.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".seg.tmp", StringComparison.Ordinal)
-           || fileName.EndsWith(".stats.json.tmp", StringComparison.Ordinal)
-           || (fileName.Contains("_gen_", StringComparison.Ordinal) && fileName.EndsWith(".del.tmp", StringComparison.Ordinal));
+        => Codecs.CodecKit.Formats.CodecFormats.IsRecognisedTemporaryFile(fileName);
 
     /// <summary>
     /// Removes segment files that are not referenced by the active commit. Uses a
@@ -247,27 +278,23 @@ public static class IndexRecovery
         var activeSet = new HashSet<string>(activeSegmentIds, StringComparer.Ordinal);
 
         // Find all segment IDs on disk by looking for .seg files
-        var orphanIds = new List<string>();
-        foreach (var segFile in Directory.GetFiles(directoryPath, "*.seg"))
+        foreach (var segFile in FileOpenRetry.GetFiles(directoryPath, "*.seg"))
         {
             var segId = Path.GetFileNameWithoutExtension(segFile);
-            if (!activeSet.Contains(segId))
-                orphanIds.Add(segId);
-        }
+            if (activeSet.Contains(segId))
+                continue;
 
-        foreach (var segId in orphanIds)
+            // Pattern: segId.* and segId_v_*.* (per-field vector and HNSW files).
+            DeleteByPattern(directoryPath, segId + ".*");
+            DeleteByPattern(directoryPath, segId + "_v_*.*");
+        }
+    }
+
+    private static void DeleteByPattern(string directoryPath, string pattern)
+    {
+        foreach (var path in FileOpenRetry.GetFiles(directoryPath, pattern))
         {
-            var segPrefix = segId + ".";
-            var vecPrefix = segId + "_v_";
-            foreach (var path in Directory.GetFiles(directoryPath))
-            {
-                var fileName = Path.GetFileName(path);
-                if (fileName.StartsWith(segPrefix, StringComparison.Ordinal) ||
-                    fileName.StartsWith(vecPrefix, StringComparison.Ordinal))
-                {
-                    try { File.Delete(path); } catch { /* best-effort */ }
-                }
-            }
+            try { FileOpenRetry.Delete(path); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "orphan cleanup"); }
         }
     }
 

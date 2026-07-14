@@ -1,5 +1,6 @@
 ﻿using Rowles.LeanCorpus.Store;
 using System.Runtime.InteropServices;
+using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using System.Text;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Store;
@@ -26,7 +27,7 @@ public sealed class DirectoryFsyncTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_dir, true); } catch { }
+        TestDirectoryFixture.TryDeleteDirectory(_dir);
     }
 
     // Sync

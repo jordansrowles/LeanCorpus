@@ -211,3 +211,54 @@ public sealed class HnswGraphTests
             .ToList();
     }
 }
+
+public sealed class BBQDistanceComputerTests
+{
+    [Fact(DisplayName = "BBQ stored-vs-stored: identical vectors have distance = -dim")]
+    public void StoredVsStored_IdenticalVectors_DistanceNegDim()
+    {
+        int dim = 128;
+        var bits = new byte[(dim + 7) / 8];
+        bits.AsSpan().Fill(0xAA);
+
+        float d = BBQDistanceComputer.Distance(bits, bits, dim);
+        Assert.Equal(-dim, d);
+    }
+
+    [Fact(DisplayName = "BBQ stored-vs-stored: complementary vectors have distance = dim")]
+    public void StoredVsStored_ComplementaryVectors_DistanceDim()
+    {
+        int dim = 64;
+        var bitsA = new byte[dim / 8];
+        var bitsB = new byte[dim / 8];
+        bitsA.AsSpan().Fill(0xFF);
+        bitsB.AsSpan().Fill(0x00);
+
+        float d = BBQDistanceComputer.Distance(bitsA, bitsB, dim);
+        Assert.Equal(dim, d);
+    }
+
+    [Fact(DisplayName = "BBQ stored-vs-stored: half-matching vectors distance = 0")]
+    public void StoredVsStored_HalfMatching()
+    {
+        int dim = 64;
+        var bitsA = new byte[dim / 8];
+        var bitsB = new byte[dim / 8];
+        bitsA.AsSpan().Fill(0xFF);
+        bitsB.AsSpan().Fill(0x0F);
+
+        float d = BBQDistanceComputer.Distance(bitsA, bitsB, dim);
+        Assert.Equal(0f, d);
+    }
+
+    [Fact(DisplayName = "BBQ stored-vs-stored: odd dimension handled correctly")]
+    public void StoredVsStored_OddDimension()
+    {
+        int dim = 65;
+        var bits = new byte[(dim + 7) / 8];
+        bits.AsSpan().Fill(0xFF);
+
+        float d = BBQDistanceComputer.Distance(bits, bits, dim);
+        Assert.Equal(-dim, d);
+    }
+}

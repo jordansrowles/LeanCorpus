@@ -45,10 +45,9 @@ foreach (var hit in hits.ScoreDocs)
     Console.WriteLine($"docId={hit.DocId} score={hit.Score}");
 ```
 
-## Layout on disk
+## What's on disk
 
-The directory holds segment files (`*.seg`, `*.dic`, `*.pos`, `*.fdt`, `*.fdx`, `*.nrm`, etc.)
-and one or more `segments_N` commit files.
+The directory holds segment files (`*.seg`, `*.dic`, `*.pos`, `*.fdt`, `*.fdx`, `*.nrm`, etc.) and one or more `segments_N` commit files.
 
 ## See also
 

@@ -6,6 +6,7 @@ public sealed class CombinedFieldsQuery : Query
     private readonly string[] _fields;
     private readonly string[] _terms;
     private readonly KeyValuePair<string, float>[] _fieldWeights;
+    private readonly IReadOnlyDictionary<string, float> _fieldWeightDict;
 
     /// <inheritdoc/>
     public override string Field => string.Empty;
@@ -20,7 +21,7 @@ public sealed class CombinedFieldsQuery : Query
     public int MinimumShouldMatch { get; }
 
     /// <summary>Gets the optional per-field query weights.</summary>
-    public IReadOnlyDictionary<string, float> FieldWeights => _fieldWeights.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
+    public IReadOnlyDictionary<string, float> FieldWeights => _fieldWeightDict;
 
     /// <summary>Initialises a new <see cref="CombinedFieldsQuery"/>.</summary>
     public CombinedFieldsQuery(
@@ -41,6 +42,7 @@ public sealed class CombinedFieldsQuery : Query
         if (fieldWeights is null || _fields.Length == 0)
         {
             _fieldWeights = [];
+            _fieldWeightDict = new Dictionary<string, float>();
             return;
         }
 
@@ -61,6 +63,9 @@ public sealed class CombinedFieldsQuery : Query
         _fieldWeights = weights
             .OrderBy(static pair => pair.Key, StringComparer.Ordinal)
             .ToArray();
+
+        _fieldWeightDict = weights.ToDictionary(
+            static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
     }
 
     private static string[] NormaliseNonEmptyValues(IEnumerable<string> values, string parameterName, string label)

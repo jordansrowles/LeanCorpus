@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using Rowles.LeanCorpus.Store;
@@ -6,7 +6,7 @@ using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Codecs.Postings;
 
 /// <summary>
-/// Block-at-a-time postings iterator (v3 format). Reads packed blocks of 128 doc IDs
+/// Block-at-a-time postings iterator. Reads packed blocks of 128 doc IDs
 /// written by <see cref="BlockPostingsWriter"/>. Only the current block is decoded,
 /// keeping memory at a constant ~1 KB (2 × 128 ints) regardless of postings list length.
 /// </summary>
@@ -71,6 +71,8 @@ public struct BlockPostingsEnum : IDisposable
         // Use a local cursor so we do not mutate the shared docInput._position.
         long cursor = skipOffset;
         int skipCount = docInput.ReadInt32(ref cursor);
+        if (skipCount < 0)
+            throw new InvalidDataException("Postings data is corrupt: negative skip count.");
         int loadCount = Math.Min(skipCount, MaxPreloadedSkipEntries);
         var skipEntries = ArrayPool<SkipEntry>.Shared.Rent(Math.Max(loadCount, 1));
         for (int i = 0; i < loadCount; i++)
@@ -115,6 +117,18 @@ public struct BlockPostingsEnum : IDisposable
         _exhausted = docFreq == 0;
         _nextBlockOffset = docStartOffset;
         _cursorPosition = docStartOffset;
+    }
+
+    /// <summary>Resets the cursor to before the first document, allowing the list to be re-iterated.</summary>
+    public void Reset()
+    {
+        _blockStart = 0;
+        _blockCount = 0;
+        _indexInBlock = -1;
+        _currentBlockIndex = -1;
+        _exhausted = _docFreq == 0;
+        _nextBlockOffset = _docStartOffset;
+        _cursorPosition = _docStartOffset;
     }
 
     /// <summary>
@@ -212,7 +226,7 @@ public struct BlockPostingsEnum : IDisposable
     /// SIMD branchless advance: loads 4 doc IDs at a time, compares against target,
     /// uses ExtractMostSignificantBits + TrailingZeroCount to find first match.
     /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private int BranchlessAdvanceSimd(int target, int start, int count)
     {
         var targetVec = Vector128.Create(target);
@@ -305,6 +319,9 @@ public struct BlockPostingsEnum : IDisposable
 
         // Decode doc IDs (delta-encoded)
         int docNumBits = _docInput.ReadByte(ref _cursorPosition);
+        if (docNumBits > 32)
+            throw new InvalidDataException(
+                $"Postings data is corrupt: docNumBits={docNumBits} exceeds 32.");
         int docPackedBytes = docNumBits * 16;
         int prevDocId = _currentBlockIndex > 0
             ? _skipEntries[_currentBlockIndex - 1].LastDocId : 0;
@@ -322,6 +339,9 @@ public struct BlockPostingsEnum : IDisposable
 
         // Decode frequencies (stored as freq-1, bit-packed with embedded numBits header)
         int freqNumBits = _docInput.ReadByte(ref _cursorPosition);
+        if (freqNumBits > 32)
+            throw new InvalidDataException(
+                $"Postings data is corrupt: freqNumBits={freqNumBits} exceeds 32.");
         if (freqNumBits == 0)
         {
             Array.Fill(_freqBlock, 0, 0, BlockSize); // all freq-1 = 0, i.e. freq = 1
@@ -339,6 +359,12 @@ public struct BlockPostingsEnum : IDisposable
     private void DecodeTailAtCurrentPosition()
     {
         int tailCount = _docInput.ReadVarInt(ref _cursorPosition);
+        if (tailCount <= 0)
+            throw new InvalidDataException(
+                "Postings data is corrupt: tail block has zero or negative count.");
+        if (tailCount > BlockSize)
+            throw new InvalidDataException(
+                $"Postings data is corrupt: tailCount={tailCount} exceeds BlockSize={BlockSize}.");
         int prevDocId = _currentBlockIndex > 0 && _currentBlockIndex <= _skipCount
             ? _skipEntries[_currentBlockIndex - 1].LastDocId : 0;
 

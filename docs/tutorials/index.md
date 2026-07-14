@@ -8,6 +8,7 @@ the [API reference](~/api/index.md) for full signatures.
 - [Installation and first index](getting-started/01-installation.md)
 - [Field types](getting-started/02-fields.md)
 - [Writer configuration](getting-started/03-configuration.md)
+- [Source-generated mapping](getting-started/04-source-generated-mapping.md)
 
 ## Analysis
 
@@ -17,6 +18,7 @@ the [API reference](~/api/index.md) for full signatures.
 - [Token filters](analysis/03-token-filters.md)
 - [Stemmers](analysis/04-stemmers.md)
 - [Stop words and the token budget](analysis/05-stop-words-and-token-budget.md)
+- [Lexicons](analysis/06-lexicons.md)
 
 ## Searching
 
@@ -26,6 +28,8 @@ the [API reference](~/api/index.md) for full signatures.
 - [The query parser](searching/04-query-parser.md)
 - [Boosting and scoring](searching/05-boosting-and-scoring.md)
 - [Sorting](searching/06-sorting.md)
+- [LINQ queries](searching/07-linq-queries.md)
+- [Disjunction max](searching/08-disjunction-max.md)
 
 ## Advanced
 
@@ -37,6 +41,7 @@ the [API reference](~/api/index.md) for full signatures.
 - [Block-join (nested documents)](advanced/06-block-join.md)
 - [More like this](advanced/07-more-like-this.md)
 - [Filtered vector search](advanced/08-filtered-vector-search.md)
+- [Field collapsing](advanced/09-field-collapsing.md)
 
 ## Concurrency and Near Real Time
 
@@ -51,6 +56,8 @@ the [API reference](~/api/index.md) for full signatures.
 - [Schema validation](index-management/02-schema.md)
 - [Validation and recovery](index-management/03-validation-recovery.md)
 - [Index checker CLI](index-management/04-cli-checker.md)
+- [Stored round-tripping](index-management/05-stored-round-tripping.md)
+- [Async indexing](index-management/06-async-indexing.md)
 
 ## Observability
 
@@ -65,3 +72,10 @@ the [API reference](~/api/index.md) for full signatures.
 - [Stored field compression](tips/01-compression.md)
 - [Query cache](tips/02-query-cache.md)
 - [Benchmarking](tips/03-benchmarking.md)
+
+## CodecKit (contributor)
+
+- [Overview](codeckit/index.md)
+- [Creating codecs](codeckit/01-creating-codecs.md)
+- [Adding formats](codeckit/02-adding-formats.md)
+- [Migrations](codeckit/03-migrations.md)

@@ -196,9 +196,7 @@ public sealed class IndexCheckerCliGapsTests : IClassFixture<TestDirectoryFixtur
 
         Assert.Equal(0, code);
         var text = output.ToString();
-        Assert.Contains("Status: MigrationRecommended", text);
-        Assert.Contains("RewriteFile", text);
-        Assert.Contains(".dic", text);
+        Assert.Contains("Status: Compatible", text);
         Assert.Empty(error.ToString());
     }
 
@@ -217,8 +215,7 @@ public sealed class IndexCheckerCliGapsTests : IClassFixture<TestDirectoryFixtur
         Assert.Equal(0, code);
         var text = output.ToString();
         Assert.Contains("Migration dry-run", text);
-        Assert.Contains("RewriteFile", text);
-        Assert.Contains(".dic", text);
+        Assert.Contains("Succeeded: True", text);
         Assert.Empty(error.ToString());
     }
 
@@ -238,7 +235,6 @@ public sealed class IndexCheckerCliGapsTests : IClassFixture<TestDirectoryFixtur
         var json = output.ToString();
         Assert.Contains("\"dryRun\":true", json);
         Assert.Contains("\"actions\"", json);
-        Assert.Contains("\"kind\"", json);
         Assert.Empty(error.ToString());
     }
 

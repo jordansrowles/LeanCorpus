@@ -1,4 +1,4 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Documents;
 using Lucene.Net.Index;
@@ -45,67 +45,37 @@ public class GutenbergSearchBenchmarks
     [Params("love", "man", "night", "sea", "death")]
     public string SearchTerm { get; set; } = "love";
 
-    // Pre-analysed query terms
+    // Per-param (query term) fields
     private string _standardQueryTerm = string.Empty;
     private string _englishQueryTerm  = string.Empty;
     private string _luceneQueryTerm   = string.Empty;
 
-    private string _standardIndexPath = string.Empty;
-    private string _englishIndexPath  = string.Empty;
-    private string _luceneIndexPath   = string.Empty;
-
-    private LeanMMapDirectory? _standardDirectory;
-    private LeanMMapDirectory? _englishDirectory;
-    private LeanIndexSearcher? _standardSearcher;
-    private LeanIndexSearcher? _englishSearcher;
-
-    private Lucene.Net.Store.FSDirectory? _luceneDirectory;
-    private DirectoryReader? _luceneReader;
-    private LuceneIndexSearcher? _luceneSearcher;
-    private StandardAnalyzer? _luceneAnalyzer;
+    // Indexes — built once regardless of SearchTerm [Params] combos
+    private static readonly Lock s_gate = new();
+    private static bool s_built;
+    private static string s_standardIndexPath = string.Empty;
+    private static string s_englishIndexPath  = string.Empty;
+    private static string s_luceneIndexPath   = string.Empty;
+    private static LeanIndexSearcher? s_standardSearcher;
+    private static LeanIndexSearcher? s_englishSearcher;
+    private static Lucene.Net.Store.FSDirectory? s_luceneDirectory;
+    private static DirectoryReader? s_luceneReader;
+    private static LuceneIndexSearcher? s_luceneSearcher;
 
     [GlobalSetup]
     public void Setup()
     {
-        var paragraphs = GutenbergDataLoader.Load();
-
         _standardQueryTerm = AnalyseQueryTerm(new StandardAnalyser(), SearchTerm);
         _englishQueryTerm  = AnalyseQueryTerm(new EnglishAnalyser(),  SearchTerm);
         _luceneQueryTerm   = SearchTerm.ToLowerInvariant();
 
-        _standardIndexPath = BuildLeanIndex(paragraphs, new StandardAnalyser(), "standard");
-        _englishIndexPath  = BuildLeanIndex(paragraphs, new EnglishAnalyser(),  "english");
-        _luceneIndexPath   = BuildLuceneIndex(paragraphs);
-
-        _standardDirectory = new LeanMMapDirectory(_standardIndexPath);
-        _englishDirectory  = new LeanMMapDirectory(_englishIndexPath);
-
-        _standardSearcher = new LeanIndexSearcher(_standardDirectory);
-        _englishSearcher  = new LeanIndexSearcher(_englishDirectory);
-
-        _luceneDirectory  = Lucene.Net.Store.FSDirectory.Open(new DirectoryInfo(_luceneIndexPath));
-        _luceneReader     = DirectoryReader.Open(_luceneDirectory);
-        _luceneSearcher   = new LuceneIndexSearcher(_luceneReader);
+        EnsureIndexes();
     }
 
     [GlobalCleanup]
     public void Cleanup()
     {
-        _standardSearcher?.Dispose();
-        _englishSearcher?.Dispose();
-        _luceneReader?.Dispose();
-        _luceneAnalyzer?.Dispose();
-        _luceneDirectory?.Dispose();
-
-        _standardDirectory = null;
-        _englishDirectory  = null;
-        _luceneDirectory   = null;
-        _luceneReader      = null;
-        _luceneSearcher    = null;
-
-        DeleteDirectory(_standardIndexPath);
-        DeleteDirectory(_englishIndexPath);
-        DeleteDirectory(_luceneIndexPath);
+        // Static index resources persist for class lifetime.
     }
 
     /// <summary>
@@ -115,7 +85,7 @@ public class GutenbergSearchBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_Standard_Search()
     {
-        var results = _standardSearcher!.Search(new LeanTermQuery("body", _standardQueryTerm), TopN);
+        var results = s_standardSearcher!.Search(new LeanTermQuery("body", _standardQueryTerm), TopN);
         return results.TotalHits;
     }
 
@@ -126,7 +96,7 @@ public class GutenbergSearchBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_English_Search()
     {
-        var results = _englishSearcher!.Search(new LeanTermQuery("body", _englishQueryTerm), TopN);
+        var results = s_englishSearcher!.Search(new LeanTermQuery("body", _englishQueryTerm), TopN);
         return results.TotalHits;
     }
 
@@ -138,19 +108,72 @@ public class GutenbergSearchBenchmarks
     public int LuceneNet_Search()
     {
         var query = new LuceneTermQuery(new Term("body", _luceneQueryTerm));
-        var results = _luceneSearcher!.Search(query, TopN);
+        var results = s_luceneSearcher!.Search(query, TopN);
         return results.TotalHits;
     }
 
     private static string AnalyseQueryTerm(IAnalyser analyser, string term)
     {
-        var tokens = analyser.Analyse(term.AsSpan());
+        var tokens = new List<Analysis.Token>();
+        analyser.Analyse(term.AsSpan(), new CapturingTokenSink(tokens));
         return tokens.Count > 0 ? tokens[0].Text : term;
+    }
+
+    private sealed class CapturingTokenSink(List<Analysis.Token> tokens) : Analysis.ISpanTokenSink
+    {
+        public void Add(ReadOnlySpan<char> text, int startOffset, int endOffset,
+            string type = Analysis.Token.DefaultType, int positionIncrement = 1, byte[]? payload = null)
+            => tokens.Add(new Analysis.Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload));
+    }
+
+    private static void EnsureIndexes()
+    {
+        if (s_built)
+            return;
+
+        lock (s_gate)
+        {
+            if (s_built)
+                return;
+
+            var paragraphs = GutenbergDataLoader.Load();
+            s_standardIndexPath = BuildLeanIndex(paragraphs, new StandardAnalyser(), "standard");
+            s_englishIndexPath  = BuildLeanIndex(paragraphs, new EnglishAnalyser(),  "english");
+            s_luceneIndexPath   = BuildLuceneIndex(paragraphs);
+
+            s_standardSearcher = new LeanIndexSearcher(new LeanMMapDirectory(s_standardIndexPath));
+            s_englishSearcher  = new LeanIndexSearcher(new LeanMMapDirectory(s_englishIndexPath));
+
+            s_luceneDirectory  = Lucene.Net.Store.FSDirectory.Open(new DirectoryInfo(s_luceneIndexPath));
+            s_luceneReader     = DirectoryReader.Open(s_luceneDirectory);
+            s_luceneSearcher   = new LuceneIndexSearcher(s_luceneReader);
+
+            s_built = true;
+        }
+    }
+
+    public static void CleanupLuceneResources()
+    {
+        if (!s_built)
+            return;
+
+        lock (s_gate)
+        {
+            if (!s_built)
+                return;
+
+            s_luceneSearcher = null;
+            s_luceneReader?.Dispose();
+            s_luceneReader = null;
+            s_luceneDirectory?.Dispose();
+            s_luceneDirectory = null;
+            s_built = false;
+        }
     }
 
     private static string BuildLeanIndex(BookParagraph[] paragraphs, IAnalyser analyser, string label)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"leancorpus-realdata-{label}-{Guid.NewGuid():N}");
+        var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-realdata-{label}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
 
         var directory = new LeanMMapDirectory(path);
@@ -177,16 +200,16 @@ public class GutenbergSearchBenchmarks
         return path;
     }
 
-    private string BuildLuceneIndex(BookParagraph[] paragraphs)
+    private static string BuildLuceneIndex(BookParagraph[] paragraphs)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"lucenenet-realdata-{Guid.NewGuid():N}");
+        var path = Path.Combine(BenchmarkHelpers.TempRoot, $"lucenenet-realdata-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
 
         using var directory = Lucene.Net.Store.FSDirectory.Open(new DirectoryInfo(path));
-        _luceneAnalyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+        var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
         using (var writer = new Lucene.Net.Index.IndexWriter(
             directory,
-            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, _luceneAnalyzer)))
+            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser)))
         {
             foreach (var para in paragraphs)
             {
@@ -205,9 +228,5 @@ public class GutenbergSearchBenchmarks
         return path;
     }
 
-    private static void DeleteDirectory(string path)
-    {
-        if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
-            Directory.Delete(path, recursive: true);
-    }
+
 }

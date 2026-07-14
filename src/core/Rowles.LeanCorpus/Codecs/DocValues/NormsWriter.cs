@@ -1,4 +1,9 @@
-﻿using System.Text;
+using System.Buffers;
+using System.Runtime.CompilerServices;
+using System.Text;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
@@ -9,6 +14,38 @@ namespace Rowles.LeanCorpus.Codecs.DocValues;
 /// </summary>
 internal static class NormsWriter
 {
+    /// <summary>Quantises a float norm in [0,1] to a single byte, matching the on-disc format.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static byte QuantiseNorm(float norm)
+        => (byte)Math.Clamp(MathF.Round(norm * 255f), 0f, 255f);
+
+
+    internal static void WriteFieldBlock(
+        IBufferWriter<byte> bw,
+        string fieldName,
+        float[] values,
+        float[]? boosts,
+        int docCount)
+    {
+        var fieldBytes = Encoding.UTF8.GetBytes(fieldName);
+        PostingsWriter.WriteVarInt(bw, fieldBytes.Length);
+        bw.WriteBytes(fieldBytes);
+
+        PostingsWriter.WriteVarInt(bw, docCount);
+
+        for (int i = 0; i < docCount; i++)
+            bw.WriteByte(QuantiseNorm(values[i]));
+
+        if (boosts is not null)
+        {
+            WriteDenseBoosts(bw, boosts, docCount);
+        }
+        else
+        {
+            PostingsWriter.WriteVarInt(bw, 0);
+        }
+    }
+
     internal static void Write(
         string filePath,
         IReadOnlyDictionary<string, float[]> fieldNorms,
@@ -17,43 +54,40 @@ internal static class NormsWriter
         bool durable = false,
         IReadOnlyDictionary<string, Dictionary<int, float>>? sparseFieldBoosts = null)
     {
-        using var output = new IndexOutput(filePath, durable);
+        var bodyBuf = new ArrayBufferWriter<byte>(4096);
 
-        CodecConstants.WriteHeader(output, CodecConstants.NormsVersion);
-
-        output.WriteInt32(fieldNorms.Count);
+        PostingsWriter.WriteVarInt(bodyBuf, fieldNorms.Count);
 
         foreach (var (fieldName, norms) in fieldNorms)
         {
             int count = docCount >= 0 ? docCount : norms.Length;
-            var fieldBytes = Encoding.UTF8.GetBytes(fieldName);
-            output.WriteInt32(fieldBytes.Length);
-            output.WriteBytes(fieldBytes);
-
-            output.WriteInt32(count);
-
-            for (int i = 0; i < count; i++)
-            {
-                byte quantised = (byte)Math.Clamp(MathF.Round(norms[i] * 255f), 0f, 255f);
-                output.WriteByte(quantised);
-            }
 
             if (sparseFieldBoosts is not null && sparseFieldBoosts.TryGetValue(fieldName, out var sparseBoosts))
             {
-                WriteSparseBoosts(output, sparseBoosts, count);
-            }
-            else if (fieldBoosts is not null && fieldBoosts.TryGetValue(fieldName, out var boosts))
-            {
-                WriteDenseBoosts(output, boosts, count);
+                // Sparse boosts handled inline; write header + norms then sparse boosts
+                var fieldBytes = Encoding.UTF8.GetBytes(fieldName);
+                PostingsWriter.WriteVarInt(bodyBuf, fieldBytes.Length);
+                bodyBuf.WriteBytes(fieldBytes);
+
+                PostingsWriter.WriteVarInt(bodyBuf, count);
+
+                for (int i = 0; i < count; i++)
+                    bodyBuf.WriteByte(QuantiseNorm(norms[i]));
+
+                WriteSparseBoosts(bodyBuf, sparseBoosts, count);
             }
             else
             {
-                output.WriteInt32(0);
+                float[]? boosts = fieldBoosts is not null && fieldBoosts.TryGetValue(fieldName, out var dense) ? dense : null;
+                WriteFieldBlock(bodyBuf, fieldName, norms, boosts, count);
             }
         }
+
+        using var output = new IndexOutput(filePath, durable);
+        CodecFileHeader.Write(output, CodecFormats.Norms, bodyBuf.WrittenSpan);
     }
 
-    private static void WriteDenseBoosts(IndexOutput output, float[] boosts, int count)
+    private static void WriteDenseBoosts(IBufferWriter<byte> bw, float[] boosts, int count)
     {
         int boostCount = 0;
         for (int i = 0; i < count; i++)
@@ -62,7 +96,7 @@ internal static class NormsWriter
                 boostCount++;
         }
 
-        output.WriteInt32(boostCount);
+        PostingsWriter.WriteVarInt(bw, boostCount);
         if (boostCount == 0)
             return;
 
@@ -72,12 +106,12 @@ internal static class NormsWriter
             if (boost == 1.0f)
                 continue;
 
-            output.WriteInt32(i);
-            output.WriteSingle(boost);
+            PostingsWriter.WriteVarInt(bw, i);
+            bw.WriteSingle(boost);
         }
     }
 
-    private static void WriteSparseBoosts(IndexOutput output, IReadOnlyDictionary<int, float> boosts, int count)
+    private static void WriteSparseBoosts(IBufferWriter<byte> bw, IReadOnlyDictionary<int, float> boosts, int count)
     {
         int boostCount = 0;
         foreach (var (docId, boost) in boosts)
@@ -86,7 +120,7 @@ internal static class NormsWriter
                 boostCount++;
         }
 
-        output.WriteInt32(boostCount);
+        PostingsWriter.WriteVarInt(bw, boostCount);
         if (boostCount == 0)
             return;
 
@@ -95,8 +129,8 @@ internal static class NormsWriter
             if ((uint)docId >= (uint)count || boost == 1.0f)
                 continue;
 
-            output.WriteInt32(docId);
-            output.WriteSingle(boost);
+            PostingsWriter.WriteVarInt(bw, docId);
+            bw.WriteSingle(boost);
         }
     }
 }

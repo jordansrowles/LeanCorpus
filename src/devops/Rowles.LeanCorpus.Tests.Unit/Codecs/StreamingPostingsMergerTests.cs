@@ -1,4 +1,7 @@
-﻿using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Tests.Shared.Fixtures;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
 using Rowles.LeanCorpus.Store;
@@ -23,7 +26,7 @@ public sealed class StreamingPostingsMergerTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_dir, true); } catch { }
+        TestDirectoryFixture.TryDeleteDirectory(_dir);
     }
 
     [Fact(DisplayName = "StreamingPostingsMerger: Single Source Copies Terms And Offsets")]
@@ -106,40 +109,47 @@ public sealed class StreamingPostingsMergerTests : IDisposable
     private StreamingPostingsMerger.Source WriteSource(
         string name,
         Dictionary<string, int[]> postings,
-        IReadOnlyDictionary<int, int> docIdMap)
+        IReadOnlyDictionary<int, int> docIdMap,
+        IReadOnlyDictionary<string, float[]>? fieldNorms = null)
     {
         var posPath = Path.Combine(_dir, name + ".pos");
         var dicPath = Path.Combine(_dir, name + ".dic");
+        var nrmPath = Path.Combine(_dir, name + ".nrm");
+        int docCount = fieldNorms?.Values.FirstOrDefault()?.Length ?? 0;
+        NormsWriter.Write(nrmPath, fieldNorms ?? new Dictionary<string, float[]>(), docCount: docCount);
         var offsets = new Dictionary<string, long>(StringComparer.Ordinal);
         var terms = postings.Keys.OrderBy(term => term, StringComparer.Ordinal).ToList();
 
-        using (var output = new IndexOutput(posPath))
+        // Write v2 postings directly — no temp file, no envelope patching.
+        using (var posOutput = new IndexOutput(posPath))
         {
-            CodecConstants.WriteHeader(output, CodecConstants.PostingsVersion);
-            using var blockWriter = new BlockPostingsWriter(output);
+            using var _scope = CodecFileHeader.BeginStreamingWrite(posOutput, CodecConstants.PostingsVersion);
+
+            using var blockWriter = new BlockPostingsWriter(posOutput);
             foreach (var term in terms)
             {
-                long headerPos = output.Position;
-                output.WriteInt32(0);
-                output.WriteInt64(0L);
-                output.WriteBoolean(true);
-                output.WriteBoolean(false);
-                output.WriteBoolean(false);
+                long headerPos = posOutput.Position;
+                posOutput.WriteInt32(0);     // docFreq placeholder
+                posOutput.WriteInt64(0L);    // skipOffset placeholder
+                posOutput.WriteBoolean(true);
+                posOutput.WriteBoolean(false);
+                posOutput.WriteBoolean(false);
 
                 blockWriter.StartTerm();
                 foreach (int docId in postings[term].OrderBy(docId => docId))
                     blockWriter.AddPosting(docId, 1);
 
                 var meta = blockWriter.FinishTerm();
-                long endPos = output.Position;
-                output.Seek(headerPos);
-                output.WriteInt32(meta.DocFreq);
-                output.WriteInt64(meta.SkipOffset);
-                output.Seek(endPos);
+                long endPos = posOutput.Position;
+                posOutput.Seek(headerPos);
+                posOutput.WriteInt32(meta.DocFreq);
+                posOutput.WriteInt64(meta.SkipOffset);
+                posOutput.Seek(endPos);
                 offsets[term] = headerPos;
             }
         }
 
+        // v2 has no envelope — offsets are already correct.
         TermDictionaryWriter.Write(dicPath, terms, offsets);
         int maxOldId = -1;
         foreach (var k in docIdMap.Keys) if (k > maxOldId) maxOldId = k;
@@ -150,10 +160,53 @@ public sealed class StreamingPostingsMergerTests : IDisposable
         {
             DicPath = dicPath,
             PosPath = posPath,
+            NormsPath = nrmPath,
             DocIdMap = docMapArr
         };
     }
 
+    [Fact(DisplayName = "StreamingPostingsMerger: Preserves per-document norms in skip entries")]
+    public void Merge_PreservesNormsInSkipEntries()
+    {
+        // 130 docs creates one full 128-doc block plus a tail, so one skip entry is emitted.
+        var docIds = Enumerable.Range(0, 130).ToArray();
+        var norms = new byte[130];
+        Array.Fill(norms, (byte)50);
+        norms[0] = 200;
+
+        var fieldNorms = new Dictionary<string, float[]>(StringComparer.Ordinal)
+        {
+            ["body"] = norms.Select(n => n / 255f).ToArray()
+        };
+        var postings = new Dictionary<string, int[]>(StringComparer.Ordinal)
+        {
+            ["body\0term"] = docIds
+        };
+        var source = WriteSource("norms", postings, docIds.ToDictionary(id => id), fieldNorms);
+
+        var outPos = Path.Combine(_dir, "merged_norms.pos");
+        var outDic = Path.Combine(_dir, "merged_norms.dic");
+        var result = StreamingPostingsMerger.Merge([source], outPos, outDic);
+
+        Assert.Equal(["body\0term"], result.SortedTerms);
+
+        using var input = new IndexInput(outPos);
+        _ = PostingsEnum.ValidateFileHeader(input);
+        using var dic = TermDictionaryReader.Open(outDic);
+        long offset = dic.EnumerateAllTerms().Single(t => t.Term == "body\0term").Offset;
+
+        input.Seek(offset);
+        int docFreq = input.ReadInt32();
+        long skipOffset = input.ReadInt64();
+        input.ReadBoolean(); // hasFreqs
+        input.ReadBoolean(); // hasPositions
+        input.ReadBoolean(); // hasPayloads
+        long docStart = input.Position;
+
+        var enumv = BlockPostingsEnum.Create(input, docStart, skipOffset, docFreq);
+        Assert.Equal(1, enumv.SkipEntries.Length);
+        Assert.Equal((byte)200, enumv.SkipEntries[0].MaxNormInBlock);
+    }
     private static int[] ReadDocIds(string dicPath, string posPath, string term)
     {
         using var dic = TermDictionaryReader.Open(dicPath);
@@ -161,8 +214,7 @@ public sealed class StreamingPostingsMergerTests : IDisposable
             return [];
 
         using var input = new IndexInput(posPath);
-        byte version = PostingsEnum.ValidateFileHeader(input);
-        var postings = PostingsEnum.Create(input, offset, version);
+        var postings = PostingsEnum.Create(input, offset);
         try
         {
             var docIds = new List<int>();

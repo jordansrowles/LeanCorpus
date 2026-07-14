@@ -1,4 +1,9 @@
 using BenchmarkDotNet.Attributes;
+using Lucene.Net.Analysis.Standard;
+using Lucene.Net.Index;
+using Lucene.Net.Search;
+using Lucene.Net.Store;
+using Lucene.Net.Util;
 using Rowles.LeanCorpus.Search.Aggregations;
 using IODirectory = System.IO.Directory;
 using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
@@ -7,6 +12,16 @@ using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;
 using LeanNumericField = Rowles.LeanCorpus.Document.Fields.NumericField;
 using LeanStringField = Rowles.LeanCorpus.Document.Fields.StringField;
 using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
+using LuceneDocument = Lucene.Net.Documents.Document;
+using LuceneStringField = Lucene.Net.Documents.StringField;
+using LuceneTextField = Lucene.Net.Documents.TextField;
+using LuceneDoubleField = Lucene.Net.Documents.DoubleField;
+using LuceneIndexSearcher = Lucene.Net.Search.IndexSearcher;
+using LuceneDirectoryReader = Lucene.Net.Index.DirectoryReader;
+using LuceneMMapDirectory = Lucene.Net.Store.MMapDirectory;
+using LuceneTermQuery = Lucene.Net.Search.TermQuery;
+using LuceneTerm = Lucene.Net.Index.Term;
+using TermQuery = Rowles.LeanCorpus.Search.Queries.TermQuery;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
@@ -33,6 +48,12 @@ public class AggregationBenchmarks
     private LeanMMapDirectory? _leanDirectory;
     private LeanIndexSearcher? _leanSearcher;
 
+    // Lucene.NET index state
+    private string _luceneIndexPath = string.Empty;
+    private LuceneMMapDirectory? _luceneDirectory;
+    private LuceneDirectoryReader? _luceneReader;
+    private LuceneIndexSearcher? _luceneSearcher;
+
     private static readonly AggregationRequest StatsRequest =
         new("price_stats", "price", AggregationType.Stats);
 
@@ -43,15 +64,30 @@ public class AggregationBenchmarks
     public void Setup()
     {
         var docs = BenchmarkData.BuildDocumentsWithPrices(DocumentCount);
-        BuildLeanIndex(docs);
+        try
+        {
+            BuildLeanIndex(docs);
+            BuildLuceneIndex(docs);
+        }
+        catch
+        {
+            _leanSearcher?.Dispose();
+            _luceneReader?.Dispose();
+            _luceneDirectory?.Dispose();
+            BenchmarkHelpers.DeleteDirectory(_leanIndexPath);
+            BenchmarkHelpers.DeleteDirectory(_luceneIndexPath);
+            throw;
+        }
     }
 
     [GlobalCleanup]
     public void Cleanup()
     {
         _leanSearcher?.Dispose();
-        if (!string.IsNullOrWhiteSpace(_leanIndexPath) && IODirectory.Exists(_leanIndexPath))
-            IODirectory.Delete(_leanIndexPath, recursive: true);
+        _luceneReader?.Dispose();
+        _luceneDirectory?.Dispose();
+        BenchmarkHelpers.DeleteDirectory(_leanIndexPath);
+        BenchmarkHelpers.DeleteDirectory(_luceneIndexPath);
     }
 
     [Benchmark(Baseline = true)]
@@ -86,9 +122,72 @@ public class AggregationBenchmarks
         return results.TotalHits;
     }
 
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_TermQuery()
+    {
+        var q = new LuceneTermQuery(new LuceneTerm("body", "government"));
+        return _luceneSearcher!.Search(q, TopN).TotalHits;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_SearchWithStats()
+    {
+        var q = new LuceneTermQuery(new LuceneTerm("body", "government"));
+        // Aggregate over all matching docs, not just top-N.
+        var allHits = _luceneSearcher!.Search(q, _luceneReader!.MaxDoc);
+        var reader = _luceneReader!;
+        var leaves = reader.Leaves;
+        NumericDocValues? dv = null;
+        if (leaves.Count > 0)
+            dv = leaves[0].AtomicReader.GetNumericDocValues("price");
+        double sum = 0, sumSq = 0, min = double.MaxValue, max = double.MinValue;
+        int count = 0;
+        if (dv is not null)
+        {
+            foreach (var sd in allHits.ScoreDocs)
+            {
+                var price = dv.Get(sd.Doc);
+                sum += price;
+                sumSq += price * price;
+                if (price < min) min = price;
+                if (price > max) max = price;
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private void BuildLuceneIndex((string Body, double Price)[] docs)
+    {
+        _luceneIndexPath = Path.Combine(BenchmarkHelpers.TempRoot, $"lucenenet-bench-agg-{Guid.NewGuid():N}");
+        IODirectory.CreateDirectory(_luceneIndexPath);
+        _luceneDirectory = new LuceneMMapDirectory(new System.IO.DirectoryInfo(_luceneIndexPath));
+        var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+        using var writer = new Lucene.Net.Index.IndexWriter(
+            _luceneDirectory,
+            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
+        for (int i = 0; i < docs.Length; i++)
+        {
+            var doc = new LuceneDocument();
+            doc.Add(new LuceneStringField("id",
+                i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                Lucene.Net.Documents.Field.Store.NO));
+            doc.Add(new LuceneTextField("body", docs[i].Body,
+                Lucene.Net.Documents.Field.Store.NO));
+            doc.Add(new LuceneDoubleField("price", docs[i].Price,
+                Lucene.Net.Documents.Field.Store.NO));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+        _luceneReader = LuceneDirectoryReader.Open(_luceneDirectory);
+        _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
+    }
+
     private void BuildLeanIndex((string Body, double Price)[] docs)
     {
-        _leanIndexPath = Path.Combine(Path.GetTempPath(), $"leancorpus-bench-agg-{Guid.NewGuid():N}");
+        _leanIndexPath = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-agg-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(_leanIndexPath);
         _leanDirectory = new LeanMMapDirectory(_leanIndexPath);
         using var writer = new Rowles.LeanCorpus.Index.Indexer.IndexWriter(

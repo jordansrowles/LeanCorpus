@@ -181,4 +181,45 @@ public class NumericAggregationTests : IDisposable
             Assert.Equal(aggs[0].Sum / aggs[0].Count, aggs[0].Avg, 4);
         }
     }
+
+    /// <summary>
+    /// Verifies that aggregations correctly resolve field type when document 0
+    /// has no value for the field but later documents do. Regression test for
+    /// the bug where ResolveFieldAccessor only probed docId 0.
+    /// </summary>
+    [Fact(DisplayName = "Sparse Field: DocId 0 Missing Value Still Resolves")]
+    public void SparseField_DocId0MissingValue_StillResolves()
+    {
+        using var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig());
+
+        // Doc 0: has name but NO price field.
+        var doc0 = new LeanDocument();
+        doc0.Add(new TextField("name", "product 0"));
+        writer.AddDocument(doc0);
+
+        // Docs 1-9: have both name AND price.
+        for (int i = 1; i < 10; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("name", $"product {i}"));
+            doc.Add(new NumericField("price", 10.0 + i * 5.0));
+            writer.AddDocument(doc);
+        }
+
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+
+        var (_, aggs) = searcher.SearchWithAggregations(
+            new TermQuery("name", "product"), 100,
+            new AggregationRequest("price_stats", "price"));
+
+        Assert.Single(aggs);
+        var stats = aggs[0];
+        // Docs 1-9 have price; doc 0 does not. We should get 9 values.
+        Assert.Equal(9, stats.Count);
+        Assert.True(stats.Min > 0);
+        Assert.True(stats.Max > 0);
+        Assert.True(stats.Sum > 0);
+    }
 }

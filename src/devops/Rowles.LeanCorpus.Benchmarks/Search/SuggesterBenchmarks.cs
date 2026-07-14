@@ -112,7 +112,7 @@ public class SuggesterBenchmarks
 
     private void BuildLeanCorpusIndex(string[] documents)
     {
-        _leanIndexPath = Path.Combine(Path.GetTempPath(), $"leancorpus-bench-suggest-{Guid.NewGuid():N}");
+        _leanIndexPath = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-suggest-{Guid.NewGuid():N}");
         System.IO.Directory.CreateDirectory(_leanIndexPath);
 
         _leanDirectory = new LeanMMapDirectory(_leanIndexPath);

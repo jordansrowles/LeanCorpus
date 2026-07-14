@@ -1,4 +1,5 @@
-﻿using Rowles.LeanCorpus.Codecs.Postings;
+
+using Rowles.LeanCorpus.Codecs.Postings;
 
 namespace Rowles.LeanCorpus.Search.Searcher;
 
@@ -16,7 +17,7 @@ public sealed partial class IndexSearcher
 
     private void ExecuteMatchAllDocsQuery(MatchAllDocsQuery query, SegmentReader reader, ref TopNCollector collector)
     {
-        float score = query.Boost != 1.0f ? query.Boost : 1.0f;
+        float score = query.Boost;
         int docBase = reader.DocBase;
         for (int docId = 0; docId < reader.MaxDoc; docId++)
         {
@@ -31,7 +32,7 @@ public sealed partial class IndexSearcher
 
     private void ExecuteFieldExistsQuery(FieldExistsQuery query, SegmentReader reader, ref TopNCollector collector)
     {
-        float score = query.Boost != 1.0f ? query.Boost : 1.0f;
+        float score = query.Boost;
         int docBase = reader.DocBase;
         for (int docId = 0; docId < reader.MaxDoc; docId++)
         {
@@ -66,7 +67,7 @@ public sealed partial class IndexSearcher
             }
 
             int docBase = reader.DocBase;
-            float score = query.Boost != 1.0f ? query.Boost : 1.0f;
+            float score = query.Boost;
             for (int i = 0; i < docCount; i++)
             {
                 int docId = docIds[i];
@@ -94,7 +95,23 @@ public sealed partial class IndexSearcher
             return;
 
         int docBase = reader.DocBase;
-        float score = query.Boost != 1.0f ? query.Boost : 1.0f;
+        float score = query.Boost;
+        foreach (var match in matches)
+            collector.Collect(docBase + match.DocId, ApplyFieldBoost(reader, match.DocId, query.Field, score));
+    }
+
+    private void ExecuteInt64PointInSetQuery(Int64PointInSetQuery query, SegmentReader reader, ref TopNCollector collector)
+    {
+        if (query.Points.Count == 0)
+            return;
+
+        var pointSet = query.Points.ToHashSet();
+        var matches = reader.GetInt64PointsInSet(query.Field, pointSet);
+        if (matches.Count == 0)
+            return;
+
+        int docBase = reader.DocBase;
+        float score = query.Boost;
         foreach (var match in matches)
             collector.Collect(docBase + match.DocId, ApplyFieldBoost(reader, match.DocId, query.Field, score));
     }
@@ -176,7 +193,7 @@ public sealed partial class IndexSearcher
             }
 
             int docBase = reader.DocBase;
-            float queryBoost = query.Boost != 1.0f ? query.Boost : 1.0f;
+            float queryBoost = query.Boost;
             for (int i = 0; i < docCount; i++)
             {
                 int docId = docIds[i];
@@ -222,7 +239,7 @@ public sealed partial class IndexSearcher
     private void ExecuteRangeQuery(RangeQuery query, SegmentReader reader, ref TopNCollector collector)
     {
         int docBase = reader.DocBase;
-        float score = query.Boost != 1.0f ? query.Boost : 1.0f;
+        float score = query.Boost;
         var localCollector = collector;
         if (reader.VisitNumericRange(query.Field, query.Min, query.Max, (docId, _) =>
             localCollector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, query.Field, score))))
@@ -231,6 +248,7 @@ public sealed partial class IndexSearcher
             return;
         }
 
+        var fieldSet = new HashSet<string> { query.Field };
         for (int docId = 0; docId < reader.MaxDoc; docId++)
         {
             if (!reader.IsLive(docId))
@@ -243,8 +261,44 @@ public sealed partial class IndexSearcher
                 continue;
             }
 
-            var stored = reader.GetStoredFields(docId, new HashSet<string> { query.Field });
+            var stored = reader.GetStoredFields(docId, fieldSet);
             if (stored.TryGetValue(query.Field, out var values) && values.Count > 0 && double.TryParse(values[0], out var val))
+            {
+                if (val >= query.Min && val <= query.Max)
+                    localCollector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, query.Field, score));
+            }
+        }
+
+        collector = localCollector;
+    }
+
+    private void ExecuteInt64RangeQuery(Int64RangeQuery query, SegmentReader reader, ref TopNCollector collector)
+    {
+        int docBase = reader.DocBase;
+        float score = Math.Abs(query.Boost - 1.0f) > 1e-6f ? query.Boost : 1.0f;
+        var localCollector = collector;
+        if (reader.VisitInt64Range(query.Field, query.Min, query.Max, (docId, _) =>
+            localCollector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, query.Field, score))))
+        {
+            collector = localCollector;
+            return;
+        }
+
+        var intFieldSet = new HashSet<string> { query.Field };
+        for (int docId = 0; docId < reader.MaxDoc; docId++)
+        {
+            if (!reader.IsLive(docId))
+                continue;
+
+            if (reader.TryGetInt64Value(query.Field, docId, out var int64Value))
+            {
+                if (int64Value >= query.Min && int64Value <= query.Max)
+                    collector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, query.Field, score));
+                continue;
+            }
+
+            var stored = reader.GetStoredFields(docId, intFieldSet);
+            if (stored.TryGetValue(query.Field, out var values) && values.Count > 0 && long.TryParse(values[0], out var val))
             {
                 if (val >= query.Min && val <= query.Max)
                     localCollector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, query.Field, score));
@@ -280,8 +334,8 @@ public sealed partial class IndexSearcher
                     using var postings = reader.GetPostingsEnumAtOffset(postingsOffset);
                     if (postings.IsExhausted) continue;
 
-                    var (f1, f2) = _similarity.PrecomputeFactors(_totalDocCount, postings.DocFreq, avgDocLength);
-                    AccumulatePostingsScores(reader, postings, f1, f2, fieldLengths, fieldBoosts, boost, scores, seen, docIds, ref docCount);
+                    var (f1, f2, f3) = ComputeTermFactors(postings.DocFreq, avgDocLength, 0, query.Field);
+                    AccumulatePostingsScores(reader, postings, f1, f2, f3, fieldLengths, fieldBoosts, boost, scores, seen, docIds, ref docCount);
                 }
 
                 CollectAccumulatedScores(scores, docIds, docCount, docBase, ref collector);
@@ -302,9 +356,10 @@ public sealed partial class IndexSearcher
                     var termPart = qualifiedTerm.AsSpan(query.Field.Length + 1).ToString();
                     docFreq = globalDFs.GetValueOrDefault((query.Field, termPart), docFreq);
                 }
-                var (f1, f2) = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
+                long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qualifiedTerm) : 0;
+                var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
 
-                AccumulatePostingsScores(reader, postings, f1, f2, fieldLengths, fieldBoosts, boost, scores, seen, docIds, ref docCount);
+                AccumulatePostingsScores(reader, postings, f1, f2, f3, fieldLengths, fieldBoosts, boost, scores, seen, docIds, ref docCount);
             }
 
             CollectAccumulatedScores(scores, docIds, docCount, docBase, ref collector);
@@ -325,7 +380,14 @@ public sealed partial class IndexSearcher
             return;
         }
 
-        var fieldPrefix = $"{query.Field}\x00";
+        // Extract leading literal prefix before the first wildcard to narrow FST subtree.
+        // Only use prefix narrowing when the prefix is at least 2 characters — for 1-char
+        // prefixes the FST subtree is too broad and the filtering overhead dominates.
+        var leadingPrefix = GetLeadingLiteralPrefix(query.Pattern);
+        bool usePrefixNarrowing = leadingPrefix.Length >= 2;
+        var fieldPrefix = usePrefixNarrowing
+            ? $"{query.Field}\x00{leadingPrefix}"
+            : $"{query.Field}\x00";
         float boost = query.Boost;
         float avgDocLength = _stats.GetAvgFieldLength(query.Field);
         int docBase = reader.DocBase;
@@ -340,23 +402,40 @@ public sealed partial class IndexSearcher
         {
             if (globalDFs.Count == 0)
             {
-                var matchingOffsets = reader.GetTermOffsetsMatching(fieldPrefix, query.Pattern.AsSpan());
+                List<long> matchingOffsets;
+                if (!usePrefixNarrowing)
+                {
+                    matchingOffsets = reader.GetTermOffsetsMatching(fieldPrefix, query.Pattern.AsSpan());
+                }
+                else
+                {
+                    matchingOffsets = reader.GetTermOffsetsMatchingWithPrefix(
+                        query.Field, leadingPrefix, query.Pattern.AsSpan());
+                }
                 if (matchingOffsets.Count == 0) return;
 
                 foreach (var postingsOffset in matchingOffsets)
                 {
                     using var postings = reader.GetPostingsEnumAtOffset(postingsOffset);
                     if (postings.IsExhausted) continue;
-
-                    var (f1, f2) = _similarity.PrecomputeFactors(_totalDocCount, postings.DocFreq, avgDocLength);
-                    AccumulatePostingsScores(reader, postings, f1, f2, fieldLengths, fieldBoosts, boost, scores, seen, docIds, ref docCount);
+                    var (f1, f2, f3) = ComputeTermFactors(postings.DocFreq, avgDocLength, 0, query.Field);
+                    AccumulatePostingsScores(reader, postings, f1, f2, f3, fieldLengths, fieldBoosts, boost, scores, seen, docIds, ref docCount);
                 }
 
                 CollectAccumulatedScores(scores, docIds, docCount, docBase, ref collector);
                 return;
             }
 
-            var matchingTerms = reader.GetTermsMatching(fieldPrefix, query.Pattern.AsSpan());
+            List<(string Term, long Offset)> matchingTerms;
+            if (!usePrefixNarrowing)
+            {
+                matchingTerms = reader.GetTermsMatching(fieldPrefix, query.Pattern.AsSpan());
+            }
+            else
+            {
+                matchingTerms = reader.GetTermsMatchingWithPrefix(
+                    query.Field, leadingPrefix, query.Pattern.AsSpan());
+            }
             if (matchingTerms.Count == 0) return;
 
             foreach (var (qualifiedTerm, postingsOffset) in matchingTerms)
@@ -367,9 +446,10 @@ public sealed partial class IndexSearcher
                 int docFreq = postings.DocFreq;
                 var termPart = qualifiedTerm.AsSpan(query.Field.Length + 1).ToString();
                 docFreq = globalDFs.GetValueOrDefault((query.Field, termPart), docFreq);
-                var (f1, f2) = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
+                long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qualifiedTerm) : 0;
+                var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
 
-                AccumulatePostingsScores(reader, postings, f1, f2, fieldLengths, fieldBoosts, boost, scores, seen, docIds, ref docCount);
+                AccumulatePostingsScores(reader, postings, f1, f2, f3, fieldLengths, fieldBoosts, boost, scores, seen, docIds, ref docCount);
             }
 
             CollectAccumulatedScores(scores, docIds, docCount, docBase, ref collector);
@@ -381,7 +461,7 @@ public sealed partial class IndexSearcher
     }
 
     private void AccumulatePostingsScores(SegmentReader reader, PostingsEnum postings,
-        float f1, float f2, int[]? fieldLengths, float[]? fieldBoosts, float boost,
+        float f1, float f2, float f3, int[]? fieldLengths, float[]? fieldBoosts, float boost,
         float[] scores, bool[] seen, int[] docIds, ref int docCount)
     {
         while (postings.MoveNext())
@@ -392,8 +472,8 @@ public sealed partial class IndexSearcher
             int tf = postings.Freq;
             int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                 ? fieldLengths[docId] : 1;
-            float score = _similarity.ScorePrecomputed(f1, f2, tf, docLength);
-            if (boost != 1.0f) score *= boost;
+            float score = ScoreTerm(f1, f2, f3, tf, docLength);
+            score *= boost;
             score = ApplyFieldBoost(fieldBoosts, docId, score);
             if (!seen[docId])
             {
@@ -438,6 +518,19 @@ public sealed partial class IndexSearcher
 
         prefix = pattern[..^1];
         return true;
+    }
+
+    /// <summary>
+    /// Extracts the leading literal prefix of a wildcard pattern up to (but not including)
+    /// the first <c>*</c> or <c>?</c> wildcard. Returns an empty string if the pattern
+    /// starts with a wildcard. Used to narrow FST subtree walks.
+    /// </summary>
+    private static string GetLeadingLiteralPrefix(string pattern)
+    {
+        int end = 0;
+        while (end < pattern.Length && pattern[end] is not '*' and not '?')
+            end++;
+        return end == 0 ? string.Empty : pattern[..end];
     }
 
     /// <summary>
@@ -551,7 +644,8 @@ public sealed partial class IndexSearcher
                     var termStr = qualifiedTerm.AsSpan(query.Field.Length + 1).ToString();
                     docFreq = globalDFs.GetValueOrDefault((query.Field, termStr), docFreq);
                 }
-                var (f1, f2) = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
+                long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qualifiedTerm) : 0;
+                var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
 
                 while (postings.MoveNext())
                 {
@@ -561,8 +655,8 @@ public sealed partial class IndexSearcher
                     int tf = postings.Freq;
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                         ? fieldLengths[docId] : 1;
-                    float score = _similarity.ScorePrecomputed(f1, f2, tf, docLength) * distanceFactor;
-                    if (boost != 1.0f) score *= boost;
+                    float score = ScoreTerm(f1, f2, f3, tf, docLength) * distanceFactor;
+                    score *= boost;
                     score = ApplyFieldBoost(fieldBoosts, docId, score);
                     if (!seen[docId])
                     {
@@ -600,7 +694,8 @@ public sealed partial class IndexSearcher
 
             var termPart = qualifiedTerm.AsSpan(query.Field.Length + 1).ToString();
             int docFreq = globalDFs.GetValueOrDefault((query.Field, termPart), postings.DocFreq);
-            var (f1, f2) = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
+            long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qualifiedTerm) : 0;
+            var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
 
             reader.TryGetFieldLengths(query.Field, out var fieldLengths);
 
@@ -612,8 +707,8 @@ public sealed partial class IndexSearcher
                 int tf = postings.Freq;
                 int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                     ? fieldLengths[docId] : 1;
-                float score = _similarity.ScorePrecomputed(f1, f2, tf, docLength);
-                if (boost != 1.0f) score *= boost;
+                float score = ScoreTerm(f1, f2, f3, tf, docLength);
+                score *= boost;
                 score = ApplyFieldBoost(reader, docId, query.Field, score);
                 collector.Collect(docBase + docId, score);
             }
@@ -673,7 +768,8 @@ public sealed partial class IndexSearcher
 
             var termPart = qualifiedTerm.AsSpan(query.Field.Length + 1).ToString();
             int docFreq = postings.DocFreq;
-            var (f1, f2) = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
+            long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qualifiedTerm) : 0;
+            var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
 
             reader.TryGetFieldLengths(query.Field, out var fieldLengths);
 
@@ -685,8 +781,8 @@ public sealed partial class IndexSearcher
                 int tf = postings.Freq;
                 int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                     ? fieldLengths[docId] : 1;
-                float score = _similarity.ScorePrecomputed(f1, f2, tf, docLength);
-                if (boost != 1.0f) score *= boost;
+                float score = ScoreTerm(f1, f2, f3, tf, docLength);
+                score *= boost;
                 score = ApplyFieldBoost(reader, docId, query.Field, score);
                 collector.Collect(docBase + docId, score);
             }
@@ -716,8 +812,8 @@ public sealed partial class IndexSearcher
                 using var postings = reader.GetPostingsEnumAtOffset(postingsOffset);
                 if (postings.IsExhausted) continue;
 
-                var (f1, f2) = _similarity.PrecomputeFactors(_totalDocCount, postings.DocFreq, avgDocLength);
-                AccumulatePostingsScores(reader, postings, f1, f2, fieldLengths, fieldBoosts, boost, scores, seen, docIds, ref docCount);
+                var (f1, f2, f3) = ComputeTermFactors(postings.DocFreq, avgDocLength, 0, query.Field);
+                AccumulatePostingsScores(reader, postings, f1, f2, f3, fieldLengths, fieldBoosts, boost, scores, seen, docIds, ref docCount);
             }
 
             CollectAccumulatedScores(scores, docIds, docCount, docBase, ref collector);
@@ -736,7 +832,7 @@ public sealed partial class IndexSearcher
         ExecuteQuery(query.Inner, reader, globalDFs, ref innerCollector);
 
         float constantScore = query.ConstantScore;
-        if (query.Boost != 1.0f) constantScore *= query.Boost;
+        constantScore *= query.Boost;
 
         foreach (var sd in innerCollector.ToTopDocs().ScoreDocs)
             collector.Collect(sd.DocId, ApplyFieldBoost(reader, sd.DocId - reader.DocBase, query.Field, constantScore));
@@ -778,7 +874,7 @@ public sealed partial class IndexSearcher
         foreach (var (docId, (max, otherSum)) in docScores)
         {
             float score = max + tieBreaker * otherSum;
-            if (boost != 1.0f) score *= boost;
+            score *= boost;
             collector.Collect(docId, score);
         }
     }
@@ -810,7 +906,8 @@ public sealed partial class IndexSearcher
 
                 int docFreq = globalDFs.GetValueOrDefault((termQuery.Field, termQuery.Term), postings.DocFreq);
                 float avgDocLength = _stats.GetAvgFieldLength(termQuery.Field);
-                var (f1, f2) = _similarity.PrecomputeFactors(_totalDocCount, docFreq, avgDocLength);
+                long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qualifiedTerm) : 0;
+                var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, termQuery.Field);
                 reader.TryGetFieldLengths(termQuery.Field, out var fieldLengths);
                 reader.TryGetFieldBoosts(termQuery.Field, out var fieldBoosts);
                 float termBoost = termQuery.Boost;
@@ -823,9 +920,8 @@ public sealed partial class IndexSearcher
 
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                         ? fieldLengths[docId] : 1;
-                    float score = _similarity.ScorePrecomputed(f1, f2, postings.Freq, docLength);
-                    if (termBoost != 1.0f)
-                        score *= termBoost;
+                    float score = ScoreTerm(f1, f2, f3, postings.Freq, docLength);
+                    score *= termBoost;
                     score = ApplyFieldBoost(fieldBoosts, docId, score);
 
                     if (!seen[docId])
@@ -855,8 +951,7 @@ public sealed partial class IndexSearcher
             {
                 int docId = docIds[i];
                 float score = maxScores[docId] + tieBreaker * otherScores[docId];
-                if (queryBoost != 1.0f)
-                    score *= queryBoost;
+                score *= queryBoost;
                 collector.Collect(docBase + docId, score);
             }
 
@@ -1031,29 +1126,29 @@ public sealed partial class IndexSearcher
     {
         int cap = Math.Max(reader.MaxDoc, 1);
         var inner = new TopNCollector(cap);
-        int savedDocBase = reader.DocBase;
-        try
-        {
-            // Execute filter against this segment with docBase=0 so collected ids are local.
-            reader.DocBase = 0;
-            ExecuteQuery(filter, reader, globalDFs, ref inner);
-        }
-        finally
-        {
-            reader.DocBase = savedDocBase;
-        }
+
+        // Execute the filter query. ExecuteQuery adds reader.DocBase to produce
+        // global doc IDs; subtract it back to recover segment-local IDs for the bitmap.
+        int docBase = reader.DocBase;
+        ExecuteQuery(filter, reader, globalDFs, ref inner);
 
         var bitmap = new Util.RoaringBitmap();
         var topDocs = inner.ToTopDocs();
         foreach (var sd in topDocs.ScoreDocs)
-            bitmap.Add(sd.DocId);
+            bitmap.Add(sd.DocId - docBase);
         return bitmap;
     }
 
     private void ExecuteFunctionScoreQuery(FunctionScoreQuery query, SegmentReader reader,
         Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
-        // Execute inner query into temporary collector.
+        if (query.Inner is TermQuery tq)
+        {
+            ExecuteFunctionScoreForTermQuery(tq, query, reader, globalDFs, ref collector);
+            return;
+        }
+
+        // Non-TermQuery inner: existing path
         var innerCollector = new TopNCollector(Math.Max(reader.MaxDoc, 1));
         ExecuteQuery(query.Inner, reader, globalDFs, ref innerCollector);
         var innerDocs = innerCollector.ToTopDocs();
@@ -1074,10 +1169,50 @@ public sealed partial class IndexSearcher
         }
     }
 
+    /// <summary>Single-pass FunctionScore execution for TermQuery inners.
+    /// Ingests BM25, combines with the numeric field value, then feeds the top-N collector.</summary>
+    private void ExecuteFunctionScoreForTermQuery(TermQuery tq, FunctionScoreQuery fsq,
+        SegmentReader reader, Dictionary<(string Field, string Term), int> globalDFs,
+        ref TopNCollector collector)
+    {
+        var qt = tq.CachedQualifiedTerm ??= string.Concat(tq.Field, "\x00", tq.Term);
+        using var postings = reader.GetPostingsEnum(qt);
+
+        // Use global DF for correct IDF in multi-segment indexes.
+        int docFreq = globalDFs.GetValueOrDefault((tq.Field, tq.Term), postings.DocFreq);
+        long globalCollectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
+        float avgDocLength = _stats.GetAvgFieldLength(tq.Field);
+        var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, globalCollectionFreq, tq.Field);
+        float boost = tq.Boost;
+
+        int docBase = reader.DocBase;
+        bool hasDeletions = reader.HasDeletions;
+        reader.TryGetFieldLengths(tq.Field, out var fieldLengths);
+
+        while (postings.MoveNext())
+        {
+            int docId = postings.DocId;
+            if (hasDeletions && !reader.IsLive(docId)) continue;
+
+            int tf = postings.Freq;
+            int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
+                ? fieldLengths[docId] : 1;
+            float score = ScoreTerm(f1, f2, f3, tf, docLength);
+            if (boost != 1.0f) score *= boost;
+            score = ApplyFieldBoost(reader, docId, tq.Field, score);
+
+            // Modify the field-boosted BM25 score using the numeric doc value.
+            if (reader.TryGetNumericValue(fsq.NumericField, docId, out double fieldValue))
+                score = FunctionScoreQuery.Combine(score, fieldValue, fsq.Mode);
+
+            collector.Collect(docBase + docId, score * fsq.Boost);
+        }
+    }
+
     private void ExecuteGeoBoundingBoxQuery(GeoBoundingBoxQuery query, SegmentReader reader, ref TopNCollector collector)
     {
         int docBase = reader.DocBase;
-        float score = query.Boost != 1.0f ? query.Boost : 1.0f;
+        float score = query.Boost;
         string latField = query.Field + "_lat";
         string lonField = query.Field + "_lon";
 
@@ -1097,7 +1232,7 @@ public sealed partial class IndexSearcher
     private void ExecuteGeoDistanceQuery(GeoDistanceQuery query, SegmentReader reader, ref TopNCollector collector)
     {
         int docBase = reader.DocBase;
-        float score = query.Boost != 1.0f ? query.Boost : 1.0f;
+        float score = query.Boost;
         string latField = query.Field + "_lat";
         string lonField = query.Field + "_lon";
 

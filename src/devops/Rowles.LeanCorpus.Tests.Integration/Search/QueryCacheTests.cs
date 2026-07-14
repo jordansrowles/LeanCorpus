@@ -1,5 +1,6 @@
 ﻿using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Simd;
@@ -26,7 +27,7 @@ public sealed class QueryCacheTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_dir, true); } catch { }
+        TestDirectoryFixture.TryDeleteDirectory(_dir);
     }
 
     /// <summary>
@@ -136,10 +137,12 @@ public sealed class QueryCacheTests : IDisposable
     }
 
     /// <summary>
-    /// Verifies the Cache: LRU Evicts Oldest Entry scenario.
+    /// Verifies the Cache: Generation Swap Evicts All Entries scenario.
+    /// When the soft cap is exceeded the entire dictionary is swapped, so every
+    /// previously cached entry is lost (including the one triggering the swap).
     /// </summary>
-    [Fact(DisplayName = "Cache: LRU Evicts Oldest Entry")]
-    public void Cache_LRU_EvictsOldestEntry()
+    [Fact(DisplayName = "Cache: Generation Swap Evicts All Entries")]
+    public void Cache_GenerationSwap_EvictsAllEntries()
     {
         var cache = new QueryCache(2);
         var q1 = new TermQuery("f", "a");
@@ -148,11 +151,34 @@ public sealed class QueryCacheTests : IDisposable
 
         cache.Put(q1, 10, TopDocs.Empty);
         cache.Put(q2, 10, TopDocs.Empty);
-        cache.Put(q3, 10, TopDocs.Empty); // should evict q1
+        cache.Put(q3, 10, TopDocs.Empty); // exceeds soft cap: triggers generation swap
 
         Assert.Null(cache.TryGet(q1, 10));
-        Assert.NotNull(cache.TryGet(q2, 10));
-        Assert.NotNull(cache.TryGet(q3, 10));
+        Assert.Null(cache.TryGet(q2, 10));
+        Assert.Null(cache.TryGet(q3, 10)); // lost as well; added to the pre-swap dictionary
+    }
+
+    /// <summary>
+    /// Verifies that putting the same key twice does not inflate the
+    /// approximate entry count: <see cref="QueryCache.Put"/> guards against
+    /// duplicate keys by checking <c>ContainsKey</c> before incrementing.
+    /// </summary>
+    [Fact(DisplayName = "Cache: Duplicate Key Put Does Not Inflate Count")]
+    public void Cache_DuplicateKeyPut_DoesNotInflateCount()
+    {
+        var cache = new QueryCache(10);
+        var q = new TermQuery("f", "t");
+
+        cache.Put(q, 10, TopDocs.Empty);
+        Assert.Equal(1, cache.Count);
+
+        cache.Put(q, 10, TopDocs.Empty);
+        Assert.Equal(1, cache.Count);
+
+        // A different query should increase the count.
+        var q2 = new TermQuery("f", "u");
+        cache.Put(q2, 10, TopDocs.Empty);
+        Assert.Equal(2, cache.Count);
     }
 
     /// <summary>

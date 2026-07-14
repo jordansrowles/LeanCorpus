@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 
 namespace Rowles.LeanCorpus.Compression.Snappy;
@@ -48,6 +49,7 @@ public static class SnappyCompression
     }
 
 #pragma warning disable CA2255
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(SnappyCompressionCodec))]
     [ModuleInitializer]
 #pragma warning restore CA2255
     internal static void Initialise()

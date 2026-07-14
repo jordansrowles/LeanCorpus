@@ -1,3 +1,4 @@
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using System.Buffers;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
 using Rowles.LeanCorpus.Store;
@@ -7,8 +8,8 @@ namespace Rowles.LeanCorpus.Codecs.Postings;
 /// <summary>
 /// Streaming k-way merge of per-segment postings into a single merged segment.
 /// Iterates terms in sorted order across all source segments without ever
-/// materialising the full term-doc map in memory. Per-term position data is
-/// the only buffered state, bounded by the document frequency of one term.
+/// materialising the full term-doc map in memory. Position data is streamed
+/// doc-by-doc from source cursors directly to the merged output.
 /// </summary>
 internal static class StreamingPostingsMerger
 {
@@ -26,23 +27,33 @@ internal static class StreamingPostingsMerger
     {
         internal required string DicPath { get; init; }
         internal required string PosPath { get; init; }
+        internal required string NormsPath { get; init; }
         internal required int[] DocIdMap { get; init; }
     }
 
     internal static Result Merge(IReadOnlyList<Source> sources, string posOutputPath, string dicOutputPath)
     {
         var cursors = new List<Cursor>(sources.Count);
+        var cursorNorms = new List<NormsData>(sources.Count);
         try
         {
             foreach (var s in sources)
             {
                 var c = Cursor.Open(s);
-                if (c.HasMore) cursors.Add(c);
-                else c.Dispose();
+                if (c.HasMore)
+                {
+                    cursors.Add(c);
+                    cursorNorms.Add(NormsReader.Read(s.NormsPath));
+                }
+                else
+                {
+                    c.Dispose();
+                }
             }
 
-            using var posOutput = new IndexOutput(posOutputPath, durable: true);
-            CodecConstants.WriteHeader(posOutput, CodecConstants.PostingsVersion);
+            // Write v3 header via CodecKit trailer format.
+            using var posOutput = new IndexOutput(posOutputPath, durable: true, dropPageCache: true);
+            using var scope = CodecFileHeader.BeginStreamingWrite(posOutput, CodecConstants.PostingsVersion);
             using var blockWriter = new BlockPostingsWriter(posOutput);
 
             var sortedTerms = new List<string>();
@@ -55,7 +66,6 @@ internal static class StreamingPostingsMerger
                 heap.Enqueue(i, (cursors[i].CurrentTerm, i));
 
             var participants = new List<int>(cursors.Count);
-            var positionStream = new List<(int DocId, int[] Positions, byte[]?[]? Payloads)>();
 
             while (heap.Count > 0)
             {
@@ -83,35 +93,36 @@ internal static class StreamingPostingsMerger
                 }
 
                 long headerPos = posOutput.Position;
-                posOutput.WriteInt32(0);
-                posOutput.WriteInt64(0L);
+                posOutput.WriteInt32(0);     // docFreq placeholder
+                posOutput.WriteInt64(0L);    // skipOffset placeholder
                 posOutput.WriteBoolean(hasFreqs);
                 posOutput.WriteBoolean(hasPositions);
                 posOutput.WriteBoolean(hasPayloads);
 
                 blockWriter.StartTerm();
-                positionStream.Clear();
+
+                string fieldName = QualifiedTermHelpers.GetFieldName(currentTerm).ToString();
 
                 foreach (int idx in participants)
                 {
                     var cursor = cursors[idx];
-                    cursor.DecodeCurrent(out var oldIds, out int count, out var freqs, out var positions, out var payloads);
+                    cursor.DecodeCurrentPostings(out var oldIds, out int count, out var freqs,
+                        out bool curHasPositions, out bool curHasPayloads);
                     try
                     {
                         var docMap = cursor.Source.DocIdMap;
+                        var norms = cursorNorms[idx].Norms;
+                        norms.TryGetValue(fieldName, out var fieldNormBytes);
                         for (int j = 0; j < count; j++)
                         {
                             int oldId = oldIds[j];
                             if ((uint)oldId >= (uint)docMap.Length) continue;
                             int newId = docMap[oldId];
                             if (newId < 0) continue;
-                            blockWriter.AddPosting(newId, hasFreqs ? freqs[j] : 1);
-                            if (hasPositions)
-                            {
-                                int[] p = positions is null ? Array.Empty<int>() : (positions[j] ?? Array.Empty<int>());
-                                byte[]?[]? pl = payloads is null ? null : payloads[j];
-                                positionStream.Add((newId, p, pl));
-                            }
+                            byte norm = fieldNormBytes is not null && (uint)oldId < (uint)fieldNormBytes.Length
+                                ? fieldNormBytes[oldId]
+                                : (byte)0;
+                            blockWriter.AddPosting(newId, hasFreqs ? freqs[j] : 1, norm);
                         }
                     }
                     finally
@@ -123,28 +134,15 @@ internal static class StreamingPostingsMerger
 
                 var meta = blockWriter.FinishTerm();
 
+                // Stream position data doc-by-doc from source cursors.
+                // Docs are already in merged doc-ID order (participants sorted by segment index,
+                // segment 0 remapped IDs < segment 1 < ...), so no sort is needed.
                 if (hasPositions)
                 {
-                    positionStream.Sort(static (a, b) => a.DocId.CompareTo(b.DocId));
-                    foreach (var (_, pos, payloadsForDoc) in positionStream)
+                    foreach (int idx in participants)
                     {
-                        posOutput.WriteVarInt(pos.Length);
-                        int prev = 0;
-                        for (int i = 0; i < pos.Length; i++)
-                        {
-                            int p = pos[i];
-                            posOutput.WriteVarInt(p - prev);
-                            prev = p;
-                            if (hasPayloads)
-                            {
-                                var payload = payloadsForDoc is not null && i < payloadsForDoc.Length
-                                    ? payloadsForDoc[i]
-                                    : null;
-                                posOutput.WriteVarInt(payload?.Length ?? 0);
-                                if (payload is { Length: > 0 })
-                                    posOutput.WriteBytes(payload);
-                            }
-                        }
+                        var cursor = cursors[idx];
+                        cursor.WritePositionsForTerm(posOutput, hasPayloads);
                     }
                 }
 
@@ -168,10 +166,8 @@ internal static class StreamingPostingsMerger
                 }
             }
 
-            blockWriter.Dispose();
-            posOutput.Dispose();
-
-            TermDictionaryWriter.Write(dicOutputPath, sortedTerms, offsets);
+            // v2 has no envelope, so offsets are already correct — no rekeying needed.
+            TermDictionaryWriter.Write(dicOutputPath, sortedTerms, offsets, dropPageCache: true);
             return new Result(sortedTerms, offsets);
         }
         finally
@@ -195,16 +191,20 @@ internal static class StreamingPostingsMerger
         internal Source Source { get; }
         private readonly TermDictionaryReader _dic;
         private readonly IndexInput _pos;
-        private readonly byte _postingsVersion;
         private readonly List<(string Term, long Offset)> _terms;
         private int _index;
 
-        private Cursor(Source src, TermDictionaryReader dic, IndexInput pos, byte version, List<(string, long)> terms)
+        // State for streaming position reads
+        private int _decodedDocCount;
+        private bool _decodedHasPositions;
+        private bool _decodedHasPayloads;
+        private long _decodedPosDataStart;
+
+        private Cursor(Source src, TermDictionaryReader dic, IndexInput pos, List<(string, long)> terms)
         {
             Source = src;
             _dic = dic;
             _pos = pos;
-            _postingsVersion = version;
             _terms = terms;
             _index = 0;
         }
@@ -213,9 +213,10 @@ internal static class StreamingPostingsMerger
         {
             var dic = TermDictionaryReader.Open(src.DicPath);
             var pos = new IndexInput(src.PosPath);
-            byte ver = CodecConstants.ReadHeaderVersion(pos, CodecConstants.PostingsVersion, "postings (.pos)");
+            pos.Prefetch();
+            PostingsFileHeader.ReadVersion(pos);
             var terms = dic.EnumerateAllTerms();
-            return new Cursor(src, dic, pos, ver, terms);
+            return new Cursor(src, dic, pos, terms);
         }
 
         internal bool HasMore => _index < _terms.Count;
@@ -230,27 +231,11 @@ internal static class StreamingPostingsMerger
             try
             {
                 _pos.Seek(CurrentOffset);
-                if (_postingsVersion >= 3)
-                {
-                    _pos.ReadInt32();        // docFreq
-                    _pos.ReadInt64();        // skipOffset
-                    hasFreqs = _pos.ReadBoolean();
-                    hasPositions = _pos.ReadBoolean();
-                    hasPayloads = _pos.ReadBoolean();
-                }
-                else
-                {
-                    int count = _pos.ReadInt32();
-                    int skipCount = _pos.ReadInt32();
-                    if (skipCount > 0)
-                        _pos.Seek(_pos.Position + skipCount * 8L);
-                    int prev = 0;
-                    for (int j = 0; j < count; j++) prev += _pos.ReadVarInt();
-                    hasFreqs = _pos.ReadBoolean();
-                    if (hasFreqs) for (int j = 0; j < count; j++) _pos.ReadVarInt();
-                    hasPositions = _pos.ReadBoolean();
-                    hasPayloads = _postingsVersion >= 2 && hasPositions && _pos.ReadBoolean();
-                }
+                _pos.ReadInt32();        // docFreq
+                _pos.ReadInt64();        // skipOffset
+                hasFreqs = _pos.ReadBoolean();
+                hasPositions = _pos.ReadBoolean();
+                hasPayloads = _pos.ReadBoolean();
             }
             finally
             {
@@ -258,127 +243,91 @@ internal static class StreamingPostingsMerger
             }
         }
 
-        internal void DecodeCurrent(out int[] oldIds, out int count, out int[] freqs, out int[]?[]? positions, out byte[]?[][]? payloads)
+        /// <summary>
+        /// Decodes doc IDs and frequencies for the current term. Sets up internal state
+        /// so that <see cref="WritePositionsForTerm"/> can stream position data doc-by-doc.
+        /// Callers must return <paramref name="oldIds"/> and <paramref name="freqs"/> to
+        /// <see cref="ArrayPool{T}.Shared"/> when done.
+        /// </summary>
+        internal void DecodeCurrentPostings(out int[] oldIds, out int count, out int[] freqs,
+            out bool hasPositions, out bool hasPayloads)
         {
             _pos.Seek(CurrentOffset);
-            if (_postingsVersion >= 3)
+            count = _pos.ReadInt32();
+            long skipOffset = _pos.ReadInt64();
+            bool hasFreqs = _pos.ReadBoolean();
+            hasPositions = _pos.ReadBoolean();
+            hasPayloads = _pos.ReadBoolean();
+
+            long docStart = _pos.Position;
+            var enumv = BlockPostingsEnum.Create(_pos, docStart, skipOffset, count);
+            oldIds = ArrayPool<int>.Shared.Rent(count);
+            freqs = ArrayPool<int>.Shared.Rent(count);
+            int idx = 0;
+            while (enumv.NextDoc() != BlockPostingsEnum.NoMoreDocs)
             {
-                count = _pos.ReadInt32();
-                long skipOffset = _pos.ReadInt64();
-                bool hasFreqs = _pos.ReadBoolean();
-                bool hasPositions = _pos.ReadBoolean();
-                bool hasPayloads = _pos.ReadBoolean();
-
-                long docStart = _pos.Position;
-                var enumv = BlockPostingsEnum.Create(_pos, docStart, skipOffset, count);
-                oldIds = ArrayPool<int>.Shared.Rent(count);
-                freqs = ArrayPool<int>.Shared.Rent(count);
-                int idx = 0;
-                while (enumv.NextDoc() != BlockPostingsEnum.NoMoreDocs)
-                {
-                    oldIds[idx] = enumv.DocId;
-                    freqs[idx] = hasFreqs ? enumv.Freq : 1;
-                    idx++;
-                }
-
-                if (hasPositions)
-                {
-                    _pos.Seek(skipOffset);
-                    int skipCount = _pos.ReadInt32();
-                    _pos.Seek(_pos.Position + (long)skipCount * 15);
-
-                    var posArr = new int[count][];
-                    byte[]?[][]? payloadArr = hasPayloads ? new byte[]?[count][] : null;
-                    for (int j = 0; j < count; j++)
-                    {
-                        int pc = _pos.ReadVarInt();
-                        var arr = new int[pc];
-                        byte[]?[]? docPayloads = hasPayloads ? new byte[]?[pc] : null;
-                        int prevPos = 0;
-                        for (int k = 0; k < pc; k++)
-                        {
-                            prevPos += _pos.ReadVarInt();
-                            arr[k] = prevPos;
-                            if (hasPayloads)
-                            {
-                                int payloadLen = _pos.ReadVarInt();
-                                if (payloadLen > 0)
-                                    docPayloads![k] = _pos.ReadBytes(payloadLen);
-                            }
-                        }
-                        posArr[j] = arr;
-                        if (payloadArr is not null)
-                            payloadArr[j] = docPayloads ?? [];
-                    }
-                    positions = posArr;
-                    payloads = payloadArr;
-                }
-                else
-                {
-                    positions = null;
-                    payloads = null;
-                }
+                oldIds[idx] = enumv.DocId;
+                freqs[idx] = hasFreqs ? enumv.Freq : 1;
+                idx++;
             }
-            else
+
+            _decodedDocCount = count;
+            _decodedHasPositions = hasPositions;
+            _decodedHasPayloads = hasPayloads;
+
+            if (hasPositions)
             {
-                count = _pos.ReadInt32();
+                // Position source stream at the start of position data (past skip data).
+                _pos.Seek(skipOffset);
                 int skipCount = _pos.ReadInt32();
-                if (skipCount > 0)
-                    _pos.Seek(_pos.Position + skipCount * 8L);
+                _pos.Seek(_pos.Position + (long)skipCount * 15);
+                _decodedPosDataStart = _pos.Position;
+            }
+        }
 
-                oldIds = ArrayPool<int>.Shared.Rent(count);
-                freqs = ArrayPool<int>.Shared.Rent(count);
+        /// <summary>
+        /// Streams one doc's position block from the source file to <paramref name="output"/>.
+        /// Must be called exactly <c>count</c> times after <see cref="DecodeCurrentPostings"/>,
+        /// in the same order as the doc IDs returned by that method.
+        /// </summary>
+        internal void WriteDocPositions(IndexOutput output, bool hasPayloads)
+        {
+            int posCount = _pos.ReadVarInt();
+            output.WriteVarInt(posCount);
 
-                int prev = 0;
-                for (int j = 0; j < count; j++)
+            // Copy position deltas (byte-identical in source and merged output).
+            for (int i = 0; i < posCount; i++)
+            {
+                byte b;
+                do
                 {
-                    prev += _pos.ReadVarInt();
-                    oldIds[j] = prev;
-                }
+                    b = _pos.ReadByte();
+                    output.WriteByte(b);
+                } while ((b & 0x80) != 0);
+            }
 
-                bool hasFreqs = _pos.ReadBoolean();
-                if (hasFreqs)
-                    for (int j = 0; j < count; j++) freqs[j] = _pos.ReadVarInt();
-                else
-                    Array.Fill(freqs, 1, 0, count);
-
-                bool hasPositions = _pos.ReadBoolean();
-                bool hasPayloads = _postingsVersion >= 2 && hasPositions && _pos.ReadBoolean();
-
-                if (hasPositions)
+            if (hasPayloads)
+            {
+                for (int i = 0; i < posCount; i++)
                 {
-                    var posArr = new int[count][];
-                    byte[]?[][]? payloadArr = hasPayloads ? new byte[]?[count][] : null;
-                    for (int j = 0; j < count; j++)
-                    {
-                        int pc = _pos.ReadVarInt();
-                        var arr = new int[pc];
-                        byte[]?[]? docPayloads = hasPayloads ? new byte[]?[pc] : null;
-                        int prevPos = 0;
-                        for (int k = 0; k < pc; k++)
-                        {
-                            prevPos += _pos.ReadVarInt();
-                            arr[k] = prevPos;
-                            if (hasPayloads)
-                            {
-                                int payloadLen = _pos.ReadVarInt();
-                                if (payloadLen > 0)
-                                    docPayloads![k] = _pos.ReadBytes(payloadLen);
-                            }
-                        }
-                        posArr[j] = arr;
-                        if (payloadArr is not null)
-                            payloadArr[j] = docPayloads ?? [];
-                    }
-                    positions = posArr;
-                    payloads = payloadArr;
-                }
-                else
-                {
-                    positions = null;
-                    payloads = null;
+                    int payloadLen = _pos.ReadVarInt();
+                    output.WriteVarInt(payloadLen);
+                    if (payloadLen > 0)
+                        output.WriteBytes(_pos.ReadBytes(payloadLen));
                 }
             }
+        }
+
+        /// <summary>
+        /// Writes all position data for the current term by streaming one doc at a time
+        /// through <see cref="WriteDocPositions"/>.
+        /// </summary>
+        internal void WritePositionsForTerm(IndexOutput output, bool hasPayloads)
+        {
+            if (!_decodedHasPositions) return;
+
+            for (int i = 0; i < _decodedDocCount; i++)
+                WriteDocPositions(output, hasPayloads);
         }
 
         public void Dispose()

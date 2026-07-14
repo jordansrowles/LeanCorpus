@@ -1,4 +1,7 @@
-﻿namespace Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Diagnostics;
+using Rowles.LeanCorpus.Store;
+
+namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>Keeps only the latest commit, deleting all older segments_N and stats_N files.</summary>
 public sealed class KeepLatestCommitPolicy : IIndexDeletionPolicy
@@ -10,7 +13,7 @@ public sealed class KeepLatestCommitPolicy : IIndexDeletionPolicy
     /// <inheritdoc/>
     public void OnCommit(string directoryPath, int currentGeneration, IReadOnlySet<string> protectedSegmentIds)
     {
-        foreach (var file in Directory.GetFiles(directoryPath, "segments_*"))
+        foreach (var file in FileOpenRetry.GetFiles(directoryPath, "segments_*"))
         {
             var name = Path.GetFileName(file);
             if (!CommitDeletionPolicy.TryParseCommitGeneration(name, out int gen) || gen >= currentGeneration)
@@ -22,13 +25,13 @@ public sealed class KeepLatestCommitPolicy : IIndexDeletionPolicy
             // If a concurrent reader (background searcher refresh) holds a handle
             // on the old segments_N without FileShare.Delete, Windows raises
             // IOException. Tolerate transient failures; the next commit will retry.
-            try { File.Delete(file); } catch { /* best-effort */ }
+            try { FileOpenRetry.Delete(file); } catch (Exception ex) { LeanCorpusActivitySource.TraceSwallowed(ex, "commit file delete"); }
         }
 
         // Prune old stats files. If a concurrent reader (background
         // searcher refresh) holds a handle, Windows raises IOException;
         // stats are a best-effort sidecar, so tolerate deletion failures.
-        foreach (var file in Directory.GetFiles(directoryPath, "stats_*.json"))
+        foreach (var file in FileOpenRetry.GetFiles(directoryPath, "stats_*.json"))
         {
             var name = Path.GetFileNameWithoutExtension(file); // "stats_N"
             if (!CommitDeletionPolicy.TryParseStatsGeneration(name, out int gen) || gen >= currentGeneration)
@@ -38,7 +41,7 @@ public sealed class KeepLatestCommitPolicy : IIndexDeletionPolicy
             if (CommitDeletionPolicy.ReferencesProtectedSegment(commitFile, protectedSegmentIds))
                 continue;
 
-            try { File.Delete(file); } catch { /* best-effort */ }
+            try { FileOpenRetry.Delete(file); } catch (Exception ex) { LeanCorpusActivitySource.TraceSwallowed(ex, "stats file delete"); }
         }
     }
 }

@@ -1,21 +1,27 @@
+using System.Buffers;
+using System.Text;
+using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Store;
+
 namespace Rowles.LeanCorpus.Codecs.StoredFields;
 
 /// <summary>
 /// Streaming variant of <see cref="StoredFieldsWriter"/> for the merge path.
-/// Documents are added one at a time and flushed in 16-doc blocks so that
-/// at most a single block sits in RAM rather than the whole merged segment.
+/// Documents are added one at a time and flushed in blocks so that at most one
+/// raw block sits in RAM rather than the whole merged segment.
 /// </summary>
 internal sealed class StoredFieldsStreamWriter : IDisposable
 {
     private const int DefaultBlockSize = 16;
 
+    private readonly IndexOutput _fdtOutput;
+    private readonly CodecFileHeader.StreamingWriteScope _fdtScope;
+    private readonly string _fdtPath;
     private readonly string _fdxPath;
     private readonly int _blockSize;
     private readonly FieldCompressionPolicy _compression;
-    private readonly FileStream _fdtStream;
-    private readonly BinaryWriter _fdtWriter;
-    private readonly MemoryStream _rawStream;
-    private readonly BinaryWriter _rawWriter;
+    private readonly ArrayBufferWriter<byte> _rawBuf;
     private readonly List<long> _blockOffsets;
     private readonly List<int> _intraOffsets;
 
@@ -26,56 +32,61 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
     internal StoredFieldsStreamWriter(string fdtPath, string fdxPath,
         int blockSize = DefaultBlockSize, FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate)
     {
+        _fdtPath = fdtPath;
+        _fdtOutput = new IndexOutput(fdtPath, durable: true);
         _fdxPath = fdxPath;
         _blockSize = blockSize;
         _compression = compression;
 
-        _fdtStream = new FileStream(fdtPath, FileMode.Create, FileAccess.Write, FileShare.None);
-        _fdtWriter = new BinaryWriter(_fdtStream, System.Text.Encoding.UTF8, leaveOpen: false);
-
-        CodecConstants.WriteHeader(_fdtWriter, CodecConstants.StoredFieldsVersion);
-        _fdtWriter.Write(blockSize);
-        _fdtWriter.Write((byte)compression);
-
-        _rawStream = new MemoryStream(4096);
-        _rawWriter = new BinaryWriter(_rawStream, System.Text.Encoding.UTF8, leaveOpen: true);
+        _rawBuf = new ArrayBufferWriter<byte>(4096);
         _blockOffsets = new List<long>();
         _intraOffsets = new List<int>(blockSize);
+
+        _fdtScope = CodecFileHeader.BeginStreamingWrite(_fdtOutput, CodecConstants.StoredFieldsVersion);
+        _fdtScope.Output.WriteInt32(blockSize);
+        _fdtScope.Output.WriteByte((byte)compression);
     }
 
     internal void AddDocument(IReadOnlyDictionary<string, IReadOnlyList<StoredFieldValue>> fields)
     {
-        _intraOffsets.Add((int)_rawStream.Position);
+        _intraOffsets.Add((int)_rawBuf.WrittenCount);
 
         Span<byte> encodeBuf = stackalloc byte[512];
+        Span<byte> longBytes = stackalloc byte[sizeof(long)];
 
-        _rawWriter.Write(fields.Count);
+        _rawBuf.WriteInt32(fields.Count);
         foreach (var (name, values) in fields)
         {
-            int nameByteCount = System.Text.Encoding.UTF8.GetByteCount(name);
+            int nameByteCount = Encoding.UTF8.GetByteCount(name);
             Span<byte> nameBuf = nameByteCount <= encodeBuf.Length ? encodeBuf : new byte[nameByteCount];
-            System.Text.Encoding.UTF8.GetBytes(name, nameBuf);
-            _rawWriter.Write(nameByteCount);
-            _rawWriter.Write(nameBuf[..nameByteCount]);
+            Encoding.UTF8.GetBytes(name, nameBuf);
+            _rawBuf.WriteInt32(nameByteCount);
+            _rawBuf.WriteBytes(nameBuf[..nameByteCount]);
 
-            _rawWriter.Write(values.Count);
+            _rawBuf.WriteInt32(values.Count);
             foreach (var value in values)
             {
-                _rawWriter.Write((byte)value.Kind);
+                _rawBuf.WriteByte((byte)value.Kind);
                 if (value.IsBinary)
                 {
                     var bytes = value.BinaryValue ?? [];
-                    _rawWriter.Write(bytes.Length);
-                    _rawWriter.Write(bytes);
+                    _rawBuf.WriteInt32(bytes.Length);
+                    _rawBuf.WriteBytes(bytes);
+                }
+                else if (value.IsLong)
+                {
+                    _rawBuf.WriteInt32(sizeof(long));
+                    System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(longBytes, value.LongValue);
+                    _rawBuf.WriteBytes(longBytes);
                 }
                 else
                 {
                     var text = value.StringValue ?? string.Empty;
-                    int valueByteCount = System.Text.Encoding.UTF8.GetByteCount(text);
+                    int valueByteCount = Encoding.UTF8.GetByteCount(text);
                     Span<byte> valueBuf = valueByteCount <= encodeBuf.Length ? encodeBuf : new byte[valueByteCount];
-                    System.Text.Encoding.UTF8.GetBytes(text, valueBuf);
-                    _rawWriter.Write(valueByteCount);
-                    _rawWriter.Write(valueBuf[..valueByteCount]);
+                    Encoding.UTF8.GetBytes(text, valueBuf);
+                    _rawBuf.WriteInt32(valueByteCount);
+                    _rawBuf.WriteBytes(valueBuf[..valueByteCount]);
                 }
             }
         }
@@ -91,22 +102,20 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
     {
         if (_docsInBlock == 0) return;
 
-        _rawWriter.Flush();
-        int rawLength = (int)_rawStream.Length;
-        var rawData = _rawStream.GetBuffer().AsSpan(0, rawLength);
+        int rawLength = (int)_rawBuf.WrittenCount;
+        var rawData = _rawBuf.WrittenSpan;
 
         var (compData, compLength) = StoredFieldCompression.Compress(rawData, _compression);
 
-        _blockOffsets.Add(_fdtStream.Position);
-        _fdtWriter.Write(_docsInBlock);
-        _fdtWriter.Write(rawLength);
-        _fdtWriter.Write(compLength);
+        _blockOffsets.Add(_fdtOutput.Position);
+        _fdtOutput.WriteInt32(_docsInBlock);
+        _fdtOutput.WriteInt32(rawLength);
+        _fdtOutput.WriteInt32(compLength);
         for (int i = 0; i < _docsInBlock; i++)
-            _fdtWriter.Write(_intraOffsets[i]);
-        _fdtWriter.Write(compData.AsSpan(0, compLength));
+            _fdtOutput.WriteInt32(_intraOffsets[i]);
+        _fdtOutput.WriteBytes(compData.AsSpan(0, compLength));
 
-        _rawStream.SetLength(0);
-        _rawStream.Position = 0;
+        _rawBuf.Clear();
         _intraOffsets.Clear();
         _docsInBlock = 0;
     }
@@ -116,24 +125,34 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
         if (_disposed) return;
         _disposed = true;
 
-        FlushBlock();
+        try
+        {
+            FlushBlock();
+            _fdtScope.Dispose();
+        }
+        finally
+        {
+            _fdtOutput.Dispose();
+        }
 
-        _fdtStream.Flush(flushToDisk: true);
-        _fdtWriter.Flush();
-        _rawWriter.Dispose();
-        _rawStream.Dispose();
-        _fdtWriter.Dispose();
-        _fdtStream.Dispose();
+        try
+        {
+            using var fdxOutput = new IndexOutput(_fdxPath, durable: true);
+            StoredFieldsFileHeader.WriteV3FdxHeader(fdxOutput, _blockSize, _docCount, _blockOffsets.Count);
+            foreach (var offset in _blockOffsets)
+                fdxOutput.WriteInt64(offset);
+        }
+        catch
+        {
+            TryDeleteFile(_fdtPath);
+            throw;
+        }
+    }
 
-        using var fdxStream = new FileStream(_fdxPath, FileMode.Create, FileAccess.Write, FileShare.None);
-        using var fdxWriter = new BinaryWriter(fdxStream, System.Text.Encoding.UTF8, leaveOpen: false);
-
-        CodecConstants.WriteHeader(fdxWriter, CodecConstants.StoredFieldsVersion);
-        fdxWriter.Write(_blockSize);
-        fdxWriter.Write(_docCount);
-        fdxWriter.Write(_blockOffsets.Count);
-        foreach (var offset in _blockOffsets)
-            fdxWriter.Write(offset);
-        fdxStream.Flush(flushToDisk: true);
+    private static void TryDeleteFile(string path)
+    {
+        try { FileOpenRetry.Delete(path); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 }

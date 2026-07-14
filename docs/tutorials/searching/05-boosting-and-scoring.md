@@ -1,12 +1,32 @@
 # Boosting and scoring
 
-LeanCorpus scores with BM25 by default
-(<xref:Rowles.LeanCorpus.Search.Scoring.Bm25Similarity>).
+LeanCorpus defaults to BM25 (`Bm25Similarity`).
+
+## Available similarities
+
+| Similarity | Model | Notes |
+|---|---|---|
+| `Bm25Similarity` | BM25 (k1=1.2, b=0.75) | Default |
+| `Bm25PlusSimilarity` | BM25+ with lower-bound delta | Avoids over-penalising long docs |
+| `Bm25LSimilarity` | BM25L with tf/(1+tf) modulated delta | More nuanced lower-bound than BM25+ |
+| `TfIdfSimilarity` | Classic TF-IDF | `sqrt(tf) * idf / sqrt(dl)` |
+| `TfIdfAugmentedSimilarity` | Augmented TF-IDF | `0.5 + 0.5 * tf/max_tf` |
+| `TfIdfDoubleNormSimilarity` | Double-normalised TF-IDF | Two-stage normalisation |
+| `TfIdfPivotedSimilarity` | Pivoted TF-IDF | Pivoted document length normalisation |
+| `DirichletSimilarity` | LM with Dirichlet smoothing (μ=2000) | Bayesian smoothing towards collection |
+| `LMAbsoluteDiscountingSimilarity` | LM with absolute discounting | Subtracts constant δ from counts |
+| `LMJelinekMercerSimilarity` | LM with Jelinek-Mercer (λ=0.7) | Linear interpolation with collection |
+
+All implement `ISimilarity`. Set on both writer (for norms) and searcher (for scoring):
+
+```csharp
+var config = new IndexWriterConfig { Similarity = new Bm25PlusSimilarity() };
+var searcherConfig = new IndexSearcherConfig { Similarity = new Bm25PlusSimilarity() };
+```
 
 ## Per-query boost
 
-Every `Query` has a `Boost` (default `1.0`). Multiplies the contribution of that
-query within a `BooleanQuery`.
+Every `Query` has a `Boost` (default `1.0`). Multiplies that query's contribution within a `BooleanQuery`:
 
 ```csharp
 var q = new BooleanQuery.Builder()
@@ -17,8 +37,7 @@ var q = new BooleanQuery.Builder()
 
 ## Constant scores
 
-`ConstantScoreQuery` assigns a fixed score and skips BM25 entirely. Useful for
-filters where ranking is irrelevant.
+`ConstantScoreQuery` assigns a fixed score; skips BM25:
 
 ```csharp
 var filter = new ConstantScoreQuery(new TermQuery("status", "published"), score: 1.0f);
@@ -26,9 +45,9 @@ var filter = new ConstantScoreQuery(new TermQuery("status", "published"), score:
 
 ## Function scores
 
-`FunctionScoreQuery` blends BM25 with a numeric field via a `ScoreMode`:
+`FunctionScoreQuery` blends BM25 with a numeric field:
 
-| Mode | Effect |
+| ScoreMode | Effect |
 |---|---|
 | `Multiply` (default) | `score * fieldValue` |
 | `Replace` | `fieldValue` |
@@ -36,15 +55,13 @@ var filter = new ConstantScoreQuery(new TermQuery("status", "published"), score:
 | `Max` | `max(score, fieldValue)` |
 
 ```csharp
-var inner = new TermQuery("body", "phone");
-var boosted = new FunctionScoreQuery(inner, "popularity", ScoreMode.Multiply);
+var boosted = new FunctionScoreQuery(
+    new TermQuery("body", "phone"), "popularity", ScoreMode.Multiply);
 ```
 
 ## Index-time field boosting
 
-Per-field boost factors can be set at write time through `IndexWriterConfig.FieldBoosts`
-and are written into the index norms. They multiply the query-time BM25 score just like
-`Boost` on a `Query`, but persist with the field so they apply to every query:
+Set per-field boost factors at write time. They persist in index norms and apply to every query:
 
 ```csharp
 var config = new IndexWriterConfig
@@ -57,17 +74,11 @@ var config = new IndexWriterConfig
 };
 ```
 
-A field boost of `2.0` makes every hit in that field count twice as much. Set it to
-`0.0` to effectively disable a field for ranking.
-
-
-## Custom similarity
-
-Set `IndexWriterConfig.Similarity` (writer-time norms) and
-`IndexSearcherConfig.Similarity` (query-time scoring) to swap in a different
-implementation.
+A field boost of `2.0` makes every hit in that field count twice as much. Set to `0.0` to disable a field for ranking.
 
 ## See also
+
+- <xref:Rowles.LeanCorpus.Search.Scoring.Bm25Similarity>
+- <xref:Rowles.LeanCorpus.Search.Scoring.ISimilarity>
 - <xref:Rowles.LeanCorpus.Search.Queries.ConstantScoreQuery>
 - <xref:Rowles.LeanCorpus.Search.Queries.FunctionScoreQuery>
-- <xref:Rowles.LeanCorpus.Search.Queries.ScoreMode>

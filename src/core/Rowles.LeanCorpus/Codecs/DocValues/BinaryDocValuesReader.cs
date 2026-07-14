@@ -1,4 +1,7 @@
-﻿using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Store;
+using System.Collections.Generic;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
 
@@ -14,7 +17,7 @@ internal static class BinaryDocValuesReader
             return values;
 
         using var input = new IndexInput(filePath);
-        CodecConstants.ReadHeaderVersion(input, CodecConstants.BinaryDocValuesVersion, "binary doc values (.dvb)");
+        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.BinaryDocValues);
 
         int fieldCount = input.ReadInt32();
         for (int f = 0; f < fieldCount; f++)
@@ -64,6 +67,65 @@ internal static class BinaryDocValuesReader
         }
 
         return values;
+    }
+
+    internal static List<(string Name, IReadOnlyList<byte[]>?[] Values)> EnumerateFields(string filePath)
+    {
+        if (!File.Exists(filePath))
+            return new List<(string Name, IReadOnlyList<byte[]>?[] Values)>(0);
+
+        using var input = new IndexInput(filePath);
+        byte version = CodecFileHeader.ReadVersionAndSkipHeader(input);
+
+        int fieldCount = input.ReadInt32();
+        var results = new List<(string Name, IReadOnlyList<byte[]>?[] Values)>(fieldCount);
+        for (int f = 0; f < fieldCount; f++)
+        {
+            string fieldName = ReadString(input);
+            int docCount = input.ReadInt32();
+            var starts = new int[docCount + 1];
+            for (int i = 0; i < starts.Length; i++)
+                starts[i] = input.ReadInt32();
+
+            int valueCount = input.ReadInt32();
+            ValidateStarts(starts, valueCount, fieldName);
+
+            var byteOffsets = new int[valueCount + 1];
+            for (int i = 0; i < byteOffsets.Length; i++)
+                byteOffsets[i] = input.ReadInt32();
+            ValidateStarts(byteOffsets, byteOffsets[^1], fieldName);
+
+            var payload = input.ReadBytes(byteOffsets[^1]);
+            var allValues = new byte[valueCount][];
+            for (int i = 0; i < allValues.Length; i++)
+            {
+                int start = byteOffsets[i];
+                int length = byteOffsets[i + 1] - start;
+                var value = new byte[length];
+                Array.Copy(payload, start, value, 0, length);
+                allValues[i] = value;
+            }
+
+            var perDoc = new IReadOnlyList<byte[]>[docCount];
+            for (int docId = 0; docId < docCount; docId++)
+            {
+                int start = starts[docId];
+                int end = starts[docId + 1];
+                if (end == start)
+                {
+                    perDoc[docId] = Array.Empty<byte[]>();
+                    continue;
+                }
+
+                var docValues = new byte[end - start][];
+                Array.Copy(allValues, start, docValues, 0, docValues.Length);
+                perDoc[docId] = docValues;
+            }
+
+            results.Add((fieldName, perDoc));
+        }
+
+        return results;
     }
 
     private static void ValidateStarts(int[] starts, int totalValues, string fieldName)

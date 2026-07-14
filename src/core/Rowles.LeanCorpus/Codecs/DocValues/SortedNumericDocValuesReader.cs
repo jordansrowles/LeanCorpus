@@ -1,4 +1,7 @@
-﻿using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using System.Collections.Generic;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
 
@@ -14,7 +17,7 @@ internal static class SortedNumericDocValuesReader
             return values;
 
         using var input = new IndexInput(filePath);
-        CodecConstants.ReadHeaderVersion(input, CodecConstants.SortedNumericDocValuesVersion, "sorted-numeric doc values (.dsn)");
+        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.SortedNumericDocValues);
 
         int fieldCount = input.ReadInt32();
         for (int f = 0; f < fieldCount; f++)
@@ -51,10 +54,67 @@ internal static class SortedNumericDocValuesReader
         return values;
     }
 
+    internal static List<(string Name, IReadOnlyList<double>?[] Values)> EnumerateFields(string filePath)
+    {
+        if (!File.Exists(filePath))
+            return new List<(string Name, IReadOnlyList<double>?[] Values)>(0);
+
+        using var input = new IndexInput(filePath);
+        byte version = CodecFileHeader.ReadVersionAndSkipHeader(input);
+
+        int fieldCount = input.ReadInt32();
+        var results = new List<(string Name, IReadOnlyList<double>?[] Values)>(fieldCount);
+        for (int f = 0; f < fieldCount; f++)
+        {
+            string fieldName = ReadString(input);
+            int docCount = input.ReadInt32();
+            var starts = new int[docCount + 1];
+            for (int i = 0; i < starts.Length; i++)
+                starts[i] = input.ReadInt32();
+
+            int valueCount = input.ReadInt32();
+            ValidateStarts(starts, valueCount, fieldName);
+            var flattened = ReadPackedDoubles(input, valueCount);
+
+            var perDoc = new IReadOnlyList<double>[docCount];
+            for (int docId = 0; docId < docCount; docId++)
+            {
+                int start = starts[docId];
+                int end = starts[docId + 1];
+                if (end == start)
+                {
+                    perDoc[docId] = Array.Empty<double>();
+                    continue;
+                }
+
+                var docValues = new double[end - start];
+                Array.Copy(flattened, start, docValues, 0, docValues.Length);
+                perDoc[docId] = docValues;
+            }
+
+            results.Add((fieldName, perDoc));
+        }
+
+        return results;
+    }
+
     private static double[] ReadPackedDoubles(IndexInput input, int valueCount)
     {
         long min = input.ReadInt64();
         int bitsPerValue = input.ReadByte();
+
+        if ((uint)bitsPerValue > 64)
+            throw new InvalidDataException(
+                $"Invalid bits-per-value {bitsPerValue} for sorted-numeric doc values; must be between 0 and 64.");
+
+        if (bitsPerValue > 0)
+        {
+            long expectedPackedBytes = ((long)bitsPerValue * valueCount + 7) / 8;
+            if (input.Position + expectedPackedBytes > input.Length)
+                throw new InvalidDataException(
+                    $"Sorted-numeric doc values declare {bitsPerValue} bits per value for {valueCount} values, but the file does not contain the expected packed data.");
+        }
+
         var values = new double[valueCount];
 
         if (valueCount == 0)

@@ -80,205 +80,6 @@ function Set-GeneratedContent {
     }
 }
 
-function Add-InternalApiBadges {
-    $apiDir = Join-Path $docsDir "api"
-    if (-not (Test-Path $apiDir)) { return }
-
-    $lock = [char]::ConvertFromUtf32(0x1F512)
-    $internalUids = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-
-    foreach ($file in Get-ChildItem $apiDir -Filter '*.yml' -File) {
-        if ($file.Name -eq 'toc.yml') { continue }
-
-        $lines = [System.Collections.Generic.List[string]]::new()
-        $lines.AddRange([string[]](Get-Content $file.FullName))
-        $currentUid = $null
-
-        foreach ($line in $lines) {
-            if ($line -match '^- uid: (.+)$') {
-                $currentUid = $Matches[1]
-                continue
-            }
-
-            if ($currentUid -and $line -match '^\s+content(?:\.vb)?: .*\b(internal|Friend)\b') {
-                [void]$internalUids.Add($currentUid)
-            }
-        }
-    }
-
-    if ($internalUids.Count -eq 0) { return }
-
-    foreach ($file in Get-ChildItem $apiDir -Filter '*.yml' -File) {
-        if ($file.Name -eq 'toc.yml') { continue }
-
-        $lines = [string[]](Get-Content $file.FullName)
-        $out = [System.Collections.Generic.List[string]]::new()
-        for ($i = 0; $i -lt $lines.Length; $i++) {
-            $out.Add($lines[$i])
-
-            if ($lines[$i] -match '^- uid: (.+)$' -and $internalUids.Contains($Matches[1])) {
-                if ($i + 1 -ge $lines.Length -or $lines[$i + 1] -ne '  apiAccessOverride: internal') {
-                    $out.Add('  apiAccessOverride: internal')
-                }
-            }
-        }
-
-        Set-GeneratedContent -Path $file.FullName -Value $out
-    }
-
-    $tocPath = Join-Path $apiDir 'toc.yml'
-    if (-not (Test-Path $tocPath)) { return }
-
-    $tocLines = [System.Collections.Generic.List[string]]::new()
-    $tocLines.AddRange([string[]](Get-Content $tocPath))
-    $currentUid = $null
-    for ($i = 0; $i -lt $tocLines.Count; $i++) {
-        if ($tocLines[$i] -match '^\s+- uid: (.+)$') {
-            $currentUid = $Matches[1]
-            continue
-        }
-
-        if ($currentUid -and $internalUids.Contains($currentUid) -and
-            $tocLines[$i] -match '^(\s+name: )(.+)$' -and
-            $tocLines[$i] -notmatch [regex]::Escape($lock)) {
-            $tocLines[$i] = "$($Matches[1])$($Matches[2]) $lock"
-        }
-    }
-
-    Set-GeneratedContent -Path $tocPath -Value $tocLines
-}
-
-function Remove-PrivateApiEntries {
-    $apiDir = Join-Path $docsDir "api"
-    if (-not (Test-Path $apiDir)) { return }
-
-    $privateUids = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-    $fileBlocks = @{}
-
-    foreach ($file in Get-ChildItem $apiDir -Filter '*.yml' -File) {
-        if ($file.Name -eq 'toc.yml') { continue }
-
-        $lines = [string[]](Get-Content $file.FullName)
-        $prefix = [System.Collections.Generic.List[string]]::new()
-        $blocks = [System.Collections.Generic.List[object]]::new()
-        $references = [System.Collections.Generic.List[string]]::new()
-        $current = $null
-        $inReferences = $false
-
-        foreach ($line in $lines) {
-            if ($line -eq 'references:') {
-                if ($current -is [System.Collections.Generic.List[string]]) {
-                    $blocks.Add($current)
-                    $current = $null
-                }
-
-                $inReferences = $true
-                $references.Add($line)
-                continue
-            }
-
-            if ($inReferences) {
-                $references.Add($line)
-                continue
-            }
-
-            if ($line -match '^- uid: (.+)$') {
-                if ($current -is [System.Collections.Generic.List[string]]) {
-                    $blocks.Add($current)
-                }
-
-                $current = [System.Collections.Generic.List[string]]::new()
-                $current.Add($line)
-                continue
-            }
-
-            if ($current -is [System.Collections.Generic.List[string]]) {
-                $current.Add($line)
-            } else {
-                $prefix.Add($line)
-            }
-        }
-
-        if ($current -is [System.Collections.Generic.List[string]]) {
-            $blocks.Add($current)
-        }
-
-        foreach ($block in $blocks) {
-            $uid = $null
-            foreach ($line in $block) {
-                if ($line -match '^- uid: (.+)$') {
-                    $uid = $Matches[1]
-                    continue
-                }
-
-                if ($uid -and $line -match '^\s+content(?:\.vb)?: .*\b(private|Private)\b') {
-                    [void]$privateUids.Add($uid)
-                }
-            }
-        }
-
-        $fileBlocks[$file.FullName] = [pscustomobject]@{
-            Prefix = $prefix
-            Blocks = $blocks
-            References = $references
-        }
-    }
-
-    if ($privateUids.Count -eq 0) { return }
-
-    foreach ($entry in $fileBlocks.GetEnumerator()) {
-        $out = [System.Collections.Generic.List[string]]::new()
-        $out.AddRange([string[]]$entry.Value.Prefix)
-
-        foreach ($block in $entry.Value.Blocks) {
-            $uid = $null
-            foreach ($line in $block) {
-                if ($line -match '^- uid: (.+)$') {
-                    $uid = $Matches[1]
-                    break
-                }
-            }
-
-            if ($uid -and $privateUids.Contains($uid)) {
-                continue
-            }
-
-            foreach ($line in $block) {
-                if ($line -notmatch '^\s+- (.+)$' -or -not $privateUids.Contains($Matches[1])) {
-                    $out.Add($line)
-                }
-            }
-        }
-
-        $out.AddRange([string[]]$entry.Value.References)
-        Set-GeneratedContent -Path $entry.Key -Value $out
-    }
-
-    $tocPath = Join-Path $apiDir 'toc.yml'
-    if (-not (Test-Path $tocPath)) { return }
-
-    $tocLines = [string[]](Get-Content $tocPath)
-    $outToc = [System.Collections.Generic.List[string]]::new()
-    for ($i = 0; $i -lt $tocLines.Length; $i++) {
-        if ($tocLines[$i] -match '^(\s*)- uid: (.+)$' -and $privateUids.Contains($Matches[2])) {
-            $indent = $Matches[1].Length
-            $i++
-            while ($i -lt $tocLines.Length) {
-                if ($tocLines[$i] -match '^(\s*)- uid: ' -and $Matches[1].Length -le $indent) {
-                    $i--
-                    break
-                }
-                $i++
-            }
-            continue
-        }
-
-        $outToc.Add($tocLines[$i])
-    }
-
-    Set-GeneratedContent -Path $tocPath -Value $outToc
-}
-
 function Remove-ExternalInheritedMembers {
     $apiDir = Join-Path $docsDir "api"
     if (-not (Test-Path $apiDir)) { return }
@@ -641,10 +442,8 @@ if ($MetadataOnly) {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Remove-ExternalInheritedMembers
     Remove-ExternalInheritanceEntries
-    Remove-PrivateApiEntries
     Remove-ExternalReferenceEntries
-    Add-InternalApiBadges
-Add-MissingPackageNamespaces
+    Add-MissingPackageNamespaces
     Write-Host "Metadata written to: $docsDir\api" -ForegroundColor Green
     exit 0
 }
@@ -655,14 +454,14 @@ docfx metadata $docfxJson
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Remove-ExternalInheritedMembers
 Remove-ExternalInheritanceEntries
-Remove-PrivateApiEntries
 Remove-ExternalReferenceEntries
-Add-InternalApiBadges
 Add-MissingPackageNamespaces
 
 if ($Serve) {
-    Write-Host "Building and serving docs on http://localhost:8080..." -ForegroundColor Cyan
-    docfx build $docfxJson --serve
+    Write-Host "Building and serving docs on http://0.0.0.0:8080..." -ForegroundColor Cyan
+    docfx build $docfxJson
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    docfx serve "$docsDir\site" --hostname 0.0.0.0 -p 8080
 } else {
     Write-Host "Building documentation site..." -ForegroundColor Cyan
     docfx build $docfxJson

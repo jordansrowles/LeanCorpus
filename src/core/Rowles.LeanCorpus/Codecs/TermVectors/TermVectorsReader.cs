@@ -1,4 +1,7 @@
-﻿namespace Rowles.LeanCorpus.Codecs.TermVectors;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+
+namespace Rowles.LeanCorpus.Codecs.TermVectors;
 
 /// <summary>Reads per-document term vectors from .tvd/.tvx files using memory-mapped I/O.</summary>
 internal sealed class TermVectorsReader : IDisposable
@@ -18,7 +21,7 @@ internal sealed class TermVectorsReader : IDisposable
     {
         // Read offsets from .tvx index file
         using var tvxInput = new Store.IndexInput(tvxPath);
-        byte tvxVersion = CodecConstants.ReadHeaderVersion(tvxInput, CodecConstants.TermVectorsVersion, "term vectors index (.tvx)");
+        CodecFileHeader.ReadVersion(tvxInput, CodecFormats.TermVectors);
 
         int docCount = tvxInput.ReadInt32();
         var offsets = new long[docCount];
@@ -27,12 +30,9 @@ internal sealed class TermVectorsReader : IDisposable
 
         // Open .tvd data file as mmap
         var tvdInput = new Store.IndexInput(tvdPath);
-        byte tvdVersion = CodecConstants.ReadHeaderVersion(tvdInput, CodecConstants.TermVectorsVersion, "term vectors data (.tvd)");
+        byte version = CodecFileHeader.ReadVersion(tvdInput, CodecFormats.TermVectors);
 
-        if (tvdVersion != tvxVersion)
-            throw new InvalidDataException($"Mismatched term vector versions between '{tvdPath}' and '{tvxPath}'.");
-
-        return new TermVectorsReader(tvdInput, offsets, tvdVersion);
+        return new TermVectorsReader(tvdInput, offsets, version);
     }
 
     /// <summary>Returns all term vectors for a document across all stored fields.</summary>
@@ -58,24 +58,40 @@ internal sealed class TermVectorsReader : IDisposable
                 var positions = new int[posCount];
                 for (int p = 0; p < posCount; p++)
                     positions[p] = _tvdInput.ReadInt32(ref position);
+                bool hasPayloads = _tvdInput.ReadBoolean(ref position);
                 byte[]?[]? payloads = null;
-                if (_version >= 2)
+                if (hasPayloads)
                 {
-                    bool hasPayloads = _tvdInput.ReadBoolean(ref position);
-                    if (hasPayloads)
+                    payloads = new byte[]?[posCount];
+                    for (int p = 0; p < posCount; p++)
                     {
-                        payloads = new byte[]?[posCount];
-                        for (int p = 0; p < posCount; p++)
-                        {
-                            int payloadLength = _tvdInput.ReadInt32(ref position);
-                            payloads[p] = payloadLength > 0
-                                ? _tvdInput.ReadSpan(payloadLength, ref position).ToArray()
-                                : null;
-                        }
+                        int payloadLength = _tvdInput.ReadInt32(ref position);
+                        payloads[p] = payloadLength > 0
+                            ? _tvdInput.ReadSpan(payloadLength, ref position).ToArray()
+                            : null;
                     }
                 }
+                if (_version >= 2)
+                {
+                    bool hasOffsets = _tvdInput.ReadBoolean(ref position);
+                    int[]? startOffsets = null;
+                    int[]? endOffsets = null;
+                    if (hasOffsets)
+                    {
+                        startOffsets = new int[posCount];
+                        for (int p = 0; p < posCount; p++)
+                            startOffsets[p] = _tvdInput.ReadInt32(ref position);
+                        endOffsets = new int[posCount];
+                        for (int p = 0; p < posCount; p++)
+                            endOffsets[p] = _tvdInput.ReadInt32(ref position);
+                    }
 
-                entries.Add(new TermVectorEntry(term, freq, positions, payloads));
+                    entries.Add(new TermVectorEntry(term, freq, positions, payloads, startOffsets, endOffsets));
+                }
+                else
+                {
+                    entries.Add(new TermVectorEntry(term, freq, positions, payloads));
+                }
             }
             result[fieldName] = entries;
         }

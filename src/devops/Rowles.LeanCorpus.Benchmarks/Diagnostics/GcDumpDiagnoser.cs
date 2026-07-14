@@ -35,7 +35,7 @@ internal sealed class GcDumpDiagnoser : IDiagnoser
     {
         if (signal != HostSignal.AfterAll) return;
 
-        var pid = parameters.Process.Id;
+        var pid = parameters.Process!.Id;
         var artifactsPath = parameters.Config.ArtifactsPath;
         Directory.CreateDirectory(artifactsPath);
 

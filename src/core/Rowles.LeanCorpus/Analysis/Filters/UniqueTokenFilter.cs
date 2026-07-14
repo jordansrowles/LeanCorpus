@@ -1,85 +1,69 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Filters;
+namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
-/// Removes duplicate tokens while preserving the first occurrence.
+/// Removes duplicate tokens at the same position, keeping the first occurrence.
 /// </summary>
-public sealed class UniqueTokenFilter : ITokenFilter
+/// <remarks>
+/// <para>When multiple tokens land at the same position (signalled by
+/// <c>positionIncrement == 0</c>), only the first instance of each distinct token
+/// text is emitted. Tokens at different positions are never deduplicated against
+/// each other.</para>
+/// <para>Uses a per-position <see cref="HashSet{T}"/> of token text. The set is
+/// cleared on <see cref="ISpanTokenFilter.Finish"/> for reuse across documents.</para>
+/// </remarks>
+public sealed class UniqueTokenFilter : ISpanTokenFilter
 {
-    private readonly bool _onlyOnSamePosition;
+    private int _currentPosition;
+    private HashSet<string>? _seenAtPosition;
+    private bool _firstToken = true;
 
-    /// <summary>
-    /// Initialises a new <see cref="UniqueTokenFilter"/>.
-    /// </summary>
-    /// <param name="onlyOnSamePosition">When true, removes duplicates only at the same start offset.</param>
-    public UniqueTokenFilter(bool onlyOnSamePosition = false)
+    /// <inheritdoc/>
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        _onlyOnSamePosition = onlyOnSamePosition;
+        ArgumentNullException.ThrowIfNull(sink);
+
+        if (_firstToken)
+        {
+            _currentPosition = 0;
+            _firstToken = false;
+        }
+        else
+        {
+            _currentPosition += positionIncrement;
+        }
+
+        // If the position advanced, clear the per-position set.
+        if (positionIncrement > 0)
+        {
+            _seenAtPosition?.Clear();
+        }
+
+        _seenAtPosition ??= new HashSet<string>(StringComparer.Ordinal);
+
+        // Use a string for the hash-set lookup. The span is transient so we
+        // must copy it.
+        string tokenText = text.ToString();
+        if (!_seenAtPosition.Add(tokenText))
+            return;
+
+        sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
     }
 
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+    public void Finish(ISpanTokenSink sink)
     {
-        if (tokens.Count < 2)
-            return;
-
-        if (_onlyOnSamePosition)
-            ApplySamePosition(tokens);
-        else
-            ApplyGlobal(tokens);
+        _seenAtPosition?.Clear();
+        _firstToken = true;
+        _currentPosition = 0;
     }
 
-    private static void ApplyGlobal(List<Token> tokens)
-    {
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        int write = 0;
-
-        for (int read = 0; read < tokens.Count; read++)
-        {
-            var token = tokens[read];
-            if (!seen.Add(token.Text))
-                continue;
-
-            if (write != read)
-                tokens[write] = token;
-            write++;
-        }
-
-        if (write < tokens.Count)
-            tokens.RemoveRange(write, tokens.Count - write);
-    }
-
-    private static void ApplySamePosition(List<Token> tokens)
-    {
-        var seen = new HashSet<PositionTokenKey>();
-        int write = 0;
-
-        for (int read = 0; read < tokens.Count; read++)
-        {
-            var token = tokens[read];
-            if (!seen.Add(new PositionTokenKey(token.StartOffset, token.Text)))
-                continue;
-
-            if (write != read)
-                tokens[write] = token;
-            write++;
-        }
-
-        if (write < tokens.Count)
-            tokens.RemoveRange(write, tokens.Count - write);
-    }
-
-    private readonly struct PositionTokenKey(int startOffset, string text) : IEquatable<PositionTokenKey>
-    {
-        private readonly int _startOffset = startOffset;
-        private readonly string _text = text;
-
-        public bool Equals(PositionTokenKey other)
-            => _startOffset == other._startOffset && string.Equals(_text, other._text, StringComparison.Ordinal);
-
-        public override bool Equals(object? obj)
-            => obj is PositionTokenKey other && Equals(other);
-
-        public override int GetHashCode()
-            => HashCode.Combine(_startOffset, StringComparer.Ordinal.GetHashCode(_text));
-    }
+    /// <inheritdoc/>
+    public ISpanTokenFilter Clone() => new UniqueTokenFilter();
 }

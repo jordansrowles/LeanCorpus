@@ -1,5 +1,6 @@
 ﻿using System.Runtime.InteropServices;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Store;
 
@@ -21,7 +22,7 @@ public sealed class IndexInputTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_dir, true); } catch { }
+        TestDirectoryFixture.TryDeleteDirectory(_dir);
     }
 
     private string WriteFile(string name, byte[] data)

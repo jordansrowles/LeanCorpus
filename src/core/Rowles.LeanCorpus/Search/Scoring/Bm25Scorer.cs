@@ -1,4 +1,6 @@
-﻿namespace Rowles.LeanCorpus.Search.Scoring;
+using System.Numerics;
+
+namespace Rowles.LeanCorpus.Search.Scoring;
 
 /// <summary>
 /// BM25 scorer. Computes relevance scores for term matches.
@@ -45,6 +47,69 @@ public static class Bm25Scorer
         const float k1TimesOneMinusB = K1 * (1.0f - B);
         float normalisedTf = (tf * k1Plus1) / (tf + k1TimesOneMinusB + k1BOverAvgDL * docLength);
         return idf * normalisedTf;
+    }
+
+    /// <summary>
+    /// Scores multiple documents at once using SIMD for a shared IDF term.
+    /// </summary>
+    /// <param name="idf">Precomputed IDF for the term.</param>
+    /// <param name="k1BOverAvgDL">Precomputed K1*B/avgDocLength for the field.</param>
+    /// <param name="termFreqs">Term frequencies for each document.</param>
+    /// <param name="docLengths">Document lengths for each document.</param>
+    /// <param name="scores">Output scores. Must be at least as long as termFreqs and docLengths.</param>
+    public static void ScorePrecomputedBatch(
+        float idf, float k1BOverAvgDL,
+        ReadOnlySpan<int> termFreqs, ReadOnlySpan<int> docLengths,
+        Span<float> scores)
+    {
+        int length = termFreqs.Length;
+        const float k1Plus1 = K1 + 1.0f;
+        const float k1TimesOneMinusB = K1 * (1.0f - B);
+
+        var vIdf = new Vector<float>(idf);
+        var vK1Plus1 = new Vector<float>(k1Plus1);
+        var vK1TimesOneMinusB = new Vector<float>(k1TimesOneMinusB);
+        var vK1BOverAvgDL = new Vector<float>(k1BOverAvgDL);
+
+        int i = 0;
+
+#if NET11_0_OR_GREATER
+        if (length >= Vector<float>.Count)
+#else
+        if (Vector.IsHardwareAccelerated && length >= Vector<float>.Count)
+#endif
+        {
+            int vecCount = Vector<float>.Count;
+            int simdEnd = length - (length % vecCount);
+
+            Span<float> tfBuf = stackalloc float[vecCount];
+            Span<float> dlBuf = stackalloc float[vecCount];
+
+            for (; i < simdEnd; i += vecCount)
+            {
+                for (int j = 0; j < vecCount; j++)
+                {
+                    tfBuf[j] = termFreqs[i + j];
+                    dlBuf[j] = docLengths[i + j];
+                }
+
+                var vTf = new Vector<float>(tfBuf);
+                var vDl = new Vector<float>(dlBuf);
+
+                var numerator = vTf * vK1Plus1;
+                var denominator = vTf + vK1TimesOneMinusB + vK1BOverAvgDL * vDl;
+                var result = vIdf * numerator / denominator;
+
+                result.CopyTo(scores.Slice(i));
+            }
+        }
+
+        for (; i < length; i++)
+        {
+            float tf = termFreqs[i];
+            float dl = docLengths[i];
+            scores[i] = idf * (tf * k1Plus1) / (tf + k1TimesOneMinusB + k1BOverAvgDL * dl);
+        }
     }
 
     /// <summary>

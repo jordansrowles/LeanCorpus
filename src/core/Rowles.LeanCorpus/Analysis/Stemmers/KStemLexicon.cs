@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Reflection;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Analysis.Stemmers;
 
@@ -22,6 +23,23 @@ public sealed class KStemLexicon : IKStemLexicon
     {
         ArgumentNullException.ThrowIfNull(word);
         return _words.Contains(word.ToLowerInvariant());
+    }
+
+    /// <inheritdoc/>
+    public bool Contains(ReadOnlySpan<char> word)
+    {
+        Span<char> lowered = stackalloc char[word.Length];
+        word.ToLowerInvariant(lowered);
+        var lookup = _words.GetAlternateLookup<ReadOnlySpan<char>>();
+        return lookup.Contains(lowered);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>Skips the internal <c>ToLowerInvariant</c> since the caller guarantees the input is already lowercase.</remarks>
+    public bool ContainsPreLowered(ReadOnlySpan<char> word)
+    {
+        var lookup = _words.GetAlternateLookup<ReadOnlySpan<char>>();
+        return lookup.Contains(word);
     }
 
     /// <summary>
@@ -68,7 +86,7 @@ public sealed class KStemLexicon : IKStemLexicon
         if (!Path.IsPathRooted(path))
             path = Path.Combine(AppContext.BaseDirectory, path);
 
-        return From(File.ReadLines(path, System.Text.Encoding.UTF8));
+        return From(FileOpenRetry.ReadLines(path, System.Text.Encoding.UTF8));
     }
 
     /// <summary>

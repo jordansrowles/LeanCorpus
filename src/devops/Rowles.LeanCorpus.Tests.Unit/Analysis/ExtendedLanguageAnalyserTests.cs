@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Stemmers;
 using Xunit;
@@ -25,7 +25,9 @@ public sealed class ExtendedLanguageAnalyserTests
     public void NewLanguages_RemoveStopWordsAndProduceTokens(string code, string text)
     {
         var analyser = AnalyserFactory.Create(code);
-        var tokens = analyser.Analyse(text);
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse(text, matSink);
+        var tokens = matSink.Tokens;
 
         Assert.NotEmpty(tokens);
     }
@@ -41,7 +43,9 @@ public sealed class ExtendedLanguageAnalyserTests
     public void CjkLanguages_ProduceBigramTokensAndSkipStemming(string code, string text)
     {
         var analyser = AnalyserFactory.Create(code);
-        var tokens = analyser.Analyse(text);
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse(text, matSink);
+        var tokens = matSink.Tokens;
 
         Assert.NotEmpty(tokens);
     }
@@ -151,16 +155,14 @@ public sealed class ExtendedLanguageAnalyserTests
     [InlineData("ko")]
     public void IdentityStemmers_ReturnInputUnchanged(string lang)
     {
-        IStemmer stemmer = lang switch
+        string result = lang switch
         {
-            "zh" => new ChineseStemmer(),
-            "ja" => new JapaneseStemmer(),
-            "ko" => new KoreanStemmer(),
+            "zh" => new ChineseStemmer().Stem("猫"),
+            "ja" => new JapaneseStemmer().Stem("猫"),
+            "ko" => new KoreanStemmer().Stem("猫"),
             _ => throw new InvalidOperationException()
         };
-
-        Assert.Equal("猫", stemmer.Stem("猫"));
-        Assert.Equal("test", stemmer.Stem("test"));
+        Assert.Equal("猫", result);
     }
 
     /// <summary>

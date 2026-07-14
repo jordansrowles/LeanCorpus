@@ -24,7 +24,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob]
+[SimpleJob(warmupCount: 1, iterationCount: 3)]
 [InvocationCount(1)]
 public class DeletionQueueBenchmarks
 {
@@ -53,11 +53,11 @@ public class DeletionQueueBenchmarks
     [IterationSetup]
     public void IterationSetup()
     {
-        _leanIndexPath = CreateTempDirectory("leancorpus-bench-del-queue");
+        _leanIndexPath = BenchmarkHelpers.CreateTempDirectory("leancorpus-bench-del-queue");
         _leanDirectory = new LeanMMapDirectory(_leanIndexPath);
         _leanWriter = new LeanIndexWriter(_leanDirectory, CreateLeanWriterConfig());
 
-        _luceneIndexPath = CreateTempDirectory("lucenenet-bench-del-queue");
+        _luceneIndexPath = BenchmarkHelpers.CreateTempDirectory("lucenenet-bench-del-queue");
         _luceneDirectory = new LuceneMMapDirectory(new DirectoryInfo(_luceneIndexPath));
         _luceneAnalyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
         _luceneWriter = new Lucene.Net.Index.IndexWriter(
@@ -73,8 +73,8 @@ public class DeletionQueueBenchmarks
         _luceneAnalyzer?.Dispose();
         _luceneDirectory?.Dispose();
 
-        DeleteDirectory(_leanIndexPath);
-        DeleteDirectory(_luceneIndexPath);
+        BenchmarkHelpers.DeleteDirectory(_leanIndexPath);
+        BenchmarkHelpers.DeleteDirectory(_luceneIndexPath);
     }
 
     [Benchmark(Baseline = true)]
@@ -104,18 +104,7 @@ public class DeletionQueueBenchmarks
         MergeThreshold = int.MaxValue,
     };
 
-    internal static string CreateTempDirectory(string prefix)
-    {
-        var path = Path.Combine(Path.GetTempPath(), $"{prefix}-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(path);
-        return path;
-    }
 
-    internal static void DeleteDirectory(string path)
-    {
-        if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
-            Directory.Delete(path, recursive: true);
-    }
 }
 
 /// <summary>
@@ -126,7 +115,7 @@ public class DeletionQueueBenchmarks
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob]
+[SimpleJob(warmupCount: 1, iterationCount: 3)]
 [InvocationCount(1)]
 public class DeletionCommitBenchmarks
 {
@@ -157,14 +146,14 @@ public class DeletionCommitBenchmarks
     [IterationSetup]
     public void IterationSetup()
     {
-        _leanIndexPath = DeletionQueueBenchmarks.CreateTempDirectory("leancorpus-bench-del-commit");
+        _leanIndexPath = BenchmarkHelpers.CreateTempDirectory("leancorpus-bench-del-commit");
         _leanDirectory = new LeanMMapDirectory(_leanIndexPath);
         _leanWriter = new LeanIndexWriter(_leanDirectory, DeletionQueueBenchmarks.CreateLeanWriterConfig());
         IndexLeanDocuments(_leanWriter, _documents);
         _leanWriter.Commit();
         QueueLeanDeletes(_leanWriter);
 
-        _luceneIndexPath = DeletionQueueBenchmarks.CreateTempDirectory("lucenenet-bench-del-commit");
+        _luceneIndexPath = BenchmarkHelpers.CreateTempDirectory("lucenenet-bench-del-commit");
         _luceneDirectory = new LuceneMMapDirectory(new DirectoryInfo(_luceneIndexPath));
         _luceneAnalyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
         _luceneWriter = new Lucene.Net.Index.IndexWriter(
@@ -183,8 +172,8 @@ public class DeletionCommitBenchmarks
         _luceneAnalyzer?.Dispose();
         _luceneDirectory?.Dispose();
 
-        DeletionQueueBenchmarks.DeleteDirectory(_leanIndexPath);
-        DeletionQueueBenchmarks.DeleteDirectory(_luceneIndexPath);
+        BenchmarkHelpers.DeleteDirectory(_leanIndexPath);
+        BenchmarkHelpers.DeleteDirectory(_luceneIndexPath);
     }
 
     [Benchmark(Baseline = true)]

@@ -72,7 +72,7 @@ public class TokenBudgetBenchmarks
 
     private int IndexWithConfig(IndexWriterConfig config)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"leancorpus-bench-budget-{Guid.NewGuid():N}");
+        var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-budget-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
 
         try

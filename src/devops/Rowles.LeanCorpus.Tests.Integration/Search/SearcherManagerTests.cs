@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Search;
@@ -26,7 +27,7 @@ public sealed class SearcherManagerTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_dir, true); } catch { }
+        TestDirectoryFixture.TryDeleteDirectory(_dir);
     }
 
     /// <summary>
@@ -343,6 +344,143 @@ public sealed class SearcherManagerTests : IDisposable
         Assert.Empty(errors);
         var finalCount = mgr.UsingSearcher(s => s.Stats.TotalDocCount);
         Assert.True(finalCount >= 1, $"Expected at least 1 document; got {finalCount}");
+    }
+
+    /// <summary>
+    /// Verifies the query cache survives searcher refreshes when content hasn't changed.
+    /// </summary>
+    [Fact(DisplayName = "QueryCache: Survives Searcher Refresh With Same Content")]
+    public void QueryCache_SurvivesSearcherRefresh_WithSameContent()
+    {
+        var dir = new MMapDirectory(_dir);
+        using (var w = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            w.AddDocument(Doc("hello world"));
+            w.Commit();
+        }
+
+        var config = new SearcherManagerConfig
+        {
+            RefreshInterval = TimeSpan.FromMinutes(5),
+            SearcherConfig = new IndexSearcherConfig { EnableQueryCache = true }
+        };
+        using var mgr = new SearcherManager(dir, config);
+
+        // First search populates the cache (first access is always a miss).
+        var searcher1 = mgr.Acquire();
+        try
+        {
+            searcher1.Search(new TermQuery("body", "hello"), 10);
+        }
+        finally { mgr.Release(searcher1); }
+
+        long missesAfterFirst = mgr.UsingSearcher(s => s.Cache!.Misses);
+        Assert.True(missesAfterFirst > 0,
+            $"Cache should have recorded at least one miss after the first search. Misses: {missesAfterFirst}");
+
+        // Force a refresh attempt — no content change, searcher stays the same, cache is not invalidated.
+        mgr.MaybeRefresh();
+
+        // Same query on a searcher acquired after refresh — should be a cache hit
+        // because the cache survived the refresh.
+        var searcher2 = mgr.Acquire();
+        try
+        {
+            searcher2.Search(new TermQuery("body", "hello"), 10);
+            Assert.True(searcher2.Cache!.Hits > 0,
+                $"Cache should produce a hit after surviving the refresh. Hits: {searcher2.Cache.Hits}");
+        }
+        finally { mgr.Release(searcher2); }
+    }
+
+    /// <summary>
+    /// Verifies the cache is invalidated when content changes (new commit with different content token).
+    /// </summary>
+    [Fact(DisplayName = "QueryCache: Invalidated When Content Changes")]
+    public void QueryCache_InvalidatedWhenContentChanges()
+    {
+        var dir = new MMapDirectory(_dir);
+        using (var w = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            w.AddDocument(Doc("initial"));
+            w.Commit();
+        }
+
+        var config = new SearcherManagerConfig
+        {
+            RefreshInterval = TimeSpan.FromMinutes(5),
+            SearcherConfig = new IndexSearcherConfig { EnableQueryCache = true }
+        };
+        using var mgr = new SearcherManager(dir, config);
+
+        // Populate the cache.
+        var s1 = mgr.Acquire();
+        try { s1.Search(new TermQuery("body", "initial"), 10); }
+        finally { mgr.Release(s1); }
+
+        long hitsBefore = mgr.UsingSearcher(s => s.Cache!.Hits);
+
+        // Add a document and commit, changing content.
+        using (var w = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            w.AddDocument(Doc("new document"));
+            w.Commit();
+        }
+
+        Assert.True(mgr.MaybeRefresh());
+
+        // Search again — cache should be invalidated, so we get a miss (and then a hit on the
+        // next call for the same query from the new searcher).
+        mgr.UsingSearcher<object?>(s =>
+        {
+            s.Search(new TermQuery("body", "initial"), 10);
+            s.Search(new TermQuery("body", "initial"), 10);
+            return null;
+        });
+
+        long hitsAfter = mgr.UsingSearcher(s => s.Cache!.Hits);
+        Assert.True(hitsAfter > hitsBefore,
+            $"Cache hits should increase after re-population. Before: {hitsBefore}, After: {hitsAfter}");
+    }
+
+    /// <summary>
+    /// Verifies that cache hit rate is non-zero with a refreshing searcher
+    /// (i.e. the cache actually caches across searches within the same searcher lifetime).
+    /// </summary>
+    [Fact(DisplayName = "QueryCache: Repeat Query Hits Cache Within Same Searcher")]
+    public void QueryCache_RepeatQueryHitsCache_WithinSameSearcher()
+    {
+        var dir = new MMapDirectory(_dir);
+        using (var w = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            w.AddDocument(Doc("hello world"));
+            w.Commit();
+        }
+
+        var config = new SearcherManagerConfig
+        {
+            RefreshInterval = TimeSpan.FromMinutes(5),
+            SearcherConfig = new IndexSearcherConfig { EnableQueryCache = true }
+        };
+        using var mgr = new SearcherManager(dir, config);
+
+        mgr.UsingSearcher<object?>(s =>
+        {
+            // First search: cache miss.
+            s.Search(new TermQuery("body", "hello"), 10);
+            long misses1 = s.Cache!.Misses;
+            long hits1 = s.Cache.Hits;
+
+            // Second search with same query: cache hit.
+            s.Search(new TermQuery("body", "hello"), 10);
+            long misses2 = s.Cache.Misses;
+            long hits2 = s.Cache.Hits;
+
+            Assert.Equal(misses1, misses2);
+            Assert.True(hits2 > hits1,
+                $"Second search should be a cache hit, not a miss. Hits: {hits1} -> {hits2}");
+            return null;
+        });
     }
 
     private static LeanDocument Doc(string body)

@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
 
@@ -24,7 +24,9 @@ public sealed class AnalyserPipelineTests
             new LowercaseFilter(),
             new StopWordFilter());
 
-        var tokens = analyser.Analyse("The Quick Brown Fox Jumps".AsSpan());
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("The Quick Brown Fox Jumps".AsSpan(), matSink);
+        var tokens = matSink.Tokens;
         var texts = tokens.Select(t => t.Text).ToList();
 
         Assert.DoesNotContain("the", texts); // stop word removed
@@ -46,7 +48,9 @@ public sealed class AnalyserPipelineTests
             new LowercaseFilter(),
             new PorterStemmerFilter());
 
-        var tokens = analyser.Analyse("Running Quickly".AsSpan());
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("Running Quickly".AsSpan(), matSink);
+        var tokens = matSink.Tokens;
         var texts = tokens.Select(t => t.Text).ToList();
 
         Assert.Contains("run", texts);
@@ -60,48 +64,54 @@ public sealed class AnalyserPipelineTests
     public void StandardAnalyser_ImplementsIAnalyser()
     {
         IAnalyser analyser = new StandardAnalyser();
-        var tokens = analyser.Analyse("Hello World".AsSpan());
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("Hello World".AsSpan(), matSink);
+        var tokens = matSink.Tokens;
         Assert.Equal(2, tokens.Count);
         Assert.Equal("hello", tokens[0].Text);
         Assert.Equal("world", tokens[1].Text);
     }
 
     /// <summary>
-    /// Tests that <see cref="StopWordFilter"/> correctly implements <see cref="ITokenFilter"/>
+    /// Tests that <see cref="StopWordFilter"/> correctly implements <see cref="ISpanTokenFilter"/>
     /// by removing common stop words (e.g., "the") from a token list.
     /// </summary>
-    [Fact(DisplayName = "StopWordFilter implements ITokenFilter and removes stop words")]
-    public void ITokenFilter_StopWordFilter_Implements()
+    [Fact(DisplayName = "StopWordFilter implements ISpanTokenFilter and removes stop words")]
+    public void ISpanTokenFilter_StopWordFilter_Implements()
     {
-        ITokenFilter filter = new StopWordFilter();
+        ISpanTokenFilter filter = new StopWordFilter();
         var tokens = new List<Token> { new("the", 0, 3), new("cat", 4, 7) };
-        filter.Apply(tokens);
-        Assert.Single(tokens);
-        Assert.Equal("cat", tokens[0].Text);
+        var sink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, sink);
+        var result = sink.Tokens;
+        Assert.Single(result);
+        Assert.Equal("cat", result[0].Text);
     }
-
     /// <summary>
-    /// Verifies that <see cref="LowercaseFilter"/> implements <see cref="ITokenFilter"/>
+    /// Verifies that <see cref="LowercaseFilter"/> implements <see cref="ISpanTokenFilter"/>
     /// and converts token text to lowercase.
     /// </summary>
-    [Fact(DisplayName = "LowercaseFilter implements ITokenFilter and lowercases tokens")]
-    public void ITokenFilter_LowercaseFilter_Implements()
+    [Fact(DisplayName = "LowercaseFilter implements ISpanTokenFilter and lowercases tokens")]
+    public void ISpanTokenFilter_LowercaseFilter_Implements()
     {
-        ITokenFilter filter = new LowercaseFilter();
+        ISpanTokenFilter filter = new LowercaseFilter();
         var tokens = new List<Token> { new("HELLO", 0, 5) };
-        filter.Apply(tokens);
-        Assert.Equal("hello", tokens[0].Text);
+        var sink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, sink);
+        var result = sink.Tokens;
+        Assert.Equal("hello", result[0].Text);
     }
 
     /// <summary>
-    /// Ensures that the default <see cref="Tokeniser"/> implements <see cref="ITokeniser"/>
+    /// Ensures that the default <see cref="Tokeniser"/> implements <see cref="ISpanTokeniser"/>
     /// and correctly splits a space‑separated string into tokens.
     /// </summary>
-    [Fact(DisplayName = "Tokeniser implements ITokeniser and splits on whitespace")]
-    public void ITokeniser_Tokeniser_Implements()
+    [Fact(DisplayName = "Tokeniser implements ISpanTokeniser and splits on whitespace")]
+    public void ISpanTokeniser_Tokeniser_Implements()
     {
-        ITokeniser tokeniser = new Tokeniser();
-        var tokens = tokeniser.Tokenise("one two three".AsSpan());
-        Assert.Equal(3, tokens.Count);
+        ISpanTokeniser tokeniser = new Tokeniser();
+        var sink = new MaterialisingTokenSink();
+        tokeniser.Tokenise("one two three".AsSpan(), sink);
+        Assert.Equal(3, sink.Tokens.Count);
     }
 }

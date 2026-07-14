@@ -1,5 +1,6 @@
-﻿using System.Collections.Frozen;
+using System.Collections.Frozen;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.StoredFields;
@@ -19,13 +20,14 @@ public sealed partial class SegmentReader : IDisposable
     private readonly SegmentInfo _info;
     private readonly TermDictionaryReader _dicReader;
     private readonly IndexInput _posInput;
-    private readonly byte _postingsVersion;
     private readonly StoredFieldsReader? _storedReader;
     private readonly FrozenDictionary<string, byte[]> _fieldNorms;
     private readonly FrozenDictionary<string, float[]> _fieldBoosts;
     private readonly FrozenDictionary<string, int[]> _fieldLengthsPerField;
     private readonly Dictionary<string, string> _vectorPaths = new(StringComparer.Ordinal);
     private readonly Dictionary<string, VectorReader> _vectorReaders = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, QuantisedVectorReader> _quantisedVectorReaders = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, VectorQuantisation> _vectorQuantisation = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HnswGraph?> _hnswGraphs = new(StringComparer.Ordinal);
     private readonly object _hnswLoadLock = new();
     private LiveDocs? _liveDocs;
@@ -33,18 +35,26 @@ public sealed partial class SegmentReader : IDisposable
     private const int MaxTermOffsetCacheSize = 1024;
     private readonly TermOffsetCache _termOffsetCache = new(MaxTermOffsetCacheSize);
 
+    private static readonly QualifiedTermCache s_qualifiedTermCache = new();
+
     // Lazy-loaded Stage 2 features (thread-safe via LazyInitializer)
     private Dictionary<string, Dictionary<int, double>>? _numericIndex;
+    private Dictionary<string, Dictionary<int, long>>? _int64Index;
     private Dictionary<string, double[]>? _numericDocValues;
     private Dictionary<string, Util.RoaringBitmap?>? _numericDocValuesPresence;
+    private Dictionary<string, long[]>? _int64DocValues;
+    private Dictionary<string, Util.RoaringBitmap?>? _int64DocValuesPresence;
     private Dictionary<string, string[]>? _sortedDocValues;
     private Dictionary<string, Util.RoaringBitmap?>? _sortedDocValuesPresence;
     private Dictionary<string, string[][]>? _sortedSetDocValues;
     private Dictionary<string, double[][]>? _sortedNumericDocValues;
+    private Dictionary<string, long[][]>? _int64SortedDocValues;
     private Dictionary<string, byte[][][]>? _binaryDocValues;
     private TermVectorsReader? _termVectorsReader;
     private Codecs.Bkd.BKDReader? _bkdReader;
     private bool _bkdReaderLoaded;
+    private Codecs.Bkd.Int64BKDReader? _int64BkdReader;
+    private bool _int64BkdReaderLoaded;
     private object? _lazyInitLock;
     private readonly string _basePath;
     private ParentBitSet? _parentBitSet;
@@ -55,6 +65,9 @@ public sealed partial class SegmentReader : IDisposable
 
     /// <summary>Gets the segment metadata for this reader.</summary>
     public SegmentInfo Info => _info;
+
+    /// <summary>Gets the directory this reader was opened from.</summary>
+    internal MMapDirectory Directory => _directory;
 
     /// <summary>Gets the total number of documents in this segment, including deleted documents.</summary>
     public int MaxDoc => _info.DocCount;
@@ -76,17 +89,16 @@ public sealed partial class SegmentReader : IDisposable
         ValidateSegmentFiles(_basePath, info.DocCount);
         _dicReader = TermDictionaryReader.Open(_basePath + ".dic");
         _posInput = directory.OpenInput(info.SegmentId + ".pos");
-        _postingsVersion = PostingsEnum.ValidateFileHeader(_posInput);
 
         var fdtPath = _basePath + ".fdt";
         var fdxPath = _basePath + ".fdx";
-        if (File.Exists(fdtPath) && File.Exists(fdxPath))
+        if (FileOpenRetry.FileExists(fdtPath) && FileOpenRetry.FileExists(fdxPath))
             _storedReader = StoredFieldsReader.Open(fdtPath, fdxPath);
 
         var delPath = info.DelGeneration.HasValue
             ? _basePath + $"_gen_{info.DelGeneration.Value}.del"
             : _basePath + ".del";
-        if (File.Exists(delPath))
+        if (FileOpenRetry.FileExists(delPath))
             _liveDocs = LiveDocs.Deserialise(delPath, info.DocCount);
 
         // Load per-field norms
@@ -122,9 +134,21 @@ public sealed partial class SegmentReader : IDisposable
         {
             foreach (var vf in info.VectorFields)
             {
-                var perFieldVecPath = VectorFilePaths.VectorFile(_basePath, vf.FieldName);
-                if (File.Exists(perFieldVecPath))
-                    _vectorPaths[vf.FieldName] = perFieldVecPath;
+                if (vf.Quantisation != VectorQuantisation.None)
+                {
+                    var vqPath = VectorFilePaths.QuantisedVectorFile(_basePath, vf.FieldName);
+                    if (File.Exists(vqPath))
+                    {
+                        _vectorPaths[vf.FieldName] = vqPath;
+                        _vectorQuantisation[vf.FieldName] = vf.Quantisation;
+                    }
+                }
+                else
+                {
+                    var perFieldVecPath = VectorFilePaths.VectorFile(_basePath, vf.FieldName);
+                    if (File.Exists(perFieldVecPath))
+                        _vectorPaths[vf.FieldName] = perFieldVecPath;
+                }
             }
         }
         else
@@ -135,8 +159,17 @@ public sealed partial class SegmentReader : IDisposable
                 _vectorPaths[string.Empty] = legacyVecPath;
         }
 
-        // Stage 2 features: numeric index, numeric doc values, and sorted doc values are now lazy-loaded
-        // to avoid startup regression for simple TermQuery and BooleanQuery operations
+        // Eager-load all DocValues sidecar files while the segment files are guaranteed
+        // to exist. Background merges may delete segment files after a new commit is
+        // written, and lazy loading after that point would observe missing files (TOCTOU
+        // race). Reading now ensures the memory-mapped data is retained even if the
+        // underlying file is unlinked by a concurrent merge.
+        EnsureNumericDocValues();
+        EnsureSortedDocValues();
+        EnsureSortedSetDocValues();
+        EnsureSortedNumericDocValues();
+        EnsureBinaryDocValues();
+        EnsureNumericIndex();
     }
 
     /// <summary>
@@ -269,7 +302,12 @@ public sealed partial class SegmentReader : IDisposable
     /// </summary>
     private string GetQualifiedTerm(string field, string term)
     {
-        return string.Concat(field, "\x00", term);
+        int length = QualifiedTermHelpers.QualifiedTermLength(field, term);
+        Span<char> buffer = length <= 256
+            ? stackalloc char[length]
+            : new char[length];
+        ReadOnlySpan<char> qt = QualifiedTermHelpers.BuildQualifiedTerm(field, term, buffer);
+        return s_qualifiedTermCache.GetOrAdd(qt);
     }
 
     /// <summary>
@@ -318,6 +356,34 @@ public sealed partial class SegmentReader : IDisposable
         return _posInput.ReadInt32(ref cursor);
     }
 
+    /// <summary>
+    /// Returns the document frequency for a qualified term span without allocating
+    /// a string. Bypasses the per-segment LRU cache and goes directly to the FST.
+    /// Suitable for one-shot lookups (e.g. MLT term extraction) where the term
+    /// is looked up exactly once.
+    /// </summary>
+    internal int GetDocFreqByQualified(ReadOnlySpan<char> qualifiedTerm)
+    {
+        if (!_dicReader.TryGetPostingsOffset(qualifiedTerm, out long offset))
+            return 0;
+
+        long cursor = offset;
+        return _posInput.ReadInt32(ref cursor);
+    }
+    /// <summary>
+    /// Sums all per-document term frequencies for the given qualified term.
+    /// Iterates the full postings list; call only when collection-level term statistics
+    /// are required (language-model similarities).
+    /// </summary>
+    internal long GetCollectionFrequency(string qualifiedTerm)
+    {
+        using var postings = GetPostingsEnum(qualifiedTerm);
+        long sum = 0;
+        while (postings.MoveNext())
+            sum += postings.Freq;
+        return sum;
+    }
+
     /// <summary>Reads docFreq directly from a known postings file offset (no dictionary lookup).</summary>
     internal int ReadDocFreqAtOffset(long offset)
     {
@@ -355,34 +421,68 @@ public sealed partial class SegmentReader : IDisposable
         _vectorPaths.Clear();
         _termVectorsReader?.Dispose();
         _bkdReader?.Dispose();
+        _int64BkdReader?.Dispose();
     }
 
     private sealed class TermOffsetCache
     {
-        private readonly int _capacity;
-        private readonly Dictionary<string, LinkedListNode<(string Key, (long Offset, bool Found) Value)>> _entries;
-        private readonly LinkedList<(string Key, (long Offset, bool Found) Value)> _lru = new();
-        private readonly Lock _lock = new();
-        private long _hits;
+        private const int ShardCount = 16;
+        private readonly TermOffsetShard[] _shards;
 
         internal TermOffsetCache(int capacity)
         {
-            _capacity = capacity;
-            _entries = new Dictionary<string, LinkedListNode<(string, (long, bool))>>(capacity, StringComparer.Ordinal);
+            int perShard = Math.Max(16, capacity / ShardCount);
+            _shards = new TermOffsetShard[ShardCount];
+            for (int i = 0; i < ShardCount; i++)
+                _shards[i] = new TermOffsetShard(perShard);
         }
+
+        private static int ShardIndex(string key) => (int)((uint)key.GetHashCode() % ShardCount);
 
         internal int Count
         {
             get
             {
-                lock (_lock)
-                {
-                    return _entries.Count;
-                }
+                int total = 0;
+                foreach (var shard in _shards)
+                    total += shard.Count;
+                return total;
             }
         }
 
-        internal long Hits => Volatile.Read(ref _hits);
+        internal long Hits
+        {
+            get
+            {
+                long total = 0;
+                foreach (var shard in _shards)
+                    total += Volatile.Read(ref shard._hits);
+                return total;
+            }
+        }
+
+        internal bool TryGet(string key, out (long Offset, bool Found) value)
+            => _shards[ShardIndex(key)].TryGet(key, out value);
+
+        internal void Set(string key, (long Offset, bool Found) value)
+            => _shards[ShardIndex(key)].Set(key, value);
+    }
+
+    private sealed class TermOffsetShard
+    {
+        internal readonly int _capacity;
+        private readonly Dictionary<string, LinkedListNode<(string Key, (long Offset, bool Found) Value)>> _entries;
+        private readonly LinkedList<(string Key, (long Offset, bool Found) Value)> _lru = new();
+        private readonly Lock _lock = new();
+        internal long _hits;
+
+        internal TermOffsetShard(int capacity)
+        {
+            _capacity = capacity;
+            _entries = new Dictionary<string, LinkedListNode<(string, (long, bool))>>(capacity, StringComparer.Ordinal);
+        }
+
+        internal int Count { get { lock (_lock) return _entries.Count; } }
 
         internal bool TryGet(string key, out (long Offset, bool Found) value)
         {
@@ -397,7 +497,6 @@ public sealed partial class SegmentReader : IDisposable
                     return true;
                 }
             }
-
             value = default;
             return false;
         }
@@ -418,13 +517,9 @@ public sealed partial class SegmentReader : IDisposable
                 _lru.AddFirst(node);
                 _entries[key] = node;
 
-                if (_entries.Count <= _capacity)
-                    return;
+                if (_entries.Count <= _capacity) return;
 
-                var last = _lru.Last;
-                if (last is null)
-                    return;
-
+                var last = _lru.Last!;
                 _lru.RemoveLast();
                 _entries.Remove(last.Value.Key);
             }
@@ -447,10 +542,10 @@ public sealed partial class SegmentReader : IDisposable
             throw new InvalidDataException($"Segment dictionary file is truncated: '{basePath}.dic'.");
 
         var nrmLength = new FileInfo(basePath + ".nrm").Length;
-        // Per-field format: 4-byte field count header = minimum 4 bytes
-        if (nrmLength < 4)
+        // CodecKit envelope (version + VarInt64 bodyLen) + minimum body (VarInt fieldCount of 0)
+        if (nrmLength < 3)
             throw new InvalidDataException(
-                $"Segment norms file '{basePath}.nrm' is truncated: expected at least 4 bytes, found {nrmLength}.");
+                $"Segment norms file '{basePath}.nrm' is truncated: expected at least 3 bytes, found {nrmLength}.");
     }
 
     private static void ValidateExistingFile(string path)

@@ -33,4 +33,14 @@ public sealed class BinaryField : IField
 
     /// <inheritdoc/>
     public float Boost => 1.0f;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <see cref="BinaryField"/> populates <c>BinaryDocValues</c> with its raw byte payload,
+    /// so this defaults to <c>true</c>.
+    /// </remarks>
+    public bool StoreDocValues => true;
+
+    /// <inheritdoc/>
+    public FieldIndexOptions IndexOptions => FieldIndexOptions.DocsOnly;
 }

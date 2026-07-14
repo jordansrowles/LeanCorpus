@@ -176,4 +176,44 @@ public sealed class MergeCorrectnessTests : IClassFixture<TestDirectoryFixture>
             Assert.Equal(1, r.TotalHits);
         }
     }
+
+    [Fact(DisplayName = "Merge failure marks writer as failed and gates future operations")]
+    public void MergeFailure_MarksWriterFailed()
+    {
+        var dirPath = SubDir("merge_failure_gate");
+        var dir = new MMapDirectory(dirPath);
+
+        // MaxBufferedDocs=1 forces each doc into its own segment.
+        // MergeThrottleSegments=1 triggers a synchronous-wait merge after the second doc.
+        var config = new IndexWriterConfig { MaxBufferedDocs = 1, MergeThrottleSegments = 1, MergePolicy = new TieredMergePolicy(2) };
+
+        using (var writer = new IndexWriter(dir, config))
+        {
+            // First doc creates segment
+            writer.AddDocument(MakeDoc("doc-0", "hello world first"));
+            writer.Commit();
+
+            // Corrupt the first segment by deleting its .dic file so the merge fails.
+            var seg0Dic = Path.Combine(dirPath, "seg_0.dic");
+            Assert.True(File.Exists(seg0Dic), "Expected seg_0.dic to exist before corruption.");
+            File.Delete(seg0Dic);
+
+            // Second doc triggers throttle merge, which blocks via Wait().
+            // The merge fails because seg_0.dic is missing, but the failure is caught.
+            writer.AddDocument(MakeDoc("doc-1", "hello world second"));
+
+            // Writer should now be marked as failed. The next indexing operation must throw.
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                writer.AddDocument(MakeDoc("doc-2", "should be gated")));
+            Assert.Contains("unusable", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static LeanDocument MakeDoc(string id, string body)
+    {
+        var doc = new LeanDocument();
+        doc.Add(new TextField("body", body));
+        doc.Add(new StringField("id", id));
+        return doc;
+    }
 }

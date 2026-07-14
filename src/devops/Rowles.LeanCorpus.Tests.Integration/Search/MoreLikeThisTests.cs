@@ -80,6 +80,7 @@ public class MoreLikeThisTests : IDisposable
             new MoreLikeThisParameters { MinTermFreq = 1, MinDocFreq = 1, MinWordLength = 2 });
 
         Assert.True(results.TotalHits > 0);
+        Assert.DoesNotContain(results.ScoreDocs, sd => sd.DocId == 0);
     }
 
     /// <summary>

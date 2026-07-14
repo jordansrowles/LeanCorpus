@@ -1,5 +1,10 @@
-﻿using System.Text.Json;
+using System.Buffers;
+using System.Text;
+using System.Text.Json;
 using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Serialization;
 using Rowles.LeanCorpus.Store;
 
@@ -163,6 +168,7 @@ internal static class IndexFileInspector
     public static void CheckCodecHeader(
         string filePath,
         byte maxVersion,
+        ICodec<byte[]> format,
         string fileType,
         string segmentId,
         IndexCheckResult result)
@@ -176,20 +182,7 @@ internal static class IndexFileInspector
         {
             using var stream = FileOpenRetry.OpenReadDelete(filePath);
             using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: false);
-            int magic = reader.ReadInt32();
-            if (magic != CodecConstants.Magic)
-            {
-                result.AddIssue(
-                    IndexCheckSeverity.Error,
-                    IndexCheckIssueCodes.InvalidCodecMagic,
-                    $"Invalid {fileType} file: expected magic 0x{CodecConstants.Magic:X8}, got 0x{magic:X8}.",
-                    fileName,
-                    segmentId,
-                    false);
-                return;
-            }
-
-            byte version = reader.ReadByte();
+            byte version = CodecFileHeader.ReadVersion(reader, format);
             if (version > maxVersion)
             {
                 result.AddIssue(
@@ -201,17 +194,7 @@ internal static class IndexFileInspector
                     false);
             }
         }
-        catch (EndOfStreamException ex)
-        {
-            result.AddIssue(
-                IndexCheckSeverity.Error,
-                IndexCheckIssueCodes.InvalidCodecMagic,
-                $"Cannot read {fileType} header from '{fileName}': {ex.Message}",
-                fileName,
-                segmentId,
-                false);
-        }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or EndOfStreamException or InvalidDataException)
         {
             result.AddIssue(
                 IndexCheckSeverity.Error,

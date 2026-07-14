@@ -38,7 +38,24 @@ public static class IndexBackup
         var succeeded = false;
         try
         {
-            manifest = CreateManifestCore(indexDirectoryPath, options);
+            // Retry on transient file-not-found — a concurrent background merge
+            // may delete segment files between commit selection and file enumeration.
+            const int maxAttempts = 3;
+            int attempt = 1;
+            while (true)
+            {
+                try
+                {
+                    manifest = CreateManifestCore(indexDirectoryPath, options);
+                    break;
+                }
+                catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+                {
+                    if (attempt >= maxAttempts) throw;
+                    Thread.Sleep(20 * attempt);
+                }
+                attempt++;
+            }
             succeeded = true;
             return manifest;
         }
@@ -135,30 +152,46 @@ public static class IndexBackup
             if (SameDirectory(sourceDirectory, backupDirectory))
                 throw new ArgumentException("Backup directory must be different from the source index directory.", nameof(backupDirectoryPath));
 
-            manifest = CreateManifestCore(sourceDirectory, options);
-            PrepareDirectory(backupDirectory, options.OverwriteBackupDirectory, "Backup");
-
-            var copiedFiles = new List<string>(manifest.Files.Count);
-            foreach (var entry in manifest.Files)
+            // Retry on transient file-not-found — a concurrent background merge
+            // may delete segment files between manifest creation and file copy.
+            const int maxAttempts = 3;
+            int attempt = 1;
+            while (true)
             {
-                ValidateManifestFileName(entry.FileName);
-                var sourcePath = Path.Combine(sourceDirectory, entry.FileName);
-                var targetPath = Path.Combine(backupDirectory, entry.FileName);
-                CopyFileAtomically(sourcePath, targetPath);
-                copiedFiles.Add(entry.FileName);
+                try
+                {
+                    manifest = CreateManifestCore(sourceDirectory, options);
+                    PrepareDirectory(backupDirectory, options.OverwriteBackupDirectory, "Backup");
+
+                    var copiedFiles = new List<string>(manifest.Files.Count);
+                    foreach (var entry in manifest.Files)
+                    {
+                        ValidateManifestFileName(entry.FileName);
+                        var sourcePath = Path.Combine(sourceDirectory, entry.FileName);
+                        var targetPath = Path.Combine(backupDirectory, entry.FileName);
+                        CopyFileAtomically(sourcePath, targetPath);
+                        copiedFiles.Add(entry.FileName);
+                    }
+
+                    var manifestJson = JsonSerializer.Serialize(manifest, LeanCorpusJsonContext.Default.IndexBackupManifest);
+                    IndexAtomicFileWriter.WriteText(Path.Combine(backupDirectory, ManifestFileName), manifestJson, durable: true);
+
+                    result = new IndexBackupResult
+                    {
+                        Manifest = manifest,
+                        BackupDirectoryPath = backupDirectory,
+                        CopiedFiles = copiedFiles
+                    };
+                    succeeded = true;
+                    return result;
+                }
+                catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+                {
+                    if (attempt >= maxAttempts) throw;
+                    Thread.Sleep(20 * attempt);
+                }
+                attempt++;
             }
-
-            var manifestJson = JsonSerializer.Serialize(manifest, LeanCorpusJsonContext.Default.IndexBackupManifest);
-            IndexAtomicFileWriter.WriteText(Path.Combine(backupDirectory, ManifestFileName), manifestJson, durable: true);
-
-            result = new IndexBackupResult
-            {
-                Manifest = manifest,
-                BackupDirectoryPath = backupDirectory,
-                CopiedFiles = copiedFiles
-            };
-            succeeded = true;
-            return result;
         }
         finally
         {
@@ -284,6 +317,14 @@ public static class IndexBackup
                 var sourcePath = Path.Combine(backupDirectory, entry.FileName);
                 var targetPath = Path.Combine(targetDirectory, entry.FileName);
                 CopyFileAtomically(sourcePath, targetPath);
+
+                // Verify the copy is faithful against the manifest checksum.
+                var targetChecksum = ComputeFileCrc32(targetPath);
+                if (targetChecksum != entry.Crc32)
+                    throw new InvalidDataException(
+                        $"Restored file '{entry.FileName}' has CRC-32 {targetChecksum:x8}, " +
+                        $"expected {entry.Crc32:x8}. The copy may be corrupt.");
+
                 restoredFiles.Add(entry.FileName);
             }
 
@@ -461,9 +502,9 @@ public static class IndexBackup
     private static void ClearDirectory(string directoryPath)
     {
         foreach (var file in Directory.EnumerateFiles(directoryPath))
-            File.Delete(file);
+            FileOpenRetry.Delete(file);
         foreach (var directory in Directory.EnumerateDirectories(directoryPath))
-            Directory.Delete(directory, recursive: true);
+            FileOpenRetry.DeleteDirectory(directory, recursive: true);
     }
 
     private static void CopyFileAtomically(string sourcePath, string targetPath)
@@ -471,7 +512,7 @@ public static class IndexBackup
         Directory.CreateDirectory(Path.GetDirectoryName(targetPath) ?? string.Empty);
         IndexAtomicFileWriter.Write(targetPath, durable: true, stream =>
         {
-            using var source = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            using var source = FileOpenRetry.OpenReadDelete(sourcePath);
             source.CopyTo(stream);
         });
     }

@@ -1,4 +1,7 @@
-﻿using System.Text;
+using System.Collections.Generic;
+using System.Text;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
@@ -6,7 +9,7 @@ namespace Rowles.LeanCorpus.Codecs.DocValues;
 /// <summary>
 /// Reads exact per-field per-doc token counts from a <c>.fln</c> file.
 /// Returns <c>Dictionary&lt;string, int[]&gt;</c> keyed by field name.
-/// Supports both VarInt (v2) and fixed ushort (v1) formats.
+/// Uses VarInt encoding.
 /// Falls back gracefully when the file does not exist (caller should use quantised norms).
 /// </summary>
 internal static class FieldLengthReader
@@ -20,7 +23,7 @@ internal static class FieldLengthReader
         if (!File.Exists(filePath)) return null;
 
         using var input = new IndexInput(filePath);
-        byte version = CodecConstants.ReadHeaderVersion(input, CodecConstants.FieldLengthVersion, "field lengths (.fln)");
+        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.FieldLengths);
 
         int fieldCount = input.ReadInt32();
         var result = new Dictionary<string, int[]>(fieldCount, StringComparer.Ordinal);
@@ -36,26 +39,44 @@ internal static class FieldLengthReader
             int docCount = input.ReadInt32();
             var lengths = new int[docCount];
 
-            if (version >= 2)
-            {
-                // VarInt encoding
-                for (int d = 0; d < docCount; d++)
-                    lengths[d] = input.ReadVarInt();
-            }
-            else
-            {
-                // Legacy v1: fixed ushort (2 bytes little-endian)
-                for (int d = 0; d < docCount; d++)
-                {
-                    byte lo = input.ReadByte();
-                    byte hi = input.ReadByte();
-                    lengths[d] = lo | (hi << 8);
-                }
-            }
+            // Current format: VarInt encoding
+            for (int d = 0; d < docCount; d++)
+                lengths[d] = input.ReadVarInt();
 
             result[fieldName] = lengths;
         }
 
         return result;
+    }
+
+    internal static List<(string Name, int[] Lengths)> EnumerateFields(string filePath)
+    {
+        if (!File.Exists(filePath)) return new List<(string Name, int[] Lengths)>(0);
+
+        using var input = new IndexInput(filePath);
+        byte version = CodecFileHeader.ReadVersionAndSkipHeader(input);
+
+        int fieldCount = input.ReadInt32();
+        var results = new List<(string Name, int[] Lengths)>(fieldCount);
+
+        for (int f = 0; f < fieldCount; f++)
+        {
+            int nameLen = input.ReadInt32();
+            var nameBytes = new byte[nameLen];
+            for (int b = 0; b < nameLen; b++)
+                nameBytes[b] = input.ReadByte();
+            string fieldName = Encoding.UTF8.GetString(nameBytes);
+
+            int docCount = input.ReadInt32();
+            var lengths = new int[docCount];
+
+            // Current format: VarInt encoding
+            for (int d = 0; d < docCount; d++)
+                lengths[d] = input.ReadVarInt();
+
+            results.Add((fieldName, lengths));
+        }
+
+        return results;
     }
 }

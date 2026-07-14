@@ -250,4 +250,142 @@ public sealed class SearchOptionsTests : IClassFixture<TestDirectoryFixture>
 
         Assert.True(docs.IsPartial);
     }
+
+    /// <summary>
+    /// Verifies the Search(IEnumerable): StreamResults=true yields per-segment without global heap scenario.
+    /// </summary>
+    [Fact(DisplayName = "Search IEnumerable: StreamResults True Yields Per Segment")]
+    public void Search_IEnumerable_StreamResults_True_YieldsResults()
+    {
+        var dir = IndexSampleDocs("ienum_stream", 30);
+        using var searcher = new IndexSearcher(dir);
+
+        var query = new TermQuery("body", "term1");
+        var opts = new SearchOptions { StreamResults = true };
+        var emitted = searcher.Search(query, opts).ToList();
+
+        Assert.NotEmpty(emitted);
+        // All scores should be non-negative and doc IDs non-negative.
+        Assert.All(emitted, sd => Assert.True(sd.DocId >= 0));
+        Assert.All(emitted, sd => Assert.True(sd.Score >= 0));
+    }
+
+    /// <summary>
+    /// Verifies the Search(IEnumerable): StreamResults=false materialises matching plain Search scenario.
+    /// </summary>
+    [Fact(DisplayName = "Search IEnumerable: StreamResults False Matches Plain Search")]
+    public void Search_IEnumerable_StreamResults_False_MatchesPlainSearch()
+    {
+        var dir = IndexSampleDocs("ienum_mat", 50);
+        using var searcher = new IndexSearcher(dir);
+
+        var query = new TermQuery("body", "term5");
+        var plain = searcher.Search(query, topN: 10);
+        var opts = new SearchOptions { StreamResults = false };
+        var emitted = searcher.Search(query, opts).ToList();
+
+        Assert.Equal(plain.ScoreDocs.Length, emitted.Count);
+        for (int i = 0; i < emitted.Count; i++)
+        {
+            Assert.Equal(plain.ScoreDocs[i].DocId, emitted[i].DocId);
+            Assert.Equal(plain.ScoreDocs[i].Score, emitted[i].Score);
+        }
+    }
+
+    /// <summary>
+    /// Verifies the Search(IEnumerable): empty index yields nothing scenario.
+    /// </summary>
+    [Fact(DisplayName = "Search IEnumerable: Empty Index Yields Nothing")]
+    public void Search_IEnumerable_EmptyIndex_YieldsNothing()
+    {
+        var dir = new MMapDirectory(SubDir("ienum_empty"));
+        using var searcher = new IndexSearcher(dir);
+
+        var query = new TermQuery("body", "hello");
+        var opts = new SearchOptions { StreamResults = true };
+        var emitted = searcher.Search(query, opts).ToList();
+
+        Assert.Empty(emitted);
+    }
+
+    /// <summary>
+    /// Verifies the Search(IEnumerable): pre-cancelled token yields nothing scenario.
+    /// </summary>
+    [Fact(DisplayName = "Search IEnumerable: Pre-Cancelled Token Yields Nothing")]
+    public void Search_IEnumerable_PreCancelled_YieldsNothing()
+    {
+        var dir = IndexSampleDocs("ienum_cancel", 30);
+        using var searcher = new IndexSearcher(dir);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var query = new TermQuery("body", "term1");
+        var opts = new SearchOptions { StreamResults = true, CancellationToken = cts.Token };
+        var emitted = searcher.Search(query, opts).ToList();
+
+        Assert.Empty(emitted);
+    }
+
+    /// <summary>
+    /// Verifies the SearchAsync: yields results in segment order scenario.
+    /// </summary>
+    [Fact(DisplayName = "Search Async: Yields Results")]
+    public async Task SearchAsync_YieldsResults()
+    {
+        var dir = IndexSampleDocs("async_stream", 30);
+        using var searcher = new IndexSearcher(dir);
+
+        var query = new TermQuery("body", "term1");
+        var opts = new SearchOptions { StreamResults = true };
+
+        var emitted = new List<ScoreDoc>();
+        await foreach (var sd in searcher.SearchAsync(query, opts))
+            emitted.Add(sd);
+
+        Assert.NotEmpty(emitted);
+        Assert.All(emitted, sd => Assert.True(sd.DocId >= 0));
+        Assert.All(emitted, sd => Assert.True(sd.Score >= 0));
+    }
+
+    /// <summary>
+    /// Verifies the SearchAsync: pre-cancelled token throws scenario.
+    /// </summary>
+    [Fact(DisplayName = "Search Async: Pre-Cancelled Token Throws")]
+    public async Task SearchAsync_PreCancelled_Throws()
+    {
+        var dir = IndexSampleDocs("async_cancel", 30);
+        using var searcher = new IndexSearcher(dir);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var query = new TermQuery("body", "term1");
+        var opts = new SearchOptions { StreamResults = true };
+
+        await Assert.ThrowsAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (var sd in searcher.SearchAsync(query, opts, cts.Token))
+            {
+                // Should not reach here.
+            }
+        });
+    }
+
+    /// <summary>
+    /// Verifies the SearchAsync: empty index yields nothing scenario.
+    /// </summary>
+    [Fact(DisplayName = "Search Async: Empty Index Yields Nothing")]
+    public async Task SearchAsync_EmptyIndex_YieldsNothing()
+    {
+        var dir = new MMapDirectory(SubDir("async_empty"));
+        using var searcher = new IndexSearcher(dir);
+
+        var query = new TermQuery("body", "hello");
+        var opts = new SearchOptions { StreamResults = true };
+
+        var emitted = new List<ScoreDoc>();
+        await foreach (var sd in searcher.SearchAsync(query, opts))
+            emitted.Add(sd);
+
+        Assert.Empty(emitted);
+    }
 }

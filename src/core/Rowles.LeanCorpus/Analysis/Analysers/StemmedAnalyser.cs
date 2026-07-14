@@ -1,20 +1,27 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis.Filters;
+using Rowles.LeanCorpus.Analysis.Tokenisers;
+
+namespace Rowles.LeanCorpus.Analysis.Analysers;
 
 /// <summary>
-/// Extends <see cref="StandardAnalyser"/> with Porter stemming for improved recall.
+/// Extends the standard analysis pipeline with Porter stemming for improved recall.
 /// Pipeline: tokenise → lowercase → stop-word removal → Porter stem.
+/// Uses the composable <see cref="Analyser"/> pipeline for zero-allocation streaming.
 /// </summary>
 public sealed class StemmedAnalyser : IAnalyser
 {
-    private readonly StandardAnalyser _inner = new();
-    private readonly PorterStemmerFilter _stemmer = new();
-    private readonly KeywordMarkerFilter? _keywordMarker;
+    private readonly Analyser _pipeline;
 
     /// <summary>
     /// Initialises a new <see cref="StemmedAnalyser"/>.
     /// </summary>
     public StemmedAnalyser()
     {
+        _pipeline = new Analyser(
+            new Tokeniser(),
+            new LowercaseFilter(),
+            new StopWordFilter(),
+            new PorterStemmerFilter());
     }
 
     /// <summary>
@@ -23,31 +30,14 @@ public sealed class StemmedAnalyser : IAnalyser
     /// <param name="keywordMarker">Keywords that should bypass stemming, or <see langword="null"/> to stem all tokens.</param>
     public StemmedAnalyser(KeywordMarkerFilter? keywordMarker)
     {
-        _keywordMarker = keywordMarker;
+        _pipeline = new Analyser(
+            new Tokeniser(),
+            new LowercaseFilter(),
+            new StopWordFilter(),
+            new PorterStemmerFilter(keywordMarker));
     }
 
     /// <inheritdoc/>
-    public List<Token> Analyse(ReadOnlySpan<char> input)
-    {
-        var tokens = _inner.Analyse(input);
-        if (_keywordMarker is null)
-        {
-            _stemmer.Apply(tokens);
-        }
-        else
-        {
-            for (int i = 0; i < tokens.Count; i++)
-            {
-                var token = tokens[i];
-                if (_keywordMarker.IsKeyword(token.Text))
-                    continue;
-
-                var stemmed = PorterStemmerFilter.Stem(token.Text);
-                if (!ReferenceEquals(stemmed, token.Text))
-                    tokens[i] = token.WithText(stemmed);
-            }
-        }
-
-        return tokens;
-    }
+    public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
+        => _pipeline.Analyse(input, sink);
 }

@@ -19,7 +19,9 @@ public class StemmerAnalyserTests
     {
         var input = "running jumped quickly";
 
-        var tokens = _analyser.Analyse(input.AsSpan());
+        var matSink = new MaterialisingTokenSink();
+        _analyser.Analyse(input.AsSpan(), matSink);
+        var tokens = matSink.Tokens;
 
         // Porter stems: running→run, jumped→jump, quickly→quickli
         Assert.Equal(3, tokens.Count);
@@ -36,7 +38,9 @@ public class StemmerAnalyserTests
     {
         var input = "the cats are running";
 
-        var tokens = _analyser.Analyse(input.AsSpan());
+        var matSink = new MaterialisingTokenSink();
+        _analyser.Analyse(input.AsSpan(), matSink);
+        var tokens = matSink.Tokens;
 
         // "the" and "are" removed as stop words, then "cats"→"cat", "running"→"run"
         Assert.Equal(2, tokens.Count);
@@ -50,7 +54,9 @@ public class StemmerAnalyserTests
     [Fact(DisplayName = "Analyse: Empty Input Returns Empty List")]
     public void Analyse_EmptyInput_ReturnsEmptyList()
     {
-        var tokens = _analyser.Analyse(ReadOnlySpan<char>.Empty);
+        var matSink = new MaterialisingTokenSink();
+        _analyser.Analyse(ReadOnlySpan<char>.Empty, matSink);
+        var tokens = matSink.Tokens;
         Assert.Empty(tokens);
     }
 }

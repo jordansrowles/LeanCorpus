@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using ZstdSharp;
@@ -85,6 +86,7 @@ public static class ZstandardCompression
     }
 
 #pragma warning disable CA2255
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(ZstandardCompressionCodec))]
     [ModuleInitializer]
 #pragma warning restore CA2255
     internal static void Initialise()

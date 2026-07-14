@@ -1,6 +1,7 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Index;
+using Rowles.LeanCorpus.Codecs.Vectors;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
 
@@ -10,7 +11,7 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 public sealed class IndexWriterConfig
 {
     /// <summary>RAM buffer size in megabytes before an automatic flush.</summary>
-    public double RamBufferSizeMB { get; set; } = 256.0;
+    public double RamBufferSizeMB { get; set; } = 512.0;
 
     /// <summary>Maximum number of buffered documents before an automatic flush.</summary>
     public int MaxBufferedDocs { get; set; } = 10_000;
@@ -76,8 +77,16 @@ public sealed class IndexWriterConfig
     /// <summary>
     /// Segment count threshold that triggers a tiered merge. When the number of segments
     /// at a given size tier reaches this value, the smallest are merged. Default: 10.
+    /// When <see cref="MergePolicy"/> is set to a non-default value, this property is ignored.
     /// </summary>
     public int MergeThreshold { get; set; } = 10;
+
+    /// <summary>
+    /// The merge policy used to select segments for merging. Defaults to
+    /// <see cref="TieredMergePolicy"/> with the configured <see cref="MergeThreshold"/>.
+    /// Set to <see cref="NoMergePolicy.Instance"/> to disable automatic merging.
+    /// </summary>
+    public IMergePolicy MergePolicy { get; set; } = new TieredMergePolicy(10);
 
     /// <summary>
     /// Maximum number of point values in a BKD tree leaf node. Smaller leaves give faster
@@ -136,8 +145,9 @@ public sealed class IndexWriterConfig
     public IndexSort? IndexSort { get; set; }
 
     /// <summary>
-    /// Maximum number of unmerged segments before AddDocument blocks until a merge completes.
-    /// Provides backpressure to prevent unbounded segment accumulation. Default: 0 (disabled).
+    /// Maximum number of unmerged segments before AddDocument schedules a background merge
+    /// and blocks until it completes. Provides backpressure to prevent unbounded segment
+    /// accumulation. Default: 0 (disabled).
     /// </summary>
     public int MergeThrottleSegments { get; set; }
 
@@ -146,6 +156,14 @@ public sealed class IndexWriterConfig
     /// equals cosine similarity, enabling cheaper search. Default: <c>true</c>.
     /// </summary>
     public bool NormaliseVectors { get; set; } = true;
+
+    /// <summary>
+    /// Quantisation strategy for vector fields. <see cref="Codecs.Vectors.VectorQuantisation.None"/> (default)
+    /// stores raw float32 vectors. <see cref="Codecs.Vectors.VectorQuantisation.Int8"/> gives ~4× storage
+    /// reduction with minimal recall loss. <see cref="Codecs.Vectors.VectorQuantisation.BBQ"/> gives ~32×
+    /// reduction at some recall cost. Default: <see cref="Codecs.Vectors.VectorQuantisation.None"/>.
+    /// </summary>
+    public VectorQuantisation VectorQuantisation { get; set; } = VectorQuantisation.None;
 
     /// <summary>
     /// Build an HNSW graph for every vector field at flush time. Disable to fall back to
@@ -183,4 +201,58 @@ public sealed class IndexWriterConfig
     /// is <c>true</c>. Default: 86400 (24 hours).
     /// </summary>
     public double SoftDeleteRetentionSeconds { get; set; } = 86400.0;
+
+    /// <summary>
+    /// Validates that property values are individually sensible and mutually consistent.
+    /// Called by <see cref="IndexWriter"/> at construction time so that misconfiguration
+    /// is surfaced before any state is set up.
+    /// </summary>
+    /// <exception cref="ArgumentException">Thrown when a property is invalid.</exception>
+    internal void Validate()
+    {
+        if (RamBufferSizeMB < 0)
+            throw new ArgumentException("RamBufferSizeMB must not be negative.", nameof(RamBufferSizeMB));
+
+        if (MaxBufferedDocs < 0)
+            throw new ArgumentException("MaxBufferedDocs must not be negative.", nameof(MaxBufferedDocs));
+
+        if (RamBufferSizeMB <= 0.0 && MaxBufferedDocs == 0)
+            throw new ArgumentException(
+                "At least one flush trigger must be configured. Set RamBufferSizeMB > 0 or MaxBufferedDocs > 0.");
+
+        if (MaxQueuedDocs < 0)
+            throw new ArgumentException("MaxQueuedDocs must not be negative.", nameof(MaxQueuedDocs));
+
+        if (StoredFieldBlockSize < 1)
+            throw new ArgumentException("StoredFieldBlockSize must be at least 1.", nameof(StoredFieldBlockSize));
+
+        if (PostingsSkipInterval < 1)
+            throw new ArgumentException("PostingsSkipInterval must be at least 1.", nameof(PostingsSkipInterval));
+
+        if (BKDMaxLeafSize < 2)
+            throw new ArgumentException("BKDMaxLeafSize must be at least 2.", nameof(BKDMaxLeafSize));
+
+        if (AnalyserInternCacheSize < 0)
+            throw new ArgumentException("AnalyserInternCacheSize must not be negative.", nameof(AnalyserInternCacheSize));
+
+        if (MaxTokensPerDocument < 0)
+            throw new ArgumentException("MaxTokensPerDocument must not be negative.", nameof(MaxTokensPerDocument));
+
+        if (MergeThrottleSegments < 0)
+            throw new ArgumentException("MergeThrottleSegments must not be negative.", nameof(MergeThrottleSegments));
+
+        if (MergeThreshold < 2)
+            throw new ArgumentException("MergeThreshold must be at least 2.", nameof(MergeThreshold));
+
+        if (SoftDeletesEnabled && SoftDeleteRetentionSeconds <= 0)
+            throw new ArgumentException(
+                "SoftDeleteRetentionSeconds must be positive when SoftDeletesEnabled is true.",
+                nameof(SoftDeleteRetentionSeconds));
+
+        if (!Codecs.StoredFields.CompressionCodecRegistry.TryGet((byte)CompressionPolicy, out _))
+            throw new ArgumentException(
+                $"No compression codec is registered for policy '{CompressionPolicy}'. " +
+                "Install the matching compression package or register a codec before opening the writer.",
+                nameof(CompressionPolicy));
+    }
 }

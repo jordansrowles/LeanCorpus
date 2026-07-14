@@ -1,4 +1,7 @@
-﻿using Rowles.LeanCorpus.Store;
+using System.Buffers;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
 
@@ -13,22 +16,24 @@ internal static class SortedSetDocValuesWriter
         int docCount,
         bool durable = false)
     {
-        using var output = new IndexOutput(filePath, durable);
-        CodecConstants.WriteHeader(output, CodecConstants.SortedSetDocValuesVersion);
-        output.WriteInt32(fields.Count);
+        var bodyBuf = new ArrayBufferWriter<byte>(4096);
+        bodyBuf.WriteInt32(fields.Count);
 
         foreach (var (fieldName, values) in fields)
-            WriteFieldBlock(output, fieldName, values, docCount);
+            WriteFieldBlock(bodyBuf, fieldName, values, docCount);
+
+        using var output = new IndexOutput(filePath, durable);
+        CodecFileHeader.Write(output, CodecFormats.SortedSetDocValues, bodyBuf.WrittenSpan);
     }
 
     internal static void WriteFieldBlock(
-        IndexOutput output,
+        IBufferWriter<byte> bw,
         string fieldName,
         IReadOnlyList<string>?[] values,
         int docCount)
     {
-        WriteFieldName(output, fieldName);
-        output.WriteInt32(docCount);
+        bw.WriteString(fieldName);
+        bw.WriteInt32(docCount);
 
         var ordSet = new SortedSet<string>(StringComparer.Ordinal);
         var perDoc = new string[docCount][];
@@ -61,28 +66,19 @@ internal static class SortedSetDocValuesWriter
         for (int i = 0; i < ordList.Length; i++)
             ordMap[ordList[i]] = i;
 
-        output.WriteInt32(ordList.Length);
+        bw.WriteInt32(ordList.Length);
         foreach (var value in ordList)
-            WriteString(output, value);
+            bw.WriteString(value);
 
         for (int i = 0; i < starts.Length; i++)
-            output.WriteInt32(starts[i]);
+            bw.WriteInt32(starts[i]);
 
-        output.WriteInt32(totalOrdinals);
+        bw.WriteInt32(totalOrdinals);
         foreach (var docValues in perDoc)
         {
             foreach (var value in docValues)
-                output.WriteVarInt(ordMap[value]);
+                bw.Write7BitEncodedInt(ordMap[value]);
         }
     }
 
-    private static void WriteFieldName(IndexOutput output, string fieldName)
-        => WriteString(output, fieldName);
-
-    private static void WriteString(IndexOutput output, string value)
-    {
-        var bytes = System.Text.Encoding.UTF8.GetBytes(value);
-        output.WriteVarInt(bytes.Length);
-        output.WriteBytes(bytes);
-    }
 }

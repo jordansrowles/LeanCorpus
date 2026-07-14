@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Document.Json;
 
@@ -22,7 +22,7 @@ public sealed class JsonDocumentMapperTests
         Assert.NotNull(doc.GetField("name"));
         Assert.NotNull(doc.GetField("age"));
         Assert.IsType<StringField>(doc.GetField("name"));
-        Assert.IsType<NumericField>(doc.GetField("age"));
+        Assert.IsType<Int64Field>(doc.GetField("age"));
     }
 
     /// <summary>
@@ -82,16 +82,16 @@ public sealed class JsonDocumentMapperTests
     }
 
     /// <summary>
-    /// Verifies the Long Strings: Become Text Fields scenario.
+    /// Verifies that JSON strings now default to StringField rather than TextField.
     /// </summary>
-    [Fact(DisplayName = "Long Strings: Become Text Fields")]
-    public void LongStrings_BecomeTextFields()
+    [Fact(DisplayName = "Long Strings: Default To String Fields")]
+    public void LongStrings_DefaultToStringFields()
     {
         var longText = new string('x', 100);
         var json = $$"""{"body": "{{longText}}"}""";
         var doc = JsonDocumentMapper.FromJsonString(json);
 
-        Assert.IsType<TextField>(doc.GetField("body"));
+        Assert.IsType<StringField>(doc.GetField("body"));
     }
 
     /// <summary>
@@ -115,5 +115,52 @@ public sealed class JsonDocumentMapperTests
     {
         var doc = JsonDocumentMapper.FromJsonString("{}");
         Assert.Empty(doc.Fields);
+    }
+
+    /// <summary>
+    /// Verifies that large JSON integers are preserved as Int64Field.
+    /// </summary>
+    [Fact(DisplayName = "Large Integers: Preserved As Int64")]
+    public void LargeIntegers_PreservedAsInt64()
+    {
+        var json = """{"id": 9223372036854775807}""";
+        var doc = JsonDocumentMapper.FromJsonString(json);
+
+        var field = Assert.IsType<Int64Field>(doc.GetField("id"));
+        Assert.Equal(long.MaxValue, field.Value);
+    }
+
+    /// <summary>
+    /// Verifies that non-integer JSON numbers are mapped as NumericField.
+    /// </summary>
+    [Fact(DisplayName = "Floating Point Numbers: Mapped As NumericField")]
+    public void FloatingPointNumbers_MappedAsNumericField()
+    {
+        var json = """{"score": 3.14}""";
+        var doc = JsonDocumentMapper.FromJsonString(json);
+
+        Assert.IsType<NumericField>(doc.GetField("score"));
+    }
+
+    /// <summary>
+    /// Verifies that exceeding MaxDepth throws instead of silently dropping data.
+    /// </summary>
+    [Fact(DisplayName = "Max Depth Exceeded: Throws")]
+    public void MaxDepthExceeded_Throws()
+    {
+        var json = """{"a": {"b": {"c": 1}}}""";
+        var opts = new JsonMappingOptions { MaxDepth = 1 };
+
+        Assert.Throws<InvalidOperationException>(() => JsonDocumentMapper.FromJsonString(json, opts));
+    }
+
+    /// <summary>
+    /// Verifies that invalid options are rejected on construction.
+    /// </summary>
+    [Fact(DisplayName = "Invalid Options: Rejected")]
+    public void InvalidOptions_Rejected()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new JsonMappingOptions { MaxDepth = -1 });
+        Assert.Throws<ArgumentOutOfRangeException>(() => new JsonMappingOptions { StringFieldMaxLength = -1 });
     }
 }

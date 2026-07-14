@@ -1,4 +1,4 @@
-﻿<Solution>
+<Solution>
   <Project Path="src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj" />
   <Project Path="src/core/Rowles.LeanCorpus.Compression.LZ4/Rowles.LeanCorpus.Compression.LZ4.csproj" />
   <Project Path="src/core/Rowles.LeanCorpus.Compression.Snappy/Rowles.LeanCorpus.Compression.Snappy.csproj" />

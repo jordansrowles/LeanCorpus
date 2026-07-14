@@ -20,7 +20,7 @@ public sealed class StringField : IField
     /// <param name="value">The exact string value to index. Must not be null.</param>
     /// <param name="stored">Whether the exact string value should be persisted in stored fields.</param>
     public StringField(string name, string value, bool stored)
-        : this(name, value, stored, 1.0f)
+        : this(name, value, stored, 1.0f, storeDocValues: true)
     {
     }
 
@@ -31,12 +31,26 @@ public sealed class StringField : IField
     /// <param name="value">The exact string value to index. Must not be null.</param>
     /// <param name="stored">Whether the exact string value should be persisted in stored fields.</param>
     /// <param name="boost">Index-time boost applied to scoring queries against this field.</param>
-    public StringField(string name, string value, bool stored, float boost)
+    /// <param name="storeDocValues">
+    /// Whether to populate DocValues (sorted, sorted-set, binary) for this field.
+    /// Defaults to <c>true</c>. Set to <c>false</c> to reduce indexing overhead when
+    /// faceting, collapsing, or binary DocValues retrieval is not required.
+    /// </param>
+    /// <param name="indexOptions">
+    /// Controls which postings data is written to the inverted index.
+    /// Defaults to <see cref="FieldIndexOptions.DocsAndFreqs"/> — exact-match fields
+    /// benefit from term frequencies for scoring but typically do not need positions.
+    /// Set to <see cref="FieldIndexOptions.DocsOnly"/> for filter-only string fields.
+    /// </param>
+    public StringField(string name, string value, bool stored, float boost, bool storeDocValues = true,
+        FieldIndexOptions indexOptions = FieldIndexOptions.DocsAndFreqs)
     {
         Name = FieldNameValidator.Validate(name, nameof(name));
         Value = value ?? throw new ArgumentNullException(nameof(value));
         IsStored = stored;
         Boost = FieldBoostValidator.Validate(boost, nameof(boost));
+        StoreDocValues = storeDocValues;
+        IndexOptions = indexOptions;
     }
 
     /// <inheritdoc/>
@@ -56,4 +70,10 @@ public sealed class StringField : IField
 
     /// <inheritdoc/>
     public float Boost { get; }
+
+    /// <inheritdoc/>
+    public bool StoreDocValues { get; }
+
+    /// <inheritdoc/>
+    public FieldIndexOptions IndexOptions { get; }
 }

@@ -33,6 +33,7 @@ internal static class RealDataPool
 
     /// <summary>Maximum documents loaded from the Reuters source.</summary>
     private const int MaxReuters = 15_000;
+    private const int MaxWikipedia = 15_000;
 
     /// <summary>
     /// Returns <paramref name="count"/> document bodies from the real-data pool,
@@ -78,11 +79,12 @@ internal static class RealDataPool
         }
 
         var bodies = new List<string>(60_000);
-        var sources = new List<BenchmarkDataSourceReport>(3);
+        var sources = new List<BenchmarkDataSourceReport>(4);
 
         sources.Add(LoadGutenberg(benchDir, bodies));
         sources.Add(Load20Newsgroups(benchDir, bodies));
         sources.Add(LoadReuters(benchDir, bodies));
+        sources.Add(LoadWikipedia(benchDir, bodies));
 
         if (bodies.Count == 0)
         {
@@ -183,6 +185,36 @@ internal static class RealDataPool
             }
         }
         return BuildSourceReport("reuters21578", dir, count);
+    }
+
+    private static BenchmarkDataSourceReport LoadWikipedia(string benchDir, List<string> bodies)
+    {
+        var dir = Path.Combine(benchDir, "wikipedia", "en");
+        if (!Directory.Exists(dir))
+            return BuildMissingSource("wikipedia", dir);
+
+        var count = 0;
+        foreach (var file in Directory.GetFiles(dir, "*.txt", SearchOption.AllDirectories)
+                     .OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+        {
+            if (count >= MaxWikipedia)
+                break;
+
+            try
+            {
+                var body = File.ReadAllText(file, Encoding.UTF8).Trim();
+                if (body.Length >= MinBodyLength)
+                {
+                    bodies.Add(body);
+                    count++;
+                }
+            }
+            catch
+            {
+                // Skip unreadable files.
+            }
+        }
+        return BuildSourceReport("wikipedia", dir, count);
     }
 
     private static BenchmarkDataSourceReport BuildMissingSource(string name, string path)

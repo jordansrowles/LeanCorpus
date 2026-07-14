@@ -28,36 +28,21 @@ internal static class IndexAtomicFileWriter
         var tempPath = path + ".tmp";
         try
         {
-            using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var stream = FileOpenRetry.Open(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
             {
                 write(stream);
                 if (durable)
                     stream.Flush(flushToDisk: true);
             }
 
-            // On Windows, File.Move with overwrite:true fails with IOException if any handle
-            // — even a transient FileShare.Read from File.ReadAllText (e.g. a concurrent
-            // searcher refresh calling IndexRecovery.TryLoadCommit) — is open on the target.
-            // Retry a few times with a short backoff before giving up.
-            for (int retries = MoveRetries; ; retries--)
-            {
-                try
-                {
-                    File.Move(tempPath, path, overwrite: true);
-                    break;
-                }
-                catch (IOException) when (retries > 0)
-                {
-                    Thread.Sleep(MoveRetryDelayMs);
-                }
-            }
+            FileOpenRetry.Move(tempPath, path, overwrite: true);
 
             if (durable)
                 DirectoryFsync.Sync(Path.GetDirectoryName(path) ?? string.Empty, strict: true);
         }
         catch
         {
-            try { File.Delete(tempPath); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            try { FileOpenRetry.Delete(tempPath); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "atomic-write temp file cleanup"); }
             throw;
         }
     }

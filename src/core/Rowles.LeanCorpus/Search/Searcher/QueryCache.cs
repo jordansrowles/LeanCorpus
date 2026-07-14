@@ -1,37 +1,42 @@
-﻿using System.Globalization;
+using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text;
+using System.Threading;
 
 namespace Rowles.LeanCorpus.Search.Searcher;
 
 /// <summary>
-/// Thread-safe LRU query result cache. Entries are keyed by (Query, topN) and
-/// invalidated when the commit generation changes.
+/// Thread-safe query result cache. Entries are keyed by (Query, topN) and
+/// invalidated when the commit generation changes. Uses
+/// <see cref="ConcurrentDictionary{TKey,TValue}"/> with generation-swap eviction:
+/// readers are lock-free on the common path, and when the soft entry cap is
+/// exceeded the entire dictionary is swapped for a fresh one via
+/// <see cref="Interlocked.CompareExchange(ref object,object,object)"/>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Invalidation contract: the cache is keyed against a single commit generation.
 /// Callers must invoke <see cref="Invalidate"/> (or assign a fresh cache) whenever
 /// the underlying searcher is swapped to a newer commit, otherwise stale results
-/// may be returned. Cached results are <em>snapshot views</em>: doc IDs and scores
-/// reflect the segments visible at the moment of caching, and remain valid for as
-/// long as those segments are still referenced by the live searcher.
+/// may be returned.
 /// </para>
 /// <para>
 /// Recommended placement: hold one cache per <see cref="SearcherManager"/> rather
 /// than per <see cref="IndexSearcher"/>, and call <see cref="Invalidate"/> from the
-/// refresh hook. This avoids a write race where two concurrent searches racing
-/// against a commit could publish results from differing generations.
+/// refresh hook.
 /// </para>
 /// </remarks>
 public sealed class QueryCache
 {
     private readonly int _maxEntries;
-    private readonly Lock _lock = new();
-    private readonly Dictionary<CacheKey, LinkedListNode<CacheEntry>> _map;
-    private readonly LinkedList<CacheEntry> _lru = new();
+    private volatile ConcurrentDictionary<CacheKey, CacheEntry> _map;
+    private readonly Lock _swapLock = new();
     private long _generation;
     private long _hits;
-    private long _misses;    /// <summary>
+    private long _misses;
+    private int _approxCount;
+
+    /// <summary>
     /// Initialises a new <see cref="QueryCache"/> with the specified maximum entry count.
     /// </summary>
     /// <param name="maxEntries">The maximum number of entries to hold. Must be at least 1.</param>
@@ -40,102 +45,97 @@ public sealed class QueryCache
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxEntries, 1);
         _maxEntries = maxEntries;
-        _map = new(maxEntries);
+        _map = new ConcurrentDictionary<CacheKey, CacheEntry>(Environment.ProcessorCount, maxEntries);
     }
 
     /// <summary>Total cache hits since creation.</summary>
-    public long Hits { get { lock (_lock) return _hits; } }
+    public long Hits => Interlocked.Read(ref _hits);
 
     /// <summary>Total cache misses since creation.</summary>
-    public long Misses { get { lock (_lock) return _misses; } }
+    public long Misses => Interlocked.Read(ref _misses);
 
-    /// <summary>Current number of cached entries.</summary>
-    public int Count
-    {
-        get { lock (_lock) return _map.Count; }
-    }
+    /// <summary>Approximate number of cached entries.</summary>
+    public int Count => Volatile.Read(ref _approxCount);
 
     /// <summary>
     /// Tries to retrieve a cached result. Returns null on miss.
+    /// Lock-free on the read path.
     /// </summary>
     public TopDocs? TryGet(Query query, int topN)
     {
         var key = new CacheKey(QueryFingerprint.Create(query), topN);
-        lock (_lock)
+        var map = _map;
+        long gen = Interlocked.Read(ref _generation);
+
+        if (map.TryGetValue(key, out var entry) && entry.Generation == gen)
         {
-            if (_map.TryGetValue(key, out var node) && node.Value.Generation == _generation)
-            {
-                // Move to front (most recently used)
-                _lru.Remove(node);
-                _lru.AddFirst(node);
-                _hits++;
-                return node.Value.Result;
-            }
-
-            // Stale entry — remove it
-            if (node is not null)
-            {
-                _lru.Remove(node);
-                _map.Remove(key);
-            }
-
-            _misses++;
-            return null;
+            Interlocked.Increment(ref _hits);
+            return entry.Result;
         }
+
+        Interlocked.Increment(ref _misses);
+        return null;
     }
 
     /// <summary>
-    /// Stores a query result in the cache.
+    /// Stores a query result in the cache. If the soft entry cap is exceeded,
+    /// the entire dictionary is swapped for a fresh one.
     /// </summary>
     public void Put(Query query, int topN, TopDocs result)
     {
         var key = new CacheKey(QueryFingerprint.Create(query), topN);
-        var entry = new CacheEntry(key, result, _generation);
+        long gen = Interlocked.Read(ref _generation);
+        var entry = new CacheEntry(key, result, gen);
 
-        lock (_lock)
-        {
-            if (_map.TryGetValue(key, out var existing))
-            {
-                _lru.Remove(existing);
-                _map.Remove(key);
-            }
+        var map = _map;
+        bool isNew = !map.ContainsKey(key);
+        map[key] = entry; // AddOrUpdate semantics via indexer
+        int newCount = isNew ? Interlocked.Increment(ref _approxCount) : Volatile.Read(ref _approxCount);
 
-            var node = _lru.AddFirst(entry);
-            _map[key] = node;
-
-            // Evict LRU entries if over capacity
-            while (_map.Count > _maxEntries)
-            {
-                var last = _lru.Last!;
-                _map.Remove(last.Value.Key);
-                _lru.RemoveLast();
-            }
-        }
+        if (newCount > _maxEntries)
+            EvictGeneration(map);
     }
 
     /// <summary>
     /// Invalidates all cached entries by bumping the generation.
-    /// Lazy invalidation: stale entries are removed on next access.
+    /// Lazy invalidation: stale entries are skipped on next access.
     /// </summary>
     public void Invalidate()
     {
-        lock (_lock)
-        {
-            _generation++;
-        }
+        Interlocked.Increment(ref _generation);
     }
 
     /// <summary>Clears all entries and resets counters.</summary>
     public void Clear()
     {
-        lock (_lock)
+        SwapMap(new ConcurrentDictionary<CacheKey, CacheEntry>(
+            Environment.ProcessorCount, _maxEntries));
+        Interlocked.Increment(ref _generation);
+        Interlocked.Exchange(ref _hits, 0);
+        Interlocked.Exchange(ref _misses, 0);
+        Volatile.Write(ref _approxCount, 0);
+    }
+
+    private void EvictGeneration(ConcurrentDictionary<CacheKey, CacheEntry> mapToEvict)
+    {
+        lock (_swapLock)
         {
-            _map.Clear();
-            _lru.Clear();
-            _generation++;
-            _hits = 0;
-            _misses = 0;
+            if (_map != mapToEvict)
+                return; // Another thread already swapped.
+
+            if (_approxCount <= _maxEntries)
+                return; // Shrank below threshold concurrently.
+
+            var fresh = new ConcurrentDictionary<CacheKey, CacheEntry>(
+                Environment.ProcessorCount, _maxEntries);
+            SwapMap(fresh);
+            Volatile.Write(ref _approxCount, 0);
         }
+    }
+
+    private void SwapMap(ConcurrentDictionary<CacheKey, CacheEntry> fresh)
+    {
+        Interlocked.Exchange(ref _map, fresh);
     }
 
     private readonly record struct CacheKey(string QueryFingerprint, int TopN);

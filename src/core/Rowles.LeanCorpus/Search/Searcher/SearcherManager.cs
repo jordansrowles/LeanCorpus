@@ -18,6 +18,7 @@ public sealed class SearcherManager : IDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _refreshTask;
     private readonly ConditionalWeakTable<IndexSearcher, SearcherRef> _searchers = new();
+    private readonly QueryCache? _queryCache;
 
     private volatile SearcherRef _current;
     private int _disposed;
@@ -68,6 +69,13 @@ public sealed class SearcherManager : IDisposable
         _directory = directory;
         _config = config ?? new SearcherManagerConfig();
 
+        // Create a shared query cache so results survive searcher refreshes.
+        if (_config.SearcherConfig.EnableQueryCache)
+        {
+            _queryCache = new QueryCache(_config.SearcherConfig.QueryCacheMaxEntries);
+            _config.SearcherConfig.SharedCache = _queryCache;
+        }
+
         IndexOpenGuard.EnsureNoBlockingMigration(directory, _config.CompatibilityMode);
         // Determine the current commit generation so we don't falsely refresh
         var latestCommit = Index.IndexRecovery.RecoverLatestCommit(directory.DirectoryPath, cleanupOrphans: false);
@@ -88,13 +96,18 @@ public sealed class SearcherManager : IDisposable
     /// </summary>
     public SearcherLease AcquireLease()
     {
+        var spinWait = new SpinWait();
+        const long timeoutTicks = 30 * TimeSpan.TicksPerSecond;
+        long started = Environment.TickCount64;
         while (true)
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             var sr = _current;
             if (sr.TryIncrementRef())
                 return new SearcherLease(sr.Searcher, sr.DecrementRef);
-            Thread.SpinWait(1);
+            spinWait.SpinOnce();
+            if (spinWait.NextSpinWillYield && Environment.TickCount64 - started > timeoutTicks)
+                throw new TimeoutException("SearcherManager.AcquireLease timed out after 30 seconds. The current searcher reference may be stuck.");
         }
     }
 
@@ -104,15 +117,18 @@ public sealed class SearcherManager : IDisposable
     /// </summary>
     public IndexSearcher Acquire()
     {
+        var spinWait = new SpinWait();
+        const long timeoutTicks = 30 * TimeSpan.TicksPerSecond;
+        long started = Environment.TickCount64;
         while (true)
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             var sr = _current;
             if (sr.TryIncrementRef())
                 return sr.Searcher;
-            // The ref was retired between reading _current and incrementing;
-            // _current has already been swapped to a live ref — spin and retry.
-            Thread.SpinWait(1);
+            spinWait.SpinOnce();
+            if (spinWait.NextSpinWillYield && Environment.TickCount64 - started > timeoutTicks)
+                throw new TimeoutException("SearcherManager.Acquire timed out after 30 seconds. The current searcher reference may be stuck.");
         }
     }
 
@@ -177,7 +193,7 @@ public sealed class SearcherManager : IDisposable
         {
             try
             {
-                await Task.Delay(_config.RefreshInterval, ct);
+                await Task.Delay(_config.RefreshInterval, ct).ConfigureAwait(false);
                 if (TryRefresh())
                     Interlocked.Increment(ref _unobservedBackgroundRefreshes);
             }
@@ -195,7 +211,7 @@ public sealed class SearcherManager : IDisposable
         Interlocked.Exchange(ref _lastRefreshErrorAtTicks, DateTime.UtcNow.Ticks);
         var failures = Interlocked.Increment(ref _consecutiveRefreshFailures);
         try { RefreshFailed?.Invoke(this, new RefreshFailedEventArgs(ex, failures)); }
-        catch { /* never let a subscriber's exception break the refresh loop */ }
+        catch (Exception subEx) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(subEx, "refresh-failed event subscriber"); }
     }
 
     private bool TryRefresh()
@@ -246,6 +262,9 @@ public sealed class SearcherManager : IDisposable
             var newSearcher = new IndexSearcher(_directory, _config.SearcherConfig);
             var newRef = new SearcherRef(newSearcher, latestCommit.Generation, latestCommit.ContentToken);
             _searchers.Add(newSearcher, newRef);
+
+            // Content has changed — any cached results from the old searcher are stale.
+            _queryCache?.Invalidate();
 
             var oldRef = _current;
             _current = newRef;

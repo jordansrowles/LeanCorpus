@@ -1,5 +1,6 @@
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Index;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Serialization;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Index;
@@ -141,12 +142,12 @@ public sealed class IndexFileInspectorTests : IDisposable
     public void CheckCodecHeader_FileLocked_AddsInvalidCodecMagicIssue()
     {
         var filePath = Path.Combine(_dir, "seg_0.dic");
-        // Write a minimal codec file: 4-byte magic + 1-byte version.
+        // Write a minimal CodecKit file with version then truncate (no VarInt body length).
         using (var stream = File.Create(filePath))
         using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            writer.Write(CodecConstants.Magic);
-            writer.Write(CodecConstants.TermDictionaryVersion);
+            writer.Write((byte)1); // version
+            // Intentionally truncated: no VarInt body length bytes
         }
 
         var result = new IndexCheckResult();
@@ -154,7 +155,13 @@ public sealed class IndexFileInspectorTests : IDisposable
         // Lock the file to force an IOException when CheckCodecHeader opens it.
         using var lockHandle = new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
 
-        IndexFileInspector.CheckCodecHeader(filePath, CodecConstants.TermDictionaryVersion, "term-dictionary", "seg_0", result);
+        IndexFileInspector.CheckCodecHeader(
+            filePath,
+            CodecConstants.TermDictionaryVersion,
+            CodecFormats.TermDictionary,
+            "term-dictionary",
+            "seg_0",
+            result);
 
         Assert.Single(result.DetailedIssues);
         Assert.Equal(IndexCheckIssueCodes.InvalidCodecMagic, result.DetailedIssues[0].Code);

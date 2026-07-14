@@ -1,9 +1,9 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Filters;
+namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
 /// Removes tokens whose text length falls outside an inclusive range.
 /// </summary>
-public sealed class LengthFilter : ITokenFilter
+public sealed class LengthFilter : ISpanTokenFilter
 {
     private readonly int _minLength;
     private readonly int _maxLength;
@@ -26,23 +26,19 @@ public sealed class LengthFilter : ITokenFilter
         _maxLength = maxLength;
     }
 
+
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        int write = 0;
-        for (int read = 0; read < tokens.Count; read++)
-        {
-            var token = tokens[read];
-            int length = token.Text.Length;
-            if (length < _minLength || length > _maxLength)
-                continue;
-
-            if (write != read)
-                tokens[write] = token;
-            write++;
-        }
-
-        if (write < tokens.Count)
-            tokens.RemoveRange(write, tokens.Count - write);
+        int len = text.Length;
+        if (len >= _minLength && len <= _maxLength)
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
     }
 }

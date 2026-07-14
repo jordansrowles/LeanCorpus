@@ -186,6 +186,16 @@ public sealed class MMapDirectoryTests : IClassFixture<TestDirectoryFixture>
     }
 
     /// <summary>
+    /// Verifies that a colon in a file name throws (prevents ADS on Windows).
+    /// </summary>
+    [Fact(DisplayName = "MMap Directory: Colon In Name Throws Argument Exception")]
+    public void MMapDirectory_ColonInName_Throws()
+    {
+        var dir = new MMapDirectory(_fixture.Path);
+        Assert.Throws<ArgumentException>(() => dir.FileExists("file:stream.txt"));
+    }
+
+    /// <summary>
     /// Verifies FileExists returns false for a missing file.
     /// </summary>
     [Fact(DisplayName = "MMap Directory: FileExists Returns False For Missing File")]

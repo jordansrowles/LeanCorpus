@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 
 namespace Rowles.LeanCorpus.Search.Searcher;
 
@@ -7,13 +7,14 @@ namespace Rowles.LeanCorpus.Search.Searcher;
 /// </summary>
 public sealed partial class IndexSearcher
 {
-    private void ExecutePhraseQuery(PhraseQuery query, SegmentReader reader, ref TopNCollector collector)
+    private void ExecutePhraseQuery(PhraseQuery query, SegmentReader reader,
+        Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
         if (query.Terms.Length == 0) return;
-        ExecutePhraseQueryWithPositionEnums(query, reader, ref collector);
+        ExecutePhraseQueryWithPositionEnums(query, reader, globalDFs, ref collector);
     }
-
-    private void ExecutePhraseQueryWithPositionEnums(PhraseQuery query, SegmentReader reader, ref TopNCollector collector)
+    private void ExecutePhraseQueryWithPositionEnums(PhraseQuery query, SegmentReader reader,
+        Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
         if (query.Terms.Length == 0) return;
 
@@ -40,13 +41,23 @@ public sealed partial class IndexSearcher
             if (postingsArr[i].DocFreq < postingsArr[leaderIdx].DocFreq)
                 leaderIdx = i;
         }
-
         int docBase = reader.DocBase;
         float boost = query.Boost;
-        float score = boost != 1.0f ? boost : 1.0f;
         int slop = query.Slop;
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
         bool hasDeletions = reader.HasDeletions;
+        reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+        float avgDocLength = _stats.GetAvgFieldLength(query.Field);
+
+        // Compute scoring factors for every term, not just the leader.
+        // Each term contributes its own IDF weight to the phrase score.
+        var termFactors = new (float F1, float F2, float F3)[termCount];
+        for (int i = 0; i < termCount; i++)
+        {
+            int docFreq = globalDFs.GetValueOrDefault((query.Field, query.Terms[i]), postingsArr[i].DocFreq);
+            long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qualifiedTerms[i]) : 0;
+            termFactors[i] = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
+        }
 
         // Streaming merge: iterate leader, advance followers
         while (postingsArr[leaderIdx].MoveNext())
@@ -80,6 +91,18 @@ public sealed partial class IndexSearcher
 
             if (hasAllPositions && HasPositionsWithinSlopSpan(postingsArr, termCount, leaderIdx, slop))
             {
+                int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
+                    ? fieldLengths[docId] : 1;
+                // Sum scores across all terms using the leader's term frequency
+                // as an estimate of the phrase frequency.
+                float score = 0;
+                int leaderTf = postingsArr[leaderIdx].Freq;
+                for (int i = 0; i < termCount; i++)
+                {
+                    var (f1, f2, f3) = termFactors[i];
+                    score += ScoreTerm(f1, f2, f3, leaderTf, docLength);
+                }
+                if (Math.Abs(boost - 1.0f) > 1e-6f) score *= boost;
                 collector.Collect(docBase + docId, ApplyFieldBoost(fieldBoosts, docId, score));
             }
             // No fallback to stored fields — positions are required for phrase matching

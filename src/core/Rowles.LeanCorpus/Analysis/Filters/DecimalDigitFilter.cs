@@ -1,34 +1,55 @@
-﻿using System.Globalization;
+using System.Buffers;
+using System.Globalization;
 
 namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
 /// Normalises Unicode decimal digits to ASCII digits.
 /// </summary>
-public sealed class DecimalDigitFilter : ITokenFilter
+public sealed class DecimalDigitFilter : ISpanTokenFilter
 {
+    private const int StackThreshold = 128;
+
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        for (int i = 0; i < tokens.Count; i++)
+        ArgumentNullException.ThrowIfNull(sink);
+
+        int index = IndexOfNormalisableDigit(text);
+        if (index < 0)
         {
-            var token = tokens[i];
-            string text = token.Text;
-            int changedAt = IndexOfNormalisableDigit(text);
-            if (changedAt < 0)
-                continue;
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+            return;
+        }
 
-            string normalised = string.Create(text.Length, text, static (buffer, source) =>
-            {
-                for (int j = 0; j < source.Length; j++)
-                    buffer[j] = NormaliseDigit(source[j]);
-            });
+        char[]? rented = null;
+        try
+        {
+            Span<char> buffer = text.Length <= StackThreshold
+                ? stackalloc char[text.Length]
+                : (rented = ArrayPool<char>.Shared.Rent(text.Length));
 
-            tokens[i] = token.WithText(normalised);
+            text.CopyTo(buffer);
+            for (int i = index; i < text.Length; i++)
+                buffer[i] = NormaliseDigit(buffer[i]);
+
+            sink.Add(buffer[..text.Length], startOffset, endOffset, type, positionIncrement, payload);
+        }
+        finally
+        {
+            if (rented is not null)
+                ArrayPool<char>.Shared.Return(rented);
         }
     }
 
-    private static int IndexOfNormalisableDigit(string text)
+    private static int IndexOfNormalisableDigit(ReadOnlySpan<char> text)
     {
         for (int i = 0; i < text.Length; i++)
         {

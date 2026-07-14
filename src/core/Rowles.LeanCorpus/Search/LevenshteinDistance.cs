@@ -1,4 +1,5 @@
-﻿namespace Rowles.LeanCorpus.Search;
+using System.Runtime.CompilerServices;
+namespace Rowles.LeanCorpus.Search;
 
 /// <summary>
 /// Computes Levenshtein edit distance between two strings or UTF-8 byte spans.
@@ -10,6 +11,7 @@ public static class LevenshteinDistance
     /// <param name="a">The first string as a span.</param>
     /// <param name="b">The second string as a span.</param>
     /// <returns>The minimum number of single-character edits (insertions, deletions, substitutions) to transform <paramref name="a"/> into <paramref name="b"/>.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static int Compute(ReadOnlySpan<char> a, ReadOnlySpan<char> b)
     {
         if (a.IsEmpty) return b.Length;
@@ -56,6 +58,7 @@ public static class LevenshteinDistance
     /// Bounded Levenshtein: returns the edit distance if ≤ maxEdits, otherwise returns maxEdits + 1.
     /// Early-terminates rows where the minimum value exceeds the threshold.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static int ComputeBounded(ReadOnlySpan<char> a, ReadOnlySpan<char> b, int maxEdits)
     {
         if (a.IsEmpty) return b.Length <= maxEdits ? b.Length : maxEdits + 1;

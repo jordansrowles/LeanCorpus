@@ -16,9 +16,9 @@
 
   <PropertyGroup>
     <PackageId>LeanCorpus.SourceGen</PackageId>
-    <Version>1.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <Version>1.1.0</Version>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
     <Authors>Jordan Rowles</Authors>
     <Description>Roslyn source generator that turns annotated C# models into LeanCorpus document mappers, schemas, and stored-field materialisers. AOT and trim friendly.</Description>
     <PackageTags>search;full-text;corpus;source-generator;roslyn;aot</PackageTags>

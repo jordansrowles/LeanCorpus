@@ -56,7 +56,8 @@ $testProjects     = @(
     Get-ChildItem -Path $testProjectsRoot -Filter "*.csproj" -Recurse |
         Where-Object {
             $_.Directory.Name -like "Rowles.LeanCorpus.Tests.*" -and
-            $_.Directory.Name -ne "Rowles.LeanCorpus.Tests.Shared"
+            $_.Directory.Name -ne "Rowles.LeanCorpus.Tests.Shared" -and
+            $_.Directory.Name -ne "Rowles.LeanCorpus.Tests.AOTSmoke"
         } |
         Sort-Object -Property FullName |
         ForEach-Object { $_.FullName }

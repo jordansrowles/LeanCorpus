@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Search;
@@ -26,7 +27,7 @@ public class CrashRecoveryTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_dir, true); } catch { }
+        TestDirectoryFixture.TryDeleteDirectory(_dir);
     }
 
     /// <summary>
@@ -365,7 +366,7 @@ public class CrashRecoveryTests : IDisposable
         }
         finally
         {
-            try { Directory.Delete(emptyDir, true); } catch { }
+            TestDirectoryFixture.TryDeleteDirectory(emptyDir);
         }
     }
 

@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Stemmers;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
@@ -18,7 +18,9 @@ public sealed class LanguageAnalyserTests
     public void FactoryCreate_English_StemsAndRemovesStopWords()
     {
         var analyser = AnalyserFactory.Create("en");
-        var tokens = analyser.Analyse("The running foxes jumped over the lazy dogs");
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("The running foxes jumped over the lazy dogs", matSink);
+        var tokens = matSink.Tokens;
 
         var texts = tokens.Select(t => t.Text).ToList();
         // "the" is a stop word and should be removed
@@ -35,7 +37,9 @@ public sealed class LanguageAnalyserTests
     public void FrenchAnalyser_StemsAndRemovesStopWords()
     {
         var analyser = AnalyserFactory.Create("fr");
-        var tokens = analyser.Analyse("Les maisons sont grandes et belles");
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("Les maisons sont grandes et belles", matSink);
+        var tokens = matSink.Tokens;
 
         var texts = tokens.Select(t => t.Text).ToList();
         Assert.DoesNotContain("les", texts);
@@ -51,7 +55,9 @@ public sealed class LanguageAnalyserTests
     public void GermanAnalyser_NormalisesUmlautsAndStems()
     {
         var analyser = AnalyserFactory.Create("de");
-        var tokens = analyser.Analyse("Die Häuser und Straßen sind schön");
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("Die Häuser und Straßen sind schön", matSink);
+        var tokens = matSink.Tokens;
 
         var texts = tokens.Select(t => t.Text).ToList();
         Assert.DoesNotContain("die", texts);
@@ -68,7 +74,9 @@ public sealed class LanguageAnalyserTests
     public void RussianAnalyser_RemovesStopWordsAndStems()
     {
         var analyser = AnalyserFactory.Create("ru");
-        var tokens = analyser.Analyse("Это большой и красивый город");
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("Это большой и красивый город", matSink);
+        var tokens = matSink.Tokens;
 
         var texts = tokens.Select(t => t.Text).ToList();
         Assert.DoesNotContain("это", texts);
@@ -83,7 +91,9 @@ public sealed class LanguageAnalyserTests
     public void ChineseAnalyser_ProducesBigrams()
     {
         var analyser = AnalyserFactory.Create("zh");
-        var tokens = analyser.Analyse("中华人民共和国");
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("中华人民共和国", matSink);
+        var tokens = matSink.Tokens;
 
         // 7 characters → 6 overlapping bigrams
         Assert.Equal(6, tokens.Count);
@@ -102,7 +112,9 @@ public sealed class LanguageAnalyserTests
     public void ChineseAnalyser_MixedCJKAndLatin()
     {
         var analyser = AnalyserFactory.Create("zh");
-        var tokens = analyser.Analyse("Hello 世界 World");
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("Hello 世界 World", matSink);
+        var tokens = matSink.Tokens;
 
         var texts = tokens.Select(t => t.Text).ToList();
         Assert.Contains("hello", texts);
@@ -140,7 +152,9 @@ public sealed class LanguageAnalyserTests
     public void CJKBigramTokeniser_SingleCharacter_EmitsUnigram()
     {
         var tokeniser = new CJKBigramTokeniser();
-        var tokens = tokeniser.Tokenise("猫");
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise("猫", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Single(tokens);
         Assert.Equal("猫", tokens[0].Text);

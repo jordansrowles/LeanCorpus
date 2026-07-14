@@ -1,4 +1,6 @@
-﻿namespace Rowles.LeanCorpus.Index.Segment;
+using Rowles.LeanCorpus.Codecs.Vectors;
+
+namespace Rowles.LeanCorpus.Index.Segment;
 
 /// <summary>
 /// Persisted metadata for a single vector field within a segment. The reader uses this to
@@ -17,6 +19,9 @@ public sealed class VectorFieldInfo
 
     /// <summary>Whether a built HNSW graph file is present for this field.</summary>
     public bool HasHnsw { get; init; }
+
+    /// <summary>Quantisation strategy applied to this vector field. Default: <see cref="Codecs.Vectors.VectorQuantisation.None"/>.</summary>
+    public VectorQuantisation Quantisation { get; init; } = VectorQuantisation.None;
 
     /// <summary>
     /// Validates invariants after deserialisation. Throws <see cref="InvalidDataException"/>

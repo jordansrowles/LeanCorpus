@@ -1,19 +1,16 @@
 # Boolean queries
 
-`BooleanQuery` combines clauses using <xml>Occur</xml>:
+`BooleanQuery` combines clauses with `Occur`:
 
 | Occur | Description |
 |---|---|
-| `Must` | Required. |
-| `Should` | Optional. Increases relevance. |
-| `MustNot` | Exclude. |
+| `Must` | Required |
+| `Should` | Optional; increases relevance |
+| `MustNot` | Exclude |
 
-## Direct construction
+## Builder
 
 ```csharp
-using Rowles.LeanCorpus.Search;
-using Rowles.LeanCorpus.Search.Queries;
-
 var query = new BooleanQuery.Builder()
     .Add(new TermQuery("title", "fox"),  Occur.Must)
     .Add(new TermQuery("title", "quick"), Occur.Should)
@@ -31,13 +28,19 @@ var query = new BooleanQueryBuilder()
     .Build();
 ```
 
-## Pure-filter mode
+## Pure filter mode
 
-A `BooleanQuery` containing only `MustNot` clauses matches everything that satisfies
-the exclusions. Wrap in `ConstantScoreQuery` to skip BM25 when scoring is irrelevant.
+A `BooleanQuery` with only `MustNot` clauses matches everything that passes the exclusions. Wrap in `ConstantScoreQuery` to skip BM25:
+
+```csharp
+var filter = new ConstantScoreQuery(
+    new BooleanQuery.Builder()
+        .Add(new TermQuery("status", "draft"), Occur.MustNot)
+        .Build(),
+    score: 0f);
+```
 
 ## See also
 
 - <xref:Rowles.LeanCorpus.Search.Queries.BooleanQuery>
 - <xref:Rowles.LeanCorpus.Search.Parsing.BooleanQueryBuilder>
-- <xref:Rowles.LeanCorpus.Search.Occur>

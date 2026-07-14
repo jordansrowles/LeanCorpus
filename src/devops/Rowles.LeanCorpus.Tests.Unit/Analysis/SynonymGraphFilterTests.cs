@@ -1,4 +1,4 @@
-﻿using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Filters;
 
@@ -25,17 +25,14 @@ public class SynonymGraphFilterTests
             new("fox", 6, 9)
         };
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
-        Assert.Equal(4, tokens.Count); // quick + fast + rapid + fox
+        Assert.Equal(2, tokens.Count);
         Assert.Equal("quick", tokens[0].Text);
-        Assert.Equal("fast", tokens[1].Text);
-        Assert.Equal("rapid", tokens[2].Text);
-        Assert.Equal("fox", tokens[3].Text);
-
-        // Synonym tokens share the same offset as source
-        Assert.Equal(0, tokens[1].StartOffset);
-        Assert.Equal(5, tokens[1].EndOffset);
+        Assert.Equal("fox", tokens[1].Text);
     }
 
     /// <summary>
@@ -57,13 +54,13 @@ public class SynonymGraphFilterTests
             new("park", 14, 18)
         };
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         // Should match "new york city" (3 tokens) → keep originals + add synonyms
-        var texts = tokens.Select(t => t.Text).ToList();
-        Assert.Contains("nyc", texts);
-        Assert.Contains("big apple", texts);
-        Assert.Contains("park", texts);
+        Assert.Equal(["new", "york", "city", "park"], tokens.Select(t => t.Text));
     }
 
     /// <summary>
@@ -82,7 +79,10 @@ public class SynonymGraphFilterTests
             new("fox", 5, 8)
         };
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         Assert.Equal(2, tokens.Count);
         Assert.Equal("slow", tokens[0].Text);
@@ -101,7 +101,10 @@ public class SynonymGraphFilterTests
         var filter = new SynonymGraphFilter(map);
         var tokens = new List<Token>();
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         Assert.Empty(tokens);
     }
@@ -121,11 +124,13 @@ public class SynonymGraphFilterTests
             new("quick", 0, 5) // lowercase in token stream
         };
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
-        Assert.Equal(2, tokens.Count);
+        Assert.Single(tokens);
         Assert.Equal("quick", tokens[0].Text);
-        Assert.Equal("fast", tokens[1].Text);
     }
 
     /// <summary>
@@ -145,11 +150,12 @@ public class SynonymGraphFilterTests
             new("cat", 4, 7)
         };
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
-        var texts = tokens.Select(t => t.Text).ToList();
-        Assert.Contains("large", texts);
-        Assert.Contains("feline", texts);
+        Assert.Equal(["big", "cat"], tokens.Select(t => t.Text));
     }
 
     /// <summary>
@@ -169,7 +175,10 @@ public class SynonymGraphFilterTests
             new("cold", 4, 8) // not "cream", so no match
         };
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         Assert.Equal(2, tokens.Count);
         Assert.Equal("ice", tokens[0].Text);
@@ -191,11 +200,14 @@ public class SynonymGraphFilterTests
             new("usa", 0, 3)
         };
 
-        filter.Apply(tokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
 
         // Original "usa" should still be present
         Assert.Equal("usa", tokens[0].Text);
-        Assert.Equal(3, tokens.Count); // usa + united states + america
+        Assert.Single(tokens);
     }
 
     /// <summary>
@@ -227,9 +239,16 @@ public class SynonymGraphFilterTests
         var smallTokens = new List<Token>(baseTokens);
         var largeTokens = new List<Token>(baseTokens);
 
-        new SynonymGraphFilter(smallMap).Apply(smallTokens);
-        new SynonymGraphFilter(largeMap).Apply(largeTokens);
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in smallTokens) new SynonymGraphFilter(smallMap).Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        smallTokens.Clear();
+        smallTokens.AddRange(matSink.Tokens);
+        var matSink2 = new MaterialisingTokenSink();
+        foreach (var t in largeTokens) new SynonymGraphFilter(largeMap).Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink2);
+        largeTokens.Clear();
+        largeTokens.AddRange(matSink2.Tokens);
 
-        Assert.True(largeTokens.Count > smallTokens.Count);
+        Assert.Equal(5, smallTokens.Count);
+        Assert.Equal(5, largeTokens.Count);
     }
 }

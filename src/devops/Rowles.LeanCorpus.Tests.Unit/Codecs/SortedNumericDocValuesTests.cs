@@ -1,4 +1,5 @@
-﻿using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.DocValues;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Codecs;
@@ -81,7 +82,7 @@ public sealed class SortedNumericDocValuesTests : IDisposable
     private static int StartsOffset(string fieldName)
     {
         int byteCount = System.Text.Encoding.UTF8.GetByteCount(fieldName);
-        return CodecConstants.HeaderSize + sizeof(int) + VarIntLength(byteCount) + byteCount + sizeof(int);
+        return 2 + sizeof(int) + VarIntLength(byteCount) + byteCount + sizeof(int);
     }
 
     private static int VarIntLength(int value)
@@ -101,6 +102,78 @@ public sealed class SortedNumericDocValuesTests : IDisposable
     {
         var bytes = File.ReadAllBytes(path);
         BitConverter.TryWriteBytes(bytes.AsSpan(offset, sizeof(int)), value);
+        File.WriteAllBytes(path, bytes);
+    }
+
+    /// <summary>
+    /// Verifies that a bits-per-value header larger than 64 is rejected.
+    /// </summary>
+    [Fact(DisplayName = "Read: BitsPerValue Above 64 Throws")]
+    public void Read_BitsPerValueAbove64_Throws()
+    {
+        const string fieldName = "a";
+        var path = Path.Combine(_dir, "bad-bits.dsn");
+        SortedNumericDocValuesWriter.Write(path, new Dictionary<string, IReadOnlyList<double>?[]>
+        {
+            [fieldName] = [[1.0], [2.0]]
+        }, 2);
+
+        long offset = BitsPerValueByteOffset(path, fieldName, docCount: 2);
+        OverwriteByte(path, offset, 65);
+
+        Assert.Throws<InvalidDataException>(() => SortedNumericDocValuesReader.Read(path));
+    }
+
+    /// <summary>
+    /// Verifies that a field declaring more packed bytes than the file contains is rejected.
+    /// </summary>
+    [Fact(DisplayName = "Read: Truncated Packed Data Throws")]
+    public void Read_TruncatedPackedData_Throws()
+    {
+        const string fieldName = "a";
+        var path = Path.Combine(_dir, "trunc.dsn");
+        SortedNumericDocValuesWriter.Write(path, new Dictionary<string, IReadOnlyList<double>?[]>
+        {
+            [fieldName] = [[1.0], [2.0]]
+        }, 2);
+
+        long offset = BitsPerValueByteOffset(path, fieldName, docCount: 2) + 1; // first packed byte
+        var bytes = File.ReadAllBytes(path);
+        File.WriteAllBytes(path, bytes.AsSpan(0, (int)offset).ToArray());
+
+        Assert.Throws<InvalidDataException>(() => SortedNumericDocValuesReader.Read(path));
+    }
+
+    private static long BitsPerValueByteOffset(string path, string fieldName, int docCount)
+    {
+        int nameLen = System.Text.Encoding.UTF8.GetByteCount(fieldName);
+        long bodyOffset = ComputeBodyOffset(path);
+        // body: fieldCount(4) + nameLen varint(1) + name bytes + docCount(4) + starts((docCount+1)*4) + valueCount(4) + min(8) + bitsPerValue(1)
+        return bodyOffset + 4 + 1 + nameLen + 4 + ((docCount + 1) * 4) + 4 + 8;
+    }
+
+    private static long ComputeBodyOffset(string path)
+    {
+        var bytes = File.ReadAllBytes(path);
+        long offset = 1; // skip version byte
+        while (offset < bytes.Length)
+        {
+            if ((bytes[offset] & 0x80) == 0)
+            {
+                offset++;
+                break;
+            }
+
+            offset++;
+        }
+
+        return offset;
+    }
+
+    private static void OverwriteByte(string path, long offset, byte value)
+    {
+        var bytes = File.ReadAllBytes(path);
+        bytes[offset] = value;
         File.WriteAllBytes(path, bytes);
     }
 }

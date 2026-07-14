@@ -1,27 +1,44 @@
-﻿namespace Rowles.LeanCorpus.Analysis.Filters;
+using System.Buffers;
+
+namespace Rowles.LeanCorpus.Analysis.Filters;
 
 /// <summary>
 /// Reverses the characters in each token.
 /// </summary>
-public sealed class ReverseStringFilter : ITokenFilter
+public sealed class ReverseStringFilter : ISpanTokenFilter
 {
+    private const int StackallocThreshold = 128;
+
     /// <inheritdoc/>
-    public void Apply(List<Token> tokens)
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
-        for (int i = 0; i < tokens.Count; i++)
+        if (text.Length <= StackallocThreshold)
         {
-            var token = tokens[i];
-            string text = token.Text;
-            if (text.Length <= 1)
-                continue;
-
-            string reversed = string.Create(text.Length, text, static (buffer, source) =>
+            Span<char> reversed = stackalloc char[text.Length];
+            text.CopyTo(reversed);
+            reversed.Reverse();
+            sink.Add(reversed, startOffset, endOffset, type, positionIncrement, payload);
+        }
+        else
+        {
+            char[] rented = ArrayPool<char>.Shared.Rent(text.Length);
+            try
             {
-                for (int j = 0; j < source.Length; j++)
-                    buffer[j] = source[source.Length - 1 - j];
-            });
-
-            tokens[i] = token.WithText(reversed);
+                text.CopyTo(rented);
+                rented.AsSpan(0, text.Length).Reverse();
+                sink.Add(rented.AsSpan(0, text.Length), startOffset, endOffset, type, positionIncrement, payload);
+            }
+            finally
+            {
+                ArrayPool<char>.Shared.Return(rented);
+            }
         }
     }
 }

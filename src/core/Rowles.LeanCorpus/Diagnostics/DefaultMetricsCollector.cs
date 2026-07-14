@@ -1,30 +1,50 @@
-﻿namespace Rowles.LeanCorpus.Diagnostics;
+namespace Rowles.LeanCorpus.Diagnostics;
 
 /// <summary>
 /// Lock-free metrics collector using Interlocked operations.
 /// </summary>
 public sealed class DefaultMetricsCollector : IMetricsCollector
 {
+#pragma warning disable CS0169 // padding fields for false-sharing prevention
+    // ── Cache line 1: Search counters (updated on every search) ──
     private long _searchCount;
     private long _searchTotalMs;
     private long _searchMaxMs;
+    private long _pad1_0, _pad1_1, _pad1_2, _pad1_3, _pad1_4; // pad to 64 B
+
+    // ── Cache line 2: Cache counters (updated on every query) ──
     private long _cacheHits;
     private long _cacheMisses;
+    private long _pad2_0, _pad2_1, _pad2_2, _pad2_3, _pad2_4, _pad2_5;
+
+    // ── Cache line 3: Flush counters ──
     private long _flushCount;
     private long _flushTotalMs;
+    private long _pad3_0, _pad3_1, _pad3_2, _pad3_3, _pad3_4, _pad3_5;
+
+    // ── Cache line 4: Merge counters ──
     private long _mergeCount;
     private long _mergeSegments;
     private long _mergeTotalMs;
+    private long _pad4_0, _pad4_1, _pad4_2, _pad4_3, _pad4_4;
+
+    // ── Cache line 5: Commit counters ──
     private long _commitCount;
     private long _commitTotalMs;
+    private long _pad5_0, _pad5_1, _pad5_2, _pad5_3, _pad5_4, _pad5_5;
+
+    // ── Cache line 6: HNSW counters ──
     private long _hnswSearchCount;
     private long _hnswSearchTotalMs;
     private long _hnswNodesVisited;
     private long _hnswBuildCount;
     private long _hnswBuildTotalMs;
     private long _hnswNodesBuilt;
+    private long _pad6_0, _pad6_1;
 
-    // Latency histogram buckets: <1ms, <5ms, <10ms, <50ms, <100ms, <500ms, <1000ms, ≥1000ms
+#pragma warning restore CS0169
+
+    // ── Cache line 7: Latency histogram (8-long array = 64 B, already aligned) ──
     private readonly long[] _latencyBuckets = new long[8];
     private static readonly int[] BucketThresholdsMs = [1, 5, 10, 50, 100, 500, 1000];
 

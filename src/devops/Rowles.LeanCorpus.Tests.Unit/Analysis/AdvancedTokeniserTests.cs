@@ -12,7 +12,9 @@ public sealed class AdvancedTokeniserTests
     {
         var tokeniser = new IcuTokeniser();
 
-        var tokens = tokeniser.Tokenise("Straße café ภาษาไทย");
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise("Straße café ภาษาไทย", matSink);
+        var tokens = matSink.Tokens;
 
         // Without Thai injection, Thai chars are treated as regular word characters
         Assert.Equal(["Straße", "café", "ภาษาไทย"], tokens.Select(static token => token.Text));
@@ -26,7 +28,9 @@ public sealed class AdvancedTokeniserTests
         var thai = ThaiTokeniser.FromFile(ResolveLexiconPath("thai-dict.txt"));
         var tokeniser = new IcuTokeniser(thai);
 
-        var tokens = tokeniser.Tokenise("Straße café ภาษาไทย");
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise("Straße café ภาษาไทย", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Equal(["Straße", "café", "ภาษา", "ไทย"], tokens.Select(static token => token.Text));
         Assert.Equal([0, 7, 12, 16], tokens.Select(static token => token.StartOffset));
@@ -38,7 +42,9 @@ public sealed class AdvancedTokeniserTests
     {
         var tokeniser = new Uax29UrlEmailTokeniser();
 
-        var tokens = tokeniser.Tokenise("Mail dev@example.com https://example.com/docs #LeanCorpus @jordansrowles");
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise("Mail dev@example.com https://example.com/docs #LeanCorpus @jordansrowles", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Contains(tokens, static token => token.Text == "dev@example.com" && token.Type == Uax29UrlEmailTokeniser.EmailType);
         Assert.Contains(tokens, static token => token.Text == "https://example.com/docs" && token.Type == Uax29UrlEmailTokeniser.UrlType);
@@ -51,7 +57,9 @@ public sealed class AdvancedTokeniserTests
     {
         var tokeniser = ThaiTokeniser.FromFile(ResolveLexiconPath("thai-dict.txt"));
 
-        var tokens = tokeniser.Tokenise("ยินดีต้อนรับภาษาไทย");
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise("ยินดีต้อนรับภาษาไทย", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Equal(["ยินดี", "ต้อนรับ", "ภาษา", "ไทย"], tokens.Select(static token => token.Text));
         Assert.All(tokens, static token => Assert.Equal(ThaiTokeniser.ThaiType, token.Type));
@@ -63,7 +71,9 @@ public sealed class AdvancedTokeniserTests
         var tokeniser = ThaiTokeniser.FromFile(ResolveLexiconPath("thai-dict.txt"));
 
         // "กขคง" is not in the lexicon, should fall back to clusters
-        var tokens = tokeniser.Tokenise("กขคง");
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise("กขคง", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.NotEmpty(tokens);
         Assert.All(tokens, static token => Assert.Equal(ThaiTokeniser.ThaiType, token.Type));
@@ -74,7 +84,9 @@ public sealed class AdvancedTokeniserTests
     {
         var tokeniser = ThaiTokeniser.FromFile(ResolveLexiconPath("thai-dict.txt"));
 
-        var tokens = tokeniser.Tokenise("สวัสดี โลก");
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise("สวัสดี โลก", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Equal([0, 7], tokens.Select(static token => token.StartOffset));
         Assert.Equal([6, 10], tokens.Select(static token => token.EndOffset));
@@ -85,7 +97,9 @@ public sealed class AdvancedTokeniserTests
     {
         var tokeniser = new MediaWikiTokeniser();
 
-        var tokens = tokeniser.Tokenise("[[Category:Search Engines]] [[Main Page|Lean Corpus]] '''Bold''' ''Italic'' <ref>Citation note</ref>");
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise("[[Category:Search Engines]] [[Main Page|Lean Corpus]] '''Bold''' ''Italic'' <ref>Citation note</ref>", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Contains(tokens, static token => token.Text == "Search" && token.Type == MediaWikiTokeniser.CategoryType);
         Assert.Contains(tokens, static token => token.Text == "Lean" && token.Type == MediaWikiTokeniser.InternalLinkType);
@@ -99,7 +113,9 @@ public sealed class AdvancedTokeniserTests
     {
         var analyser = new IcuAnalyser();
 
-        var tokens = analyser.Analyse("The Café and Straße");
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("The Café and Straße", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Equal(["café", "straße"], tokens.Select(static token => token.Text));
     }
@@ -110,7 +126,9 @@ public sealed class AdvancedTokeniserTests
         var thai = ThaiTokeniser.FromFile(ResolveLexiconPath("thai-dict.txt"));
         var analyser = new IcuAnalyser(thaiTokeniser: thai);
 
-        var tokens = analyser.Analyse("The ภาษาไทย");
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("The ภาษาไทย", matSink);
+        var tokens = matSink.Tokens;
 
         Assert.Contains("ภาษา", tokens.Select(static token => token.Text));
         Assert.Contains("ไทย", tokens.Select(static token => token.Text));
