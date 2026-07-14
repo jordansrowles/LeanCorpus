@@ -187,10 +187,8 @@ jobs:
 
       - name: Build docs
         shell: pwsh
-        run: ./scripts/docs.ps1
+        run: ./scripts/docs.ps1 -SkipBenchmarks
 
-      - name: Copy coverage into docs site
-        run: cp -r docs/coverage docs/site/coverage
 
       - name: Upload docs artifact
         uses: actions/upload-artifact@v7

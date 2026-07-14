@@ -72,7 +72,6 @@ dlldata.c
 # DocFX generated artefacts
 docs/api/
 !docs/api/index.md
-docs/benchmarks/
 docs/coverage/
 docs/site/
 
