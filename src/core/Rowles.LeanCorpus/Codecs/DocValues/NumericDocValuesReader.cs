@@ -103,10 +103,10 @@ internal static class NumericDocValuesReader
         return (values, presence);
     }
 
-    internal static IEnumerable<(string Name, double[] Values, RoaringBitmap? Presence)> EnumerateFields(string filePath)
+    internal static List<(string Name, double[] Values, RoaringBitmap? Presence)> EnumerateFields(string filePath)
     {
         if (!File.Exists(filePath))
-            yield break;
+            return [];
 
         using var input = new IndexInput(filePath);
 
@@ -117,6 +117,7 @@ internal static class NumericDocValuesReader
                 $"This build supports up to v{CodecConstants.NumericDocValuesVersion}.");
 
         int fieldCount = input.ReadInt32();
+        var results = new List<(string Name, double[] Values, RoaringBitmap? Presence)>(fieldCount);
 
         for (int f = 0; f < fieldCount; f++)
         {
@@ -184,7 +185,9 @@ internal static class NumericDocValuesReader
                 }
             }
 
-            yield return (fieldName, fieldValues, fieldPresence);
+            results.Add((fieldName, fieldValues, fieldPresence));
         }
+
+        return results;
     }
 }

@@ -4,36 +4,73 @@ using System.Text;
 namespace Rowles.LeanCorpus.Store;
 
 /// <summary>
-/// Shared helper that opens files for reading with transient retry.
-/// On Windows, freshly flushed files can be briefly locked by antivirus
-/// real-time scanners intercepting FlushFileBuffers. This wrapper retries
-/// a few times with a short backoff before giving up.
+/// Shared helper for file I/O with transient retry on Windows.
 /// </summary>
+/// <remarks>
+/// On Windows, freshly flushed files can be briefly locked by antivirus
+/// real-time scanners intercepting FlushFileBuffers. Read, move, delete,
+/// and copy operations retry a few times to absorb these transient locks.
+/// On Linux there are no mandatory file locks, so retry is skipped entirely.
+///
+/// Write/create operations (<see cref="Open(string, FileMode, FileAccess, FileShare)"/>
+/// and its overload) do NOT retry. Creating or opening a file for exclusive
+/// write is either an atomic success or a permanent conflict that retrying
+/// cannot resolve. In particular, write-lock acquisition must fail fast so
+/// that concurrent writer contention is diagnosed immediately.
+/// </remarks>
 internal static class FileOpenRetry
 {
-    private const int MaxRetries = 25;
-    private const int RetryDelayMs = 50;
+    // Windows: transient Defender scan locks need a brief retry window.
+    // Linux: no mandatory file locking; zero retry overhead.
+    private static readonly int TransientMaxRetries = OperatingSystem.IsWindows() ? 5 : 0;
+    private static readonly int TransientRetryDelayMs = 200;
 
     /// <summary>
     /// Opens a file for reading with <see cref="FileShare.Read"/>,
-    /// retrying on <see cref="UnauthorizedAccessException"/>.
+    /// retrying on transient locks.
     /// </summary>
     internal static FileStream OpenRead(string path)
-        => Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+    {
+        int retries = TransientMaxRetries;
+        while (true)
+        {
+            try
+            {
+                return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            }
+            catch (Exception ex) when ((ex is UnauthorizedAccessException or IOException) && retries-- > 0)
+            {
+                Thread.Sleep(TransientRetryDelayMs);
+            }
+        }
+    }
 
     /// <summary>
     /// Opens a file for reading with <see cref="FileShare.Read"/> and
-    /// <see cref="FileShare.Delete"/>, retrying on <see cref="UnauthorizedAccessException"/>.
+    /// <see cref="FileShare.Delete"/>, retrying on transient locks.
     /// </summary>
     internal static FileStream OpenReadDelete(string path)
-        => Open(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+    {
+        int retries = TransientMaxRetries;
+        while (true)
+        {
+            try
+            {
+                return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            }
+            catch (Exception ex) when ((ex is UnauthorizedAccessException or IOException) && retries-- > 0)
+            {
+                Thread.Sleep(TransientRetryDelayMs);
+            }
+        }
+    }
 
     /// <summary>
     /// Reads the entire contents of a file as a UTF-8 string, opening with
     /// <see cref="FileShare.Read"/> and <see cref="FileShare.Delete"/> so that
     /// concurrent deletion (e.g. commit-policy pruning of old <c>segments_N</c>
-    /// files) can proceed on Windows. Retries on <see cref="UnauthorizedAccessException"/>
-    /// and converts to <see cref="IOException"/> on exhaustion so callers that
+    /// files) can proceed on Windows. Retries on transient locks and
+    /// converts to <see cref="IOException"/> on exhaustion so callers that
     /// previously used <c>File.ReadAllText</c> see the same exception type.
     /// </summary>
     internal static string ReadAllText(string path)
@@ -52,54 +89,34 @@ internal static class FileOpenRetry
     }
 
     /// <summary>
-    /// Opens a file with the specified mode, access, and share,
-    /// retrying on <see cref="IOException"/> and <see cref="UnauthorizedAccessException"/>.
+    /// Opens a file with the specified mode, access, and share.
+    /// Does NOT retry — retry is appropriate only for read, move, delete,
+    /// and copy operations that may hit transient AV scan locks.
+    /// Write/create and lock acquisition must fail fast.
     /// </summary>
     internal static FileStream Open(string path, FileMode mode, FileAccess access, FileShare share)
     {
-        int retries = MaxRetries;
-        while (true)
-        {
-            try
-            {
-                return new FileStream(path, mode, access, share);
-            }
-            catch (Exception ex) when ((ex is UnauthorizedAccessException or IOException) && retries-- > 0)
-            {
-                Thread.Sleep(RetryDelayMs);
-            }
-        }
+        return new FileStream(path, mode, access, share);
     }
 
     /// <summary>
-    /// Opens a file with the specified mode, access, share, buffer size, and options,
-    /// retrying on <see cref="IOException"/> and <see cref="UnauthorizedAccessException"/>.
+    /// Opens a file with the specified mode, access, share, buffer size, and options.
+    /// Does NOT retry; see <see cref="Open(string, FileMode, FileAccess, FileShare)"/>.
     /// </summary>
     internal static FileStream Open(string path, FileMode mode, FileAccess access, FileShare share,
         int bufferSize, FileOptions options)
     {
-        int retries = MaxRetries;
-        while (true)
-        {
-            try
-            {
-                return new FileStream(path, mode, access, share, bufferSize, options);
-            }
-            catch (Exception ex) when ((ex is UnauthorizedAccessException or IOException) && retries-- > 0)
-            {
-                Thread.Sleep(RetryDelayMs);
-            }
-        }
+        return new FileStream(path, mode, access, share, bufferSize, options);
     }
 
     /// <summary>
-    /// Deletes a file, retrying on <see cref="IOException"/> (file locked by AV or pending mmap release).
+    /// Deletes a file, retrying on transient locks.
     /// <see cref="FileNotFoundException"/> and <see cref="DirectoryNotFoundException"/> are swallowed
     /// so callers can use this for best-effort cleanup without pre-checking existence.
     /// </summary>
     internal static void Delete(string path)
     {
-        int retries = MaxRetries;
+        int retries = TransientMaxRetries;
         while (true)
         {
             try
@@ -107,19 +124,19 @@ internal static class FileOpenRetry
                 File.Delete(path);
                 return;
             }
-            catch (IOException) when (retries-- > 0) { Thread.Sleep(RetryDelayMs); }
-            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(RetryDelayMs); }
+            catch (IOException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
+            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
             catch (FileNotFoundException) { return; }
             catch (DirectoryNotFoundException) { return; }
         }
     }
 
     /// <summary>
-    /// Moves a file, retrying on <see cref="IOException"/> (target or source locked).
+    /// Moves a file, retrying on transient locks.
     /// </summary>
     internal static void Move(string sourcePath, string destPath, bool overwrite = false)
     {
-        int retries = MaxRetries;
+        int retries = TransientMaxRetries;
         while (true)
         {
             try
@@ -127,17 +144,17 @@ internal static class FileOpenRetry
                 File.Move(sourcePath, destPath, overwrite);
                 return;
             }
-            catch (IOException) when (retries-- > 0) { Thread.Sleep(RetryDelayMs); }
-            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(RetryDelayMs); }
+            catch (IOException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
+            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
         }
     }
 
     /// <summary>
-    /// Copies a file, retrying on <see cref="IOException"/> (source or target locked).
+    /// Copies a file, retrying on transient locks.
     /// </summary>
     internal static void Copy(string sourcePath, string destPath, bool overwrite = false)
     {
-        int retries = MaxRetries;
+        int retries = TransientMaxRetries;
         while (true)
         {
             try
@@ -145,8 +162,8 @@ internal static class FileOpenRetry
                 File.Copy(sourcePath, destPath, overwrite);
                 return;
             }
-            catch (IOException) when (retries-- > 0) { Thread.Sleep(RetryDelayMs); }
-            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(RetryDelayMs); }
+            catch (IOException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
+            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
         }
     }
 
@@ -157,12 +174,12 @@ internal static class FileOpenRetry
     internal static void CreateDirectory(string path) => Directory.CreateDirectory(path);
 
     /// <summary>
-    /// Deletes a directory, retrying on <see cref="IOException"/> (files within still locked).
+    /// Deletes a directory, retrying on transient locks.
     /// <see cref="DirectoryNotFoundException"/> is swallowed.
     /// </summary>
     internal static void DeleteDirectory(string path, bool recursive)
     {
-        int retries = MaxRetries;
+        int retries = TransientMaxRetries;
         while (true)
         {
             try
@@ -170,8 +187,8 @@ internal static class FileOpenRetry
                 Directory.Delete(path, recursive);
                 return;
             }
-            catch (IOException) when (retries-- > 0) { Thread.Sleep(RetryDelayMs); }
-            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(RetryDelayMs); }
+            catch (IOException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
+            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
             catch (DirectoryNotFoundException) { return; }
         }
     }

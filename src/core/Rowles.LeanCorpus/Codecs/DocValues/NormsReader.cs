@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
@@ -25,7 +26,7 @@ internal static class NormsReader
         };
     }
 
-    internal static IEnumerable<(string Name, byte[] NormBytes, float[]? Boosts)> EnumerateFields(string filePath)
+    internal static List<(string Name, byte[] NormBytes, float[]? Boosts)> EnumerateFields(string filePath)
     {
         using var input = new IndexInput(filePath);
 
@@ -61,6 +62,7 @@ internal static class NormsReader
                 throw new NotSupportedException($"Unsupported norms version: {version}");
         }
 
+        var results = new List<(string Name, byte[] NormBytes, float[]? Boosts)>(fieldCount);
         for (int f = 0; f < fieldCount; f++)
         {
             int fieldNameLen = readLen(input);
@@ -89,8 +91,10 @@ internal static class NormsReader
                 boosts[docId] = boost;
             }
 
-            yield return (fieldName, norms, boosts);
+            results.Add((fieldName, norms, boosts));
         }
+
+        return results;
     }
 
     private static NormsData ReadV1Body(IndexInput input)

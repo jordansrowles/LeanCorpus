@@ -69,15 +69,16 @@ internal static class SortedSetDocValuesReader
         return values;
     }
 
-    internal static IEnumerable<(string Name, IReadOnlyList<string>?[] Values)> EnumerateFields(string filePath)
+    internal static List<(string Name, IReadOnlyList<string>?[] Values)> EnumerateFields(string filePath)
     {
         if (!File.Exists(filePath))
-            yield break;
+            return new List<(string, IReadOnlyList<string>?[])>(0);
 
         using var input = new IndexInput(filePath);
         byte version = CodecFileHeader.ReadVersionAndSkipHeader(input);
 
         int fieldCount = input.ReadInt32();
+        var results = new List<(string, IReadOnlyList<string>?[])>(fieldCount);
         for (int f = 0; f < fieldCount; f++)
         {
             string fieldName = ReadString(input);
@@ -120,8 +121,10 @@ internal static class SortedSetDocValuesReader
                 perDoc[docId] = docValues;
             }
 
-            yield return (fieldName, perDoc);
+            results.Add((fieldName, perDoc));
         }
+
+        return results;
     }
 
     private static void ValidateStarts(int[] starts, int totalValues, string fieldName)

@@ -98,16 +98,18 @@ internal static class SortedDocValuesReader
         return (values, presence);
     }
 
-    internal static IEnumerable<(string Name, string?[] Values)> EnumerateFields(string filePath)
+    internal static List<(string Name, string?[] Values)> EnumerateFields(string filePath)
     {
         if (!File.Exists(filePath))
-            yield break;
+            return new List<(string, string?[])>(0);
 
         using var input = new IndexInput(filePath);
 
         byte version = CodecFileHeader.ReadVersionAndSkipHeader(input);
 
         int fieldCount = input.ReadInt32();
+
+        var results = new List<(string Name, string?[] Values)>(fieldCount);
 
         for (int f = 0; f < fieldCount; f++)
         {
@@ -174,7 +176,9 @@ internal static class SortedDocValuesReader
                 }
             }
 
-            yield return (fieldName, fieldValues);
+            results.Add((fieldName, fieldValues));
         }
+
+        return results;
     }
 }

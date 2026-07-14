@@ -26,7 +26,7 @@ public sealed class TestDirectoryFixture : IDisposable
             GC.WaitForPendingFinalizers();
             GC.Collect();
 
-            System.IO.Directory.Delete(Path, recursive: true);
+            Rowles.LeanCorpus.Store.FileOpenRetry.DeleteDirectory(Path, recursive: true);
         }
     }
 
@@ -46,7 +46,7 @@ public sealed class TestDirectoryFixture : IDisposable
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
                 GC.Collect();
-                System.IO.Directory.Delete(path, recursive: true);
+                Rowles.LeanCorpus.Store.FileOpenRetry.DeleteDirectory(path, recursive: true);
                 return;
             }
             catch

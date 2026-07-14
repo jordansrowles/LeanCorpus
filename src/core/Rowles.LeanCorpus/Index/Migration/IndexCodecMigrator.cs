@@ -893,7 +893,7 @@ public static class IndexCodecMigrator
         // Single pass: enumerate once into memory, so the MMF handle releases
         // before the Move. Two-pass enumeration opens IndexInput twice on the
         // same file, causing LLIDX040 on Windows.
-        var allFields = NumericDocValuesReader.EnumerateFields(sourcePath).ToList();
+        var allFields = NumericDocValuesReader.EnumerateFields(sourcePath);
         if (allFields.Count == 0)
             return;
 
@@ -905,15 +905,17 @@ public static class IndexCodecMigrator
         var fieldBuf = new ArrayBufferWriter<byte>(4096);
         try
         {
-            using var output = new IndexOutput(temporaryPath, durable: true);
-            using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.NumericDocValuesVersion);
-            scope.Output.WriteInt32(allFields.Count);
-            foreach (var (fieldName, fieldValues, pres) in allFields)
             {
-                var presenceSet = pres is not null ? pres.ToHashSet() : null;
-                fieldBuf.Clear();
-                NumericDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount, presenceSet);
-                scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+                using var output = new IndexOutput(temporaryPath, durable: true);
+                using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.NumericDocValuesVersion);
+                scope.Output.WriteInt32(allFields.Count);
+                foreach (var (fieldName, fieldValues, pres) in allFields)
+                {
+                    var presenceSet = pres is not null ? pres.ToHashSet() : null;
+                    fieldBuf.Clear();
+                    NumericDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount, presenceSet);
+                    scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+                }
             }
             FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
         }
@@ -922,7 +924,7 @@ public static class IndexCodecMigrator
 
     private static void RewriteSortedDocValues(string sourcePath, string targetPath)
     {
-        var allFields = SortedDocValuesReader.EnumerateFields(sourcePath).ToList();
+        var allFields = SortedDocValuesReader.EnumerateFields(sourcePath);
         if (allFields.Count == 0)
             return;
 
@@ -934,15 +936,17 @@ public static class IndexCodecMigrator
         var fieldBuf = new ArrayBufferWriter<byte>(4096);
         try
         {
-            using var output = new IndexOutput(temporaryPath, durable: true);
-            using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.SortedDocValuesVersion);
-            scope.Output.WriteInt32(allFields.Count);
-            foreach (var (fieldName, fieldValues) in allFields)
             {
-                var nullableValues = fieldValues.Select(static v => (string?)v).ToArray();
-                fieldBuf.Clear();
-                SortedDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, nullableValues, maxDocCount);
-                scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+                using var output = new IndexOutput(temporaryPath, durable: true);
+                using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.SortedDocValuesVersion);
+                scope.Output.WriteInt32(allFields.Count);
+                foreach (var (fieldName, fieldValues) in allFields)
+                {
+                    var nullableValues = fieldValues.Select(static v => (string?)v).ToArray();
+                    fieldBuf.Clear();
+                    SortedDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, nullableValues, maxDocCount);
+                    scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+                }
             }
             FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
         }
@@ -954,7 +958,7 @@ public static class IndexCodecMigrator
         // Single pass: enumerate once into memory, so the MMF handle releases
         // before the Move. Two-pass enumeration opens IndexInput twice on the
         // same file, causing LLIDX040 on Windows.
-        var allFields = NormsReader.EnumerateFields(sourcePath).ToList();
+        var allFields = NormsReader.EnumerateFields(sourcePath);
         if (allFields.Count == 0)
             return;
 
@@ -966,17 +970,19 @@ public static class IndexCodecMigrator
         var fieldBuf = new ArrayBufferWriter<byte>(4096);
         try
         {
-            using var output = new IndexOutput(temporaryPath, durable: true);
-            using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.NormsVersion);
-            scope.Output.WriteInt32(allFields.Count);
-            foreach (var (fieldName, normBytes, fieldBoosts) in allFields)
             {
-                var norms = new float[normBytes.Length];
-                for (int i = 0; i < normBytes.Length; i++)
-                    norms[i] = normBytes[i] / 255f;
-                fieldBuf.Clear();
-                NormsWriter.WriteFieldBlock(fieldBuf, fieldName, norms, fieldBoosts, maxDocCount);
-                scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+                using var output = new IndexOutput(temporaryPath, durable: true);
+                using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.NormsVersion);
+                scope.Output.WriteInt32(allFields.Count);
+                foreach (var (fieldName, normBytes, fieldBoosts) in allFields)
+                {
+                    var norms = new float[normBytes.Length];
+                    for (int i = 0; i < normBytes.Length; i++)
+                        norms[i] = normBytes[i] / 255f;
+                    fieldBuf.Clear();
+                    NormsWriter.WriteFieldBlock(fieldBuf, fieldName, norms, fieldBoosts, maxDocCount);
+                    scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+                }
             }
             FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
         }
@@ -985,7 +991,7 @@ public static class IndexCodecMigrator
 
     private static void RewriteSortedSetDocValues(string sourcePath, string targetPath)
     {
-        var allFields = SortedSetDocValuesReader.EnumerateFields(sourcePath).ToList();
+        var allFields = SortedSetDocValuesReader.EnumerateFields(sourcePath);
         if (allFields.Count == 0)
             return;
 
@@ -997,14 +1003,16 @@ public static class IndexCodecMigrator
         var fieldBuf = new ArrayBufferWriter<byte>(4096);
         try
         {
-            using var output = new IndexOutput(temporaryPath, durable: true);
-            using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.SortedSetDocValuesVersion);
-            scope.Output.WriteInt32(allFields.Count);
-            foreach (var (fieldName, fieldValues) in allFields)
             {
-                fieldBuf.Clear();
-                SortedSetDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
-                scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+                using var output = new IndexOutput(temporaryPath, durable: true);
+                using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.SortedSetDocValuesVersion);
+                scope.Output.WriteInt32(allFields.Count);
+                foreach (var (fieldName, fieldValues) in allFields)
+                {
+                    fieldBuf.Clear();
+                    SortedSetDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
+                    scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+                }
             }
             FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
         }
@@ -1013,7 +1021,7 @@ public static class IndexCodecMigrator
 
     private static void RewriteSortedNumericDocValues(string sourcePath, string targetPath)
     {
-        var allFields = SortedNumericDocValuesReader.EnumerateFields(sourcePath).ToList();
+        var allFields = SortedNumericDocValuesReader.EnumerateFields(sourcePath);
         if (allFields.Count == 0)
             return;
 
@@ -1025,14 +1033,16 @@ public static class IndexCodecMigrator
         var fieldBuf = new ArrayBufferWriter<byte>(4096);
         try
         {
-            using var output = new IndexOutput(temporaryPath, durable: true);
-            using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.SortedNumericDocValuesVersion);
-            scope.Output.WriteInt32(allFields.Count);
-            foreach (var (fieldName, fieldValues) in allFields)
             {
-                fieldBuf.Clear();
-                SortedNumericDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
-                scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+                using var output = new IndexOutput(temporaryPath, durable: true);
+                using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.SortedNumericDocValuesVersion);
+                scope.Output.WriteInt32(allFields.Count);
+                foreach (var (fieldName, fieldValues) in allFields)
+                {
+                    fieldBuf.Clear();
+                    SortedNumericDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
+                    scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+                }
             }
             FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
         }
@@ -1041,7 +1051,7 @@ public static class IndexCodecMigrator
 
     private static void RewriteBinaryDocValues(string sourcePath, string targetPath)
     {
-        var allFields = BinaryDocValuesReader.EnumerateFields(sourcePath).ToList();
+        var allFields = BinaryDocValuesReader.EnumerateFields(sourcePath);
         if (allFields.Count == 0)
             return;
 
@@ -1053,14 +1063,16 @@ public static class IndexCodecMigrator
         var fieldBuf = new ArrayBufferWriter<byte>(4096);
         try
         {
-            using var output = new IndexOutput(temporaryPath, durable: true);
-            using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.BinaryDocValuesVersion);
-            scope.Output.WriteInt32(allFields.Count);
-            foreach (var (fieldName, fieldValues) in allFields)
             {
-                fieldBuf.Clear();
-                BinaryDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
-                scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+                using var output = new IndexOutput(temporaryPath, durable: true);
+                using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.BinaryDocValuesVersion);
+                scope.Output.WriteInt32(allFields.Count);
+                foreach (var (fieldName, fieldValues) in allFields)
+                {
+                    fieldBuf.Clear();
+                    BinaryDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
+                    scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+                }
             }
             FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
         }
@@ -1072,7 +1084,7 @@ public static class IndexCodecMigrator
         if (!FileOpenRetry.FileExists(sourcePath))
             return;
 
-        var allFields = FieldLengthReader.EnumerateFields(sourcePath).ToList();
+        var allFields = FieldLengthReader.EnumerateFields(sourcePath);
         if (allFields.Count == 0)
             return;
 
@@ -1084,14 +1096,16 @@ public static class IndexCodecMigrator
         var fieldBuf = new ArrayBufferWriter<byte>(4096);
         try
         {
-            using var output = new IndexOutput(temporaryPath, durable: true);
-            using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.FieldLengthVersion);
-            scope.Output.WriteInt32(allFields.Count);
-            foreach (var (fieldName, lengths) in allFields)
             {
-                fieldBuf.Clear();
-                FieldLengthWriter.WriteFieldBlock(fieldBuf, fieldName, lengths);
-                scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+                using var output = new IndexOutput(temporaryPath, durable: true);
+                using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.FieldLengthVersion);
+                scope.Output.WriteInt32(allFields.Count);
+                foreach (var (fieldName, lengths) in allFields)
+                {
+                    fieldBuf.Clear();
+                    FieldLengthWriter.WriteFieldBlock(fieldBuf, fieldName, lengths);
+                    scope.Output.WriteBytes(fieldBuf.WrittenSpan);
+                }
             }
             FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
         }

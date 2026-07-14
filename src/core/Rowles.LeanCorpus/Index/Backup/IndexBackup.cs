@@ -512,7 +512,7 @@ public static class IndexBackup
         Directory.CreateDirectory(Path.GetDirectoryName(targetPath) ?? string.Empty);
         IndexAtomicFileWriter.Write(targetPath, durable: true, stream =>
         {
-            using var source = FileOpenRetry.Open(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            using var source = FileOpenRetry.OpenReadDelete(sourcePath);
             source.CopyTo(stream);
         });
     }

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
@@ -48,14 +49,15 @@ internal static class FieldLengthReader
         return result;
     }
 
-    internal static IEnumerable<(string Name, int[] Lengths)> EnumerateFields(string filePath)
+    internal static List<(string Name, int[] Lengths)> EnumerateFields(string filePath)
     {
-        if (!File.Exists(filePath)) yield break;
+        if (!File.Exists(filePath)) return new List<(string Name, int[] Lengths)>(0);
 
         using var input = new IndexInput(filePath);
         byte version = CodecFileHeader.ReadVersionAndSkipHeader(input);
 
         int fieldCount = input.ReadInt32();
+        var results = new List<(string Name, int[] Lengths)>(fieldCount);
 
         for (int f = 0; f < fieldCount; f++)
         {
@@ -72,7 +74,9 @@ internal static class FieldLengthReader
             for (int d = 0; d < docCount; d++)
                 lengths[d] = input.ReadVarInt();
 
-            yield return (fieldName, lengths);
+            results.Add((fieldName, lengths));
         }
+
+        return results;
     }
 }
