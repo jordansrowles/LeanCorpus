@@ -29,7 +29,7 @@ This publishes `src\examples\Rowles.LeanCorpus.Example.NativeAot\Rowles.LeanCorp
 **A note if you're using on of the optional compression libraries, and are using native AOT:**
 The core library has no native sidecar dependencies for compression. Optional packages (`Rowles.LeanCorpus.Compression.LZ4`, `Rowles.LeanCorpus.Compression.Snappy`, `Rowles.LeanCorpus.Compression.Zstandard`) may include RID-specific native binaries; AOT consumers using those packages must call their respective `Register()` methods at startup.
 
-> [!INFO]
+> [!IMPORTANT]
 > While LeanLucene is AOT capable, it does not support (and does not intend to support) Blazor WASM. LeanLucene (and the other segment-centric engines) require use of the OS's filesystem to achieve its performance. It would be too much work (and a project itself) to support a dual approach with a filesystem, and the browsers limited storage. 
 > 
 > Blazor Server/Hybrid remains supported (naturally), as long as the indexing happens server-side.
