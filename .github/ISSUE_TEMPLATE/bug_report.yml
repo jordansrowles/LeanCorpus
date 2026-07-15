@@ -1,0 +1,126 @@
+name: Bug Report
+description: File a bug report
+labels: ["triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report.
+        Please search [existing issues](https://github.com/rowles/leancorpus/issues) before opening a new one.
+
+  - type: dropdown
+    id: subsystem
+    attributes:
+      label: Subsystem
+      description: Which part of LeanCorpus is affected?
+      options:
+        - Core (Rowles.LeanCorpus)
+        - Compression codecs
+        - Source generator
+        - CLI
+        - Tests (unit, integration)
+        - Tests (chaos, compression parity)
+        - Benchmarks
+        - Documentation
+        - Build / CI
+        - Native AOT
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Crash / data loss
+        - Incorrect results
+        - Performance regression
+        - Functional regression
+        - Cosmetic / minor
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: LeanCorpus version
+      description: Commit hash, tag, or NuGet package version.
+      placeholder: "e.g. v2.1.0 or a1b2c3d"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: dotnet
+    attributes:
+      label: .NET runtime
+      options:
+        - .NET 10
+        - .NET 9
+        - .NET 10 (Native AOT)
+        - .NET 9 (Native AOT)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "e.g. Windows Server 2025, Ubuntu 24.04, macOS 15"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Architecture
+      options:
+        - x64
+        - arm64
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect instead? A concise summary.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, self-contained steps — ideally a code snippet or CLI invocation.
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What actually happened? Include stack traces, logs, or screenshots.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: |
+        If possible, provide a standalone snippet or gist that demonstrates the issue.
+      render: csharp

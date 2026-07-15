@@ -1,0 +1,81 @@
+name: Feature Request
+description: Propose a new feature or enhancement
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Please search [existing issues](https://github.com/rowles/leancorpus/issues) and [discussions](https://github.com/rowles/leancorpus/discussions) before opening a new one.
+
+  - type: dropdown
+    id: subsystem
+    attributes:
+      label: Subsystem
+      description: Which part of LeanCorpus would this change?
+      options:
+        - Core (Rowles.LeanCorpus)
+        - Compression codecs
+        - Source generator
+        - CLI
+        - Tests / test infrastructure
+        - Benchmarks
+        - Documentation
+        - Build / CI
+        - Native AOT
+        - Cross-cutting
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      description: What sort of change is this?
+      options:
+        - New feature
+        - API addition / change
+        - Performance improvement
+        - Developer experience
+        - Diagnostics / observability
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem are you trying to solve? What's the current limitation or friction?
+      placeholder: |
+        I'm trying to … but LeanCorpus doesn't support …
+        The workaround today is … which is slow / fragile / verbose.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What would the solution look like? Be concrete — API shape, CLI flags, config knob, behaviour change.
+      placeholder: |
+        Add a `--foo` flag to the CLI that …
+        Expose a `IndexWriter.FlushSegment()` method that …
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you've thought about and why they don't work as well.
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Who benefits and how? Is this a breaking change?
+      placeholder: |
+        Non-breaking. Benefits anyone doing bulk indexing because …
+        Breaking — changes the default for …
+    validations:
+      required: true
