@@ -219,7 +219,7 @@ if ($Command -eq 'benchmark') {
         dismax               = 'DisjunctionMaxQueryBenchmarks'
         multiphrase          = 'MultiPhraseQueryBenchmarks'
         span                 = 'SpanQueryBenchmarks'
-        mlt                  = 'MoreLikeThisBenchmarks'
+        mlt                  = 'MoreLikeThisBenchmarks + MoreLikeThisSingleSegmentBenchmarks'
         highlighter          = 'HighlighterBenchmarks'
         'searcher-mgr'       = 'SearcherManagerBenchmarks'
         combined             = 'CombinedFieldsQueryBenchmarks'

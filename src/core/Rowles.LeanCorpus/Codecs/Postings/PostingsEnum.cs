@@ -196,6 +196,12 @@ public unsafe struct PostingsEnum : IDisposable
         _lazyMode ? _blockEnum : throw new InvalidOperationException(
             "Block-level metadata is not available for eagerly-decoded postings.");
 
+    /// <summary>
+    /// Returns true if this postings enum was created in lazy mode and supports
+    /// block-level metadata access via <see cref="BlockEnum"/>.
+    /// </summary>
+    internal bool HasBlockMetadata => _lazyMode;
+
     private PostingsEnum(int[]? docIds, int[]? freqs, int count,
         int[]? positionData = null, int[]? positionStarts = null)
     {

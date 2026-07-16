@@ -5,12 +5,27 @@ using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Search.Scoring;
+using Rowles.LeanCorpus.Search;
+using Rowles.LeanCorpus.Search.Searcher;
+using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Tests.Integration.Search;
 
 public sealed class BlockMaxWandScorerTests
 {
+    private static void AssertEquivalentResults(TopDocs expected, TopDocs actual)
+    {
+        Assert.Equal(expected.TotalHits, actual.TotalHits);
+        Assert.Equal(expected.ScoreDocs.Length, actual.ScoreDocs.Length);
+
+        for (int i = 0; i < expected.ScoreDocs.Length; i++)
+        {
+            Assert.Equal(expected.ScoreDocs[i].DocId, actual.ScoreDocs[i].DocId);
+            Assert.Equal(expected.ScoreDocs[i].Score, actual.ScoreDocs[i].Score, precision: 4);
+        }
+    }
+
     [Fact(DisplayName = "Score: Single Term Returns All Docs")]
     public void Score_SingleTerm_ReturnsAllDocs()
     {
@@ -336,6 +351,256 @@ public sealed class BlockMaxWandScorerTests
                 Assert.True(scorerWith.BlockMaxScores[i] < scorerWithout.BlockMaxScores[i],
                     $"Block {i}: real norms should yield a tighter bound than the zero-norm fallback.");
             }
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+
+    // --- Absent-term segment-local tests for repaired WAND ---
+
+    private static LeanDocument Doc(string body)
+    {
+        var d = new LeanDocument();
+        d.Add(new TextField("body", body));
+        return d;
+    }
+
+    [Fact(DisplayName = "WAND: absent Should term from one segment does not crash")]
+    public void Wand_AbsentShouldTerm_DoesNotCrash()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var storeDir = new MMapDirectory(dir);
+
+            // Segment 0: has both "alpha" and "beta"
+            using (var writer = new IndexWriter(storeDir, new IndexWriterConfig { MaxBufferedDocs = 2 }))
+            {
+                writer.AddDocument(Doc("alpha beta"));
+                writer.AddDocument(Doc("alpha"));
+                writer.Commit();
+            }
+
+            // Segment 1: only "beta" (alpha absent from this segment)
+            using (var writer = new IndexWriter(storeDir, new IndexWriterConfig { MaxBufferedDocs = 2 }))
+            {
+                writer.AddDocument(Doc("beta gamma"));
+                writer.Commit();
+            }
+
+            var q = new BooleanQuery.Builder()
+                .Add(new TermQuery("body", "alpha"), Occur.Should)
+                .Add(new TermQuery("body", "beta"), Occur.Should)
+                .Build();
+
+            using var searcherWand = new IndexSearcher(storeDir, new IndexSearcherConfig { EnableBlockMaxWand = true });
+            using var searcherScalar = new IndexSearcher(storeDir);
+
+            var wandResults = searcherWand.Search(q, 2);
+            var scalarResults = searcherScalar.Search(q, 2);
+
+            AssertEquivalentResults(scalarResults, wandResults);
+            Assert.Equal(3, wandResults.TotalHits);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact(DisplayName = "WAND: absent Must term causes zero matches from that segment")]
+    public void Wand_AbsentMustTerm_ReturnsZeroFromSegment()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var storeDir = new MMapDirectory(dir);
+
+            // Segment 0: alpha present
+            using (var writer = new IndexWriter(storeDir, new IndexWriterConfig { MaxBufferedDocs = 2 }))
+            {
+                writer.AddDocument(Doc("alpha beta"));
+                writer.Commit();
+            }
+
+            // Segment 1: alpha absent, only beta
+            using (var writer = new IndexWriter(storeDir, new IndexWriterConfig { MaxBufferedDocs = 2 }))
+            {
+                writer.AddDocument(Doc("beta gamma"));
+                writer.Commit();
+            }
+
+            var q = new BooleanQuery.Builder()
+                .Add(new TermQuery("body", "alpha"), Occur.Must)
+                .Add(new TermQuery("body", "beta"), Occur.Should)
+                .Build();
+
+            using var searcherWand = new IndexSearcher(storeDir, new IndexSearcherConfig { EnableBlockMaxWand = true });
+            using var searcherScalar = new IndexSearcher(storeDir);
+
+            var wandResults = searcherWand.Search(q, 10);
+            var scalarResults = searcherScalar.Search(q, 10);
+
+            AssertEquivalentResults(scalarResults, wandResults);
+            Assert.Equal(1, wandResults.TotalHits);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact(DisplayName = "WAND: absent MustNot term is harmless")]
+    public void Wand_AbsentMustNot_IsHarmless()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var storeDir = new MMapDirectory(dir);
+
+            using (var writer = new IndexWriter(storeDir, new IndexWriterConfig { MaxBufferedDocs = 10 }))
+            {
+                writer.AddDocument(Doc("alpha beta"));
+                writer.AddDocument(Doc("alpha gamma"));
+                writer.Commit();
+            }
+
+            var qNoMustNot = new BooleanQuery.Builder()
+                .Add(new TermQuery("body", "alpha"), Occur.Should)
+                .Build();
+            var qWithMustNot = new BooleanQuery.Builder()
+                .Add(new TermQuery("body", "alpha"), Occur.Should)
+                .Add(new TermQuery("body", "nonexistent"), Occur.MustNot)
+                .Build();
+
+            using var searcherWand = new IndexSearcher(storeDir, new IndexSearcherConfig { EnableBlockMaxWand = true });
+            using var searcherScalar = new IndexSearcher(storeDir);
+
+            var wandNoMN = searcherWand.Search(qNoMustNot, 10);
+            var wandWithMN = searcherWand.Search(qWithMustNot, 10);
+            var scalarWithMN = searcherScalar.Search(qWithMustNot, 10);
+
+            Assert.Equal(wandNoMN.TotalHits, wandWithMN.TotalHits);
+            AssertEquivalentResults(scalarWithMN, wandWithMN);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact(DisplayName = "WAND: all Should terms absent from one segment returns safely")]
+    public void Wand_AllShouldTermsAbsentFromSegment_ReturnsSafely()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var storeDir = new MMapDirectory(dir);
+
+            // Segment 0: has "alpha"
+            using (var writer = new IndexWriter(storeDir, new IndexWriterConfig { MaxBufferedDocs = 2 }))
+            {
+                writer.AddDocument(Doc("alpha"));
+                writer.Commit();
+            }
+
+            // Segment 1: only "gamma" (neither alpha nor beta present)
+            using (var writer = new IndexWriter(storeDir, new IndexWriterConfig { MaxBufferedDocs = 2 }))
+            {
+                writer.AddDocument(Doc("gamma"));
+                writer.Commit();
+            }
+
+            var q = new BooleanQuery.Builder()
+                .Add(new TermQuery("body", "alpha"), Occur.Should)
+                .Add(new TermQuery("body", "beta"), Occur.Should)
+                .Build();
+
+            using var searcherWand = new IndexSearcher(storeDir, new IndexSearcherConfig { EnableBlockMaxWand = true });
+            using var searcherScalar = new IndexSearcher(storeDir);
+
+            var wandResults = searcherWand.Search(q, 10);
+            var scalarResults = searcherScalar.Search(q, 10);
+
+            AssertEquivalentResults(scalarResults, wandResults);
+            Assert.Equal(1, wandResults.TotalHits);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact(DisplayName = "WAND: deleted documents handled consistently with scalar")]
+    public void Wand_DeletedDocuments_MatchesScalar()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var storeDir = new MMapDirectory(dir);
+
+            using (var writer = new IndexWriter(storeDir, new IndexWriterConfig { MaxBufferedDocs = 10 }))
+            {
+                writer.AddDocument(Doc("alpha beta"));
+                writer.AddDocument(Doc("alpha gamma"));
+                writer.AddDocument(Doc("beta gamma"));
+                writer.Commit();
+            }
+
+            var q = new BooleanQuery.Builder()
+                .Add(new TermQuery("body", "alpha"), Occur.Should)
+                .Add(new TermQuery("body", "beta"), Occur.Should)
+                .Build();
+
+            // Open searcher, delete doc, then reopen
+            using (var searcher = new IndexSearcher(storeDir, new IndexSearcherConfig { EnableBlockMaxWand = true }))
+            {
+                using var writer = new IndexWriter(storeDir, new IndexWriterConfig { MaxBufferedDocs = 10 });
+                writer.DeleteDocuments(new TermQuery("body", "gamma"));
+                writer.Commit();
+            }
+
+            using var searcherWand = new IndexSearcher(storeDir, new IndexSearcherConfig { EnableBlockMaxWand = true });
+            using var searcherScalar = new IndexSearcher(storeDir);
+
+            var wandResults = searcherWand.Search(q, 10);
+            var scalarResults = searcherScalar.Search(q, 10);
+
+            AssertEquivalentResults(scalarResults, wandResults);
+            Assert.True(wandResults.TotalHits < 3);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact(DisplayName = "WAND: absent segment-local Should terms preserve competitive top-K results")]
+    public void Wand_AbsentShouldTerms_TopKMatchesScalar()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var storeDir = new MMapDirectory(dir);
+
+            using (var writer = new IndexWriter(storeDir, new IndexWriterConfig { MaxBufferedDocs = 200 }))
+            {
+                for (int i = 0; i < 150; i++)
+                    writer.AddDocument(Doc(string.Join(" ", Enumerable.Repeat("alpha", i + 1))));
+                writer.Commit();
+            }
+
+            using (var writer = new IndexWriter(storeDir, new IndexWriterConfig { MaxBufferedDocs = 200 }))
+            {
+                for (int i = 0; i < 150; i++)
+                    writer.AddDocument(Doc("beta"));
+                writer.Commit();
+            }
+
+            var q = new BooleanQuery.Builder()
+                .Add(new TermQuery("body", "alpha"), Occur.Should)
+                .Add(new TermQuery("body", "beta"), Occur.Should)
+                .Build();
+
+            using var searcherWand = new IndexSearcher(storeDir, new IndexSearcherConfig { EnableBlockMaxWand = true });
+            using var searcherScalar = new IndexSearcher(storeDir);
+
+            var wandResults = searcherWand.Search(q, 5);
+            var scalarResults = searcherScalar.Search(q, 5);
+
+            AssertEquivalentResults(scalarResults, wandResults);
+            Assert.True(wandResults.TotalHits > wandResults.ScoreDocs.Length);
         }
         finally { Directory.Delete(dir, true); }
     }

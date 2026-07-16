@@ -265,6 +265,18 @@ public sealed partial class IndexSearcher
                 var qt = tq.CachedQualifiedTerm ??= string.Concat(tq.Field, "\x00", tq.Term);
                 var postings = reader.GetPostingsEnum(qt);
 
+                // Absent from this segment: behaviour depends on Occur.
+                if (postings.DocFreq == 0)
+                {
+                    postings.Dispose();
+
+                    if (clause.Occur == Occur.Must)
+                        return;
+
+                    continue;
+                }
+
+                // Only calculate scoring factors for clauses that survived.
                 int docFreq = globalDFs.GetValueOrDefault((tq.Field, tq.Term), postings.DocFreq);
                 long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
                 float avgDocLength = _stats.GetAvgFieldLength(tq.Field);
@@ -290,6 +302,13 @@ public sealed partial class IndexSearcher
                         break;
                 }
             }
+
+            mustCount = mi;
+            shouldCount = si;
+            mustNotCount = mni;
+
+            if (mustCount == 0 && shouldCount == 0)
+                return;
 
             int docBase = reader.DocBase;
             bool hasDeletions = reader.HasDeletions;
@@ -389,11 +408,25 @@ public sealed partial class IndexSearcher
                 const int HeapThreshold = 64;
                 var localShouldEnums = shouldEnums!;
 
-                // WAND path: use block-max scoring to skip non-competitive blocks.
-                if (_config.EnableBlockMaxWand && mustNotCount == 0)
+                // WAND path: check capability, then use block-max scoring.
+                bool useWand = _config.EnableBlockMaxWand && mustNotCount == 0;
+                if (useWand)
+                {
+                    for (int i = 0; i < shouldCount; i++)
+                    {
+                        if (!localShouldEnums[i].HasBlockMetadata)
+                        {
+                            useWand = false;
+                            break;
+                        }
+                    }
+                }
+
+                if (useWand)
                 {
                     ExecuteShouldOnlyWand(localShouldEnums, shouldFieldLens!, shouldFieldBoosts!,
-                        shouldFactors!, shouldFields!, reader, hasDeletions, ref collector);
+                        shouldFactors!, shouldFields!, reader, hasDeletions, ref collector,
+                        shouldCount);
                 }
                 else if (shouldCount <= HeapThreshold)
                 {
@@ -866,9 +899,9 @@ public sealed partial class IndexSearcher
         string[] shouldFields,
         SegmentReader reader,
         bool hasDeletions,
-        ref TopNCollector collector)
+        ref TopNCollector collector,
+        int shouldCount)
     {
-        int shouldCount = shouldEnums.Length;
         var scorers = new BlockMaxWandScorer.TermScorer[shouldCount];
 
         for (int i = 0; i < shouldCount; i++)
