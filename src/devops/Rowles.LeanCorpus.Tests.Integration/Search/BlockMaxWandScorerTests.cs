@@ -294,13 +294,12 @@ public sealed class BlockMaxWandScorerTests
             var termEntry = dictionary.EnumerateAllTerms().Single(t => t.Term == "body\0term");
 
             input.Seek(termEntry.Offset);
+            long docStart = input.ReadInt64();
             int docFreq = input.ReadInt32();
             long skipOffset = input.ReadInt64();
             input.ReadBoolean(); // hasFreqs
             input.ReadBoolean(); // hasPositions
             input.ReadBoolean(); // hasPayloads
-            long docStart = input.Position;
-
             var postings = BlockPostingsEnum.Create(input, docStart, skipOffset, docFreq);
             Assert.True(postings.SkipEntries.Length > 0, "Expected at least one skip entry for 300 docs.");
             foreach (var skip in postings.SkipEntries)

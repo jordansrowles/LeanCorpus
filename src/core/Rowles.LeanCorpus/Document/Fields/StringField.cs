@@ -44,12 +44,37 @@ public sealed class StringField : IField
     /// </param>
     public StringField(string name, string value, bool stored, float boost, bool storeDocValues = true,
         FieldIndexOptions indexOptions = FieldIndexOptions.DocsAndFreqs)
+        : this(
+            name,
+            value,
+            stored,
+            boost,
+            storeDocValues
+                ? StringDocValues.Sorted | StringDocValues.SortedSet | StringDocValues.Binary
+                : StringDocValues.None,
+            indexOptions)
     {
+    }
+
+    /// <summary>Initialises a string field with explicit DocValues representations.</summary>
+    /// <param name="name">The field name. Must not be null.</param>
+    /// <param name="value">The exact string value to index. Must not be null.</param>
+    /// <param name="stored">Whether the value should be persisted in stored fields.</param>
+    /// <param name="boost">Index-time boost applied to scoring queries.</param>
+    /// <param name="docValues">The DocValues representations to write.</param>
+    /// <param name="indexOptions">Controls which postings data is written.</param>
+    public StringField(string name, string value, bool stored, float boost, StringDocValues docValues,
+        FieldIndexOptions indexOptions = FieldIndexOptions.DocsAndFreqs)
+    {
+        const StringDocValues valid = StringDocValues.Sorted | StringDocValues.SortedSet | StringDocValues.Binary;
+        if ((docValues & ~valid) != 0)
+            throw new ArgumentOutOfRangeException(nameof(docValues), docValues, "Unknown string DocValues representation.");
+
         Name = FieldNameValidator.Validate(name, nameof(name));
         Value = value ?? throw new ArgumentNullException(nameof(value));
         IsStored = stored;
         Boost = FieldBoostValidator.Validate(boost, nameof(boost));
-        StoreDocValues = storeDocValues;
+        DocValues = docValues;
         IndexOptions = indexOptions;
     }
 
@@ -72,7 +97,10 @@ public sealed class StringField : IField
     public float Boost { get; }
 
     /// <inheritdoc/>
-    public bool StoreDocValues { get; }
+    public bool StoreDocValues => DocValues != StringDocValues.None;
+
+    /// <summary>Gets the explicitly selected DocValues representations.</summary>
+    public StringDocValues DocValues { get; }
 
     /// <inheritdoc/>
     public FieldIndexOptions IndexOptions { get; }

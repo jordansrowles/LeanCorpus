@@ -352,8 +352,9 @@ public sealed partial class SegmentReader : IDisposable
         if (!TryGetCachedOffset(qualifiedTerm, out long offset))
             return 0;
 
-        long cursor = offset;
-        return _posInput.ReadInt32(ref cursor);
+        PostingsEnum.ReadTermMetadata(_posInput, offset, out _, out int docFreq,
+            out _, out _, out _, out _);
+        return docFreq;
     }
 
     /// <summary>
@@ -367,8 +368,9 @@ public sealed partial class SegmentReader : IDisposable
         if (!_dicReader.TryGetPostingsOffset(qualifiedTerm, out long offset))
             return 0;
 
-        long cursor = offset;
-        return _posInput.ReadInt32(ref cursor);
+        PostingsEnum.ReadTermMetadata(_posInput, offset, out _, out int docFreq,
+            out _, out _, out _, out _);
+        return docFreq;
     }
     /// <summary>
     /// Sums all per-document term frequencies for the given qualified term.
@@ -387,8 +389,9 @@ public sealed partial class SegmentReader : IDisposable
     /// <summary>Reads docFreq directly from a known postings file offset (no dictionary lookup).</summary>
     internal int ReadDocFreqAtOffset(long offset)
     {
-        long cursor = offset;
-        return _posInput.ReadInt32(ref cursor);
+        PostingsEnum.ReadTermMetadata(_posInput, offset, out _, out int docFreq,
+            out _, out _, out _, out _);
+        return docFreq;
     }
 
     /// <summary>Thread-safe cache for recent term lookups.</summary>

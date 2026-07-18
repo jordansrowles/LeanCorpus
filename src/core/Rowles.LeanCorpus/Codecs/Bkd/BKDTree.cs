@@ -29,7 +29,7 @@ internal static class BKDWriter
             points.Sort((a, b) => a.Value.CompareTo(b.Value));
             WriteNode(bodyBuf, points, 0, points.Count, maxLeafSize);
         }
-        using var output = new IndexOutput(filePath, durable: true);
+        using var output = new IndexOutput(filePath);
         CodecFileHeader.Write(output, CodecFormats.Bkd, bodyBuf.WrittenSpan);
     }
 

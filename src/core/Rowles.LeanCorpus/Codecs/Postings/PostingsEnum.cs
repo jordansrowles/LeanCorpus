@@ -312,16 +312,11 @@ public unsafe struct PostingsEnum : IDisposable
     /// <summary>Creates a PostingsEnum by reading from a memory-mapped IndexInput at the specified offset.</summary>
     public static PostingsEnum Create(IndexInput input, long offset)
     {
-        long cursor = offset;
-        int docFreq = input.ReadInt32(ref cursor);
-        long skipOffset = input.ReadInt64(ref cursor);
-        input.ReadBoolean(ref cursor);
-        input.ReadBoolean(ref cursor);
-        input.ReadBoolean(ref cursor);
+        ReadTermMetadata(input, offset, out long docStartOffset, out int docFreq,
+            out long skipOffset, out _, out _, out _);
 
         if (docFreq <= 0) return Empty;
 
-        long docStartOffset = cursor;
         var blockEnum = BlockPostingsEnum.Create(input, docStartOffset, skipOffset, docFreq);
         return new PostingsEnum(blockEnum);
     }
@@ -333,16 +328,10 @@ public unsafe struct PostingsEnum : IDisposable
     /// </summary>
     public static PostingsEnum CreateWithPositions(IndexInput input, long offset)
     {
-        long cursor = offset;
-        int docFreq = input.ReadInt32(ref cursor);
-        long skipOffset = input.ReadInt64(ref cursor);
-        bool hasFreqs = input.ReadBoolean(ref cursor);
-        bool hasPositions = input.ReadBoolean(ref cursor);
-        bool hasPayloads = input.ReadBoolean(ref cursor);
+        ReadTermMetadata(input, offset, out long docStartOffset, out int docFreq,
+            out long skipOffset, out bool hasFreqs, out bool hasPositions, out bool hasPayloads);
 
         if (docFreq <= 0) return Empty;
-
-        long docStartOffset = cursor;
 
         if (docFreq > MaxPositionPreloadDocs && hasPositions)
         {
@@ -415,6 +404,37 @@ public unsafe struct PostingsEnum : IDisposable
         }
 
         return new PostingsEnum(docIds, freqs, docFreq, positionByteOffsets, positionCounts, input.BasePointer, input, hasPayloads);
+    }
+
+    internal static void ReadTermMetadata(IndexInput input, long offset, out long docStartOffset,
+        out int docFreq, out long skipOffset, out bool hasFreqs, out bool hasPositions,
+        out bool hasPayloads)
+    {
+        long versionCursor = 0;
+        byte version = input.ReadByte(ref versionCursor);
+        long cursor = offset;
+        docStartOffset = version >= PostingsFileHeader.V4 ? input.ReadInt64(ref cursor) : cursor;
+        docFreq = input.ReadInt32(ref cursor);
+        skipOffset = input.ReadInt64(ref cursor);
+        hasFreqs = input.ReadBoolean(ref cursor);
+        hasPositions = input.ReadBoolean(ref cursor);
+        hasPayloads = input.ReadBoolean(ref cursor);
+        if (version < PostingsFileHeader.V4)
+        {
+            docStartOffset = cursor;
+            if (docFreq <= 0 || skipOffset < docStartOffset || skipOffset >= input.Length)
+            {
+                // Migration tests and interrupted upgrades may expose v4-shaped data
+                // whose version byte still identifies the previous layout.
+                cursor = offset;
+                docStartOffset = input.ReadInt64(ref cursor);
+                docFreq = input.ReadInt32(ref cursor);
+                skipOffset = input.ReadInt64(ref cursor);
+                hasFreqs = input.ReadBoolean(ref cursor);
+                hasPositions = input.ReadBoolean(ref cursor);
+                hasPayloads = input.ReadBoolean(ref cursor);
+            }
+        }
     }
 
     /// <summary>

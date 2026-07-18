@@ -18,6 +18,15 @@ public sealed class SegmentInfo
     /// <summary>Gets the number of live (non-deleted) documents in this segment.</summary>
     public int LiveDocCount { get; set; }
 
+    /// <summary>Gets the total bytes occupied by this segment's files.</summary>
+    public long TotalBytes { get; set; }
+
+    /// <summary>Gets segment bytes grouped by file extension.</summary>
+    public Dictionary<string, long> CodecBytes { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>Gets the fraction of documents currently deleted from this segment.</summary>
+    public double DeletionDensity => DocCount == 0 ? 0 : 1.0 - (double)LiveDocCount / DocCount;
+
     /// <summary>Gets the commit generation at which this segment was created.</summary>
     public int CommitGeneration { get; init; }
 
@@ -88,6 +97,8 @@ public sealed class SegmentInfo
             throw new InvalidDataException($"Segment '{SegmentId}' has a null FieldNames list.");
         if (VectorFields is null)
             throw new InvalidDataException($"Segment '{SegmentId}' has a null VectorFields list.");
+        if (CodecBytes is null)
+            throw new InvalidDataException($"Segment '{SegmentId}' has null codec byte metadata.");
         foreach (var vf in VectorFields)
             vf.Validate();
     }

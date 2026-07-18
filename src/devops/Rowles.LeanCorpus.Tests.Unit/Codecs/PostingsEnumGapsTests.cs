@@ -132,30 +132,23 @@ public sealed class PostingsEnumGapsTests : IDisposable
         {
             using var _scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.PostingsVersion);
 
-            long headerPos = output.Position;
-            output.WriteInt32(0);             // docFreq placeholder
-            output.WriteInt64(0L);             // skipOffset placeholder
-            output.WriteBoolean(true);         // hasFreqs
-            output.WriteBoolean(false);        // hasPositions
-            output.WriteBoolean(false);        // hasPayloads
-
+            long bodyOffset = output.Position;
             using var blockWriter = new BlockPostingsWriter(output);
             blockWriter.StartTerm();
             blockWriter.AddPosting(2, 1);
             blockWriter.AddPosting(5, 2);
             blockWriter.AddPosting(9, 3);
             var meta = blockWriter.FinishTerm();
-            long endPos = output.Position;
-            output.Seek(headerPos);
+            offset = output.Position;
+            output.WriteInt64(bodyOffset);
             output.WriteInt32(meta.DocFreq);
             output.WriteInt64(meta.SkipOffset);
-            output.Seek(endPos);
-
-            offset = headerPos; // v2: offset is absolute file position, no envelope to account for
+            output.WriteBoolean(true);
+            output.WriteBoolean(false);
+            output.WriteBoolean(false);
         }
 
         return (path, offset);
     }
 
-    // VarIntSize removed — v2 postings format no longer needs envelope offset computation.
 }

@@ -46,7 +46,9 @@ internal static class CodecFormats
         // Postings — v1 used CodecKit envelope; v2 streams directly without body-length prefix.
         reg.Register(new CodecFormat("pos", [
             new CodecVersionStep(1, "pos-v1", Codec.BytesOwnedRemaining()),
-            new CodecVersionStep(2, "pos-v2", Codec.BytesOwnedRemaining())
+            new CodecVersionStep(2, "pos-v2", Codec.BytesOwnedRemaining()),
+            new CodecVersionStep(3, "pos-v3", Codec.BytesOwnedRemaining()),
+            new CodecVersionStep(4, "pos-v4", Codec.BytesOwnedRemaining())
         ]));
 
         // All other formats are at v1.

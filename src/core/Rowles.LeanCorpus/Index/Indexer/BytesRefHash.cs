@@ -35,6 +35,10 @@ internal sealed class BytesRefHash
 
     public int Count => _count;
 
+    /// <summary>Gets the bytes reserved by the term pool and hash metadata arrays.</summary>
+    public long AllocatedBytes => _pool.LongLength +
+        ((long)_ids.Length + _termStarts.Length + _termLengths.Length + _termHashes.Length) * sizeof(int);
+
     public BytesRefHash(int initialCapacity = DefaultCapacity)
     {
         _capacity = Math.Max(16, initialCapacity);

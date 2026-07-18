@@ -16,7 +16,6 @@ public sealed class SlowQueryLog : IDisposable
     private readonly TextWriter _writer;
     private readonly bool _ownsWriter;
     private readonly Channel<SlowQueryEntry> _channel;
-    private readonly CancellationTokenSource _cts = new();
     private readonly Task _writeTask;
     private int _disposed;
 
@@ -38,7 +37,7 @@ public sealed class SlowQueryLog : IDisposable
         {
             FullMode = BoundedChannelFullMode.DropWrite
         });
-        _writeTask = Task.Run(() => WriteLoop(_cts.Token));
+        _writeTask = Task.Run(WriteLoop);
     }
 
     /// <summary>Creates a slow query log that appends to a file.</summary>
@@ -69,9 +68,9 @@ public sealed class SlowQueryLog : IDisposable
         _channel.Writer.TryWrite(entry);
     }
 
-    private async Task WriteLoop(CancellationToken ct)
+    private async Task WriteLoop()
     {
-        while (await _channel.Reader.WaitToReadAsync(ct).ConfigureAwait(false))
+        while (await _channel.Reader.WaitToReadAsync().ConfigureAwait(false))
         {
             while (_channel.Reader.TryRead(out var entry))
             {
@@ -85,11 +84,9 @@ public sealed class SlowQueryLog : IDisposable
     public void Dispose()
     {
         if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0) return;
-        _cts.Cancel();
         _channel.Writer.Complete();
-        try { _writeTask.Wait(TimeSpan.FromSeconds(5)); }
-        catch (AggregateException) { }
-        _cts.Dispose();
+        _writeTask.GetAwaiter().GetResult();
+        _writer.Flush();
         if (_ownsWriter) _writer.Dispose();
     }
 }

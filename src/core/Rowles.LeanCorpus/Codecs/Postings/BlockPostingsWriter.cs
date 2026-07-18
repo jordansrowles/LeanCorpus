@@ -27,6 +27,7 @@ internal sealed class BlockPostingsWriter : IDisposable
 
     // State
     private int _lastDocId;
+    private int _lastAddedDocId;
     private int _totalDocCount;
     private long _docStartOffset;
 
@@ -50,6 +51,7 @@ internal sealed class BlockPostingsWriter : IDisposable
         _bufferCount = 0;
         _posBufCount = 0;
         _lastDocId = 0;
+        _lastAddedDocId = -1;
         _totalDocCount = 0;
         _skipEntries.Clear();
         _docStartOffset = _docOut.Position;
@@ -60,6 +62,10 @@ internal sealed class BlockPostingsWriter : IDisposable
     /// </summary>
     public void AddPosting(int docId, int freq, byte norm = 0)
     {
+        if (docId <= _lastAddedDocId)
+            throw new InvalidDataException(
+                $"Postings doc IDs must be strictly increasing, but {docId} followed {_lastAddedDocId}.");
+        _lastAddedDocId = docId;
         _docBuffer[_bufferCount] = docId;
         _freqBuffer[_bufferCount] = freq;
         _normBuffer[_bufferCount] = norm;

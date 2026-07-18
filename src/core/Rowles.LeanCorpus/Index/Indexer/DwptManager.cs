@@ -14,6 +14,8 @@ internal static class DwptManager
 {
     public static void InitialiseDwptPool(IndexWriter writer, int threadCount = 0)
     {
+        if (writer.DwptPool is not null)
+            return;
         if (threadCount <= 0)
             threadCount = Math.Max(1, Environment.ProcessorCount);
 
@@ -22,54 +24,150 @@ internal static class DwptManager
             writer.DwptPool[i] = CreateThreadLocalDocumentWriter(writer.DefaultAnalyser, writer.Config);
     }
 
-    public static void AddDocumentLockFree(IndexWriter writer, LeanDocument doc)
+    public static void AddDocument(IndexWriter writer, LeanDocument doc)
     {
         writer.EnterIndexingOperation();
+        bool acquired = false;
+        bool enteredDwpt = false;
         try
         {
             writer.ValidateDocument(doc);
+            BackpressureController.AcquireBackpressureSlot(writer);
+            acquired = writer.BackpressureSemaphore is not null;
+            if (acquired)
+            {
+                lock (writer.WriteLock)
+                    writer.SemaphoreSlotsHeld++;
+            }
 
             var pool = writer.DwptPool ?? throw new InvalidOperationException(
-                "DWPT pool not initialised. Call InitialiseDwptPool() first.");
+                "DWPT pool is not initialised.");
 
-            int slot = (int)((uint)Interlocked.Increment(ref writer.DwptCounter) % (uint)pool.Length);
+            int slot = GetProducerSlot(writer, pool.Length);
             var dwpt = pool[slot];
 
             lock (dwpt)
             {
+                enteredDwpt = true;
                 dwpt.AddDocument(doc);
             }
 
-            long ramThreshold = (long)(writer.Config.RamBufferSizeMB * 1024 * 1024) / pool.Length;
-            if (dwpt.EstimatedRamBytes > ramThreshold)
+            long hardThreshold = (long)(writer.Config.RamPerThreadHardLimitMB * 1024 * 1024);
+            long activeBytes = 0;
+            foreach (var activeDwpt in pool)
+                activeBytes += activeDwpt.EstimatedRamBytes;
+            writer.Config.Metrics.RecordWriterMemory(activeBytes, 0, writer.PendingDeletes.Count * 96L);
+            long sharedLimit = (long)(writer.Config.RamBufferSizeMB * 1024 * 1024);
+            long queuedLimit = writer.Config.MaxQueuedBytes > 0 ? writer.Config.MaxQueuedBytes : long.MaxValue;
+            bool sharedLimitReached = activeBytes >= Math.Min(sharedLimit, queuedLimit);
+            if (dwpt.EstimatedRamBytes >= hardThreshold || sharedLimitReached ||
+                dwpt.DocCount >= writer.Config.MaxBufferedDocs)
             {
-                lock (writer.WriteLock)
+                DwptFlushSnapshot? snapshot = null;
+                int ordinal = 0;
+                long seqEnd = 0, seqStart = 0;
+
+                lock (dwpt)
                 {
-                    lock (dwpt)
+                    if (dwpt.DocCount > 0)
                     {
-                        if (dwpt.DocCount > 0)
+                        ordinal = Interlocked.Increment(ref writer.NextSegmentOrdinal) - 1;
+                        if (writer.Config.TrackSequenceNumbers)
                         {
-                            int ordinal = writer.NextSegmentOrdinal++;
-                            long seqEnd = 0, seqStart = 0;
-                            if (writer.Config.TrackSequenceNumbers)
-                            {
-                                seqEnd = Interlocked.Add(ref writer.NextSequenceNumberMut, dwpt.DocCount);
-                                seqStart = seqEnd - dwpt.DocCount;
-                            }
-
-                            var segInfo = SegmentFlusher.FlushFromDwpt(
-                                dwpt, writer.Config, writer.Directory.DirectoryPath,
-                                ordinal, writer.CommitGeneration,
-                                seqStart, seqEnd,
-                                out _);
-
-                            writer.CommittedSegments.Add(segInfo);
-                            writer.ContentChangedSinceCommit = true;
-                            dwpt.ClearAll();
+                            seqEnd = Interlocked.Add(ref writer.NextSequenceNumberMut, dwpt.DocCount);
+                            seqStart = seqEnd - dwpt.DocCount;
                         }
+
+                        snapshot = DwptFlushSnapshot.CaptureFrom(dwpt);
+                        ReleaseBackpressure(writer, snapshot.DocCount);
+                    }
+                }
+
+                if (snapshot != null)
+                {
+                    // Flush synchronously outside _writeLock
+                    var segInfo = SegmentFlusher.FlushFromSnapshot(
+                        snapshot, writer.Config, writer.Directory.DirectoryPath,
+                        ordinal, writer.CommitGeneration,
+                        seqStart, seqEnd);
+
+                    // Publish briefly under _writeLock
+                    lock (writer.WriteLock)
+                    {
+                        writer.CommittedSegments.Add(segInfo);
+                        writer.ContentChangedSinceCommit = true;
                     }
                 }
             }
+
+            if (writer.ShouldThrottleForMerge())
+                writer.ThrottleMerge();
+        }
+        catch
+        {
+            if (enteredDwpt)
+            {
+                AbortUncommittedWriterState(writer);
+                writer.MarkIndexingFailed();
+            }
+            else if (acquired)
+                ReleaseBackpressure(writer, 1);
+            throw;
+        }
+        finally
+        {
+            writer.ExitIndexingOperation();
+        }
+    }
+
+    public static void AddDocumentBlock(IndexWriter writer, IReadOnlyList<LeanDocument> block)
+    {
+        writer.EnterIndexingOperation();
+        int acquired = 0;
+        bool enteredDwpt = false;
+        try
+        {
+            ArgumentNullException.ThrowIfNull(block);
+            if (block.Count < 2)
+                throw new ArgumentException("A document block requires at least one child and one parent document.", nameof(block));
+            writer.ValidateDocuments(block);
+            if (writer.BackpressureSemaphore is not null && block.Count > writer.Config.MaxQueuedDocs)
+                throw new InvalidOperationException(
+                    $"Document block contains {block.Count} documents, which exceeds MaxQueuedDocs ({writer.Config.MaxQueuedDocs}).");
+
+            for (int i = 0; i < block.Count; i++)
+            {
+                BackpressureController.AcquireBackpressureSlot(writer);
+                if (writer.BackpressureSemaphore is not null)
+                    acquired++;
+            }
+            if (acquired > 0)
+            {
+                lock (writer.WriteLock)
+                    writer.SemaphoreSlotsHeld += acquired;
+            }
+
+            var pool = writer.DwptPool!;
+            int slot = GetProducerSlot(writer, pool.Length);
+            var dwpt = pool[slot];
+            lock (dwpt)
+            {
+                enteredDwpt = true;
+                dwpt.AddDocumentBlock(block);
+            }
+        }
+        catch
+        {
+            if (enteredDwpt)
+            {
+                AbortUncommittedWriterState(writer);
+                writer.MarkIndexingFailed();
+            }
+            else
+            {
+                ReleaseBackpressure(writer, acquired);
+            }
+            throw;
         }
         finally
         {
@@ -158,6 +256,33 @@ internal static class DwptManager
     }
 
     /// <summary>
+    /// Drains all pending detached flushes and publishes their segments.
+    /// Caller must hold <see cref="IndexWriter.WriteLock"/>.
+    /// </summary>
+    internal static void WaitForPendingFlushes(IndexWriter writer)
+    {
+        var pending = writer.FlushPending;
+        if (pending.Count == 0) return;
+
+        foreach (var state in pending)
+        {
+            if (state.Result is null)
+            {
+                // Flush I/O not done yet — run it now
+                state.Result = SegmentFlusher.FlushFromSnapshot(
+                    state.Snapshot, writer.Config, writer.Directory.DirectoryPath,
+                    state.SegmentOrdinal, writer.CommitGeneration,
+                    state.SeqStart, state.SeqEnd);
+            }
+
+            writer.CommittedSegments.Add(state.Result);
+            writer.ContentChangedSinceCommit = true;
+        }
+
+        pending.Clear();
+    }
+
+    /// <summary>
     /// Flushes every non-empty DWPT in the pool into committed segments.
     /// Caller must hold <see cref="IndexWriter.WriteLock"/>.
     /// </summary>
@@ -181,17 +306,58 @@ internal static class DwptManager
                     seqStart = seqEnd - dwpt.DocCount;
                 }
 
-                var segInfo = SegmentFlusher.FlushFromDwpt(
-                    dwpt, writer.Config, writer.Directory.DirectoryPath,
+                var snapshot = DwptFlushSnapshot.CaptureFrom(dwpt);
+                ReleaseBackpressure(writer, snapshot.DocCount);
+
+                // Flush from snapshot - I/O still under _writeLock for Step 1 simplicity
+                var segInfo = SegmentFlusher.FlushFromSnapshot(
+                    snapshot, writer.Config, writer.Directory.DirectoryPath,
                     ordinal, writer.CommitGeneration,
-                    seqStart, seqEnd,
-                    out _);
+                    seqStart, seqEnd);
 
                 writer.CommittedSegments.Add(segInfo);
                 writer.ContentChangedSinceCommit = true;
-                dwpt.ClearAll();
             }
         }
+    }
+
+    private static void ReleaseBackpressure(IndexWriter writer, int count)
+    {
+        if (writer.BackpressureSemaphore is null || count <= 0)
+            return;
+        int release;
+        lock (writer.WriteLock)
+        {
+            release = Math.Min(count, writer.SemaphoreSlotsHeld);
+            writer.SemaphoreSlotsHeld -= release;
+        }
+        BackpressureController.ReleaseSemaphoreSlots(writer, release);
+    }
+
+    private static void AbortUncommittedWriterState(IndexWriter writer)
+    {
+        lock (writer.WriteLock)
+        {
+            if (writer.DwptPool is not null)
+            {
+                foreach (var dwpt in writer.DwptPool)
+                {
+                    lock (dwpt)
+                        dwpt.ClearAll();
+                }
+            }
+
+            int release = writer.SemaphoreSlotsHeld;
+            writer.SemaphoreSlotsHeld = 0;
+            BackpressureController.ReleaseSemaphoreSlots(writer, release);
+        }
+    }
+
+    private static int GetProducerSlot(IndexWriter writer, int poolLength)
+    {
+        int threadId = Environment.CurrentManagedThreadId;
+        return writer.DwptThreadSlots.GetOrAdd(threadId, _ =>
+            (int)((uint)(Interlocked.Increment(ref writer.DwptCounter) - 1) % (uint)poolLength));
     }
 
     private static DocumentsWriterPerThread CreateThreadLocalDocumentWriter(

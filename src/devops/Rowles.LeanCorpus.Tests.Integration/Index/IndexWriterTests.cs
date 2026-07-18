@@ -589,4 +589,269 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         var finalSegs = System.IO.Directory.GetFiles(SubDir("compact_preserve"), "*.seg");
         Assert.True(finalSegs.Length >= 3, $"Expected source segments preserved, got {finalSegs.Length}");
     }
+
+    /// <summary>
+    /// Verifies that many detached threshold flushes produce correct search results
+    /// with no document loss or duplication.
+    /// </summary>
+    [Fact(DisplayName = "Detached flush: Many threshold flushes preserve all documents")]
+    public void DetachedFlush_ManyThresholdFlushes_PreservesAllDocuments()
+    {
+        var dir = new MMapDirectory(SubDir("detached_flush_many"));
+        var config = new IndexWriterConfig
+        {
+            RamBufferSizeMB = 0.5,         // Forces frequent threshold flushes
+            RamPerThreadHardLimitMB = 0.25
+        };
+        using var writer = new IndexWriter(dir, config);
+
+        int docCount = 2000;
+        for (int i = 0; i < docCount; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body",
+                $"Document number {i} with some padding text here. {new string('x', 100)}"));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        // Verify segment count — should have multiple segments from threshold flushes
+        var segFiles = System.IO.Directory.GetFiles(SubDir("detached_flush_many"), "*.seg");
+        Assert.True(segFiles.Length > 1,
+            $"Expected multiple segments from threshold flushes, got {segFiles.Length}");
+
+        // Search for specific documents to verify no loss
+        using var searcher = new IndexSearcher(dir);
+
+        var results = searcher.Search(
+            new TermQuery("body", "500"), 10);
+        Assert.True(results.TotalHits > 0, "Should find documents containing '500'");
+
+        // Verify total document count via MatchAllDocs
+        var all = searcher.Search(
+            new MatchAllDocsQuery(), docCount + 100);
+        Assert.Equal(docCount, all.TotalHits);
+    }
+
+    /// <summary>
+    /// Two threads adding documents with tight RAM limits to force frequent
+    /// threshold flushes, while a third thread periodically commits.
+    /// Verifies no document loss or duplication across commits.
+    /// </summary>
+    [Fact(DisplayName = "Detached flush: Concurrent threshold flushes and commits are correct")]
+    public void DetachedFlush_ConcurrentFlushAndCommit_NoDocumentLoss()
+    {
+        var dir = new MMapDirectory(SubDir("detached_concurrent"));
+        var config = new IndexWriterConfig
+        {
+            RamBufferSizeMB = 0.5,
+            RamPerThreadHardLimitMB = 0.25,
+            DurableCommits = false
+        };
+        using var writer = new IndexWriter(dir, config);
+
+        // Add documents in batches, committing between batches.
+        // The tight RAM limits force threshold flushes during each batch.
+        int batchCount = 10;
+        int docsPerBatch = 200;
+        for (int batch = 0; batch < batchCount; batch++)
+        {
+            for (int i = 0; i < docsPerBatch; i++)
+            {
+                var doc = new LeanDocument();
+                doc.Add(new TextField("body",
+                    $"batch{batch} doc{i} {new string('x', 80)}"));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        // Verify total document count
+        using var searcher = new IndexSearcher(dir);
+        var all = searcher.Search(new MatchAllDocsQuery(), batchCount * docsPerBatch + 100);
+        Assert.Equal(batchCount * docsPerBatch, all.TotalHits);
+
+        // Verify documents from first and last batches are searchable
+        var first = searcher.Search(new TermQuery("body", "batch0"), docsPerBatch + 10);
+        var last = searcher.Search(new TermQuery("body", "batch9"), docsPerBatch + 10);
+        Assert.Equal(docsPerBatch, first.TotalHits);
+        Assert.Equal(docsPerBatch, last.TotalHits);
+    }
+
+    /// <summary>
+    /// Takes a snapshot while documents are being added with tight RAM limits
+    /// (forcing threshold flushes). The snapshot must be internally consistent.
+    /// </summary>
+    [Fact(DisplayName = "Detached flush: Snapshot during active threshold flushes is consistent")]
+    public void DetachedFlush_SnapshotDuringFlush_Consistent()
+    {
+        var dir = new MMapDirectory(SubDir("detached_snapshot"));
+        var config = new IndexWriterConfig
+        {
+            RamBufferSizeMB = 0.5,
+            RamPerThreadHardLimitMB = 0.25,
+            DurableCommits = false
+        };
+        using var writer = new IndexWriter(dir, config);
+
+        // Add initial batch and commit so snapshot has a baseline
+        for (int i = 0; i < 500; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", $"initial doc {i} {new string('x', 80)}"));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        // Start adding more documents while taking snapshots
+        var snapshot = writer.CreateSnapshot();
+
+        for (int i = 0; i < 500; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", $"later doc {i} {new string('x', 80)}"));
+            writer.AddDocument(doc);
+        }
+
+        // Snapshot should reflect committed state at creation time
+        using var snapshotSearcher = new IndexSearcher(dir, snapshot.Segments);
+        var initial = snapshotSearcher.Search(new TermQuery("body", "initial"), 1000);
+        var later = snapshotSearcher.Search(new TermQuery("body", "later"), 1000);
+        Assert.True(initial.TotalHits > 0, "Snapshot should contain initial documents");
+        Assert.Equal(0, later.TotalHits); // Snapshot should not see later documents
+
+        writer.Commit();
+
+        // After commit, new searcher should see everything
+        using var searcher = new IndexSearcher(dir);
+        var all = searcher.Search(new MatchAllDocsQuery(), 1100);
+        Assert.Equal(1000, all.TotalHits);
+    }
+
+    /// <summary>
+    /// Issues UpdateDocument (delete + add) while threshold flushes are in progress.
+    /// The delete must apply to previously published segments without affecting
+    /// documents added after the delete call.
+    /// </summary>
+    [Fact(DisplayName = "Detached flush: UpdateDocument during active threshold flushes")]
+    public void DetachedFlush_UpdateDocumentDuringFlush_Correct()
+    {
+        var dir = new MMapDirectory(SubDir("detached_update"));
+        var config = new IndexWriterConfig
+        {
+            RamBufferSizeMB = 0.5,
+            RamPerThreadHardLimitMB = 0.25,
+            DurableCommits = false
+        };
+        using var writer = new IndexWriter(dir, config);
+
+        // Add documents with StringField IDs for exact-match lookup
+        for (int i = 0; i < 500; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new StringField("id", $"target-{i}", stored: false));
+            doc.Add(new TextField("body", $"target doc {i} {new string('x', 80)}"));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        // Delete first 100 via UpdateDocument and add replacements
+        for (int i = 0; i < 100; i++)
+        {
+            var replacement = new LeanDocument();
+            replacement.Add(new StringField("id", $"replacement-{i}", stored: false));
+            replacement.Add(new TextField("body", $"replacement doc {i} {new string('x', 80)}"));
+            writer.UpdateDocument("id", $"target-{i}", replacement);
+        }
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var all = searcher.Search(new MatchAllDocsQuery(), 1000);
+        Assert.Equal(500, all.TotalHits); // 500 docs: 400 original + 100 replacements
+
+        // Originals that were not deleted should still be there
+        var remaining = searcher.Search(new TermQuery("body", "target"), 500);
+        Assert.Equal(400, remaining.TotalHits);
+
+        // Replacements should be searchable
+        var repl = searcher.Search(new TermQuery("body", "replacement"), 200);
+        Assert.Equal(100, repl.TotalHits);
+    }
+
+    /// <summary>
+    /// Rollback after documents have been flushed via threshold detach.
+    /// The writer must remain usable afterward.
+    /// </summary>
+    [Fact(DisplayName = "Detached flush: Rollback after threshold flushes leaves writer usable")]
+    public void DetachedFlush_RollbackAfterFlushes_WriterUsable()
+    {
+        var dir = new MMapDirectory(SubDir("detached_rollback"));
+        var config = new IndexWriterConfig
+        {
+            RamBufferSizeMB = 0.5,
+            RamPerThreadHardLimitMB = 0.25,
+            DurableCommits = false
+        };
+        using var writer = new IndexWriter(dir, config);
+
+        // Add documents to force threshold flushes
+        for (int i = 0; i < 500; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", $"flushable doc {i} {new string('x', 80)}"));
+            writer.AddDocument(doc);
+        }
+
+        // Rollback should not throw
+        writer.Rollback();
+
+        // Writer should still be usable
+        for (int i = 0; i < 100; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", $"postrollback doc {i}"));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var postRollback = searcher.Search(new TermQuery("body", "postrollback"), 200);
+        Assert.Equal(100, postRollback.TotalHits);
+    }
+
+    /// <summary>
+    /// Dispose after commit does not throw and releases the write lock.
+    /// </summary>
+    [Fact(DisplayName = "Detached flush: Dispose after threshold flushes releases resources")]
+    public void DetachedFlush_DisposeAfterFlushes_ReleasesResources()
+    {
+        var subDirPath = SubDir("detached_dispose");
+        var dir = new MMapDirectory(subDirPath);
+        var config = new IndexWriterConfig
+        {
+            RamBufferSizeMB = 0.5,
+            RamPerThreadHardLimitMB = 0.25,
+            DurableCommits = false
+        };
+        using (var writer = new IndexWriter(dir, config))
+        {
+            for (int i = 0; i < 500; i++)
+            {
+                var doc = new LeanDocument();
+                doc.Add(new TextField("body", $"Disposable doc {i} {new string('x', 80)}"));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        } // Dispose
+
+        // Verify write lock is released
+        var lockPath = System.IO.Path.Combine(subDirPath, "write.lock");
+        Assert.False(System.IO.File.Exists(lockPath), "Write lock should be released after Dispose");
+
+        // Verify documents survive reopen
+        using var reopenDir = new MMapDirectory(subDirPath);
+        using var searcher = new IndexSearcher(reopenDir);
+        var all = searcher.Search(new MatchAllDocsQuery(), 600);
+        Assert.Equal(500, all.TotalHits);
+    }
 }

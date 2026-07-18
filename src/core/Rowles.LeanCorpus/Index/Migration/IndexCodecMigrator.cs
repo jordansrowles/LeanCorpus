@@ -842,14 +842,7 @@ public static class IndexCodecMigrator
                     string fieldName = QualifiedTermHelpers.GetFieldName(term).ToString();
                     normsData.Norms.TryGetValue(fieldName, out var fieldNormBytes);
 
-                    long headerPos = bodyOutput.Position;
-                    postingsOffsets[term] = headerPos;
-                    bodyOutput.WriteInt32(0);     // docFreq placeholder
-                    bodyOutput.WriteInt64(0L);    // skipOffset placeholder
-                    bodyOutput.WriteBoolean(hasFreqs);
-                    bodyOutput.WriteBoolean(hasPositions);
-                    bodyOutput.WriteBoolean(hasPayloads);
-
+                    long bodyOffset = bodyOutput.Position;
                     blockWriter.StartTerm();
                     foreach (var posting in postings)
                     {
@@ -864,12 +857,14 @@ public static class IndexCodecMigrator
                     if (hasPositions)
                         WritePositionRows(bodyOutput, postings, hasPayloads);
 
-                    // Patch term header in place; trailer has no VarInt64, offsets are file-absolute.
-                    long endPos = bodyOutput.Position;
-                    bodyOutput.Seek(headerPos);
+                    long metadataOffset = bodyOutput.Position;
+                    postingsOffsets[term] = metadataOffset;
+                    bodyOutput.WriteInt64(bodyOffset);
                     bodyOutput.WriteInt32(metadata.DocFreq);
                     bodyOutput.WriteInt64(metadata.SkipOffset);
-                    bodyOutput.Seek(endPos);
+                    bodyOutput.WriteBoolean(hasFreqs);
+                    bodyOutput.WriteBoolean(hasPositions);
+                    bodyOutput.WriteBoolean(hasPayloads);
                 }
                 // scope.Dispose() writes 8-byte trailer here.
             }

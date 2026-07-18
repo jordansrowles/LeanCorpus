@@ -26,7 +26,7 @@ internal static class TermVectorsWriter
         var offsets = new long[docs.Count];
 
         // Write .tvd data via streaming scope (trailer written on dispose).
-        using (var tvdOutput = new IndexOutput(tvdPath, durable: true))
+        using (var tvdOutput = new IndexOutput(tvdPath))
         using (var tvdScope = CodecFileHeader.BeginStreamingWrite(tvdOutput, CodecConstants.TermVectorsVersion))
         {
             for (int d = 0; d < docs.Count; d++)
@@ -58,7 +58,7 @@ internal static class TermVectorsWriter
         }
 
         // Write .tvx offset index via streaming scope.
-        using (var tvxOutput = new IndexOutput(tvxPath, durable: true))
+        using (var tvxOutput = new IndexOutput(tvxPath))
         using (var tvxScope = CodecFileHeader.BeginStreamingWrite(tvxOutput, CodecConstants.TermVectorsVersion))
         {
             tvxScope.Output.WriteInt32(docs.Count);

@@ -60,6 +60,8 @@ internal static class SegmentFlusher
             pbs.WriteTo(basePath + ".pbs");
         }
 
+        RefreshSegmentSize(segInfo, directoryPath);
+
         return segInfo;
     }
 
@@ -135,16 +137,28 @@ internal static class SegmentFlusher
                 lengthsReturnList.Add(lengths);
         }
 
-        // Sort qualified terms for the dictionary.
+        // Sort by UTF-8 byte order and build the dictionary without re-encoding.
         int postingsCount = source.PostingsCount;
-        var accumulatorTerms = new (string Term, PostingAccumulator Acc)[postingsCount];
-        source.CopySortedPostings(accumulatorTerms);
-        Array.Sort(accumulatorTerms, static (a, b) => string.CompareOrdinal(a.Term, b.Term));
+        var byteTerms = new (byte[] TermUtf8, PostingAccumulator Acc)[postingsCount];
+        source.CopySortedPostingsUtf8(byteTerms);
+        Array.Sort(byteTerms, static (a, b) => a.TermUtf8.AsSpan().SequenceCompareTo(b.TermUtf8));
 
-        var (postingsOffsets, sortedTermsList) = WritePostingsBody(accumulatorTerms, basePath, quantisedNorms);
-        var sortedTermsBuffer = sortedTermsList;
+        // Convert to string once for WritePostingsBody (needs strings for field name extraction).
+        var stringTerms = new (string Term, PostingAccumulator Acc)[postingsCount];
+        var utf8Terms = new (byte[] KeyUtf8, long Output)[postingsCount];
+        for (int i = 0; i < postingsCount; i++)
+        {
+            stringTerms[i] = (System.Text.Encoding.UTF8.GetString(byteTerms[i].TermUtf8), byteTerms[i].Acc);
+            utf8Terms[i] = (byteTerms[i].TermUtf8, 0);
+        }
 
-        TermDictionaryWriter.Write(basePath + ".dic", sortedTermsBuffer, postingsOffsets);
+        var (postingsOffsets, sortedTermsList) = WritePostingsBody(stringTerms, basePath, quantisedNorms);
+
+        // Map offsets back to byte-sorted order for FST construction.
+        for (int i = 0; i < postingsCount; i++)
+            utf8Terms[i].Output = postingsOffsets[sortedTermsList[i]];
+        var fstBlob = TermDictionaryWriter.BuildFstUtf8(utf8Terms);
+        TermDictionaryWriter.WriteBlob(basePath + ".dic", fstBlob);
 
         NormsWriter.Write(basePath + ".nrm", fieldNorms, docCount: docCount, sparseFieldBoosts: source.FieldBoosts);
         foreach (var arr in normsReturnList) ArrayPool<float>.Shared.Return(arr, clearArray: false);
@@ -379,6 +393,12 @@ internal static class SegmentFlusher
 
         flushSw.Stop();
         config.Metrics.RecordFlush(flushSw.Elapsed);
+        long codecBytes = 0;
+        foreach (var path in FileOpenRetry.GetFiles(directoryPath, segId + ".*"))
+            codecBytes += FileOpenRetry.GetFileLength(path);
+        foreach (var path in FileOpenRetry.GetFiles(directoryPath, segId + "_v_*.*"))
+            codecBytes += FileOpenRetry.GetFileLength(path);
+        config.Metrics.RecordCodecFlush("all", flushSw.Elapsed, codecBytes);
 
         return segInfo;
     }
@@ -451,7 +471,7 @@ internal static class SegmentFlusher
         if (config.StoreTermVectors)
         {
             WriteTermVectors(basePath, dwpt.DocCount,
-                dwpt.Postings.Select(kvp => (kvp.Key, kvp.Value)));
+                dwpt.EnumeratePostings());
         }
 
         // Parent bitset: DWPT always has null ParentDocIds (not supported on concurrent path).
@@ -463,13 +483,85 @@ internal static class SegmentFlusher
             pbs.WriteTo(basePath + ".pbs");
         }
 
+        RefreshSegmentSize(segInfo, directoryPath);
+
         return segInfo;
+    }
+
+    /// <summary>
+    /// Writes a segment directly from a <see cref="DwptFlushSnapshot"/> captured earlier.
+    /// This is the detached-flush entry point: flush I/O runs without holding
+    /// <see cref="IndexWriter.WriteLock"/>, and the caller briefly acquires the lock
+    /// afterwards to publish the returned <see cref="SegmentInfo"/>.
+    /// </summary>
+    public static SegmentInfo FlushFromSnapshot(
+        DwptFlushSnapshot snapshot,
+        IndexWriterConfig config,
+        string directoryPath,
+        int ordinal,
+        int commitGeneration,
+        long seqStart,
+        long seqEnd)
+    {
+        var segId = $"seg_{ordinal}";
+        var segInfo = FlushCore(new SnapshotFlushSource(snapshot), config, directoryPath, segId,
+            commitGeneration, seqStart, seqEnd, minDocsForHnsw: 0);
+
+        var basePath = Path.Combine(directoryPath, segId);
+
+        // Term vectors
+        if (config.StoreTermVectors)
+        {
+            WriteTermVectors(basePath, snapshot.DocCount,
+                snapshot.EnumeratePostings());
+        }
+
+        // Parent bitset
+        if (snapshot.ParentDocIds is { Count: > 0 })
+        {
+            var pbs = new ParentBitSet(snapshot.DocCount);
+            foreach (var pid in snapshot.ParentDocIds)
+                pbs.Set(pid);
+            pbs.WriteTo(basePath + ".pbs");
+        }
+
+        RefreshSegmentSize(segInfo, directoryPath);
+
+        return segInfo;
+    }
+
+    internal static void RefreshSegmentSize(SegmentInfo segment, string directoryPath)
+    {
+        long totalBytes = 0;
+        var codecBytes = new Dictionary<string, long>(StringComparer.Ordinal);
+        var paths = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string pattern in new[]
+        {
+            segment.SegmentId + ".*",
+            segment.SegmentId + "_gen_*.del",
+            segment.SegmentId + "_v_*.*"
+        })
+        {
+            foreach (var path in FileOpenRetry.GetFiles(directoryPath, pattern))
+                paths.Add(path);
+        }
+
+        foreach (var path in paths)
+        {
+            var metadata = FileOpenRetry.GetFileMetadata(path);
+            totalBytes += metadata.Length;
+            codecBytes[metadata.Extension] = codecBytes.GetValueOrDefault(metadata.Extension) + metadata.Length;
+        }
+
+        segment.TotalBytes = totalBytes;
+        segment.CodecBytes = codecBytes;
+        segment.WriteTo(Path.Combine(directoryPath, segment.SegmentId + ".seg"));
     }
 
     /// <summary>
     /// Writes the .pos postings body for a sorted array of (term, accumulator) pairs.
     /// Returns postings offsets (keyed by qualified term) and the sorted term list
-    /// for the term dictionary. Uses the v2 streaming format with no CodecKit envelope.
+    /// for the term dictionary. Uses the v4 sequential body-then-metadata layout.
     /// </summary>
     private static (Dictionary<string, long> PostingsOffsets, List<string> SortedTerms) WritePostingsBody(
         (string Term, PostingAccumulator Acc)[] accumulatorTerms,
@@ -478,12 +570,10 @@ internal static class SegmentFlusher
     {
         int postingsCount = accumulatorTerms.Length;
         var postingsOffsets = new Dictionary<string, long>(postingsCount, StringComparer.Ordinal);
-        var headerPatches = new (long HeaderPos, int DocFreq, long SkipOffset)[postingsCount];
         var sortedTerms = new List<string>(postingsCount);
-        int termIdx = 0;
 
         string posPath = basePath + ".pos";
-        using (var posOutput = new IndexOutput(posPath, durable: true, dropPageCache: true))
+        using (var posOutput = new IndexOutput(posPath))
         {
             using var scope = CodecFileHeader.BeginStreamingWrite(posOutput, CodecConstants.PostingsVersion);
 
@@ -501,14 +591,7 @@ internal static class SegmentFlusher
                 bool hasPositions = acc.HasPositions;
                 bool hasPayloads = acc.HasPayloads;
 
-                long headerPos = posOutput.Position;
-                postingsOffsets[qt] = headerPos;
-                posOutput.WriteInt32(0);     // docFreq placeholder
-                posOutput.WriteInt64(0L);    // skipOffset placeholder
-                posOutput.WriteBoolean(hasFreqs);
-                posOutput.WriteBoolean(hasPositions);
-                posOutput.WriteBoolean(hasPayloads);
-
+                long bodyOffset = posOutput.Position;
                 blockWriter.StartTerm();
                 for (int i = 0; i < ids.Length; i++)
                 {
@@ -571,17 +654,18 @@ internal static class SegmentFlusher
                     }
                 }
 
-                long endPos = posOutput.Position;
-                posOutput.Seek(headerPos);
+                long metadataOffset = posOutput.Position;
+                postingsOffsets[qt] = metadataOffset;
+                posOutput.WriteInt64(bodyOffset);
                 posOutput.WriteInt32(meta.DocFreq);
                 posOutput.WriteInt64(meta.SkipOffset);
-                posOutput.Seek(endPos);
-
-                headerPatches[termIdx++] = (headerPos, meta.DocFreq, meta.SkipOffset);
+                posOutput.WriteBoolean(hasFreqs);
+                posOutput.WriteBoolean(hasPositions);
+                posOutput.WriteBoolean(hasPayloads);
             }
         }
 
-        // v2 has no envelope — offsets are already correct.
+        // Metadata offsets are absolute file positions.
         return (postingsOffsets, sortedTerms);
     }
 
@@ -838,7 +922,7 @@ internal static class SegmentFlusher
     {
         if (numericIndex.Count == 0) return;
 
-        using var output = new IndexOutput(filePath, durable: true);
+        using var output = new IndexOutput(filePath);
 
         output.WriteInt32(numericIndex.Count);
         foreach (var (fieldName, docValues) in numericIndex)
@@ -859,7 +943,7 @@ internal static class SegmentFlusher
     {
         if (int64Index.Count == 0) return;
 
-        using var output = new IndexOutput(filePath, durable: true);
+        using var output = new IndexOutput(filePath);
 
         output.WriteInt32(int64Index.Count);
         foreach (var (fieldName, docValues) in int64Index)

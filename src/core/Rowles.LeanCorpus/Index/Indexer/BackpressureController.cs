@@ -17,6 +17,7 @@ internal static class BackpressureController
             {
                 lock (writer.WriteLock)
                 {
+                    DwptManager.FlushDwptPool(writer);
                     if (writer.Buffer.DocCount > 0)
                         IndexWriter.FlushSegmentStatic(writer);
                 }
