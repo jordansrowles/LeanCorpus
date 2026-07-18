@@ -419,6 +419,8 @@ public sealed partial class SegmentReader : IDisposable
         foreach (var r in _vectorReaders.Values) r.Dispose();
         _vectorReaders.Clear();
         _vectorPaths.Clear();
+        foreach (var r in _quantisedVectorReaders.Values) r.Dispose();
+        _quantisedVectorReaders.Clear();
         _termVectorsReader?.Dispose();
         _bkdReader?.Dispose();
         _int64BkdReader?.Dispose();
