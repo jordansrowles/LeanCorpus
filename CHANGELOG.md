@@ -1,7 +1,62 @@
+
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- DwptFlushSnapshot captures immutable DWPT state via collection swap so the DWPT can index new documents while the snapshot flushes independently (a14c71a80)
+- SnapshotFlushSource implements IFlushSource over a snapshot so FlushCore and the postings write path read from owned copies (a14c71a80)
+- FlushPendingState tracks in-flight detached flushes for MaxConcurrentFlushes > 1 (a14c71a80)
+- SegmentFlusher.FlushFromSnapshot new entry point for snapshot-based flush I/O (a14c71a80)
+- IFlushSource.CopySortedPostingsUtf8 returns (byte[] TermUtf8, PostingAccumulator Acc)[] so flush sources produce term bytes directly from BytesRefHash (a14c71a80)
+- TermDictionaryWriter.BuildFstUtf8 accepts pre-sorted (byte[], long)[] to eliminate the decode-to-string-then-re-encode round-trip in dictionary construction (a14c71a80)
+- TermDictionaryReader.TryGetPostingsOffset(ReadOnlySpan\byte>) byte-native FST lookup for the delete hot path (a14c71a80)
+- DeleteTerm record struct with field ordinal, UTF-8 term bytes, and pre-encoded qualified-term prefix for compact delete storage (a14c71a80)
+- QueueDelete with deduplication on IndexWriter so hard deletes always win over soft deletes for the same field and term (a14c71a80)
+- ByteBlockPool and IntBlockPool segment-lifetime allocators in Codecs/Postings/ with bulk Reset (a14c71a80)
+- 6 integration tests for detached flush correctness covering concurrent flush and commit, snapshot consistency, UpdateDocument during flush, Rollback, and Dispose (a14c71a80)
+- Architecture tests now guard namespace, dependency, storage and structural boundaries (49916e9b1)
+- `HasBlockMetadata` to `PostingsEnum` for exception-free WAND capability checks (f3305a51a)
+- Five integration tests to reproduce WAND crashes caused by absent terms in specific segments (f3305a51a)
+- Add WAND searcher to `MoreLikeThisBenchmarks` to directly compare WAND vs. scalar performance (f3305a51a)
+- Add `MoreLikeThisSingleSegmentBenchmarks` to safely isolate WAND segment-topology effects (f3305a51a)
+### Changed
+- DwptManager.AddDocument threshold flush path captures snapshot under lock(dwpt), does I/O outside `_writeLock`, then briefly locks to publish (a14c71a80)
+- DwptManager.FlushDwptPool drains pending flushes first then flushes remaining DWPTs via FlushFromSnapshot (a14c71a80)
+- CommitCore and PrepareCommit call WaitForPendingFlushes before FlushDwptPool (a14c71a80)
+- UpdateDocument and UpdateDocuments call WaitForPendingFlushes before applying deletes so pending threshold-flush segments are published first (a14c71a80)
+- SegmentFlusher.FlushCore sorts terms by UTF-8 byte order via SequenceCompareTo instead of string.CompareOrdinal (a14c71a80)
+- DeletionApplier.ApplyPendingDeletions uses ApplyDeletesByOrdinal with byte-native FST lookup instead of string-qualified-term construction (a14c71a80)
+- `_pendingDeletes` changed from `List<(string,string,bool)>` to `List<DeleteTerm>` with field ordinal and UTF-8 term storage (a14c71a80)
+- DocumentsWriterPerThread collection fields changed from readonly to mutable so ResetAfterSnapshot can swap them with fresh instances (a14c71a80)
+- NextSegmentOrdinal assignment in threshold flush uses Interlocked.Increment since the path no longer holds `_writeLock` (a14c71a80)
+- Write to `SlowQueryLog` asynchronously via a bounded channel to prevent slow I/O blocking search threads (3632683e4)
+- Codecs no longer depend on Search or Index internals (49916e9b1)
+- File-system access is now encapsulated by the Store layer (49916e9b1)
+- `PorterStemmer` has moved to `Rowles.LeanCorpus.Analysis.Stemmers` (49916e9b1)
+- Optimise `CodecFileHeader` reads using bulk `IndexInput.ReadBytes` to reduce decoding overhead (9c77ff7a3)
+### Fixed
+
+
+
+- Dispose drains and publishes pending detached flushes before releasing the write lock so no flush work is lost on shutdown (a14c71a80)
+- `StoredFieldsReader` now serialises concurrent document reads to prevent block cache corruption from multi-threaded stored-field access (ad7c40a35)
+- Replace `ConditionalWeakTable` with `ConcurrentDictionary` in SearcherManager to prevent `SearcherRef` and `IndexSearcher` leaks on refresh (96c550269)
+- Vector readers now preserve mapped-file lifetime and deferred deletion behaviour (49916e9b1)
+- Dispose `QuantisedVectorReader` in` SegmentReader.Dispose` to prevent memory-mapped file leaks (d6e96315b)
+- Wait for background refresh to exit in `SearcherManager.Dispose` to prevent shutdown `ObjectDisposedExceptions` (da60cdb49)
+- Cap `NumericAggregator` histogram buckets at 100k to prevent OOM errors on extreme ratios (f5db3e27d)
+- Fix `ExecuteBooleanStreaming` crash on absent MLT terms by correctly handling empty postings (f3305a51a)
+- Pass segment-local `shouldCount` explicitly in `ExecuteShouldOnlyWand` instead of relying on array capacity (f3305a51a)
+- Clamp `estimatedGlobal` to `_totalDocCount` in MLT extraction to prevent negative IDF (f3305a51a)
+- Fix empty queries in MLT benchmarks by explicitly setting `FieldNames` and adding a `Debug.Assert` (f3305a51a)
+### Removed
+### Deprecated
+### Security
 
 
 ## [2.0.0] - 2026-07-14

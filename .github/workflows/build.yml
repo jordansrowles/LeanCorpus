@@ -211,7 +211,7 @@ jobs:
 
       - name: Build docs
         shell: pwsh
-        run: ./scripts/docs.ps1 -SkipBenchmarks
+        run: ./devops docs -SkipBenchmarks
 
 
       - name: Upload docs artifact

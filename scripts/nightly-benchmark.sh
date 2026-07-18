@@ -17,4 +17,4 @@ TMUX_SESSION="leancorpus-benchmark"
 /usr/bin/tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
 
 /usr/bin/tmux new-session -d -s "$TMUX_SESSION" \
-  "cd $REPO_DIR && ./scripts/benchmark.sh"
+  "cd $REPO_DIR && ./devops benchmark"
