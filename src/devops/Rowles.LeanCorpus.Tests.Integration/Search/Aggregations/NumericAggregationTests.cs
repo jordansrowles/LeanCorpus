@@ -113,6 +113,48 @@ public class NumericAggregationTests : IDisposable
     }
 
     /// <summary>
+    /// Verifies that histogram bucket count is capped to prevent OOM from
+    /// malicious or misconfigured requests with tiny intervals and wide ranges.
+    /// </summary>
+    [Fact(DisplayName = "Histogram: Bucket Count Capped Against OOM")]
+    public void Histogram_BucketCountCapped()
+    {
+        // Two docs with values spanning 1M range, interval 0.1: raw buckets would be ~10M.
+        using var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig());
+        var doc0 = new LeanDocument();
+        doc0.Add(new TextField("name", "doc 0"));
+        doc0.Add(new NumericField("price", 0.0));
+        writer.AddDocument(doc0);
+
+        var doc1 = new LeanDocument();
+        doc1.Add(new TextField("name", "doc 1"));
+        doc1.Add(new NumericField("price", 1_000_000.0));
+        writer.AddDocument(doc1);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+
+        var (_, aggs) = searcher.SearchWithAggregations(
+            new TermQuery("name", "doc"), 100,
+            new AggregationRequest("price_hist", "price", AggregationType.Histogram)
+            {
+                HistogramInterval = 0.1
+            });
+
+        Assert.Single(aggs);
+        var hist = aggs[0];
+        Assert.NotNull(hist.Buckets);
+        Assert.True(hist.Buckets.Count <= NumericAggregator.MaxBucketCount,
+            $"Expected <= {NumericAggregator.MaxBucketCount} buckets, got {hist.Buckets.Count}");
+
+        // Bucket counts must still sum to total doc count.
+        long bucketSum = 0;
+        foreach (var b in hist.Buckets)
+            bucketSum += b.Count;
+        Assert.Equal(hist.Count, bucketSum);
+    }
+
+    /// <summary>
     /// Verifies the No Aggregations: Returns Empty Array scenario.
     /// </summary>
     [Fact(DisplayName = "No Aggregations: Returns Empty Array")]

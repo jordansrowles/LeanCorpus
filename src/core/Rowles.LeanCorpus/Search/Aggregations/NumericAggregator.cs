@@ -7,8 +7,12 @@ namespace Rowles.LeanCorpus.Search.Aggregations;
 /// Computes numeric aggregations over matching documents using numeric doc values.
 /// Operates per-segment for cache-friendliness.
 /// </summary>
+
 public static class NumericAggregator
 {
+    /// <summary>Maximum number of histogram buckets. Prevents OOM from malicious or misconfigured requests.</summary>
+    internal const int MaxBucketCount = 100_000;
+
     /// <summary>
     /// Computes all requested aggregations over the given matching document IDs.
     /// </summary>
@@ -312,7 +316,10 @@ public static class NumericAggregator
 
         // Build histogram buckets.
         double bucketStart = Math.Floor(min / interval) * interval;
-        int bucketCount = Math.Max(1, (int)Math.Ceiling((max - bucketStart) / interval) + 1);
+        double rawBuckets = (max - bucketStart) / interval;
+        int bucketCount = double.IsNaN(rawBuckets) || double.IsInfinity(rawBuckets) || rawBuckets > MaxBucketCount
+            ? MaxBucketCount
+            : Math.Max(1, (int)Math.Ceiling(rawBuckets) + 1);
         var bucketCounts = new long[bucketCount];
 
         foreach (double v in values)
