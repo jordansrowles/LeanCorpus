@@ -123,6 +123,26 @@ public sealed class PostingsEnumGapsTests : IDisposable
         }
     }
 
+    [Fact(DisplayName = "PostingsEnum: Disposing One Copy Invalidates Every Copy Exactly Once")]
+    public void Dispose_Copy_InvalidatesEveryCopy()
+    {
+        var (path, offset) = WriteCurrentFormatPostings();
+        using var input = new IndexInput(path);
+        var original = PostingsEnum.CreateWithPositions(input, offset);
+        var copy = original;
+
+        original.Dispose();
+
+        Assert.Equal(-1, copy.DocId);
+        Assert.Equal(1, copy.Freq);
+        Assert.False(copy.Advance(2));
+        copy.Reset();
+        Assert.True(copy.GetPayload(0).IsEmpty);
+        Assert.Throws<ObjectDisposedException>(() => copy.MoveNext());
+
+        copy.Dispose();
+    }
+
     private (string Path, long Offset) WriteCurrentFormatPostings()
     {
         var path = Path.Combine(_dir, Guid.NewGuid().ToString("N") + ".pos");
