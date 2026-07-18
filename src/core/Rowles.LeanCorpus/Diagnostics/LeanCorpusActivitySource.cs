@@ -35,5 +35,16 @@ internal static class LeanCorpusActivitySource
     internal static void TraceSwallowed(Exception exception, string context)
     {
         Debug.WriteLine($"LeanCorpus swallowed {exception.GetType().Name} during {context}: {exception.Message}");
+        if (Activity.Current is { } activity)
+        {
+            activity.AddEvent(new ActivityEvent(
+                "exception.swallowed",
+                tags: new ActivityTagsCollection
+                {
+                    { "exception.type", exception.GetType().Name },
+                    { "exception.message", exception.Message },
+                    { "context", context }
+                }));
+        }
     }
 }
