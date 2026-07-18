@@ -27,7 +27,7 @@ internal sealed class StoredFieldsReader : IDisposable
     // Reusable MemoryStream + BinaryReader for ReadDocument
     private MemoryStream? _docStream;
     private BinaryReader? _docReader;
-
+    private readonly Lock _lock = new();
     private bool _disposed;
 
     /// <summary>Maximum decompressed byte size for a single stored fields block (256 MB).</summary>
@@ -162,77 +162,83 @@ internal sealed class StoredFieldsReader : IDisposable
 
     internal Dictionary<string, List<StoredFieldValue>> ReadDocumentValues(int docId, ISet<string>? fieldsToLoad)
     {
-        var br = PositionDocumentReader(docId);
-
-        int fieldCount = br.ReadInt32();
-        var fields = new Dictionary<string, List<StoredFieldValue>>(fieldCount, StringComparer.Ordinal);
-
-        for (int i = 0; i < fieldCount; i++)
+        lock (_lock)
         {
-            int nameLen = br.ReadInt32();
-            string name = System.Text.Encoding.UTF8.GetString(br.ReadBytes(nameLen));
+            var br = PositionDocumentReader(docId);
 
-            int valueCount = br.ReadInt32();
+            int fieldCount = br.ReadInt32();
+            var fields = new Dictionary<string, List<StoredFieldValue>>(fieldCount, StringComparer.Ordinal);
 
-            if (fieldsToLoad is not null && !fieldsToLoad.Contains(name))
+            for (int i = 0; i < fieldCount; i++)
             {
+                int nameLen = br.ReadInt32();
+                string name = System.Text.Encoding.UTF8.GetString(br.ReadBytes(nameLen));
+
+                int valueCount = br.ReadInt32();
+
+                if (fieldsToLoad is not null && !fieldsToLoad.Contains(name))
+                {
+                    for (int v = 0; v < valueCount; v++)
+                    {
+                        br.ReadByte(); // kind
+                        int valueLength = br.ReadInt32();
+                        br.BaseStream.Seek(valueLength, SeekOrigin.Current);
+                    }
+                    continue;
+                }
+
+                var values = new List<StoredFieldValue>(valueCount);
                 for (int v = 0; v < valueCount; v++)
                 {
-                    br.ReadByte(); // kind
+                    var kind = (StoredFieldValueKind)br.ReadByte();
                     int valueLength = br.ReadInt32();
-                    br.BaseStream.Seek(valueLength, SeekOrigin.Current);
+                    if (kind == StoredFieldValueKind.Binary)
+                    {
+                        values.Add(StoredFieldValue.FromBinary(br.ReadBytes(valueLength)));
+                    }
+                    else if (kind == StoredFieldValueKind.Long)
+                    {
+                        var bytes = br.ReadBytes(valueLength);
+                        long value = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(bytes);
+                        values.Add(StoredFieldValue.FromLong(value));
+                    }
+                    else
+                    {
+                        values.Add(StoredFieldValue.FromString(System.Text.Encoding.UTF8.GetString(br.ReadBytes(valueLength))));
+                    }
                 }
-                continue;
+                fields[name] = values;
             }
 
-            var values = new List<StoredFieldValue>(valueCount);
-            for (int v = 0; v < valueCount; v++)
-            {
-                var kind = (StoredFieldValueKind)br.ReadByte();
-                int valueLength = br.ReadInt32();
-                if (kind == StoredFieldValueKind.Binary)
-                {
-                    values.Add(StoredFieldValue.FromBinary(br.ReadBytes(valueLength)));
-                }
-                else if (kind == StoredFieldValueKind.Long)
-                {
-                    var bytes = br.ReadBytes(valueLength);
-                    long value = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(bytes);
-                    values.Add(StoredFieldValue.FromLong(value));
-                }
-                else
-                {
-                    values.Add(StoredFieldValue.FromString(System.Text.Encoding.UTF8.GetString(br.ReadBytes(valueLength))));
-                }
-            }
-            fields[name] = values;
+            return fields;
         }
-
-        return fields;
     }
 
     internal bool HasField(int docId, string field)
     {
-        var br = PositionDocumentReader(docId);
-
-        int fieldCount = br.ReadInt32();
-        for (int i = 0; i < fieldCount; i++)
+        lock (_lock)
         {
-            int nameLen = br.ReadInt32();
-            string name = System.Text.Encoding.UTF8.GetString(br.ReadBytes(nameLen));
+            var br = PositionDocumentReader(docId);
 
-            int valueCount = br.ReadInt32();
-            if (string.Equals(name, field, StringComparison.Ordinal) && valueCount > 0)
-                return true;
-            for (int v = 0; v < valueCount; v++)
+            int fieldCount = br.ReadInt32();
+            for (int i = 0; i < fieldCount; i++)
             {
-                var kind = (StoredFieldValueKind)br.ReadByte();
-                int valueLength = br.ReadInt32();
-                br.BaseStream.Seek(valueLength, SeekOrigin.Current);
-            }
-        }
+                int nameLen = br.ReadInt32();
+                string name = System.Text.Encoding.UTF8.GetString(br.ReadBytes(nameLen));
 
-        return false;
+                int valueCount = br.ReadInt32();
+                if (string.Equals(name, field, StringComparison.Ordinal) && valueCount > 0)
+                    return true;
+                for (int v = 0; v < valueCount; v++)
+                {
+                    var kind = (StoredFieldValueKind)br.ReadByte();
+                    int valueLength = br.ReadInt32();
+                    br.BaseStream.Seek(valueLength, SeekOrigin.Current);
+                }
+            }
+
+            return false;
+        }
     }
 
     private BinaryReader PositionDocumentReader(int docId)
