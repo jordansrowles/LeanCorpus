@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using Rowles.LeanCorpus.Index.Compatibility;
 using Rowles.LeanCorpus.Store;
 
@@ -17,7 +18,7 @@ public sealed class SearcherManager : IDisposable
     private readonly Lock _swapLock = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _refreshTask;
-    private readonly ConditionalWeakTable<IndexSearcher, SearcherRef> _searchers = new();
+    private readonly ConcurrentDictionary<IndexSearcher, SearcherRef> _searchers = new();
     private readonly QueryCache? _queryCache;
 
     private volatile SearcherRef _current;
@@ -85,8 +86,8 @@ public sealed class SearcherManager : IDisposable
         long initialContentToken = latestCommit?.ContentToken ?? 0;
 
         var initialSearcher = new IndexSearcher(directory, _config.SearcherConfig);
-        _current = new SearcherRef(initialSearcher, initialGen, initialContentToken);
-        _searchers.Add(initialSearcher, _current);
+        _current = new SearcherRef(initialSearcher, () => _searchers.TryRemove(initialSearcher, out _), initialGen, initialContentToken);
+        _searchers.TryAdd(initialSearcher, _current);
         _refreshTask = Task.Run(() => RefreshLoop(_cts.Token));
     }
 
@@ -265,8 +266,8 @@ public sealed class SearcherManager : IDisposable
             }
 
             var newSearcher = new IndexSearcher(_directory, _config.SearcherConfig);
-            var newRef = new SearcherRef(newSearcher, latestCommit.Generation, latestCommit.ContentToken);
-            _searchers.Add(newSearcher, newRef);
+            var newRef = new SearcherRef(newSearcher, () => _searchers.TryRemove(newSearcher, out _), latestCommit.Generation, latestCommit.ContentToken);
+            _searchers.TryAdd(newSearcher, newRef);
 
             // Content has changed — any cached results from the old searcher are stale.
             _queryCache?.Invalidate();
@@ -285,10 +286,12 @@ public sealed class SearcherManager : IDisposable
         public int Generation { get; set; }
         public long ContentToken { get; }
         private int _refCount = 1; // 1 = the owner/publish reference held by _current
+        private readonly Action? _onDisposed;
 
-        public SearcherRef(IndexSearcher searcher, int generation = 0, long contentToken = 0)
+        public SearcherRef(IndexSearcher searcher, Action? onDisposed = null, int generation = 0, long contentToken = 0)
         {
             Searcher = searcher;
+            _onDisposed = onDisposed;
             Generation = generation;
             ContentToken = contentToken;
         }
@@ -312,7 +315,10 @@ public sealed class SearcherManager : IDisposable
         public void DecrementRef()
         {
             if (Interlocked.Decrement(ref _refCount) == 0)
+            {
                 Searcher.Dispose();
+                _onDisposed?.Invoke();
+            }
         }
 
         /// <summary>
