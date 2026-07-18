@@ -13,6 +13,7 @@
   <Project Path="src/devops/Rowles.LeanCorpus.Tests.Chaos/Rowles.LeanCorpus.Tests.Chaos.csproj" />
   <Project Path="src/devops/Rowles.LeanCorpus.Tests.CompressionParity/Rowles.LeanCorpus.Tests.CompressionParity.csproj" />
   <Project Path="src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj" />
+  <Project Path="src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj" />
   <Project Path="src/examples/Rowles.LeanCorpus.Example.JsonApi/Rowles.LeanCorpus.Example.JsonApi.csproj" />
   <Project Path="src/examples/Rowles.LeanCorpus.Example.NewsgroupsIndexer/Rowles.LeanCorpus.Example.NewsgroupsIndexer.csproj" />
   <Project Path="src/examples/Rowles.LeanCorpus.Example.Telemetry/Rowles.LeanCorpus.Example.Telemetry.csproj" />

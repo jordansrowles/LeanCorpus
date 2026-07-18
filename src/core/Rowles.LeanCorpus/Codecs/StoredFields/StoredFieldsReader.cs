@@ -11,7 +11,7 @@ namespace Rowles.LeanCorpus.Codecs.StoredFields;
 /// </summary>
 internal sealed class StoredFieldsReader : IDisposable
 {
-    private readonly FileStream _fs;
+    private readonly Stream _stream;
     private readonly BinaryReader _reader;
     private readonly int _blockSize;
     private readonly int _docCount;
@@ -37,7 +37,7 @@ internal sealed class StoredFieldsReader : IDisposable
     internal const int MaxBlockSize = 100_000;
 
     private StoredFieldsReader(
-        FileStream fs,
+        Stream stream,
         BinaryReader reader,
         int blockSize,
         int docCount,
@@ -48,7 +48,7 @@ internal sealed class StoredFieldsReader : IDisposable
         if (blockSize is < 1 or > MaxBlockSize)
             throw new InvalidDataException($"Stored fields block size {blockSize} is out of range [1, {MaxBlockSize}].");
 
-        _fs = fs;
+        _stream = stream;
         _reader = reader;
         _blockSize = blockSize;
         _docCount = docCount;
@@ -263,7 +263,7 @@ internal sealed class StoredFieldsReader : IDisposable
 
     private void DecompressBlock(int blockIndex)
     {
-        _fs.Seek(_blockOffsets[blockIndex], SeekOrigin.Begin);
+        _stream.Seek(_blockOffsets[blockIndex], SeekOrigin.Begin);
 
         int docCount = _reader.ReadInt32();
         int rawLength = _reader.ReadInt32();
@@ -309,6 +309,6 @@ internal sealed class StoredFieldsReader : IDisposable
         _docReader?.Dispose();
         _docStream?.Dispose();
         _reader.Dispose();
-        _fs.Dispose();
+        _stream.Dispose();
     }
 }

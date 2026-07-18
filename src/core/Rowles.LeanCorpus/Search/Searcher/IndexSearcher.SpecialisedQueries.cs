@@ -1039,7 +1039,7 @@ public sealed partial class IndexSearcher
 
             var searchVec = normalisedQuery ?? queryVec;
             var hnswSw = System.Diagnostics.Stopwatch.StartNew();
-            var shortlist = graph!.Search(searchVec, options, out var stats);
+            var shortlist = graph!.Search(searchVec, options.ToTraversalOptions(), out var stats);
             hnswSw.Stop();
             _config.Metrics.RecordHnswSearch(hnswSw.Elapsed, stats.NodesVisited);
             foreach (var hit in shortlist)
@@ -1065,7 +1065,7 @@ public sealed partial class IndexSearcher
             };
             var searchVec = normalisedQuery ?? queryVec;
             var hnswSw = System.Diagnostics.Stopwatch.StartNew();
-            var shortlist = graph!.Search(searchVec, options, out var stats);
+            var shortlist = graph!.Search(searchVec, options.ToTraversalOptions(), out var stats);
             hnswSw.Stop();
             _config.Metrics.RecordHnswSearch(hnswSw.Elapsed, stats.NodesVisited);
             if (shortlist.Count == 0) return;

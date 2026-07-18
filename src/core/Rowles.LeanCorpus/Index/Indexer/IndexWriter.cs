@@ -68,7 +68,7 @@ public sealed partial class IndexWriter : IDisposable
     private int _closing;       // 0 = open, 1 = Dispose has started draining (prevents TOCTOU)
     private int _inFlightAdds;  // count of indexing callers that passed the disposed-check gate
     private int _indexingFailed;
-    private readonly FileStream _writeLockFile;
+    private readonly Stream _writeLockFile;
 
     /// <summary>
     /// Initialises a new <see cref="IndexWriter"/> for the given directory with the specified configuration.

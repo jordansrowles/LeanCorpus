@@ -1,6 +1,4 @@
 using System.Runtime.CompilerServices;
-using Rowles.LeanCorpus.Search;
-using Rowles.LeanCorpus.Search.Simd;
 using Rowles.LeanCorpus.Util;
 using Rowles.LeanCorpus.Codecs.Vectors;
 namespace Rowles.LeanCorpus.Codecs.Hnsw;
@@ -244,7 +242,7 @@ internal sealed class HnswGraph
     /// Searches the graph for the closest documents to a query vector.
     /// Safe for concurrent callers once <see cref="Freeze"/> has been called.
     /// </summary>
-    public IReadOnlyList<HnswSearchResult> Search(ReadOnlySpan<float> query, HnswSearchOptions options)
+    public IReadOnlyList<HnswSearchResult> Search(ReadOnlySpan<float> query, HnswTraversalOptions options)
         => SearchCore(query, options, out _);
 
     /// <summary>
@@ -252,13 +250,13 @@ internal sealed class HnswGraph
     /// </summary>
     internal IReadOnlyList<HnswSearchResult> Search(
         ReadOnlySpan<float> query,
-        HnswSearchOptions options,
+        HnswTraversalOptions options,
         out HnswSearchStats stats)
         => SearchCore(query, options, out stats);
 
     private IReadOnlyList<HnswSearchResult> SearchCore(
         ReadOnlySpan<float> query,
-        HnswSearchOptions options,
+        HnswTraversalOptions options,
         out HnswSearchStats stats)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -497,7 +495,7 @@ internal sealed class HnswGraph
             var raw = _int8Source.GetRawVector(docId);
             return Int8DistanceComputer.Distance(query, raw, _int8Source.Min, _int8Source.Alpha);
         }
-        return -SimdVectorOps.DotProduct(query, _vectors.GetVector(docId));
+        return -VectorMath.DotProduct(query, _vectors.GetVector(docId));
     }
 
     /// <summary>
@@ -510,7 +508,7 @@ internal sealed class HnswGraph
     {
         // Vectors are expected to be L2-normalised; dot product then equals cosine similarity.
         // Convert to a distance where smaller is better.
-        return -SimdVectorOps.DotProduct(a, b);
+        return -VectorMath.DotProduct(a, b);
     }
 
     /// <summary>
@@ -531,7 +529,7 @@ internal sealed class HnswGraph
         // Int8 and unquantised: dequantised dot product is correct (same metric as search).
         var a = _vectors.GetVector(docIdA);
         var b = _vectors.GetVector(docIdB);
-        return -SimdVectorOps.DotProduct(a, b);
+        return -VectorMath.DotProduct(a, b);
     }
 
     /// <summary>

@@ -32,8 +32,7 @@ public sealed class SlowQueryLog : IDisposable
     /// <summary>Creates a slow query log that appends to a file.</summary>
     public static SlowQueryLog ToFile(double thresholdMs, string filePath)
     {
-        var stream = FileOpenRetry.Open(filePath, FileMode.Append, FileAccess.Write, FileShare.Read);
-        var writer = new StreamWriter(stream) { AutoFlush = true };
+        var writer = FileOpenRetry.OpenAppendText(filePath);
         return new SlowQueryLog(thresholdMs, writer, ownsWriter: true);
     }
 

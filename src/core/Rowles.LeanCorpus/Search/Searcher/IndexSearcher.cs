@@ -115,7 +115,7 @@ public sealed partial class IndexSearcher : IDisposable
                 foreach (var segId in segmentIds)
                 {
                     var segPath = Path.Combine(directory.DirectoryPath, segId + ".seg");
-                    if (!File.Exists(segPath)) continue;
+                    if (!FileOpenRetry.FileExists(segPath)) continue;
                     var info = SegmentInfo.ReadFrom(segPath);
                     _readers.Add(new SegmentReader(directory, info));
                 }

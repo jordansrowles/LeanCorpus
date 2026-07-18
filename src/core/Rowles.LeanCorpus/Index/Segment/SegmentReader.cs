@@ -137,7 +137,7 @@ public sealed partial class SegmentReader : IDisposable
                 if (vf.Quantisation != VectorQuantisation.None)
                 {
                     var vqPath = VectorFilePaths.QuantisedVectorFile(_basePath, vf.FieldName);
-                    if (File.Exists(vqPath))
+                    if (FileOpenRetry.FileExists(vqPath))
                     {
                         _vectorPaths[vf.FieldName] = vqPath;
                         _vectorQuantisation[vf.FieldName] = vf.Quantisation;
@@ -146,7 +146,7 @@ public sealed partial class SegmentReader : IDisposable
                 else
                 {
                     var perFieldVecPath = VectorFilePaths.VectorFile(_basePath, vf.FieldName);
-                    if (File.Exists(perFieldVecPath))
+                    if (FileOpenRetry.FileExists(perFieldVecPath))
                         _vectorPaths[vf.FieldName] = perFieldVecPath;
                 }
             }
@@ -155,7 +155,7 @@ public sealed partial class SegmentReader : IDisposable
         {
             // Legacy single-vector segment: pre-multi-vector layout.
             var legacyVecPath = _basePath + ".vec";
-            if (File.Exists(legacyVecPath))
+            if (FileOpenRetry.FileExists(legacyVecPath))
                 _vectorPaths[string.Empty] = legacyVecPath;
         }
 
@@ -217,7 +217,7 @@ public sealed partial class SegmentReader : IDisposable
         {
             if (_parentBitSetLoaded) return _parentBitSet;
             var pbsPath = _basePath + ".pbs";
-            if (File.Exists(pbsPath))
+            if (FileOpenRetry.FileExists(pbsPath))
                 _parentBitSet = ParentBitSet.ReadFrom(pbsPath);
             Volatile.Write(ref _parentBitSetLoaded, true);
         }
@@ -279,7 +279,7 @@ public sealed partial class SegmentReader : IDisposable
     }
 
     /// <summary>Whether this segment has term vector files.</summary>
-    public bool HasTermVectors => File.Exists(_basePath + ".tvd") && File.Exists(_basePath + ".tvx");
+    public bool HasTermVectors => FileOpenRetry.FileExists(_basePath + ".tvd") && FileOpenRetry.FileExists(_basePath + ".tvx");
 
     private TermVectorsReader? EnsureTermVectorsReader()
     {
@@ -287,7 +287,7 @@ public sealed partial class SegmentReader : IDisposable
 
         var tvdPath = _basePath + ".tvd";
         var tvxPath = _basePath + ".tvx";
-        if (!File.Exists(tvdPath) || !File.Exists(tvxPath)) return null;
+        if (!FileOpenRetry.FileExists(tvdPath) || !FileOpenRetry.FileExists(tvxPath)) return null;
 
         var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
         lock (lockObj)
@@ -535,15 +535,15 @@ public sealed partial class SegmentReader : IDisposable
         ValidateExistingFile(basePath + ".pos");
         ValidateExistingFile(basePath + ".nrm");
 
-        var segLength = new FileInfo(basePath + ".seg").Length;
+        var segLength = FileOpenRetry.GetFileLength(basePath + ".seg");
         if (segLength == 0)
             throw new InvalidDataException($"Segment metadata file is empty or truncated: '{basePath}.seg'.");
 
-        var dicLength = new FileInfo(basePath + ".dic").Length;
+        var dicLength = FileOpenRetry.GetFileLength(basePath + ".dic");
         if (dicLength < sizeof(int))
             throw new InvalidDataException($"Segment dictionary file is truncated: '{basePath}.dic'.");
 
-        var nrmLength = new FileInfo(basePath + ".nrm").Length;
+        var nrmLength = FileOpenRetry.GetFileLength(basePath + ".nrm");
         // CodecKit envelope (version + VarInt64 bodyLen) + minimum body (VarInt fieldCount of 0)
         if (nrmLength < 3)
             throw new InvalidDataException(
@@ -552,8 +552,7 @@ public sealed partial class SegmentReader : IDisposable
 
     private static void ValidateExistingFile(string path)
     {
-        var info = new FileInfo(path);
-        if (!info.Exists)
+        if (!FileOpenRetry.FileExists(path))
             throw new FileNotFoundException($"Segment file is missing: '{path}'.", path);
     }
 }

@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace Rowles.LeanCorpus.Index.Segment;
+namespace Rowles.LeanCorpus.Util;
 
 internal static class QualifiedTermHelpers
 {
@@ -31,18 +31,14 @@ internal static class QualifiedTermHelpers
         return buffer[..(field.Length + 1 + term.Length)];
     }
 
-    /// <summary>
-    /// Builds a qualified term string ("field\0term"), allocating a new string.
-    /// Uses stack allocation for lengths up to 256 chars; heap allocation beyond that.
-    /// Callers in tight loops should use <see cref="QualifiedTermCache"/> instead.
-    /// </summary>
+    /// <summary>Builds an allocating qualified term string.</summary>
     public static string BuildQualifiedTermString(ReadOnlySpan<char> field, ReadOnlySpan<char> term)
     {
         int length = QualifiedTermLength(field, term);
         Span<char> buffer = length <= 256
             ? stackalloc char[length]
             : new char[length];
-        ReadOnlySpan<char> qt = BuildQualifiedTerm(field, term, buffer);
-        return new string(qt);
+        ReadOnlySpan<char> qualifiedTerm = BuildQualifiedTerm(field, term, buffer);
+        return new string(qualifiedTerm);
     }
 }

@@ -17,7 +17,7 @@ public sealed partial class SegmentReader
         return LazyInitializer.EnsureInitialized(ref _numericIndex, ref _lazyInitLock, () =>
         {
             var numPath = _basePath + ".num";
-            return File.Exists(numPath)
+            return FileOpenRetry.FileExists(numPath)
                 ? ReadNumericIndex(numPath)
                 : new Dictionary<string, Dictionary<int, double>>();
         })!;
@@ -45,7 +45,7 @@ public sealed partial class SegmentReader
         return LazyInitializer.EnsureInitialized(ref _int64Index, ref _lazyInitLock, () =>
         {
             var numlPath = _basePath + ".numl";
-            return File.Exists(numlPath)
+            return FileOpenRetry.FileExists(numlPath)
                 ? ReadInt64Index(numlPath)
                 : new Dictionary<string, Dictionary<int, long>>();
         })!;
@@ -583,7 +583,7 @@ public sealed partial class SegmentReader
             if (_bkdReaderLoaded) return _bkdReader;
 
             var bkdPath = _basePath + ".bkd";
-            if (File.Exists(bkdPath))
+            if (FileOpenRetry.FileExists(bkdPath))
             {
                 try
                 {
@@ -614,7 +614,7 @@ public sealed partial class SegmentReader
             if (_int64BkdReaderLoaded) return _int64BkdReader;
 
             var bkdPath = _basePath + ".bkdl";
-            if (File.Exists(bkdPath))
+            if (FileOpenRetry.FileExists(bkdPath))
             {
                 try
                 {
@@ -674,12 +674,12 @@ public sealed partial class SegmentReader
 
             if (_vectorQuantisation.TryGetValue(fieldName, out var q) && q != VectorQuantisation.None)
             {
-                qr = QuantisedVectorReader.Open(path);
+                qr = QuantisedVectorReader.Open(_directory.OpenInput(Path.GetFileName(path)));
                 _quantisedVectorReaders[fieldName] = qr;
                 return qr.ReadVector(docId);
             }
 
-            vr = VectorReader.Open(path);
+            vr = VectorReader.Open(_directory.OpenInput(Path.GetFileName(path)));
             _vectorReaders[fieldName] = vr;
             return vr.ReadVector(docId);
         }
@@ -701,7 +701,7 @@ public sealed partial class SegmentReader
             var path = VectorFilePaths.HnswFile(_basePath, fieldName);
             HnswGraph? graph = null;
 
-            if (File.Exists(path))
+            if (FileOpenRetry.FileExists(path))
             {
                 IVectorSource? src = null;
                 if (_vectorReaders.TryGetValue(fieldName, out var vr))
@@ -712,13 +712,13 @@ public sealed partial class SegmentReader
                 {
                     if (_vectorQuantisation.TryGetValue(fieldName, out var q) && q != VectorQuantisation.None)
                     {
-                        qr = QuantisedVectorReader.Open(vecPath);
+                        qr = QuantisedVectorReader.Open(_directory.OpenInput(Path.GetFileName(vecPath)));
                         _quantisedVectorReaders[fieldName] = qr;
                         src = new QuantisedVectorSource(qr);
                     }
                     else
                     {
-                        vr = VectorReader.Open(vecPath);
+                        vr = VectorReader.Open(_directory.OpenInput(Path.GetFileName(vecPath)));
                         _vectorReaders[fieldName] = vr;
                         src = new VectorReaderSource(vr);
                     }

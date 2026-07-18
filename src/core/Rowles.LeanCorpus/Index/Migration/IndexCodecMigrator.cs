@@ -400,7 +400,7 @@ public static class IndexCodecMigrator
                     durable: true);
 
                 if (!string.IsNullOrWhiteSpace(marker.StagingDirectory) &&
-                    Directory.Exists(marker.StagingDirectory) &&
+                    FileOpenRetry.DirectoryExists(marker.StagingDirectory) &&
                     !PathsEqual(marker.StagingDirectory, sourceDirectory))
                 {
                     TryDeleteDirectory(marker.StagingDirectory);
@@ -411,7 +411,7 @@ public static class IndexCodecMigrator
         }
 
         if (!string.IsNullOrWhiteSpace(marker.StagingDirectory) &&
-            Directory.Exists(marker.StagingDirectory) &&
+            FileOpenRetry.DirectoryExists(marker.StagingDirectory) &&
             !PathsEqual(marker.StagingDirectory, sourceDirectory))
         {
             TryDeleteDirectory(marker.StagingDirectory);
@@ -475,14 +475,14 @@ public static class IndexCodecMigrator
         if (!string.IsNullOrWhiteSpace(requestedStagingDirectory))
             return Path.GetFullPath(requestedStagingDirectory);
 
-        var parent = Directory.GetParent(sourceDirectory)?.FullName ?? Path.GetFullPath(sourceDirectory);
+        var parent = FileOpenRetry.GetParentDirectory(sourceDirectory) ?? Path.GetFullPath(sourceDirectory);
         var directoryName = Path.GetFileName(Path.TrimEndingDirectorySeparator(sourceDirectory));
         return Path.Combine(parent, $"{directoryName}.migration-{Guid.NewGuid():N}");
     }
 
     private static void PrepareStagingDirectory(string sourceDirectory, string stagingDirectory)
     {
-        if (Directory.Exists(stagingDirectory))
+        if (FileOpenRetry.DirectoryExists(stagingDirectory))
             throw new IOException($"Staging directory '{stagingDirectory}' already exists.");
 
         FileOpenRetry.CreateDirectory(stagingDirectory);

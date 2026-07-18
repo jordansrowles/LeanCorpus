@@ -1,4 +1,6 @@
-﻿namespace Rowles.LeanCorpus.Diagnostics;
+﻿using Rowles.LeanCorpus.Store;
+
+namespace Rowles.LeanCorpus.Diagnostics;
 
 /// <summary>
 /// Calculates and reports the on-disk size of an index and its segments.
@@ -14,10 +16,10 @@ public static class IndexSizeCalculator
     /// </summary>
     public static IndexSizeReport Calculate(string directoryPath)
     {
-        if (!Directory.Exists(directoryPath))
+        if (!FileOpenRetry.DirectoryExists(directoryPath))
             throw new DirectoryNotFoundException($"Index directory not found: {directoryPath}");
 
-        var allFiles = Directory.GetFiles(directoryPath);
+        var allFiles = FileOpenRetry.GetFiles(directoryPath);
         long totalSize = 0;
         long commitFileSize = 0;
         long statsFileSize = 0;
@@ -25,10 +27,10 @@ public static class IndexSizeCalculator
 
         foreach (var file in allFiles)
         {
-            var fi = new FileInfo(file);
-            long size = fi.Length;
+            var metadata = FileOpenRetry.GetFileMetadata(file);
+            long size = metadata.Length;
             totalSize += size;
-            string name = fi.Name;
+            string name = metadata.Name;
 
             if (name.StartsWith("segments_", StringComparison.Ordinal))
             {
@@ -43,7 +45,7 @@ public static class IndexSizeCalculator
             }
 
             // Extract segment name (e.g., "seg_0" from "seg_0.dic")
-            string ext = fi.Extension;
+            string ext = metadata.Extension;
             if (string.IsNullOrEmpty(ext)) continue;
 
             string segName = Path.GetFileNameWithoutExtension(name);

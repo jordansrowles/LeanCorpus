@@ -12,3 +12,4 @@ global using Rowles.LeanCorpus.Search.Geo;
 global using Rowles.LeanCorpus.Search.Queries;
 global using Rowles.LeanCorpus.Search.Scoring;
 global using Rowles.LeanCorpus.Search.Searcher;
+global using Rowles.LeanCorpus.Util;
