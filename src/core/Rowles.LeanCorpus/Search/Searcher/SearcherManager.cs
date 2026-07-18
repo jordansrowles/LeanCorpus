@@ -22,6 +22,8 @@ public sealed class SearcherManager : IDisposable
 
     private volatile SearcherRef _current;
     private int _disposed;
+    private volatile bool _disposing;
+    private readonly ManualResetEventSlim _refreshLoopExited = new(false);
     private volatile Exception? _lastRefreshError;
     private long _lastRefreshErrorAtTicks;
     private long _consecutiveRefreshFailures;
@@ -175,16 +177,15 @@ public sealed class SearcherManager : IDisposable
     public void Dispose()
     {
         if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0) return;
+        _disposing = true;
         _cts.Cancel();
-        try { _refreshTask.Wait(TimeSpan.FromSeconds(5)); }
-        catch (AggregateException) { /* Expected: task cancelled during shutdown */ }
-        catch (ObjectDisposedException) { /* CTS already disposed */ }
-        catch (TaskSchedulerException) { /* Task was rejected by scheduler during shutdown */ }
+        _refreshLoopExited.Wait(TimeSpan.FromSeconds(30));
         _cts.Dispose();
         lock (_swapLock)
         {
             _current.Retire();
         }
+        _refreshLoopExited.Dispose();
     }
 
     private async Task RefreshLoop(CancellationToken ct)
@@ -202,7 +203,11 @@ public sealed class SearcherManager : IDisposable
             {
                 RecordRefreshFailure(ex);
             }
+
+            if (_disposing)
+                break;
         }
+        _refreshLoopExited.Set();
     }
 
     private void RecordRefreshFailure(Exception ex)
