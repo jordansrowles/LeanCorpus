@@ -39,7 +39,7 @@ public sealed partial class IndexWriter : IDisposable
     private List<SegmentInfo>? _preparedSegments;
     private long _preparedContentToken;
     private readonly List<SegmentInfo> _committedSegments = [];
-    private readonly List<DeleteTerm> _pendingDeletes = [];
+    private readonly PendingDeleteQueue _deleteQueue = new();
     private readonly Dictionary<string, FileSyncState> _syncedFileStates = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _fieldOrdinals = new(StringComparer.Ordinal);
 
@@ -186,7 +186,7 @@ public sealed partial class IndexWriter : IDisposable
 
                     QueueDelete(field, term, isSoftDelete: false);
                     DeletionApplier.ApplyPendingDeletions(
-                        _pendingDeletes, _committedSegments.GetRange(0, preFlushSegmentCount),
+                        _deleteQueue, _committedSegments.GetRange(0, preFlushSegmentCount),
                         _directory, _commitGeneration, _config.DurableCommits, _config.Metrics);
                     enteredCore = true;
                     DwptManager.AddDocument(this, replacement);
@@ -241,7 +241,7 @@ public sealed partial class IndexWriter : IDisposable
                         QueueDelete(f, t, isSoftDelete: false);
 
                     DeletionApplier.ApplyPendingDeletions(
-                        _pendingDeletes, _committedSegments.GetRange(0, preFlushSegmentCount),
+                        _deleteQueue, _committedSegments.GetRange(0, preFlushSegmentCount),
                         _directory, _commitGeneration, _config.DurableCommits, _config.Metrics);
                     enteredCore = true;
                     DwptManager.AddDocument(this, replacement);
@@ -626,7 +626,7 @@ public sealed partial class IndexWriter : IDisposable
     private long ComputeEstimatedRamBytes()
     {
         long bytes = _buffer.AccountedRamBytes;
-        _config.Metrics.RecordWriterMemory(bytes, 0, _pendingDeletes.Count * 96L);
+        _config.Metrics.RecordWriterMemory(bytes, 0, _deleteQueue.Count * 96L);
         return bytes;
     }
 
@@ -748,7 +748,8 @@ public sealed partial class IndexWriter : IDisposable
 
     internal List<SegmentInfo> CommittedSegments => _committedSegments;
 
-    internal List<DeleteTerm> PendingDeletes => _pendingDeletes;
+    internal List<DeleteTerm> PendingDeletes => _deleteQueue.GetOrderedList();
+    internal PendingDeleteQueue DeleteQueue => _deleteQueue;
     /// <summary>Returns or creates a compact field ordinal for the given field name.</summary>
     internal int GetFieldOrdinal(string fieldName)
     {

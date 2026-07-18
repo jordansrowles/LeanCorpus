@@ -13,28 +13,11 @@ public sealed partial class IndexWriter
     {
         int ordinal = GetFieldOrdinal(field);
         byte[] termUtf8 = System.Text.Encoding.UTF8.GetBytes(term);
-        byte[] prefixUtf8 = System.Text.Encoding.UTF8.GetBytes(field + '\0');
+        byte[] prefixUtf8 = _deleteQueue.GetPrefix(ordinal)
+            ?? System.Text.Encoding.UTF8.GetBytes(field + '\0');
 
-        // Check for duplicates
-        for (int i = 0; i < _pendingDeletes.Count; i++)
-        {
-            var existing = _pendingDeletes[i];
-            if (existing.FieldOrdinal == ordinal &&
-                existing.TermUtf8.AsSpan().SequenceEqual(termUtf8))
-            {
-                if (!isSoftDelete && existing.IsSoftDelete)
-                {
-                    // Upgrade soft delete to hard delete
-                    _pendingDeletes[i] = new DeleteTerm(ordinal, termUtf8, prefixUtf8, false);
-                    _contentChangedSinceCommit = true;
-                }
-                // If hard delete already exists or both are soft, skip
-                return;
-            }
-        }
-
-        _pendingDeletes.Add(new DeleteTerm(ordinal, termUtf8, prefixUtf8, isSoftDelete));
-        _contentChangedSinceCommit = true;
+        if (_deleteQueue.Queue(ordinal, termUtf8, prefixUtf8, isSoftDelete))
+            _contentChangedSinceCommit = true;
     }
 
     public void DeleteDocuments(TermQuery query)

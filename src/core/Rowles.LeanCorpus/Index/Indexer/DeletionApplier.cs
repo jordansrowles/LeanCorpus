@@ -15,7 +15,7 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 internal static class DeletionApplier
 {
     public static void ApplyPendingDeletions(
-        List<DeleteTerm> pendingDeletes,
+        PendingDeleteQueue deleteQueue,
         List<SegmentInfo> segments,
         MMapDirectory directory,
         int commitGeneration,
@@ -23,6 +23,7 @@ internal static class DeletionApplier
         Diagnostics.IMetricsCollector metrics)
     {
         var stopwatch = Stopwatch.StartNew();
+        var pendingDeletes = deleteQueue.GetOrderedList();
         int deleteTermCount = pendingDeletes.Count;
         int changedSegments = 0;
         _ = durableCommits;
@@ -94,7 +95,7 @@ internal static class DeletionApplier
             }
         }
 
-        pendingDeletes.Clear();
+        deleteQueue.Clear();
         stopwatch.Stop();
         metrics.RecordDeleteApplication(stopwatch.Elapsed, deleteTermCount, changedSegments);
     }

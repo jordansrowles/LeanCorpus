@@ -6,7 +6,7 @@
 .DESCRIPTION
     Single entry point for all devops tasks.
       devops build     [-Configuration <c>] [-Framework <tfm>]
-      devops test      [-Suite <name>] [-Framework <tfm>] [-Configuration <c>] [-Filter <expr>] [-List]
+      devops test      [-Suite <name>] [-Framework <tfm>] [-Configuration <c>] [-Filter <expr>] [-Verbosity <level>] [-List]
       devops aot       [-RuntimeIdentifier <rid>]
       devops coverage  [-Framework <tfm>] [-Configuration <c>] [-Clean] [-IncludePerformance] [-GenerateReport]
       devops benchmark [-Suite <name>] [-Strat <name>] [-DocCount <n>] [-Framework <tfm>]
@@ -61,23 +61,71 @@ if (-not $Command -or $Command -eq '--help' -or $Command -eq '-Help' -or $Comman
     Write-Host '  LeanCorpus devops'
     Write-Host '  ================'
     Write-Host ''
-    Write-Host '  Usage:'
-    Write-Host '    devops build     [-Configuration <c>] [-Framework <tfm>]'
-    Write-Host '    devops test      [-Suite <name>] [-Framework <tfm>] [-Filter <expr>] [-List]'
-    Write-Host '    devops aot       [-RuntimeIdentifier <rid>]'
-    Write-Host '    devops coverage  [-Framework <tfm>] [-Clean] [-IncludePerformance] [-GenerateReport]'
-    Write-Host '    devops benchmark [-Suite <name>] [-Strat <name>] [-DocCount <n>] [-Framework <tfm>]'
-    Write-Host '                     [-PrepareData] [-CorpusOnly] [-List] [-Dry] [-GcDump] [-Controlled]'
-    Write-Host '                     [-- BenchmarkDotNet args]'
-    Write-Host '    devops data      <gutenberg|news|wikipedia> [options]'
-    Write-Host '    devops docs      [build|metadata|serve] [-SkipBenchmarks] [-SkipCoverage]'
-    Write-Host '    devops benchmarks docs [options]'
-    Write-Host '    devops benchmark remote [options]'
+    Write-Host '  Commands:'
+    Write-Host ''
+    Write-Host '    build                Build the solution (Release, net10.0 by default)'
+    Write-Host '      -Configuration      Debug or Release (default: Release)'
+    Write-Host '      -Framework          net10.0 or net11.0 (default: net10.0)'
+    Write-Host ''
+    Write-Host '    test                 Run test suites'
+    Write-Host '      -Suite              unit, integration, chaos, sourcegen, compressionparity,'
+    Write-Host '                          architecture, or all (default: all)'
+    Write-Host '      -Framework          net10.0 or net11.0 (default: net10.0)'
+    Write-Host '      -Configuration      Debug or Release (default: Release)'
+    Write-Host '      -Filter             xUnit filter expression (e.g. FullyQualifiedName~Writer)'
+    Write-Host '      -Verbosity          Test output detail: quiet, minimal, normal, detailed'
+    Write-Host '      -List               List available suites and exit'
+    Write-Host ''
+    Write-Host '    aot                  Run NativeAOT smoke tests for both frameworks'
+    Write-Host '      -RuntimeIdentifier  linux-x64, osx-x64, win-x64 (auto-detected if omitted)'
+    Write-Host ''
+    Write-Host '    coverage             Run tests with code coverage collection'
+    Write-Host '      -Framework          net10.0 or net11.0 (default: net10.0)'
+    Write-Host '      -Configuration      Debug or Release (default: Release)'
+    Write-Host '      -Clean              Remove previous coverage results before running'
+    Write-Host '      -IncludePerformance  Include tests marked Coverage=Skip'
+    Write-Host '      -GenerateReport     Generate HTML coverage report via ReportGenerator'
+    Write-Host ''
+    Write-Host '    benchmark            Run BenchmarkDotNet suites'
+    Write-Host '      -Suite              Suite name (default: all). Use -List to see all suites'
+    Write-Host '      -Strat              Strategy preset: fast (500 docs, dry), default (20K, short),'
+    Write-Host '                          quick-compare (1K, short), intense (10K), stress (50K),'
+    Write-Host '                          exhaustive (100K) (default: default)'
+    Write-Host '      -DocCount           Override document count for the run'
+    Write-Host '      -Framework          net10.0 or net11.0 (default: net10.0)'
+    Write-Host '      -PrepareData        Download benchmark data if not already present'
+    Write-Host '      -BookCount          Gutenberg books to fetch with -PrepareData (default: 200)'
+    Write-Host '      -CorpusOnly         Skip Lucene.NET comparison; LeanCorpus methods only'
+    Write-Host '      -Controlled         Deterministic preset: 1K docs, short job, corpus-only'
+    Write-Host '      -Dry                Print the dotnet command without executing'
+    Write-Host '      -GcDump             Collect GC heap dumps (requires dotnet-gcdump)'
+    Write-Host '      -List               List available suites and strategies and exit'
+    Write-Host '      -SourceCommit       Git commit hash for provenance (when .git unavailable)'
+    Write-Host '      -SourceRef          Git ref for provenance'
+    Write-Host '      -SourceManifest     Path to source manifest for provenance'
+    Write-Host '      -- <args>           Arguments passed through to BenchmarkDotNet'
+    Write-Host '        benchmark remote  Run benchmarks on a remote host via SSH/tmux'
+    Write-Host ''
+    Write-Host '    data                 Download benchmark datasets'
+    Write-Host '      gutenberg           Project Gutenberg ebooks'
+    Write-Host '        -BookCount        Number of books to download (default: 200)'
+    Write-Host '      news                20 Newsgroups dataset'
+    Write-Host '      wikipedia           Wikipedia article dump'
+    Write-Host ''
+    Write-Host '    docs                 Build the documentation site'
+    Write-Host '      build               Full build: API metadata + static site (default)'
+    Write-Host '      metadata            API YAML metadata only, no site build'
+    Write-Host '      serve               Build and serve on http://0.0.0.0:8080'
+    Write-Host '      -SkipBenchmarks     Skip regenerating benchmark pages'
+    Write-Host '      -SkipCoverage       Skip regenerating coverage report'
+    Write-Host ''
+    Write-Host '    benchmarks           Benchmark documentation'
+    Write-Host '      docs                Generate benchmark result pages'
     Write-Host ''
     Write-Host '  Examples:'
     Write-Host '    devops build'
-    Write-Host '    devops test'
     Write-Host '    devops test -Suite integration -Framework net11.0'
+    Write-Host '    devops test -Suite unit -Verbosity detailed'
     Write-Host '    devops aot'
     Write-Host '    devops coverage -Clean -GenerateReport'
     Write-Host '    devops benchmark -List'
@@ -300,6 +348,7 @@ if ($Command -eq 'test') {
     $Configuration = Get-ParsedValue $parsed 'Configuration' 'Release'
     $Filter = Get-ParsedValue $parsed 'Filter' ''
     $List = ($RemainingArgs -contains '-List') -or ($RemainingArgs -contains '--List')
+    $TestVerbosity = Get-Arg 'Verbosity' ''
 
     if ($List) {
         Write-Host ''
@@ -317,6 +366,10 @@ if ($Command -eq 'test') {
     $testArgs = @('--configuration', $Configuration, '--framework', $Framework, '--no-restore')
     if ($Filter) { $testArgs += @('--filter', $Filter) }
 
+    if ($TestVerbosity) {
+        $testArgs += @('--logger', "console;verbosity=$TestVerbosity")
+        Write-Host "  Verbosity:     $TestVerbosity"
+    }
     Write-Host "Test runner — $($toRun.Count) suite(s)" -ForegroundColor Cyan
     Write-Host "  Framework:     $Framework"
     Write-Host "  Configuration: $Configuration"

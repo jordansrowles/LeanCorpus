@@ -76,7 +76,7 @@ internal static class CommitManager
         // was 0, so the old pre-flush pass would have skipped them).
         if (writer.PendingDeletes.Count > 0)
             DeletionApplier.ApplyPendingDeletions(
-                writer.PendingDeletes, writer.CommittedSegments,
+                writer.DeleteQueue, writer.CommittedSegments,
                 writer.Directory, writer.CommitGeneration,
                 writer.Config.DurableCommits, writer.Config.Metrics);
 
@@ -330,7 +330,7 @@ internal static class CommitManager
 
             if (writer.PendingDeletes.Count > 0)
                 DeletionApplier.ApplyPendingDeletions(
-                    writer.PendingDeletes, writer.CommittedSegments,
+                    writer.DeleteQueue, writer.CommittedSegments,
                     writer.Directory, writer.CommitGeneration,
                     writer.Config.DurableCommits, writer.Config.Metrics);
 
@@ -406,7 +406,7 @@ internal static class CommitManager
 
             if (writer.PendingDeletes.Count > 0)
                 DeletionApplier.ApplyPendingDeletions(
-                    writer.PendingDeletes, writer.CommittedSegments,
+                    writer.DeleteQueue, writer.CommittedSegments,
                     writer.Directory, writer.CommitGeneration,
                     writer.Config.DurableCommits, writer.Config.Metrics);
 
@@ -489,7 +489,7 @@ internal static class CommitManager
 
             if (writer.PendingDeletes.Count > 0)
                 DeletionApplier.ApplyPendingDeletions(
-                    writer.PendingDeletes, writer.CommittedSegments,
+                    writer.DeleteQueue, writer.CommittedSegments,
                     writer.Directory, writer.CommitGeneration,
                     writer.Config.DurableCommits, writer.Config.Metrics);
 
