@@ -47,7 +47,7 @@ public sealed partial class IndexSearcher
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
         bool hasDeletions = reader.HasDeletions;
         reader.TryGetFieldLengths(query.Field, out var fieldLengths);
-        float avgDocLength = _stats.GetAvgFieldLength(query.Field);
+        float avgDocLength = Stats.GetAvgFieldLength(query.Field);
 
         // Compute scoring factors for every term, not just the leader.
         // Each term contributes its own IDF weight to the phrase score.

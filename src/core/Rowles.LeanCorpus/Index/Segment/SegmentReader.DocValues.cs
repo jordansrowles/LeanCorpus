@@ -7,9 +7,9 @@ using Rowles.LeanCorpus.Util;
 namespace Rowles.LeanCorpus.Index.Segment;
 
 /// <summary>
-/// DocValues and numeric index-related methods for SegmentReader.
+/// DocValues and numeric index-related methods for SegmentReaderState.
 /// </summary>
-public sealed partial class SegmentReader
+internal sealed partial class SegmentReaderState
 {
     /// <summary>Lazy-loads the numeric index (.num) for range queries.</summary>
     private Dictionary<string, Dictionary<int, double>> EnsureNumericIndex()
@@ -349,7 +349,7 @@ public sealed partial class SegmentReader
         {
             bkd.VisitRange(field, min, max, (docId, value) =>
             {
-                if (_liveDocs is null || IsLive(docId))
+                if (LiveDocuments is null || IsLive(docId))
                     visitor(docId, value);
             });
             return true;
@@ -406,7 +406,7 @@ public sealed partial class SegmentReader
             try
             {
                 var raw = bkd.ExactSetQuery(field, values);
-                if (_liveDocs is null)
+                if (LiveDocuments is null)
                     return raw;
 
                 results.Capacity = raw.Count;
@@ -455,7 +455,7 @@ public sealed partial class SegmentReader
         {
             bkd.VisitRange(field, min, max, (docId, value) =>
             {
-                if (_liveDocs is null || IsLive(docId))
+                if (LiveDocuments is null || IsLive(docId))
                     visitor(docId, value);
             });
             return true;
@@ -512,7 +512,7 @@ public sealed partial class SegmentReader
             try
             {
                 var raw = bkd.ExactSetQuery(field, values);
-                if (_liveDocs is null)
+                if (LiveDocuments is null)
                     return raw;
 
                 results.Capacity = raw.Count;
@@ -566,7 +566,7 @@ public sealed partial class SegmentReader
         if (_vectorPaths.ContainsKey(field) && GetVector(field, docId) is { Length: > 0 })
             return true;
 
-        return _storedReader is not null && _storedReader.HasField(docId, field);
+        return StoredReader is not null && StoredReader.HasField(docId, field);
     }
 
     /// <summary>

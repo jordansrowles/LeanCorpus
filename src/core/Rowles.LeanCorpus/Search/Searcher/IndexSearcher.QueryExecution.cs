@@ -84,6 +84,9 @@ public sealed partial class IndexSearcher
     private void ExecuteQuery(Query query, SegmentReader reader,
         Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
+        // Pin the heavy state for the complete segment operation. Nested query
+        // execution takes additional value-type leases on the same cache entry.
+        using var segmentLease = reader.AcquireQueryLease();
         switch (query)
         {
             case TermQuery tq:
@@ -182,7 +185,7 @@ public sealed partial class IndexSearcher
 
         int docFreq = globalDFs.GetValueOrDefault((query.Field, query.Term), postings.DocFreq);
         long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
-        float avgDocLength = _stats.GetAvgFieldLength(query.Field);
+        float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
         int docBase = reader.DocBase;
         float boost = query.Boost;
@@ -279,7 +282,7 @@ public sealed partial class IndexSearcher
                 // Only calculate scoring factors for clauses that survived.
                 int docFreq = globalDFs.GetValueOrDefault((tq.Field, tq.Term), postings.DocFreq);
                 long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
-                float avgDocLength = _stats.GetAvgFieldLength(tq.Field);
+                float avgDocLength = Stats.GetAvgFieldLength(tq.Field);
                 var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, tq.Field);
 
                 switch (clause.Occur)
@@ -698,7 +701,7 @@ public sealed partial class IndexSearcher
                     if (postings.IsExhausted) break;
                     int docFreq = globalDFs.GetValueOrDefault((tq.Field, tq.Term), postings.DocFreq);
                     long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
-                    float avgDocLength = _stats.GetAvgFieldLength(tq.Field);
+                    float avgDocLength = Stats.GetAvgFieldLength(tq.Field);
                     var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, tq.Field);
                     reader.TryGetFieldLengths(tq.Field, out var fieldLengths);
                     // For selective queries (fewer than 2 batches), use an inline loop to avoid
@@ -908,7 +911,7 @@ public sealed partial class IndexSearcher
         {
             var blockEnum = shouldEnums[i].BlockEnum;
             var (f1, f2, f3) = shouldFactors[i];
-            float avgDl = _stats.GetAvgFieldLength(shouldFields[i]);
+            float avgDl = Stats.GetAvgFieldLength(shouldFields[i]);
 
             scorers[i] = new BlockMaxWandScorer.TermScorer(
                 blockEnum, f1, f2, f3,

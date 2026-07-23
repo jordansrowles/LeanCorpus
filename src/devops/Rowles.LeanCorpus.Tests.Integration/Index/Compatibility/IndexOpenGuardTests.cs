@@ -57,15 +57,15 @@ public sealed class IndexOpenGuardTests : IClassFixture<TestDirectoryFixture>
         IndexOpenGuard.EnsureCanOpenSegments(dir, ["seg_0"], IndexOpenCompatibilityMode.Strict, forWriting: false);
     }
 
-    [Fact(DisplayName = "EnsureCanOpenSegments: future version throws")]
-    public void EnsureCanOpenSegments_FutureVersion_Throws()
+    [Fact(DisplayName = "EnsureCanOpenSegments: writer rejects future version")]
+    public void EnsureCanOpenSegments_FutureVersion_ForWriting_Throws()
     {
-        var dir = new MMapDirectory(SubDir(nameof(EnsureCanOpenSegments_FutureVersion_Throws)));
+        var dir = new MMapDirectory(SubDir(nameof(EnsureCanOpenSegments_FutureVersion_ForWriting_Throws)));
         var segPath = Path.Combine(dir.DirectoryPath, "seg_0.dic");
         WriteCodecFile(segPath, CodecFormats.TermDictionary, (byte)(CodecConstants.TermDictionaryVersion + 10), [0x01]);
 
         var ex = Assert.Throws<InvalidDataException>(() =>
-            IndexOpenGuard.EnsureCanOpenSegments(dir, ["seg_0"], IndexOpenCompatibilityMode.Strict, forWriting: false));
+            IndexOpenGuard.EnsureCanOpenSegments(dir, ["seg_0"], IndexOpenCompatibilityMode.Strict, forWriting: true));
         Assert.Contains("future", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -92,25 +92,25 @@ public sealed class IndexOpenGuardTests : IClassFixture<TestDirectoryFixture>
         IndexOpenGuard.EnsureCanOpenSegments(dir, ["seg_0"], IndexOpenCompatibilityMode.Strict, forWriting: false);
     }
 
-    [Fact(DisplayName = "EnsureCanOpenSegments: corrupt file throws")]
-    public void EnsureCanOpenSegments_CorruptFile_Throws()
+    [Fact(DisplayName = "EnsureCanOpenSegments: writer rejects corrupt file")]
+    public void EnsureCanOpenSegments_CorruptFile_ForWriting_Throws()
     {
-        var dir = new MMapDirectory(SubDir(nameof(EnsureCanOpenSegments_CorruptFile_Throws)));
+        var dir = new MMapDirectory(SubDir(nameof(EnsureCanOpenSegments_CorruptFile_ForWriting_Throws)));
         var segPath = Path.Combine(dir.DirectoryPath, "seg_0.dic");
         // Write a truncated file: version byte only, no body length.
         File.WriteAllBytes(segPath, [0x01]);
 
         Assert.ThrowsAny<Exception>(() =>
-            IndexOpenGuard.EnsureCanOpenSegments(dir, ["seg_0"], IndexOpenCompatibilityMode.Strict, forWriting: false));
+            IndexOpenGuard.EnsureCanOpenSegments(dir, ["seg_0"], IndexOpenCompatibilityMode.Strict, forWriting: true));
     }
 
-    [Fact(DisplayName = "EnsureCanOpenSegments: unreadable file throws")]
-    public void EnsureCanOpenSegments_UnreadableFile_Throws()
+    [Fact(DisplayName = "EnsureCanOpenSegments: writer rejects unreadable file")]
+    public void EnsureCanOpenSegments_UnreadableFile_ForWriting_Throws()
     {
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
             return; // UnixFileMode is platform-specific.
 
-        var dir = new MMapDirectory(SubDir(nameof(EnsureCanOpenSegments_UnreadableFile_Throws)));
+        var dir = new MMapDirectory(SubDir(nameof(EnsureCanOpenSegments_UnreadableFile_ForWriting_Throws)));
         var segPath = Path.Combine(dir.DirectoryPath, "seg_0.dic");
         WriteCodecFile(segPath, CodecFormats.TermDictionary, CodecConstants.TermDictionaryVersion, [0x01]);
 
@@ -120,7 +120,7 @@ public sealed class IndexOpenGuardTests : IClassFixture<TestDirectoryFixture>
         try
         {
             Assert.ThrowsAny<Exception>(() =>
-                IndexOpenGuard.EnsureCanOpenSegments(dir, ["seg_0"], IndexOpenCompatibilityMode.Strict, forWriting: false));
+                IndexOpenGuard.EnsureCanOpenSegments(dir, ["seg_0"], IndexOpenCompatibilityMode.Strict, forWriting: true));
         }
         finally
         {

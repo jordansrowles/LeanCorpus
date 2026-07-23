@@ -761,6 +761,7 @@ public unsafe struct PostingsEnum : IDisposable
                 ReturnLazyPosBuffer(_lazyPosBuffer);
                 _lazyPosBuffer = null;
             }
+            _guard?.ReleaseReaderLease();
             return;
         }
 
@@ -809,10 +810,14 @@ public unsafe struct PostingsEnum : IDisposable
             ArrayPool<int>.Shared.Return(_payloadLengths);
             _payloadLengths = null;
         }
+        _guard?.ReleaseReaderLease();
     }
 
     /// <summary>A pre-built empty postings enum that is immediately exhausted.</summary>
     public static PostingsEnum Empty => new(null, null, 0);
+
+    /// <summary>Transfers a segment-state lease to this cursor's shared disposal guard.</summary>
+    internal readonly void AttachLifetimeLease(LifetimeLease lease) => _guard?.AttachLifetimeLease(lease);
 
     private readonly bool TryEnterLease() => _guard?.TryEnter() ?? true;
 
@@ -827,6 +832,22 @@ public unsafe struct PostingsEnum : IDisposable
     {
         private const int DisposeRequested = int.MinValue;
         private int _state;
+        private LifetimeLease _lifetimeLease;
+        private bool _hasLifetimeLease;
+
+        public void AttachLifetimeLease(LifetimeLease lease)
+        {
+            _lifetimeLease = lease;
+            _hasLifetimeLease = true;
+        }
+
+        public void ReleaseReaderLease()
+        {
+            if (!_hasLifetimeLease)
+                return;
+            _hasLifetimeLease = false;
+            _lifetimeLease.Dispose();
+        }
 
         public bool TryEnter()
         {

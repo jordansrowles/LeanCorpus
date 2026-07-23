@@ -39,6 +39,12 @@ public sealed class IndexSearcherConfig
     public int QueryCacheMaxEntries { get; set; } = 1024;
 
     /// <summary>
+    /// Maximum number of heavy segment-reader states retained by this searcher.
+    /// Active states are protected from eviction. Default: 256.
+    /// </summary>
+    public int MaxCachedSegmentReaders { get; set; } = 256;
+
+    /// <summary>
     /// Optional shared query cache. When set, <see cref="IndexSearcher"/> uses this
     /// cache instead of creating a per-instance one. <see cref="SearcherManager"/>
     /// sets this to persist the cache across searcher refreshes.

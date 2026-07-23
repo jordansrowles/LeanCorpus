@@ -27,6 +27,13 @@ internal static class IndexOpenGuard
         if (mode == IndexOpenCompatibilityMode.UnsafeIgnoreCompatibility)
             return;
 
+        // Searchers validate the commit, segment metadata, required file presence,
+        // and migration marker while opening. Codec headers are validated by the
+        // relevant lazy component on first use. Writers retain the eager scan so
+        // they cannot append to an index that requires migration.
+        if (!forWriting)
+            return;
+
         var migrationRecommended = false;
         foreach (var segmentId in segmentIds)
         {

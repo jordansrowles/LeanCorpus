@@ -25,7 +25,9 @@ internal static class Program
 
         MetricsSnapshot metrics = default;
         var searcherOpenMs = 0.0;
+        var workingSetBeforeOpen = 0L;
         var searcherOpenWorkingSet = 0L;
+        var scenarioMetrics = new List<ScenarioMetrics>();
 
         if (!options.SkipIndex)
         {
@@ -55,22 +57,25 @@ internal static class Program
 
         if (!options.SkipSearch)
         {
-            using var searcher = OpenSearcher(options.Index, out searcherOpenMs, out searcherOpenWorkingSet);
+            if (options.SkipIndex)
+            {
+                metrics = metrics with
+                {
+                    FinalSegmentCount = CountSegmentsOnDisk(options.Index),
+                    IndexSizeBytes = GetDirectorySize(options.Index),
+                };
+            }
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            workingSetBeforeOpen = Environment.WorkingSet;
+            using var searcher = OpenSearcher(options.Index, options.MaxCachedSegmentReaders,
+                out searcherOpenMs, out searcherOpenWorkingSet);
             Console.WriteLine(
                 $"Searcher opened in {searcherOpenMs:F0}ms, working set {searcherOpenWorkingSet / (1024 * 1024)}MB");
 
-            var pathIdForFilter = "0";
-            try
-            {
-                var sd = searcher.Search(new MatchAllDocsQuery(), 1);
-                if (sd.ScoreDocs.Length > 0)
-                {
-                    var fields = searcher.GetStoredFields(sd.ScoreDocs[0].DocId);
-                    if (fields.TryGetValue("path_id", out var vals) && vals.Count > 0)
-                        pathIdForFilter = vals[0];
-                }
-            }
-            catch { /* use default */ }
+            const string pathIdForFilter = "0";
 
             var scenarios = new (string Name, Query Query)[]
             {
@@ -87,24 +92,29 @@ internal static class Program
 
             foreach (var (name, query) in scenarios)
             {
-                var (p50, p99, totalHits) = RunScenario(searcher, query, warmup: 10, measured: 50, topN: 100);
-                Console.WriteLine($"{name}: p50={p50:F2}ms p99={p99:F2}ms hits={totalHits}");
+                if (options.Scenario is not null && !name.Equals(options.Scenario, StringComparison.Ordinal))
+                    continue;
+                var scenario = RunScenario(searcher, name, query,
+                    options.WarmupIterations, options.MeasuredIterations, topN: 100);
+                scenarioMetrics.Add(scenario);
+                Console.WriteLine($"{name}: first={scenario.FirstQueryMs:F2}ms " +
+                    $"p50={scenario.P50Ms:F2}ms p99={scenario.P99Ms:F2}ms hits={scenario.TotalHits}");
             }
 
-            var broadResults = searcher.Search(new MatchAllDocsQuery(), 100);
-            var storedSw = Stopwatch.StartNew();
-            int storedCount = 0;
-            foreach (var sd in broadResults.ScoreDocs)
+            if (options.Scenario is null || options.Scenario.Equals("stored-retrieval", StringComparison.Ordinal))
             {
-                searcher.GetStoredFields(sd.DocId);
-                storedCount++;
+                var storedScenario = RunStoredFieldsScenario(searcher,
+                    options.WarmupIterations, options.MeasuredIterations);
+                scenarioMetrics.Add(storedScenario);
+                Console.WriteLine($"stored-retrieval: first={storedScenario.FirstQueryMs:F2}ms " +
+                    $"p50={storedScenario.P50Ms:F2}ms p99={storedScenario.P99Ms:F2}ms " +
+                    $"hits={storedScenario.TotalHits}");
             }
-            storedSw.Stop();
-            Console.WriteLine($"stored-retrieval: {storedCount} docs in {storedSw.Elapsed.TotalMilliseconds:F1}ms");
         }
 
         var metricsPath = Path.Combine(options.Output, $"metrics-{ts}.json");
-        WriteMetricsJson(metricsPath, metrics, searcherOpenMs, searcherOpenWorkingSet);
+        WriteMetricsJson(metricsPath, metrics, options,
+            workingSetBeforeOpen, searcherOpenMs, searcherOpenWorkingSet, scenarioMetrics);
         Console.WriteLine($"Telemetry written to {metricsPath}");
 
         return 0;
@@ -122,6 +132,10 @@ internal static class Program
                 case "--index":      opts.Index = args[++i]; break;
                 case "--output":     opts.Output = args[++i]; break;
                 case "--max-docs":   opts.MaxDocs = int.Parse(args[++i], CultureInfo.InvariantCulture); break;
+                case "--max-cached-segment-readers": opts.MaxCachedSegmentReaders = int.Parse(args[++i], CultureInfo.InvariantCulture); break;
+                case "--scenario": opts.Scenario = args[++i]; break;
+                case "--warmup": opts.WarmupIterations = int.Parse(args[++i], CultureInfo.InvariantCulture); break;
+                case "--measured": opts.MeasuredIterations = int.Parse(args[++i], CultureInfo.InvariantCulture); break;
                 case "--no-compact": opts.Compact = false; break;
                 case "--skip-index": opts.SkipIndex = true; break;
                 case "--skip-search": opts.SkipSearch = true; break;
@@ -131,6 +145,10 @@ internal static class Program
                     Console.WriteLine("  --index <path>       Index directory (default: ./kernel-index)");
                     Console.WriteLine("  --output <path>      Telemetry output directory (default: ./output)");
                     Console.WriteLine("  --max-docs <n>       Max documents to index (default: 0 = all)");
+                    Console.WriteLine("  --max-cached-segment-readers <n>  Heavy reader cache capacity (default: 256)");
+                    Console.WriteLine("  --scenario <name>    Run one query scenario (default: all)");
+                    Console.WriteLine("  --warmup <n>         Warmup iterations per scenario (default: 10)");
+                    Console.WriteLine("  --measured <n>       Measured iterations per scenario (default: 50)");
                     Console.WriteLine("  --no-compact         Skip Compact() after indexing");
                     Console.WriteLine("  --skip-index         Skip indexing, only search");
                     Console.WriteLine("  --skip-search        Skip search, only index");
@@ -140,6 +158,11 @@ internal static class Program
                     return null;
             }
             i++;
+        }
+        if (opts.MaxCachedSegmentReaders < 1 || opts.WarmupIterations < 0 || opts.MeasuredIterations < 1)
+        {
+            Console.Error.WriteLine("Cache size and measured iterations must be positive; warmup must not be negative.");
+            return null;
         }
         return opts;
     }
@@ -240,13 +263,15 @@ internal static class Program
         };
     }
 
-    private static IndexSearcher OpenSearcher(string indexPath, out double elapsedMs, out long workingSet)
+    private static IndexSearcher OpenSearcher(string indexPath, int maxCachedSegmentReaders,
+        out double elapsedMs, out long workingSet)
     {
         var dir = new MMapDirectory(indexPath);
         var sw = Stopwatch.StartNew();
         var searcher = new IndexSearcher(dir, new IndexSearcherConfig
         {
             EnableQueryCache = false,
+            MaxCachedSegmentReaders = maxCachedSegmentReaders,
         });
         sw.Stop();
         elapsedMs = sw.Elapsed.TotalMilliseconds;
@@ -254,9 +279,14 @@ internal static class Program
         return searcher;
     }
 
-    private static (double P50, double P99, int TotalHits) RunScenario(
-        IndexSearcher searcher, Query query, int warmup, int measured, int topN)
+    private static ScenarioMetrics RunScenario(
+        IndexSearcher searcher, string name, Query query, int warmup, int measured, int topN)
     {
+        var firstSw = Stopwatch.StartNew();
+        var firstResult = searcher.Search(query, topN);
+        firstSw.Stop();
+        long workingSetAfterCold = Environment.WorkingSet;
+
         for (int i = 0; i < warmup; i++)
             searcher.Search(query, topN);
 
@@ -274,7 +304,40 @@ internal static class Program
         Array.Sort(latencies);
         double p50 = latencies[measured / 2];
         double p99 = latencies[(int)(measured * 0.99)];
-        return (p50, p99, totalHits);
+        return new ScenarioMetrics(name, firstSw.Elapsed.TotalMilliseconds, p50, p99,
+            totalHits == 0 ? firstResult.TotalHits : totalHits,
+            workingSetAfterCold, Environment.WorkingSet);
+    }
+
+    private static ScenarioMetrics RunStoredFieldsScenario(IndexSearcher searcher, int warmup, int measured)
+    {
+        static int ReadStoredFields(IndexSearcher current)
+        {
+            var results = current.Search(new MatchAllDocsQuery(), 100);
+            foreach (var scoreDoc in results.ScoreDocs)
+                current.GetStoredFields(scoreDoc.DocId);
+            return results.ScoreDocs.Length;
+        }
+
+        var firstSw = Stopwatch.StartNew();
+        int totalHits = ReadStoredFields(searcher);
+        firstSw.Stop();
+        long workingSetAfterCold = Environment.WorkingSet;
+        for (int i = 0; i < warmup; i++)
+            ReadStoredFields(searcher);
+
+        var latencies = new double[measured];
+        for (int i = 0; i < measured; i++)
+        {
+            var sw = Stopwatch.StartNew();
+            ReadStoredFields(searcher);
+            sw.Stop();
+            latencies[i] = sw.Elapsed.TotalMilliseconds;
+        }
+        Array.Sort(latencies);
+        return new ScenarioMetrics("stored-retrieval", firstSw.Elapsed.TotalMilliseconds,
+            latencies[measured / 2], latencies[(int)(measured * 0.99)], totalHits,
+            workingSetAfterCold, Environment.WorkingSet);
     }
 
     private static int CountSegmentsOnDisk(string indexPath)
@@ -307,7 +370,9 @@ internal static class Program
     };
 
     private static void WriteMetricsJson(string path, MetricsSnapshot metrics,
-        double searcherOpenMs, long searcherOpenWorkingSet)
+        Options options, long workingSetBeforeOpen,
+        double searcherOpenMs, long searcherOpenWorkingSet,
+        IReadOnlyList<ScenarioMetrics> scenarios)
     {
         using var stream = new FileStream(path, FileMode.Create, FileAccess.Write);
         using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
@@ -317,8 +382,26 @@ internal static class Program
         writer.WriteNumber("final_segment_count", metrics.FinalSegmentCount);
         writer.WriteNumber("commit_time_ms", metrics.CommitTimeMs);
         writer.WriteNumber("index_size_bytes", metrics.IndexSizeBytes);
+        writer.WriteNumber("max_cached_segment_readers", options.MaxCachedSegmentReaders);
+        writer.WriteNumber("warmup_iterations", options.WarmupIterations);
+        writer.WriteNumber("measured_iterations", options.MeasuredIterations);
+        writer.WriteNumber("working_set_before_open_bytes", workingSetBeforeOpen);
         writer.WriteNumber("searcher_open_ms", searcherOpenMs);
         writer.WriteNumber("searcher_open_working_set_bytes", searcherOpenWorkingSet);
+        writer.WriteStartArray("scenarios");
+        foreach (var scenario in scenarios)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("name", scenario.Name);
+            writer.WriteNumber("first_query_ms", scenario.FirstQueryMs);
+            writer.WriteNumber("p50_ms", scenario.P50Ms);
+            writer.WriteNumber("p99_ms", scenario.P99Ms);
+            writer.WriteNumber("total_hits", scenario.TotalHits);
+            writer.WriteNumber("working_set_after_cold_bytes", scenario.WorkingSetAfterColdBytes);
+            writer.WriteNumber("working_set_after_warm_bytes", scenario.WorkingSetAfterWarmBytes);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
         writer.WriteEndObject();
     }
 
@@ -331,6 +414,10 @@ internal static class Program
         public bool SkipIndex { get; set; }
         public bool SkipSearch { get; set; }
         public int MaxDocs { get; set; }
+        public int MaxCachedSegmentReaders { get; set; } = 256;
+        public string? Scenario { get; set; }
+        public int WarmupIterations { get; set; } = 10;
+        public int MeasuredIterations { get; set; } = 50;
     }
 
     internal record struct MetricsSnapshot
@@ -341,4 +428,13 @@ internal static class Program
         public double CommitTimeMs { get; init; }
         public long IndexSizeBytes { get; init; }
     }
+
+    internal readonly record struct ScenarioMetrics(
+        string Name,
+        double FirstQueryMs,
+        double P50Ms,
+        double P99Ms,
+        int TotalHits,
+        long WorkingSetAfterColdBytes,
+        long WorkingSetAfterWarmBytes);
 }

@@ -140,7 +140,7 @@ public sealed partial class IndexSearcher
                 int termDocCount = 0;
                 foreach (var field in query.Fields)
                 {
-                    float avgFieldLength = _stats.GetAvgFieldLength(field);
+                    float avgFieldLength = Stats.GetAvgFieldLength(field);
                     using var postings = reader.GetPostingsEnum(string.Concat(field, "\x00", term));
                     while (postings.MoveNext())
                     {
@@ -313,7 +313,7 @@ public sealed partial class IndexSearcher
     {
         var qualifiedPrefix = $"{query.Field}\x00{query.Prefix}";
         float boost = query.Boost;
-        float avgDocLength = _stats.GetAvgFieldLength(query.Field);
+        float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         int docBase = reader.DocBase;
         reader.TryGetFieldLengths(query.Field, out var fieldLengths);
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
@@ -389,7 +389,7 @@ public sealed partial class IndexSearcher
             ? $"{query.Field}\x00{leadingPrefix}"
             : $"{query.Field}\x00";
         float boost = query.Boost;
-        float avgDocLength = _stats.GetAvgFieldLength(query.Field);
+        float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         int docBase = reader.DocBase;
         reader.TryGetFieldLengths(query.Field, out var fieldLengths);
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
@@ -621,7 +621,7 @@ public sealed partial class IndexSearcher
         if (matchingTerms.Count == 0) return;
 
         float boost = query.Boost;
-        float avgDocLength = _stats.GetAvgFieldLength(query.Field);
+        float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         int docBase = reader.DocBase;
         reader.TryGetFieldLengths(query.Field, out var fieldLengths);
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
@@ -684,7 +684,7 @@ public sealed partial class IndexSearcher
         if (matchingTerms.Count == 0) return;
 
         float boost = query.Boost;
-        float avgDocLength = _stats.GetAvgFieldLength(query.Field);
+        float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         int docBase = reader.DocBase;
 
         foreach (var (qualifiedTerm, postingsOffset) in matchingTerms)
@@ -753,7 +753,7 @@ public sealed partial class IndexSearcher
         System.Text.RegularExpressions.Regex regex)
     {
         float boost = query.Boost;
-        float avgDocLength = _stats.GetAvgFieldLength(query.Field);
+        float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         int docBase = reader.DocBase;
 
         foreach (var (qualifiedTerm, postingsOffset) in candidates)
@@ -796,7 +796,7 @@ public sealed partial class IndexSearcher
         if (matchingOffsets.Count == 0) return;
 
         float boost = query.Boost;
-        float avgDocLength = _stats.GetAvgFieldLength(query.Field);
+        float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         int docBase = reader.DocBase;
         reader.TryGetFieldLengths(query.Field, out var fieldLengths);
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
@@ -905,7 +905,7 @@ public sealed partial class IndexSearcher
                     continue;
 
                 int docFreq = globalDFs.GetValueOrDefault((termQuery.Field, termQuery.Term), postings.DocFreq);
-                float avgDocLength = _stats.GetAvgFieldLength(termQuery.Field);
+                float avgDocLength = Stats.GetAvgFieldLength(termQuery.Field);
                 long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qualifiedTerm) : 0;
                 var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, termQuery.Field);
                 reader.TryGetFieldLengths(termQuery.Field, out var fieldLengths);
@@ -1181,7 +1181,7 @@ public sealed partial class IndexSearcher
         // Use global DF for correct IDF in multi-segment indexes.
         int docFreq = globalDFs.GetValueOrDefault((tq.Field, tq.Term), postings.DocFreq);
         long globalCollectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
-        float avgDocLength = _stats.GetAvgFieldLength(tq.Field);
+        float avgDocLength = Stats.GetAvgFieldLength(tq.Field);
         var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, globalCollectionFreq, tq.Field);
         float boost = tq.Boost;
 
