@@ -16,9 +16,12 @@ public sealed partial class IndexSearcher : IDisposable
 {
     private readonly MMapDirectory _directory;
     private readonly List<SegmentReader> _readers = [];
+    private readonly BoundedLruCache<string, SegmentReaderState> _segmentReaderCache;
+    private FileSnapshotLease? _snapshotLease;
     private readonly int[] _docBases;
     private readonly int _totalDocCount;
-    private readonly IndexStats _stats;
+    private IndexStats? _stats;
+    private readonly Lock _statsLock = new();
     private readonly ISimilarity _similarity;
     private readonly IndexSearcherConfig _config;
     private readonly bool _useLmScoring;
@@ -36,7 +39,16 @@ public sealed partial class IndexSearcher : IDisposable
         int DocId, int MaxQueryTerms, int MinTermFreq, int MinDocFreq, int MinWordLength);
 
     /// <summary>Corpus-wide statistics computed at construction.</summary>
-    public IndexStats Stats => _stats;
+    public IndexStats Stats
+    {
+        get
+        {
+            if (_stats is { } stats)
+                return stats;
+            lock (_statsLock)
+                return _stats ??= ComputeStats();
+        }
+    }
 
     /// <summary>The query result cache, or null if caching is disabled.</summary>
     public QueryCache? Cache => _queryCache;
@@ -46,7 +58,7 @@ public sealed partial class IndexSearcher : IDisposable
     private (float F1, float F2, float F3) ComputeTermFactors(
         int docFreq, float avgDocLength, long collectionFreq, string field)
     {
-        long totalTerms = _useLmScoring ? _stats.GetFieldLengthSum(field) : 0;
+        long totalTerms = _useLmScoring ? Stats.GetFieldLengthSum(field) : 0;
         return _similarity.PrecomputeLmFactors(_totalDocCount, docFreq, avgDocLength, collectionFreq, totalTerms);
     }
 
@@ -71,6 +83,10 @@ public sealed partial class IndexSearcher : IDisposable
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     internal IReadOnlyList<SegmentReader> GetSegmentReaders() => _readers;
 
+    internal int CachedSegmentReaderCount => _segmentReaderCache.Count;
+
+    internal long LoadedSegmentReaderCount => _segmentReaderCache.LoadCount;
+
     /// <summary>Calculates the on-disk size of the index.</summary>
     public Diagnostics.IndexSizeReport GetIndexSize()
         => Diagnostics.IndexSizeCalculator.Calculate(_directory.DirectoryPath);
@@ -92,8 +108,15 @@ public sealed partial class IndexSearcher : IDisposable
     /// <param name="config">Searcher configuration including similarity model, parallelism, and caching options.</param>
     public IndexSearcher(MMapDirectory directory, IndexSearcherConfig config)
     {
+        ArgumentNullException.ThrowIfNull(directory);
+        ArgumentNullException.ThrowIfNull(config);
+        if (config.MaxCachedSegmentReaders < 1)
+            throw new ArgumentOutOfRangeException(nameof(config), config.MaxCachedSegmentReaders,
+                "MaxCachedSegmentReaders must be at least one.");
         _directory = directory;
         _config = config;
+        _segmentReaderCache = new BoundedLruCache<string, SegmentReaderState>(
+            config.MaxCachedSegmentReaders, StringComparer.Ordinal);
         _similarity = config.Similarity;
 
         _useLmScoring = _similarity.RequiresCollectionStatistics;
@@ -109,16 +132,25 @@ public sealed partial class IndexSearcher : IDisposable
         const int maxAttempts = 3;
         for (int attempt = 1; ; attempt++)
         {
+            FileSnapshotLease? attemptSnapshot = null;
             try
             {
                 _readers.Clear();
+                var idSet = new HashSet<string>(segmentIds, StringComparer.Ordinal);
+                attemptSnapshot = directory.AcquireSnapshot(
+                    name => IsSnapshotFile(idSet, name), out var inventory);
+                var inventorySet = new HashSet<string>(inventory, StringComparer.Ordinal);
+                bool permanentlyResident = config.MaxCachedSegmentReaders >= segmentIds.Count;
                 foreach (var segId in segmentIds)
                 {
                     var segPath = Path.Combine(directory.DirectoryPath, segId + ".seg");
-                    if (!File.Exists(segPath)) continue;
+                    if (!FileOpenRetry.FileExists(segPath)) continue;
                     var info = SegmentInfo.ReadFrom(segPath);
-                    _readers.Add(new SegmentReader(directory, info));
+                    _readers.Add(new SegmentReader(directory, info, _segmentReaderCache, inventorySet,
+                        permanentlyResident));
                 }
+                _snapshotLease = attemptSnapshot;
+                attemptSnapshot = null;
                 break;
             }
             catch (FileNotFoundException) when (attempt < maxAttempts)
@@ -127,19 +159,33 @@ public sealed partial class IndexSearcher : IDisposable
                 (segmentIds, generation) = LoadLatestCommitWithGeneration();
                 IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false);
             }
+            finally
+            {
+                attemptSnapshot?.Dispose();
+            }
         }
 
-        _docBases = AssignDocBases();
-        _totalDocCount = _docBases.Length > 0
-            ? _docBases[^1] + _readers[^1].MaxDoc
-            : 0;
+        try
+        {
+            _docBases = AssignDocBases();
+            _totalDocCount = _docBases.Length > 0
+                ? _docBases[^1] + _readers[^1].MaxDoc
+                : 0;
 
-        // Try to load persisted stats first; fall back to expensive recomputation
-        var statsPath = IndexStats.GetStatsPath(directory.DirectoryPath, generation);
-        _stats = IndexStats.TryLoadFrom(statsPath) ?? ComputeStats();
+            // Persisted statistics are cheap to load. Missing statistics remain lazy.
+            var statsPath = IndexStats.GetStatsPath(directory.DirectoryPath, generation);
+            _stats = IndexStats.TryLoadFrom(statsPath);
 
-        if (config.EnableQueryCache)
-            _queryCache = config.SharedCache ?? new QueryCache(config.QueryCacheMaxEntries);
+            if (config.EnableQueryCache)
+                _queryCache = config.SharedCache ?? new QueryCache(config.QueryCacheMaxEntries);
+        }
+        catch
+        {
+            _segmentReaderCache.Dispose();
+            _snapshotLease?.Dispose();
+            _snapshotLease = null;
+            throw;
+        }
     }
 
     /// <summary>
@@ -161,8 +207,16 @@ public sealed partial class IndexSearcher : IDisposable
     /// <param name="config">Searcher configuration including similarity model, parallelism, and caching options.</param>
     public IndexSearcher(MMapDirectory directory, IReadOnlyList<SegmentInfo> segments, IndexSearcherConfig config)
     {
+        ArgumentNullException.ThrowIfNull(directory);
+        ArgumentNullException.ThrowIfNull(segments);
+        ArgumentNullException.ThrowIfNull(config);
+        if (config.MaxCachedSegmentReaders < 1)
+            throw new ArgumentOutOfRangeException(nameof(config), config.MaxCachedSegmentReaders,
+                "MaxCachedSegmentReaders must be at least one.");
         _directory = directory;
         _config = config;
+        _segmentReaderCache = new BoundedLruCache<string, SegmentReaderState>(
+            config.MaxCachedSegmentReaders, StringComparer.Ordinal);
         _similarity = config.Similarity;
 
         _useLmScoring = _similarity.RequiresCollectionStatistics;
@@ -172,17 +226,34 @@ public sealed partial class IndexSearcher : IDisposable
             segments.Select(static segment => segment.SegmentId),
             config.CompatibilityMode,
             forWriting: false);
-        foreach (var info in segments)
-            _readers.Add(new SegmentReader(directory, info));
+        try
+        {
+            var segmentIds = segments.Select(static segment => segment.SegmentId).ToList();
+            var idSet = new HashSet<string>(segmentIds, StringComparer.Ordinal);
+            _snapshotLease = directory.AcquireSnapshot(
+                name => IsSnapshotFile(idSet, name), out var inventory);
+            var inventorySet = new HashSet<string>(inventory, StringComparer.Ordinal);
+            bool permanentlyResident = config.MaxCachedSegmentReaders >= segments.Count;
+            foreach (var info in segments)
+                _readers.Add(new SegmentReader(directory, info, _segmentReaderCache, inventorySet,
+                    permanentlyResident));
 
-        _docBases = AssignDocBases();
-        _totalDocCount = _docBases.Length > 0
-            ? _docBases[^1] + _readers[^1].MaxDoc
-            : 0;
-        _stats = ComputeStats();
+            _docBases = AssignDocBases();
+            _totalDocCount = _docBases.Length > 0
+                ? _docBases[^1] + _readers[^1].MaxDoc
+                : 0;
+            _stats = null;
 
-        if (config.EnableQueryCache)
-            _queryCache = config.SharedCache ?? new QueryCache(config.QueryCacheMaxEntries);
+            if (config.EnableQueryCache)
+                _queryCache = config.SharedCache ?? new QueryCache(config.QueryCacheMaxEntries);
+        }
+        catch
+        {
+            _segmentReaderCache.Dispose();
+            _snapshotLease?.Dispose();
+            _snapshotLease = null;
+            throw;
+        }
     }
 
     private int[] AssignDocBases()
@@ -196,6 +267,22 @@ public sealed partial class IndexSearcher : IDisposable
             docBase += _readers[i].MaxDoc;
         }
         return bases;
+    }
+
+    private static bool IsSnapshotFile(HashSet<string> segmentIds, string fileName)
+    {
+        int dot = fileName.IndexOf('.');
+        if (dot <= 0)
+            return false;
+        var candidate = fileName[..dot];
+        int generationMarker = candidate.IndexOf("_gen_", StringComparison.Ordinal);
+        int vectorMarker = candidate.IndexOf("_v_", StringComparison.Ordinal);
+        int marker = generationMarker > 0 && vectorMarker > 0
+            ? Math.Min(generationMarker, vectorMarker)
+            : Math.Max(generationMarker, vectorMarker);
+        if (marker > 0)
+            candidate = candidate[..marker];
+        return segmentIds.Contains(candidate);
     }
 
     /// <summary>
@@ -350,7 +437,7 @@ public sealed partial class IndexSearcher : IDisposable
     public int Count(Query query)
     {
         if (query is MatchAllDocsQuery)
-            return _stats.LiveDocCount;
+            return Stats.LiveDocCount;
 
         if (_readers.Count == 0)
             return 0;
@@ -773,6 +860,9 @@ public sealed partial class IndexSearcher : IDisposable
     {
         foreach (var reader in _readers)
             reader.Dispose();
+        _segmentReaderCache.Dispose();
+        _snapshotLease?.Dispose();
+        _snapshotLease = null;
     }
 
     private TopDocs ExecuteRrfQuery(RrfQuery rrf, int topN)
@@ -1014,7 +1104,7 @@ public sealed partial class IndexSearcher : IDisposable
 
         // Phase 2: score using already-decoded postings
         // Phase 2: score using already-decoded postings
-        float avgDocLength = _stats.GetAvgFieldLength(query.Field);
+        float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         var (f1, f2, f3) = ComputeTermFactors(globalDF, avgDocLength, globalCollectionFreq, query.Field);
         float boost = query.Boost;
 
@@ -1091,7 +1181,7 @@ public sealed partial class IndexSearcher : IDisposable
         }
 
         // Compute BM25 factors once from the global doc frequency.
-        float avgDocLength = _stats.GetAvgFieldLength(tq.Field);
+        float avgDocLength = Stats.GetAvgFieldLength(tq.Field);
         var (f1, f2, f3) = ComputeTermFactors(globalDF, avgDocLength, globalCollectionFreq, tq.Field);
         float boost = tq.Boost;
 

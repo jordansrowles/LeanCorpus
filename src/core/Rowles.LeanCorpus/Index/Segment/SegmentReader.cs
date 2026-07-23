@@ -14,23 +14,23 @@ namespace Rowles.LeanCorpus.Index.Segment;
 /// <summary>
 /// Reads a single immutable segment from disc via MMapDirectory.
 /// </summary>
-public sealed partial class SegmentReader : IDisposable
+internal sealed partial class SegmentReaderState : IDisposable
 {
     private readonly MMapDirectory _directory;
     private readonly SegmentInfo _info;
-    private readonly TermDictionaryReader _dicReader;
-    private readonly IndexInput _posInput;
-    private readonly StoredFieldsReader? _storedReader;
-    private readonly FrozenDictionary<string, byte[]> _fieldNorms;
-    private readonly FrozenDictionary<string, float[]> _fieldBoosts;
-    private readonly FrozenDictionary<string, int[]> _fieldLengthsPerField;
+    private TermDictionaryReader? _dictionaryReader;
+    private IndexInput? _postingsInput;
+    private StoredFieldsReader? _storedReader;
+    private bool _storedReaderLoaded;
+    private NormState? _normState;
     private readonly Dictionary<string, string> _vectorPaths = new(StringComparer.Ordinal);
     private readonly Dictionary<string, VectorReader> _vectorReaders = new(StringComparer.Ordinal);
     private readonly Dictionary<string, QuantisedVectorReader> _quantisedVectorReaders = new(StringComparer.Ordinal);
     private readonly Dictionary<string, VectorQuantisation> _vectorQuantisation = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HnswGraph?> _hnswGraphs = new(StringComparer.Ordinal);
     private readonly object _hnswLoadLock = new();
-    private LiveDocs? _liveDocs;
+    private LiveDocs? _liveDocuments;
+    private bool _liveDocumentsLoaded;
 
     private const int MaxTermOffsetCacheSize = 1024;
     private readonly TermOffsetCache _termOffsetCache = new(MaxTermOffsetCacheSize);
@@ -73,60 +73,18 @@ public sealed partial class SegmentReader : IDisposable
     public int MaxDoc => _info.DocCount;
 
     /// <summary>
-    /// Initialises a new <see cref="SegmentReader"/> for the given segment.
-    /// Opens all required files and validates the segment's on-disk data.
+    /// Initialises a new <see cref="SegmentReaderState"/> for the given segment.
+    /// Records component paths; each component is opened and validated on first use.
     /// </summary>
     /// <param name="directory">The directory containing the segment files.</param>
     /// <param name="info">The segment metadata.</param>
     /// <exception cref="FileNotFoundException">Thrown if required segment files are missing.</exception>
     /// <exception cref="InvalidDataException">Thrown if segment files contain corrupted or incompatible data.</exception>
-    public SegmentReader(MMapDirectory directory, SegmentInfo info)
+    internal SegmentReaderState(MMapDirectory directory, SegmentInfo info)
     {
         _directory = directory;
         _info = info;
         _basePath = Path.Combine(directory.DirectoryPath, info.SegmentId);
-
-        ValidateSegmentFiles(_basePath, info.DocCount);
-        _dicReader = TermDictionaryReader.Open(_basePath + ".dic");
-        _posInput = directory.OpenInput(info.SegmentId + ".pos");
-
-        var fdtPath = _basePath + ".fdt";
-        var fdxPath = _basePath + ".fdx";
-        if (FileOpenRetry.FileExists(fdtPath) && FileOpenRetry.FileExists(fdxPath))
-            _storedReader = StoredFieldsReader.Open(fdtPath, fdxPath);
-
-        var delPath = info.DelGeneration.HasValue
-            ? _basePath + $"_gen_{info.DelGeneration.Value}.del"
-            : _basePath + ".del";
-        if (FileOpenRetry.FileExists(delPath))
-            _liveDocs = LiveDocs.Deserialise(delPath, info.DocCount);
-
-        // Load per-field norms
-        var normsData = NormsReader.Read(_basePath + ".nrm");
-        _fieldNorms = normsData.Norms.ToFrozenDictionary(StringComparer.Ordinal);
-        _fieldBoosts = normsData.Boosts.ToFrozenDictionary(StringComparer.Ordinal);
-
-        // Prefer exact field lengths from .fln; fall back to quantised norms
-        var exactLengths = FieldLengthReader.TryRead(_basePath + ".fln");
-        if (exactLengths is not null)
-        {
-            _fieldLengthsPerField = exactLengths.ToFrozenDictionary(StringComparer.Ordinal);
-        }
-        else
-        {
-            var tempLengths = new Dictionary<string, int[]>(_fieldNorms.Count, StringComparer.Ordinal);
-            foreach (var (fieldName, norms) in _fieldNorms)
-            {
-                var fieldLengths = new int[norms.Length];
-                for (int i = 0; i < norms.Length; i++)
-                {
-                    float n = norms[i] / 255f;
-                    fieldLengths[i] = n <= 0f ? 1 : Math.Max(1, (int)MathF.Round(1.0f / n - 1.0f));
-                }
-                tempLengths[fieldName] = fieldLengths;
-            }
-            _fieldLengthsPerField = tempLengths.ToFrozenDictionary(StringComparer.Ordinal);
-        }
 
         // Vector fields: record paths only. Opening the mmap-backed readers is deferred
         // until a VectorQuery or explicit vector read actually needs them.
@@ -137,7 +95,7 @@ public sealed partial class SegmentReader : IDisposable
                 if (vf.Quantisation != VectorQuantisation.None)
                 {
                     var vqPath = VectorFilePaths.QuantisedVectorFile(_basePath, vf.FieldName);
-                    if (File.Exists(vqPath))
+                    if (FileOpenRetry.FileExists(vqPath))
                     {
                         _vectorPaths[vf.FieldName] = vqPath;
                         _vectorQuantisation[vf.FieldName] = vf.Quantisation;
@@ -146,7 +104,7 @@ public sealed partial class SegmentReader : IDisposable
                 else
                 {
                     var perFieldVecPath = VectorFilePaths.VectorFile(_basePath, vf.FieldName);
-                    if (File.Exists(perFieldVecPath))
+                    if (FileOpenRetry.FileExists(perFieldVecPath))
                         _vectorPaths[vf.FieldName] = perFieldVecPath;
                 }
             }
@@ -155,22 +113,130 @@ public sealed partial class SegmentReader : IDisposable
         {
             // Legacy single-vector segment: pre-multi-vector layout.
             var legacyVecPath = _basePath + ".vec";
-            if (File.Exists(legacyVecPath))
+            if (FileOpenRetry.FileExists(legacyVecPath))
                 _vectorPaths[string.Empty] = legacyVecPath;
         }
 
-        // Eager-load all DocValues sidecar files while the segment files are guaranteed
-        // to exist. Background merges may delete segment files after a new commit is
-        // written, and lazy loading after that point would observe missing files (TOCTOU
-        // race). Reading now ensures the memory-mapped data is retained even if the
-        // underlying file is unlinked by a concurrent merge.
-        EnsureNumericDocValues();
-        EnsureSortedDocValues();
-        EnsureSortedSetDocValues();
-        EnsureSortedNumericDocValues();
-        EnsureBinaryDocValues();
-        EnsureNumericIndex();
+        // DocValues and numeric indexes remain genuinely on demand. The searcher's
+        // snapshot lease now protects their files from concurrent merge cleanup.
     }
+
+    private TermDictionaryReader DictionaryReader
+    {
+        get
+        {
+            if (_dictionaryReader is not null) return _dictionaryReader;
+            var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
+            lock (lockObj)
+                return _dictionaryReader ??= TermDictionaryReader.Open(_basePath + ".dic");
+        }
+    }
+
+    private IndexInput PostingsInput
+    {
+        get
+        {
+            if (_postingsInput is not null) return _postingsInput;
+            var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
+            lock (lockObj)
+            {
+                if (_postingsInput is not null) return _postingsInput;
+                var input = _directory.OpenInput(_info.SegmentId + ".pos");
+                try
+                {
+                    _ = Codecs.Postings.PostingsEnum.ValidateFileHeader(input);
+                    _postingsInput = input;
+                    return input;
+                }
+                catch
+                {
+                    input.Dispose();
+                    throw;
+                }
+            }
+        }
+    }
+
+    private StoredFieldsReader? StoredReader
+    {
+        get
+        {
+            if (Volatile.Read(ref _storedReaderLoaded)) return _storedReader;
+            var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
+            lock (lockObj)
+            {
+                if (_storedReaderLoaded) return _storedReader;
+                var fdtPath = _basePath + ".fdt";
+                var fdxPath = _basePath + ".fdx";
+                if (FileOpenRetry.FileExists(fdtPath) && FileOpenRetry.FileExists(fdxPath))
+                    _storedReader = StoredFieldsReader.Open(fdtPath, fdxPath);
+                Volatile.Write(ref _storedReaderLoaded, true);
+                return _storedReader;
+            }
+        }
+    }
+
+    private LiveDocs? LiveDocuments
+    {
+        get
+        {
+            if (Volatile.Read(ref _liveDocumentsLoaded)) return _liveDocuments;
+            var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
+            lock (lockObj)
+            {
+                if (_liveDocumentsLoaded) return _liveDocuments;
+                var delPath = _info.DelGeneration.HasValue
+                    ? _basePath + $"_gen_{_info.DelGeneration.Value}.del"
+                    : _basePath + ".del";
+                if (FileOpenRetry.FileExists(delPath))
+                    _liveDocuments = LiveDocs.Deserialise(delPath, _info.DocCount);
+                Volatile.Write(ref _liveDocumentsLoaded, true);
+                return _liveDocuments;
+            }
+        }
+    }
+
+    private NormState Norms
+    {
+        get
+        {
+            if (_normState is not null) return _normState;
+            var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
+            lock (lockObj)
+            {
+                if (_normState is not null) return _normState;
+                var normsData = NormsReader.Read(_basePath + ".nrm");
+                var norms = normsData.Norms.ToFrozenDictionary(StringComparer.Ordinal);
+                var boosts = normsData.Boosts.ToFrozenDictionary(StringComparer.Ordinal);
+                var exactLengths = FieldLengthReader.TryRead(_basePath + ".fln");
+                FrozenDictionary<string, int[]> lengths;
+                if (exactLengths is not null)
+                {
+                    lengths = exactLengths.ToFrozenDictionary(StringComparer.Ordinal);
+                }
+                else
+                {
+                    var calculated = new Dictionary<string, int[]>(norms.Count, StringComparer.Ordinal);
+                    foreach (var (fieldName, values) in norms)
+                    {
+                        var fieldLengths = new int[values.Length];
+                        for (int i = 0; i < values.Length; i++)
+                        {
+                            float n = values[i] / 255f;
+                            fieldLengths[i] = n <= 0f ? 1 : Math.Max(1, (int)MathF.Round(1.0f / n - 1.0f));
+                        }
+                        calculated[fieldName] = fieldLengths;
+                    }
+                    lengths = calculated.ToFrozenDictionary(StringComparer.Ordinal);
+                }
+                return _normState = new NormState(norms, boosts, lengths);
+            }
+        }
+    }
+
+    private FrozenDictionary<string, byte[]> FieldNorms => Norms.Norms;
+    private FrozenDictionary<string, float[]> FieldBoosts => Norms.Boosts;
+    private FrozenDictionary<string, int[]> FieldLengthsPerField => Norms.FieldLengths;
 
     /// <summary>
     /// Returns <see langword="true"/> if the document with the given ID has not been deleted.
@@ -178,7 +244,7 @@ public sealed partial class SegmentReader : IDisposable
     /// <param name="docId">The local (segment-relative) document ID to check.</param>
     /// <returns><see langword="true"/> if the document is live; <see langword="false"/> if deleted.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool IsLive(int docId) => _liveDocs?.IsLive(docId) ?? true;
+    public bool IsLive(int docId) => LiveDocuments?.IsLive(docId) ?? true;
 
     /// <summary>
     /// Returns <see langword="true"/> if the document is soft-deleted (has a recorded
@@ -187,13 +253,13 @@ public sealed partial class SegmentReader : IDisposable
     /// </summary>
     public bool IsSoftDeleted(int docId, out long timestamp)
     {
-        if (_liveDocs is null || _liveDocs.IsLive(docId))
+        if (LiveDocuments is null || LiveDocuments.IsLive(docId))
         {
             timestamp = 0;
             return false;
         }
 
-        var timestamps = _liveDocs.SoftDeleteTimestamps;
+        var timestamps = LiveDocuments.SoftDeleteTimestamps;
         if (timestamps is not null && timestamps.TryGetValue(docId, out timestamp))
             return true;
 
@@ -202,7 +268,7 @@ public sealed partial class SegmentReader : IDisposable
     }
 
     /// <summary>True when this segment has no deleted documents, allowing callers to skip per-doc IsLive checks.</summary>
-    public bool HasDeletions => _liveDocs is not null;
+    public bool HasDeletions => LiveDocuments is not null;
 
     /// <summary>
     /// Returns the parent bitset for block-join indexing, or null if this segment
@@ -217,7 +283,7 @@ public sealed partial class SegmentReader : IDisposable
         {
             if (_parentBitSetLoaded) return _parentBitSet;
             var pbsPath = _basePath + ".pbs";
-            if (File.Exists(pbsPath))
+            if (FileOpenRetry.FileExists(pbsPath))
                 _parentBitSet = ParentBitSet.ReadFrom(pbsPath);
             Volatile.Write(ref _parentBitSetLoaded, true);
         }
@@ -227,7 +293,7 @@ public sealed partial class SegmentReader : IDisposable
     /// <summary>Returns the quantised norm value for a document in a specific field (0..1 range).</summary>
     public float GetNorm(int docId, string field)
     {
-        if (_fieldNorms.TryGetValue(field, out var norms) && (uint)docId < (uint)norms.Length)
+        if (FieldNorms.TryGetValue(field, out var norms) && (uint)docId < (uint)norms.Length)
             return norms[docId] / 255f;
         return 0f;
     }
@@ -235,7 +301,7 @@ public sealed partial class SegmentReader : IDisposable
     /// <summary>Returns the index-time field boost for a document in a specific field.</summary>
     public float GetFieldBoost(int docId, string field)
     {
-        if (_fieldBoosts.TryGetValue(field, out var boosts) && (uint)docId < (uint)boosts.Length)
+        if (FieldBoosts.TryGetValue(field, out var boosts) && (uint)docId < (uint)boosts.Length)
             return boosts[docId];
         return 1.0f;
     }
@@ -244,7 +310,7 @@ public sealed partial class SegmentReader : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal bool TryGetFieldBoosts(string field, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out float[]? boosts)
     {
-        return _fieldBoosts.TryGetValue(field, out boosts);
+        return FieldBoosts.TryGetValue(field, out boosts);
     }
 
     /// <summary>
@@ -253,7 +319,7 @@ public sealed partial class SegmentReader : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int GetFieldLength(int docId, string field)
     {
-        if (_fieldLengthsPerField.TryGetValue(field, out var fieldLengths))
+        if (FieldLengthsPerField.TryGetValue(field, out var fieldLengths))
             return (uint)docId < (uint)fieldLengths.Length ? fieldLengths[docId] : 1;
         return 1;
     }
@@ -265,7 +331,7 @@ public sealed partial class SegmentReader : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryGetFieldLengths(string field, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out int[]? lengths)
     {
-        return _fieldLengthsPerField.TryGetValue(field, out lengths);
+        return FieldLengthsPerField.TryGetValue(field, out lengths);
     }
 
     /// <summary>
@@ -279,7 +345,7 @@ public sealed partial class SegmentReader : IDisposable
     }
 
     /// <summary>Whether this segment has term vector files.</summary>
-    public bool HasTermVectors => File.Exists(_basePath + ".tvd") && File.Exists(_basePath + ".tvx");
+    public bool HasTermVectors => FileOpenRetry.FileExists(_basePath + ".tvd") && FileOpenRetry.FileExists(_basePath + ".tvx");
 
     private TermVectorsReader? EnsureTermVectorsReader()
     {
@@ -287,7 +353,7 @@ public sealed partial class SegmentReader : IDisposable
 
         var tvdPath = _basePath + ".tvd";
         var tvxPath = _basePath + ".tvx";
-        if (!File.Exists(tvdPath) || !File.Exists(tvxPath)) return null;
+        if (!FileOpenRetry.FileExists(tvdPath) || !FileOpenRetry.FileExists(tvxPath)) return null;
 
         var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
         lock (lockObj)
@@ -352,8 +418,9 @@ public sealed partial class SegmentReader : IDisposable
         if (!TryGetCachedOffset(qualifiedTerm, out long offset))
             return 0;
 
-        long cursor = offset;
-        return _posInput.ReadInt32(ref cursor);
+        PostingsEnum.ReadTermMetadata(PostingsInput, offset, out _, out int docFreq,
+            out _, out _, out _, out _);
+        return docFreq;
     }
 
     /// <summary>
@@ -364,11 +431,12 @@ public sealed partial class SegmentReader : IDisposable
     /// </summary>
     internal int GetDocFreqByQualified(ReadOnlySpan<char> qualifiedTerm)
     {
-        if (!_dicReader.TryGetPostingsOffset(qualifiedTerm, out long offset))
+        if (!DictionaryReader.TryGetPostingsOffset(qualifiedTerm, out long offset))
             return 0;
 
-        long cursor = offset;
-        return _posInput.ReadInt32(ref cursor);
+        PostingsEnum.ReadTermMetadata(PostingsInput, offset, out _, out int docFreq,
+            out _, out _, out _, out _);
+        return docFreq;
     }
     /// <summary>
     /// Sums all per-document term frequencies for the given qualified term.
@@ -387,8 +455,9 @@ public sealed partial class SegmentReader : IDisposable
     /// <summary>Reads docFreq directly from a known postings file offset (no dictionary lookup).</summary>
     internal int ReadDocFreqAtOffset(long offset)
     {
-        long cursor = offset;
-        return _posInput.ReadInt32(ref cursor);
+        PostingsEnum.ReadTermMetadata(PostingsInput, offset, out _, out int docFreq,
+            out _, out _, out _, out _);
+        return docFreq;
     }
 
     /// <summary>Thread-safe cache for recent term lookups.</summary>
@@ -401,7 +470,7 @@ public sealed partial class SegmentReader : IDisposable
             return entry.Found;
         }
 
-        bool found = _dicReader.TryGetPostingsOffset(qualifiedTerm, out offset);
+        bool found = DictionaryReader.TryGetPostingsOffset(qualifiedTerm, out offset);
         _termOffsetCache.Set(qualifiedTerm, (offset, found));
         return found;
     }
@@ -413,16 +482,23 @@ public sealed partial class SegmentReader : IDisposable
     /// <inheritdoc/>
     public void Dispose()
     {
-        _posInput.Dispose();
-        _dicReader.Dispose();
+        _postingsInput?.Dispose();
+        _dictionaryReader?.Dispose();
         _storedReader?.Dispose();
         foreach (var r in _vectorReaders.Values) r.Dispose();
         _vectorReaders.Clear();
         _vectorPaths.Clear();
+        foreach (var r in _quantisedVectorReaders.Values) r.Dispose();
+        _quantisedVectorReaders.Clear();
         _termVectorsReader?.Dispose();
         _bkdReader?.Dispose();
         _int64BkdReader?.Dispose();
     }
+
+    private sealed record NormState(
+        FrozenDictionary<string, byte[]> Norms,
+        FrozenDictionary<string, float[]> Boosts,
+        FrozenDictionary<string, int[]> FieldLengths);
 
     private sealed class TermOffsetCache
     {
@@ -526,32 +602,4 @@ public sealed partial class SegmentReader : IDisposable
         }
     }
 
-    private static void ValidateSegmentFiles(string basePath, int docCount)
-    {
-        ValidateExistingFile(basePath + ".seg");
-        ValidateExistingFile(basePath + ".dic");
-        ValidateExistingFile(basePath + ".pos");
-        ValidateExistingFile(basePath + ".nrm");
-
-        var segLength = new FileInfo(basePath + ".seg").Length;
-        if (segLength == 0)
-            throw new InvalidDataException($"Segment metadata file is empty or truncated: '{basePath}.seg'.");
-
-        var dicLength = new FileInfo(basePath + ".dic").Length;
-        if (dicLength < sizeof(int))
-            throw new InvalidDataException($"Segment dictionary file is truncated: '{basePath}.dic'.");
-
-        var nrmLength = new FileInfo(basePath + ".nrm").Length;
-        // CodecKit envelope (version + VarInt64 bodyLen) + minimum body (VarInt fieldCount of 0)
-        if (nrmLength < 3)
-            throw new InvalidDataException(
-                $"Segment norms file '{basePath}.nrm' is truncated: expected at least 3 bytes, found {nrmLength}.");
-    }
-
-    private static void ValidateExistingFile(string path)
-    {
-        var info = new FileInfo(path);
-        if (!info.Exists)
-            throw new FileNotFoundException($"Segment file is missing: '{path}'.", path);
-    }
 }

@@ -4,27 +4,27 @@ title: Benchmarks - N-gram
 
 # N-gram
 
-**.NET** 10.0.3 &nbsp;&middot;&nbsp; **Commit** `c892a43` &nbsp;&middot;&nbsp; 12 July 2026 12:37 UTC &nbsp;&middot;&nbsp; 100,000 docs
+**.NET** 10.0.3 &nbsp;&middot;&nbsp; **Commit** `f3305a5` &nbsp;&middot;&nbsp; 16 July 2026 20:51 UTC &nbsp;&middot;&nbsp; 100,000 docs
 
-| Method                                        | GramRange | DocumentCount | Mean       | Error   | StdDev  | Ratio | RatioSD | Gen0        | Gen1      | Allocated   | Alloc Ratio |
-|---------------------------------------------- |---------- |-------------- |-----------:|--------:|--------:|------:|--------:|------------:|----------:|------------:|------------:|
-| **LeanCorpus_EdgeNGramTokeniser_SpanSink**        | **2-3**       | **100000**        |   **130.7 ms** | **0.14 ms** | **0.11 ms** |  **1.00** |    **0.00** |           **-** |         **-** |           **-** |          **NA** |
-| LeanCorpus_NGramTokeniser_SpanSink            | 2-3       | 100000        |   122.5 ms | 0.28 ms | 0.26 ms |  0.94 |    0.00 |           - |         - |           - |          NA |
-| LeanCorpus_NGramTokeniser_WordSplit_SpanSink  | 2-3       | 100000        |   203.8 ms | 0.62 ms | 0.58 ms |  1.56 |    0.00 |           - |         - |           - |          NA |
-| LeanCorpus_EdgeNGramTokeniser_Streaming       | 2-3       | 100000        |   170.6 ms | 0.27 ms | 0.23 ms |  1.30 |    0.00 |           - |         - |           - |          NA |
-| LeanCorpus_NGramTokeniser_Streaming           | 2-3       | 100000        |   392.5 ms | 0.78 ms | 0.65 ms |  3.00 |    0.01 |           - |         - |           - |          NA |
-| LeanCorpus_NGramTokeniser_WordSplit_Streaming | 2-3       | 100000        |   439.8 ms | 0.59 ms | 0.49 ms |  3.36 |    0.00 |           - |         - |           - |          NA |
-| LuceneNet_EdgeNGramTokenizer                  | 2-3       | 100000        |   503.5 ms | 3.73 ms | 3.49 ms |  3.85 |    0.03 | 211000.0000 | 1000.0000 | 885600000 B |          NA |
-| LuceneNet_NGramTokenizer                      | 2-3       | 100000        | 4,051.1 ms | 5.36 ms | 4.75 ms | 30.98 |    0.04 | 211000.0000 |         - | 885600000 B |          NA |
-|                                               |           |               |            |         |         |       |         |             |           |             |             |
-| **LeanCorpus_EdgeNGramTokeniser_SpanSink**        | **3-5**       | **100000**        |   **130.1 ms** | **0.18 ms** | **0.16 ms** |  **1.00** |    **0.00** |           **-** |         **-** |           **-** |          **NA** |
-| LeanCorpus_NGramTokeniser_SpanSink            | 3-5       | 100000        |   192.2 ms | 1.57 ms | 1.39 ms |  1.48 |    0.01 |           - |         - |           - |          NA |
-| LeanCorpus_NGramTokeniser_WordSplit_SpanSink  | 3-5       | 100000        |   219.2 ms | 1.18 ms | 1.11 ms |  1.69 |    0.01 |           - |         - |           - |          NA |
-| LeanCorpus_EdgeNGramTokeniser_Streaming       | 3-5       | 100000        |   175.8 ms | 0.22 ms | 0.17 ms |  1.35 |    0.00 |           - |         - |           - |          NA |
-| LeanCorpus_NGramTokeniser_Streaming           | 3-5       | 100000        |   549.9 ms | 1.25 ms | 1.17 ms |  4.23 |    0.01 |           - |         - |           - |          NA |
-| LeanCorpus_NGramTokeniser_WordSplit_Streaming | 3-5       | 100000        |   474.6 ms | 0.53 ms | 0.47 ms |  3.65 |    0.01 |           - |         - |           - |          NA |
-| LuceneNet_EdgeNGramTokenizer                  | 3-5       | 100000        |   519.5 ms | 1.55 ms | 1.38 ms |  3.99 |    0.01 | 212000.0000 |         - | 888000000 B |          NA |
-| LuceneNet_NGramTokenizer                      | 3-5       | 100000        | 3,621.2 ms | 2.52 ms | 2.24 ms | 27.84 |    0.04 | 212000.0000 |         - | 888000000 B |          NA |
+| Method                                        | GramRange | DocumentCount | Mean       | Error    | StdDev   | Median     | Ratio | RatioSD | Gen0        | Gen1      | Allocated   | Alloc Ratio |
+|---------------------------------------------- |---------- |-------------- |-----------:|---------:|---------:|-----------:|------:|--------:|------------:|----------:|------------:|------------:|
+| **LeanCorpus_EdgeNGramTokeniser_SpanSink**        | **2-3**       | **100000**        |   **221.8 ms** |  **0.27 ms** |  **0.24 ms** |   **221.8 ms** |  **1.00** |    **0.00** |           **-** |         **-** |           **-** |          **NA** |
+| LeanCorpus_NGramTokeniser_SpanSink            | 2-3       | 100000        |   188.9 ms |  1.85 ms |  1.64 ms |   189.1 ms |  0.85 |    0.01 |           - |         - |           - |          NA |
+| LeanCorpus_NGramTokeniser_WordSplit_SpanSink  | 2-3       | 100000        |   323.1 ms |  0.81 ms |  0.76 ms |   323.0 ms |  1.46 |    0.00 |           - |         - |           - |          NA |
+| LeanCorpus_EdgeNGramTokeniser_Streaming       | 2-3       | 100000        |   291.2 ms |  0.52 ms |  0.46 ms |   291.0 ms |  1.31 |    0.00 |           - |         - |           - |          NA |
+| LeanCorpus_NGramTokeniser_Streaming           | 2-3       | 100000        |   607.1 ms |  1.10 ms |  0.92 ms |   606.7 ms |  2.74 |    0.00 |           - |         - |           - |          NA |
+| LeanCorpus_NGramTokeniser_WordSplit_Streaming | 2-3       | 100000        |   681.5 ms |  2.65 ms |  4.04 ms |   680.2 ms |  3.07 |    0.02 |           - |         - |           - |          NA |
+| LuceneNet_EdgeNGramTokenizer                  | 2-3       | 100000        |   653.1 ms |  3.19 ms |  2.99 ms |   653.0 ms |  2.94 |    0.01 | 211000.0000 | 1000.0000 | 885600000 B |          NA |
+| LuceneNet_NGramTokenizer                      | 2-3       | 100000        | 3,574.3 ms |  1.13 ms |  0.95 ms | 3,574.4 ms | 16.12 |    0.02 | 211000.0000 |         - | 885600000 B |          NA |
+|                                               |           |               |            |          |          |            |       |         |             |           |             |             |
+| **LeanCorpus_EdgeNGramTokeniser_SpanSink**        | **3-5**       | **100000**        |   **219.0 ms** |  **0.63 ms** |  **0.59 ms** |   **218.7 ms** |  **1.00** |    **0.00** |           **-** |         **-** |           **-** |          **NA** |
+| LeanCorpus_NGramTokeniser_SpanSink            | 3-5       | 100000        |   288.3 ms |  3.56 ms |  3.33 ms |   286.0 ms |  1.32 |    0.02 |           - |         - |           - |          NA |
+| LeanCorpus_NGramTokeniser_WordSplit_SpanSink  | 3-5       | 100000        |   331.3 ms |  5.68 ms |  5.31 ms |   333.3 ms |  1.51 |    0.02 |           - |         - |           - |          NA |
+| LeanCorpus_EdgeNGramTokeniser_Streaming       | 3-5       | 100000        |   312.1 ms |  4.46 ms |  4.17 ms |   315.5 ms |  1.43 |    0.02 |           - |         - |           - |          NA |
+| LeanCorpus_NGramTokeniser_Streaming           | 3-5       | 100000        |   843.2 ms | 22.95 ms | 66.58 ms |   857.9 ms |  3.85 |    0.30 |           - |         - |           - |          NA |
+| LeanCorpus_NGramTokeniser_WordSplit_Streaming | 3-5       | 100000        |   689.5 ms |  0.67 ms |  1.09 ms |   689.3 ms |  3.15 |    0.01 |           - |         - |           - |          NA |
+| LuceneNet_EdgeNGramTokenizer                  | 3-5       | 100000        |   658.1 ms |  2.66 ms |  2.49 ms |   657.4 ms |  3.01 |    0.01 | 212000.0000 |         - | 888000000 B |          NA |
+| LuceneNet_NGramTokenizer                      | 3-5       | 100000        | 5,952.9 ms |  2.25 ms |  2.11 ms | 5,953.2 ms | 27.19 |    0.07 | 212000.0000 |         - | 888000000 B |          NA |
 
 <div class="benchmark-chart">
 <p style="margin-bottom:4px"><label>Time scale: <select id="chart-scale-ngram"><option value="log2" selected>Log2</option><option value="log10">Log10</option><option value="linear">Linear</option></select></label> <label>Width: <input type="range" id="chart-width-ngram" min="400" max="1400" value="960" step="20" style="vertical-align:middle"></label> <label>Height: <input type="range" id="chart-height-ngram" min="200" max="900" value="500" step="20" style="vertical-align:middle"></label></p>

@@ -12,7 +12,7 @@ internal static class CodecConstants
     // v2 -> v3 bumps for streaming trailer: postings, norms, stored fields, term vectors.
     // v1 -> v2 bumps for streaming trailer: all DocValues, field lengths, Int64 variants.
     public const byte TermDictionaryVersion = 1;
-    public const byte PostingsVersion = 3;
+    public const byte PostingsVersion = 4;
     public const byte NormsVersion = 3;
     public const byte VectorVersion = 1;
     public const byte QuantisedVectorVersion = 1;

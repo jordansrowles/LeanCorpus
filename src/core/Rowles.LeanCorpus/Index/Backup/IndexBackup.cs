@@ -73,7 +73,7 @@ public static class IndexBackup
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(indexDirectoryPath);
         var sourceDirectory = Path.GetFullPath(indexDirectoryPath);
-        if (!Directory.Exists(sourceDirectory))
+        if (!FileOpenRetry.DirectoryExists(sourceDirectory))
             throw new ArgumentException($"Index directory '{sourceDirectory}' does not exist.", nameof(indexDirectoryPath));
 
         var selectedCommit = SelectCommit(sourceDirectory, options.CommitGeneration);
@@ -111,7 +111,7 @@ public static class IndexBackup
         if (options.IncludeCommitStats)
         {
             var statsFileName = $"stats_{selectedCommit.Generation}.json";
-            if (File.Exists(Path.Combine(sourceDirectory, statsFileName)))
+            if (FileOpenRetry.FileExists(Path.Combine(sourceDirectory, statsFileName)))
                 AddEntry(entries, sourceDirectory, statsFileName, null, "commit-stats", isRequired: false, isCommitFile: false);
         }
 
@@ -215,10 +215,10 @@ public static class IndexBackup
         ArgumentException.ThrowIfNullOrWhiteSpace(backupDirectoryPath);
         var backupDirectory = Path.GetFullPath(backupDirectoryPath);
         var manifestPath = Path.Combine(backupDirectory, ManifestFileName);
-        if (!File.Exists(manifestPath))
+        if (!FileOpenRetry.FileExists(manifestPath))
             throw new InvalidDataException($"Backup manifest '{ManifestFileName}' was not found.");
 
-        var json = File.ReadAllText(manifestPath);
+        var json = FileOpenRetry.ReadAllText(manifestPath);
         var manifest = JsonSerializer.Deserialize(json, LeanCorpusJsonContext.Default.IndexBackupManifest)
             ?? throw new InvalidDataException($"Backup manifest '{ManifestFileName}' cannot be deserialised.");
 
@@ -264,12 +264,12 @@ public static class IndexBackup
         {
             ValidateManifestFileName(entry.FileName);
             var path = Path.Combine(backupDirectory, entry.FileName);
-            if (!File.Exists(path))
+            if (!FileOpenRetry.FileExists(path))
                 throw new InvalidDataException($"Backup file '{entry.FileName}' is missing.");
 
-            var info = new FileInfo(path);
-            if (info.Length != entry.Length)
-                throw new InvalidDataException($"Backup file '{entry.FileName}' has length {info.Length}, expected {entry.Length}.");
+            long length = FileOpenRetry.GetFileLength(path);
+            if (length != entry.Length)
+                throw new InvalidDataException($"Backup file '{entry.FileName}' has length {length}, expected {entry.Length}.");
 
             var checksum = ComputeFileCrc32(path);
             if (checksum != entry.Crc32)
@@ -386,11 +386,11 @@ public static class IndexBackup
     private static IEnumerable<string> EnumerateSegmentFileNames(string directoryPath, string segmentId)
     {
         var fileNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var path in Directory.EnumerateFiles(directoryPath, segmentId + ".*"))
+        foreach (var path in FileOpenRetry.EnumerateFiles(directoryPath, segmentId + ".*"))
             fileNames.Add(Path.GetFileName(path));
-        foreach (var path in Directory.EnumerateFiles(directoryPath, segmentId + "_gen_*.del"))
+        foreach (var path in FileOpenRetry.EnumerateFiles(directoryPath, segmentId + "_gen_*.del"))
             fileNames.Add(Path.GetFileName(path));
-        foreach (var path in Directory.EnumerateFiles(directoryPath, segmentId + "_v_*.*"))
+        foreach (var path in FileOpenRetry.EnumerateFiles(directoryPath, segmentId + "_v_*.*"))
             fileNames.Add(Path.GetFileName(path));
 
         return fileNames.OrderBy(static name => name, StringComparer.Ordinal);
@@ -407,14 +407,13 @@ public static class IndexBackup
     {
         ValidateManifestFileName(fileName);
         var path = Path.Combine(directoryPath, fileName);
-        if (!File.Exists(path))
+        if (!FileOpenRetry.FileExists(path))
             throw new FileNotFoundException($"Required backup file '{fileName}' was not found.", path);
 
-        var info = new FileInfo(path);
         entries[fileName] = new IndexBackupFileEntry
         {
             FileName = fileName,
-            Length = info.Length,
+            Length = FileOpenRetry.GetFileLength(path),
             Crc32 = ComputeFileCrc32(path),
             SegmentId = segmentId,
             Role = role,
@@ -477,15 +476,15 @@ public static class IndexBackup
 
     private static uint ComputeFileCrc32(string path)
     {
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        using var stream = FileOpenRetry.OpenReadDelete(path);
         return Crc32.Compute(stream);
     }
 
     private static void PrepareDirectory(string directoryPath, bool overwrite, string description)
     {
-        if (Directory.Exists(directoryPath))
+        if (FileOpenRetry.DirectoryExists(directoryPath))
         {
-            if (Directory.EnumerateFileSystemEntries(directoryPath).Any())
+            if (FileOpenRetry.EnumerateFileSystemEntries(directoryPath).Any())
             {
                 if (!overwrite)
                     throw new InvalidOperationException($"{description} directory '{directoryPath}' is not empty.");
@@ -495,21 +494,21 @@ public static class IndexBackup
         }
         else
         {
-            Directory.CreateDirectory(directoryPath);
+            FileOpenRetry.CreateDirectory(directoryPath);
         }
     }
 
     private static void ClearDirectory(string directoryPath)
     {
-        foreach (var file in Directory.EnumerateFiles(directoryPath))
+        foreach (var file in FileOpenRetry.EnumerateFiles(directoryPath))
             FileOpenRetry.Delete(file);
-        foreach (var directory in Directory.EnumerateDirectories(directoryPath))
+        foreach (var directory in FileOpenRetry.EnumerateDirectories(directoryPath))
             FileOpenRetry.DeleteDirectory(directory, recursive: true);
     }
 
     private static void CopyFileAtomically(string sourcePath, string targetPath)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(targetPath) ?? string.Empty);
+        FileOpenRetry.CreateDirectory(Path.GetDirectoryName(targetPath) ?? string.Empty);
         IndexAtomicFileWriter.Write(targetPath, durable: true, stream =>
         {
             using var source = FileOpenRetry.OpenReadDelete(sourcePath);

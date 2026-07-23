@@ -41,6 +41,16 @@ internal sealed class BenchmarkProvenanceReport
     public int? EffectiveDocCount { get; set; }
     public string DataFingerprintSha256 { get; set; } = string.Empty;
     public BenchmarkDataSourceReport[] DataSources { get; set; } = [];
+    public BenchmarkCorpusReport? Corpus { get; set; }
+}
+
+internal sealed class BenchmarkCorpusReport
+{
+    public int DocumentCount { get; set; }
+    public long Utf8ByteCount { get; set; }
+    public long TokenCount { get; set; }
+    public int UniqueTermCount { get; set; }
+    public string PayloadSha256 { get; set; } = string.Empty;
 }
 
 internal sealed class BenchmarkDataSourceReport
@@ -283,6 +293,7 @@ internal static class BenchmarkProvenanceBuilder
             Environment.GetEnvironmentVariable("BENCH_SOURCE_COMMIT"),
             gitCommitHash);
 
+        var corpus = BenchmarkCorpusReportBuilder.Build(effectiveDocCount);
         return new BenchmarkProvenanceReport
         {
             SourceCommit = sourceCommit,
@@ -294,7 +305,8 @@ internal static class BenchmarkProvenanceBuilder
             BenchmarkDotNetVersion = GetBenchmarkDotNetVersion(),
             EffectiveDocCount = effectiveDocCount,
             DataSources = dataSources,
-            DataFingerprintSha256 = BuildCombinedFingerprint(dataSources)
+            DataFingerprintSha256 = BuildCombinedFingerprint(dataSources),
+            Corpus = corpus
         };
     }
 
@@ -353,6 +365,53 @@ internal static class BenchmarkProvenanceBuilder
 
     private static string FirstNonEmpty(params string?[] values)
         => values.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+}
+
+internal static class BenchmarkCorpusReportBuilder
+{
+    public static BenchmarkCorpusReport? Build(int? documentCount)
+    {
+        if (documentCount is not > 0)
+            return null;
+
+        var documents = BenchmarkData.BuildDocuments(documentCount.Value);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var sink = new CorpusTokenSink();
+        var analyser = new Rowles.LeanCorpus.Analysis.Analysers.StandardAnalyser();
+        long byteCount = 0;
+
+        foreach (var document in documents)
+        {
+            var bytes = Encoding.UTF8.GetBytes(document);
+            byteCount += bytes.Length;
+            hash.AppendData(BitConverter.GetBytes(bytes.Length));
+            hash.AppendData(bytes);
+            analyser.Analyse(document.AsSpan(), sink);
+        }
+
+        return new BenchmarkCorpusReport
+        {
+            DocumentCount = documents.Length,
+            Utf8ByteCount = byteCount,
+            TokenCount = sink.TokenCount,
+            UniqueTermCount = sink.UniqueTerms.Count,
+            PayloadSha256 = Convert.ToHexString(hash.GetHashAndReset())
+        };
+    }
+
+    private sealed class CorpusTokenSink : Rowles.LeanCorpus.Analysis.ISpanTokenSink
+    {
+        public long TokenCount { get; private set; }
+        public HashSet<string> UniqueTerms { get; } = new(StringComparer.Ordinal);
+
+        public void Add(ReadOnlySpan<char> text, int startOffset, int endOffset,
+            string type = Rowles.LeanCorpus.Analysis.Token.DefaultType,
+            int positionIncrement = 1, byte[]? payload = null)
+        {
+            TokenCount++;
+            UniqueTerms.Add(text.ToString());
+        }
+    }
 }
 
 internal static class BenchmarkRunReportWriter

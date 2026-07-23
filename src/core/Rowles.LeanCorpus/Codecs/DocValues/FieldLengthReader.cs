@@ -20,7 +20,7 @@ internal static class FieldLengthReader
     /// </summary>
     public static Dictionary<string, int[]>? TryRead(string filePath)
     {
-        if (!File.Exists(filePath)) return null;
+        if (!FileOpenRetry.FileExists(filePath)) return null;
 
         using var input = new IndexInput(filePath);
         byte version = CodecFileHeader.ReadVersion(input, CodecFormats.FieldLengths);
@@ -51,7 +51,7 @@ internal static class FieldLengthReader
 
     internal static List<(string Name, int[] Lengths)> EnumerateFields(string filePath)
     {
-        if (!File.Exists(filePath)) return new List<(string Name, int[] Lengths)>(0);
+        if (!FileOpenRetry.FileExists(filePath)) return new List<(string Name, int[] Lengths)>(0);
 
         using var input = new IndexInput(filePath);
         byte version = CodecFileHeader.ReadVersionAndSkipHeader(input);

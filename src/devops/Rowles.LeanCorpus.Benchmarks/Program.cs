@@ -172,7 +172,10 @@ internal static class Program
 
         // Phase 2: standalone (no Lucene.NET parity)
         if (runAll || suites.Contains(BenchmarkSuite.MoreLikeThis))
+        {
             RunSuite<MoreLikeThisBenchmarks>("mlt", runDir, benchmarkArgs, suiteSummaries, gcDump);
+            RunSuite<MoreLikeThisSingleSegmentBenchmarks>("mlt-single-segment", runDir, benchmarkArgs, suiteSummaries, gcDump);
+        }
 
         if (runAll || suites.Contains(BenchmarkSuite.Highlighter))
             RunSuite<HighlighterBenchmarks>("highlighter", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -430,7 +433,7 @@ internal static class Program
               dismax              DisjunctionMaxQueryBenchmarks -- disjunction max parity
               multiphrase         MultiPhraseQueryBenchmarks -- multi-slot phrase parity
               span                SpanQueryBenchmarks -- span query parity
-              mlt                 MoreLikeThisBenchmarks -- MoreLikeThis query
+              mlt                 MoreLikeThisBenchmarks and MoreLikeThisSingleSegmentBenchmarks -- MoreLikeThis query
               highlighter         HighlighterBenchmarks -- snippet highlighting
               searcher-mgr        SearcherManagerBenchmarks -- acquire/release hot path
               combined            CombinedFieldsQueryBenchmarks -- BM25F multi-field search

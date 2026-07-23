@@ -251,6 +251,94 @@ public sealed class MMapDirectoryTests : IClassFixture<TestDirectoryFixture>
         Assert.False(File.Exists(Path.Combine(sub, name)));
     }
 
+    [Fact(DisplayName = "MMap Directory: Separate Instances Share Deferred Deletion")]
+    public void MMapDirectory_SeparateInstances_ShareDeferredDeletion()
+    {
+        var sub = Path.Combine(_fixture.Path, "shared_" + Guid.NewGuid().ToString("N")[..6]);
+        Directory.CreateDirectory(sub);
+        var filePath = Path.Combine(sub, "shared.bin");
+        File.WriteAllBytes(filePath, [1, 2, 3]);
+        using var readerDirectory = new MMapDirectory(sub);
+        using var writerDirectory = new MMapDirectory(sub);
+
+        var input = readerDirectory.OpenInput("shared.bin");
+        writerDirectory.DeleteFile("shared.bin");
+        Assert.True(File.Exists(filePath));
+
+        input.Dispose();
+        Assert.False(File.Exists(filePath));
+    }
+
+    [Fact(DisplayName = "MMap Directory: Snapshot Defers Deletion Until Final Release")]
+    public void MMapDirectory_Snapshot_DefersDeletionUntilFinalRelease()
+    {
+        var sub = Path.Combine(_fixture.Path, "snapshot_" + Guid.NewGuid().ToString("N")[..6]);
+        Directory.CreateDirectory(sub);
+        var filePath = Path.Combine(sub, "segment.pos");
+        File.WriteAllBytes(filePath, [1]);
+        using var first = new MMapDirectory(sub);
+        using var second = new MMapDirectory(sub);
+
+        var snapshot = first.AcquireSnapshot(["segment.pos"]);
+        var input = second.OpenInput("segment.pos");
+        second.DeleteFile("segment.pos");
+        snapshot.Dispose();
+        Assert.True(File.Exists(filePath));
+
+        input.Dispose();
+        Assert.False(File.Exists(filePath));
+    }
+
+    [Fact(DisplayName = "MMap Directory: Failed Snapshot Acquisition Releases No Files")]
+    public void MMapDirectory_FailedSnapshot_ReleasesNoFiles()
+    {
+        var sub = Path.Combine(_fixture.Path, "failed_snapshot_" + Guid.NewGuid().ToString("N")[..6]);
+        Directory.CreateDirectory(sub);
+        var filePath = Path.Combine(sub, "present.bin");
+        File.WriteAllBytes(filePath, [1]);
+        using var directory = new MMapDirectory(sub);
+
+        Assert.Throws<FileNotFoundException>(() =>
+            directory.AcquireSnapshot(["present.bin", "missing.bin"]));
+        directory.DeleteFile("present.bin");
+        Assert.False(File.Exists(filePath));
+    }
+
+    [Fact(DisplayName = "MMap Directory: Concurrent Acquire Delete Race Does Not Lose Deferred Delete")]
+    public async Task MMapDirectory_ConcurrentAcquireDelete_DoesNotLoseDeferredDelete()
+    {
+        var sub = Path.Combine(_fixture.Path, "race_" + Guid.NewGuid().ToString("N")[..6]);
+        Directory.CreateDirectory(sub);
+        using var first = new MMapDirectory(sub);
+        using var second = new MMapDirectory(sub);
+
+        for (int i = 0; i < 50; i++)
+        {
+            string name = $"race-{i}.bin";
+            string path = Path.Combine(sub, name);
+            File.WriteAllBytes(path, [1]);
+            using var gate = new ManualResetEventSlim();
+            FileSnapshotLease? lease = null;
+            var acquire = Task.Run(() =>
+            {
+                gate.Wait();
+                try { lease = first.AcquireSnapshot([name]); }
+                catch (FileNotFoundException) { }
+            });
+            var delete = Task.Run(() =>
+            {
+                gate.Wait();
+                second.DeleteFile(name);
+            });
+            gate.Set();
+            await Task.WhenAll(acquire, delete);
+            lease?.Dispose();
+            if (File.Exists(path))
+                second.DeleteFile(name);
+            Assert.False(File.Exists(path));
+        }
+    }
+
     /// <summary>
     /// Verifies that Dispose closes tracked IndexInput instances.
     /// </summary>

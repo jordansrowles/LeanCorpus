@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
+using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Queries;
+using Rowles.LeanCorpus.Search.Scoring;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
@@ -13,47 +15,45 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 internal static class DeletionApplier
 {
     public static void ApplyPendingDeletions(
-        List<(string field, string term, bool isSoftDelete)> pendingDeletes,
+        PendingDeleteQueue deleteQueue,
         List<SegmentInfo> segments,
         MMapDirectory directory,
         int commitGeneration,
-        bool durableCommits)
+        bool durableCommits,
+        Diagnostics.IMetricsCollector metrics)
     {
+        var stopwatch = Stopwatch.StartNew();
+        var pendingDeletes = deleteQueue.GetOrderedList();
+        int deleteTermCount = pendingDeletes.Count;
+        int changedSegments = 0;
+        _ = durableCommits;
         using var activity = Diagnostics.LeanCorpusActivitySource.Source
             .StartActivity(Diagnostics.LeanCorpusActivitySource.DeleteApply);
         if (pendingDeletes.Count == 0) return;
 
-        var hardDeleteTermsByField = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-        var softDeleteTermsByField = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        // Group by ordinal: hard and soft deletes separated
+        var hardTermsByOrdinal = new Dictionary<int, List<DeleteTerm>>();
+        var softTermsByOrdinal = new Dictionary<int, List<DeleteTerm>>();
         long softDeleteTimestamp = 0;
 
-        foreach (var (field, term, isSoftDelete) in pendingDeletes)
+        foreach (var dt in pendingDeletes)
         {
-            var dict = isSoftDelete ? softDeleteTermsByField : hardDeleteTermsByField;
-            if (!dict.TryGetValue(field, out var set))
+            var dict = dt.IsSoftDelete ? softTermsByOrdinal : hardTermsByOrdinal;
+            if (!dict.TryGetValue(dt.FieldOrdinal, out var list))
             {
-                set = new HashSet<string>(StringComparer.Ordinal);
-                dict[field] = set;
+                list = [];
+                dict[dt.FieldOrdinal] = list;
             }
-            set.Add(term);
+            list.Add(dt);
         }
 
-        if (softDeleteTermsByField.Count > 0)
+        if (softTermsByOrdinal.Count > 0)
             softDeleteTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
         int pendingGen = commitGeneration + 1;
         var dirPath = directory.DirectoryPath;
 
-        // Pre-compute doc-ID ranges for segment routing of "id"-field deletes.
-        int docBase = 0;
-        var segmentRanges = new (int Min, int Max, SegmentInfo Seg)[segments.Count];
-        for (int i = 0; i < segments.Count; i++)
-        {
-            segmentRanges[i] = (docBase, docBase + segments[i].DocCount - 1, segments[i]);
-            docBase += segments[i].DocCount;
-        }
-
-        foreach (var (min, max, seg) in segmentRanges)
+        foreach (var seg in segments)
         {
             var basePath = Path.Combine(dirPath, seg.SegmentId);
             var dicPath = basePath + ".dic";
@@ -73,35 +73,37 @@ internal static class DeletionApplier
                 : new LiveDocs(seg.DocCount);
 
             bool changed = false;
+            var newlyDeleted = new HashSet<int>();
             using var posInput = new IndexInput(posPath);
             byte postingsVersion = PostingsEnum.ValidateFileHeader(posInput);
 
-            // Route "id"-field terms to only the segment containing their doc ID.
-            var routedHard = RouteDeletesBySegment(hardDeleteTermsByField, min, max);
-            var routedSoft = RouteDeletesBySegment(softDeleteTermsByField, min, max);
-
-            ApplyDeletesByField(dicReader, posInput, postingsVersion, liveDocs,
-                routedHard, softDelete: false, 0, ref changed);
-            ApplyDeletesByField(dicReader, posInput, postingsVersion, liveDocs,
-                routedSoft, softDelete: true, softDeleteTimestamp, ref changed);
+            ApplyDeletesByOrdinal(dicReader, posInput, postingsVersion, liveDocs,
+                hardTermsByOrdinal, newlyDeleted, softDelete: false, 0, ref changed);
+            ApplyDeletesByOrdinal(dicReader, posInput, postingsVersion, liveDocs,
+                softTermsByOrdinal, newlyDeleted, softDelete: true, softDeleteTimestamp, ref changed);
 
             if (changed)
             {
+                changedSegments++;
                 var newDelPath = basePath + $"_gen_{pendingGen}.del";
-                LiveDocs.Serialise(newDelPath, liveDocs, durableCommits);
+                LiveDocs.Serialise(newDelPath, liveDocs, durable: false);
                 seg.DelGeneration = pendingGen;
                 seg.LiveDocCount = liveDocs.LiveCount;
                 seg.EarliestSoftDeleteTimestamp = liveDocs.EarliestSoftDeleteTimestamp;
+                UpdateSegmentStatistics(basePath, seg, newlyDeleted);
                 seg.WriteTo(basePath + ".seg");
             }
         }
 
-        pendingDeletes.Clear();
+        deleteQueue.Clear();
+        stopwatch.Stop();
+        metrics.RecordDeleteApplication(stopwatch.Elapsed, deleteTermCount, changedSegments);
     }
 
     private static void ReadPostingsAtOffsetInto(
         IndexInput input, long offset, byte postingsVersion, LiveDocs liveDocs,
-        ref bool changed, bool softDelete = false, long softDeleteTimestamp = 0)
+        HashSet<int> newlyDeleted, ref bool changed, bool softDelete = false,
+        long softDeleteTimestamp = 0)
     {
         using var pe = PostingsEnum.Create(input, offset);
         while (pe.MoveNext())
@@ -113,76 +115,57 @@ internal static class DeletionApplier
                     liveDocs.SoftDelete(docId, softDeleteTimestamp);
                 else
                     liveDocs.Delete(docId);
+                newlyDeleted.Add(docId);
                 changed = true;
             }
         }
     }
 
-    private static void ApplyDeletesByField(
+    private static void ApplyDeletesByOrdinal(
         TermDictionaryReader dicReader, IndexInput posInput, byte postingsVersion,
-        LiveDocs liveDocs, Dictionary<string, HashSet<string>> termsByField,
-        bool softDelete, long softDeleteTimestamp, ref bool changed)
+        LiveDocs liveDocs, Dictionary<int, List<DeleteTerm>> termsByOrdinal,
+        HashSet<int> newlyDeleted, bool softDelete, long softDeleteTimestamp, ref bool changed)
     {
-        Span<char> stackBuf = stackalloc char[256];
-
-        foreach (var (field, terms) in termsByField)
+        foreach (var (_, deleteTerms) in termsByOrdinal)
         {
-            foreach (var term in terms)
+            foreach (var dt in deleteTerms)
             {
-                int fieldLen = field.Length;
-                int termLen = term.Length;
-                int totalLen = fieldLen + 1 + termLen;
-                Span<char> qualified = totalLen <= 256
-                    ? stackBuf.Slice(0, totalLen)
-                    : new char[totalLen];
-                field.AsSpan().CopyTo(qualified);
-                qualified[fieldLen] = '\0';
-                term.AsSpan().CopyTo(qualified.Slice(fieldLen + 1));
-
-                if (!dicReader.TryGetPostingsOffset(qualified, out long offset))
+                var qualifiedBytes = dt.BuildQualifiedTermBytes();
+                if (!dicReader.TryGetPostingsOffset(qualifiedBytes, out long offset))
                     continue;
 
                 ReadPostingsAtOffsetInto(posInput, offset, postingsVersion,
-                    liveDocs, ref changed, softDelete, softDeleteTimestamp);
+                    liveDocs, newlyDeleted, ref changed, softDelete, softDeleteTimestamp);
             }
         }
     }
 
-    /// <summary>Routes delete terms to the segment containing their doc ID.
-    /// Terms in the "id" field that parse as integers are filtered to the matching range;
-    /// all other terms pass through to every segment unchanged.</summary>
-    private static Dictionary<string, HashSet<string>> RouteDeletesBySegment(
-        Dictionary<string, HashSet<string>> termsByField,
-        int minDocId, int maxDocId)
+    private static void UpdateSegmentStatistics(string basePath, SegmentInfo segment, HashSet<int> deletedDocIds)
     {
-        var routed = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-        foreach (var (field, terms) in termsByField)
+        var statsPath = SegmentStats.GetStatsPath(Path.GetDirectoryName(basePath)!, segment.SegmentId);
+        var existing = SegmentStats.TryLoadFrom(statsPath);
+        if (existing is null)
+            return;
+
+        var sums = new Dictionary<string, long>(existing.FieldLengthSums, StringComparer.Ordinal);
+        var counts = new Dictionary<string, int>(existing.FieldDocCounts, StringComparer.Ordinal);
+        var lengths = FieldLengthReader.TryRead(basePath + ".fln");
+
+        foreach (int docId in deletedDocIds)
         {
-            if (field == "id")
+            foreach (string field in counts.Keys.ToArray())
             {
-                var inRange = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var term in terms)
+                long contribution = 1;
+                if (lengths is not null && lengths.TryGetValue(field, out var fieldLengths) &&
+                    (uint)docId < (uint)fieldLengths.Length)
                 {
-                    if (int.TryParse(term, System.Globalization.NumberStyles.None,
-                            System.Globalization.CultureInfo.InvariantCulture, out int docId))
-                    {
-                        if (docId >= minDocId && docId <= maxDocId)
-                            inRange.Add(term);
-                    }
-                    else
-                    {
-                        // Non-numeric id terms cannot be routed; pass through to all segments.
-                        inRange.Add(term);
-                    }
+                    contribution = fieldLengths[docId];
                 }
-                if (inRange.Count > 0)
-                    routed[field] = inRange;
-            }
-            else
-            {
-                routed[field] = terms;
+                sums[field] = Math.Max(0, sums.GetValueOrDefault(field) - contribution);
+                counts[field] = Math.Max(0, counts[field] - 1);
             }
         }
-        return routed;
+
+        new SegmentStats(segment.DocCount, segment.LiveDocCount, sums, counts).WriteTo(statsPath);
     }
 }

@@ -5,11 +5,11 @@ The benchmark project lives at `src/devops/Rowles.LeanCorpus.Benchmarks` and use
 ## Run
 
 ```powershell
-.\scripts\benchmark.ps1 -Suite query -Strat fast
+./devops benchmark -Suite query -Strat fast
 ```
 
 ```bash
-./scripts/benchmark.sh --suite query --strat fast
+./devops benchmark -Suite query -Strat fast
 ```
 
 Or directly:

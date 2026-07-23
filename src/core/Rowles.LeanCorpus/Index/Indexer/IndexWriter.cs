@@ -39,7 +39,9 @@ public sealed partial class IndexWriter : IDisposable
     private List<SegmentInfo>? _preparedSegments;
     private long _preparedContentToken;
     private readonly List<SegmentInfo> _committedSegments = [];
-    private readonly List<(string field, string term, bool isSoftDelete)> _pendingDeletes = [];
+    private readonly PendingDeleteQueue _deleteQueue = new();
+    private readonly Dictionary<string, FileSyncState> _syncedFileStates = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _fieldOrdinals = new(StringComparer.Ordinal);
 
     // --- Backpressure state ---
     private SemaphoreSlim? _backpressureSemaphore;
@@ -48,6 +50,9 @@ public sealed partial class IndexWriter : IDisposable
 
     // --- Merge state ---
     private Task? _mergeTask;
+    private readonly List<Task> _mergeTasks = [];
+    private readonly HashSet<string> _reservedMergeSegments = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _obsoleteMergeSegments = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _mergeCts = new();
     private readonly Lock _mergeLock = new();
     private readonly Lock _mergeIoLock = new();
@@ -58,6 +63,12 @@ public sealed partial class IndexWriter : IDisposable
     // --- DWPT state ---
     private DocumentsWriterPerThread[]? _dwptPool;
     private int _dwptCounter;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, int> _dwptThreadSlots = new();
+
+    // --- Detached flush state ---
+    private readonly List<FlushPendingState> _flushPending = [];
+    private int _activeFlushCount;
+    private SemaphoreSlim? _flushSemaphore;
 
     // --- Async write channel ---
     private readonly Channel<AsyncWriteCommand> _asyncWriteChannel;
@@ -68,7 +79,7 @@ public sealed partial class IndexWriter : IDisposable
     private int _closing;       // 0 = open, 1 = Dispose has started draining (prevents TOCTOU)
     private int _inFlightAdds;  // count of indexing callers that passed the disposed-check gate
     private int _indexingFailed;
-    private readonly FileStream _writeLockFile;
+    private readonly Stream _writeLockFile;
 
     /// <summary>
     /// Initialises a new <see cref="IndexWriter"/> for the given directory with the specified configuration.
@@ -113,9 +124,13 @@ public sealed partial class IndexWriter : IDisposable
         // Initialize backpressure semaphore if MaxQueuedDocs > 0
         if (config.MaxQueuedDocs > 0)
             _backpressureSemaphore = new SemaphoreSlim(config.MaxQueuedDocs, config.MaxQueuedDocs);
+        if (config.MaxConcurrentFlushes > 1)
+            _flushSemaphore = new SemaphoreSlim(config.MaxConcurrentFlushes, config.MaxConcurrentFlushes);
 
         // Load existing commit state if present
         CommitManager.LoadLatestCommit(this);
+        CaptureExistingFileSyncState();
+        DwptManager.InitialiseDwptPool(this);
 
         // Start async write consumer
         var channelCapacity = config.MaxQueuedDocs > 0 ? config.MaxQueuedDocs : 4096;
@@ -123,187 +138,33 @@ public sealed partial class IndexWriter : IDisposable
         {
             SingleWriter = false, SingleReader = true, FullMode = BoundedChannelFullMode.Wait
         });
-        _asyncWriteConsumer = Task.Factory.StartNew(RunAsyncWriteLoop, CancellationToken.None,
-            TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        _asyncWriteConsumer = Task.Run(RunAsyncWriteLoop);
     }
 
     public long NextSequenceNumber => Volatile.Read(ref _nextSequenceNumber);
+
+    private void CaptureExistingFileSyncState()
+    {
+        foreach (var filePath in FileOpenRetry.GetFiles(_directory.DirectoryPath, "*"))
+        {
+            var metadata = FileOpenRetry.GetFileMetadata(filePath);
+            _syncedFileStates[filePath] = new FileSyncState(metadata.Length, metadata.LastWriteTimeUtc.Ticks);
+        }
+    }
     public bool HasPreparedCommit => _preparedGeneration >= 0;
 
     public void AddDocument(LeanDocument doc)
-    {
-        EnterIndexingOperation();
-        try
-        {
-            ValidateDocument(doc);
-
-            BackpressureController.AcquireBackpressureSlot(this);
-
-            bool throttled = false;
-            bool enteredCore = false;
-            try
-            {
-                lock (_writeLock)
-                {
-                    if (_backpressureSemaphore is not null)
-                        _semaphoreSlotsHeld++;
-
-                    if (ShouldThrottleForMerge())
-                    {
-                        throttled = true;
-                    }
-
-                    enteredCore = true;
-                    AddDocumentCore(doc);
-                }
-            }
-            catch
-            {
-                if (enteredCore)
-                    MarkIndexingFailed();
-
-                if (_backpressureSemaphore is not null)
-                {
-                    BackpressureController.ReleaseSemaphoreSlots(this, 1);
-                    lock (_writeLock)
-                    {
-                        _semaphoreSlotsHeld--;
-                    }
-                }
-                throw;
-            }
-
-            if (throttled)
-                ThrottleMerge();
-        }
-        finally
-        {
-            ExitIndexingOperation();
-        }
-    }
+        => DwptManager.AddDocument(this, doc);
 
     public void AddDocuments(IReadOnlyList<LeanDocument> documents)
     {
-        EnterIndexingOperation();
-        try
-        {
-            ArgumentNullException.ThrowIfNull(documents);
-            if (documents.Count == 0) return;
-            ValidateDocuments(documents);
-            if (_backpressureSemaphore is not null && documents.Count > _config.MaxQueuedDocs)
-            {
-                foreach (var document in documents)
-                    AddDocument(document);
-                return;
-            }
-
-            int acquired = 0;
-            bool addedToHeldSlots = false;
-            bool enteredCore = false;
-            try
-            {
-                if (_backpressureSemaphore is not null)
-                {
-                    for (int i = 0; i < documents.Count; i++)
-                    {
-                        BackpressureController.AcquireBackpressureSlot(this);
-                        acquired++;
-                    }
-                }
-
-                lock (_writeLock)
-                {
-                    if (_backpressureSemaphore is not null)
-                    {
-                        _semaphoreSlotsHeld += acquired;
-                        addedToHeldSlots = true;
-                    }
-
-                    for (int i = 0; i < documents.Count; i++)
-                    {
-                        enteredCore = true;
-                        AddDocumentCore(documents[i]);
-                    }
-                }
-            }
-            catch
-            {
-                if (enteredCore)
-                    MarkIndexingFailed();
-                BackpressureController.ReleaseFailedBackpressureSlots(this, acquired, addedToHeldSlots);
-                throw;
-            }
-        }
-        finally
-        {
-            ExitIndexingOperation();
-        }
+        ArgumentNullException.ThrowIfNull(documents);
+        for (int i = 0; i < documents.Count; i++)
+            DwptManager.AddDocument(this, documents[i]);
     }
 
     public void AddDocumentBlock(IReadOnlyList<LeanDocument> block)
-    {
-        EnterIndexingOperation();
-        try
-        {
-            ArgumentNullException.ThrowIfNull(block);
-            if (block.Count < 2)
-                throw new ArgumentException("A document block requires at least one child and one parent document.", nameof(block));
-            ValidateDocuments(block);
-            if (_backpressureSemaphore is not null && block.Count > _config.MaxQueuedDocs)
-                throw new InvalidOperationException(
-                    $"Document block contains {block.Count} documents, which exceeds MaxQueuedDocs ({_config.MaxQueuedDocs}).");
-
-            int acquired = 0;
-            bool addedToHeldSlots = false;
-            bool enteredCore = false;
-            try
-            {
-                if (_backpressureSemaphore is not null)
-                {
-                    for (int i = 0; i < block.Count; i++)
-                    {
-                        BackpressureController.AcquireBackpressureSlot(this);
-                        acquired++;
-                    }
-                }
-
-                lock (_writeLock)
-                {
-                    if (_backpressureSemaphore is not null)
-                    {
-                        _semaphoreSlotsHeld += acquired;
-                        addedToHeldSlots = true;
-                    }
-
-                    for (int i = 0; i < block.Count; i++)
-                    {
-                        if (i == block.Count - 1)
-                        {
-                            _buffer.ParentDocIds ??= new HashSet<int>();
-                            _buffer.ParentDocIds.Add(_buffer.DocCount);
-                        }
-
-                        enteredCore = true;
-                        AddDocumentCore(block[i], suppressFlush: true);
-                    }
-
-                    if (ShouldFlush())
-                        FlushSegment();
-                }
-            }
-            catch
-            {
-                if (enteredCore)
-                    MarkIndexingFailed();
-                BackpressureController.ReleaseFailedBackpressureSlots(this, acquired, addedToHeldSlots);
-                throw;
-            }
-        }
-        finally
-        {
-            ExitIndexingOperation();
-        }
-    }
+        => DwptManager.AddDocumentBlock(this, block);
 
     public void UpdateDocument(string field, string term, LeanDocument replacement)
     {
@@ -318,16 +179,17 @@ public sealed partial class IndexWriter : IDisposable
                 {
                     int preFlushSegmentCount = _committedSegments.Count;
 
+                    DwptManager.WaitForPendingFlushes(this);
                     DwptManager.FlushDwptPool(this);
                     if (_buffer.DocCount > 0)
                         FlushSegment();
 
-                    _pendingDeletes.Add((field, term, isSoftDelete: false));
+                    QueueDelete(field, term, isSoftDelete: false);
                     DeletionApplier.ApplyPendingDeletions(
-                        _pendingDeletes, _committedSegments.GetRange(0, preFlushSegmentCount),
-                        _directory, _commitGeneration, _config.DurableCommits);
+                        _deleteQueue, _committedSegments.GetRange(0, preFlushSegmentCount),
+                        _directory, _commitGeneration, _config.DurableCommits, _config.Metrics);
                     enteredCore = true;
-                    AddDocumentCore(replacement);
+                    DwptManager.AddDocument(this, replacement);
                 }
             }
             catch
@@ -352,8 +214,7 @@ public sealed partial class IndexWriter : IDisposable
 
         lock (_writeLock)
         {
-            _pendingDeletes.Add((query.Field, query.Term, isSoftDelete: true));
-            _contentChangedSinceCommit = true;
+            QueueDelete(query.Field, query.Term, isSoftDelete: true);
         }
     }
 
@@ -370,19 +231,20 @@ public sealed partial class IndexWriter : IDisposable
                 {
                     int preFlushSegmentCount = _committedSegments.Count;
 
+                    DwptManager.WaitForPendingFlushes(this);
                     DwptManager.FlushDwptPool(this);
                     if (_buffer.DocCount > 0)
                         FlushSegment();
 
                     var terms = ResolveQueryToTerms(query, _committedSegments.GetRange(0, preFlushSegmentCount));
                     foreach (var (f, t) in terms)
-                        _pendingDeletes.Add((f, t, isSoftDelete: false));
+                        QueueDelete(f, t, isSoftDelete: false);
 
                     DeletionApplier.ApplyPendingDeletions(
-                        _pendingDeletes, _committedSegments.GetRange(0, preFlushSegmentCount),
-                        _directory, _commitGeneration, _config.DurableCommits);
+                        _deleteQueue, _committedSegments.GetRange(0, preFlushSegmentCount),
+                        _directory, _commitGeneration, _config.DurableCommits, _config.Metrics);
                     enteredCore = true;
-                    AddDocumentCore(replacement);
+                    DwptManager.AddDocument(this, replacement);
                 }
             }
             catch
@@ -650,6 +512,10 @@ public sealed partial class IndexWriter : IDisposable
             }
         }
 
+        // Drain any pending detached flushes and publish their segments
+        lock (_writeLock)
+            DwptManager.WaitForPendingFlushes(this);
+
         _mergeCts.Cancel();
         try { _mergeTask?.Wait(); }
         catch (AggregateException) { /* Expected: merge task cancelled during shutdown */ }
@@ -658,6 +524,7 @@ public sealed partial class IndexWriter : IDisposable
         _mergeCts.Dispose();
 
         _backpressureSemaphore?.Dispose();
+        _flushSemaphore?.Dispose();
 
 
         _asyncWriteChannel.Writer.Complete();
@@ -724,13 +591,28 @@ public sealed partial class IndexWriter : IDisposable
         return ram >= (long)(_config.RamBufferSizeMB * 1024 * 1024);
     }
 
-    private bool ShouldThrottleForMerge()
+    internal bool ShouldThrottleForMerge()
     {
-        return _config.MergeThrottleSegments > 0
-            && _committedSegments.Count >= _config.MergeThrottleSegments;
+        if (_config.MergeThrottleSegments > 0 &&
+            _committedSegments.Count >= _config.MergeThrottleSegments)
+            return true;
+
+        lock (_mergeLock)
+        {
+            if (_config.MaxPendingMergeBytes <= 0 || _reservedMergeSegments.Count == 0)
+                return false;
+
+            long pendingBytes = 0;
+            foreach (var segment in _committedSegments)
+            {
+                if (_reservedMergeSegments.Contains(segment.SegmentId))
+                    pendingBytes += segment.TotalBytes;
+            }
+            return pendingBytes >= _config.MaxPendingMergeBytes;
+        }
     }
 
-    private void ThrottleMerge()
+    internal void ThrottleMerge()
     {
         MergeScheduler.ScheduleBackgroundMerge(this);
         var task = _mergeTask;
@@ -743,7 +625,9 @@ public sealed partial class IndexWriter : IDisposable
 
     private long ComputeEstimatedRamBytes()
     {
-        return _buffer.PostingsRamBytes + _buffer.EstimatedRamBytes;
+        long bytes = _buffer.AccountedRamBytes;
+        _config.Metrics.RecordWriterMemory(bytes, 0, _deleteQueue.Count * 96L);
+        return bytes;
     }
 
     // --- Internal static helpers called by extracted manager classes ---
@@ -819,35 +703,19 @@ public sealed partial class IndexWriter : IDisposable
 
     private void ProcessAsyncWriteCommand(AsyncWriteCommand cmd)
     {
-        lock (_writeLock)
+        if (Volatile.Read(ref _disposed) != 0)
+            throw new ObjectDisposedException(nameof(IndexWriter));
+        switch (cmd.Kind)
         {
-            if (Volatile.Read(ref _disposed) != 0)
-                throw new ObjectDisposedException(nameof(IndexWriter));
-            switch (cmd.Kind)
-            {
-                case AsyncWriteKind.Single:
-                    AddDocumentCore((LeanDocument)cmd.Payload);
-                    break;
-                case AsyncWriteKind.Batch:
-                    var docs = (IReadOnlyList<LeanDocument>)cmd.Payload;
-                    for (int i = 0; i < docs.Count; i++)
-                        AddDocumentCore(docs[i]);
-                    break;
-                case AsyncWriteKind.Block:
-                    var block = (IReadOnlyList<LeanDocument>)cmd.Payload;
-                    for (int i = 0; i < block.Count; i++)
-                    {
-                        if (i == block.Count - 1)
-                        {
-                            _buffer.ParentDocIds ??= new HashSet<int>();
-                            _buffer.ParentDocIds.Add(_buffer.DocCount);
-                        }
-                        AddDocumentCore(block[i], suppressFlush: true);
-                    }
-                    if (ShouldFlush())
-                        FlushSegment();
-                    break;
-            }
+            case AsyncWriteKind.Single:
+                AddDocument((LeanDocument)cmd.Payload);
+                break;
+            case AsyncWriteKind.Batch:
+                AddDocuments((IReadOnlyList<LeanDocument>)cmd.Payload);
+                break;
+            case AsyncWriteKind.Block:
+                AddDocumentBlock((IReadOnlyList<LeanDocument>)cmd.Payload);
+                break;
         }
     }
     internal DocumentBufferState Buffer => _buffer;
@@ -872,12 +740,35 @@ public sealed partial class IndexWriter : IDisposable
     internal ref int FlushElection => ref _flushElection;
     internal ref int SemaphoreSlotsHeld => ref _semaphoreSlotsHeld;
     internal ref Task? MergeTask => ref _mergeTask;
+    internal List<Task> MergeTasks => _mergeTasks;
+    internal HashSet<string> ReservedMergeSegments => _reservedMergeSegments;
+    internal HashSet<string> ObsoleteMergeSegments => _obsoleteMergeSegments;
     internal ref int DwptCounter => ref _dwptCounter;
+    internal System.Collections.Concurrent.ConcurrentDictionary<int, int> DwptThreadSlots => _dwptThreadSlots;
 
     internal List<SegmentInfo> CommittedSegments => _committedSegments;
-    internal List<(string field, string term, bool isSoftDelete)> PendingDeletes => _pendingDeletes;
+
+    internal List<DeleteTerm> PendingDeletes => _deleteQueue.GetOrderedList();
+    internal PendingDeleteQueue DeleteQueue => _deleteQueue;
+    /// <summary>Returns or creates a compact field ordinal for the given field name.</summary>
+    internal int GetFieldOrdinal(string fieldName)
+    {
+        if (!_fieldOrdinals.TryGetValue(fieldName, out int ordinal))
+        {
+            ordinal = _fieldOrdinals.Count;
+            _fieldOrdinals[fieldName] = ordinal;
+        }
+        return ordinal;
+    }
+    internal Dictionary<string, int> FieldOrdinals => _fieldOrdinals;
+    internal Dictionary<string, FileSyncState> SyncedFileStates => _syncedFileStates;
     internal List<IndexSnapshot> HeldSnapshots => _heldSnapshots;
     internal DocumentsWriterPerThread[]? DwptPool { get => _dwptPool; set => _dwptPool = value; }
     internal SemaphoreSlim? BackpressureSemaphore => _backpressureSemaphore;
     internal SemaphoreSlim? BackpressureSemaphoreForTests => _backpressureSemaphore;
+    internal List<FlushPendingState> FlushPending => _flushPending;
+    internal ref int ActiveFlushCount => ref _activeFlushCount;
+    internal SemaphoreSlim? FlushSemaphore => _flushSemaphore;
 }
+
+internal readonly record struct FileSyncState(long Length, long LastWriteTimeUtcTicks);

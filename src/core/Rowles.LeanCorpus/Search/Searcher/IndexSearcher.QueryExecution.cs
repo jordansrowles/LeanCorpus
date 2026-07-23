@@ -84,6 +84,9 @@ public sealed partial class IndexSearcher
     private void ExecuteQuery(Query query, SegmentReader reader,
         Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
+        // Pin the heavy state for the complete segment operation. Nested query
+        // execution takes additional value-type leases on the same cache entry.
+        using var segmentLease = reader.AcquireQueryLease();
         switch (query)
         {
             case TermQuery tq:
@@ -182,7 +185,7 @@ public sealed partial class IndexSearcher
 
         int docFreq = globalDFs.GetValueOrDefault((query.Field, query.Term), postings.DocFreq);
         long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
-        float avgDocLength = _stats.GetAvgFieldLength(query.Field);
+        float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
         int docBase = reader.DocBase;
         float boost = query.Boost;
@@ -265,9 +268,21 @@ public sealed partial class IndexSearcher
                 var qt = tq.CachedQualifiedTerm ??= string.Concat(tq.Field, "\x00", tq.Term);
                 var postings = reader.GetPostingsEnum(qt);
 
+                // Absent from this segment: behaviour depends on Occur.
+                if (postings.DocFreq == 0)
+                {
+                    postings.Dispose();
+
+                    if (clause.Occur == Occur.Must)
+                        return;
+
+                    continue;
+                }
+
+                // Only calculate scoring factors for clauses that survived.
                 int docFreq = globalDFs.GetValueOrDefault((tq.Field, tq.Term), postings.DocFreq);
                 long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
-                float avgDocLength = _stats.GetAvgFieldLength(tq.Field);
+                float avgDocLength = Stats.GetAvgFieldLength(tq.Field);
                 var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, tq.Field);
 
                 switch (clause.Occur)
@@ -290,6 +305,13 @@ public sealed partial class IndexSearcher
                         break;
                 }
             }
+
+            mustCount = mi;
+            shouldCount = si;
+            mustNotCount = mni;
+
+            if (mustCount == 0 && shouldCount == 0)
+                return;
 
             int docBase = reader.DocBase;
             bool hasDeletions = reader.HasDeletions;
@@ -389,11 +411,25 @@ public sealed partial class IndexSearcher
                 const int HeapThreshold = 64;
                 var localShouldEnums = shouldEnums!;
 
-                // WAND path: use block-max scoring to skip non-competitive blocks.
-                if (_config.EnableBlockMaxWand && mustNotCount == 0)
+                // WAND path: check capability, then use block-max scoring.
+                bool useWand = _config.EnableBlockMaxWand && mustNotCount == 0;
+                if (useWand)
+                {
+                    for (int i = 0; i < shouldCount; i++)
+                    {
+                        if (!localShouldEnums[i].HasBlockMetadata)
+                        {
+                            useWand = false;
+                            break;
+                        }
+                    }
+                }
+
+                if (useWand)
                 {
                     ExecuteShouldOnlyWand(localShouldEnums, shouldFieldLens!, shouldFieldBoosts!,
-                        shouldFactors!, shouldFields!, reader, hasDeletions, ref collector);
+                        shouldFactors!, shouldFields!, reader, hasDeletions, ref collector,
+                        shouldCount);
                 }
                 else if (shouldCount <= HeapThreshold)
                 {
@@ -665,7 +701,7 @@ public sealed partial class IndexSearcher
                     if (postings.IsExhausted) break;
                     int docFreq = globalDFs.GetValueOrDefault((tq.Field, tq.Term), postings.DocFreq);
                     long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
-                    float avgDocLength = _stats.GetAvgFieldLength(tq.Field);
+                    float avgDocLength = Stats.GetAvgFieldLength(tq.Field);
                     var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, tq.Field);
                     reader.TryGetFieldLengths(tq.Field, out var fieldLengths);
                     // For selective queries (fewer than 2 batches), use an inline loop to avoid
@@ -866,16 +902,16 @@ public sealed partial class IndexSearcher
         string[] shouldFields,
         SegmentReader reader,
         bool hasDeletions,
-        ref TopNCollector collector)
+        ref TopNCollector collector,
+        int shouldCount)
     {
-        int shouldCount = shouldEnums.Length;
         var scorers = new BlockMaxWandScorer.TermScorer[shouldCount];
 
         for (int i = 0; i < shouldCount; i++)
         {
             var blockEnum = shouldEnums[i].BlockEnum;
             var (f1, f2, f3) = shouldFactors[i];
-            float avgDl = _stats.GetAvgFieldLength(shouldFields[i]);
+            float avgDl = Stats.GetAvgFieldLength(shouldFields[i]);
 
             scorers[i] = new BlockMaxWandScorer.TermScorer(
                 blockEnum, f1, f2, f3,

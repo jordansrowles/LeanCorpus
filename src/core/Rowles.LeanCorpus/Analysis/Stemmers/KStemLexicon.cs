@@ -98,7 +98,7 @@ public sealed class KStemLexicon : IKStemLexicon
         ArgumentNullException.ThrowIfNull(stream);
 
         var words = new List<string>();
-        using var reader = new StreamReader(stream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+        using var reader = FileOpenRetry.OpenTextReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
         string? line;
         while ((line = reader.ReadLine()) is not null)
         {

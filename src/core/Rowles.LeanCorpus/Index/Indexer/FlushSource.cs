@@ -30,6 +30,11 @@ internal interface IFlushSource
     Dictionary<string, Dictionary<int, List<byte[]>>> BinaryDocValues { get; }
     int PostingsCount { get; }
     void CopySortedPostings((string Term, PostingAccumulator Acc)[] target);
+    /// <summary>
+    /// Copies (UTF-8 term bytes, accumulator) pairs into <paramref name="target"/>.
+    /// The bytes are owned by the caller; implementations must not retain references.
+    /// </summary>
+    void CopySortedPostingsUtf8((byte[] TermUtf8, PostingAccumulator Acc)[] target);
 }
 
 /// <summary>
@@ -66,6 +71,12 @@ internal readonly struct BufferFlushSource : IFlushSource
         for (int i = 0; i < target.Length; i++)
             target[i] = (_b.GetTermString(i), _b.PostingAccumulators[i]);
     }
+
+    public void CopySortedPostingsUtf8((byte[] TermUtf8, PostingAccumulator Acc)[] target)
+    {
+        for (int i = 0; i < target.Length; i++)
+            target[i] = (System.Text.Encoding.UTF8.GetBytes(_b.GetTermString(i)), _b.PostingAccumulators[i]);
+    }
 }
 
 /// <summary>
@@ -95,12 +106,19 @@ internal readonly struct DwptFlushSource : IFlushSource
     public Dictionary<string, Dictionary<int, List<double>>> SortedNumericDocValues => _d.SortedNumericDocValues;
     public Dictionary<string, Dictionary<int, List<long>>> Int64SortedDocValues => _d.Int64SortedDocValues;
     public Dictionary<string, Dictionary<int, List<byte[]>>> BinaryDocValues => _d.BinaryDocValues;
-    public int PostingsCount => _d.Postings.Count;
+    public int PostingsCount => _d.TermHash.Count;
 
     public void CopySortedPostings((string Term, PostingAccumulator Acc)[] target)
     {
         int idx = 0;
-        foreach (var (term, acc) in _d.Postings)
-            target[idx++] = (term, acc);
+        for (int i = 0; i < _d.TermHash.Count; i++)
+            target[idx++] = (_d.TermHash.GetTermString(i), _d.PostingAccumulators[i]);
+    }
+
+    public void CopySortedPostingsUtf8((byte[] TermUtf8, PostingAccumulator Acc)[] target)
+    {
+        int idx = 0;
+        for (int i = 0; i < _d.TermHash.Count; i++)
+            target[idx++] = (_d.TermHash.GetTerm(i).ToArray(), _d.PostingAccumulators[i]);
     }
 }

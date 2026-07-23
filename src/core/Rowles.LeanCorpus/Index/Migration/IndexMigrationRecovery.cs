@@ -23,7 +23,7 @@ public static class IndexMigrationRecovery
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(indexPath);
         var markerPath = Path.Combine(indexPath, MarkerFileName);
-        if (!File.Exists(markerPath))
+        if (!FileOpenRetry.FileExists(markerPath))
         {
             return new IndexMigrationMarker
             {
@@ -39,7 +39,7 @@ public static class IndexMigrationRecovery
 
         try
         {
-            var json = File.ReadAllText(markerPath);
+            var json = FileOpenRetry.ReadAllText(markerPath);
             return JsonSerializer.Deserialize(json, LeanCorpusJsonContext.Default.IndexMigrationMarker)
                 ?? throw new InvalidDataException($"Migration marker '{markerPath}' deserialised to null.");
         }
@@ -62,13 +62,13 @@ public static class IndexMigrationRecovery
 
         if (marker.State == IndexMigrationState.Failed &&
             !string.IsNullOrWhiteSpace(marker.StagingDirectory) &&
-            Directory.Exists(marker.StagingDirectory))
+            FileOpenRetry.DirectoryExists(marker.StagingDirectory))
         {
             throw new InvalidOperationException("Migration failed after staging data was created; staging data is preserved. Abandon the marker only after confirming the source index is safe.");
         }
 
         if (!string.IsNullOrWhiteSpace(marker.StagingDirectory) &&
-            Directory.Exists(marker.StagingDirectory) &&
+            FileOpenRetry.DirectoryExists(marker.StagingDirectory) &&
             !PathsEqual(marker.StagingDirectory, indexPath))
         {
             FileOpenRetry.DeleteDirectory(marker.StagingDirectory, recursive: true);
@@ -97,7 +97,7 @@ public static class IndexMigrationRecovery
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(indexPath);
         ArgumentNullException.ThrowIfNull(marker);
-        Directory.CreateDirectory(indexPath);
+        FileOpenRetry.CreateDirectory(indexPath);
         var json = JsonSerializer.Serialize(marker, LeanCorpusJsonContext.Default.IndexMigrationMarker);
         Store.IndexAtomicFileWriter.WriteText(Path.Combine(indexPath, MarkerFileName), json, durable);
     }

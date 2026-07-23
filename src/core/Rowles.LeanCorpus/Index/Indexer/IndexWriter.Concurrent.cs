@@ -11,11 +11,11 @@ public sealed partial class IndexWriter
 
     public void AddDocumentLockFree(LeanDocument doc)
     {
-        DwptManager.AddDocumentLockFree(this, doc);
+        AddDocument(doc);
     }
 
     public void AddDocumentsConcurrent(IReadOnlyList<LeanDocument> documents)
     {
-        DwptManager.AddDocumentsConcurrent(this, documents);
+        AddDocuments(documents);
     }
 }

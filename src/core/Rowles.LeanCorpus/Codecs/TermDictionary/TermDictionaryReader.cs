@@ -71,6 +71,13 @@ internal sealed class TermDictionaryReader : IDisposable
         }
     }
 
+    /// <summary>
+    /// Looks up the postings offset for a qualified term already encoded as UTF-8 bytes.
+    /// Avoids the string→UTF-8 re-encode in the delete hot path.
+    /// </summary>
+    public bool TryGetPostingsOffset(ReadOnlySpan<byte> qualifiedUtf8, out long offset)
+        => _fst.TryGetOutput(qualifiedUtf8, out offset);
+
     // -- Prefix scans ------------------------------------------------------
 
     public List<(string Term, long Offset)> GetTermsWithPrefix(ReadOnlySpan<char> qualifiedPrefix)

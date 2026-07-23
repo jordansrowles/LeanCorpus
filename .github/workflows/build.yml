@@ -38,6 +38,9 @@ jobs:
           dotnet restore src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj
           dotnet restore src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj
 
+      - name: Restore architecture tests
+        run: dotnet restore src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj
+
       - name: Build tests
         run: |
           dotnet build src/devops/Rowles.LeanCorpus.Tests.Unit/Rowles.LeanCorpus.Tests.Unit.csproj -c Release --no-restore
@@ -47,6 +50,9 @@ jobs:
           dotnet build src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-restore
           dotnet build src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-restore
 
+      - name: Build architecture tests
+        run: dotnet build src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj -c Release --no-restore
+
       - name: Test
         run: |
           dotnet test src/devops/Rowles.LeanCorpus.Tests.Unit/Rowles.LeanCorpus.Tests.Unit.csproj -c Release --no-build --logger "trx;LogFileName=unit-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
@@ -54,6 +60,11 @@ jobs:
           CHAOS_ITERATIONS=1000 dotnet test src/devops/Rowles.LeanCorpus.Tests.Chaos/Rowles.LeanCorpus.Tests.Chaos.csproj -c Release --no-build --logger "trx;LogFileName=chaos-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
           dotnet test src/devops/Rowles.LeanCorpus.Tests.CompressionParity/Rowles.LeanCorpus.Tests.CompressionParity.csproj -c Release --no-build --logger "trx;LogFileName=compression-parity-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
           dotnet test src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-build --logger "trx;LogFileName=sourcegen-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
+
+      - name: Test architecture rules
+        run: |
+          dotnet test src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj -c Release -f net10.0 --no-build --logger "trx;LogFileName=architecture-net10-test-results.trx" --results-directory architecture-test-results/net10.0
+          dotnet test src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj -c Release -f net11.0 --no-build --logger "trx;LogFileName=architecture-net11-test-results.trx" --results-directory architecture-test-results/net11.0
 
       - name: Run Native AOT smoke tests
         run: dotnet run --project src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-build --framework net10.0
@@ -69,6 +80,7 @@ jobs:
             src/devops/Rowles.LeanCorpus.Tests.Chaos/TestResults/*.trx
             src/devops/Rowles.LeanCorpus.Tests.CompressionParity/TestResults/*.trx
             src/devops/Rowles.LeanCorpus.Tests.SourceGen/TestResults/*.trx
+            architecture-test-results/**/*.trx
           if-no-files-found: ignore
 
       - name: Upload coverage results
@@ -111,6 +123,9 @@ jobs:
           dotnet restore src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj
           dotnet restore src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj
 
+      - name: Restore architecture tests
+        run: dotnet restore src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj
+
       - name: Build tests
         run: |
           dotnet build src/devops/Rowles.LeanCorpus.Tests.Unit/Rowles.LeanCorpus.Tests.Unit.csproj -c Release --no-restore
@@ -120,6 +135,9 @@ jobs:
           dotnet build src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-restore
           dotnet build src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-restore
 
+      - name: Build architecture tests
+        run: dotnet build src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj -c Release --no-restore
+
       - name: Test
         run: |
           dotnet test src/devops/Rowles.LeanCorpus.Tests.Unit/Rowles.LeanCorpus.Tests.Unit.csproj -c Release --no-build --logger "trx;LogFileName=unit-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
@@ -127,6 +145,11 @@ jobs:
           $env:CHAOS_ITERATIONS = "1000"; dotnet test src/devops/Rowles.LeanCorpus.Tests.Chaos/Rowles.LeanCorpus.Tests.Chaos.csproj -c Release --no-build --logger "trx;LogFileName=chaos-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
           dotnet test src/devops/Rowles.LeanCorpus.Tests.CompressionParity/Rowles.LeanCorpus.Tests.CompressionParity.csproj -c Release --no-build --logger "trx;LogFileName=compression-parity-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
           dotnet test src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-build --logger "trx;LogFileName=sourcegen-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
+
+      - name: Test architecture rules
+        run: |
+          dotnet test src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj -c Release -f net10.0 --no-build --logger "trx;LogFileName=architecture-net10-test-results.trx" --results-directory architecture-test-results/net10.0
+          dotnet test src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj -c Release -f net11.0 --no-build --logger "trx;LogFileName=architecture-net11-test-results.trx" --results-directory architecture-test-results/net11.0
 
       - name: Run Native AOT smoke tests
         run: dotnet run --project src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-build --framework net10.0
@@ -142,6 +165,7 @@ jobs:
             src/devops/Rowles.LeanCorpus.Tests.Chaos/TestResults/*.trx
             src/devops/Rowles.LeanCorpus.Tests.CompressionParity/TestResults/*.trx
             src/devops/Rowles.LeanCorpus.Tests.SourceGen/TestResults/*.trx
+            architecture-test-results/**/*.trx
           if-no-files-found: ignore
 
       - name: Upload coverage results
@@ -187,7 +211,7 @@ jobs:
 
       - name: Build docs
         shell: pwsh
-        run: ./scripts/docs.ps1 -SkipBenchmarks
+        run: ./devops docs -SkipBenchmarks
 
 
       - name: Upload docs artifact

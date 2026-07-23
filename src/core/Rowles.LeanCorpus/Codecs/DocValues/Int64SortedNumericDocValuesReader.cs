@@ -12,7 +12,7 @@ internal static class Int64SortedNumericDocValuesReader
     public static Dictionary<string, long[][]> Read(string filePath)
     {
         var values = new Dictionary<string, long[][]>(StringComparer.Ordinal);
-        if (!File.Exists(filePath))
+        if (!FileOpenRetry.FileExists(filePath))
             return values;
 
         using var input = new IndexInput(filePath);

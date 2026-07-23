@@ -178,12 +178,41 @@ public unsafe struct PostingsEnum : IDisposable
     public int DocFreq => _lazyMode ? _blockEnum.DocFreqCount : _count;
 
     /// <summary>Gets the current document ID, or -1 if the cursor has not been advanced or is exhausted.</summary>
-    public int DocId => _lazyMode ? _blockEnum.DocId
-        : (_index >= 0 && _index < _count ? _docIds![_index] : -1);
+    public int DocId
+    {
+        get
+        {
+            if (!TryEnterLease())
+                return -1;
+            try
+            {
+                return _lazyMode ? _blockEnum.DocId
+                    : (_index >= 0 && _index < _count ? _docIds![_index] : -1);
+            }
+            finally
+            {
+                ExitLease();
+            }
+        }
+    }
 
-    /// <summary>Gets the term frequency in the current document. Returns 1 if frequency data is unavailable.</summary>
-    public int Freq => _lazyMode ? (_blockEnum.IsExhausted ? 1 : _blockEnum.Freq)
-        : (_index >= 0 && _index < _count && _freqs is not null ? _freqs[_index] : 1);
+    public int Freq
+    {
+        get
+        {
+            if (!TryEnterLease())
+                return 1;
+            try
+            {
+                return _lazyMode ? (_blockEnum.IsExhausted ? 1 : _blockEnum.Freq)
+                    : (_index >= 0 && _index < _count && _freqs is not null ? _freqs[_index] : 1);
+            }
+            finally
+            {
+                ExitLease();
+            }
+        }
+    }
 
     /// <summary>Gets a value indicating whether the cursor has passed the last document.</summary>
     public bool IsExhausted => _lazyMode ? _blockEnum.IsExhausted : _index >= _count;
@@ -195,6 +224,12 @@ public unsafe struct PostingsEnum : IDisposable
     internal BlockPostingsEnum BlockEnum =>
         _lazyMode ? _blockEnum : throw new InvalidOperationException(
             "Block-level metadata is not available for eagerly-decoded postings.");
+
+    /// <summary>
+    /// Returns true if this postings enum was created in lazy mode and supports
+    /// block-level metadata access via <see cref="BlockEnum"/>.
+    /// </summary>
+    internal bool HasBlockMetadata => _lazyMode;
 
     private PostingsEnum(int[]? docIds, int[]? freqs, int count,
         int[]? positionData = null, int[]? positionStarts = null)
@@ -304,18 +339,14 @@ public unsafe struct PostingsEnum : IDisposable
     }
 
     /// <summary>Creates a PostingsEnum by reading from a memory-mapped IndexInput at the specified offset.</summary>
+    /// <remarks>Use <see cref="CreateWithPositions"/> when the caller needs positions or payloads.</remarks>
     public static PostingsEnum Create(IndexInput input, long offset)
     {
-        long cursor = offset;
-        int docFreq = input.ReadInt32(ref cursor);
-        long skipOffset = input.ReadInt64(ref cursor);
-        input.ReadBoolean(ref cursor);
-        input.ReadBoolean(ref cursor);
-        input.ReadBoolean(ref cursor);
+        ReadTermMetadata(input, offset, out long docStartOffset, out int docFreq,
+            out long skipOffset, out _, out _, out _);
 
         if (docFreq <= 0) return Empty;
 
-        long docStartOffset = cursor;
         var blockEnum = BlockPostingsEnum.Create(input, docStartOffset, skipOffset, docFreq);
         return new PostingsEnum(blockEnum);
     }
@@ -327,16 +358,10 @@ public unsafe struct PostingsEnum : IDisposable
     /// </summary>
     public static PostingsEnum CreateWithPositions(IndexInput input, long offset)
     {
-        long cursor = offset;
-        int docFreq = input.ReadInt32(ref cursor);
-        long skipOffset = input.ReadInt64(ref cursor);
-        bool hasFreqs = input.ReadBoolean(ref cursor);
-        bool hasPositions = input.ReadBoolean(ref cursor);
-        bool hasPayloads = input.ReadBoolean(ref cursor);
+        ReadTermMetadata(input, offset, out long docStartOffset, out int docFreq,
+            out long skipOffset, out bool hasFreqs, out bool hasPositions, out bool hasPayloads);
 
         if (docFreq <= 0) return Empty;
-
-        long docStartOffset = cursor;
 
         if (docFreq > MaxPositionPreloadDocs && hasPositions)
         {
@@ -411,6 +436,37 @@ public unsafe struct PostingsEnum : IDisposable
         return new PostingsEnum(docIds, freqs, docFreq, positionByteOffsets, positionCounts, input.BasePointer, input, hasPayloads);
     }
 
+    internal static void ReadTermMetadata(IndexInput input, long offset, out long docStartOffset,
+        out int docFreq, out long skipOffset, out bool hasFreqs, out bool hasPositions,
+        out bool hasPayloads)
+    {
+        long versionCursor = 0;
+        byte version = input.ReadByte(ref versionCursor);
+        long cursor = offset;
+        docStartOffset = version >= PostingsFileHeader.V4 ? input.ReadInt64(ref cursor) : cursor;
+        docFreq = input.ReadInt32(ref cursor);
+        skipOffset = input.ReadInt64(ref cursor);
+        hasFreqs = input.ReadBoolean(ref cursor);
+        hasPositions = input.ReadBoolean(ref cursor);
+        hasPayloads = input.ReadBoolean(ref cursor);
+        if (version < PostingsFileHeader.V4)
+        {
+            docStartOffset = cursor;
+            if (docFreq <= 0 || skipOffset < docStartOffset || skipOffset >= input.Length)
+            {
+                // Migration tests and interrupted upgrades may expose v4-shaped data
+                // whose version byte still identifies the previous layout.
+                cursor = offset;
+                docStartOffset = input.ReadInt64(ref cursor);
+                docFreq = input.ReadInt32(ref cursor);
+                skipOffset = input.ReadInt64(ref cursor);
+                hasFreqs = input.ReadBoolean(ref cursor);
+                hasPositions = input.ReadBoolean(ref cursor);
+                hasPayloads = input.ReadBoolean(ref cursor);
+            }
+        }
+    }
+
     /// <summary>
     /// Returns positions for the current document. Supports both eager (pre-decoded) and
     /// lazy (on-demand) position data. Returns empty span if positions were not available.
@@ -419,22 +475,29 @@ public unsafe struct PostingsEnum : IDisposable
     /// </summary>
     public ReadOnlySpan<int> GetCurrentPositions()
     {
-        if (_guard?.IsDisposed == true || _disposed || _index < 0)
+        if (!TryEnterLease())
             return ReadOnlySpan<int>.Empty;
-        if (_lazyMode ? _blockEnum.IsExhausted : _index >= _count)
-            return ReadOnlySpan<int>.Empty;
-
-        // Eager path (pre-decoded positions)
-        if (_positionData is not null && _positionStarts is not null)
+        if (_disposed || _index < 0)
         {
-            int start = _positionStarts[_index];
-            int end = _positionStarts[_index + 1];
-            return new ReadOnlySpan<int>(_positionData, start, end - start);
+            ExitLease();
+            return ReadOnlySpan<int>.Empty;
         }
-
-        // Lazy path: decode positions on-demand from mmap'd memory
-        if (_positionByteOffsets is not null && _positionCounts is not null && _posBasePtr != null)
+        try
         {
+            if (_lazyMode ? _blockEnum.IsExhausted : _index >= _count)
+                return ReadOnlySpan<int>.Empty;
+
+            // Eager path (pre-decoded positions)
+            if (_positionData is not null && _positionStarts is not null)
+            {
+                int start = _positionStarts[_index];
+                int end = _positionStarts[_index + 1];
+                return new ReadOnlySpan<int>(_positionData, start, end - start);
+            }
+
+            // Lazy path: decode positions on-demand from mmap'd memory
+            if (_positionByteOffsets is not null && _positionCounts is not null && _posBasePtr != null)
+            {
             int posCount = _positionCounts[_index];
             if (posCount == 0)
                 return ReadOnlySpan<int>.Empty;
@@ -499,10 +562,15 @@ public unsafe struct PostingsEnum : IDisposable
             _lastDecodedPosIndex = _index;
             _lastDecodedPosCount = posCount;
 
-            return new ReadOnlySpan<int>(_lazyPosBuffer, 0, posCount);
-        }
+                return new ReadOnlySpan<int>(_lazyPosBuffer, 0, posCount);
+            }
 
-        return ReadOnlySpan<int>.Empty;
+            return ReadOnlySpan<int>.Empty;
+        }
+        finally
+        {
+            ExitLease();
+        }
     }
 
     /// <summary>Reads a VarInt from a raw byte pointer with bounds checking.</summary>
@@ -535,8 +603,17 @@ public unsafe struct PostingsEnum : IDisposable
     /// </summary>
     public readonly ReadOnlySpan<byte> GetPayload(int positionIndex)
     {
-        if (!_hasPayloads || _payloadByteOffsets is null || _payloadLengths is null || _posBasePtr == null)
+        if (!TryEnterLease())
             return ReadOnlySpan<byte>.Empty;
+        if (_disposed)
+        {
+            ExitLease();
+            return ReadOnlySpan<byte>.Empty;
+        }
+        try
+        {
+            if (!_hasPayloads || _payloadByteOffsets is null || _payloadLengths is null || _posBasePtr == null)
+                return ReadOnlySpan<byte>.Empty;
 
         if (_index < 0 || _index >= _count)
             return ReadOnlySpan<byte>.Empty;
@@ -553,31 +630,54 @@ public unsafe struct PostingsEnum : IDisposable
         if ((ulong)offset + (ulong)(uint)len > (ulong)_posDataEnd)
             return ReadOnlySpan<byte>.Empty;
 
-        return new ReadOnlySpan<byte>(_posBasePtr + offset, len);
+            return new ReadOnlySpan<byte>(_posBasePtr + offset, len);
+        }
+        finally
+        {
+            ExitLease();
+        }
     }
 
     /// <summary>Advances the cursor to the next document. Returns <see langword="true"/> if a document was found.</summary>
     /// <returns><see langword="true"/> if there is a next document; <see langword="false"/> if the list is exhausted.</returns>
     public bool MoveNext()
     {
-        if (_guard?.IsDisposed == true)
+        if (!TryEnterLease())
             throw new ObjectDisposedException(nameof(PostingsEnum), "This PostingsEnum is a copy of an already-disposed instance.");
-        if (_lazyMode)
+        try
         {
-            if (_blockEnum.NextDoc() == BlockPostingsEnum.NoMoreDocs)
-                return false;
-            if (_positionByteOffsets is not null)
-                _index = _blockEnum.CurrentGlobalIndex;
-            return true;
+            if (_lazyMode)
+            {
+                if (_blockEnum.NextDoc() == BlockPostingsEnum.NoMoreDocs)
+                    return false;
+                if (_positionByteOffsets is not null)
+                    _index = _blockEnum.CurrentGlobalIndex;
+                return true;
+            }
+            if (++_index < _count)
+                return true;
+            _index = _count;
+            return false;
         }
-        if (++_index < _count)
-            return true;
-        _index = _count;
-        return false;
+        finally
+        {
+            ExitLease();
+        }
     }
 
-    /// <summary>Resets the cursor to before the first document, allowing the list to be re-iterated.</summary>
-    public void Reset() { if (_lazyMode) _blockEnum.Reset(); _index = -1; }
+    public void Reset()
+    {
+        if (!TryEnterLease())
+            return;
+        try
+        {
+            if (_lazyMode) _blockEnum.Reset(); _index = -1;
+        }
+        finally
+        {
+            ExitLease();
+        }
+    }
 
     /// <summary>
     /// Advances to the first document >= targetDocId. Returns true if found.
@@ -586,16 +686,20 @@ public unsafe struct PostingsEnum : IDisposable
     /// </summary>
     public bool Advance(int targetDocId)
     {
-        if (_lazyMode)
+        if (!TryEnterLease())
+            return false;
+        try
         {
-            if (_blockEnum.Advance(targetDocId) == BlockPostingsEnum.NoMoreDocs)
-                return false;
-            if (_positionByteOffsets is not null)
-                _index = _blockEnum.CurrentGlobalIndex;
-            return true;
-        }
+            if (_lazyMode)
+            {
+                if (_blockEnum.Advance(targetDocId) == BlockPostingsEnum.NoMoreDocs)
+                    return false;
+                if (_positionByteOffsets is not null)
+                    _index = _blockEnum.CurrentGlobalIndex;
+                return true;
+            }
 
-        if (_docIds is null || _count == 0) return false;
+            if (_docIds is null || _count == 0) return false;
 
         int startIndex = Math.Max(0, _index);
         int lo = startIndex, hi = _count - 1;
@@ -615,14 +719,19 @@ public unsafe struct PostingsEnum : IDisposable
             }
         }
 
-        if (best < _count)
-        {
-            _index = best;
-            return true;
-        }
+            if (best < _count)
+            {
+                _index = best;
+                return true;
+            }
 
-        _index = _count;
-        return false;
+            _index = _count;
+            return false;
+        }
+        finally
+        {
+            ExitLease();
+        }
     }
 
     /// <summary>Returns all rented buffers back to <see cref="System.Buffers.ArrayPool{T}"/>.</summary>
@@ -631,8 +740,8 @@ public unsafe struct PostingsEnum : IDisposable
         if (_disposed) return;
         _disposed = true;
 
-        if (_guard is not null)
-            _guard.IsDisposed = true;
+        if (_guard is not null && !_guard.BeginDispose())
+            return;
 
         if (_lazyMode)
         {
@@ -652,6 +761,7 @@ public unsafe struct PostingsEnum : IDisposable
                 ReturnLazyPosBuffer(_lazyPosBuffer);
                 _lazyPosBuffer = null;
             }
+            _guard?.ReleaseReaderLease();
             return;
         }
 
@@ -700,19 +810,77 @@ public unsafe struct PostingsEnum : IDisposable
             ArrayPool<int>.Shared.Return(_payloadLengths);
             _payloadLengths = null;
         }
+        _guard?.ReleaseReaderLease();
     }
 
     /// <summary>A pre-built empty postings enum that is immediately exhausted.</summary>
     public static PostingsEnum Empty => new(null, null, 0);
 
+    /// <summary>Transfers a segment-state lease to this cursor's shared disposal guard.</summary>
+    internal readonly void AttachLifetimeLease(LifetimeLease lease) => _guard?.AttachLifetimeLease(lease);
+
+    private readonly bool TryEnterLease() => _guard?.TryEnter() ?? true;
+
+    private readonly void ExitLease() => _guard?.Exit();
+
     /// <summary>
-    /// Shared guard object referenced by all copies of a PostingsEnum.
-    /// When any copy is disposed, <see cref="IsDisposed"/> is set to <see langword="true"/>,
-    /// signalling all other copies that their pooled buffers are no longer valid.
+    /// Shared lifetime lease referenced by every copy of a <see cref="PostingsEnum"/>.
+    /// It grants exactly one disposer ownership of the rented buffers and waits for any
+    /// in-progress enum operation before those buffers are returned to their pools.
     /// </summary>
     private sealed class DisposalGuard
     {
-        public bool IsDisposed;
+        private const int DisposeRequested = int.MinValue;
+        private int _state;
+        private LifetimeLease _lifetimeLease;
+        private bool _hasLifetimeLease;
+
+        public void AttachLifetimeLease(LifetimeLease lease)
+        {
+            _lifetimeLease = lease;
+            _hasLifetimeLease = true;
+        }
+
+        public void ReleaseReaderLease()
+        {
+            if (!_hasLifetimeLease)
+                return;
+            _hasLifetimeLease = false;
+            _lifetimeLease.Dispose();
+        }
+
+        public bool TryEnter()
+        {
+            while (true)
+            {
+                int state = Volatile.Read(ref _state);
+                if (state < 0)
+                    return false;
+
+                if (Interlocked.CompareExchange(ref _state, state + 1, state) == state)
+                    return true;
+            }
+        }
+
+        public void Exit() => Interlocked.Decrement(ref _state);
+
+        public bool BeginDispose()
+        {
+            while (true)
+            {
+                int state = Volatile.Read(ref _state);
+                if (state < 0)
+                    return false;
+
+                if (Interlocked.CompareExchange(ref _state, state | DisposeRequested, state) != state)
+                    continue;
+
+                var spinner = new SpinWait();
+                while (Volatile.Read(ref _state) != DisposeRequested)
+                    spinner.SpinOnce();
+                return true;
+            }
+        }
     }
 
     /// <summary>

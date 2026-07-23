@@ -2,6 +2,7 @@ using BenchmarkDotNet.Attributes;
 using IODirectory = System.IO.Directory;
 using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
 using LeanIndexSearcher = Rowles.LeanCorpus.Search.Searcher.IndexSearcher;
+using LeanIndexSearcherConfig = Rowles.LeanCorpus.Search.Searcher.IndexSearcherConfig;
 using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;
 using LeanStringField = Rowles.LeanCorpus.Document.Fields.StringField;
 using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
@@ -11,6 +12,14 @@ namespace Rowles.LeanCorpus.Benchmarks;
 /// <summary>
 /// Measures <see cref="MoreLikeThisQuery"/> against Lucene.NET <c>MoreLikeThis</c>
 /// across <c>MaxQueryTerms</c> and <c>MinDocFreq</c> settings. Both indexes store term vectors.
+/// <para>
+/// LeanCorpus caches extracted MLT terms by (docId, MaxQueryTerms, MinTermFreq, MinDocFreq, MinWordLength).
+/// After the first invocation, LeanCorpus measures cached extraction plus search.
+/// Lucene.NET creates a new MoreLikeThis object on every call and measures
+/// cold extraction, query construction, weight creation, and search each time.
+/// Scalar and WAND use independently configured searchers. BenchmarkDotNet warms
+/// each method independently, so both steady-state measurements use cached term extraction.
+/// </para>
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -21,7 +30,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 public class MoreLikeThisBenchmarks
 {
     private const int TopN = 25;
-    private const int SourceDocId = 0;
+    private const int SourceDocId = 100;
 
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
 
@@ -35,6 +44,7 @@ public class MoreLikeThisBenchmarks
     private string _leanIndexPath = string.Empty;
     private LeanMMapDirectory? _leanDirectory;
     private LeanIndexSearcher? _leanSearcher;
+    private LeanIndexSearcher? _leanWandSearcher;
 
     // Lucene.NET state
     private string _luceneIndexPath = string.Empty;
@@ -55,6 +65,7 @@ public class MoreLikeThisBenchmarks
     public void Cleanup()
     {
         _leanSearcher?.Dispose();
+        _leanWandSearcher?.Dispose();
         if (!string.IsNullOrWhiteSpace(_leanIndexPath) && IODirectory.Exists(_leanIndexPath))
             IODirectory.Delete(_leanIndexPath, recursive: true);
 
@@ -67,7 +78,7 @@ public class MoreLikeThisBenchmarks
 
     // --- LeanCorpus benchmarks (existing) ---
 
-    [Benchmark(Baseline = true)]
+    [Benchmark(Baseline = true, Description = "LeanCorpus MLT Scalar (DefaultParams)")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_MoreLikeThisQuery_DefaultParams()
     {
@@ -83,7 +94,7 @@ public class MoreLikeThisBenchmarks
         return _leanSearcher!.Search(q, TopN).TotalHits;
     }
 
-    [Benchmark]
+    [Benchmark(Description = "LeanCorpus MLT Scalar (HighMinDocFreq)")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_MoreLikeThisQuery_HighMinDocFreq()
     {
@@ -99,7 +110,7 @@ public class MoreLikeThisBenchmarks
         return _leanSearcher!.Search(q, TopN).TotalHits;
     }
 
-    [Benchmark]
+    [Benchmark(Description = "LeanCorpus MLT Scalar (NoBoost)")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_MoreLikeThisQuery_NoBoost()
     {
@@ -116,6 +127,24 @@ public class MoreLikeThisBenchmarks
         return _leanSearcher!.Search(q, TopN).TotalHits;
     }
 
+    // --- LeanCorpus WAND benchmarks ---
+
+    [Benchmark(Description = "LeanCorpus MLT WAND (DefaultParams)")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_MoreLikeThisQuery_Wand_DefaultParams()
+    {
+        var q = new MoreLikeThisQuery(
+            SourceDocId,
+            ["body"],
+            new MoreLikeThisParameters
+            {
+                MaxQueryTerms = MaxQueryTerms,
+                MinTermFreq = 1,
+                MinDocFreq = 1
+            });
+        return _leanWandSearcher!.Search(q, TopN).TotalHits;
+    }
+
     // --- Lucene.NET parity benchmarks ---
 
     [Benchmark]
@@ -128,8 +157,11 @@ public class MoreLikeThisBenchmarks
         mlt.MinWordLen = 3;
         mlt.MaxQueryTerms = MaxQueryTerms;
         mlt.ApplyBoost = true;
+        mlt.FieldNames = ["body"];
 
         var query = mlt.Like(SourceDocId);
+        System.Diagnostics.Debug.Assert(query is Lucene.Net.Search.BooleanQuery bq && bq.Clauses.Count > 0,
+            "Lucene MLT generated an empty query. Did you forget FieldNames?");
         return _luceneSearcher!.Search(query, TopN).TotalHits;
     }
 
@@ -143,8 +175,11 @@ public class MoreLikeThisBenchmarks
         mlt.MinWordLen = 3;
         mlt.MaxQueryTerms = MaxQueryTerms;
         mlt.ApplyBoost = true;
+        mlt.FieldNames = ["body"];
 
         var query = mlt.Like(SourceDocId);
+        System.Diagnostics.Debug.Assert(query is Lucene.Net.Search.BooleanQuery bq && bq.Clauses.Count > 0,
+            "Lucene MLT generated an empty query. Did you forget FieldNames?");
         return _luceneSearcher!.Search(query, TopN).TotalHits;
     }
 
@@ -158,8 +193,11 @@ public class MoreLikeThisBenchmarks
         mlt.MinWordLen = 3;
         mlt.MaxQueryTerms = MaxQueryTerms;
         mlt.ApplyBoost = false;
+        mlt.FieldNames = ["body"];
 
         var query = mlt.Like(SourceDocId);
+        System.Diagnostics.Debug.Assert(query is Lucene.Net.Search.BooleanQuery bq && bq.Clauses.Count > 0,
+            "Lucene MLT generated an empty query. Did you forget FieldNames?");
         return _luceneSearcher!.Search(query, TopN).TotalHits;
     }
 
@@ -187,6 +225,8 @@ public class MoreLikeThisBenchmarks
         }
         writer.Commit();
         _leanSearcher = new LeanIndexSearcher(_leanDirectory);
+        _leanWandSearcher = new LeanIndexSearcher(_leanDirectory,
+            new LeanIndexSearcherConfig { EnableBlockMaxWand = true });
     }
 
     private void BuildLuceneIndex(string[] documents)

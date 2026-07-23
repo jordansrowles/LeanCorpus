@@ -5,6 +5,7 @@ using Lucene.Net.Util;
 using Rowles.LeanCorpus.Store;
 using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
 using LeanStringField = Rowles.LeanCorpus.Document.Fields.StringField;
+using LeanStringDocValues = Rowles.LeanCorpus.Document.Fields.StringDocValues;
 using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
 using LuceneMMapDirectory = Lucene.Net.Store.MMapDirectory;
 using LuceneStringField = Lucene.Net.Documents.StringField;
@@ -25,6 +26,10 @@ public class IndexingBenchmarks
 
     [ParamsSource(nameof(DocCounts))]
     public int DocumentCount { get; set; }
+
+    [Params(IndexingWorkloadProfile.PostingsOnly, IndexingWorkloadProfile.StoredFields,
+        IndexingWorkloadProfile.SortedDocValues)]
+    public IndexingWorkloadProfile Profile { get; set; }
 
     private string[] _documents = [];
 
@@ -55,8 +60,7 @@ public class IndexingBenchmarks
             for (int i = 0; i < _documents.Length; i++)
             {
                 var doc = new LeanDocument();
-                doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-                doc.Add(new LeanTextField("body", _documents[i]));
+                AddLeanFields(doc, i, _documents[i]);
                 writer.AddDocument(doc);
             }
 
@@ -87,11 +91,8 @@ public class IndexingBenchmarks
 
             for (int i = 0; i < _documents.Length; i++)
             {
-                var doc = new Lucene.Net.Documents.Document
-                {
-                    new LuceneStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture), Field.Store.NO),
-                    new LuceneTextField("body", _documents[i], Field.Store.NO)
-                };
+                var doc = new Lucene.Net.Documents.Document();
+                AddLuceneFields(doc, i, _documents[i]);
                 writer.AddDocument(doc);
             }
 
@@ -105,4 +106,32 @@ public class IndexingBenchmarks
         }
     }
 
+    private void AddLeanFields(LeanDocument document, int id, string body)
+    {
+        bool stored = Profile == IndexingWorkloadProfile.StoredFields;
+        var docValues = Profile == IndexingWorkloadProfile.SortedDocValues
+            ? LeanStringDocValues.Sorted
+            : LeanStringDocValues.None;
+        document.Add(new LeanStringField("id", id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            stored, 1.0f, docValues));
+        document.Add(new LeanTextField("body", body, stored));
+    }
+
+    private void AddLuceneFields(Lucene.Net.Documents.Document document, int id, string body)
+    {
+        var store = Profile == IndexingWorkloadProfile.StoredFields ? Field.Store.YES : Field.Store.NO;
+        string identifier = id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        document.Add(new LuceneStringField("id", identifier, store));
+        document.Add(new LuceneTextField("body", body, store));
+        if (Profile == IndexingWorkloadProfile.SortedDocValues)
+            document.Add(new SortedDocValuesField("id", new BytesRef(identifier)));
+    }
+
+}
+
+public enum IndexingWorkloadProfile
+{
+    PostingsOnly,
+    StoredFields,
+    SortedDocValues
 }

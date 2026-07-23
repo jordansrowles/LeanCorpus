@@ -1,7 +1,6 @@
-using System.IO.MemoryMappedFiles;
-using System.IO;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.Vectors;
 
@@ -13,8 +12,7 @@ namespace Rowles.LeanCorpus.Codecs.Vectors;
 /// </summary>
 internal sealed class QuantisedVectorReader : IDisposable
 {
-    private readonly MemoryMappedFile _mmf;
-    private readonly MemoryMappedViewAccessor _accessor;
+    private readonly IndexInput _input;
     private readonly int _docCount;
     private readonly int _dimension;
     private readonly VectorQuantisation _quantisation;
@@ -32,8 +30,7 @@ internal sealed class QuantisedVectorReader : IDisposable
     private bool _disposed;
 
     private QuantisedVectorReader(
-        MemoryMappedFile mmf,
-        MemoryMappedViewAccessor accessor,
+        IndexInput input,
         int docCount,
         int dimension,
         VectorQuantisation quantisation,
@@ -43,8 +40,7 @@ internal sealed class QuantisedVectorReader : IDisposable
         float alpha,
         float[]? centroid)
     {
-        _mmf = mmf;
-        _accessor = accessor;
+        _input = input;
         _docCount = docCount;
         _dimension = dimension;
         _quantisation = quantisation;
@@ -58,65 +54,63 @@ internal sealed class QuantisedVectorReader : IDisposable
 
     public static QuantisedVectorReader Open(string filePath)
     {
-        byte version;
-        long bodyStart;
-        using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
-        using (var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false))
+        var input = new IndexInput(filePath);
+        return Open(input);
+    }
+
+    /// <summary>Opens a quantised vector reader over a caller-provided Store input and assumes ownership.</summary>
+    internal static QuantisedVectorReader Open(IndexInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        try
         {
-            version = CodecFileHeader.ReadVersion(reader, CodecFormats.QuantisedVectors);
-            bodyStart = fs.Position;
-        }
+            byte version = CodecFileHeader.ReadVersion(input, CodecFormats.QuantisedVectors);
 
-        if (version > CodecConstants.QuantisedVectorVersion)
-            throw new InvalidDataException(
-                $"Unsupported quantised vector format version {version}. " +
-                $"This build supports up to version {CodecConstants.QuantisedVectorVersion}.");
-
-        var mmf = MemoryMappedFile.CreateFromFile(filePath, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
-        var accessor = mmf.CreateViewAccessor(bodyStart, 0, MemoryMappedFileAccess.Read);
-
-        long offset = 0;
-
-        int docCount = accessor.ReadInt32(offset);
-        offset += 4;
-        int dimension = accessor.ReadInt32(offset);
-        offset += 4;
-
-        var quantisation = (VectorQuantisation)accessor.ReadByte(offset);
-        offset += 1;
-
-        float min = 0f, alpha = 0f;
-        float[]? centroid = null;
-
-        switch (quantisation)
-        {
-            case VectorQuantisation.Int8:
-                min = accessor.ReadSingle(offset);
-                offset += 4;
-                alpha = accessor.ReadSingle(offset);
-                offset += 4;
-                break;
-
-            case VectorQuantisation.BBQ:
-                centroid = new float[dimension];
-                for (int j = 0; j < dimension; j++)
-                {
-                    centroid[j] = accessor.ReadSingle(offset);
-                    offset += 4;
-                }
-                break;
-
-            default:
+            if (version > CodecConstants.QuantisedVectorVersion)
                 throw new InvalidDataException(
-                    $"Unsupported quantisation type {quantisation} in .vq file.");
+                    $"Unsupported quantised vector format version {version}. " +
+                    $"This build supports up to version {CodecConstants.QuantisedVectorVersion}.");
+
+            long offset = input.Position;
+
+            int docCount = input.ReadInt32(ref offset);
+            int dimension = input.ReadInt32(ref offset);
+
+            var quantisation = (VectorQuantisation)input.ReadByte(ref offset);
+
+            float min = 0f, alpha = 0f;
+            float[]? centroid = null;
+
+            switch (quantisation)
+            {
+                case VectorQuantisation.Int8:
+                    min = input.ReadSingle(ref offset);
+                    alpha = input.ReadSingle(ref offset);
+                    break;
+
+                case VectorQuantisation.BBQ:
+                    centroid = new float[dimension];
+                    for (int j = 0; j < dimension; j++)
+                        centroid[j] = input.ReadSingle(ref offset);
+                    break;
+
+                default:
+                    throw new InvalidDataException(
+                        $"Unsupported quantisation type {quantisation} in .vq file.");
+            }
+
+            long correctionStart = offset;
+            int correctionSize = quantisation == VectorQuantisation.Int8 ? 1 : 3;
+            long packedStart = offset + (long)docCount * correctionSize * sizeof(float);
+
+            return new QuantisedVectorReader(input, docCount, dimension,
+                quantisation, correctionStart, packedStart, min, alpha, centroid);
         }
-
-        long correctionStart = offset;
-        int correctionSize = quantisation == VectorQuantisation.Int8 ? 1 : 3;
-        long packedStart = offset + (long)docCount * correctionSize * sizeof(float);
-
-        return new QuantisedVectorReader(mmf, accessor, docCount, dimension,
-            quantisation, correctionStart, packedStart, min, alpha, centroid);
+        catch
+        {
+            input.Dispose();
+            throw;
+        }
     }
 
     public int DocCount => _docCount;
@@ -158,10 +152,8 @@ internal sealed class QuantisedVectorReader : IDisposable
         if ((uint)docId >= (uint)_docCount)
             throw new ArgumentOutOfRangeException(nameof(docId));
 
-        long offset = _packedStart + (long)docId * _dimension;
-        var buf = new byte[_dimension];
-        _accessor.ReadArray(offset, buf, 0, _dimension);
-        return buf;
+        long position = _packedStart + (long)docId * _dimension;
+        return _input.ReadSpan(_dimension, ref position);
     }
 
     /// <summary>Returns raw bit-packed bytes for BBQ distance computation.</summary>
@@ -172,10 +164,8 @@ internal sealed class QuantisedVectorReader : IDisposable
         if ((uint)docId >= (uint)_docCount)
             throw new ArgumentOutOfRangeException(nameof(docId));
 
-        long offset = _packedStart + (long)docId * _bbqPackedBytes;
-        var buf = new byte[_bbqPackedBytes];
-        _accessor.ReadArray(offset, buf, 0, _bbqPackedBytes);
-        return buf;
+        long position = _packedStart + (long)docId * _bbqPackedBytes;
+        return _input.ReadSpan(_bbqPackedBytes, ref position);
     }
 
     /// <summary>Returns the BBQ centroid, or throws for non-BBQ quantisation.</summary>
@@ -197,10 +187,10 @@ internal sealed class QuantisedVectorReader : IDisposable
         if ((uint)docId >= (uint)_docCount)
             throw new ArgumentOutOfRangeException(nameof(docId));
 
-        long offset = _correctionStart + (long)docId * 3 * sizeof(float);
-        float c1 = _accessor.ReadSingle(offset);
-        float c2 = _accessor.ReadSingle(offset + 4);
-        float c3 = _accessor.ReadSingle(offset + 8);
+        long position = _correctionStart + (long)docId * 3 * sizeof(float);
+        float c1 = _input.ReadSingle(ref position);
+        float c2 = _input.ReadSingle(ref position);
+        float c3 = _input.ReadSingle(ref position);
         return (c1, c2, c3);
     }
 
@@ -212,8 +202,8 @@ internal sealed class QuantisedVectorReader : IDisposable
         if ((uint)docId >= (uint)_docCount)
             throw new ArgumentOutOfRangeException(nameof(docId));
 
-        long offset = _correctionStart + (long)docId * sizeof(float);
-        return _accessor.ReadSingle(offset);
+        long position = _correctionStart + (long)docId * sizeof(float);
+        return _input.ReadSingle(ref position);
     }
 
     /// <summary>Returns the min value used for int8 quantisation.</summary>
@@ -226,21 +216,22 @@ internal sealed class QuantisedVectorReader : IDisposable
 
     private void DequantiseInt8(int docId, Span<float> destination)
     {
-        long offset = _packedStart + (long)docId * _dimension;
+        long position = _packedStart + (long)docId * _dimension;
+        var packed = _input.ReadSpan(_dimension, ref position);
         for (int j = 0; j < _dimension; j++)
         {
-            byte qv = _accessor.ReadByte(offset + j);
+            byte qv = packed[j];
             destination[j] = _min + _alpha * qv;
         }
     }
 
     private void DequantiseBBQ(int docId, Span<float> destination)
     {
-        long offset = _packedStart + (long)docId * _bbqPackedBytes;
+        long position = _packedStart + (long)docId * _bbqPackedBytes;
         byte[] bits = System.Buffers.ArrayPool<byte>.Shared.Rent(_bbqPackedBytes);
         try
         {
-            _accessor.ReadArray(offset, bits, 0, _bbqPackedBytes);
+            _input.ReadSpan(_bbqPackedBytes, ref position).CopyTo(bits);
 
             for (int j = 0; j < _dimension; j++)
             {
@@ -260,7 +251,6 @@ internal sealed class QuantisedVectorReader : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _accessor.Dispose();
-        _mmf.Dispose();
+        _input.Dispose();
     }
 }

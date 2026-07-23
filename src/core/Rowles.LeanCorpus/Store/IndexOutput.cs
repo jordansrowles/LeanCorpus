@@ -38,7 +38,7 @@ public sealed class IndexOutput : IDisposable
     /// </param>
     public IndexOutput(string filePath, bool durable = false, bool dropPageCache = false)
     {
-        _stream = FileOpenRetry.Open(filePath, FileMode.Create, FileAccess.Write, FileShare.None,
+        _stream = (FileStream)FileOpenRetry.Open(filePath, FileMode.Create, FileAccess.Write, FileShare.None,
             bufferSize: BufferSize, options: FileOptions.SequentialScan);
         _buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
         _bufferPosition = 0;

@@ -1,9 +1,9 @@
 ﻿namespace Rowles.LeanCorpus.Index.Segment;
 
 /// <summary>
-/// Stored fields-related methods for SegmentReader.
+/// Stored fields-related methods for SegmentReaderState.
 /// </summary>
-public sealed partial class SegmentReader
+internal sealed partial class SegmentReaderState
 {
     internal IReadOnlyDictionary<string, IReadOnlyList<StoredFieldValue>> GetStoredFieldValues(int docId)
     {
@@ -12,10 +12,10 @@ public sealed partial class SegmentReader
 
     internal IReadOnlyDictionary<string, IReadOnlyList<StoredFieldValue>> GetStoredFieldValues(int docId, ISet<string>? fieldsToLoad)
     {
-        if (_storedReader is null)
+        if (StoredReader is null)
             return new Dictionary<string, IReadOnlyList<StoredFieldValue>>();
 
-        var raw = _storedReader.ReadDocumentValues(docId, fieldsToLoad);
+        var raw = StoredReader.ReadDocumentValues(docId, fieldsToLoad);
         return raw.ToDictionary(
             static kvp => kvp.Key,
             static kvp => (IReadOnlyList<StoredFieldValue>)kvp.Value.AsReadOnly(),

@@ -18,7 +18,7 @@ internal static class SortedDocValuesReader
         var values = new Dictionary<string, string[]>(StringComparer.Ordinal);
         var presence = new Dictionary<string, RoaringBitmap?>(StringComparer.Ordinal);
 
-        if (!File.Exists(filePath)) return (values, presence);
+        if (!FileOpenRetry.FileExists(filePath)) return (values, presence);
 
         using var input = new IndexInput(filePath);
 
@@ -100,7 +100,7 @@ internal static class SortedDocValuesReader
 
     internal static List<(string Name, string?[] Values)> EnumerateFields(string filePath)
     {
-        if (!File.Exists(filePath))
+        if (!FileOpenRetry.FileExists(filePath))
             return new List<(string, string?[])>(0);
 
         using var input = new IndexInput(filePath);

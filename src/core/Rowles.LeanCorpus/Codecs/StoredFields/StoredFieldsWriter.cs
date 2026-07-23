@@ -24,7 +24,7 @@ internal static class StoredFieldsWriter
     {
         int docCount = docStarts.Count;
 
-        using var fdtOutput = new IndexOutput(fdtPath, durable: true);
+        using var fdtOutput = new IndexOutput(fdtPath);
         using var fdtScope = CodecFileHeader.BeginStreamingWrite(fdtOutput, CodecConstants.StoredFieldsVersion);
         fdtScope.Output.WriteInt32(blockSize);
         fdtScope.Output.WriteByte((byte)compression);
@@ -141,7 +141,7 @@ internal static class StoredFieldsWriter
         int blockSize = DefaultBlockSize,
         FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate)
     {
-        using var fdtOutput = new IndexOutput(fdtPath, durable: true);
+        using var fdtOutput = new IndexOutput(fdtPath);
         using var fdtScope = CodecFileHeader.BeginStreamingWrite(fdtOutput, CodecConstants.StoredFieldsVersion);
         fdtScope.Output.WriteInt32(blockSize);
         fdtScope.Output.WriteByte((byte)compression);
@@ -196,7 +196,7 @@ internal static class StoredFieldsWriter
 
     private static void WriteFdx(string fdxPath, int blockSize, int docCount, List<long> blockOffsets)
     {
-        using var fdxOutput = new IndexOutput(fdxPath, durable: true);
+        using var fdxOutput = new IndexOutput(fdxPath);
         StoredFieldsFileHeader.WriteV3FdxHeader(fdxOutput, blockSize, docCount, blockOffsets.Count);
         foreach (var offset in blockOffsets)
             fdxOutput.WriteInt64(offset);

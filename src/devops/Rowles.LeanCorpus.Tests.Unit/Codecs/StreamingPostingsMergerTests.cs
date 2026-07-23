@@ -9,7 +9,7 @@ using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Tests.Unit.Codecs;
 
 /// <summary>
-/// Gap coverage for <see cref="StreamingPostingsMerger"/> using real v3
+/// Gap coverage for <see cref="StreamingPostingsMerger"/> using current-format
 /// postings and term dictionary files.
 /// </summary>
 [Trait("Category", "Codecs")]
@@ -120,7 +120,7 @@ public sealed class StreamingPostingsMergerTests : IDisposable
         var offsets = new Dictionary<string, long>(StringComparer.Ordinal);
         var terms = postings.Keys.OrderBy(term => term, StringComparer.Ordinal).ToList();
 
-        // Write v2 postings directly — no temp file, no envelope patching.
+        // Write current postings directly using sequential body then metadata records.
         using (var posOutput = new IndexOutput(posPath))
         {
             using var _scope = CodecFileHeader.BeginStreamingWrite(posOutput, CodecConstants.PostingsVersion);
@@ -128,28 +128,22 @@ public sealed class StreamingPostingsMergerTests : IDisposable
             using var blockWriter = new BlockPostingsWriter(posOutput);
             foreach (var term in terms)
             {
-                long headerPos = posOutput.Position;
-                posOutput.WriteInt32(0);     // docFreq placeholder
-                posOutput.WriteInt64(0L);    // skipOffset placeholder
-                posOutput.WriteBoolean(true);
-                posOutput.WriteBoolean(false);
-                posOutput.WriteBoolean(false);
-
+                long bodyOffset = posOutput.Position;
                 blockWriter.StartTerm();
                 foreach (int docId in postings[term].OrderBy(docId => docId))
                     blockWriter.AddPosting(docId, 1);
 
                 var meta = blockWriter.FinishTerm();
-                long endPos = posOutput.Position;
-                posOutput.Seek(headerPos);
+                offsets[term] = posOutput.Position;
+                posOutput.WriteInt64(bodyOffset);
                 posOutput.WriteInt32(meta.DocFreq);
                 posOutput.WriteInt64(meta.SkipOffset);
-                posOutput.Seek(endPos);
-                offsets[term] = headerPos;
+                posOutput.WriteBoolean(true);
+                posOutput.WriteBoolean(false);
+                posOutput.WriteBoolean(false);
             }
         }
 
-        // v2 has no envelope — offsets are already correct.
         TermDictionaryWriter.Write(dicPath, terms, offsets);
         int maxOldId = -1;
         foreach (var k in docIdMap.Keys) if (k > maxOldId) maxOldId = k;
@@ -196,13 +190,12 @@ public sealed class StreamingPostingsMergerTests : IDisposable
         long offset = dic.EnumerateAllTerms().Single(t => t.Term == "body\0term").Offset;
 
         input.Seek(offset);
+        long docStart = input.ReadInt64();
         int docFreq = input.ReadInt32();
         long skipOffset = input.ReadInt64();
         input.ReadBoolean(); // hasFreqs
         input.ReadBoolean(); // hasPositions
         input.ReadBoolean(); // hasPayloads
-        long docStart = input.Position;
-
         var enumv = BlockPostingsEnum.Create(input, docStart, skipOffset, docFreq);
         Assert.Equal(1, enumv.SkipEntries.Length);
         Assert.Equal((byte)200, enumv.SkipEntries[0].MaxNormInBlock);

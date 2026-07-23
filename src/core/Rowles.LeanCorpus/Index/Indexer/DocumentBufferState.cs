@@ -52,6 +52,7 @@ internal sealed class DocumentBufferState
 
     // Cache field name prefixes ("fieldName\0") to avoid repeated prefix construction
     public readonly Dictionary<string, string> FieldPrefixCache = new(StringComparer.Ordinal);
+    public readonly Dictionary<string, byte[]> FieldPrefixUtf8Cache = new(StringComparer.Ordinal);
 
     // DocValues accumulators: field  ->  per-doc values
     public Dictionary<string, List<double>> NumericDocValues = new(StringComparer.Ordinal);
@@ -74,6 +75,26 @@ internal sealed class DocumentBufferState
     // Incrementally tracked RAM estimates
     public long EstimatedRamBytes;
     public long PostingsRamBytes;
+
+    public long AccountedRamBytes
+    {
+        get
+        {
+            long bytes = EstimatedRamBytes + PostingsRamBytes + TermHash.AllocatedBytes;
+            bytes += (long)PostingAccumulators.Capacity * IntPtr.Size;
+            bytes += (long)StoredFieldIds.Capacity * sizeof(int);
+            bytes += (long)StoredFieldValues.Capacity * 32;
+            bytes += (long)StoredDocStarts.Capacity * sizeof(int);
+            bytes += (long)SortedTermsBuffer.Capacity * IntPtr.Size;
+            foreach (var values in NumericDocValues.Values) bytes += (long)values.Capacity * sizeof(double);
+            foreach (var values in Int64DocValues.Values) bytes += (long)values.Capacity * sizeof(long);
+            foreach (var values in SortedDocValues.Values) bytes += (long)values.Capacity * IntPtr.Size;
+            foreach (var vectorField in Vectors.Values)
+                foreach (var vector in vectorField.Values) bytes += (long)vector.Length * sizeof(float);
+            foreach (var counts in DocTokenCounts.Values) bytes += (long)counts.Length * sizeof(int);
+            return bytes;
+        }
+    }
 
     // ─── Postings lookup API ───
 
@@ -171,14 +192,14 @@ internal sealed class DocumentBufferState
         int startOffset = 0, int endOffset = 0)
     {
         // Encode "fieldName\0term" as UTF-8 bytes for hash table probe
-        if (!FieldPrefixCache.TryGetValue(fieldName, out var prefix))
+        if (!FieldPrefixUtf8Cache.TryGetValue(fieldName, out var prefixUtf8))
         {
-            prefix = string.Concat(fieldName, "\x00");
-            FieldPrefixCache[fieldName] = prefix;
+            prefixUtf8 = System.Text.Encoding.UTF8.GetBytes(string.Concat(fieldName, "\x00"));
+            FieldPrefixUtf8Cache[fieldName] = prefixUtf8;
         }
 
         // Build UTF-8 qualified term in a stack-allocated buffer
-        int prefixUtf8Len = System.Text.Encoding.UTF8.GetByteCount(prefix);
+        int prefixUtf8Len = prefixUtf8.Length;
         int termUtf8Len = System.Text.Encoding.UTF8.GetByteCount(term);
         int totalUtf8Len = prefixUtf8Len + termUtf8Len;
 
@@ -187,7 +208,7 @@ internal sealed class DocumentBufferState
             ? stackalloc byte[totalUtf8Len]
             : (rented = ArrayPool<byte>.Shared.Rent(totalUtf8Len)).AsSpan(0, totalUtf8Len);
 
-        System.Text.Encoding.UTF8.GetBytes(prefix, utf8Buf);
+        prefixUtf8.CopyTo(utf8Buf);
         System.Text.Encoding.UTF8.GetBytes(term, utf8Buf[prefixUtf8Len..]);
 
         var acc = GetOrCreateAccumulatorUtf8(utf8Buf, string.Empty); // string param unused when found via hash
@@ -243,6 +264,8 @@ internal sealed class DocumentBufferState
         EstimatedRamBytes = 0;
         PostingsRamBytes = 0;
         DocTokenCounts.Clear();
+        FieldPrefixCache.Clear();
+        FieldPrefixUtf8Cache.Clear();
         ParentDocIds = null;
     }
 }

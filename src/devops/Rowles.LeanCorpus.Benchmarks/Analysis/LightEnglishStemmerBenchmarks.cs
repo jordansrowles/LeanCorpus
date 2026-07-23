@@ -14,6 +14,14 @@ namespace Rowles.LeanCorpus.Benchmarks;
 /// Measures LightEnglishStemmer throughput against Porter stemmer.
 /// Both paths use the zero-allocation <see cref="ISpanStemmer"/> contract
 /// so the allocation column reflects only unavoidable overhead.
+/// <para>
+/// The Lucene.NET PorterStemFilter benchmark constructs a new WhitespaceTokenizer
+/// and PorterStemFilter per word. Lucene.NET does not expose a public API for
+/// resetting the tokenizer with a new input, so the per-word allocation includes
+/// object construction overhead. For a fair pipeline-reuse comparison, see
+/// <see cref="StemmerParityBenchmarks"/> which creates each analyser once and
+/// reuses it across all documents.
+/// </para>
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
