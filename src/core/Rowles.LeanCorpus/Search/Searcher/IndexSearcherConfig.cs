@@ -17,9 +17,9 @@ public sealed class IndexSearcherConfig
 
     /// <summary>
     /// Whether to use parallel segment search when multiple segments exist.
-    /// Disable for deterministic ordering or low-latency single-segment workloads. Default: true.
+    /// Disable for deterministic ordering and low-latency small-segment workloads. Default: false.
     /// </summary>
-    public bool ParallelSearch { get; set; } = true;
+    public bool ParallelSearch { get; set; }
 
     /// <summary>
     /// Maximum degree of parallelism for multi-segment search.

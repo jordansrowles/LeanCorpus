@@ -17,9 +17,8 @@ using LuceneTextField = Lucene.Net.Documents.TextField;
 using LuceneIndexSearcher = Lucene.Net.Search.IndexSearcher;
 using LuceneDirectoryReader = Lucene.Net.Index.DirectoryReader;
 using LuceneRAMDirectory = Lucene.Net.Store.RAMDirectory;
-using LuceneTermQuery = Lucene.Net.Search.TermQuery;
 using LuceneTerm = Lucene.Net.Index.Term;
-using TermQuery = Rowles.LeanCorpus.Search.Queries.TermQuery;
+using LucenePhraseQuery = Lucene.Net.Search.PhraseQuery;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
@@ -83,40 +82,27 @@ public class ParallelSearchBenchmarks
         // Static resources persist for class lifetime.
     }
 
-    [Benchmark(Baseline = true, Description = "LeanCorpus term sequential")]
+    [Benchmark(Baseline = true, Description = "LeanCorpus phrase sequential")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_SequentialSearch()
-        => s_sequentialSearcher!.Search(new TermQuery("body", "government"), TopN).TotalHits;
+        => s_sequentialSearcher!.Search(
+            new Rowles.LeanCorpus.Search.Queries.PhraseQuery("body", "government", "market"), TopN).TotalHits;
 
-    [Benchmark(Description = "LeanCorpus term parallel")]
+    [Benchmark(Description = "LeanCorpus phrase parallel")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_ParallelSearch()
-        => s_parallelSearcher!.Search(new TermQuery("body", "government"), TopN).TotalHits;
+        => s_parallelSearcher!.Search(
+            new Rowles.LeanCorpus.Search.Queries.PhraseQuery("body", "government", "market"), TopN).TotalHits;
 
-    [Benchmark(Description = "LeanCorpus Boolean sequential")]
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_SequentialSearch_BooleanQuery()
-        => SearchBoolean(s_sequentialSearcher!);
-
-    [Benchmark(Description = "LeanCorpus Boolean parallel")]
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_ParallelSearch_BooleanQuery()
-        => SearchBoolean(s_parallelSearcher!);
-
-    private static int SearchBoolean(LeanIndexSearcher searcher)
-    {
-        var builder = new Rowles.LeanCorpus.Search.Queries.BooleanQuery.Builder();
-        builder.Add(new TermQuery("body", "government"), Rowles.LeanCorpus.Search.Occur.Must);
-        builder.Add(new TermQuery("body", "market"), Rowles.LeanCorpus.Search.Occur.Should);
-        builder.Add(new TermQuery("body", "people"), Rowles.LeanCorpus.Search.Occur.Should);
-        return searcher.Search(builder.Build(), TopN).TotalHits;
-    }
-
-    [Benchmark(Description = "Lucene.NET term sequential")]
+    [Benchmark(Description = "Lucene.NET phrase sequential")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_SequentialSearch()
-        => s_luceneSearcher!.Search(
-            new LuceneTermQuery(new LuceneTerm("body", "government")), TopN).TotalHits;
+    {
+        var query = new LucenePhraseQuery();
+        query.Add(new LuceneTerm("body", "government"));
+        query.Add(new LuceneTerm("body", "market"));
+        return s_luceneSearcher!.Search(query, TopN).TotalHits;
+    }
 
     /// <summary>Release static Lucene.NET resources.</summary>
     public static void CleanupLuceneResources()

@@ -11,8 +11,8 @@ namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
 /// Compares warm query-cache throughput against a cold (disabled) cache.
-/// The cache is populated during BenchmarkDotNet's pilot phase so
-/// actual measurements reflect the steady-state hot path.
+/// Boolean queries are measured both as repeated structural hits and as a
+/// rotating miss workload so the cache behaviour is explicit.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -34,6 +34,8 @@ public class QueryCacheBenchmarks
     private LeanMMapDirectory? _leanDirectory;
     private LeanIndexSearcher? _cachedSearcher;
     private LeanIndexSearcher? _uncachedSearcher;
+    private Rowles.LeanCorpus.Search.Queries.BooleanQuery[] _booleanCacheMissQueries = [];
+    private int _booleanCacheMissIndex;
 
     private LuceneIndexSearcher? _luceneSearcher;
 
@@ -49,6 +51,10 @@ public class QueryCacheBenchmarks
             _leanDirectory,
             new IndexSearcherConfig { EnableQueryCache = false });
         _luceneSearcher = SharedStandardIndex.LuceneSearcher;
+
+        _booleanCacheMissQueries = new Rowles.LeanCorpus.Search.Queries.BooleanQuery[2048];
+        for (int i = 0; i < _booleanCacheMissQueries.Length; i++)
+            _booleanCacheMissQueries[i] = BuildBooleanQuery(i + 1);
     }
 
     [GlobalCleanup]
@@ -69,12 +75,20 @@ public class QueryCacheBenchmarks
     public int LeanCorpus_WithCache()
         => _cachedSearcher!.Search(new TermQuery(FieldBody, QueryTerm1), TopN).TotalHits;
 
-    [Benchmark(Description = "Cache enabled, uncacheable BooleanQuery")]
+    [Benchmark(Description = "Cache enabled, cacheable BooleanQuery")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_WithCache_BooleanQuery()
         => _cachedSearcher!.Search(BuildBooleanQuery(), TopN).TotalHits;
 
-    [Benchmark(Description = "Cache disabled, uncacheable BooleanQuery")]
+    [Benchmark(Description = "Cache enabled, BooleanQuery misses")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_WithCache_BooleanQuery_Miss()
+    {
+        var query = _booleanCacheMissQueries[_booleanCacheMissIndex++ & (_booleanCacheMissQueries.Length - 1)];
+        return _cachedSearcher!.Search(query, TopN).TotalHits;
+    }
+
+    [Benchmark(Description = "Cache disabled, BooleanQuery")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_NoCache_BooleanQuery()
         => _uncachedSearcher!.Search(BuildBooleanQuery(), TopN).TotalHits;
@@ -87,12 +101,12 @@ public class QueryCacheBenchmarks
         return _luceneSearcher!.Search(q, TopN).TotalHits;
     }
 
-    private static Rowles.LeanCorpus.Search.Queries.BooleanQuery BuildBooleanQuery()
+    private static Rowles.LeanCorpus.Search.Queries.BooleanQuery BuildBooleanQuery(float boost = 1.0f)
     {
         var builder = new Rowles.LeanCorpus.Search.Queries.BooleanQuery.Builder();
         builder.Add(new TermQuery(FieldBody, QueryTerm1), Rowles.LeanCorpus.Search.Occur.Must);
         builder.Add(new TermQuery(FieldBody, QueryTerm2), Rowles.LeanCorpus.Search.Occur.Should);
-        return builder.Build();
+        return builder.WithBoost(boost).Build();
     }
 
 }

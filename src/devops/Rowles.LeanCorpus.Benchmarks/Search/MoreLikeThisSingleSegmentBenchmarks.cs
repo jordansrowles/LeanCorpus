@@ -2,7 +2,6 @@ using BenchmarkDotNet.Attributes;
 using IODirectory = System.IO.Directory;
 using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
 using LeanIndexSearcher = Rowles.LeanCorpus.Search.Searcher.IndexSearcher;
-using LeanIndexSearcherConfig = Rowles.LeanCorpus.Search.Searcher.IndexSearcherConfig;
 using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;
 using LeanStringField = Rowles.LeanCorpus.Document.Fields.StringField;
 using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
@@ -17,8 +16,9 @@ namespace Rowles.LeanCorpus.Benchmarks;
 /// After the first invocation, LeanCorpus measures cached extraction plus search.
 /// Lucene.NET creates a new MoreLikeThis object on every call and measures
 /// cold extraction, query construction, weight creation, and search each time.
-/// Scalar and WAND use independently configured searchers. BenchmarkDotNet warms
-/// each method independently, so both steady-state measurements use cached term extraction.
+/// BenchmarkDotNet warms the scalar method independently, so the steady-state measurement
+/// uses cached term extraction. Block-Max WAND is intentionally not enabled here because
+/// the measured single-segment workload showed no benefit from it.
 /// </para>
 /// </summary>
 [MemoryDiagnoser]
@@ -43,7 +43,6 @@ public class MoreLikeThisSingleSegmentBenchmarks
     private string _leanIndexPath = string.Empty;
     private LeanMMapDirectory? _leanDirectory;
     private LeanIndexSearcher? _leanSearcher;
-    private LeanIndexSearcher? _leanWandSearcher;
 
     // Lucene.NET state
     private string _luceneIndexPath = string.Empty;
@@ -64,7 +63,6 @@ public class MoreLikeThisSingleSegmentBenchmarks
     public void Cleanup()
     {
         _leanSearcher?.Dispose();
-        _leanWandSearcher?.Dispose();
         if (!string.IsNullOrWhiteSpace(_leanIndexPath) && IODirectory.Exists(_leanIndexPath))
             IODirectory.Delete(_leanIndexPath, recursive: true);
 
@@ -91,24 +89,6 @@ public class MoreLikeThisSingleSegmentBenchmarks
                 MinDocFreq = 1
             });
         return _leanSearcher!.Search(q, TopN).TotalHits;
-    }
-
-    // --- LeanCorpus WAND benchmark ---
-
-    [Benchmark(Description = "LC MLT SingleSeg WAND")]
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_MoreLikeThisQuery_Wand()
-    {
-        var q = new MoreLikeThisQuery(
-            SourceDocId,
-            ["body"],
-            new MoreLikeThisParameters
-            {
-                MaxQueryTerms = MaxQueryTerms,
-                MinTermFreq = 1,
-                MinDocFreq = 1
-            });
-        return _leanWandSearcher!.Search(q, TopN).TotalHits;
     }
 
     // --- Lucene.NET parity benchmark ---
@@ -162,8 +142,6 @@ public class MoreLikeThisSingleSegmentBenchmarks
                 $"Single-segment MLT benchmark expected 1 segment but found {segmentCount}.");
 
         _leanSearcher = new LeanIndexSearcher(_leanDirectory);
-        _leanWandSearcher = new LeanIndexSearcher(_leanDirectory,
-            new LeanIndexSearcherConfig { EnableBlockMaxWand = true });
     }
 
     private void BuildLuceneIndex(string[] documents)

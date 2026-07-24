@@ -25,6 +25,7 @@ public sealed partial class IndexSearcher : IDisposable
     private readonly ISimilarity _similarity;
     private readonly IndexSearcherConfig _config;
     private readonly bool _useLmScoring;
+    private readonly bool _useBm25Scoring;
     [ThreadStatic] private static PostingsEnum[]? t_postingsBuffer;
     [ThreadStatic] private static ScoreDoc[]? t_collectorHeapCache;
     [ThreadStatic] private static HashSet<(string Field, string Term)>? t_docFreqTermsBuf;
@@ -65,7 +66,9 @@ public sealed partial class IndexSearcher : IDisposable
     /// <summary>Scores a term via the unified language-model path.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private float ScoreTerm(float f1, float f2, float f3, int tf, int docLength)
-        => _similarity.ScoreLmPrecomputed(f1, f2, f3, tf, docLength);
+        => _useBm25Scoring
+            ? Bm25Scorer.ScorePrecomputed(f1, f2, tf, docLength)
+            : _similarity.ScoreLmPrecomputed(f1, f2, f3, tf, docLength);
 
     /// <summary>Computes the collection frequency for a term across all segments.</summary>
     private long GetGlobalCollectionFreq(string qualifiedTerm)
@@ -120,6 +123,7 @@ public sealed partial class IndexSearcher : IDisposable
         _similarity = config.Similarity;
 
         _useLmScoring = _similarity.RequiresCollectionStatistics;
+        _useBm25Scoring = _similarity is Bm25Similarity;
 
         IndexOpenGuard.EnsureNoBlockingMigration(directory, config.CompatibilityMode);
 
@@ -220,6 +224,7 @@ public sealed partial class IndexSearcher : IDisposable
         _similarity = config.Similarity;
 
         _useLmScoring = _similarity.RequiresCollectionStatistics;
+        _useBm25Scoring = _similarity is Bm25Similarity;
         IndexOpenGuard.EnsureNoBlockingMigration(directory, config.CompatibilityMode);
         IndexOpenGuard.EnsureCanOpenSegments(
             directory,
@@ -1205,6 +1210,8 @@ public sealed partial class IndexSearcher : IDisposable
                 bool hasDeletions = reader.HasDeletions;
                 reader.TryGetFieldLengths(tq.Field, out var fieldLengths);
                 reader.TryGetFieldBoosts(tq.Field, out var fieldBoosts);
+                bool hasNumericDocValues = reader.TryGetNumericDocValues(
+                    fsq.NumericField, out var numericValues, out var numericPresence);
 
                 // Single pass: BM25, field boost, function score, then top-N collect.
                 while (postings.MoveNext())
@@ -1220,8 +1227,20 @@ public sealed partial class IndexSearcher : IDisposable
                     score = ApplyFieldBoost(fieldBoosts, docId, score);
 
                     // Modify the field-boosted BM25 score with the numeric doc value.
-                    if (reader.TryGetNumericValue(fsq.NumericField, docId, out double fieldValue))
+                    // Read the dense column once per segment instead of probing the
+                    // sparse numeric map for every matching document.
+                    if (hasNumericDocValues)
+                    {
+                        if ((uint)docId < (uint)numericValues!.Length
+                            && (numericPresence is null || numericPresence.Contains(docId)))
+                        {
+                            score = FunctionScoreQuery.Combine(score, numericValues[docId], fsq.Mode);
+                        }
+                    }
+                    else if (reader.TryGetNumericValue(fsq.NumericField, docId, out double fieldValue))
+                    {
                         score = FunctionScoreQuery.Combine(score, fieldValue, fsq.Mode);
+                    }
 
                     collector.Collect(docBase + docId, score * fsq.Boost);
                 }

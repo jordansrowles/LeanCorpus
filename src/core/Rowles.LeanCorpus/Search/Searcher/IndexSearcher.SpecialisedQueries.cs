@@ -1190,6 +1190,8 @@ public sealed partial class IndexSearcher
         int docBase = reader.DocBase;
         bool hasDeletions = reader.HasDeletions;
         reader.TryGetFieldLengths(tq.Field, out var fieldLengths);
+        bool hasNumericDocValues = reader.TryGetNumericDocValues(
+            fsq.NumericField, out var numericValues, out var numericPresence);
 
         while (postings.MoveNext())
         {
@@ -1204,8 +1206,18 @@ public sealed partial class IndexSearcher
             score = ApplyFieldBoost(reader, docId, tq.Field, score);
 
             // Modify the field-boosted BM25 score using the numeric doc value.
-            if (reader.TryGetNumericValue(fsq.NumericField, docId, out double fieldValue))
+            if (hasNumericDocValues)
+            {
+                if ((uint)docId < (uint)numericValues!.Length
+                    && (numericPresence is null || numericPresence.Contains(docId)))
+                {
+                    score = FunctionScoreQuery.Combine(score, numericValues[docId], fsq.Mode);
+                }
+            }
+            else if (reader.TryGetNumericValue(fsq.NumericField, docId, out double fieldValue))
+            {
                 score = FunctionScoreQuery.Combine(score, fieldValue, fsq.Mode);
+            }
 
             collector.Collect(docBase + docId, score * fsq.Boost);
         }

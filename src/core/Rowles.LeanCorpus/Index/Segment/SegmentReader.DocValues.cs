@@ -171,6 +171,28 @@ internal sealed partial class SegmentReaderState
     }
 
     /// <summary>
+    /// Gets the dense numeric values and optional presence bitmap for a field.
+    /// Callers that already hold a segment lease can use this for repeated reads
+    /// without looking up the sparse numeric map for every document.
+    /// </summary>
+    internal bool TryGetNumericDocValues(
+        string field,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out double[]? values,
+        out RoaringBitmap? presence)
+    {
+        var numericDocValues = EnsureNumericDocValues();
+        if (!numericDocValues.TryGetValue(field, out values))
+        {
+            presence = null;
+            return false;
+        }
+
+        presence = null;
+        _numericDocValuesPresence?.TryGetValue(field, out presence);
+        return true;
+    }
+
+    /// <summary>
     /// Tries to get a 64-bit integer field value for a document from the .numl index.
     /// </summary>
     public bool TryGetInt64Value(string field, int docId, out long value)
