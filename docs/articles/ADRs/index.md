@@ -16,3 +16,11 @@
 ## Template
 
 New ADRs should follow [the template](_template.md) using the next available `ADRnnn` prefix.
+
+## Reasons for an ADR
+If at any point during work an ADR is deserved, create one. But only if the reason fulfills ones of these:
+- Is costly to reverse
+- Trade-off heavy (there were real alternatives, each with pros/cons, and you picked one over another for specific reasons)
+- Cross-cutting (it constrains how other parts of the system get built)
+- Non-obvious solutions
+- Major changes in any of the following areas: index structure, storage formats, analyser/tokeniser pipeline desings, concurrency and consistency model, segment merging, scoring/ranking, query parsing, low-level designs
