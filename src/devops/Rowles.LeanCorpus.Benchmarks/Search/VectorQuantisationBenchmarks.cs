@@ -36,7 +36,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob]
 public class VectorQuantisationBenchmarks
 {
     [Params(1_000, 10_000)]

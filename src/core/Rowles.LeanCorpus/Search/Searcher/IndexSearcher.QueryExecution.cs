@@ -211,6 +211,7 @@ public sealed partial class IndexSearcher
     private void ExecuteBooleanQuery(BooleanQuery query, SegmentReader reader,
         Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
+        using var segmentLease = reader.AcquireQueryLease();
         var clauses = query.Clauses;
         if (clauses.Count == 0) return;
 
@@ -704,6 +705,7 @@ public sealed partial class IndexSearcher
                     float avgDocLength = Stats.GetAvgFieldLength(tq.Field);
                     var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, tq.Field);
                     reader.TryGetFieldLengths(tq.Field, out var fieldLengths);
+                    reader.TryGetFieldBoosts(tq.Field, out var fieldBoosts);
                     // For selective queries (fewer than 2 batches), use an inline loop to avoid
                     // stackalloc + two-pass batch overhead. The batch+SIMD path only pays off
                     // when there are many matches per term (high docFreq).
@@ -717,7 +719,7 @@ public sealed partial class IndexSearcher
                             int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                                 ? fieldLengths[docId] : 1;
                             float score = ScoreTerm(f1, f2, f3, postings.Freq, docLength);
-                            score = ApplyFieldBoost(reader, docId, tq.Field, score);
+                            score = ApplyFieldBoost(fieldBoosts, docId, score);
                             results.Add(new ScoreDoc(docId, score));
                         }
                     }
@@ -752,7 +754,7 @@ public sealed partial class IndexSearcher
                                 }
                                 for (int j = 0; j < batchSize; j++)
                                 {
-                                    float score = ApplyFieldBoost(reader, docIds[j], tq.Field, batchScores[j]);
+                                    float score = ApplyFieldBoost(fieldBoosts, docIds[j], batchScores[j]);
                                     results.Add(new ScoreDoc(docIds[j], score));
                                 }
                                 batchCount = 0;
@@ -773,7 +775,7 @@ public sealed partial class IndexSearcher
                             }
                             for (int j = 0; j < batchCount; j++)
                             {
-                                float score = ApplyFieldBoost(reader, docIds[j], tq.Field, batchScores[j]);
+                                float score = ApplyFieldBoost(fieldBoosts, docIds[j], batchScores[j]);
                                 results.Add(new ScoreDoc(docIds[j], score));
                             }
                         }
@@ -794,8 +796,9 @@ public sealed partial class IndexSearcher
                 {
                     var rangeResults = reader.GetNumericRange(rq.Field, rq.Min, rq.Max);
                     float rqScore = rq.Boost != 1.0f ? rq.Boost : 1.0f;
+                    reader.TryGetFieldBoosts(rq.Field, out var fieldBoosts);
                     foreach (var r in rangeResults)
-                        results.Add(new ScoreDoc(r.DocId, ApplyFieldBoost(reader, r.DocId, rq.Field, rqScore)));
+                        results.Add(new ScoreDoc(r.DocId, ApplyFieldBoost(fieldBoosts, r.DocId, rqScore)));
                     break;
                 }
             case PrefixQuery pfq:

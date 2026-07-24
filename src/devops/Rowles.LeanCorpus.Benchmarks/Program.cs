@@ -1,4 +1,5 @@
 using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
 using System.Diagnostics;
@@ -8,8 +9,12 @@ namespace Rowles.LeanCorpus.Benchmarks;
 
 internal static class Program
 {
+    private static readonly List<PendingSuite> PendingSuites = [];
+
     public static int Main(string[] args)
     {
+        PendingSuites.Clear();
+
         HashSet<BenchmarkSuite> suites;
         string runType;
         string[] benchmarkArgs;
@@ -67,12 +72,39 @@ internal static class Program
             runAll = true;
         }
 
+        if (suites.Remove(BenchmarkSuite.Explicit))
+        {
+            suites.UnionWith([
+                BenchmarkSuite.TokenBudget,
+                BenchmarkSuite.Diagnostics,
+                BenchmarkSuite.PackedIntCodec,
+                BenchmarkSuite.NumericAggregatorSimd,
+                BenchmarkSuite.IndexWriterContention,
+                BenchmarkSuite.ConcurrentWrite,
+                BenchmarkSuite.Merge,
+                BenchmarkSuite.Flush,
+                BenchmarkSuite.DocValuesRead,
+                BenchmarkSuite.BKDTree,
+                BenchmarkSuite.FstLookup,
+                BenchmarkSuite.MMapIO,
+                BenchmarkSuite.HnswSearch,
+                BenchmarkSuite.VectorQuantisation,
+            ]);
+        }
+
         // Resolve effective run type for metadata (does not affect output path)
         var effectiveRunType = string.IsNullOrEmpty(runType) ? "full" : runType;
 
         // Clean up any stale temp directories from previous aborted runs
         // before any suite builds its index.
         BenchmarkHelpers.CleanTempRoot();
+
+        if (UsesStandardSearchFixture(suites, runAll))
+        {
+            var effectiveDocCount = docCount ?? BenchmarkData.DefaultDocCount;
+            Console.WriteLine($"Preparing shared search fixture ({effectiveDocCount:N0} documents)...");
+            SharedStandardIndex.PrepareForRun(effectiveDocCount);
+        }
 
         var suiteSummaries = new List<(string Suite, Summary Summary)>();
 
@@ -277,27 +309,7 @@ internal static class Program
         if (suites.Contains(BenchmarkSuite.MMapIO))
             RunSuite<MMapDirectoryIOBenchmarks>("mmap-io", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
-        // Expand 'explicit' meta-suite into all explicit-only suites.
-        if (suites.Contains(BenchmarkSuite.Explicit))
-        {
-            suites.Remove(BenchmarkSuite.Explicit);
-            suites.UnionWith([
-                BenchmarkSuite.TokenBudget,
-                BenchmarkSuite.Diagnostics,
-                BenchmarkSuite.PackedIntCodec,
-                BenchmarkSuite.NumericAggregatorSimd,
-                BenchmarkSuite.IndexWriterContention,
-                BenchmarkSuite.ConcurrentWrite,
-                BenchmarkSuite.Merge,
-                BenchmarkSuite.Flush,
-                BenchmarkSuite.DocValuesRead,
-                BenchmarkSuite.BKDTree,
-                BenchmarkSuite.FstLookup,
-                BenchmarkSuite.MMapIO,
-                BenchmarkSuite.HnswSearch,
-                BenchmarkSuite.VectorQuantisation,
-            ]);
-        }
+        ExecuteSuites(runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (suiteSummaries.Count == 0)
         {
@@ -347,13 +359,155 @@ internal static class Program
         List<(string Suite, Summary Summary)> suiteSummaries,
         bool gcDump = false) where T : class
     {
-        var artifactsPath = Path.Combine(runDir, suiteName);
+        if (PendingSuites.All(suite => suite.Type != typeof(T)))
+            PendingSuites.Add(new PendingSuite(suiteName, typeof(T)));
+    }
+
+    private static void ExecuteSuites(
+        string runDir,
+        string[] benchmarkArgs,
+        List<(string Suite, Summary Summary)> suiteSummaries,
+        bool gcDump)
+    {
+        if (PendingSuites.Count == 0)
+            return;
+
+        var artifactsPath = Path.Combine(runDir, "_runner");
         Directory.CreateDirectory(artifactsPath);
         var config = DefaultConfig.Instance.WithArtifactsPath(artifactsPath);
+        var (job, effectiveBenchmarkArgs) = ExtractJob(benchmarkArgs);
+        if (job is not null)
+        {
+            config = config
+                .AddJob(job)
+                .WithUnionRule(ConfigUnionRule.AlwaysUseGlobal);
+        }
         if (gcDump)
             config = config.AddDiagnoser(new GcDumpDiagnoser());
-        var summary = BenchmarkRunner.Run<T>(config, benchmarkArgs);
-        suiteSummaries.Add((suiteName, summary));
+
+        var summaries = BenchmarkSwitcher
+            .FromTypes([.. PendingSuites.Select(suite => suite.Type)])
+            .Run(effectiveBenchmarkArgs, config);
+
+        foreach (var summary in summaries)
+        {
+            var benchmarkType = summary.BenchmarksCases.First().Descriptor.Type;
+            var suite = PendingSuites.First(item => item.Type == benchmarkType);
+            suiteSummaries.Add((suite.Name, summary));
+            CopySuiteArtifacts(artifactsPath, runDir, suite);
+        }
+    }
+
+    private static (Job? Job, string[] Arguments) ExtractJob(string[] arguments)
+    {
+        for (var i = 0; i < arguments.Length; i++)
+        {
+            string? value = null;
+            var consumed = 1;
+
+            if ((string.Equals(arguments[i], "--job", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(arguments[i], "-j", StringComparison.OrdinalIgnoreCase))
+                && i + 1 < arguments.Length)
+            {
+                value = arguments[i + 1];
+                consumed = 2;
+            }
+            else if (arguments[i].StartsWith("--job=", StringComparison.OrdinalIgnoreCase))
+            {
+                value = arguments[i]["--job=".Length..];
+            }
+            else if (arguments[i].StartsWith("-j=", StringComparison.OrdinalIgnoreCase))
+            {
+                value = arguments[i]["-j=".Length..];
+            }
+
+            var job = value?.ToLowerInvariant() switch
+            {
+                "dry" => Job.Dry,
+                "short" => Job.ShortRun,
+                "default" => Job.Default,
+                _ => null,
+            };
+
+            if (job is null)
+                continue;
+
+            var remaining = new string[arguments.Length - consumed];
+            if (i > 0)
+                Array.Copy(arguments, 0, remaining, 0, i);
+            if (i + consumed < arguments.Length)
+            {
+                Array.Copy(
+                    arguments,
+                    i + consumed,
+                    remaining,
+                    i,
+                    arguments.Length - i - consumed);
+            }
+
+            return (job, remaining);
+        }
+
+        return (null, arguments);
+    }
+
+    private static void CopySuiteArtifacts(
+        string artifactsPath,
+        string runDir,
+        PendingSuite suite)
+    {
+        var suitePath = Path.Combine(runDir, suite.Name);
+        var suiteResultsPath = Path.Combine(suitePath, "results");
+        Directory.CreateDirectory(suiteResultsPath);
+
+        var runnerResultsPath = Path.Combine(artifactsPath, "results");
+        if (Directory.Exists(runnerResultsPath))
+        {
+            foreach (var file in Directory.EnumerateFiles(
+                         runnerResultsPath,
+                         $"*{suite.Type.Name}*",
+                         SearchOption.TopDirectoryOnly))
+            {
+                File.Copy(
+                    file,
+                    Path.Combine(suiteResultsPath, Path.GetFileName(file)),
+                    overwrite: true);
+            }
+        }
+
+        foreach (var file in Directory.EnumerateFiles(
+                     artifactsPath,
+                     $"*{suite.Type.Name}*.log",
+                     SearchOption.TopDirectoryOnly))
+        {
+            File.Copy(file, Path.Combine(suitePath, Path.GetFileName(file)), overwrite: true);
+        }
+    }
+
+    private static bool UsesStandardSearchFixture(
+        HashSet<BenchmarkSuite> suites,
+        bool runAll)
+    {
+        if (runAll)
+            return true;
+
+        return suites.Overlaps(
+        [
+            BenchmarkSuite.Query,
+            BenchmarkSuite.Boolean,
+            BenchmarkSuite.Phrase,
+            BenchmarkSuite.Prefix,
+            BenchmarkSuite.Fuzzy,
+            BenchmarkSuite.Wildcard,
+            BenchmarkSuite.Regexp,
+            BenchmarkSuite.Dismax,
+            BenchmarkSuite.MultiPhrase,
+            BenchmarkSuite.Span,
+            BenchmarkSuite.SearcherManager,
+            BenchmarkSuite.TermInSet,
+            BenchmarkSuite.QueryCache,
+            BenchmarkSuite.Similarity,
+        ]);
     }
 
     private static string GetGitShortHash(string repoRoot)
@@ -742,4 +896,6 @@ internal static class Program
         FstLookup,
         MMapIO,
     }
+
+    private sealed record PendingSuite(string Name, Type Type);
 }

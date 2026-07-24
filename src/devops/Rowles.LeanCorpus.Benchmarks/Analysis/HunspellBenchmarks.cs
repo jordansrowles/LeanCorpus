@@ -15,7 +15,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [HtmlExporter]
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
-[SimpleJob]
 public class HunspellBenchmarks
 {
     private const string AffixText = """

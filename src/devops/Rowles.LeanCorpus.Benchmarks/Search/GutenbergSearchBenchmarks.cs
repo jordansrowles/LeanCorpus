@@ -35,7 +35,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [HtmlExporter]
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
-[SimpleJob]
 public class GutenbergSearchBenchmarks
 {
     private const int TopN = 25;

@@ -24,7 +24,8 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob(warmupCount: 1, iterationCount: 3)]
+[WarmupCount(1)]
+[IterationCount(3)]
 [InvocationCount(1)]
 public class DeletionQueueBenchmarks
 {
@@ -115,7 +116,8 @@ public class DeletionQueueBenchmarks
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob(warmupCount: 1, iterationCount: 3)]
+[WarmupCount(1)]
+[IterationCount(3)]
 [InvocationCount(1)]
 public class DeletionCommitBenchmarks
 {

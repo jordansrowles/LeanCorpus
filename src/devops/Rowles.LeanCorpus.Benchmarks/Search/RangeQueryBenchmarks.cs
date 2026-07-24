@@ -24,7 +24,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob]
 public class RangeQueryBenchmarks
 {
     private const int TopN = 25;

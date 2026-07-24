@@ -12,7 +12,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
 [KeepBenchmarkFiles]
-[SimpleJob]
 public class TermQueryBenchmarks
 {
     private const int TopN = 25;

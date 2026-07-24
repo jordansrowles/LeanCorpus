@@ -14,7 +14,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 /// </summary>
 [MemoryDiagnoser]
 [MarkdownExporterAttribute.GitHub]
-[SimpleJob]
 public class IndexWriterContentionBenchmarks
 {
     [Params(1, 2, 4, 8)]

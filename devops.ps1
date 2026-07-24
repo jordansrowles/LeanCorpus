@@ -241,6 +241,7 @@ function Get-SuiteMap {
         mlt                  = 'MoreLikeThisBenchmarks + MoreLikeThisSingleSegmentBenchmarks'
         highlighter          = 'HighlighterBenchmarks'
         'searcher-mgr'       = 'SearcherManagerBenchmarks'
+        'segment-reader-cache' = 'SegmentReaderCacheBenchmarks'
         combined             = 'CombinedFieldsQueryBenchmarks'
         terminset            = 'TermInSetQueryBenchmarks'
         aggregation          = 'AggregationBenchmarks'

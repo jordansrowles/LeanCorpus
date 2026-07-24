@@ -27,7 +27,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
 [KeepBenchmarkFiles]
-[SimpleJob]
 public class SuggesterBenchmarks
 {
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);

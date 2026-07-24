@@ -32,7 +32,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob]
 public class ParallelSearchBenchmarks
 {
     private const int TopN = 25;
@@ -84,28 +83,36 @@ public class ParallelSearchBenchmarks
         // Static resources persist for class lifetime.
     }
 
-    [Benchmark(Baseline = true)]
+    [Benchmark(Baseline = true, Description = "LeanCorpus term sequential")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_SequentialSearch()
         => s_sequentialSearcher!.Search(new TermQuery("body", "government"), TopN).TotalHits;
 
-    [Benchmark]
+    [Benchmark(Description = "LeanCorpus term parallel")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_ParallelSearch()
         => s_parallelSearcher!.Search(new TermQuery("body", "government"), TopN).TotalHits;
 
-    [Benchmark]
+    [Benchmark(Description = "LeanCorpus Boolean sequential")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_SequentialSearch_BooleanQuery()
+        => SearchBoolean(s_sequentialSearcher!);
+
+    [Benchmark(Description = "LeanCorpus Boolean parallel")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_ParallelSearch_BooleanQuery()
+        => SearchBoolean(s_parallelSearcher!);
+
+    private static int SearchBoolean(LeanIndexSearcher searcher)
     {
         var builder = new Rowles.LeanCorpus.Search.Queries.BooleanQuery.Builder();
         builder.Add(new TermQuery("body", "government"), Rowles.LeanCorpus.Search.Occur.Must);
         builder.Add(new TermQuery("body", "market"), Rowles.LeanCorpus.Search.Occur.Should);
         builder.Add(new TermQuery("body", "people"), Rowles.LeanCorpus.Search.Occur.Should);
-        return s_parallelSearcher!.Search(builder.Build(), TopN).TotalHits;
+        return searcher.Search(builder.Build(), TopN).TotalHits;
     }
 
-    [Benchmark(Description = "Lucene.NET sequential search")]
+    [Benchmark(Description = "Lucene.NET term sequential")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_SequentialSearch()
         => s_luceneSearcher!.Search(

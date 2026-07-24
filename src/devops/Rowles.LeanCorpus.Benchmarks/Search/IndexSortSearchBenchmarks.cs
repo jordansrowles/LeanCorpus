@@ -36,7 +36,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
 [KeepBenchmarkFiles]
-[SimpleJob]
 public class IndexSortSearchBenchmarks
 {
     private const int TopN = 25;

@@ -26,7 +26,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob]
 public class MoreLikeThisSingleSegmentBenchmarks
 {
     private const int TopN = 25;
@@ -155,13 +154,14 @@ public class MoreLikeThisSingleSegmentBenchmarks
             writer.AddDocument(doc);
         }
         writer.Commit();
-        _leanSearcher = new LeanIndexSearcher(_leanDirectory);
+        writer.ForceMerge(1);
 
-        var segmentCount = _leanSearcher.GetIndexSize().SegmentCount;
+        var segmentCount = writer.GetNrtSegments().Count;
         if (segmentCount != 1)
             throw new InvalidOperationException(
                 $"Single-segment MLT benchmark expected 1 segment but found {segmentCount}.");
 
+        _leanSearcher = new LeanIndexSearcher(_leanDirectory);
         _leanWandSearcher = new LeanIndexSearcher(_leanDirectory,
             new LeanIndexSearcherConfig { EnableBlockMaxWand = true });
     }
@@ -202,6 +202,7 @@ public class MoreLikeThisSingleSegmentBenchmarks
                 };
                 writer.AddDocument(doc);
             }
+            writer.ForceMerge(1);
             writer.Commit();
         }
 

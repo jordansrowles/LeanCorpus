@@ -1121,9 +1121,11 @@ public sealed partial class IndexSearcher : IDisposable
                 if (postings.IsExhausted) continue;
 
                 var reader = _readers[i];
+                using var queryLease = reader.AcquireQueryLease();
                 int docBase = reader.DocBase;
                 bool hasDeletions = reader.HasDeletions;
                 reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+                reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
 
                 while (postings.MoveNext())
                 {
@@ -1135,7 +1137,7 @@ public sealed partial class IndexSearcher : IDisposable
                         ? fieldLengths[docId] : 1;
                     float score = ScoreTerm(f1, f2, f3, tf, docLength);
                     if (boost != 1.0f) score *= boost;
-                    score = ApplyFieldBoost(reader, docId, query.Field, score);
+                    score = ApplyFieldBoost(fieldBoosts, docId, score);
                     collector.Collect(docBase + docId, score);
                     sideCollector?.Collect(docBase + docId, score, reader, docId);
                 }
@@ -1198,9 +1200,11 @@ public sealed partial class IndexSearcher : IDisposable
                 if (postings.IsExhausted) continue;
 
                 var reader = _readers[i];
+                using var queryLease = reader.AcquireQueryLease();
                 int docBase = reader.DocBase;
                 bool hasDeletions = reader.HasDeletions;
                 reader.TryGetFieldLengths(tq.Field, out var fieldLengths);
+                reader.TryGetFieldBoosts(tq.Field, out var fieldBoosts);
 
                 // Single pass: BM25, field boost, function score, then top-N collect.
                 while (postings.MoveNext())
@@ -1213,7 +1217,7 @@ public sealed partial class IndexSearcher : IDisposable
                         ? fieldLengths[docId] : 1;
                     float score = ScoreTerm(f1, f2, f3, tf, docLength);
                     if (boost != 1.0f) score *= boost;
-                    score = ApplyFieldBoost(reader, docId, tq.Field, score);
+                    score = ApplyFieldBoost(fieldBoosts, docId, score);
 
                     // Modify the field-boosted BM25 score with the numeric doc value.
                     if (reader.TryGetNumericValue(fsq.NumericField, docId, out double fieldValue))

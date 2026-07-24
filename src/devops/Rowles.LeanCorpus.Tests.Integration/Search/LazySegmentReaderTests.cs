@@ -113,6 +113,7 @@ public sealed class LazySegmentReaderTests : IDisposable
                 .Add(new WildcardQuery("body", "*alpha*"), Occur.Must)
                 .Build(),
             new RangeQuery("price", 2, 7),
+            new FunctionScoreQuery(new TermQuery("body", "alpha"), "price", ScoreMode.Multiply),
             new VectorQuery("vector", [1f, 0f], topK: 5),
             new TermQuery("body", "delta"),
         ];

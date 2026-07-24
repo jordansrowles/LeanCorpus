@@ -170,6 +170,7 @@ public sealed partial class IndexSearcher
         int[] expectedPositions = query.Positions.ToArray();
         int docBase = reader.DocBase;
         float baseScore = query.Boost != 1.0f ? query.Boost : 1.0f;
+        reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
 
         foreach (int docId in candidateDocs!)
         {
@@ -178,7 +179,7 @@ public sealed partial class IndexSearcher
                 slotPositions[i] = perGroupPositions[i][docId];
 
             if (HasMultiPhrasePositionsWithinSlop(slotPositions, expectedPositions, query.Slop))
-                collector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, query.Field, baseScore));
+                collector.Collect(docBase + docId, ApplyFieldBoost(fieldBoosts, docId, baseScore));
         }
     }
 

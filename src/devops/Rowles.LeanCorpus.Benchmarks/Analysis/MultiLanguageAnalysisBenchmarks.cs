@@ -25,7 +25,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [HtmlExporter]
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
-[SimpleJob]
 public class MultiLanguageAnalysisBenchmarks
 {
     public static IEnumerable<string> Languages => AnalyserFactory.SupportedLanguages;

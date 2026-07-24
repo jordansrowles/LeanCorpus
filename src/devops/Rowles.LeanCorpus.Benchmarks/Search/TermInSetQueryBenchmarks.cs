@@ -1,16 +1,7 @@
 using BenchmarkDotNet.Attributes;
-using Lucene.Net.Analysis.Standard;
-using Lucene.Net.Index;
 using Lucene.Net.Search;
-using Lucene.Net.Store;
-using Lucene.Net.Util;
 using LeanIndexSearcher = Rowles.LeanCorpus.Search.Searcher.IndexSearcher;
-using LuceneDocument = Lucene.Net.Documents.Document;
-using LuceneStringField = Lucene.Net.Documents.StringField;
-using LuceneTextField = Lucene.Net.Documents.TextField;
 using LuceneIndexSearcher = Lucene.Net.Search.IndexSearcher;
-using LuceneDirectoryReader = Lucene.Net.Index.DirectoryReader;
-using LuceneRAMDirectory = Lucene.Net.Store.RAMDirectory;
 using LuceneTermQuery = Lucene.Net.Search.TermQuery;
 using LuceneTerm = Lucene.Net.Index.Term;
 using TermQuery = Rowles.LeanCorpus.Search.Queries.TermQuery;
@@ -26,7 +17,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob]
 public class TermInSetQueryBenchmarks
 {
     private const int TopN = 25;
@@ -41,8 +31,6 @@ public class TermInSetQueryBenchmarks
     public int SetSize { get; set; } = 20;
 
     private LeanIndexSearcher? _leanSearcher;
-    private LuceneRAMDirectory? _luceneDirectory;
-    private LuceneDirectoryReader? _luceneReader;
     private LuceneIndexSearcher? _luceneSearcher;
     private string[] _terms = [];
 
@@ -69,16 +57,14 @@ public class TermInSetQueryBenchmarks
     {
         SharedStandardIndex.EnsureInitialised(DocumentCount);
         _leanSearcher = SharedStandardIndex.LeanSearcher;
+        _luceneSearcher = SharedStandardIndex.LuceneSearcher;
         _terms = Vocabulary.Take(SetSize).ToArray();
-        EnsureLuceneIndex();
     }
 
     [GlobalCleanup]
     public void Cleanup()
     {
-        // Lean resources owned by SharedStandardIndex; do not dispose.
-        _luceneReader?.Dispose();
-        _luceneDirectory?.Dispose();
+        // Resources are owned by SharedStandardIndex; do not dispose.
     }
 
     [Benchmark(Baseline = true)]
@@ -104,32 +90,6 @@ public class TermInSetQueryBenchmarks
         foreach (var term in _terms)
             bq.Add(new LuceneTermQuery(new LuceneTerm("body", term)), Occur.SHOULD);
         return _luceneSearcher!.Search(bq, TopN).TotalHits;
-    }
-
-    private void EnsureLuceneIndex()
-    {
-        if (_luceneSearcher is not null)
-            return;
-
-        _luceneDirectory = new LuceneRAMDirectory();
-        var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
-        using var writer = new Lucene.Net.Index.IndexWriter(
-            _luceneDirectory,
-            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
-        var documents = SharedStandardIndex.Documents;
-        for (int i = 0; i < documents.Length; i++)
-        {
-            var doc = new LuceneDocument();
-            doc.Add(new LuceneStringField("id",
-                i.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                Lucene.Net.Documents.Field.Store.NO));
-            doc.Add(new LuceneTextField("body", documents[i],
-                Lucene.Net.Documents.Field.Store.NO));
-            writer.AddDocument(doc);
-        }
-        writer.Commit();
-        _luceneReader = LuceneDirectoryReader.Open(_luceneDirectory);
-        _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
     }
 
 }

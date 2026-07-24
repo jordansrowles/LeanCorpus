@@ -33,7 +33,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob]
 public class TermVectorHighlighterBenchmarks
 {
     private const int MaxSnippetLength = 200;
