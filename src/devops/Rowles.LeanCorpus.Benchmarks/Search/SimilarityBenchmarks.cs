@@ -42,6 +42,7 @@ public class SimilarityBenchmarks
     private LuceneMMapDirectory? _luceneDirectory;
     private Lucene.Net.Index.DirectoryReader? _luceneReader;
     private LuceneIndexSearcher? _luceneBm25Searcher;
+    private LuceneIndexSearcher? _luceneTfIdfSearcher;
     private LuceneIndexSearcher? _luceneDirichletSearcher;
     private LuceneIndexSearcher? _luceneJMSearcher;
 
@@ -116,6 +117,15 @@ public class SimilarityBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_TfIdf_TermQuery()
         => _tfIdfSearcher!.Search(new TermQuery("body", "government"), TopN).TotalHits;
+
+    [Benchmark]
+    [BenchmarkCategory("similarity")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_TfIdf_TermQuery()
+    {
+        var q = new Lucene.Net.Search.TermQuery(new Lucene.Net.Index.Term("body", "government"));
+        return _luceneTfIdfSearcher!.Search(q, TopN).TotalHits;
+    }
 
     // --- Language model (with Lucene.NET parity) ---
 
@@ -310,6 +320,8 @@ public class SimilarityBenchmarks
         _luceneReader = Lucene.Net.Index.DirectoryReader.Open(directory);
         _luceneBm25Searcher = new LuceneIndexSearcher(_luceneReader)
             { Similarity = new Lucene.Net.Search.Similarities.BM25Similarity(1.2f, 0.75f) };
+        _luceneTfIdfSearcher = new LuceneIndexSearcher(_luceneReader)
+            { Similarity = new Lucene.Net.Search.Similarities.DefaultSimilarity() };
         _luceneDirichletSearcher = new LuceneIndexSearcher(_luceneReader)
             { Similarity = new Lucene.Net.Search.Similarities.LMDirichletSimilarity(2000f) };
         _luceneJMSearcher = new LuceneIndexSearcher(_luceneReader)

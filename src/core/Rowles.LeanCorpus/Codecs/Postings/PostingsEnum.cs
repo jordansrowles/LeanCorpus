@@ -665,6 +665,65 @@ public unsafe struct PostingsEnum : IDisposable
         }
     }
 
+    /// <summary>
+    /// Advances the cursor and returns the current document ID and frequency.
+    /// </summary>
+    /// <remarks>
+    /// Prefer this overload when both values are required. It performs one shared
+    /// lifetime-guard operation for the complete cursor step.
+    /// </remarks>
+    public bool MoveNext(out int docId, out int frequency)
+    {
+        if (!TryEnterLease())
+            throw new ObjectDisposedException(nameof(PostingsEnum), "This PostingsEnum is a copy of an already-disposed instance.");
+        try
+        {
+            return MoveNextUnchecked(out docId, out frequency);
+        }
+        finally
+        {
+            ExitLease();
+        }
+    }
+
+    /// <summary>
+    /// Advances without entering the shared disposal guard.
+    /// </summary>
+    /// <remarks>
+    /// Internal search loops may use this only while a segment query or read lease
+    /// pins the cursor's backing state for the complete loop.
+    /// </remarks>
+    internal bool MoveNextUnchecked(out int docId, out int frequency)
+    {
+        if (_lazyMode)
+        {
+            if (_blockEnum.NextDoc() == BlockPostingsEnum.NoMoreDocs)
+            {
+                docId = -1;
+                frequency = 1;
+                return false;
+            }
+
+            if (_positionByteOffsets is not null)
+                _index = _blockEnum.CurrentGlobalIndex;
+            docId = _blockEnum.DocId;
+            frequency = _blockEnum.Freq;
+            return true;
+        }
+
+        if (++_index < _count)
+        {
+            docId = _docIds![_index];
+            frequency = _freqs is not null ? _freqs[_index] : 1;
+            return true;
+        }
+
+        _index = _count;
+        docId = -1;
+        frequency = 1;
+        return false;
+    }
+
     public void Reset()
     {
         if (!TryEnterLease())

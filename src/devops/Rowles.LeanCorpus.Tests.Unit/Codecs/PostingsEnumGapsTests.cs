@@ -76,6 +76,30 @@ public sealed class PostingsEnumGapsTests : IDisposable
         }
     }
 
+    [Fact(DisplayName = "PostingsEnum: Combined MoveNext Returns DocIds And Frequencies")]
+    public void Create_CombinedMoveNext_ReturnsDocIdsAndFrequencies()
+    {
+        var (path, offset) = WriteCurrentFormatPostings();
+        using var input = new IndexInput(path);
+        using var pe = PostingsEnum.Create(input, offset);
+
+        Assert.True(pe.MoveNext(out int firstDocId, out int firstFrequency));
+        Assert.Equal(2, firstDocId);
+        Assert.Equal(1, firstFrequency);
+
+        Assert.True(pe.MoveNext(out int secondDocId, out int secondFrequency));
+        Assert.Equal(5, secondDocId);
+        Assert.Equal(2, secondFrequency);
+
+        Assert.True(pe.MoveNext(out int thirdDocId, out int thirdFrequency));
+        Assert.Equal(9, thirdDocId);
+        Assert.Equal(3, thirdFrequency);
+
+        Assert.False(pe.MoveNext(out int exhaustedDocId, out int exhaustedFrequency));
+        Assert.Equal(-1, exhaustedDocId);
+        Assert.Equal(1, exhaustedFrequency);
+    }
+
     [Fact(DisplayName = "PostingsEnum: Create Advance Seeks To Target DocId")]
     public void Create_Advance_SeeksToTargetDocId()
     {
@@ -139,6 +163,7 @@ public sealed class PostingsEnumGapsTests : IDisposable
         copy.Reset();
         Assert.True(copy.GetPayload(0).IsEmpty);
         Assert.Throws<ObjectDisposedException>(() => copy.MoveNext());
+        Assert.Throws<ObjectDisposedException>(() => copy.MoveNext(out _, out _));
 
         copy.Dispose();
     }

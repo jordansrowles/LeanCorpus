@@ -466,12 +466,10 @@ public sealed partial class IndexSearcher
         float f1, float f2, float f3, int[]? fieldLengths, float[]? fieldBoosts, float boost,
         float[] scores, bool[] seen, int[] docIds, ref int docCount)
     {
-        while (postings.MoveNext())
+        while (postings.MoveNextUnchecked(out int docId, out int tf))
         {
-            int docId = postings.DocId;
             if (!reader.IsLive(docId)) continue;
 
-            int tf = postings.Freq;
             int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                 ? fieldLengths[docId] : 1;
             float score = ScoreTerm(f1, f2, f3, tf, docLength);
@@ -649,12 +647,10 @@ public sealed partial class IndexSearcher
                 long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qualifiedTerm) : 0;
                 var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
 
-                while (postings.MoveNext())
+                while (postings.MoveNextUnchecked(out int docId, out int tf))
                 {
-                    int docId = postings.DocId;
                     if (!reader.IsLive(docId)) continue;
 
-                    int tf = postings.Freq;
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                         ? fieldLengths[docId] : 1;
                     float score = ScoreTerm(f1, f2, f3, tf, docLength) * distanceFactor;
@@ -701,12 +697,10 @@ public sealed partial class IndexSearcher
             long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qualifiedTerm) : 0;
             var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
 
-            while (postings.MoveNext())
+            while (postings.MoveNextUnchecked(out int docId, out int tf))
             {
-                int docId = postings.DocId;
                 if (!reader.IsLive(docId)) continue;
 
-                int tf = postings.Freq;
                 int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                     ? fieldLengths[docId] : 1;
                 float score = ScoreTerm(f1, f2, f3, tf, docLength);
@@ -775,12 +769,10 @@ public sealed partial class IndexSearcher
             long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qualifiedTerm) : 0;
             var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
 
-            while (postings.MoveNext())
+            while (postings.MoveNextUnchecked(out int docId, out int tf))
             {
-                int docId = postings.DocId;
                 if (!reader.IsLive(docId)) continue;
 
-                int tf = postings.Freq;
                 int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                     ? fieldLengths[docId] : 1;
                 float score = ScoreTerm(f1, f2, f3, tf, docLength);
@@ -914,15 +906,14 @@ public sealed partial class IndexSearcher
                 reader.TryGetFieldBoosts(termQuery.Field, out var fieldBoosts);
                 float termBoost = termQuery.Boost;
 
-                while (postings.MoveNext())
+                while (postings.MoveNextUnchecked(out int docId, out int termFrequency))
                 {
-                    int docId = postings.DocId;
                     if (!reader.IsLive(docId))
                         continue;
 
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                         ? fieldLengths[docId] : 1;
-                    float score = ScoreTerm(f1, f2, f3, postings.Freq, docLength);
+                    float score = ScoreTerm(f1, f2, f3, termFrequency, docLength);
                     score *= termBoost;
                     score = ApplyFieldBoost(fieldBoosts, docId, score);
 
@@ -1193,12 +1184,10 @@ public sealed partial class IndexSearcher
         bool hasNumericDocValues = reader.TryGetNumericDocValues(
             fsq.NumericField, out var numericValues, out var numericPresence);
 
-        while (postings.MoveNext())
+        while (postings.MoveNextUnchecked(out int docId, out int tf))
         {
-            int docId = postings.DocId;
             if (hasDeletions && !reader.IsLive(docId)) continue;
 
-            int tf = postings.Freq;
             int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                 ? fieldLengths[docId] : 1;
             float score = ScoreTerm(f1, f2, f3, tf, docLength);

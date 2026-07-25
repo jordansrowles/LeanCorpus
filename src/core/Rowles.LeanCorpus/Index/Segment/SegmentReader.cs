@@ -447,8 +447,8 @@ internal sealed partial class SegmentReaderState : IDisposable
     {
         using var postings = GetPostingsEnum(qualifiedTerm);
         long sum = 0;
-        while (postings.MoveNext())
-            sum += postings.Freq;
+        while (postings.MoveNextUnchecked(out _, out int frequency))
+            sum += frequency;
         return sum;
     }
 

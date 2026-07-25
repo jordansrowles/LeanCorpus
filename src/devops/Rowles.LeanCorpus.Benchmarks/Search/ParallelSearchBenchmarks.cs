@@ -127,7 +127,8 @@ public class ParallelSearchBenchmarks
             new Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig
             {
                 MaxBufferedDocs = docsPerSegment,
-                RamBufferSizeMB = 256
+                RamBufferSizeMB = 256,
+                MergePolicy = Rowles.LeanCorpus.Index.Indexer.NoMergePolicy.Instance,
             });
         for (int i = 0; i < documents.Length; i++)
         {
@@ -155,9 +156,14 @@ public class ParallelSearchBenchmarks
         // Build a comparable Lucene.NET index with multiple segments.
         s_luceneDirectory = new LuceneRAMDirectory();
         var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+        var luceneConfig = new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser)
+        {
+            MaxBufferedDocs = docsPerSegment,
+            MergePolicy = Lucene.Net.Index.NoMergePolicy.NO_COMPOUND_FILES,
+        };
         using var lw = new Lucene.Net.Index.IndexWriter(
             s_luceneDirectory,
-            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
+            luceneConfig);
         for (int i = 0; i < documents.Length; i++)
         {
             var doc = new LuceneDocument();

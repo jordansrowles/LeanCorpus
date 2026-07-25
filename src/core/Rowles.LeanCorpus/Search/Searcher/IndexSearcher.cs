@@ -32,6 +32,7 @@ public sealed partial class IndexSearcher : IDisposable
     private static readonly Dictionary<(string Field, string Term), int> EmptyGlobalDFs = new();
     private const string CombinedFieldsDocFreqKey = "\u0001combined-fields";
     private readonly QueryCache? _queryCache;
+    private readonly ConcurrentDictionary<string, long> _collectionFrequencyCache = new(StringComparer.Ordinal);
     private ConcurrentDictionary<MltCacheKey, (string Field, string Term, float Score)[]>? _mltCache;
     private int _mltCacheCount;
     private const int MltCacheSoftCap = 64;
@@ -72,6 +73,10 @@ public sealed partial class IndexSearcher : IDisposable
 
     /// <summary>Computes the collection frequency for a term across all segments.</summary>
     private long GetGlobalCollectionFreq(string qualifiedTerm)
+        => _collectionFrequencyCache.GetOrAdd(qualifiedTerm, static (term, searcher) =>
+            searcher.ComputeGlobalCollectionFrequency(term), this);
+
+    private long ComputeGlobalCollectionFrequency(string qualifiedTerm)
     {
         long total = 0;
         foreach (var reader in _readers)
@@ -890,6 +895,7 @@ public sealed partial class IndexSearcher : IDisposable
         for (int r = 0; r < _readers.Count; r++)
         {
             var reader = _readers[r];
+            using var queryLease = reader.AcquireQueryLease();
             int docBase = _docBases[r];
             var pbs = reader.GetParentBitSet();
             if (pbs is null) continue;
@@ -904,10 +910,10 @@ public sealed partial class IndexSearcher : IDisposable
                 // Fast path: stream PostingsEnum directly
                 var qt = string.Concat(tq.Field, "\x00", tq.Term);
                 using var pe = reader.GetPostingsEnum(qt);
-                while (pe.MoveNext())
+                while (pe.MoveNextUnchecked(out int childDocId, out _))
                 {
-                    if (pbs.IsParent(pe.DocId)) continue;
-                    int parentLocal = pbs.NextParent(pe.DocId + 1);
+                    if (pbs.IsParent(childDocId)) continue;
+                    int parentLocal = pbs.NextParent(childDocId + 1);
                     if (parentLocal >= 0 && parentLocal != lastParent)
                     {
                         lastParent = parentLocal;
@@ -949,8 +955,8 @@ public sealed partial class IndexSearcher : IDisposable
                 {
                     var qt = string.Concat(tq.Field, "\x00", tq.Term);
                     using var pe = reader.GetPostingsEnum(qt);
-                    while (pe.MoveNext())
-                        bits[pe.DocId] = true;
+                    while (pe.MoveNextUnchecked(out int docId, out _))
+                        bits[docId] = true;
                     break;
                 }
             case BooleanQuery bq:
@@ -1108,7 +1114,6 @@ public sealed partial class IndexSearcher : IDisposable
         }
 
         // Phase 2: score using already-decoded postings
-        // Phase 2: score using already-decoded postings
         float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         var (f1, f2, f3) = ComputeTermFactors(globalDF, avgDocLength, globalCollectionFreq, query.Field);
         float boost = query.Boost;
@@ -1132,12 +1137,10 @@ public sealed partial class IndexSearcher : IDisposable
                 reader.TryGetFieldLengths(query.Field, out var fieldLengths);
                 reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
 
-                while (postings.MoveNext())
+                while (postings.MoveNextUnchecked(out int docId, out int tf))
                 {
-                    int docId = postings.DocId;
                     if (hasDeletions && !reader.IsLive(docId)) continue;
 
-                    int tf = postings.Freq;
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                         ? fieldLengths[docId] : 1;
                     float score = ScoreTerm(f1, f2, f3, tf, docLength);
@@ -1214,12 +1217,10 @@ public sealed partial class IndexSearcher : IDisposable
                     fsq.NumericField, out var numericValues, out var numericPresence);
 
                 // Single pass: BM25, field boost, function score, then top-N collect.
-                while (postings.MoveNext())
+                while (postings.MoveNextUnchecked(out int docId, out int tf))
                 {
-                    int docId = postings.DocId;
                     if (hasDeletions && !reader.IsLive(docId)) continue;
 
-                    int tf = postings.Freq;
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                         ? fieldLengths[docId] : 1;
                     float score = ScoreTerm(f1, f2, f3, tf, docLength);

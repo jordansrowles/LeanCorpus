@@ -194,14 +194,13 @@ public sealed partial class IndexSearcher
         bool hasDeletions = reader.HasDeletions;
         bool hasQueryBoost = boost != 1.0f;
 
-        while (postings.MoveNext())
+        while (postings.MoveNextUnchecked(out int docId, out int termFrequency))
         {
-            int docId = postings.DocId;
             if (hasDeletions && !reader.IsLive(docId)) continue;
 
             int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                 ? fieldLengths[docId] : 1;
-            float score = ScoreTerm(f1, f2, f3, postings.Freq, docLength);
+            float score = ScoreTerm(f1, f2, f3, termFrequency, docLength);
             if (hasQueryBoost) score *= boost;
             score = ApplyFieldBoost(fieldBoosts, docId, score);
             collector.Collect(docBase + docId, score);
