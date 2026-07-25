@@ -158,7 +158,11 @@ public sealed class MergeEquivalenceTests : IClassFixture<TestDirectoryFixture>
         var mmap = new MMapDirectory(dir);
 
         // Write 6 single-doc segments and delete half.
-        using (var writer = new IndexWriter(mmap, new IndexWriterConfig { MaxBufferedDocs = 1, MergeThreshold = int.MaxValue }))
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 1,
+            MergePolicy = NoMergePolicy.Instance,
+        }))
         {
             for (int i = 0; i < 6; i++)
             {

@@ -126,6 +126,41 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(origResults, loadedResults);
     }
 
+    [Fact(DisplayName = "Remap: Empty Top Levels Are Removed Before Rewrite")]
+    public void Remap_RemovesEmptyTopLevelsBeforeRewrite()
+    {
+        var sourcePath = Path.Combine(_fixture.Path, "hnsw_remap_source.hnsw");
+        WriteSyntheticHnswFile(sourcePath, nodeCount: 2, maxLevel: 1, levelCount: 2, writeLevelData: bw =>
+        {
+            bw.Write(1); // level 1
+            bw.Write(1); // docId
+            bw.Write(0); // neighbours
+
+            bw.Write(2); // level 0
+            bw.Write(0); // docId
+            bw.Write(0); // neighbours
+            bw.Write(1); // docId
+            bw.Write(0); // neighbours
+        });
+
+        var source = new TrivialVectorSource { Dimension = 16 };
+        var remapped = HnswReader.Read(
+            sourcePath, source, expectedNormalised: false,
+            docIdRemap: new Dictionary<int, int> { [0] = 0 });
+
+        Assert.Equal(0, remapped.MaxLevel);
+        Assert.Equal(1, remapped.LevelCount);
+        Assert.Equal(1, remapped.NodeCount);
+
+        var rewrittenPath = Path.Combine(_fixture.Path, "hnsw_remap_rewritten.hnsw");
+        HnswWriter.Write(rewrittenPath, remapped, source.Dimension, normalised: false);
+
+        var rewritten = HnswReader.Read(rewrittenPath, source);
+        Assert.Equal(0, rewritten.MaxLevel);
+        Assert.Equal(1, rewritten.LevelCount);
+        Assert.Equal(1, rewritten.NodeCount);
+    }
+
     /// <summary>
     /// Writes a synthetic HNSW file with controlled header values.
     /// Body format: dimension(4) normalised(1) m(4) m0(4) efConstruction(4) seed(8)

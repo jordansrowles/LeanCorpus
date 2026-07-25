@@ -116,10 +116,12 @@ internal static class HnswReader
         if (docIdRemap is not null)
         {
             entryPoint = docIdRemap.TryGetValue(entryPoint, out int newEntry) ? newEntry : -1;
-            nodeCount = 0;
-            foreach (var lvl in levels) nodeCount += lvl.Count;
-            // Fix maxLevel if higher levels became empty after remap.
+            // Remove top levels emptied by remapping so a later rewrite preserves
+            // the levelCount == maxLevel + 1 invariant.
             while (maxLevel >= 0 && levels[maxLevel].Count == 0) maxLevel--;
+            if (levels.Count > maxLevel + 1)
+                levels.RemoveRange(maxLevel + 1, levels.Count - maxLevel - 1);
+            nodeCount = levels.Count > 0 ? levels[0].Count : 0;
             // If the original entry point was dropped, pick any surviving top-level node.
             if (entryPoint == -1 && maxLevel >= 0)
             {
