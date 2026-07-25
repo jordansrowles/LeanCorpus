@@ -788,10 +788,17 @@ if ($Command -eq 'data') {
 # ═════════════════════════════════════════════════════════════════════════════
 
 if ($Command -eq 'docs') {
-    $subCmd = if ($RemainingArgs.Count -gt 0 -and $RemainingArgs[0] -notlike '-*') { $RemainingArgs[0] } else { 'build' }
-    $remainingAfterSubCmd = if ($RemainingArgs.Count -gt 1) { $RemainingArgs[1..($RemainingArgs.Count - 1)] } else { @() }
-    $SkipBenchmarks = $remainingAfterSubCmd -contains '-SkipBenchmarks'
-    $SkipCoverage = $remainingAfterSubCmd -contains '-SkipCoverage'
+    $hasExplicitSubCommand = $RemainingArgs.Count -gt 0 -and $RemainingArgs[0] -notlike '-*'
+    $subCmd = if ($hasExplicitSubCommand) { $RemainingArgs[0] } else { 'build' }
+    $docsArgs = if ($hasExplicitSubCommand -and $RemainingArgs.Count -gt 1) {
+        $RemainingArgs[1..($RemainingArgs.Count - 1)]
+    } elseif ($hasExplicitSubCommand) {
+        @()
+    } else {
+        $RemainingArgs
+    }
+    $SkipBenchmarks = $docsArgs -contains '-SkipBenchmarks'
+    $SkipCoverage = $docsArgs -contains '-SkipCoverage'
 
     $docsDir  = Join-Path $RepoRoot 'docs'
     $docfxJson = Join-Path $docsDir 'docfx.json'
@@ -882,4 +889,3 @@ if ($Command -eq 'benchmarks') {
 # ── Unknown command ──
 Write-Error "Unknown command '$Command'. Run 'devops --help' for usage."
 exit 1
-
