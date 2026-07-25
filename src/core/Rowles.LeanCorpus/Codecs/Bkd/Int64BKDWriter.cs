@@ -31,7 +31,7 @@ internal static class Int64BKDWriter
             WriteNode(bodyBuf, points, 0, points.Count, maxLeafSize);
         }
 
-        using var output = new IndexOutput(filePath, durable: true);
+        using var output = new IndexOutput(filePath);
         CodecFileHeader.Write(output, CodecFormats.Int64Bkd, bodyBuf.WrittenSpan);
     }
 

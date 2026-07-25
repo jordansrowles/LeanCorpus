@@ -1,4 +1,5 @@
-﻿using Rowles.LeanCorpus.Util;
+﻿using Rowles.LeanCorpus.Codecs.Hnsw;
+using Rowles.LeanCorpus.Util;
 
 namespace Rowles.LeanCorpus.Search;
 
@@ -30,4 +31,13 @@ public sealed class HnswSearchOptions
     /// <see cref="TopK"/> survivors. Default is three.
     /// </summary>
     public int MaxPostFilterRetries { get; init; } = 3;
+
+    internal HnswTraversalOptions ToTraversalOptions() => new()
+    {
+        Ef = Ef,
+        AllowList = AllowList,
+        PostFilterMask = PostFilterMask,
+        TopK = TopK,
+        MaxPostFilterRetries = MaxPostFilterRetries,
+    };
 }

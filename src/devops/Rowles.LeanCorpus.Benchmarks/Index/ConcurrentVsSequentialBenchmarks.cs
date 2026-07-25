@@ -29,7 +29,8 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
 [KeepBenchmarkFiles]
-[SimpleJob(warmupCount: 2, iterationCount: 5)]
+[WarmupCount(2)]
+[IterationCount(5)]
 public class ConcurrentVsSequentialBenchmarks
 {
     /// <summary>

@@ -2,17 +2,15 @@ using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 
-using System.IO.MemoryMappedFiles;
 namespace Rowles.LeanCorpus.Codecs.Vectors;
 
 /// <summary>
 /// Reads dense float vectors written by <see cref="VectorWriter"/>.
-/// Uses memory-mapped I/O for zero-copy vector access.
+/// Retains a Store-owned input for zero-copy vector access.
 /// </summary>
 internal sealed class VectorReader : IDisposable
 {
-    private readonly MemoryMappedFile _mmf;
-    private readonly MemoryMappedViewAccessor _accessor;
+    private readonly IndexInput _input;
     private readonly int _vectorCount;
     private readonly int _dimension;
     private readonly long _dataStart;
@@ -22,12 +20,11 @@ internal sealed class VectorReader : IDisposable
     private bool _disposed;
 
     private VectorReader(
-        MemoryMappedFile mmf, MemoryMappedViewAccessor accessor,
+        IndexInput input,
         int vectorCount, int dimension, long dataStart,
         bool int8 = false, float int8Min = 0f, float int8Alpha = 0f)
     {
-        _mmf = mmf;
-        _accessor = accessor;
+        _input = input;
         _vectorCount = vectorCount;
         _dimension = dimension;
         _dataStart = dataStart;
@@ -38,34 +35,46 @@ internal sealed class VectorReader : IDisposable
 
     public static VectorReader Open(string filePath)
     {
-        using var input = new IndexInput(filePath);
-        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.Vectors);
+        var input = new IndexInput(filePath);
+        return Open(input);
+    }
 
-        if (version > CodecConstants.VectorVersion)
-            throw new InvalidDataException(
-                $"Unsupported vector format version {version}. " +
-                $"This build supports up to version {CodecConstants.VectorVersion}. " +
-                "Please upgrade LeanCorpus.");
-
-        int vectorCount = input.ReadInt32();
-        int dimension = input.ReadInt32();
-
-        byte format = input.ReadByte();
-
-        float int8Min = 0f, int8Alpha = 0f;
-        bool isInt8 = format == (byte)VectorQuantisation.Int8;
-        if (isInt8)
+    /// <summary>Opens a vector reader over a caller-provided Store input and assumes ownership.</summary>
+    internal static VectorReader Open(IndexInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        try
         {
-            int8Min = input.ReadSingle();
-            int8Alpha = input.ReadSingle();
+            byte version = CodecFileHeader.ReadVersion(input, CodecFormats.Vectors);
+
+            if (version > CodecConstants.VectorVersion)
+                throw new InvalidDataException(
+                    $"Unsupported vector format version {version}. " +
+                    $"This build supports up to version {CodecConstants.VectorVersion}. " +
+                    "Please upgrade LeanCorpus.");
+
+            int vectorCount = input.ReadInt32();
+            int dimension = input.ReadInt32();
+
+            byte format = input.ReadByte();
+
+            float int8Min = 0f, int8Alpha = 0f;
+            bool isInt8 = format == (byte)VectorQuantisation.Int8;
+            if (isInt8)
+            {
+                int8Min = input.ReadSingle();
+                int8Alpha = input.ReadSingle();
+            }
+
+            long dataStart = input.Position;
+
+            return new VectorReader(input, vectorCount, dimension, dataStart, isInt8, int8Min, int8Alpha);
         }
-
-        long dataStart = input.Position;
-
-        var mmf = MemoryMappedFile.CreateFromFile(filePath, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
-        var accessor = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
-
-        return new VectorReader(mmf, accessor, vectorCount, dimension, dataStart, isInt8, int8Min, int8Alpha);
+        catch
+        {
+            input.Dispose();
+            throw;
+        }
     }
 
     public float[] ReadVector(int docId)
@@ -73,14 +82,15 @@ internal sealed class VectorReader : IDisposable
         var vector = new float[_dimension];
         if (_int8)
         {
-            long offset = _dataStart + (long)docId * _dimension;
+            long position = _dataStart + (long)docId * _dimension;
+            var packed = _input.ReadSpan(_dimension, ref position);
             for (int j = 0; j < _dimension; j++)
-                vector[j] = _int8Min + _int8Alpha * _accessor.ReadByte(offset + j);
+                vector[j] = _int8Min + _int8Alpha * packed[j];
         }
         else
         {
-            long offset = _dataStart + (long)docId * _dimension * sizeof(float);
-            _accessor.ReadArray(offset, vector, 0, _dimension);
+            long position = _dataStart + (long)docId * _dimension * sizeof(float);
+            _input.ReadSingleArray(vector, _dimension, ref position);
         }
         return vector;
     }
@@ -92,7 +102,6 @@ internal sealed class VectorReader : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _accessor.Dispose();
-        _mmf.Dispose();
+        _input.Dispose();
     }
 }

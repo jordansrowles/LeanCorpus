@@ -13,6 +13,12 @@ public sealed class IndexWriterConfig
     /// <summary>RAM buffer size in megabytes before an automatic flush.</summary>
     public double RamBufferSizeMB { get; set; } = 512.0;
 
+    /// <summary>Hard memory limit for one DWPT before it must be flushed.</summary>
+    public double RamPerThreadHardLimitMB { get; set; } = 256.0;
+
+    /// <summary>Maximum number of segment flushes allowed to execute concurrently.</summary>
+    public int MaxConcurrentFlushes { get; set; } = 1;
+
     /// <summary>Maximum number of buffered documents before an automatic flush.</summary>
     public int MaxBufferedDocs { get; set; } = 10_000;
 
@@ -22,6 +28,9 @@ public sealed class IndexWriterConfig
     /// Default: 2 × MaxBufferedDocs.
     /// </summary>
     public int MaxQueuedDocs { get; set; } = 20_000;
+
+    /// <summary>Maximum estimated bytes retained by queued asynchronous documents.</summary>
+    public long MaxQueuedBytes { get; set; } = 512L * 1024 * 1024;
 
     /// <summary>Default analyser used for fields without a specific mapping.</summary>
     public IAnalyser DefaultAnalyser { get; set; } = new StandardAnalyser();
@@ -79,14 +88,35 @@ public sealed class IndexWriterConfig
     /// at a given size tier reaches this value, the smallest are merged. Default: 10.
     /// When <see cref="MergePolicy"/> is set to a non-default value, this property is ignored.
     /// </summary>
-    public int MergeThreshold { get; set; } = 10;
+    public int MergeThreshold
+    {
+        get => _mergeThreshold;
+        set
+        {
+            _mergeThreshold = value;
+            if (!_mergePolicyExplicitlySet)
+                _mergePolicy = new TieredMergePolicy(value);
+        }
+    }
 
     /// <summary>
     /// The merge policy used to select segments for merging. Defaults to
     /// <see cref="TieredMergePolicy"/> with the configured <see cref="MergeThreshold"/>.
     /// Set to <see cref="NoMergePolicy.Instance"/> to disable automatic merging.
     /// </summary>
-    public IMergePolicy MergePolicy { get; set; } = new TieredMergePolicy(10);
+    public IMergePolicy MergePolicy
+    {
+        get => _mergePolicy;
+        set
+        {
+            _mergePolicy = value ?? throw new ArgumentNullException(nameof(value));
+            _mergePolicyExplicitlySet = true;
+        }
+    }
+
+    private int _mergeThreshold = 10;
+    private IMergePolicy _mergePolicy = new TieredMergePolicy(10);
+    private bool _mergePolicyExplicitlySet;
 
     /// <summary>
     /// Maximum number of point values in a BKD tree leaf node. Smaller leaves give faster
@@ -151,6 +181,12 @@ public sealed class IndexWriterConfig
     /// </summary>
     public int MergeThrottleSegments { get; set; }
 
+    /// <summary>Maximum number of background merges allowed to run concurrently.</summary>
+    public int MaxConcurrentMerges { get; set; } = 1;
+
+    /// <summary>Pending merge bytes that trigger producer backpressure. Zero disables the byte limit.</summary>
+    public long MaxPendingMergeBytes { get; set; } = 4L * 1024 * 1024 * 1024;
+
     /// <summary>
     /// Whether vector fields should be normalised (L2) at index time. When true, dot product
     /// equals cosine similarity, enabling cheaper search. Default: <c>true</c>.
@@ -213,6 +249,12 @@ public sealed class IndexWriterConfig
         if (RamBufferSizeMB < 0)
             throw new ArgumentException("RamBufferSizeMB must not be negative.", nameof(RamBufferSizeMB));
 
+        if (RamPerThreadHardLimitMB <= 0)
+            throw new ArgumentException("RamPerThreadHardLimitMB must be positive.", nameof(RamPerThreadHardLimitMB));
+
+        if (MaxConcurrentFlushes < 1)
+            throw new ArgumentException("MaxConcurrentFlushes must be at least 1.", nameof(MaxConcurrentFlushes));
+
         if (MaxBufferedDocs < 0)
             throw new ArgumentException("MaxBufferedDocs must not be negative.", nameof(MaxBufferedDocs));
 
@@ -222,6 +264,9 @@ public sealed class IndexWriterConfig
 
         if (MaxQueuedDocs < 0)
             throw new ArgumentException("MaxQueuedDocs must not be negative.", nameof(MaxQueuedDocs));
+
+        if (MaxQueuedBytes < 0)
+            throw new ArgumentException("MaxQueuedBytes must not be negative.", nameof(MaxQueuedBytes));
 
         if (StoredFieldBlockSize < 1)
             throw new ArgumentException("StoredFieldBlockSize must be at least 1.", nameof(StoredFieldBlockSize));
@@ -240,6 +285,12 @@ public sealed class IndexWriterConfig
 
         if (MergeThrottleSegments < 0)
             throw new ArgumentException("MergeThrottleSegments must not be negative.", nameof(MergeThrottleSegments));
+
+        if (MaxConcurrentMerges < 1)
+            throw new ArgumentException("MaxConcurrentMerges must be at least 1.", nameof(MaxConcurrentMerges));
+
+        if (MaxPendingMergeBytes < 0)
+            throw new ArgumentException("MaxPendingMergeBytes must not be negative.", nameof(MaxPendingMergeBytes));
 
         if (MergeThreshold < 2)
             throw new ArgumentException("MergeThreshold must be at least 2.", nameof(MergeThreshold));

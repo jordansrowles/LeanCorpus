@@ -1,22 +1,30 @@
 namespace Rowles.LeanCorpus.Index.Indexer;
 
-/// <summary>
-/// Tiered merge policy: groups segments by size tier (powers of 2) and merges
-/// the smallest segments when a tier reaches the configured threshold.
-/// </summary>
+/// <summary>Selects balanced merges using physical bytes and reclaimable deletions.</summary>
 public sealed class TieredMergePolicy : IMergePolicy
 {
-    private readonly int _mergeThreshold;
+    /// <summary>Segments smaller than this value are treated as this size for tier budgeting.</summary>
+    public double FloorSegmentMB { get; init; } = 2;
 
-    /// <summary>
-    /// Initialises a tiered merge policy with the given threshold.
-    /// </summary>
-    /// <param name="mergeThreshold">
-    /// Number of segments at one size tier before a merge is triggered. Default 10.
-    /// </param>
+    /// <summary>Target number of segments allowed per logarithmic size tier.</summary>
+    public int SegmentsPerTier { get; init; }
+
+    /// <summary>Maximum number of source segments in one merge.</summary>
+    public int MaxMergeAtOnce { get; init; }
+
+    /// <summary>Maximum normal merged-segment size.</summary>
+    public double MaxMergedSegmentMB { get; init; } = 5 * 1024;
+
+    /// <summary>Deletion percentage that makes a segment eligible for reclamation.</summary>
+    public double DeletesPctAllowed { get; init; } = 20;
+
+    /// <summary>Initialises a byte-aware tiered policy.</summary>
     public TieredMergePolicy(int mergeThreshold = 10)
     {
-        _mergeThreshold = mergeThreshold;
+        if (mergeThreshold < 2)
+            throw new ArgumentOutOfRangeException(nameof(mergeThreshold));
+        SegmentsPerTier = mergeThreshold;
+        MaxMergeAtOnce = mergeThreshold;
     }
 
     /// <inheritdoc/>
@@ -24,64 +32,68 @@ public sealed class TieredMergePolicy : IMergePolicy
         IReadOnlyList<SegmentInfo> segments,
         IReadOnlySet<string> protectedSegmentIds)
     {
-        if (segments.Count < _mergeThreshold)
-            return Array.Empty<SegmentInfo>();
-
-        // Group segments by size tier without LINQ allocations.
-        var tierBuckets = new Dictionary<int, List<SegmentInfo>>();
-        foreach (var s in segments)
+        var candidates = new List<SegmentInfo>(segments.Count);
+        foreach (var segment in segments)
         {
-            int tier = GetSizeTier(s.DocCount);
-            if (!tierBuckets.TryGetValue(tier, out var bucket))
-            {
-                bucket = new List<SegmentInfo>();
-                tierBuckets[tier] = bucket;
-            }
-            bucket.Add(s);
+            if (!protectedSegmentIds.Contains(segment.SegmentId))
+                candidates.Add(segment);
         }
 
-        // Collect tiers that meet the merge threshold.
-        var eligibleTiers = new List<int>();
-        foreach (var (tier, candidates) in tierBuckets)
-        {
-            int mergeableCount = 0;
-            foreach (var segment in candidates)
-            {
-                if (!protectedSegmentIds.Contains(segment.SegmentId))
-                    mergeableCount++;
-            }
-            if (mergeableCount >= _mergeThreshold)
-                eligibleTiers.Add(tier);
-        }
-
-        if (eligibleTiers.Count == 0)
+        bool hasDeletionCandidate = candidates.Any(segment => segment.DeletionDensity * 100 >= DeletesPctAllowed);
+        if (candidates.Count < SegmentsPerTier && !hasDeletionCandidate)
             return Array.Empty<SegmentInfo>();
 
-        // Collect all mergeable segments from all eligible tiers, sorted by doc count.
-        var allMergeable = new List<SegmentInfo>();
-        foreach (var tierKey in eligibleTiers)
+        candidates.Sort(static (left, right) => EffectiveBytes(left).CompareTo(EffectiveBytes(right)));
+        int width = Math.Min(MaxMergeAtOnce, candidates.Count);
+        if (width < 2)
+            return Array.Empty<SegmentInfo>();
+
+        double floorBytes = FloorSegmentMB * 1024 * 1024;
+        double maxMergedBytes = MaxMergedSegmentMB * 1024 * 1024;
+        SegmentInfo[]? best = null;
+        double bestScore = double.MaxValue;
+
+        for (int start = 0; start + width <= candidates.Count; start++)
         {
-            foreach (var segment in tierBuckets[tierKey])
+            int count = width;
+            double total = 0;
+            double smallest = double.MaxValue;
+            double largest = 0;
+            long reclaimed = 0;
+            var selection = new SegmentInfo[count];
+
+            for (int i = 0; i < count; i++)
             {
-                if (!protectedSegmentIds.Contains(segment.SegmentId))
-                    allMergeable.Add(segment);
+                var segment = candidates[start + i];
+                selection[i] = segment;
+                double effective = Math.Max(floorBytes, EffectiveBytes(segment));
+                total += effective;
+                smallest = Math.Min(smallest, effective);
+                largest = Math.Max(largest, effective);
+                reclaimed += Math.Max(0, segment.TotalBytes - EffectiveBytes(segment));
+            }
+
+            if (total > maxMergedBytes)
+                continue;
+
+            double skew = largest / Math.Max(1, smallest);
+            double reclaimRatio = reclaimed / Math.Max(1, total);
+            double score = skew + total / Math.Max(1, maxMergedBytes) - reclaimRatio;
+            if (score < bestScore)
+            {
+                bestScore = score;
+                best = selection;
             }
         }
 
-        if (allMergeable.Count < 2)
-            return Array.Empty<SegmentInfo>();
-
-        allMergeable.Sort(static (a, b) => a.DocCount.CompareTo(b.DocCount));
-        int takeCount = Math.Min(allMergeable.Count, _mergeThreshold);
-        var result = new SegmentInfo[takeCount];
-        for (int i = 0; i < takeCount; i++)
-            result[i] = allMergeable[i];
-        return result;
+        return best ?? Array.Empty<SegmentInfo>();
     }
 
-    private static int GetSizeTier(int docCount)
+    private static long EffectiveBytes(SegmentInfo segment)
     {
-        if (docCount <= 0) return 0;
-        return (int)Math.Log10(Math.Max(1, docCount));
+        long bytes = segment.TotalBytes > 0 ? segment.TotalBytes : (long)segment.DocCount * 256;
+        if (segment.DocCount == 0)
+            return bytes;
+        return Math.Max(1, bytes * segment.LiveDocCount / segment.DocCount);
     }
 }

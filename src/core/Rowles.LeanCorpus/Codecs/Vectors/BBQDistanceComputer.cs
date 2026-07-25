@@ -88,7 +88,7 @@ internal static class BBQDistanceComputer
     public static float Distance(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
     {
         // Both are dequantised float arrays; use standard dot product.
-        return -Search.Simd.SimdVectorOps.DotProduct(a, b);
+        return -Util.VectorMath.DotProduct(a, b);
     }
 
     /// <summary>

@@ -56,7 +56,12 @@ public sealed partial class IndexSearcher
 
         // We still need every match to pick the top-N by sort key, but topN itself
         // bounds how many we return. _totalDocCount is the upper bound on matches.
-        var allDocs = Search(query, _totalDocCount);
+        // A field sort does not need relevance scores. Keep the term-query path
+        // aligned with Lucene's sorted search by scanning matching postings with
+        // a constant score instead of calculating BM25 for every document.
+        var allDocs = query is TermQuery termQuery && sort.Type == SortFieldType.Numeric
+            ? SearchTermQueryUnscored(termQuery)
+            : Search(query, _totalDocCount);
         if (allDocs.TotalHits == 0) return TopDocs.Empty;
 
         bool partial = options.CancellationToken.IsCancellationRequested
@@ -78,6 +83,45 @@ public sealed partial class IndexSearcher
         return partial
             ? new TopDocs(allDocs.TotalHits, sorted, isPartial: true)
             : new TopDocs(allDocs.TotalHits, sorted);
+    }
+
+    private TopDocs SearchTermQueryUnscored(TermQuery query)
+    {
+        var qt = query.CachedQualifiedTerm ??= string.Concat(query.Field, "\x00", query.Term);
+        int readerCount = _readers.Count;
+        if (t_postingsBuffer is null || t_postingsBuffer.Length < readerCount)
+            t_postingsBuffer = new PostingsEnum[readerCount];
+
+        var postingsArr = t_postingsBuffer;
+        var collector = new TopNCollector(_totalDocCount);
+        try
+        {
+            for (int i = 0; i < readerCount; i++)
+            {
+                postingsArr[i] = _readers[i].GetPostingsEnum(qt);
+                if (postingsArr[i].IsExhausted)
+                    continue;
+
+                var reader = _readers[i];
+                using var queryLease = reader.AcquireQueryLease();
+                int docBase = reader.DocBase;
+                bool hasDeletions = reader.HasDeletions;
+                while (postingsArr[i].MoveNext())
+                {
+                    int docId = postingsArr[i].DocId;
+                    if (hasDeletions && !reader.IsLive(docId))
+                        continue;
+                    collector.Collect(docBase + docId, 1.0f);
+                }
+            }
+
+            return collector.ToTopDocs();
+        }
+        finally
+        {
+            for (int i = 0; i < readerCount; i++)
+                postingsArr[i].Dispose();
+        }
     }
 
     private static ScoreDoc[] SelectTopByDocId(ScoreDoc[] docs, int topN, bool descending)

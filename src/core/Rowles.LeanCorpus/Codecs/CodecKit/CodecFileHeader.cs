@@ -123,9 +123,7 @@ public static class CodecFileHeader
                 else
                 {
                     input.Seek(startPos + 1);
-                    body = new byte[bodyLen];
-                    for (long i = 0; i < bodyLen; i++)
-                        body[i] = input.ReadByte();
+                    body = input.ReadBytes((int)bodyLen);
                 }
                 return new ReadResult(body, version);
             }
@@ -136,9 +134,7 @@ public static class CodecFileHeader
         long envBodyLen = ReadVarInt64(input);
         if (envBodyLen < 0 || envBodyLen > int.MaxValue)
             throw new InvalidDataException($"Invalid envelope body length: {envBodyLen}");
-        byte[] envBody = new byte[(int)envBodyLen];
-        for (int i = 0; i < (int)envBodyLen; i++)
-            envBody[i] = input.ReadByte();
+        byte[] envBody = input.ReadBytes((int)envBodyLen);
         return new ReadResult(envBody, version);
     }
 
@@ -173,9 +169,7 @@ public static class CodecFileHeader
                 else
                 {
                     input.Seek(startPos + 1);
-                    body = new byte[bodyLen];
-                    for (long i = 0; i < bodyLen; i++)
-                        body[i] = input.ReadByte();
+                    body = input.ReadBytes((int)bodyLen);
                 }
                 return new ReadResult(body, version);
             }
@@ -184,9 +178,7 @@ public static class CodecFileHeader
         // Envelope fallback: decode through the format chain.
         input.Seek(startPos);
         long remaining = input.Length - input.Position;
-        byte[] raw = new byte[remaining];
-        for (long i = 0; i < remaining; i++)
-            raw[i] = input.ReadByte();
+        byte[] raw = input.ReadBytes((int)remaining);
 
         var seq = new ReadOnlySequence<byte>(raw);
         var reader = new SequenceReader<byte>(seq);

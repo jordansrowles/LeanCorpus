@@ -99,7 +99,7 @@ public sealed class IndexStats
         // destination ended up with content.
         var tmp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         using (var fs = FileOpenRetry.Open(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
-        using (var sw = new StreamWriter(fs, Encoding.UTF8))
+        using (var sw = FileOpenRetry.OpenTextWriter(fs, Encoding.UTF8))
             sw.Write(json);
         try
         {
@@ -146,7 +146,7 @@ public sealed class IndexStats
     /// </summary>
     public static IndexStats? TryLoadFrom(string path)
     {
-        if (!File.Exists(path)) return null;
+        if (!FileOpenRetry.FileExists(path)) return null;
         try
         {
             var json = FileOpenRetry.ReadAllText(path);

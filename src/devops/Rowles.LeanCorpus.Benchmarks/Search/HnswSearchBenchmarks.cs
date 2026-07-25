@@ -40,7 +40,8 @@ namespace Rowles.LeanCorpus.Benchmarks;
 /// </summary>
 [MemoryDiagnoser]
 [MarkdownExporterAttribute.GitHub]
-[SimpleJob(warmupCount: 2, iterationCount: 5)]
+[WarmupCount(2)]
+[IterationCount(5)]
 public class HnswSearchBenchmarks
 {
     [Params(1_000, 10_000)]

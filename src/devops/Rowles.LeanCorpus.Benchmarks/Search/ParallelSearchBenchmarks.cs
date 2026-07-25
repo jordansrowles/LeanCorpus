@@ -17,9 +17,8 @@ using LuceneTextField = Lucene.Net.Documents.TextField;
 using LuceneIndexSearcher = Lucene.Net.Search.IndexSearcher;
 using LuceneDirectoryReader = Lucene.Net.Index.DirectoryReader;
 using LuceneRAMDirectory = Lucene.Net.Store.RAMDirectory;
-using LuceneTermQuery = Lucene.Net.Search.TermQuery;
 using LuceneTerm = Lucene.Net.Index.Term;
-using TermQuery = Rowles.LeanCorpus.Search.Queries.TermQuery;
+using LucenePhraseQuery = Lucene.Net.Search.PhraseQuery;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
@@ -32,7 +31,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob]
 public class ParallelSearchBenchmarks
 {
     private const int TopN = 25;
@@ -84,32 +82,27 @@ public class ParallelSearchBenchmarks
         // Static resources persist for class lifetime.
     }
 
-    [Benchmark(Baseline = true)]
+    [Benchmark(Baseline = true, Description = "LeanCorpus phrase sequential")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_SequentialSearch()
-        => s_sequentialSearcher!.Search(new TermQuery("body", "government"), TopN).TotalHits;
+        => s_sequentialSearcher!.Search(
+            new Rowles.LeanCorpus.Search.Queries.PhraseQuery("body", "government", "market"), TopN).TotalHits;
 
-    [Benchmark]
+    [Benchmark(Description = "LeanCorpus phrase parallel")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_ParallelSearch()
-        => s_parallelSearcher!.Search(new TermQuery("body", "government"), TopN).TotalHits;
+        => s_parallelSearcher!.Search(
+            new Rowles.LeanCorpus.Search.Queries.PhraseQuery("body", "government", "market"), TopN).TotalHits;
 
-    [Benchmark]
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_ParallelSearch_BooleanQuery()
-    {
-        var builder = new Rowles.LeanCorpus.Search.Queries.BooleanQuery.Builder();
-        builder.Add(new TermQuery("body", "government"), Rowles.LeanCorpus.Search.Occur.Must);
-        builder.Add(new TermQuery("body", "market"), Rowles.LeanCorpus.Search.Occur.Should);
-        builder.Add(new TermQuery("body", "people"), Rowles.LeanCorpus.Search.Occur.Should);
-        return s_parallelSearcher!.Search(builder.Build(), TopN).TotalHits;
-    }
-
-    [Benchmark(Description = "Lucene.NET sequential search")]
+    [Benchmark(Description = "Lucene.NET phrase sequential")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_SequentialSearch()
-        => s_luceneSearcher!.Search(
-            new LuceneTermQuery(new LuceneTerm("body", "government")), TopN).TotalHits;
+    {
+        var query = new LucenePhraseQuery();
+        query.Add(new LuceneTerm("body", "government"));
+        query.Add(new LuceneTerm("body", "market"));
+        return s_luceneSearcher!.Search(query, TopN).TotalHits;
+    }
 
     /// <summary>Release static Lucene.NET resources.</summary>
     public static void CleanupLuceneResources()
@@ -134,7 +127,8 @@ public class ParallelSearchBenchmarks
             new Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig
             {
                 MaxBufferedDocs = docsPerSegment,
-                RamBufferSizeMB = 256
+                RamBufferSizeMB = 256,
+                MergePolicy = Rowles.LeanCorpus.Index.Indexer.NoMergePolicy.Instance,
             });
         for (int i = 0; i < documents.Length; i++)
         {
@@ -162,9 +156,14 @@ public class ParallelSearchBenchmarks
         // Build a comparable Lucene.NET index with multiple segments.
         s_luceneDirectory = new LuceneRAMDirectory();
         var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+        var luceneConfig = new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser)
+        {
+            MaxBufferedDocs = docsPerSegment,
+            MergePolicy = Lucene.Net.Index.NoMergePolicy.NO_COMPOUND_FILES,
+        };
         using var lw = new Lucene.Net.Index.IndexWriter(
             s_luceneDirectory,
-            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
+            luceneConfig);
         for (int i = 0; i < documents.Length; i++)
         {
             var doc = new LuceneDocument();

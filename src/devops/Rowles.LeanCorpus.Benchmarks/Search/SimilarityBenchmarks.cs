@@ -1,30 +1,21 @@
 using BenchmarkDotNet.Attributes;
-using Lucene.Net.Analysis.Standard;
-using Lucene.Net.Util;
-using IODirectory = System.IO.Directory;
-using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
 using LeanIndexSearcher = Rowles.LeanCorpus.Search.Searcher.IndexSearcher;
 using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;
-using LeanStringField = Rowles.LeanCorpus.Document.Fields.StringField;
-using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
 using LuceneIndexSearcher = Lucene.Net.Search.IndexSearcher;
 using LuceneMMapDirectory = Lucene.Net.Store.MMapDirectory;
-using LuceneStringField = Lucene.Net.Documents.StringField;
-using LuceneTextField = Lucene.Net.Documents.TextField;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
 /// Compares search latency across multiple <see cref="ISimilarity"/> scoring models
 /// (BM25, TF-IDF, language models, and advanced variants) on the same query and index.
-/// Lucene.NET parity is included for Dirichlet and Jelinek-Mercer language models.
+/// Lucene.NET parity is included for BM25, Dirichlet, and Jelinek-Mercer.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob]
 public class SimilarityBenchmarks
 {
     private const int TopN = 25;
@@ -35,7 +26,6 @@ public class SimilarityBenchmarks
     public int DocumentCount { get; set; }
 
     // LeanCorpus state
-    private string _leanIndexPath = string.Empty;
     private LeanMMapDirectory? _leanDirectory;
     private LeanIndexSearcher? _bm25Searcher;
     private LeanIndexSearcher? _tfIdfSearcher;
@@ -49,32 +39,30 @@ public class SimilarityBenchmarks
     private LeanIndexSearcher? _absDiscountingSearcher;
 
     // Lucene.NET state
-    private string _luceneIndexPath = string.Empty;
     private LuceneMMapDirectory? _luceneDirectory;
     private Lucene.Net.Index.DirectoryReader? _luceneReader;
-    private StandardAnalyzer? _luceneAnalyzer;
+    private LuceneIndexSearcher? _luceneBm25Searcher;
+    private LuceneIndexSearcher? _luceneTfIdfSearcher;
     private LuceneIndexSearcher? _luceneDirichletSearcher;
     private LuceneIndexSearcher? _luceneJMSearcher;
 
     [GlobalSetup]
     public void Setup()
     {
-        var documents = BenchmarkData.BuildDocuments(DocumentCount);
+        SharedStandardIndex.EnsureInitialised(DocumentCount);
         try
         {
-            BuildLeanIndex(documents);
-            BuildLuceneIndex(documents);
+            _leanDirectory = SharedStandardIndex.CreateDirectory();
+            CreateLeanSearchers(_leanDirectory);
+            _luceneDirectory = SharedStandardIndex.CreateLuceneDirectory();
+            CreateLuceneSearchers(_luceneDirectory);
         }
         catch
         {
-            // Index build failed (e.g. disk full). Clean up the partial
-            // temp directories so they don't waste space for later suites.
             CleanupSearchers();
-            BenchmarkHelpers.DeleteDirectory(_leanIndexPath);
+            _leanDirectory?.Dispose();
             _luceneReader?.Dispose();
-            _luceneAnalyzer?.Dispose();
             _luceneDirectory?.Dispose();
-            BenchmarkHelpers.DeleteDirectory(_luceneIndexPath);
             throw;
         }
     }
@@ -83,12 +71,10 @@ public class SimilarityBenchmarks
     public void Cleanup()
     {
         CleanupSearchers();
-        BenchmarkHelpers.DeleteDirectory(_leanIndexPath);
+        _leanDirectory?.Dispose();
 
         _luceneReader?.Dispose();
-        _luceneAnalyzer?.Dispose();
         _luceneDirectory?.Dispose();
-        BenchmarkHelpers.DeleteDirectory(_luceneIndexPath);
     }
 
     private void CleanupSearchers()
@@ -109,9 +95,20 @@ public class SimilarityBenchmarks
 
     [Benchmark(Baseline = true)]
     [BenchmarkCategory("similarity")]
+    [BenchmarkCategory("bm25")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_Bm25_TermQuery()
         => _bm25Searcher!.Search(new TermQuery("body", "government"), TopN).TotalHits;
+
+    [Benchmark]
+    [BenchmarkCategory("similarity")]
+    [BenchmarkCategory("bm25")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_Bm25_TermQuery()
+    {
+        var q = new Lucene.Net.Search.TermQuery(new Lucene.Net.Index.Term("body", "government"));
+        return _luceneBm25Searcher!.Search(q, TopN).TotalHits;
+    }
 
     // --- Classic TF-IDF  ---
 
@@ -120,6 +117,15 @@ public class SimilarityBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_TfIdf_TermQuery()
         => _tfIdfSearcher!.Search(new TermQuery("body", "government"), TopN).TotalHits;
+
+    [Benchmark]
+    [BenchmarkCategory("similarity")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_TfIdf_TermQuery()
+    {
+        var q = new Lucene.Net.Search.TermQuery(new Lucene.Net.Index.Term("body", "government"));
+        return _luceneTfIdfSearcher!.Search(q, TopN).TotalHits;
+    }
 
     // --- Language model (with Lucene.NET parity) ---
 
@@ -205,6 +211,7 @@ public class SimilarityBenchmarks
 
     [Benchmark]
     [BenchmarkCategory("similarity")]
+    [BenchmarkCategory("bm25")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_Bm25_BooleanQuery()
     {
@@ -212,6 +219,20 @@ public class SimilarityBenchmarks
         builder.Add(new TermQuery("body", "government"), Rowles.LeanCorpus.Search.Occur.Must);
         builder.Add(new TermQuery("body", "market"), Rowles.LeanCorpus.Search.Occur.Should);
         return _bm25Searcher!.Search(builder.Build(), TopN).TotalHits;
+    }
+
+    [Benchmark]
+    [BenchmarkCategory("similarity")]
+    [BenchmarkCategory("bm25")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_Bm25_BooleanQuery()
+    {
+        var q = new Lucene.Net.Search.BooleanQuery
+        {
+            { new Lucene.Net.Search.TermQuery(new Lucene.Net.Index.Term("body", "government")), Lucene.Net.Search.Occur.MUST },
+            { new Lucene.Net.Search.TermQuery(new Lucene.Net.Index.Term("body", "market")), Lucene.Net.Search.Occur.SHOULD }
+        };
+        return _luceneBm25Searcher!.Search(q, TopN).TotalHits;
     }
 
     [Benchmark]
@@ -251,87 +272,56 @@ public class SimilarityBenchmarks
 
     // --- Index builders ---
 
-    private void BuildLeanIndex(string[] documents)
+    private void CreateLeanSearchers(LeanMMapDirectory directory)
     {
-        _leanIndexPath = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-similarity-{Guid.NewGuid():N}");
-        IODirectory.CreateDirectory(_leanIndexPath);
-        _leanDirectory = new LeanMMapDirectory(_leanIndexPath);
-        using var writer = new IndexWriter(
-            _leanDirectory,
-            new IndexWriterConfig { MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 });
-        for (int i = 0; i < documents.Length; i++)
-        {
-            var doc = new LeanDocument();
-            doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-            doc.Add(new LeanTextField("body", documents[i]));
-            writer.AddDocument(doc);
-        }
-        writer.Commit();
-
         _bm25Searcher = new LeanIndexSearcher(
-            _leanDirectory,
+            directory,
             new IndexSearcherConfig { Similarity = Bm25Similarity.Instance });
 
         _tfIdfSearcher = new LeanIndexSearcher(
-            _leanDirectory,
+            directory,
             new IndexSearcherConfig { Similarity = TfIdfSimilarity.Instance });
 
         _bm25PlusSearcher = new LeanIndexSearcher(
-            _leanDirectory,
+            directory,
             new IndexSearcherConfig { Similarity = Bm25PlusSimilarity.Instance });
 
         _bm25LSearcher = new LeanIndexSearcher(
-            _leanDirectory,
+            directory,
             new IndexSearcherConfig { Similarity = Bm25LSimilarity.Instance });
 
         _tfIdfAugmentedSearcher = new LeanIndexSearcher(
-            _leanDirectory,
+            directory,
             new IndexSearcherConfig { Similarity = TfIdfAugmentedSimilarity.Instance });
 
         _tfIdfPivotedSearcher = new LeanIndexSearcher(
-            _leanDirectory,
+            directory,
             new IndexSearcherConfig { Similarity = TfIdfPivotedSimilarity.Instance });
 
         _tfIdfDoubleNormSearcher = new LeanIndexSearcher(
-            _leanDirectory,
+            directory,
             new IndexSearcherConfig { Similarity = TfIdfDoubleNormSimilarity.Instance });
 
         _dirichletSearcher = new LeanIndexSearcher(
-            _leanDirectory,
+            directory,
             new IndexSearcherConfig { Similarity = DirichletSimilarity.Instance });
 
         _jmSearcher = new LeanIndexSearcher(
-            _leanDirectory,
+            directory,
             new IndexSearcherConfig { Similarity = LMJelinekMercerSimilarity.Instance });
 
         _absDiscountingSearcher = new LeanIndexSearcher(
-            _leanDirectory,
+            directory,
             new IndexSearcherConfig { Similarity = LMAbsoluteDiscountingSimilarity.Instance });
     }
 
-    private void BuildLuceneIndex(string[] documents)
+    private void CreateLuceneSearchers(LuceneMMapDirectory directory)
     {
-        _luceneIndexPath = Path.Combine(BenchmarkHelpers.TempRoot, $"lucenenet-bench-similarity-{Guid.NewGuid():N}");
-        IODirectory.CreateDirectory(_luceneIndexPath);
-
-        _luceneDirectory = new LuceneMMapDirectory(new DirectoryInfo(_luceneIndexPath));
-        _luceneAnalyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
-
-        using var writer = new Lucene.Net.Index.IndexWriter(
-            _luceneDirectory,
-            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, _luceneAnalyzer));
-        for (int i = 0; i < documents.Length; i++)
-        {
-            var doc = new Lucene.Net.Documents.Document
-            {
-                new LuceneStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture), Lucene.Net.Documents.Field.Store.NO),
-                new LuceneTextField("body", documents[i], Lucene.Net.Documents.Field.Store.NO)
-            };
-            writer.AddDocument(doc);
-        }
-        writer.Commit();
-
-        _luceneReader = Lucene.Net.Index.DirectoryReader.Open(_luceneDirectory);
+        _luceneReader = Lucene.Net.Index.DirectoryReader.Open(directory);
+        _luceneBm25Searcher = new LuceneIndexSearcher(_luceneReader)
+            { Similarity = new Lucene.Net.Search.Similarities.BM25Similarity(1.2f, 0.75f) };
+        _luceneTfIdfSearcher = new LuceneIndexSearcher(_luceneReader)
+            { Similarity = new Lucene.Net.Search.Similarities.DefaultSimilarity() };
         _luceneDirichletSearcher = new LuceneIndexSearcher(_luceneReader)
             { Similarity = new Lucene.Net.Search.Similarities.LMDirichletSimilarity(2000f) };
         _luceneJMSearcher = new LuceneIndexSearcher(_luceneReader)

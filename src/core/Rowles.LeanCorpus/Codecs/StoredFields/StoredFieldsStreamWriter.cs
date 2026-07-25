@@ -33,7 +33,7 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
         int blockSize = DefaultBlockSize, FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate)
     {
         _fdtPath = fdtPath;
-        _fdtOutput = new IndexOutput(fdtPath, durable: true);
+        _fdtOutput = new IndexOutput(fdtPath);
         _fdxPath = fdxPath;
         _blockSize = blockSize;
         _compression = compression;
@@ -137,7 +137,7 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
 
         try
         {
-            using var fdxOutput = new IndexOutput(_fdxPath, durable: true);
+            using var fdxOutput = new IndexOutput(_fdxPath);
             StoredFieldsFileHeader.WriteV3FdxHeader(fdxOutput, _blockSize, _docCount, _blockOffsets.Count);
             foreach (var offset in _blockOffsets)
                 fdxOutput.WriteInt64(offset);

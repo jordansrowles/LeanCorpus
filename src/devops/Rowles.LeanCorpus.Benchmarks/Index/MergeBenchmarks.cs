@@ -18,7 +18,8 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob(warmupCount: 2, iterationCount: 5)]
+[WarmupCount(2)]
+[IterationCount(5)]
 public class MergeBenchmarks
 {
     [Params(1_000, 10_000)]

@@ -46,8 +46,8 @@ public sealed class HunspellDictionary
     public static HunspellDictionary FromStream(Stream affixStream, Stream dictionaryStream,
         int maxGeneratedFormsPerEntry = DefaultMaxGeneratedFormsPerEntry)
     {
-        using var affReader = new StreamReader(affixStream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
-        using var dicReader = new StreamReader(dictionaryStream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+        using var affReader = FileOpenRetry.OpenTextReader(affixStream, System.Text.Encoding.UTF8, leaveOpen: true);
+        using var dicReader = FileOpenRetry.OpenTextReader(dictionaryStream, System.Text.Encoding.UTF8, leaveOpen: true);
         return ParseCached(affReader.ReadToEnd(), dicReader.ReadToEnd(), maxGeneratedFormsPerEntry);
     }
 

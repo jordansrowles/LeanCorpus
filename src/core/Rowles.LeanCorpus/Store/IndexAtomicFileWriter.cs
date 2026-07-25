@@ -32,7 +32,7 @@ internal static class IndexAtomicFileWriter
             {
                 write(stream);
                 if (durable)
-                    stream.Flush(flushToDisk: true);
+                    FileOpenRetry.FlushToDisk(stream);
             }
 
             FileOpenRetry.Move(tempPath, path, overwrite: true);

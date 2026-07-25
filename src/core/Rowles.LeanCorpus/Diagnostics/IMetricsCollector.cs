@@ -23,6 +23,21 @@ public interface IMetricsCollector
     /// <summary>Records a commit event.</summary>
     void RecordCommit(TimeSpan elapsed);
 
+    /// <summary>Records physical file synchronisation performed by a durable commit.</summary>
+    void RecordFileSync(TimeSpan elapsed, long bytes, int fileCount) { }
+
+    /// <summary>Records one codec contribution to a segment flush.</summary>
+    void RecordCodecFlush(string codec, TimeSpan elapsed, long bytesWritten) { }
+
+    /// <summary>Records writer-owned active and flushing memory.</summary>
+    void RecordWriterMemory(long activeBytes, long flushingBytes, long deleteBytes) { }
+
+    /// <summary>Records a delete-application phase.</summary>
+    void RecordDeleteApplication(TimeSpan elapsed, int terms, int changedSegments) { }
+
+    /// <summary>Records queued merge work and producer stall time.</summary>
+    void RecordMergeBacklog(long pendingBytes, TimeSpan producerStall) { }
+
     /// <summary>
     /// Records a single HNSW graph traversal. <paramref name="nodesVisited"/> is the number of
     /// distinct nodes visited during the layer-zero search and is the primary recall-vs-cost signal.

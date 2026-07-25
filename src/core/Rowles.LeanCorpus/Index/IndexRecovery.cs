@@ -63,7 +63,7 @@ public static class IndexRecovery
     private static List<(int Generation, string FilePath)> FindCommitFiles(string directoryPath)
     {
         var result = new List<(int, string)>();
-        if (!Directory.Exists(directoryPath))
+        if (!FileOpenRetry.DirectoryExists(directoryPath))
             return result;
 
         foreach (var file in FileOpenRetry.GetFiles(directoryPath, "segments_*"))
@@ -156,8 +156,7 @@ public static class IndexRecovery
             foreach (var ext in RequiredSegmentExtensions)
             {
                 var path = basePath + ext;
-                var info = new FileInfo(path);
-                if (!info.Exists || info.Length == 0)
+                if (!FileOpenRetry.FileExists(path) || FileOpenRetry.GetFileLength(path) == 0)
                     return false;
             }
 
@@ -253,7 +252,7 @@ public static class IndexRecovery
     /// </summary>
     private static void CleanupTempFiles(string directoryPath)
     {
-        if (!Directory.Exists(directoryPath))
+        if (!FileOpenRetry.DirectoryExists(directoryPath))
             return;
 
         foreach (var tmpFile in FileOpenRetry.GetFiles(directoryPath, "*.tmp"))

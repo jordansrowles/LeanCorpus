@@ -15,7 +15,7 @@ internal static class Int64DocValuesReader
         var values = new Dictionary<string, long[]>(StringComparer.Ordinal);
         var presence = new Dictionary<string, RoaringBitmap?>(StringComparer.Ordinal);
 
-        if (!File.Exists(filePath)) return (values, presence);
+        if (!FileOpenRetry.FileExists(filePath)) return (values, presence);
 
         using var input = new IndexInput(filePath);
 

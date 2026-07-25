@@ -152,14 +152,14 @@ public static class IndexFormatInspector
         {
             var path = basePath + extension;
             referencedFiles.Add(path);
-            if (!File.Exists(path))
+            if (!FileOpenRetry.FileExists(path))
                 missingFiles.Add(Path.GetFileName(path));
         }
 
         SegmentInfo? segmentInfo = null;
         var warnings = new List<string>();
         var segPath = basePath + ".seg";
-        if (File.Exists(segPath))
+        if (FileOpenRetry.FileExists(segPath))
         {
             try
             {
@@ -206,11 +206,11 @@ public static class IndexFormatInspector
     private static List<string> FindSegmentFiles(string directoryPath, string segmentId)
     {
         var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in Directory.GetFiles(directoryPath, segmentId + ".*"))
+        foreach (var file in FileOpenRetry.GetFiles(directoryPath, segmentId + ".*"))
             files.Add(file);
-        foreach (var file in Directory.GetFiles(directoryPath, segmentId + "_gen_*.del"))
+        foreach (var file in FileOpenRetry.GetFiles(directoryPath, segmentId + "_gen_*.del"))
             files.Add(file);
-        foreach (var file in Directory.GetFiles(directoryPath, segmentId + "_v_*.*"))
+        foreach (var file in FileOpenRetry.GetFiles(directoryPath, segmentId + "_v_*.*"))
             files.Add(file);
 
         var result = files.ToList();
@@ -224,11 +224,11 @@ public static class IndexFormatInspector
         IndexFormatInspectionOptions options,
         List<IndexCheckIssue> issues)
     {
-        if (!Directory.Exists(directoryPath))
+        if (!FileOpenRetry.DirectoryExists(directoryPath))
             return [];
 
         var orphans = new List<CodecFileInventory>();
-        foreach (var filePath in Directory.GetFiles(directoryPath))
+        foreach (var filePath in FileOpenRetry.GetFiles(directoryPath))
         {
             if (referencedFiles.Contains(filePath))
                 continue;
@@ -264,7 +264,7 @@ public static class IndexFormatInspector
         }
 
         var fileName = Path.GetFileName(filePath);
-        var length = options.IncludeFileSizes ? new FileInfo(filePath).Length : (long?)null;
+        var length = options.IncludeFileSizes ? FileOpenRetry.GetFileLength(filePath) : (long?)null;
         if (!descriptor.HasHeader)
         {
             inventory = new CodecFileInventory

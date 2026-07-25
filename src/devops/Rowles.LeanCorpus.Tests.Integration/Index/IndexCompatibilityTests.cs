@@ -5,6 +5,7 @@ using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Compatibility;
 using Rowles.LeanCorpus.Index.Migration;
 using Rowles.LeanCorpus.Search.Searcher;
+using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
@@ -113,12 +114,14 @@ public sealed class IndexCompatibilityTests : IClassFixture<TestDirectoryFixture
     }
 
     [Fact]
-    public void IndexSearcher_FutureCodec_ThrowsInvalidDataException()
+    public void IndexSearcher_FutureCodec_ThrowsInvalidDataExceptionOnFirstAccess()
     {
         using var directory = CreateIndex("compat_searcher_guard");
         WriteCodecKitVersion(directory, "*.dic", CodecConstants.TermDictionaryVersion + 1);
 
-        Assert.Throws<InvalidDataException>(() => new IndexSearcher(directory));
+        using var searcher = new IndexSearcher(directory);
+        Assert.Throws<InvalidDataException>(() =>
+            searcher.Search(new TermQuery("body", "test"), 10));
     }
 
     [Fact]

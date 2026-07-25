@@ -10,7 +10,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 /// </summary>
 [MemoryDiagnoser]
 [MarkdownExporterAttribute.GitHub]
-[SimpleJob]
 public class NumericAggregatorSimdBenchmarks
 {
     [Params(64, 256, 1024, 4096)]

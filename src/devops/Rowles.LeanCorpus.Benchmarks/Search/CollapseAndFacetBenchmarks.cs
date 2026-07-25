@@ -1,5 +1,7 @@
 using BenchmarkDotNet.Attributes;
 using Lucene.Net.Analysis.Standard;
+using Lucene.Net.Facet;
+using Lucene.Net.Facet.SortedSet;
 using Lucene.Net.Index;
 using Lucene.Net.Search;
 using Lucene.Net.Util;
@@ -11,6 +13,7 @@ using LeanStringField = Rowles.LeanCorpus.Document.Fields.StringField;
 using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
 using LuceneDocument = Lucene.Net.Documents.Document;
 using LuceneStringField = Lucene.Net.Documents.StringField;
+using LuceneSortedDocValuesField = Lucene.Net.Documents.SortedDocValuesField;
 using LuceneTextField = Lucene.Net.Documents.TextField;
 using LuceneIndexSearcher = Lucene.Net.Search.IndexSearcher;
 using LuceneDirectoryReader = Lucene.Net.Index.DirectoryReader;
@@ -30,7 +33,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob]
 public class CollapseAndFacetBenchmarks
 {
     private const int TopN = 25;
@@ -56,6 +58,8 @@ public class CollapseAndFacetBenchmarks
     private LuceneDirectoryReader? _luceneReader;
     private LuceneIndexSearcher? _luceneSearcher;
     private LuceneTermQuery? _luceneQuery;
+    private DefaultSortedSetDocValuesReaderState? _luceneFacetState;
+    private SortedDocValues? _luceneCollapseValues;
 
     [GlobalSetup]
     public void Setup()
@@ -93,8 +97,8 @@ public class CollapseAndFacetBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_SearchWithFacets()
     {
-        var (results, _) = _leanSearcher!.SearchWithFacets(_leanQuery!, TopN, FieldCategory);
-        return results.TotalHits;
+        var (results, facets) = _leanSearcher!.SearchWithFacets(_leanQuery!, TopN, FieldCategory);
+        return results.TotalHits + CountFacetBuckets(facets);
     }
 
     [Benchmark]
@@ -103,7 +107,7 @@ public class CollapseAndFacetBenchmarks
     {
         var collapsed = _leanSearcher!.SearchWithCollapse(_leanQuery!, TopN, _leanCollapse!);
         var (_, facets) = _leanSearcher!.SearchWithFacets(_leanQuery!, TopN, FieldCategory);
-        return collapsed.TotalHits + facets.Count;
+        return collapsed.TotalHits + CountFacetBuckets(facets);
     }
 
     [Benchmark]
@@ -115,17 +119,49 @@ public class CollapseAndFacetBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_SearchWithCollapse()
     {
-        var hits = _luceneSearcher!.Search(_luceneQuery!, _luceneReader!.MaxDoc);
-        var seen = new HashSet<string>();
+        var hits = _luceneSearcher!.Search(_luceneQuery!, Math.Min(_luceneReader!.MaxDoc, TopN * 10));
+        var seen = new HashSet<int>();
         int collapsedCount = 0;
         foreach (var sd in hits.ScoreDocs)
         {
-            var doc = _luceneSearcher.Doc(sd.Doc);
-            var category = doc.Get(FieldCategory);
-            if (category is not null && seen.Add(category))
-                collapsedCount++;
+            int categoryOrd = _luceneCollapseValues!.GetOrd(sd.Doc);
+            if (categoryOrd >= 0 && seen.Add(categoryOrd) && ++collapsedCount == TopN)
+                break;
         }
         return collapsedCount;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_SearchWithFacets()
+    {
+        var collector = new Lucene.Net.Facet.FacetsCollector();
+        var hits = Lucene.Net.Facet.FacetsCollector.Search(
+            _luceneSearcher!, _luceneQuery!, TopN, collector);
+        var facets = new SortedSetDocValuesFacetCounts(_luceneFacetState!, collector);
+        var result = facets.GetTopChildren(CategoryCount, FieldCategory);
+        return hits.TotalHits + (result?.ChildCount ?? 0);
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_SearchWithCollapseAndFacets()
+    {
+        int collapsedCount = LuceneNet_SearchWithCollapse();
+        var collector = new Lucene.Net.Facet.FacetsCollector();
+        _ = Lucene.Net.Facet.FacetsCollector.Search(
+            _luceneSearcher!, _luceneQuery!, TopN, collector);
+        var facets = new SortedSetDocValuesFacetCounts(_luceneFacetState!, collector);
+        var result = facets.GetTopChildren(CategoryCount, FieldCategory);
+        return collapsedCount + (result?.ChildCount ?? 0);
+    }
+
+    private static int CountFacetBuckets(IReadOnlyList<Rowles.LeanCorpus.Search.Scoring.FacetResult> facets)
+    {
+        int count = 0;
+        for (int i = 0; i < facets.Count; i++)
+            count += facets[i].Buckets.Count;
+        return count;
     }
 
     private void BuildLuceneIndex(string[] documents)
@@ -137,17 +173,23 @@ public class CollapseAndFacetBenchmarks
         using var writer = new Lucene.Net.Index.IndexWriter(
             _luceneDirectory,
             new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
+        var facetsConfig = new FacetsConfig();
         foreach (var (i, id, category, body) in EnumerateDocuments(documents))
         {
             var doc = new LuceneDocument();
             doc.Add(new LuceneStringField("id", id, Lucene.Net.Documents.Field.Store.NO));
             doc.Add(new LuceneTextField(FieldBody, body, Lucene.Net.Documents.Field.Store.NO));
-            doc.Add(new LuceneStringField(FieldCategory, category, Lucene.Net.Documents.Field.Store.YES));
-            writer.AddDocument(doc);
+            doc.Add(new LuceneStringField(FieldCategory, category, Lucene.Net.Documents.Field.Store.NO));
+            doc.Add(new LuceneSortedDocValuesField(FieldCategory, new BytesRef(category)));
+            doc.Add(new SortedSetDocValuesFacetField(FieldCategory, category));
+            writer.AddDocument(facetsConfig.Build(doc));
         }
         writer.Commit();
         _luceneReader = LuceneDirectoryReader.Open(_luceneDirectory);
         _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
+        _luceneCollapseValues = MultiDocValues.GetSortedValues(_luceneReader, FieldCategory);
+        _luceneFacetState = new DefaultSortedSetDocValuesReaderState(
+            _luceneReader, FacetsConfig.DEFAULT_INDEX_FIELD_NAME);
     }
 
     private void BuildLeanIndex(string[] documents)
@@ -163,7 +205,7 @@ public class CollapseAndFacetBenchmarks
             var doc = new LeanDocument();
             doc.Add(new LeanStringField("id", id));
             doc.Add(new LeanTextField(FieldBody, body));
-            doc.Add(new LeanStringField(FieldCategory, category, stored: true));
+            doc.Add(new LeanStringField(FieldCategory, category));
             writer.AddDocument(doc);
         }
         writer.Commit();

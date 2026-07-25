@@ -28,7 +28,7 @@ public sealed class HnswGraphTests
         var graph = new HnswGraph(source, new HnswBuildConfig { M = 4, EfConstruction = 10 }, seed: 1);
         graph.Freeze();
 
-        var results = graph.Search(new float[] { 1, 0, 0, 0 }, new HnswSearchOptions { Ef = 10, TopK = 5 });
+        var results = graph.Search(new float[] { 1, 0, 0, 0 }, new HnswTraversalOptions { Ef = 10, TopK = 5 });
 
         Assert.Empty(results);
     }
@@ -66,7 +66,7 @@ public sealed class HnswGraphTests
         var source = MakeSource(vectors, dimension: 4);
         var graph = HnswGraphBuilder.Build(source, [0, 1, 2, 3], new HnswBuildConfig { M = 4, EfConstruction = 16 }, seed: 7);
 
-        var results = graph.Search(Normalise([0.9f, 0.1f, 0, 0]), new HnswSearchOptions { Ef = 16, TopK = 1 });
+        var results = graph.Search(Normalise([0.9f, 0.1f, 0, 0]), new HnswTraversalOptions { Ef = 16, TopK = 1 });
 
         Assert.Single(results);
         Assert.Equal(0, results[0].DocId);
@@ -96,7 +96,7 @@ public sealed class HnswGraphTests
         {
             var query = Normalise(RandomVector(rng, dim));
             var bruteTop = BruteForceTopK(vectors, query, topK);
-            var hnswTop = graph.Search(query, new HnswSearchOptions { Ef = 50, TopK = topK })
+            var hnswTop = graph.Search(query, new HnswTraversalOptions { Ef = 50, TopK = topK })
                 .Select(r => r.DocId).ToHashSet();
             matches += bruteTop.Count(id => hnswTop.Contains(id));
         }

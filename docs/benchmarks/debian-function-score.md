@@ -4,29 +4,29 @@ title: Benchmarks - Function score
 
 # Function score
 
-**.NET** 10.0.3 &nbsp;&middot;&nbsp; **Commit** `dfecfdd` &nbsp;&middot;&nbsp; 12 July 2026 18:36 UTC &nbsp;&middot;&nbsp; 100,000 docs
+**.NET** 10.0.3 &nbsp;&middot;&nbsp; **Commit** `f3305a5` &nbsp;&middot;&nbsp; 16 July 2026 20:51 UTC &nbsp;&middot;&nbsp; 100,000 docs
 
-| Method                        | Mode     | DocumentCount | Mean      | Error     | StdDev    | Median    | Ratio | RatioSD | Gen0    | Gen1   | Allocated | Alloc Ratio |
-|------------------------------ |--------- |-------------- |----------:|----------:|----------:|----------:|------:|--------:|--------:|-------:|----------:|------------:|
-| **LeanCorpus_BaseTermQuery**      | **Max**      | **100000**        |  **88.38 μs** |  **0.102 μs** |  **0.095 μs** |  **88.39 μs** |  **1.00** |    **0.00** |  **0.1221** |      **-** |     **720 B** |        **1.00** |
-| LeanCorpus_FunctionScoreQuery | Max      | 100000        | 175.26 μs |  3.498 μs |  7.302 μs | 175.65 μs |  1.98 |    0.08 | 56.1523 |      - |  234447 B |      325.62 |
-| LuceneNet_TermQuery           | Max      | 100000        | 135.87 μs |  1.475 μs |  1.379 μs | 136.60 μs |  1.54 |    0.02 | 13.6719 | 0.2441 |   58325 B |       81.01 |
-| LuceneNet_FunctionScoreQuery  | Max      | 100000        | 164.50 μs |  1.010 μs |  0.945 μs | 164.65 μs |  1.86 |    0.01 | 13.9160 | 0.2441 |   59356 B |       82.44 |
-|                               |          |               |           |           |           |           |       |         |         |        |           |             |
-| **LeanCorpus_BaseTermQuery**      | **Multiply** | **100000**        |  **91.58 μs** |  **0.369 μs** |  **0.345 μs** |  **91.69 μs** |  **1.00** |    **0.00** |  **0.1221** |      **-** |     **720 B** |        **1.00** |
-| LeanCorpus_FunctionScoreQuery | Multiply | 100000        | 176.95 μs |  3.508 μs |  8.670 μs | 178.69 μs |  1.93 |    0.09 | 56.1523 |      - |  234427 B |      325.59 |
-| LuceneNet_TermQuery           | Multiply | 100000        | 132.85 μs |  0.259 μs |  0.230 μs | 132.76 μs |  1.45 |    0.01 | 13.6719 | 0.2441 |   58325 B |       81.01 |
-| LuceneNet_FunctionScoreQuery  | Multiply | 100000        | 163.49 μs |  0.721 μs |  0.674 μs | 163.66 μs |  1.79 |    0.01 | 13.9160 | 0.2441 |   59356 B |       82.44 |
-|                               |          |               |           |           |           |           |       |         |         |        |           |             |
-| **LeanCorpus_BaseTermQuery**      | **Replace**  | **100000**        |  **90.73 μs** |  **0.320 μs** |  **0.300 μs** |  **90.77 μs** |  **1.00** |    **0.00** |  **0.1221** |      **-** |     **720 B** |        **1.00** |
-| LeanCorpus_FunctionScoreQuery | Replace  | 100000        | 160.66 μs |  4.437 μs | 13.084 μs | 159.04 μs |  1.77 |    0.14 | 56.1523 |      - |  234426 B |      325.59 |
-| LuceneNet_TermQuery           | Replace  | 100000        | 132.88 μs |  1.056 μs |  0.988 μs | 133.25 μs |  1.46 |    0.01 | 13.6719 | 0.2441 |   58325 B |       81.01 |
-| LuceneNet_FunctionScoreQuery  | Replace  | 100000        | 159.85 μs |  1.113 μs |  0.987 μs | 159.55 μs |  1.76 |    0.01 | 13.9160 | 0.2441 |   59356 B |       82.44 |
-|                               |          |               |           |           |           |           |       |         |         |        |           |             |
-| **LeanCorpus_BaseTermQuery**      | **Sum**      | **100000**        |  **91.76 μs** |  **0.773 μs** |  **0.723 μs** |  **91.77 μs** |  **1.00** |    **0.00** |  **0.1221** |      **-** |     **720 B** |        **1.00** |
-| LeanCorpus_FunctionScoreQuery | Sum      | 100000        | 192.65 μs | 11.014 μs | 31.244 μs | 181.34 μs |  2.10 |    0.34 | 56.1523 |      - |  234445 B |      325.62 |
-| LuceneNet_TermQuery           | Sum      | 100000        | 134.60 μs |  0.125 μs |  0.098 μs | 134.62 μs |  1.47 |    0.01 | 13.6719 | 0.2441 |   58325 B |       81.01 |
-| LuceneNet_FunctionScoreQuery  | Sum      | 100000        | 157.48 μs |  0.520 μs |  0.487 μs | 157.53 μs |  1.72 |    0.01 | 13.9160 | 0.2441 |   59356 B |       82.44 |
+| Method                        | Mode     | DocumentCount | Mean     | Error   | StdDev  | Ratio | Gen0     | Gen1   | Allocated | Alloc Ratio |
+|------------------------------ |--------- |-------------- |---------:|--------:|--------:|------:|---------:|-------:|----------:|------------:|
+| **LeanCorpus_BaseTermQuery**      | **Max**      | **100000**        | **156.8 μs** | **0.24 μs** | **0.20 μs** |  **1.00** |        **-** |      **-** |     **720 B** |        **1.00** |
+| LeanCorpus_FunctionScoreQuery | Max      | 100000        | 469.3 μs | 0.76 μs | 0.71 μs |  2.99 | 102.0508 |      - |  427256 B |      593.41 |
+| LuceneNet_TermQuery           | Max      | 100000        | 195.7 μs | 0.11 μs | 0.09 μs |  1.25 |  14.1602 | 0.4883 |   59884 B |       83.17 |
+| LuceneNet_FunctionScoreQuery  | Max      | 100000        | 242.0 μs | 0.31 μs | 0.24 μs |  1.54 |  14.4043 | 0.2441 |   60915 B |       84.60 |
+|                               |          |               |          |         |         |       |          |        |           |             |
+| **LeanCorpus_BaseTermQuery**      | **Multiply** | **100000**        | **157.3 μs** | **0.24 μs** | **0.21 μs** |  **1.00** |        **-** |      **-** |     **720 B** |        **1.00** |
+| LeanCorpus_FunctionScoreQuery | Multiply | 100000        | 465.4 μs | 1.92 μs | 1.79 μs |  2.96 | 102.0508 |      - |  427256 B |      593.41 |
+| LuceneNet_TermQuery           | Multiply | 100000        | 192.9 μs | 0.24 μs | 0.21 μs |  1.23 |  14.1602 | 0.4883 |   59884 B |       83.17 |
+| LuceneNet_FunctionScoreQuery  | Multiply | 100000        | 235.8 μs | 0.35 μs | 0.31 μs |  1.50 |  14.4043 | 0.2441 |   60915 B |       84.60 |
+|                               |          |               |          |         |         |       |          |        |           |             |
+| **LeanCorpus_BaseTermQuery**      | **Replace**  | **100000**        | **157.4 μs** | **0.26 μs** | **0.24 μs** |  **1.00** |        **-** |      **-** |     **720 B** |        **1.00** |
+| LeanCorpus_FunctionScoreQuery | Replace  | 100000        | 460.8 μs | 0.54 μs | 0.48 μs |  2.93 | 102.0508 |      - |  427256 B |      593.41 |
+| LuceneNet_TermQuery           | Replace  | 100000        | 196.2 μs | 0.21 μs | 0.20 μs |  1.25 |  14.1602 | 0.4883 |   59884 B |       83.17 |
+| LuceneNet_FunctionScoreQuery  | Replace  | 100000        | 237.5 μs | 0.21 μs | 0.16 μs |  1.51 |  14.4043 | 0.2441 |   60915 B |       84.60 |
+|                               |          |               |          |         |         |       |          |        |           |             |
+| **LeanCorpus_BaseTermQuery**      | **Sum**      | **100000**        | **158.6 μs** | **0.09 μs** | **0.08 μs** |  **1.00** |        **-** |      **-** |     **720 B** |        **1.00** |
+| LeanCorpus_FunctionScoreQuery | Sum      | 100000        | 466.7 μs | 0.61 μs | 0.57 μs |  2.94 | 102.0508 |      - |  427256 B |      593.41 |
+| LuceneNet_TermQuery           | Sum      | 100000        | 190.4 μs | 0.24 μs | 0.21 μs |  1.20 |  14.1602 | 0.4883 |   59884 B |       83.17 |
+| LuceneNet_FunctionScoreQuery  | Sum      | 100000        | 236.5 μs | 0.43 μs | 0.38 μs |  1.49 |  14.4043 | 0.2441 |   60915 B |       84.60 |
 
 <div class="benchmark-chart">
 <p style="margin-bottom:4px"><label>Time scale: <select id="chart-scale-function-score"><option value="log2" selected>Log2</option><option value="log10">Log10</option><option value="linear">Linear</option></select></label> <label>Width: <input type="range" id="chart-width-function-score" min="400" max="1400" value="960" step="20" style="vertical-align:middle"></label> <label>Height: <input type="range" id="chart-height-function-score" min="200" max="900" value="500" step="20" style="vertical-align:middle"></label></p>

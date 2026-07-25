@@ -56,7 +56,7 @@ public sealed unsafe class IndexInput : IDisposable
         // still active. Without this, the merge's CleanupSegmentFiles cannot delete old
         // segment files that are still mapped by a live IndexSearcher, causing orphan
         // files to accumulate on disk and fsync storms that stall the writer.
-        var fs = FileOpenRetry.OpenReadDelete(filePath);
+        var fs = (FileStream)FileOpenRetry.OpenReadDelete(filePath);
         _mmf = MemoryMappedFile.CreateFromFile(fs, null, 0,
             MemoryMappedFileAccess.Read, HandleInheritability.None, leaveOpen: false);
         _accessor = _mmf.CreateViewAccessor(0, _length, MemoryMappedFileAccess.Read);
@@ -149,7 +149,7 @@ public sealed unsafe class IndexInput : IDisposable
 
     /// <summary>Stateless variant of <see cref="ReadSpan(int)"/> using a caller-supplied cursor.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ReadOnlySpan<byte> ReadSpan(int count, ref long position)
+    public ReadOnlySpan<byte> ReadSpan(int count, scoped ref long position)
     {
         if (position + count > _length)
             ThrowEndOfStream();
@@ -257,6 +257,19 @@ public sealed unsafe class IndexInput : IDisposable
         float value = Unsafe.ReadUnaligned<float>(_ptr + position);
         position += sizeof(float);
         return value;
+    }
+
+    /// <summary>Bulk-reads single-precision values using a caller-supplied cursor.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void ReadSingleArray(Span<float> destination, int count, ref long position)
+    {
+        int byteCount = checked(count * sizeof(float));
+        if (position + byteCount > _length)
+            ThrowEndOfStream();
+
+        new ReadOnlySpan<byte>(_ptr + position, byteCount)
+            .CopyTo(MemoryMarshal.AsBytes(destination[..count]));
+        position += byteCount;
     }
 
     /// <summary>Reads a 64-bit double-precision floating-point value.</summary>

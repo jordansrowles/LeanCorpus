@@ -85,7 +85,7 @@ public static class IndexValidator
     private static void CheckMigrationMarker(string dirPath, IndexCheckResult result)
     {
         var markerPath = Path.Combine(dirPath, IndexMigrationRecovery.MarkerFileName);
-        if (!File.Exists(markerPath))
+        if (!FileOpenRetry.FileExists(markerPath))
             return;
 
         try
@@ -116,10 +116,10 @@ public static class IndexValidator
 
     private static void CheckStaleTemporaryFiles(string dirPath, IndexCheckResult result)
     {
-        if (!Directory.Exists(dirPath))
+        if (!FileOpenRetry.DirectoryExists(dirPath))
             return;
 
-        foreach (var path in Directory.EnumerateFiles(dirPath, "*.tmp"))
+        foreach (var path in FileOpenRetry.EnumerateFiles(dirPath, "*.tmp"))
         {
             var fileName = Path.GetFileName(path);
             if (!IsRecognisedTemporaryFile(fileName))
@@ -147,7 +147,7 @@ public static class IndexValidator
             IndexFileInspector.CheckRequiredFile(basePath + extension, segmentId, result);
 
         var segPath = basePath + ".seg";
-        if (!File.Exists(segPath))
+        if (!FileOpenRetry.FileExists(segPath))
             return;
 
         SegmentInfo info;
@@ -233,7 +233,7 @@ public static class IndexValidator
 
     private static void CheckPostingsHeader(string filePath, string segmentId, IndexCheckResult result)
     {
-        if (!File.Exists(filePath))
+        if (!FileOpenRetry.FileExists(filePath))
             return;
 
         result.FilesChecked++;
@@ -274,7 +274,7 @@ public static class IndexValidator
 
     private static void CheckStoredFieldsCompression(string fdtPath, string segmentId, IndexCheckResult result)
     {
-        if (!File.Exists(fdtPath))
+        if (!FileOpenRetry.FileExists(fdtPath))
             return;
 
         result.FilesChecked++;
@@ -354,7 +354,7 @@ public static class IndexValidator
 
     private static void CheckStoredFieldsIndex(string fdxPath, string segmentId, SegmentInfo info, IndexCheckResult result)
     {
-        if (!File.Exists(fdxPath))
+        if (!FileOpenRetry.FileExists(fdxPath))
             return;
 
         result.FilesChecked++;
@@ -466,7 +466,7 @@ public static class IndexValidator
             ? Path.Combine(Path.GetDirectoryName(basePath)!, $"{segmentId}_gen_{generation}.del")
             : basePath + ".del";
 
-        if (!File.Exists(delPath))
+        if (!FileOpenRetry.FileExists(delPath))
         {
             if (info.LiveDocCount < info.DocCount)
             {
@@ -491,7 +491,7 @@ public static class IndexValidator
         foreach (var vectorField in info.VectorFields)
         {
             var vectorPath = VectorFilePaths.VectorFile(basePath, vectorField.FieldName);
-            if (!File.Exists(vectorPath))
+            if (!FileOpenRetry.FileExists(vectorPath))
             {
                 result.AddIssue(
                     IndexCheckSeverity.Error,
@@ -508,7 +508,7 @@ public static class IndexValidator
             if (vectorField.HasHnsw)
             {
                 var hnswPath = VectorFilePaths.HnswFile(basePath, vectorField.FieldName);
-                if (!File.Exists(hnswPath))
+                if (!FileOpenRetry.FileExists(hnswPath))
                 {
                     result.AddIssue(
                         IndexCheckSeverity.Error,
@@ -710,7 +710,7 @@ public static class IndexValidator
         IndexCheckResult result,
         Func<string, IEnumerable<int>> readLengths)
     {
-        if (!File.Exists(path))
+        if (!FileOpenRetry.FileExists(path))
             return;
 
         string fileName = Path.GetFileName(path);

@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
-using Rowles.LeanCorpus.Search.Simd;
+using Rowles.LeanCorpus.Util;
 
 namespace Rowles.LeanCorpus.Codecs.Vectors;
 
@@ -89,6 +89,6 @@ internal static class Int8DistanceComputer
         ReadOnlySpan<float> query,
         ReadOnlySpan<float> dequantised)
     {
-        return -SimdVectorOps.DotProduct(query, dequantised);
+        return -VectorMath.DotProduct(query, dequantised);
     }
 }

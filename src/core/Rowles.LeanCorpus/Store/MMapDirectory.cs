@@ -1,6 +1,3 @@
-using System.Collections.Concurrent;
-using System.Runtime.InteropServices;
-
 namespace Rowles.LeanCorpus.Store;
 
 /// <summary>
@@ -11,14 +8,8 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
 {
     private readonly List<WeakReference<IndexInput>> _trackedInputs = [];
     private readonly Lock _trackLock = new();
+    private readonly FileLifetimeRegistry.DirectoryState _fileLifetimes;
     private volatile bool _disposed;
-
-    // Reference-counted deferred deletion: Windows cannot delete a file while it is
-    // memory-mapped (even with FILE_SHARE_DELETE on the section).  Track how many
-    // IndexInput instances have a given file mapped, and defer File.Delete until
-    // the last mapping is released.
-    private readonly ConcurrentDictionary<string, int> _openFileCounts = new(2, 128, StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, byte> _pendingDeletes = new(2, 128, StringComparer.OrdinalIgnoreCase);
 
     /// <inheritdoc/>
     public override string DirectoryPath { get; }
@@ -35,6 +26,7 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
 
         if (!Directory.Exists(path))
             Directory.CreateDirectory(path);
+        _fileLifetimes = FileLifetimeRegistry.ForDirectory(path);
     }
 
     /// <inheritdoc/>
@@ -49,20 +41,27 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
     public override IndexInput OpenInput(string fileName)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        var filePath = Path.Combine(DirectoryPath, ValidateFileName(fileName));
-        var input = new IndexInput(filePath);
-        input.SetOnDisposed(OnInputDisposed);
-        _openFileCounts.AddOrUpdate(filePath, 1, (_, count) => count + 1);
-        TrackInput(input);
-        return input;
+        fileName = ValidateFileName(fileName);
+        var lease = _fileLifetimes.Acquire(fileName);
+        try
+        {
+            var input = new IndexInput(Path.Combine(DirectoryPath, fileName));
+            input.SetOnDisposed(_ => lease.Dispose());
+            TrackInput(input);
+            return input;
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
+        }
     }
 
     /// <inheritdoc/>
     public override void DeleteFile(string fileName)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        var filePath = Path.Combine(DirectoryPath, ValidateFileName(fileName));
-        TryDeleteOrDefer(filePath);
+        _fileLifetimes.Delete(ValidateFileName(fileName));
     }
 
     /// <inheritdoc/>
@@ -98,14 +97,6 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
             }
             _trackedInputs.Clear();
         }
-        // After all inputs are disposed, perform any remaining deferred deletions.
-        foreach (var kvp in _pendingDeletes)
-        {
-            try { File.Delete(kvp.Key); }
-            catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "deferred file delete during dispose"); }
-        }
-        _pendingDeletes.Clear();
-        _openFileCounts.Clear();
     }
 
     private void TrackInput(IndexInput input)
@@ -120,64 +111,18 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
         }
     }
 
-    /// <summary>
-    /// Callback invoked when an <see cref="IndexInput"/> is disposed after releasing
-    /// its memory-mapped file resources. Decrements the reference count for the file
-    /// and, if it reaches zero and the file is pending deletion, removes it from disk.
-    /// </summary>
-    private void OnInputDisposed(IndexInput input)
+    internal FileSnapshotLease AcquireSnapshot(IReadOnlyCollection<string> fileNames)
     {
-        var filePath = input.FilePath;
-        if (filePath is null) return;
-
-        int newCount = _openFileCounts.AddOrUpdate(filePath, 0, (_, count) => count - 1);
-        if (newCount <= 0)
-        {
-            _openFileCounts.TryRemove(filePath, out _);
-
-            // Try the pending-delete path first; if TryDeleteOrDefer hasn't
-            // added the file yet (TOCTOU), the file stays on disk. It will be
-            // cleaned up on a subsequent merge or by Dispose().
-            if (_pendingDeletes.TryRemove(filePath, out _))
-            {
-                try { File.Delete(filePath); }
-                catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "deferred file delete on input disposed"); }
-            }
-        }
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return _fileLifetimes.AcquireSnapshot(fileNames);
     }
 
-    /// <summary>
-    /// Attempts to delete the file at <paramref name="filePath"/>. If the file is
-    /// still open (memory-mapped), the deletion is deferred until the last
-    /// <see cref="IndexInput"/> mapping the file is disposed.
-    /// </summary>
-    private void TryDeleteOrDefer(string filePath)
+    internal FileSnapshotLease AcquireSnapshot(
+        Func<string, bool> includeFile,
+        out string[] inventory)
     {
-        // Fast path: file is not currently tracked as mapped.
-        if (!_openFileCounts.ContainsKey(filePath))
-        {
-            try { File.Delete(filePath); }
-            catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "fast-path file delete"); }
-            return;
-        }
-
-        // File is mapped. Try to delete anyway (works on Linux, may fail on Windows).
-        try { File.Delete(filePath); }
-        catch
-        {
-            // Deletion blocked by memory-mapping — defer until last handle is released.
-            _pendingDeletes.TryAdd(filePath, 0);
-
-            // TOCTOU guard: OnInputDisposed may have fired between the failed
-            // File.Delete and TryAdd above. If the count is now zero, all mappings
-            // are released; try the delete one more time.
-            if (!_openFileCounts.ContainsKey(filePath))
-            {
-                _pendingDeletes.TryRemove(filePath, out _);
-                try { File.Delete(filePath); }
-                catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "TOCTOU retry file delete"); }
-            }
-        }
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return _fileLifetimes.AcquireSnapshot(includeFile, out inventory);
     }
 
     private static string ValidateFileName(string fileName)

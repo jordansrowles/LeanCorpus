@@ -29,7 +29,7 @@ internal static class FileOpenRetry
     /// Opens a file for reading with <see cref="FileShare.Read"/>,
     /// retrying on transient locks.
     /// </summary>
-    internal static FileStream OpenRead(string path)
+    internal static Stream OpenRead(string path)
     {
         int retries = TransientMaxRetries;
         while (true)
@@ -49,7 +49,7 @@ internal static class FileOpenRetry
     /// Opens a file for reading with <see cref="FileShare.Read"/> and
     /// <see cref="FileShare.Delete"/>, retrying on transient locks.
     /// </summary>
-    internal static FileStream OpenReadDelete(string path)
+    internal static Stream OpenReadDelete(string path)
     {
         int retries = TransientMaxRetries;
         while (true)
@@ -94,7 +94,7 @@ internal static class FileOpenRetry
     /// and copy operations that may hit transient AV scan locks.
     /// Write/create and lock acquisition must fail fast.
     /// </summary>
-    internal static FileStream Open(string path, FileMode mode, FileAccess access, FileShare share)
+    internal static Stream Open(string path, FileMode mode, FileAccess access, FileShare share)
     {
         return new FileStream(path, mode, access, share);
     }
@@ -103,11 +103,14 @@ internal static class FileOpenRetry
     /// Opens a file with the specified mode, access, share, buffer size, and options.
     /// Does NOT retry; see <see cref="Open(string, FileMode, FileAccess, FileShare)"/>.
     /// </summary>
-    internal static FileStream Open(string path, FileMode mode, FileAccess access, FileShare share,
+    internal static Stream Open(string path, FileMode mode, FileAccess access, FileShare share,
         int bufferSize, FileOptions options)
     {
         return new FileStream(path, mode, access, share, bufferSize, options);
     }
+
+    /// <summary>Flushes a facade-created file stream through to durable storage.</summary>
+    internal static void FlushToDisk(Stream stream) => ((FileStream)stream).Flush(flushToDisk: true);
 
     /// <summary>
     /// Deletes a file, retrying on transient locks.
@@ -170,8 +173,39 @@ internal static class FileOpenRetry
     /// <summary>Thin wrapper around File.Exists for centralised I/O.</summary>
     internal static bool FileExists(string path) => File.Exists(path);
 
+    /// <summary>Returns the length of a file in bytes.</summary>
+    internal static long GetFileLength(string path) => new FileInfo(path).Length;
+
+    /// <summary>Returns file metadata required by index inspection and backup operations.</summary>
+    internal static FileMetadata GetFileMetadata(string path)
+    {
+        var info = new FileInfo(path);
+        return new FileMetadata(info.Name, info.Extension, info.Length, info.LastWriteTimeUtc);
+    }
+
+    /// <summary>Creates a UTF-8 text reader over an existing stream.</summary>
+    internal static TextReader OpenTextReader(Stream stream, Encoding encoding, bool leaveOpen = false) =>
+        new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: false, leaveOpen: leaveOpen);
+
+    /// <summary>Creates a UTF-8 text writer over an existing stream.</summary>
+    internal static TextWriter OpenTextWriter(Stream stream, Encoding encoding, bool leaveOpen = false) =>
+        new StreamWriter(stream, encoding, leaveOpen: leaveOpen);
+
+    /// <summary>Creates an auto-flushing text writer that appends to a file.</summary>
+    internal static TextWriter OpenAppendText(string path)
+    {
+        var stream = Open(path, FileMode.Append, FileAccess.Write, FileShare.Read);
+        return new StreamWriter(stream) { AutoFlush = true };
+    }
+
     /// <summary>Thin wrapper around Directory.CreateDirectory for centralised I/O.</summary>
     internal static void CreateDirectory(string path) => Directory.CreateDirectory(path);
+
+    /// <summary>Thin wrapper around Directory.Exists for centralised I/O.</summary>
+    internal static bool DirectoryExists(string path) => Directory.Exists(path);
+
+    /// <summary>Returns the full path of a directory's parent, or null for a root.</summary>
+    internal static string? GetParentDirectory(string path) => Directory.GetParent(path)?.FullName;
 
     /// <summary>
     /// Deletes a directory, retrying on transient locks.
@@ -197,8 +231,21 @@ internal static class FileOpenRetry
     internal static IEnumerable<string> EnumerateFiles(string path, string pattern) =>
         Directory.EnumerateFiles(path, pattern);
 
+    /// <summary>Enumerates every file in a directory.</summary>
+    internal static IEnumerable<string> EnumerateFiles(string path) => Directory.EnumerateFiles(path);
+
+    /// <summary>Enumerates every child directory in a directory.</summary>
+    internal static IEnumerable<string> EnumerateDirectories(string path) => Directory.EnumerateDirectories(path);
+
+    /// <summary>Enumerates all files and directories in a directory.</summary>
+    internal static IEnumerable<string> EnumerateFileSystemEntries(string path) =>
+        Directory.EnumerateFileSystemEntries(path);
+
     /// <summary>Thin wrapper around Directory.GetFiles for centralised I/O.</summary>
     internal static string[] GetFiles(string path, string pattern) => Directory.GetFiles(path, pattern);
+
+    /// <summary>Returns every file in a directory.</summary>
+    internal static string[] GetFiles(string path) => Directory.GetFiles(path);
 
     /// <summary>
     /// Reads lines from a text file with retry on open, using
@@ -213,3 +260,10 @@ internal static class FileOpenRetry
             yield return line;
     }
 }
+
+/// <summary>Immutable file metadata exposed without leaking <see cref="FileInfo"/> outside Store.</summary>
+internal readonly record struct FileMetadata(
+    string Name,
+    string Extension,
+    long Length,
+    DateTime LastWriteTimeUtc);

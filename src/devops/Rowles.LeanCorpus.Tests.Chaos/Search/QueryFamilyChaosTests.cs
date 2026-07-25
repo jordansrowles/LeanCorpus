@@ -56,7 +56,8 @@ public sealed class QueryFamilyChaosTests : IClassFixture<ChaosDirectoryFixture>
                 Assert.ThrowsAny<Exception>(() =>
                 {
                     using var searcher = new IndexSearcher(directory);
-                    _ = searcher.Search(new FieldExistsQuery("note"), 10);
+                    var results = searcher.Search(new FieldExistsQuery("note"), 10);
+                    _ = searcher.GetStoredFields(results.ScoreDocs[0].DocId);
                 });
             }
         }

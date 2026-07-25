@@ -16,18 +16,23 @@ public sealed partial class IndexSearcher : IDisposable
 {
     private readonly MMapDirectory _directory;
     private readonly List<SegmentReader> _readers = [];
+    private readonly BoundedLruCache<string, SegmentReaderState> _segmentReaderCache;
+    private FileSnapshotLease? _snapshotLease;
     private readonly int[] _docBases;
     private readonly int _totalDocCount;
-    private readonly IndexStats _stats;
+    private IndexStats? _stats;
+    private readonly Lock _statsLock = new();
     private readonly ISimilarity _similarity;
     private readonly IndexSearcherConfig _config;
     private readonly bool _useLmScoring;
+    private readonly bool _useBm25Scoring;
     [ThreadStatic] private static PostingsEnum[]? t_postingsBuffer;
     [ThreadStatic] private static ScoreDoc[]? t_collectorHeapCache;
     [ThreadStatic] private static HashSet<(string Field, string Term)>? t_docFreqTermsBuf;
     private static readonly Dictionary<(string Field, string Term), int> EmptyGlobalDFs = new();
     private const string CombinedFieldsDocFreqKey = "\u0001combined-fields";
     private readonly QueryCache? _queryCache;
+    private readonly ConcurrentDictionary<string, long> _collectionFrequencyCache = new(StringComparer.Ordinal);
     private ConcurrentDictionary<MltCacheKey, (string Field, string Term, float Score)[]>? _mltCache;
     private int _mltCacheCount;
     private const int MltCacheSoftCap = 64;
@@ -36,7 +41,16 @@ public sealed partial class IndexSearcher : IDisposable
         int DocId, int MaxQueryTerms, int MinTermFreq, int MinDocFreq, int MinWordLength);
 
     /// <summary>Corpus-wide statistics computed at construction.</summary>
-    public IndexStats Stats => _stats;
+    public IndexStats Stats
+    {
+        get
+        {
+            if (_stats is { } stats)
+                return stats;
+            lock (_statsLock)
+                return _stats ??= ComputeStats();
+        }
+    }
 
     /// <summary>The query result cache, or null if caching is disabled.</summary>
     public QueryCache? Cache => _queryCache;
@@ -46,17 +60,23 @@ public sealed partial class IndexSearcher : IDisposable
     private (float F1, float F2, float F3) ComputeTermFactors(
         int docFreq, float avgDocLength, long collectionFreq, string field)
     {
-        long totalTerms = _useLmScoring ? _stats.GetFieldLengthSum(field) : 0;
+        long totalTerms = _useLmScoring ? Stats.GetFieldLengthSum(field) : 0;
         return _similarity.PrecomputeLmFactors(_totalDocCount, docFreq, avgDocLength, collectionFreq, totalTerms);
     }
 
     /// <summary>Scores a term via the unified language-model path.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private float ScoreTerm(float f1, float f2, float f3, int tf, int docLength)
-        => _similarity.ScoreLmPrecomputed(f1, f2, f3, tf, docLength);
+        => _useBm25Scoring
+            ? Bm25Scorer.ScorePrecomputed(f1, f2, tf, docLength)
+            : _similarity.ScoreLmPrecomputed(f1, f2, f3, tf, docLength);
 
     /// <summary>Computes the collection frequency for a term across all segments.</summary>
     private long GetGlobalCollectionFreq(string qualifiedTerm)
+        => _collectionFrequencyCache.GetOrAdd(qualifiedTerm, static (term, searcher) =>
+            searcher.ComputeGlobalCollectionFrequency(term), this);
+
+    private long ComputeGlobalCollectionFrequency(string qualifiedTerm)
     {
         long total = 0;
         foreach (var reader in _readers)
@@ -70,6 +90,10 @@ public sealed partial class IndexSearcher : IDisposable
     /// <summary>Exposes the underlying segment readers for advanced use (e.g., spelling suggestions).</summary>
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     internal IReadOnlyList<SegmentReader> GetSegmentReaders() => _readers;
+
+    internal int CachedSegmentReaderCount => _segmentReaderCache.Count;
+
+    internal long LoadedSegmentReaderCount => _segmentReaderCache.LoadCount;
 
     /// <summary>Calculates the on-disk size of the index.</summary>
     public Diagnostics.IndexSizeReport GetIndexSize()
@@ -92,11 +116,19 @@ public sealed partial class IndexSearcher : IDisposable
     /// <param name="config">Searcher configuration including similarity model, parallelism, and caching options.</param>
     public IndexSearcher(MMapDirectory directory, IndexSearcherConfig config)
     {
+        ArgumentNullException.ThrowIfNull(directory);
+        ArgumentNullException.ThrowIfNull(config);
+        if (config.MaxCachedSegmentReaders < 1)
+            throw new ArgumentOutOfRangeException(nameof(config), config.MaxCachedSegmentReaders,
+                "MaxCachedSegmentReaders must be at least one.");
         _directory = directory;
         _config = config;
+        _segmentReaderCache = new BoundedLruCache<string, SegmentReaderState>(
+            config.MaxCachedSegmentReaders, StringComparer.Ordinal);
         _similarity = config.Similarity;
 
         _useLmScoring = _similarity.RequiresCollectionStatistics;
+        _useBm25Scoring = _similarity is Bm25Similarity;
 
         IndexOpenGuard.EnsureNoBlockingMigration(directory, config.CompatibilityMode);
 
@@ -109,16 +141,25 @@ public sealed partial class IndexSearcher : IDisposable
         const int maxAttempts = 3;
         for (int attempt = 1; ; attempt++)
         {
+            FileSnapshotLease? attemptSnapshot = null;
             try
             {
                 _readers.Clear();
+                var idSet = new HashSet<string>(segmentIds, StringComparer.Ordinal);
+                attemptSnapshot = directory.AcquireSnapshot(
+                    name => IsSnapshotFile(idSet, name), out var inventory);
+                var inventorySet = new HashSet<string>(inventory, StringComparer.Ordinal);
+                bool permanentlyResident = config.MaxCachedSegmentReaders >= segmentIds.Count;
                 foreach (var segId in segmentIds)
                 {
                     var segPath = Path.Combine(directory.DirectoryPath, segId + ".seg");
-                    if (!File.Exists(segPath)) continue;
+                    if (!FileOpenRetry.FileExists(segPath)) continue;
                     var info = SegmentInfo.ReadFrom(segPath);
-                    _readers.Add(new SegmentReader(directory, info));
+                    _readers.Add(new SegmentReader(directory, info, _segmentReaderCache, inventorySet,
+                        permanentlyResident));
                 }
+                _snapshotLease = attemptSnapshot;
+                attemptSnapshot = null;
                 break;
             }
             catch (FileNotFoundException) when (attempt < maxAttempts)
@@ -127,19 +168,33 @@ public sealed partial class IndexSearcher : IDisposable
                 (segmentIds, generation) = LoadLatestCommitWithGeneration();
                 IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false);
             }
+            finally
+            {
+                attemptSnapshot?.Dispose();
+            }
         }
 
-        _docBases = AssignDocBases();
-        _totalDocCount = _docBases.Length > 0
-            ? _docBases[^1] + _readers[^1].MaxDoc
-            : 0;
+        try
+        {
+            _docBases = AssignDocBases();
+            _totalDocCount = _docBases.Length > 0
+                ? _docBases[^1] + _readers[^1].MaxDoc
+                : 0;
 
-        // Try to load persisted stats first; fall back to expensive recomputation
-        var statsPath = IndexStats.GetStatsPath(directory.DirectoryPath, generation);
-        _stats = IndexStats.TryLoadFrom(statsPath) ?? ComputeStats();
+            // Persisted statistics are cheap to load. Missing statistics remain lazy.
+            var statsPath = IndexStats.GetStatsPath(directory.DirectoryPath, generation);
+            _stats = IndexStats.TryLoadFrom(statsPath);
 
-        if (config.EnableQueryCache)
-            _queryCache = config.SharedCache ?? new QueryCache(config.QueryCacheMaxEntries);
+            if (config.EnableQueryCache)
+                _queryCache = config.SharedCache ?? new QueryCache(config.QueryCacheMaxEntries);
+        }
+        catch
+        {
+            _segmentReaderCache.Dispose();
+            _snapshotLease?.Dispose();
+            _snapshotLease = null;
+            throw;
+        }
     }
 
     /// <summary>
@@ -161,28 +216,54 @@ public sealed partial class IndexSearcher : IDisposable
     /// <param name="config">Searcher configuration including similarity model, parallelism, and caching options.</param>
     public IndexSearcher(MMapDirectory directory, IReadOnlyList<SegmentInfo> segments, IndexSearcherConfig config)
     {
+        ArgumentNullException.ThrowIfNull(directory);
+        ArgumentNullException.ThrowIfNull(segments);
+        ArgumentNullException.ThrowIfNull(config);
+        if (config.MaxCachedSegmentReaders < 1)
+            throw new ArgumentOutOfRangeException(nameof(config), config.MaxCachedSegmentReaders,
+                "MaxCachedSegmentReaders must be at least one.");
         _directory = directory;
         _config = config;
+        _segmentReaderCache = new BoundedLruCache<string, SegmentReaderState>(
+            config.MaxCachedSegmentReaders, StringComparer.Ordinal);
         _similarity = config.Similarity;
 
         _useLmScoring = _similarity.RequiresCollectionStatistics;
+        _useBm25Scoring = _similarity is Bm25Similarity;
         IndexOpenGuard.EnsureNoBlockingMigration(directory, config.CompatibilityMode);
         IndexOpenGuard.EnsureCanOpenSegments(
             directory,
             segments.Select(static segment => segment.SegmentId),
             config.CompatibilityMode,
             forWriting: false);
-        foreach (var info in segments)
-            _readers.Add(new SegmentReader(directory, info));
+        try
+        {
+            var segmentIds = segments.Select(static segment => segment.SegmentId).ToList();
+            var idSet = new HashSet<string>(segmentIds, StringComparer.Ordinal);
+            _snapshotLease = directory.AcquireSnapshot(
+                name => IsSnapshotFile(idSet, name), out var inventory);
+            var inventorySet = new HashSet<string>(inventory, StringComparer.Ordinal);
+            bool permanentlyResident = config.MaxCachedSegmentReaders >= segments.Count;
+            foreach (var info in segments)
+                _readers.Add(new SegmentReader(directory, info, _segmentReaderCache, inventorySet,
+                    permanentlyResident));
 
-        _docBases = AssignDocBases();
-        _totalDocCount = _docBases.Length > 0
-            ? _docBases[^1] + _readers[^1].MaxDoc
-            : 0;
-        _stats = ComputeStats();
+            _docBases = AssignDocBases();
+            _totalDocCount = _docBases.Length > 0
+                ? _docBases[^1] + _readers[^1].MaxDoc
+                : 0;
+            _stats = null;
 
-        if (config.EnableQueryCache)
-            _queryCache = config.SharedCache ?? new QueryCache(config.QueryCacheMaxEntries);
+            if (config.EnableQueryCache)
+                _queryCache = config.SharedCache ?? new QueryCache(config.QueryCacheMaxEntries);
+        }
+        catch
+        {
+            _segmentReaderCache.Dispose();
+            _snapshotLease?.Dispose();
+            _snapshotLease = null;
+            throw;
+        }
     }
 
     private int[] AssignDocBases()
@@ -196,6 +277,22 @@ public sealed partial class IndexSearcher : IDisposable
             docBase += _readers[i].MaxDoc;
         }
         return bases;
+    }
+
+    private static bool IsSnapshotFile(HashSet<string> segmentIds, string fileName)
+    {
+        int dot = fileName.IndexOf('.');
+        if (dot <= 0)
+            return false;
+        var candidate = fileName[..dot];
+        int generationMarker = candidate.IndexOf("_gen_", StringComparison.Ordinal);
+        int vectorMarker = candidate.IndexOf("_v_", StringComparison.Ordinal);
+        int marker = generationMarker > 0 && vectorMarker > 0
+            ? Math.Min(generationMarker, vectorMarker)
+            : Math.Max(generationMarker, vectorMarker);
+        if (marker > 0)
+            candidate = candidate[..marker];
+        return segmentIds.Contains(candidate);
     }
 
     /// <summary>
@@ -350,7 +447,7 @@ public sealed partial class IndexSearcher : IDisposable
     public int Count(Query query)
     {
         if (query is MatchAllDocsQuery)
-            return _stats.LiveDocCount;
+            return Stats.LiveDocCount;
 
         if (_readers.Count == 0)
             return 0;
@@ -773,6 +870,9 @@ public sealed partial class IndexSearcher : IDisposable
     {
         foreach (var reader in _readers)
             reader.Dispose();
+        _segmentReaderCache.Dispose();
+        _snapshotLease?.Dispose();
+        _snapshotLease = null;
     }
 
     private TopDocs ExecuteRrfQuery(RrfQuery rrf, int topN)
@@ -795,6 +895,7 @@ public sealed partial class IndexSearcher : IDisposable
         for (int r = 0; r < _readers.Count; r++)
         {
             var reader = _readers[r];
+            using var queryLease = reader.AcquireQueryLease();
             int docBase = _docBases[r];
             var pbs = reader.GetParentBitSet();
             if (pbs is null) continue;
@@ -809,10 +910,10 @@ public sealed partial class IndexSearcher : IDisposable
                 // Fast path: stream PostingsEnum directly
                 var qt = string.Concat(tq.Field, "\x00", tq.Term);
                 using var pe = reader.GetPostingsEnum(qt);
-                while (pe.MoveNext())
+                while (pe.MoveNextUnchecked(out int childDocId, out _))
                 {
-                    if (pbs.IsParent(pe.DocId)) continue;
-                    int parentLocal = pbs.NextParent(pe.DocId + 1);
+                    if (pbs.IsParent(childDocId)) continue;
+                    int parentLocal = pbs.NextParent(childDocId + 1);
                     if (parentLocal >= 0 && parentLocal != lastParent)
                     {
                         lastParent = parentLocal;
@@ -854,8 +955,8 @@ public sealed partial class IndexSearcher : IDisposable
                 {
                     var qt = string.Concat(tq.Field, "\x00", tq.Term);
                     using var pe = reader.GetPostingsEnum(qt);
-                    while (pe.MoveNext())
-                        bits[pe.DocId] = true;
+                    while (pe.MoveNextUnchecked(out int docId, out _))
+                        bits[docId] = true;
                     break;
                 }
             case BooleanQuery bq:
@@ -1013,8 +1114,7 @@ public sealed partial class IndexSearcher : IDisposable
         }
 
         // Phase 2: score using already-decoded postings
-        // Phase 2: score using already-decoded postings
-        float avgDocLength = _stats.GetAvgFieldLength(query.Field);
+        float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         var (f1, f2, f3) = ComputeTermFactors(globalDF, avgDocLength, globalCollectionFreq, query.Field);
         float boost = query.Boost;
 
@@ -1031,21 +1131,21 @@ public sealed partial class IndexSearcher : IDisposable
                 if (postings.IsExhausted) continue;
 
                 var reader = _readers[i];
+                using var queryLease = reader.AcquireQueryLease();
                 int docBase = reader.DocBase;
                 bool hasDeletions = reader.HasDeletions;
                 reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+                reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
 
-                while (postings.MoveNext())
+                while (postings.MoveNextUnchecked(out int docId, out int tf))
                 {
-                    int docId = postings.DocId;
                     if (hasDeletions && !reader.IsLive(docId)) continue;
 
-                    int tf = postings.Freq;
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                         ? fieldLengths[docId] : 1;
                     float score = ScoreTerm(f1, f2, f3, tf, docLength);
                     if (boost != 1.0f) score *= boost;
-                    score = ApplyFieldBoost(reader, docId, query.Field, score);
+                    score = ApplyFieldBoost(fieldBoosts, docId, score);
                     collector.Collect(docBase + docId, score);
                     sideCollector?.Collect(docBase + docId, score, reader, docId);
                 }
@@ -1091,7 +1191,7 @@ public sealed partial class IndexSearcher : IDisposable
         }
 
         // Compute BM25 factors once from the global doc frequency.
-        float avgDocLength = _stats.GetAvgFieldLength(tq.Field);
+        float avgDocLength = Stats.GetAvgFieldLength(tq.Field);
         var (f1, f2, f3) = ComputeTermFactors(globalDF, avgDocLength, globalCollectionFreq, tq.Field);
         float boost = tq.Boost;
 
@@ -1108,26 +1208,40 @@ public sealed partial class IndexSearcher : IDisposable
                 if (postings.IsExhausted) continue;
 
                 var reader = _readers[i];
+                using var queryLease = reader.AcquireQueryLease();
                 int docBase = reader.DocBase;
                 bool hasDeletions = reader.HasDeletions;
                 reader.TryGetFieldLengths(tq.Field, out var fieldLengths);
+                reader.TryGetFieldBoosts(tq.Field, out var fieldBoosts);
+                bool hasNumericDocValues = reader.TryGetNumericDocValues(
+                    fsq.NumericField, out var numericValues, out var numericPresence);
 
                 // Single pass: BM25, field boost, function score, then top-N collect.
-                while (postings.MoveNext())
+                while (postings.MoveNextUnchecked(out int docId, out int tf))
                 {
-                    int docId = postings.DocId;
                     if (hasDeletions && !reader.IsLive(docId)) continue;
 
-                    int tf = postings.Freq;
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                         ? fieldLengths[docId] : 1;
                     float score = ScoreTerm(f1, f2, f3, tf, docLength);
                     if (boost != 1.0f) score *= boost;
-                    score = ApplyFieldBoost(reader, docId, tq.Field, score);
+                    score = ApplyFieldBoost(fieldBoosts, docId, score);
 
                     // Modify the field-boosted BM25 score with the numeric doc value.
-                    if (reader.TryGetNumericValue(fsq.NumericField, docId, out double fieldValue))
+                    // Read the dense column once per segment instead of probing the
+                    // sparse numeric map for every matching document.
+                    if (hasNumericDocValues)
+                    {
+                        if ((uint)docId < (uint)numericValues!.Length
+                            && (numericPresence is null || numericPresence.Contains(docId)))
+                        {
+                            score = FunctionScoreQuery.Combine(score, numericValues[docId], fsq.Mode);
+                        }
+                    }
+                    else if (reader.TryGetNumericValue(fsq.NumericField, docId, out double fieldValue))
+                    {
                         score = FunctionScoreQuery.Combine(score, fieldValue, fsq.Mode);
+                    }
 
                     collector.Collect(docBase + docId, score * fsq.Boost);
                 }

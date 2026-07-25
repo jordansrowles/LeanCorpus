@@ -14,7 +14,7 @@ internal static class SortedSetDocValuesReader
     public static Dictionary<string, string[][]> Read(string filePath)
     {
         var values = new Dictionary<string, string[][]>(StringComparer.Ordinal);
-        if (!File.Exists(filePath))
+        if (!FileOpenRetry.FileExists(filePath))
             return values;
 
         using var input = new IndexInput(filePath);
@@ -71,7 +71,7 @@ internal static class SortedSetDocValuesReader
 
     internal static List<(string Name, IReadOnlyList<string>?[] Values)> EnumerateFields(string filePath)
     {
-        if (!File.Exists(filePath))
+        if (!FileOpenRetry.FileExists(filePath))
             return new List<(string, IReadOnlyList<string>?[])>(0);
 
         using var input = new IndexInput(filePath);

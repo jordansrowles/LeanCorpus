@@ -27,6 +27,13 @@ internal static class IndexOpenGuard
         if (mode == IndexOpenCompatibilityMode.UnsafeIgnoreCompatibility)
             return;
 
+        // Searchers validate the commit, segment metadata, required file presence,
+        // and migration marker while opening. Codec headers are validated by the
+        // relevant lazy component on first use. Writers retain the eager scan so
+        // they cannot append to an index that requires migration.
+        if (!forWriting)
+            return;
+
         var migrationRecommended = false;
         foreach (var segmentId in segmentIds)
         {
@@ -49,11 +56,11 @@ internal static class IndexOpenGuard
 
     private static IEnumerable<string> FindSegmentFiles(string directoryPath, string segmentId)
     {
-        foreach (var file in Directory.GetFiles(directoryPath, segmentId + ".*"))
+        foreach (var file in FileOpenRetry.GetFiles(directoryPath, segmentId + ".*"))
             yield return file;
-        foreach (var file in Directory.GetFiles(directoryPath, segmentId + "_gen_*.del"))
+        foreach (var file in FileOpenRetry.GetFiles(directoryPath, segmentId + "_gen_*.del"))
             yield return file;
-        foreach (var file in Directory.GetFiles(directoryPath, segmentId + "_v_*.*"))
+        foreach (var file in FileOpenRetry.GetFiles(directoryPath, segmentId + "_v_*.*"))
             yield return file;
     }
 

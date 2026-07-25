@@ -171,7 +171,7 @@ public sealed partial class IndexSearcher
             reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
             bool hasDeletions = reader.HasDeletions;
             reader.TryGetFieldLengths(query.Field, out var fieldLengths);
-            float avgDocLength = _stats.GetAvgFieldLength(query.Field);
+            float avgDocLength = Stats.GetAvgFieldLength(query.Field);
 
             // Compute scoring factors for every clause, not just the leader.
             // Each clause contributes its own IDF weight to the span score.
@@ -247,7 +247,7 @@ public sealed partial class IndexSearcher
         int docBase = reader.DocBase;
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
         bool hasDeletions = reader.HasDeletions;
-        float avgDocLength = _stats.GetAvgFieldLength(query.Field);
+        float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         reader.TryGetFieldLengths(query.Field, out var fieldLengths);
         float boost = query.Boost;
 

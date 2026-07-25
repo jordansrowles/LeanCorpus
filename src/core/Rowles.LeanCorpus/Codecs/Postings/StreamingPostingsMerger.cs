@@ -51,8 +51,8 @@ internal static class StreamingPostingsMerger
                 }
             }
 
-            // Write v3 header via CodecKit trailer format.
-            using var posOutput = new IndexOutput(posOutputPath, durable: true, dropPageCache: true);
+            // Write the current streaming header and sequential v4 term records.
+            using var posOutput = new IndexOutput(posOutputPath, dropPageCache: true);
             using var scope = CodecFileHeader.BeginStreamingWrite(posOutput, CodecConstants.PostingsVersion);
             using var blockWriter = new BlockPostingsWriter(posOutput);
 
@@ -92,13 +92,7 @@ internal static class StreamingPostingsMerger
                     hasPayloads |= pl;
                 }
 
-                long headerPos = posOutput.Position;
-                posOutput.WriteInt32(0);     // docFreq placeholder
-                posOutput.WriteInt64(0L);    // skipOffset placeholder
-                posOutput.WriteBoolean(hasFreqs);
-                posOutput.WriteBoolean(hasPositions);
-                posOutput.WriteBoolean(hasPayloads);
-
+                long bodyOffset = posOutput.Position;
                 blockWriter.StartTerm();
 
                 string fieldName = QualifiedTermHelpers.GetFieldName(currentTerm).ToString();
@@ -146,16 +140,18 @@ internal static class StreamingPostingsMerger
                     }
                 }
 
-                long endPos = posOutput.Position;
-                posOutput.Seek(headerPos);
+                long metadataOffset = posOutput.Position;
+                posOutput.WriteInt64(bodyOffset);
                 posOutput.WriteInt32(meta.DocFreq);
                 posOutput.WriteInt64(meta.SkipOffset);
-                posOutput.Seek(endPos);
+                posOutput.WriteBoolean(hasFreqs);
+                posOutput.WriteBoolean(hasPositions);
+                posOutput.WriteBoolean(hasPayloads);
 
                 if (meta.DocFreq > 0)
                 {
                     sortedTerms.Add(currentTerm);
-                    offsets[currentTerm] = headerPos;
+                    offsets[currentTerm] = metadataOffset;
                 }
 
                 foreach (int idx in participants)
@@ -166,7 +162,7 @@ internal static class StreamingPostingsMerger
                 }
             }
 
-            // v2 has no envelope, so offsets are already correct — no rekeying needed.
+            // Metadata offsets are absolute file positions, so no rekeying is needed.
             TermDictionaryWriter.Write(dicOutputPath, sortedTerms, offsets, dropPageCache: true);
             return new Result(sortedTerms, offsets);
         }
@@ -227,20 +223,8 @@ internal static class StreamingPostingsMerger
 
         internal void PeekFlags(out bool hasFreqs, out bool hasPositions, out bool hasPayloads)
         {
-            long savedPos = _pos.Position;
-            try
-            {
-                _pos.Seek(CurrentOffset);
-                _pos.ReadInt32();        // docFreq
-                _pos.ReadInt64();        // skipOffset
-                hasFreqs = _pos.ReadBoolean();
-                hasPositions = _pos.ReadBoolean();
-                hasPayloads = _pos.ReadBoolean();
-            }
-            finally
-            {
-                _pos.Seek(savedPos);
-            }
+            PostingsEnum.ReadTermMetadata(_pos, CurrentOffset, out _, out _, out _,
+                out hasFreqs, out hasPositions, out hasPayloads);
         }
 
         /// <summary>
@@ -252,14 +236,8 @@ internal static class StreamingPostingsMerger
         internal void DecodeCurrentPostings(out int[] oldIds, out int count, out int[] freqs,
             out bool hasPositions, out bool hasPayloads)
         {
-            _pos.Seek(CurrentOffset);
-            count = _pos.ReadInt32();
-            long skipOffset = _pos.ReadInt64();
-            bool hasFreqs = _pos.ReadBoolean();
-            hasPositions = _pos.ReadBoolean();
-            hasPayloads = _pos.ReadBoolean();
-
-            long docStart = _pos.Position;
+            PostingsEnum.ReadTermMetadata(_pos, CurrentOffset, out long docStart, out count,
+                out long skipOffset, out bool hasFreqs, out hasPositions, out hasPayloads);
             var enumv = BlockPostingsEnum.Create(_pos, docStart, skipOffset, count);
             oldIds = ArrayPool<int>.Shared.Rent(count);
             freqs = ArrayPool<int>.Shared.Rent(count);

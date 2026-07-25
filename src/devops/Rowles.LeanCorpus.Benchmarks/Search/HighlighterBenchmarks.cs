@@ -12,9 +12,10 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob]
 public class HighlighterBenchmarks
 {
+    private const int DocumentsPerOperation = 100;
+
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
 
     [ParamsSource(nameof(DocCounts))]
@@ -26,6 +27,7 @@ public class HighlighterBenchmarks
 
     private string[] _documents = [];
     private Highlighter _highlighter = null!;
+    private int _documentOffset;
 
     // Simulate a two-term and a five-term query
     private static readonly IReadOnlySet<string> TwoTerms =
@@ -49,22 +51,12 @@ public class HighlighterBenchmarks
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_Highlight_TwoTerms()
-    {
-        int total = 0;
-        foreach (var doc in _documents)
-            total += _highlighter.GetBestFragment(doc, TwoTerms, MaxSnippetLength).Length;
-        return total;
-    }
+        => HighlightLean(TwoTerms);
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_Highlight_FiveTerms()
-    {
-        int total = 0;
-        foreach (var doc in _documents)
-            total += _highlighter.GetBestFragment(doc, FiveTerms, MaxSnippetLength).Length;
-        return total;
-    }
+        => HighlightLean(FiveTerms);
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -74,8 +66,10 @@ public class HighlighterBenchmarks
         var scorer = new Lucene.Net.Search.Highlight.QueryScorer(_luceneTwoTermQuery);
         var formatter = new Lucene.Net.Search.Highlight.SimpleHTMLFormatter("<b>", "</b>");
         var hl = new Lucene.Net.Search.Highlight.Highlighter(formatter, scorer);
-        foreach (var doc in _documents)
+        int offset = NextDocumentOffset();
+        for (int i = 0; i < DocumentsPerOperation; i++)
         {
+            string doc = _documents[(offset + i) % _documents.Length];
             var fragment = hl.GetBestFragment(_luceneAnalyzer, "body", doc);
             if (fragment is not null)
                 total += fragment.Length;
@@ -91,13 +85,34 @@ public class HighlighterBenchmarks
         var scorer = new Lucene.Net.Search.Highlight.QueryScorer(_luceneFiveTermQuery);
         var formatter = new Lucene.Net.Search.Highlight.SimpleHTMLFormatter("<b>", "</b>");
         var hl = new Lucene.Net.Search.Highlight.Highlighter(formatter, scorer);
-        foreach (var doc in _documents)
+        int offset = NextDocumentOffset();
+        for (int i = 0; i < DocumentsPerOperation; i++)
         {
+            string doc = _documents[(offset + i) % _documents.Length];
             var fragment = hl.GetBestFragment(_luceneAnalyzer, "body", doc);
             if (fragment is not null)
                 total += fragment.Length;
         }
         return total;
+    }
+
+    private int HighlightLean(IReadOnlySet<string> terms)
+    {
+        int total = 0;
+        int offset = NextDocumentOffset();
+        for (int i = 0; i < DocumentsPerOperation; i++)
+        {
+            string doc = _documents[(offset + i) % _documents.Length];
+            total += _highlighter.GetBestFragment(doc, terms, MaxSnippetLength).Length;
+        }
+        return total;
+    }
+
+    private int NextDocumentOffset()
+    {
+        int offset = _documentOffset;
+        _documentOffset = (_documentOffset + DocumentsPerOperation) % _documents.Length;
+        return offset;
     }
 
     // --- Lucene.NET state ---

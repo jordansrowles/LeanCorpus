@@ -1,7 +1,7 @@
 ﻿using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-namespace Rowles.LeanCorpus.Search.Simd;
+namespace Rowles.LeanCorpus.Util;
 
 /// <summary>
 /// SIMD vector primitives used by HNSW graph operations and exact rerank.
@@ -11,7 +11,7 @@ namespace Rowles.LeanCorpus.Search.Simd;
 /// <remarks>
 /// All methods assume the inputs have equal length and treat empty inputs as a similarity of zero.
 /// </remarks>
-public static class SimdVectorOps
+internal static class VectorMath
 {
     /// <summary>
     /// Computes cosine similarity between two vectors. Returns zero for empty or

@@ -14,13 +14,20 @@ namespace Rowles.LeanCorpus.Benchmarks;
 /// Measures LightEnglishStemmer throughput against Porter stemmer.
 /// Both paths use the zero-allocation <see cref="ISpanStemmer"/> contract
 /// so the allocation column reflects only unavoidable overhead.
+/// <para>
+/// The Lucene.NET PorterStemFilter benchmark constructs a new WhitespaceTokenizer
+/// and PorterStemFilter per word. Lucene.NET does not expose a public API for
+/// resetting the tokenizer with a new input, so the per-word allocation includes
+/// object construction overhead. For a fair pipeline-reuse comparison, see
+/// <see cref="StemmerParityBenchmarks"/> which creates each analyser once and
+/// reuses it across all documents.
+/// </para>
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob]
 public class LightEnglishStemmerBenchmarks
 {
     private const int MaxWordLength = 256;
@@ -32,6 +39,8 @@ public class LightEnglishStemmerBenchmarks
 
     private string[] _words = [];
     private LightEnglishStemmer _lightStemmer = null!;
+    private StemTokenFilter _porterFilter = null!;
+    private CountingTokenSink _porterSink = null!;
 
     [GlobalSetup]
     public void Setup()
@@ -44,6 +53,8 @@ public class LightEnglishStemmerBenchmarks
         _words = wordList.ToArray();
 
         _lightStemmer = new LightEnglishStemmer();
+        _porterFilter = new StemTokenFilter(new PorterStemmer());
+        _porterSink = new CountingTokenSink();
     }
 
     [Benchmark(Baseline = true)]
@@ -80,32 +91,10 @@ public class LightEnglishStemmerBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int Porter_Stem()
     {
-        // Use the StemTokenFilter wrapping the PorterStemmer adapter
-        var filter = new StemTokenFilter(new PorterStemmer());
-        int count = 0;
-
-        // Process in batches to simulate filter pipeline
-        var batch = new List<Token>();
+        _porterSink.Reset();
         foreach (var word in _words)
-        {
-            batch.Add(new Token(word, 0, word.Length));
-            if (batch.Count >= 1000)
-            {
-                var sink = new CountingTokenSink();
-                foreach (var t in batch) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, sink);
-                count += sink.Count;
-                batch.Clear();
-            }
-        }
-
-        if (batch.Count > 0)
-        {
-            var sink = new CountingTokenSink();
-            foreach (var t in batch) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, sink);
-            count += sink.Count;
-        }
-
-        return count;
+            _porterFilter.Apply(word.AsSpan(), 0, word.Length, Token.DefaultType, 1, null, _porterSink);
+        return _porterSink.Count;
     }
 
     [Benchmark(Description = "Lucene.NET PorterStemFilter")]

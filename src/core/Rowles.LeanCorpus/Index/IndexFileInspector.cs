@@ -15,10 +15,10 @@ internal static class IndexFileInspector
     public static List<(int Generation, string FilePath)> FindCommitFiles(string directoryPath)
     {
         var result = new List<(int Generation, string FilePath)>();
-        if (!Directory.Exists(directoryPath))
+        if (!FileOpenRetry.DirectoryExists(directoryPath))
             return result;
 
-        foreach (var file in Directory.GetFiles(directoryPath, "segments_*"))
+        foreach (var file in FileOpenRetry.GetFiles(directoryPath, "segments_*"))
         {
             var fileName = Path.GetFileName(file);
             if (fileName.EndsWith(".tmp", StringComparison.Ordinal))
@@ -128,8 +128,7 @@ internal static class IndexFileInspector
     {
         result.FilesChecked++;
         var fileName = Path.GetFileName(filePath);
-        var info = new FileInfo(filePath);
-        if (!info.Exists)
+        if (!FileOpenRetry.FileExists(filePath))
         {
             result.AddIssue(
                 IndexCheckSeverity.Error,
@@ -141,7 +140,7 @@ internal static class IndexFileInspector
             return false;
         }
 
-        if (info.Length == 0)
+        if (FileOpenRetry.GetFileLength(filePath) == 0)
         {
             result.AddIssue(
                 IndexCheckSeverity.Error,
@@ -158,7 +157,7 @@ internal static class IndexFileInspector
 
     public static bool CheckOptionalFile(string filePath, string segmentId, IndexCheckResult result)
     {
-        if (!File.Exists(filePath))
+        if (!FileOpenRetry.FileExists(filePath))
             return false;
 
         result.FilesChecked++;
@@ -173,7 +172,7 @@ internal static class IndexFileInspector
         string segmentId,
         IndexCheckResult result)
     {
-        if (!File.Exists(filePath))
+        if (!FileOpenRetry.FileExists(filePath))
             return;
 
         result.FilesChecked++;

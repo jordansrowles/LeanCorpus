@@ -8,6 +8,7 @@ using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
@@ -87,8 +88,8 @@ public sealed class HeaderRoundTripIntegrationTests : IClassFixture<TestDirector
         }
     }
 
-    [Fact(DisplayName = "Corrupt version byte in .pos to future value → IndexSearcher throws")]
-    public void CorruptPosVersion_IndexSearcher_Throws()
+    [Fact(DisplayName = "Corrupt version byte in .pos to future value fails on first postings access")]
+    public void CorruptPosVersion_FirstPostingsAccess_Throws()
     {
         var dir = new MMapDirectory(SubDir("corrupt_pos_version"));
         var config = new IndexWriterConfig
@@ -111,7 +112,8 @@ public sealed class HeaderRoundTripIntegrationTests : IClassFixture<TestDirector
         bytes[0] = 0xFF;
         File.WriteAllBytes(posFiles[0], bytes);
 
-        Assert.ThrowsAny<Exception>(() => new IndexSearcher(dir));
+        using var searcher = new IndexSearcher(dir);
+        Assert.ThrowsAny<Exception>(() => searcher.Search(new TermQuery("body", "corruption"), 10));
     }
 
     [Fact(DisplayName = "Corrupt VarInt bodyLen in .pos (truncated) → IndexSearcher throws")]

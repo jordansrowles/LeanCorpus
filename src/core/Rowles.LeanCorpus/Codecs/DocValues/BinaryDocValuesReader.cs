@@ -13,7 +13,7 @@ internal static class BinaryDocValuesReader
     public static Dictionary<string, byte[][][]> Read(string filePath)
     {
         var values = new Dictionary<string, byte[][][]>(StringComparer.Ordinal);
-        if (!File.Exists(filePath))
+        if (!FileOpenRetry.FileExists(filePath))
             return values;
 
         using var input = new IndexInput(filePath);
@@ -71,7 +71,7 @@ internal static class BinaryDocValuesReader
 
     internal static List<(string Name, IReadOnlyList<byte[]>?[] Values)> EnumerateFields(string filePath)
     {
-        if (!File.Exists(filePath))
+        if (!FileOpenRetry.FileExists(filePath))
             return new List<(string Name, IReadOnlyList<byte[]>?[] Values)>(0);
 
         using var input = new IndexInput(filePath);

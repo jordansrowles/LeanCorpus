@@ -72,7 +72,7 @@ internal sealed class SegmentStats
 
     internal static SegmentStats? TryLoadFrom(string path)
     {
-        if (!File.Exists(path))
+        if (!FileOpenRetry.FileExists(path))
             return null;
 
         try

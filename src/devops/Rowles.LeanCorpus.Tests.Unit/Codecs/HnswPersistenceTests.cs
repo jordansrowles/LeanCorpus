@@ -118,7 +118,7 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
         var loaded = HnswReader.Read(path, source);
 
         var query = vectors[0];
-        var options = new HnswSearchOptions { Ef = 50, TopK = 10 };
+        var options = new HnswTraversalOptions { Ef = 50, TopK = 10 };
 
         var origResults = built.Search(query, options).Select(r => r.DocId).ToArray();
         var loadedResults = loaded.Search(query, options).Select(r => r.DocId).ToArray();

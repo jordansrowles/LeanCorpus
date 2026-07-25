@@ -18,7 +18,7 @@ internal static class NumericDocValuesReader
         var values = new Dictionary<string, double[]>(StringComparer.Ordinal);
         var presence = new Dictionary<string, RoaringBitmap?>(StringComparer.Ordinal);
 
-        if (!File.Exists(filePath)) return (values, presence);
+        if (!FileOpenRetry.FileExists(filePath)) return (values, presence);
 
         using var input = new IndexInput(filePath);
 
@@ -105,7 +105,7 @@ internal static class NumericDocValuesReader
 
     internal static List<(string Name, double[] Values, RoaringBitmap? Presence)> EnumerateFields(string filePath)
     {
-        if (!File.Exists(filePath))
+        if (!FileOpenRetry.FileExists(filePath))
             return [];
 
         using var input = new IndexInput(filePath);

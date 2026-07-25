@@ -30,7 +30,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob]
 public class CombinedFieldsQueryBenchmarks
 {
     private const int TopN = 25;

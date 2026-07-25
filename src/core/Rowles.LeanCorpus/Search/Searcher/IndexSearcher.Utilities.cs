@@ -71,6 +71,7 @@ public sealed partial class IndexSearcher
         if (readerIndex < 0) return null;
 
         var reader = _readers[readerIndex];
+        using var segmentLease = reader.AcquireQueryLease();
         int localDocId = globalDocId - _docBases[readerIndex];
 
         if (!reader.IsLive(localDocId)) return null;
@@ -85,7 +86,7 @@ public sealed partial class IndexSearcher
 
         int tf = postings.Freq;
         int docLength = reader.GetFieldLength(localDocId, query.Field);
-        float avgDocLength = _stats.GetAvgFieldLength(query.Field);
+        float avgDocLength = Stats.GetAvgFieldLength(query.Field);
 
         // Compute global DF
         int globalDF = 0;
@@ -133,6 +134,7 @@ public sealed partial class IndexSearcher
         if (readerIndex < 0 || readerIndex >= _readers.Count) return null;
 
         var reader = _readers[readerIndex];
+        using var segmentLease = reader.AcquireQueryLease();
         int localDocId = globalDocId - _docBases[readerIndex];
 
         if (!reader.IsLive(localDocId)) return null;

@@ -1,0 +1,81 @@
+{
+  "Title": "Rowles.LeanCorpus.Benchmarks.MoreLikeThisSingleSegmentBenchmarks-20260717-001744",
+  "HostEnvironmentInfo": {
+    "BenchmarkDotNetCaption": "BenchmarkDotNet",
+    "BenchmarkDotNetVersion": "0.16.0-nightly.20260427.506",
+    "OsVersion": "Linux Debian GNU/Linux 13 (trixie)",
+    "ProcessorName": "Intel Xeon CPU E3-1220 V2 3.10GHz",
+    "PhysicalProcessorCount": 1,
+    "PhysicalCoreCount": 4,
+    "LogicalCoreCount": 4,
+    "RuntimeVersion": ".NET 10.0.3 (10.0.3, 10.0.326.7603)",
+    "Architecture": "X64",
+    "HasAttachedDebugger": false,
+    "HasRyuJit": true,
+    "Configuration": "RELEASE",
+    "DotNetCliVersion": "11.0.100-preview.1.26104.118",
+    "ChronometerFrequency": {
+      "Hertz": 1000000000
+    },
+    "HardwareTimerKind": "Unknown"
+  },
+  "Benchmarks": [
+    {
+      "DisplayInfo": "MoreLikeThisSingleSegmentBenchmarks.'LC MLT SingleSeg Scalar': DefaultJob [DocumentCount=100000]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "MoreLikeThisSingleSegmentBenchmarks",
+      "Method": "LeanCorpus_MoreLikeThisQuery_Scalar",
+      "MethodTitle": "'LC MLT SingleSeg Scalar'",
+      "Parameters": "DocumentCount=100000",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.MoreLikeThisSingleSegmentBenchmarks.LeanCorpus_MoreLikeThisQuery_Scalar(DocumentCount: 100000)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": null,
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 0,
+        "BytesAllocatedPerOperation": null
+      },
+      "Measurements": []
+    },
+    {
+      "DisplayInfo": "MoreLikeThisSingleSegmentBenchmarks.'LC MLT SingleSeg WAND': DefaultJob [DocumentCount=100000]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "MoreLikeThisSingleSegmentBenchmarks",
+      "Method": "LeanCorpus_MoreLikeThisQuery_Wand",
+      "MethodTitle": "'LC MLT SingleSeg WAND'",
+      "Parameters": "DocumentCount=100000",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.MoreLikeThisSingleSegmentBenchmarks.LeanCorpus_MoreLikeThisQuery_Wand(DocumentCount: 100000)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": null,
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 0,
+        "BytesAllocatedPerOperation": null
+      },
+      "Measurements": []
+    },
+    {
+      "DisplayInfo": "MoreLikeThisSingleSegmentBenchmarks.'Lucene.NET MLT SingleSeg': DefaultJob [DocumentCount=100000]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "MoreLikeThisSingleSegmentBenchmarks",
+      "Method": "LuceneNet_MoreLikeThisQuery",
+      "MethodTitle": "'Lucene.NET MLT SingleSeg'",
+      "Parameters": "DocumentCount=100000",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.MoreLikeThisSingleSegmentBenchmarks.LuceneNet_MoreLikeThisQuery(DocumentCount: 100000)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": null,
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 0,
+        "BytesAllocatedPerOperation": null
+      },
+      "Measurements": []
+    }
+  ]
+}

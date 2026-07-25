@@ -32,11 +32,13 @@ public sealed partial class IndexWriter
                     break;
                 case StringField sf:
                     TrackFieldBoost(sf.Name, localDocId, sf.Boost);
-                    IndexStringField(sf.Name, sf.Value, localDocId, sf.StoreDocValues);
+                    IndexStringField(sf.Name, sf.Value, localDocId, sf.DocValues);
                     if (sf.IsStored)
                     {
-                        AppendStoredField(sf.Name, StoredFieldValue.FromString(sf.Value), storeDocValues: sf.StoreDocValues);
+                        AppendStoredField(sf.Name, StoredFieldValue.FromString(sf.Value), storeDocValues: false);
                     }
+                    if ((sf.DocValues & StringDocValues.Binary) != 0)
+                        AddBinaryDocValue(sf.Name, localDocId, sf.Value);
                     break;
                 case NumericField nf:
                     TrackFieldBoost(nf.Name, localDocId, nf.Boost);
@@ -152,7 +154,7 @@ public sealed partial class IndexWriter
         counts[docId] += tokenCount;
     }
 
-    private void IndexStringField(string fieldName, string value, int docId, bool storeDocValues = true)
+    private void IndexStringField(string fieldName, string value, int docId, StringDocValues docValues)
     {
         Buffer.FieldNames.Add(fieldName);
         var term = Buffer.CanonicaliseTerm(value);
@@ -164,7 +166,7 @@ public sealed partial class IndexWriter
         acc.AddDocOnly(docId);
         Buffer.PostingsRamBytes += acc.EstimatedBytes - before;
 
-        if (storeDocValues)
+        if ((docValues & StringDocValues.Sorted) != 0)
         {
             if (!Buffer.SortedDocValues.TryGetValue(fieldName, out var dvList))
             {
@@ -174,8 +176,10 @@ public sealed partial class IndexWriter
             while (dvList.Count <= docId) dvList.Add(null);
             dvList[docId] = value;
 
-            AddSortedSetDocValue(fieldName, docId, value);
         }
+
+        if ((docValues & StringDocValues.SortedSet) != 0)
+            AddSortedSetDocValue(fieldName, docId, value);
     }
 
     private void IndexNumericField(string fieldName, double value, int docId, bool storeDocValues = true)

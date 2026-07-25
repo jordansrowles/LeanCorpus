@@ -3,9 +3,9 @@ using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Index.Segment;
 
 /// <summary>
-/// Postings-related methods for SegmentReader.
+/// Postings-related methods for SegmentReaderState.
 /// </summary>
-public sealed partial class SegmentReader
+internal sealed partial class SegmentReaderState
 {
     /// <summary>
     /// Returns a PostingsEnum cursor for the given qualified term (field\0term).
@@ -16,7 +16,7 @@ public sealed partial class SegmentReader
         if (!TryGetCachedOffset(qualifiedTerm, out long offset))
             return PostingsEnum.Empty;
 
-        return PostingsEnum.Create(_posInput, offset);
+        return PostingsEnum.Create(PostingsInput, offset);
     }
 
     /// <summary>
@@ -24,7 +24,7 @@ public sealed partial class SegmentReader
     /// Use when the offset was already obtained from a term scan (e.g. prefix/wildcard).
     /// </summary>
     public PostingsEnum GetPostingsEnumAtOffset(long offset)
-        => PostingsEnum.Create(_posInput, offset);
+        => PostingsEnum.Create(PostingsInput, offset);
 
     /// <summary>
     /// Returns a PostingsEnum with decoded positions for phrase queries.
@@ -34,14 +34,14 @@ public sealed partial class SegmentReader
         if (!TryGetCachedOffset(qualifiedTerm, out long offset))
             return PostingsEnum.Empty;
 
-        return PostingsEnum.CreateWithPositions(_posInput, offset);
+        return PostingsEnum.CreateWithPositions(PostingsInput, offset);
     }
 
     /// <summary>Returns positional data for a term in a specific document, or null if unavailable.</summary>
     public int[]? GetPositions(string field, string term, int docId)
     {
         var qualifiedTerm = GetQualifiedTerm(field, term);
-        if (!_dicReader.TryGetPostingsOffset(qualifiedTerm, out long offset))
+        if (!DictionaryReader.TryGetPostingsOffset(qualifiedTerm, out long offset))
             return null;
 
         return ReadPositionsAtOffset(offset, docId);
@@ -69,7 +69,7 @@ public sealed partial class SegmentReader
     public int GetTermFrequency(string field, string term, int docId)
     {
         var qualifiedTerm = GetQualifiedTerm(field, term);
-        if (!_dicReader.TryGetPostingsOffset(qualifiedTerm, out long offset))
+        if (!DictionaryReader.TryGetPostingsOffset(qualifiedTerm, out long offset))
             return 0;
 
         return ReadTermFrequency(offset, docId);
@@ -80,7 +80,7 @@ public sealed partial class SegmentReader
     /// </summary>
     internal int GetTermFrequency(string qualifiedTerm, int docId)
     {
-        if (!_dicReader.TryGetPostingsOffset(qualifiedTerm, out long offset))
+        if (!DictionaryReader.TryGetPostingsOffset(qualifiedTerm, out long offset))
             return 0;
 
         return ReadTermFrequency(offset, docId);
@@ -88,7 +88,7 @@ public sealed partial class SegmentReader
 
     private int[] ReadPostingsAtOffset(long offset)
     {
-        using var pe = PostingsEnum.Create(_posInput, offset);
+        using var pe = PostingsEnum.Create(PostingsInput, offset);
         var ids = new int[pe.DocFreq];
         int i = 0;
         while (pe.MoveNext()) ids[i++] = pe.DocId;
@@ -97,7 +97,7 @@ public sealed partial class SegmentReader
 
     private int ReadTermFrequency(long offset, int targetDocId)
     {
-        using var pe = PostingsEnum.Create(_posInput, offset);
+        using var pe = PostingsEnum.Create(PostingsInput, offset);
         while (pe.MoveNext())
         {
             if (pe.DocId == targetDocId) return pe.Freq;
@@ -108,7 +108,7 @@ public sealed partial class SegmentReader
 
     private int[]? ReadPositionsAtOffset(long offset, int docId)
     {
-        using var pe = PostingsEnum.CreateWithPositions(_posInput, offset);
+        using var pe = PostingsEnum.CreateWithPositions(PostingsInput, offset);
         while (pe.MoveNext())
         {
             if (pe.DocId == docId)

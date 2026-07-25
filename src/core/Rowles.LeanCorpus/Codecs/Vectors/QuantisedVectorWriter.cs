@@ -126,7 +126,7 @@ internal static class QuantisedVectorWriter
         foreach (var packed in packedDocs)
             bodyBuf.WriteBytes(packed, 0, packed.Length);
 
-        using var output = new IndexOutput(filePath, durable: true);
+        using var output = new IndexOutput(filePath);
         CodecFileHeader.Write(output, CodecFormats.QuantisedVectors, bodyBuf.WrittenSpan);
     }
 
@@ -215,7 +215,7 @@ internal static class QuantisedVectorWriter
         foreach (var packed in packedDocs)
             bodyBuf.WriteBytes(packed, 0, packed.Length);
 
-        using var output = new IndexOutput(filePath, durable: true);
+        using var output = new IndexOutput(filePath);
         CodecFileHeader.Write(output, CodecFormats.QuantisedVectors, bodyBuf.WrittenSpan);
     }
 }

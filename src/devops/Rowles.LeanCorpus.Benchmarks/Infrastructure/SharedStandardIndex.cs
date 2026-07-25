@@ -21,16 +21,22 @@ namespace Rowles.LeanCorpus.Benchmarks;
 ///
 /// Suites that use the identical <c>id</c> + <c>body</c> schema (TermQuery,
 /// BooleanQuery, PhraseQuery, PrefixQuery, FuzzyQuery, WildcardQuery, RegexpQuery,
-/// DisjunctionMaxQuery, MultiPhraseQuery, SpanQuery) consume this singleton instead
-/// of each building their own index in [GlobalSetup].
+/// DisjunctionMaxQuery, MultiPhraseQuery, SpanQuery, TermInSetQuery, QueryCache,
+/// SearcherManager, and Similarity) consume this fixture instead of each building
+/// their own index in [GlobalSetup].
 ///
-/// Both LeanCorpus and Lucene.NET indices are built once and reused across all
-/// standard-search suites.
+/// The runner builds the LeanCorpus and Lucene.NET indices once. BenchmarkDotNet
+/// child processes then open the immutable fixture paths read-only.
 /// </summary>
 internal static class SharedStandardIndex
 {
+    private const string PreparedDocCountVariable = "BENCH_STANDARD_INDEX_DOC_COUNT";
+    private const string PreparedLeanPathVariable = "BENCH_STANDARD_LEAN_INDEX";
+    private const string PreparedLucenePathVariable = "BENCH_STANDARD_LUCENE_INDEX";
+
     private static readonly Lock Gate = new();
     private static bool _initialised;
+    private static bool _ownsIndexDirectories;
     private static int _docCount;
 
     /// <summary>Cached document bodies, shared across all standard-search suites.</summary>
@@ -61,6 +67,20 @@ internal static class SharedStandardIndex
     public static bool IsInitialised => _initialised;
 
     /// <summary>
+    /// Builds the standard fixture in the benchmark runner and exposes its paths
+    /// to BenchmarkDotNet child processes.
+    /// </summary>
+    public static void PrepareForRun(int docCount)
+    {
+        EnsureInitialised(docCount);
+        Environment.SetEnvironmentVariable(
+            PreparedDocCountVariable,
+            docCount.ToString(CultureInfo.InvariantCulture));
+        Environment.SetEnvironmentVariable(PreparedLeanPathVariable, _leanIndexPath);
+        Environment.SetEnvironmentVariable(PreparedLucenePathVariable, _luceneIndexPath);
+    }
+
+    /// <summary>
     /// Ensure the shared standard index is built for <paramref name="docCount"/> documents.
     /// Safe to call from multiple [GlobalSetup] methods — only the first call does work.
     /// </summary>
@@ -79,6 +99,14 @@ internal static class SharedStandardIndex
                 Teardown();
 
             _docCount = docCount;
+
+            if (TryOpenPreparedFixture(docCount))
+            {
+                _initialised = true;
+                return;
+            }
+
+            _ownsIndexDirectories = true;
             _documents = BenchmarkData.BuildDocuments(docCount);
 
             // ── LeanCorpus index ──
@@ -156,12 +184,42 @@ internal static class SharedStandardIndex
         }
     }
 
+    private static bool TryOpenPreparedFixture(int docCount)
+    {
+        var preparedCount = Environment.GetEnvironmentVariable(PreparedDocCountVariable);
+        var leanPath = Environment.GetEnvironmentVariable(PreparedLeanPathVariable);
+        var lucenePath = Environment.GetEnvironmentVariable(PreparedLucenePathVariable);
+
+        if (!int.TryParse(preparedCount, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count)
+            || count != docCount
+            || string.IsNullOrWhiteSpace(leanPath)
+            || string.IsNullOrWhiteSpace(lucenePath)
+            || !Directory.Exists(leanPath)
+            || !Directory.Exists(lucenePath))
+        {
+            return false;
+        }
+
+        _leanIndexPath = leanPath;
+        _leanDirectory = new LeanMMapDirectory(_leanIndexPath);
+        _leanSearcher = new LeanIndexSearcher(_leanDirectory);
+
+        _luceneIndexPath = lucenePath;
+        _luceneDirectory = new LuceneMMapDirectory(new DirectoryInfo(_luceneIndexPath));
+        _luceneReader = DirectoryReader.Open(_luceneDirectory);
+        _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
+        _ownsIndexDirectories = false;
+        return true;
+    }
+
     /// <summary>Documents used to build the shared index.</summary>
     public static string[] Documents
     {
         get
         {
             EnsureInitialised(ResolveDocCount());
+            if (_documents.Length == 0)
+                _documents = BenchmarkData.BuildDocuments(_docCount);
             return _documents;
         }
     }
@@ -218,6 +276,16 @@ internal static class SharedStandardIndex
     }
 
     /// <summary>
+    /// Creates a fresh Lucene.NET directory pointing at the shared index path.
+    /// The caller owns the returned directory.
+    /// </summary>
+    public static LuceneMMapDirectory CreateLuceneDirectory()
+    {
+        EnsureInitialised(ResolveDocCount());
+        return new LuceneMMapDirectory(new DirectoryInfo(_luceneIndexPath));
+    }
+
+    /// <summary>
     /// Release all shared resources and delete temp index directories.
     /// Called at the end of the benchmark run.
     /// </summary>
@@ -234,8 +302,10 @@ internal static class SharedStandardIndex
         // LeanCorpus
         _leanSearcher?.Dispose();
         _leanSearcher = null;
+        _leanDirectory?.Dispose();
         _leanDirectory = null;
-        BenchmarkHelpers.DeleteDirectory(_leanIndexPath);
+        if (_ownsIndexDirectories)
+            BenchmarkHelpers.DeleteDirectory(_leanIndexPath);
         _leanIndexPath = string.Empty;
 
         // Lucene.NET
@@ -246,11 +316,13 @@ internal static class SharedStandardIndex
         _luceneAnalyzer = null;
         _luceneDirectory?.Dispose();
         _luceneDirectory = null;
-        BenchmarkHelpers.DeleteDirectory(_luceneIndexPath);
+        if (_ownsIndexDirectories)
+            BenchmarkHelpers.DeleteDirectory(_luceneIndexPath);
         _luceneIndexPath = string.Empty;
 
         _documents = [];
         _docCount = 0;
+        _ownsIndexDirectories = false;
         _initialised = false;
     }
 

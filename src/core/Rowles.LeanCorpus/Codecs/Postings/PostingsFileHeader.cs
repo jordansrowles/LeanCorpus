@@ -8,12 +8,14 @@ namespace Rowles.LeanCorpus.Codecs.Postings;
 /// v1 used the CodecKit envelope: [version:byte][VarInt64 bodyLen][body].
 /// v2 streams directly: [version:byte][body] (ADR008 custom header).
 /// v3 uses the CodecKit trailer: [version:byte][body][bodyLen:int64].
+/// v4 keeps the trailer and stores each term's metadata after its posting body.
 /// </summary>
 internal static class PostingsFileHeader
 {
     internal const byte V1 = 1;
     internal const byte V2 = 2;
     internal const byte V3 = 3;
+    internal const byte V4 = 4;
 
     /// <summary>
     /// Reads the version byte and skips any v1-only VarInt64 length prefix.

@@ -84,23 +84,17 @@ public sealed class PayloadRoundTripTests : IDisposable
         using var _scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.PostingsVersion);
 
         using var bw = new BlockPostingsWriter(output);
-        long headerPos = output.Position;
-        output.WriteInt32(0);     // docFreq placeholder
-        output.WriteInt64(0L);    // skipOffset placeholder
-        output.WriteBoolean(true);  // hasFreqs
-        output.WriteBoolean(false); // hasPositions
-        output.WriteBoolean(false); // hasPayloads
-
+        long bodyOffset = output.Position;
         bw.StartTerm();
         for (int i = 0; i < docIds.Length; i++)
             bw.AddPosting(docIds[i], freqs[i]);
         var meta = bw.FinishTerm();
-        long endPos = output.Position;
-        output.Seek(headerPos);
+        termOffset = output.Position;
+        output.WriteInt64(bodyOffset);
         output.WriteInt32(meta.DocFreq);
         output.WriteInt64(meta.SkipOffset);
-        output.Seek(endPos);
-
-        termOffset = headerPos; // v2: offset is absolute, no envelope
+        output.WriteBoolean(true);
+        output.WriteBoolean(false);
+        output.WriteBoolean(false);
     }
 }

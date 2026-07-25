@@ -11,7 +11,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 /// </summary>
 [MemoryDiagnoser]
 [MarkdownExporterAttribute.GitHub]
-[SimpleJob]
 public class PackedIntCodecBenchmarks
 {
     [Params(3, 5, 7, 9, 11)]

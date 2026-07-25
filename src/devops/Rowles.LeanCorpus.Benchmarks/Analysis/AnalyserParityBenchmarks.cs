@@ -16,7 +16,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [HtmlExporter]
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
-[SimpleJob]
 public class AnalyserParityBenchmarks
 {
     private const string Sample = "The QUICK brown-fox jumps over ID-123 and punctuation!";

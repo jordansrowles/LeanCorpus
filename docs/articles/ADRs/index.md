@@ -12,6 +12,16 @@
 | ADR008 | 2026-07-09 | Deprecated | [Streaming codec formats bypass the CodecKit envelope](ADR008-stored-fields-v2-streaming.md) |
 | ADR009 | 2026-07-11 | Accepted | [CodecKit trailer format replaces ADR008 custom headers](ADR009-codeckit-trailer-streaming.md) |
 | ADR010 | 2026-07-14 | Accepted | [IndexOutput must be disposed before File.Move on Windows](ADR010-close-before-rename-migration.md) |
+| ADR011 | 2026-07-21 | Accepted | [Lazy segment readers use bounded leases and process-wide file lifetimes](ADR011-lazy-segment-reader-lifetimes.md) |
+| ADR012 | 2026-07-24 | Accepted | [Parallel segment search is opt-in](ADR012-parallel-search-opt-in.md) |
 ## Template
 
 New ADRs should follow [the template](_template.md) using the next available `ADRnnn` prefix.
+
+## Reasons for an ADR
+If at any point during work an ADR is deserved, create one. But only if the reason fulfills ones of these:
+- Is costly to reverse
+- Trade-off heavy (there were real alternatives, each with pros/cons, and you picked one over another for specific reasons)
+- Cross-cutting (it constrains how other parts of the system get built)
+- Non-obvious solutions
+- Major changes in any of the following areas: index structure, storage formats, analyser/tokeniser pipeline desings, concurrency and consistency model, segment merging, scoring/ranking, query parsing, low-level designs

@@ -13,7 +13,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [HtmlExporter]
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
-[SimpleJob]
 public class GutenbergAnalysisBenchmarks
 {
     private (string Title, string Text)[] _books = [];

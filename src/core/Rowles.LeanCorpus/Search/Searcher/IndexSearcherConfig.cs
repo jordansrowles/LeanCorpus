@@ -17,9 +17,9 @@ public sealed class IndexSearcherConfig
 
     /// <summary>
     /// Whether to use parallel segment search when multiple segments exist.
-    /// Disable for deterministic ordering or low-latency single-segment workloads. Default: true.
+    /// Disable for deterministic ordering and low-latency small-segment workloads. Default: false.
     /// </summary>
-    public bool ParallelSearch { get; set; } = true;
+    public bool ParallelSearch { get; set; }
 
     /// <summary>
     /// Maximum degree of parallelism for multi-segment search.
@@ -37,6 +37,12 @@ public sealed class IndexSearcherConfig
     /// Maximum number of entries in the query result cache. Default: 1024.
     /// </summary>
     public int QueryCacheMaxEntries { get; set; } = 1024;
+
+    /// <summary>
+    /// Maximum number of heavy segment-reader states retained by this searcher.
+    /// Active states are protected from eviction. Default: 256.
+    /// </summary>
+    public int MaxCachedSegmentReaders { get; set; } = 256;
 
     /// <summary>
     /// Optional shared query cache. When set, <see cref="IndexSearcher"/> uses this

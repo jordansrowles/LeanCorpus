@@ -253,7 +253,7 @@ public sealed class SegmentMerger
             MaxSequenceNumber = ComputeMergedMaxSeqNo(segments),
             EarliestSoftDeleteTimestamp = ComputeMergedEarliestSoftDeleteTimestamp(segments),
         };
-        mergedInfo.WriteTo(basePath + ".seg");
+        SegmentFlusher.RefreshSegmentSize(mergedInfo, _directory.DirectoryPath);
         return mergedInfo;
     }
 

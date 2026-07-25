@@ -21,7 +21,7 @@ internal sealed class TermVectorsStreamWriter : IDisposable
     {
         _tvdPath = tvdPath;
         _tvxPath = tvxPath;
-        _tvdOutput = new IndexOutput(tvdPath, durable: true);
+        _tvdOutput = new IndexOutput(tvdPath);
         _tvdScope = CodecFileHeader.BeginStreamingWrite(_tvdOutput, CodecConstants.TermVectorsVersion);
         _offsets = new List<long>();
     }
@@ -63,7 +63,7 @@ internal sealed class TermVectorsStreamWriter : IDisposable
         _tvdOutput.Dispose();
 
         // Write .tvx offset index via streaming scope.
-        using var tvxOutput = new IndexOutput(_tvxPath, durable: true);
+        using var tvxOutput = new IndexOutput(_tvxPath);
         using var tvxScope = CodecFileHeader.BeginStreamingWrite(tvxOutput, CodecConstants.TermVectorsVersion);
         tvxScope.Output.WriteInt32(_offsets.Count);
         foreach (var off in _offsets)

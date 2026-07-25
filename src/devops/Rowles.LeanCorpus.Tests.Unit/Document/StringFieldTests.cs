@@ -40,4 +40,24 @@ public sealed class StringFieldTests
         Assert.Equal("books", f.Value);
         Assert.True(f.IsStored);
     }
+
+    [Fact(DisplayName = "StringField: Explicit DocValues Preserves Selection")]
+    public void ExplicitDocValues_PreservesSelection()
+    {
+        var field = new StringField("tag", "value", stored: false, boost: 1.0f,
+            StringDocValues.Sorted);
+
+        Assert.Equal(StringDocValues.Sorted, field.DocValues);
+        Assert.True(field.StoreDocValues);
+    }
+
+    [Fact(DisplayName = "StringField: Legacy DocValues True Preserves All Representations")]
+    public void LegacyDocValuesTrue_PreservesAllRepresentations()
+    {
+        var field = new StringField("tag", "value", stored: false, boost: 1.0f,
+            storeDocValues: true);
+
+        Assert.Equal(StringDocValues.Sorted | StringDocValues.SortedSet | StringDocValues.Binary,
+            field.DocValues);
+    }
 }

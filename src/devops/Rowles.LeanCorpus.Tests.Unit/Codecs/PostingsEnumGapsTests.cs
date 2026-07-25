@@ -76,6 +76,30 @@ public sealed class PostingsEnumGapsTests : IDisposable
         }
     }
 
+    [Fact(DisplayName = "PostingsEnum: Combined MoveNext Returns DocIds And Frequencies")]
+    public void Create_CombinedMoveNext_ReturnsDocIdsAndFrequencies()
+    {
+        var (path, offset) = WriteCurrentFormatPostings();
+        using var input = new IndexInput(path);
+        using var pe = PostingsEnum.Create(input, offset);
+
+        Assert.True(pe.MoveNext(out int firstDocId, out int firstFrequency));
+        Assert.Equal(2, firstDocId);
+        Assert.Equal(1, firstFrequency);
+
+        Assert.True(pe.MoveNext(out int secondDocId, out int secondFrequency));
+        Assert.Equal(5, secondDocId);
+        Assert.Equal(2, secondFrequency);
+
+        Assert.True(pe.MoveNext(out int thirdDocId, out int thirdFrequency));
+        Assert.Equal(9, thirdDocId);
+        Assert.Equal(3, thirdFrequency);
+
+        Assert.False(pe.MoveNext(out int exhaustedDocId, out int exhaustedFrequency));
+        Assert.Equal(-1, exhaustedDocId);
+        Assert.Equal(1, exhaustedFrequency);
+    }
+
     [Fact(DisplayName = "PostingsEnum: Create Advance Seeks To Target DocId")]
     public void Create_Advance_SeeksToTargetDocId()
     {
@@ -123,6 +147,27 @@ public sealed class PostingsEnumGapsTests : IDisposable
         }
     }
 
+    [Fact(DisplayName = "PostingsEnum: Disposing One Copy Invalidates Every Copy Exactly Once")]
+    public void Dispose_Copy_InvalidatesEveryCopy()
+    {
+        var (path, offset) = WriteCurrentFormatPostings();
+        using var input = new IndexInput(path);
+        var original = PostingsEnum.CreateWithPositions(input, offset);
+        var copy = original;
+
+        original.Dispose();
+
+        Assert.Equal(-1, copy.DocId);
+        Assert.Equal(1, copy.Freq);
+        Assert.False(copy.Advance(2));
+        copy.Reset();
+        Assert.True(copy.GetPayload(0).IsEmpty);
+        Assert.Throws<ObjectDisposedException>(() => copy.MoveNext());
+        Assert.Throws<ObjectDisposedException>(() => copy.MoveNext(out _, out _));
+
+        copy.Dispose();
+    }
+
     private (string Path, long Offset) WriteCurrentFormatPostings()
     {
         var path = Path.Combine(_dir, Guid.NewGuid().ToString("N") + ".pos");
@@ -132,30 +177,23 @@ public sealed class PostingsEnumGapsTests : IDisposable
         {
             using var _scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.PostingsVersion);
 
-            long headerPos = output.Position;
-            output.WriteInt32(0);             // docFreq placeholder
-            output.WriteInt64(0L);             // skipOffset placeholder
-            output.WriteBoolean(true);         // hasFreqs
-            output.WriteBoolean(false);        // hasPositions
-            output.WriteBoolean(false);        // hasPayloads
-
+            long bodyOffset = output.Position;
             using var blockWriter = new BlockPostingsWriter(output);
             blockWriter.StartTerm();
             blockWriter.AddPosting(2, 1);
             blockWriter.AddPosting(5, 2);
             blockWriter.AddPosting(9, 3);
             var meta = blockWriter.FinishTerm();
-            long endPos = output.Position;
-            output.Seek(headerPos);
+            offset = output.Position;
+            output.WriteInt64(bodyOffset);
             output.WriteInt32(meta.DocFreq);
             output.WriteInt64(meta.SkipOffset);
-            output.Seek(endPos);
-
-            offset = headerPos; // v2: offset is absolute file position, no envelope to account for
+            output.WriteBoolean(true);
+            output.WriteBoolean(false);
+            output.WriteBoolean(false);
         }
 
         return (path, offset);
     }
 
-    // VarIntSize removed — v2 postings format no longer needs envelope offset computation.
 }

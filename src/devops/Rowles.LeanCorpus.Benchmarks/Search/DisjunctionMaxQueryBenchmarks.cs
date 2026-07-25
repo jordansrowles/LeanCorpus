@@ -13,7 +13,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[SimpleJob]
 public class DisjunctionMaxQueryBenchmarks
 {
     private const int TopN = 25;

@@ -45,6 +45,7 @@ public sealed class SlowQueryLogTests : IClassFixture<TestDirectoryFixture>
 
         // Act
         searcher.Search(new TermQuery("body", "hello"), 10);
+        log.Dispose(); // drain the async writer
 
         // Assert
         var output = sw.ToString();
