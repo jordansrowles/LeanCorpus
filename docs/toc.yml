@@ -1,14 +1,54 @@
 - name: Home
   href: index.md
-- name: Tutorials
-  href: tutorials/
-  homepage: tutorials/index.md
-- name: Articles
-  href: articles/
-  homepage: articles/index.md
-- name: API
-  href: api/index.md
-- name: Benchmarks
-  href: benchmarks/
-- name: Coverage
-  href: coverage/index.html
+- name: Getting Started
+  href: getting-started/
+  homepage: getting-started/index.md
+- name: Architecture
+  href: architecture.md
+- name: Why LeanCorpus?
+  href: why-leancorpus.md
+- name: Performance
+  href: performance.md
+- name: Guides
+  items:
+    - name: Analysis
+      href: analysis/
+      homepage: analysis/index.md
+    - name: Searching
+      href: searching/
+      homepage: searching/index.md
+    - name: Advanced
+      href: advanced/
+      homepage: advanced/index.md
+    - name: Concurrency
+      href: concurrency/
+      homepage: concurrency/index.md
+    - name: Index Management
+      href: index-management/
+      homepage: index-management/index.md
+    - name: Observability
+      href: observability/
+      homepage: observability/index.md
+    - name: Tips & How-to
+      href: tips/
+      homepage: tips/01-compression.md
+    - name: CodecKit
+      href: codeckit/
+      homepage: codeckit/index.md
+    - name: Migration from Lucene.Net
+      href: migration.md
+- name: Reference
+  items:
+    - name: API
+      href: api/index.md
+    - name: Feature Parity
+      href: articles/vs-lucene.md
+    - name: ADRs
+      href: articles/ADRs/index.md
+    - name: Changelog
+      href: changelog/
+      homepage: changelog/index.md
+    - name: Benchmarks
+      href: benchmarks/
+    - name: Coverage
+      href: coverage/index.html

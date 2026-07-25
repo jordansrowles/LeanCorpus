@@ -1,0 +1,14 @@
+- name: Update and delete
+  href: 01-update-and-delete.md
+- name: Schema validation
+  href: 02-schema.md
+- name: Validation and recovery
+  href: 03-validation-recovery.md
+- name: Index checker CLI
+  href: 04-cli-checker.md
+- name: Stored round-tripping
+  href: 05-stored-round-tripping.md
+- name: Async indexing
+  href: 06-async-indexing.md
+- name: DocValues
+  href: 07-docvalues.md

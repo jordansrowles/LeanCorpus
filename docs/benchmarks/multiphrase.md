@@ -1,0 +1,21 @@
+---
+title: Benchmarks - Multi-phrase
+---
+
+# Multi-phrase
+
+**.NET** 10.0.3 &nbsp;&middot;&nbsp; **Commit** `e3f1d25` &nbsp;&middot;&nbsp; 25 July 2026 07:36 UTC &nbsp;&middot;&nbsp; 100,000 docs
+
+| Method                      | DocumentCount | Mean     | Error     | StdDev    | Ratio | Gen0    | Gen1   | Allocated | Alloc Ratio |
+|---------------------------- |-------------- |---------:|----------:|----------:|------:|--------:|-------:|----------:|------------:|
+| LeanCorpus_MultiPhraseQuery | 100000        | 1.083 ms | 0.0013 ms | 0.0012 ms |  1.00 | 17.5781 |      - |  78.84 KB |        1.00 |
+| LuceneNet_MultiPhraseQuery  | 100000        | 1.108 ms | 0.0028 ms | 0.0025 ms |  1.02 | 87.8906 | 1.9531 | 371.22 KB |        4.71 |
+
+<div class="benchmark-chart">
+<p style="margin-bottom:4px"><label>Time scale: <select id="chart-scale-multiphrase"><option value="log2" selected>Log2</option><option value="log10">Log10</option><option value="linear">Linear</option></select></label> <label>Width: <input type="range" id="chart-width-multiphrase" min="400" max="1400" value="960" step="20" style="vertical-align:middle"></label> <label>Height: <input type="range" id="chart-height-multiphrase" min="200" max="900" value="500" step="20" style="vertical-align:middle"></label></p>
+<div id="chart-wrap-multiphrase" style="max-width:960px"><canvas id="chart-bench-multiphrase" style="height:500px"></canvas></div>
+<p><a href="multiphrase.json">Full results as JSON</a></p>
+</div>
+<script src="benchmark-charts.js"></script>
+
+

@@ -1,56 +1,159 @@
-﻿---
+---
 _layout: landing
 ---
-# Rowles.LeanCorpus
 
-[![Build](https://github.com/jordansrowles/LeanCorpus/actions/workflows/build.yml/badge.svg)](https://github.com/jordansrowles/LeanCorpus/actions/workflows/build.yml) ![AOT Compatible](https://img.shields.io/badge/AOT%20Compatible-8A2BE2) [![Docs](https://img.shields.io/badge/Docs-blue)](https://leancorpus.com) [![Docs](https://img.shields.io/badge/Changelog-blue)](https://github.com/jordansrowles/LeanCorpus/blob/main/CHANGELOG.md)
+# LeanCorpus
 
-A .NET-native full-text search engine. Segment-centric indexing, memory-mapped reads, and atomic commit semantics. Targets `net10.0` and `net11.0`. The core library has no external dependencies; stored-field compression uses BCL types only. Optional extension packages add LZ4, Snappy, and Zstandard support.
+**A fast, embeddable full-text search engine for modern .NET. Zero dependencies, AOT-ready, segment-centric design.**
 
-Inspired by Apache Lucene.
+```bash
+dotnet add package LeanCorpus
+```
 
-## Projects
+## Five-minute quick start
 
-All projects target .NET 10, and .NET 11. Versions < 10 are not supported. (`LeanCorpus.SourceGen` is a .NET Standard library, for obvious reasons though).
+```csharp
+using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Search.Queries;
+using Rowles.LeanCorpus.Search.Searcher;
+using Rowles.LeanCorpus.Store;
 
-### Core library
-- ![NuGet Version](https://img.shields.io/nuget/v/LeanCorpus?style=flat&label=LeanCorpus&link=https%3A%2F%2Fwww.nuget.org%2Fpackages%2FLeanLucene%2F)
-  - 0 dependencies, AOT compatible, includes LINQ, default compressors (Deflate or Brotli)
+// Create an index
+using var dir = new MMapDirectory("./my-index");
+using var writer = new IndexWriter(dir, new IndexWriterConfig());
 
-### Optional libraries
-- ![NuGet Version](https://img.shields.io/nuget/v/LeanCorpus.SourceGen?style=flat&label=LeanCorpus.SourceGen&link=https%3A%2F%2Fwww.nuget.org%2Fpackages%2FLeanCorpus.SourceGen%2F) Typed mapping source generator
-- ![NuGet Version](https://img.shields.io/nuget/v/LeanCorpus.Compression.Zstandard?style=flat&label=LeanCorpus.Compression.Zstandard&link=https%3A%2F%2Fwww.nuget.org%2Fpackages%2FLeanCorpus.Compression.Zstandard%2F) Zstandard stored field compression
-- ![NuGet Version](https://img.shields.io/nuget/v/LeanCorpus.Compression.LZ4?style=flat&label=LeanCorpus.Compression.LZ4&link=https%3A%2F%2Fwww.nuget.org%2Fpackages%2FLeanCorpus.Compression.LZ4) LZ4 stored field compression
-- ![NuGet Version](https://img.shields.io/nuget/v/LeanCorpus.Compression.Snappy?style=flat&label=LeanCorpus.Compression.Snappy&link=https%3A%2F%2Fwww.nuget.org%2Fpackages%2FLeanCorpus.Compression.Snappy) Snappy stored field compression
+// Add documents
+var doc = new LeanDocument();
+doc.Add(new TextField("title", "The quick brown fox"));
+doc.Add(new StringField("id", "1"));
+writer.AddDocument(doc);
+writer.Commit();
 
-## Native AOT
+// Search
+using var searcher = new IndexSearcher(dir);
+var hits = searcher.Search(new TermQuery("title", "fox"), topN: 10);
 
-`Rowles.LeanCorpus` is marked AOT-compatible for `net10.0` and `net11.0`. The core library avoids reflection-based JSON metadata and is validated by a dedicated xUnit smoke executable (which can be ran with `.\scripts\aot-smoke.ps1`) rather than the ASP.NET JSON API example.
+foreach (var hit in hits.ScoreDocs)
+    Console.WriteLine($"docId={hit.DocId}  score={hit.Score:F3}");
+```
 
-This publishes `src\examples\Rowles.LeanCorpus.Example.NativeAot\Rowles.LeanCorpus.Example.NativeAot.csproj` for `win-x64` with `PublishAot=true`, then runs the native executable. The smoke executable several different bits of the library that may have proved some difficulty.
+## Why LeanCorpus
 
-**A note if you're using on of the optional compression libraries, and are using native AOT:**
-The core library has no native sidecar dependencies for compression. Optional packages (`Rowles.LeanCorpus.Compression.LZ4`, `Rowles.LeanCorpus.Compression.Snappy`, `Rowles.LeanCorpus.Compression.Zstandard`) may include RID-specific native binaries; AOT consumers using those packages must call their respective `Register()` methods at startup.
+| | |
+|---|---|
+| **Zero allocations in the hot path** | Ref-struct token pipeline. No per-token heap allocation during analysis or scoring. |
+| **Modern scoring** | BM25 (default), BM25+, BM25L, TF-IDF, Dirichlet, Jelinek-Mercer, and SIMD-accelerated cosine. Block-Max WAND for sublinear top-k. |
+| **Vector search built in** | HNSW graphs with pre/post-filtering and BBQ quantisation (32x compression). Not a plugin. |
+| **Native AOT** | Trim-safe, publish-ready with `PublishAot`. Validated by a dedicated smoke-test suite. |
+| **LINQ queries** | `IQueryable<T>` provider translates expression trees to LeanCorpus queries. |
+| **Observability built in** | OpenTelemetry tracing and metrics, slow-query log, Aspire dashboard integration. |
+| **Competitive performance** | Benchmarks against Lucene.Net 4.8 on 100k-document corpora. Up to 63x faster highlighting, 33x faster geo-distance queries, with 10x to 100x less allocation. |
 
-> [!IMPORTANT]
-> While LeanLucene is AOT capable, it does not support (and does not intend to support) Blazor WASM. LeanLucene (and the other segment-centric engines) require use of the OS's filesystem to achieve its performance. It would be too much work (and a project itself) to support a dual approach with a filesystem, and the browsers limited storage. 
-> 
-> Blazor Server/Hybrid remains supported (naturally), as long as the indexing happens server-side.
+## Feature tour
 
+<div markdown="1" class="row">
 
-# SonarQube Scan (`main` branch)
+<div markdown="1" class="col-md-6 mb-3">
+<div markdown="1" class="card h-100">
+<div markdown="1" class="card-body">
 
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=jordansrowles_LeanCorpus&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=jordansrowles_LeanCorpus) [![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=jordansrowles_LeanCorpus&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=jordansrowles_LeanCorpus) 
-[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=jordansrowles_LeanCorpus&metric=bugs)](https://sonarcloud.io/summary/new_code?id=jordansrowles_LeanCorpus) [![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=jordansrowles_LeanCorpus&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=jordansrowles_LeanCorpus) [![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=jordansrowles_LeanCorpus&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=jordansrowles_LeanCorpus) [![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=jordansrowles_LeanCorpus&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=jordansrowles_LeanCorpus) [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=jordansrowles_LeanCorpus&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=jordansrowles_LeanCorpus)
-[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=jordansrowles_LeanCorpus&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=jordansrowles_LeanCorpus) [![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=jordansrowles_LeanCorpus&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=jordansrowles_LeanCorpus) [![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=jordansrowles_LeanCorpus&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=jordansrowles_LeanCorpus) 
+### Analysis
+Zero-allocation span-based pipeline: tokenisers, 28 token filters, 11 language stemmers, synonym graphs, Hunspell dictionary stemming, ICU, CJK tokenisation, pattern tokenisers, phonetic filters (Metaphone, Beider-Morse style).
+[Browse analysis docs](analysis/index.md)
 
+</div>
+</div>
+</div>
+
+<div markdown="1" class="col-md-6 mb-3">
+<div markdown="1" class="card h-100">
+<div markdown="1" class="card-body">
+
+### Search
+25 query types including term, boolean, phrase, fuzzy (Myers bit-parallel), regexp (FST automaton), span, intervals, block-join, geo, and vector.
+[Browse search docs](searching/01-query-types.md)
+
+</div>
+</div>
+</div>
+
+<div markdown="1" class="col-md-6 mb-3">
+<div markdown="1" class="card h-100">
+<div markdown="1" class="card-body">
+
+### Scoring
+BM25, BM25+, BM25L, TF-IDF (classic plus three variants), three language-model similarities, and SIMD cosine. Pluggable similarity API with expression-free function scoring.
+[Browse scoring docs](searching/05-boosting-and-scoring.md)
+
+</div>
+</div>
+</div>
+
+<div markdown="1" class="col-md-6 mb-3">
+<div markdown="1" class="card h-100">
+<div markdown="1" class="card-body">
+
+### Concurrency
+Multi-threaded indexing with per-thread DWPT pools. Near-real-time readers via `SearcherManager`. Background merges that never block commits. Lease-protected segment caches.
+[Browse concurrency docs](concurrency/01-searcher-manager.md)
+
+</div>
+</div>
+</div>
+
+<div markdown="1" class="col-md-6 mb-3">
+<div markdown="1" class="card h-100">
+<div markdown="1" class="card-body">
+
+### Observability
+`DefaultMetricsCollector`, `MeterMetricsCollector` (System.Diagnostics.Metrics), OpenTelemetry tracing, structured slow-query log, Aspire dashboard integration.
+[Browse observability docs](observability/01-metrics.md)
+
+</div>
+</div>
+</div>
+
+<div markdown="1" class="col-md-6 mb-3">
+<div markdown="1" class="card h-100">
+<div markdown="1" class="card-body">
+
+### Extensibility
+CodecKit for custom storage formats. Pluggable compression (LZ4, Snappy, Zstandard). Source-generated document schemas. Index codec migrator for format upgrades.
+[Browse codec docs](codeckit/index.md)
+
+</div>
+</div>
+</div>
+
+</div>
+
+## Packages
+
+| Package | NuGet | Description |
+|---|---|---|
+| **LeanCorpus** | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus?style=flat)](https://www.nuget.org/packages/LeanCorpus/) | Core library. Zero dependencies. |
+| **LeanCorpus.SourceGen** | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.SourceGen?style=flat)](https://www.nuget.org/packages/LeanCorpus.SourceGen/) | Roslyn source generator for typed document mapping |
+| **LeanCorpus.Compression.LZ4** | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.Compression.LZ4?style=flat)](https://www.nuget.org/packages/LeanCorpus.Compression.LZ4/) | LZ4 stored-field compression |
+| **LeanCorpus.Compression.Snappy** | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.Compression.Snappy?style=flat)](https://www.nuget.org/packages/LeanCorpus.Compression.Snappy/) | Snappy stored-field compression |
+| **LeanCorpus.Compression.Zstandard** | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.Compression.Zstandard?style=flat)](https://www.nuget.org/packages/LeanCorpus.Compression.Zstandard/) | Zstandard stored-field compression |
+
+All packages target `net10.0` and `net11.0`.
+
+## Navigate
+
+- [Getting started](getting-started/01-installation.md)
+- [Architecture overview](architecture.md)
+- [Why LeanCorpus?](why-leancorpus.md)
+- [Performance](performance.md)
+- [vs Lucene.Net](articles/vs-lucene.md)
+- [API reference](~/api/index.md)
+- [Benchmarks](benchmarks/index.md)
 
 ---
 
-## Explore
-
-- [Tutorials](tutorials/index.md)
-- [Analysis overview](tutorials/analysis/index.md)
-- [Articles](articles/index.md)
-- [Index checker CLI](tutorials/index-management/04-cli-checker.md)
-- [API reference](~/api/index.md)
+[![Build](https://github.com/jordansrowles/LeanCorpus/actions/workflows/build.yml/badge.svg)](https://github.com/jordansrowles/LeanCorpus/actions/workflows/build.yml)
+![AOT Compatible](https://img.shields.io/badge/AOT%20Compatible-8A2BE2)
+[![Docs](https://img.shields.io/badge/Docs-blue)](https://leancorpus.com)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=jordansrowles_LeanCorpus&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=jordansrowles_LeanCorpus)

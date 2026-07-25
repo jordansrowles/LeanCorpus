@@ -1,14 +1,6 @@
-﻿# Articles
+# Articles
 
-Short notes on the larger pieces.
+Longer-form content and comparisons.
 
-- [Aspire telemetry](01-aspire-telemetry.md)
-- [HNSW vector search](02-hnsw-vector-search.md)
-- [Benchmark provenance](03-benchmark-provenance.md)
-- [Reliable commits](04-reliable-commits.md)
-- [Codecs](05-codecs.md)
-- [Source generator diagnostics](06-source-generator-diagnostics.md)
-
-## Architecture Decision Records
-
-- [ADR index](ADRs/index.md)
+- [Lucene Feature Parity](vs-lucene.md)
+- [Architecture Decision Records](ADRs/index.md)

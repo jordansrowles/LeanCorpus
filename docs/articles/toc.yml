@@ -1,18 +1,4 @@
-- name: Overview
-  href: index.md
-- name: Aspire telemetry
-  href: 01-aspire-telemetry.md
-- name: HNSW vector search
-  href: 02-hnsw-vector-search.md
-- name: Benchmark provenance
-  href: 03-benchmark-provenance.md
-- name: Reliable commits
-  href: 04-reliable-commits.md
-- name: Codecs
-  href: 05-codecs.md
-- name: Source generator diagnostics
-  href: 06-source-generator-diagnostics.md
-- name: Feature comparison
-  href: 07-feature-comparison.md
-- name: ADRs
+- name: Lucene Feature Parity
+  href: vs-lucene.md
+- name: Architecture Decision Records
   href: ADRs/index.md

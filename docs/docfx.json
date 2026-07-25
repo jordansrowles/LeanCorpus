@@ -37,16 +37,43 @@
         "files": [ "api/**.yml", "api/index.md" ]
       },
       {
-        "files": [ "*.md", "toc.yml" ]
+        "files": [ "*.md", "toc.yml", "**/toc.yml" ]
       },
       {
-        "files": [ "tutorials/**.md", "tutorials/**/toc.yml", "tutorials/toc.yml" ]
+        "files": [ "getting-started/**.md" ]
+      },
+      {
+        "files": [ "analysis/**.md" ]
+      },
+      {
+        "files": [ "searching/**.md" ]
+      },
+      {
+        "files": [ "advanced/**.md" ]
+      },
+      {
+        "files": [ "concurrency/**.md" ]
+      },
+      {
+        "files": [ "index-management/**.md" ]
+      },
+      {
+        "files": [ "observability/**.md" ]
+      },
+      {
+        "files": [ "tips/**.md" ]
+      },
+      {
+        "files": [ "codeckit/**.md" ]
       },
       {
         "files": [ "articles/**.md", "articles/toc.yml" ]
       },
       {
         "files": [ "benchmarks/*.md", "benchmarks/toc.yml" ]
+      },
+      {
+        "files": [ "changelog/**.md" ]
       }
     ],
     "output": "site",
@@ -63,8 +90,8 @@
       }
     ],
     "globalMetadata": {
-      "_appTitle": "LeanCorpus",
-      "_appName": "LeanCorpus",
+      "_appTitle": "LeanCorpus 2.1.0",
+      "_appName": "LeanCorpus 2.1.0",
       "_appFooter": "LeanCorpus: a fast, embeddable full-text search engine for .NET",
       "_enableSearch": true,
       "categoryLayout": "nested"

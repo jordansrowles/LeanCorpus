@@ -309,6 +309,83 @@ function Resolve-Strat {
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
+#  DOCS HELPERS (from docs.ps1)
+# ═════════════════════════════════════════════════════════════════════════════
+
+function Clear-ApiMetadata {
+    param([string]$DocsDir)
+    $apiDir = Join-Path $DocsDir 'api'
+    if (-not (Test-Path $apiDir)) {
+        New-Item -ItemType Directory -Path $apiDir | Out-Null
+        return
+    }
+    Get-ChildItem $apiDir -Filter '*.yml' -File | Remove-Item -Force
+    $tocPath = Join-Path $apiDir 'toc.yml'
+    if (Test-Path $tocPath) { Remove-Item $tocPath -Force }
+}
+
+function Set-GeneratedContent {
+    param([string]$Path, [object]$Value)
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        try {
+            Set-Content -Path $Path -Value $Value -Encoding utf8
+            return
+        } catch [System.IO.IOException] {
+            if ($attempt -eq 5) { throw }
+            Start-Sleep -Milliseconds (100 * $attempt)
+        }
+    }
+}
+
+function Remove-ExternalInheritedMembers {
+    param([string]$DocsDir)
+    $apiDir = Join-Path $DocsDir 'api'
+    if (-not (Test-Path $apiDir)) { return }
+
+    foreach ($file in Get-ChildItem $apiDir -Filter '*.yml' -File) {
+        if ($file.Name -eq 'toc.yml') { continue }
+        $lines = [string[]](Get-Content $file.FullName)
+        $out = [System.Collections.Generic.List[string]]::new()
+        for ($i = 0; $i -lt $lines.Length; $i++) {
+            if ($lines[$i] -ne '  inheritedMembers:') {
+                $out.Add($lines[$i])
+                continue
+            }
+            $keptMembers = [System.Collections.Generic.List[string]]::new()
+            $i++
+            while ($i -lt $lines.Length -and $lines[$i] -match '^  - (.+)$') {
+                if ($Matches[1].StartsWith('Rowles.LeanCorpus.', [StringComparison]::Ordinal)) {
+                    $keptMembers.Add($lines[$i])
+                }
+                $i++
+            }
+            if ($keptMembers.Count -gt 0) {
+                $out.Add('  inheritedMembers:')
+                $out.AddRange($keptMembers)
+            }
+            $i--
+        }
+        Set-GeneratedContent -Path $file.FullName -Value $out
+    }
+}
+
+function Copy-Changelog {
+    param([string]$DocsDir)
+    $srcDir = Join-Path $RepoRoot 'changelog'
+    $dstDir = Join-Path $DocsDir 'changelog'
+    if (-not (Test-Path $srcDir)) {
+        Write-Host 'No changelog directory found, skipping.' -ForegroundColor DarkGray
+        return
+    }
+    if (-not (Test-Path $dstDir)) {
+        New-Item -ItemType Directory -Path $dstDir | Out-Null
+    }
+    Remove-Item (Join-Path $dstDir '*.md') -Force -ErrorAction SilentlyContinue -Exclude 'index.md'
+    Copy-Item (Join-Path $srcDir '*.md') -Destination $dstDir -Force -Exclude '_template.md', '_vnext.md'
+    Write-Host 'Changelog files copied.' -ForegroundColor DarkGray
+}
+
+# ═════════════════════════════════════════════════════════════════════════════
 #  BUILD
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -711,10 +788,10 @@ if ($Command -eq 'data') {
 # ═════════════════════════════════════════════════════════════════════════════
 
 if ($Command -eq 'docs') {
-    $parsed = Parse-Args $RemainingArgs
-    $subCmd = Get-ParsedValue $parsed 'SubCommand' 'build'
-    $SkipBenchmarks = Get-ParsedValue $parsed 'SkipBenchmarks' $false
-    $SkipCoverage = Get-ParsedValue $parsed 'SkipCoverage' $false
+    $subCmd = if ($RemainingArgs.Count -gt 0 -and $RemainingArgs[0] -notlike '-*') { $RemainingArgs[0] } else { 'build' }
+    $remainingAfterSubCmd = if ($RemainingArgs.Count -gt 1) { $RemainingArgs[1..($RemainingArgs.Count - 1)] } else { @() }
+    $SkipBenchmarks = $remainingAfterSubCmd -contains '-SkipBenchmarks'
+    $SkipCoverage = $remainingAfterSubCmd -contains '-SkipCoverage'
 
     $docsDir  = Join-Path $RepoRoot 'docs'
     $docfxJson = Join-Path $docsDir 'docfx.json'
@@ -725,7 +802,7 @@ if ($Command -eq 'docs') {
         dotnet tool install -g docfx
     }
 
-    # ── metadata ──
+    # --- metadata ---
     if ($subCmd -eq 'metadata') {
         Clear-ApiMetadata $docsDir
         Write-Host 'Generating API metadata...' -ForegroundColor Cyan
@@ -736,20 +813,26 @@ if ($Command -eq 'docs') {
         exit 0
     }
 
-    # ── serve ──
+    # --- serve ---
     if ($subCmd -eq 'serve') {
-        Clear-ApiMetadata $docsDir
-        Write-Host 'Generating API metadata...' -ForegroundColor Cyan
-        docfx metadata $docfxJson
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        Remove-ExternalInheritedMembers $docsDir
-        Write-Host 'Building and serving docs on http://0.0.0.0:8080...' -ForegroundColor Cyan
+        if (-not (Test-Path (Join-Path $apiDir 'toc.yml'))) {
+            Clear-ApiMetadata $docsDir
+            Write-Host 'Generating API metadata...' -ForegroundColor Cyan
+            docfx metadata $docfxJson
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Remove-ExternalInheritedMembers $docsDir
+        } else {
+            Write-Host 'API metadata exists, skipping regeneration.' -ForegroundColor DarkGray
+        }
+        Copy-Changelog $docsDir
+        Write-Host 'Building documentation site...' -ForegroundColor Cyan
         docfx build $docfxJson
+        if ($LASTEXITCODE -ne 0) { Write-Error "docfx build failed"; exit $LASTEXITCODE }
+        Write-Host "Serving on http://0.0.0.0:8080" -ForegroundColor Green
         docfx serve $siteDir --hostname 0.0.0.0 -p 8080
-        exit 0
+        exit $LASTEXITCODE
     }
-
-    # ── build (default) ──
+    # --- build (default) ---
     if (-not $SkipBenchmarks) {
         Write-Host 'Generating benchmark pages...' -ForegroundColor Cyan
         & (Join-Path $ScriptsDir 'generate-benchmark-docs.ps1')
@@ -772,6 +855,7 @@ if ($Command -eq 'docs') {
     docfx metadata $docfxJson
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Remove-ExternalInheritedMembers $docsDir
+    Copy-Changelog $docsDir
 
     Write-Host 'Building documentation site...' -ForegroundColor Cyan
     docfx build $docfxJson
@@ -799,63 +883,3 @@ if ($Command -eq 'benchmarks') {
 Write-Error "Unknown command '$Command'. Run 'devops --help' for usage."
 exit 1
 
-# ═════════════════════════════════════════════════════════════════════════════
-#  DOCS HELPERS (from docs.ps1)
-# ═════════════════════════════════════════════════════════════════════════════
-
-function Clear-ApiMetadata {
-    param([string]$DocsDir)
-    $apiDir = Join-Path $DocsDir 'api'
-    if (-not (Test-Path $apiDir)) {
-        New-Item -ItemType Directory -Path $apiDir | Out-Null
-        return
-    }
-    Get-ChildItem $apiDir -Filter '*.yml' -File | Remove-Item -Force
-    $tocPath = Join-Path $apiDir 'toc.yml'
-    if (Test-Path $tocPath) { Remove-Item $tocPath -Force }
-}
-
-function Set-GeneratedContent {
-    param([string]$Path, [object]$Value)
-    for ($attempt = 1; $attempt -le 5; $attempt++) {
-        try {
-            Set-Content -Path $Path -Value $Value -Encoding utf8
-            return
-        } catch [System.IO.IOException] {
-            if ($attempt -eq 5) { throw }
-            Start-Sleep -Milliseconds (100 * $attempt)
-        }
-    }
-}
-
-function Remove-ExternalInheritedMembers {
-    param([string]$DocsDir)
-    $apiDir = Join-Path $DocsDir 'api'
-    if (-not (Test-Path $apiDir)) { return }
-
-    foreach ($file in Get-ChildItem $apiDir -Filter '*.yml' -File) {
-        if ($file.Name -eq 'toc.yml') { continue }
-        $lines = [string[]](Get-Content $file.FullName)
-        $out = [System.Collections.Generic.List[string]]::new()
-        for ($i = 0; $i -lt $lines.Length; $i++) {
-            if ($lines[$i] -ne '  inheritedMembers:') {
-                $out.Add($lines[$i])
-                continue
-            }
-            $keptMembers = [System.Collections.Generic.List[string]]::new()
-            $i++
-            while ($i -lt $lines.Length -and $lines[$i] -match '^  - (.+)$') {
-                if ($Matches[1].StartsWith('Rowles.LeanCorpus.', [StringComparison]::Ordinal)) {
-                    $keptMembers.Add($lines[$i])
-                }
-                $i++
-            }
-            if ($keptMembers.Count -gt 0) {
-                $out.Add('  inheritedMembers:')
-                $out.AddRange($keptMembers)
-            }
-            $i--
-        }
-        Set-GeneratedContent -Path $file.FullName -Value $out
-    }
-}
