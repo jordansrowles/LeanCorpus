@@ -434,7 +434,8 @@ public sealed class CJKTokeniserTests
         var sink = new CountingTokenSink();
         const string Input = "\u79C1\u306F\u5B66\u751F\u3067\u3059";
 
-        tokeniser.Tokenise(Input, sink);
+        for (int i = 0; i < 100; i++)
+            tokeniser.Tokenise(Input, sink);
         sink.Reset();
 
         long before = GC.GetAllocatedBytesForCurrentThread();

@@ -51,7 +51,7 @@ public static class ChineseLexicon
         while (current is not null)
         {
             string candidate = Path.Combine(current, "lexicons", "chinese-dict.txt");
-            if (File.Exists(candidate))
+            if (FileOpenRetry.FileExists(candidate))
                 return candidate;
             current = Path.GetDirectoryName(current);
         }
