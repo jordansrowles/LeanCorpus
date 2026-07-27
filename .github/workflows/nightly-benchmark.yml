@@ -24,14 +24,8 @@ jobs:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
 
-      - name: Restore benchmarks
-        run: dotnet restore src/devops/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj
-
-      - name: Build benchmarks
-        run: dotnet build src/devops/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj -c Release --no-restore
-        
       - name: Run benchmarks
-        run: dotnet run -c Release -f net10.0 --project src/devops/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj -- --suite all --job short
+        run: ./devops benchmark -Suite all -Strat default
 
       - name: Upload benchmark results
         if: always()
