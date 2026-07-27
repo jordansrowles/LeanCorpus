@@ -1,6 +1,6 @@
 # Rowles.LeanCorpus
 
-[![Build](https://github.com/jordansrowles/LeanCorpus/actions/workflows/build.yml/badge.svg)](https://github.com/jordansrowles/LeanCorpus/actions/workflows/build.yml) ![AOT Compatible](https://img.shields.io/badge/AOT%20Compatible-8A2BE2) [![Docs](https://img.shields.io/badge/Docs-blue)](https://leancorpus.com) [![Docs](https://img.shields.io/badge/Changelog-blue)](https://github.com/jordansrowles/LeanCorpus/blob/main/CHANGELOG.md)
+[![Build](https://github.com/jordansrowles/LeanCorpus/actions/workflows/build.yml/badge.svg)](https://github.com/jordansrowles/LeanCorpus/actions/workflows/build.yml) ![AOT Compatible](https://img.shields.io/badge/AOT%20Compatible-8A2BE2) [![Docs](https://img.shields.io/badge/Docs-blue)](https://leancorpus.com) [![Docs](https://img.shields.io/badge/Changelog-blue)](https://github.com/jordansrowles/LeanCorpus/blob/main/CHANGELOG.md) [![Discord](https://img.shields.io/badge/💬%20Discord-green)](https://discord.gg/d3wHcApJ8h)
 
 A .NET-native full-text search engine. Segment-centric indexing, memory-mapped reads, and atomic commit semantics. Targets `net10.0` and `net11.0`. The core library has no external dependencies; stored-field compression uses BCL types only. Optional extension packages add LZ4, Snappy, and Zstandard support.
 
