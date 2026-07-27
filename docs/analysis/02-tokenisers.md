@@ -12,7 +12,8 @@ Tokenisers split raw text into token boundaries. Choose based on the input struc
 | `EdgeNGramTokeniser` | Prefix n-grams; useful for autocomplete-style matching |
 | `CJKBigramTokeniser` | Overlapping bigrams for CJK ideographs with supplementary-plane support |
 | `ChineseLexiconTokeniser` | Greedy longest-match Chinese segmentation with unigram fallback |
-| `JapaneseTokeniser` | Dictionary-backed Japanese morphological segmentation using a `.jlc` codec |
+| `JapaneseTokeniser` | Character-class-based segmentation using Kuromoji `CharacterDefinition.dat`. Splits at script boundaries (kanji, hiragana, katakana) |
+| `PathTreeTokeniser` | Path hierarchy tokeniser: compound tokens from root to leaf (or leaf to root in suffix mode). Root-aware parsing for drive letters, UNC paths, and scheme URIs |
 | `IcuTokeniser` | Unicode-aware segmentation. Thai opt-in via constructor |
 | `Uax29UrlEmailTokeniser` | Preserves URLs, emails, hashtags, and mentions as single tokens. Thai opt-in |
 | `ThaiTokeniser` | Thai segmentation with dictionary. Needs a lexicon loaded from file or stream |
@@ -24,11 +25,11 @@ Tokenisers split raw text into token boundaries. Choose based on the input struc
 - `Tokeniser` for ordinary mixed-alphanumeric text.
 - `IcuTokeniser` or `IcuAnalyser` when Unicode word boundaries matter.
 - `Uax29UrlEmailTokeniser` for social, web, or support text.
-- `KeywordTokeniser` for identifiers or whole-field exact matching.
-- Inject a `ThaiTokeniser` for Thai: `new IcuTokeniser(ThaiTokeniser.FromFile("lexicons/thai-dict.txt"))`.
-- Use `ChineseLexiconTokeniser.FromFile` for a custom Chinese dictionary.
-- Use `JapaneseTokeniser` with `lexicons/japanese.jlc` for Japanese morphological analysis.
+- `PathTreeTokeniser` for indexing filesystem paths. Use forward mode for directory hierarchies, suffix mode for IDE-style file search.
 
+  - With depth payloads: `new PathTreeTokeniser { EmitDepthPayloads = true }` attaches depth metadata for shallow-match boosting.
+  - Suffix mode: `new PathTreeTokeniser { SuffixMode = true }` emits leaf-to-root tokens like `["user.cs", "models/user.cs", ...]`.
+- Use `JapaneseTokeniser` with Kuromoji `CharacterDefinition.dat` in `lexicons/kuromoji/` for Japanese script-boundary segmentation.
 ## Custom pipeline
 
 ```csharp

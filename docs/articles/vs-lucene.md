@@ -42,13 +42,13 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Edge n-gram tokeniser | ✔   `EdgeNGramTokeniser` | ✔ | ✔ | Lucene: `EdgeNGramTokenizer` |
 | CJK bigram tokeniser | ✔   `CJKBigramTokeniser` | ✔ | ✔ | Lucene: `CJKBigramTokenizer` |
 | Chinese lexicon tokeniser | ✔   `ChineseLexiconTokeniser` | ✔ | ✔ | Greedy longest-match segmentation with unigram fallback |
-| Japanese morphological tokeniser | ✔   `JapaneseTokeniser` | ✔ | ✔ | LeanCorpus `.jlc` dictionary and least-cost Viterbi path |
+| Japanese morphological tokeniser | ✔   `JapaneseTokeniser` | ✔ | ✔ | Character-class-based segmentation using Kuromoji data; splits at kanji/hiragana/katakana boundaries |
 | ICU tokeniser (Unicode segmenter) | ✔   `IcuTokeniser` / `UnicodeTokenisation` | ✔ | ✔ | |
 | Thai tokeniser | ✔   `ThaiTokeniser` | ✔ | ✔ | Lucene: `ThaiTokenizer` |
 | UAX29 URL/email tokeniser | ✔   `Uax29UrlEmailTokeniser` | ✔ | ✔ | Lucene: `UAX29URLEmailTokenizer` |
 | Wikipedia tokeniser | ✔   `MediaWikiTokeniser` | ✔ | ✔ | Lucene: `WikipediaTokenizer` |
 | Pattern tokeniser | ✔   `PatternTokeniser` | ✔ | ✔ | Lucene: `PatternTokenizer` |
-| Path-hierarchy tokeniser | ❌ | ✔ | ✔ | Lucene: `PathHierarchyTokenizer` |
+| Path-hierarchy tokeniser | ✔   `PathTreeTokeniser` | ✔ | ✔ | Lucene: `PathHierarchyTokenizer`; adds suffix mode, depth payloads, root-aware parsing |
 | Classic tokeniser | ❌ | ✔ | ✔ | Lucene: legacy `ClassicTokenizer` |
 
 ---
@@ -114,9 +114,9 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Dutch | ✔   `DutchStemmer` | ✔ | ✔ | |
 | Russian | ✔   `RussianStemmer` | ✔ | ✔ | |
 | Arabic | ✔   `ArabicStemmer` | ✔ | ✔ | |
-| Chinese | ❌ | ✔ | ✔ | `ChineseStemmer` is a no-op compatibility adapter that returns input unchanged. |
-| Japanese | ❌ | ✔ | ✔ | `JapaneseStemmer` is a no-op compatibility adapter that returns input unchanged. |
-| Korean | ❌ | ✔ | ✔ | `KoreanStemmer` is a no-op compatibility adapter that returns input unchanged. |
+| Chinese | ◐   `ChineseStemmer` | ✔ | ✔ | Identity no-op adapter; Chinese word segmentation is handled by `ChineseLexiconTokeniser` |
+| Japanese | ◐   `JapaneseStemmer` | ✔ | ✔ | Identity no-op adapter; Japanese segmentation is handled by `JapaneseTokeniser` |
+| Korean | ◐   `KoreanStemmer` | ✔ | ✔ | Identity no-op adapter; Korean uses `CJKBigramTokeniser` with word tokenisation |
 | Hindi | ❌ | ✔ | ✔ | Backlog |
 | Turkish | ❌ | ✔ | ✔ | Backlog |
 
