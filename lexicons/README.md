@@ -5,10 +5,12 @@ Place these files anywhere on disk and pass the path to the library.
 
 ## Available lexicons
 
-| File | Lines | Used by | Licence |
+| File | Size or entries | Used by | Licence |
 |---|---|---|---|
 | `kstem-dict.txt` | ~27,500 | `KStemmer` / `KStemLexicon` | Derived from Lucene.NET KStem word list (Apache 2.0) |
 | `thai-dict.txt` | ~200 | `ThaiTokeniser` | Provided as a minimal starter. For production use, download the ICU `thaidict.txt` (Unicode licence) or build your own. |
+| `chinese-dict.txt` | ~2,500 | `ChineseLexiconTokeniser` | Common Chinese vocabulary derived from CC-CEDICT data (BSD) |
+| `japanese.jlc` | 325,871 surface forms | `JapaneseTokeniser` | Converted from Apache Lucene.NET Kuromoji dictionary data (Apache 2.0) |
 
 ## Usage
 
@@ -23,6 +25,9 @@ var tokeniser = new IcuTokeniser(thai);
 
 // IcuAnalyser with Thai segmentation
 var analyser = new IcuAnalyser(thaiTokeniser: thai);
+
+// Japanese morphological analysis using a downloaded codec
+using var japanese = new JapaneseTokeniser("path/to/japanese.jlc");
 ```
 
 ## Format
@@ -32,6 +37,21 @@ var analyser = new IcuAnalyser(thaiTokeniser: thai);
 - Lines starting with `#` are comments
 - Empty lines are ignored
 - Entries are trimmed of surrounding whitespace
+
+The Japanese codec is binary and does not use the text lexicon format. It
+contains a LeanCorpus FST, compact word costs, unknown-word rules, character
+classes and connection costs in independently checksummed sections.
+
+## Japanese dictionary
+
+`JapaneseTokeniser` searches parent directories for
+`lexicons/japanese.jlc`. The codec was converted from the Apache Lucene.NET
+Kuromoji dictionary data. Its runtime reader is BCL-only and does not depend
+on Lucene.NET or understand Lucene codec files.
+
+Custom codec paths are loaded lazily. Dispose tokenisers created with a custom
+path when they are no longer needed. The default codec is shared for the
+process lifetime.
 
 ## Obtaining a larger Thai dictionary
 

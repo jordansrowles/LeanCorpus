@@ -3,13 +3,21 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 using Rowles.LeanCorpus.Analysis;
 
 /// <summary>
-/// Tokeniser for CJK (Chinese, Japanese, Korean) text using overlapping bigrams.
-/// Non-CJK text is tokenised by whitespace as standard. CJK characters produce
-/// overlapping 2-character tokens, which is the standard approach for
-/// unsegmented CJK text.
+/// Tokeniser for CJK (Chinese, Japanese, Korean) text using overlapping bigrams
+/// on CJK unified ideographs. Non-CJK text is tokenised by standard word boundaries.
+/// CJK ideograph runs produce overlapping 2-character tokens; single isolated
+/// ideographs are emitted as unigrams.
 /// </summary>
+/// <remarks>
+/// Hiragana, Katakana, and Hangul are not bigrammed. They are syllabaries
+/// or composed syllables and are word-tokenised instead. Supplementary-plane
+/// CJK ideographs (Extension B+) are supported via surrogate pair decoding.
+/// </remarks>
 public sealed class CJKBigramTokeniser : ISpanTokeniser
 {
+    /// <summary>Token type emitted for CJK ideograph tokens.</summary>
+    public const string CjkType = "cjk";
+
     /// <inheritdoc/>
     public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
@@ -17,29 +25,55 @@ public sealed class CJKBigramTokeniser : ISpanTokeniser
 
         while (i < input.Length)
         {
-            if (IsCJK(input[i]))
-            {
-                // Emit overlapping bigrams for CJK runs
-                int runStart = i;
-                while (i < input.Length && IsCJK(input[i]))
-                    i++;
-                int runEnd = i;
-                int runLen = runEnd - runStart;
+            int codePoint = CjkUnicode.DecodeCodePoint(input, i, out int charsConsumed);
 
-                if (runLen == 1)
+            if (CjkUnicode.IsIdeograph(codePoint))
+            {
+                // Emit overlapping bigrams for CJK ideograph runs
+                int runStart = i;
+                i += charsConsumed;
+                while (i < input.Length)
                 {
-                    // Single CJK character — emit as unigram
-                    sink.Add(input.Slice(runStart, 1), runStart, runEnd);
+                    int nextCp = CjkUnicode.DecodeCodePoint(input, i, out int nextChars);
+                    if (!CjkUnicode.IsIdeograph(nextCp))
+                        break;
+                    i += nextChars;
+                }
+                int runEnd = i;
+                // Walk the run by code point and emit overlapping bigrams.
+                // Single-code-point runs emit a unigram.
+                // Multi-code-point runs emit bigrams only. The previous
+                // overlapping bigram already covers the last character.
+                int pos = runStart;
+                CjkUnicode.DecodeCodePoint(input, pos, out int firstCpLen);
+                if (pos + firstCpLen >= runEnd)
+                {
+                    // Emit isolated ideographs as unigrams.
+                    sink.Add(input[pos..(pos + firstCpLen)], pos, pos + firstCpLen, CjkType);
                 }
                 else
                 {
-                    for (int j = runStart; j < runEnd - 1; j++)
-                        sink.Add(input.Slice(j, 2), j, j + 2);
+                    while (pos < runEnd)
+                    {
+                        CjkUnicode.DecodeCodePoint(input, pos, out int cpLen);
+                        int nextPos = pos + cpLen;
+                        if (nextPos < runEnd)
+                        {
+                            CjkUnicode.DecodeCodePoint(input, nextPos, out int nextLen);
+                            int endPos = nextPos + nextLen;
+                            sink.Add(input[pos..endPos], pos, endPos, CjkType);
+                            pos += cpLen;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
                 }
             }
             else if (char.IsLetterOrDigit(input[i]))
             {
-                // Non-CJK word — standard whitespace tokenisation
+                // Use standard word tokenisation outside ideograph runs.
                 int start = i;
                 while (i < input.Length && char.IsLetterOrDigit(input[i]))
                     i++;
@@ -56,23 +90,4 @@ public sealed class CJKBigramTokeniser : ISpanTokeniser
         }
     }
 
-
-    /// <summary>
-    /// Returns true if the character is in a CJK unified ideograph range
-    /// or common CJK punctuation/katakana/hiragana range.
-    /// </summary>
-    private static bool IsCJK(char c)
-    {
-        // CJK Unified Ideographs
-        if (c >= '\u4E00' && c <= '\u9FFF') return true;
-        // CJK Extension A
-        if (c >= '\u3400' && c <= '\u4DBF') return true;
-        // Hiragana
-        if (c >= '\u3040' && c <= '\u309F') return true;
-        // Katakana
-        if (c >= '\u30A0' && c <= '\u30FF') return true;
-        // Hangul Syllables
-        if (c >= '\uAC00' && c <= '\uD7AF') return true;
-        return false;
-    }
 }

@@ -81,6 +81,36 @@ public sealed class FstReaderTests
     }
 
     [Fact]
+    public void PrefixCursor_Reports_Each_Accepting_Prefix()
+    {
+        var reader = FstReader.Open(Build([("ab", 5), ("abc", 7), ("z", 11)]));
+        var cursor = reader.CreatePrefixCursor();
+
+        Assert.True(cursor.Move((byte)'a'));
+        Assert.False(cursor.TryGetOutput(out _));
+        Assert.True(cursor.Move((byte)'b'));
+        Assert.True(cursor.TryGetOutput(out long ab));
+        Assert.Equal(5, ab);
+        Assert.True(cursor.Move((byte)'c'));
+        Assert.True(cursor.TryGetOutput(out long abc));
+        Assert.Equal(7, abc);
+        Assert.False(cursor.Move((byte)'d'));
+        Assert.False(cursor.TryGetOutput(out _));
+    }
+
+    [Fact]
+    public void PrefixCursor_Handles_Inline_Final_Arc()
+    {
+        var reader = FstReader.Open(Build([("x", 42)]));
+        var cursor = reader.CreatePrefixCursor();
+
+        Assert.True(cursor.Move((byte)'x'));
+        Assert.True(cursor.TryGetOutput(out long output));
+        Assert.Equal(42, output);
+        Assert.False(cursor.Move((byte)'y'));
+    }
+
+    [Fact]
     public void EnumerateAll_Yields_Sorted_Pairs()
     {
         var entries = new (string, long)[]

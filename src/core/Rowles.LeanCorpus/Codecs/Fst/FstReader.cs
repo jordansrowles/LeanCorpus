@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace Rowles.LeanCorpus.Codecs.Fst;
 
 /// <summary>
@@ -40,6 +42,8 @@ public sealed class FstReader
 
     /// <summary>True when the FST has no keys.</summary>
     public bool IsEmpty => _count == 0;
+
+    internal PrefixCursor CreatePrefixCursor() => new(this);
 
     /// <summary>Open an FST from a complete serialised blob produced by <see cref="FstBuilder.Finish"/>.</summary>
     public static FstReader Open(byte[] blob)
@@ -917,6 +921,75 @@ public sealed class FstReader
     private readonly record struct Arc(
         byte Label, long Target, long Output,
         bool IsFinal, bool IsLastArc, bool HasOutput, bool HasTarget);
+
+    internal struct PrefixCursor
+    {
+        private readonly FstReader _reader;
+        private long _nodeAddress;
+        private long _output;
+        private bool _canAdvance;
+        private bool _inlineFinal;
+
+        internal PrefixCursor(FstReader reader)
+        {
+            _reader = reader;
+            _nodeAddress = reader._rootAddress;
+            _output = 0;
+            _canAdvance = reader._count != 0 && reader._rootAddress != NoAddress;
+            _inlineFinal = false;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal bool Move(byte label)
+        {
+            if (!_canAdvance
+                || !_reader.TryFollowArc(
+                    _nodeAddress,
+                    label,
+                    out long target,
+                    out long arcOutput,
+                    out _,
+                    out _))
+            {
+                _canAdvance = false;
+                _inlineFinal = false;
+                return false;
+            }
+
+            _output += arcOutput;
+            if (target == NoAddress)
+            {
+                _canAdvance = false;
+                _inlineFinal = true;
+            }
+            else
+            {
+                _nodeAddress = target;
+                _inlineFinal = false;
+            }
+
+            return true;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal bool TryGetOutput(out long output)
+        {
+            if (_inlineFinal)
+            {
+                output = _output;
+                return true;
+            }
+
+            if (_canAdvance && _reader.TryGetFinalOutput(_nodeAddress, out long finalOutput))
+            {
+                output = _output + finalOutput;
+                return true;
+            }
+
+            output = 0;
+            return false;
+        }
+    }
 
     private readonly record struct Frame(long NodeAddr, int ArcCursor, long AccumulatedOutput, int KeyLengthBeforeArc);
 

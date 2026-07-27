@@ -10,7 +10,9 @@ Tokenisers split raw text into token boundaries. Choose based on the input struc
 | `LetterTokeniser` | Emits letter runs only; drops digits and punctuation |
 | `NGramTokeniser` | Sliding n-grams across tokens |
 | `EdgeNGramTokeniser` | Prefix n-grams; useful for autocomplete-style matching |
-| `CJKBigramTokeniser` | Bigrams for CJK text |
+| `CJKBigramTokeniser` | Overlapping bigrams for CJK ideographs with supplementary-plane support |
+| `ChineseLexiconTokeniser` | Greedy longest-match Chinese segmentation with unigram fallback |
+| `JapaneseTokeniser` | Dictionary-backed Japanese morphological segmentation using a `.jlc` codec |
 | `IcuTokeniser` | Unicode-aware segmentation. Thai opt-in via constructor |
 | `Uax29UrlEmailTokeniser` | Preserves URLs, emails, hashtags, and mentions as single tokens. Thai opt-in |
 | `ThaiTokeniser` | Thai segmentation with dictionary. Needs a lexicon loaded from file or stream |
@@ -24,6 +26,8 @@ Tokenisers split raw text into token boundaries. Choose based on the input struc
 - `Uax29UrlEmailTokeniser` for social, web, or support text.
 - `KeywordTokeniser` for identifiers or whole-field exact matching.
 - Inject a `ThaiTokeniser` for Thai: `new IcuTokeniser(ThaiTokeniser.FromFile("lexicons/thai-dict.txt"))`.
+- Use `ChineseLexiconTokeniser.FromFile` for a custom Chinese dictionary.
+- Use `JapaneseTokeniser` with `lexicons/japanese.jlc` for Japanese morphological analysis.
 
 ## Custom pipeline
 

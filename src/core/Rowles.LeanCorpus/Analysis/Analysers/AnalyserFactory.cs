@@ -18,15 +18,16 @@ public static class AnalyserFactory
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="languageCode"/> is <see langword="null"/>.</exception>
     /// <exception cref="NotSupportedException">Thrown for unsupported language codes.</exception>
     /// <remarks>
-    /// CJK languages (zh, ja, ko) use <see cref="CJKBigramTokeniser"/> and skip stemming;
-    /// suffix-stripping is linguistically inappropriate for those scripts. For Arabic,
-    /// upstream hamza normalisation (أ إ آ → ا) is recommended before analysis.
+    /// Chinese uses lexicon segmentation, Japanese uses dictionary-backed
+    /// Viterbi segmentation, and Korean keeps Hangul word runs intact. These
+    /// languages skip stemming. For Arabic, upstream hamza normalisation is
+    /// recommended before analysis.
     /// </remarks>
     public static IAnalyser Create(string languageCode)
     {
         ArgumentNullException.ThrowIfNull(languageCode);
 
-        // Normalise: strip region/script subtag so "pt-BR", "zh-Hans", etc. resolve cleanly.
+        // Strip region and script subtags before selecting the analyser.
         var tag = languageCode.Split('-')[0].ToLowerInvariant();
 
         return tag switch
@@ -40,8 +41,8 @@ public static class AnalyserFactory
             "nl" => new LanguageAnalyser(new Tokeniser(), StopWords.Dutch, new DutchStemmer()),
             "ru" => new LanguageAnalyser(new Tokeniser(), StopWords.Russian, new RussianStemmer()),
             "ar" => new LanguageAnalyser(new Tokeniser(), StopWords.Arabic, new ArabicStemmer()),
-            "zh" => new LanguageAnalyser(new CJKBigramTokeniser(), StopWords.Chinese, stemmer: null),
-            "ja" => new LanguageAnalyser(new CJKBigramTokeniser(), StopWords.Japanese, stemmer: null),
+            "zh" => new LanguageAnalyser(new ChineseLexiconTokeniser(ChineseLexicon.Default), StopWords.Chinese, stemmer: null),
+            "ja" => new LanguageAnalyser(new JapaneseTokeniser(), StopWords.Japanese, stemmer: null),
             "ko" => new LanguageAnalyser(new CJKBigramTokeniser(), StopWords.Korean, stemmer: null),
             _ => throw new NotSupportedException(
                 $"Language '{languageCode}' is not supported. Supported: {string.Join(", ", SupportedLanguages)}.")

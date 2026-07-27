@@ -85,24 +85,21 @@ public sealed class LanguageAnalyserTests
     }
 
     /// <summary>
-    /// Verifies the Chinese Analyser: Produces Bigrams scenario.
+    /// Verifies the Chinese Analyser: Lexicon-based segmentation scenario.
     /// </summary>
-    [Fact(DisplayName = "Chinese Analyser: Produces Bigrams")]
-    public void ChineseAnalyser_ProducesBigrams()
+    [Fact(DisplayName = "Chinese Analyser: Lexicon segmentation")]
+    public void ChineseAnalyser_UsesLexiconSegmentation()
     {
         var analyser = AnalyserFactory.Create("zh");
         var matSink = new MaterialisingTokenSink();
-        analyser.Analyse("中华人民共和国", matSink);
+        analyser.Analyse("\u4E2D\u534E\u4EBA\u6C11\u5171\u548C\u56FD", matSink);
         var tokens = matSink.Tokens;
 
-        // 7 characters → 6 overlapping bigrams
-        Assert.Equal(6, tokens.Count);
-        Assert.Equal("中华", tokens[0].Text);
-        Assert.Equal("华人", tokens[1].Text);
-        Assert.Equal("人民", tokens[2].Text);
-        Assert.Equal("民共", tokens[3].Text);
-        Assert.Equal("共和", tokens[4].Text);
-        Assert.Equal("和国", tokens[5].Text);
+        // Lexicon contains 中华, 人民, 共和国; segmentation should produce those compounds
+        var texts = tokens.Select(t => t.Text).ToList();
+        Assert.Contains("\u4E2D\u534E", texts);   // 中华
+        Assert.Contains("\u4EBA\u6C11", texts);   // 人民
+        Assert.Contains("\u5171\u548C\u56FD", texts); // 共和国
     }
 
     /// <summary>
@@ -113,15 +110,14 @@ public sealed class LanguageAnalyserTests
     {
         var analyser = AnalyserFactory.Create("zh");
         var matSink = new MaterialisingTokenSink();
-        analyser.Analyse("Hello 世界 World", matSink);
+        analyser.Analyse("Hello \u4E16\u754C World", matSink);
         var tokens = matSink.Tokens;
 
         var texts = tokens.Select(t => t.Text).ToList();
         Assert.Contains("hello", texts);
-        Assert.Contains("世界", texts); // single bigram from 2-char run
+        Assert.Contains("\u4E16\u754C", texts); // 世界 (lexicon compound)
         Assert.Contains("world", texts);
     }
-
     /// <summary>
     /// Verifies the Analyser Factory: Unsupported Language Throws scenario.
     /// </summary>

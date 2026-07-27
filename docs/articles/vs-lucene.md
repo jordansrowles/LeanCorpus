@@ -41,6 +41,8 @@ Lucene (Java) refers to Lucene 10.3.1,
 | N-gram tokeniser | ✔   `NGramTokeniser` | ✔ | ✔ | Lucene: `NGramTokenizer` |
 | Edge n-gram tokeniser | ✔   `EdgeNGramTokeniser` | ✔ | ✔ | Lucene: `EdgeNGramTokenizer` |
 | CJK bigram tokeniser | ✔   `CJKBigramTokeniser` | ✔ | ✔ | Lucene: `CJKBigramTokenizer` |
+| Chinese lexicon tokeniser | ✔   `ChineseLexiconTokeniser` | ✔ | ✔ | Greedy longest-match segmentation with unigram fallback |
+| Japanese morphological tokeniser | ✔   `JapaneseTokeniser` | ✔ | ✔ | LeanCorpus `.jlc` dictionary and least-cost Viterbi path |
 | ICU tokeniser (Unicode segmenter) | ✔   `IcuTokeniser` / `UnicodeTokenisation` | ✔ | ✔ | |
 | Thai tokeniser | ✔   `ThaiTokeniser` | ✔ | ✔ | Lucene: `ThaiTokenizer` |
 | UAX29 URL/email tokeniser | ✔   `Uax29UrlEmailTokeniser` | ✔ | ✔ | Lucene: `UAX29URLEmailTokenizer` |
