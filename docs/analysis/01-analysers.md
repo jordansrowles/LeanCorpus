@@ -2,6 +2,19 @@
 
 An analyser is the top-level pipeline: tokenise, normalise, filter, output terms.
 
+```mermaid-latest
+flowchart LR
+    I[Input text] --> C[Character filters]
+    C --> T[Tokeniser]
+    T --> N[Lowercase and normalisation]
+    N --> S[Stop words and selection]
+    S --> Y[Synonyms or shingles]
+    Y --> M[Stemmer]
+    M --> O[Indexed terms, positions, offsets, payloads]
+```
+
+The exact order is configured by the analyser. Changing it changes indexed terms and normally requires reindexing existing content.
+
 ## Built-in analysers
 
 | Type | Pipeline | When |

@@ -10,3 +10,5 @@
   href: 04-opentelemetry.md
 - name: Aspire dashboard
   href: 05-aspire-dashboard.md
+- name: Index size and statistics
+  href: 06-index-size-and-statistics.md

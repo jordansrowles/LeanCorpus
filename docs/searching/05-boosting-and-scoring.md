@@ -61,20 +61,40 @@ var boosted = new FunctionScoreQuery(
 
 ## Index-time field boosting
 
-Set per-field boost factors at write time. They persist in index norms and apply to every query:
+Set a boost on each indexed field value. It persists in segment norms and applies to matching queries:
 
 ```csharp
-var config = new IndexWriterConfig
+var document = new LeanDocument();
+document.Add(new TextField(
+    "title",
+    "A compact corpus",
+    stored: true,
+    boost: 3.0f));
+document.Add(new TextField(
+    "body",
+    "Searchable article text",
+    stored: true,
+    boost: 1.0f));
+```
+
+A field boost must be finite and greater than zero. Use an unindexed stored field or a separate filter-only field when content must not contribute to ranking.
+
+## Block-Max WAND
+
+Block-Max WAND can skip postings blocks whose score upper bound cannot enter the current top-N:
+
+```csharp
+var searcherConfig = new IndexSearcherConfig
 {
-    FieldBoosts = new Dictionary<string, float>
-    {
-        ["title"] = 3.0f,
-        ["body"]  = 1.0f,
-    },
+    EnableBlockMaxWand = true,
 };
 ```
 
-A field boost of `2.0` makes every hit in that field count twice as much. Set to `0.0` to disable a field for ranking.
+The current optimised path applies to should-only Boolean term queries when every postings stream has block metadata and there are no `MustNot` clauses. Other shapes fall back to exhaustive scoring.
+
+WAND changes work performed, not the intended result ordering or scores. Validate parity against the disabled path and benchmark broad disjunctions with a small top-N. Selective queries or large requested result sets may not benefit enough to offset bound management.
+
+Use [score explanations](11-score-explanations.md) for individual factors and [search internals](../contributors/search-internals.md) for the skipping model.
 
 ## See also
 

@@ -52,15 +52,26 @@ var config = new IndexWriterConfig
 };
 ```
 
-## Per-field boosts and sort
+## Field boosts and index sort
 
 ```csharp
+var document = new LeanDocument();
+document.Add(new TextField(
+    "title",
+    "A compact corpus",
+    stored: true,
+    boost: 3.0f));
+
 var config = new IndexWriterConfig
 {
-    FieldBoosts = new Dictionary<string, float> { ["title"] = 3.0f },
-    IndexSort = new IndexSort(new SortField("publishedAt", SortFieldType.Long, descending: true)),
+    IndexSort = new IndexSort(
+        SortField.Int64(
+            "publishedAt",
+            descending: true)),
 };
 ```
+
+Field boosts belong to field values and are persisted in segment norms. `IndexSort` controls physical document order for newly written and merged segments.
 
 ## Schema validation
 

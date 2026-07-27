@@ -20,3 +20,5 @@
   href: 09-field-collapsing.md
 - name: Geo search
   href: 10-geo-search.md
+- name: Faceting
+  href: 11-faceting.md

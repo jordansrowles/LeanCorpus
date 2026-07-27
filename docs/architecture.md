@@ -1,111 +1,205 @@
 # Architecture overview
 
-LeanCorpus is a segment-centric full-text search engine. Documents are indexed into immutable **segments**, each a self-contained set of codec files on disk. A **commit** atomically publishes a set of segments via a `segments_N` manifest. Readers open the committed segments via memory-mapped I/O.
+LeanCorpus is a segment-centric search engine. Indexing writes immutable segments, commits publish a coherent set of segments, and searchers open one committed view through memory-mapped I/O.
 
-```mermaid
-graph TD
+```mermaid-latest
+flowchart TD
     subgraph Writer
-        DWPT1[DWPT 1]
-        DWPT2[DWPT 2]
-        DWPT3[DWPT N]
+        A[Application threads] --> P[DocumentsWriterPerThread pool]
+        P --> D1[DWPT 1]
+        P --> D2[DWPT 2]
+        P --> DN[DWPT N]
     end
 
     subgraph Flush
-        DWPT1 -. flush .-> SEG1[seg_0.*]
-        DWPT2 -. flush .-> SEG2[seg_1.*]
-        DWPT3 -. flush .-> SEG3[seg_2.*]
+        D1 -. RAM or document limit .-> S1[seg_0 files]
+        D2 -. RAM or document limit .-> S2[seg_1 files]
+        DN -. RAM or document limit .-> S3[seg_2 files]
     end
 
-    subgraph Commit
-        SEG1 --> MANIFEST[segments_N]
-        SEG2 --> MANIFEST
-        SEG3 --> MANIFEST
-    end
+    S1 --> C[segments_N commit]
+    S2 --> C
+    S3 --> C
+    C --> M[SearcherManager]
+    M --> R[IndexSearcher lease]
 
-    subgraph Reader
-        MANIFEST --> SM[SearcherManager]
-        SM --> IS1[IndexSearcher]
-        SM --> IS2[IndexSearcher]
-    end
-
-    Merge[Background Merge] -. reads .-> SEG1
-    Merge -. reads .-> SEG2
-    Merge -. writes .-> MERGED[seg_3.*]
-    MERGED -. new commit .-> MANIFEST
+    S1 -. source .-> G[Background merge]
+    S2 -. source .-> G
+    G -. replacement .-> S4[seg_3 files]
+    S4 --> NC[Next commit]
 ```
+
+## Core invariants
+
+- Segment contents do not change after publication.
+- A commit manifest names only complete files.
+- A searcher sees one commit generation, never a mixture.
+- Deletions hide documents immediately after commit and are reclaimed physically by merges.
+- Segment files remain available while a searcher, snapshot, or retained commit can still reference them.
+- Readers validate format and bounds before trusting file contents.
 
 ## Indexing pipeline
 
-1. **Documents flow into a `DocumentsWriterPerThread` pool.** Each thread gets its own DWPT with private in-memory buffers. No lock contention during document analysis.
+Each producer acquires a documents-writer-per-thread buffer. Analysis, postings accumulation, stored fields, DocValues, numeric points, and vectors are collected in private state. This reduces lock contention between indexing threads.
 
-2. **DWPTs flush independently.** When a DWPT's RAM buffer fills (controlled by `RamBufferSizeMB`), it writes a complete segment to disk. Flushes happen outside the write lock, so indexing continues on other threads.
+A buffer flushes when a RAM, per-thread, or document threshold is reached. Flush writes a complete segment. Concurrent flush and merge limits keep memory and storage pressure bounded.
 
-3. **A `Commit()` snapshots all flushed segments into a `segments_N` file.** The commit is atomic: the manifest file is written, fsynced, then atomically renamed into place. Readers see either the old manifest or the new one, never a partial commit.
+The writer has two different visibility boundaries:
 
-4. **Background merges consolidate segments.** A `MergeScheduler` picks small segments and merges them into larger ones. Merges never block commits: the merged segment appears in a subsequent commit, and the source segments are removed once no reader references them.
+- a flush creates files but does not make them visible to ordinary committed readers;
+- a commit publishes a new `segments_N` generation containing the selected segments and deletion state.
+
+## Commit lifecycle
+
+```mermaid-latest
+sequenceDiagram
+    participant App
+    participant Writer as IndexWriter
+    participant Store as MMapDirectory and filesystem
+    participant Manager as SearcherManager
+
+    App->>Writer: Commit()
+    Writer->>Writer: Drain accepted indexing work
+    Writer->>Store: Flush segment and deletion files
+    Writer->>Store: Write statistics sidecar
+    opt DurableCommits
+        Writer->>Store: fsync files
+        Writer->>Store: fsync directory metadata
+    end
+    Writer->>Store: Atomically publish segments_N
+    Writer-->>App: Commit complete
+    Manager->>Store: Detect newer generation
+    Manager->>Manager: Open and validate replacement searcher
+    Manager->>Manager: Atomically swap current searcher
+```
+
+The manifest is published last. If a process stops during an earlier step, recovery can ignore incomplete files and retain the previous complete generation.
+
+## Background merging
+
+Merge policy chooses compatible source segments. The merge scheduler writes a new immutable segment while indexing and commits continue. A later commit replaces the source segments with the merged output.
+
+Source files are not immediately deletable. Active searchers, snapshots, or retained commits may still own them. This is why on-disk size can temporarily exceed the current commit's logical size.
+
+Merges also:
+
+- apply deletions physically;
+- rebuild term dictionaries and postings;
+- remap DocValues, vectors, HNSW nodes, parent markers, and sort metadata;
+- preserve codec and scoring invariants;
+- improve query locality by reducing segment count.
 
 ## Segment files
 
-Each segment is a set of files sharing a segment ID prefix (e.g. `seg_0`). Every binary file starts with the LeanCorpus magic header and a format version.
+A segment uses a common identifier such as `seg_0` across its files. Required and optional files include:
 
 | File | Contents |
 |---|---|
-| `seg_0.seg` | Segment metadata: doc count, field names, index sort, delete generation |
-| `seg_0.dic` | Term dictionary (FST): `field\0term` to postings offset |
-| `seg_0.pos` | Postings: block-packed doc IDs, frequencies, positions |
-| `seg_0.fdt` | Stored fields data blocks, optionally compressed |
-| `seg_0.fdx` | Stored fields index: block offsets for random lookup |
-| `seg_0.nrm` | Per-document field-length norms |
-| `seg_0.fln` | Per-field token counts for BM25 and statistics |
-| `seg_0.num` | Sparse numeric field index by doc ID |
-| `seg_0.bkd` | BKD tree for numeric range queries |
-| `seg_0.dvn` | Numeric DocValues (single-valued, sorting/aggregation) |
-| `seg_0.dvs` | Sorted DocValues (single-valued string ordinals) |
-| `seg_0.dss` | Sorted-set DocValues (multi-valued string ordinals) |
-| `seg_0.dsn` | Sorted-numeric DocValues (multi-valued numeric) |
-| `seg_0.dvb` | Binary DocValues (multi-valued byte columns) |
-| `seg_0.vec` | Dense float vectors per field |
-| `seg_0.hnsw` | HNSW graph for approximate nearest neighbour |
-| `seg_0.tvd` / `seg_0.tvx` | Term vectors (data and index) |
-| `seg_0.pbs` | Parent bitset for block-join queries |
-| `seg_0.del` | Deleted-document bitset |
-| `segments_N` | Commit manifest: live segment IDs, generation, CRC32 trailer |
-| `write.lock` | Writer lock file |
+| `.seg` | Segment metadata, fields, document count, sort, vectors, and deletion generation |
+| `.dic` | FST term dictionary mapping `field\0term` to postings metadata |
+| `.pos` | Block-packed document IDs, frequencies, positions, offsets, and optional payloads |
+| `.fdt`, `.fdx` | Stored-field block data and random-access block index |
+| `.nrm`, `.fln` | Norms, field boosts, and exact field-length data |
+| `.num`, `.numl` | Sparse numeric and 64-bit integer field indexes |
+| `.bkd`, `.bkdl` | BKD trees for `double` and 64-bit integer range search |
+| `.dvn`, `.dvnl` | Numeric and 64-bit integer DocValues |
+| `.dvs`, `.dss` | Sorted and sorted-set string DocValues |
+| `.dsn`, `.dsnl` | Sorted-numeric DocValues |
+| `.dvb` | Binary DocValues |
+| `.vec`, `.vq`, `.hnsw` | Exact vectors, quantised vectors, and HNSW graph |
+| `.tvd`, `.tvx` | Term-vector data and index |
+| `.pbs` | Parent markers for block join |
+| `.del` | Roaring bitmap of deleted documents |
+| `segments_N` | Commit manifest and commit checksum |
+| `stats_N.json` | Recoverable collection-statistics sidecar |
+| `write.lock` | Single-writer ownership |
 
-Files are validated at open time: the `IndexValidator.Check` method and `leancorpus-cli check` verify magic headers, format versions, and structural integrity for every codec file in every segment.
+Formats do not all share one universal magic-header and CRC layout. Versioned CodecKit envelopes, streaming headers, unframed metadata, and the commit checksum are distinct. See [Storage formats](contributors/storage-formats.md) for the byte-level design.
+
+## Search execution
+
+```mermaid-latest
+flowchart LR
+    Q[Query] --> W[Rewrite and fingerprint]
+    W --> L{Structure}
+    L -->|Terms or patterns| F[FST term lookup]
+    L -->|Numeric points| B[BKD traversal]
+    L -->|Vector| H[HNSW or exact scan]
+    F --> P[Postings decode]
+    B --> X[Matching document IDs]
+    H --> X
+    P --> S[Similarity or constant scoring]
+    X --> S
+    S --> T[Top-N collector]
+    T --> D[TopDocs]
+```
+
+Term queries seek through the FST and decode postings. Numeric ranges prune BKD cells. Vector queries use HNSW when available and exact flat search otherwise. Compound queries combine these primitives.
+
+BM25 uses collection-wide statistics so scores remain comparable across segments. Optional Block-Max WAND can skip postings blocks whose score upper bounds cannot enter the current top-N.
+
+## Internal data structures
+
+| Structure | Role |
+|---|---|
+| FST | Compact term dictionary and automaton traversal |
+| Packed integers | Block encoding for postings and related integer streams |
+| BKD tree | Recursive numeric-space partitioning |
+| HNSW | Approximate nearest-neighbour candidate graph |
+| Roaring bitmap | Sparse and dense document-ID sets for deletions and filters |
+| DocValues | Column-oriented values for sorting, faceting, collapsing, and aggregation |
+
+The [search internals](contributors/search-internals.md) page describes their algorithms and contributor invariants.
 
 ## I/O model
 
-LeanCorpus uses `MMapDirectory` for all reads. Segment files are opened as memory-mapped files, and the OS page cache handles I/O. This means:
+`MMapDirectory` maps immutable files and lets the operating-system page cache manage the working set.
 
-- **Warm reads** hit the page cache with no syscall overhead.
-- **Cold reads** fault pages in on demand, without an explicit readahead thread.
-- **Multiple searchers** on the same index share the same physical pages.
-- **No buffer-pool tuning.** The OS manages eviction under memory pressure.
+- Warm reads are served from resident pages.
+- Cold reads fault pages on demand.
+- Searchers over the same files can share physical pages.
+- Managed allocation and resident mapped memory are different measurements.
 
-Writes use buffered `IndexOutput` wrappers with sequential streaming. Atomic commit relies on `File.Move` (rename) semantics: the manifest is written to a temporary path, fsynced, then renamed over the previous `segments_N`.
+`IndexInput` provides bounded seeking and slices. `IndexOutput` provides sequential writing. Atomic file publication, directory fsync, and transient open retries stay behind the Store boundary.
+
+See [Store and file I/O](index-management/10-store-and-file-io.md).
 
 ## Searcher lifecycle
 
-`SearcherManager` owns the reader lifecycle:
+`SearcherManager` opens the latest commit and polls for newer generations. It opens a complete replacement before swapping it into service.
 
-1. On construction, it opens an `IndexSearcher` on the latest commit.
-2. A background timer polls for new `segments_N` files at `RefreshInterval`.
-3. When a new commit is detected, a fresh `IndexSearcher` is opened and swapped in atomically.
-4. Old searchers are disposed once all outstanding leases are released.
+```mermaid-latest
+flowchart TD
+    T[Refresh timer or MaybeRefresh] --> G[Read latest generation]
+    G --> N{Newer than current?}
+    N -->|No| W[Keep current searcher]
+    N -->|Yes| O[Open and validate replacement]
+    O --> V{Open succeeded?}
+    V -->|No| F[Record failure and keep current]
+    V -->|Yes| S[Swap current searcher]
+    S --> L[Old searcher waits for leases]
+    L --> D[Dispose readers and mappings]
+```
 
-Callers acquire a `SearcherLease` (via `AcquireLease()` or the `UsingSearcher` convenience method) to pin a searcher for the duration of a query. The lease prevents disposal while queries are in flight.
+Callers use `AcquireLease()` or `UsingSearcher`. A lease prevents the selected searcher from being disposed while a query is in flight.
 
-## Segment reader leases
+Segment readers open heavier structures lazily and retain them in a bounded cache. Query leases protect active structures from eviction during an execution loop.
 
-Internally, `SegmentReader` state is protected by a lease mechanism. Heavy resources (postings decoders, DocValues readers, vector graphs, FST terms dictionaries) are opened lazily on first access and cached per reader. A `QueryLease` acquired before a search loop prevents eviction of cached state while the loop runs. This bounds resident memory without compromising correctness under concurrent access.
+## Deletions and soft deletions
 
-## Deletions
+Deletes are resolved to per-segment document IDs and published with a commit. Search paths check live-document state before collecting a hit. A later merge omits deleted documents.
 
-Deleted documents are tracked via per-segment bitsets (`seg_N.del`). A delete is buffered in memory and flushed at commit time. The bitset is consulted during scoring: deleted documents are skipped. Merges physically remove deleted documents, reclaiming disk space.
-
-Soft deletes layer on top: a soft-deleted document is excluded from results but retained on disk until the retention period expires and a merge reclaims it.
+Soft deletion adds retention metadata. Soft-deleted documents are not searchable, but merge reclamation waits until `SoftDeleteRetentionSeconds` has elapsed.
 
 ## Index sorting
 
-When `IndexSort` is configured, segments are sorted by the specified fields during flush. This enables early termination for sorted queries (fetch top-N by sort key without scoring all matches) and improves compression of DocValues columns by grouping similar values.
+`IndexSort` physically orders documents within newly flushed and merged segments. Matching sorts can terminate early after enough competitive documents. Grouping similar values can also improve DocValues compression.
+
+Index sorting changes document-ID assignment and write cost. Configure it before building the corpus when applications rely on consistent behaviour across every segment.
+
+## Learn more
+
+- [Contributor architecture internals](contributors/architecture-internals.md)
+- [Storage formats](contributors/storage-formats.md)
+- [Search internals](contributors/search-internals.md)
+- [Validation and recovery](index-management/03-validation-recovery.md)

@@ -1,49 +1,83 @@
 # Async indexing
 
-`IndexWriter` has async overloads so the calling thread stays responsive during disk I/O.
+`IndexWriter` provides asynchronous ingestion for applications that must avoid blocking while waiting for the writer queue and backpressure. Indexing semantics, validation, flushes, merges, and commits are shared with the synchronous path.
 
-## AddDocumentAsync
-
-```csharp
-await writer.AddDocumentAsync(doc);
-```
-
-Behaves identically to `AddDocument`. Internally queues work to the thread pool; the document goes through the same `DocumentsWriterPerThread` pipeline.
-
-## CommitAsync
+## One document
 
 ```csharp
-await writer.CommitAsync();
+await writer.AddDocumentAsync(document, cancellationToken);
 ```
 
-Flushes and prepares a new commit point asynchronously. After the task completes, the commit is durable and visible to new searchers after a refresh.
+The document is validated, written to the writer's bounded asynchronous command channel, and completed after the command has passed through the normal documents-writer-per-thread pipeline. It is not implemented as one `Task.Run` per document.
 
-## Streaming documents
+Use synchronous `AddDocument` in a dedicated indexing worker when the caller is already allowed to block. Use the async form in request, stream, or channel consumers that need cooperative backpressure.
+
+## A known batch
 
 ```csharp
-var documents = GetDocumentsAsync(cancellationToken);
-await writer.AddDocumentsAsync(documents, batchSize: 256);
+IReadOnlyList<LeanDocument> batch = BuildBatch();
+await writer.AddDocumentsAsync(batch, cancellationToken);
 ```
 
-Pulls documents in batches, flushes each batch, respects the cancellation token. Committed batches are retained if the source later faults.
+The batch is validated before it is queued. If backpressure is enabled and the batch exceeds `MaxQueuedDocs`, LeanCorpus submits its documents individually instead of attempting to reserve an impossible batch.
 
-## Cancellation
+## Stream documents
 
 ```csharp
-var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-await writer.AddDocumentsAsync(documents, cancellationToken: cts.Token);
+await writer.AddDocumentsAsync(
+    GetDocumentsAsync(cancellationToken),
+    batchSize: 256,
+    cancellationToken);
 ```
 
-Cancellation stops further ingestion and skips the final commit. Documents already flushed to a segment are recoverable after the next `CommitAsync`.
+The effective batch size is the smaller of the requested size and `MaxQueuedDocs` when that limit is enabled. The writer consumes the `IAsyncEnumerable` with cancellation and sends each full batch through the same asynchronous channel.
 
-## Backpressure
+This method does not commit each batch. Call `CommitAsync` according to the application's durability and visibility policy.
 
-`AddDocumentsAsync` reads from the enumerable on the calling thread. If the producer outpaces the writer, memory grows. Use `Channel<LeanDocument>` in the producer to cap in-flight documents.
+## Document blocks
 
-`batchSize` (default 256) trades off flush frequency against recoverable work. Smaller batches reduce lost work on cancellation at the cost of more frequent flushes.
+```csharp
+await writer.AddDocumentBlockAsync(
+    [childOne, childTwo, parent],
+    cancellationToken);
+```
 
-## See also
+A block requires at least one child and one final parent. It is rejected when it exceeds `MaxQueuedDocs` under bounded backpressure because splitting it would break block-join adjacency.
 
-- <xref:Rowles.LeanCorpus.Index.Indexer.IndexWriter.AddDocumentAsync%2A>
-- <xref:Rowles.LeanCorpus.Index.Indexer.IndexWriter.CommitAsync%2A>
-- <xref:Rowles.LeanCorpus.Index.Indexer.IndexWriter.AddDocumentsAsync%2A>
+## Commit
+
+```csharp
+await writer.CommitAsync(cancellationToken);
+```
+
+`CommitAsync` runs the synchronous commit manager on a thread-pool worker. Completion means the normal commit contract has completed, including durability when `DurableCommits` is enabled. A `SearcherManager` still needs to refresh before its readers observe the new generation.
+
+## Cancellation and failures
+
+Cancellation can stop waiting to enqueue, stream enumeration, or a commit before its work begins. Work already accepted by the writer may have changed in-memory or flushed segment state even when a later operation throws.
+
+An indexing call does not imply a commit. On exception:
+
+1. record the source checkpoint or failed document;
+2. decide whether to retry that unit;
+3. commit only the accepted work the application wants to retain;
+4. use `Rollback()` when the whole uncommitted writer session must be abandoned.
+
+Do not blindly retry a batch unless the source operation is idempotent or documents have stable update keys.
+
+## Parallel producers
+
+Multiple producers may call the writer, but increasing caller parallelism beyond flush and storage capacity only increases queue pressure. Start with a small number of producers and observe `MaxQueuedDocs`, `MaxQueuedBytes`, flush latency, and pending merge bytes.
+
+Use an application `Channel<LeanDocument>` when source acquisition itself needs a separate bound or prioritisation policy. The writer already provides its own downstream bound.
+
+## Sync or async
+
+| Situation | Prefer |
+|---|---|
+| Dedicated worker thread, simple batch job | Synchronous methods |
+| ASP.NET request or asynchronous message consumer | Async methods |
+| `IAsyncEnumerable` source | `AddDocumentsAsync` |
+| Atomic child and parent adjacency | `AddDocumentBlock` or `AddDocumentBlockAsync` |
+
+Async improves caller scheduling, not codec or storage throughput by itself. Measure end-to-end indexing rate and allocation before increasing concurrency.

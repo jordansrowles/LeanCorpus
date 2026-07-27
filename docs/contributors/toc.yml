@@ -1,0 +1,17 @@
+- name: Overview
+  href: index.md
+- name: Architecture internals
+  href: architecture-internals.md
+- name: Storage formats
+  href: storage-formats.md
+- name: Search internals
+  href: search-internals.md
+- name: Benchmarking
+  href: benchmarking.md
+- name: Documentation
+  href: documentation.md
+- name: DevOps entry point
+  href: devops-entry-point.md
+- name: CodecKit
+  href: codeckit/
+  homepage: codeckit/index.md

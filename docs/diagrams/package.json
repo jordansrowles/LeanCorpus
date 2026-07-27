@@ -1,0 +1,11 @@
+{
+  "name": "leancorpus-doc-diagrams",
+  "private": true,
+  "scripts": {
+    "diagrams": "node build.mjs"
+  },
+  "devDependencies": {
+    "bytefield-svg": "1.11.0",
+    "mermaid": "11.16.0"
+  }
+}

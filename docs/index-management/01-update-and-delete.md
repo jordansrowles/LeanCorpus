@@ -60,7 +60,7 @@ Mark documents deleted without immediately removing them:
 var config = new IndexWriterConfig
 {
     SoftDeletesEnabled = true,
-    SoftDeletesRetentionPeriod = TimeSpan.FromHours(24),
+    SoftDeleteRetentionSeconds = TimeSpan.FromHours(24).TotalSeconds,
 };
 
 writer.SoftDeleteDocuments(new TermQuery("id", "abc-123"));

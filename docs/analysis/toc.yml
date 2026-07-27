@@ -12,3 +12,5 @@
   href: 05-stop-words-and-token-budget.md
 - name: Lexicons
   href: 06-lexicons.md
+- name: Hunspell
+  href: 07-hunspell.md

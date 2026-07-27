@@ -10,3 +10,6 @@ Every query derives from `Query`. Browse by topic.
 - [Sorting](06-sorting.md)
 - [LINQ queries](07-linq-queries.md)
 - [Disjunction max](08-disjunction-max.md)
+- [Per-query resource controls](09-resource-controls.md)
+- [Intervals](10-intervals.md)
+- [Score explanations](11-score-explanations.md)

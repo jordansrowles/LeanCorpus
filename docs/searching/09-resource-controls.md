@@ -22,7 +22,9 @@ var hits = searcher.Search(query, topN: 100, new SearchOptions
 });
 ```
 
-`MaxResultBytes` caps the total bytes of intermediate results. When the budget is exhausted, collection stops and `TopDocs.IsPartial` is set. Useful for high-cardinality queries that would otherwise allocate a large priority queue.
+For a regular top-N search, the requested heap must fit before execution begins. LeanCorpus estimates one retained `ScoreDoc` at roughly 12 bytes and throws `ArgumentException` when `topN * EstimatedBytes` exceeds the budget.
+
+Streaming searches apply the budget between segments and stop yielding when the next per-segment result heap would exceed it. The limit is approximate and does not include every query, scorer, or codec allocation.
 
 ## Cancellation
 
@@ -43,14 +45,14 @@ if (hits.IsPartial)
     Console.WriteLine($"Search timed out; {hits.TotalHits} hits so far");
 ```
 
-`IsPartial` is set whenever a search stops early — timeout, memory budget, or cancellation. It does not distinguish the cause; check your `SearchOptions` configuration to determine why.
+For materialised top-N search, `IsPartial` is set when timeout or cancellation stops execution between segments. An undersized result budget is rejected before searching rather than returned as partial.
 
 ## Streaming results
 
 For pipelines that process results as they arrive rather than collecting a top-N:
 
 ```csharp
-foreach (var hit in searcher.SearchStreaming(query, new SearchOptions
+foreach (var hit in searcher.SearchStreaming(query, perSegmentTopN: 1_024, options: new SearchOptions
 {
     Timeout = TimeSpan.FromSeconds(5),
     CancellationToken = ctx.Token,
@@ -74,21 +76,23 @@ await foreach (var hit in searcher.SearchAsync(query, new SearchOptions
 }
 ```
 
-`SearchAsync` is the async counterpart of `SearchStreaming` — it yields `ScoreDoc` results segment by segment as they are scored. Results within a segment are ordered by score; results across segments are not globally sorted. Accepts the same `SearchOptions` as `Search`.
-## Segment-level wrapping
+`SearchAsync` is the async counterpart of `SearchStreaming`. It yields `ScoreDoc` results segment by segment as they are scored. Results within a segment are ordered by score; results across segments are not globally sorted. External cancellation throws `OperationCanceledException`; timeout or budget exhaustion ends the stream.
 
-For advanced use, `TopNCollectorWrapper` lets you wrap a per-segment collector:
+## Convenience factories
 
 ```csharp
-var options = new SearchOptions
-{
-    Timeout = TimeSpan.FromSeconds(1),
-};
-var collector = new TopNCollectorWrapper(topN, options);
-var hits = searcher.Search(query, collector);
+var budgeted = SearchOptions.WithBudget(16 * 1024 * 1024);
+var timed = SearchOptions.WithTimeout(TimeSpan.FromMilliseconds(500));
+var bounded = SearchOptions.WithBudgetAndTimeout(
+    16 * 1024 * 1024,
+    TimeSpan.FromMilliseconds(500));
 ```
 
-This is what `Search` uses internally. Use it when you need a custom collector that still benefits from timeout, budget, and cancellation checks.
+Use an object initializer when cancellation or `StreamResults` is also required.
+
+## Custom collectors
+
+`IndexSearcher.Search(Query, ICollector)` supports custom collection, and `TopNCollectorWrapper` adapts the built-in top-N collector to `ICollector`. That overload does not accept `SearchOptions`; a custom collector must implement any additional resource policy it requires.
 
 ## See also
 

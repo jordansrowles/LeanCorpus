@@ -18,6 +18,27 @@ using var manager = new SearcherManager(dir, new SearcherManagerConfig
 
 A background loop polls at `RefreshInterval`.
 
+```mermaid-latest
+sequenceDiagram
+    participant Timer
+    participant Manager as SearcherManager
+    participant Store as Index directory
+    participant Caller
+
+    Timer->>Manager: Refresh poll
+    Manager->>Store: Read latest commit generation
+    alt No newer commit
+        Manager->>Manager: Keep current searcher
+    else Newer commit
+        Manager->>Store: Open replacement searcher
+        Manager->>Manager: Swap current searcher
+        Caller->>Manager: AcquireLease()
+        Manager-->>Caller: Lease on current searcher
+        Caller->>Manager: Dispose lease
+        Manager->>Manager: Dispose old searcher after final lease
+    end
+```
+
 ## Acquire and release
 
 ```csharp
@@ -39,6 +60,12 @@ bool refreshedAsync = await manager.MaybeRefreshAsync();
 ```
 
 Returns `true` when a newer commit was loaded.
+
+The manager opens and validates the replacement before publication. A failed refresh leaves the previous healthy searcher available.
+
+## Query cache across refresh
+
+When query caching is enabled, the manager owns one shared `QueryCache`. Refresh invalidates its generation so old document IDs cannot be returned, while hit and miss counters continue across replacement searchers.
 
 ## Refresh failures
 

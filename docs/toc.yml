@@ -31,12 +31,12 @@
       homepage: observability/index.md
     - name: Tips & How-to
       href: tips/
-      homepage: tips/01-compression.md
-    - name: CodecKit
-      href: codeckit/
-      homepage: codeckit/index.md
+      homepage: tips/index.md
     - name: Migration from Lucene.Net
       href: migration.md
+- name: Contributors
+  href: contributors/
+  homepage: contributors/index.md
 - name: Reference
   items:
     - name: API
