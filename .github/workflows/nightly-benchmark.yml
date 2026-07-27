@@ -28,10 +28,10 @@ jobs:
         run: dotnet restore src/devops/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj
 
       - name: Build benchmarks
-        run: dotnet run -c Release -f net10.0 --project src/devops/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj -- --suite all --job short
-
+        run: dotnet build src/devops/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj -c Release --no-restore
+        
       - name: Run benchmarks
-        run: dotnet run -c Release --project src/devops/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj -- --suite all --job short
+        run: dotnet run -c Release -f net10.0 --project src/devops/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj -- --suite all --job short
 
       - name: Upload benchmark results
         if: always()
