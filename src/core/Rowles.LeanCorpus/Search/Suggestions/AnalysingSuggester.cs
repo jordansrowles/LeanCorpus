@@ -4,7 +4,7 @@ using Rowles.LeanCorpus.Search.Searcher;
 namespace Rowles.LeanCorpus.Search.Suggestions;
 
 /// <summary>Provides analysed prefix suggestions with an optional context filter.</summary>
-public static class AnalyzingSuggester
+public static class AnalysingSuggester
 {
     /// <summary>Returns analysed prefix completions ranked by matching document frequency.</summary>
     public static IReadOnlyList<(string Term, int DocFreq)> Suggest(

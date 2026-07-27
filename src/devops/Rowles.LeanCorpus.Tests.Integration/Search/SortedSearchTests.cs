@@ -330,8 +330,8 @@ public sealed class SortedSearchTests : IClassFixture<TestDirectoryFixture>
         Assert.DoesNotContain(rescored.ScoreDocs, static scoreDoc => scoreDoc.DocId == 2);
     }
 
-    [Fact(DisplayName = "Analyzing Suggester: Applies Analysis And Context Filter")]
-    public void AnalyzingSuggester_AppliesAnalysisAndContextFilter()
+    [Fact(DisplayName = "Analysing Suggester: Applies Analysis And Context Filter")]
+    public void AnalysingSuggester_AppliesAnalysisAndContextFilter()
     {
         var dir = new MMapDirectory(SubDir("analysing_suggester"));
         using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
@@ -351,7 +351,7 @@ public sealed class SortedSearchTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var suggestions = AnalyzingSuggester.Suggest(
+        var suggestions = AnalysingSuggester.Suggest(
             searcher,
             "APP",
             "body",
