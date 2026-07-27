@@ -7,12 +7,15 @@ namespace Rowles.LeanCorpus.Search.Parsing;
 /// explicit boolean operators, ranges, regular expressions, field existence,
 /// prefix*, wild?card, fuzzy~N, "phrase"~N, boosts, and constant scores.
 /// </summary>
-public sealed class QueryParser
+public class QueryParser
 {
     private readonly string _defaultField;
     private readonly IAnalyser _analyser;
     private readonly bool _lenient;
     private int _depth;
+
+    /// <summary>Gets the analyser used to build query terms.</summary>
+    protected IAnalyser Analyser => _analyser;
 
     /// <summary>Initialises a new <see cref="QueryParser"/> with the given default field and analyser.</summary>
     /// <param name="defaultField">The field used when no explicit <c>field:</c> prefix is present in the query string.</param>
@@ -256,8 +259,8 @@ public sealed class QueryParser
             pos++;
             string field = _defaultField;
 
-            var query = BuildPhraseQuery(field, phrase);
-            query = ApplySlop(query, tokens, ref pos);
+            int slop = ReadSlop(tokens, ref pos);
+            var query = BuildPhraseQuery(field, phrase, slop);
             return ApplyBoost(query, tokens, ref pos);
         }
 
@@ -305,8 +308,8 @@ public sealed class QueryParser
                     {
                         var phrase = tokens[pos].Value;
                         pos++;
-                        var pq = BuildPhraseQuery(field, phrase);
-                        pq = ApplySlop(pq, tokens, ref pos);
+                        int slop = ReadSlop(tokens, ref pos);
+                        var pq = BuildPhraseQuery(field, phrase, slop);
                         return ApplyBoost(pq, tokens, ref pos);
                     }
                     else if (tokens[pos].Type == QTokenType.Regex)
@@ -344,6 +347,7 @@ public sealed class QueryParser
             // Check for wildcard/prefix/fuzzy suffixes
             if (term.Contains('*') || term.Contains('?'))
             {
+                term = AnalyseMultiTerm(term);
                 if (term.EndsWith('*') && !term.AsSpan()[..^1].Contains('*') && !term.AsSpan()[..^1].Contains('?'))
                 {
                     var q = new PrefixQuery(field, term[..^1]);
@@ -401,10 +405,12 @@ public sealed class QueryParser
 
         bool includeUpper = tokens[pos].Type == QTokenType.CloseSquare;
         pos++;
+        string? lowerTerm = lower == "*" ? null : AnalyseRangeBound(lower);
+        string? upperTerm = upper == "*" ? null : AnalyseRangeBound(upper);
         return new TermRangeQuery(
             field,
-            lower == "*" ? null : lower,
-            upper == "*" ? null : upper,
+            lowerTerm,
+            upperTerm,
             includeLower,
             includeUpper);
     }
@@ -421,16 +427,21 @@ public sealed class QueryParser
         return false;
     }
 
-    private PhraseQuery BuildPhraseQuery(string field, string phraseText)
+    /// <summary>Builds a phrase query from analysed phrase text.</summary>
+    protected virtual Query BuildPhraseQuery(string field, string phraseText, int slop)
     {
         var tokens = new List<Analysis.Token>();
         var sink = new CapturingSink(tokens);
         _analyser.Analyse(phraseText.AsSpan(), sink);
         var terms = tokens.Select(t => t.Text).ToArray();
-        return terms.Length > 0 ? new PhraseQuery(field, terms) : new PhraseQuery(field, phraseText.Split(' '));
+        var query = terms.Length > 0
+            ? new PhraseQuery(field, terms)
+            : new PhraseQuery(field, phraseText.Split(' '));
+        query.Slop = slop;
+        return query;
     }
 
-    private static PhraseQuery ApplySlop(PhraseQuery query, List<QToken> tokens, ref int pos)
+    private static int ReadSlop(List<QToken> tokens, ref int pos)
     {
         if (pos < tokens.Count && tokens[pos].Type == QTokenType.Tilde)
         {
@@ -438,11 +449,11 @@ public sealed class QueryParser
             if (pos < tokens.Count && tokens[pos].Type == QTokenType.Term &&
                 int.TryParse(tokens[pos].Value, out int slop))
             {
-                query.Slop = slop;
                 pos++;
+                return slop;
             }
         }
-        return query;
+        return 0;
     }
 
     private static Query ApplyBoost(Query query, List<QToken> tokens, ref int pos)
@@ -465,13 +476,20 @@ public sealed class QueryParser
         return query;
     }
 
-    private string AnalyseTerm(string term)
+    /// <summary>Analyses one literal query term.</summary>
+    protected string AnalyseTerm(string term)
     {
         var tokens = new List<Analysis.Token>();
         var sink = new CapturingSink(tokens);
         _analyser.Analyse(term.AsSpan(), sink);
         return tokens.Count > 0 ? tokens[0].Text : string.Empty;
     }
+
+    /// <summary>Normalises a wildcard or prefix term while preserving its operators.</summary>
+    protected virtual string AnalyseMultiTerm(string term) => term;
+
+    /// <summary>Normalises one bounded term in a text range query.</summary>
+    protected virtual string AnalyseRangeBound(string term) => term;
 
     private sealed class CapturingSink : Analysis.ISpanTokenSink
     {

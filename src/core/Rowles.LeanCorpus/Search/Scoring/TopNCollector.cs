@@ -10,19 +10,21 @@ public struct TopNCollector
 {
     private readonly ScoreDoc[] _heap;
     private readonly int _maxSize;
+    private readonly ITopNCollectorStrategy? _strategy;
     private int _size;
     private float _minScore;
+    private int _totalHits;
 
     /// <summary>Gets the total number of documents passed to <see cref="Collect"/>.</summary>
-    public int TotalHits { get; private set; }
+    public int TotalHits => _strategy?.TotalHits ?? _totalHits;
 
     /// <summary>Gets the maximum number of documents this collector can retain.</summary>
-    public int Capacity => _maxSize;
+    public int Capacity => _strategy?.Capacity ?? _maxSize;
     /// <summary>True when the collector has reached its maximum capacity.</summary>
-    public bool IsFull => _size >= _maxSize;
+    public bool IsFull => _strategy?.IsFull ?? _size >= _maxSize;
 
     /// <summary>Gets the score of the lowest-ranked document currently in the top-N, or <see cref="float.NegativeInfinity"/> if fewer than N documents have been collected.</summary>
-    public float MinScore => _minScore;
+    public float MinScore => _strategy?.MinScore ?? _minScore;
 
     /// <summary>Initialises a new <see cref="TopNCollector"/> with the specified capacity.</summary>
     /// <param name="maxSize">Maximum number of top-scoring documents to retain.</param>
@@ -30,9 +32,10 @@ public struct TopNCollector
     {
         _heap = new ScoreDoc[maxSize];
         _maxSize = maxSize;
+        _strategy = null;
         _size = 0;
         _minScore = float.NegativeInfinity;
-        TotalHits = 0;
+        _totalHits = 0;
     }
 
     /// <summary>Constructs a collector using an externally-owned backing array (avoids allocation).</summary>
@@ -40,17 +43,34 @@ public struct TopNCollector
     {
         _heap = heap;
         _maxSize = maxSize;
+        _strategy = null;
         _size = 0;
         _minScore = float.NegativeInfinity;
-        TotalHits = 0;
+        _totalHits = 0;
+    }
+
+    internal TopNCollector(ITopNCollectorStrategy strategy)
+    {
+        _strategy = strategy ?? throw new ArgumentNullException(nameof(strategy));
+        _heap = [];
+        _maxSize = 0;
+        _size = 0;
+        _minScore = float.NegativeInfinity;
+        _totalHits = 0;
     }
 
     /// <summary>Resets state for reuse, keeping the backing array.</summary>
     public void Reset()
     {
+        if (_strategy is not null)
+        {
+            _strategy.Reset();
+            return;
+        }
+
         _size = 0;
         _minScore = float.NegativeInfinity;
-        TotalHits = 0;
+        _totalHits = 0;
     }
 
     /// <summary>Collects a matching document and its score, keeping only the top-N by score.</summary>
@@ -59,7 +79,13 @@ public struct TopNCollector
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Collect(int docId, float score)
     {
-        TotalHits++;
+        if (_strategy is not null)
+        {
+            _strategy.Collect(docId, score);
+            return;
+        }
+
+        _totalHits++;
 
         // Count-only mode: zero allocation, no heap maintenance.
         if (_maxSize == 0) return;
@@ -87,6 +113,9 @@ public struct TopNCollector
     /// <returns>A <see cref="TopDocs"/> containing the top-N scored documents.</returns>
     public TopDocs ToTopDocs()
     {
+        if (_strategy is not null)
+            return _strategy.ToTopDocs();
+
         if (_size == 0)
             return TopDocs.Empty;
 
@@ -97,7 +126,7 @@ public struct TopNCollector
             int cmp = b.Score.CompareTo(a.Score);
             return cmp != 0 ? cmp : a.DocId.CompareTo(b.DocId);
         });
-        return new TopDocs(TotalHits, results);
+        return new TopDocs(_totalHits, results);
     }
 
     private void BuildMinHeap()
@@ -134,4 +163,15 @@ public struct TopNCollector
         int cmp = a.Score.CompareTo(b.Score);
         return cmp < 0 || (cmp == 0 && a.DocId > b.DocId);
     }
+}
+
+internal interface ITopNCollectorStrategy
+{
+    int TotalHits { get; }
+    int Capacity { get; }
+    bool IsFull { get; }
+    float MinScore { get; }
+    void Collect(int docId, float score);
+    TopDocs ToTopDocs();
+    void Reset();
 }

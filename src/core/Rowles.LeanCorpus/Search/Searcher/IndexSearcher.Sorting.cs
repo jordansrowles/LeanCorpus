@@ -58,28 +58,23 @@ public sealed partial class IndexSearcher
         int topN,
         params SortField[] sorts)
     {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(sorts);
         if (topN <= 0)
             return TopDocs.Empty;
+        if ((uint)after.DocId >= (uint)_totalDocCount)
+            throw new ArgumentOutOfRangeException(
+                nameof(after),
+                "The search-after document is outside this searcher snapshot.");
         if (sorts.Length == 0)
             sorts = [SortField.Score];
 
-        var allDocs = Search(query, _totalDocCount, sorts);
-        int afterIndex = Array.FindIndex(
-            allDocs.ScoreDocs,
-            scoreDoc => scoreDoc.DocId == after.DocId);
-        if (afterIndex < 0)
-            throw new ArgumentException(
-                "The search-after document is not a result in this searcher snapshot.",
-                nameof(after));
-
-        int available = allDocs.ScoreDocs.Length - afterIndex - 1;
-        int resultCount = Math.Min(topN, available);
-        if (resultCount <= 0)
-            return new TopDocs(allDocs.TotalHits, []);
-
-        var page = new ScoreDoc[resultCount];
-        Array.Copy(allDocs.ScoreDocs, afterIndex + 1, page, 0, resultCount);
-        return new TopDocs(allDocs.TotalHits, page);
+        ITopNCollectorStrategy strategy = sorts.Length == 1
+            && sorts[0].Type == SortFieldType.Score
+            && sorts[0].Descending
+            ? new ScoreAfterCollectorStrategy(after, topN)
+            : new FieldAfterCollectorStrategy(this, after, topN, sorts);
+        return SearchWithCollectorStrategy(query, strategy);
     }
 
     /// <summary>
@@ -251,22 +246,36 @@ public sealed partial class IndexSearcher
     private double ResolveNumeric(int globalId, string fieldName)
         => ResolveNumeric(globalId, fieldName, SortValueSelector.Min);
 
+    internal bool TryResolveNumericValue(int globalId, string fieldName, out double value)
+    {
+        int readerOrdinal = FindReaderOrdinal(globalId);
+        if (readerOrdinal >= 0)
+        {
+            return _readers[readerOrdinal].TryGetNumericValue(
+                fieldName,
+                globalId - _docBases[readerOrdinal],
+                out value);
+        }
+
+        value = 0;
+        return false;
+    }
+
     private double ResolveNumeric(
         int globalId,
         string fieldName,
         SortValueSelector selector)
     {
-        for (int r = 0; r < _readers.Count; r++)
+        int readerOrdinal = FindReaderOrdinal(globalId);
+        if (readerOrdinal >= 0)
         {
-            int nextBase = r + 1 < _docBases.Length ? _docBases[r + 1] : _totalDocCount;
-            if (globalId >= _docBases[r] && globalId < nextBase)
-            {
-                if (_readers[r].TryGetNumericValue(fieldName, globalId - _docBases[r], out double val))
-                    return val;
-                if (_readers[r].TryGetSortedNumericDocValues(fieldName, globalId - _docBases[r], out var values) && values.Count > 0)
-                    return selector == SortValueSelector.Max ? values[^1] : values[0];
-                break;
-            }
+            var reader = _readers[readerOrdinal];
+            int localDocId = globalId - _docBases[readerOrdinal];
+            if (reader.TryGetNumericValue(fieldName, localDocId, out double value))
+                return value;
+            if (reader.TryGetSortedNumericDocValues(fieldName, localDocId, out var values)
+                && values.Count > 0)
+                return selector == SortValueSelector.Max ? values[^1] : values[0];
         }
         var stored = GetStoredFields(globalId, new HashSet<string> { fieldName });
         if (stored.TryGetValue(fieldName, out var sv) && sv.Count > 0
@@ -278,22 +287,61 @@ public sealed partial class IndexSearcher
     private long ResolveInt64(int globalId, string fieldName)
         => ResolveInt64(globalId, fieldName, SortValueSelector.Min);
 
+    internal bool TryResolveInt64Value(int globalId, string fieldName, out long value)
+    {
+        int readerOrdinal = FindReaderOrdinal(globalId);
+        if (readerOrdinal >= 0)
+        {
+            return _readers[readerOrdinal].TryGetInt64Value(
+                fieldName,
+                globalId - _docBases[readerOrdinal],
+                out value);
+        }
+
+        value = 0;
+        return false;
+    }
+
+    private int FindReaderOrdinal(int globalId)
+    {
+        int low = 0;
+        int high = _readers.Count - 1;
+        int result = -1;
+        while (low <= high)
+        {
+            int middle = low + ((high - low) >> 1);
+            if (_docBases[middle] <= globalId)
+            {
+                result = middle;
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        return result >= 0
+            && globalId < _docBases[result] + _readers[result].MaxDoc
+                ? result
+                : -1;
+    }
+
     private long ResolveInt64(
         int globalId,
         string fieldName,
         SortValueSelector selector)
     {
-        for (int r = 0; r < _readers.Count; r++)
+        int readerOrdinal = FindReaderOrdinal(globalId);
+        if (readerOrdinal >= 0)
         {
-            int nextBase = r + 1 < _docBases.Length ? _docBases[r + 1] : _totalDocCount;
-            if (globalId >= _docBases[r] && globalId < nextBase)
-            {
-                if (_readers[r].TryGetInt64Value(fieldName, globalId - _docBases[r], out long val))
-                    return val;
-                if (_readers[r].TryGetSortedInt64DocValues(fieldName, globalId - _docBases[r], out var values) && values.Count > 0)
-                    return selector == SortValueSelector.Max ? values[^1] : values[0];
-                break;
-            }
+            var reader = _readers[readerOrdinal];
+            int localDocId = globalId - _docBases[readerOrdinal];
+            if (reader.TryGetInt64Value(fieldName, localDocId, out long value))
+                return value;
+            if (reader.TryGetSortedInt64DocValues(fieldName, localDocId, out var values)
+                && values.Count > 0)
+                return selector == SortValueSelector.Max ? values[^1] : values[0];
         }
         var stored = GetStoredFields(globalId, new HashSet<string> { fieldName });
         if (stored.TryGetValue(fieldName, out var sv) && sv.Count > 0
@@ -310,19 +358,19 @@ public sealed partial class IndexSearcher
         string fieldName,
         SortValueSelector selector)
     {
-        for (int r = 0; r < _readers.Count; r++)
+        int readerOrdinal = FindReaderOrdinal(globalId);
+        if (readerOrdinal >= 0)
         {
-            int nextBase = r + 1 < _docBases.Length ? _docBases[r + 1] : _totalDocCount;
-            if (globalId >= _docBases[r] && globalId < nextBase)
-            {
-                if (_readers[r].TryGetSortedDocValue(fieldName, globalId - _docBases[r], out string val))
-                    return val;
-                if (_readers[r].TryGetSortedSetDocValues(fieldName, globalId - _docBases[r], out var values) && values.Count > 0)
-                    return selector == SortValueSelector.Max ? values[^1] : values[0];
-                if (_readers[r].TryGetBinaryDocValues(fieldName, globalId - _docBases[r], out var binaryValues) && binaryValues.Count > 0)
-                    return System.Text.Encoding.UTF8.GetString(binaryValues[0]);
-                break;
-            }
+            var reader = _readers[readerOrdinal];
+            int localDocId = globalId - _docBases[readerOrdinal];
+            if (reader.TryGetSortedDocValue(fieldName, localDocId, out string value))
+                return value;
+            if (reader.TryGetSortedSetDocValues(fieldName, localDocId, out var values)
+                && values.Count > 0)
+                return selector == SortValueSelector.Max ? values[^1] : values[0];
+            if (reader.TryGetBinaryDocValues(fieldName, localDocId, out var binaryValues)
+                && binaryValues.Count > 0)
+                return System.Text.Encoding.UTF8.GetString(binaryValues[0]);
         }
         var stored = GetStoredFields(globalId, new HashSet<string> { fieldName });
         if (stored.TryGetValue(fieldName, out var sv) && sv.Count > 0)
@@ -445,6 +493,262 @@ public sealed partial class IndexSearcher
             };
             return _field.Descending ? -comparison : comparison;
         }
+    }
+
+    private sealed class ScoreAfterCollectorStrategy : ITopNCollectorStrategy
+    {
+        private readonly ScoreDoc _after;
+        private TopNCollector _collector;
+        private int _totalHits;
+
+        internal ScoreAfterCollectorStrategy(ScoreDoc after, int topN)
+        {
+            _after = after;
+            _collector = new TopNCollector(topN);
+        }
+
+        public int TotalHits => _totalHits;
+        public int Capacity => _collector.Capacity;
+        public bool IsFull => _collector.IsFull;
+        public float MinScore => _collector.MinScore;
+
+        public void Collect(int docId, float score)
+        {
+            _totalHits++;
+            if (score < _after.Score || (score == _after.Score && docId > _after.DocId))
+                _collector.Collect(docId, score);
+        }
+
+        public TopDocs ToTopDocs()
+        {
+            var page = _collector.ToTopDocs();
+            return new TopDocs(_totalHits, page.ScoreDocs);
+        }
+
+        public void Reset()
+        {
+            _totalHits = 0;
+            _collector.Reset();
+        }
+    }
+
+    private sealed class FieldAfterCollectorStrategy : ITopNCollectorStrategy
+    {
+        private readonly IndexSearcher _searcher;
+        private readonly SortField[] _sorts;
+        private readonly ScoreDoc[] _heap;
+        private readonly SortValue[] _heapValues;
+        private readonly SortValue[] _candidateValues;
+        private readonly SortValue[] _afterValues;
+        private readonly ScoreDoc _after;
+        private int _size;
+        private int _totalHits;
+
+        internal FieldAfterCollectorStrategy(
+            IndexSearcher searcher,
+            ScoreDoc after,
+            int topN,
+            SortField[] sorts)
+        {
+            _searcher = searcher;
+            _after = after;
+            _sorts = sorts.ToArray();
+            _heap = new ScoreDoc[topN];
+            _heapValues = new SortValue[checked(topN * sorts.Length)];
+            _candidateValues = new SortValue[sorts.Length];
+            _afterValues = new SortValue[sorts.Length];
+            FillValues(after, _afterValues);
+        }
+
+        public int TotalHits => _totalHits;
+        public int Capacity => _heap.Length;
+        public bool IsFull => _size == _heap.Length;
+        public float MinScore => float.NegativeInfinity;
+
+        public void Collect(int docId, float score)
+        {
+            _totalHits++;
+            var candidate = new ScoreDoc(docId, score);
+            FillValues(candidate, _candidateValues);
+            if (Compare(
+                    _candidateValues,
+                    candidate.DocId,
+                    _afterValues,
+                    _after.DocId) <= 0)
+            {
+                return;
+            }
+
+            if (_size < _heap.Length)
+            {
+                _heap[_size] = candidate;
+                CopyValues(_candidateValues, _size);
+                _size++;
+                if (_size == _heap.Length)
+                    BuildWorstHeap();
+                return;
+            }
+
+            if (CompareCandidateToSlot(candidate.DocId, 0) >= 0)
+                return;
+
+            _heap[0] = candidate;
+            CopyValues(_candidateValues, 0);
+            SiftDown(0);
+        }
+
+        public TopDocs ToTopDocs()
+        {
+            if (_size == 0)
+                return new TopDocs(_totalHits, []);
+
+            if (_size < _heap.Length)
+                BuildWorstHeap();
+
+            int remaining = _size;
+            var results = new ScoreDoc[remaining];
+            while (remaining > 0)
+            {
+                results[remaining - 1] = _heap[0];
+                remaining--;
+                if (remaining == 0)
+                    break;
+
+                _heap[0] = _heap[remaining];
+                CopySlot(remaining, 0);
+                SiftDown(0, remaining);
+            }
+
+            _size = 0;
+            return new TopDocs(_totalHits, results);
+        }
+
+        public void Reset()
+        {
+            _size = 0;
+            _totalHits = 0;
+        }
+
+        private void FillValues(ScoreDoc scoreDoc, SortValue[] destination)
+        {
+            for (int i = 0; i < _sorts.Length; i++)
+            {
+                var sort = _sorts[i];
+                destination[i] = sort.Type switch
+                {
+                    SortFieldType.Score => SortValue.FromNumeric(scoreDoc.Score),
+                    SortFieldType.DocId => SortValue.FromInt64(scoreDoc.DocId),
+                    SortFieldType.Numeric => SortValue.FromNumeric(
+                        _searcher.ResolveNumeric(scoreDoc.DocId, sort.FieldName, sort.Selector)),
+                    SortFieldType.Int64 => SortValue.FromInt64(
+                        _searcher.ResolveInt64(scoreDoc.DocId, sort.FieldName, sort.Selector)),
+                    SortFieldType.String => SortValue.FromString(
+                        _searcher.ResolveString(scoreDoc.DocId, sort.FieldName, sort.Selector)),
+                    _ => default
+                };
+            }
+        }
+
+        private int CompareCandidateToSlot(int candidateDocId, int slot)
+        {
+            int offset = slot * _sorts.Length;
+            return Compare(
+                _candidateValues,
+                candidateDocId,
+                _heapValues.AsSpan(offset, _sorts.Length),
+                _heap[slot].DocId);
+        }
+
+        private int CompareSlots(int left, int right)
+        {
+            int leftOffset = left * _sorts.Length;
+            int rightOffset = right * _sorts.Length;
+            return Compare(
+                _heapValues.AsSpan(leftOffset, _sorts.Length),
+                _heap[left].DocId,
+                _heapValues.AsSpan(rightOffset, _sorts.Length),
+                _heap[right].DocId);
+        }
+
+        private int Compare(
+            ReadOnlySpan<SortValue> left,
+            int leftDocId,
+            ReadOnlySpan<SortValue> right,
+            int rightDocId)
+        {
+            for (int i = 0; i < _sorts.Length; i++)
+            {
+                int comparison = left[i].CompareTo(right[i], _sorts[i].Type);
+                if (comparison == 0)
+                    continue;
+                return _sorts[i].Descending ? -comparison : comparison;
+            }
+            return leftDocId.CompareTo(rightDocId);
+        }
+
+        private void CopyValues(ReadOnlySpan<SortValue> source, int slot)
+            => source.CopyTo(_heapValues.AsSpan(slot * _sorts.Length, _sorts.Length));
+
+        private void CopySlot(int source, int destination)
+        {
+            _heapValues.AsSpan(source * _sorts.Length, _sorts.Length).CopyTo(
+                _heapValues.AsSpan(destination * _sorts.Length, _sorts.Length));
+        }
+
+        private void BuildWorstHeap()
+        {
+            for (int i = _size / 2 - 1; i >= 0; i--)
+                SiftDown(i);
+        }
+
+        private void SiftDown(int index)
+            => SiftDown(index, _size);
+
+        private void SiftDown(int index, int size)
+        {
+            while (true)
+            {
+                int worst = index;
+                int left = (index * 2) + 1;
+                int right = left + 1;
+                if (left < size && CompareSlots(left, worst) > 0)
+                    worst = left;
+                if (right < size && CompareSlots(right, worst) > 0)
+                    worst = right;
+                if (worst == index)
+                    return;
+
+                (_heap[index], _heap[worst]) = (_heap[worst], _heap[index]);
+                SwapValues(index, worst);
+                index = worst;
+            }
+        }
+
+        private void SwapValues(int left, int right)
+        {
+            int leftOffset = left * _sorts.Length;
+            int rightOffset = right * _sorts.Length;
+            for (int i = 0; i < _sorts.Length; i++)
+            {
+                (_heapValues[leftOffset + i], _heapValues[rightOffset + i]) =
+                    (_heapValues[rightOffset + i], _heapValues[leftOffset + i]);
+            }
+        }
+    }
+
+    private readonly record struct SortValue(double Numeric, long Int64, string? String)
+    {
+        internal static SortValue FromNumeric(double value) => new(value, 0, null);
+        internal static SortValue FromInt64(long value) => new(0, value, null);
+        internal static SortValue FromString(string value) => new(0, 0, value);
+
+        internal int CompareTo(SortValue other, SortFieldType type) => type switch
+        {
+            SortFieldType.Score or SortFieldType.Numeric => Numeric.CompareTo(other.Numeric),
+            SortFieldType.DocId or SortFieldType.Int64 => Int64.CompareTo(other.Int64),
+            SortFieldType.String => string.CompareOrdinal(String, other.String),
+            _ => 0
+        };
     }
 
     private TopDocs SearchWithIndexSortEarlyTermination(TermQuery tq, int topN)

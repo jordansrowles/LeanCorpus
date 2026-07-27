@@ -13,3 +13,4 @@ Every query derives from `Query`. Browse by topic.
 - [Per-query resource controls](09-resource-controls.md)
 - [Intervals](10-intervals.md)
 - [Score explanations](11-score-explanations.md)
+- [Pagination and rescoring](12-pagination-and-rescoring.md)

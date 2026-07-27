@@ -16,6 +16,7 @@
 | ADR012 | 2026-07-24 | Accepted | [Parallel segment search is opt-in](ADR012-parallel-search-opt-in.md) |
 | ADR013 | 2026-07-27 | Accepted | [Custom queries extend the tuned execution pipeline](ADR013-query-extension-pipeline.md) |
 | ADR014 | 2026-07-27 | Accepted | [Japanese dictionaries use a LeanCorpus language codec](ADR014-japanese-language-codec.md) |
+| ADR015 | 2026-07-27 | Accepted | [Pagination and rescoring use bounded collector strategies](ADR015-bounded-second-stage-search.md) |
 ## Template
 
 New ADRs should follow [the template](_template.md) using the next available `ADRnnn` prefix.

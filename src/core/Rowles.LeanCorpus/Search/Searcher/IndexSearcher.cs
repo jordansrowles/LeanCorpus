@@ -432,7 +432,8 @@ public sealed partial class IndexSearcher : IDisposable
 
         // Fast path for FunctionScoreQuery wrapping a TermQuery: inline scoring,
         // reuse ThreadStatic postings buffer, skip PrecomputeGlobalDocFreqs.
-        if (query is FunctionScoreQuery fsq && fsq.Inner is TermQuery fsqTq)
+        if (query is FunctionScoreQuery { IsSimpleNumericField: true } fsq
+            && fsq.Inner is TermQuery fsqTq)
             return SearchFunctionScoreTermQuery(fsqTq, fsq, topN);
 
         // Fast path for BooleanQuery with all-TermQuery clauses — compute
@@ -467,6 +468,33 @@ public sealed partial class IndexSearcher : IDisposable
             });
         }
 
+        return collector.ToTopDocs();
+    }
+
+    internal TopDocs SearchWithCollectorStrategy(Query query, ITopNCollectorStrategy strategy)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(strategy);
+
+        query = RewriteQuery(query);
+        var collector = new TopNCollector(strategy);
+        if (_readers.Count == 0)
+            return collector.ToTopDocs();
+
+        // These query families coordinate results across segments themselves.
+        // Keep their existing execution and feed only their final candidates to
+        // the bounded strategy.
+        if (query is MoreLikeThisQuery or RrfQuery or BlockJoinQuery)
+        {
+            var results = SearchCore(query, _totalDocCount);
+            foreach (var scoreDoc in results.ScoreDocs)
+                collector.Collect(scoreDoc.DocId, scoreDoc.Score);
+            return collector.ToTopDocs();
+        }
+
+        var globalDFs = PrecomputeGlobalDocFreqsForSearch(query);
+        foreach (var reader in _readers)
+            ExecuteQuery(query, reader, globalDFs, ref collector);
         return collector.ToTopDocs();
     }
 
@@ -669,7 +697,8 @@ public sealed partial class IndexSearcher : IDisposable
             return ExecuteBlockJoinQuery(bjq, topN);
         if (query is TermQuery tq)
             return SearchTermQuery(tq, topN);
-        if (query is FunctionScoreQuery fsqCt && fsqCt.Inner is TermQuery fsqCtTq)
+        if (query is FunctionScoreQuery { IsSimpleNumericField: true } fsqCt
+            && fsqCt.Inner is TermQuery fsqCtTq)
             return SearchFunctionScoreTermQuery(fsqCtTq, fsqCt, topN);
         // Fast path for BooleanQuery with all-TermQuery clauses
         if (query is BooleanQuery bq && IsAllTermQueryBoolean(bq))
@@ -954,7 +983,7 @@ public sealed partial class IndexSearcher : IDisposable
     private static bool ShouldSkipGlobalDocFreqs(Query query) =>
         query is PrefixQuery or WildcardQuery or FuzzyQuery
             or MatchAllDocsQuery or MatchNoDocsQuery
-            or FieldExistsQuery or TermInSetQuery or PointInSetQuery
+            or FieldExistsQuery or TermInSetQuery or TermsQuery or PointInSetQuery
             or MultiPhraseQuery or IntervalsQuery or CombinedFieldsQuery;
 
     private Dictionary<(string Field, string Term), int> PrecomputeGlobalDocFreqsForSearch(Query query)

@@ -86,6 +86,47 @@ public sealed partial class IndexSearcher
         }
     }
 
+    private void ExecuteTermsQuery(TermsQuery query, SegmentReader reader, ref TopNCollector collector)
+    {
+        var seen = EnsureScratch(ref t_patternSeen, reader.MaxDoc);
+        var docIds = EnsureScratch(ref t_patternDocIds, reader.MaxDoc);
+        reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
+        int docCount = 0;
+
+        try
+        {
+            foreach (var qualifiedTerm in query.QualifiedTerms)
+            {
+                using var postings = reader.GetPostingsEnum(qualifiedTerm);
+                while (postings.MoveNext())
+                {
+                    int docId = postings.DocId;
+                    if (!reader.IsLive(docId) || seen[docId])
+                        continue;
+
+                    seen[docId] = true;
+                    docIds[docCount++] = docId;
+                }
+            }
+
+            int docBase = reader.DocBase;
+            float score = query.Boost;
+            for (int i = 0; i < docCount; i++)
+            {
+                int docId = docIds[i];
+                collector.Collect(docBase + docId, ApplyFieldBoost(fieldBoosts, docId, score));
+            }
+        }
+        finally
+        {
+            for (int i = 0; i < docCount; i++)
+            {
+                seen[docIds[i]] = false;
+                docIds[i] = 0;
+            }
+        }
+    }
+
     private void ExecuteSynonymQuery(
         SynonymQuery query,
         SegmentReader reader,
@@ -1333,10 +1374,9 @@ public sealed partial class IndexSearcher
         int docBase = reader.DocBase;
         foreach (var sd in innerDocs.ScoreDocs)
         {
-            int localDocId = sd.DocId - docBase;
-            if (reader.TryGetNumericValue(query.NumericField, localDocId, out double fieldValue))
+            if (query.ValuesSource.TryGetValue(this, sd.DocId, sd.Score, out double value))
             {
-                float combined = FunctionScoreQuery.Combine(sd.Score, fieldValue, query.Mode);
+                float combined = FunctionScoreQuery.Combine(sd.Score, value, query.Mode);
                 collector.Collect(sd.DocId, combined * query.Boost);
             }
             else
@@ -1367,8 +1407,13 @@ public sealed partial class IndexSearcher
         int docBase = reader.DocBase;
         bool hasDeletions = reader.HasDeletions;
         reader.TryGetFieldLengths(tq.Field, out var fieldLengths);
-        bool hasNumericDocValues = reader.TryGetNumericDocValues(
-            fsq.NumericField, out var numericValues, out var numericPresence);
+        double[]? numericValues = null;
+        Util.RoaringBitmap? numericPresence = null;
+        bool hasNumericDocValues = fsq.IsSimpleNumericField
+            && reader.TryGetNumericDocValues(
+                fsq.NumericField,
+                out numericValues,
+                out numericPresence);
 
         while (postings.MoveNextUnchecked(out int docId, out int tf))
         {
@@ -1389,9 +1434,19 @@ public sealed partial class IndexSearcher
                     score = FunctionScoreQuery.Combine(score, numericValues[docId], fsq.Mode);
                 }
             }
-            else if (reader.TryGetNumericValue(fsq.NumericField, docId, out double fieldValue))
+            else if (fsq.IsSimpleNumericField
+                && reader.TryGetNumericValue(fsq.NumericField, docId, out double fieldValue))
             {
                 score = FunctionScoreQuery.Combine(score, fieldValue, fsq.Mode);
+            }
+            else if (!fsq.IsSimpleNumericField
+                && fsq.ValuesSource.TryGetValue(
+                    this,
+                    docBase + docId,
+                    score,
+                    out double sourceValue))
+            {
+                score = FunctionScoreQuery.Combine(score, sourceValue, fsq.Mode);
             }
 
             collector.Collect(docBase + docId, score * fsq.Boost);

@@ -160,8 +160,38 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
             }
 
             {
+                var parser = new AnalysingQueryParser("title", new StandardAnalyser());
+                Assert.Equal(
+                    1,
+                    searcher.Search(
+                        parser.Parse("NAT*"),
+                        10,
+                        TestContext.Current.CancellationToken).TotalHits);
+            }
+
+            {
+                var parser = new ComplexPhraseQueryParser("title", new StandardAnalyser());
+                Assert.Equal(
+                    1,
+                    searcher.Search(
+                        parser.Parse("\"nat* aot\""),
+                        10,
+                        TestContext.Current.CancellationToken).TotalHits);
+            }
+
+            {
                 var q = new TermInSetQuery("status", ["active", "archived"]);
                 Assert.Equal(4, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
+            }
+
+            {
+                var q = new TermsQuery(
+                    "status",
+                    System.Text.Encoding.UTF8.GetBytes("active"),
+                    System.Text.Encoding.UTF8.GetBytes("archived"));
+                Assert.Equal(
+                    4,
+                    searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
             }
 
             {
@@ -258,6 +288,40 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
                 var inner = new TermQuery("status", "active");
                 var q = new FunctionScoreQuery(inner, "year", ScoreMode.Sum);
                 Assert.Equal(3, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
+            }
+
+            {
+                var source = DoubleValuesSource.FromDoubleField("year")
+                    .Add(DoubleValuesSource.Constant(1));
+                Assert.Equal(
+                    4,
+                    searcher.Search(
+                        new FunctionQuery(source),
+                        10,
+                        TestContext.Current.CancellationToken).TotalHits);
+            }
+
+            {
+                var query = new TermQuery("status", "active");
+                var firstPage = searcher.Search(
+                    query,
+                    1,
+                    TestContext.Current.CancellationToken);
+                var second = searcher.SearchAfter(firstPage.ScoreDocs[0], query, 1);
+                Assert.Single(second.ScoreDocs);
+            }
+
+            {
+                var firstPass = searcher.Search(
+                    new TermQuery("status", "active"),
+                    3,
+                    TestContext.Current.CancellationToken);
+                var rescored = new QueryRescorer(
+                    new TermQuery("title", "fast"),
+                    secondPassWeight: 3,
+                    firstPassWeight: 1)
+                    .Rescore(searcher, firstPass, 3);
+                Assert.Equal(3, rescored.ScoreDocs.Length);
             }
 
             {
@@ -410,6 +474,36 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
                     slop: 2,
                     inOrder: true);
                 Assert.Equal(1, searcher.Search(q, 10, TestContext.Current.CancellationToken).TotalHits);
+            }
+
+            {
+                var native = new SpanTermQuery("title", "native");
+                var aot = new SpanTermQuery("title", "aot");
+                var near = new SpanNearQuery([native, aot], slop: 0, inOrder: true);
+                Assert.Equal(
+                    1,
+                    searcher.Search(
+                        new SpanFirstQuery(native, 1),
+                        10,
+                        TestContext.Current.CancellationToken).TotalHits);
+                Assert.Equal(
+                    1,
+                    searcher.Search(
+                        new SpanContainingQuery(near, aot),
+                        10,
+                        TestContext.Current.CancellationToken).TotalHits);
+                Assert.Equal(
+                    1,
+                    searcher.Search(
+                        new SpanWithinQuery(aot, near),
+                        10,
+                        TestContext.Current.CancellationToken).TotalHits);
+                Assert.Equal(
+                    1,
+                    searcher.Search(
+                        new SpanMultiTermQueryWrapper(new PrefixQuery("title", "nat")),
+                        10,
+                        TestContext.Current.CancellationToken).TotalHits);
             }
 
             {

@@ -162,6 +162,9 @@ public sealed partial class IndexSearcher
             case TermInSetQuery tisq:
                 ExecuteTermInSetQuery(tisq, reader, ref collector);
                 break;
+            case TermsQuery termsQuery:
+                ExecuteTermsQuery(termsQuery, reader, ref collector);
+                break;
             case PointInSetQuery pisq:
                 ExecutePointInSetQuery(pisq, reader, ref collector);
                 break;
@@ -188,6 +191,9 @@ public sealed partial class IndexSearcher
                 break;
             case SpanNotQuery snotq:
                 ExecuteSpanNotQuery(snotq, reader, globalDFs, ref collector);
+                break;
+            case SpanQuery spanQuery:
+                ExecuteGeneralSpanQuery(spanQuery, reader, ref collector);
                 break;
             case GeoBoundingBoxQuery gbbq:
                 ExecuteGeoBoundingBoxQuery(gbbq, reader, ref collector);
@@ -771,6 +777,16 @@ public sealed partial class IndexSearcher
         var results = new List<ScoreDoc>();
         switch (query)
         {
+            case MatchAllDocsQuery matchAll:
+                {
+                    float score = matchAll.Boost;
+                    for (int docId = 0; docId < reader.MaxDoc; docId++)
+                    {
+                        if (reader.IsLive(docId))
+                            results.Add(new ScoreDoc(docId, score));
+                    }
+                    break;
+                }
             case TermQuery tq:
                 {
                     var qt = tq.CachedQualifiedTerm ??= string.Concat(tq.Field, "\x00", tq.Term);
@@ -1021,6 +1037,15 @@ public sealed partial class IndexSearcher
                     var subDocs = subCollector.ToTopDocs();
                     foreach (var sd in subDocs.ScoreDocs)
                         results.Add(new ScoreDoc(sd.DocId - reader.DocBase, sd.Score));
+                    break;
+                }
+            case SpanQuery spanQuery:
+                {
+                    var subCollector = new TopNCollector(reader.MaxDoc);
+                    ExecuteGeneralSpanQuery(spanQuery, reader, ref subCollector);
+                    var subDocs = subCollector.ToTopDocs();
+                    foreach (var scoreDoc in subDocs.ScoreDocs)
+                        results.Add(new ScoreDoc(scoreDoc.DocId - reader.DocBase, scoreDoc.Score));
                     break;
                 }
         }

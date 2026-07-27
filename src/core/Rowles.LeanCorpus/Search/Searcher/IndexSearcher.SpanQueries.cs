@@ -5,6 +5,43 @@ namespace Rowles.LeanCorpus.Search.Searcher;
 /// </summary>
 public sealed partial class IndexSearcher
 {
+    private void ExecuteGeneralSpanQuery(
+        SpanQuery query,
+        SegmentReader reader,
+        ref TopNCollector collector)
+    {
+        var spans = CollectSpans(query, reader);
+        if (spans.Count == 0)
+            return;
+
+        var seen = EnsureScratch(ref t_patternSeen, reader.MaxDoc);
+        var docIds = EnsureScratch(ref t_patternDocIds, reader.MaxDoc);
+        int docCount = 0;
+        int docBase = reader.DocBase;
+        try
+        {
+            foreach (var span in spans)
+            {
+                if (!reader.IsLive(span.DocId) || seen[span.DocId])
+                    continue;
+
+                seen[span.DocId] = true;
+                docIds[docCount++] = span.DocId;
+                collector.Collect(
+                    docBase + span.DocId,
+                    ApplyFieldBoost(reader, span.DocId, query.Field, query.Boost));
+            }
+        }
+        finally
+        {
+            for (int i = 0; i < docCount; i++)
+            {
+                seen[docIds[i]] = false;
+                docIds[i] = 0;
+            }
+        }
+    }
+
     private void ExecuteIntervalsQuery(IntervalsQuery query, SegmentReader reader, ref TopNCollector collector)
     {
         var intervals = CollectIntervals(query.Source, reader);
@@ -126,10 +163,9 @@ public sealed partial class IndexSearcher
         var includeSpans = CollectSpans(query.Include, reader);
         var excludeSpans = CollectSpans(query.Exclude, reader);
 
-        // Exclude documents that have any exclude span
         var excludedDocs = new HashSet<int>();
-        foreach (var s in excludeSpans)
-            excludedDocs.Add(s.DocId);
+        foreach (var excluded in excludeSpans)
+            excludedDocs.Add(excluded.DocId);
 
         int docBase = reader.DocBase;
         var seen = new HashSet<int>();
@@ -309,7 +345,13 @@ public sealed partial class IndexSearcher
         try
         {
             MarkExcludedSpanTermDocs(query.Exclude, reader, excluded, excludedDocIds, ref excludedCount);
-            return TryExecuteSpanNearTermQuery(includeNear, reader, excluded, query.Boost, globalDFs, ref collector);
+            return TryExecuteSpanNearTermQuery(
+                includeNear,
+                reader,
+                excluded,
+                query.Boost,
+                globalDFs,
+                ref collector);
         }
         finally
         {
@@ -337,24 +379,45 @@ public sealed partial class IndexSearcher
         return true;
     }
 
-    private static void MarkExcludedSpanTermDocs(SpanQuery query, SegmentReader reader,
-        bool[] excluded, int[] excludedDocIds, ref int excludedCount)
+    private static void MarkExcludedSpanTermDocs(
+        SpanQuery query,
+        SegmentReader reader,
+        bool[] excluded,
+        int[] excludedDocIds,
+        ref int excludedCount)
     {
         if (query is SpanTermQuery termQuery)
         {
-            MarkExcludedSpanTermDocs(termQuery, reader, excluded, excludedDocIds, ref excludedCount);
+            MarkExcludedSpanTermDocs(
+                termQuery,
+                reader,
+                excluded,
+                excludedDocIds,
+                ref excludedCount);
             return;
         }
 
         var spanOr = (SpanOrQuery)query;
         foreach (var clause in spanOr.Clauses)
-            MarkExcludedSpanTermDocs((SpanTermQuery)clause, reader, excluded, excludedDocIds, ref excludedCount);
+        {
+            MarkExcludedSpanTermDocs(
+                (SpanTermQuery)clause,
+                reader,
+                excluded,
+                excludedDocIds,
+                ref excludedCount);
+        }
     }
 
-    private static void MarkExcludedSpanTermDocs(SpanTermQuery query, SegmentReader reader,
-        bool[] excluded, int[] excludedDocIds, ref int excludedCount)
+    private static void MarkExcludedSpanTermDocs(
+        SpanTermQuery query,
+        SegmentReader reader,
+        bool[] excluded,
+        int[] excludedDocIds,
+        ref int excludedCount)
     {
-        var qualifiedTerm = query.CachedQualifiedTerm ??= string.Concat(query.Field, "\x00", query.Term);
+        var qualifiedTerm = query.CachedQualifiedTerm ??=
+            string.Concat(query.Field, "\x00", query.Term);
         using var postings = reader.GetPostingsEnum(qualifiedTerm);
         bool hasDeletions = reader.HasDeletions;
         while (postings.MoveNext())
@@ -423,48 +486,11 @@ public sealed partial class IndexSearcher
                 }
             case SpanNearQuery snq:
                 {
-                    // Recursive: collect matching spans
                     var clauseSpans = new List<List<Span>>(snq.Clauses.Count);
                     foreach (var clause in snq.Clauses)
                         clauseSpans.Add(CollectSpans(clause, reader));
-
-                    var commonDocs = new HashSet<int>();
-                    foreach (var span in clauseSpans[0])
-                        commonDocs.Add(span.DocId);
-                    for (int i = 1; i < clauseSpans.Count; i++)
-                    {
-                        var docIds = new HashSet<int>();
-                        foreach (var span in clauseSpans[i])
-                            docIds.Add(span.DocId);
-                        commonDocs.IntersectWith(docIds);
-                    }
-
-                    foreach (int docId in commonDocs)
-                    {
-                        var clausePositions = new List<List<int>>(clauseSpans.Count);
-                        foreach (var clauseSpanList in clauseSpans)
-                        {
-                            var positions = new List<int>();
-                            foreach (var sp in clauseSpanList)
-                                if (sp.DocId == docId) positions.Add(sp.Start);
-                            positions.Sort();
-                            clausePositions.Add(positions);
-                        }
-                        if (CheckNearConstraint(clausePositions, snq.Slop, snq.InOrder))
-                        {
-                            int minPos = int.MaxValue;
-                            int maxPos = int.MinValue;
-                            foreach (var positions in clausePositions)
-                            {
-                                foreach (int p in positions)
-                                {
-                                    if (p < minPos) minPos = p;
-                                    if (p > maxPos) maxPos = p;
-                                }
-                            }
-                            spans.Add(new Span(docId, minPos, maxPos + 1));
-                        }
-                    }
+                    if (clauseSpans.Count != 0)
+                        CollectNearSpans(clauseSpans, snq.Slop, snq.InOrder, spans);
                     break;
                 }
             case SpanOrQuery soq:
@@ -476,8 +502,8 @@ public sealed partial class IndexSearcher
                     var includeSpans = CollectSpans(snotq.Include, reader);
                     var excludeSpans = CollectSpans(snotq.Exclude, reader);
                     var excludedDocs = new HashSet<int>();
-                    foreach (var s in excludeSpans)
-                        excludedDocs.Add(s.DocId);
+                    foreach (var excluded in excludeSpans)
+                        excludedDocs.Add(excluded.DocId);
                     foreach (var span in includeSpans)
                     {
                         if (!excludedDocs.Contains(span.DocId))
@@ -485,8 +511,198 @@ public sealed partial class IndexSearcher
                     }
                     break;
                 }
+            case SpanFirstQuery first:
+                foreach (var span in CollectSpans(first.Match, reader))
+                {
+                    if (span.End <= first.End)
+                        spans.Add(span);
+                }
+                break;
+            case SpanContainingQuery containing:
+                {
+                    var bigSpans = CollectSpans(containing.Big, reader);
+                    var littleSpans = CollectSpans(containing.Little, reader);
+                    foreach (var big in bigSpans)
+                    {
+                        foreach (var little in littleSpans)
+                        {
+                            if (Contains(big, little))
+                            {
+                                spans.Add(big);
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
+            case SpanWithinQuery within:
+                {
+                    var littleSpans = CollectSpans(within.Little, reader);
+                    var bigSpans = CollectSpans(within.Big, reader);
+                    foreach (var little in littleSpans)
+                    {
+                        foreach (var big in bigSpans)
+                        {
+                            if (Contains(big, little))
+                            {
+                                spans.Add(little);
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
+            case FieldMaskingSpanQuery masking:
+                spans.AddRange(CollectSpans(masking.MaskedQuery, reader));
+                break;
+            case SpanMultiTermQueryWrapper multiTerm:
+                CollectMultiTermSpans(multiTerm, reader, spans);
+                break;
         }
         return spans;
+    }
+
+    private static void CollectNearSpans(
+        IReadOnlyList<List<Span>> clauses,
+        int slop,
+        bool inOrder,
+        List<Span> results)
+    {
+        var selected = new Span[clauses.Count];
+        foreach (var first in clauses[0])
+        {
+            selected[0] = first;
+            CollectNearSpans(
+                clauses,
+                clauseIndex: 1,
+                slop,
+                inOrder,
+                selected,
+                results);
+        }
+    }
+
+    private static void CollectNearSpans(
+        IReadOnlyList<List<Span>> clauses,
+        int clauseIndex,
+        int slop,
+        bool inOrder,
+        Span[] selected,
+        List<Span> results)
+    {
+        if (clauseIndex == clauses.Count)
+        {
+            int start = selected[0].Start;
+            int end = selected[0].End;
+            int totalWidth = selected[0].End - selected[0].Start;
+            for (int i = 1; i < selected.Length; i++)
+            {
+                start = Math.Min(start, selected[i].Start);
+                end = Math.Max(end, selected[i].End);
+                totalWidth += selected[i].End - selected[i].Start;
+            }
+
+            if (end - start - totalWidth <= slop)
+                results.Add(new Span(selected[0].DocId, start, end));
+            return;
+        }
+
+        int docId = selected[0].DocId;
+        var previous = selected[clauseIndex - 1];
+        foreach (var candidate in clauses[clauseIndex])
+        {
+            if (candidate.DocId != docId)
+                continue;
+            if (inOrder && candidate.Start < previous.End)
+                continue;
+
+            bool overlaps = false;
+            for (int i = 0; i < clauseIndex; i++)
+            {
+                if (candidate.Start < selected[i].End
+                    && candidate.End > selected[i].Start)
+                {
+                    overlaps = true;
+                    break;
+                }
+            }
+            if (overlaps)
+                continue;
+
+            selected[clauseIndex] = candidate;
+            CollectNearSpans(
+                clauses,
+                clauseIndex + 1,
+                slop,
+                inOrder,
+                selected,
+                results);
+        }
+    }
+
+    private static bool Contains(Span big, Span little)
+        => big.DocId == little.DocId
+            && big.Start <= little.Start
+            && big.End >= little.End;
+
+    private static void CollectMultiTermSpans(
+        SpanMultiTermQueryWrapper query,
+        SegmentReader reader,
+        List<Span> spans)
+    {
+        string fieldPrefix = string.Concat(query.Field, "\0");
+        switch (query.Match)
+        {
+            case PrefixQuery prefix:
+                foreach (var match in reader.GetTermsWithPrefix(
+                             string.Concat(fieldPrefix, prefix.Prefix)))
+                {
+                    CollectTermSpans(reader, match.Term, spans);
+                }
+                break;
+            case WildcardQuery wildcard:
+                foreach (var match in reader.GetTermsMatching(fieldPrefix, wildcard.Pattern))
+                    CollectTermSpans(reader, match.Term, spans);
+                break;
+            case FuzzyQuery fuzzy:
+                foreach (var match in reader.GetFuzzyMatches(
+                    fieldPrefix,
+                    fuzzy.Term,
+                    fuzzy.MaxEdits,
+                    fuzzy.MaxExpansions))
+                {
+                    CollectTermSpans(reader, match.Term, spans);
+                }
+                break;
+            case RegexpQuery regex:
+                foreach (var match in reader.GetTermsMatchingRegex(fieldPrefix, regex.CompiledRegex))
+                    CollectTermSpans(reader, match.Term, spans);
+                break;
+            case TermRangeQuery range:
+                foreach (var match in reader.GetTermsInRange(
+                    fieldPrefix,
+                    range.LowerTerm,
+                    range.UpperTerm,
+                    range.IncludeLower,
+                    range.IncludeUpper))
+                {
+                    CollectTermSpans(reader, match.Term, spans);
+                }
+                break;
+        }
+    }
+
+    private static void CollectTermSpans(
+        SegmentReader reader,
+        string qualifiedTerm,
+        List<Span> spans)
+    {
+        using var postings = reader.GetPostingsEnumWithPositions(qualifiedTerm);
+        while (postings.MoveNext())
+        {
+            foreach (int position in postings.GetCurrentPositions())
+                spans.Add(new Span(postings.DocId, position, position + 1));
+        }
     }
 
     private List<Span> CollectIntervals(IntervalsSource source, SegmentReader reader)

@@ -19,6 +19,15 @@ internal sealed partial class SegmentReaderState
         return PostingsEnum.Create(PostingsInput, offset);
     }
 
+    /// <summary>Returns a postings cursor for a qualified UTF-8 term.</summary>
+    internal PostingsEnum GetPostingsEnum(ReadOnlySpan<byte> qualifiedTerm)
+    {
+        if (!DictionaryReader.TryGetPostingsOffset(qualifiedTerm, out long offset))
+            return PostingsEnum.Empty;
+
+        return PostingsEnum.Create(PostingsInput, offset);
+    }
+
     /// <summary>
     /// Returns a PostingsEnum at a known postings offset, skipping the dictionary lookup.
     /// Use when the offset was already obtained from a term scan (e.g. prefix/wildcard).

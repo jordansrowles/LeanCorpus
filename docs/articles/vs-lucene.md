@@ -223,18 +223,18 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Multi-level BlockJoinQuery | ❌ | ✔ | ✔ | Backlog |
 | ToParentBlockJoinSortField | ❌ | ✔ | ✔ | Backlog |
 | Join queries (term-based join) | ❌ | ✔ | ✔ | Backlog |
-| Function queries / DoubleValuesSource | ❌ | ◐ | ✔ | Lucene.NET has its older `ValueSource` function-query surface but not Java Lucene's current `DoubleValuesSource` API. |
+| Function queries / DoubleValuesSource | ✔   `FunctionQuery` / `DoubleValuesSource` | ◐ | ✔ | Numeric fields, constants, scores and composed arithmetic sources. |
 | BoostQuery (wrapper) | ✔   `Query.Boost` / `QueryExtensions.WithBoost()` | ✔ | ✔ | LeanCorpus uses a base-query property rather than a wrapper type. |
-| TermsQuery / TermInSetQuery (byte-ref variant) | ❌ | ✔ | ✔ | Backlog |
+| TermsQuery / TermInSetQuery (byte-ref variant) | ✔   `TermsQuery` | ✔ | ✔ | Accepts exact UTF-8 terms and performs byte-oriented FST lookups. |
 | MonitorQuery / Percolator | ❌ | ✔ | ✔ | Backlog |
 | MemoryIndex (single-doc in-memory) | ❌ | ✔ | ✔ | Backlog |
-| QueryRescorer | ❌ | ✔ | ✔ | Backlog |
-| SearchAfter (pagination) | ❌ | ✔ | ✔ | Backlog |
+| QueryRescorer | ✔   `QueryRescorer` | ✔ | ✔ | Candidate-only second-pass scoring with configurable score combination. |
+| SearchAfter (pagination) | ✔   `IndexSearcher.SearchAfter()` | ✔ | ✔ | Score/document-ID and multi-field sort cursors. |
 | Count-only search | ✔   `IndexSearcher.Count()` / `CountCollector` | ✔ | ✔ | |
-| SpanFirstQuery | ❌ | ✔ | ✔ | Backlog |
-| SpanContainingQuery / SpanWithinQuery | ❌ | ✔ | ✔ | Backlog |
-| SpanMultiTermQueryWrapper | ❌ | ✔ | ✔ | Backlog |
-| SpanFieldMaskingQuery | ❌ | ✔ | ✔ | Backlog |
+| SpanFirstQuery | ✔   `SpanFirstQuery` | ✔ | ✔ | |
+| SpanContainingQuery / SpanWithinQuery | ✔ | ✔ | ✔ | |
+| SpanMultiTermQueryWrapper | ✔ | ✔ | ✔ | Prefix, wildcard, fuzzy, regex and term-range expansion. |
+| SpanFieldMaskingQuery | ✔   `FieldMaskingSpanQuery` | ✔ | ✔ | |
 | Byte-vector kNN | ❌ | ❌ | ✔ | Lucene (Java): `KnnByteVectorField` / `KnnByteVectorQuery`. |
 | Vector similarity-threshold query | ❌ | ❌ | ✔ | Lucene (Java): `FloatVectorSimilarityQuery`. |
 
@@ -255,8 +255,8 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Lenient parsing mode | ✔   `QueryParser` | ✔ | ✔ | |
 | Full grammar error positions | ❌ | ✔ | ✔ | Backlog |
 | Standard query parser (SQP) | ❌ | ✔ | ✔ | Backlog |
-| Analysing query parser | ❌ | ✔ | ✔ | `AnalyzingQueryParser` analyses prefix, wildcard, range, and fuzzy terms. |
-| Complex phrase query parser | ❌ | ✔ | ✔ | `ComplexPhraseQueryParser`. |
+| Analysing query parser | ✔   `AnalysingQueryParser` | ✔ | ✔ | Analyses literal portions of prefix and wildcard terms. |
+| Complex phrase query parser | ✔   `ComplexPhraseQueryParser` | ✔ | ✔ | Converts same-field complex phrase clauses to span queries. |
 | Surround query parser | ❌ | ✔ | ✔ | `SurroundQueryParser` supports span-oriented query syntax. |
 | XML query parser | ❌ | ✔ | ✔ | `CoreParser` / `XmlQueryParser`. |
 

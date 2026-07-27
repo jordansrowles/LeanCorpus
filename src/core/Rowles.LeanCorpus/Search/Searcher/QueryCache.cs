@@ -243,6 +243,10 @@ public sealed class QueryCache
                     AppendPart(builder, tisq.Field);
                     foreach (var term in tisq.Terms) AppendPart(builder, term);
                     break;
+                case TermsQuery termsQuery:
+                    AppendPart(builder, termsQuery.Field);
+                    foreach (var term in termsQuery.Terms) AppendBytes(builder, term);
+                    break;
                 case SynonymQuery sq:
                     AppendPart(builder, sq.Field);
                     foreach (var term in sq.Terms) AppendPart(builder, term);
@@ -271,10 +275,13 @@ public sealed class QueryCache
                     builder.Append("|edits=").Append(fq.MaxEdits).Append("|exp=").Append(fq.MaxExpansions);
                     break;
                 case FunctionScoreQuery fsq:
-                    AppendPart(builder, fsq.NumericField);
+                    AppendValuesSource(builder, fsq.ValuesSource);
                     builder.Append("|mode=").Append(fsq.Mode).Append("(");
                     Append(fsq.Inner, builder);
                     builder.Append(')');
+                    break;
+                case FunctionQuery functionQuery:
+                    AppendValuesSource(builder, functionQuery.ValuesSource);
                     break;
                 case BlockJoinQuery bjq:
                     builder.Append("|child=(");
@@ -328,6 +335,15 @@ public sealed class QueryCache
 
         private static void AppendPart(StringBuilder builder, string value)
             => builder.Append('|').Append(value.Length).Append(':').Append(value);
+
+        private static void AppendValuesSource(
+            StringBuilder builder,
+            Scoring.DoubleValuesSource source)
+        {
+            AppendPart(builder, source.GetType().FullName ?? source.GetType().Name);
+            AppendPart(builder, source.ToString() ?? string.Empty);
+            builder.Append("|hash=").Append(source.GetHashCode());
+        }
 
         private static void AppendBytes(StringBuilder builder, ReadOnlyMemory<byte>? value)
         {

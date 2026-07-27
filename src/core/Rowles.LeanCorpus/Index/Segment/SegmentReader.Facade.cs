@@ -195,6 +195,14 @@ public sealed class SegmentReader : IDisposable
         if (TryGetFastState(out var state)) return state.GetPostingsEnum(qualifiedTerm);
         return RetainPostingsLease(AcquireReadLease(), static (current, arg) => current.GetPostingsEnum(arg), qualifiedTerm);
     }
+    internal PostingsEnum GetPostingsEnum(byte[] qualifiedTerm)
+    {
+        if (TryGetFastState(out var state)) return state.GetPostingsEnum(qualifiedTerm);
+        return RetainPostingsLease(
+            AcquireReadLease(),
+            static (current, arg) => current.GetPostingsEnum(arg),
+            qualifiedTerm);
+    }
     public PostingsEnum GetPostingsEnumAtOffset(long offset)
     {
         if (TryGetFastState(out var state)) return state.GetPostingsEnumAtOffset(offset);
