@@ -1,10 +1,12 @@
 ﻿using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Simd;
 using Rowles.LeanCorpus.Search.Parsing;
 using Rowles.LeanCorpus.Search.Highlighting;
+using Rowles.LeanCorpus.Search.Suggestions;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Xunit.Abstractions;
@@ -166,6 +168,224 @@ public sealed class SortedSearchTests : IClassFixture<TestDirectoryFixture>
         var results = searcher.Search(new TermQuery("body", "item"), 10, SortField.Numeric("rank"));
 
         Assert.Equal("doc1", searcher.GetStoredFields(results.ScoreDocs[0].DocId)["id"][0]);
+    }
+
+    [Fact(DisplayName = "Search: Sorted Numeric Max Selector Uses Highest Value")]
+    public void Search_SortedNumericMaxSelector_UsesHighestValue()
+    {
+        var path = SubDir("sort_multival_numeric_max");
+        var dir = new MMapDirectory(path);
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            var doc1 = new LeanDocument();
+            doc1.Add(new TextField("body", "item"));
+            doc1.Add(new StringField("id", "doc1"));
+            doc1.Add(new NumericField("rank", 1));
+            doc1.Add(new NumericField("rank", 50));
+            writer.AddDocument(doc1);
+
+            var doc2 = new LeanDocument();
+            doc2.Add(new TextField("body", "item"));
+            doc2.Add(new StringField("id", "doc2"));
+            doc2.Add(new NumericField("rank", 10));
+            writer.AddDocument(doc2);
+            writer.Commit();
+        }
+
+        foreach (var pathToDelete in Directory.GetFiles(path, "seg_*.dvn")
+                     .Concat(Directory.GetFiles(path, "seg_*.num")))
+        {
+            File.Delete(pathToDelete);
+        }
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(
+            new TermQuery("body", "item"),
+            10,
+            SortField.SortedNumeric("rank", SortValueSelector.Max));
+
+        Assert.Equal("doc2", searcher.GetStoredFields(results.ScoreDocs[0].DocId)["id"][0]);
+    }
+
+    [Fact(DisplayName = "Search: Multiple Sort Fields Apply In Order")]
+    public void Search_MultipleSortFields_ApplyInOrder()
+    {
+        var dir = new MMapDirectory(SubDir("sort_multiple_fields"));
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            foreach (var (id, group, rank) in new[]
+                     {
+                         ("a", "one", 1),
+                         ("b", "one", 3),
+                         ("c", "two", 2)
+                     })
+            {
+                var doc = new LeanDocument();
+                doc.Add(new TextField("body", "item"));
+                doc.Add(new StringField("id", id));
+                doc.Add(new StringField("group", group));
+                doc.Add(new NumericField("rank", rank));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(
+            new TermQuery("body", "item"),
+            10,
+            SortField.String("group"),
+            SortField.Numeric("rank", descending: true));
+        var ids = results.ScoreDocs
+            .Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["id"][0])
+            .ToArray();
+
+        Assert.Equal(new[] { "b", "a", "c" }, ids);
+    }
+
+    [Fact(DisplayName = "Search After: Returns Stable Consecutive Pages")]
+    public void SearchAfter_ReturnsStableConsecutivePages()
+    {
+        var dir = new MMapDirectory(SubDir("search_after"));
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            for (int rank = 0; rank < 5; rank++)
+            {
+                var doc = new LeanDocument();
+                doc.Add(new TextField("body", "item"));
+                doc.Add(new NumericField("rank", rank));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+        var sort = SortField.Numeric("rank");
+        var first = searcher.Search(new TermQuery("body", "item"), 2, sort);
+        var second = searcher.SearchAfter(
+            first.ScoreDocs[^1],
+            new TermQuery("body", "item"),
+            2,
+            sort);
+
+        Assert.Equal(new[] { 0, 1 }, first.ScoreDocs.Select(static scoreDoc => scoreDoc.DocId));
+        Assert.Equal(new[] { 2, 3 }, second.ScoreDocs.Select(static scoreDoc => scoreDoc.DocId));
+        Assert.Equal(5, second.TotalHits);
+    }
+
+    [Fact(DisplayName = "Query Rescorer: Second Pass Promotes Matching Documents")]
+    public void QueryRescorer_SecondPassPromotesMatchingDocuments()
+    {
+        var dir = new MMapDirectory(SubDir("query_rescorer"));
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            foreach (var (id, body) in new[]
+                     {
+                         ("plain", "common"),
+                         ("preferred", "common preferred")
+                     })
+            {
+                var doc = new LeanDocument();
+                doc.Add(new StringField("id", id));
+                doc.Add(new TextField("body", body));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+        var firstPass = searcher.Search(new MatchAllDocsQuery(), 10);
+        var rescored = new QueryRescorer(
+            new TermQuery("body", "preferred"),
+            weight: 5).Rescore(searcher, firstPass, 10);
+
+        Assert.Equal(
+            "preferred",
+            searcher.GetStoredFields(rescored.ScoreDocs[0].DocId)["id"][0]);
+    }
+
+    [Fact(DisplayName = "Sort Rescorer: Reranks Only First Pass Candidates")]
+    public void SortRescorer_ReranksOnlyFirstPassCandidates()
+    {
+        var dir = new MMapDirectory(SubDir("sort_rescorer"));
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            for (int rank = 1; rank <= 3; rank++)
+            {
+                var doc = new LeanDocument();
+                doc.Add(new TextField("body", "item"));
+                doc.Add(new NumericField("rank", rank));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+        var firstPass = searcher.Search(new TermQuery("body", "item"), 2);
+        var rescored = new SortRescorer(
+            SortField.Numeric("rank", descending: true))
+            .Rescore(searcher, firstPass, 2);
+
+        Assert.Equal(1, rescored.ScoreDocs[0].DocId);
+        Assert.DoesNotContain(rescored.ScoreDocs, static scoreDoc => scoreDoc.DocId == 2);
+    }
+
+    [Fact(DisplayName = "Analyzing Suggester: Applies Analysis And Context Filter")]
+    public void AnalyzingSuggester_AppliesAnalysisAndContextFilter()
+    {
+        var dir = new MMapDirectory(SubDir("analysing_suggester"));
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            foreach (var (body, category) in new[]
+                     {
+                         ("apple", "fruit"),
+                         ("application", "software")
+                     })
+            {
+                var doc = new LeanDocument();
+                doc.Add(new TextField("body", body));
+                doc.Add(new StringField("category", category));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+        var suggestions = AnalyzingSuggester.Suggest(
+            searcher,
+            "APP",
+            "body",
+            new StandardAnalyser(),
+            contextFilter: new TermQuery("category", "fruit"));
+
+        Assert.Single(suggestions);
+        Assert.Equal("apple", suggestions[0].Term);
+    }
+
+    [Fact(DisplayName = "Free Text Suggester: Uses Phrase Context")]
+    public void FreeTextSuggester_UsesPhraseContext()
+    {
+        var dir = new MMapDirectory(SubDir("free_text_suggester"));
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            foreach (var body in new[] { "new york", "new york", "new jersey", "old town" })
+            {
+                var doc = new LeanDocument();
+                doc.Add(new TextField("body", body));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+        var suggestions = FreeTextSuggester.Suggest(
+            searcher,
+            "new ",
+            "body",
+            new StandardAnalyser(),
+            topN: 2);
+
+        Assert.Equal(new[] { "york", "jersey" }, suggestions.Select(static value => value.Term));
     }
 
     /// <summary>

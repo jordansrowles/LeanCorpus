@@ -96,6 +96,14 @@ public sealed class CombinedFieldsQuery : Query
     }
 
     /// <inheritdoc/>
+    public override void Visit(QueryVisitor visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        foreach (var field in _fields)
+            visitor.ConsumeTerms(this, field, _terms);
+    }
+
+    /// <inheritdoc/>
     public override bool Equals(object? obj)
     {
         if (obj is not CombinedFieldsQuery other ||

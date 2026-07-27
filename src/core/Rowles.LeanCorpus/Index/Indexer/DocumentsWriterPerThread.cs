@@ -227,6 +227,13 @@ internal sealed class DocumentsWriterPerThread
                     AppendStored(bf.Name, StoredFieldValue.FromBinary(bf.Value.Span), storeDocValues: bf.StoreDocValues);
                     _estimatedRamBytes += bf.Value.Length + 64;
                     break;
+                case InetAddressField ipf:
+                    AppendStored(
+                        ipf.Name,
+                        StoredFieldValue.FromBinary(ipf.Value.Span),
+                        storeDocValues: ipf.StoreDocValues);
+                    _estimatedRamBytes += ipf.Value.Length + 64;
+                    break;
                 case VectorField vf:
                     TrackFieldBoost(vf.Name, localDocId, vf.Boost);
                     IndexVectorField(vf.Name, vf.Value, localDocId);

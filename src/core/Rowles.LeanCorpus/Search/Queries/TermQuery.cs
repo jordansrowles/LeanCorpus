@@ -32,4 +32,11 @@ public sealed class TermQuery : Query
 
     /// <inheritdoc/>
     public override int GetHashCode() => CombineBoost(HashCode.Combine(nameof(TermQuery), Field, Term));
+
+    /// <inheritdoc/>
+    public override void Visit(QueryVisitor visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        visitor.ConsumeTerm(this, Field, Term);
+    }
 }

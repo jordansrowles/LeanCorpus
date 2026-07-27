@@ -14,6 +14,7 @@
 | ADR010 | 2026-07-14 | Accepted | [IndexOutput must be disposed before File.Move on Windows](ADR010-close-before-rename-migration.md) |
 | ADR011 | 2026-07-21 | Accepted | [Lazy segment readers use bounded leases and process-wide file lifetimes](ADR011-lazy-segment-reader-lifetimes.md) |
 | ADR012 | 2026-07-24 | Accepted | [Parallel segment search is opt-in](ADR012-parallel-search-opt-in.md) |
+| ADR013 | 2026-07-27 | Accepted | [Custom queries extend the tuned execution pipeline](ADR013-query-extension-pipeline.md) |
 ## Template
 
 New ADRs should follow [the template](_template.md) using the next available `ADRnnn` prefix.

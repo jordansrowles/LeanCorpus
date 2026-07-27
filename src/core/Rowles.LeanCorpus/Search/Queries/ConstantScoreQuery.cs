@@ -35,4 +35,11 @@ public sealed class ConstantScoreQuery : Query
 
     /// <inheritdoc/>
     public override int GetHashCode() => CombineBoost(HashCode.Combine(nameof(ConstantScoreQuery), Inner, ConstantScore));
+
+    /// <inheritdoc/>
+    public override void Visit(QueryVisitor visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        Inner.Visit(visitor.GetSubVisitor(Occur.Must, this));
+    }
 }

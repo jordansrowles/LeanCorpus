@@ -16,7 +16,25 @@ public sealed class PhraseVectorQueryTests
         var q = new PhraseQuery("body", "quick", "brown", "fox");
         Assert.Equal("body", q.Field);
         Assert.Equal(["quick", "brown", "fox"], q.Terms);
+        Assert.Equal([0, 1, 2], q.Positions);
         Assert.Equal(0, q.Slop);
+    }
+
+    [Fact(DisplayName = "PhraseQuery: Explicit Positions Participate In Equality")]
+    public void PhraseQuery_ExplicitPositions_ParticipateInEquality()
+    {
+        var explicitGap = new PhraseQuery("body", ["quick", "brown"], [0, 2]);
+        var adjacent = new PhraseQuery("body", ["quick", "brown"], [0, 1]);
+
+        Assert.Equal([0, 2], explicitGap.Positions);
+        Assert.NotEqual(explicitGap, adjacent);
+    }
+
+    [Fact(DisplayName = "PhraseQuery: Explicit Positions Must Match Terms")]
+    public void PhraseQuery_ExplicitPositions_MustMatchTerms()
+    {
+        Assert.Throws<ArgumentException>(
+            () => new PhraseQuery("body", ["quick", "brown"], [0]));
     }
 
     [Fact(DisplayName = "PhraseQuery: Ctor With Slop Sets Slop")]

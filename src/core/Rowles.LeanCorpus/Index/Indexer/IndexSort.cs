@@ -44,7 +44,8 @@ public sealed class IndexSort : IEquatable<IndexSort>
         {
             var a = Fields[i];
             var b = other.Fields[i];
-            if (a.Type != b.Type || a.FieldName != b.FieldName || a.Descending != b.Descending)
+            if (a.Type != b.Type || a.FieldName != b.FieldName
+                || a.Descending != b.Descending || a.Selector != b.Selector)
                 return false;
         }
         return true;
@@ -62,6 +63,7 @@ public sealed class IndexSort : IEquatable<IndexSort>
             hc.Add(f.Type);
             hc.Add(f.FieldName);
             hc.Add(f.Descending);
+            hc.Add(f.Selector);
         }
         return hc.ToHashCode();
     }

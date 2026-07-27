@@ -55,7 +55,9 @@ public sealed partial class IndexSearcher
         for (int i = 0; i < termCount; i++)
         {
             int docFreq = globalDFs.GetValueOrDefault((query.Field, query.Terms[i]), postingsArr[i].DocFreq);
-            long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qualifiedTerms[i]) : 0;
+            long collectionFreq = RequiresCollectionStatistics(query.Field)
+                ? GetGlobalCollectionFreq(qualifiedTerms[i])
+                : 0;
             termFactors[i] = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
         }
 
@@ -89,7 +91,8 @@ public sealed partial class IndexSearcher
                 }
             }
 
-            if (hasAllPositions && HasPositionsWithinSlopSpan(postingsArr, termCount, leaderIdx, slop))
+            if (hasAllPositions && HasPositionsWithinSlopSpan(
+                    postingsArr, termCount, query.Positions, slop))
             {
                 int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                     ? fieldLengths[docId] : 1;
@@ -100,7 +103,7 @@ public sealed partial class IndexSearcher
                 for (int i = 0; i < termCount; i++)
                 {
                     var (f1, f2, f3) = termFactors[i];
-                    score += ScoreTerm(f1, f2, f3, leaderTf, docLength);
+                    score += ScoreTerm(f1, f2, f3, leaderTf, docLength, query.Field);
                 }
                 if (Math.Abs(boost - 1.0f) > 1e-6f) score *= boost;
                 collector.Collect(docBase + docId, ApplyFieldBoost(fieldBoosts, docId, score));
@@ -347,7 +350,11 @@ public sealed partial class IndexSearcher
     /// Checks whether positions from all terms form a valid phrase within the given slop,
     /// using ReadOnlySpan positions from PostingsEnum.
     /// </summary>
-    private static bool HasPositionsWithinSlopSpan(Span<PostingsEnum> postings, int termCount, int leaderIdx, int slop)
+    private static bool HasPositionsWithinSlopSpan(
+        Span<PostingsEnum> postings,
+        int termCount,
+        IReadOnlyList<int> expectedPositions,
+        int slop)
     {
         if (termCount == 1) return true;
 
@@ -356,7 +363,8 @@ public sealed partial class IndexSearcher
         {
             var pos0 = postings[0].GetCurrentPositions();
             var pos1 = postings[1].GetCurrentPositions();
-            return HasTwoTermPositionsWithinSlop(pos0, pos1, slop);
+            return HasTwoTermPositionsWithinSlop(
+                pos0, pos1, expectedPositions[1] - expectedPositions[0], slop);
         }
 
         // 3-term specialisation: direct span access, zero allocation (matches 2-term path)
@@ -365,7 +373,13 @@ public sealed partial class IndexSearcher
             var pos0 = postings[0].GetCurrentPositions();
             var pos1 = postings[1].GetCurrentPositions();
             var pos2 = postings[2].GetCurrentPositions();
-            return HasThreeTermPositionsWithinSlop(pos0, pos1, pos2, slop);
+            return HasThreeTermPositionsWithinSlop(
+                pos0,
+                pos1,
+                pos2,
+                expectedPositions[1] - expectedPositions[0],
+                expectedPositions[2] - expectedPositions[1],
+                slop);
         }
 
         // General N-term case (4+ terms): chained two-pointer with ArrayPool
@@ -397,7 +411,7 @@ public sealed partial class IndexSearcher
 
                 for (int t = 1; t < termCount; t++)
                 {
-                    int target = chainPos + 1;
+                    int target = chainPos + expectedPositions[t] - expectedPositions[t - 1];
                     int lo = target - slop;
                     int hi = target + slop;
                     int[] pt = rentedArrays[t];
@@ -430,12 +444,16 @@ public sealed partial class IndexSearcher
         }
     }
 
-    private static bool HasTwoTermPositionsWithinSlop(ReadOnlySpan<int> pos0, ReadOnlySpan<int> pos1, int slop)
+    private static bool HasTwoTermPositionsWithinSlop(
+        ReadOnlySpan<int> pos0,
+        ReadOnlySpan<int> pos1,
+        int expectedDelta,
+        int slop)
     {
         int j = 0;
         for (int i = 0; i < pos0.Length; i++)
         {
-            int target = pos0[i] + 1;
+            int target = pos0[i] + expectedDelta;
             int lowerBound = target - slop;
             int upperBound = target + slop;
             while (j < pos1.Length && pos1[j] < lowerBound)
@@ -447,12 +465,18 @@ public sealed partial class IndexSearcher
         return false;
     }
 
-    private static bool HasThreeTermPositionsWithinSlop(ReadOnlySpan<int> pos0, ReadOnlySpan<int> pos1, ReadOnlySpan<int> pos2, int slop)
+    private static bool HasThreeTermPositionsWithinSlop(
+        ReadOnlySpan<int> pos0,
+        ReadOnlySpan<int> pos1,
+        ReadOnlySpan<int> pos2,
+        int firstExpectedDelta,
+        int secondExpectedDelta,
+        int slop)
     {
         int j = 0, k = 0;
         for (int i = 0; i < pos0.Length; i++)
         {
-            int target1 = pos0[i] + 1;
+            int target1 = pos0[i] + firstExpectedDelta;
             int lo1 = target1 - slop;
             int hi1 = target1 + slop;
             while (j < pos1.Length && pos1[j] < lo1)
@@ -460,7 +484,7 @@ public sealed partial class IndexSearcher
             if (j >= pos1.Length) break;
             if (pos1[j] > hi1) continue;
 
-            int target2 = pos1[j] + 1;
+            int target2 = pos1[j] + secondExpectedDelta;
             int lo2 = target2 - slop;
             int hi2 = target2 + slop;
             while (k < pos2.Length && pos2[k] < lo2)

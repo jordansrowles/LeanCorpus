@@ -1,8 +1,11 @@
+using System.Net;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Queries;
+using Rowles.LeanCorpus.Search.Scoring;
 using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
@@ -118,6 +121,240 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
         Assert.Equal(new[] { "a", "c" }, ids);
     }
 
+    [Fact(DisplayName = "SynonymQuery: Matches Alternatives As One Scoring Unit")]
+    public void SynonymQuery_MatchesAlternatives_AsOneScoringUnit()
+    {
+        var dir = new MMapDirectory(SubDir(nameof(SynonymQuery_MatchesAlternatives_AsOneScoringUnit)));
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            foreach (var (id, body) in new[]
+                     {
+                         ("quick", "quick"),
+                         ("fast", "fast"),
+                         ("both", "quick fast"),
+                         ("other", "slow")
+                     })
+            {
+                var doc = new LeanDocument();
+                doc.Add(new StringField("id", id));
+                doc.Add(new TextField("body", body));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new SynonymQuery("body", "quick", "fast"), 10);
+        var ids = results.ScoreDocs
+            .Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["id"][0])
+            .ToArray();
+
+        Assert.Equal(3, results.TotalHits);
+        Assert.Equal("both", ids[0]);
+        Assert.DoesNotContain("other", ids);
+    }
+
+    [Fact(DisplayName = "Query Rewrite: Custom Query Executes Through Built In Query")]
+    public void QueryRewrite_CustomQuery_ExecutesThroughBuiltInQuery()
+    {
+        var dir = new MMapDirectory(SubDir(nameof(QueryRewrite_CustomQuery_ExecutesThroughBuiltInQuery)));
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            var document = new LeanDocument();
+            document.Add(new TextField("body", "rewritten"));
+            writer.AddDocument(document);
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new RewritingQuery(), 10);
+
+        Assert.Single(results.ScoreDocs);
+    }
+
+    [Fact(DisplayName = "Query Weight: Custom Scorer Reranks Approximation Candidates")]
+    public void QueryWeight_CustomScorer_ReranksApproximationCandidates()
+    {
+        var dir = new MMapDirectory(SubDir(nameof(QueryWeight_CustomScorer_ReranksApproximationCandidates)));
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                var document = new LeanDocument();
+                document.Add(new TextField("body", "candidate"));
+                writer.AddDocument(document);
+            }
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+        var query = new DocIdWeightQuery();
+        var results = searcher.Search(query, 3);
+
+        Assert.Equal(new[] { 2, 1, 0 }, results.ScoreDocs.Select(static scoreDoc => scoreDoc.DocId));
+        Assert.Equal(3, searcher.Count(query));
+    }
+
+    [Fact(DisplayName = "Per Field Similarity: Uses Field Specific Scoring Model")]
+    public void PerFieldSimilarity_UsesFieldSpecificScoringModel()
+    {
+        var dir = new MMapDirectory(SubDir(nameof(PerFieldSimilarity_UsesFieldSpecificScoringModel)));
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            var titleDocument = new LeanDocument();
+            titleDocument.Add(new StringField("id", "title"));
+            titleDocument.Add(new TextField("title", "match"));
+            writer.AddDocument(titleDocument);
+
+            var bodyDocument = new LeanDocument();
+            bodyDocument.Add(new StringField("id", "body"));
+            bodyDocument.Add(new TextField("body", "match"));
+            writer.AddDocument(bodyDocument);
+            writer.Commit();
+        }
+
+        var config = new IndexSearcherConfig
+        {
+            Similarity = new ConstantSimilarity(1),
+            PerFieldSimilarities = new Dictionary<string, ISimilarity>
+            {
+                ["title"] = new ConstantSimilarity(10)
+            }
+        };
+        using var searcher = new IndexSearcher(dir, config);
+        var query = new BooleanQuery.Builder()
+            .Add(new TermQuery("title", "match"), Occur.Should)
+            .Add(new TermQuery("body", "match"), Occur.Should)
+            .Build();
+
+        var results = searcher.Search(query, 10);
+
+        Assert.Equal(
+            "title",
+            searcher.GetStoredFields(results.ScoreDocs[0].DocId)["id"][0]);
+        Assert.True(results.ScoreDocs[0].Score > results.ScoreDocs[1].Score);
+    }
+
+    private sealed class RewritingQuery : Query
+    {
+        public override string Field => "body";
+        public override Query Rewrite() => new TermQuery(Field, "rewritten");
+        public override bool Equals(object? obj) => obj is RewritingQuery;
+        public override int GetHashCode() => typeof(RewritingQuery).GetHashCode();
+    }
+
+    private sealed class DocIdWeightQuery : Query
+    {
+        public override string Field => string.Empty;
+        public override Weight CreateWeight(IndexSearcher searcher) => new DocIdWeight();
+        public override bool Equals(object? obj) => obj is DocIdWeightQuery;
+        public override int GetHashCode() => typeof(DocIdWeightQuery).GetHashCode();
+    }
+
+    private sealed class DocIdWeight()
+        : Weight(new MatchAllDocsQuery())
+    {
+        public override Scorer CreateScorer(IndexSearcher searcher) => new DocIdScorer();
+    }
+
+    private sealed class DocIdScorer : Scorer
+    {
+        public override float Score(int docId, float approximationScore)
+            => approximationScore + docId;
+    }
+
+    private sealed class ConstantSimilarity(float score) : ISimilarity
+    {
+        public float Score(
+            int termFreq,
+            int docLength,
+            float avgDocLength,
+            int totalDocCount,
+            int docFreq) => score;
+
+        public (float Factor1, float Factor2) PrecomputeFactors(
+            int totalDocCount,
+            int docFreq,
+            float avgDocLength) => (score, 0);
+
+        public float ScorePrecomputed(
+            float factor1,
+            float factor2,
+            int termFreq,
+            int docLength) => factor1;
+    }
+
+    [Fact(DisplayName = "BooleanQuery: Minimum Should Match Applies To Term Fast Path")]
+    public void BooleanQuery_MinimumShouldMatch_AppliesToTermFastPath()
+    {
+        var dir = new MMapDirectory(SubDir(nameof(BooleanQuery_MinimumShouldMatch_AppliesToTermFastPath)));
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            foreach (var (id, body) in new[]
+                     {
+                         ("one", "alpha"),
+                         ("two", "alpha beta"),
+                         ("three", "alpha beta gamma")
+                     })
+            {
+                var doc = new LeanDocument();
+                doc.Add(new StringField("id", id));
+                doc.Add(new TextField("body", body));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+        var query = new BooleanQuery.Builder()
+            .Add(new TermQuery("body", "alpha"), Occur.Should)
+            .Add(new TermQuery("body", "beta"), Occur.Should)
+            .Add(new TermQuery("body", "gamma"), Occur.Should)
+            .SetMinimumNumberShouldMatch(2)
+            .Build();
+
+        var results = searcher.Search(query, 10);
+        var ids = results.ScoreDocs
+            .Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["id"][0])
+            .OrderBy(static id => id)
+            .ToArray();
+
+        Assert.Equal(new[] { "three", "two" }, ids);
+    }
+
+    [Fact(DisplayName = "BooleanQuery: Minimum Should Match Applies To Mixed Query Fallback")]
+    public void BooleanQuery_MinimumShouldMatch_AppliesToMixedQueryFallback()
+    {
+        var dir = new MMapDirectory(SubDir(nameof(BooleanQuery_MinimumShouldMatch_AppliesToMixedQueryFallback)));
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            foreach (var (id, body) in new[]
+                     {
+                         ("one", "alpha"),
+                         ("two", "alpha beta"),
+                         ("prefix", "alpha betamax")
+                     })
+            {
+                var doc = new LeanDocument();
+                doc.Add(new StringField("id", id));
+                doc.Add(new TextField("body", body));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+        var query = new BooleanQuery.Builder()
+            .Add(new TermQuery("body", "alpha"), Occur.Should)
+            .Add(new PrefixQuery("body", "beta"), Occur.Should)
+            .SetMinimumNumberShouldMatch(2)
+            .Build();
+
+        var results = searcher.Search(query, 10);
+
+        Assert.Equal(2, results.TotalHits);
+    }
+
     [Fact(DisplayName = "PointInSetQuery: Matches Any Provided Point")]
     public void PointInSetQuery_MatchesAnyProvidedPoint()
     {
@@ -140,6 +377,108 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
 
         Assert.Equal(2, results.TotalHits);
         Assert.Equal(new[] { "a", "c" }, ids);
+    }
+
+    [Fact(DisplayName = "Typed Point Queries: Rewrite To Native Numeric Pipelines")]
+    public void TypedPointQueries_RewriteToNativeNumericPipelines()
+    {
+        var dir = new MMapDirectory(SubDir(nameof(TypedPointQueries_RewriteToNativeNumericPipelines)));
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            foreach (var (id, number) in new[] { ("one", 1), ("two", 2), ("three", 3) })
+            {
+                var doc = new LeanDocument();
+                doc.Add(new StringField("id", id));
+                doc.Add(new Int64Field("integer", number));
+                doc.Add(new NumericField("single", number));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+
+        Assert.Equal(
+            1,
+            searcher.Search(new Int32RangeQuery("integer", 1, 3, false, false), 10).TotalHits);
+        Assert.Equal(
+            2,
+            searcher.Search(new Int32PointInSetQuery("integer", 1, 3), 10).TotalHits);
+        Assert.Equal(
+            1,
+            searcher.Search(new SingleRangeQuery("single", 1, 3, false, false), 10).TotalHits);
+        Assert.Equal(
+            2,
+            searcher.Search(new SinglePointInSetQuery("single", 1, 3), 10).TotalHits);
+    }
+
+    [Fact(DisplayName = "Binary Queries: Match Ranges And Point Sets")]
+    public void BinaryQueries_MatchRangesAndPointSets()
+    {
+        var dir = new MMapDirectory(SubDir(nameof(BinaryQueries_MatchRangesAndPointSets)));
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            foreach (byte value in new byte[] { 1, 2, 3 })
+            {
+                var doc = new LeanDocument();
+                doc.Add(new BinaryField("binary", new byte[] { value }));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+
+        Assert.Equal(
+            1,
+            searcher.Search(
+                new BinaryRangeQuery("binary", new byte[] { 1 }, new byte[] { 3 }, false, false),
+                10).TotalHits);
+        Assert.Equal(
+            2,
+            searcher.Search(
+                new BinaryPointInSetQuery("binary", [1], [3]),
+                10).TotalHits);
+    }
+
+    [Fact(DisplayName = "IP Address Queries: Match IPv4 And IPv6 Values")]
+    public void InetAddressQueries_MatchIpv4AndIpv6Values()
+    {
+        var dir = new MMapDirectory(SubDir(nameof(InetAddressQueries_MatchIpv4AndIpv6Values)));
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            foreach (var address in new[]
+                     {
+                         IPAddress.Parse("10.0.0.1"),
+                         IPAddress.Parse("10.0.0.2"),
+                         IPAddress.Parse("2001:db8::1")
+                     })
+            {
+                var doc = new LeanDocument();
+                doc.Add(new InetAddressField("address", address));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+
+        Assert.Equal(
+            2,
+            searcher.Search(
+                new InetAddressRangeQuery(
+                    "address",
+                    IPAddress.Parse("10.0.0.1"),
+                    IPAddress.Parse("10.0.0.2")),
+                10).TotalHits);
+        Assert.Equal(
+            2,
+            searcher.Search(
+                new InetAddressPointInSetQuery(
+                    "address",
+                    IPAddress.Parse("10.0.0.2"),
+                    IPAddress.Parse("2001:db8::1")),
+                10).TotalHits);
     }
 
     [Fact(DisplayName = "MultiPhraseQuery: Alternative Slot Matches Multiple Documents")]

@@ -5,11 +5,16 @@ namespace Rowles.LeanCorpus.Search.Queries;
 /// </summary>
 public sealed class PhraseQuery : Query
 {
+    private readonly int[] _positions;
+
     /// <inheritdoc/>
     public override string Field { get; }
 
     /// <summary>Gets the ordered terms that form the phrase.</summary>
     public string[] Terms { get; }
+
+    /// <summary>Gets the explicit position for each term.</summary>
+    public IReadOnlyList<int> Positions => _positions;
 
     /// <summary>Maximum number of positional gaps allowed between terms. 0 = exact phrase.</summary>
     public int Slop { get; set; }
@@ -41,6 +46,7 @@ public sealed class PhraseQuery : Query
     {
         Field = field;
         Terms = terms;
+        _positions = CreateSequentialPositions(terms.Length);
     }
 
     /// <summary>Initialises a new <see cref="PhraseQuery"/> with the specified field, slop, and terms.</summary>
@@ -52,6 +58,31 @@ public sealed class PhraseQuery : Query
         Field = field;
         Slop = slop;
         Terms = terms;
+        _positions = CreateSequentialPositions(terms.Length);
+    }
+
+    /// <summary>Initialises a phrase query with explicit term positions.</summary>
+    /// <param name="field">The field to search.</param>
+    /// <param name="terms">The ordered phrase terms.</param>
+    /// <param name="positions">The non-decreasing position for each term.</param>
+    /// <param name="slop">Maximum total positional deviation from the supplied positions.</param>
+    public PhraseQuery(string field, string[] terms, int[] positions, int slop = 0)
+    {
+        ArgumentNullException.ThrowIfNull(terms);
+        ArgumentNullException.ThrowIfNull(positions);
+        if (terms.Length != positions.Length)
+            throw new ArgumentException("Positions must match the number of terms.", nameof(positions));
+        ArgumentOutOfRangeException.ThrowIfNegative(slop);
+        for (int i = 1; i < positions.Length; i++)
+        {
+            if (positions[i] < positions[i - 1])
+                throw new ArgumentException("Positions must be non-decreasing.", nameof(positions));
+        }
+
+        Field = field;
+        Terms = terms;
+        _positions = positions.ToArray();
+        Slop = slop;
     }
 
     /// <inheritdoc/>
@@ -60,6 +91,7 @@ public sealed class PhraseQuery : Query
         string.Equals(Field, other.Field, StringComparison.Ordinal) &&
         Slop == other.Slop &&
         Boost == other.Boost &&
+        _positions.AsSpan().SequenceEqual(other._positions) &&
         Terms.AsSpan().SequenceEqual(other.Terms);
 
     /// <inheritdoc/>
@@ -69,7 +101,26 @@ public sealed class PhraseQuery : Query
         h.Add(nameof(PhraseQuery));
         h.Add(Field);
         h.Add(Slop);
-        foreach (var t in Terms) h.Add(t);
+        for (int i = 0; i < Terms.Length; i++)
+        {
+            h.Add(Terms[i]);
+            h.Add(_positions[i]);
+        }
         return CombineBoost(h.ToHashCode());
+    }
+
+    /// <inheritdoc/>
+    public override void Visit(QueryVisitor visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        visitor.ConsumeTerms(this, Field, Terms);
+    }
+
+    private static int[] CreateSequentialPositions(int count)
+    {
+        var positions = new int[count];
+        for (int i = 0; i < count; i++)
+            positions[i] = i;
+        return positions;
     }
 }

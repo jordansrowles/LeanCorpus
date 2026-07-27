@@ -181,7 +181,9 @@ public sealed partial class IndexSearcher
                 var clause = (SpanTermQuery)query.Clauses[i];
                 var qt = clause.CachedQualifiedTerm!;
                 int docFreq = globalDFs.GetValueOrDefault((query.Field, clause.Term), postings[i].DocFreq);
-                long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
+                long collectionFreq = RequiresCollectionStatistics(query.Field)
+                    ? GetGlobalCollectionFreq(qt)
+                    : 0;
                 termFactors[i] = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
             }
 
@@ -216,7 +218,8 @@ public sealed partial class IndexSearcher
                     for (int i = 0; i < termCount; i++)
                     {
                         var (f1, f2, f3) = termFactors[i];
-                        score += ScoreTerm(f1, f2, f3, leaderTf, docLength);
+                        score += ScoreTerm(
+                            f1, f2, f3, leaderTf, docLength, query.Field);
                     }
                     if (Math.Abs(boost - 1.0f) > 1e-6f) score *= boost;
                     collector.Collect(docBase + docId, ApplyFieldBoost(fieldBoosts, docId, score));
@@ -259,7 +262,9 @@ public sealed partial class IndexSearcher
                 var qualifiedTerm = termQuery.CachedQualifiedTerm ??= string.Concat(termQuery.Field, "\x00", termQuery.Term);
                 using var postings = reader.GetPostingsEnum(qualifiedTerm);
                 int docFreq = globalDFs.GetValueOrDefault((termQuery.Field, termQuery.Term), postings.DocFreq);
-                long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qualifiedTerm) : 0;
+                long collectionFreq = RequiresCollectionStatistics(query.Field)
+                    ? GetGlobalCollectionFreq(qualifiedTerm)
+                    : 0;
                 var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
 
                 while (postings.MoveNext())
@@ -272,7 +277,8 @@ public sealed partial class IndexSearcher
                     docIds[docCount++] = docId;
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                         ? fieldLengths[docId] : 1;
-                    float score = ScoreTerm(f1, f2, f3, postings.Freq, docLength);
+                    float score = ScoreTerm(
+                        f1, f2, f3, postings.Freq, docLength, query.Field);
                     if (Math.Abs(boost - 1.0f) > 1e-6f) score *= boost;
                     collector.Collect(docBase + docId, ApplyFieldBoost(fieldBoosts, docId, score));
                 }

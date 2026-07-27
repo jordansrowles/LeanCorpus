@@ -104,4 +104,12 @@ public sealed class DisjunctionMaxQuery : Query
         foreach (var d in _disjuncts) h.Add(d);
         return CombineBoost(h.ToHashCode());
     }
+
+    /// <inheritdoc/>
+    public override void Visit(QueryVisitor visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        foreach (var disjunct in _disjuncts)
+            disjunct.Visit(visitor.GetSubVisitor(Occur.Should, this));
+    }
 }

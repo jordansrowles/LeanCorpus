@@ -405,6 +405,27 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(0, results.ScoreDocs[0].DocId);
     }
 
+    [Fact(DisplayName = "Phrase Query: Explicit Positions Match An Exact Gap")]
+    public void PhraseQuery_ExplicitPositions_MatchExactGap()
+    {
+        var dir = new MMapDirectory(SubDir("phrase_explicit_positions"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        AddBody(writer, "quick brown");
+        AddBody(writer, "quick red brown");
+        AddBody(writer, "quick red green brown");
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var query = new PhraseQuery("body", ["quick", "brown"], [0, 2]);
+        var results = searcher.Search(query, 10);
+
+        Assert.Single(results.ScoreDocs);
+        Assert.Equal(
+            "quick red brown",
+            searcher.GetStoredFields(results.ScoreDocs[0].DocId)["body"][0]);
+    }
+
     /// <summary>
     /// Verifies the Phrase Query: Exact Three Word Matches Adjacent Terms scenario.
     /// </summary>

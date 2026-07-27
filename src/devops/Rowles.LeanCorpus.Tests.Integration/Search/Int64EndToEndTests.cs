@@ -2,6 +2,7 @@ using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Document.Json;
 using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Aggregations;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Scoring;
@@ -49,6 +50,20 @@ public sealed class Int64EndToEndTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(2, rangeResults.TotalHits);
         var rangeIds = GetIdsSorted(searcher, rangeResults);
         Assert.Equal(new[] { "b", "c" }, rangeIds);
+
+        var exclusiveRange = new BooleanQuery.Builder()
+            .Add(
+                new Int64RangeQuery(
+                    "value",
+                    1_000_000_000_000L,
+                    3_000_000_000_000L,
+                    includeMin: false,
+                    includeMax: false),
+                Occur.Must)
+            .Build();
+        var exclusiveResults = searcher.Search(exclusiveRange, 10);
+        Assert.Single(exclusiveResults.ScoreDocs);
+        Assert.Equal(new[] { "b" }, GetIds(searcher, exclusiveResults));
 
         var pointResults = searcher.Search(new Int64PointInSetQuery("value", 1_000_000_000_000L, 3_000_000_000_000L), 10);
         Assert.Equal(2, pointResults.TotalHits);

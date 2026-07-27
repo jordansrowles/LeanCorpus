@@ -33,5 +33,12 @@ public sealed class BlockJoinQuery : Query
     public override int GetHashCode() => CombineBoost(HashCode.Combine(nameof(BlockJoinQuery), ChildQuery));
 
     /// <inheritdoc/>
+    public override void Visit(QueryVisitor visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        ChildQuery.Visit(visitor.GetSubVisitor(Occur.Must, this));
+    }
+
+    /// <inheritdoc/>
     public override string ToString() => $"BlockJoinQuery({ChildQuery})^{Boost}";
 }

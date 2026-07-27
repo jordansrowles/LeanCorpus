@@ -8,6 +8,80 @@ namespace Rowles.LeanCorpus.Search.Searcher;
 /// </summary>
 public sealed partial class IndexSearcher
 {
+    /// <summary>Searches using an ordered list of sort fields.</summary>
+    public TopDocs Search(Query query, int topN, params SortField[] sorts)
+        => Search(query, topN, (IReadOnlyList<SortField>)sorts, SearchOptions.Default);
+
+    /// <summary>Searches using an ordered list of sort fields and resource controls.</summary>
+    public TopDocs Search(
+        Query query,
+        int topN,
+        IReadOnlyList<SortField> sorts,
+        SearchOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(sorts);
+        if (sorts.Count == 0)
+            throw new ArgumentException("At least one sort field is required.", nameof(sorts));
+        if (sorts.Count == 1)
+            return Search(query, topN, sorts[0], options);
+        if (topN <= 0)
+            return TopDocs.Empty;
+
+        ArgumentNullException.ThrowIfNull(options);
+        long topNBytes = checked((long)topN * Scoring.ScoreDoc.EstimatedBytes);
+        if (topNBytes > options.MaxResultBytes)
+            throw new ArgumentException(
+                $"MaxResultBytes ({options.MaxResultBytes}) is smaller than the requested top-N heap ({topNBytes} bytes).",
+                nameof(options));
+
+        options.CancellationToken.ThrowIfCancellationRequested();
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var allDocs = Search(query, _totalDocCount);
+        if (allDocs.TotalHits == 0)
+            return TopDocs.Empty;
+
+        var sorted = SortCandidates(allDocs.ScoreDocs, sorts, topN);
+
+        bool partial = options.CancellationToken.IsCancellationRequested
+            || (options.Timeout.HasValue && stopwatch.Elapsed > options.Timeout.Value);
+        return partial
+            ? new TopDocs(allDocs.TotalHits, sorted, isPartial: true)
+            : new TopDocs(allDocs.TotalHits, sorted);
+    }
+
+    /// <summary>
+    /// Returns the next page after a result from the same searcher snapshot.
+    /// </summary>
+    public TopDocs SearchAfter(
+        ScoreDoc after,
+        Query query,
+        int topN,
+        params SortField[] sorts)
+    {
+        if (topN <= 0)
+            return TopDocs.Empty;
+        if (sorts.Length == 0)
+            sorts = [SortField.Score];
+
+        var allDocs = Search(query, _totalDocCount, sorts);
+        int afterIndex = Array.FindIndex(
+            allDocs.ScoreDocs,
+            scoreDoc => scoreDoc.DocId == after.DocId);
+        if (afterIndex < 0)
+            throw new ArgumentException(
+                "The search-after document is not a result in this searcher snapshot.",
+                nameof(after));
+
+        int available = allDocs.ScoreDocs.Length - afterIndex - 1;
+        int resultCount = Math.Min(topN, available);
+        if (resultCount <= 0)
+            return new TopDocs(allDocs.TotalHits, []);
+
+        var page = new ScoreDoc[resultCount];
+        Array.Copy(allDocs.ScoreDocs, afterIndex + 1, page, 0, resultCount);
+        return new TopDocs(allDocs.TotalHits, page);
+    }
+
     /// <summary>
     /// Searches with a custom sort order instead of relevance ranking.
     /// Matching documents are collected, then a heap-select picks the top-N
@@ -73,9 +147,12 @@ public sealed partial class IndexSearcher
         var sorted = sort.Type switch
         {
             SortFieldType.DocId => SelectTopByDocId(docs, effectiveN, sort.Descending),
-            SortFieldType.Numeric => SelectTopByNumericField(docs, effectiveN, sort.FieldName, sort.Descending),
-            SortFieldType.Int64 => SelectTopByInt64Field(docs, effectiveN, sort.FieldName, sort.Descending),
-            SortFieldType.String => SelectTopByStringField(docs, effectiveN, sort.FieldName, sort.Descending),
+            SortFieldType.Numeric => SelectTopByNumericField(
+                docs, effectiveN, sort.FieldName, sort.Descending, sort.Selector),
+            SortFieldType.Int64 => SelectTopByInt64Field(
+                docs, effectiveN, sort.FieldName, sort.Descending, sort.Selector),
+            SortFieldType.String => SelectTopByStringField(
+                docs, effectiveN, sort.FieldName, sort.Descending, sort.Selector),
             _ => docs.Length > effectiveN ? docs[..effectiveN] : docs
         };
 
@@ -132,31 +209,52 @@ public sealed partial class IndexSearcher
         return TopNSortHelper.SelectTopN(docs, keys, topN, descending);
     }
 
-    private ScoreDoc[] SelectTopByNumericField(ScoreDoc[] docs, int topN, string fieldName, bool descending)
+    private ScoreDoc[] SelectTopByNumericField(
+        ScoreDoc[] docs,
+        int topN,
+        string fieldName,
+        bool descending,
+        SortValueSelector selector)
     {
         var keys = new double[docs.Length];
         for (int i = 0; i < docs.Length; i++)
-            keys[i] = ResolveNumeric(docs[i].DocId, fieldName);
+            keys[i] = ResolveNumeric(docs[i].DocId, fieldName, selector);
         return TopNSortHelper.SelectTopN(docs, keys, topN, descending);
     }
 
-    private ScoreDoc[] SelectTopByStringField(ScoreDoc[] docs, int topN, string fieldName, bool descending)
+    private ScoreDoc[] SelectTopByStringField(
+        ScoreDoc[] docs,
+        int topN,
+        string fieldName,
+        bool descending,
+        SortValueSelector selector)
     {
         var keys = new string[docs.Length];
         for (int i = 0; i < docs.Length; i++)
-            keys[i] = ResolveString(docs[i].DocId, fieldName);
+            keys[i] = ResolveString(docs[i].DocId, fieldName, selector);
         return TopNSortHelper.SelectTopN(docs, keys, topN, descending);
     }
 
-    private ScoreDoc[] SelectTopByInt64Field(ScoreDoc[] docs, int topN, string fieldName, bool descending)
+    private ScoreDoc[] SelectTopByInt64Field(
+        ScoreDoc[] docs,
+        int topN,
+        string fieldName,
+        bool descending,
+        SortValueSelector selector)
     {
         var keys = new long[docs.Length];
         for (int i = 0; i < docs.Length; i++)
-            keys[i] = ResolveInt64(docs[i].DocId, fieldName);
+            keys[i] = ResolveInt64(docs[i].DocId, fieldName, selector);
         return TopNSortHelper.SelectTopN(docs, keys, topN, descending);
     }
 
     private double ResolveNumeric(int globalId, string fieldName)
+        => ResolveNumeric(globalId, fieldName, SortValueSelector.Min);
+
+    private double ResolveNumeric(
+        int globalId,
+        string fieldName,
+        SortValueSelector selector)
     {
         for (int r = 0; r < _readers.Count; r++)
         {
@@ -166,7 +264,7 @@ public sealed partial class IndexSearcher
                 if (_readers[r].TryGetNumericValue(fieldName, globalId - _docBases[r], out double val))
                     return val;
                 if (_readers[r].TryGetSortedNumericDocValues(fieldName, globalId - _docBases[r], out var values) && values.Count > 0)
-                    return values[0];
+                    return selector == SortValueSelector.Max ? values[^1] : values[0];
                 break;
             }
         }
@@ -178,6 +276,12 @@ public sealed partial class IndexSearcher
     }
 
     private long ResolveInt64(int globalId, string fieldName)
+        => ResolveInt64(globalId, fieldName, SortValueSelector.Min);
+
+    private long ResolveInt64(
+        int globalId,
+        string fieldName,
+        SortValueSelector selector)
     {
         for (int r = 0; r < _readers.Count; r++)
         {
@@ -187,7 +291,7 @@ public sealed partial class IndexSearcher
                 if (_readers[r].TryGetInt64Value(fieldName, globalId - _docBases[r], out long val))
                     return val;
                 if (_readers[r].TryGetSortedInt64DocValues(fieldName, globalId - _docBases[r], out var values) && values.Count > 0)
-                    return values[0];
+                    return selector == SortValueSelector.Max ? values[^1] : values[0];
                 break;
             }
         }
@@ -199,6 +303,12 @@ public sealed partial class IndexSearcher
     }
 
     private string ResolveString(int globalId, string fieldName)
+        => ResolveString(globalId, fieldName, SortValueSelector.Min);
+
+    private string ResolveString(
+        int globalId,
+        string fieldName,
+        SortValueSelector selector)
     {
         for (int r = 0; r < _readers.Count; r++)
         {
@@ -208,7 +318,7 @@ public sealed partial class IndexSearcher
                 if (_readers[r].TryGetSortedDocValue(fieldName, globalId - _docBases[r], out string val))
                     return val;
                 if (_readers[r].TryGetSortedSetDocValues(fieldName, globalId - _docBases[r], out var values) && values.Count > 0)
-                    return values[0];
+                    return selector == SortValueSelector.Max ? values[^1] : values[0];
                 if (_readers[r].TryGetBinaryDocValues(fieldName, globalId - _docBases[r], out var binaryValues) && binaryValues.Count > 0)
                     return System.Text.Encoding.UTF8.GetString(binaryValues[0]);
                 break;
@@ -234,7 +344,108 @@ public sealed partial class IndexSearcher
     }
 
     private static bool MatchesSort(SortField a, SortField b)
-        => a.Type == b.Type && a.FieldName == b.FieldName && a.Descending == b.Descending;
+        => a.Type == b.Type && a.FieldName == b.FieldName
+            && a.Descending == b.Descending && a.Selector == b.Selector;
+
+    private SortColumn BuildSortColumn(ScoreDoc[] docs, SortField field)
+    {
+        var column = new SortColumn(field, docs.Length);
+        for (int i = 0; i < docs.Length; i++)
+        {
+            switch (field.Type)
+            {
+                case SortFieldType.Score:
+                    column.NumericValues![i] = docs[i].Score;
+                    break;
+                case SortFieldType.DocId:
+                    column.Int64Values![i] = docs[i].DocId;
+                    break;
+                case SortFieldType.Numeric:
+                    column.NumericValues![i] = ResolveNumeric(
+                        docs[i].DocId, field.FieldName, field.Selector);
+                    break;
+                case SortFieldType.Int64:
+                    column.Int64Values![i] = ResolveInt64(
+                        docs[i].DocId, field.FieldName, field.Selector);
+                    break;
+                case SortFieldType.String:
+                    column.StringValues![i] = ResolveString(
+                        docs[i].DocId, field.FieldName, field.Selector);
+                    break;
+            }
+        }
+        return column;
+    }
+
+    internal ScoreDoc[] SortCandidates(
+        ScoreDoc[] docs,
+        IReadOnlyList<SortField> sorts,
+        int topN)
+    {
+        var columns = new SortColumn[sorts.Count];
+        for (int i = 0; i < sorts.Count; i++)
+            columns[i] = BuildSortColumn(docs, sorts[i]);
+
+        var indices = new int[docs.Length];
+        for (int i = 0; i < indices.Length; i++)
+            indices[i] = i;
+        Array.Sort(indices, (left, right) => CompareSortRows(columns, docs, left, right));
+
+        int resultCount = Math.Min(topN, docs.Length);
+        var sorted = new ScoreDoc[resultCount];
+        for (int i = 0; i < resultCount; i++)
+            sorted[i] = docs[indices[i]];
+        return sorted;
+    }
+
+    private static int CompareSortRows(
+        SortColumn[] columns,
+        ScoreDoc[] docs,
+        int left,
+        int right)
+    {
+        foreach (var column in columns)
+        {
+            int comparison = column.Compare(left, right);
+            if (comparison != 0)
+                return comparison;
+        }
+        return docs[left].DocId.CompareTo(docs[right].DocId);
+    }
+
+    private sealed class SortColumn
+    {
+        private readonly SortField _field;
+        internal double[]? NumericValues { get; }
+        internal long[]? Int64Values { get; }
+        internal string[]? StringValues { get; }
+
+        internal SortColumn(SortField field, int count)
+        {
+            _field = field;
+            if (field.Type is SortFieldType.Score or SortFieldType.Numeric)
+                NumericValues = new double[count];
+            else if (field.Type is SortFieldType.DocId or SortFieldType.Int64)
+                Int64Values = new long[count];
+            else
+                StringValues = new string[count];
+        }
+
+        internal int Compare(int left, int right)
+        {
+            int comparison = _field.Type switch
+            {
+                SortFieldType.Score or SortFieldType.Numeric =>
+                    NumericValues![left].CompareTo(NumericValues[right]),
+                SortFieldType.DocId or SortFieldType.Int64 =>
+                    Int64Values![left].CompareTo(Int64Values[right]),
+                SortFieldType.String =>
+                    string.CompareOrdinal(StringValues![left], StringValues[right]),
+                _ => 0
+            };
+            return _field.Descending ? -comparison : comparison;
+        }
+    }
 
     private TopDocs SearchWithIndexSortEarlyTermination(TermQuery tq, int topN)
     {

@@ -349,6 +349,29 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(2, results.TotalHits);
     }
 
+    [Fact(DisplayName = "Range Query: Exclusive Bounds Exclude Boundary Values")]
+    [Trait("Category", "Advanced")]
+    public void RangeQuery_ExclusiveBounds_ExcludeBoundaryValues()
+    {
+        var dir = new MMapDirectory(SubDir("range_numeric_exclusive"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        foreach (var price in new[] { 10, 20, 30 })
+        {
+            var doc = new LeanDocument();
+            doc.Add(new NumericField("price", price));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(
+            new RangeQuery("price", 10, 30, includeMin: false, includeMax: false),
+            10);
+
+        Assert.Single(results.ScoreDocs);
+    }
+
     /// <summary>
     /// Verifies the Phrase Query: Ordered Terms Matches Exact Phrase scenario.
     /// </summary>

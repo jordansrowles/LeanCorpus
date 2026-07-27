@@ -41,6 +41,13 @@ public sealed class FunctionScoreQuery : Query
     public override int GetHashCode() =>
         CombineBoost(HashCode.Combine(nameof(FunctionScoreQuery), Inner, NumericField, Mode));
 
+    /// <inheritdoc/>
+    public override void Visit(QueryVisitor visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        Inner.Visit(visitor.GetSubVisitor(Occur.Must, this));
+    }
+
     /// <summary>Combines a query score with a numeric field value according to the specified <see cref="ScoreMode"/>.</summary>
     /// <param name="queryScore">The BM25 score from the inner query.</param>
     /// <param name="fieldValue">The stored numeric field value.</param>

@@ -171,7 +171,11 @@ public sealed class QueryCache
                 case PhraseQuery pq:
                     AppendPart(builder, pq.Field);
                     builder.Append("|slop=").Append(pq.Slop);
-                    foreach (var term in pq.Terms) AppendPart(builder, term);
+                    for (int i = 0; i < pq.Terms.Length; i++)
+                    {
+                        builder.Append("|pos=").Append(pq.Positions[i]);
+                        AppendPart(builder, pq.Terms[i]);
+                    }
                     break;
                 case MultiPhraseQuery mpq:
                     AppendPart(builder, mpq.Field);
@@ -184,6 +188,7 @@ public sealed class QueryCache
                     }
                     break;
                 case BooleanQuery bq:
+                    builder.Append("|msm=").Append(bq.MinimumNumberShouldMatch);
                     foreach (var clause in bq.Clauses)
                     {
                         builder.Append("|").Append(clause.Occur).Append("(");
@@ -209,6 +214,22 @@ public sealed class QueryCache
                     AppendPart(builder, rq.Field);
                     builder.Append("|min=").Append(rq.Min.ToString("R", CultureInfo.InvariantCulture));
                     builder.Append("|max=").Append(rq.Max.ToString("R", CultureInfo.InvariantCulture));
+                    builder.Append("|incMin=").Append(rq.IncludeMin);
+                    builder.Append("|incMax=").Append(rq.IncludeMax);
+                    break;
+                case Int64RangeQuery irq:
+                    AppendPart(builder, irq.Field);
+                    builder.Append("|min=").Append(irq.Min);
+                    builder.Append("|max=").Append(irq.Max);
+                    builder.Append("|incMin=").Append(irq.IncludeMin);
+                    builder.Append("|incMax=").Append(irq.IncludeMax);
+                    break;
+                case BinaryRangeQuery brq:
+                    AppendPart(builder, brq.Field);
+                    builder.Append("|incMin=").Append(brq.IncludeLower);
+                    builder.Append("|incMax=").Append(brq.IncludeUpper);
+                    AppendBytes(builder, brq.Lower);
+                    AppendBytes(builder, brq.Upper);
                     break;
                 case MatchAllDocsQuery:
                     break;
@@ -222,10 +243,19 @@ public sealed class QueryCache
                     AppendPart(builder, tisq.Field);
                     foreach (var term in tisq.Terms) AppendPart(builder, term);
                     break;
+                case SynonymQuery sq:
+                    AppendPart(builder, sq.Field);
+                    foreach (var term in sq.Terms) AppendPart(builder, term);
+                    break;
                 case PointInSetQuery pisq:
                     AppendPart(builder, pisq.Field);
                     foreach (var point in pisq.Points)
                         builder.Append("|pt=").Append(point.ToString("R", CultureInfo.InvariantCulture));
+                    break;
+                case BinaryPointInSetQuery bpisq:
+                    AppendPart(builder, bpisq.Field);
+                    foreach (var point in bpisq.Points)
+                        AppendBytes(builder, point);
                     break;
                 case PrefixQuery pq:
                     AppendPart(builder, pq.Field);
@@ -298,6 +328,20 @@ public sealed class QueryCache
 
         private static void AppendPart(StringBuilder builder, string value)
             => builder.Append('|').Append(value.Length).Append(':').Append(value);
+
+        private static void AppendBytes(StringBuilder builder, ReadOnlyMemory<byte>? value)
+        {
+            if (value is null)
+            {
+                builder.Append("|null");
+                return;
+            }
+
+            var span = value.Value.Span;
+            builder.Append('|').Append(span.Length).Append(':');
+            for (int i = 0; i < span.Length; i++)
+                builder.Append(span[i].ToString("X2", CultureInfo.InvariantCulture));
+        }
 
         private static void AppendIntervalsSource(IntervalsSource source, StringBuilder builder)
         {

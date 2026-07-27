@@ -59,6 +59,14 @@ public sealed class MultiPhraseQuery : Query
     }
 
     /// <inheritdoc/>
+    public override void Visit(QueryVisitor visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        foreach (var group in _termGroups)
+            visitor.ConsumeTerms(this, Field, group);
+    }
+
+    /// <inheritdoc/>
     public override bool Equals(object? obj)
     {
         if (obj is not MultiPhraseQuery other ||
