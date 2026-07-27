@@ -16,3 +16,7 @@
   href: 08-disjunction-max.md
 - name: Per-query resource controls
   href: 09-resource-controls.md
+- name: Intervals
+  href: 10-intervals.md
+- name: Score explanations
+  href: 11-score-explanations.md

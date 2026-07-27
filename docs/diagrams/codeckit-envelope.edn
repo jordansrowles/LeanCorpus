@@ -1,0 +1,12 @@
+(def boxes-per-row 16)
+(def left-margin 0)
+(def row-height 42)
+
+(defattrs :version-field {:fill "#dbeafe" :stroke "#2563eb"})
+(defattrs :length-field {:fill "#fef3c7" :stroke "#d97706"})
+(defattrs :body-field {:fill "#dcfce7" :stroke "#16a34a"})
+
+(draw-column-headers)
+(draw-box (text "v" {:font-size 14}) [:version-field {:span 1}])
+(draw-box (text "Body length (VarInt64)" {:font-size 14}) [:length-field {:span 5}])
+(draw-box (text "Encoded body bytes" {:font-size 14}) [:body-field {:span 10}])

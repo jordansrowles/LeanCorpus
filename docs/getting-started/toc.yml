@@ -6,3 +6,5 @@
   href: 03-configuration.md
 - name: Source-generated mapping
   href: 04-source-generated-mapping.md
+- name: Configuration reference
+  href: 05-configuration-reference.md

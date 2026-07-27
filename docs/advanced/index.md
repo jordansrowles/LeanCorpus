@@ -9,8 +9,9 @@ These features extend the core search-and-retrieve model. You can ignore them un
 | [Highlighting](03-highlighting.md) | Wraps matching terms in markup for display | Search result snippets |
 | [Field collapsing](09-field-collapsing.md) | Groups results by a field value (e.g. one hit per category) | Deduplicating search results |
 | [Aggregations](01-aggregations.md) | Computes min, max, sum, count, average, and histograms over a numeric field | Analytics, dashboards, faceted counts |
+| [Faceting](11-faceting.md) | Counts matching documents by DocValues field | Navigation, filters, and category summaries |
 | [Reciprocal rank fusion](04-rrf.md) | Merges multiple query result sets without score calibration | Hybrid search (BM25 + vector) |
-|[Geo search](10-geo-search.md) | Bounding box and distance queries over lat/lon points | Location-based filtering |
+| [Geo search](10-geo-search.md) | Bounding box and distance queries over latitude and longitude points | Location-based filtering |
 
 ## Vector search
 
@@ -34,6 +35,6 @@ Vectors can be quantised with BBQ (Better Binary Quantisation) for 32x compressi
 | Feature | Where to learn | What it does |
 |---|---|---|
 | BM25+ and BM25L | [Boosting and scoring](../searching/05-boosting-and-scoring.md) | Advanced BM25 variants with lower-bound and length normalisation |
-| Block-Max WAND | Architecture overview | Sublinear top-k retrieval for multi-term queries |
+| Block-Max WAND | [Search internals](../contributors/search-internals.md) | Score-bound skipping for supported top-N queries |
 | Language-model similarities | API reference for `DirichletSimilarity`, etc. | Probabilistic relevance models |
 | SIMD cosine | [Vector search](05-vector-search.md) | Vectorised cosine similarity for dense vectors |

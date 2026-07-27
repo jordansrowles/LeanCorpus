@@ -2,6 +2,19 @@
 
 Dense float vectors are stored per segment with an HNSW graph built at flush time. Searches use HNSW when present, then rerank the shortlist with exact cosine similarity.
 
+```mermaid-latest
+flowchart TD
+    E[Upper-layer entry point] --> U[Greedy upper-layer traversal]
+    U --> B[Base-layer candidate queue]
+    B --> N1[Neighbour candidate]
+    B --> N2[Neighbour candidate]
+    B --> N3[Neighbour candidate]
+    N1 --> R[Read exact vector and rescore]
+    N2 --> R
+    N3 --> R
+    R --> T[Top-N results]
+```
+
 ## Index
 
 ```csharp
@@ -74,7 +87,7 @@ BBQ (binary quantisation) compresses float32 vectors 32× into single-bit bucket
 var config = new IndexWriterConfig
 {
     BuildHnswOnFlush = true,
-    VectorQuantisation = new BBQVectorQuantisationConfig()
+    VectorQuantisation = VectorQuantisation.BBQ,
 };
 ```
 
@@ -83,7 +96,7 @@ Int8 scalar quantisation is also available, compressing 4× with a per-vector mi
 ```csharp
 var config = new IndexWriterConfig
 {
-    VectorQuantisation = new Int8QuantisationConfig()
+    VectorQuantisation = VectorQuantisation.Int8,
 };
 ```
 

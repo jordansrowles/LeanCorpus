@@ -12,3 +12,9 @@
   href: 06-async-indexing.md
 - name: DocValues
   href: 07-docvalues.md
+- name: Backup and restore
+  href: 08-backup-and-restore.md
+- name: Term vectors and payloads
+  href: 09-term-vectors-and-payloads.md
+- name: Store and file I/O
+  href: 10-store-and-file-io.md

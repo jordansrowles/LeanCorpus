@@ -1,6 +1,10 @@
+- name: Overview
+  href: index.md
 - name: Stored field compression
   href: 01-compression.md
 - name: Query cache
   href: 02-query-cache.md
 - name: Benchmarking
   href: 03-benchmarking.md
+- name: Production deployment
+  href: 04-production-deployment.md

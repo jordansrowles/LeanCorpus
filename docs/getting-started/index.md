@@ -6,3 +6,4 @@ New to LeanCorpus? Start here.
 - [Field types](02-fields.md)
 - [Writer configuration](03-configuration.md)
 - [Source-generated mapping](04-source-generated-mapping.md)
+- [Configuration reference](05-configuration-reference.md)

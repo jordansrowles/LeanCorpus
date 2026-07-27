@@ -8,3 +8,7 @@ Keep your index healthy and up to date.
 - [Index checker CLI](04-cli-checker.md)
 - [Stored round-tripping](05-stored-round-tripping.md)
 - [Async indexing](06-async-indexing.md)
+- [DocValues](07-docvalues.md)
+- [Backup and restore](08-backup-and-restore.md)
+- [Term vectors and payloads](09-term-vectors-and-payloads.md)
+- [Store and file I/O](10-store-and-file-io.md)

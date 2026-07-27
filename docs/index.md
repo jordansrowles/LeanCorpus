@@ -121,7 +121,7 @@ Multi-threaded indexing with per-thread DWPT pools. Near-real-time readers via `
 
 ### Extensibility
 CodecKit for custom storage formats. Pluggable compression (LZ4, Snappy, Zstandard). Source-generated document schemas. Index codec migrator for format upgrades.
-[Browse codec docs](codeckit/index.md)
+[Browse contributor docs](contributors/index.md)
 
 </div>
 </div>
