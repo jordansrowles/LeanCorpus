@@ -385,6 +385,12 @@ internal static class Program
         if (gcDump)
             config = config.AddDiagnoser(new GcDumpDiagnoser());
 
+        // BDN nightly >= 20260608 goes interactive when args are empty,
+        // even when types are supplied via FromTypes. Inject a filter to
+        // select all benchmarks from the supplied types without prompting.
+        if (!HasBenchmarkDotNetOption(effectiveBenchmarkArgs, "--filter", "-f"))
+            effectiveBenchmarkArgs = [.. effectiveBenchmarkArgs, "--filter", "*"];
+
         var summaries = BenchmarkSwitcher
             .FromTypes([.. PendingSuites.Select(suite => suite.Type)])
             .Run(effectiveBenchmarkArgs, config);
