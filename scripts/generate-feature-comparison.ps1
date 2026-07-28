@@ -121,6 +121,21 @@ function Get-FeatureFrontMatter([string]$Path) {
     return $frontMatter
 }
 
+function Split-FeatureValue([string]$Value) {
+    $value = $Value.Trim()
+    if ($value -match '^(?<status>[✔◐❌])(?:\s+(?<details>.*))?$') {
+        return [pscustomobject]@{
+            status = $Matches['status']
+            details = if ($Matches.ContainsKey('details')) { $Matches['details'].Trim() } else { '' }
+        }
+    }
+
+    return [pscustomobject]@{
+        status = ''
+        details = $value
+    }
+}
+
 if (-not (Test-Path $ItemsDir -PathType Container)) {
     throw "Feature item directory not found: $ItemsDir"
 }
@@ -133,13 +148,21 @@ if ($itemFiles.Count -eq 0) {
 $features = @(
     foreach ($itemFile in $itemFiles) {
         $frontMatter = Get-FeatureFrontMatter $itemFile.FullName
+        $leancorpus = Split-FeatureValue $frontMatter['leancorpus']
+        $luceneNet = Split-FeatureValue $frontMatter['lucene.net']
+        $luceneJava = Split-FeatureValue $frontMatter['lucene (java)']
         [pscustomobject][ordered]@{
             feature = $itemFile.BaseName
             category = $frontMatter['category']
-            leancorpus = $frontMatter['leancorpus']
-            luceneNet = $frontMatter['lucene.net']
-            luceneJava = $frontMatter['lucene (java)']
+            leancorpus = $leancorpus.status
+            luceneNet = $luceneNet.status
+            luceneJava = $luceneJava.status
             notes = if ($frontMatter.ContainsKey('notes')) { $frontMatter['notes'] } else { '' }
+            details = [ordered]@{
+                'LeanCorpus' = $leancorpus.details
+                'Lucene.NET' = $luceneNet.details
+                'Lucene (Java)' = $luceneJava.details
+            }
         }
     }
 )
@@ -151,6 +174,7 @@ $content = @"
 ---
 title: Feature comparison
 _description: Compare LeanCorpus features with Lucene.NET and Lucene for Java.
+_disableAffix: true
 ---
 
 <link href="https://unpkg.com/tabulator-tables@6.5.0/dist/css/tabulator.min.css" rel="stylesheet">
@@ -201,8 +225,46 @@ Lucene.NET refers to the packaged 4.8 line. Use the column filters to narrow the
     padding: 0.25rem 0.4rem;
   }
 
-  #feature-comparison-table .tabulator-cell[tabulator-field="notes"] {
-    white-space: normal;
+  #feature-comparison-table .tabulator-row {
+    flex-wrap: wrap;
+  }
+
+  #feature-comparison-table .feature-name-cell {
+    align-items: center;
+    display: flex;
+    gap: 0.25rem;
+  }
+
+  #feature-comparison-table .feature-detail-toggle {
+    background: transparent;
+    border: 0;
+    color: var(--bs-secondary-color);
+    cursor: pointer;
+    font-size: 0.95rem;
+    line-height: 1;
+    padding: 0 0.15rem;
+  }
+
+  #feature-comparison-table .feature-detail-toggle:hover,
+  #feature-comparison-table .feature-detail-toggle:focus-visible {
+    color: var(--bs-body-color);
+  }
+
+  #feature-comparison-table .feature-detail-panel {
+    border-top: 1px solid var(--bs-border-color);
+    box-sizing: border-box;
+    display: block;
+    flex-basis: 100%;
+    padding: 0.55rem 0.75rem 0.65rem 2rem;
+    white-space: pre-wrap;
+  }
+
+  #feature-comparison-table .feature-detail-panel[hidden] {
+    display: none;
+  }
+
+  #feature-comparison-table .feature-row-expanded {
+    background-color: var(--bs-tertiary-bg);
   }
 
   [data-bs-theme="dark"] #feature-comparison-table.tabulator {
@@ -247,6 +309,52 @@ $featureData
 
       const data = JSON.parse(dataElement.textContent);
       const countElement = document.getElementById("feature-comparison-count");
+      const detailColumns = ["LeanCorpus", "Lucene.NET", "Lucene (Java)"];
+      const hasDetails = rowData => rowData.notes || detailColumns.some(column => rowData.details[column]);
+      const detailText = rowData => [
+        rowData.notes,
+        ...detailColumns.map(column => rowData.details[column] ? column + ": " + rowData.details[column] : "")
+      ].filter(Boolean).join("\n\n");
+
+      const toggleDetails = (row, toggle) => {
+        const rowElement = row.getElement();
+        const panel = rowElement.querySelector(".feature-detail-panel");
+        const expanded = panel.hidden;
+        panel.hidden = !expanded;
+        panel.setAttribute("aria-hidden", String(!expanded));
+        toggle.setAttribute("aria-expanded", String(expanded));
+        toggle.setAttribute("aria-label", expanded ? "Hide feature details" : "Show feature details");
+        toggle.textContent = expanded ? "▾" : "▸";
+        rowElement.classList.toggle("feature-row-expanded", expanded);
+        window.requestAnimationFrame(() => row.normalizeHeight());
+      };
+
+      const featureFormatter = cell => {
+        const row = cell.getRow();
+        const rowData = row.getData();
+        const wrapper = document.createElement("div");
+        wrapper.className = "feature-name-cell";
+
+        if (hasDetails(rowData)) {
+          const toggle = document.createElement("button");
+          toggle.type = "button";
+          toggle.className = "feature-detail-toggle";
+          toggle.setAttribute("aria-expanded", "false");
+          toggle.setAttribute("aria-label", "Show feature details");
+          toggle.textContent = "▸";
+          toggle.addEventListener("click", event => {
+            event.stopPropagation();
+            toggleDetails(row, toggle);
+          });
+          wrapper.append(toggle);
+        }
+
+        const name = document.createElement("span");
+        name.textContent = rowData.feature;
+        wrapper.append(name);
+        return wrapper;
+      };
+
       const updateCount = rows => {
         countElement.textContent = rows.length + " of " + data.length + " features";
       };
@@ -257,22 +365,28 @@ $featureData
         groupStartOpen: false,
         height: "72vh",
         initialSort: [{ column: "feature", dir: "asc" }],
-        layout: "fitDataStretch",
+        layout: "fitData",
         placeholder: "No matching features",
-        columns: [
-          { title: "Feature", field: "feature", headerFilter: "input", minWidth: 220, width: 260 },
-          { title: "Category", field: "category", headerFilter: "input", minWidth: 160, width: 190 },
-          { title: "LeanCorpus", field: "leancorpus", headerFilter: "input", minWidth: 220, width: 280 },
-          { title: "Lucene.NET", field: "luceneNet", headerFilter: "input", minWidth: 110, width: 120 },
-          { title: "Lucene (Java)", field: "luceneJava", headerFilter: "input", minWidth: 120, width: 130 },
-          {
-            title: "Notes",
-            field: "notes",
-            formatter: "textarea",
-            headerFilter: "input",
-            minWidth: 360,
-            variableHeight: true
+        rowFormatter: row => {
+          const rowData = row.getData();
+          const rowElement = row.getElement();
+          if (!hasDetails(rowData) || rowElement.querySelector(".feature-detail-panel")) {
+            return;
           }
+
+          const panel = document.createElement("div");
+          panel.className = "feature-detail-panel";
+          panel.hidden = true;
+          panel.setAttribute("aria-hidden", "true");
+          panel.textContent = detailText(rowData);
+          rowElement.append(panel);
+        },
+        columns: [
+          { title: "Feature", field: "feature", formatter: featureFormatter, headerFilter: "input", minWidth: 220, width: 260 },
+          { title: "Category", field: "category", headerFilter: "input", minWidth: 160, width: 190 },
+          { title: "LeanCorpus", field: "leancorpus", headerFilter: "input", hozAlign: "center", minWidth: 110, width: 120 },
+          { title: "Lucene.NET", field: "luceneNet", headerFilter: "input", hozAlign: "center", minWidth: 110, width: 120 },
+          { title: "Lucene (Java)", field: "luceneJava", headerFilter: "input", hozAlign: "center", minWidth: 120, width: 130 }
         ]
       });
 
