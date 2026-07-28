@@ -1,7 +1,7 @@
 ---
 category: Analysis.Tokenisers
-leancorpus: ✔   JapaneseTokeniser
+leancorpus: ✔   JapaneseTokeniser + lexicons/japanese.jlc
 lucene.net: ✔
 lucene (java): ✔
-notes: Character-class-based segmentation using Kuromoji data; splits at kanji/hiragana/katakana boundaries
+notes: Dictionary-backed least-cost Viterbi segmentation using the bundled checksummed Japanese lexicon; custom .jlc codec paths are supported.
 ---

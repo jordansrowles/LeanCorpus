@@ -1263,10 +1263,10 @@ Lucene.NET refers to the packaged 4.8 line. Use the column filters to narrow the
   {
     "feature": "IP-address field",
     "category": "Document",
-    "leancorpus": "❌",
+    "leancorpus": "✔   InetAddressField / InetAddressRangeQuery / InetAddressPointInSetQuery",
     "luceneNet": "❌",
     "luceneJava": "✔",
-    "notes": "Lucene (Java): `InetAddressPoint`."
+    "notes": "IPv4 and IPv6 fields with inclusive range and point-in-set queries; addresses are normalised to 16-byte values."
   },
   {
     "feature": "Italian Stemmer",
@@ -1279,10 +1279,10 @@ Lucene.NET refers to the packaged 4.8 line. Use the column filters to narrow the
   {
     "feature": "Japanese morphological tokeniser",
     "category": "Analysis.Tokenisers",
-    "leancorpus": "✔   JapaneseTokeniser",
+    "leancorpus": "✔   JapaneseTokeniser + lexicons/japanese.jlc",
     "luceneNet": "✔",
     "luceneJava": "✔",
-    "notes": "Character-class-based segmentation using Kuromoji data; splits at kanji/hiragana/katakana boundaries"
+    "notes": "Dictionary-backed least-cost Viterbi segmentation using the bundled checksummed Japanese lexicon; custom .jlc codec paths are supported."
   },
   {
     "feature": "Japanese Stemmer",
