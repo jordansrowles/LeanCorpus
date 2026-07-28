@@ -1,4 +1,4 @@
 - name: Lucene Feature Parity
-  href: vs-lucene.md
+  href: features/index.md
 - name: Architecture Decision Records
   href: ADRs/index.md

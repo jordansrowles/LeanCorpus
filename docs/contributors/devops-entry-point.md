@@ -100,12 +100,13 @@ The `docs` command has `build`, `metadata`, and `serve` paths.
 
 The build sequence can:
 
-1. regenerate benchmark pages unless `-SkipBenchmarks` is set;
-2. regenerate coverage HTML when source data exists unless `-SkipCoverage` is set;
-3. clear and regenerate DocFX API metadata;
-4. remove inherited external members from generated API YAML;
-5. copy changelog content;
-6. build the DocFX site.
+1. regenerate the feature-comparison index from item front matter;
+2. regenerate benchmark pages unless `-SkipBenchmarks` is set;
+3. regenerate coverage HTML when source data exists unless `-SkipCoverage` is set;
+4. clear and regenerate DocFX API metadata;
+5. remove inherited external members from generated API YAML;
+6. copy changelog content;
+7. build the DocFX site.
 
 `-SkipBenchmarks` avoids an expensive or unrelated benchmark-report refresh. It does not skip conceptual pages or API metadata.
 

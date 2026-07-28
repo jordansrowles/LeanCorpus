@@ -42,7 +42,7 @@
     - name: API
       href: api/index.md
     - name: Feature Parity
-      href: articles/vs-lucene.md
+      href: articles/features/index.md
     - name: ADRs
       href: articles/ADRs/index.md
     - name: Changelog

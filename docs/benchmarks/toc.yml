@@ -1,102 +1,102 @@
 - name: Aggregation
-  href: aggregation.md
+  href: debian-aggregation.md
 - name: Analysis
-  href: analysis.md
+  href: debian-analysis.md
 - name: Analysis filters
-  href: analysis-filters.md
+  href: debian-analysis-filters.md
 - name: Analysis filters v2
-  href: analysis-filters-v2.md
+  href: debian-analysis-filters-v2.md
 - name: Analysis parity
-  href: analysis-parity.md
+  href: debian-analysis-parity.md
 - name: Async index
-  href: async-index.md
+  href: debian-async-index.md
 - name: Block-Join (index)
-  href: blockjoin-index.md
+  href: debian-blockjoin-index.md
 - name: Block-Join (search)
-  href: blockjoin-search.md
+  href: debian-blockjoin-search.md
 - name: Boolean queries
-  href: boolean.md
+  href: debian-boolean.md
 - name: Collapse and facet
-  href: collapse-facet.md
+  href: debian-collapse-facet.md
 - name: Combined queries
-  href: combined.md
+  href: debian-combined.md
 - name: Deletion (commit)
-  href: deletion-commit.md
+  href: debian-deletion-commit.md
 - name: Deletion (queue)
-  href: deletion-queue.md
+  href: debian-deletion-queue.md
 - name: Disjunction max
-  href: dismax.md
+  href: debian-dismax.md
 - name: Function score
-  href: function-score.md
+  href: debian-function-score.md
 - name: Fuzzy queries
-  href: fuzzy.md
+  href: debian-fuzzy.md
 - name: Geo queries
-  href: geo.md
+  href: debian-geo.md
 - name: Gutenberg analysis
-  href: gutenberg-analysis.md
+  href: debian-gutenberg-analysis.md
 - name: Gutenberg index
-  href: gutenberg-index.md
+  href: debian-gutenberg-index.md
 - name: Gutenberg search
-  href: gutenberg-search.md
+  href: debian-gutenberg-search.md
 - name: Highlighter
-  href: highlighter.md
+  href: debian-highlighter.md
 - name: hnsw
-  href: hnsw.md
+  href: debian-hnsw.md
 - name: Hunspell
-  href: hunspell.md
+  href: debian-hunspell.md
 - name: Index-sort (index)
-  href: indexsort-index.md
+  href: debian-indexsort-index.md
 - name: Index-sort (search)
-  href: indexsort-search.md
+  href: debian-indexsort-search.md
 - name: Indexing
-  href: index.md
+  href: debian-index.md
 - name: KStemmer
-  href: kstemmer.md
+  href: debian-kstemmer.md
 - name: Light English stemmer
-  href: lightenglish.md
+  href: debian-lightenglish.md
 - name: mlt-single-segment
-  href: mlt-single-segment.md
+  href: debian-mlt-single-segment.md
 - name: More like this
-  href: mlt.md
+  href: debian-mlt.md
 - name: Multi-phrase
-  href: multiphrase.md
+  href: debian-multiphrase.md
 - name: N-gram
-  href: ngram.md
+  href: debian-ngram.md
 - name: Parallel search
-  href: parallel.md
+  href: debian-parallel.md
 - name: Pattern tokeniser
-  href: pattern-tokeniser.md
+  href: debian-pattern-tokeniser.md
 - name: Phrase queries
-  href: phrase.md
+  href: debian-phrase.md
 - name: Prefix queries
-  href: prefix.md
+  href: debian-prefix.md
 - name: Query cache
-  href: query-cache.md
+  href: debian-query-cache.md
 - name: Range queries
-  href: range.md
+  href: debian-range.md
 - name: Regexp queries
-  href: regexp.md
+  href: debian-regexp.md
 - name: Schema and JSON
-  href: schemajson.md
+  href: debian-schemajson.md
 - name: Searcher manager
-  href: searcher-mgr.md
+  href: debian-searcher-mgr.md
 - name: Similarity
-  href: similarity.md
+  href: debian-similarity.md
 - name: Span queries
-  href: span.md
+  href: debian-span.md
 - name: Stemmer
-  href: stemmer.md
+  href: debian-stemmer.md
 - name: Suggester
-  href: suggester.md
+  href: debian-suggester.md
 - name: Synonym
-  href: synonym.md
+  href: debian-synonym.md
 - name: Term in set
-  href: terminset.md
+  href: debian-terminset.md
 - name: Term queries
-  href: query.md
+  href: debian-query.md
 - name: Term-vector highlighter
-  href: tv-highlighter.md
+  href: debian-tv-highlighter.md
 - name: Vector queries
-  href: vq.md
+  href: debian-vq.md
 - name: Wildcard queries
-  href: wildcard.md
+  href: debian-wildcard.md

@@ -147,7 +147,7 @@ All packages target `net10.0` and `net11.0`.
 - [Architecture overview](architecture.md)
 - [Why LeanCorpus?](why-leancorpus.md)
 - [Performance](performance.md)
-- [vs Lucene.Net](articles/vs-lucene.md)
+- [Feature comparison](articles/features/index.md)
 - [API reference](~/api/index.md)
 - [Benchmarks](benchmarks/index.md)
 
