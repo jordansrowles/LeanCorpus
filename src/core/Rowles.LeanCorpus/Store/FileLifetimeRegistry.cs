@@ -128,6 +128,15 @@ internal static class FileLifetimeRegistry
             }
         }
 
+        internal string[] GetPendingDeletionFiles(IReadOnlyList<string> paths)
+        {
+            lock (_lock)
+            {
+                return paths.Where(path => _files.TryGetValue(path, out var state) && state.DeletePending)
+                    .Select(Path.GetFileName).Where(static name => name is not null).Select(static name => name!).ToArray();
+            }
+        }
+
         private FileState GetOrAdd(string filePath)
         {
             if (!_files.TryGetValue(filePath, out var state))
@@ -185,6 +194,10 @@ internal sealed class FileSnapshotLease : IDisposable
         _owner = owner;
         _filePaths = filePaths;
     }
+
+    internal long RetainedBytes => _filePaths?.Sum(static path => File.Exists(path) ? new FileInfo(path).Length : 0L) ?? 0;
+    internal string[] RetainedFiles => _filePaths?.Select(Path.GetFileName).Where(static name => name is not null).Select(static name => name!).ToArray() ?? [];
+    internal string[] PendingDeletionFiles => _owner is not null && _filePaths is not null ? _owner.GetPendingDeletionFiles(_filePaths) : [];
 
     public void Dispose()
     {

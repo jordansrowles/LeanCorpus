@@ -35,6 +35,7 @@ public sealed partial class IndexSearcher : IDisposable
     private static readonly Dictionary<(string Field, string Term), int> EmptyGlobalDFs = new();
     private const string CombinedFieldsDocFreqKey = "\u0001combined-fields";
     private readonly QueryCache? _queryCache;
+    private int _commitGeneration;
     private readonly ConcurrentDictionary<string, long> _collectionFrequencyCache = new(StringComparer.Ordinal);
     private ConcurrentDictionary<MltCacheKey, (string Field, string Term, float Score)[]>? _mltCache;
     private int _mltCacheCount;
@@ -57,6 +58,13 @@ public sealed partial class IndexSearcher : IDisposable
 
     /// <summary>The query result cache, or null if caching is disabled.</summary>
     public QueryCache? Cache => _queryCache;
+
+    /// <summary>The committed generation represented by this immutable searcher snapshot.</summary>
+    public int CommitGeneration => _commitGeneration;
+
+    internal long SnapshotRetainedBytes => _snapshotLease?.RetainedBytes ?? 0;
+    internal string[] SnapshotRetainedFiles => _snapshotLease?.RetainedFiles ?? [];
+    internal string[] SnapshotPendingDeletionFiles => _snapshotLease?.PendingDeletionFiles ?? [];
 
     /// <summary>Computes scoring factors for a term, dispatching to LM or classic path.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -191,6 +199,7 @@ public sealed partial class IndexSearcher : IDisposable
         IndexOpenGuard.EnsureNoBlockingMigration(directory, config.CompatibilityMode);
 
         var (segmentIds, generation) = LoadLatestCommitWithGeneration();
+        _commitGeneration = generation;
         IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false);
 
         // Load segment readers with a retry loop to handle the narrow window where a
@@ -224,6 +233,7 @@ public sealed partial class IndexSearcher : IDisposable
             {
                 Thread.Sleep(10 * attempt);
                 (segmentIds, generation) = LoadLatestCommitWithGeneration();
+                _commitGeneration = generation;
                 IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false);
             }
             finally

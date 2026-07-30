@@ -22,3 +22,5 @@
   href: 11-score-explanations.md
 - name: Ranking profiles and query rules
   href: 12-ranking.md
+- name: Search sessions and cursor pagination
+  href: 13-search-sessions.md

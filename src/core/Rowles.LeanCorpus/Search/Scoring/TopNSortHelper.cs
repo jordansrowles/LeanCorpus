@@ -18,9 +18,7 @@ internal static class TopNSortHelper
         int n = docs.Length;
         if (topN >= n)
         {
-            Array.Sort(keys, docs, 0, n);
-            if (descending) Array.Reverse(docs, 0, n);
-            return docs;
+            return Order(keys, docs, descending);
         }
 
         // Build a heap whose root is the "worst" of the topN seen so far,
@@ -38,7 +36,7 @@ internal static class TopNSortHelper
         {
             double k = keys[i];
             // Beats root => replace root and sift down.
-            if (descending ? k > heapKeys[0] : k < heapKeys[0])
+            if (IsBetter(k, docs[i], heapKeys[0], heapDocs[0], descending))
             {
                 heapKeys[0] = k;
                 heapDocs[0] = docs[i];
@@ -46,9 +44,7 @@ internal static class TopNSortHelper
             }
         }
 
-        Array.Sort(heapKeys, heapDocs, 0, topN);
-        if (descending) Array.Reverse(heapDocs, 0, topN);
-        return heapDocs;
+        return Order(heapKeys, heapDocs, descending);
     }
 
     /// <summary>64-bit integer-keyed variant of <see cref="SelectTopN(ScoreDoc[], double[], int, bool)"/>.</summary>
@@ -57,9 +53,7 @@ internal static class TopNSortHelper
         int n = docs.Length;
         if (topN >= n)
         {
-            Array.Sort(keys, docs, 0, n);
-            if (descending) Array.Reverse(docs, 0, n);
-            return docs;
+            return Order(keys, docs, descending);
         }
 
         var heapKeys = new long[topN];
@@ -71,7 +65,7 @@ internal static class TopNSortHelper
         for (int i = topN; i < n; i++)
         {
             long k = keys[i];
-            if (descending ? k > heapKeys[0] : k < heapKeys[0])
+            if (IsBetter(k, docs[i], heapKeys[0], heapDocs[0], descending))
             {
                 heapKeys[0] = k;
                 heapDocs[0] = docs[i];
@@ -79,9 +73,7 @@ internal static class TopNSortHelper
             }
         }
 
-        Array.Sort(heapKeys, heapDocs, 0, topN);
-        if (descending) Array.Reverse(heapDocs, 0, topN);
-        return heapDocs;
+        return Order(heapKeys, heapDocs, descending);
     }
 
     /// <summary>String-keyed variant of <see cref="SelectTopN(ScoreDoc[], double[], int, bool)"/>.</summary>
@@ -90,9 +82,7 @@ internal static class TopNSortHelper
         int n = docs.Length;
         if (topN >= n)
         {
-            Array.Sort(keys, docs, 0, n, StringComparer.Ordinal);
-            if (descending) Array.Reverse(docs, 0, n);
-            return docs;
+            return Order(keys, docs, descending);
         }
 
         var heapKeys = new string[topN];
@@ -104,8 +94,7 @@ internal static class TopNSortHelper
         for (int i = topN; i < n; i++)
         {
             var k = keys[i];
-            int cmp = string.CompareOrdinal(k, heapKeys[0]);
-            if (descending ? cmp > 0 : cmp < 0)
+            if (IsBetter(k, docs[i], heapKeys[0], heapDocs[0], descending))
             {
                 heapKeys[0] = k;
                 heapDocs[0] = docs[i];
@@ -113,9 +102,7 @@ internal static class TopNSortHelper
             }
         }
 
-        Array.Sort(heapKeys, heapDocs, 0, topN, StringComparer.Ordinal);
-        if (descending) Array.Reverse(heapDocs, 0, topN);
-        return heapDocs;
+        return Order(heapKeys, heapDocs, descending);
     }
 
     private static void BuildHeap(double[] keys, ScoreDoc[] docs, bool descending)
@@ -143,8 +130,8 @@ internal static class TopNSortHelper
             int worst = i;
             int left = 2 * i + 1;
             int right = 2 * i + 2;
-            if (left < size && IsWorse(keys[left], keys[worst], descending)) worst = left;
-            if (right < size && IsWorse(keys[right], keys[worst], descending)) worst = right;
+            if (left < size && IsWorse(keys[left], docs[left], keys[worst], docs[worst], descending)) worst = left;
+            if (right < size && IsWorse(keys[right], docs[right], keys[worst], docs[worst], descending)) worst = right;
             if (worst == i) return;
             (keys[i], keys[worst]) = (keys[worst], keys[i]);
             (docs[i], docs[worst]) = (docs[worst], docs[i]);
@@ -159,8 +146,8 @@ internal static class TopNSortHelper
             int worst = i;
             int left = 2 * i + 1;
             int right = 2 * i + 2;
-            if (left < size && IsWorse(keys[left], keys[worst], descending)) worst = left;
-            if (right < size && IsWorse(keys[right], keys[worst], descending)) worst = right;
+            if (left < size && IsWorse(keys[left], docs[left], keys[worst], docs[worst], descending)) worst = left;
+            if (right < size && IsWorse(keys[right], docs[right], keys[worst], docs[worst], descending)) worst = right;
             if (worst == i) return;
             (keys[i], keys[worst]) = (keys[worst], keys[i]);
             (docs[i], docs[worst]) = (docs[worst], docs[i]);
@@ -175,8 +162,8 @@ internal static class TopNSortHelper
             int worst = i;
             int left = 2 * i + 1;
             int right = 2 * i + 2;
-            if (left < size && IsWorse(keys[left], keys[worst], descending)) worst = left;
-            if (right < size && IsWorse(keys[right], keys[worst], descending)) worst = right;
+            if (left < size && IsWorse(keys[left], docs[left], keys[worst], docs[worst], descending)) worst = left;
+            if (right < size && IsWorse(keys[right], docs[right], keys[worst], docs[worst], descending)) worst = right;
             if (worst == i) return;
             (keys[i], keys[worst]) = (keys[worst], keys[i]);
             (docs[i], docs[worst]) = (docs[worst], docs[i]);
@@ -187,15 +174,24 @@ internal static class TopNSortHelper
     // "Worse" = the candidate that should be evicted first.
     // Ascending top-N keeps small keys, so the worst element is the largest (max-heap root).
     // Descending top-N keeps large keys, so the worst element is the smallest (min-heap root).
-    private static bool IsWorse(double a, double b, bool descending)
-        => descending ? a < b : a > b;
+    private static bool IsBetter(double a, ScoreDoc aDoc, double b, ScoreDoc bDoc, bool descending) => Compare(a, aDoc, b, bDoc, descending) < 0;
+    private static bool IsBetter(long a, ScoreDoc aDoc, long b, ScoreDoc bDoc, bool descending) => Compare(a, aDoc, b, bDoc, descending) < 0;
+    private static bool IsBetter(string a, ScoreDoc aDoc, string b, ScoreDoc bDoc, bool descending) => Compare(a, aDoc, b, bDoc, descending) < 0;
+    private static bool IsWorse(double a, ScoreDoc aDoc, double b, ScoreDoc bDoc, bool descending) => Compare(a, aDoc, b, bDoc, descending) > 0;
+    private static bool IsWorse(long a, ScoreDoc aDoc, long b, ScoreDoc bDoc, bool descending) => Compare(a, aDoc, b, bDoc, descending) > 0;
+    private static bool IsWorse(string a, ScoreDoc aDoc, string b, ScoreDoc bDoc, bool descending) => Compare(a, aDoc, b, bDoc, descending) > 0;
+    private static int Compare(double a, ScoreDoc aDoc, double b, ScoreDoc bDoc, bool descending) { int value = a.CompareTo(b); if (descending) value = -value; return value != 0 ? value : aDoc.DocId.CompareTo(bDoc.DocId); }
+    private static int Compare(long a, ScoreDoc aDoc, long b, ScoreDoc bDoc, bool descending) { int value = a.CompareTo(b); if (descending) value = -value; return value != 0 ? value : aDoc.DocId.CompareTo(bDoc.DocId); }
+    private static int Compare(string a, ScoreDoc aDoc, string b, ScoreDoc bDoc, bool descending) { int value = string.CompareOrdinal(a, b); if (descending) value = -value; return value != 0 ? value : aDoc.DocId.CompareTo(bDoc.DocId); }
 
-    private static bool IsWorse(long a, long b, bool descending)
-        => descending ? a < b : a > b;
+    private static ScoreDoc[] Order(double[] keys, ScoreDoc[] docs, bool descending)
+    { var entries = new DoubleEntry[docs.Length]; for (int i = 0; i < docs.Length; i++) entries[i] = new DoubleEntry(keys[i], docs[i]); Array.Sort(entries, (a, b) => Compare(a.Key, a.Document, b.Key, b.Document, descending)); for (int i = 0; i < docs.Length; i++) docs[i] = entries[i].Document; return docs; }
+    private static ScoreDoc[] Order(long[] keys, ScoreDoc[] docs, bool descending)
+    { var entries = new Int64Entry[docs.Length]; for (int i = 0; i < docs.Length; i++) entries[i] = new Int64Entry(keys[i], docs[i]); Array.Sort(entries, (a, b) => Compare(a.Key, a.Document, b.Key, b.Document, descending)); for (int i = 0; i < docs.Length; i++) docs[i] = entries[i].Document; return docs; }
+    private static ScoreDoc[] Order(string[] keys, ScoreDoc[] docs, bool descending)
+    { var entries = new StringEntry[docs.Length]; for (int i = 0; i < docs.Length; i++) entries[i] = new StringEntry(keys[i], docs[i]); Array.Sort(entries, (a, b) => Compare(a.Key, a.Document, b.Key, b.Document, descending)); for (int i = 0; i < docs.Length; i++) docs[i] = entries[i].Document; return docs; }
 
-    private static bool IsWorse(string a, string b, bool descending)
-    {
-        int cmp = string.CompareOrdinal(a, b);
-        return descending ? cmp < 0 : cmp > 0;
-    }
+    private readonly record struct DoubleEntry(double Key, ScoreDoc Document);
+    private readonly record struct Int64Entry(long Key, ScoreDoc Document);
+    private readonly record struct StringEntry(string Key, ScoreDoc Document);
 }

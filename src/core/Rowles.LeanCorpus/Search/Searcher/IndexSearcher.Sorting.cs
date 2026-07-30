@@ -425,6 +425,25 @@ public sealed partial class IndexSearcher
         return column;
     }
 
+    internal CursorSortValue[] CaptureCursorSortValues(ScoreDoc document, IReadOnlyList<SortField> sorts)
+    {
+        var values = new CursorSortValue[sorts.Count];
+        for (int i = 0; i < sorts.Count; i++)
+        {
+            var sort = sorts[i];
+            values[i] = sort.Type switch
+            {
+                SortFieldType.Score => CursorSortValue.FromNumeric(sort.Type, document.Score),
+                SortFieldType.DocId => CursorSortValue.FromInt64(sort.Type, document.DocId),
+                SortFieldType.Numeric => CursorSortValue.FromNumeric(sort.Type, ResolveNumeric(document.DocId, sort.FieldName, sort.Selector)),
+                SortFieldType.Int64 => CursorSortValue.FromInt64(sort.Type, ResolveInt64(document.DocId, sort.FieldName, sort.Selector)),
+                SortFieldType.String => CursorSortValue.FromString(ResolveString(document.DocId, sort.FieldName, sort.Selector)),
+                _ => throw new NotSupportedException($"Sort type '{sort.Type}' is not cursor-compatible.")
+            };
+        }
+        return values;
+    }
+
     internal ScoreDoc[] SortCandidates(
         ScoreDoc[] docs,
         IReadOnlyList<SortField> sorts,

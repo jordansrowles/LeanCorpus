@@ -28,6 +28,7 @@ namespace Rowles.LeanCorpus.Search.Searcher;
 /// </remarks>
 public sealed class QueryCache
 {
+    internal static string CreateQueryFingerprint(Query query) => QueryFingerprint.Create(query);
     private readonly int _maxEntries;
     private volatile ConcurrentDictionary<CacheKey, CacheEntry> _map;
     private readonly Lock _swapLock = new();

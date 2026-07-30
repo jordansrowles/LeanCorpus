@@ -14,9 +14,13 @@ public readonly struct SearcherLease : IDisposable
     /// <summary>The leased searcher.</summary>
     public IndexSearcher Searcher { get; }
 
-    internal SearcherLease(IndexSearcher searcher, Action release)
+    /// <summary>The committed generation captured when the lease was acquired.</summary>
+    public int CommitGeneration { get; }
+
+    internal SearcherLease(IndexSearcher searcher, int commitGeneration, Action release)
     {
         Searcher = searcher;
+        CommitGeneration = commitGeneration;
         _release = release;
     }
 

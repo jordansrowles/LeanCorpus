@@ -107,12 +107,29 @@ public sealed class SearcherManager : IDisposable
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             var sr = _current;
             if (sr.TryIncrementRef())
-                return new SearcherLease(sr.Searcher, sr.DecrementRef);
+                return new SearcherLease(sr.Searcher, sr.Generation, sr.DecrementRef);
             spinWait.SpinOnce();
             if (spinWait.NextSpinWillYield && Environment.TickCount64 - started > timeoutTicks)
                 throw new TimeoutException("SearcherManager.AcquireLease timed out after 30 seconds. The current searcher reference may be stuck.");
         }
     }
+
+    internal bool TryAcquireLease(int generation, out SearcherLease lease)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        foreach (var candidate in _searchers.Values)
+        {
+            if (candidate.Generation == generation && candidate.TryIncrementRef())
+            {
+                lease = new SearcherLease(candidate.Searcher, generation, candidate.DecrementRef);
+                return true;
+            }
+        }
+        lease = default;
+        return false;
+    }
+
+    internal string DirectoryPath => _directory.DirectoryPath;
 
     /// <summary>
     /// Acquires a reference to the current searcher. The caller must call
