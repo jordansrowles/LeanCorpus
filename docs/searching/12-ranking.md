@@ -78,6 +78,12 @@ var pipeline = new RankingPipeline([
 
 The pipeline does not expose the searcher, writer, stored document content, or pooled buffers to application code. External model runtimes and remote rerankers remain application concerns.
 
+## Evaluation and diversification
+
+`RankingMetrics` calculates precision, recall, reciprocal rank, average precision, DCG, and NDCG from application-owned judgements. By default, unjudged documents are excluded from precision; use `TreatAsNonRelevant` when that is the intended evaluation policy.
+
+`MaximumMarginalRelevance.Select` diversifies an already bounded candidate window. It preserves the initial score, reports the novelty penalty for every selected document, and resolves ties by document ID. Supply a bounded similarity function that returns `null` for unavailable representations, then choose whether those candidates receive no novelty penalty or are excluded.
+
 ## Cache and cursors
 
 The result compatibility identity includes the profile fingerprint, pipeline fingerprint, ruleset fingerprint, matched rules, and optional application-provided safe cache identity. Reuse it when binding cursors. Do not place tenant identifiers in `safeCacheIdentity` unless they are already opaque and safe to record.
