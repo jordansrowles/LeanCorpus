@@ -9,6 +9,15 @@ public class QueryRescorer
     private readonly float _firstPassWeight;
     private readonly float _secondPassWeight;
 
+    /// <summary>The second-pass query used by this rescorer.</summary>
+    public Query Query => _query;
+
+    /// <summary>The weight applied to the first-pass score.</summary>
+    public float FirstPassWeight => _firstPassWeight;
+
+    /// <summary>The weight applied to the second-pass score.</summary>
+    public float SecondPassWeight => _secondPassWeight;
+
     /// <summary>Initialises a query rescorer.</summary>
     public QueryRescorer(Query query, float weight = 1.0f)
         : this(query, 1.0f, weight)

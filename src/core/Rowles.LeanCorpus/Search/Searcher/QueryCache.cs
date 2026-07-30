@@ -62,8 +62,14 @@ public sealed class QueryCache
     /// Lock-free on the read path.
     /// </summary>
     public TopDocs? TryGet(Query query, int topN)
+        => TryGet(query, topN, string.Empty);
+
+    /// <summary>Tries to retrieve a result using an additional immutable result identity.</summary>
+    /// <remarks>Use this for result-affecting profile, ruleset, or pipeline identities.</remarks>
+    public TopDocs? TryGet(Query query, int topN, string resultIdentity)
     {
-        var key = new CacheKey(QueryFingerprint.Create(query), topN);
+        ArgumentNullException.ThrowIfNull(resultIdentity);
+        var key = new CacheKey(QueryFingerprint.Create(query), topN, resultIdentity);
         var map = _map;
         long gen = Interlocked.Read(ref _generation);
 
@@ -82,8 +88,14 @@ public sealed class QueryCache
     /// the entire dictionary is swapped for a fresh one.
     /// </summary>
     public void Put(Query query, int topN, TopDocs result)
+        => Put(query, topN, result, string.Empty);
+
+    /// <summary>Stores a result using an additional immutable result identity.</summary>
+    public void Put(Query query, int topN, TopDocs result, string resultIdentity)
     {
-        var key = new CacheKey(QueryFingerprint.Create(query), topN);
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(resultIdentity);
+        var key = new CacheKey(QueryFingerprint.Create(query), topN, resultIdentity);
         long gen = Interlocked.Read(ref _generation);
         var entry = new CacheEntry(key, result, gen);
 
@@ -138,7 +150,7 @@ public sealed class QueryCache
         Interlocked.Exchange(ref _map, fresh);
     }
 
-    private readonly record struct CacheKey(string QueryFingerprint, int TopN);
+    private readonly record struct CacheKey(string QueryFingerprint, int TopN, string ResultIdentity);
 
     private sealed class CacheEntry(CacheKey key, TopDocs result, long generation)
     {

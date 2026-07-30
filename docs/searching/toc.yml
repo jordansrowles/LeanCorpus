@@ -20,3 +20,5 @@
   href: 10-intervals.md
 - name: Score explanations
   href: 11-score-explanations.md
+- name: Ranking profiles and query rules
+  href: 12-ranking.md
