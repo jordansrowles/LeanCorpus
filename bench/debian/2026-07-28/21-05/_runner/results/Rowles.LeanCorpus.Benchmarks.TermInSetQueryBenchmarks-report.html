@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Rowles.LeanCorpus.Benchmarks.TermInSetQueryBenchmarks-20260729-001731</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.16.0-nightly.20260427.506, Linux Debian GNU/Linux 13 (trixie)
+Intel Xeon CPU E3-1220 V2 3.10GHz (Max: 3.26GHz), 1 CPU, 4 logical and 4 physical cores
+Memory: 23.45 GB Total, 1 GB Available
+.NET SDK 11.0.100-preview.1.26104.118
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+  DefaultJob : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+</code></pre>
+<pre><code></code></pre>
+
+<table>
+<thead><tr><th>Method                  </th><th>SetSize</th><th>DocumentCount</th><th>Mean</th><th>Error</th><th>StdDev</th><th>Ratio</th><th>Gen0</th><th>Gen1</th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>LeanCorpus_TermInSetQuery</td><td>5</td><td>100000</td><td>2.927 ms</td><td>0.0096 ms</td><td>0.0090 ms</td><td>1.00</td><td>-</td><td>-</td><td>3.73 KB</td><td>1.00</td>
+</tr><tr><td>LeanCorpus_BooleanQuery_Should</td><td>5</td><td>100000</td><td>1.958 ms</td><td>0.0132 ms</td><td>0.0117 ms</td><td>0.67</td><td>3.9063</td><td>-</td><td>24.68 KB</td><td>6.62</td>
+</tr><tr><td>LuceneNet_BooleanQuery_Should</td><td>5</td><td>100000</td><td>2.089 ms</td><td>0.0109 ms</td><td>0.0102 ms</td><td>0.71</td><td>199.2188</td><td>15.6250</td><td>827.46 KB</td><td>222.04</td>
+</tr><tr><td>LeanCorpus_TermInSetQuery</td><td>20</td><td>100000</td><td>6.478 ms</td><td>0.0427 ms</td><td>0.0399 ms</td><td>1.00</td><td>-</td><td>-</td><td>11.25 KB</td><td>1.00</td>
+</tr><tr><td>LeanCorpus_BooleanQuery_Should</td><td>20</td><td>100000</td><td>4.964 ms</td><td>0.0320 ms</td><td>0.0299 ms</td><td>0.77</td><td>15.6250</td><td>-</td><td>85.19 KB</td><td>7.57</td>
+</tr><tr><td>LuceneNet_BooleanQuery_Should</td><td>20</td><td>100000</td><td>4.938 ms</td><td>0.0275 ms</td><td>0.0229 ms</td><td>0.76</td><td>406.2500</td><td>15.6250</td><td>1704.66 KB</td><td>151.53</td>
+</tr><tr><td>LeanCorpus_TermInSetQuery</td><td>100</td><td>100000</td><td>13.308 ms</td><td>0.0357 ms</td><td>0.0334 ms</td><td>1.00</td><td>-</td><td>-</td><td>50.72 KB</td><td>1.00</td>
+</tr><tr><td>LeanCorpus_BooleanQuery_Should</td><td>100</td><td>100000</td><td>12.256 ms</td><td>0.0617 ms</td><td>0.0577 ms</td><td>0.92</td><td>171.8750</td><td>156.2500</td><td>999.31 KB</td><td>19.70</td>
+</tr><tr><td>LuceneNet_BooleanQuery_Should</td><td>100</td><td>100000</td><td>11.982 ms</td><td>0.0954 ms</td><td>0.0892 ms</td><td>0.90</td><td>1265.6250</td><td>265.6250</td><td>5961.94 KB</td><td>117.55</td>
+</tr></tbody></table>
+</body>
+</html>

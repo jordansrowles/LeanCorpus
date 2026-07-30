@@ -23,6 +23,21 @@ public sealed class VectorFieldInfo
     /// <summary>Quantisation strategy applied to this vector field. Default: <see cref="Codecs.Vectors.VectorQuantisation.None"/>.</summary>
     public VectorQuantisation Quantisation { get; init; } = VectorQuantisation.None;
 
+    /// <summary>Similarity function used by this field.</summary>
+    public VectorSimilarityFunction Similarity { get; init; } = VectorSimilarityFunction.Cosine;
+
+    /// <summary>Whether a Float32 sidecar is retained for exact reranking.</summary>
+    public bool RetainsFullPrecision { get; init; }
+
+    /// <summary>HNSW upper-layer degree used to build this field.</summary>
+    public int HnswM { get; init; } = 16;
+
+    /// <summary>HNSW layer-zero degree used to build this field. Zero means twice <see cref="HnswM"/>.</summary>
+    public int HnswM0 { get; init; }
+
+    /// <summary>HNSW construction candidate count used to build this field.</summary>
+    public int HnswEfConstruction { get; init; } = 100;
+
     /// <summary>
     /// Validates invariants after deserialisation. Throws <see cref="InvalidDataException"/>
     /// when required fields are missing, empty, or out of range.
@@ -33,5 +48,9 @@ public sealed class VectorFieldInfo
             throw new InvalidDataException("Vector field metadata has a null or empty FieldName.");
         if (Dimension <= 0)
             throw new InvalidDataException($"Vector field '{FieldName}' has a non-positive Dimension ({Dimension}).");
+        if (HnswM is < 2 or > 100 ||
+            HnswM0 != 0 && (HnswM0 is < 2 or > 200) ||
+            HnswEfConstruction is < 1 or > 2000)
+            throw new InvalidDataException($"Vector field '{FieldName}' has invalid HNSW build metadata.");
     }
 }

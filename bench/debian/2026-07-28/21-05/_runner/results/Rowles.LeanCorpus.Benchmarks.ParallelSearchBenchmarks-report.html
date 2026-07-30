@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Rowles.LeanCorpus.Benchmarks.ParallelSearchBenchmarks-20260729-002808</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.16.0-nightly.20260427.506, Linux Debian GNU/Linux 13 (trixie)
+Intel Xeon CPU E3-1220 V2 3.10GHz (Max: 3.26GHz), 1 CPU, 4 logical and 4 physical cores
+Memory: 23.45 GB Total, 1 GB Available
+.NET SDK 11.0.100-preview.1.26104.118
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+  DefaultJob : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+</code></pre>
+<pre><code></code></pre>
+
+<table>
+<thead><tr><th>Method                  </th><th>SegmentCount</th><th>DocumentCount</th><th>Mean</th><th>Error</th><th>StdDev</th><th>Ratio</th><th>Gen0</th><th>Gen1</th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>&#39;LeanCorpus phrase sequential&#39;</td><td>4</td><td>100000</td><td>785.2 μs</td><td>4.43 μs</td><td>4.14 μs</td><td>1.00</td><td>4.8828</td><td>-</td><td>20.14 KB</td><td>1.00</td>
+</tr><tr><td>&#39;LeanCorpus phrase parallel&#39;</td><td>4</td><td>100000</td><td>531.7 μs</td><td>5.59 μs</td><td>5.23 μs</td><td>0.68</td><td>5.8594</td><td>-</td><td>23.64 KB</td><td>1.17</td>
+</tr><tr><td>&#39;Lucene.NET phrase sequential&#39;</td><td>4</td><td>100000</td><td>343.4 μs</td><td>1.12 μs</td><td>1.05 μs</td><td>0.44</td><td>75.6836</td><td>13.6719</td><td>310.49 KB</td><td>15.42</td>
+</tr><tr><td>&#39;LeanCorpus phrase sequential&#39;</td><td>8</td><td>100000</td><td>776.9 μs</td><td>3.07 μs</td><td>2.88 μs</td><td>1.00</td><td>6.8359</td><td>-</td><td>30.8 KB</td><td>1.00</td>
+</tr><tr><td>&#39;LeanCorpus phrase parallel&#39;</td><td>8</td><td>100000</td><td>500.4 μs</td><td>4.70 μs</td><td>4.40 μs</td><td>0.64</td><td>7.8125</td><td>-</td><td>34.86 KB</td><td>1.13</td>
+</tr><tr><td>&#39;Lucene.NET phrase sequential&#39;</td><td>8</td><td>100000</td><td>356.1 μs</td><td>1.22 μs</td><td>1.14 μs</td><td>0.46</td><td>117.1875</td><td>19.5313</td><td>480.88 KB</td><td>15.61</td>
+</tr></tbody></table>
+</body>
+</html>

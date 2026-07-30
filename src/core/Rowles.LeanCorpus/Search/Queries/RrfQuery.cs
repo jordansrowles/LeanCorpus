@@ -10,12 +10,16 @@
 public sealed class RrfQuery : Query
 {
     private readonly List<Query> _queries = [];
+    private readonly List<RrfChild> _children = [];
 
     /// <summary>The ranking constant <c>k</c>. Higher values reduce the impact of top-ranked results. Default: 60.</summary>
     public int K { get; }
 
     /// <summary>The child queries whose result lists will be fused.</summary>
     public IReadOnlyList<Query> Queries => _queries;
+
+    /// <summary>The child queries together with their independent candidate windows and weights.</summary>
+    public IReadOnlyList<RrfChild> Children => _children;
 
     /// <inheritdoc/>
     public override string Field => _queries.Count > 0 ? _queries[0].Field : string.Empty;
@@ -37,6 +41,24 @@ public sealed class RrfQuery : Query
     {
         ArgumentNullException.ThrowIfNull(query);
         _queries.Add(query);
+        _children.Add(new RrfChild(query, CandidateWindow: 0, Weight: 1f));
+        return this;
+    }
+
+    /// <summary>Adds a weighted child with an independent candidate window.</summary>
+    /// <param name="query">Child query to execute.</param>
+    /// <param name="candidateWindow">Number of ranked candidates to request from this child.</param>
+    /// <param name="weight">Positive finite contribution multiplier.</param>
+    public RrfQuery Add(Query query, int candidateWindow, float weight = 1f)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(candidateWindow);
+        if (!float.IsFinite(weight) || weight <= 0f)
+            throw new ArgumentOutOfRangeException(
+                nameof(weight),
+                "RRF child weights must be positive and finite.");
+        _queries.Add(query);
+        _children.Add(new RrfChild(query, candidateWindow, weight));
         return this;
     }
 
@@ -44,28 +66,72 @@ public sealed class RrfQuery : Query
     /// Combines multiple <see cref="Scoring.TopDocs"/> result sets using RRF scoring.
     /// </summary>
     public static Scoring.TopDocs Combine(Scoring.TopDocs[] resultSets, int topN, int k = 60)
+        => CombineCore(resultSets, weights: null, topN, k);
+
+    /// <summary>Combines ranked result sets using one positive finite weight per child.</summary>
+    public static Scoring.TopDocs Combine(
+        Scoring.TopDocs[] resultSets,
+        IReadOnlyList<float> weights,
+        int topN,
+        int k = 60)
+    {
+        ArgumentNullException.ThrowIfNull(weights);
+        if (weights.Count != resultSets.Length)
+            throw new ArgumentException(
+                "RRF weights must contain exactly one value per result set.",
+                nameof(weights));
+        for (int i = 0; i < weights.Count; i++)
+        {
+            if (!float.IsFinite(weights[i]) || weights[i] <= 0f)
+                throw new ArgumentOutOfRangeException(
+                    nameof(weights),
+                    "RRF weights must be positive and finite.");
+        }
+        return CombineCore(resultSets, weights, topN, k);
+    }
+
+    private static Scoring.TopDocs CombineCore(
+        Scoring.TopDocs[] resultSets,
+        IReadOnlyList<float>? weights,
+        int topN,
+        int k)
     {
         if (resultSets.Length == 0 || topN <= 0)
             return Scoring.TopDocs.Empty;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(k);
 
         // docId → accumulated RRF score
         var scores = new Dictionary<int, float>();
+        var bestRanks = new Dictionary<int, int>();
 
-        foreach (var results in resultSets)
+        for (int childIndex = 0; childIndex < resultSets.Length; childIndex++)
         {
+            var results = resultSets[childIndex];
+            float weight = weights?[childIndex] ?? 1f;
             for (int rank = 0; rank < results.ScoreDocs.Length; rank++)
             {
                 int docId = results.ScoreDocs[rank].DocId;
-                float rrfScore = 1.0f / (k + rank + 1); // rank is 0-based, formula uses 1-based
+                int oneBasedRank = rank + 1;
+                float rrfScore = weight / (k + oneBasedRank);
                 scores[docId] = scores.GetValueOrDefault(docId) + rrfScore;
+                bestRanks[docId] = Math.Min(
+                    bestRanks.GetValueOrDefault(docId, int.MaxValue),
+                    oneBasedRank);
             }
         }
 
-        // Sort by RRF score descending, then take topN
+        // Stable ordering: score descending, best child rank ascending, then doc ID.
         var sorted = new List<Scoring.ScoreDoc>(scores.Count);
         foreach (var (docId, score) in scores)
             sorted.Add(new Scoring.ScoreDoc(docId, score));
-        sorted.Sort((a, b) => b.Score.CompareTo(a.Score));
+        sorted.Sort((a, b) =>
+        {
+            int comparison = b.Score.CompareTo(a.Score);
+            if (comparison != 0)
+                return comparison;
+            comparison = bestRanks[a.DocId].CompareTo(bestRanks[b.DocId]);
+            return comparison != 0 ? comparison : a.DocId.CompareTo(b.DocId);
+        });
 
         if (sorted.Count > topN)
             sorted.RemoveRange(topN, sorted.Count - topN);
@@ -77,8 +143,7 @@ public sealed class RrfQuery : Query
     public override bool Equals(object? obj) =>
         obj is RrfQuery other &&
         K == other.K && Boost == other.Boost &&
-        _queries.Count == other._queries.Count &&
-        _queries.SequenceEqual(other._queries);
+        _children.SequenceEqual(other._children);
 
     /// <inheritdoc/>
     public override int GetHashCode()
@@ -86,7 +151,7 @@ public sealed class RrfQuery : Query
         var h = new HashCode();
         h.Add(nameof(RrfQuery));
         h.Add(K);
-        foreach (var q in _queries) h.Add(q);
+        foreach (var child in _children) h.Add(child);
         return CombineBoost(h.ToHashCode());
     }
 
@@ -97,4 +162,7 @@ public sealed class RrfQuery : Query
         foreach (var query in _queries)
             query.Visit(visitor.GetSubVisitor(Occur.Should, this));
     }
+
+    /// <summary>Configuration for one RRF child query.</summary>
+    public sealed record RrfChild(Query Query, int CandidateWindow, float Weight);
 }

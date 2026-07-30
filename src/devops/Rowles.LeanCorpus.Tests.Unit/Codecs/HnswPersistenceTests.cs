@@ -69,7 +69,12 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
         var source = new ArrayVectorSource(vectors);
         var config = new HnswBuildConfig { M = 8, M0 = 16, EfConstruction = 50 };
 
-        var built = HnswGraphBuilder.Build(source, Enumerable.Range(0, vectors.Length).ToArray(), config, seed: 42L);
+        var built = HnswGraphBuilder.Build(
+            source,
+            Enumerable.Range(0, vectors.Length).ToArray(),
+            config,
+            seed: 42L,
+            normalised: false);
         built.Freeze();
 
         var path = Path.Combine(_fixture.Path, "hnsw_roundtrip.hnsw");
@@ -110,7 +115,12 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
         var source = new ArrayVectorSource(vectors);
         var config = new HnswBuildConfig { M = 8, M0 = 16, EfConstruction = 60 };
 
-        var built = HnswGraphBuilder.Build(source, Enumerable.Range(0, vectors.Length).ToArray(), config, seed: 99L);
+        var built = HnswGraphBuilder.Build(
+            source,
+            Enumerable.Range(0, vectors.Length).ToArray(),
+            config,
+            seed: 99L,
+            normalised: false);
         built.Freeze();
 
         var path = Path.Combine(_fixture.Path, "hnsw_search.hnsw");
@@ -161,13 +171,39 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(1, rewritten.NodeCount);
     }
 
+    [Fact(DisplayName = "Compatibility: Version 1 HNSW remains readable")]
+    public void Compatibility_Version1Hnsw_RemainsReadable()
+    {
+        string path = Path.Combine(_fixture.Path, "hnsw_v1.hnsw");
+        WriteSyntheticHnswFile(
+            path,
+            nodeCount: 1,
+            maxLevel: 0,
+            levelCount: 1,
+            version: 1,
+            writeLevelData: writer =>
+            {
+                writer.Write(1);
+                writer.Write(0);
+                writer.Write(0);
+            });
+
+        var source = new TrivialVectorSource { Dimension = 16 };
+        var graph = HnswReader.Read(path, source, expectedNormalised: false);
+
+        Assert.Equal(1, graph.NodeCount);
+        Assert.Equal(VectorSimilarityFunction.Cosine, graph.Similarity);
+        Assert.False(graph.Normalised);
+    }
+
     /// <summary>
     /// Writes a synthetic HNSW file with controlled header values.
-    /// Body format: dimension(4) normalised(1) m(4) m0(4) efConstruction(4) seed(8)
+    /// Body format: dimension(4) normalised(1) similarity(1) m(4) m0(4) efConstruction(4) seed(8)
     ///              entryPoint(4) maxLevel(4) nodeCount(4) levelCount(4) [levelData...]
     /// </summary>
     private static void WriteSyntheticHnswFile(string filePath,
         int nodeCount, int maxLevel, int levelCount, int dimension = 16,
+        byte version = CodecConstants.HnswVersion,
         Action<BinaryWriter>? writeLevelData = null)
     {
         using var bodyStream = new MemoryStream();
@@ -175,6 +211,8 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
         {
             bw.Write(dimension);
             bw.Write((byte)0); // normalised
+            if (version >= 2)
+                bw.Write((byte)VectorSimilarityFunction.Cosine);
             bw.Write(8);       // m
             bw.Write(16);      // m0
             bw.Write(50);      // efConstruction
@@ -185,11 +223,9 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
             bw.Write(levelCount);
             writeLevelData?.Invoke(bw);
         }
-        bodyStream.Position = 0;
-        using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
-        using var fileWriter = new BinaryWriter(fs, System.Text.Encoding.UTF8, leaveOpen: false);
-        CodecFileHeader.Write(fileWriter, CodecFormats.Hnsw,
-            new ReadOnlySpan<byte>(bodyStream.GetBuffer(), 0, (int)bodyStream.Length));
+        using var output = new Rowles.LeanCorpus.Store.IndexOutput(filePath);
+        using var scope = CodecFileHeader.BeginStreamingWrite(output, version);
+        output.WriteBytes(new ReadOnlySpan<byte>(bodyStream.GetBuffer(), 0, (int)bodyStream.Length));
     }
 
     private sealed class TrivialVectorSource : IVectorSource

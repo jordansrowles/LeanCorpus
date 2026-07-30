@@ -1,5 +1,6 @@
 using System.Globalization;
 using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
@@ -65,6 +66,29 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         return path;
     }
 
+    private string CreateInt8VectorIndex(string name)
+    {
+        var path = Path.Combine(_fixture.Path, name);
+        Directory.CreateDirectory(path);
+        using var directory = new MMapDirectory(path);
+        using var writer = new IndexWriter(
+            directory,
+            new IndexWriterConfig
+            {
+                BuildHnswOnFlush = false,
+                VectorQuantisation = VectorQuantisation.Int8,
+            });
+        for (int i = 0; i < 4; i++)
+        {
+            var document = new LeanDocument();
+            document.Add(new StringField("id", $"vector-{i}"));
+            document.Add(new VectorField("embedding", new float[] { i, 1f - i }));
+            writer.AddDocument(document);
+        }
+        writer.Commit();
+        return path;
+    }
+
     /// <summary>
     /// Patches the first byte (version) of all files matching <paramref name="pattern"/>.
     /// </summary>
@@ -85,6 +109,30 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         var path = Directory.GetFiles(indexPath, pattern).Single();
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         return (byte)stream.ReadByte();
+    }
+
+    private static void DowngradeQuantisedVectorsToV1(string indexPath)
+    {
+        string path = Directory.GetFiles(indexPath, "*.vq").Single();
+        byte[] current = File.ReadAllBytes(path);
+        const int fileHeaderLength = sizeof(byte);
+        const int bodyHeaderLength = sizeof(int) + sizeof(int) + sizeof(byte);
+        int docCount = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(
+            current.AsSpan(fileHeaderLength, sizeof(int)));
+        int sparseMapLength = checked(sizeof(int) + docCount * sizeof(int));
+        int currentBodyLength = current.Length - fileHeaderLength - sizeof(long);
+        int legacyBodyLength = currentBodyLength - sparseMapLength;
+        var legacy = new byte[fileHeaderLength + legacyBodyLength + sizeof(long)];
+        legacy[0] = 1;
+        current.AsSpan(fileHeaderLength, bodyHeaderLength)
+            .CopyTo(legacy.AsSpan(fileHeaderLength));
+        current.AsSpan(
+                fileHeaderLength + bodyHeaderLength + sparseMapLength,
+                currentBodyLength - bodyHeaderLength - sparseMapLength)
+            .CopyTo(legacy.AsSpan(fileHeaderLength + bodyHeaderLength));
+        System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(
+            legacy.AsSpan(legacy.Length - sizeof(long)), legacyBodyLength);
+        File.WriteAllBytes(path, legacy);
     }
 
     /// <summary>
@@ -509,6 +557,61 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
     [Fact(DisplayName = "Migrate: Rewrite norms")]
     public void Migrate_Rewrite_Norms()
         => AssertRewriteRestoresVersion("migrate_rewrite_nrm", "*.nrm", CodecConstants.NormsVersion);
+
+    [Theory(DisplayName = "Migrate: Legacy quantised vectors rewrite to v3 without changing results")]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void Migrate_LegacyQuantisedVector_RewritesToV3(byte legacyVersion)
+    {
+        string path = CreateInt8VectorIndex($"migrate_rewrite_vq_{legacyVersion}");
+        float[][] expectedVectors;
+        using (var baselineDirectory = new MMapDirectory(path))
+        using (var baselineSearcher = new IndexSearcher(baselineDirectory))
+        {
+            var reader = Assert.Single(baselineSearcher.GetSegmentReaders());
+            expectedVectors = Enumerable.Range(0, 4)
+                .Select(docId => Assert.IsType<float[]>(reader.GetVector("embedding", docId)))
+                .ToArray();
+        }
+        if (legacyVersion == 1)
+            DowngradeQuantisedVectorsToV1(path);
+        else
+            DowngradeVersionByte(path, "*.vq", legacyVersion);
+
+        var plan = IndexCodecMigrator.Plan(new MMapDirectory(path));
+        var action = Assert.Single(
+            plan.Actions,
+            candidate => candidate.FileName!.EndsWith(".vq", StringComparison.Ordinal));
+        Assert.Equal(IndexCodecMigrationActionKind.RewriteFile, action.Kind);
+        Assert.True(action.CanExecute);
+
+        var result = IndexCodecMigrator.Migrate(
+            new MMapDirectory(path),
+            new IndexCodecMigrationOptions
+            {
+                DryRun = false,
+                ValidateBeforeMigration = true,
+                ValidateAfterMigration = true,
+            });
+
+        Assert.True(
+            result.Succeeded,
+            string.Join("; ", result.Issues.Select(issue => issue.Message)));
+        byte migratedVersion = ReadVersionByte(path, "*.vq");
+        Assert.True(
+            migratedVersion == CodecConstants.QuantisedVectorVersion,
+            $"Expected v{CodecConstants.QuantisedVectorVersion}, found v{migratedVersion}; " +
+            $"action source={action.SourcePath}, segment={action.SegmentId ?? "<none>"}; " +
+            $"files={string.Join(",", Directory.GetFiles(path).Select(Path.GetFileName))}");
+
+        using var directory = new MMapDirectory(path);
+        using var searcher = new IndexSearcher(directory);
+        var migratedReader = Assert.Single(searcher.GetSegmentReaders());
+        for (int docId = 0; docId < expectedVectors.Length; docId++)
+            Assert.Equal(expectedVectors[docId], migratedReader.GetVector("embedding", docId));
+        var hits = searcher.Search(new VectorQuery("embedding", [3f, -2f]), 1);
+        Assert.Single(hits.ScoreDocs);
+    }
 
     // ═══════════════════════════════════════════════════
     //  Term dictionary and stored fields

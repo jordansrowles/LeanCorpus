@@ -284,6 +284,9 @@ public sealed class SegmentMerger
         internal Dictionary<string, bool> VectorFieldNormalised { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, bool> VectorFieldHadHnsw { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, VectorQuantisation> VectorFieldQuantisation { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, VectorSimilarityFunction> VectorFieldSimilarity { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, bool> VectorFieldRetainsFullPrecision { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, HnswBuildConfig> VectorFieldHnswConfig { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, List<(SegmentInfo Seg, Dictionary<int, int> OldToNew, string DirectoryPath)>> VectorFieldRemaps { get; } = new(StringComparer.Ordinal);
 
         internal MergeContext(int totalDocs, HashSet<string> fieldNames)
@@ -488,13 +491,41 @@ public sealed class SegmentMerger
                             ? vfInfo : null;
                         if (match is not null)
                         {
+                            ValidateCompatibleVectorMetadata(ctx, vfName, match);
                             ctx.VectorFieldNormalised[vfName] = match.Normalised;
                             ctx.VectorFieldHadHnsw[vfName] = ctx.VectorFieldHadHnsw.GetValueOrDefault(vfName, false) || match.HasHnsw;
                             ctx.VectorFieldQuantisation[vfName] = match.Quantisation;
+                            ctx.VectorFieldSimilarity[vfName] = match.Similarity;
+                            ctx.VectorFieldRetainsFullPrecision[vfName] = match.RetainsFullPrecision;
+                            ctx.VectorFieldHnswConfig[vfName] = new HnswBuildConfig
+                            {
+                                M = match.HnswM,
+                                M0 = match.HnswM0,
+                                EfConstruction = match.HnswEfConstruction,
+                            };
                         }
                     }
                 }
             }
+        }
+    }
+
+    private static void ValidateCompatibleVectorMetadata(
+        MergeContext ctx,
+        string fieldName,
+        VectorFieldInfo incoming)
+    {
+        if (ctx.VectorFieldNormalised.TryGetValue(fieldName, out bool normalised) &&
+            normalised != incoming.Normalised ||
+            ctx.VectorFieldQuantisation.TryGetValue(fieldName, out var quantisation) &&
+            quantisation != incoming.Quantisation ||
+            ctx.VectorFieldSimilarity.TryGetValue(fieldName, out var similarity) &&
+            similarity != incoming.Similarity ||
+            ctx.VectorFieldRetainsFullPrecision.TryGetValue(fieldName, out bool retains) &&
+            retains != incoming.RetainsFullPrecision)
+        {
+            throw new InvalidOperationException(
+                $"Cannot merge vector field '{fieldName}' with incompatible per-field vector metadata.");
         }
     }
 
@@ -541,8 +572,13 @@ public sealed class SegmentMerger
                     $"Cannot determine Normalised flag for vector field '{fieldName}' during merge. Source segments must declare this flag.");
 
             var quantisation = ctx.VectorFieldQuantisation.GetValueOrDefault(fieldName, VectorQuantisation.None);
+            var similarity = ctx.VectorFieldSimilarity.GetValueOrDefault(fieldName, VectorSimilarityFunction.Cosine);
+            bool retainsFullPrecision = ctx.VectorFieldRetainsFullPrecision.GetValueOrDefault(fieldName, false);
+            var hnswConfig = ctx.VectorFieldHnswConfig.GetValueOrDefault(fieldName, _hnswBuildConfig);
             float int8Min = 0f, int8Alpha = 0f;
             float[]? bbqCentroid = null;
+            string? quantisedPath = null;
+            QuantisedVectorReader? productReader = null;
 
             if (quantisation == VectorQuantisation.None)
             {
@@ -551,6 +587,11 @@ public sealed class SegmentMerger
             }
             else
             {
+                if (retainsFullPrecision)
+                {
+                    var fullPrecisionPath = VectorFilePaths.VectorFile(basePath, fieldName);
+                    VectorWriter.WriteField(fullPrecisionPath, ctx.TotalDocs, dimension, perField);
+                }
                 switch (quantisation)
                 {
                     case VectorQuantisation.Int8:
@@ -560,6 +601,15 @@ public sealed class SegmentMerger
                         bbqCentroid = ComputeBBQCentroidMerge(perField, dimension);
                         break;
                 }
+
+                quantisedPath = VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
+                QuantisedVectorWriter.Write(
+                    quantisedPath,
+                    ctx.TotalDocs,
+                    dimension,
+                    perField,
+                    quantisation,
+                    bbqCentroid);
             }
 
             bool hasHnsw = false;
@@ -569,14 +619,15 @@ public sealed class SegmentMerger
                 if (quantisation == VectorQuantisation.Int8)
                 {
                     src = new Int8QuantisedMemoryVectorSource(perField, dimension, int8Min, int8Alpha);
-                    var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
-                    QuantisedVectorWriter.WriteInt8(vqPath, ctx.TotalDocs, dimension, perField);
                 }
                 else if (quantisation == VectorQuantisation.BBQ)
                 {
                     src = new BBQMemoryVectorSource(perField, dimension, bbqCentroid!);
-                    var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
-                    QuantisedVectorWriter.WriteBBQ(vqPath, ctx.TotalDocs, dimension, perField, bbqCentroid!);
+                }
+                else if (quantisation == VectorQuantisation.ProductQuantisation)
+                {
+                    productReader = QuantisedVectorReader.Open(quantisedPath!);
+                    src = new QuantisedVectorSource(productReader);
                 }
                 else
                 {
@@ -619,7 +670,12 @@ public sealed class SegmentMerger
                 if (graph is null)
                 {
                     var docIds = perField.Keys.ToArray();
-                    graph = HnswGraphBuilder.Build(src, docIds, _hnswBuildConfig);
+                    graph = HnswGraphBuilder.Build(
+                        src,
+                        docIds,
+                        hnswConfig,
+                        similarity: similarity,
+                        normalised: normalised);
                 }
                 else
                 {
@@ -632,20 +688,7 @@ public sealed class SegmentMerger
                 HnswWriter.Write(hnswPath, graph, dimension, normalised);
                 hasHnsw = true;
             }
-            else if (quantisation != VectorQuantisation.None)
-            {
-                // Write .vq even when HNSW is not rebuilt, since the data was deferred.
-                var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
-                switch (quantisation)
-                {
-                    case VectorQuantisation.Int8:
-                        QuantisedVectorWriter.WriteInt8(vqPath, ctx.TotalDocs, dimension, perField);
-                        break;
-                    case VectorQuantisation.BBQ:
-                        QuantisedVectorWriter.WriteBBQ(vqPath, ctx.TotalDocs, dimension, perField, bbqCentroid!);
-                        break;
-                }
-            }
+            productReader?.Dispose();
 
             merged.Add(new VectorFieldInfo
             {
@@ -654,6 +697,11 @@ public sealed class SegmentMerger
                 Normalised = normalised,
                 Quantisation = quantisation,
                 HasHnsw = hasHnsw,
+                Similarity = similarity,
+                RetainsFullPrecision = retainsFullPrecision,
+                HnswM = hnswConfig.M,
+                HnswM0 = hnswConfig.M0,
+                HnswEfConstruction = hnswConfig.EfConstruction,
             });
         }
         return merged;

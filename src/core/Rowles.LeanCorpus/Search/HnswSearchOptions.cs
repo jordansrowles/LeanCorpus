@@ -32,6 +32,26 @@ public sealed class HnswSearchOptions
     /// </summary>
     public int MaxPostFilterRetries { get; init; } = 3;
 
+    /// <summary>
+    /// Maximum distinct layer-zero nodes visited by one traversal, including retries.
+    /// Zero means unbounded. A bounded traversal returns its best available candidates
+    /// and reports exhaustion through search diagnostics.
+    /// </summary>
+    public int MaxVisitedNodes { get; init; }
+
+    /// <summary>
+    /// Optional segment-local candidate document identifiers used as additional
+    /// layer-zero entry points. This is reserved for deterministic lexical and
+    /// learned-sparse planners.
+    /// </summary>
+    internal IReadOnlyList<int>? EntryPoints { get; init; }
+
+    /// <summary>
+    /// Bounded number of second-hop neighbours explored from rejected filter bridge
+    /// nodes. Zero disables the ACORN-style expansion.
+    /// </summary>
+    internal int MaxFilterExpansion { get; init; }
+
     internal HnswTraversalOptions ToTraversalOptions() => new()
     {
         Ef = Ef,
@@ -39,5 +59,8 @@ public sealed class HnswSearchOptions
         PostFilterMask = PostFilterMask,
         TopK = TopK,
         MaxPostFilterRetries = MaxPostFilterRetries,
+        MaxVisitedNodes = MaxVisitedNodes,
+        EntryPoints = EntryPoints,
+        MaxFilterExpansion = MaxFilterExpansion,
     };
 }

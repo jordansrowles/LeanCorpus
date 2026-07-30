@@ -1,0 +1,47 @@
+{
+  "DocumentCount": 100000,
+  "QueryCount": 16,
+  "TopK": 10,
+  "CandidateWindows": [
+    10,
+    40,
+    100,
+    400
+  ],
+  "Results": [
+    {
+      "Dimension": 64,
+      "SubspaceDimensions": 1,
+      "SubquantiserCount": 64,
+      "TrainingSampleSize": 2048,
+      "TrainingIterations": 16,
+      "RecallAt10": 1,
+      "CandidateRecallAt40": 1,
+      "CandidateRecallAt100": 1,
+      "CandidateRecallAt400": 1,
+      "RawFloatBytes": 25600000,
+      "VectorPayloadBytes": 6465536,
+      "VectorPayloadReduction": 0.74744,
+      "QuantisedFileBytes": 6866078,
+      "QuantisedFileReduction": 0.731793828125,
+      "TrainingMilliseconds": 5362.1873
+    },
+    {
+      "Dimension": 128,
+      "SubspaceDimensions": 1,
+      "SubquantiserCount": 128,
+      "TrainingSampleSize": 2048,
+      "TrainingIterations": 16,
+      "RecallAt10": 0.99375,
+      "CandidateRecallAt40": 1,
+      "CandidateRecallAt100": 1,
+      "CandidateRecallAt400": 1,
+      "RawFloatBytes": 51200000,
+      "VectorPayloadBytes": 12931072,
+      "VectorPayloadReduction": 0.74744,
+      "QuantisedFileBytes": 13332126,
+      "QuantisedFileReduction": 0.7396069140625,
+      "TrainingMilliseconds": 10444.2741
+    }
+  ]
+}

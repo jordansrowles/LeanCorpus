@@ -37,10 +37,22 @@ public sealed class DefaultMetricsCollector : IMetricsCollector
     private long _hnswSearchCount;
     private long _hnswSearchTotalMs;
     private long _hnswNodesVisited;
+    private long _hnswRetryCount;
     private long _hnswBuildCount;
     private long _hnswBuildTotalMs;
     private long _hnswNodesBuilt;
-    private long _pad6_0, _pad6_1;
+    private long _pad6_0;
+
+    // ── Cache line 7: Vector execution facts ──
+    private long _vectorExecutionCount;
+    private long _vectorExactCandidateSetCount;
+    private long _vectorApproximateCandidateSetCount;
+    private long _vectorCandidateCount;
+    private long _vectorEligibleCount;
+    private long _vectorCandidateGenerationTotalMs;
+    private long _vectorRerankingTotalMs;
+    private readonly long[] _vectorStrategyCounts = new long[Enum.GetValues<VectorExecutionStrategy>().Length];
+    private readonly long[] _vectorScorePrecisionCounts = new long[Enum.GetValues<VectorScorePrecision>().Length];
 
 #pragma warning restore CS0169
 
@@ -95,10 +107,15 @@ public sealed class DefaultMetricsCollector : IMetricsCollector
 
     /// <inheritdoc/>
     public void RecordHnswSearch(TimeSpan elapsed, int nodesVisited)
+        => RecordHnswSearch(elapsed, nodesVisited, retryCount: 0);
+
+    /// <inheritdoc/>
+    public void RecordHnswSearch(TimeSpan elapsed, int nodesVisited, int retryCount)
     {
         Interlocked.Increment(ref _hnswSearchCount);
         Interlocked.Add(ref _hnswSearchTotalMs, (long)elapsed.TotalMilliseconds);
         Interlocked.Add(ref _hnswNodesVisited, nodesVisited);
+        Interlocked.Add(ref _hnswRetryCount, retryCount);
     }
 
     /// <inheritdoc/>
@@ -107,6 +124,24 @@ public sealed class DefaultMetricsCollector : IMetricsCollector
         Interlocked.Increment(ref _hnswBuildCount);
         Interlocked.Add(ref _hnswBuildTotalMs, (long)elapsed.TotalMilliseconds);
         Interlocked.Add(ref _hnswNodesBuilt, nodes);
+    }
+
+    /// <inheritdoc/>
+    public void RecordVectorExecution(VectorExecutionMetrics metrics)
+    {
+        Interlocked.Increment(ref _vectorExecutionCount);
+        if (metrics.ExactCandidateSet)
+            Interlocked.Increment(ref _vectorExactCandidateSetCount);
+        else
+            Interlocked.Increment(ref _vectorApproximateCandidateSetCount);
+        Interlocked.Add(ref _vectorCandidateCount, metrics.CandidateCount);
+        Interlocked.Add(ref _vectorEligibleCount, metrics.EligibleCount);
+        Interlocked.Add(ref _vectorCandidateGenerationTotalMs,
+            (long)metrics.CandidateGenerationElapsed.TotalMilliseconds);
+        Interlocked.Add(ref _vectorRerankingTotalMs,
+            (long)metrics.RerankingElapsed.TotalMilliseconds);
+        Interlocked.Increment(ref _vectorStrategyCounts[(int)metrics.Strategy]);
+        Interlocked.Increment(ref _vectorScorePrecisionCounts[(int)metrics.ScorePrecision]);
     }
 
     /// <inheritdoc/>
@@ -141,10 +176,29 @@ public sealed class DefaultMetricsCollector : IMetricsCollector
             HnswSearchCount = Interlocked.Read(ref _hnswSearchCount),
             HnswSearchTotalMs = Interlocked.Read(ref _hnswSearchTotalMs),
             HnswNodesVisited = Interlocked.Read(ref _hnswNodesVisited),
+            HnswRetryCount = Interlocked.Read(ref _hnswRetryCount),
             HnswBuildCount = Interlocked.Read(ref _hnswBuildCount),
             HnswBuildTotalMs = Interlocked.Read(ref _hnswBuildTotalMs),
-            HnswNodesBuilt = Interlocked.Read(ref _hnswNodesBuilt)
+            HnswNodesBuilt = Interlocked.Read(ref _hnswNodesBuilt),
+            VectorExecutionCount = Interlocked.Read(ref _vectorExecutionCount),
+            VectorExactCandidateSetCount = Interlocked.Read(ref _vectorExactCandidateSetCount),
+            VectorApproximateCandidateSetCount = Interlocked.Read(ref _vectorApproximateCandidateSetCount),
+            VectorCandidateCount = Interlocked.Read(ref _vectorCandidateCount),
+            VectorEligibleCount = Interlocked.Read(ref _vectorEligibleCount),
+            VectorCandidateGenerationTotalMs = Interlocked.Read(ref _vectorCandidateGenerationTotalMs),
+            VectorRerankingTotalMs = Interlocked.Read(ref _vectorRerankingTotalMs),
+            VectorStrategyCounts = SnapshotCounts<VectorExecutionStrategy>(_vectorStrategyCounts),
+            VectorScorePrecisionCounts = SnapshotCounts<VectorScorePrecision>(_vectorScorePrecisionCounts)
         };
+    }
+
+    private static IReadOnlyDictionary<TEnum, long> SnapshotCounts<TEnum>(long[] counters)
+        where TEnum : struct, Enum
+    {
+        var result = new Dictionary<TEnum, long>(counters.Length);
+        foreach (TEnum value in Enum.GetValues<TEnum>())
+            result[value] = Interlocked.Read(ref counters[Convert.ToInt32(value)]);
+        return result;
     }
 
     private static void InterlockedMax(ref long location, long value)

@@ -17,6 +17,7 @@ public sealed partial class IndexSearcher : IDisposable
     private readonly MMapDirectory _directory;
     private readonly List<SegmentReader> _readers = [];
     private readonly BoundedLruCache<string, SegmentReaderState> _segmentReaderCache;
+    private readonly BoundedLruCache<FilterDocSetCacheKey, FilterDocSetCacheEntry> _filterDocSetCache;
     private FileSnapshotLease? _snapshotLease;
     private readonly int[] _docBases;
     private readonly int _totalDocCount;
@@ -39,9 +40,26 @@ public sealed partial class IndexSearcher : IDisposable
     private ConcurrentDictionary<MltCacheKey, (string Field, string Term, float Score)[]>? _mltCache;
     private int _mltCacheCount;
     private const int MltCacheSoftCap = 64;
+    private static readonly AsyncLocal<SearchDiagnosticsAccumulator?> CurrentDiagnostics = new();
+
+    private sealed class SearchDiagnosticsAccumulator
+    {
+        public int HnswNodesVisited;
+        public int HnswRetryCount;
+        public int HnswBudgetExhausted;
+        public int MaximumScoreErrorBoundBits;
+    }
 
     private readonly record struct MltCacheKey(
         int DocId, int MaxQueryTerms, int MinTermFreq, int MinDocFreq, int MinWordLength);
+
+    private readonly record struct FilterDocSetCacheKey(string SegmentId, Query Filter);
+
+    private sealed class FilterDocSetCacheEntry(Util.RoaringBitmap bitmap) : IDisposable
+    {
+        internal Util.RoaringBitmap Bitmap { get; } = bitmap;
+        public void Dispose() { }
+    }
 
     /// <summary>Corpus-wide statistics computed at construction.</summary>
     public IndexStats Stats
@@ -154,6 +172,10 @@ public sealed partial class IndexSearcher : IDisposable
 
     internal long LoadedSegmentReaderCount => _segmentReaderCache.LoadCount;
 
+    internal int CachedFilterDocSetCount => _filterDocSetCache.Count;
+
+    internal long LoadedFilterDocSetCount => _filterDocSetCache.LoadCount;
+
     /// <summary>Calculates the on-disk size of the index.</summary>
     public Diagnostics.IndexSizeReport GetIndexSize()
         => Diagnostics.IndexSizeCalculator.Calculate(_directory.DirectoryPath);
@@ -180,10 +202,15 @@ public sealed partial class IndexSearcher : IDisposable
         if (config.MaxCachedSegmentReaders < 1)
             throw new ArgumentOutOfRangeException(nameof(config), config.MaxCachedSegmentReaders,
                 "MaxCachedSegmentReaders must be at least one.");
+        if (config.MaxCachedFilterDocSets < 1)
+            throw new ArgumentOutOfRangeException(nameof(config), config.MaxCachedFilterDocSets,
+                "MaxCachedFilterDocSets must be at least one.");
         _directory = directory;
         _config = config;
         _segmentReaderCache = new BoundedLruCache<string, SegmentReaderState>(
             config.MaxCachedSegmentReaders, StringComparer.Ordinal);
+        _filterDocSetCache = new BoundedLruCache<FilterDocSetCacheKey, FilterDocSetCacheEntry>(
+            config.MaxCachedFilterDocSets);
         _similarity = config.Similarity;
         _useLmScoring = _similarity.RequiresCollectionStatistics;
         _useBm25Scoring = _similarity is Bm25Similarity;
@@ -249,6 +276,7 @@ public sealed partial class IndexSearcher : IDisposable
         catch
         {
             _segmentReaderCache.Dispose();
+            _filterDocSetCache.Dispose();
             _snapshotLease?.Dispose();
             _snapshotLease = null;
             throw;
@@ -280,10 +308,15 @@ public sealed partial class IndexSearcher : IDisposable
         if (config.MaxCachedSegmentReaders < 1)
             throw new ArgumentOutOfRangeException(nameof(config), config.MaxCachedSegmentReaders,
                 "MaxCachedSegmentReaders must be at least one.");
+        if (config.MaxCachedFilterDocSets < 1)
+            throw new ArgumentOutOfRangeException(nameof(config), config.MaxCachedFilterDocSets,
+                "MaxCachedFilterDocSets must be at least one.");
         _directory = directory;
         _config = config;
         _segmentReaderCache = new BoundedLruCache<string, SegmentReaderState>(
             config.MaxCachedSegmentReaders, StringComparer.Ordinal);
+        _filterDocSetCache = new BoundedLruCache<FilterDocSetCacheKey, FilterDocSetCacheEntry>(
+            config.MaxCachedFilterDocSets);
         _similarity = config.Similarity;
         _useLmScoring = _similarity.RequiresCollectionStatistics;
         _useBm25Scoring = _similarity is Bm25Similarity;
@@ -318,6 +351,7 @@ public sealed partial class IndexSearcher : IDisposable
         catch
         {
             _segmentReaderCache.Dispose();
+            _filterDocSetCache.Dispose();
             _snapshotLease?.Dispose();
             _snapshotLease = null;
             throw;
@@ -402,6 +436,170 @@ public sealed partial class IndexSearcher : IDisposable
         return result;
     }
 
+    /// <summary>
+    /// Executes a query through the ordinary search API and returns explicit strategy,
+    /// completion, truncation, and vector score-provenance diagnostics.
+    /// </summary>
+    public SearchExecutionResult SearchWithDiagnostics(Query query, int topN)
+        => SearchWithDiagnosticsCore(query, topN, options: null);
+
+    /// <summary>
+    /// Executes a query with resource controls and returns explicit execution diagnostics.
+    /// </summary>
+    public SearchExecutionResult SearchWithDiagnostics(
+        Query query,
+        int topN,
+        SearchOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return SearchWithDiagnosticsCore(query, topN, options);
+    }
+
+    private SearchExecutionResult SearchWithDiagnosticsCore(
+        Query query,
+        int topN,
+        SearchOptions? options)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        Query rewritten = RewriteQuery(query);
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var accumulator = new SearchDiagnosticsAccumulator();
+        SearchDiagnosticsAccumulator? previousAccumulator = CurrentDiagnostics.Value;
+        CurrentDiagnostics.Value = accumulator;
+        TopDocs results;
+        try
+        {
+            results = options is null
+                ? Search(rewritten, topN)
+                : Search(rewritten, topN, options);
+        }
+        finally
+        {
+            stopwatch.Stop();
+            CurrentDiagnostics.Value = previousAccumulator;
+        }
+
+        VectorQuery? vectorQuery = FindVectorQuery(rewritten);
+        SearchExecutionStrategy strategy = rewritten is RrfQuery or FusionQuery
+            ? SearchExecutionStrategy.Fusion
+            : SearchExecutionStrategy.Standard;
+        VectorScoreProvenance provenance = VectorScoreProvenance.NotApplicable;
+        bool exactCandidateSet = true;
+        int? candidateLimit = null;
+
+        if (vectorQuery is not null)
+        {
+            var fields = _readers
+                .SelectMany(reader => reader.Info.VectorFields)
+                .Where(field => string.Equals(
+                    field.FieldName,
+                    vectorQuery.Field,
+                    StringComparison.Ordinal))
+                .ToArray();
+            int graphFields = fields.Count(field => field.HasHnsw);
+            if (rewritten is not (RrfQuery or FusionQuery))
+                strategy = graphFields switch
+                {
+                    0 => SearchExecutionStrategy.VectorFlatScan,
+                    _ when graphFields == fields.Length => SearchExecutionStrategy.VectorHnsw,
+                    _ => SearchExecutionStrategy.VectorMixed,
+                };
+            exactCandidateSet = graphFields == 0 && !results.IsPartial;
+            candidateLimit = vectorQuery.CandidateCount;
+
+            bool hasExact = fields.Any(
+                field => field.Quantisation == Codecs.Vectors.VectorQuantisation.None ||
+                         field.RetainsFullPrecision);
+            bool hasReconstructed = fields.Any(
+                field => field.Quantisation != Codecs.Vectors.VectorQuantisation.None &&
+                         !field.RetainsFullPrecision);
+            provenance = (hasExact, hasReconstructed) switch
+            {
+                (true, true) => VectorScoreProvenance.Mixed,
+                (false, true) => VectorScoreProvenance.ReconstructedQuantised,
+                _ => VectorScoreProvenance.ExactFloat32,
+            };
+        }
+
+        return new SearchExecutionResult(
+            results,
+            new SearchExecutionDiagnostics
+            {
+                Completion = results.IsPartial || accumulator.HnswBudgetExhausted != 0
+                    ? options?.CancellationToken.IsCancellationRequested == true
+                        ? SearchCompletionState.Cancelled
+                        : SearchCompletionState.BudgetExhausted
+                    : SearchCompletionState.Completed,
+                Strategy = strategy,
+                ScoreProvenance = provenance,
+                ExactCandidateSet = exactCandidateSet,
+                CandidateLimit = candidateLimit,
+                HnswNodesVisited = accumulator.HnswNodesVisited,
+                HnswRetryCount = accumulator.HnswRetryCount,
+                HnswBudgetExhausted = accumulator.HnswBudgetExhausted != 0,
+                MaximumScoreErrorBound = accumulator.MaximumScoreErrorBoundBits == 0
+                    ? null
+                    : BitConverter.Int32BitsToSingle(accumulator.MaximumScoreErrorBoundBits),
+                ReturnedCount = results.ScoreDocs.Length,
+                Truncated = results.TotalHits > results.ScoreDocs.Length,
+                Elapsed = stopwatch.Elapsed,
+            });
+    }
+
+    private static void RecordHnswDiagnostics(
+        int nodesVisited,
+        int retryCount,
+        bool budgetExhausted)
+    {
+        if (CurrentDiagnostics.Value is not { } accumulator)
+            return;
+        Interlocked.Add(ref accumulator.HnswNodesVisited, nodesVisited);
+        Interlocked.Add(ref accumulator.HnswRetryCount, retryCount);
+        if (budgetExhausted)
+            Interlocked.Exchange(ref accumulator.HnswBudgetExhausted, 1);
+    }
+
+    private static void RecordVectorErrorBound(float errorBound)
+    {
+        if (CurrentDiagnostics.Value is not { } accumulator ||
+            !float.IsFinite(errorBound) || errorBound <= 0f)
+        {
+            return;
+        }
+
+        int candidate = BitConverter.SingleToInt32Bits(errorBound);
+        int observed = Volatile.Read(ref accumulator.MaximumScoreErrorBoundBits);
+        while (BitConverter.Int32BitsToSingle(observed) < errorBound)
+        {
+            int previous = Interlocked.CompareExchange(
+                ref accumulator.MaximumScoreErrorBoundBits,
+                candidate,
+                observed);
+            if (previous == observed)
+                break;
+            observed = previous;
+        }
+    }
+
+    private static VectorQuery? FindVectorQuery(Query query)
+    {
+        if (query is VectorQuery vector)
+            return vector;
+        if (query is RrfQuery rrf)
+        {
+            foreach (var child in rrf.Children)
+                if (FindVectorQuery(child.Query) is { } nested)
+                    return nested;
+        }
+        if (query is FusionQuery fusion)
+        {
+            foreach (var child in fusion.Children)
+                if (FindVectorQuery(child.Query) is { } nested)
+                    return nested;
+        }
+        return null;
+    }
+
     private int NormaliseTopN(int topN)
         => _totalDocCount > 0 && topN > _totalDocCount ? _totalDocCount : topN;
 
@@ -419,6 +617,8 @@ public sealed partial class IndexSearcher : IDisposable
         // RRF: execute each child query independently, then fuse by rank
         if (query is RrfQuery rrf)
             return ExecuteRrfQuery(rrf, topN);
+        if (query is FusionQuery fusion)
+            return ExecuteFusionQuery(fusion, topN);
 
         // Block join: execute child query, map results to parent docs
         if (query is BlockJoinQuery bjq)
@@ -484,7 +684,7 @@ public sealed partial class IndexSearcher : IDisposable
         // These query families coordinate results across segments themselves.
         // Keep their existing execution and feed only their final candidates to
         // the bounded strategy.
-        if (query is MoreLikeThisQuery or RrfQuery or BlockJoinQuery)
+        if (query is MoreLikeThisQuery or RrfQuery or FusionQuery or BlockJoinQuery)
         {
             var results = SearchCore(query, _totalDocCount);
             foreach (var scoreDoc in results.ScoreDocs)
@@ -603,6 +803,8 @@ public sealed partial class IndexSearcher : IDisposable
         // RRF: execute each child, return max.
         if (query is RrfQuery rrf)
             return SearchCore(rrf, 1).TotalHits;
+        if (query is FusionQuery fusion)
+            return SearchCore(fusion, 1).TotalHits;
 
         // Block join: delegate to SearchCore.
         if (query is BlockJoinQuery bjq)
@@ -693,6 +895,8 @@ public sealed partial class IndexSearcher : IDisposable
             return ExecuteMoreLikeThis(mlt, topN);
         if (query is RrfQuery rrf)
             return ExecuteRrfQuery(rrf, topN);
+        if (query is FusionQuery fusion)
+            return ExecuteFusionQuery(fusion, topN);
         if (query is BlockJoinQuery bjq)
             return ExecuteBlockJoinQuery(bjq, topN);
         if (query is TermQuery tq)
@@ -777,6 +981,8 @@ public sealed partial class IndexSearcher : IDisposable
             return ExecuteMoreLikeThis(mlt, topN);
         if (query is RrfQuery rrf)
             return ExecuteRrfQuery(rrf, topN);
+        if (query is FusionQuery fusion)
+            return ExecuteFusionQuery(fusion, topN);
         if (query is BlockJoinQuery bjq)
             return ExecuteBlockJoinQuery(bjq, topN);
 
@@ -1016,6 +1222,7 @@ public sealed partial class IndexSearcher : IDisposable
         foreach (var reader in _readers)
             reader.Dispose();
         _segmentReaderCache.Dispose();
+        _filterDocSetCache.Dispose();
         _snapshotLease?.Dispose();
         _snapshotLease = null;
     }
@@ -1025,11 +1232,116 @@ public sealed partial class IndexSearcher : IDisposable
         if (rrf.Queries.Count == 0) return TopDocs.Empty;
 
         // Execute each child query independently to get ranked result lists
-        var childResults = new TopDocs[rrf.Queries.Count];
-        for (int i = 0; i < rrf.Queries.Count; i++)
-            childResults[i] = SearchCore(rrf.Queries[i], topN);
+        var childResults = new TopDocs[rrf.Children.Count];
+        var weights = new float[rrf.Children.Count];
+        for (int i = 0; i < rrf.Children.Count; i++)
+        {
+            var child = rrf.Children[i];
+            int candidateWindow = child.CandidateWindow > 0
+                ? child.CandidateWindow
+                : topN;
+            childResults[i] = SearchCore(child.Query, candidateWindow);
+            weights[i] = child.Weight;
+        }
 
-        return RrfQuery.Combine(childResults, topN, rrf.K);
+        TopDocs combined = RrfQuery.Combine(childResults, weights, topN, rrf.K);
+        if (rrf.Boost == 1f)
+            return combined;
+        var boosted = new ScoreDoc[combined.ScoreDocs.Length];
+        for (int i = 0; i < boosted.Length; i++)
+            boosted[i] = new ScoreDoc(
+                combined.ScoreDocs[i].DocId,
+                combined.ScoreDocs[i].Score * rrf.Boost);
+        return new TopDocs(combined.TotalHits, boosted);
+    }
+
+    private TopDocs ExecuteFusionQuery(FusionQuery fusion, int topN)
+    {
+        if (fusion.Children.Count == 0)
+            return TopDocs.Empty;
+
+        var childResults = new TopDocs[fusion.Children.Count];
+        var weights = new float[fusion.Children.Count];
+
+        // Learn sparse candidates before the dense children, regardless of child
+        // declaration order. This makes them available as deterministic graph entry
+        // points while preserving the original fusion order and per-child windows.
+        var sparseSeeds = fusion.SparseSeedCandidateLimit > 0
+            ? new List<int>(fusion.SparseSeedCandidateLimit)
+            : null;
+        HashSet<int>? seenSparseSeeds = sparseSeeds is null ? null : [];
+        for (int i = 0; i < fusion.Children.Count; i++)
+        {
+            var child = fusion.Children[i];
+            if (child.Query is not SparseImpactQuery)
+                continue;
+
+            childResults[i] = SearchCore(child.Query, child.CandidateWindow);
+            if (sparseSeeds is not null)
+            {
+                foreach (var hit in childResults[i].ScoreDocs)
+                {
+                    if (sparseSeeds.Count >= fusion.SparseSeedCandidateLimit)
+                        break;
+                    if (seenSparseSeeds!.Add(hit.DocId))
+                        sparseSeeds.Add(hit.DocId);
+                }
+            }
+        }
+
+        for (int i = 0; i < fusion.Children.Count; i++)
+        {
+            var child = fusion.Children[i];
+            if (child.Query is SparseImpactQuery)
+            {
+                weights[i] = child.Weight;
+                continue;
+            }
+
+            Query executionQuery = sparseSeeds is { Count: > 0 }
+                ? AddSparseSeeds(child.Query, sparseSeeds)
+                : child.Query;
+            childResults[i] = SearchCore(executionQuery, child.CandidateWindow);
+            weights[i] = child.Weight;
+        }
+
+        TopDocs combined = FusionQuery.Combine(
+            childResults,
+            weights,
+            topN,
+            fusion.Method,
+            fusion.RankConstant);
+        if (fusion.Boost == 1f)
+            return combined;
+        var boosted = new ScoreDoc[combined.ScoreDocs.Length];
+        for (int i = 0; i < boosted.Length; i++)
+            boosted[i] = new ScoreDoc(
+                combined.ScoreDocs[i].DocId,
+                combined.ScoreDocs[i].Score * fusion.Boost);
+        return new TopDocs(combined.TotalHits, boosted);
+    }
+
+    private static Query AddSparseSeeds(Query query, IReadOnlyList<int> sparseSeeds)
+    {
+        if (query is not VectorQuery vector)
+            return query;
+
+        var seeds = query is SeededVectorQuery existing
+            ? existing.SeedDocumentIds.Concat(sparseSeeds).Distinct().Order().ToArray()
+            : sparseSeeds.ToArray();
+        var seeded = new SeededVectorQuery(
+            vector.Field,
+            vector.QueryVector,
+            seeds,
+            vector.TopK,
+            vector.EfSearch,
+            vector.OversamplingFactor,
+            vector.Filter,
+            vector.MaxVisitedNodes)
+        {
+            Boost = vector.Boost,
+        };
+        return seeded;
     }
 
     private TopDocs ExecuteBlockJoinQuery(BlockJoinQuery bjq, int topN)

@@ -6,8 +6,7 @@ using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Codecs.Vectors;
 
 /// <summary>
-/// Writes dense float vectors with a fixed-dimension layout for implicit offset indexing.
-/// Format: [int: vectorCount][int: dimension][float[][]: vector data].
+/// Writes dense float vectors with an explicit document-to-vector ordinal mapping.
 /// </summary>
 internal static class VectorWriter
 {
@@ -19,28 +18,18 @@ internal static class VectorWriter
             if (vectors[i].Length > 0) { dimension = vectors[i].Length; break; }
         }
 
-        var bodyBuf = new ArrayBufferWriter<byte>(4096);
-        bodyBuf.WriteInt32(vectors.Length);
-        bodyBuf.WriteInt32(dimension);
-        bodyBuf.WriteByte(0); // data-format: float32
-
-        Span<float> zero = dimension <= 256 ? stackalloc float[dimension] : new float[dimension];
-        zero.Clear();
-
+        var byDoc = new Dictionary<int, ReadOnlyMemory<float>>(vectors.Length);
         for (int i = 0; i < vectors.Length; i++)
         {
-            var span = vectors[i].Length == dimension ? vectors[i].Span : zero;
-            for (int j = 0; j < dimension; j++)
-                bodyBuf.WriteSingle(span[j]);
+            if (vectors[i].Length == dimension)
+                byDoc.Add(i, vectors[i]);
         }
-
-        using var output = new IndexOutput(filePath);
-        CodecFileHeader.Write(output, CodecFormats.Vectors, bodyBuf.WrittenSpan);
+        WriteField(filePath, vectors.Length, dimension, byDoc);
     }
 
     /// <summary>
-    /// Writes a per-field dense vector file. Missing docs are zero-padded so reader offset arithmetic
-    /// remains valid; HNSW search never visits zero-padded docs because they are absent from the graph.
+    /// Writes a per-field dense vector file. Only documents with a vector receive a dense vector
+    /// ordinal; missing documents are represented by their absence from the persisted document map.
     /// </summary>
     internal static void WriteField(
         string filePath,
@@ -51,75 +40,38 @@ internal static class VectorWriter
     {
         ArgumentOutOfRangeException.ThrowIfNegative(docCount);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dimension);
+        ArgumentNullException.ThrowIfNull(vectorsByDoc);
 
         var bodyBuf = new ArrayBufferWriter<byte>(4096);
         bodyBuf.WriteInt32(docCount);
         bodyBuf.WriteInt32(dimension);
-        bodyBuf.WriteByte((byte)quantisation); // data-format byte: 0 = float32, 1 = int8
-
-        Span<float> zero = dimension <= 256 ? stackalloc float[dimension] : new float[dimension];
-        zero.Clear();
+        bodyBuf.WriteByte((byte)quantisation);
 
         if (quantisation == VectorQuantisation.Int8)
+            throw new ArgumentException(
+                "Int8 vectors must be written with QuantisedVectorWriter.",
+                nameof(quantisation));
+        if (quantisation != VectorQuantisation.None)
+            throw new ArgumentOutOfRangeException(nameof(quantisation));
+
+        int[] docIds = vectorsByDoc.Keys.Order().ToArray();
+        bodyBuf.WriteInt32(docIds.Length);
+        foreach (int docId in docIds)
         {
-            // Compute per-segment min/max
-            float min = float.MaxValue, max = float.MinValue;
-            foreach (var v in vectorsByDoc.Values)
-            {
-                var sp = v.Span;
-                for (int j = 0; j < sp.Length; j++)
-                {
-                    float val = sp[j];
-                    if (val < min) min = val;
-                    if (val > max) max = val;
-                }
-            }
-            if (MathF.Abs(max - min) < 1e-8f) max = min + 1f;
-            float alpha = (max - min) / 255f;
-
-            bodyBuf.WriteSingle(min);
-            bodyBuf.WriteSingle(alpha);
-
-            // Pack int8 bytes
-            byte[] buf = ArrayPool<byte>.Shared.Rent(dimension);
-            try
-            {
-                for (int i = 0; i < docCount; i++)
-                {
-                    ReadOnlySpan<float> span = zero;
-                    if (vectorsByDoc.TryGetValue(i, out var v))
-                    {
-                        if (v.Length != dimension)
-                            throw new InvalidDataException($"Vector for document {i} has dimension {v.Length}; expected {dimension}.");
-                        span = v.Span;
-                    }
-                    for (int j = 0; j < dimension; j++)
-                    {
-                        float clamped = Math.Clamp((span[j] - min) / alpha + 0.5f, 0f, 255f);
-                        buf[j] = (byte)clamped;
-                    }
-                    bodyBuf.WriteBytes(buf, 0, dimension);
-                }
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buf, clearArray: false);
-            }
+            if ((uint)docId >= (uint)docCount)
+                throw new InvalidDataException(
+                    $"Vector document identifier {docId} is outside the segment range 0..{docCount - 1}.");
+            bodyBuf.WriteInt32(docId);
         }
-        else
+
+        foreach (int docId in docIds)
         {
-            for (int i = 0; i < docCount; i++)
-            {
-                ReadOnlySpan<float> span = zero;
-                if (vectorsByDoc.TryGetValue(i, out var v))
-                {
-                    if (v.Length != dimension)
-                        throw new InvalidDataException($"Vector for document {i} has dimension {v.Length}; expected {dimension}.");
-                    span = v.Span;
-                }
-                for (int j = 0; j < dimension; j++)
-                    bodyBuf.WriteSingle(span[j]);
-            }
+            ReadOnlySpan<float> span = vectorsByDoc[docId].Span;
+            if (span.Length != dimension)
+                throw new InvalidDataException(
+                    $"Vector for document {docId} has dimension {span.Length}; expected {dimension}.");
+            for (int j = 0; j < dimension; j++)
+                bodyBuf.WriteSingle(span[j]);
         }
 
         using var output = new IndexOutput(filePath);

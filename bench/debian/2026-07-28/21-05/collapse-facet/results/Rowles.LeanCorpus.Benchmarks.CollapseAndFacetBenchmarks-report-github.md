@@ -1,0 +1,21 @@
+```
+
+BenchmarkDotNet v0.16.0-nightly.20260427.506, Linux Debian GNU/Linux 13 (trixie)
+Intel Xeon CPU E3-1220 V2 3.10GHz (Max: 3.26GHz), 1 CPU, 4 logical and 4 physical cores
+Memory: 23.45 GB Total, 1 GB Available
+.NET SDK 11.0.100-preview.1.26104.118
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+  DefaultJob : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+
+
+```
+| Method                                 | DocumentCount | Mean       | Error   | StdDev  | Ratio | RatioSD | Gen0    | Gen1    | Gen2   | Allocated | Alloc Ratio |
+|--------------------------------------- |-------------- |-----------:|--------:|--------:|------:|--------:|--------:|--------:|-------:|----------:|------------:|
+| LeanCorpus_BaseSearch                  | 100000        |   112.2 μs | 0.63 μs | 0.59 μs |  1.00 |    0.00 |  0.1221 |       - |      - |     784 B |        1.00 |
+| LeanCorpus_SearchWithCollapse          | 100000        |   606.0 μs | 2.91 μs | 2.43 μs |  5.40 |    0.03 |  0.9766 |       - |      - |    4096 B |        5.22 |
+| LeanCorpus_SearchWithFacets            | 100000        |   748.7 μs | 3.87 μs | 3.62 μs |  6.67 |    0.05 | 76.1719 | 15.6250 | 0.9766 |  418944 B |      534.37 |
+| LeanCorpus_SearchWithCollapseAndFacets | 100000        | 1,353.0 μs | 8.38 μs | 7.84 μs | 12.06 |    0.09 | 76.1719 |  7.8125 |      - |  423032 B |      539.58 |
+| LuceneNet_TermQuery                    | 100000        |   158.4 μs | 0.71 μs | 0.66 μs |  1.41 |    0.01 | 11.7188 |  0.2441 |      - |   50392 B |       64.28 |
+| LuceneNet_SearchWithCollapse           | 100000        |   333.1 μs | 2.61 μs | 2.44 μs |  2.97 |    0.03 | 14.6484 |  0.4883 |      - |   61863 B |       78.91 |
+| LuceneNet_SearchWithFacets             | 100000        |   407.8 μs | 1.09 μs | 1.02 μs |  3.64 |    0.02 | 17.5781 |  0.4883 |      - |   73894 B |       94.25 |
+| LuceneNet_SearchWithCollapseAndFacets  | 100000        |   754.4 μs | 3.91 μs | 3.66 μs |  6.72 |    0.05 | 31.2500 |  0.9766 |      - |  135899 B |      173.34 |

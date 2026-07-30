@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Rowles.LeanCorpus.Benchmarks.AsyncIndexingBenchmarks-20260729-020045</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.16.0-nightly.20260427.506, Linux Debian GNU/Linux 13 (trixie)
+Intel Xeon CPU E3-1220 V2 3.10GHz (Max: 3.26GHz), 1 CPU, 4 logical and 4 physical cores
+Memory: 23.45 GB Total, 1 GB Available
+.NET SDK 11.0.100-preview.1.26104.118
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+  Job-AMZPBM : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+</code></pre>
+<pre><code>IterationCount=5  WarmupCount=2  
+</code></pre>
+
+<table>
+<thead><tr><th>Method                          </th><th>DocumentCount</th><th>Mean</th><th>Error</th><th>StdDev</th><th>Ratio</th><th>RatioSD</th><th>Gen0 </th><th>Gen1</th><th>Gen2</th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>LeanCorpus_AddDocument_Sync</td><td>100000</td><td>7.914 s</td><td>0.2803 s</td><td>0.0728 s</td><td>1.00</td><td>0.00</td><td>165000.0000</td><td>69000.0000</td><td>5000.0000</td><td>1.07 GB</td><td>1.00</td>
+</tr><tr><td>LeanCorpus_AddDocumentAsync_Sequential</td><td>100000</td><td>11.608 s</td><td>0.6014 s</td><td>0.1562 s</td><td>1.47</td><td>0.02</td><td>197000.0000</td><td>89000.0000</td><td>6000.0000</td><td>1.31 GB</td><td>1.23</td>
+</tr><tr><td>LeanCorpus_AddDocumentsAsync_Batch</td><td>100000</td><td>12.004 s</td><td>1.0192 s</td><td>0.1577 s</td><td>1.52</td><td>0.02</td><td>196000.0000</td><td>90000.0000</td><td>6000.0000</td><td>1.3 GB</td><td>1.22</td>
+</tr></tbody></table>
+</body>
+</html>

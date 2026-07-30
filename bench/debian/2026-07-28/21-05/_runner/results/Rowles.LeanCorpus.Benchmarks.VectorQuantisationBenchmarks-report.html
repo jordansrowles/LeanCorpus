@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Rowles.LeanCorpus.Benchmarks.VectorQuantisationBenchmarks-20260729-020625</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.16.0-nightly.20260427.506, Linux Debian GNU/Linux 13 (trixie)
+Intel Xeon CPU E3-1220 V2 3.10GHz (Max: 3.26GHz), 1 CPU, 4 logical and 4 physical cores
+Memory: 23.45 GB Total, 1 GB Available
+.NET SDK 11.0.100-preview.1.26104.118
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+  DefaultJob : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+</code></pre>
+<pre><code></code></pre>
+
+<table>
+<thead><tr><th>Method          </th><th>Dimension</th><th>Quantisation </th><th>Mean</th><th>Error</th><th>StdDev</th><th>Ratio</th><th>RatioSD</th><th>Gen0</th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>&#39;HNSW search&#39;</td><td>64</td><td>None</td><td>2.272 ms</td><td>0.0166 ms</td><td>0.0147 ms</td><td>1.00</td><td>0.00</td><td>7.8125</td><td>39.98 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Lucene.NET flat scan&#39;</td><td>64</td><td>None</td><td>253.840 ms</td><td>1.9090 ms</td><td>1.6923 ms</td><td>111.74</td><td>1.01</td><td>21000.0000</td><td>86718.85 KB</td><td>2,169.08</td>
+</tr><tr><td>&#39;HNSW search&#39;</td><td>64</td><td>Int8</td><td>2.688 ms</td><td>0.0162 ms</td><td>0.0152 ms</td><td>1.00</td><td>0.00</td><td>7.8125</td><td>39.82 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Lucene.NET flat scan&#39;</td><td>64</td><td>Int8</td><td>251.618 ms</td><td>2.0686 ms</td><td>1.9350 ms</td><td>93.62</td><td>0.87</td><td>21000.0000</td><td>86718.85 KB</td><td>2,177.59</td>
+</tr><tr><td>&#39;HNSW search&#39;</td><td>64</td><td>BBQ</td><td>3.553 ms</td><td>0.0155 ms</td><td>0.0145 ms</td><td>1.00</td><td>0.00</td><td>7.8125</td><td>43.17 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Lucene.NET flat scan&#39;</td><td>64</td><td>BBQ</td><td>260.729 ms</td><td>1.2198 ms</td><td>1.1410 ms</td><td>73.38</td><td>0.43</td><td>21000.0000</td><td>86718.85 KB</td><td>2,008.92</td>
+</tr><tr><td>&#39;HNSW search&#39;</td><td>64</td><td>Int4</td><td>4.857 ms</td><td>0.0250 ms</td><td>0.0233 ms</td><td>1.00</td><td>0.00</td><td>1171.8750</td><td>4807.85 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Lucene.NET flat scan&#39;</td><td>64</td><td>Int4</td><td>252.221 ms</td><td>1.9285 ms</td><td>1.8039 ms</td><td>51.93</td><td>0.43</td><td>21000.0000</td><td>86718.85 KB</td><td>18.04</td>
+</tr><tr><td>&#39;HNSW search&#39;</td><td>64</td><td>ProductQuantisation</td><td>3.266 ms</td><td>0.0172 ms</td><td>0.0143 ms</td><td>1.00</td><td>0.00</td><td>1246.0938</td><td>5102.73 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Lucene.NET flat scan&#39;</td><td>64</td><td>ProductQuantisation</td><td>249.977 ms</td><td>1.4379 ms</td><td>1.2746 ms</td><td>76.54</td><td>0.50</td><td>21000.0000</td><td>86718.85 KB</td><td>16.99</td>
+</tr><tr><td>&#39;HNSW search&#39;</td><td>64</td><td>RaBitQ</td><td>18.235 ms</td><td>0.0980 ms</td><td>0.0917 ms</td><td>1.00</td><td>0.00</td><td>2468.7500</td><td>10144.06 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Lucene.NET flat scan&#39;</td><td>64</td><td>RaBitQ</td><td>255.720 ms</td><td>1.3443 ms</td><td>1.2574 ms</td><td>14.02</td><td>0.10</td><td>21000.0000</td><td>86718.85 KB</td><td>8.55</td>
+</tr><tr><td>&#39;HNSW search&#39;</td><td>128</td><td>None</td><td>4.043 ms</td><td>0.0335 ms</td><td>0.0313 ms</td><td>1.00</td><td>0.00</td><td>7.8125</td><td>45.98 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Lucene.NET flat scan&#39;</td><td>128</td><td>None</td><td>224.608 ms</td><td>1.3810 ms</td><td>1.2917 ms</td><td>55.56</td><td>0.52</td><td>33333.3333</td><td>136718.85 KB</td><td>2,973.41</td>
+</tr><tr><td>&#39;HNSW search&#39;</td><td>128</td><td>Int8</td><td>4.629 ms</td><td>0.0499 ms</td><td>0.0467 ms</td><td>1.00</td><td>0.00</td><td>7.8125</td><td>45.26 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Lucene.NET flat scan&#39;</td><td>128</td><td>Int8</td><td>224.648 ms</td><td>0.5034 ms</td><td>0.4709 ms</td><td>48.53</td><td>0.48</td><td>33333.3333</td><td>136718.85 KB</td><td>3,020.63</td>
+</tr><tr><td>&#39;HNSW search&#39;</td><td>128</td><td>BBQ</td><td>5.677 ms</td><td>0.0199 ms</td><td>0.0186 ms</td><td>1.00</td><td>0.00</td><td>7.8125</td><td>46.95 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Lucene.NET flat scan&#39;</td><td>128</td><td>BBQ</td><td>223.539 ms</td><td>1.4576 ms</td><td>1.3634 ms</td><td>39.37</td><td>0.26</td><td>33333.3333</td><td>136718.85 KB</td><td>2,912.06</td>
+</tr><tr><td>&#39;HNSW search&#39;</td><td>128</td><td>Int4</td><td>8.711 ms</td><td>0.1004 ms</td><td>0.0939 ms</td><td>1.00</td><td>0.00</td><td>2406.2500</td><td>9884.3 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Lucene.NET flat scan&#39;</td><td>128</td><td>Int4</td><td>227.883 ms</td><td>0.8994 ms</td><td>0.8413 ms</td><td>26.16</td><td>0.29</td><td>33333.3333</td><td>136718.85 KB</td><td>13.83</td>
+</tr><tr><td>&#39;HNSW search&#39;</td><td>128</td><td>ProductQuantisation</td><td>5.062 ms</td><td>0.0533 ms</td><td>0.0498 ms</td><td>1.00</td><td>0.00</td><td>2773.4375</td><td>11330.22 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Lucene.NET flat scan&#39;</td><td>128</td><td>ProductQuantisation</td><td>224.143 ms</td><td>1.6056 ms</td><td>1.5019 ms</td><td>44.29</td><td>0.51</td><td>33333.3333</td><td>136718.85 KB</td><td>12.07</td>
+</tr><tr><td>&#39;HNSW search&#39;</td><td>128</td><td>RaBitQ</td><td>40.485 ms</td><td>0.1802 ms</td><td>0.1686 ms</td><td>1.00</td><td>0.00</td><td>5000.0000</td><td>20574.62 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Lucene.NET flat scan&#39;</td><td>128</td><td>RaBitQ</td><td>226.665 ms</td><td>1.5899 ms</td><td>1.4872 ms</td><td>5.60</td><td>0.04</td><td>33333.3333</td><td>136718.85 KB</td><td>6.65</td>
+</tr></tbody></table>
+</body>
+</html>

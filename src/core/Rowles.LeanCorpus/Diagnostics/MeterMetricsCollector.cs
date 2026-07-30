@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 
 namespace Rowles.LeanCorpus.Diagnostics;
@@ -28,8 +29,14 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
     private readonly Histogram<double> _commitDuration;
     private readonly Histogram<double> _hnswSearchDuration;
     private readonly Histogram<long> _hnswNodesVisited;
+    private readonly Histogram<long> _hnswRetryCount;
     private readonly Histogram<double> _hnswBuildDuration;
     private readonly Histogram<long> _hnswBuildSize;
+    private readonly Histogram<double> _vectorCandidateGenerationDuration;
+    private readonly Histogram<double> _vectorRerankingDuration;
+    private readonly Counter<long> _vectorExecutionCount;
+    private readonly Counter<long> _vectorCandidateCount;
+    private readonly Counter<long> _vectorEligibleCount;
 
 #pragma warning disable CS0169 // padding fields for false-sharing prevention
     // ── Cache line 1: Search ──
@@ -63,10 +70,22 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
     private long _snHnswSearchCount;
     private long _snHnswSearchTotalMs;
     private long _snHnswNodesVisited;
+    private long _snHnswRetryCount;
     private long _snHnswBuildCount;
     private long _snHnswBuildTotalMs;
     private long _snHnswNodesBuilt;
-    private long _padSn6_0, _padSn6_1;
+    private long _padSn6_0;
+
+    // ── Cache line 7: Vector execution ──
+    private long _snVectorExecutionCount;
+    private long _snVectorExactCandidateSetCount;
+    private long _snVectorApproximateCandidateSetCount;
+    private long _snVectorCandidateCount;
+    private long _snVectorEligibleCount;
+    private long _snVectorCandidateGenerationTotalMs;
+    private long _snVectorRerankingTotalMs;
+    private readonly long[] _snVectorStrategyCounts = new long[Enum.GetValues<VectorExecutionStrategy>().Length];
+    private readonly long[] _snVectorScorePrecisionCounts = new long[Enum.GetValues<VectorScorePrecision>().Length];
 
 #pragma warning restore CS0169
 
@@ -132,6 +151,10 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
             "leancorpus.hnsw.search.nodes_visited", unit: "{node}",
             description: "Distinct nodes visited per HNSW search; primary recall-vs-cost signal.");
 
+        _hnswRetryCount = _meter.CreateHistogram<long>(
+            "leancorpus.hnsw.search.retries", unit: "{retry}",
+            description: "Post-filter retry traversals per HNSW search.");
+
         _hnswBuildDuration = _meter.CreateHistogram<double>(
             "leancorpus.hnsw.build.duration", unit: "ms",
             description: "Elapsed time for each HNSW graph build (flush or merge).");
@@ -139,6 +162,22 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
         _hnswBuildSize = _meter.CreateHistogram<long>(
             "leancorpus.hnsw.build.nodes", unit: "{node}",
             description: "Nodes inserted per HNSW build operation.");
+
+        _vectorCandidateGenerationDuration = _meter.CreateHistogram<double>(
+            "leancorpus.vector.candidate_generation.duration", unit: "ms",
+            description: "Candidate-generation time per searched vector segment.");
+        _vectorRerankingDuration = _meter.CreateHistogram<double>(
+            "leancorpus.vector.reranking.duration", unit: "ms",
+            description: "Exact or reconstructed reranking time per searched vector segment.");
+        _vectorExecutionCount = _meter.CreateCounter<long>(
+            "leancorpus.vector.execution.count", unit: "{segment}",
+            description: "Vector candidate-generation executions by segment.");
+        _vectorCandidateCount = _meter.CreateCounter<long>(
+            "leancorpus.vector.execution.candidates", unit: "{candidate}",
+            description: "Candidates considered by vector execution.");
+        _vectorEligibleCount = _meter.CreateCounter<long>(
+            "leancorpus.vector.execution.eligible", unit: "{candidate}",
+            description: "Eligible filtered candidates observed by vector execution.");
     }
 
     /// <inheritdoc/>
@@ -210,14 +249,20 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
 
     /// <inheritdoc/>
     public void RecordHnswSearch(TimeSpan elapsed, int nodesVisited)
+        => RecordHnswSearch(elapsed, nodesVisited, retryCount: 0);
+
+    /// <inheritdoc/>
+    public void RecordHnswSearch(TimeSpan elapsed, int nodesVisited, int retryCount)
     {
         double ms = elapsed.TotalMilliseconds;
         _hnswSearchDuration.Record(ms);
         _hnswNodesVisited.Record(nodesVisited);
+        _hnswRetryCount.Record(retryCount);
 
         Interlocked.Increment(ref _snHnswSearchCount);
         Interlocked.Add(ref _snHnswSearchTotalMs, (long)ms);
         Interlocked.Add(ref _snHnswNodesVisited, nodesVisited);
+        Interlocked.Add(ref _snHnswRetryCount, retryCount);
     }
 
     /// <inheritdoc/>
@@ -230,6 +275,37 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
         Interlocked.Increment(ref _snHnswBuildCount);
         Interlocked.Add(ref _snHnswBuildTotalMs, (long)ms);
         Interlocked.Add(ref _snHnswNodesBuilt, nodes);
+    }
+
+    /// <inheritdoc/>
+    public void RecordVectorExecution(VectorExecutionMetrics metrics)
+    {
+        var tags = new TagList
+        {
+            { "strategy", metrics.Strategy.ToString() },
+            { "precision", metrics.ScorePrecision.ToString() },
+            { "exact_candidate_set", metrics.ExactCandidateSet },
+        };
+        _vectorCandidateGenerationDuration.Record(
+            metrics.CandidateGenerationElapsed.TotalMilliseconds, tags);
+        _vectorRerankingDuration.Record(metrics.RerankingElapsed.TotalMilliseconds, tags);
+        _vectorExecutionCount.Add(1, tags);
+        _vectorCandidateCount.Add(metrics.CandidateCount, tags);
+        _vectorEligibleCount.Add(metrics.EligibleCount, tags);
+
+        Interlocked.Increment(ref _snVectorExecutionCount);
+        if (metrics.ExactCandidateSet)
+            Interlocked.Increment(ref _snVectorExactCandidateSetCount);
+        else
+            Interlocked.Increment(ref _snVectorApproximateCandidateSetCount);
+        Interlocked.Add(ref _snVectorCandidateCount, metrics.CandidateCount);
+        Interlocked.Add(ref _snVectorEligibleCount, metrics.EligibleCount);
+        Interlocked.Add(ref _snVectorCandidateGenerationTotalMs,
+            (long)metrics.CandidateGenerationElapsed.TotalMilliseconds);
+        Interlocked.Add(ref _snVectorRerankingTotalMs,
+            (long)metrics.RerankingElapsed.TotalMilliseconds);
+        Interlocked.Increment(ref _snVectorStrategyCounts[(int)metrics.Strategy]);
+        Interlocked.Increment(ref _snVectorScorePrecisionCounts[(int)metrics.ScorePrecision]);
     }
 
     /// <inheritdoc/>
@@ -264,10 +340,29 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
             HnswSearchCount = Interlocked.Read(ref _snHnswSearchCount),
             HnswSearchTotalMs = Interlocked.Read(ref _snHnswSearchTotalMs),
             HnswNodesVisited = Interlocked.Read(ref _snHnswNodesVisited),
+            HnswRetryCount = Interlocked.Read(ref _snHnswRetryCount),
             HnswBuildCount = Interlocked.Read(ref _snHnswBuildCount),
             HnswBuildTotalMs = Interlocked.Read(ref _snHnswBuildTotalMs),
-            HnswNodesBuilt = Interlocked.Read(ref _snHnswNodesBuilt)
+            HnswNodesBuilt = Interlocked.Read(ref _snHnswNodesBuilt),
+            VectorExecutionCount = Interlocked.Read(ref _snVectorExecutionCount),
+            VectorExactCandidateSetCount = Interlocked.Read(ref _snVectorExactCandidateSetCount),
+            VectorApproximateCandidateSetCount = Interlocked.Read(ref _snVectorApproximateCandidateSetCount),
+            VectorCandidateCount = Interlocked.Read(ref _snVectorCandidateCount),
+            VectorEligibleCount = Interlocked.Read(ref _snVectorEligibleCount),
+            VectorCandidateGenerationTotalMs = Interlocked.Read(ref _snVectorCandidateGenerationTotalMs),
+            VectorRerankingTotalMs = Interlocked.Read(ref _snVectorRerankingTotalMs),
+            VectorStrategyCounts = SnapshotCounts<VectorExecutionStrategy>(_snVectorStrategyCounts),
+            VectorScorePrecisionCounts = SnapshotCounts<VectorScorePrecision>(_snVectorScorePrecisionCounts)
         };
+    }
+
+    private static IReadOnlyDictionary<TEnum, long> SnapshotCounts<TEnum>(long[] counters)
+        where TEnum : struct, Enum
+    {
+        var result = new Dictionary<TEnum, long>(counters.Length);
+        foreach (TEnum value in Enum.GetValues<TEnum>())
+            result[value] = Interlocked.Read(ref counters[Convert.ToInt32(value)]);
+        return result;
     }
 
     /// <inheritdoc/>

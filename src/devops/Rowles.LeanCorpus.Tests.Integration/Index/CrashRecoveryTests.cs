@@ -2,6 +2,7 @@
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Simd;
@@ -368,6 +369,52 @@ public class CrashRecoveryTests : IDisposable
         {
             TestDirectoryFixture.TryDeleteDirectory(emptyDir);
         }
+    }
+
+    [Fact(DisplayName = "Recovery: Missing retained vector sidecar falls back to prior commit")]
+    public void Recovery_MissingRetainedVectorSidecar_FallsBackToPriorCommit()
+    {
+        using var directory = new MMapDirectory(_dir);
+        var config = new IndexWriterConfig
+        {
+            DeletionPolicy = new KeepLastNCommitsPolicy(2),
+            MaxBufferedDocs = 1,
+            MergePolicy = NoMergePolicy.Instance,
+            VectorFields =
+            {
+                ["embed"] = new VectorFieldConfig
+                {
+                    Quantisation = VectorQuantisation.Int8,
+                    RetainFullPrecision = true,
+                    BuildHnsw = false,
+                },
+            },
+        };
+        using (var writer = new IndexWriter(directory, config))
+        {
+            var first = new LeanDocument();
+            first.Add(new VectorField("embed", new float[] { 1f, 0f }));
+            writer.AddDocument(first);
+            writer.Commit();
+
+            var second = new LeanDocument();
+            second.Add(new VectorField("embed", new float[] { 0f, 1f }));
+            writer.AddDocument(second);
+            writer.Commit();
+        }
+
+        string newestSidecar = Directory.GetFiles(_dir, "seg_*_v_embed.vec")
+            .OrderBy(path => int.Parse(
+                Path.GetFileName(path)
+                    .AsSpan("seg_".Length, Path.GetFileName(path).IndexOf("_v_", StringComparison.Ordinal) - "seg_".Length)))
+            .Last();
+        File.Delete(newestSidecar);
+
+        var recovered = IndexRecovery.RecoverLatestCommit(_dir, cleanupOrphans: false);
+
+        Assert.NotNull(recovered);
+        Assert.Equal(1, recovered.Generation);
+        Assert.Single(recovered.SegmentIds);
     }
 
     private static LeanDocument CreateDocument(string body)

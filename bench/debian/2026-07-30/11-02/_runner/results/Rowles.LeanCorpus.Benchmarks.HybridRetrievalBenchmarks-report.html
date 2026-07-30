@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Rowles.LeanCorpus.Benchmarks.HybridRetrievalBenchmarks-20260730-120404</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.16.0-nightly.20260427.506, Linux Debian GNU/Linux 13 (trixie)
+Intel Xeon CPU E3-1220 V2 3.10GHz (Max: 1.60GHz), 1 CPU, 4 logical and 4 physical cores
+Memory: 23.45 GB Total, 5.68 GB Available
+.NET SDK 11.0.100-preview.1.26104.118
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+  DefaultJob : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+</code></pre>
+<pre><code></code></pre>
+
+<table>
+<thead><tr><th>Method                </th><th>Dimension</th><th>FilterPercentage</th><th>Mean</th><th>Error</th><th>StdDev</th><th>Ratio</th><th>RatioSD</th><th>Gen0</th><th>Gen1</th><th>Gen2</th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>&#39;Filtered exact scan&#39;</td><td>64</td><td>1</td><td>2.404 ms</td><td>0.0095 ms</td><td>0.0074 ms</td><td>1.00</td><td>0.00</td><td>-</td><td>-</td><td>-</td><td>8.41 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Filtered HNSW planner&#39;</td><td>64</td><td>1</td><td>2.404 ms</td><td>0.0167 ms</td><td>0.0156 ms</td><td>1.00</td><td>0.01</td><td>-</td><td>-</td><td>-</td><td>8.41 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Full-vector HNSW&#39;</td><td>64</td><td>1</td><td>2.275 ms</td><td>0.0356 ms</td><td>0.0333 ms</td><td>0.95</td><td>0.01</td><td>7.8125</td><td>-</td><td>-</td><td>39.64 KB</td><td>4.72</td>
+</tr><tr><td>&#39;Sparse+dense fusion&#39;</td><td>64</td><td>1</td><td>9.434 ms</td><td>0.0756 ms</td><td>0.0670 ms</td><td>3.92</td><td>0.03</td><td>796.8750</td><td>-</td><td>-</td><td>3275.96 KB</td><td>389.66</td>
+</tr><tr><td>&#39;Sparse-seeded dense fusion&#39;</td><td>64</td><td>1</td><td>9.491 ms</td><td>0.0774 ms</td><td>0.0724 ms</td><td>3.95</td><td>0.03</td><td>796.8750</td><td>-</td><td>-</td><td>3288.82 KB</td><td>391.19</td>
+</tr><tr><td>&#39;Matryoshka prefix rerank&#39;</td><td>64</td><td>1</td><td>26.542 ms</td><td>0.1449 ms</td><td>0.1356 ms</td><td>11.04</td><td>0.06</td><td>7093.7500</td><td>312.5000</td><td>62.5000</td><td>30024.49 KB</td><td>3,571.27</td>
+</tr><tr><td>&#39;Filtered exact scan&#39;</td><td>64</td><td>10</td><td>3.583 ms</td><td>0.0200 ms</td><td>0.0187 ms</td><td>1.00</td><td>0.00</td><td>-</td><td>-</td><td>-</td><td>8.41 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Filtered HNSW planner&#39;</td><td>64</td><td>10</td><td>3.585 ms</td><td>0.0222 ms</td><td>0.0207 ms</td><td>1.00</td><td>0.01</td><td>-</td><td>-</td><td>-</td><td>8.41 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Full-vector HNSW&#39;</td><td>64</td><td>10</td><td>2.285 ms</td><td>0.0156 ms</td><td>0.0138 ms</td><td>0.64</td><td>0.00</td><td>7.8125</td><td>-</td><td>-</td><td>39.64 KB</td><td>4.72</td>
+</tr><tr><td>&#39;Sparse+dense fusion&#39;</td><td>64</td><td>10</td><td>9.247 ms</td><td>0.0472 ms</td><td>0.0419 ms</td><td>2.58</td><td>0.02</td><td>765.6250</td><td>-</td><td>-</td><td>3188.47 KB</td><td>379.25</td>
+</tr><tr><td>&#39;Sparse-seeded dense fusion&#39;</td><td>64</td><td>10</td><td>9.356 ms</td><td>0.0607 ms</td><td>0.0568 ms</td><td>2.61</td><td>0.02</td><td>781.2500</td><td>-</td><td>-</td><td>3201.35 KB</td><td>380.79</td>
+</tr><tr><td>&#39;Matryoshka prefix rerank&#39;</td><td>64</td><td>10</td><td>26.192 ms</td><td>0.0860 ms</td><td>0.0805 ms</td><td>7.31</td><td>0.04</td><td>7093.7500</td><td>312.5000</td><td>62.5000</td><td>30024.44 KB</td><td>3,571.27</td>
+</tr><tr><td>&#39;Filtered exact scan&#39;</td><td>128</td><td>1</td><td>2.463 ms</td><td>0.0128 ms</td><td>0.0120 ms</td><td>1.00</td><td>0.00</td><td>-</td><td>-</td><td>-</td><td>13.41 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Filtered HNSW planner&#39;</td><td>128</td><td>1</td><td>2.427 ms</td><td>0.0164 ms</td><td>0.0153 ms</td><td>0.99</td><td>0.01</td><td>-</td><td>-</td><td>-</td><td>13.41 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Full-vector HNSW&#39;</td><td>128</td><td>1</td><td>4.113 ms</td><td>0.0394 ms</td><td>0.0350 ms</td><td>1.67</td><td>0.02</td><td>7.8125</td><td>-</td><td>-</td><td>45.58 KB</td><td>3.40</td>
+</tr><tr><td>&#39;Sparse+dense fusion&#39;</td><td>128</td><td>1</td><td>10.957 ms</td><td>0.0720 ms</td><td>0.0638 ms</td><td>4.45</td><td>0.03</td><td>796.8750</td><td>-</td><td>-</td><td>3281.89 KB</td><td>244.79</td>
+</tr><tr><td>&#39;Sparse-seeded dense fusion&#39;</td><td>128</td><td>1</td><td>10.972 ms</td><td>0.1060 ms</td><td>0.0992 ms</td><td>4.45</td><td>0.04</td><td>796.8750</td><td>-</td><td>-</td><td>3303.01 KB</td><td>246.36</td>
+</tr><tr><td>&#39;Matryoshka prefix rerank&#39;</td><td>128</td><td>1</td><td>30.626 ms</td><td>0.1257 ms</td><td>0.1114 ms</td><td>12.43</td><td>0.07</td><td>13250.0000</td><td>1406.2500</td><td>93.7500</td><td>55129.01 KB</td><td>4,111.89</td>
+</tr><tr><td>&#39;Filtered exact scan&#39;</td><td>128</td><td>10</td><td>3.892 ms</td><td>0.0298 ms</td><td>0.0279 ms</td><td>1.00</td><td>0.00</td><td>-</td><td>-</td><td>-</td><td>13.41 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Filtered HNSW planner&#39;</td><td>128</td><td>10</td><td>3.854 ms</td><td>0.0229 ms</td><td>0.0214 ms</td><td>0.99</td><td>0.01</td><td>-</td><td>-</td><td>-</td><td>13.41 KB</td><td>1.00</td>
+</tr><tr><td>&#39;Full-vector HNSW&#39;</td><td>128</td><td>10</td><td>4.090 ms</td><td>0.0325 ms</td><td>0.0288 ms</td><td>1.05</td><td>0.01</td><td>7.8125</td><td>-</td><td>-</td><td>45.58 KB</td><td>3.40</td>
+</tr><tr><td>&#39;Sparse+dense fusion&#39;</td><td>128</td><td>10</td><td>11.734 ms</td><td>0.0397 ms</td><td>0.0372 ms</td><td>3.01</td><td>0.02</td><td>781.2500</td><td>-</td><td>-</td><td>3194.42 KB</td><td>238.24</td>
+</tr><tr><td>&#39;Sparse-seeded dense fusion&#39;</td><td>128</td><td>10</td><td>10.849 ms</td><td>0.0670 ms</td><td>0.0594 ms</td><td>2.79</td><td>0.02</td><td>781.2500</td><td>-</td><td>-</td><td>3215.54 KB</td><td>239.82</td>
+</tr><tr><td>&#39;Matryoshka prefix rerank&#39;</td><td>128</td><td>10</td><td>31.089 ms</td><td>0.1977 ms</td><td>0.1651 ms</td><td>7.99</td><td>0.07</td><td>13250.0000</td><td>1406.2500</td><td>93.7500</td><td>55129.01 KB</td><td>4,111.59</td>
+</tr></tbody></table>
+</body>
+</html>

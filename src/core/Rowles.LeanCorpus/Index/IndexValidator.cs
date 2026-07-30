@@ -490,7 +490,9 @@ public static class IndexValidator
     {
         foreach (var vectorField in info.VectorFields)
         {
-            var vectorPath = VectorFilePaths.VectorFile(basePath, vectorField.FieldName);
+            var vectorPath = vectorField.Quantisation == VectorQuantisation.None
+                ? VectorFilePaths.VectorFile(basePath, vectorField.FieldName)
+                : VectorFilePaths.QuantisedVectorFile(basePath, vectorField.FieldName);
             if (!FileOpenRetry.FileExists(vectorPath))
             {
                 result.AddIssue(
@@ -504,6 +506,31 @@ public static class IndexValidator
             }
 
             CheckVectorHeader(vectorPath, segmentId, info, vectorField, result);
+
+            if (vectorField.RetainsFullPrecision)
+            {
+                var fullPrecisionPath = VectorFilePaths.VectorFile(basePath, vectorField.FieldName);
+                if (!FileOpenRetry.FileExists(fullPrecisionPath))
+                {
+                    result.AddIssue(
+                        IndexCheckSeverity.Error,
+                        IndexCheckIssueCodes.VectorFileMissing,
+                        $"Vector field '{vectorField.FieldName}' declares missing retained full-precision file '{Path.GetFileName(fullPrecisionPath)}'.",
+                        Path.GetFileName(fullPrecisionPath),
+                        segmentId,
+                        true);
+                }
+                else
+                {
+                    CheckVectorHeader(
+                        fullPrecisionPath,
+                        segmentId,
+                        info,
+                        vectorField,
+                        result,
+                        quantisationOverride: VectorQuantisation.None);
+                }
+            }
 
             if (vectorField.HasHnsw)
             {
@@ -530,51 +557,45 @@ public static class IndexValidator
         string segmentId,
         SegmentInfo info,
         VectorFieldInfo vectorField,
-        IndexCheckResult result)
+        IndexCheckResult result,
+        VectorQuantisation? quantisationOverride = null)
     {
         result.FilesChecked++;
         var fileName = Path.GetFileName(vectorPath);
         try
         {
-            using var stream = FileOpenRetry.OpenReadDelete(vectorPath);
-            using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: false);
-            byte version;
-            try
+            int docCount;
+            int dimension;
+            VectorQuantisation quantisation = quantisationOverride ?? vectorField.Quantisation;
+            if (quantisation == VectorQuantisation.None)
             {
-                version = CodecFileHeader.ReadVersion(reader, CodecFormats.Vectors);
+                using var reader = VectorReader.Open(vectorPath);
+                docCount = reader.DocCount;
+                dimension = reader.Dimension;
             }
-            catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
+            else
             {
-                result.AddIssue(
-                    IndexCheckSeverity.Error,
-                    IndexCheckIssueCodes.InvalidVectorHeader,
-                    $"Invalid vector header for field '{vectorField.FieldName}': {ex.Message}",
-                    fileName,
-                    segmentId,
-                    false);
-                return;
-            }
-
-            if (version > CodecConstants.VectorVersion)
-            {
-                result.AddIssue(
-                    IndexCheckSeverity.Error,
-                    IndexCheckIssueCodes.InvalidVectorHeader,
-                    $"Invalid vector header for field '{vectorField.FieldName}'.",
-                    fileName,
-                    segmentId,
-                    false);
-                return;
+                using var reader = QuantisedVectorReader.Open(vectorPath);
+                docCount = reader.DocCount;
+                dimension = reader.Dimension;
+                if (reader.Quantisation != quantisation)
+                {
+                    result.AddIssue(
+                        IndexCheckSeverity.Error,
+                        IndexCheckIssueCodes.InvalidVectorHeader,
+                        $"Quantised vector file declares {reader.Quantisation} but field metadata declares {quantisation}.",
+                        fileName,
+                        segmentId,
+                        false);
+                }
             }
 
-            int vectorCount = reader.ReadInt32();
-            int dimension = reader.ReadInt32();
-            if (vectorCount != info.DocCount)
+            if (docCount != info.DocCount)
             {
                 result.AddIssue(
                     IndexCheckSeverity.Error,
                     IndexCheckIssueCodes.VectorCountMismatch,
-                    $"Vector file has {vectorCount} rows but segment DocCount is {info.DocCount}.",
+                    $"Vector file has document count {docCount} but segment DocCount is {info.DocCount}.",
                     fileName,
                     segmentId,
                     false);
@@ -591,7 +612,7 @@ public static class IndexValidator
                     false);
             }
         }
-        catch (Exception ex) when (ex is IOException or EndOfStreamException)
+        catch (Exception ex) when (ex is IOException or InvalidDataException or EndOfStreamException)
         {
             result.AddIssue(
                 IndexCheckSeverity.Error,
@@ -609,12 +630,11 @@ public static class IndexValidator
         var fileName = Path.GetFileName(hnswPath);
         try
         {
-            using var stream = FileOpenRetry.OpenReadDelete(hnswPath);
-            using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: false);
-            byte version;
+            using var input = new IndexInput(hnswPath);
+            CodecFileHeader.ReadResult frame;
             try
             {
-                version = CodecFileHeader.ReadVersion(reader, CodecFormats.Hnsw);
+                frame = CodecFileHeader.ReadBody(input);
             }
             catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
             {
@@ -628,6 +648,7 @@ public static class IndexValidator
                 return;
             }
 
+            byte version = frame.Version;
             if (version > CodecConstants.HnswVersion)
             {
                 result.AddIssue(
@@ -640,8 +661,13 @@ public static class IndexValidator
                 return;
             }
 
+            using var body = new MemoryStream(frame.Body, writable: false);
+            using var reader = new BinaryReader(body, System.Text.Encoding.UTF8, leaveOpen: false);
             int dimension = reader.ReadInt32();
             bool normalised = reader.ReadByte() != 0;
+            var similarity = version >= 2
+                ? (VectorSimilarityFunction)reader.ReadByte()
+                : VectorSimilarityFunction.Cosine;
             if (dimension != vectorField.Dimension)
             {
                 result.AddIssue(
@@ -659,6 +685,16 @@ public static class IndexValidator
                     IndexCheckSeverity.Error,
                     IndexCheckIssueCodes.HnswNormalisationMismatch,
                     $"HNSW normalisation flag {normalised} does not match declared value {vectorField.Normalised}.",
+                    fileName,
+                    segmentId,
+                    false);
+            }
+            if (similarity != vectorField.Similarity)
+            {
+                result.AddIssue(
+                    IndexCheckSeverity.Error,
+                    IndexCheckIssueCodes.InvalidHnswHeader,
+                    $"HNSW similarity {similarity} does not match declared value {vectorField.Similarity}.",
                     fileName,
                     segmentId,
                     false);
@@ -831,15 +867,32 @@ public static class IndexValidator
     {
         foreach (var vectorField in info.VectorFields)
         {
-            var vectorPath = VectorFilePaths.VectorFile(basePath, vectorField.FieldName);
+            var vectorPath = vectorField.Quantisation == VectorQuantisation.None
+                ? VectorFilePaths.VectorFile(basePath, vectorField.FieldName)
+                : VectorFilePaths.QuantisedVectorFile(basePath, vectorField.FieldName);
             string fileName = Path.GetFileName(vectorPath);
             try
             {
-                using var reader = VectorReader.Open(vectorPath);
-                if (reader.VectorCount > 0)
+                if (vectorField.Quantisation == VectorQuantisation.None)
                 {
-                    reader.ReadVector(0);
-                    reader.ReadVector(reader.VectorCount - 1);
+                    using var reader = VectorReader.Open(vectorPath);
+                    ReadPresentVectorRows(reader.DocCount, reader.HasVector, reader.ReadVector);
+                }
+                else
+                {
+                    using var reader = QuantisedVectorReader.Open(vectorPath);
+                    ReadPresentVectorRows(reader.DocCount, reader.HasVector, reader.ReadVector);
+
+                    if (vectorField.RetainsFullPrecision)
+                    {
+                        string fullPrecisionPath = VectorFilePaths.VectorFile(basePath, vectorField.FieldName);
+                        using var fullPrecisionReader = VectorReader.Open(fullPrecisionPath);
+                        ValidateMatchingVectorPresence(reader, fullPrecisionReader);
+                        ReadPresentVectorRows(
+                            fullPrecisionReader.DocCount,
+                            fullPrecisionReader.HasVector,
+                            fullPrecisionReader.ReadVector);
+                    }
                 }
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or EndOfStreamException)
@@ -855,6 +908,23 @@ public static class IndexValidator
         }
     }
 
+    private static void ValidateMatchingVectorPresence(
+        QuantisedVectorReader quantised,
+        VectorReader fullPrecision)
+    {
+        if (quantised.DocCount != fullPrecision.DocCount ||
+            quantised.Dimension != fullPrecision.Dimension)
+            throw new InvalidDataException(
+                "Retained full-precision vectors do not match the primary quantised vector dimensions.");
+
+        for (int docId = 0; docId < quantised.DocCount; docId++)
+        {
+            if (quantised.HasVector(docId) != fullPrecision.HasVector(docId))
+                throw new InvalidDataException(
+                    $"Retained full-precision vector presence differs for document {docId}.");
+        }
+    }
+
     private static void ValidateHnswDeep(string basePath, SegmentInfo info, IndexCheckResult result)
     {
         foreach (var vectorField in info.VectorFields)
@@ -862,14 +932,25 @@ public static class IndexValidator
             if (!vectorField.HasHnsw)
                 continue;
 
-            var vectorPath = VectorFilePaths.VectorFile(basePath, vectorField.FieldName);
+            var vectorPath = vectorField.Quantisation == VectorQuantisation.None
+                ? VectorFilePaths.VectorFile(basePath, vectorField.FieldName)
+                : VectorFilePaths.QuantisedVectorFile(basePath, vectorField.FieldName);
             var hnswPath = VectorFilePaths.HnswFile(basePath, vectorField.FieldName);
             string fileName = Path.GetFileName(hnswPath);
             try
             {
-                using var vectorReader = VectorReader.Open(vectorPath);
-                var source = new VectorReaderSource(vectorReader);
-                HnswReader.Read(hnswPath, source, vectorField.Normalised);
+                if (vectorField.Quantisation == VectorQuantisation.None)
+                {
+                    using var vectorReader = VectorReader.Open(vectorPath);
+                    var source = new VectorReaderSource(vectorReader);
+                    HnswReader.Read(hnswPath, source, vectorField.Normalised);
+                }
+                else
+                {
+                    using var vectorReader = QuantisedVectorReader.Open(vectorPath);
+                    var source = new QuantisedVectorSource(vectorReader);
+                    HnswReader.Read(hnswPath, source, vectorField.Normalised);
+                }
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or EndOfStreamException)
             {
@@ -882,5 +963,27 @@ public static class IndexValidator
                     false);
             }
         }
+    }
+
+    private static void ReadPresentVectorRows(
+        int docCount,
+        Func<int, bool> hasVector,
+        Func<int, float[]?> readVector)
+    {
+        int first = -1;
+        int last = -1;
+        for (int docId = 0; docId < docCount; docId++)
+        {
+            if (!hasVector(docId))
+                continue;
+            if (first < 0)
+                first = docId;
+            last = docId;
+        }
+
+        if (first >= 0)
+            _ = readVector(first);
+        if (last > first)
+            _ = readVector(last);
     }
 }

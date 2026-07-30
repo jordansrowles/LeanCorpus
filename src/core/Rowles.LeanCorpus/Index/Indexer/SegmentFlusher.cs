@@ -193,7 +193,8 @@ internal static class SegmentFlusher
                 }
                 if (dimension == 0) continue;
 
-                if (config.NormaliseVectors)
+                var vectorConfig = config.GetVectorFieldConfig(fieldName);
+                if (vectorConfig.Normalise)
                 {
                     var keys = perField.Keys.ToArray();
                     foreach (var k in keys)
@@ -205,9 +206,10 @@ internal static class SegmentFlusher
                             perField[k] = copy;
                     }
                 }
-                var quantisation = config.VectorQuantisation;
+                var quantisation = vectorConfig.Quantisation;
                 float int8Min = 0f, int8Alpha = 0f;
                 float[]? bbqCentroid = null;
+                string? quantisedPath = null;
 
                 if (quantisation == VectorQuantisation.None)
                 {
@@ -216,6 +218,15 @@ internal static class SegmentFlusher
                 }
                 else
                 {
+                    if (vectorConfig.RetainFullPrecision)
+                    {
+                        var fullPrecisionPath = Codecs.Vectors.VectorFilePaths.VectorFile(basePath, fieldName);
+                        Codecs.Vectors.VectorWriter.WriteField(
+                            fullPrecisionPath,
+                            docCount,
+                            dimension,
+                            perField);
+                    }
                     switch (quantisation)
                     {
                         case VectorQuantisation.Int8:
@@ -225,10 +236,19 @@ internal static class SegmentFlusher
                             bbqCentroid = ComputeBBQCentroid(perField, dimension);
                             break;
                     }
+
+                    quantisedPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
+                    Codecs.Vectors.QuantisedVectorWriter.Write(
+                        quantisedPath,
+                        docCount,
+                        dimension,
+                        perField,
+                        quantisation,
+                        bbqCentroid);
                 }
 
                 bool hasHnsw = false;
-                if (config.BuildHnswOnFlush && perField.Count >= 2 && perField.Count >= minDocsForHnsw)
+                if (vectorConfig.BuildHnsw && perField.Count >= 2 && perField.Count >= minDocsForHnsw)
                 {
                     var docIds = perField.Keys.ToArray();
                     var hnswSw = System.Diagnostics.Stopwatch.StartNew();
@@ -237,50 +257,68 @@ internal static class SegmentFlusher
                     if (quantisation == VectorQuantisation.Int8)
                     {
                         var int8Source = new Codecs.Vectors.Int8QuantisedMemoryVectorSource(perField, dimension, int8Min, int8Alpha);
-                        var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
-                        Codecs.Vectors.QuantisedVectorWriter.WriteInt8(vqPath, docCount, dimension, perField);
-                        graph = Codecs.Hnsw.HnswGraphBuilder.Build(int8Source, docIds, config.HnswBuildConfig, config.HnswSeed);
+                        graph = Codecs.Hnsw.HnswGraphBuilder.Build(
+                            int8Source,
+                            docIds,
+                            vectorConfig.HnswBuildConfig,
+                            config.HnswSeed,
+                            vectorConfig.Similarity,
+                            vectorConfig.Normalise);
                     }
                     else if (quantisation == VectorQuantisation.BBQ)
                     {
                         var bbqSource = new Codecs.Vectors.BBQMemoryVectorSource(perField, dimension, bbqCentroid!);
-                        var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
-                        Codecs.Vectors.QuantisedVectorWriter.WriteBBQ(vqPath, docCount, dimension, perField, bbqCentroid!);
-                        graph = Codecs.Hnsw.HnswGraphBuilder.Build(bbqSource, docIds, config.HnswBuildConfig, config.HnswSeed);
+                        graph = Codecs.Hnsw.HnswGraphBuilder.Build(
+                            bbqSource,
+                            docIds,
+                            vectorConfig.HnswBuildConfig,
+                            config.HnswSeed,
+                            vectorConfig.Similarity,
+                            vectorConfig.Normalise);
+                    }
+                    else if (quantisation == VectorQuantisation.ProductQuantisation)
+                    {
+                        using var productReader = Codecs.Vectors.QuantisedVectorReader.Open(quantisedPath!);
+                        var productSource = new Codecs.Vectors.QuantisedVectorSource(productReader);
+                        graph = Codecs.Hnsw.HnswGraphBuilder.Build(
+                            productSource,
+                            docIds,
+                            vectorConfig.HnswBuildConfig,
+                            config.HnswSeed,
+                            vectorConfig.Similarity,
+                            vectorConfig.Normalise);
                     }
                     else
                     {
                         var memSource = new Dictionary<int, ReadOnlyMemory<float>>(perField);
                         var vectorSource = new Codecs.Vectors.InMemoryVectorSource(memSource, dimension);
-                        graph = Codecs.Hnsw.HnswGraphBuilder.Build(vectorSource, docIds, config.HnswBuildConfig, config.HnswSeed);
+                        graph = Codecs.Hnsw.HnswGraphBuilder.Build(
+                            vectorSource,
+                            docIds,
+                            vectorConfig.HnswBuildConfig,
+                            config.HnswSeed,
+                            vectorConfig.Similarity,
+                            vectorConfig.Normalise);
                     }
                     hnswSw.Stop();
                     config.Metrics.RecordHnswBuild(hnswSw.Elapsed, docIds.Length);
                     var hnswPath = Codecs.Vectors.VectorFilePaths.HnswFile(basePath, fieldName);
-                    Codecs.Hnsw.HnswWriter.Write(hnswPath, graph, dimension, config.NormaliseVectors);
+                    Codecs.Hnsw.HnswWriter.Write(hnswPath, graph, dimension, vectorConfig.Normalise);
                     hasHnsw = true;
-                }
-                else if (quantisation != VectorQuantisation.None)
-                {
-                    var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
-                    switch (quantisation)
-                    {
-                        case VectorQuantisation.Int8:
-                            Codecs.Vectors.QuantisedVectorWriter.WriteInt8(vqPath, docCount, dimension, perField);
-                            break;
-                        case VectorQuantisation.BBQ:
-                            Codecs.Vectors.QuantisedVectorWriter.WriteBBQ(vqPath, docCount, dimension, perField, bbqCentroid!);
-                            break;
-                    }
                 }
 
                 segInfo.VectorFields.Add(new VectorFieldInfo
                 {
                     FieldName = fieldName,
                     Dimension = dimension,
-                    Normalised = config.NormaliseVectors,
+                    Normalised = vectorConfig.Normalise,
                     Quantisation = quantisation,
                     HasHnsw = hasHnsw,
+                    Similarity = vectorConfig.Similarity,
+                    RetainsFullPrecision = vectorConfig.RetainFullPrecision,
+                    HnswM = vectorConfig.HnswBuildConfig.M,
+                    HnswM0 = vectorConfig.HnswBuildConfig.M0,
+                    HnswEfConstruction = vectorConfig.HnswBuildConfig.EfConstruction,
                 });
             }
 
@@ -503,6 +541,9 @@ internal static class SegmentFlusher
         long seqStart,
         long seqEnd)
     {
+        if (config.IndexSort is not null)
+            snapshot.ApplyIndexSort(config.IndexSort);
+
         var segId = $"seg_{ordinal}";
         var segInfo = FlushCore(new SnapshotFlushSource(snapshot), config, directoryPath, segId,
             commitGeneration, seqStart, seqEnd, minDocsForHnsw: 0);

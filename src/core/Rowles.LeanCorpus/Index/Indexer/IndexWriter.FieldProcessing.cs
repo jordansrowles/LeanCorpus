@@ -65,6 +65,29 @@ public sealed partial class IndexWriter
                     }
                     perField[localDocId] = vf.Value;
                     break;
+                case ByteVectorField bvf:
+                    TrackFieldBoost(bvf.Name, localDocId, bvf.Boost);
+                    if (!buffer.Vectors.TryGetValue(bvf.Name, out var bytePerField))
+                    {
+                        bytePerField = new Dictionary<int, ReadOnlyMemory<float>>();
+                        buffer.Vectors[bvf.Name] = bytePerField;
+                    }
+                    bytePerField[localDocId] = bvf.ToFloat32();
+                    break;
+                case SparseImpactField sparse:
+                    TrackFieldBoost(sparse.Name, localDocId, sparse.Boost);
+                    AppendStoredField(
+                        sparse.Name,
+                        StoredFieldValue.FromBinary(sparse.Encode()),
+                        storeDocValues: true);
+                    break;
+                case MultiVectorField multiVector:
+                    TrackFieldBoost(multiVector.Name, localDocId, multiVector.Boost);
+                    AppendStoredField(
+                        multiVector.Name,
+                        StoredFieldValue.FromBinary(multiVector.Encode()),
+                        storeDocValues: true);
+                    break;
                 case GeoPointField gf:
                     TrackFieldBoost(gf.Name, localDocId, gf.Boost);
                     IndexNumericField(gf.LatFieldName, gf.Latitude, localDocId, gf.StoreDocValues);

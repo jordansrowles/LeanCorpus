@@ -161,6 +161,41 @@ public sealed class MeterMetricsCollectorTests : IDisposable
         Assert.Equal(3, hitTotal);
     }
 
+    [Fact(DisplayName = "Meter metrics: Records HNSW retries")]
+    public void RecordHnswSearch_RecordsRetries()
+    {
+        _collector.RecordHnswSearch(
+            TimeSpan.FromMilliseconds(2),
+            nodesVisited: 17,
+            retryCount: 2);
+
+        var snapshot = _collector.GetSnapshot();
+        Assert.Equal(1, snapshot.HnswSearchCount);
+        Assert.Equal(17, snapshot.HnswNodesVisited);
+        Assert.Equal(2, snapshot.HnswRetryCount);
+    }
+
+    [Fact(DisplayName = "Meter metrics: Records vector strategy and precision")]
+    public void RecordVectorExecution_RecordsSnapshot()
+    {
+        _collector.RecordVectorExecution(new VectorExecutionMetrics(
+            VectorExecutionStrategy.ExactFlatScan,
+            VectorScorePrecision.ExactFloat32,
+            ExactCandidateSet: true,
+            CandidateCount: 24,
+            EligibleCount: 20,
+            CandidateGenerationElapsed: TimeSpan.FromMilliseconds(3),
+            RerankingElapsed: TimeSpan.FromMilliseconds(1)));
+
+        var snapshot = _collector.GetSnapshot();
+        Assert.Equal(1, snapshot.VectorExecutionCount);
+        Assert.Equal(1, snapshot.VectorExactCandidateSetCount);
+        Assert.Equal(24, snapshot.VectorCandidateCount);
+        Assert.Equal(20, snapshot.VectorEligibleCount);
+        Assert.Equal(1, snapshot.VectorStrategyCounts![VectorExecutionStrategy.ExactFlatScan]);
+        Assert.Equal(1, snapshot.VectorScorePrecisionCounts![VectorScorePrecision.ExactFloat32]);
+    }
+
     /// <summary>
     /// Verifies the Dispose: Does Not Throw scenario.
     /// </summary>

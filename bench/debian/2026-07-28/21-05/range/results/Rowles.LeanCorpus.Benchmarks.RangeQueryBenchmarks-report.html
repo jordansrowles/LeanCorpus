@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Rowles.LeanCorpus.Benchmarks.RangeQueryBenchmarks-20260728-233448</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.16.0-nightly.20260427.506, Linux Debian GNU/Linux 13 (trixie)
+Intel Xeon CPU E3-1220 V2 3.10GHz (Max: 3.26GHz), 1 CPU, 4 logical and 4 physical cores
+Memory: 23.45 GB Total, 1 GB Available
+.NET SDK 11.0.100-preview.1.26104.118
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+  DefaultJob : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+</code></pre>
+<pre><code></code></pre>
+
+<table>
+<thead><tr><th>Method               </th><th>RangeWidth</th><th>DocumentCount</th><th>Mean </th><th>Error</th><th>StdDev</th><th>Ratio</th><th>RatioSD</th><th>Gen0</th><th>Gen1</th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>LeanCorpus_RangeQuery</td><td>0.01</td><td>100000</td><td>31.40 μs</td><td>0.200 μs</td><td>0.187 μs</td><td>1.00</td><td>0.00</td><td>0.6714</td><td>-</td><td>2.98 KB</td><td>1.00</td>
+</tr><tr><td>LuceneNet_NumericRangeQuery</td><td>0.01</td><td>100000</td><td>102.68 μs</td><td>0.324 μs</td><td>0.303 μs</td><td>3.27</td><td>0.02</td><td>36.8652</td><td>-</td><td>150.79 KB</td><td>50.53</td>
+</tr><tr><td>LeanCorpus_RangeQuery</td><td>0.1</td><td>100000</td><td>165.94 μs</td><td>0.915 μs</td><td>0.855 μs</td><td>1.00</td><td>0.00</td><td>0.4883</td><td>-</td><td>2.98 KB</td><td>1.00</td>
+</tr><tr><td>LuceneNet_NumericRangeQuery</td><td>0.1</td><td>100000</td><td>302.03 μs</td><td>1.184 μs</td><td>1.108 μs</td><td>1.82</td><td>0.01</td><td>35.1563</td><td>0.9766</td><td>144.45 KB</td><td>48.40</td>
+</tr><tr><td>LeanCorpus_RangeQuery</td><td>0.5</td><td>100000</td><td>738.77 μs</td><td>2.771 μs</td><td>2.592 μs</td><td>1.00</td><td>0.00</td><td>-</td><td>-</td><td>2.98 KB</td><td>1.00</td>
+</tr><tr><td>LuceneNet_NumericRangeQuery</td><td>0.5</td><td>100000</td><td>1,064.16 μs</td><td>5.413 μs</td><td>5.063 μs</td><td>1.44</td><td>0.01</td><td>41.0156</td><td>1.9531</td><td>172.22 KB</td><td>57.71</td>
+</tr></tbody></table>
+</body>
+</html>

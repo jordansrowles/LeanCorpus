@@ -1,5 +1,6 @@
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Queries;
@@ -27,6 +28,51 @@ public sealed class AddIndexesTests : IClassFixture<TestDirectoryFixture>
         var path = System.IO.Path.Combine(_fixture.Path, name);
         System.IO.Directory.CreateDirectory(path);
         return path;
+    }
+
+    [Fact(DisplayName = "AddIndexes: Sparse quantised vectors and exact sidecar survive import")]
+    public void AddIndexes_SparseQuantisedVectorsAndExactSidecarSurviveImport()
+    {
+        using var source = new MMapDirectory(SubDir("add_vectors_src"));
+        using var target = new MMapDirectory(SubDir("add_vectors_tgt"));
+        var vectorConfig = new IndexWriterConfig
+        {
+            VectorFields =
+            {
+                ["embed"] = new VectorFieldConfig
+                {
+                    Quantisation = VectorQuantisation.Int8,
+                    RetainFullPrecision = true,
+                    Normalise = false,
+                    BuildHnsw = false,
+                },
+            },
+        };
+
+        using (var writer = new IndexWriter(source, vectorConfig))
+        {
+            writer.AddDocument(new LeanDocument());
+            var present = new LeanDocument();
+            present.Add(new VectorField("embed", new float[] { -1f, 0f }));
+            writer.AddDocument(present);
+            writer.Commit();
+        }
+
+        using (var writer = new IndexWriter(target, vectorConfig))
+        {
+            writer.AddIndexes(source);
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(target);
+        var reader = Assert.Single(searcher.GetSegmentReaders());
+        Assert.Null(reader.GetVector("embed", 0));
+        Assert.Equal(
+            [-1f, 0f],
+            Assert.IsType<float[]>(reader.GetVector("embed", 1)));
+        var results = searcher.Search(new VectorQuery("embed", [1f, 0f]), 10);
+        Assert.Equal(1, results.TotalHits);
+        Assert.Equal(-1f, Assert.Single(results.ScoreDocs).Score, 5);
     }
 
     /// <summary>

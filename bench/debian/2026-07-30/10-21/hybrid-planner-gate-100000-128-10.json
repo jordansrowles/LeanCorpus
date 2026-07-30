@@ -1,0 +1,9 @@
+{
+  "DocumentCount": 100000,
+  "Dimension": 128,
+  "FilterPercentage": 10,
+  "Strategy": "Cosine similarity for field \u0027emb\u0027; strategy: HNSW pre-filter with bounded bridge expansion",
+  "RecallAt10": 1,
+  "SparseSeedCandidateLimit": 32,
+  "TotalFusionCandidateWindow": 64
+}

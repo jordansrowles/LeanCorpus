@@ -15,6 +15,22 @@ public enum VectorQuantisation : byte
 
     /// <summary>Better Binary Quantisation with per-segment centroid and asymmetric query-side int4.</summary>
     BBQ = 2,
+
+    /// <summary>4-bit scalar quantisation with two values packed into each byte.</summary>
+    Int4 = 3,
+
+    /// <summary>
+    /// Rejected product-quantisation identifier retained for reading, migration,
+    /// internal research fixtures, and format compatibility. New indexes reject
+    /// this value under ADR016.
+    /// </summary>
+    ProductQuantisation = 4,
+
+    /// <summary>
+    /// Rejected RaBitQ identifier retained solely for reading and migrating legacy
+    /// experimental indexes. New indexes reject this value under ADR016.
+    /// </summary>
+    RaBitQ = 5,
 }
 
 /// <summary>

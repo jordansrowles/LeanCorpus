@@ -15,11 +15,15 @@ internal static class HnswWriter
         ArgumentNullException.ThrowIfNull(graph);
         if (!graph.IsReadOnly)
             throw new InvalidOperationException("HnswGraph must be frozen before writing.");
+        if (normalised != graph.Normalised)
+            throw new InvalidOperationException(
+                $"HNSW graph Normalised={graph.Normalised} cannot be written with Normalised={normalised}.");
 
         var bodyBuf = new ArrayBufferWriter<byte>(4096);
 
         bodyBuf.WriteInt32(dimension);
         bodyBuf.WriteByte((byte)(normalised ? 1 : 0));
+        bodyBuf.WriteByte((byte)graph.Similarity);
         bodyBuf.WriteInt32(graph.M);
         bodyBuf.WriteInt32(graph.M0);
         bodyBuf.WriteInt32(graph.EfConstruction);

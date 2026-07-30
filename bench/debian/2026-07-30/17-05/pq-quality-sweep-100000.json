@@ -1,0 +1,81 @@
+{
+  "DocumentCount": 100000,
+  "QueryCount": 16,
+  "TopK": 10,
+  "CandidateWindows": [
+    10,
+    40,
+    100,
+    400
+  ],
+  "Results": [
+    {
+      "Dimension": 64,
+      "SubspaceDimensions": 4,
+      "SubquantiserCount": 16,
+      "TrainingSampleSize": 2048,
+      "TrainingIterations": 16,
+      "RecallAt10": 0.6124999999999998,
+      "CandidateRecallAt40": 0.9250000000000002,
+      "CandidateRecallAt100": 0.99375,
+      "CandidateRecallAt400": 1,
+      "RawFloatBytes": 25600000,
+      "VectorPayloadBytes": 1665536,
+      "VectorPayloadReduction": 0.93494,
+      "QuantisedFileBytes": 2065694,
+      "QuantisedFileReduction": 0.919308828125,
+      "TrainingMilliseconds": 3759.4584
+    },
+    {
+      "Dimension": 64,
+      "SubspaceDimensions": 1,
+      "SubquantiserCount": 64,
+      "TrainingSampleSize": 2048,
+      "TrainingIterations": 16,
+      "RecallAt10": 1,
+      "CandidateRecallAt40": 1,
+      "CandidateRecallAt100": 1,
+      "CandidateRecallAt400": 1,
+      "RawFloatBytes": 25600000,
+      "VectorPayloadBytes": 6465536,
+      "VectorPayloadReduction": 0.74744,
+      "QuantisedFileBytes": 6866078,
+      "QuantisedFileReduction": 0.731793828125,
+      "TrainingMilliseconds": 5229.4045
+    },
+    {
+      "Dimension": 128,
+      "SubspaceDimensions": 4,
+      "SubquantiserCount": 32,
+      "TrainingSampleSize": 2048,
+      "TrainingIterations": 16,
+      "RecallAt10": 0.6,
+      "CandidateRecallAt40": 0.9375000000000001,
+      "CandidateRecallAt100": 0.99375,
+      "CandidateRecallAt400": 1,
+      "RawFloatBytes": 51200000,
+      "VectorPayloadBytes": 3331072,
+      "VectorPayloadReduction": 0.93494,
+      "QuantisedFileBytes": 3731358,
+      "QuantisedFileReduction": 0.9271219140625,
+      "TrainingMilliseconds": 6867.7718
+    },
+    {
+      "Dimension": 128,
+      "SubspaceDimensions": 1,
+      "SubquantiserCount": 128,
+      "TrainingSampleSize": 2048,
+      "TrainingIterations": 16,
+      "RecallAt10": 0.99375,
+      "CandidateRecallAt40": 1,
+      "CandidateRecallAt100": 1,
+      "CandidateRecallAt400": 1,
+      "RawFloatBytes": 51200000,
+      "VectorPayloadBytes": 12931072,
+      "VectorPayloadReduction": 0.74744,
+      "QuantisedFileBytes": 13332126,
+      "QuantisedFileReduction": 0.7396069140625,
+      "TrainingMilliseconds": 10545.0149
+    }
+  ]
+}

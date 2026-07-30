@@ -196,8 +196,11 @@ public sealed class IndexWriterConfig
     /// <summary>
     /// Quantisation strategy for vector fields. <see cref="Codecs.Vectors.VectorQuantisation.None"/> (default)
     /// stores raw float32 vectors. <see cref="Codecs.Vectors.VectorQuantisation.Int8"/> gives ~4× storage
-    /// reduction with minimal recall loss. <see cref="Codecs.Vectors.VectorQuantisation.BBQ"/> gives ~32×
-    /// reduction at some recall cost. Default: <see cref="Codecs.Vectors.VectorQuantisation.None"/>.
+    /// reduction with minimal recall loss, while <see cref="Codecs.Vectors.VectorQuantisation.Int4"/> uses
+    /// four-bit scalar values. <see cref="Codecs.Vectors.VectorQuantisation.BBQ"/> gives ~32× reduction at
+    /// some recall cost. Product quantisation and RaBitQ were rejected by ADR016 and
+    /// cannot be selected for new indexes; legacy readers retain migration support.
+    /// Default: <see cref="Codecs.Vectors.VectorQuantisation.None"/>.
     /// </summary>
     public VectorQuantisation VectorQuantisation { get; set; } = VectorQuantisation.None;
 
@@ -216,6 +219,11 @@ public sealed class IndexWriterConfig
     /// per segment and persisted into the <c>.hnsw</c> file. Set explicitly for reproducible builds.
     /// </summary>
     public long? HnswSeed { get; set; }
+
+    /// <summary>
+    /// Per-field vector configuration. Entries override the writer-wide vector defaults.
+    /// </summary>
+    public Dictionary<string, VectorFieldConfig> VectorFields { get; set; } = new(StringComparer.Ordinal);
 
     /// <summary>
     /// When <c>true</c>, each document is assigned a monotonically-increasing sequence number
@@ -300,10 +308,35 @@ public sealed class IndexWriterConfig
                 "SoftDeleteRetentionSeconds must be positive when SoftDeletesEnabled is true.",
                 nameof(SoftDeleteRetentionSeconds));
 
+        ArgumentNullException.ThrowIfNull(VectorFields);
+        if (VectorQuantisation is VectorQuantisation.ProductQuantisation or VectorQuantisation.RaBitQ)
+            throw new NotSupportedException(
+                $"Vector quantisation '{VectorQuantisation}' was rejected by ADR016 and cannot be selected for new indexes.");
+        foreach (var (fieldName, vectorConfig) in VectorFields)
+        {
+            ArgumentNullException.ThrowIfNull(vectorConfig);
+            vectorConfig.Validate(fieldName);
+        }
+
         if (!Codecs.StoredFields.CompressionCodecRegistry.TryGet((byte)CompressionPolicy, out _))
             throw new ArgumentException(
                 $"No compression codec is registered for policy '{CompressionPolicy}'. " +
                 "Install the matching compression package or register a codec before opening the writer.",
                 nameof(CompressionPolicy));
+    }
+
+    internal VectorFieldConfig GetVectorFieldConfig(string fieldName)
+    {
+        if (VectorFields.TryGetValue(fieldName, out var fieldConfig))
+            return fieldConfig;
+
+        return new VectorFieldConfig
+        {
+            Similarity = VectorSimilarityFunction.Cosine,
+            Normalise = NormaliseVectors,
+            Quantisation = VectorQuantisation,
+            BuildHnsw = BuildHnswOnFlush,
+            HnswBuildConfig = HnswBuildConfig,
+        };
     }
 }

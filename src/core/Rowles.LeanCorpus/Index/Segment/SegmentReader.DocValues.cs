@@ -678,10 +678,92 @@ internal sealed partial class SegmentReaderState
         return null;
     }
 
+    /// <summary>
+    /// Gets the persisted reconstruction-error bound for a quantised vector when
+    /// the field's codec provides one. Float32, Int8, BBQ, and PQ fields do not
+    /// currently expose a per-vector score bound.
+    /// </summary>
+    internal bool TryGetVectorErrorBound(string fieldName, int docId, out float errorBound)
+    {
+        errorBound = 0f;
+        if (!_vectorQuantisation.TryGetValue(fieldName, out var quantisation) ||
+            quantisation != VectorQuantisation.RaBitQ)
+        {
+            return false;
+        }
+
+        // Ensure the existing reader is opened through the same lease-protected
+        // path used for normal vector access before reading its metadata sidecar.
+        _ = ReadVectorFromField(fieldName, docId);
+        if (!_quantisedVectorReaders.TryGetValue(fieldName, out var reader))
+            return false;
+
+        errorBound = reader.GetRaBitQErrorBound(docId);
+        return true;
+    }
+
+    /// <summary>
+    /// Scores a vector while its memory-mapped reader is protected by the caller's
+    /// segment lease. Float32 vectors are passed as zero-copy mapped blocks;
+    /// reconstructed codecs reuse thread-local scratch instead of allocating once
+    /// per visited node or reranked candidate.
+    /// </summary>
+    internal bool TryScoreVector(
+        string fieldName,
+        int docId,
+        VectorBlockScorer scorer,
+        out float score)
+    {
+        ArgumentNullException.ThrowIfNull(scorer);
+        score = 0f;
+
+        // Ensure the same lazy-open path used by ordinary vector access has run.
+        // The one-time open may materialise a compatibility vector, but all
+        // subsequent Float32 scores use the mapped body directly.
+        _vectorReaders.TryGetValue(fieldName, out var floatReader);
+        _quantisedVectorReaders.TryGetValue(fieldName, out var quantisedReader);
+        if (floatReader is null && quantisedReader is null)
+        {
+            _ = ReadVectorFromField(fieldName, docId);
+            _vectorReaders.TryGetValue(fieldName, out floatReader);
+            _quantisedVectorReaders.TryGetValue(fieldName, out quantisedReader);
+        }
+
+        if (floatReader is not null)
+        {
+            if (!floatReader.HasVector(docId))
+                return false;
+            score = scorer(floatReader.GetMappedVectorBlock(docId));
+            return true;
+        }
+
+        if (quantisedReader is null || !quantisedReader.HasVector(docId))
+            return false;
+
+        var scratch = t_vectorScoreScratch;
+        if (scratch is null || scratch.Length < quantisedReader.Dimension)
+            t_vectorScoreScratch = scratch = new float[quantisedReader.Dimension];
+        quantisedReader.ReadVector(docId, scratch);
+        score = scorer(scratch.AsSpan(0, quantisedReader.Dimension));
+        return true;
+    }
+
     private float[]? ReadVectorFromField(string fieldName, int docId)
     {
         if (_vectorReaders.TryGetValue(fieldName, out var vr))
             return vr.ReadVector(docId);
+        if (_fullPrecisionVectorPaths.TryGetValue(fieldName, out var fullPrecisionPath))
+        {
+            lock (_hnswLoadLock)
+            {
+                if (!_vectorReaders.TryGetValue(fieldName, out vr))
+                {
+                    vr = VectorReader.Open(_directory.OpenInput(Path.GetFileName(fullPrecisionPath)));
+                    _vectorReaders[fieldName] = vr;
+                }
+                return vr.ReadVector(docId);
+            }
+        }
         if (_quantisedVectorReaders.TryGetValue(fieldName, out var qr))
             return qr.ReadVector(docId);
 
@@ -689,6 +771,12 @@ internal sealed partial class SegmentReaderState
         {
             if (_vectorReaders.TryGetValue(fieldName, out vr))
                 return vr.ReadVector(docId);
+            if (_fullPrecisionVectorPaths.TryGetValue(fieldName, out fullPrecisionPath))
+            {
+                vr = VectorReader.Open(_directory.OpenInput(Path.GetFileName(fullPrecisionPath)));
+                _vectorReaders[fieldName] = vr;
+                return vr.ReadVector(docId);
+            }
             if (_quantisedVectorReaders.TryGetValue(fieldName, out qr))
                 return qr.ReadVector(docId);
             if (!_vectorPaths.TryGetValue(fieldName, out var path))
@@ -726,10 +814,18 @@ internal sealed partial class SegmentReaderState
             if (FileOpenRetry.FileExists(path))
             {
                 IVectorSource? src = null;
-                if (_vectorReaders.TryGetValue(fieldName, out var vr))
-                    src = new VectorReaderSource(vr);
-                else if (_quantisedVectorReaders.TryGetValue(fieldName, out var qr))
+                if (_quantisedVectorReaders.TryGetValue(fieldName, out var qr))
                     src = new QuantisedVectorSource(qr);
+                else if (_vectorQuantisation.TryGetValue(fieldName, out var configuredQuantisation) &&
+                         configuredQuantisation != VectorQuantisation.None &&
+                         _vectorPaths.TryGetValue(fieldName, out var quantisedPath))
+                {
+                    qr = QuantisedVectorReader.Open(_directory.OpenInput(Path.GetFileName(quantisedPath)));
+                    _quantisedVectorReaders[fieldName] = qr;
+                    src = new QuantisedVectorSource(qr);
+                }
+                else if (_vectorReaders.TryGetValue(fieldName, out var vr))
+                    src = new VectorReaderSource(vr);
                 else if (_vectorPaths.TryGetValue(fieldName, out var vecPath))
                 {
                     if (_vectorQuantisation.TryGetValue(fieldName, out var q) && q != VectorQuantisation.None)

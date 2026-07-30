@@ -1,0 +1,13 @@
+{
+  "DocumentCount": 100000,
+  "Dimension": 64,
+  "Quantisation": "BBQ",
+  "QueryCount": 16,
+  "RecallAt10": 0.21875,
+  "ReciprocalRankAgreementAt10": 0.9652529761904761,
+  "MeanAbsoluteReturnedScoreError": 0.03077648196901594,
+  "IndexBytes": 17022646,
+  "BuildMilliseconds": 50865.5859,
+  "ExhaustiveCodebookRecallAt10": null,
+  "HnswEf512RecallAt10": null
+}

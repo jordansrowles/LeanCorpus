@@ -64,6 +64,9 @@ public sealed class MetricsSnapshot
     /// <summary>Total nodes visited across all HNSW graph traversals (recall-vs-cost signal).</summary>
     public long HnswNodesVisited { get; init; }
 
+    /// <summary>Total post-filter retry traversals across all HNSW searches.</summary>
+    public long HnswRetryCount { get; init; }
+
     /// <summary>Total number of HNSW graphs built (flush + merge).</summary>
     public long HnswBuildCount { get; init; }
 
@@ -72,4 +75,31 @@ public sealed class MetricsSnapshot
 
     /// <summary>Total nodes inserted across all HNSW build operations.</summary>
     public long HnswNodesBuilt { get; init; }
+
+    /// <summary>Total vector-search segment executions.</summary>
+    public long VectorExecutionCount { get; init; }
+
+    /// <summary>Vector executions whose candidate set was exact.</summary>
+    public long VectorExactCandidateSetCount { get; init; }
+
+    /// <summary>Vector executions whose candidate set was approximate or bounded.</summary>
+    public long VectorApproximateCandidateSetCount { get; init; }
+
+    /// <summary>Total candidate vectors or HNSW shortlist entries considered.</summary>
+    public long VectorCandidateCount { get; init; }
+
+    /// <summary>Total eligible vectors after applying a filter, where known.</summary>
+    public long VectorEligibleCount { get; init; }
+
+    /// <summary>Cumulative candidate-generation time in milliseconds.</summary>
+    public long VectorCandidateGenerationTotalMs { get; init; }
+
+    /// <summary>Cumulative reranking time in milliseconds.</summary>
+    public long VectorRerankingTotalMs { get; init; }
+
+    /// <summary>Vector executions grouped by the selected candidate-generation strategy.</summary>
+    public IReadOnlyDictionary<VectorExecutionStrategy, long>? VectorStrategyCounts { get; init; }
+
+    /// <summary>Vector executions grouped by final score precision.</summary>
+    public IReadOnlyDictionary<VectorScorePrecision, long>? VectorScorePrecisionCounts { get; init; }
 }

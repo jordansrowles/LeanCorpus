@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
+using System.Buffers.Binary;
 using System.IO;
 using System.Buffers;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
@@ -9,6 +10,7 @@ using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Index.Format;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Serialization;
@@ -34,7 +36,8 @@ public static class IndexCodecMigrator
         ".dvb",
         ".fln",
         ".fdt",
-        ".fdx"
+        ".fdx",
+        ".vq"
     ];
 
     /// <summary>
@@ -738,6 +741,9 @@ public static class IndexCodecMigrator
             case ".fln":
                 RewriteFieldLengths(sourcePath, targetPath);
                 break;
+            case ".vq":
+                RewriteQuantisedVectors(sourcePath, targetPath);
+                break;
             case ".fdt":
             case ".fdx":
                 if (action.SegmentId is not null)
@@ -751,6 +757,68 @@ public static class IndexCodecMigrator
             default:
                 throw new InvalidDataException($"No migration writer is registered for '{action.SourcePath}'.");
         }
+    }
+
+    private static void RewriteQuantisedVectors(string sourcePath, string targetPath)
+    {
+        var temporaryPath = targetPath + ".tmp";
+        try
+        {
+            CodecFileHeader.ReadResult frame;
+            using (var input = new IndexInput(sourcePath))
+                frame = CodecFileHeader.ReadBody(input);
+
+            if (frame.Version is < 1 or > 2)
+                throw new InvalidDataException(
+                    $"Quantised vector migration supports v1 and v2 inputs, not v{frame.Version}.");
+
+            byte[] body = frame.Version == 1
+                ? AddDenseVectorOrdinals(frame.Body)
+                : frame.Body;
+
+            using (var output = new IndexOutput(temporaryPath, durable: true))
+            using (CodecFileHeader.BeginStreamingWrite(output, CodecConstants.QuantisedVectorVersion))
+                output.WriteBytes(body);
+
+            // Validate the rewritten self-describing body before publishing it.
+            using (QuantisedVectorReader.Open(temporaryPath))
+            {
+            }
+
+            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
+        }
+        catch
+        {
+            TryDeleteTemporaryFile(temporaryPath);
+            throw;
+        }
+    }
+
+    private static byte[] AddDenseVectorOrdinals(ReadOnlySpan<byte> versionOneBody)
+    {
+        const int commonHeaderLength = sizeof(int) + sizeof(int) + sizeof(byte);
+        if (versionOneBody.Length < commonHeaderLength)
+            throw new InvalidDataException("Quantised vector v1 body is truncated.");
+
+        int docCount = BinaryPrimitives.ReadInt32LittleEndian(versionOneBody);
+        if (docCount < 0)
+            throw new InvalidDataException(
+                $"Quantised vector v1 body has negative document count {docCount}.");
+
+        int ordinalBytes = checked(sizeof(int) + docCount * sizeof(int));
+        var migrated = new byte[checked(versionOneBody.Length + ordinalBytes)];
+        versionOneBody[..commonHeaderLength].CopyTo(migrated);
+        BinaryPrimitives.WriteInt32LittleEndian(
+            migrated.AsSpan(commonHeaderLength, sizeof(int)), docCount);
+        int offset = commonHeaderLength + sizeof(int);
+        for (int docId = 0; docId < docCount; docId++)
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(
+                migrated.AsSpan(offset, sizeof(int)), docId);
+            offset += sizeof(int);
+        }
+        versionOneBody[commonHeaderLength..].CopyTo(migrated.AsSpan(offset));
+        return migrated;
     }
 
     private static void RewriteTermDictionary(string sourcePath, string targetPath)

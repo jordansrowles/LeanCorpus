@@ -123,6 +123,12 @@ public sealed partial class IndexSearcher
             case VectorQuery vq:
                 ExecuteVectorQuery(vq, reader, globalDFs, ref collector);
                 break;
+            case SparseImpactQuery sparseImpact:
+                ExecuteSparseImpactQuery(sparseImpact, reader, ref collector);
+                break;
+            case LateInteractionQuery lateInteraction:
+                ExecuteLateInteractionQuery(lateInteraction, reader, ref collector);
+                break;
             case PrefixQuery pfq:
                 ExecutePrefixQuery(pfq, reader, globalDFs, ref collector);
                 break;

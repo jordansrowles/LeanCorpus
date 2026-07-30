@@ -380,6 +380,7 @@ public static class IndexFormatInspector
         foreach (var vectorField in segmentInfo.VectorFields)
         {
             if (string.Equals(filePath, VectorFilePaths.VectorFile(basePath, vectorField.FieldName), StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(filePath, VectorFilePaths.QuantisedVectorFile(basePath, vectorField.FieldName), StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(filePath, VectorFilePaths.HnswFile(basePath, vectorField.FieldName), StringComparison.OrdinalIgnoreCase))
             {
                 return vectorField.FieldName;

@@ -46,10 +46,23 @@ public interface IMetricsCollector
     void RecordHnswSearch(TimeSpan elapsed, int nodesVisited) { }
 
     /// <summary>
+    /// Records a traversal together with the number of post-filter retry traversals.
+    /// The default implementation preserves collectors that only implement the original overload.
+    /// </summary>
+    void RecordHnswSearch(TimeSpan elapsed, int nodesVisited, int retryCount)
+        => RecordHnswSearch(elapsed, nodesVisited);
+
+    /// <summary>
     /// Records a single HNSW graph build (flush or merge). <paramref name="nodes"/> is the number
     /// of vectors inserted. Default implementation is a no-op for backwards compatibility.
     /// </summary>
     void RecordHnswBuild(TimeSpan elapsed, int nodes) { }
+
+    /// <summary>
+    /// Records one segment's vector candidate-generation and reranking work.
+    /// The default is a no-op so existing custom collectors remain compatible.
+    /// </summary>
+    void RecordVectorExecution(VectorExecutionMetrics metrics) { }
 
     /// <summary>Takes a point-in-time snapshot of all metrics.</summary>
     MetricsSnapshot GetSnapshot();

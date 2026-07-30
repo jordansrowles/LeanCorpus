@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Rowles.LeanCorpus.Benchmarks.WildcardQueryBenchmarks-20260728-224934</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.16.0-nightly.20260427.506, Linux Debian GNU/Linux 13 (trixie)
+Intel Xeon CPU E3-1220 V2 3.10GHz (Max: 3.26GHz), 1 CPU, 4 logical and 4 physical cores
+Memory: 23.45 GB Total, 1 GB Available
+.NET SDK 11.0.100-preview.1.26104.118
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+  DefaultJob : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+</code></pre>
+<pre><code></code></pre>
+
+<table>
+<thead><tr><th>Method            </th><th>WildcardPattern</th><th>DocumentCount</th><th>Mean</th><th>Error</th><th>StdDev</th><th>Ratio</th><th>Gen0</th><th>Gen1</th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>LeanCorpus_WildcardQuery</td><td>gov*</td><td>100000</td><td>258.7 μs</td><td>1.32 μs</td><td>1.24 μs</td><td>1.00</td><td>2.9297</td><td>-</td><td>12.38 KB</td><td>1.00</td>
+</tr><tr><td>LuceneNet_WildcardQuery</td><td>gov*</td><td>100000</td><td>273.7 μs</td><td>1.68 μs</td><td>1.57 μs</td><td>1.06</td><td>28.8086</td><td>0.9766</td><td>119.67 KB</td><td>9.67</td>
+</tr><tr><td>LeanCorpus_WildcardQuery</td><td>m*rket</td><td>100000</td><td>2,437.1 μs</td><td>16.24 μs</td><td>15.19 μs</td><td>1.00</td><td>-</td><td>-</td><td>3.21 KB</td><td>1.00</td>
+</tr><tr><td>LuceneNet_WildcardQuery</td><td>m*rket</td><td>100000</td><td>1,408.8 μs</td><td>7.08 μs</td><td>6.62 μs</td><td>0.58</td><td>95.7031</td><td>3.9063</td><td>396.38 KB</td><td>123.45</td>
+</tr><tr><td>LeanCorpus_WildcardQuery</td><td>pre*dent</td><td>100000</td><td>323.5 μs</td><td>2.31 μs</td><td>2.16 μs</td><td>1.00</td><td>0.9766</td><td>-</td><td>4.2 KB</td><td>1.00</td>
+</tr><tr><td>LuceneNet_WildcardQuery</td><td>pre*dent</td><td>100000</td><td>443.7 μs</td><td>4.21 μs</td><td>3.93 μs</td><td>1.37</td><td>90.3320</td><td>1.4648</td><td>370.48 KB</td><td>88.14</td>
+</tr></tbody></table>
+</body>
+</html>

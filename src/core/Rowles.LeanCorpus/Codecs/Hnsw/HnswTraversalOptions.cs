@@ -14,4 +14,10 @@ internal sealed class HnswTraversalOptions
     internal int TopK { get; init; }
 
     internal int MaxPostFilterRetries { get; init; } = 3;
+
+    internal int MaxVisitedNodes { get; init; }
+
+    internal IReadOnlyList<int>? EntryPoints { get; init; }
+
+    internal int MaxFilterExpansion { get; init; }
 }

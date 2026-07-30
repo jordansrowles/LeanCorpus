@@ -1,7 +1,10 @@
 ﻿using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Index.Backup;
+using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Search;
+using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
@@ -67,6 +70,52 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         using var directory = new MMapDirectory(restorePath);
         using var searcher = new IndexSearcher(directory);
         Assert.Equal(2, searcher.Search(new TermQuery("body", "backup"), 10).TotalHits);
+    }
+
+    [Fact(DisplayName = "IndexBackup: Quantised vectors and retained sidecar round trip")]
+    public void IndexBackup_QuantisedVectorsAndRetainedSidecarRoundTrip()
+    {
+        string indexPath = Path.Combine(_fixture.Path, "vector_backup_source");
+        string backupPath = Path.Combine(_fixture.Path, "vector_backup_copy");
+        string restorePath = Path.Combine(_fixture.Path, "vector_backup_restore");
+        Directory.CreateDirectory(indexPath);
+        using (var directory = new MMapDirectory(indexPath))
+        using (var writer = new IndexWriter(
+            directory,
+            new IndexWriterConfig
+            {
+                VectorFields =
+                {
+                    ["embed"] = new VectorFieldConfig
+                    {
+                        Quantisation = VectorQuantisation.BBQ,
+                        RetainFullPrecision = true,
+                        Normalise = false,
+                        BuildHnsw = false,
+                    },
+                },
+            }))
+        {
+            writer.AddDocument(new LeanDocument());
+            var present = new LeanDocument();
+            present.Add(new VectorField("embed", new float[] { 0.25f, 0.75f }));
+            writer.AddDocument(present);
+            writer.Commit();
+        }
+
+        var backup = IndexBackup.Backup(indexPath, backupPath);
+        Assert.Contains(backup.Manifest.Files, file => file.FileName.EndsWith(".vq", StringComparison.Ordinal));
+        Assert.Contains(backup.Manifest.Files, file => file.FileName.EndsWith(".vec", StringComparison.Ordinal));
+
+        var restore = IndexBackup.Restore(backupPath, restorePath);
+        Assert.True(restore.ValidationResult?.IsHealthy);
+        using var restoredDirectory = new MMapDirectory(restorePath);
+        using var searcher = new IndexSearcher(restoredDirectory);
+        var reader = Assert.Single(searcher.GetSegmentReaders());
+        Assert.Null(reader.GetVector("embed", 0));
+        Assert.Equal(
+            [0.25f, 0.75f],
+            Assert.IsType<float[]>(reader.GetVector("embed", 1)));
     }
 
     [Fact(DisplayName = "IndexBackup: Validate Backup Rejects Checksum Mismatch")]

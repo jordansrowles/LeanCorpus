@@ -16,6 +16,7 @@ internal static class AttributeReader
     public const string LeanStringAttribute = "Rowles.LeanCorpus.Mapping.Attributes.LeanStringAttribute";
     public const string LeanNumericAttribute = "Rowles.LeanCorpus.Mapping.Attributes.LeanNumericAttribute";
     public const string LeanVectorAttribute = "Rowles.LeanCorpus.Mapping.Attributes.LeanVectorAttribute";
+    public const string LeanMultiVectorAttribute = "Rowles.LeanCorpus.Mapping.Attributes.LeanMultiVectorAttribute";
     public const string LeanGeoPointAttribute = "Rowles.LeanCorpus.Mapping.Attributes.LeanGeoPointAttribute";
     public const string LeanStoredAttribute = "Rowles.LeanCorpus.Mapping.Attributes.LeanStoredAttribute";
 
@@ -232,7 +233,7 @@ internal static class AttributeReader
     {
         var name = a.AttributeClass?.ToDisplayString();
         return name is LeanTextAttribute or LeanStringAttribute or LeanNumericAttribute
-            or LeanVectorAttribute or LeanGeoPointAttribute or LeanStoredAttribute;
+            or LeanVectorAttribute or LeanMultiVectorAttribute or LeanGeoPointAttribute or LeanStoredAttribute;
     }
 
     private static bool HasAttribute(ISymbol symbol, string fullName)
@@ -378,6 +379,24 @@ internal static class AttributeReader
                 return new FieldModel(property.Name, fieldName!, propTypeFqn,
                     FieldKind.Vector, ValueShape.FloatArray, NumericKind.None, "None", dim, true, false, isRequired, isNullable, canAssign, loc);
             }
+            case LeanMultiVectorAttribute:
+            {
+                int dim = 0;
+                foreach (var na in attr.NamedArguments)
+                    if (na.Key == "Dimension" && na.Value.Value is int d) dim = d;
+                if (dim <= 0)
+                {
+                    diagnostics.Add(Diagnostic.Create(DiagnosticDescriptors.MissingVectorDimension, loc, property.Name));
+                    return null;
+                }
+                if (!IsFloatMatrix(underlying))
+                {
+                    diagnostics.Add(Diagnostic.Create(DiagnosticDescriptors.UnsupportedCollectionShape, loc, property.Name, propTypeFqn));
+                    return null;
+                }
+                return new FieldModel(property.Name, fieldName!, propTypeFqn,
+                    FieldKind.MultiVector, ValueShape.FloatMatrix, NumericKind.None, "None", dim, true, false, isRequired, isNullable, canAssign, loc);
+            }
             case LeanGeoPointAttribute:
             {
                 if (underlying.ToDisplayString() != LeanGeoLocationTypeName)
@@ -429,6 +448,9 @@ internal static class AttributeReader
         => t is IArrayTypeSymbol arr && arr.ElementType.SpecialType == SpecialType.System_Byte;
     private static bool IsFloatArray(ITypeSymbol t)
         => t is IArrayTypeSymbol arr && arr.ElementType.SpecialType == SpecialType.System_Single;
+    private static bool IsFloatMatrix(ITypeSymbol t)
+        => t is IArrayTypeSymbol { ElementType: IArrayTypeSymbol inner } &&
+           inner.ElementType.SpecialType == SpecialType.System_Single;
 
     private static NumericKind ClassifyNumeric(ITypeSymbol t)
     {
@@ -495,7 +517,7 @@ internal static class AttributeReader
     private static bool CanRoundTrip(FieldModel f)
     {
         // Vectors live in the vector store rather than StoredDocument.
-        if (f.FieldKind == FieldKind.Vector) return false;
+        if (f.FieldKind is FieldKind.Vector or FieldKind.MultiVector) return false;
         if (!f.IsStored && f.FieldKind != FieldKind.StoredBinary) return false;
         if (f.ValueShape == ValueShape.StringList || f.ValueShape == ValueShape.StringArray) return true;
         return true;

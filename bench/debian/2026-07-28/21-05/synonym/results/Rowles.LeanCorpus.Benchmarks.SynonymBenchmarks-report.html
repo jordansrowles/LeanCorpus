@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Rowles.LeanCorpus.Benchmarks.SynonymBenchmarks-20260729-014712</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.16.0-nightly.20260427.506, Linux Debian GNU/Linux 13 (trixie)
+Intel Xeon CPU E3-1220 V2 3.10GHz (Max: 3.26GHz), 1 CPU, 4 logical and 4 physical cores
+Memory: 23.45 GB Total, 1 GB Available
+.NET SDK 11.0.100-preview.1.26104.118
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+  DefaultJob : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+</code></pre>
+<pre><code></code></pre>
+
+<table>
+<thead><tr><th>Method           </th><th>SynonymCount</th><th>DocumentCount</th><th>Mean</th><th>Error</th><th>StdDev</th><th>Ratio</th><th>RatioSD</th><th>Gen0 </th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>LeanCorpus_NoSynonyms</td><td>10</td><td>100000</td><td>920.5 ms</td><td>5.30 ms</td><td>4.96 ms</td><td>1.00</td><td>0.00</td><td>-</td><td>2.29 MB</td><td>1.00</td>
+</tr><tr><td>LeanCorpus_WithSynonyms</td><td>10</td><td>100000</td><td>899.1 ms</td><td>5.50 ms</td><td>5.15 ms</td><td>0.98</td><td>0.01</td><td>-</td><td>2.29 MB</td><td>1.00</td>
+</tr><tr><td>LuceneNet_NoSynonyms</td><td>10</td><td>100000</td><td>2,188.5 ms</td><td>8.74 ms</td><td>8.18 ms</td><td>2.38</td><td>0.02</td><td>144000.0000</td><td>577.24 MB</td><td>252.20</td>
+</tr><tr><td>LuceneNet_WithSynonyms</td><td>10</td><td>100000</td><td>3,134.5 ms</td><td>8.80 ms</td><td>8.23 ms</td><td>3.41</td><td>0.02</td><td>222000.0000</td><td>887.25 MB</td><td>387.64</td>
+</tr><tr><td>LeanCorpus_NoSynonyms</td><td>50</td><td>100000</td><td>884.0 ms</td><td>5.77 ms</td><td>4.82 ms</td><td>1.00</td><td>0.00</td><td>-</td><td>2.29 MB</td><td>1.00</td>
+</tr><tr><td>LeanCorpus_WithSynonyms</td><td>50</td><td>100000</td><td>890.0 ms</td><td>6.08 ms</td><td>5.69 ms</td><td>1.01</td><td>0.01</td><td>-</td><td>2.29 MB</td><td>1.00</td>
+</tr><tr><td>LuceneNet_NoSynonyms</td><td>50</td><td>100000</td><td>2,216.7 ms</td><td>5.09 ms</td><td>4.76 ms</td><td>2.51</td><td>0.01</td><td>144000.0000</td><td>577.24 MB</td><td>252.20</td>
+</tr><tr><td>LuceneNet_WithSynonyms</td><td>50</td><td>100000</td><td>5,175.3 ms</td><td>11.71 ms</td><td>10.38 ms</td><td>5.85</td><td>0.03</td><td>401000.0000</td><td>1599.35 MB</td><td>698.77</td>
+</tr><tr><td>LeanCorpus_NoSynonyms</td><td>200</td><td>100000</td><td>892.0 ms</td><td>3.20 ms</td><td>2.99 ms</td><td>1.00</td><td>0.00</td><td>-</td><td>2.29 MB</td><td>1.00</td>
+</tr><tr><td>LeanCorpus_WithSynonyms</td><td>200</td><td>100000</td><td>883.9 ms</td><td>5.80 ms</td><td>5.43 ms</td><td>0.99</td><td>0.01</td><td>-</td><td>2.29 MB</td><td>1.00</td>
+</tr><tr><td>LuceneNet_NoSynonyms</td><td>200</td><td>100000</td><td>2,222.4 ms</td><td>6.74 ms</td><td>6.30 ms</td><td>2.49</td><td>0.01</td><td>144000.0000</td><td>577.24 MB</td><td>252.20</td>
+</tr><tr><td>LuceneNet_WithSynonyms</td><td>200</td><td>100000</td><td>5,607.7 ms</td><td>13.89 ms</td><td>12.99 ms</td><td>6.29</td><td>0.02</td><td>545000.0000</td><td>2175.32 MB</td><td>950.41</td>
+</tr></tbody></table>
+</body>
+</html>

@@ -110,6 +110,46 @@ public class MetricsTests : IDisposable
         Assert.Equal(0, snap.SearchCount);
     }
 
+    [Fact(DisplayName = "Default metrics: Records HNSW retries")]
+    public void DefaultMetricsCollector_RecordsHnswRetries()
+    {
+        var metrics = new DefaultMetricsCollector();
+
+        metrics.RecordHnswSearch(
+            TimeSpan.FromMilliseconds(2),
+            nodesVisited: 17,
+            retryCount: 2);
+
+        var snapshot = metrics.GetSnapshot();
+        Assert.Equal(1, snapshot.HnswSearchCount);
+        Assert.Equal(17, snapshot.HnswNodesVisited);
+        Assert.Equal(2, snapshot.HnswRetryCount);
+    }
+
+    [Fact(DisplayName = "Default metrics: Records vector strategy and precision")]
+    public void DefaultMetricsCollector_RecordsVectorExecution()
+    {
+        var metrics = new DefaultMetricsCollector();
+        metrics.RecordVectorExecution(new VectorExecutionMetrics(
+            VectorExecutionStrategy.HnswAllowList,
+            VectorScorePrecision.ReconstructedQuantised,
+            ExactCandidateSet: false,
+            CandidateCount: 12,
+            EligibleCount: 7,
+            CandidateGenerationElapsed: TimeSpan.FromMilliseconds(4),
+            RerankingElapsed: TimeSpan.FromMilliseconds(2)));
+
+        var snapshot = metrics.GetSnapshot();
+        Assert.Equal(1, snapshot.VectorExecutionCount);
+        Assert.Equal(1, snapshot.VectorApproximateCandidateSetCount);
+        Assert.Equal(12, snapshot.VectorCandidateCount);
+        Assert.Equal(7, snapshot.VectorEligibleCount);
+        Assert.Equal(4, snapshot.VectorCandidateGenerationTotalMs);
+        Assert.Equal(2, snapshot.VectorRerankingTotalMs);
+        Assert.Equal(1, snapshot.VectorStrategyCounts![VectorExecutionStrategy.HnswAllowList]);
+        Assert.Equal(1, snapshot.VectorScorePrecisionCounts![VectorScorePrecision.ReconstructedQuantised]);
+    }
+
     /// <summary>
     /// Verifies the Index Searcher: Records Metrics When Configured scenario.
     /// </summary>

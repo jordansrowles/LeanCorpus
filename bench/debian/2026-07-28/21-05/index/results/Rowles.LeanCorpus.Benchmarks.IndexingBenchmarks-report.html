@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Rowles.LeanCorpus.Benchmarks.IndexingBenchmarks-20260728-220952</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.16.0-nightly.20260427.506, Linux Debian GNU/Linux 13 (trixie)
+Intel Xeon CPU E3-1220 V2 3.10GHz (Max: 3.26GHz), 1 CPU, 4 logical and 4 physical cores
+Memory: 23.45 GB Total, 1 GB Available
+.NET SDK 11.0.100-preview.1.26104.118
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+  Job-AMZPBM : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+</code></pre>
+<pre><code>IterationCount=5  WarmupCount=2  
+</code></pre>
+
+<table>
+<thead><tr><th>Method             </th><th>Profile  </th><th>DocumentCount</th><th>Mean</th><th>Error</th><th>StdDev</th><th>Ratio</th><th>RatioSD</th><th>Gen0 </th><th>Gen1</th><th>Gen2</th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>LeanCorpus_IndexDocuments</td><td>PostingsOnly</td><td>100000</td><td>6.791 s</td><td>0.0819 s</td><td>0.0127 s</td><td>1.00</td><td>0.00</td><td>117000.0000</td><td>63000.0000</td><td>7000.0000</td><td>796.14 MB</td><td>1.00</td>
+</tr><tr><td>LuceneNet_IndexDocuments</td><td>PostingsOnly</td><td>100000</td><td>11.078 s</td><td>0.5858 s</td><td>0.0906 s</td><td>1.63</td><td>0.01</td><td>368000.0000</td><td>17000.0000</td><td>2000.0000</td><td>1864.34 MB</td><td>2.34</td>
+</tr><tr><td>LeanCorpus_IndexDocuments</td><td>StoredFields</td><td>100000</td><td>7.583 s</td><td>0.2873 s</td><td>0.0746 s</td><td>1.00</td><td>0.00</td><td>155000.0000</td><td>67000.0000</td><td>6000.0000</td><td>998.95 MB</td><td>1.00</td>
+</tr><tr><td>LuceneNet_IndexDocuments</td><td>StoredFields</td><td>100000</td><td>13.291 s</td><td>0.4817 s</td><td>0.0745 s</td><td>1.75</td><td>0.02</td><td>444000.0000</td><td>17000.0000</td><td>2000.0000</td><td>2222.89 MB</td><td>2.23</td>
+</tr><tr><td>LeanCorpus_IndexDocuments</td><td>SortedDocValues</td><td>100000</td><td>6.883 s</td><td>0.1072 s</td><td>0.0278 s</td><td>1.00</td><td>0.00</td><td>117000.0000</td><td>61000.0000</td><td>6000.0000</td><td>814.03 MB</td><td>1.00</td>
+</tr><tr><td>LuceneNet_IndexDocuments</td><td>SortedDocValues</td><td>100000</td><td>11.742 s</td><td>0.4942 s</td><td>0.1283 s</td><td>1.71</td><td>0.02</td><td>368000.0000</td><td>17000.0000</td><td>2000.0000</td><td>1894.23 MB</td><td>2.33</td>
+</tr></tbody></table>
+</body>
+</html>

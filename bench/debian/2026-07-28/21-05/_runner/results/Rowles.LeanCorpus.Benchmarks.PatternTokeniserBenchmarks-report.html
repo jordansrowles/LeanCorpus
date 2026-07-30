@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Rowles.LeanCorpus.Benchmarks.PatternTokeniserBenchmarks-20260729-014440</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.16.0-nightly.20260427.506, Linux Debian GNU/Linux 13 (trixie)
+Intel Xeon CPU E3-1220 V2 3.10GHz (Max: 3.26GHz), 1 CPU, 4 logical and 4 physical cores
+Memory: 23.45 GB Total, 1 GB Available
+.NET SDK 11.0.100-preview.1.26104.118
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+  DefaultJob : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+</code></pre>
+<pre><code></code></pre>
+
+<table>
+<thead><tr><th>Method       </th><th>Scenario  </th><th>Mean</th><th>Error</th><th>StdDev</th><th>Ratio</th><th>RatioSD</th><th>Gen0</th><th>Gen1</th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>LeanCorpus_Tokenise</td><td>comma-long</td><td>63.723 μs</td><td>0.4094 μs</td><td>0.3830 μs</td><td>1.00</td><td>0.00</td><td>-</td><td>-</td><td>-</td><td>NA</td>
+</tr><tr><td>LuceneNet_Tokenise</td><td>comma-long</td><td>542.808 μs</td><td>2.7108 μs</td><td>2.5357 μs</td><td>8.52</td><td>0.06</td><td>1091.7969</td><td>0.9766</td><td>4559840 B</td><td>NA</td>
+</tr><tr><td>LeanCorpus_Tokenise</td><td>comma-short</td><td>1.121 μs</td><td>0.0049 μs</td><td>0.0046 μs</td><td>1.00</td><td>0.00</td><td>-</td><td>-</td><td>-</td><td>NA</td>
+</tr><tr><td>LuceneNet_Tokenise</td><td>comma-short</td><td>4.150 μs</td><td>0.0242 μs</td><td>0.0227 μs</td><td>3.70</td><td>0.02</td><td>5.0964</td><td>-</td><td>21344 B</td><td>NA</td>
+</tr><tr><td>LeanCorpus_Tokenise</td><td>whitespace-long</td><td>26.307 μs</td><td>0.1044 μs</td><td>0.0976 μs</td><td>1.00</td><td>0.00</td><td>-</td><td>-</td><td>-</td><td>NA</td>
+</tr><tr><td>LuceneNet_Tokenise</td><td>whitespace-long</td><td>102.808 μs</td><td>0.8991 μs</td><td>0.8410 μs</td><td>3.91</td><td>0.03</td><td>144.7754</td><td>0.1221</td><td>605960 B</td><td>NA</td>
+</tr><tr><td>LeanCorpus_Tokenise</td><td>whitespace-short</td><td>1.139 μs</td><td>0.0052 μs</td><td>0.0049 μs</td><td>1.00</td><td>0.00</td><td>-</td><td>-</td><td>-</td><td>NA</td>
+</tr><tr><td>LuceneNet_Tokenise</td><td>whitespace-short</td><td>4.539 μs</td><td>0.0307 μs</td><td>0.0287 μs</td><td>3.98</td><td>0.03</td><td>5.1804</td><td>-</td><td>21696 B</td><td>NA</td>
+</tr></tbody></table>
+</body>
+</html>

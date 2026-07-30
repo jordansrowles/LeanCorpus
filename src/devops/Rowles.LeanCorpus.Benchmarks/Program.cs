@@ -51,6 +51,25 @@ internal static class Program
             now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             now.ToString("HH-mm", CultureInfo.InvariantCulture));
         Directory.CreateDirectory(runDir);
+        // Benchmark child processes inherit this location. Suites use it only for
+        // supplementary deterministic quality artefacts; BenchmarkDotNet remains
+        // the source for latency and allocation measurements.
+        Environment.SetEnvironmentVariable("BENCH_RUN_DIRECTORY", runDir);
+
+        if (suites.Contains(BenchmarkSuite.ProductQuantisationQuality) ||
+            suites.Contains(BenchmarkSuite.ProductQuantisationConfirmation))
+        {
+            if (suites.Count != 1)
+            {
+                Console.Error.WriteLine("The PQ quality suites must run on their own.");
+                return 1;
+            }
+            BenchmarkHelpers.CleanTempRoot();
+            return ProductQuantisationQualitySweep.Run(
+                runDir,
+                docCount ?? 10_000,
+                confirmationOnly: suites.Contains(BenchmarkSuite.ProductQuantisationConfirmation));
+        }
 
         var gitCommitHash = GetGitShortHash(repoRoot);
         var sourceCommit = Environment.GetEnvironmentVariable("BENCH_SOURCE_COMMIT");
@@ -89,6 +108,7 @@ internal static class Program
                 BenchmarkSuite.MMapIO,
                 BenchmarkSuite.HnswSearch,
                 BenchmarkSuite.VectorQuantisation,
+                BenchmarkSuite.HybridRetrieval,
             ]);
         }
 
@@ -276,6 +296,9 @@ internal static class Program
 
         if (runAll || suites.Contains(BenchmarkSuite.HnswSearch))
             RunSuite<HnswSearchBenchmarks>("hnsw", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.HybridRetrieval))
+            RunSuite<HybridRetrievalBenchmarks>("hybrid", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         // Microbenchmarks — explicit only, not included in --suite all.
         if (suites.Contains(BenchmarkSuite.PackedIntCodec))
@@ -562,7 +585,7 @@ internal static class Program
             Suites:
               all              Run all primary benchmark suites, including Gutenberg (default)
               all-with-explicit  Run all primary plus all explicit-only suites
-              explicit         Run all explicit-only suites (tokenbudget, diagnostics, merge, flush, docvalues-read, bkd, fst-lookup, mmap-io, packed-int-codec, numeric-aggregator, index-writer, concurrent-write, hnsw, vq)
+              explicit         Run all explicit-only suites (tokenbudget, diagnostics, merge, flush, docvalues-read, bkd, fst-lookup, mmap-io, packed-int-codec, numeric-aggregator, index-writer, concurrent-write, hnsw, vq, hybrid)
               index            IndexingBenchmarks -- bulk indexing throughput (vs Lucene.NET)
               query            TermQueryBenchmarks -- single-term search (vs Lucene.NET)
               analysis         AnalysisBenchmarks -- tokenisation pipeline throughput
@@ -614,6 +637,7 @@ internal static class Program
               async-index         AsyncIndexingBenchmarks -- sync vs async indexing
               vq                  VectorQuantisationBenchmarks -- HNSW search with vector quantisation (vs Lucene.NET flat scan)
               hnsw                HnswSearchBenchmarks -- HNSW graph search vs flat scan (vs Lucene.NET baseline)
+              hybrid              HybridRetrievalBenchmarks -- filtered HNSW planning and sparse-seeded fusion
               tokenbudget         TokenBudgetBenchmarks -- token budget enforcement overhead (explicit only)
               diagnostics         DiagnosticsBenchmarks -- SlowQueryLog + Analytics hook overhead (explicit only)
               packed-int-codec    PackedIntCodecBenchmarks -- Pack/Unpack scalar loop throughput (explicit only)
@@ -707,7 +731,7 @@ internal static class Program
 
         // Inject BDN filter to exclude Lucene.NET benchmarks unless a caller supplied a more specific BDN filter.
         if (corpusOnly && !HasBenchmarkDotNetOption(benchmarkArgs, "--filter", "-f"))
-            benchmarkArgs.AddRange(["--filter", "*LeanCorpus_*"]);
+            benchmarkArgs.AddRange(["--filter", "*LeanCorpus*"]);
 
         return (suites, runType, [.. benchmarkArgs], showHelp, docCount, gcDump);
     }
@@ -805,7 +829,10 @@ internal static class Program
             "lightenglish" or "light-english" => BenchmarkSuite.LightEnglish,
             "hunspell" => BenchmarkSuite.Hunspell,
             "vectorquantisation" or "vq" => BenchmarkSuite.VectorQuantisation,
+            "productquantisationquality" or "pq-quality" => BenchmarkSuite.ProductQuantisationQuality,
+            "productquantisationconfirmation" or "pq-confirm" => BenchmarkSuite.ProductQuantisationConfirmation,
             "hnsw" or "hnsw-search" => BenchmarkSuite.HnswSearch,
+            "hybrid" or "hybrid-retrieval" => BenchmarkSuite.HybridRetrieval,
             "ngram" => BenchmarkSuite.NGram,
             "synonym" => BenchmarkSuite.Synonym,
             "async-index" or "asyncindex" => BenchmarkSuite.AsyncIndex,
@@ -888,7 +915,10 @@ internal static class Program
         Synonym,
         AsyncIndex,
         VectorQuantisation,
+        ProductQuantisationQuality,
+        ProductQuantisationConfirmation,
         HnswSearch,
+        HybridRetrieval,
         AnalysisFiltersV2,
         PatternTokeniser,
         PackedIntCodec,

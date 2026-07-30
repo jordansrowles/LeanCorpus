@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 2,
+  "runId": "2026-07-30 17-13 (a839a340f)",
+  "runType": "full",
+  "generatedAtUtc": "2026-07-30T17:13:38.7131116\u002B00:00",
+  "commandLineArgs": [
+    "--job",
+    "short",
+    "--filter",
+    "*VectorQuantisationBenchmarks.Search*ProductQuantisation*"
+  ],
+  "hostMachineName": "debian",
+  "commitHash": "a839a340f",
+  "dotnetVersion": "10.0.3",
+  "provenance": {
+    "sourceCommit": "a839a340f",
+    "sourceRef": "",
+    "sourceManifestPath": "",
+    "gitCommitHash": "a839a340f",
+    "gitAvailable": true,
+    "gitDirty": true,
+    "benchmarkDotNetVersion": "0.16.0-nightly.20260427.506\u002Bc68dc1556c410c4bdfe21373c7689be5781fbaf9",
+    "runtimeFramework": ".NET 10.0.3",
+    "runtimeIdentifier": "linux-x64",
+    "osDescription": "Debian GNU/Linux 13 (trixie)",
+    "processArchitecture": "X64",
+    "effectiveDocCount": 100000,
+    "dataFingerprintSha256": "",
+    "dataSources": [],
+    "corpus": {
+      "documentCount": 100000,
+      "utf8ByteCount": 88201775,
+      "tokenCount": 11186171,
+      "uniqueTermCount": 170383,
+      "payloadSha256": "36052898D099AD55DFE656786E314EBE0800BFC31289F7BCD8DE3BF329B3562B"
+    }
+  },
+  "totalBenchmarkCount": 2,
+  "suites": [
+    {
+      "suiteName": "vq",
+      "summaryTitle": "Rowles.LeanCorpus.Benchmarks.VectorQuantisationBenchmarks-20260730-181452",
+      "benchmarkCount": 2,
+      "benchmarks": [
+        {
+          "key": "VectorQuantisationBenchmarks.Search|Dimension=128, Quantisation=ProductQuantisation",
+          "displayInfo": "VectorQuantisationBenchmarks.\u0027HNSW search\u0027: ShortRun(IterationCount=3, LaunchCount=1, WarmupCount=3) [Dimension=128, Quantisation=ProductQuantisation]",
+          "typeName": "VectorQuantisationBenchmarks",
+          "methodName": "Search",
+          "parameters": {
+            "Dimension": "128",
+            "Quantisation": "ProductQuantisation"
+          },
+          "statistics": {
+            "sampleCount": 3,
+            "meanNanoseconds": 3298606.9583333335,
+            "medianNanoseconds": 3295489.4609375,
+            "minNanoseconds": 3293083.484375,
+            "maxNanoseconds": 3307247.9296875,
+            "standardDeviationNanoseconds": 7579.377960127831,
+            "operationsPerSecond": 303.1582763971564
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 376078,
+            "gen0Collections": 22,
+            "gen1Collections": 2,
+            "gen2Collections": 0
+          }
+        },
+        {
+          "key": "VectorQuantisationBenchmarks.Search|Dimension=64, Quantisation=ProductQuantisation",
+          "displayInfo": "VectorQuantisationBenchmarks.\u0027HNSW search\u0027: ShortRun(IterationCount=3, LaunchCount=1, WarmupCount=3) [Dimension=64, Quantisation=ProductQuantisation]",
+          "typeName": "VectorQuantisationBenchmarks",
+          "methodName": "Search",
+          "parameters": {
+            "Dimension": "64",
+            "Quantisation": "ProductQuantisation"
+          },
+          "statistics": {
+            "sampleCount": 3,
+            "meanNanoseconds": 2026316.2825520833,
+            "medianNanoseconds": 2022003.34375,
+            "minNanoseconds": 2017377.75390625,
+            "maxNanoseconds": 2039567.75,
+            "standardDeviationNanoseconds": 11706.838279101967,
+            "operationsPerSecond": 493.5063734179398
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 205572,
+            "gen0Collections": 12,
+            "gen1Collections": 0,
+            "gen2Collections": 0
+          }
+        }
+      ]
+    }
+  ]
+}

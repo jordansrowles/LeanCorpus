@@ -1,0 +1,11 @@
+{
+  "DocumentCount": 100000,
+  "Dimension": 128,
+  "Quantisation": "None",
+  "QueryCount": 16,
+  "RecallAt10": 0.80625,
+  "ReciprocalRankAgreementAt10": 2.409325396825398,
+  "MeanAbsoluteReturnedScoreError": 4.643617674361828E-08,
+  "IndexBytes": 66223112,
+  "BuildMilliseconds": 100944.0226
+}

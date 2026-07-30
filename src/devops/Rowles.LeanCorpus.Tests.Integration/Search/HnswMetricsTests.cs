@@ -122,6 +122,44 @@ public sealed class HnswMetricsTests : IClassFixture<TestDirectoryFixture>
         var snapshot = searcherMetrics.GetSnapshot();
         Assert.Equal(1, snapshot.HnswSearchCount);
         Assert.True(snapshot.HnswNodesVisited > 0, "Nodes visited should be positive.");
+        Assert.Equal(0, snapshot.HnswRetryCount);
+    }
+
+    [Fact(DisplayName = "Vector execution: Records strategy, eligibility, and stage metrics")]
+    public void VectorExecution_RecordsStrategyEligibilityAndStageMetrics()
+    {
+        var dir = new MMapDirectory(SubDir("vector_execution_metrics"));
+        var writerConfig = new IndexWriterConfig
+        {
+            BuildHnswOnFlush = true,
+            NormaliseVectors = true,
+            HnswSeed = 19L,
+        };
+        using (var writer = new IndexWriter(dir, writerConfig))
+        {
+            for (int i = 0; i < 40; i++)
+            {
+                var document = new LeanDocument();
+                document.Add(new VectorField("embedding", new float[] { i + 1f, 2f, 3f, 4f }));
+                writer.AddDocument(document);
+            }
+            writer.Commit();
+        }
+
+        var metrics = new DefaultMetricsCollector();
+        using var searcher = new IndexSearcher(dir, new IndexSearcherConfig { Metrics = metrics });
+        searcher.Search(new VectorQuery("embedding", new float[] { 1f, 2f, 3f, 4f }, topK: 5), 5);
+
+        var snapshot = metrics.GetSnapshot();
+        Assert.Equal(1, snapshot.VectorExecutionCount);
+        Assert.Equal(0, snapshot.VectorExactCandidateSetCount);
+        Assert.Equal(1, snapshot.VectorApproximateCandidateSetCount);
+        Assert.True(snapshot.VectorCandidateCount > 0);
+        Assert.Equal(40, snapshot.VectorEligibleCount);
+        Assert.True(snapshot.VectorCandidateGenerationTotalMs >= 0);
+        Assert.True(snapshot.VectorRerankingTotalMs >= 0);
+        Assert.Equal(1, snapshot.VectorStrategyCounts![VectorExecutionStrategy.Hnsw]);
+        Assert.Equal(1, snapshot.VectorScorePrecisionCounts![VectorScorePrecision.ExactFloat32]);
     }
 
     /// <summary>

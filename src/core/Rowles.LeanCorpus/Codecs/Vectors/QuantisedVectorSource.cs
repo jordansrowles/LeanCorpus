@@ -5,7 +5,7 @@ namespace Rowles.LeanCorpus.Codecs.Vectors;
 /// so an HNSW graph can resolve vector data on demand. Dequantisation produces a freshly
 /// allocated float array per call, matching the allocation behaviour of <see cref="VectorReader"/>.
 /// </summary>
-internal sealed class QuantisedVectorSource : IBBQVectorSource, IInt8VectorSource
+internal sealed class QuantisedVectorSource : IBBQVectorSource, IInt8VectorSource, IProductQuantisedVectorSource
 {
     private readonly QuantisedVectorReader _reader;
     private readonly int _dimension;
@@ -26,7 +26,9 @@ internal sealed class QuantisedVectorSource : IBBQVectorSource, IInt8VectorSourc
     /// Returns a dequantised float vector. For int8, this is min + alpha * qv[i].
     /// For BBQ, this is centroid[i] ± 1. The caller owns the returned array.
     /// </summary>
-    public ReadOnlySpan<float> GetVector(int docId) => _reader.ReadVector(docId);
+    public ReadOnlySpan<float> GetVector(int docId) =>
+        _reader.ReadVector(docId)
+        ?? throw new KeyNotFoundException($"Document {docId} does not have a vector.");
 
     /// <summary>Exposes the underlying reader for distance-computer access.</summary>
     internal QuantisedVectorReader Reader => _reader;
@@ -45,4 +47,15 @@ internal sealed class QuantisedVectorSource : IBBQVectorSource, IInt8VectorSourc
 
     /// <inheritdoc cref="IBBQVectorSource.Centroid"/>
     ReadOnlySpan<float> IBBQVectorSource.Centroid => _reader.Centroid;
+
+    ProductQuantisationQuery IProductQuantisedVectorSource.PrepareQuery(
+        ReadOnlySpan<float> query,
+        VectorSimilarityFunction similarity,
+        bool normalised) => _reader.PrepareProductQuery(query, similarity, normalised);
+
+    float IProductQuantisedVectorSource.StoredDistance(
+        int leftDocId,
+        int rightDocId,
+        VectorSimilarityFunction similarity,
+        bool normalised) => _reader.ProductDistance(leftDocId, rightDocId, similarity, normalised);
 }

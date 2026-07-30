@@ -123,4 +123,66 @@ public sealed class RrfQueryTests : IClassFixture<TestDirectoryFixture>
         Assert.NotEqual(q1, q3);
         Assert.Equal(q1.GetHashCode(), q2.GetHashCode());
     }
+
+    [Fact(DisplayName = "Combine: Weighted ties use best rank then document ID")]
+    public void Combine_WeightedTiesUseBestRankThenDocumentId()
+    {
+        var first = new TopDocs(2, [new ScoreDoc(7, 10f), new ScoreDoc(3, 9f)]);
+        var second = new TopDocs(2, [new ScoreDoc(3, 10f), new ScoreDoc(7, 9f)]);
+
+        var fused = RrfQuery.Combine([first, second], [1f, 1f], topN: 2, k: 60);
+
+        Assert.Equal([3, 7], fused.ScoreDocs.Select(hit => hit.DocId));
+    }
+
+    [Fact(DisplayName = "Combine: Child weights change fused ordering")]
+    public void Combine_ChildWeightsChangeFusedOrdering()
+    {
+        var first = new TopDocs(1, [new ScoreDoc(1, 10f)]);
+        var second = new TopDocs(1, [new ScoreDoc(2, 10f)]);
+
+        var fused = RrfQuery.Combine([first, second], [1f, 2f], topN: 2, k: 60);
+
+        Assert.Equal(2, fused.ScoreDocs[0].DocId);
+    }
+
+    [Fact(DisplayName = "RRF Query: Independent child window contributes beyond final top N")]
+    public void RrfQuery_IndependentChildWindowContributesBeyondFinalTopN()
+    {
+        var dir = Path.Combine(_path, nameof(RrfQuery_IndependentChildWindowContributesBeyondFinalTopN));
+        Directory.CreateDirectory(dir);
+        using var mmap = new MMapDirectory(dir);
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig()))
+        {
+            var first = new LeanDocument();
+            first.Add(new TextField("title", "alpha"));
+            writer.AddDocument(first);
+
+            var overlapping = new LeanDocument();
+            overlapping.Add(new TextField("title", "alpha filler filler filler"));
+            overlapping.Add(new TextField("body", "beta"));
+            writer.AddDocument(overlapping);
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(mmap);
+        var query = new RrfQuery()
+            .Add(new TermQuery("title", "alpha"), candidateWindow: 2)
+            .Add(new TermQuery("body", "beta"), candidateWindow: 1);
+
+        var result = searcher.Search(query, 1);
+
+        Assert.Equal(1, Assert.Single(result.ScoreDocs).DocId);
+    }
+
+    [Fact(DisplayName = "RRF Query: Equality includes window and weight")]
+    public void RrfQuery_EqualityIncludesWindowAndWeight()
+    {
+        var baseline = new RrfQuery().Add(new TermQuery("f", "a"), 10, 1f);
+        var differentWindow = new RrfQuery().Add(new TermQuery("f", "a"), 20, 1f);
+        var differentWeight = new RrfQuery().Add(new TermQuery("f", "a"), 10, 2f);
+
+        Assert.NotEqual(baseline, differentWindow);
+        Assert.NotEqual(baseline, differentWeight);
+    }
 }

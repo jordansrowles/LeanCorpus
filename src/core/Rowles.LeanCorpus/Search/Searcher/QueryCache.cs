@@ -290,10 +290,74 @@ public sealed class QueryCache
                     break;
                 case RrfQuery rrf:
                     builder.Append("|k=").Append(rrf.K);
-                    foreach (var child in rrf.Queries)
+                    foreach (var child in rrf.Children)
                     {
-                        builder.Append("(");
-                        Append(child, builder);
+                        builder.Append("|window=").Append(child.CandidateWindow)
+                            .Append("|weight=")
+                            .Append(child.Weight.ToString("R", CultureInfo.InvariantCulture))
+                            .Append("(");
+                        Append(child.Query, builder);
+                        builder.Append(')');
+                    }
+                    break;
+                case FusionQuery fusion:
+                    builder.Append("|method=").Append(fusion.Method)
+                        .Append("|rankConstant=").Append(fusion.RankConstant);
+                    foreach (var child in fusion.Children)
+                    {
+                        builder.Append("|window=").Append(child.CandidateWindow)
+                            .Append("|weight=")
+                            .Append(child.Weight.ToString("R", CultureInfo.InvariantCulture))
+                            .Append("(");
+                        Append(child.Query, builder);
+                        builder.Append(')');
+                    }
+                    break;
+                case LateInteractionQuery lateInteraction:
+                    AppendPart(builder, lateInteraction.Field);
+                    for (int token = 0; token < lateInteraction.QueryVectors.Count; token++)
+                    {
+                        builder.Append("|weight=")
+                            .Append(lateInteraction.Weights[token].ToString("R", CultureInfo.InvariantCulture))
+                            .Append("|vector=");
+                        foreach (float value in lateInteraction.QueryVectors[token])
+                            builder.Append(value.ToString("R", CultureInfo.InvariantCulture)).Append(',');
+                    }
+                    break;
+                case VectorSimilarityQuery threshold:
+                    AppendPart(builder, threshold.Field);
+                    builder.Append("|topK=").Append(threshold.TopK)
+                        .Append("|ef=").Append(threshold.EfSearch)
+                        .Append("|over=").Append(threshold.OversamplingFactor)
+                        .Append("|maxVisited=").Append(threshold.MaxVisitedNodes)
+                        .Append("|min=")
+                        .Append(threshold.MinimumSimilarity.ToString("R", CultureInfo.InvariantCulture))
+                        .Append("|vec=");
+                    foreach (float value in threshold.QueryVector)
+                        builder.Append(value.ToString("R", CultureInfo.InvariantCulture)).Append(',');
+                    if (threshold.Filter is not null)
+                    {
+                        builder.Append("|filter=(");
+                        Append(threshold.Filter, builder);
+                        builder.Append(')');
+                    }
+                    break;
+                case SeededVectorQuery seeded:
+                    AppendPart(builder, seeded.Field);
+                    builder.Append("|topK=").Append(seeded.TopK)
+                        .Append("|ef=").Append(seeded.EfSearch)
+                        .Append("|over=").Append(seeded.OversamplingFactor)
+                        .Append("|maxVisited=").Append(seeded.MaxVisitedNodes)
+                        .Append("|seeds=");
+                    foreach (int seed in seeded.SeedDocumentIds)
+                        builder.Append(seed).Append(',');
+                    builder.Append("|vec=");
+                    foreach (float value in seeded.QueryVector)
+                        builder.Append(value.ToString("R", CultureInfo.InvariantCulture)).Append(',');
+                    if (seeded.Filter is not null)
+                    {
+                        builder.Append("|filter=(");
+                        Append(seeded.Filter, builder);
                         builder.Append(')');
                     }
                     break;
@@ -302,6 +366,7 @@ public sealed class QueryCache
                     builder.Append("|topK=").Append(vq.TopK)
                         .Append("|ef=").Append(vq.EfSearch)
                         .Append("|over=").Append(vq.OversamplingFactor)
+                        .Append("|maxVisited=").Append(vq.MaxVisitedNodes)
                         .Append("|vec=");
                     foreach (float value in vq.QueryVector)
                         builder.Append(value.ToString("R", CultureInfo.InvariantCulture)).Append(',');

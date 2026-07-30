@@ -146,15 +146,21 @@ public sealed partial class IndexSearcher
 
         var docVector = reader.GetVector(query.Field, localDocId);
         if (docVector is null || docVector.Length == 0) return null;
+        if (docVector.Length != query.QueryVector.Length)
+            throw new ArgumentException(
+                $"Query vector dimension {query.QueryVector.Length} does not match field '{query.Field}' dimension {docVector.Length}.",
+                nameof(query));
 
-        float similarity = VectorQuery.CosineSimilarity(query.QueryVector, docVector);
+        var fieldInfo = reader.Info.VectorFields.FirstOrDefault(f => f.FieldName == query.Field);
+        var similarityFunction = fieldInfo?.Similarity ?? Codecs.Vectors.VectorSimilarityFunction.Cosine;
+        float similarity = VectorQuery.ComputeSimilarity(query.QueryVector, docVector, similarityFunction);
         float indexBoost = reader.GetFieldBoost(localDocId, query.Field);
         if (indexBoost != 1.0f)
             similarity *= indexBoost;
 
         var graph = reader.GetHnswGraph(query.Field);
         bool hasGraph = graph is not null && graph.NodeCount > 0;
-        int shortlistSize = query.TopK * query.OversamplingFactor;
+        int shortlistSize = query.CandidateCount;
 
         string strategy;
         var details = new List<Explanation>();
@@ -169,12 +175,14 @@ public sealed partial class IndexSearcher
 
             if (!hasGraph)
                 strategy = "flat-scan + filter";
-            else if (matched < 64 || selectivity < 0.005)
-                strategy = "brute-force on filter (highly selective)";
-            else if (selectivity < 0.05)
-                strategy = "HNSW pre-filter (allow-list)";
             else
-                strategy = "HNSW post-filter with retry";
+                strategy = PlanFilteredVectorSearch(liveCount, matched, query).Strategy switch
+                {
+                    VectorFilterStrategy.ExactFilterScan => "exact filtered scan (cost planned)",
+                    VectorFilterStrategy.HnswAllowList => "HNSW pre-filter with bounded bridge expansion",
+                    VectorFilterStrategy.HnswPostFilter => "HNSW post-filter with retry",
+                    _ => throw new InvalidOperationException("Unknown vector filter strategy."),
+                };
 
             details.Add(new Explanation
             {
@@ -196,7 +204,7 @@ public sealed partial class IndexSearcher
         return new Explanation
         {
             Score = similarity,
-            Description = $"cosine similarity for field '{query.Field}'; strategy: {strategy}",
+            Description = $"{similarityFunction} similarity for field '{query.Field}'; strategy: {strategy}",
             Details = details.ToArray()
         };
     }

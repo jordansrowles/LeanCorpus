@@ -1,0 +1,546 @@
+{
+  "schemaVersion": 2,
+  "runId": "2026-07-30 10-21 (a839a340f)",
+  "runType": "full",
+  "generatedAtUtc": "2026-07-30T10:21:15.6549275\u002B00:00",
+  "commandLineArgs": [
+    "--job",
+    "default"
+  ],
+  "hostMachineName": "debian",
+  "commitHash": "a839a340f",
+  "dotnetVersion": "10.0.3",
+  "provenance": {
+    "sourceCommit": "a839a340f",
+    "sourceRef": "",
+    "sourceManifestPath": "",
+    "gitCommitHash": "a839a340f",
+    "gitAvailable": true,
+    "gitDirty": true,
+    "benchmarkDotNetVersion": "0.16.0-nightly.20260427.506\u002Bc68dc1556c410c4bdfe21373c7689be5781fbaf9",
+    "runtimeFramework": ".NET 10.0.3",
+    "runtimeIdentifier": "linux-x64",
+    "osDescription": "Debian GNU/Linux 13 (trixie)",
+    "processArchitecture": "X64",
+    "effectiveDocCount": 100000,
+    "dataFingerprintSha256": "",
+    "dataSources": [],
+    "corpus": {
+      "documentCount": 100000,
+      "utf8ByteCount": 88201775,
+      "tokenCount": 11186171,
+      "uniqueTermCount": 170383,
+      "payloadSha256": "36052898D099AD55DFE656786E314EBE0800BFC31289F7BCD8DE3BF329B3562B"
+    }
+  },
+  "totalBenchmarkCount": 20,
+  "suites": [
+    {
+      "suiteName": "hybrid",
+      "summaryTitle": "Rowles.LeanCorpus.Benchmarks.HybridRetrievalBenchmarks-20260730-112231",
+      "benchmarkCount": 20,
+      "benchmarks": [
+        {
+          "key": "HybridRetrievalBenchmarks.FilteredExactScan|Dimension=128, FilterPercentage=1",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Filtered exact scan\u0027: DefaultJob [Dimension=128, FilterPercentage=1]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "FilteredExactScan",
+          "parameters": {
+            "Dimension": "128",
+            "FilterPercentage": "1"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 2479530.616927083,
+            "medianNanoseconds": 2483705.49609375,
+            "minNanoseconds": 2440264.28125,
+            "maxNanoseconds": 2504869.64453125,
+            "standardDeviationNanoseconds": 22092.504282037382,
+            "operationsPerSecond": 403.302138385899
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 13729,
+            "gen0Collections": 0,
+            "gen1Collections": 0,
+            "gen2Collections": 0
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.FilteredExactScan|Dimension=128, FilterPercentage=10",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Filtered exact scan\u0027: DefaultJob [Dimension=128, FilterPercentage=10]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "FilteredExactScan",
+          "parameters": {
+            "Dimension": "128",
+            "FilterPercentage": "10"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 3881510.9403645834,
+            "medianNanoseconds": 3887309.9140625,
+            "minNanoseconds": 3850791.140625,
+            "maxNanoseconds": 3892624.3203125,
+            "standardDeviationNanoseconds": 12339.515100307528,
+            "operationsPerSecond": 257.63163246580257
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 13729,
+            "gen0Collections": 0,
+            "gen1Collections": 0,
+            "gen2Collections": 0
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.FilteredExactScan|Dimension=64, FilterPercentage=1",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Filtered exact scan\u0027: DefaultJob [Dimension=64, FilterPercentage=1]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "FilteredExactScan",
+          "parameters": {
+            "Dimension": "64",
+            "FilterPercentage": "1"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 2426945.16015625,
+            "medianNanoseconds": 2430074.296875,
+            "minNanoseconds": 2405416.3203125,
+            "maxNanoseconds": 2439284.1953125,
+            "standardDeviationNanoseconds": 10693.82593249284,
+            "operationsPerSecond": 412.0406247397937
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 8609,
+            "gen0Collections": 0,
+            "gen1Collections": 0,
+            "gen2Collections": 0
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.FilteredExactScan|Dimension=64, FilterPercentage=10",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Filtered exact scan\u0027: DefaultJob [Dimension=64, FilterPercentage=10]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "FilteredExactScan",
+          "parameters": {
+            "Dimension": "64",
+            "FilterPercentage": "10"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 3649123.4893229166,
+            "medianNanoseconds": 3659140.1875,
+            "minNanoseconds": 3605130.26171875,
+            "maxNanoseconds": 3675363.11328125,
+            "standardDeviationNanoseconds": 23235.312124447802,
+            "operationsPerSecond": 274.038410299331
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 8609,
+            "gen0Collections": 0,
+            "gen1Collections": 0,
+            "gen2Collections": 0
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.FilteredHnswPlanner|Dimension=128, FilterPercentage=1",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Filtered HNSW planner\u0027: DefaultJob [Dimension=128, FilterPercentage=1]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "FilteredHnswPlanner",
+          "parameters": {
+            "Dimension": "128",
+            "FilterPercentage": "1"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 2452271.7708333335,
+            "medianNanoseconds": 2452372.03515625,
+            "minNanoseconds": 2439585.0390625,
+            "maxNanoseconds": 2463548.0234375,
+            "standardDeviationNanoseconds": 7152.65038244955,
+            "operationsPerSecond": 407.785145143264
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 13729,
+            "gen0Collections": 0,
+            "gen1Collections": 0,
+            "gen2Collections": 0
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.FilteredHnswPlanner|Dimension=128, FilterPercentage=10",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Filtered HNSW planner\u0027: DefaultJob [Dimension=128, FilterPercentage=10]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "FilteredHnswPlanner",
+          "parameters": {
+            "Dimension": "128",
+            "FilterPercentage": "10"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 25645077.95625,
+            "medianNanoseconds": 25636690.5625,
+            "minNanoseconds": 25397398.5625,
+            "maxNanoseconds": 25893223.28125,
+            "standardDeviationNanoseconds": 137254.04362890945,
+            "operationsPerSecond": 38.99383740248247
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 229615,
+            "gen0Collections": 1,
+            "gen1Collections": 0,
+            "gen2Collections": 0
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.FilteredHnswPlanner|Dimension=64, FilterPercentage=1",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Filtered HNSW planner\u0027: DefaultJob [Dimension=64, FilterPercentage=1]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "FilteredHnswPlanner",
+          "parameters": {
+            "Dimension": "64",
+            "FilterPercentage": "1"
+          },
+          "statistics": {
+            "sampleCount": 13,
+            "meanNanoseconds": 2403812.932091346,
+            "medianNanoseconds": 2410611.59375,
+            "minNanoseconds": 2376925.80078125,
+            "maxNanoseconds": 2416552.5234375,
+            "standardDeviationNanoseconds": 13172.064853766067,
+            "operationsPerSecond": 416.0057493034568
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 8609,
+            "gen0Collections": 0,
+            "gen1Collections": 0,
+            "gen2Collections": 0
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.FilteredHnswPlanner|Dimension=64, FilterPercentage=10",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Filtered HNSW planner\u0027: DefaultJob [Dimension=64, FilterPercentage=10]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "FilteredHnswPlanner",
+          "parameters": {
+            "Dimension": "64",
+            "FilterPercentage": "10"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 18939637.841666665,
+            "medianNanoseconds": 18966156.3125,
+            "minNanoseconds": 18673250.4375,
+            "maxNanoseconds": 19115491.4375,
+            "standardDeviationNanoseconds": 129132.37397045562,
+            "operationsPerSecond": 52.799320048244454
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 211759,
+            "gen0Collections": 1,
+            "gen1Collections": 0,
+            "gen2Collections": 0
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.FusionWithSparseSeeds|Dimension=128, FilterPercentage=1",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Sparse-seeded dense fusion\u0027: DefaultJob [Dimension=128, FilterPercentage=1]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "FusionWithSparseSeeds",
+          "parameters": {
+            "Dimension": "128",
+            "FilterPercentage": "1"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 11044576.997916667,
+            "medianNanoseconds": 11059811.90625,
+            "minNanoseconds": 10938414.921875,
+            "maxNanoseconds": 11100148.46875,
+            "standardDeviationNanoseconds": 45740.73549413584,
+            "operationsPerSecond": 90.54217288617114
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 3382284,
+            "gen0Collections": 51,
+            "gen1Collections": 0,
+            "gen2Collections": 0
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.FusionWithSparseSeeds|Dimension=128, FilterPercentage=10",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Sparse-seeded dense fusion\u0027: DefaultJob [Dimension=128, FilterPercentage=10]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "FusionWithSparseSeeds",
+          "parameters": {
+            "Dimension": "128",
+            "FilterPercentage": "10"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 10887197.541666666,
+            "medianNanoseconds": 10850750.546875,
+            "minNanoseconds": 10759625.390625,
+            "maxNanoseconds": 11016665.53125,
+            "standardDeviationNanoseconds": 84852.05812679038,
+            "operationsPerSecond": 91.85100170846309
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 3292709,
+            "gen0Collections": 50,
+            "gen1Collections": 0,
+            "gen2Collections": 0
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.FusionWithSparseSeeds|Dimension=64, FilterPercentage=1",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Sparse-seeded dense fusion\u0027: DefaultJob [Dimension=64, FilterPercentage=1]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "FusionWithSparseSeeds",
+          "parameters": {
+            "Dimension": "64",
+            "FilterPercentage": "1"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 9563038.269791666,
+            "medianNanoseconds": 9568474.6875,
+            "minNanoseconds": 9474916.15625,
+            "maxNanoseconds": 9631060.96875,
+            "standardDeviationNanoseconds": 39697.97484280959,
+            "operationsPerSecond": 104.56927723052867
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 3367756,
+            "gen0Collections": 51,
+            "gen1Collections": 0,
+            "gen2Collections": 0
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.FusionWithSparseSeeds|Dimension=64, FilterPercentage=10",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Sparse-seeded dense fusion\u0027: DefaultJob [Dimension=64, FilterPercentage=10]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "FusionWithSparseSeeds",
+          "parameters": {
+            "Dimension": "64",
+            "FilterPercentage": "10"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 9336090.739583334,
+            "medianNanoseconds": 9339365.515625,
+            "minNanoseconds": 9215587.6875,
+            "maxNanoseconds": 9446813.34375,
+            "standardDeviationNanoseconds": 74952.96700228378,
+            "operationsPerSecond": 107.1112125935303
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 3278181,
+            "gen0Collections": 50,
+            "gen1Collections": 0,
+            "gen2Collections": 0
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.FusionWithoutSparseSeeds|Dimension=128, FilterPercentage=1",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Sparse\u002Bdense fusion\u0027: DefaultJob [Dimension=128, FilterPercentage=1]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "FusionWithoutSparseSeeds",
+          "parameters": {
+            "Dimension": "128",
+            "FilterPercentage": "1"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 11052734.316666666,
+            "medianNanoseconds": 11081690.21875,
+            "minNanoseconds": 10931507.78125,
+            "maxNanoseconds": 11144410.171875,
+            "standardDeviationNanoseconds": 75846.08485954287,
+            "operationsPerSecond": 90.47534947909473
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 3360660,
+            "gen0Collections": 51,
+            "gen1Collections": 0,
+            "gen2Collections": 0
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.FusionWithoutSparseSeeds|Dimension=128, FilterPercentage=10",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Sparse\u002Bdense fusion\u0027: DefaultJob [Dimension=128, FilterPercentage=10]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "FusionWithoutSparseSeeds",
+          "parameters": {
+            "Dimension": "128",
+            "FilterPercentage": "10"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 11161616.522916667,
+            "medianNanoseconds": 11165518.890625,
+            "minNanoseconds": 11088878.65625,
+            "maxNanoseconds": 11212151.4375,
+            "standardDeviationNanoseconds": 34430.91619373707,
+            "operationsPerSecond": 89.59275728088602
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 3271085,
+            "gen0Collections": 50,
+            "gen1Collections": 0,
+            "gen2Collections": 0
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.FusionWithoutSparseSeeds|Dimension=64, FilterPercentage=1",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Sparse\u002Bdense fusion\u0027: DefaultJob [Dimension=64, FilterPercentage=1]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "FusionWithoutSparseSeeds",
+          "parameters": {
+            "Dimension": "64",
+            "FilterPercentage": "1"
+          },
+          "statistics": {
+            "sampleCount": 14,
+            "meanNanoseconds": 9262498.00669643,
+            "medianNanoseconds": 9271436.890625,
+            "minNanoseconds": 9156781.859375,
+            "maxNanoseconds": 9340415.1875,
+            "standardDeviationNanoseconds": 51790.25534456954,
+            "operationsPerSecond": 107.96223645900258
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 3354580,
+            "gen0Collections": 51,
+            "gen1Collections": 0,
+            "gen2Collections": 0
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.FusionWithoutSparseSeeds|Dimension=64, FilterPercentage=10",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Sparse\u002Bdense fusion\u0027: DefaultJob [Dimension=64, FilterPercentage=10]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "FusionWithoutSparseSeeds",
+          "parameters": {
+            "Dimension": "64",
+            "FilterPercentage": "10"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 9237084.035416666,
+            "medianNanoseconds": 9240236.921875,
+            "minNanoseconds": 9130957.953125,
+            "maxNanoseconds": 9278573.5625,
+            "standardDeviationNanoseconds": 37446.212120296215,
+            "operationsPerSecond": 108.25927274947564
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 3264997,
+            "gen0Collections": 49,
+            "gen1Collections": 0,
+            "gen2Collections": 0
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.MatryoshkaPrefixRerank|Dimension=128, FilterPercentage=1",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Matryoshka prefix rerank\u0027: DefaultJob [Dimension=128, FilterPercentage=1]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "MatryoshkaPrefixRerank",
+          "parameters": {
+            "Dimension": "128",
+            "FilterPercentage": "1"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 31137926.725,
+            "medianNanoseconds": 31157528.46875,
+            "minNanoseconds": 30817673.3125,
+            "maxNanoseconds": 31420860.65625,
+            "standardDeviationNanoseconds": 181929.24526055017,
+            "operationsPerSecond": 32.11517609478863
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 56451846,
+            "gen0Collections": 422,
+            "gen1Collections": 6,
+            "gen2Collections": 1
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.MatryoshkaPrefixRerank|Dimension=128, FilterPercentage=10",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Matryoshka prefix rerank\u0027: DefaultJob [Dimension=128, FilterPercentage=10]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "MatryoshkaPrefixRerank",
+          "parameters": {
+            "Dimension": "128",
+            "FilterPercentage": "10"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 31184073.770833332,
+            "medianNanoseconds": 31167131.625,
+            "minNanoseconds": 30989757.46875,
+            "maxNanoseconds": 31382368.6875,
+            "standardDeviationNanoseconds": 111583.75701570381,
+            "operationsPerSecond": 32.06765117825326
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 56451976,
+            "gen0Collections": 423,
+            "gen1Collections": 7,
+            "gen2Collections": 2
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.MatryoshkaPrefixRerank|Dimension=64, FilterPercentage=1",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Matryoshka prefix rerank\u0027: DefaultJob [Dimension=64, FilterPercentage=1]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "MatryoshkaPrefixRerank",
+          "parameters": {
+            "Dimension": "64",
+            "FilterPercentage": "1"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 26386415.145833332,
+            "medianNanoseconds": 26381821.34375,
+            "minNanoseconds": 26190517.3125,
+            "maxNanoseconds": 26553715.875,
+            "standardDeviationNanoseconds": 112822.40519985087,
+            "operationsPerSecond": 37.898289497575405
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 30745022,
+            "gen0Collections": 227,
+            "gen1Collections": 10,
+            "gen2Collections": 2
+          }
+        },
+        {
+          "key": "HybridRetrievalBenchmarks.MatryoshkaPrefixRerank|Dimension=64, FilterPercentage=10",
+          "displayInfo": "HybridRetrievalBenchmarks.\u0027Matryoshka prefix rerank\u0027: DefaultJob [Dimension=64, FilterPercentage=10]",
+          "typeName": "HybridRetrievalBenchmarks",
+          "methodName": "MatryoshkaPrefixRerank",
+          "parameters": {
+            "Dimension": "64",
+            "FilterPercentage": "10"
+          },
+          "statistics": {
+            "sampleCount": 15,
+            "meanNanoseconds": 26036817.229166668,
+            "medianNanoseconds": 26028558.0625,
+            "minNanoseconds": 25786567.875,
+            "maxNanoseconds": 26251403,
+            "standardDeviationNanoseconds": 157927.0674901714,
+            "operationsPerSecond": 38.40715211841604
+          },
+          "gc": {
+            "bytesAllocatedPerOperation": 30745246,
+            "gen0Collections": 227,
+            "gen1Collections": 10,
+            "gen2Collections": 2
+          }
+        }
+      ]
+    }
+  ]
+}

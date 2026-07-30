@@ -1,5 +1,6 @@
 ﻿using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics;
 using System.Runtime.InteropServices;
 namespace Rowles.LeanCorpus.Util;
 
@@ -26,7 +27,48 @@ internal static class VectorMath
         float dot = 0f, normA = 0f, normB = 0f;
         int i = 0;
 
-        if (a.Length >= Vector<float>.Count)
+        // Vector256 is the x64 fast path on AVX-capable processors. The guarded
+        // Vector128 path is the corresponding portable ARM64/SSE path. Both fall
+        // through to generic Vector<T> and then scalar code on constrained AOT hosts.
+        if (Vector256.IsHardwareAccelerated && a.Length >= Vector256<float>.Count)
+        {
+            ref float aRef = ref MemoryMarshal.GetReference(a);
+            ref float bRef = ref MemoryMarshal.GetReference(b);
+            var dotVector = Vector256<float>.Zero;
+            var normAVector = Vector256<float>.Zero;
+            var normBVector = Vector256<float>.Zero;
+            for (; i + Vector256<float>.Count <= a.Length; i += Vector256<float>.Count)
+            {
+                var left = Vector256.LoadUnsafe(ref aRef, (nuint)i);
+                var right = Vector256.LoadUnsafe(ref bRef, (nuint)i);
+                dotVector += left * right;
+                normAVector += left * left;
+                normBVector += right * right;
+            }
+            dot = Vector256.Sum(dotVector);
+            normA = Vector256.Sum(normAVector);
+            normB = Vector256.Sum(normBVector);
+        }
+        else if (Vector128.IsHardwareAccelerated && a.Length >= Vector128<float>.Count)
+        {
+            ref float aRef = ref MemoryMarshal.GetReference(a);
+            ref float bRef = ref MemoryMarshal.GetReference(b);
+            var dotVector = Vector128<float>.Zero;
+            var normAVector = Vector128<float>.Zero;
+            var normBVector = Vector128<float>.Zero;
+            for (; i + Vector128<float>.Count <= a.Length; i += Vector128<float>.Count)
+            {
+                var left = Vector128.LoadUnsafe(ref aRef, (nuint)i);
+                var right = Vector128.LoadUnsafe(ref bRef, (nuint)i);
+                dotVector += left * right;
+                normAVector += left * left;
+                normBVector += right * right;
+            }
+            dot = Vector128.Sum(dotVector);
+            normA = Vector128.Sum(normAVector);
+            normB = Vector128.Sum(normBVector);
+        }
+        else if (a.Length >= Vector<float>.Count)
         {
             var vDot = Vector<float>.Zero;
             var vNormA = Vector<float>.Zero;
@@ -73,7 +115,27 @@ internal static class VectorMath
         float dot = 0f;
         int i = 0;
 
-        if (a.Length >= Vector<float>.Count)
+        if (Vector256.IsHardwareAccelerated && a.Length >= Vector256<float>.Count)
+        {
+            ref float aRef = ref MemoryMarshal.GetReference(a);
+            ref float bRef = ref MemoryMarshal.GetReference(b);
+            var dotVector = Vector256<float>.Zero;
+            for (; i + Vector256<float>.Count <= a.Length; i += Vector256<float>.Count)
+                dotVector += Vector256.LoadUnsafe(ref aRef, (nuint)i) *
+                    Vector256.LoadUnsafe(ref bRef, (nuint)i);
+            dot = Vector256.Sum(dotVector);
+        }
+        else if (Vector128.IsHardwareAccelerated && a.Length >= Vector128<float>.Count)
+        {
+            ref float aRef = ref MemoryMarshal.GetReference(a);
+            ref float bRef = ref MemoryMarshal.GetReference(b);
+            var dotVector = Vector128<float>.Zero;
+            for (; i + Vector128<float>.Count <= a.Length; i += Vector128<float>.Count)
+                dotVector += Vector128.LoadUnsafe(ref aRef, (nuint)i) *
+                    Vector128.LoadUnsafe(ref bRef, (nuint)i);
+            dot = Vector128.Sum(dotVector);
+        }
+        else if (a.Length >= Vector<float>.Count)
         {
             var vDot = Vector<float>.Zero;
             int simdEnd = a.Length - (a.Length % Vector<float>.Count);
@@ -104,7 +166,29 @@ internal static class VectorMath
         float norm = 0f;
         int i = 0;
 
-        if (a.Length >= Vector<float>.Count)
+        if (Vector256.IsHardwareAccelerated && a.Length >= Vector256<float>.Count)
+        {
+            ref float aRef = ref MemoryMarshal.GetReference(a);
+            var normVector = Vector256<float>.Zero;
+            for (; i + Vector256<float>.Count <= a.Length; i += Vector256<float>.Count)
+            {
+                var value = Vector256.LoadUnsafe(ref aRef, (nuint)i);
+                normVector += value * value;
+            }
+            norm = Vector256.Sum(normVector);
+        }
+        else if (Vector128.IsHardwareAccelerated && a.Length >= Vector128<float>.Count)
+        {
+            ref float aRef = ref MemoryMarshal.GetReference(a);
+            var normVector = Vector128<float>.Zero;
+            for (; i + Vector128<float>.Count <= a.Length; i += Vector128<float>.Count)
+            {
+                var value = Vector128.LoadUnsafe(ref aRef, (nuint)i);
+                normVector += value * value;
+            }
+            norm = Vector128.Sum(normVector);
+        }
+        else if (a.Length >= Vector<float>.Count)
         {
             var vNorm = Vector<float>.Zero;
             int simdEnd = a.Length - (a.Length % Vector<float>.Count);
@@ -135,7 +219,27 @@ internal static class VectorMath
 
         float invNorm = 1f / MathF.Sqrt(sq);
         int i = 0;
-        if (vector.Length >= Vector<float>.Count)
+        if (Vector256.IsHardwareAccelerated && vector.Length >= Vector256<float>.Count)
+        {
+            ref float vectorRef = ref MemoryMarshal.GetReference(vector);
+            var scale = Vector256.Create(invNorm);
+            for (; i + Vector256<float>.Count <= vector.Length; i += Vector256<float>.Count)
+            {
+                var value = Vector256.LoadUnsafe(ref vectorRef, (nuint)i) * scale;
+                value.StoreUnsafe(ref vectorRef, (nuint)i);
+            }
+        }
+        else if (Vector128.IsHardwareAccelerated && vector.Length >= Vector128<float>.Count)
+        {
+            ref float vectorRef = ref MemoryMarshal.GetReference(vector);
+            var scale = Vector128.Create(invNorm);
+            for (; i + Vector128<float>.Count <= vector.Length; i += Vector128<float>.Count)
+            {
+                var value = Vector128.LoadUnsafe(ref vectorRef, (nuint)i) * scale;
+                value.StoreUnsafe(ref vectorRef, (nuint)i);
+            }
+        }
+        else if (vector.Length >= Vector<float>.Count)
         {
             int simdEnd = vector.Length - (vector.Length % Vector<float>.Count);
             var span = MemoryMarshal.Cast<float, Vector<float>>(vector[..simdEnd]);

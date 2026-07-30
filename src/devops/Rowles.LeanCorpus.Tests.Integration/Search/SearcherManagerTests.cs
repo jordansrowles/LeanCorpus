@@ -2,6 +2,7 @@
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Simd;
@@ -168,6 +169,54 @@ public sealed class SearcherManagerTests : IDisposable
         finally
         {
             mgr.Release(held);
+        }
+    }
+
+    [Fact(DisplayName = "Held Searcher: Quantised vector reader remains usable across refresh")]
+    public void HeldSearcher_QuantisedVectorReaderRemainsUsableAcrossRefresh()
+    {
+        using var dir = new MMapDirectory(_dir);
+        var config = new IndexWriterConfig
+        {
+            VectorFields =
+            {
+                ["embed"] = new VectorFieldConfig
+                {
+                    Quantisation = VectorQuantisation.Int8,
+                    RetainFullPrecision = false,
+                    BuildHnsw = false,
+                },
+            },
+        };
+        using var writer = new IndexWriter(dir, config);
+        var first = new LeanDocument();
+        first.Add(new VectorField("embed", new float[] { 1f, 0f }));
+        writer.AddDocument(first);
+        writer.Commit();
+
+        using var manager = new SearcherManager(
+            dir,
+            new SearcherManagerConfig { RefreshInterval = TimeSpan.FromMinutes(5) });
+        var held = manager.Acquire();
+        try
+        {
+            Assert.Equal(1, held.Search(new VectorQuery("embed", [1f, 0f]), 10).TotalHits);
+
+            var second = new LeanDocument();
+            second.Add(new VectorField("embed", new float[] { 0f, 1f }));
+            writer.AddDocument(second);
+            writer.Commit();
+            Assert.True(manager.MaybeRefresh());
+
+            Assert.Equal(1, held.Search(new VectorQuery("embed", [1f, 0f]), 10).TotalHits);
+            Assert.Equal(
+                2,
+                manager.UsingSearcher(
+                    searcher => searcher.Search(new VectorQuery("embed", [1f, 0f]), 10).TotalHits));
+        }
+        finally
+        {
+            manager.Release(held);
         }
     }
 

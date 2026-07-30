@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Rowles.LeanCorpus.Benchmarks.MoreLikeThisBenchmarks-20260728-234609</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.16.0-nightly.20260427.506, Linux Debian GNU/Linux 13 (trixie)
+Intel Xeon CPU E3-1220 V2 3.10GHz (Max: 3.26GHz), 1 CPU, 4 logical and 4 physical cores
+Memory: 23.45 GB Total, 1 GB Available
+.NET SDK 11.0.100-preview.1.26104.118
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+  DefaultJob : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+</code></pre>
+<pre><code></code></pre>
+
+<table>
+<thead><tr><th>Method                            </th><th>DocumentCount</th><th>Mean</th><th>Error</th><th>StdDev</th><th>Ratio</th><th>RatioSD</th><th>Gen0</th><th>Gen1</th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>&#39;LeanCorpus MLT Scalar (DefaultParams)&#39;</td><td>100000</td><td>2.525 ms</td><td>0.0465 ms</td><td>0.0435 ms</td><td>1.00</td><td>0.00</td><td>27.3438</td><td>7.8125</td><td>115.81 KB</td><td>1.00</td>
+</tr><tr><td>&#39;LeanCorpus MLT Scalar (HighMinDocFreq)&#39;</td><td>100000</td><td>2.505 ms</td><td>0.0488 ms</td><td>0.0801 ms</td><td>0.99</td><td>0.04</td><td>7.8125</td><td>-</td><td>37.56 KB</td><td>0.32</td>
+</tr><tr><td>&#39;LeanCorpus MLT Scalar (NoBoost)&#39;</td><td>100000</td><td>2.504 ms</td><td>0.0485 ms</td><td>0.0498 ms</td><td>0.99</td><td>0.03</td><td>27.3438</td><td>3.9063</td><td>114.62 KB</td><td>0.99</td>
+</tr><tr><td>&#39;LeanCorpus MLT WAND (DefaultParams)&#39;</td><td>100000</td><td>2.775 ms</td><td>0.0316 ms</td><td>0.0280 ms</td><td>1.10</td><td>0.02</td><td>46.8750</td><td>11.7188</td><td>198.11 KB</td><td>1.71</td>
+</tr><tr><td>LuceneNet_MoreLikeThis_DefaultParams</td><td>100000</td><td>4.394 ms</td><td>0.0626 ms</td><td>0.0586 ms</td><td>1.74</td><td>0.04</td><td>851.5625</td><td>23.4375</td><td>3569.54 KB</td><td>30.82</td>
+</tr><tr><td>LuceneNet_MoreLikeThis_HighMinDocFreq</td><td>100000</td><td>3.384 ms</td><td>0.0124 ms</td><td>0.0116 ms</td><td>1.34</td><td>0.02</td><td>281.2500</td><td>11.7188</td><td>1183.6 KB</td><td>10.22</td>
+</tr><tr><td>LuceneNet_MoreLikeThis_NoBoost</td><td>100000</td><td>4.256 ms</td><td>0.0625 ms</td><td>0.0584 ms</td><td>1.69</td><td>0.04</td><td>835.9375</td><td>23.4375</td><td>3569.3 KB</td><td>30.82</td>
+</tr></tbody></table>
+</body>
+</html>

@@ -1,5 +1,6 @@
 ﻿using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Scoring;
@@ -200,6 +201,53 @@ public sealed class IndexSortTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(mmap);
         var results = searcher.Search(new TermQuery("title", "hello"), 10);
         Assert.Equal(2, results.TotalHits);
+    }
+
+    [Theory(DisplayName = "Index Sort: Sparse vector presence follows remapped documents")]
+    [InlineData(VectorQuantisation.None)]
+    [InlineData(VectorQuantisation.Int8)]
+    [InlineData(VectorQuantisation.BBQ)]
+    public void IndexSort_SparseVectorPresenceFollowsRemappedDocuments(
+        VectorQuantisation quantisation)
+    {
+        var dir = Path.Combine(_path, "vector_remap_" + quantisation);
+        Directory.CreateDirectory(dir);
+        using var mmap = new MMapDirectory(dir);
+
+        using (var writer = new IndexWriter(
+            mmap,
+            new IndexWriterConfig
+            {
+                IndexSort = new IndexSort(SortField.Numeric("price")),
+                VectorFields =
+                {
+                    ["embed"] = new VectorFieldConfig
+                    {
+                        Quantisation = quantisation,
+                        RetainFullPrecision = quantisation != VectorQuantisation.None,
+                        Normalise = false,
+                        BuildHnsw = false,
+                    },
+                },
+            }))
+        {
+            var expensiveMissing = new LeanDocument();
+            expensiveMissing.Add(new NumericField("price", 20));
+            writer.AddDocument(expensiveMissing);
+
+            var cheapPresent = new LeanDocument();
+            cheapPresent.Add(new NumericField("price", 10));
+            cheapPresent.Add(new VectorField("embed", new float[] { 1f, 0f }));
+            writer.AddDocument(cheapPresent);
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(mmap);
+        var reader = Assert.Single(searcher.GetSegmentReaders());
+        Assert.Equal(
+            [1f, 0f],
+            Assert.IsType<float[]>(reader.GetVector("embed", 0)));
+        Assert.Null(reader.GetVector("embed", 1));
     }
 
     /// <summary>

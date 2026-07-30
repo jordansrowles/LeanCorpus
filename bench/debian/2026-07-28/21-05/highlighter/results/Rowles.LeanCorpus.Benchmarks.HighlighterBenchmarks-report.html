@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Rowles.LeanCorpus.Benchmarks.HighlighterBenchmarks-20260728-235606</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.16.0-nightly.20260427.506, Linux Debian GNU/Linux 13 (trixie)
+Intel Xeon CPU E3-1220 V2 3.10GHz (Max: 3.26GHz), 1 CPU, 4 logical and 4 physical cores
+Memory: 23.45 GB Total, 1 GB Available
+.NET SDK 11.0.100-preview.1.26104.118
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+  DefaultJob : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+</code></pre>
+<pre><code></code></pre>
+
+<table>
+<thead><tr><th>Method                  </th><th>MaxSnippetLength</th><th>DocumentCount</th><th>Mean </th><th>Error</th><th>StdDev</th><th>Ratio</th><th>RatioSD</th><th>Gen0</th><th>Gen1</th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>LeanCorpus_Highlight_TwoTerms</td><td>100</td><td>100000</td><td>66.88 μs</td><td>0.677 μs</td><td>0.633 μs</td><td>1.00</td><td>0.00</td><td>11.2305</td><td>-</td><td>46.06 KB</td><td>1.00</td>
+</tr><tr><td>LeanCorpus_Highlight_FiveTerms</td><td>100</td><td>100000</td><td>167.04 μs</td><td>1.797 μs</td><td>1.681 μs</td><td>2.50</td><td>0.03</td><td>10.4980</td><td>-</td><td>42.97 KB</td><td>0.93</td>
+</tr><tr><td>LuceneNet_Highlight_TwoTerms</td><td>100</td><td>100000</td><td>4,193.29 μs</td><td>612.204 μs</td><td>1,805.098 μs</td><td>62.70</td><td>26.87</td><td>1257.8125</td><td>7.8125</td><td>5144.61 KB</td><td>111.70</td>
+</tr><tr><td>LuceneNet_Highlight_FiveTerms</td><td>100</td><td>100000</td><td>4,348.34 μs</td><td>618.365 μs</td><td>1,823.263 μs</td><td>65.02</td><td>27.14</td><td>1312.5000</td><td>7.8125</td><td>5389.79 KB</td><td>117.02</td>
+</tr><tr><td>LeanCorpus_Highlight_TwoTerms</td><td>200</td><td>100000</td><td>69.42 μs</td><td>0.759 μs</td><td>0.710 μs</td><td>1.00</td><td>0.00</td><td>16.7236</td><td>-</td><td>68.63 KB</td><td>1.00</td>
+</tr><tr><td>LeanCorpus_Highlight_FiveTerms</td><td>200</td><td>100000</td><td>172.32 μs</td><td>2.040 μs</td><td>1.908 μs</td><td>2.48</td><td>0.04</td><td>15.1367</td><td>-</td><td>61.92 KB</td><td>0.90</td>
+</tr><tr><td>LuceneNet_Highlight_TwoTerms</td><td>200</td><td>100000</td><td>4,189.39 μs</td><td>609.834 μs</td><td>1,798.109 μs</td><td>60.36</td><td>25.79</td><td>1257.8125</td><td>7.8125</td><td>5144.61 KB</td><td>74.96</td>
+</tr><tr><td>LuceneNet_Highlight_FiveTerms</td><td>200</td><td>100000</td><td>4,397.65 μs</td><td>624.479 μs</td><td>1,841.291 μs</td><td>63.36</td><td>26.41</td><td>1312.5000</td><td>7.8125</td><td>5389.79 KB</td><td>78.53</td>
+</tr><tr><td>LeanCorpus_Highlight_TwoTerms</td><td>500</td><td>100000</td><td>73.00 μs</td><td>0.734 μs</td><td>0.687 μs</td><td>1.00</td><td>0.00</td><td>24.1699</td><td>-</td><td>99.19 KB</td><td>1.00</td>
+</tr><tr><td>LeanCorpus_Highlight_FiveTerms</td><td>500</td><td>100000</td><td>177.98 μs</td><td>2.256 μs</td><td>2.111 μs</td><td>2.44</td><td>0.04</td><td>22.7051</td><td>-</td><td>92.77 KB</td><td>0.94</td>
+</tr><tr><td>LuceneNet_Highlight_TwoTerms</td><td>500</td><td>100000</td><td>4,167.12 μs</td><td>607.255 μs</td><td>1,790.506 μs</td><td>57.09</td><td>24.42</td><td>1257.8125</td><td>7.8125</td><td>5144.61 KB</td><td>51.87</td>
+</tr><tr><td>LuceneNet_Highlight_FiveTerms</td><td>500</td><td>100000</td><td>4,334.96 μs</td><td>614.053 μs</td><td>1,810.549 μs</td><td>59.38</td><td>24.69</td><td>1312.5000</td><td>7.8125</td><td>5389.79 KB</td><td>54.34</td>
+</tr></tbody></table>
+</body>
+</html>

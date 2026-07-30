@@ -72,6 +72,60 @@ public sealed class HnswGraphTests
         Assert.Equal(0, results[0].DocId);
     }
 
+    [Fact(DisplayName = "Search: Visit budget reports bounded traversal")]
+    public void Search_VisitBudgetReportsBoundedTraversal()
+    {
+        var vectors = new Dictionary<int, float[]>
+        {
+            [0] = Normalise([1, 0, 0, 0]),
+            [1] = Normalise([0, 1, 0, 0]),
+            [2] = Normalise([0, 0, 1, 0]),
+            [3] = Normalise([0, 0, 0, 1]),
+        };
+        var graph = HnswGraphBuilder.Build(
+            MakeSource(vectors, dimension: 4),
+            [0, 1, 2, 3],
+            new HnswBuildConfig { M = 4, EfConstruction = 16 },
+            seed: 7);
+
+        graph.Search(
+            Normalise([1f, 0f, 0f, 0f]),
+            new HnswTraversalOptions { Ef = 16, TopK = 2, MaxVisitedNodes = 1 },
+            out var stats);
+
+        Assert.True(stats.BudgetExhausted);
+        Assert.InRange(stats.NodesVisited, 0, 1);
+    }
+
+    [Fact(DisplayName = "Search: Seeded entry point is preferred within visit budget")]
+    public void Search_SeededEntryPointIsPreferredWithinVisitBudget()
+    {
+        var vectors = new Dictionary<int, float[]>
+        {
+            [0] = Normalise([1, 0, 0, 0]),
+            [1] = Normalise([0, 1, 0, 0]),
+            [2] = Normalise([0, 0, 1, 0]),
+            [3] = Normalise([0, 0, 0, 1]),
+        };
+        var graph = HnswGraphBuilder.Build(
+            MakeSource(vectors, dimension: 4),
+            [0, 1, 2, 3],
+            new HnswBuildConfig { M = 4, EfConstruction = 16 },
+            seed: 7);
+
+        var results = graph.Search(
+            Normalise([1f, 0f, 0f, 0f]),
+            new HnswTraversalOptions
+            {
+                Ef = 16,
+                TopK = 1,
+                MaxVisitedNodes = 1,
+                EntryPoints = [0, 0, 999],
+            });
+
+        Assert.Equal(0, Assert.Single(results).DocId);
+    }
+
     /// <summary>
     /// Verifies the Search: Recall Exceeds Threshold On Random Vectors scenario.
     /// </summary>
@@ -182,6 +236,46 @@ public sealed class HnswGraphTests
         }
 
         Assert.Equal(n, visited.Count);
+    }
+
+    [Fact(DisplayName = "Filtered search: Rejected nodes remain traversal bridges")]
+    public void FilteredSearch_RejectedNodesRemainTraversalBridges()
+    {
+        var source = MakeSource(
+            new Dictionary<int, float[]>
+            {
+                [0] = [0f],
+                [1] = [1f],
+                [2] = [2f],
+            },
+            dimension: 1);
+        var level = new HnswGraph.FrozenLevel(
+            [0, 1, 2],
+            [[1], [0, 2], [1]]);
+        var graph = HnswGraph.FromFrozen(
+            source,
+            new HnswBuildConfig { M = 2, M0 = 2, EfConstruction = 10 },
+            seed: 1,
+            levels: [level],
+            entryPoint: 0,
+            maxLevel: 0,
+            nodeCount: 3,
+            similarity: VectorSimilarityFunction.Euclidean,
+            normalised: false);
+        var eligible = new Rowles.LeanCorpus.Util.RoaringBitmap();
+        eligible.Add(0);
+        eligible.Add(2);
+
+        var results = graph.Search(
+            [2f],
+            new HnswTraversalOptions
+            {
+                Ef = 1,
+                TopK = 1,
+                AllowList = new Rowles.LeanCorpus.Util.RoaringBitmapBitSet(eligible),
+            });
+
+        Assert.Equal(2, Assert.Single(results).DocId);
     }
 
     private static InMemoryVectorSource MakeSource(Dictionary<int, float[]> vectors, int dimension)

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Rowles.LeanCorpus.Benchmarks.TokenFilterBenchmarks-20260728-222421</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.16.0-nightly.20260427.506, Linux Debian GNU/Linux 13 (trixie)
+Intel Xeon CPU E3-1220 V2 3.10GHz (Max: 3.26GHz), 1 CPU, 4 logical and 4 physical cores
+Memory: 23.45 GB Total, 1 GB Available
+.NET SDK 11.0.100-preview.1.26104.118
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+  DefaultJob : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+</code></pre>
+<pre><code></code></pre>
+
+<table>
+<thead><tr><th>Method    </th><th>Scenario      </th><th>Mean  </th><th>Error</th><th>StdDev</th><th>Ratio</th><th>RatioSD</th><th>Gen0</th><th>Gen1</th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>LeanCorpus_Apply</td><td>decim(...)ating [22]</td><td>72.49 ns</td><td>0.396 ns</td><td>0.371 ns</td><td>1.00</td><td>0.00</td><td>0.0057</td><td>-</td><td>24 B</td><td>1.00</td>
+</tr><tr><td>LuceneNet_Apply</td><td>decim(...)ating [22]</td><td>1,807.98 ns</td><td>7.311 ns</td><td>6.105 ns</td><td>24.94</td><td>0.15</td><td>2.3708</td><td>-</td><td>9912 B</td><td>413.00</td>
+</tr><tr><td>LeanCorpus_Apply</td><td>elision-mutating</td><td>86.13 ns</td><td>0.556 ns</td><td>0.520 ns</td><td>1.00</td><td>0.00</td><td>0.0057</td><td>-</td><td>24 B</td><td>1.00</td>
+</tr><tr><td>LuceneNet_Apply</td><td>elision-mutating</td><td>3,476.53 ns</td><td>25.634 ns</td><td>23.978 ns</td><td>40.36</td><td>0.36</td><td>2.7313</td><td>-</td><td>11432 B</td><td>476.33</td>
+</tr><tr><td>LeanCorpus_Apply</td><td>length-mutating</td><td>15.35 ns</td><td>0.042 ns</td><td>0.039 ns</td><td>1.00</td><td>0.00</td><td>0.0057</td><td>-</td><td>24 B</td><td>1.00</td>
+</tr><tr><td>LuceneNet_Apply</td><td>length-mutating</td><td>2,585.88 ns</td><td>16.224 ns</td><td>15.176 ns</td><td>168.44</td><td>1.04</td><td>2.4986</td><td>-</td><td>10448 B</td><td>435.33</td>
+</tr><tr><td>LeanCorpus_Apply</td><td>length-noop</td><td>15.97 ns</td><td>0.108 ns</td><td>0.101 ns</td><td>1.00</td><td>0.00</td><td>0.0057</td><td>-</td><td>24 B</td><td>1.00</td>
+</tr><tr><td>LuceneNet_Apply</td><td>length-noop</td><td>2,557.42 ns</td><td>7.443 ns</td><td>6.962 ns</td><td>160.11</td><td>1.07</td><td>2.4986</td><td>-</td><td>10448 B</td><td>435.33</td>
+</tr><tr><td>LeanCorpus_Apply</td><td>reverse-mutating</td><td>42.11 ns</td><td>0.248 ns</td><td>0.232 ns</td><td>1.00</td><td>0.00</td><td>0.0057</td><td>-</td><td>24 B</td><td>1.00</td>
+</tr><tr><td>LuceneNet_Apply</td><td>reverse-mutating</td><td>1,946.42 ns</td><td>6.553 ns</td><td>5.472 ns</td><td>46.23</td><td>0.28</td><td>2.3880</td><td>-</td><td>9984 B</td><td>416.00</td>
+</tr><tr><td>LeanCorpus_Apply</td><td>shingle-mutating</td><td>621.84 ns</td><td>5.775 ns</td><td>4.509 ns</td><td>1.00</td><td>0.00</td><td>0.0191</td><td>0.0095</td><td>120 B</td><td>1.00</td>
+</tr><tr><td>LuceneNet_Apply</td><td>shingle-mutating</td><td>12,564.10 ns</td><td>75.165 ns</td><td>70.309 ns</td><td>20.21</td><td>0.18</td><td>4.7302</td><td>-</td><td>19816 B</td><td>165.13</td>
+</tr><tr><td>LeanCorpus_Apply</td><td>truncate-mutating</td><td>13.60 ns</td><td>0.043 ns</td><td>0.040 ns</td><td>1.00</td><td>0.00</td><td>0.0057</td><td>-</td><td>24 B</td><td>1.00</td>
+</tr><tr><td>LuceneNet_Apply</td><td>truncate-mutating</td><td>2,452.69 ns</td><td>13.114 ns</td><td>12.267 ns</td><td>180.34</td><td>1.01</td><td>2.4948</td><td>-</td><td>10433 B</td><td>434.71</td>
+</tr><tr><td>LeanCorpus_Apply</td><td>truncate-noop</td><td>15.43 ns</td><td>0.092 ns</td><td>0.086 ns</td><td>1.00</td><td>0.00</td><td>0.0057</td><td>-</td><td>24 B</td><td>1.00</td>
+</tr><tr><td>LuceneNet_Apply</td><td>truncate-noop</td><td>2,438.13 ns</td><td>19.444 ns</td><td>18.188 ns</td><td>157.97</td><td>1.43</td><td>2.4948</td><td>-</td><td>10433 B</td><td>434.71</td>
+</tr><tr><td>LeanCorpus_Apply</td><td>unique-mutating</td><td>165.78 ns</td><td>0.743 ns</td><td>0.695 ns</td><td>1.00</td><td>0.00</td><td>0.0362</td><td>-</td><td>152 B</td><td>1.00</td>
+</tr><tr><td>LuceneNet_Apply</td><td>unique-mutating</td><td>2,926.19 ns</td><td>13.653 ns</td><td>12.771 ns</td><td>17.65</td><td>0.10</td><td>2.6283</td><td>-</td><td>11000 B</td><td>72.37</td>
+</tr><tr><td>LeanCorpus_Apply</td><td>word-(...)ating [23]</td><td>292.50 ns</td><td>3.236 ns</td><td>3.027 ns</td><td>1.00</td><td>0.00</td><td>0.1087</td><td>-</td><td>456 B</td><td>1.00</td>
+</tr><tr><td>LuceneNet_Apply</td><td>word-(...)ating [23]</td><td>8,576.75 ns</td><td>51.114 ns</td><td>47.812 ns</td><td>29.32</td><td>0.33</td><td>3.7842</td><td>-</td><td>15880 B</td><td>34.82</td>
+</tr></tbody></table>
+</body>
+</html>

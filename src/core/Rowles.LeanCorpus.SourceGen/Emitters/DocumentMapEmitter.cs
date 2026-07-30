@@ -163,6 +163,19 @@ internal static class DocumentMapEmitter
             case FieldKind.Vector:
                 EmitVectorProjection(sb, f, prop, name);
                 break;
+            case FieldKind.MultiVector:
+                if (f.IsNullable)
+                    sb.Append("        if (").Append(prop).AppendLine(" is not null)");
+                if (f.IsNullable)
+                    sb.AppendLine("        {");
+                string indent = f.IsNullable ? "            " : "        ";
+                sb.Append(indent).Append("foreach (var token in ").Append(prop).AppendLine(")");
+                sb.Append(indent).Append("    if (token.Length != ").Append(f.VectorDimension).AppendLine(")");
+                sb.Append(indent).Append("        throw new InvalidOperationException(\"Multi-vector field '").Append(f.FieldName).Append("' expected dimension ").Append(f.VectorDimension).AppendLine(".\");");
+                sb.Append(indent).Append("doc.Add(new MultiVectorField(").Append(name).Append(", System.Linq.Enumerable.Select(").Append(prop).AppendLine(", token => (ReadOnlyMemory<float>)token))); ");
+                if (f.IsNullable)
+                    sb.AppendLine("        }");
+                break;
             case FieldKind.GeoPoint:
                 if (nullable)
                     sb.Append("        if (").Append(prop).AppendLine(" is not null)");
@@ -450,6 +463,7 @@ internal static class DocumentMapEmitter
         FieldKind.String => "String",
         FieldKind.Numeric => f.NumericKind == NumericKind.Integral ? "Int64" : "Numeric",
         FieldKind.Vector => "Vector",
+        FieldKind.MultiVector => "MultiVector",
         FieldKind.GeoPoint => "Numeric",
         FieldKind.StoredString => "Stored",
         FieldKind.StoredBinary => "Binary",

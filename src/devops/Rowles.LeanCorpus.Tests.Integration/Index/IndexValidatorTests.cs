@@ -309,6 +309,39 @@ public sealed class IndexValidatorTests : IClassFixture<TestDirectoryFixture>
         Assert.Contains(result.DetailedIssues, i => i.Code == IndexCheckIssueCodes.VectorFileMissing);
     }
 
+    [Fact(DisplayName = "Check: Missing retained Float32 sidecar returns issue")]
+    public void Check_MissingRetainedFloat32Sidecar_ReturnsIssue()
+    {
+        var dir = new MMapDirectory(SubDir("val_missing_retained_vector"));
+        using var writer = new IndexWriter(
+            dir,
+            new IndexWriterConfig
+            {
+                VectorFields =
+                {
+                    ["embedding"] = new VectorFieldConfig
+                    {
+                        Quantisation = Rowles.LeanCorpus.Codecs.Vectors.VectorQuantisation.Int8,
+                        RetainFullPrecision = true,
+                        BuildHnsw = false,
+                    },
+                },
+            });
+        var doc = new LeanDocument();
+        doc.Add(new VectorField("embedding", new float[] { 1f, 0f }));
+        writer.AddDocument(doc);
+        writer.Commit();
+
+        File.Delete(Directory.GetFiles(dir.DirectoryPath, "*.vec").Single());
+
+        var result = IndexValidator.Check(dir, new IndexCheckOptions { VerifyVectors = true });
+
+        Assert.Contains(
+            result.DetailedIssues,
+            issue => issue.Code == IndexCheckIssueCodes.VectorFileMissing &&
+                     issue.Message.Contains("full-precision", StringComparison.Ordinal));
+    }
+
     [Fact(DisplayName = "Check: Deep DocValues Catches Corrupt Offsets")]
     public void Check_WithDeepDocValues_CatchesCorruptOffsets()
     {

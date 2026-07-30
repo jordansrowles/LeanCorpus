@@ -3,7 +3,7 @@ using Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
 namespace Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 
 /// <summary>
-/// Quantised vector (.qvec) wire format (per-field file).
+/// Quantised vector (<c>.vq</c>) wire format (per-field file).
 /// Layout: [docCount:Int32LE][dimension:Int32LE][quantisation:UInt8]
 /// then quantisation-specific data followed by [packed bytes].
 /// </summary>

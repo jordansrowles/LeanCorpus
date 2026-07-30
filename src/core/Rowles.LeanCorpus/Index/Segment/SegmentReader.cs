@@ -16,6 +16,7 @@ namespace Rowles.LeanCorpus.Index.Segment;
 /// </summary>
 internal sealed partial class SegmentReaderState : IDisposable
 {
+    [ThreadStatic] private static float[]? t_vectorScoreScratch;
     private readonly MMapDirectory _directory;
     private readonly SegmentInfo _info;
     private TermDictionaryReader? _dictionaryReader;
@@ -24,6 +25,7 @@ internal sealed partial class SegmentReaderState : IDisposable
     private bool _storedReaderLoaded;
     private NormState? _normState;
     private readonly Dictionary<string, string> _vectorPaths = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _fullPrecisionVectorPaths = new(StringComparer.Ordinal);
     private readonly Dictionary<string, VectorReader> _vectorReaders = new(StringComparer.Ordinal);
     private readonly Dictionary<string, QuantisedVectorReader> _quantisedVectorReaders = new(StringComparer.Ordinal);
     private readonly Dictionary<string, VectorQuantisation> _vectorQuantisation = new(StringComparer.Ordinal);
@@ -99,6 +101,12 @@ internal sealed partial class SegmentReaderState : IDisposable
                     {
                         _vectorPaths[vf.FieldName] = vqPath;
                         _vectorQuantisation[vf.FieldName] = vf.Quantisation;
+                    }
+                    if (vf.RetainsFullPrecision)
+                    {
+                        var fullPrecisionPath = VectorFilePaths.VectorFile(_basePath, vf.FieldName);
+                        if (FileOpenRetry.FileExists(fullPrecisionPath))
+                            _fullPrecisionVectorPaths[vf.FieldName] = fullPrecisionPath;
                     }
                 }
                 else
@@ -488,6 +496,7 @@ internal sealed partial class SegmentReaderState : IDisposable
         foreach (var r in _vectorReaders.Values) r.Dispose();
         _vectorReaders.Clear();
         _vectorPaths.Clear();
+        _fullPrecisionVectorPaths.Clear();
         foreach (var r in _quantisedVectorReaders.Values) r.Dispose();
         _quantisedVectorReaders.Clear();
         _termVectorsReader?.Dispose();

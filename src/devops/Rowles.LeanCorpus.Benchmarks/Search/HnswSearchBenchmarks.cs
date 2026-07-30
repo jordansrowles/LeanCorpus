@@ -44,8 +44,8 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [IterationCount(5)]
 public class HnswSearchBenchmarks
 {
-    [Params(1_000, 10_000)]
-    public int DocCount { get; set; }
+    /// <summary>Document count, overridden by the runner's <c>--doccount</c> option when supplied.</summary>
+    public int DocCount { get; set; } = 10_000;
 
     [Params(64, 128)]
     public int Dimension { get; set; }
@@ -70,6 +70,11 @@ public class HnswSearchBenchmarks
     [GlobalSetup]
     public void Setup()
     {
+        if (int.TryParse(Environment.GetEnvironmentVariable("BENCH_DOC_COUNT"), out int configuredDocCount) &&
+            configuredDocCount > 0)
+        {
+            DocCount = configuredDocCount;
+        }
         var key = (DocCount, Dimension);
         if (!s_built || s_lastKey != key)
         {

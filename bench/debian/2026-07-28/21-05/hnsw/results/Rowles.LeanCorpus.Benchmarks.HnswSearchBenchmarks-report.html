@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Rowles.LeanCorpus.Benchmarks.HnswSearchBenchmarks-20260729-031410</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.16.0-nightly.20260427.506, Linux Debian GNU/Linux 13 (trixie)
+Intel Xeon CPU E3-1220 V2 3.10GHz (Max: 3.26GHz), 1 CPU, 4 logical and 4 physical cores
+Memory: 23.45 GB Total, 1 GB Available
+.NET SDK 11.0.100-preview.1.26104.118
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+  Job-AMZPBM : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+</code></pre>
+<pre><code>IterationCount=5  WarmupCount=2  
+</code></pre>
+
+<table>
+<thead><tr><th>Method          </th><th>Dimension</th><th>Mean</th><th>Error</th><th>StdDev</th><th>Ratio</th><th>RatioSD</th><th>Gen0</th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>&#39;Flat scan&#39;</td><td>64</td><td>9.876 ms</td><td>0.0882 ms</td><td>0.0229 ms</td><td>1.00</td><td>0.00</td><td>-</td><td>8.04 KB</td><td>1.00</td>
+</tr><tr><td>&#39;HNSW two-phase&#39;</td><td>64</td><td>2.275 ms</td><td>0.1045 ms</td><td>0.0271 ms</td><td>0.23</td><td>0.00</td><td>7.8125</td><td>39.98 KB</td><td>4.97</td>
+</tr><tr><td>&#39;Lucene.NET flat scan&#39;</td><td>64</td><td>253.153 ms</td><td>4.6726 ms</td><td>0.7231 ms</td><td>25.63</td><td>0.09</td><td>21000.0000</td><td>86718.85 KB</td><td>10,781.95</td>
+</tr><tr><td>&#39;Flat scan&#39;</td><td>128</td><td>11.185 ms</td><td>0.1944 ms</td><td>0.0505 ms</td><td>1.00</td><td>0.00</td><td>-</td><td>12.9 KB</td><td>1.00</td>
+</tr><tr><td>&#39;HNSW two-phase&#39;</td><td>128</td><td>3.987 ms</td><td>0.1801 ms</td><td>0.0468 ms</td><td>0.36</td><td>0.00</td><td>7.8125</td><td>45.98 KB</td><td>3.56</td>
+</tr><tr><td>&#39;Lucene.NET flat scan&#39;</td><td>128</td><td>227.235 ms</td><td>0.5869 ms</td><td>0.0908 ms</td><td>20.32</td><td>0.08</td><td>33333.3333</td><td>136718.85 KB</td><td>10,596.44</td>
+</tr></tbody></table>
+</body>
+</html>

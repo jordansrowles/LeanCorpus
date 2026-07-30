@@ -1,5 +1,7 @@
 using BenchmarkDotNet.Attributes;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Util;
 using Rowles.LeanCorpus.Codecs.Hnsw;
@@ -29,7 +31,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 /// <summary>
 /// Measures HNSW search throughput across
 /// <see cref="VectorQuantisation"/> levels: None (float32 baseline),
-/// Int8 (scalar quantisation), and BBQ (binary quantisation).
+/// Int8 (scalar quantisation), BBQ (binary quantisation), Int4, and experimental product quantisation.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -38,14 +40,18 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [RPlotExporter]
 public class VectorQuantisationBenchmarks
 {
-    [Params(1_000, 10_000)]
-    public int DocCount { get; set; }
+    /// <summary>Document count, overridden by the runner's <c>--doccount</c> option when supplied.</summary>
+    public int DocCount { get; set; } = 10_000;
 
     [Params(64, 128)]
     public int Dimension { get; set; }
 
     /// <summary>Quantisation strategy applied at index time.</summary>
-    [Params(VectorQuantisation.None, VectorQuantisation.Int8, VectorQuantisation.BBQ)]
+    [Params(
+        VectorQuantisation.None,
+        VectorQuantisation.Int8,
+        VectorQuantisation.BBQ,
+        VectorQuantisation.Int4)]
     public VectorQuantisation Quantisation { get; set; }
 
     private const string FieldName = "emb";
@@ -57,6 +63,10 @@ public class VectorQuantisationBenchmarks
     private static bool s_built;
     private static string s_indexPath = string.Empty;
     private static LeanIndexSearcher s_searcher = default!;
+    private static float[][] s_vectors = [];
+    private static float[][] s_productQuantisedVectors = [];
+    private static TimeSpan s_buildElapsed;
+    private static long s_indexBytes;
 
     // Lucene.NET index state — guarded separately by (DocCount, Dimension)
     private static readonly System.Threading.Lock s_luceneGate = new();
@@ -71,6 +81,11 @@ public class VectorQuantisationBenchmarks
     [GlobalSetup]
     public void Setup()
     {
+        if (int.TryParse(Environment.GetEnvironmentVariable("BENCH_DOC_COUNT"), out int configuredDocCount) &&
+            configuredDocCount > 0)
+        {
+            DocCount = configuredDocCount;
+        }
         var key = (DocCount, Dimension, Quantisation);
         if (!s_built || s_lastKey != key)
         {
@@ -102,22 +117,35 @@ public class VectorQuantisationBenchmarks
                         HnswSeed = 1L,
                     };
 
-                    using var writer = new LeanIndexWriter(
-                        new LeanMMapDirectory(s_indexPath), cfg);
-                    for (int i = 0; i < vectors.Length; i++)
+                    var buildStopwatch = Stopwatch.StartNew();
+                    using (var writer = new LeanIndexWriter(
+                        new LeanMMapDirectory(s_indexPath), cfg))
                     {
-                        var doc = new LeanDocument();
-                        doc.Add(new VectorField(FieldName,
-                            new ReadOnlyMemory<float>(vectors[i])));
-                        writer.AddDocument(doc);
+                        for (int i = 0; i < vectors.Length; i++)
+                        {
+                            var doc = new LeanDocument();
+                            doc.Add(new VectorField(FieldName,
+                                new ReadOnlyMemory<float>(vectors[i])));
+                            writer.AddDocument(doc);
+                        }
+                        writer.Commit();
                     }
-                    writer.Commit();
+                    buildStopwatch.Stop();
 
                     s_searcher = new LeanIndexSearcher(
                         new LeanMMapDirectory(s_indexPath));
 
                     EnsureLuceneIndex(vectors);
 
+                    s_vectors = vectors;
+                    s_productQuantisedVectors = Quantisation == VectorQuantisation.ProductQuantisation
+                        ? ReadProductQuantisedVectors(s_searcher, vectors.Length)
+                        : [];
+                    s_buildElapsed = buildStopwatch.Elapsed;
+                    s_indexBytes = Directory.EnumerateFiles(
+                        s_indexPath,
+                        "*",
+                        SearchOption.AllDirectories).Sum(file => new FileInfo(file).Length);
                     s_lastKey = key;
                     s_built = true;
                 }
@@ -128,6 +156,8 @@ public class VectorQuantisationBenchmarks
         var qrnd = new Random(7);
         for (int d = 0; d < Dimension; d++)
             _query[d] = (float)(qrnd.NextDouble() * 2 - 1);
+
+        WriteQualityArtefact();
     }
 
     [Benchmark(Baseline = true, Description = "HNSW search")]
@@ -237,6 +267,148 @@ public class VectorQuantisationBenchmarks
         s_luceneDirectory = null;
         s_luceneVectors = [];
     }
+
+    private void WriteQualityArtefact()
+    {
+        string? runDirectory = Environment.GetEnvironmentVariable("BENCH_RUN_DIRECTORY");
+        if (string.IsNullOrWhiteSpace(runDirectory) || s_vectors.Length == 0)
+            return;
+
+        const int queryCount = 16;
+        var random = new Random(19);
+        double recallAt10 = 0d;
+        double reciprocalRankAgreement = 0d;
+        double absoluteScoreError = 0d;
+        double codebookRecallAt10 = 0d;
+        double highEfRecallAt10 = 0d;
+        int scoredHits = 0;
+        for (int queryIndex = 0; queryIndex < queryCount; queryIndex++)
+        {
+            var query = new float[Dimension];
+            for (int dimension = 0; dimension < query.Length; dimension++)
+                query[dimension] = (float)(random.NextDouble() * 2d - 1d);
+
+            var exact = s_vectors
+                .Select((vector, docId) => new ExactHit(
+                    docId,
+                    VectorQuery.CosineSimilarity(vector, query)))
+                .OrderByDescending(hit => hit.Score)
+                .ThenBy(hit => hit.DocId)
+                .Take(TopK)
+                .ToArray();
+            var actual = s_searcher.Search(
+                new VectorQuery(FieldName, query, topK: TopK, efSearch: 64),
+                TopK).ScoreDocs;
+            var exactRanks = exact
+                .Select((hit, rank) => (hit.DocId, Rank: rank + 1, hit.Score))
+                .ToDictionary(hit => hit.DocId);
+            int overlap = 0;
+            foreach (var actualHit in actual)
+            {
+                if (!exactRanks.TryGetValue(actualHit.DocId, out var exactHit))
+                    continue;
+                overlap++;
+                reciprocalRankAgreement += 1d / exactHit.Rank;
+                absoluteScoreError += Math.Abs(actualHit.Score - exactHit.Score);
+                scoredHits++;
+            }
+            recallAt10 += (double)overlap / TopK;
+
+            if (Quantisation == VectorQuantisation.ProductQuantisation)
+            {
+                // This is an exhaustive scan over the reconstructed PQ codebooks. It removes
+                // graph traversal from the measurement, leaving codebook distortion and final
+                // quantised scoring as the only quality loss.
+                int[] codebookTop = FindTopKByCosine(s_productQuantisedVectors, query, TopK);
+                codebookRecallAt10 += RecallAtTopK(exactRanks, codebookTop);
+
+                var highEf = s_searcher.Search(
+                    new VectorQuery(FieldName, query, topK: TopK, efSearch: 512), TopK).ScoreDocs;
+                highEfRecallAt10 += RecallAtTopK(exactRanks, highEf.Select(hit => hit.DocId));
+            }
+        }
+
+        var artefact = new VectorQuantisationGateArtefact(
+            DocCount,
+            Dimension,
+            Quantisation.ToString(),
+            queryCount,
+            recallAt10 / queryCount,
+            reciprocalRankAgreement / queryCount,
+            scoredHits == 0 ? 0d : absoluteScoreError / scoredHits,
+            s_indexBytes,
+            s_buildElapsed.TotalMilliseconds,
+            Quantisation == VectorQuantisation.ProductQuantisation
+                ? codebookRecallAt10 / queryCount
+                : null,
+            Quantisation == VectorQuantisation.ProductQuantisation
+                ? highEfRecallAt10 / queryCount
+                : null);
+        string fileName = $"vector-quantisation-gate-{DocCount}-{Dimension}-{Quantisation}.json";
+        File.WriteAllText(
+            Path.Combine(runDirectory, fileName),
+            JsonSerializer.Serialize(artefact, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private readonly record struct ExactHit(int DocId, float Score);
+
+    private static float[][] ReadProductQuantisedVectors(LeanIndexSearcher searcher, int documentCount)
+    {
+        var vectors = new float[documentCount][];
+        foreach (var reader in searcher.GetSegmentReaders())
+        {
+            for (int docId = 0; docId < reader.MaxDoc; docId++)
+            {
+                float[]? vector = reader.GetVector(FieldName, docId);
+                if (vector is not null)
+                    vectors[reader.DocBase + docId] = vector;
+            }
+        }
+        return vectors;
+    }
+
+    private static int[] FindTopKByCosine(float[][] vectors, ReadOnlySpan<float> query, int topK)
+    {
+        var heap = new PriorityQueue<int, float>(topK);
+        for (int docId = 0; docId < vectors.Length; docId++)
+        {
+            float[]? vector = vectors[docId];
+            if (vector is null)
+                continue;
+            float score = VectorQuery.CosineSimilarity(vector, query);
+            if (heap.Count < topK)
+            {
+                heap.Enqueue(docId, score);
+            }
+            else if (heap.TryPeek(out _, out float minimumScore) && score > minimumScore)
+            {
+                heap.Dequeue();
+                heap.Enqueue(docId, score);
+            }
+        }
+        return heap.UnorderedItems.Select(item => item.Element).ToArray();
+    }
+
+    private static double RecallAtTopK(
+        IReadOnlyDictionary<int, (int DocId, int Rank, float Score)> exactRanks,
+        IEnumerable<int> actualDocIds)
+    {
+        int matches = actualDocIds.Count(exactRanks.ContainsKey);
+        return (double)matches / TopK;
+    }
+
+    private sealed record VectorQuantisationGateArtefact(
+        int DocumentCount,
+        int Dimension,
+        string Quantisation,
+        int QueryCount,
+        double RecallAt10,
+        double ReciprocalRankAgreementAt10,
+        double MeanAbsoluteReturnedScoreError,
+        long IndexBytes,
+        double BuildMilliseconds,
+        double? ExhaustiveCodebookRecallAt10,
+        double? HnswEf512RecallAt10);
 
     [GlobalCleanup]
     public void Cleanup()

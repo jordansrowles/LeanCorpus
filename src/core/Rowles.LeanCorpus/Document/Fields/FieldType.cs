@@ -21,6 +21,9 @@ public enum FieldType
     /// <summary>Dense float vector for semantic search.</summary>
     Vector,
 
+    /// <summary>Multiple dense token vectors for late-interaction retrieval.</summary>
+    MultiVector,
+
     /// <summary>Stored-only value, not included in the inverted index.</summary>
     Stored
 }

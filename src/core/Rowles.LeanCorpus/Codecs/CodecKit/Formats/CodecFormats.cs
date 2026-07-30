@@ -51,8 +51,23 @@ internal static class CodecFormats
             new CodecVersionStep(4, "pos-v4", Codec.BytesOwnedRemaining())
         ]));
 
+        // Vector formats gained sparse document-to-ordinal maps in v2. HNSW v2
+        // persists the similarity function used to construct the graph.
+        foreach (var ext in new[] { "hnsw", "vec" })
+            reg.Register(new CodecFormat(ext, [
+                new CodecVersionStep(1, $"{ext}-v1", Codec.BytesOwnedRemaining()),
+                new CodecVersionStep(2, $"{ext}-v2", Codec.BytesOwnedRemaining())
+            ]));
+
+        // Quantised vectors v3 adds int4, product-quantised, and RaBitQ payloads.
+        reg.Register(new CodecFormat("qvec", [
+            new CodecVersionStep(1, "qvec-v1", Codec.BytesOwnedRemaining()),
+            new CodecVersionStep(2, "qvec-v2", Codec.BytesOwnedRemaining()),
+            new CodecVersionStep(3, "qvec-v3", Codec.BytesOwnedRemaining())
+        ]));
+
         // All other formats are at v1.
-        foreach (var ext in new[] { "fln","ndv","sdv","bdv","ssdv","sndv","tim","hnsw","vec","qvec","bkd","rbm","ldv","lsdv","lbkd" })
+        foreach (var ext in new[] { "fln","ndv","sdv","bdv","ssdv","sndv","tim","bkd","rbm","ldv","lsdv","lbkd" })
             reg.Register(new CodecFormat(ext, [
                 new CodecVersionStep(1, $"{ext}-v1", Codec.BytesOwnedRemaining())
             ]));

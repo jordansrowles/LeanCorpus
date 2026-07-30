@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Rowles.LeanCorpus.Benchmarks.FuzzyQueryBenchmarks-20260728-224622</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.16.0-nightly.20260427.506, Linux Debian GNU/Linux 13 (trixie)
+Intel Xeon CPU E3-1220 V2 3.10GHz (Max: 3.26GHz), 1 CPU, 4 logical and 4 physical cores
+Memory: 23.45 GB Total, 1 GB Available
+.NET SDK 11.0.100-preview.1.26104.118
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+  DefaultJob : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+</code></pre>
+<pre><code></code></pre>
+
+<table>
+<thead><tr><th>Method         </th><th>Scenario     </th><th>DocumentCount</th><th>Mean   </th><th>Error</th><th>StdDev</th><th>Ratio</th><th>RatioSD</th><th>Gen0</th><th>Gen1</th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>LeanCorpus_FuzzyQuery</td><td>long-edit1-common</td><td>100000</td><td>60.918 μs</td><td>0.5212 μs</td><td>0.4875 μs</td><td>1.00</td><td>0.00</td><td>0.3662</td><td>-</td><td>1.61 KB</td><td>1.00</td>
+</tr><tr><td>LuceneNet_FuzzyQuery</td><td>long-edit1-common</td><td>100000</td><td>1,012.451 μs</td><td>8.8201 μs</td><td>8.2503 μs</td><td>16.62</td><td>0.18</td><td>78.1250</td><td>1.9531</td><td>326.49 KB</td><td>202.87</td>
+</tr><tr><td>LeanCorpus_FuzzyQuery</td><td>medium-edit1-common</td><td>100000</td><td>148.372 μs</td><td>0.8762 μs</td><td>0.8196 μs</td><td>1.00</td><td>0.00</td><td>0.4883</td><td>-</td><td>2.39 KB</td><td>1.00</td>
+</tr><tr><td>LuceneNet_FuzzyQuery</td><td>medium-edit1-common</td><td>100000</td><td>1,395.695 μs</td><td>9.7289 μs</td><td>9.1004 μs</td><td>9.41</td><td>0.08</td><td>242.1875</td><td>5.8594</td><td>991.89 KB</td><td>414.91</td>
+</tr><tr><td>LeanCorpus_FuzzyQuery</td><td>medium-edit2-common</td><td>100000</td><td>216.795 μs</td><td>1.1462 μs</td><td>1.0721 μs</td><td>1.00</td><td>0.00</td><td>0.7324</td><td>-</td><td>3.76 KB</td><td>1.00</td>
+</tr><tr><td>LuceneNet_FuzzyQuery</td><td>medium-edit2-common</td><td>100000</td><td>10,605.651 μs</td><td>42.6616 μs</td><td>39.9056 μs</td><td>48.92</td><td>0.30</td><td>500.0000</td><td>156.2500</td><td>2381.52 KB</td><td>633.75</td>
+</tr><tr><td>LeanCorpus_FuzzyQuery</td><td>nohit-edit2</td><td>100000</td><td>1.570 μs</td><td>0.0089 μs</td><td>0.0083 μs</td><td>1.00</td><td>0.00</td><td>0.2823</td><td>-</td><td>1.16 KB</td><td>1.00</td>
+</tr><tr><td>LuceneNet_FuzzyQuery</td><td>nohit-edit2</td><td>100000</td><td>6,600.960 μs</td><td>33.1534 μs</td><td>31.0117 μs</td><td>4,203.63</td><td>28.88</td><td>523.4375</td><td>226.5625</td><td>2511.04 KB</td><td>2,171.71</td>
+</tr><tr><td>LeanCorpus_FuzzyQuery</td><td>short-edit1-common</td><td>100000</td><td>519.933 μs</td><td>1.7540 μs</td><td>1.6407 μs</td><td>1.00</td><td>0.00</td><td>0.9766</td><td>-</td><td>6.73 KB</td><td>1.00</td>
+</tr><tr><td>LuceneNet_FuzzyQuery</td><td>short-edit1-common</td><td>100000</td><td>2,293.314 μs</td><td>17.6525 μs</td><td>16.5121 μs</td><td>4.41</td><td>0.03</td><td>296.8750</td><td>15.6250</td><td>1247.33 KB</td><td>185.43</td>
+</tr></tbody></table>
+</body>
+</html>

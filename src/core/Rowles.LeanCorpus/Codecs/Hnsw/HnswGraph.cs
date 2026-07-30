@@ -25,11 +25,14 @@ internal sealed class HnswGraph
     private readonly IVectorSource _vectors;
     private readonly Random _rng;
     private readonly double _levelMultiplier;
+    private readonly VectorSimilarityFunction _similarity;
+    private readonly bool _normalised;
 
     // Quantisation dispatch: set based on the IVectorSource type.
     private readonly VectorQuantisation _vectorQuantisation;
     private readonly IBBQVectorSource? _bbqSource;
     private readonly IInt8VectorSource? _int8Source;
+    private readonly IProductQuantisedVectorSource? _productSource;
 
     // Layer 0 is the base; index increases with sparsity.
     private List<Dictionary<int, List<int>>> _mutableLevels;
@@ -62,11 +65,22 @@ internal sealed class HnswGraph
     /// <summary>Seed used by the random number generator. Persisted to the .hnsw file for reproducibility.</summary>
     public long Seed { get; }
 
+    /// <summary>Similarity function used to build and search the graph.</summary>
+    public VectorSimilarityFunction Similarity => _similarity;
+
+    /// <summary>Whether stored vectors were normalised before graph construction.</summary>
+    public bool Normalised => _normalised;
+
     /// <summary>True once <see cref="Freeze"/> has been called; mutation is prohibited and search is thread-safe.</summary>
     public bool IsReadOnly => _frozenLevels is not null;
 
-    public HnswGraph(IVectorSource vectors, HnswBuildConfig config, long seed)
-        : this(vectors, config, seed, frozen: false)
+    public HnswGraph(
+        IVectorSource vectors,
+        HnswBuildConfig config,
+        long seed,
+        VectorSimilarityFunction similarity = VectorSimilarityFunction.Cosine,
+        bool normalised = true)
+        : this(vectors, config, seed, frozen: false, similarity, normalised)
     {
         _mutableLevels = [new Dictionary<int, List<int>>()];
     }
@@ -82,11 +96,13 @@ internal sealed class HnswGraph
         List<FrozenLevel> levels,
         int entryPoint,
         int maxLevel,
-        int nodeCount)
+        int nodeCount,
+        VectorSimilarityFunction similarity,
+        bool normalised)
     {
         // Use the frozen constructor to skip allocating a mutable dictionary that would
         // never be used: every accessor already checks _frozenLevels before _mutableLevels.
-        return new HnswGraph(vectors, config, seed, frozen: true)
+        return new HnswGraph(vectors, config, seed, frozen: true, similarity, normalised)
         {
             EntryPoint = entryPoint,
             MaxLevel = maxLevel,
@@ -95,7 +111,13 @@ internal sealed class HnswGraph
         };
     }
 
-    private HnswGraph(IVectorSource vectors, HnswBuildConfig config, long seed, bool frozen)
+    private HnswGraph(
+        IVectorSource vectors,
+        HnswBuildConfig config,
+        long seed,
+        bool frozen,
+        VectorSimilarityFunction similarity,
+        bool normalised)
     {
         ArgumentNullException.ThrowIfNull(vectors);
         ArgumentNullException.ThrowIfNull(config);
@@ -107,6 +129,8 @@ internal sealed class HnswGraph
         M0 = config.EffectiveM0;
         EfConstruction = config.EfConstruction;
         Seed = seed;
+        _similarity = similarity;
+        _normalised = normalised;
         _rng = new Random(unchecked((int)seed));
         _levelMultiplier = 1.0 / Math.Log(M);
         _mutableLevels = [];
@@ -118,6 +142,8 @@ internal sealed class HnswGraph
                 _bbqSource = qvs;
             else if (qvs.Quantisation == VectorQuantisation.Int8)
                 _int8Source = qvs;
+            else if (qvs.Quantisation == VectorQuantisation.ProductQuantisation)
+                _productSource = qvs;
         }
         else if (vectors is BBQMemoryVectorSource bbqMem)
         {
@@ -197,15 +223,27 @@ internal sealed class HnswGraph
         EnsureLevels(newLevel);
 
         // Greedy descent from the entry point through any layers above the new node's level.
+        using ProductQuantisationQuery? productQuery =
+            _productSource?.PrepareQuery(query, _similarity, _normalised);
         int currentEntry = EntryPoint;
         for (int l = MaxLevel; l > newLevel; l--)
-            currentEntry = GreedyDescent(query, currentEntry, l);
+            currentEntry = GreedyDescent(query, productQuery, currentEntry, l);
 
         // For layers from min(MaxLevel, newLevel) down to 0, run efConstruction-search and connect.
         var entryPoints = new List<int> { currentEntry };
         for (int l = Math.Min(MaxLevel, newLevel); l >= 0; l--)
         {
-            var candidates = SearchLayer(query, entryPoints, EfConstruction, l, allowList: null, out _);
+            var candidates = SearchLayer(
+                query,
+                productQuery,
+                entryPoints,
+                EfConstruction,
+                l,
+                allowList: null,
+                int.MaxValue,
+                maxFilterExpansion: 0,
+                out _,
+                out _);
             // candidates is in arbitrary order; convert to a sorted distance ascending list for selection.
             var sorted = SortAscByDistance(candidates);
             int degree = LevelDegree(l);
@@ -264,30 +302,50 @@ internal sealed class HnswGraph
         if (NodeCount == 0 || EntryPoint == NoEntryPoint)
             return Array.Empty<HnswSearchResult>();
 
+        using ProductQuantisationQuery? productQuery =
+            _productSource?.PrepareQuery(query, _similarity, _normalised);
         int currentEntry = EntryPoint;
         int layersDescended = 0;
         for (int l = MaxLevel; l > 0; l--)
         {
-            currentEntry = GreedyDescent(query, currentEntry, l);
+            currentEntry = GreedyDescent(query, productQuery, currentEntry, l);
             layersDescended++;
         }
 
         int ef = Math.Max(1, options.Ef);
         int retriesLeft = options.MaxPostFilterRetries;
+        int initialRetries = retriesLeft;
         IReadOnlyList<HnswSearchResult> results;
         int totalVisited = 0;
+        bool budgetExhausted = false;
+        int remainingVisitBudget = options.MaxVisitedNodes > 0
+            ? options.MaxVisitedNodes
+            : int.MaxValue;
+        IReadOnlyList<int> entryPoints = BuildSearchEntryPoints(currentEntry, options.EntryPoints);
 
         while (true)
         {
-            var raw = SearchLayer(query, [currentEntry], ef, level: 0, options.AllowList, out int visitedThisIteration);
+            var raw = SearchLayer(
+                query,
+                productQuery,
+                entryPoints,
+                ef,
+                level: 0,
+                options.AllowList,
+                remainingVisitBudget,
+                options.MaxFilterExpansion,
+                out int visitedThisIteration,
+                out bool exhaustedThisIteration);
             totalVisited += visitedThisIteration;
+            remainingVisitBudget = Math.Max(0, remainingVisitBudget - visitedThisIteration);
+            budgetExhausted |= exhaustedThisIteration;
             var ranked = SortAscByDistance(raw);
             var filtered = options.PostFilterMask is null
                 ? ranked
                 : ranked.Where(r => options.PostFilterMask.Contains(r.DocId)).ToList();
 
             int target = options.TopK > 0 ? options.TopK : filtered.Count;
-            if (filtered.Count >= target || retriesLeft <= 0 || options.PostFilterMask is null)
+            if (filtered.Count >= target || retriesLeft <= 0 || options.PostFilterMask is null || budgetExhausted)
             {
                 results = filtered
                     .Take(options.TopK > 0 ? options.TopK : filtered.Count)
@@ -300,8 +358,30 @@ internal sealed class HnswGraph
             retriesLeft--;
         }
 
-        stats = new HnswSearchStats(totalVisited, layersDescended);
+        stats = new HnswSearchStats(
+            totalVisited,
+            layersDescended,
+            initialRetries - retriesLeft,
+            budgetExhausted);
         return results;
+    }
+
+    private IReadOnlyList<int> BuildSearchEntryPoints(
+        int currentEntry,
+        IReadOnlyList<int>? additionalEntryPoints)
+    {
+        if (additionalEntryPoints is null || additionalEntryPoints.Count == 0)
+            return [currentEntry];
+
+        var entries = new List<int>(additionalEntryPoints.Count + 1);
+        foreach (int candidate in additionalEntryPoints)
+        {
+            if (ContainsNode(candidate) && !entries.Contains(candidate))
+                entries.Add(candidate);
+        }
+        if (!entries.Contains(currentEntry))
+            entries.Add(currentEntry);
+        return entries;
     }
 
     /// <summary>Returns the neighbours of a node at a given layer. Used by the writer.</summary>
@@ -341,17 +421,21 @@ internal sealed class HnswGraph
     private int LevelDegree(int level) => level == 0 ? M0 : M;
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private int GreedyDescent(ReadOnlySpan<float> query, int entry, int level)
+    private int GreedyDescent(
+        ReadOnlySpan<float> query,
+        ProductQuantisationQuery? productQuery,
+        int entry,
+        int level)
     {
         int current = entry;
-        float currentDist = QueryDistance(query, current);
+        float currentDist = QueryDistance(query, productQuery, current);
         bool improved;
         do
         {
             improved = false;
             foreach (var n in NeighboursAt(current, level))
             {
-                float d = QueryDistance(query, n);
+                float d = QueryDistance(query, productQuery, n);
                 if (d < currentDist)
                 {
                     currentDist = d;
@@ -376,22 +460,33 @@ internal sealed class HnswGraph
     /// </summary>
     private List<(int DocId, float Distance)> SearchLayer(
         ReadOnlySpan<float> query,
+        ProductQuantisationQuery? productQuery,
         IReadOnlyList<int> entryPoints,
         int ef,
         int level,
         IBitSet? allowList,
-        out int nodesVisited)
+        int maxNodesVisited,
+        int maxFilterExpansion,
+        out int nodesVisited,
+        out bool budgetExhausted)
     {
         using var scratch = HnswSearchScratch.Borrow();
         var visited = scratch.Visited;
         var frontier = scratch.Frontier;
         var results = scratch.Results;
+        budgetExhausted = false;
+        int remainingFilterExpansion = Math.Max(0, maxFilterExpansion);
 
         foreach (var ep in entryPoints)
         {
+            if (visited.Count >= maxNodesVisited)
+            {
+                budgetExhausted = true;
+                break;
+            }
             if (visited.Add(ep))
             {
-                float d = QueryDistance(query, ep);
+                float d = QueryDistance(query, productQuery, ep);
                 frontier.Enqueue(ep, d);
                 if (allowList is null || allowList.Contains(ep))
                 {
@@ -411,13 +506,24 @@ internal sealed class HnswGraph
 
             foreach (var neighbour in NeighboursAt(current, level))
             {
+                if (visited.Count >= maxNodesVisited)
+                {
+                    budgetExhausted = true;
+                    break;
+                }
                 if (!visited.Add(neighbour)) continue;
 
-                float d = QueryDistance(query, neighbour);
+                float d = QueryDistance(query, productQuery, neighbour);
                 bool resultsFull = results.Count >= ef;
                 bool eligibleForResults = allowList is null || allowList.Contains(neighbour);
+                bool competitiveForTraversal =
+                    !resultsFull ||
+                    !results.TryPeek(out _, out float currentWorst) ||
+                    d < currentWorst;
 
-                if (!resultsFull || (eligibleForResults && results.TryPeek(out _, out float currentWorst) && d < currentWorst))
+                // Eligibility controls collection, not connectivity. Rejected nodes can
+                // still be the only bridge to competitive eligible neighbours.
+                if (competitiveForTraversal)
                 {
                     frontier.Enqueue(neighbour, d);
                     if (eligibleForResults)
@@ -426,7 +532,43 @@ internal sealed class HnswGraph
                         if (results.Count > ef) results.Dequeue();
                     }
                 }
+                else if (allowList is not null && !eligibleForResults && remainingFilterExpansion > 0)
+                {
+                    // ACORN-style bounded second-hop exploration. A rejected bridge
+                    // may reach an eligible document even when it cannot improve the
+                    // current frontier on its own.
+                    foreach (var secondHop in NeighboursAt(neighbour, level))
+                    {
+                        if (remainingFilterExpansion-- <= 0)
+                            break;
+                        if (visited.Count >= maxNodesVisited)
+                        {
+                            budgetExhausted = true;
+                            break;
+                        }
+                        if (!visited.Add(secondHop))
+                            continue;
+
+                        float secondHopDistance = QueryDistance(query, productQuery, secondHop);
+                        bool secondHopEligible = allowList.Contains(secondHop);
+                        bool secondHopCompetitive =
+                            !resultsFull ||
+                            !results.TryPeek(out _, out float secondHopWorst) ||
+                            secondHopDistance < secondHopWorst;
+                        if (!secondHopCompetitive)
+                            continue;
+
+                        frontier.Enqueue(secondHop, secondHopDistance);
+                        if (secondHopEligible)
+                        {
+                            results.Enqueue(secondHop, secondHopDistance);
+                            if (results.Count > ef) results.Dequeue();
+                        }
+                    }
+                }
             }
+            if (budgetExhausted)
+                break;
         }
 
         var output = new List<(int DocId, float Distance)>(results.Count);
@@ -483,19 +625,32 @@ internal sealed class HnswGraph
     /// For all other quantisation modes, dequantises (if needed) and uses dot product.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private float QueryDistance(ReadOnlySpan<float> query, int docId)
+    private float QueryDistance(
+        ReadOnlySpan<float> query,
+        ProductQuantisationQuery? productQuery,
+        int docId)
     {
-        if (_vectorQuantisation == VectorQuantisation.BBQ && _bbqSource is not null)
+        if (_vectorQuantisation == VectorQuantisation.BBQ &&
+            _bbqSource is not null &&
+            (_similarity is VectorSimilarityFunction.Cosine or
+                VectorSimilarityFunction.DotProduct or
+                VectorSimilarityFunction.MaximumInnerProduct or
+                VectorSimilarityFunction.Hamming))
         {
             var bits = _bbqSource.GetRawVector(docId);
             return BBQDistanceComputer.Distance(query, _bbqSource.Centroid, bits, _vectors.Dimension);
         }
-        if (_vectorQuantisation == VectorQuantisation.Int8 && _int8Source is not null)
+        if (_vectorQuantisation == VectorQuantisation.Int8 &&
+            _int8Source is not null &&
+            (_normalised || _similarity is not VectorSimilarityFunction.Cosine) &&
+            _similarity is not VectorSimilarityFunction.Euclidean)
         {
             var raw = _int8Source.GetRawVector(docId);
             return Int8DistanceComputer.Distance(query, raw, _int8Source.Min, _int8Source.Alpha);
         }
-        return -VectorMath.DotProduct(query, _vectors.GetVector(docId));
+        if (productQuery is not null)
+            return productQuery.DistanceTo(docId);
+        return FloatDistance(query, _vectors.GetVector(docId));
     }
 
     /// <summary>
@@ -504,11 +659,15 @@ internal sealed class HnswGraph
     /// quantisation-aware metrics (BBQ Hamming, Int8 fused) for correct graph topology.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float Distance(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
+    private float FloatDistance(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
     {
-        // Vectors are expected to be L2-normalised; dot product then equals cosine similarity.
-        // Convert to a distance where smaller is better.
-        return -VectorMath.DotProduct(a, b);
+        return _similarity switch
+        {
+            VectorSimilarityFunction.Cosine when !_normalised => -CosineSimilarity(a, b),
+            VectorSimilarityFunction.Euclidean => SquaredDistance(a, b),
+            VectorSimilarityFunction.Hamming => HammingDistance(a, b),
+            _ => -VectorMath.DotProduct(a, b),
+        };
     }
 
     /// <summary>
@@ -520,16 +679,59 @@ internal sealed class HnswGraph
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private float StoredDistance(int docIdA, int docIdB)
     {
-        if (_vectorQuantisation == VectorQuantisation.BBQ && _bbqSource is not null)
+        if (_vectorQuantisation == VectorQuantisation.BBQ &&
+            _bbqSource is not null &&
+            (_similarity is VectorSimilarityFunction.Cosine or
+                VectorSimilarityFunction.DotProduct or
+                VectorSimilarityFunction.MaximumInnerProduct or
+                VectorSimilarityFunction.Hamming))
         {
             var bitsA = _bbqSource.GetRawVector(docIdA);
             var bitsB = _bbqSource.GetRawVector(docIdB);
             return BBQDistanceComputer.Distance(bitsA, bitsB, _vectors.Dimension);
         }
-        // Int8 and unquantised: dequantised dot product is correct (same metric as search).
+        if (_productSource is not null)
+            return _productSource.StoredDistance(docIdA, docIdB, _similarity, _normalised);
         var a = _vectors.GetVector(docIdA);
         var b = _vectors.GetVector(docIdB);
-        return -VectorMath.DotProduct(a, b);
+        return FloatDistance(a, b);
+    }
+
+    private static float CosineSimilarity(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
+    {
+        float dot = 0f;
+        float normA = 0f;
+        float normB = 0f;
+        for (int i = 0; i < a.Length; i++)
+        {
+            dot += a[i] * b[i];
+            normA += a[i] * a[i];
+            normB += b[i] * b[i];
+        }
+        float denominator = MathF.Sqrt(normA * normB);
+        return denominator > 0f ? dot / denominator : 0f;
+    }
+
+    private static float SquaredDistance(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
+    {
+        float distance = 0f;
+        for (int i = 0; i < a.Length; i++)
+        {
+            float delta = a[i] - b[i];
+            distance += delta * delta;
+        }
+        return distance;
+    }
+
+    private static float HammingDistance(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
+    {
+        int distance = 0;
+        for (int i = 0; i < a.Length; i++)
+        {
+            if (a[i] != b[i])
+                distance++;
+        }
+        return distance;
     }
 
     /// <summary>

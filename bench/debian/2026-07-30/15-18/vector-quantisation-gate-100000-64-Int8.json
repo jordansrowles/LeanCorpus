@@ -1,0 +1,13 @@
+{
+  "DocumentCount": 100000,
+  "Dimension": 64,
+  "Quantisation": "Int8",
+  "QueryCount": 16,
+  "RecallAt10": 0.9375000000000001,
+  "ReciprocalRankAgreementAt10": 2.809449404761908,
+  "MeanAbsoluteReturnedScoreError": 0.00036648968855539955,
+  "IndexBytes": 21718962,
+  "BuildMilliseconds": 261238.038,
+  "ExhaustiveCodebookRecallAt10": null,
+  "HnswEf512RecallAt10": null
+}

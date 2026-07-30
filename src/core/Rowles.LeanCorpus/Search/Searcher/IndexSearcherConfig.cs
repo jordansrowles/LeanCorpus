@@ -50,6 +50,12 @@ public sealed class IndexSearcherConfig
     public int MaxCachedSegmentReaders { get; set; } = 256;
 
     /// <summary>
+    /// Maximum immutable per-segment filter docsets retained for vector planning.
+    /// A new searcher generation owns a new cache. Default: 512.
+    /// </summary>
+    public int MaxCachedFilterDocSets { get; set; } = 512;
+
+    /// <summary>
     /// Optional shared query cache. When set, <see cref="IndexSearcher"/> uses this
     /// cache instead of creating a per-instance one. <see cref="SearcherManager"/>
     /// sets this to persist the cache across searcher refreshes.

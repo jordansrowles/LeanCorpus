@@ -189,8 +189,30 @@ public sealed class SearchOptionsTests : IClassFixture<TestDirectoryFixture>
         var opts = new SearchOptions { CancellationToken = cts.Token };
 
         var result = searcher.Search(query, topN: 10, opts);
+        var execution = searcher.SearchWithDiagnostics(query, topN: 10, opts);
 
         Assert.True(result.IsPartial);
+        Assert.True(execution.Results.IsPartial);
+        Assert.Equal(
+            SearchCompletionState.Cancelled,
+            execution.Diagnostics.Completion);
+    }
+
+    [Fact(DisplayName = "Search diagnostics: Reports exhausted timeout budget")]
+    public void SearchDiagnostics_WithExpiredTimeout_ReportsBudgetExhausted()
+    {
+        var dir = IndexSampleDocs("opts_diagnostics_timeout", 20);
+        using var searcher = new IndexSearcher(dir);
+
+        var execution = searcher.SearchWithDiagnostics(
+            new TermQuery("body", "term1"),
+            topN: 10,
+            SearchOptions.WithTimeout(TimeSpan.Zero));
+
+        Assert.True(execution.Results.IsPartial);
+        Assert.Equal(
+            SearchCompletionState.BudgetExhausted,
+            execution.Diagnostics.Completion);
     }
 
     /// <summary>

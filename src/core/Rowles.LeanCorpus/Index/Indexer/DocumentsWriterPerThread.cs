@@ -238,6 +238,27 @@ internal sealed class DocumentsWriterPerThread
                     TrackFieldBoost(vf.Name, localDocId, vf.Boost);
                     IndexVectorField(vf.Name, vf.Value, localDocId);
                     break;
+                case ByteVectorField bvf:
+                    TrackFieldBoost(bvf.Name, localDocId, bvf.Boost);
+                    IndexVectorField(bvf.Name, bvf.ToFloat32(), localDocId);
+                    break;
+                case SparseImpactField sparse:
+                    TrackFieldBoost(sparse.Name, localDocId, sparse.Boost);
+                    AppendStored(
+                        sparse.Name,
+                        StoredFieldValue.FromBinary(sparse.Encode()),
+                        storeDocValues: true);
+                    _estimatedRamBytes += sparse.Impacts.Count * 24L + 64;
+                    break;
+                case MultiVectorField multiVector:
+                    TrackFieldBoost(multiVector.Name, localDocId, multiVector.Boost);
+                    byte[] multiVectorPayload = multiVector.Encode();
+                    AppendStored(
+                        multiVector.Name,
+                        StoredFieldValue.FromBinary(multiVectorPayload),
+                        storeDocValues: true);
+                    _estimatedRamBytes += multiVectorPayload.Length + 64;
+                    break;
                 case GeoPointField gf:
                     TrackFieldBoost(gf.Name, localDocId, gf.Boost);
                     IndexNumericField(gf.LatFieldName, gf.Latitude, localDocId, gf.StoreDocValues);

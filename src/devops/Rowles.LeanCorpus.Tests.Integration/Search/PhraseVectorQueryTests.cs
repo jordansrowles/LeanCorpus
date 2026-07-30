@@ -124,11 +124,11 @@ public sealed class PhraseVectorQueryTests
         Assert.Equal(200, q.EfSearch);
     }
 
-    [Fact(DisplayName = "VectorQuery: OversamplingFactor Clamped To At Least 1")]
-    public void VectorQuery_OversamplingFactor_ClampedToOne()
+    [Fact(DisplayName = "VectorQuery: OversamplingFactor Must Be Positive")]
+    public void VectorQuery_OversamplingFactor_MustBePositive()
     {
-        var q = new VectorQuery("vec", [1f, 0f], oversamplingFactor: -3);
-        Assert.Equal(1, q.OversamplingFactor);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new VectorQuery("vec", [1f, 0f], oversamplingFactor: -3));
     }
 
     [Fact(DisplayName = "VectorQuery: OversamplingFactor Preserved When Positive")]
@@ -144,6 +144,49 @@ public sealed class PhraseVectorQueryTests
         var filter = new TermQuery("status", "active");
         var q = new VectorQuery("vec", [1f, 0f], filter: filter);
         Assert.Same(filter, q.Filter);
+    }
+
+    [Theory(DisplayName = "VectorQuery: Constructor Rejects Invalid Contracts")]
+    [InlineData(0, 1, 0)]
+    [InlineData(-1, 1, 0)]
+    [InlineData(1, 0, 0)]
+    [InlineData(1, 1, -1)]
+    public void VectorQuery_Constructor_RejectsInvalidNumericContracts(
+        int topK,
+        int oversamplingFactor,
+        int efSearch)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new VectorQuery("vec", [1f], topK, efSearch, oversamplingFactor));
+    }
+
+    [Fact(DisplayName = "VectorQuery: Constructor Rejects Missing And Invalid Vectors")]
+    public void VectorQuery_Constructor_RejectsMissingAndInvalidVectors()
+    {
+        Assert.Throws<ArgumentNullException>(() => new VectorQuery("vec", null!));
+        Assert.Throws<ArgumentException>(() => new VectorQuery("vec", []));
+        Assert.Throws<ArgumentException>(() => new VectorQuery("vec", [float.NaN]));
+        Assert.Throws<ArgumentException>(() => new VectorQuery("vec", [float.PositiveInfinity]));
+    }
+
+    [Fact(DisplayName = "VectorQuery: Constructor Snapshots Query Vector")]
+    public void VectorQuery_Constructor_SnapshotsQueryVector()
+    {
+        float[] source = [1f, 2f];
+        var query = new VectorQuery("vec", source);
+
+        source[0] = 99f;
+
+        Assert.Equal([1f, 2f], query.QueryVector);
+    }
+
+    [Fact(DisplayName = "VectorQuery: Constructor Rejects Candidate Count Overflow")]
+    public void VectorQuery_Constructor_RejectsCandidateCountOverflow()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new VectorQuery("vec", [1f], topK: int.MaxValue, efSearch: 1, oversamplingFactor: 2));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new VectorQuery("vec", [1f], topK: int.MaxValue, efSearch: 0));
     }
 
     [Fact(DisplayName = "VectorQuery: Equal When Same Field TopK And Vector")]
@@ -163,11 +206,51 @@ public sealed class PhraseVectorQueryTests
         Assert.NotEqual(a, b);
     }
 
+    [Fact(DisplayName = "VectorQuery: Result Affecting Options Participate In Equality")]
+    public void VectorQuery_ResultAffectingOptions_ParticipateInEquality()
+    {
+        var baseline = new VectorQuery("vec", [1f, 2f], topK: 5, efSearch: 100, oversamplingFactor: 2);
+
+        Assert.NotEqual(baseline, new VectorQuery("vec", [1f, 2f], topK: 5, efSearch: 101, oversamplingFactor: 2));
+        Assert.NotEqual(baseline, new VectorQuery("vec", [1f, 2f], topK: 5, efSearch: 100, oversamplingFactor: 3));
+        Assert.NotEqual(
+            baseline,
+            new VectorQuery(
+                "vec",
+                [1f, 2f],
+                topK: 5,
+                efSearch: 100,
+                oversamplingFactor: 2,
+                filter: new TermQuery("status", "active")));
+    }
+
     [Fact(DisplayName = "VectorQuery: Not Equal To Null")]
     public void VectorQuery_NotEqualToNull()
     {
         var q = new VectorQuery("vec", [1f]);
         Assert.False(q.Equals((object?)null));
+    }
+
+    [Fact(DisplayName = "VectorSimilarityQuery: Captures threshold and hard cap")]
+    public void VectorSimilarityQuery_CapturesThresholdAndHardCap()
+    {
+        var query = new VectorSimilarityQuery("vec", [1f, 0f], 0.75f, maxResults: 25);
+
+        Assert.Equal(0.75f, query.MinimumSimilarity);
+        Assert.Equal(25, query.TopK);
+        Assert.NotEqual(query, new VectorQuery("vec", [1f, 0f], topK: 25));
+        Assert.NotEqual(
+            query,
+            new VectorSimilarityQuery("vec", [1f, 0f], 0.8f, maxResults: 25));
+    }
+
+    [Fact(DisplayName = "VectorSimilarityQuery: Rejects non-finite threshold")]
+    public void VectorSimilarityQuery_RejectsNonFiniteThreshold()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new VectorSimilarityQuery("vec", [1f], float.NaN));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new VectorSimilarityQuery("vec", [1f], float.PositiveInfinity));
     }
 
     // ── VectorQuery.CosineSimilarity ──────────────────────────────────────────

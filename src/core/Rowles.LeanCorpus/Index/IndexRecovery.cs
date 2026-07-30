@@ -202,6 +202,12 @@ public static class IndexRecovery
                     ? Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, vf.FieldName)
                     : Codecs.Vectors.VectorFilePaths.VectorFile(basePath, vf.FieldName);
                 if (!FileOpenRetry.FileExists(vecPath)) return false;
+                if (vf.RetainsFullPrecision)
+                {
+                    var fullPrecisionPath =
+                        Codecs.Vectors.VectorFilePaths.VectorFile(basePath, vf.FieldName);
+                    if (!FileOpenRetry.FileExists(fullPrecisionPath)) return false;
+                }
                 if (vf.HasHnsw)
                 {
                     var hnswPath = Codecs.Vectors.VectorFilePaths.HnswFile(basePath, vf.FieldName);

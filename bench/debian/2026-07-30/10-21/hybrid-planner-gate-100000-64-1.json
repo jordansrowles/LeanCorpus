@@ -1,0 +1,9 @@
+{
+  "DocumentCount": 100000,
+  "Dimension": 64,
+  "FilterPercentage": 1,
+  "Strategy": "Cosine similarity for field \u0027emb\u0027; strategy: exact filtered scan (cost planned)",
+  "RecallAt10": 1,
+  "SparseSeedCandidateLimit": 32,
+  "TotalFusionCandidateWindow": 64
+}

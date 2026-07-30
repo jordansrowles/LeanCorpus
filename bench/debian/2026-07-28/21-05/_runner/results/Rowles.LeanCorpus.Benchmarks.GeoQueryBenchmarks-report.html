@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Rowles.LeanCorpus.Benchmarks.GeoQueryBenchmarks-20260729-004648</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.16.0-nightly.20260427.506, Linux Debian GNU/Linux 13 (trixie)
+Intel Xeon CPU E3-1220 V2 3.10GHz (Max: 3.26GHz), 1 CPU, 4 logical and 4 physical cores
+Memory: 23.45 GB Total, 1 GB Available
+.NET SDK 11.0.100-preview.1.26104.118
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+  DefaultJob : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v2
+</code></pre>
+<pre><code></code></pre>
+
+<table>
+<thead><tr><th>Method                  </th><th>GeoQueryType</th><th>DocumentCount</th><th>Mean </th><th>Error</th><th>StdDev</th><th>Ratio</th><th>RatioSD</th><th>Gen0</th><th>Gen1</th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>LeanCorpus_GeoDistanceQuery</td><td>BoundingBox</td><td>100000</td><td>66.67 μs</td><td>0.530 μs</td><td>0.496 μs</td><td>1.00</td><td>0.00</td><td>14.4043</td><td>-</td><td>58.91 KB</td><td>1.00</td>
+</tr><tr><td>LeanCorpus_GeoBoundingBoxQuery</td><td>BoundingBox</td><td>100000</td><td>169.37 μs</td><td>1.054 μs</td><td>0.986 μs</td><td>2.54</td><td>0.02</td><td>46.3867</td><td>-</td><td>190.05 KB</td><td>3.23</td>
+</tr><tr><td>LuceneNet_GeoDistanceQuery</td><td>BoundingBox</td><td>100000</td><td>2,224.74 μs</td><td>11.928 μs</td><td>11.158 μs</td><td>33.37</td><td>0.29</td><td>35.1563</td><td>-</td><td>147.77 KB</td><td>2.51</td>
+</tr><tr><td>LuceneNet_GeoBoundingBoxQuery</td><td>BoundingBox</td><td>100000</td><td>621.06 μs</td><td>2.739 μs</td><td>2.562 μs</td><td>9.32</td><td>0.08</td><td>161.1328</td><td>1.9531</td><td>660.55 KB</td><td>11.21</td>
+</tr><tr><td>LeanCorpus_GeoDistanceQuery</td><td>Distance</td><td>100000</td><td>67.48 μs</td><td>0.497 μs</td><td>0.465 μs</td><td>1.00</td><td>0.00</td><td>14.4043</td><td>-</td><td>58.91 KB</td><td>1.00</td>
+</tr><tr><td>LeanCorpus_GeoBoundingBoxQuery</td><td>Distance</td><td>100000</td><td>168.60 μs</td><td>0.904 μs</td><td>0.846 μs</td><td>2.50</td><td>0.02</td><td>46.3867</td><td>-</td><td>190.05 KB</td><td>3.23</td>
+</tr><tr><td>LuceneNet_GeoDistanceQuery</td><td>Distance</td><td>100000</td><td>2,255.60 μs</td><td>9.777 μs</td><td>9.146 μs</td><td>33.43</td><td>0.26</td><td>35.1563</td><td>-</td><td>147.77 KB</td><td>2.51</td>
+</tr><tr><td>LuceneNet_GeoBoundingBoxQuery</td><td>Distance</td><td>100000</td><td>629.13 μs</td><td>4.170 μs</td><td>3.901 μs</td><td>9.32</td><td>0.08</td><td>161.1328</td><td>1.9531</td><td>660.55 KB</td><td>11.21</td>
+</tr></tbody></table>
+</body>
+</html>

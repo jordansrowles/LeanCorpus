@@ -30,13 +30,25 @@ internal static class HnswReader
         bool? expectedNormalised,
         IReadOnlyDictionary<int, int>? docIdRemap)
     {
-        using var fs = FileOpenRetry.OpenReadDelete(filePath);
-        using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
+        using var input = new IndexInput(filePath);
+        CodecFileHeader.ReadResult frame = CodecFileHeader.ReadBody(input);
+        using var body = new MemoryStream(frame.Body, writable: false);
+        using var reader = new BinaryReader(body, Encoding.UTF8, leaveOpen: false);
 
-        byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.Hnsw);
+        byte version = frame.Version;
+        if (version > CodecConstants.HnswVersion)
+            throw new InvalidDataException(
+                $"Unsupported HNSW format version {version}. " +
+                $"This build supports up to version {CodecConstants.HnswVersion}.");
 
         int dimension = reader.ReadInt32();
         bool normalised = reader.ReadByte() != 0;
+        var similarity = version >= 2
+            ? (VectorSimilarityFunction)reader.ReadByte()
+            : VectorSimilarityFunction.Cosine;
+        if (!Enum.IsDefined(similarity))
+            throw new InvalidDataException(
+                $"HNSW file at '{filePath}' declares unsupported similarity {similarity}.");
         if (expectedNormalised is bool expected && expected != normalised)
             throw new InvalidDataException(
                 $"HNSW file at '{filePath}' declares Normalised={normalised} but the segment field declares Normalised={expected}.");
@@ -131,6 +143,15 @@ internal static class HnswReader
         }
 
         var config = new HnswBuildConfig { M = m, M0 = m0, EfConstruction = efConstruction };
-        return HnswGraph.FromFrozen(vectorSource, config, seed, levels, entryPoint, maxLevel, nodeCount);
+        return HnswGraph.FromFrozen(
+            vectorSource,
+            config,
+            seed,
+            levels,
+            entryPoint,
+            maxLevel,
+            nodeCount,
+            similarity,
+            normalised);
     }
 }

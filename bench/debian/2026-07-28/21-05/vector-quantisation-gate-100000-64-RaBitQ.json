@@ -1,0 +1,11 @@
+{
+  "DocumentCount": 100000,
+  "Dimension": 64,
+  "Quantisation": "RaBitQ",
+  "QueryCount": 16,
+  "RecallAt10": 0.19375000000000006,
+  "ReciprocalRankAgreementAt10": 0.7669146825396825,
+  "MeanAbsoluteReturnedScoreError": 0.03357834489114823,
+  "IndexBytes": 16520622,
+  "BuildMilliseconds": 58274.1355
+}

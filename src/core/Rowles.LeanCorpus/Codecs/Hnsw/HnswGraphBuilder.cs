@@ -15,18 +15,22 @@ internal static class HnswGraphBuilder
     /// <param name="docIds">Document identifiers to insert. Each must resolve through <paramref name="vectorSource"/>.</param>
     /// <param name="config">Build parameters.</param>
     /// <param name="seed">RNG seed; when null, a random seed is generated and persisted onto the graph.</param>
+    /// <param name="similarity">Similarity function used to build and search the graph.</param>
+    /// <param name="normalised">Whether the supplied vectors have been normalised.</param>
     public static HnswGraph Build(
         IVectorSource vectorSource,
         IReadOnlyList<int> docIds,
         HnswBuildConfig config,
-        long? seed = null)
+        long? seed = null,
+        VectorSimilarityFunction similarity = VectorSimilarityFunction.Cosine,
+        bool normalised = true)
     {
         ArgumentNullException.ThrowIfNull(vectorSource);
         ArgumentNullException.ThrowIfNull(docIds);
         ArgumentNullException.ThrowIfNull(config);
 
         long effectiveSeed = seed ?? GenerateSeed();
-        var graph = new HnswGraph(vectorSource, config, effectiveSeed);
+        var graph = new HnswGraph(vectorSource, config, effectiveSeed, similarity, normalised);
 
         // Deterministic Fisher-Yates shuffle keyed on the seed.
         var order = docIds.ToArray();

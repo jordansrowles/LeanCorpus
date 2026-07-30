@@ -11,6 +11,7 @@ internal enum FieldKind
     String,
     Numeric,
     Vector,
+    MultiVector,
     GeoPoint,
     StoredString,
     StoredBinary,
@@ -25,6 +26,7 @@ internal enum ValueShape
     StringList,
     StringArray,
     FloatArray,
+    FloatMatrix,
     ByteArray,
 }
 

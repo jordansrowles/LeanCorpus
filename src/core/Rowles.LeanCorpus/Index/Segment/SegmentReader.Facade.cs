@@ -8,6 +8,9 @@ using System.Text.RegularExpressions;
 
 namespace Rowles.LeanCorpus.Index.Segment;
 
+/// <summary>Consumes a vector while the owning segment-reader lease is held.</summary>
+internal delegate float VectorBlockScorer(ReadOnlySpan<float> vector);
+
 /// <summary>
 /// Metadata-first facade for one immutable segment. Heavy codec state is loaded on
 /// first use and retained privately or through a searcher's bounded reader cache.
@@ -289,6 +292,8 @@ public sealed class SegmentReader : IDisposable
     public bool HasVectors { get { using var lease = AcquireReadLease(); return lease.State.HasVectors; } }
     public float[]? GetVector(int docId) { using var lease = AcquireReadLease(); return lease.State.GetVector(docId); }
     public float[]? GetVector(string fieldName, int docId) { using var lease = AcquireReadLease(); return lease.State.GetVector(fieldName, docId); }
+    internal bool TryScoreVector(string fieldName, int docId, VectorBlockScorer scorer, out float score) { using var lease = AcquireReadLease(); return lease.State.TryScoreVector(fieldName, docId, scorer, out score); }
+    internal bool TryGetVectorErrorBound(string fieldName, int docId, out float errorBound) { using var lease = AcquireReadLease(); return lease.State.TryGetVectorErrorBound(fieldName, docId, out errorBound); }
     public IReadOnlyCollection<string> VectorFieldNames { get { using var lease = AcquireReadLease(); return lease.State.VectorFieldNames.ToArray(); } }
     internal HnswGraph? GetHnswGraph(string fieldName) { using var lease = AcquireReadLease(); return lease.State.GetHnswGraph(fieldName); }
 
