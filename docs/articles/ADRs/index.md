@@ -17,6 +17,11 @@
 | ADR013 | 2026-07-27 | Accepted | [Custom queries extend the tuned execution pipeline](ADR013-query-extension-pipeline.md) |
 | ADR014 | 2026-07-27 | Accepted | [Japanese dictionaries use a LeanCorpus language codec](ADR014-japanese-language-codec.md) |
 | ADR015 | 2026-07-27 | Accepted | [Pagination and rescoring use bounded collector strategies](ADR015-bounded-second-stage-search.md) |
+| ADR016 | 2026-07-28 | Accepted | [Experimental hybrid retrieval requires measured ship gates](ADR016-experimental-hybrid-retrieval-ship-gates.md) |
+| ADR017 | 2026-07-30 | Accepted | [Reject Matryoshka prefix retrieval](ADR017-reject-matryoshka-prefix-retrieval.md) |
+| ADR018 | 2026-07-30 | Accepted | [Reject RaBitQ as a production vector codec](ADR018-reject-rabitq-vector-codec.md) |
+| ADR019 | 2026-07-30 | Accepted | [Reject product quantisation at the default search budget](ADR019-reject-product-quantisation.md) |
+| ADR020 | 2026-07-30 | Accepted | [Stop the Hybrid Retrieval 2.0 research branch](ADR020-stop-hybrid-retrieval-2-research.md) |
 ## Template
 
 New ADRs should follow [the template](_template.md) using the next available `ADRnnn` prefix.
