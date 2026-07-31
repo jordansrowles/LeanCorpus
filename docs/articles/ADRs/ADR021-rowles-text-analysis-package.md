@@ -1,7 +1,14 @@
-# ADR021: Package Analysis independently while preserving LeanCorpus source inclusion
+---
+adr: ADR021
+title: Package Analysis independently while preserving LeanCorpus source inclusion
+date: 2026-07-31
+status: Accepted
+version-added: vNext
+summary: Package Analysis independently while source-including it in LeanCorpus.
+areas: [analysis, packaging, architecture]
+---
 
-- **Date:** 2026-07-31
-- **Status:** Accepted
+# ADR021: Package Analysis independently while preserving LeanCorpus source inclusion
 
 ## Context
 

@@ -1,3 +1,13 @@
+---
+adr: ADR017
+title: Reject Matryoshka prefix retrieval
+date: 2026-07-30
+status: Accepted
+version-added: vNext
+summary: Reject Matryoshka prefix retrieval for production indexes.
+areas: [search, vectors, hybrid-retrieval]
+---
+
 # ADR017: Reject Matryoshka prefix retrieval
 
 - **Date:** 2026-07-30

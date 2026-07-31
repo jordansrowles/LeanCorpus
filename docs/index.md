@@ -134,6 +134,7 @@ CodecKit for custom storage formats. Pluggable compression (LZ4, Snappy, Zstanda
 | Package | NuGet | Description |
 |---|---|---|
 | **LeanCorpus** | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus?style=flat)](https://www.nuget.org/packages/LeanCorpus/) | Core library. Zero dependencies. |
+| **Rowles.Text** | [![NuGet](https://img.shields.io/nuget/v/Rowles.Text?style=flat)](https://www.nuget.org/packages/Rowles.Text/) | Standalone tokenisers, filters, stemmers and analysers. |
 | **LeanCorpus.SourceGen** | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.SourceGen?style=flat)](https://www.nuget.org/packages/LeanCorpus.SourceGen/) | Roslyn source generator for typed document mapping |
 | **LeanCorpus.Compression.LZ4** | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.Compression.LZ4?style=flat)](https://www.nuget.org/packages/LeanCorpus.Compression.LZ4/) | LZ4 stored-field compression |
 | **LeanCorpus.Compression.Snappy** | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.Compression.Snappy?style=flat)](https://www.nuget.org/packages/LeanCorpus.Compression.Snappy/) | Snappy stored-field compression |

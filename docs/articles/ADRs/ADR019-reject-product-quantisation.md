@@ -1,3 +1,13 @@
+---
+adr: ADR019
+title: Reject product quantisation at the default search budget
+date: 2026-07-30
+status: Accepted
+version-added: vNext
+summary: Reject product quantisation at the default search budget.
+areas: [vectors, codecs, hybrid-retrieval]
+---
+
 # ADR019: Reject product quantisation at the default search budget
 
 - **Date:** 2026-07-30

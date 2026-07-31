@@ -1,14 +1,14 @@
 - name: Home
   href: index.md
-- name: Getting Started
-  href: getting-started/
-  homepage: getting-started/index.md
-- name: Architecture
-  href: architecture.md
-- name: Why LeanCorpus?
-  href: why-leancorpus.md
-- name: Performance
-  href: performance.md
+- name: About
+  items:
+    - name: Getting Started
+      href: getting-started/
+      homepage: getting-started/index.md
+    - name: Architecture
+      href: architecture.md
+    - name: Why LeanCorpus?
+      href: why-leancorpus.md
 - name: Guides
   items:
     - name: Analysis
@@ -39,6 +39,8 @@
   homepage: contributors/index.md
 - name: Reference
   items:
+    - name: Performance
+      href: performance.md
     - name: API
       href: api/index.md
     - name: Feature Parity

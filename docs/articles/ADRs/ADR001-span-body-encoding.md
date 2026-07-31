@@ -1,3 +1,13 @@
+---
+adr: ADR001
+title: Span-based body encoding for segment serialisation
+date: 2026-06-16
+status: Accepted
+version-added: 2.0.0
+summary: Encode segment bodies directly from spans without intermediate byte arrays.
+areas: [codecs, indexing, performance]
+---
+
 # ADR001: Span-based body encoding for segment serialisation
 
 - **Date:** 2026-06-16

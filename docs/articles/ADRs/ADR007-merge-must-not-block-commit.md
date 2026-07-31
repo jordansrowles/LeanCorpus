@@ -1,3 +1,13 @@
+---
+adr: ADR007
+title: Background merges must never block Commit
+date: 2026-06-18
+status: Accepted
+version-added: 2.0.0
+summary: Keep background merges independent from Commit.
+areas: [indexing, merging, concurrency]
+---
+
 # ADR007: Background merges must never block Commit
 
 - **Date:** 2026-06-18

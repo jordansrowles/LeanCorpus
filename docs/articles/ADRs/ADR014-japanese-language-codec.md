@@ -1,3 +1,13 @@
+---
+adr: ADR014
+title: Japanese dictionaries use a LeanCorpus language codec
+date: 2026-07-27
+status: Accepted
+version-added: vNext
+summary: Use a checksummed LeanCorpus language codec for Japanese dictionaries.
+areas: [analysis, codecs, storage]
+---
+
 # ADR014: Japanese dictionaries use a LeanCorpus language codec
 
 - **Date:** 2026-07-27

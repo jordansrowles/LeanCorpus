@@ -1,3 +1,13 @@
+---
+adr: ADR002
+title: Single auto-vectorised SIMD path
+date: 2026-06-16
+status: Accepted
+version-added: 2.0.0
+summary: Use one auto-vectorised SIMD implementation across supported processors.
+areas: [performance, vector, runtime]
+---
+
 # ADR002: Single auto-vectorised SIMD path
 
 - **Date:** 2026-06-16

@@ -1,3 +1,13 @@
+---
+adr: ADR005
+title: Each DWPT flushes its own segment
+date: 2026-06-16
+status: Accepted
+version-added: 2.0.0
+summary: Flush each document-writing thread directly to its own segment.
+areas: [indexing, merging, concurrency]
+---
+
 # ADR005: Each DWPT flushes its own segment
 
 - **Date:** 2026-06-16

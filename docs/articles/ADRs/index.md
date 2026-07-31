@@ -1,36 +1,49 @@
+---
+title: Architecture Decision Records
+_description: Recorded LeanCorpus architecture decisions and their status.
+---
+
 # Architecture Decision Records
 
-| ADR | Date | Status | Title |
-|-----|------|--------|-------|
-| ADR001 | 2026-06-16 | Accepted | [Span-based body encoding for segment serialisation](ADR001-span-body-encoding.md) |
-| ADR002 | 2026-06-16 | Accepted | [Single auto-vectorised SIMD path](ADR002-single-simd-path.md) |
-| ADR003 | 2026-06-16 | Accepted | [Sorted parallel arrays for HNSW frozen adjacency](ADR003-hnsw-frozen-sorted-arrays.md) |
-| ADR004 | 2026-06-16 | Accepted | [ConcurrentDictionary with generation-swap eviction for read-heavy caches](ADR004-concurrentdictionary-cache-pattern.md) |
-| ADR005 | 2026-06-16 | Accepted | [Each DWPT flushes its own segment](ADR005-dwpt-segment-flush.md) |
-| ADR006 | 2026-06-17 | Accepted | [Defer Stryker.NET mutation testing until upstream bug is fixed](ADR006-stryker-deferred.md) |
-| ADR007 | 2026-06-18 | Accepted | [Background merges must never block Commit](ADR007-merge-must-not-block-commit.md) |
-| ADR008 | 2026-07-09 | Deprecated | [Streaming codec formats bypass the CodecKit envelope](ADR008-stored-fields-v2-streaming.md) |
-| ADR009 | 2026-07-11 | Accepted | [CodecKit trailer format replaces ADR008 custom headers](ADR009-codeckit-trailer-streaming.md) |
-| ADR010 | 2026-07-14 | Accepted | [IndexOutput must be disposed before File.Move on Windows](ADR010-close-before-rename-migration.md) |
-| ADR011 | 2026-07-21 | Accepted | [Lazy segment readers use bounded leases and process-wide file lifetimes](ADR011-lazy-segment-reader-lifetimes.md) |
-| ADR012 | 2026-07-24 | Accepted | [Parallel segment search is opt-in](ADR012-parallel-search-opt-in.md) |
-| ADR013 | 2026-07-27 | Accepted | [Custom queries extend the tuned execution pipeline](ADR013-query-extension-pipeline.md) |
-| ADR014 | 2026-07-27 | Accepted | [Japanese dictionaries use a LeanCorpus language codec](ADR014-japanese-language-codec.md) |
-| ADR015 | 2026-07-27 | Accepted | [Pagination and rescoring use bounded collector strategies](ADR015-bounded-second-stage-search.md) |
-| ADR016 | 2026-07-28 | Accepted | [Experimental hybrid retrieval requires measured ship gates](ADR016-experimental-hybrid-retrieval-ship-gates.md) |
-| ADR017 | 2026-07-30 | Accepted | [Reject Matryoshka prefix retrieval](ADR017-reject-matryoshka-prefix-retrieval.md) |
-| ADR018 | 2026-07-30 | Accepted | [Reject RaBitQ as a production vector codec](ADR018-reject-rabitq-vector-codec.md) |
-| ADR019 | 2026-07-30 | Accepted | [Reject product quantisation at the default search budget](ADR019-reject-product-quantisation.md) |
-| ADR020 | 2026-07-30 | Accepted | [Stop the Hybrid Retrieval 2.0 research branch](ADR020-stop-hybrid-retrieval-2-research.md) |
-| ADR021 | 2026-07-31 | Accepted | [Package Analysis independently while preserving LeanCorpus source inclusion](ADR021-rowles-text-analysis-package.md) |
+<div class="table-responsive">
+<table class="table table-sm table-striped adr-index-table">
+<thead>
+<tr><th>ADR</th><th>Date</th><th>Status</th><th>Previous</th><th>Decision</th><th>Next</th></tr>
+</thead>
+<tbody>
+<tr><td><a href="ADR001-span-body-encoding.md">001</a></td><td>2026-06-16</td><td>Accepted</td><td></td><td><a href="ADR001-span-body-encoding.md">Span-based body encoding for segment serialisation</a></td><td></td></tr>
+<tr><td><a href="ADR002-single-simd-path.md">002</a></td><td>2026-06-16</td><td>Accepted</td><td></td><td><a href="ADR002-single-simd-path.md">Single auto-vectorised SIMD path</a></td><td></td></tr>
+<tr><td><a href="ADR003-hnsw-frozen-sorted-arrays.md">003</a></td><td>2026-06-16</td><td>Accepted</td><td></td><td><a href="ADR003-hnsw-frozen-sorted-arrays.md">Sorted parallel arrays for HNSW frozen adjacency</a></td><td></td></tr>
+<tr><td><a href="ADR004-concurrentdictionary-cache-pattern.md">004</a></td><td>2026-06-16</td><td>Accepted</td><td></td><td><a href="ADR004-concurrentdictionary-cache-pattern.md">ConcurrentDictionary with generation-swap eviction for read-heavy caches</a></td><td></td></tr>
+<tr><td><a href="ADR005-dwpt-segment-flush.md">005</a></td><td>2026-06-16</td><td>Accepted</td><td></td><td><a href="ADR005-dwpt-segment-flush.md">Each DWPT flushes its own segment</a></td><td></td></tr>
+<tr><td><a href="ADR006-stryker-deferred.md">006</a></td><td>2026-06-17</td><td>Accepted</td><td></td><td><a href="ADR006-stryker-deferred.md">Defer Stryker.NET mutation testing until upstream bug is fixed</a></td><td></td></tr>
+<tr><td><a href="ADR007-merge-must-not-block-commit.md">007</a></td><td>2026-06-18</td><td>Accepted</td><td></td><td><a href="ADR007-merge-must-not-block-commit.md">Background merges must never block Commit</a></td><td></td></tr>
+<tr><td><a href="ADR008-stored-fields-v2-streaming.md">008</a></td><td>2026-07-09</td><td>Superseded</td><td></td><td><a href="ADR008-stored-fields-v2-streaming.md">Streaming codec formats bypass the CodecKit envelope</a></td><td><a href="ADR009-codeckit-trailer-streaming.md">009</a></td></tr>
+<tr><td><a href="ADR009-codeckit-trailer-streaming.md">009</a></td><td>2026-07-11</td><td>Accepted</td><td><a href="ADR008-stored-fields-v2-streaming.md">008</a></td><td><a href="ADR009-codeckit-trailer-streaming.md">CodecKit trailer format replaces ADR008 custom headers</a></td><td></td></tr>
+<tr><td><a href="ADR010-close-before-rename-migration.md">010</a></td><td>2026-07-14</td><td>Accepted</td><td></td><td><a href="ADR010-close-before-rename-migration.md">IndexOutput must be disposed before File.Move on Windows</a></td><td></td></tr>
+<tr><td><a href="ADR011-lazy-segment-reader-lifetimes.md">011</a></td><td>2026-07-21</td><td>Accepted</td><td></td><td><a href="ADR011-lazy-segment-reader-lifetimes.md">Lazy segment readers use bounded leases and process-wide file lifetimes</a></td><td></td></tr>
+<tr><td><a href="ADR012-parallel-search-opt-in.md">012</a></td><td>2026-07-24</td><td>Accepted</td><td></td><td><a href="ADR012-parallel-search-opt-in.md">Parallel segment search is opt-in</a></td><td></td></tr>
+<tr><td><a href="ADR013-query-extension-pipeline.md">013</a></td><td>2026-07-27</td><td>Accepted</td><td></td><td><a href="ADR013-query-extension-pipeline.md">Custom queries extend the tuned execution pipeline</a></td><td></td></tr>
+<tr><td><a href="ADR014-japanese-language-codec.md">014</a></td><td>2026-07-27</td><td>Accepted</td><td></td><td><a href="ADR014-japanese-language-codec.md">Japanese dictionaries use a LeanCorpus language codec</a></td><td></td></tr>
+<tr><td><a href="ADR015-bounded-second-stage-search.md">015</a></td><td>2026-07-27</td><td>Accepted</td><td></td><td><a href="ADR015-bounded-second-stage-search.md">Pagination and rescoring use bounded collector strategies</a></td><td></td></tr>
+<tr><td><a href="ADR016-experimental-hybrid-retrieval-ship-gates.md">016</a></td><td>2026-07-28</td><td>Accepted</td><td></td><td><a href="ADR016-experimental-hybrid-retrieval-ship-gates.md">Experimental hybrid retrieval requires measured ship gates</a></td><td></td></tr>
+<tr><td><a href="ADR017-reject-matryoshka-prefix-retrieval.md">017</a></td><td>2026-07-30</td><td>Accepted</td><td></td><td><a href="ADR017-reject-matryoshka-prefix-retrieval.md">Reject Matryoshka prefix retrieval</a></td><td></td></tr>
+<tr><td><a href="ADR018-reject-rabitq-vector-codec.md">018</a></td><td>2026-07-30</td><td>Accepted</td><td></td><td><a href="ADR018-reject-rabitq-vector-codec.md">Reject RaBitQ as a production vector codec</a></td><td></td></tr>
+<tr><td><a href="ADR019-reject-product-quantisation.md">019</a></td><td>2026-07-30</td><td>Accepted</td><td></td><td><a href="ADR019-reject-product-quantisation.md">Reject product quantisation at the default search budget</a></td><td></td></tr>
+<tr><td><a href="ADR020-stop-hybrid-retrieval-2-research.md">020</a></td><td>2026-07-30</td><td>Accepted</td><td></td><td><a href="ADR020-stop-hybrid-retrieval-2-research.md">Stop the Hybrid Retrieval 2.0 research branch</a></td><td></td></tr>
+<tr><td><a href="ADR021-rowles-text-analysis-package.md">021</a></td><td>2026-07-31</td><td>Accepted</td><td></td><td><a href="ADR021-rowles-text-analysis-package.md">Package Analysis independently while preserving LeanCorpus source inclusion</a></td><td></td></tr>
+</tbody>
+</table>
+</div>
+
 ## Template
 
-New ADRs should follow [the template](_template.md) using the next available `ADRnnn` prefix.
+New ADRs should follow [the template](_template.md) using the next available
+`ADRnnn` prefix.
 
 ## Reasons for an ADR
-If at any point during work an ADR is deserved, create one. But only if the reason fulfills ones of these:
-- Is costly to reverse
-- Trade-off heavy (there were real alternatives, each with pros/cons, and you picked one over another for specific reasons)
-- Cross-cutting (it constrains how other parts of the system get built)
-- Non-obvious solutions
-- Major changes in any of the following areas: index structure, storage formats, analyser/tokeniser pipeline desings, concurrency and consistency model, segment merging, scoring/ranking, query parsing, low-level designs
+
+Create an ADR when the decision is costly to reverse, trade-off heavy,
+cross-cutting or non-obvious. Major changes to index structure, storage
+formats, analysis pipelines, concurrency, merging, scoring or query parsing
+also need one.

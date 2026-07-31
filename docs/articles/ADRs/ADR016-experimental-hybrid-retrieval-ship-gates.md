@@ -1,3 +1,13 @@
+---
+adr: ADR016
+title: Experimental hybrid retrieval requires measured ship gates
+date: 2026-07-28
+status: Accepted
+version-added: vNext
+summary: Require measured ship gates for experimental hybrid retrieval.
+areas: [search, vectors, governance]
+---
+
 # ADR016: Experimental hybrid retrieval requires measured ship gates
 
 - **Date:** 2026-07-28

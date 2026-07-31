@@ -1,3 +1,13 @@
+---
+adr: ADR010
+title: IndexOutput must be disposed before File.Move on Windows
+date: 2026-07-14
+status: Accepted
+version-added: 2.0.0
+summary: Dispose IndexOutput before Windows rename or delete operations.
+areas: [store, windows, reliability]
+---
+
 # ADR010: IndexOutput must be disposed before File.Move on Windows
 
 - **Date:** 2026-07-14

@@ -1,3 +1,13 @@
+---
+adr: ADR012
+title: Parallel segment search is opt-in
+date: 2026-07-24
+status: Accepted
+version-added: 2.1.0
+summary: Make parallel segment search opt-in.
+areas: [search, concurrency, performance]
+---
+
 # ADR012: Parallel segment search is opt-in
 
 - **Date:** 2026-07-24

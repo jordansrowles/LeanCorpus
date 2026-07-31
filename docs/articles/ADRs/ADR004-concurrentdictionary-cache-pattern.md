@@ -1,3 +1,13 @@
+---
+adr: ADR004
+title: ConcurrentDictionary with generation-swap eviction for read-heavy caches
+date: 2026-06-16
+status: Accepted
+version-added: 2.0.0
+summary: Evict read-heavy query caches with generation-swapped ConcurrentDictionary instances.
+areas: [search, caching, concurrency]
+---
+
 # ADR004: ConcurrentDictionary with generation-swap eviction for read-heavy caches
 
 - **Date:** 2026-06-16

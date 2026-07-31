@@ -1,3 +1,13 @@
+---
+adr: ADR015
+title: Pagination and rescoring use bounded collector strategies
+date: 2026-07-27
+status: Accepted
+version-added: vNext
+summary: Use bounded collectors for pagination and rescoring.
+areas: [search, ranking, performance]
+---
+
 # ADR015: Pagination and rescoring use bounded collector strategies
 
 - **Date:** 2026-07-27

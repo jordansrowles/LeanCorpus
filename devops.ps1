@@ -805,10 +805,16 @@ if ($Command -eq 'docs') {
     $apiDir   = Join-Path $docsDir 'api'
     $siteDir  = Join-Path $docsDir 'site'
     $featureComparisonScript = Join-Path $ScriptsDir 'generate-feature-comparison.ps1'
+    $adrIndexScript = Join-Path $ScriptsDir 'generate-adr-index.ps1'
 
     function New-FeatureComparisonIndex {
         Write-Host 'Generating feature comparison...' -ForegroundColor Cyan
         & $featureComparisonScript
+    }
+
+    function New-AdrIndex {
+        Write-Host 'Generating ADR index...' -ForegroundColor Cyan
+        & $adrIndexScript
     }
 
     if (-not (Get-Command docfx -ErrorAction SilentlyContinue)) {
@@ -829,6 +835,7 @@ if ($Command -eq 'docs') {
     # --- serve ---
     if ($subCmd -eq 'serve') {
         New-FeatureComparisonIndex
+        New-AdrIndex
         if (-not (Test-Path (Join-Path $apiDir 'toc.yml'))) {
             Clear-ApiMetadata $docsDir
             Write-Host 'Generating API metadata...' -ForegroundColor Cyan
@@ -848,6 +855,7 @@ if ($Command -eq 'docs') {
     }
     # --- build (default) ---
     New-FeatureComparisonIndex
+    New-AdrIndex
     if (-not $SkipBenchmarks) {
         Write-Host 'Generating benchmark pages...' -ForegroundColor Cyan
         & (Join-Path $ScriptsDir 'generate-benchmark-docs.ps1')

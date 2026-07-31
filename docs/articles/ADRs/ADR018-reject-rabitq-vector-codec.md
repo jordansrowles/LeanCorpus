@@ -1,3 +1,13 @@
+---
+adr: ADR018
+title: Reject RaBitQ as a production vector codec
+date: 2026-07-30
+status: Accepted
+version-added: vNext
+summary: Reject RaBitQ as a production vector codec.
+areas: [vectors, codecs, hybrid-retrieval]
+---
+
 # ADR018: Reject RaBitQ as a production vector codec
 
 - **Date:** 2026-07-30

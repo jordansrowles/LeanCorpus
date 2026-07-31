@@ -1,3 +1,13 @@
+---
+adr: ADR020
+title: Stop the Hybrid Retrieval 2.0 research branch
+date: 2026-07-30
+status: Accepted
+version-added: vNext
+summary: Stop the Hybrid Retrieval 2.0 research branch after failed ship gates.
+areas: [search, vectors, hybrid-retrieval]
+---
+
 # ADR020: Stop the Hybrid Retrieval 2.0 research branch
 
 - **Date:** 2026-07-30

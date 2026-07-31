@@ -1,3 +1,13 @@
+---
+adr: ADR013
+title: Custom queries extend the tuned execution pipeline
+date: 2026-07-27
+status: Accepted
+version-added: vNext
+summary: Route custom queries through the tuned execution pipeline.
+areas: [search, queries, extensibility]
+---
+
 # ADR013: Custom queries extend the tuned execution pipeline
 
 - **Date:** 2026-07-27
