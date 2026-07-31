@@ -24,6 +24,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\Rowles.Text\Analysis\**\*.cs" LinkBase="Analysis" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.Shared" />
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.Unit" />
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.Integration" />

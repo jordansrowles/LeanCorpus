@@ -1,4 +1,6 @@
+#if !ROWLES_TEXT
 using Rowles.LeanCorpus.Store;
+#endif
 
 namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 
@@ -23,7 +25,7 @@ public static class ChineseLexicon
         if (path is not null)
         {
             var words = new List<string>();
-            foreach (var line in FileOpenRetry.ReadLines(path, System.Text.Encoding.UTF8))
+            foreach (var line in ReadLines(path))
             {
                 var trimmed = line.Trim();
                 if (trimmed.Length > 0 && !trimmed.StartsWith('#'))
@@ -51,11 +53,23 @@ public static class ChineseLexicon
         while (current is not null)
         {
             string candidate = Path.Combine(current, "lexicons", "chinese-dict.txt");
-            if (FileOpenRetry.FileExists(candidate))
+            if (FileExists(candidate))
                 return candidate;
             current = Path.GetDirectoryName(current);
         }
 
         return null;
     }
+
+#if ROWLES_TEXT
+    private static IEnumerable<string> ReadLines(string path) =>
+        File.ReadLines(path, System.Text.Encoding.UTF8);
+
+    private static bool FileExists(string path) => File.Exists(path);
+#else
+    private static IEnumerable<string> ReadLines(string path) =>
+        FileOpenRetry.ReadLines(path, System.Text.Encoding.UTF8);
+
+    private static bool FileExists(string path) => FileOpenRetry.FileExists(path);
+#endif
 }

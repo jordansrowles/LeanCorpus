@@ -56,3 +56,4 @@ var analyser = new Analyser(
 - [Stop words and token budget](05-stop-words-and-token-budget.md)
 - [Lexicons](06-lexicons.md)
 - [Hunspell](07-hunspell.md)
+- [Rowles.Text](08-rowles-text.md)

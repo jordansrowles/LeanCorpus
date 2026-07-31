@@ -1,7 +1,9 @@
 using System.Buffers.Binary;
 
+#if !ROWLES_TEXT
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Util;
+#endif
 
 namespace Rowles.LeanCorpus.Analysis.Tokenisers.Japanese;
 
@@ -12,11 +14,19 @@ internal sealed class JapaneseLanguageCodec : IDisposable
 
     private static ReadOnlySpan<byte> Magic => "JLC1"u8;
 
+#if ROWLES_TEXT
+    private readonly byte[] _input;
+#else
     private readonly IndexInput _input;
+#endif
     private readonly SectionDescriptor[] _sections;
     private bool _disposed;
 
+#if ROWLES_TEXT
+    private JapaneseLanguageCodec(byte[] input, SectionDescriptor[] sections)
+#else
     private JapaneseLanguageCodec(IndexInput input, SectionDescriptor[] sections)
+#endif
     {
         _input = input;
         _sections = sections;
@@ -26,14 +36,18 @@ internal sealed class JapaneseLanguageCodec : IDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
+#if ROWLES_TEXT
+        var input = File.ReadAllBytes(path);
+#else
         var input = new IndexInput(path);
+#endif
         try
         {
-            if (input.Length < 12)
+            if (GetLength(input) < 12)
                 throw new InvalidDataException("Japanese language codec is too small.");
 
             long position = 0;
-            if (!input.ReadSpan(4, ref position).SequenceEqual(Magic))
+            if (!ReadSpan(input, 4, ref position).SequenceEqual(Magic))
                 throw new InvalidDataException("Invalid Japanese language codec magic.");
 
             int version = ReadInt32(input, ref position);
@@ -46,7 +60,7 @@ internal sealed class JapaneseLanguageCodec : IDisposable
                 throw new InvalidDataException("Japanese language codec section count is invalid.");
 
             long headerLength = checked(12L + ((long)sectionCount * EntrySize));
-            if (headerLength > input.Length)
+            if (headerLength > GetLength(input))
                 throw new InvalidDataException("Japanese language codec table is truncated.");
 
             var sections = new SectionDescriptor[sectionCount];
@@ -66,7 +80,7 @@ internal sealed class JapaneseLanguageCodec : IDisposable
                     throw new InvalidDataException($"Japanese language codec section id {rawId} is duplicated.");
                 seen |= bit;
 
-                if (offset < headerLength || length < 0 || offset > input.Length - length)
+                if (offset < headerLength || length < 0 || offset > GetLength(input) - length)
                     throw new InvalidDataException($"Japanese language codec section id {rawId} is outside the file.");
 
                 uint checksum = unchecked((uint)ReadInt32(input, ref position));
@@ -86,7 +100,11 @@ internal sealed class JapaneseLanguageCodec : IDisposable
                     throw new InvalidDataException($"Japanese language codec section {section.Id} is too large.");
 
                 long sectionPosition = section.Offset;
-                uint actual = Crc32.Compute(input.ReadSpan((int)section.Length, ref sectionPosition));
+#if ROWLES_TEXT
+                uint actual = JapaneseCrc32.Compute(ReadSpan(input, (int)section.Length, ref sectionPosition));
+#else
+                uint actual = Crc32.Compute(ReadSpan(input, (int)section.Length, ref sectionPosition));
+#endif
                 if (actual != section.Checksum)
                     throw new InvalidDataException($"Japanese language codec section {section.Id} failed its checksum.");
             }
@@ -96,7 +114,9 @@ internal sealed class JapaneseLanguageCodec : IDisposable
         }
         catch
         {
+#if !ROWLES_TEXT
             input.Dispose();
+#endif
             throw;
         }
     }
@@ -109,8 +129,12 @@ internal sealed class JapaneseLanguageCodec : IDisposable
             if (section.Id != id)
                 continue;
 
+#if ROWLES_TEXT
+            return _input.AsSpan(checked((int)section.Offset), checked((int)section.Length));
+#else
             long position = section.Offset;
-            return _input.ReadSpan((int)section.Length, ref position);
+            return ReadSpan(_input, (int)section.Length, ref position);
+#endif
         }
 
         throw new InvalidDataException($"Japanese language codec section {id} is missing.");
@@ -122,14 +146,31 @@ internal sealed class JapaneseLanguageCodec : IDisposable
             return;
 
         _disposed = true;
+#if !ROWLES_TEXT
         _input.Dispose();
+#endif
     }
 
+#if ROWLES_TEXT
+    private static long GetLength(byte[] input) => input.LongLength;
+    private static ReadOnlySpan<byte> ReadSpan(byte[] input, int count, scoped ref long position)
+    {
+        if (position < 0 || position > input.LongLength - count) throw new EndOfStreamException();
+        var span = input.AsSpan((int)position, count); position += count; return span;
+    }
+    private static int ReadInt32(byte[] input, ref long position)
+        => BinaryPrimitives.ReadInt32LittleEndian(ReadSpan(input, sizeof(int), ref position));
+    private static long ReadInt64(byte[] input, ref long position)
+        => BinaryPrimitives.ReadInt64LittleEndian(ReadSpan(input, sizeof(long), ref position));
+#else
+    private static long GetLength(IndexInput input) => input.Length;
+    private static ReadOnlySpan<byte> ReadSpan(IndexInput input, int count, scoped ref long position) => input.ReadSpan(count, ref position);
     private static int ReadInt32(IndexInput input, ref long position)
-        => BinaryPrimitives.ReadInt32LittleEndian(input.ReadSpan(sizeof(int), ref position));
+        => BinaryPrimitives.ReadInt32LittleEndian(ReadSpan(input, sizeof(int), ref position));
 
     private static long ReadInt64(IndexInput input, ref long position)
-        => BinaryPrimitives.ReadInt64LittleEndian(input.ReadSpan(sizeof(long), ref position));
+        => BinaryPrimitives.ReadInt64LittleEndian(ReadSpan(input, sizeof(long), ref position));
+#endif
 
     private static void ValidateRequiredSections(SectionDescriptor[] sections)
     {

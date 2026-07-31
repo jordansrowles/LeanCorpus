@@ -1,7 +1,7 @@
 ﻿namespace Rowles.LeanCorpus.Analysis;
 
 /// <summary>
-/// Determines what happens when a document exceeds <see cref="Index.Indexer.IndexWriterConfig.MaxTokensPerDocument"/>.
+/// Determines what happens when a document exceeds its configured token limit.
 /// </summary>
 public enum TokenBudgetPolicy
 {

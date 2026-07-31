@@ -1,7 +1,9 @@
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 
+#if !ROWLES_TEXT
 using Rowles.LeanCorpus.Codecs.Fst;
+#endif
 
 namespace Rowles.LeanCorpus.Analysis.Tokenisers.Japanese;
 
@@ -10,7 +12,11 @@ internal sealed class JapaneseDictionary : IDisposable
     private const int EntrySize = 4;
 
     private readonly JapaneseLanguageCodec _codec;
+#if ROWLES_TEXT
+    private readonly JapaneseFstReader _fst;
+#else
     private readonly FstReader _fst;
+#endif
     private readonly int _knownSourceCount;
     private readonly int _knownEntryCount;
     private readonly int _unknownSourceCount;
@@ -23,7 +29,11 @@ internal sealed class JapaneseDictionary : IDisposable
         _codec = JapaneseLanguageCodec.Open(path);
         try
         {
+#if ROWLES_TEXT
+            _fst = JapaneseFstReader.Open(_codec.GetSection(JapaneseCodecSection.Fst));
+#else
             _fst = FstReader.Open(_codec.GetSection(JapaneseCodecSection.Fst).ToArray());
+#endif
 
             _knownEntryCount = ValidateEntries(JapaneseCodecSection.KnownEntries);
             _knownSourceCount = ValidateOffsets(
@@ -64,7 +74,11 @@ internal sealed class JapaneseDictionary : IDisposable
         }
     }
 
+#if ROWLES_TEXT
+    internal JapaneseFstReader.PrefixCursor CreateKnownWordCursor() => _fst.CreatePrefixCursor();
+#else
     internal FstReader.PrefixCursor CreateKnownWordCursor() => _fst.CreatePrefixCursor();
+#endif
 
     internal CharacterDefinition CharacterDefinition
         => new(_codec.GetSection(JapaneseCodecSection.CharacterDefinition));

@@ -1,5 +1,8 @@
 using Rowles.LeanCorpus.Analysis.Tokenisers.Japanese;
+
+#if !ROWLES_TEXT
 using Rowles.LeanCorpus.Store;
+#endif
 
 namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 
@@ -34,7 +37,7 @@ public sealed class JapaneseTokeniser : ISpanTokeniser, IDisposable
     public JapaneseTokeniser()
     {
         string path = DefaultDictionaryPath;
-        if (!FileOpenRetry.FileExists(path))
+        if (!FileExists(path))
             throw new FileNotFoundException($"Japanese language codec not found at '{path}'.", path);
 
         _dictionary = SharedDictionary;
@@ -48,7 +51,7 @@ public sealed class JapaneseTokeniser : ISpanTokeniser, IDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dictionaryPath);
         string fullPath = Path.GetFullPath(dictionaryPath);
-        if (!FileOpenRetry.FileExists(fullPath))
+        if (!FileExists(fullPath))
             throw new FileNotFoundException($"Japanese language codec not found at '{fullPath}'.", fullPath);
 
         _dictionary = new Lazy<JapaneseDictionary>(
@@ -85,11 +88,17 @@ public sealed class JapaneseTokeniser : ISpanTokeniser, IDisposable
         while (current is not null)
         {
             string candidate = Path.Combine(current, "lexicons", "japanese.jlc");
-            if (FileOpenRetry.FileExists(candidate))
+            if (FileExists(candidate))
                 return candidate;
             current = Path.GetDirectoryName(current);
         }
 
         return Path.Combine(AppContext.BaseDirectory, "lexicons", "japanese.jlc");
     }
+
+#if ROWLES_TEXT
+    private static bool FileExists(string path) => File.Exists(path);
+#else
+    private static bool FileExists(string path) => FileOpenRetry.FileExists(path);
+#endif
 }

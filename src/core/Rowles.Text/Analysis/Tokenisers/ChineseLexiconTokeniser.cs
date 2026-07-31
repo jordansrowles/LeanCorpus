@@ -1,6 +1,9 @@
 using System.Collections.Frozen;
 
+
+#if !ROWLES_TEXT
 using Rowles.LeanCorpus.Store;
+#endif
 
 namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 
@@ -53,7 +56,11 @@ public sealed class ChineseLexiconTokeniser : ISpanTokeniser
     public static ChineseLexiconTokeniser FromFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+#if ROWLES_TEXT
+        return new ChineseLexiconTokeniser(File.ReadLines(path, System.Text.Encoding.UTF8));
+#else
         return new ChineseLexiconTokeniser(FileOpenRetry.ReadLines(path, System.Text.Encoding.UTF8));
+#endif
     }
 
     /// <summary>
@@ -67,7 +74,11 @@ public sealed class ChineseLexiconTokeniser : ISpanTokeniser
         ArgumentNullException.ThrowIfNull(stream);
 
         var words = new List<string>();
+#if ROWLES_TEXT
+        using var reader = new StreamReader(stream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+#else
         using var reader = FileOpenRetry.OpenTextReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+#endif
         string? line;
         while ((line = reader.ReadLine()) is not null)
         {

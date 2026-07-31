@@ -1,6 +1,9 @@
 using System.Collections.Frozen;
 using System.Reflection;
+
+#if !ROWLES_TEXT
 using Rowles.LeanCorpus.Store;
+#endif
 
 namespace Rowles.LeanCorpus.Analysis.Stemmers;
 
@@ -86,7 +89,11 @@ public sealed class KStemLexicon : IKStemLexicon
         if (!Path.IsPathRooted(path))
             path = Path.Combine(AppContext.BaseDirectory, path);
 
+#if ROWLES_TEXT
+        return From(File.ReadLines(path, System.Text.Encoding.UTF8));
+#else
         return From(FileOpenRetry.ReadLines(path, System.Text.Encoding.UTF8));
+#endif
     }
 
     /// <summary>
@@ -98,7 +105,11 @@ public sealed class KStemLexicon : IKStemLexicon
         ArgumentNullException.ThrowIfNull(stream);
 
         var words = new List<string>();
+#if ROWLES_TEXT
+        using var reader = new StreamReader(stream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+#else
         using var reader = FileOpenRetry.OpenTextReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+#endif
         string? line;
         while ((line = reader.ReadLine()) is not null)
         {

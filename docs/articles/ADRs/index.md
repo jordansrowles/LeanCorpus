@@ -22,6 +22,7 @@
 | ADR018 | 2026-07-30 | Accepted | [Reject RaBitQ as a production vector codec](ADR018-reject-rabitq-vector-codec.md) |
 | ADR019 | 2026-07-30 | Accepted | [Reject product quantisation at the default search budget](ADR019-reject-product-quantisation.md) |
 | ADR020 | 2026-07-30 | Accepted | [Stop the Hybrid Retrieval 2.0 research branch](ADR020-stop-hybrid-retrieval-2-research.md) |
+| ADR021 | 2026-07-31 | Accepted | [Package Analysis independently while preserving LeanCorpus source inclusion](ADR021-rowles-text-analysis-package.md) |
 ## Template
 
 New ADRs should follow [the template](_template.md) using the next available `ADRnnn` prefix.
