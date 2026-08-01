@@ -1,5 +1,7 @@
 # Observability
 
+Use this section to measure search and indexing behaviour in a running application. Start with metrics, then add tracing and slow-query diagnostics as needed.
+
 LeanCorpus has built-in instrumentation for metrics, tracing, and diagnostics. You can monitor index and search performance without external agents or sidecars.
 
 ## Metrics

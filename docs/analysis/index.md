@@ -1,5 +1,7 @@
 # Analysis overview
 
+Use this section when turning application text into searchable terms. Start with analysers, then choose tokenisers and filters only when the default pipeline does not fit.
+
 Analysis turns raw text into the terms LeanCorpus stores and queries. Use the same pipeline at index-time and query-time so terms line up.
 
 ## The parts

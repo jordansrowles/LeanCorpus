@@ -1,6 +1,6 @@
-# Index Management
+# Core and Indexing
 
-Keep your index healthy and up to date.
+Use this section to model fields, ingest documents, maintain durable index files and recover from failures. Start with update and delete, then read the storage material before changing formats or backup policy.
 
 - [Update and delete](01-update-and-delete.md)
 - [Schema validation](02-schema.md)

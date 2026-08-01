@@ -51,6 +51,18 @@ foreach (var hit in hits.ScoreDocs)
 | **Observability built in** | OpenTelemetry tracing and metrics, slow-query log, Aspire dashboard integration. |
 | **Competitive performance** | Benchmarks against Lucene.Net 4.8 on 100k-document corpora. Up to 63x faster highlighting, 33x faster geo-distance queries, with 10x to 100x less allocation. |
 
+## Start here
+
+| | Start with this |
+|---|---|
+| **Build your first search** | Create an index, add documents, and run a query in [three short steps](getting-started/01-installation.md). |
+| **Choose a package** | Find the core library, standalone [Rowles.Text](analysis/08-rowles-text.md), source generator and compression packages below. |
+| **Learn the architecture** | Understand documents, analysis, segments, readers, queries and vectors in [Concepts](concepts/index.md). |
+
+## Is LeanCorpus right for me?
+
+Choose LeanCorpus when you need embedded, local .NET search with control over index files, query execution and Native AOT deployment. Choose Lucene.NET when its mature ecosystem and broad compatibility matter more than a modern .NET-first API. Choose Elasticsearch when you need a distributed service, operational tooling and multi-node scale. A database full-text feature is often simpler when search is secondary to transactional data and the required query behaviour is modest.
+
 ## Feature tour
 
 <div markdown="1" class="row">
@@ -148,6 +160,7 @@ All packages target `net10.0` and `net11.0`.
 - [Architecture overview](architecture.md)
 - [Why LeanCorpus?](why-leancorpus.md)
 - [Performance](performance.md)
+- [Examples](examples/index.md)
 - [Feature comparison](articles/features/index.md)
 - [API reference](~/api/index.md)
 - [Benchmarks](benchmarks/index.md)
