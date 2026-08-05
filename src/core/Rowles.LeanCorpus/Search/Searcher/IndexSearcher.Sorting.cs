@@ -514,7 +514,7 @@ public sealed partial class IndexSearcher
         }
     }
 
-    private sealed class ScoreAfterCollectorStrategy : ITopNCollectorStrategy
+    private sealed class ScoreAfterCollectorStrategy : ITopNCollectorStrategy, IParallelTopNCollectorStrategy
     {
         private readonly ScoreDoc _after;
         private TopNCollector _collector;
@@ -549,9 +549,20 @@ public sealed partial class IndexSearcher
             _totalHits = 0;
             _collector.Reset();
         }
+
+        public ITopNCollectorStrategy CreateWorker()
+            => new ScoreAfterCollectorStrategy(_after, _collector.Capacity);
+
+        public void MergeWorker(ITopNCollectorStrategy worker)
+        {
+            var scoreWorker = (ScoreAfterCollectorStrategy)worker;
+            _totalHits += scoreWorker._totalHits;
+            foreach (var scoreDoc in scoreWorker._collector.ToTopDocs().ScoreDocs)
+                _collector.Collect(scoreDoc.DocId, scoreDoc.Score);
+        }
     }
 
-    private sealed class FieldAfterCollectorStrategy : ITopNCollectorStrategy
+    private sealed class FieldAfterCollectorStrategy : ITopNCollectorStrategy, IParallelTopNCollectorStrategy
     {
         private readonly IndexSearcher _searcher;
         private readonly SortField[] _sorts;
@@ -587,7 +598,11 @@ public sealed partial class IndexSearcher
         public void Collect(int docId, float score)
         {
             _totalHits++;
-            var candidate = new ScoreDoc(docId, score);
+            AddCandidate(new ScoreDoc(docId, score));
+        }
+
+        private void AddCandidate(ScoreDoc candidate)
+        {
             FillValues(candidate, _candidateValues);
             if (Compare(
                     _candidateValues,
@@ -614,6 +629,17 @@ public sealed partial class IndexSearcher
             _heap[0] = candidate;
             CopyValues(_candidateValues, 0);
             SiftDown(0);
+        }
+
+        public ITopNCollectorStrategy CreateWorker()
+            => new FieldAfterCollectorStrategy(_searcher, _after, _heap.Length, _sorts);
+
+        public void MergeWorker(ITopNCollectorStrategy worker)
+        {
+            var fieldWorker = (FieldAfterCollectorStrategy)worker;
+            _totalHits += fieldWorker._totalHits;
+            foreach (var scoreDoc in fieldWorker.ToTopDocs().ScoreDocs)
+                AddCandidate(scoreDoc);
         }
 
         public TopDocs ToTopDocs()
@@ -789,5 +815,11 @@ public sealed partial class IndexSearcher
             }
         }
         return collector.ToTopDocs();
+    }
+
+    internal interface IParallelTopNCollectorStrategy
+    {
+        ITopNCollectorStrategy CreateWorker();
+        void MergeWorker(ITopNCollectorStrategy worker);
     }
 }

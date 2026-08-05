@@ -26,8 +26,8 @@ public sealed class StableSearchSessionTests : IDisposable
         using var sessions = new SearchSessionManager(searchers);
         using var session = sessions.OpenSession();
         var query = new TermQuery("body", "common");
-        using var lease = searchers.AcquireLease();
-        var expected = lease.Searcher.Search(query, 12, sorts).ScoreDocs.Select(static hit => hit.DocId).ToArray();
+        using var serial = new IndexSearcher(directory, new IndexSearcherConfig { ParallelSearch = false });
+        var expected = serial.Search(query, 12, sorts).ScoreDocs.Select(static hit => hit.DocId).ToArray();
         Assert.Equal(expected, ReadAll(session, query, 3, sorts));
     }
 
@@ -41,17 +41,19 @@ public sealed class StableSearchSessionTests : IDisposable
         var query = new TermQuery("body", "common");
         var first = session.Search(query, 4);
 
-        using (var writer = new IndexWriter(directory, new IndexWriterConfig()))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig { SoftDeletesEnabled = true }))
         {
             writer.DeleteDocuments(new TermQuery("id", "doc-00"));
+            writer.SoftDeleteDocuments(new TermQuery("id", "doc-01"));
             Add(writer, 99); writer.Commit();
+            writer.ForceMerge(1);
         }
         Assert.True(searchers.MaybeRefresh());
         var oldIds = first.Results.ScoreDocs.Select(static d => d.DocId)
             .Concat(ReadAll(session, query, 4, [SortField.Score], first.NextCursor)).ToArray();
         Assert.Equal(Enumerable.Range(0, 12), oldIds);
         using var fresh = sessions.OpenSession();
-        Assert.Equal(12, ReadAll(fresh, query, 20, [SortField.Score]).Length);
+        Assert.Equal(11, ReadAll(fresh, query, 20, [SortField.Score]).Length);
     }
 
     [Fact]
@@ -109,6 +111,15 @@ public sealed class StableSearchSessionTests : IDisposable
         using var session = sessions.OpenSession();
         var profile = new RankingProfile("web", "1", new RankingPipeline([new ScoreFunctionStage("score", DoubleValuesSource.Scores, RankingScoreCombination.Add, 10)]));
         AssertFailure(SearchSessionFailureReason.UnsupportedPagination, () => session.Search(new RankingSearchRequest(new TermQuery("body", "common"), 2, profile)));
+    }
+
+    [Fact]
+    public void FusionQueriesAreRejectedForCursorSessions()
+    {
+        using var directory = new MMapDirectory(_path); using var searchers = new SearcherManager(directory); using var sessions = new SearchSessionManager(searchers);
+        using var session = sessions.OpenSession();
+        var fusion = new RrfQuery().Add(new TermQuery("body", "common")).Add(new TermQuery("body", "rare"));
+        AssertFailure(SearchSessionFailureReason.UnsupportedPagination, () => session.Search(fusion, 2));
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Ranking;
 using Rowles.LeanCorpus.Search.Scoring;
 
@@ -72,6 +73,9 @@ public sealed class SearchSessionManager : IDisposable
         IReadOnlyList<SortField>? sorts, string? rankingIdentity)
     {
         ArgumentNullException.ThrowIfNull(query); ArgumentOutOfRangeException.ThrowIfLessThan(pageSize, 1);
+        if (query is RrfQuery)
+            throw new SearchSessionException(SearchSessionFailureReason.UnsupportedPagination,
+                "Fusion queries do not provide stable cursor continuation state.");
         var effectiveSorts = sorts is null || sorts.Count == 0 ? new[] { SortField.Score } : sorts.ToArray();
         ValidateSorts(effectiveSorts);
         using var operation = AcquireOperation(id);

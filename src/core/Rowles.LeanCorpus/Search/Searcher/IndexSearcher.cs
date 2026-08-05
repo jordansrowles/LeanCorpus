@@ -503,8 +503,25 @@ public sealed partial class IndexSearcher : IDisposable
         }
 
         var globalDFs = PrecomputeGlobalDocFreqsForSearch(query);
-        foreach (var reader in _readers)
-            ExecuteQuery(query, reader, globalDFs, ref collector);
+        if (_readers.Count > 1 && _config.ParallelSearch
+            && strategy is IParallelTopNCollectorStrategy parallelStrategy)
+        {
+            int maxDop = _config.MaxConcurrency > 0 ? _config.MaxConcurrency : Environment.ProcessorCount;
+            var mergeLock = new Lock();
+            Parallel.ForEach(_readers, new ParallelOptions { MaxDegreeOfParallelism = maxDop }, reader =>
+            {
+                var workerStrategy = parallelStrategy.CreateWorker();
+                var workerCollector = new TopNCollector(workerStrategy);
+                ExecuteQuery(query, reader, globalDFs, ref workerCollector);
+                lock (mergeLock)
+                    parallelStrategy.MergeWorker(workerStrategy);
+            });
+        }
+        else
+        {
+            foreach (var reader in _readers)
+                ExecuteQuery(query, reader, globalDFs, ref collector);
+        }
         return collector.ToTopDocs();
     }
 

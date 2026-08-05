@@ -94,7 +94,8 @@ internal sealed class SearchCursorCodec
             return new SearchCursorData(session, index, generation, query, sort, ranking, new ScoreDoc(docId, score), values);
         }
         catch (SearchSessionException) { throw; }
-        catch (Exception ex) when (ex is EndOfStreamException or IOException or DecoderFallbackException or ArgumentException)
+        catch (Exception ex) when (ex is EndOfStreamException or IOException or DecoderFallbackException
+            or ArgumentException or FormatException or OverflowException)
         { throw Invalid("Cursor payload is malformed."); }
     }
 
