@@ -1,7 +1,7 @@
 ---
 category: Indexing.Management
-leancorpus: ❌
+leancorpus: ✔
 lucene.net: ✔
 lucene (java): ✔
-notes:
+notes: MultiReader composes immutable directory snapshots with deterministic global document IDs, field sorting, continuation, facets, and global ordinals.
 ---

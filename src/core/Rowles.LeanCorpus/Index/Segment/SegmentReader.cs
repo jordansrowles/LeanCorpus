@@ -45,8 +45,10 @@ internal sealed partial class SegmentReaderState : IDisposable
     private Dictionary<string, long[]>? _int64DocValues;
     private Dictionary<string, Util.RoaringBitmap?>? _int64DocValuesPresence;
     private Dictionary<string, string[]>? _sortedDocValues;
+    private Dictionary<string, string[]>? _sortedDocValueTerms;
     private Dictionary<string, Util.RoaringBitmap?>? _sortedDocValuesPresence;
     private Dictionary<string, string[][]>? _sortedSetDocValues;
+    private Dictionary<string, string[]>? _sortedSetDocValueTerms;
     private Dictionary<string, double[][]>? _sortedNumericDocValues;
     private Dictionary<string, long[][]>? _int64SortedDocValues;
     private Dictionary<string, byte[][][]>? _binaryDocValues;

@@ -1,7 +1,7 @@
 ---
 category: Indexing.Management
-leancorpus: ❌
+leancorpus: ✔
 lucene.net: ◐
 lucene (java): ◐
-notes: Backlog. IndexBackup.Backup() currently copies every manifest file and does not compare a prior manifest or skip unchanged files; Lucene supplies snapshot and replication primitives rather than this direct API.
+notes: IndexBackup.Backup() accepts a previous backup directory, writes a parent-linked manifest, and Restore() rehydrates the complete chain.
 ---

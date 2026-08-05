@@ -291,7 +291,7 @@ Lucene (Java) refers to Lucene 10.3.1,
 | SortedSetDocValues | ✔   `SortedSetDocValues` / `SortedSetDocValuesReader` | ✔ | ✔ | |
 | SortedNumericDocValues | ✔   `SortedNumericDocValues` / `SortedNumericDocValuesReader` | ✔ | ✔ | |
 | BinaryDocValues | ✔   `BinaryDocValues` / `BinaryDocValuesReader` | ✔ | ✔ | |
-| Cross-segment ordinal mapping | ❌ | ✔ | ✔ | Lucene: `OrdinalMap` for sorted and sorted-set DocValues. |
+| Cross-segment ordinal mapping | ✔   `OrdinalMap` | ✔ | ✔ | Immutable term-order mappings for sorted and sorted-set DocValues, including federated facet merging. |
 | Norms | ✔   `NormsReader` / `NormsWriter` | ✔ | ✔ | |
 | Field lengths | ✔   `FieldLengthReader` / `FieldLengthWriter` | ✔ | ✔ | |
 | DocValues-backed sort fields | ✔   `SortField.Numeric` / `SortField.String` | ✔ | ✔ | Uses DocValues internally |
@@ -353,13 +353,13 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Index validation / checker | ✔   `IndexValidator.Check()` | ✔ | ✔ | |
 | Searcher lease | ✔   `SearcherLease` | ❌ | ❌ | Ref-counted searcher handle with a configurable refresh interval. |
 | Query result cache | ✔   `QueryCache` | ❌ | ✔ | Thread-safe, generation-keyed LRU cache per `SearcherManager`; Java Lucene provides `LRUQueryCache`. |
-| MultiReader (N directories as one) | ❌ | ✔ | ✔ | Backlog |
-| ReaderManager | ❌ | ✔ | ✔ | Backlog |
+| MultiReader (N directories as one) | ✔   `MultiReader` | ✔ | ✔ | Composes immutable directory snapshots with deterministic global document IDs and field sorting. |
+| ReaderManager | ✔   `ReaderManager<TReader>` | ✔ | ✔ | Generic reference-counted reader lifecycle used by `SearcherManager`. |
 | InfoStream (writer diagnostic logging) | ❌ | ✔ | ✔ | Backlog |
 | Live field values | ❌ | ✔ | ✔ | Lucene: `LiveFieldValues` tracks updates not yet visible through a refreshed searcher. |
 | TaxonomyReader / TaxonomyWriter | ❌ | ✔ | ✔ | Backlog |
 | ForceMerge (optimise) | ✔   `IndexWriter.ForceMerge(int maxSegments)` | ✔ | ✔ | |
-| Incremental backup | ❌ | ◐ | ◐ | Backlog. `IndexBackup.Backup()` currently copies every manifest file and does not compare a prior manifest or skip unchanged files; Lucene supplies snapshot and replication primitives rather than this direct API. |
+| Incremental backup | ✔   `IndexBackup.Backup()` | ◐ | ◐ | Parent-linked manifests reuse unchanged files across backup directories and restore the complete chain. |
 
 ---
 

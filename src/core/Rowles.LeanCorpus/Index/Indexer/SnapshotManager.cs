@@ -87,7 +87,8 @@ internal static class SnapshotManager
         {
             CommitGeneration = snapshot.CommitGeneration,
             OverwriteBackupDirectory = options?.OverwriteBackupDirectory ?? false,
-            IncludeCommitStats = options?.IncludeCommitStats ?? true
+            IncludeCommitStats = options?.IncludeCommitStats ?? true,
+            PreviousBackupDirectoryPath = options?.PreviousBackupDirectoryPath
         };
         return IndexBackup.Backup(directoryPath, backupDirectoryPath, effectiveOptions);
     }

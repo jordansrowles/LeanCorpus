@@ -32,6 +32,8 @@ _description: Recorded LeanCorpus architecture decisions and their status.
 <tr><td><a href="ADR019-reject-product-quantisation.md">019</a></td><td>2026-07-30</td><td>Accepted</td><td></td><td><a href="ADR019-reject-product-quantisation.md">Reject product quantisation at the default search budget</a></td><td></td></tr>
 <tr><td><a href="ADR020-stop-hybrid-retrieval-2-research.md">020</a></td><td>2026-07-30</td><td>Accepted</td><td></td><td><a href="ADR020-stop-hybrid-retrieval-2-research.md">Stop the Hybrid Retrieval 2.0 research branch</a></td><td></td></tr>
 <tr><td><a href="ADR021-rowles-text-analysis-package.md">021</a></td><td>2026-07-31</td><td>Accepted</td><td></td><td><a href="ADR021-rowles-text-analysis-package.md">Package Analysis independently while preserving LeanCorpus source inclusion</a></td><td></td></tr>
+<tr><td><a href="ADR022-parent-linked-incremental-backups.md">022</a></td><td>2026-08-05</td><td>Accepted</td><td></td><td><a href="ADR022-parent-linked-incremental-backups.md">Parent-linked manifests define incremental backup chains</a></td><td></td></tr>
+<tr><td><a href="ADR023-immutable-reader-composition-and-ordinals.md">023</a></td><td>2026-08-05</td><td>Accepted</td><td></td><td><a href="ADR023-immutable-reader-composition-and-ordinals.md">Reader composition uses immutable snapshots and term-order ordinals</a></td><td></td></tr>
 </tbody>
 </table>
 </div>

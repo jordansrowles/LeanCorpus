@@ -1,7 +1,7 @@
 ---
 category: DocValues
-leancorpus: ❌
+leancorpus: ✔
 lucene.net: ✔
 lucene (java): ✔
-notes: Cross-segment ordinal mapping
+notes: OrdinalMap provides immutable term-order mappings across IndexSearcher segments and MultiReader component snapshots for sorted and sorted-set DocValues and federated facet merging.
 ---

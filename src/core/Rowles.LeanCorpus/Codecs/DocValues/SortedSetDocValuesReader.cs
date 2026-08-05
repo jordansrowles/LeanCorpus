@@ -69,6 +69,39 @@ internal static class SortedSetDocValuesReader
         return values;
     }
 
+    internal static Dictionary<string, string[]> ReadTerms(string filePath)
+    {
+        var terms = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        if (!FileOpenRetry.FileExists(filePath))
+            return terms;
+
+        using var input = new IndexInput(filePath);
+        _ = CodecFileHeader.ReadVersion(input, CodecFormats.SortedSetDocValues);
+        int fieldCount = input.ReadInt32();
+        for (int f = 0; f < fieldCount; f++)
+        {
+            string fieldName = ReadString(input);
+            int docCount = input.ReadInt32();
+            int ordCount = input.ReadInt32();
+            if (docCount < 0 || ordCount < 0)
+                throw new InvalidDataException($"Sorted-set DocValues field '{fieldName}' has a negative count.");
+            var fieldTerms = new string[ordCount];
+            for (int ordinal = 0; ordinal < ordCount; ordinal++)
+                fieldTerms[ordinal] = ReadString(input);
+
+            for (int i = 0; i <= docCount; i++)
+                _ = input.ReadInt32();
+            int totalOrdinals = input.ReadInt32();
+            if (totalOrdinals < 0)
+                throw new InvalidDataException($"Sorted-set DocValues field '{fieldName}' has a negative ordinal count.");
+            for (int i = 0; i < totalOrdinals; i++)
+                _ = input.ReadVarInt();
+            terms[fieldName] = fieldTerms;
+        }
+
+        return terms;
+    }
+
     internal static List<(string Name, IReadOnlyList<string>?[] Values)> EnumerateFields(string filePath)
     {
         if (!FileOpenRetry.FileExists(filePath))

@@ -14,7 +14,9 @@ namespace Rowles.LeanCorpus.Index.Backup;
 public static class IndexBackup
 {
     /// <summary>Gets the current backup manifest format version.</summary>
-    public const string CurrentManifestFormatVersion = "1";
+    public const string CurrentManifestFormatVersion = "2";
+
+    private const string LegacyManifestFormatVersion = "1";
 
     /// <summary>Gets the manifest file name used in backup directories.</summary>
     public const string ManifestFileName = "leancorpus-backup-manifest.json";
@@ -116,9 +118,49 @@ public static class IndexBackup
         }
 
         var files = entries.Values.OrderBy(static entry => entry.FileName, StringComparer.Ordinal).ToList();
+        IndexBackupManifest? parent = null;
+        string? parentFingerprint = null;
+        var kind = IndexBackupKind.Full;
+        int chainDepth = 1;
+        if (!string.IsNullOrWhiteSpace(options.PreviousBackupDirectoryPath))
+        {
+            var previousDirectory = Path.GetFullPath(options.PreviousBackupDirectoryPath);
+            if (SameDirectory(previousDirectory, sourceDirectory))
+                throw new ArgumentException("The previous backup directory must be different from the source index directory.", nameof(options));
+
+            parent = ReadManifest(previousDirectory);
+            parentFingerprint = ComputeManifestSha256(previousDirectory);
+            kind = IndexBackupKind.Incremental;
+            chainDepth = checked(parent.ChainDepth + 1);
+            var previousByName = parent.Files.ToDictionary(static entry => entry.FileName, StringComparer.Ordinal);
+            files = files.Select(entry =>
+            {
+                bool unchanged = previousByName.TryGetValue(entry.FileName, out var previous)
+                    && previous.Length == entry.Length
+                    && previous.Crc32 == entry.Crc32;
+                if (!unchanged)
+                    return entry;
+
+                return new IndexBackupFileEntry
+                {
+                    FileName = entry.FileName,
+                    Length = entry.Length,
+                    Crc32 = entry.Crc32,
+                    SegmentId = entry.SegmentId,
+                    Role = entry.Role,
+                    IsRequired = entry.IsRequired,
+                    IsCommitFile = entry.IsCommitFile,
+                    PresentInBackup = false
+                };
+            }).ToList();
+        }
+
         return new IndexBackupManifest
         {
             FormatVersion = CurrentManifestFormatVersion,
+            Kind = kind,
+            ParentManifestSha256 = parentFingerprint,
+            ChainDepth = chainDepth,
             CommitGeneration = selectedCommit.Generation,
             ContentToken = commitData.ContentToken,
             CreatedAtUtc = DateTimeOffset.UtcNow,
@@ -151,6 +193,13 @@ public static class IndexBackup
             var backupDirectory = Path.GetFullPath(backupDirectoryPath);
             if (SameDirectory(sourceDirectory, backupDirectory))
                 throw new ArgumentException("Backup directory must be different from the source index directory.", nameof(backupDirectoryPath));
+            if (!string.IsNullOrWhiteSpace(options.PreviousBackupDirectoryPath)
+                && SameDirectory(Path.GetFullPath(options.PreviousBackupDirectoryPath), backupDirectory))
+            {
+                throw new ArgumentException(
+                    "Backup directory must be different from the previous backup directory.",
+                    nameof(backupDirectoryPath));
+            }
 
             // Retry on transient file-not-found — a concurrent background merge
             // may delete segment files between manifest creation and file copy.
@@ -166,6 +215,8 @@ public static class IndexBackup
                     var copiedFiles = new List<string>(manifest.Files.Count);
                     foreach (var entry in manifest.Files)
                     {
+                        if (!entry.PresentInBackup)
+                            continue;
                         ValidateManifestFileName(entry.FileName);
                         var sourcePath = Path.Combine(sourceDirectory, entry.FileName);
                         var targetPath = Path.Combine(backupDirectory, entry.FileName);
@@ -222,8 +273,22 @@ public static class IndexBackup
         var manifest = JsonSerializer.Deserialize(json, LeanCorpusJsonContext.Default.IndexBackupManifest)
             ?? throw new InvalidDataException($"Backup manifest '{ManifestFileName}' cannot be deserialised.");
 
-        if (!string.Equals(manifest.FormatVersion, CurrentManifestFormatVersion, StringComparison.Ordinal))
+        if (!string.Equals(manifest.FormatVersion, CurrentManifestFormatVersion, StringComparison.Ordinal)
+            && !string.Equals(manifest.FormatVersion, LegacyManifestFormatVersion, StringComparison.Ordinal))
             throw new InvalidDataException($"Backup manifest format '{manifest.FormatVersion}' is not supported.");
+
+        if (manifest.FormatVersion == LegacyManifestFormatVersion)
+            return new IndexBackupManifest
+            {
+                FormatVersion = manifest.FormatVersion,
+                Kind = IndexBackupKind.Full,
+                ChainDepth = 1,
+                CommitGeneration = manifest.CommitGeneration,
+                ContentToken = manifest.ContentToken,
+                CreatedAtUtc = manifest.CreatedAtUtc,
+                CommitFileName = manifest.CommitFileName,
+                Files = manifest.Files
+            };
 
         return manifest;
     }
@@ -260,7 +325,7 @@ public static class IndexBackup
     {
         var backupDirectory = Path.GetFullPath(backupDirectoryPath);
         var manifest = ReadManifest(backupDirectory);
-        foreach (var entry in manifest.Files)
+        foreach (var entry in manifest.Files.Where(static entry => entry.PresentInBackup))
         {
             ValidateManifestFileName(entry.FileName);
             var path = Path.Combine(backupDirectory, entry.FileName);
@@ -276,7 +341,27 @@ public static class IndexBackup
                 throw new InvalidDataException($"Backup file '{entry.FileName}' has CRC-32 {checksum:x8}, expected {entry.Crc32:x8}.");
         }
 
+        if (manifest.Kind == IndexBackupKind.Incremental
+            && manifest.Files.Any(static entry => !entry.PresentInBackup))
+        {
+            throw new InvalidDataException(
+                "This incremental backup is not self-contained; validate it with its full parent chain.");
+        }
+
         return manifest;
+    }
+
+    /// <summary>
+    /// Validates an ordered backup chain from oldest to newest.
+    /// </summary>
+    /// <param name="backupDirectoryPaths">The full, then incremental, backup directories in restore order.</param>
+    /// <returns>The newest manifest in the validated chain.</returns>
+    public static IndexBackupManifest ValidateBackup(IReadOnlyList<string> backupDirectoryPaths)
+    {
+        var chain = ReadBackupChain(backupDirectoryPaths);
+        foreach (var (directory, manifest) in chain)
+            ValidateManifestFiles(directory, manifest, chain);
+        return chain[^1].Manifest;
     }
 
     /// <summary>
@@ -310,6 +395,8 @@ public static class IndexBackup
             var restoredFiles = new List<string>(manifest.Files.Count);
             foreach (var entry in manifest.Files)
             {
+                if (!entry.PresentInBackup)
+                    throw new InvalidDataException($"Incremental backup '{backupDirectory}' requires its parent chain for restore.");
                 ValidateManifestFileName(entry.FileName);
                 if (!options.RestoreCommitStats && string.Equals(entry.Role, "commit-stats", StringComparison.Ordinal))
                     continue;
@@ -361,6 +448,183 @@ public static class IndexBackup
                 options.RestoreCommitStats,
                 options.OverwriteTargetDirectory);
         }
+    }
+
+    /// <summary>
+    /// Restores an ordered backup chain into a target index directory.
+    /// </summary>
+    /// <param name="backupDirectoryPaths">The full, then incremental, backup directories in restore order.</param>
+    /// <param name="targetIndexDirectoryPath">The target index directory path.</param>
+    /// <param name="options">Restore options.</param>
+    /// <returns>The result of restoring the newest manifest.</returns>
+    public static IndexRestoreResult Restore(
+        IReadOnlyList<string> backupDirectoryPaths,
+        string targetIndexDirectoryPath,
+        IndexRestoreOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(backupDirectoryPaths);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetIndexDirectoryPath);
+        if (backupDirectoryPaths.Count == 0)
+            throw new ArgumentException("At least one backup directory is required.", nameof(backupDirectoryPaths));
+
+        options ??= new IndexRestoreOptions();
+        var targetDirectory = Path.GetFullPath(targetIndexDirectoryPath);
+        if (backupDirectoryPaths.Any(path => SameDirectory(Path.GetFullPath(path), targetDirectory)))
+            throw new ArgumentException("Restore target directory must be different from every backup directory.", nameof(targetIndexDirectoryPath));
+
+        var chain = ReadBackupChain(backupDirectoryPaths);
+        var newest = chain[^1].Manifest;
+        var sw = Stopwatch.StartNew();
+        using var activity = LeanCorpusActivitySource.Source.StartActivity(LeanCorpusActivitySource.BackupRestore);
+        var restoredFiles = new List<string>(newest.Files.Count);
+        var succeeded = false;
+        try
+        {
+            for (int i = 0; i < chain.Count; i++)
+                ValidateManifestFiles(chain[i].Directory, chain[i].Manifest, chain);
+
+            PrepareDirectory(targetDirectory, options.OverwriteTargetDirectory, "Restore target");
+            foreach (var entry in newest.Files)
+            {
+                ValidateManifestFileName(entry.FileName);
+                if (!options.RestoreCommitStats && string.Equals(entry.Role, "commit-stats", StringComparison.Ordinal))
+                    continue;
+
+                var sourceDirectory = FindFileDirectory(chain, entry);
+                var sourcePath = Path.Combine(sourceDirectory, entry.FileName);
+                var targetPath = Path.Combine(targetDirectory, entry.FileName);
+                CopyFileAtomically(sourcePath, targetPath);
+                var targetChecksum = ComputeFileCrc32(targetPath);
+                if (targetChecksum != entry.Crc32)
+                    throw new InvalidDataException($"Restored file '{entry.FileName}' has CRC-32 {targetChecksum:x8}, expected {entry.Crc32:x8}. The copy may be corrupt.");
+                restoredFiles.Add(entry.FileName);
+            }
+
+            IndexCheckResult? validation = null;
+            if (options.ValidateAfterRestore)
+            {
+                using var directory = new MMapDirectory(targetDirectory);
+                validation = IndexValidator.Check(directory);
+            }
+
+            succeeded = true;
+            return new IndexRestoreResult
+            {
+                Manifest = newest,
+                TargetDirectoryPath = targetDirectory,
+                RestoredFiles = restoredFiles,
+                ValidationResult = validation
+            };
+        }
+        finally
+        {
+            sw.Stop();
+            activity?.SetTag("operation.succeeded", succeeded);
+            ApplyManifestActivityTags(activity, newest);
+            activity?.SetTag("index.restore.file_count", restoredFiles.Count);
+            activity?.SetTag("index.restore.chain_depth", chain.Count);
+            activity?.SetTag("index.restore.validate_after_restore", options.ValidateAfterRestore);
+            activity?.SetTag("index.restore.restore_commit_stats", options.RestoreCommitStats);
+            activity?.SetTag("index.restore.overwrite", options.OverwriteTargetDirectory);
+            LeanCorpusMaintenanceMetrics.RecordBackupRestore(sw.Elapsed, succeeded, options.ValidateAfterRestore, options.RestoreCommitStats, options.OverwriteTargetDirectory);
+        }
+    }
+
+    private static List<(string Directory, IndexBackupManifest Manifest)> ReadBackupChain(IReadOnlyList<string> backupDirectoryPaths)
+    {
+        if (backupDirectoryPaths.Count == 0)
+            throw new ArgumentException("At least one backup directory is required.", nameof(backupDirectoryPaths));
+
+        var chain = new List<(string Directory, IndexBackupManifest Manifest)>(backupDirectoryPaths.Count);
+        string? previousFingerprint = null;
+        for (int i = 0; i < backupDirectoryPaths.Count; i++)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(backupDirectoryPaths[i]);
+            var directory = Path.GetFullPath(backupDirectoryPaths[i]);
+            var manifest = ReadManifest(directory);
+            if (i == 0)
+            {
+                if (manifest.Kind != IndexBackupKind.Full || manifest.ParentManifestSha256 is not null || manifest.ChainDepth != 1)
+                    throw new InvalidDataException("The first backup in a chain must be a self-contained full backup.");
+            }
+            else
+            {
+                if (manifest.Kind != IndexBackupKind.Incremental
+                    || !string.Equals(manifest.ParentManifestSha256, previousFingerprint, StringComparison.OrdinalIgnoreCase)
+                    || manifest.ChainDepth != chain[^1].Manifest.ChainDepth + 1)
+                    throw new InvalidDataException($"Backup chain link at '{directory}' does not match its immediate parent.");
+            }
+
+            chain.Add((directory, manifest));
+            previousFingerprint = ComputeManifestSha256(directory);
+        }
+
+        var finalFiles = chain[^1].Manifest.Files;
+        if (finalFiles.Count == 0)
+            throw new InvalidDataException("The newest backup manifest contains no files.");
+        return chain;
+    }
+
+    private static void ValidateManifestFiles(
+        string directory,
+        IndexBackupManifest manifest,
+        IReadOnlyList<(string Directory, IndexBackupManifest Manifest)> chain)
+    {
+        foreach (var entry in manifest.Files.Where(static entry => entry.PresentInBackup))
+        {
+            ValidateManifestFileName(entry.FileName);
+            var path = Path.Combine(directory, entry.FileName);
+            if (!FileOpenRetry.FileExists(path))
+                throw new InvalidDataException($"Backup file '{entry.FileName}' is missing from '{directory}'.");
+
+            long length = FileOpenRetry.GetFileLength(path);
+            if (length != entry.Length)
+                throw new InvalidDataException($"Backup file '{entry.FileName}' has length {length}, expected {entry.Length}.");
+
+            var checksum = ComputeFileCrc32(path);
+            if (checksum != entry.Crc32)
+                throw new InvalidDataException($"Backup file '{entry.FileName}' has CRC-32 {checksum:x8}, expected {entry.Crc32:x8}.");
+        }
+
+        if (!ReferenceEquals(manifest, chain[^1].Manifest))
+            return;
+
+        foreach (var entry in manifest.Files)
+        {
+            if (FindFileDirectoryOrNull(chain, entry) is null)
+                throw new InvalidDataException($"Backup chain does not contain file '{entry.FileName}'.");
+        }
+    }
+
+    private static string FindFileDirectory(
+        IReadOnlyList<(string Directory, IndexBackupManifest Manifest)> chain,
+        IndexBackupFileEntry entry)
+        => FindFileDirectoryOrNull(chain, entry)
+            ?? throw new InvalidDataException($"Backup chain does not contain file '{entry.FileName}'.");
+
+    private static string? FindFileDirectoryOrNull(
+        IReadOnlyList<(string Directory, IndexBackupManifest Manifest)> chain,
+        IndexBackupFileEntry entry)
+    {
+        for (int i = chain.Count - 1; i >= 0; i--)
+        {
+            var candidate = chain[i].Manifest.Files.FirstOrDefault(file =>
+                file.PresentInBackup
+                && string.Equals(file.FileName, entry.FileName, StringComparison.Ordinal)
+                && file.Length == entry.Length
+                && file.Crc32 == entry.Crc32);
+            if (candidate is not null)
+                return chain[i].Directory;
+        }
+
+        return null;
+    }
+
+    private static string ComputeManifestSha256(string backupDirectoryPath)
+    {
+        var manifestPath = Path.Combine(Path.GetFullPath(backupDirectoryPath), ManifestFileName);
+        using var stream = FileOpenRetry.OpenReadDelete(manifestPath);
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream)).ToLowerInvariant();
     }
 
     private static (int Generation, string FilePath) SelectCommit(string directoryPath, int? generation)

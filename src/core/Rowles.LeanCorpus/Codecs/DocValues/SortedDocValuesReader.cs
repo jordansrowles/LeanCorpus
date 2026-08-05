@@ -98,6 +98,42 @@ internal static class SortedDocValuesReader
         return (values, presence);
     }
 
+    internal static Dictionary<string, string[]> ReadTerms(string filePath)
+    {
+        var terms = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        if (!FileOpenRetry.FileExists(filePath)) return terms;
+
+        using var input = new IndexInput(filePath);
+        _ = CodecFileHeader.ReadVersion(input, CodecFormats.SortedDocValues);
+        int fieldCount = input.ReadInt32();
+        for (int f = 0; f < fieldCount; f++)
+        {
+            string fieldName = ReadString(input);
+            int presenceByteCount = input.ReadInt32();
+            if (presenceByteCount < 0)
+                throw new InvalidDataException($"Sorted DocValues field '{fieldName}' has a negative presence length.");
+            input.Seek(checked(input.Position + presenceByteCount));
+
+            int docCount = input.ReadInt32();
+            int ordCount = input.ReadInt32();
+            if (docCount < 0 || ordCount < 0)
+                throw new InvalidDataException($"Sorted DocValues field '{fieldName}' has a negative count.");
+            var fieldTerms = new string[ordCount];
+            for (int ordinal = 0; ordinal < ordCount; ordinal++)
+                fieldTerms[ordinal] = ReadString(input);
+
+            int bitsPerOrd = input.ReadByte();
+            if (bitsPerOrd > 63)
+                throw new InvalidDataException(
+                    $"Sorted DocValues field '{fieldName}' has bitsPerOrd={bitsPerOrd}, max is 63.");
+            long packedByteCount = ((long)docCount * bitsPerOrd + 7) / 8;
+            input.Seek(checked(input.Position + packedByteCount));
+            terms[fieldName] = fieldTerms;
+        }
+
+        return terms;
+    }
+
     internal static List<(string Name, string?[] Values)> EnumerateFields(string filePath)
     {
         if (!FileOpenRetry.FileExists(filePath))
@@ -180,5 +216,13 @@ internal static class SortedDocValuesReader
         }
 
         return results;
+    }
+
+    private static string ReadString(IndexInput input)
+    {
+        int length = input.ReadVarInt();
+        if (length < 0)
+            throw new InvalidDataException("Negative string length in sorted DocValues.");
+        return System.Text.Encoding.UTF8.GetString(input.ReadBytes(length));
     }
 }

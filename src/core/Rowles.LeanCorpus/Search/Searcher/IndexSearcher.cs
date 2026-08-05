@@ -158,6 +158,26 @@ public sealed partial class IndexSearcher : IDisposable
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     internal IReadOnlyList<SegmentReader> GetSegmentReaders() => _readers;
 
+    /// <summary>
+    /// Builds an immutable global ordinal map for a sorted DocValues field across this
+    /// searcher's segment snapshots.
+    /// </summary>
+    /// <param name="fieldName">The sorted or sorted-set DocValues field.</param>
+    /// <param name="sortedSet">When true, reads the sorted-set term dictionary.</param>
+    /// <returns>A map whose source indexes match the current segment order.</returns>
+    public OrdinalMap GetOrdinalMap(string fieldName, bool sortedSet = false)
+    {
+        ArgumentNullException.ThrowIfNull(fieldName);
+        var sourceTerms = new IReadOnlyList<string>[_readers.Count];
+        for (int i = 0; i < _readers.Count; i++)
+        {
+            sourceTerms[i] = sortedSet
+                ? _readers[i].GetSortedSetDocValueTerms(fieldName) ?? Array.Empty<string>()
+                : _readers[i].GetSortedDocValueTerms(fieldName) ?? Array.Empty<string>();
+        }
+        return OrdinalMap.Build(sourceTerms);
+    }
+
     internal int CachedSegmentReaderCount => _segmentReaderCache.Count;
 
     internal long LoadedSegmentReaderCount => _segmentReaderCache.LoadCount;

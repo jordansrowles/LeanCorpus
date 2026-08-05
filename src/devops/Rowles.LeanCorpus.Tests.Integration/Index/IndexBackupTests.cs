@@ -69,6 +69,44 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(2, searcher.Search(new TermQuery("body", "backup"), 10).TotalHits);
     }
 
+    [Fact(DisplayName = "IndexBackup: Incremental Backup Reuses Unchanged Files")]
+    public void IndexBackup_IncrementalBackup_ReusesUnchangedFilesAndRestoresChain()
+    {
+        var indexPath = CreateIndex("incremental_chain");
+        var fullPath = Path.Combine(_fixture.Path, "incremental_chain_full");
+        var deltaPath = Path.Combine(_fixture.Path, "incremental_chain_delta");
+        var restorePath = Path.Combine(_fixture.Path, "incremental_chain_restore");
+
+        var full = IndexBackup.Backup(indexPath, fullPath);
+        using (var directory = new MMapDirectory(indexPath))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig { DeletionPolicy = new KeepLastNCommitsPolicy(2) }))
+        {
+            writer.AddDocument(CreateDocument("third incremental document", 30));
+            writer.Commit();
+        }
+
+        var delta = IndexBackup.Backup(indexPath, deltaPath, new IndexBackupOptions
+        {
+            PreviousBackupDirectoryPath = fullPath
+        });
+
+        Assert.Equal(IndexBackupKind.Incremental, delta.Manifest.Kind);
+        Assert.Equal(2, delta.Manifest.ChainDepth);
+        Assert.NotNull(delta.Manifest.ParentManifestSha256);
+        Assert.Equal(64, delta.Manifest.ParentManifestSha256!.Length);
+        Assert.Contains(delta.Manifest.Files, static file => !file.PresentInBackup);
+        Assert.True(delta.CopiedFiles.Count < full.CopiedFiles.Count);
+        Assert.Throws<InvalidDataException>(() => IndexBackup.ValidateBackup(deltaPath));
+        Assert.Equal(delta.Manifest.CommitGeneration, IndexBackup.ValidateBackup([fullPath, deltaPath]).CommitGeneration);
+        Assert.Throws<InvalidDataException>(() => IndexBackup.Restore(deltaPath, restorePath));
+
+        var restored = IndexBackup.Restore([fullPath, deltaPath], restorePath);
+        Assert.True(restored.ValidationResult?.IsHealthy);
+        using var restoredDirectory = new MMapDirectory(restorePath);
+        using var searcher = new IndexSearcher(restoredDirectory);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "incremental"), 10).TotalHits);
+    }
+
     [Fact(DisplayName = "IndexBackup: Validate Backup Rejects Checksum Mismatch")]
     public void IndexBackup_ValidateBackup_RejectsChecksumMismatch()
     {

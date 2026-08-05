@@ -274,6 +274,10 @@ public sealed class SegmentReader : IDisposable
     public double[]? GetNumericDocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetNumericDocValues(field); }
     public string[]? GetSortedDocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetSortedDocValues(field); }
     public string[][]? GetSortedSetDocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetSortedSetDocValues(field); }
+    /// <summary>Returns the sorted local term dictionary for a field, or null if unavailable.</summary>
+    public string[]? GetSortedDocValueTerms(string field) { using var lease = AcquireReadLease(); return lease.State.GetSortedDocValueTerms(field); }
+    /// <summary>Returns the sorted-set local term dictionary for a field, or null if unavailable.</summary>
+    public string[]? GetSortedSetDocValueTerms(string field) { using var lease = AcquireReadLease(); return lease.State.GetSortedSetDocValueTerms(field); }
     public double[][]? GetSortedNumericDocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetSortedNumericDocValues(field); }
     public byte[][][]? GetBinaryDocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetBinaryDocValues(field); }
     public long[]? GetInt64DocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetInt64DocValues(field); }

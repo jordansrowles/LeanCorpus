@@ -27,6 +27,39 @@ var options = new IndexBackupOptions
 };
 ```
 
+## Incremental backups
+
+Pass the previous backup directory to reuse unchanged files. The new manifest records
+the parent manifest checksum and marks inherited files without copying them again:
+
+```csharp
+var delta = IndexBackup.Backup(
+    indexDirectoryPath: "/srv/search/index",
+    backupDirectoryPath: "/srv/backups/index-2026-07-27",
+    new IndexBackupOptions
+    {
+        PreviousBackupDirectoryPath = "/srv/backups/index-2026-07-26",
+    });
+```
+
+Keep the full backup and every later delta available. Validate or restore the chain in
+order so inherited files can be resolved:
+
+```csharp
+var chain = new[]
+{
+    "/srv/backups/index-2026-07-26",
+    "/srv/backups/index-2026-07-27",
+};
+
+var manifest = IndexBackup.ValidateBackup(chain);
+IndexBackup.Restore(chain, "/srv/search/index-restored");
+```
+
+Restoring one incremental directory by itself is rejected because it does not contain
+the inherited files. Parent checksums, chain depth, file lengths, and CRCs are validated
+before files are copied.
+
 ## Backup a live writer
 
 Create a snapshot so merges and deletion policy cannot remove files while they are copied:

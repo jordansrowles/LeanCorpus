@@ -111,6 +111,32 @@ internal sealed partial class SegmentReaderState
         return _sortedSetDocValues;
     }
 
+    private Dictionary<string, string[]> EnsureSortedDocValueTerms()
+    {
+        if (_sortedDocValueTerms is not null) return _sortedDocValueTerms;
+
+        var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
+        lock (lockObj)
+        {
+            if (_sortedDocValueTerms is not null) return _sortedDocValueTerms;
+            _sortedDocValueTerms = SortedDocValuesReader.ReadTerms(_basePath + ".dvs");
+        }
+        return _sortedDocValueTerms;
+    }
+
+    private Dictionary<string, string[]> EnsureSortedSetDocValueTerms()
+    {
+        if (_sortedSetDocValueTerms is not null) return _sortedSetDocValueTerms;
+
+        var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
+        lock (lockObj)
+        {
+            if (_sortedSetDocValueTerms is not null) return _sortedSetDocValueTerms;
+            _sortedSetDocValueTerms = SortedSetDocValuesReader.ReadTerms(_basePath + ".dss");
+        }
+        return _sortedSetDocValueTerms;
+    }
+
     /// <summary>Lazy-loads sorted-numeric doc values (.dsn).</summary>
     private Dictionary<string, double[][]> EnsureSortedNumericDocValues()
     {
@@ -312,6 +338,14 @@ internal sealed partial class SegmentReaderState
     /// <summary>Returns the SortedSetDocValues array for a field, or null if unavailable.</summary>
     public string[][]? GetSortedSetDocValues(string field)
         => EnsureSortedSetDocValues().GetValueOrDefault(field);
+
+    /// <summary>Returns the sorted local term dictionary for a field, or null if unavailable.</summary>
+    public string[]? GetSortedDocValueTerms(string field)
+        => EnsureSortedDocValueTerms().GetValueOrDefault(field);
+
+    /// <summary>Returns the sorted-set local term dictionary for a field, or null if unavailable.</summary>
+    public string[]? GetSortedSetDocValueTerms(string field)
+        => EnsureSortedSetDocValueTerms().GetValueOrDefault(field);
 
     /// <summary>Returns the SortedNumericDocValues array for a field, or null if unavailable.</summary>
     public double[][]? GetSortedNumericDocValues(string field)

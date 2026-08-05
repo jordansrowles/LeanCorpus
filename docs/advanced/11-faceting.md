@@ -44,6 +44,23 @@ Facet counts cover the complete matching set, not just the returned top-N page. 
 
 This makes faceting proportional to the number of matches and facet values. A broad query over high-cardinality fields can be expensive even when `topN` is small.
 
+## Federated facets and global ordinals
+
+When searching several directories, `MultiReader.SearchWithFacets()` merges
+sorted and sorted-set DocValues through one immutable `OrdinalMap`. The map gives
+equal terms the same global ordinal even when their local segment ordinals differ:
+
+```csharp
+using var reader = new MultiReader([firstDirectory, secondDirectory]);
+var ordinals = reader.GetOrdinalMap("category", sortedSet: true);
+int globalOrdinal = ordinals.GetGlobalOrdinal(sourceIndex: 1, localOrdinal: 0);
+```
+
+`IndexSearcher.GetOrdinalMap()` exposes the equivalent map across one searcher's
+segments. The source index follows the captured segment or component order. Taxonomy,
+join, and grouping APIs are not inferred from this map because LeanCorpus does not
+currently expose those index structures.
+
 ## Practical guidance
 
 - facet on controlled values such as category, status, language, or tenant;

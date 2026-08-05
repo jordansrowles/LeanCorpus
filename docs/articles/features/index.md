@@ -1010,10 +1010,10 @@ Lucene.NET refers to the packaged 4.8 line. Use the column filters to narrow the
   {
     "feature": "Cross-segment ordinal mapping",
     "category": "DocValues",
-    "leancorpus": "❌",
+    "leancorpus": "✔",
     "luceneNet": "✔",
     "luceneJava": "✔",
-    "notes": "Cross-segment ordinal mapping",
+    "notes": "OrdinalMap provides immutable term-order mappings across IndexSearcher segments and MultiReader component snapshots for sorted and sorted-set DocValues and federated facet merging.",
     "details": {
       "LeanCorpus": "",
       "Lucene.NET": "",
@@ -1881,10 +1881,10 @@ Lucene.NET refers to the packaged 4.8 line. Use the column filters to narrow the
   {
     "feature": "Incremental backup",
     "category": "Indexing.Management",
-    "leancorpus": "❌",
+    "leancorpus": "✔",
     "luceneNet": "◐",
     "luceneJava": "◐",
-    "notes": "Backlog. IndexBackup.Backup() currently copies every manifest file and does not compare a prior manifest or skip unchanged files; Lucene supplies snapshot and replication primitives rather than this direct API.",
+    "notes": "IndexBackup.Backup() accepts a previous backup directory, writes a parent-linked manifest, and Restore() rehydrates the complete chain.",
     "details": {
       "LeanCorpus": "",
       "Lucene.NET": "",
@@ -2648,10 +2648,10 @@ Lucene.NET refers to the packaged 4.8 line. Use the column filters to narrow the
   {
     "feature": "MultiReader (N directories as one)",
     "category": "Indexing.Management",
-    "leancorpus": "❌",
+    "leancorpus": "✔",
     "luceneNet": "✔",
     "luceneJava": "✔",
-    "notes": "",
+    "notes": "MultiReader composes immutable directory snapshots with deterministic global document IDs, field sorting, continuation, facets, and global ordinals.",
     "details": {
       "LeanCorpus": "",
       "Lucene.NET": "",
@@ -3389,10 +3389,10 @@ Lucene.NET refers to the packaged 4.8 line. Use the column filters to narrow the
   {
     "feature": "ReaderManager",
     "category": "Indexing.Management",
-    "leancorpus": "❌",
+    "leancorpus": "✔",
     "luceneNet": "✔",
     "luceneJava": "✔",
-    "notes": "",
+    "notes": "ReaderManager<TReader> owns reference-counted immutable readers, background refresh, failure diagnostics, and leases; SearcherManager uses it for IndexSearcher instances.",
     "details": {
       "LeanCorpus": "",
       "Lucene.NET": "",
