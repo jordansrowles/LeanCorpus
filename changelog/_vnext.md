@@ -1,7 +1,16 @@
-<!-- filename: `version - YYYY-mm-dd` -->
 
 ### Added
 
+- `IndexWriterConfig.UseCompoundFile` for opt-in .`cfs` segment storage (1c4a1d3b9)
+- Integration coverage for compound searches, DocValues, vectors, merges, backups, and restores (1c4a1d3b9)
+- Added incremental backups that reuse unchanged files and restore complete backup chains (1fa7980eb)
+- Added generic `ReaderManager<TReader>` lifecycle management with leases and refresh diagnostics (1fa7980eb)
+- Added immutable `MultiReader` with pagination, facets, and global IDs (1fa7980eb)
+- Added `OrdinalMap` for sorted and sorted-set `DocValues` (1fa7980eb)
+- Moved analysis into `Rowles.Text` (`Rowles.*` is reserved on NuGet) which provides the analysers, tokenisers, filters and stemmers without requiring the search engine (e831990c9)
+- Search sessions now provide stable cursor pagination across index changes with configurable lifetime, resource limits and optional token integrity protection (2ee8e2c3c)
+- Ranking evaluation metrics and bounded MMR diversification for relevance testing and less repetitive results (5be62e5d2)
+- Ranking profiles and query rules for deterministic filters, score adjustments, pinning, cache identity and bounded reranking (d902e668b)
 - `PathTreeTokeniser` emits compound path tokens from root to leaf (forward mode) or leaf to root (suffix mode), with root-aware parsing for drive letters, UNC paths, and scheme URIs. Supports optional depth payloads for shallow-matching boosts and inline ASCII case normalisation (d5b6b1cbd)
 - `FunctionQuery` and `DoubleValuesSource` support scores, double and Int64 fields, constants and composed arithmetic (cf9c49a10)
 - `FunctionScoreQuery` can now use composed `DoubleValuesSource` values while retaining its numeric-field fast path (cf9c49a10)
@@ -12,6 +21,7 @@
 - `ChineseLexiconTokeniser` performs greedy longest-match segmentation using built-in or file-based dictionaries (06aec67a6)
 - `JapaneseTokeniser` performs dictionary-backed least-cost Viterbi segmentation with reusable zero-allocation warm-path storage (06aec67a6)
 - Japanese dictionaries use a versioned and checksummed `.jlc` file containing the FST, word costs, unknown-word rules, character classes and connection costs (06aec67a6)
+	- For now, I've essentially just "borrowed" (ingested) Lucene's Japanese data, and stored it in my own codec (not a full CodecKit codec)
 - `FstReader` provides an internal allocation-free prefix cursor without changing existing query lookup paths (06aec67a6)
 - `QueryParser` now supports ranges, AND, OR, NOT, field-exists queries, regex, constant scores and `DisMax` groups (9f7e16ce4)
 - `BooleanQuery` now supports a configurable minimum number of matching SHOULD clauses (9f7e16ce4)
@@ -27,6 +37,9 @@
 - Suggestions now support analysers, query-based context filtering and free-text next-term completion (9f7e16ce4)
 ### Changed
 
+- Compound readers now open immutable members through bounded memory-mapped slices (1c4a1d3b9)
+- Merges, backups, validation, recovery, and cleanup now recognise compound segments (1c4a1d3b9)
+- Stable search sessions now support parallel cursor continuation and reject fusion queries without stable continuation state ()
 - `SearchAfter` now retains only the requested next-page candidates for score, document-ID and multi-field sort cursors (cf9c49a10)
 - `QueryRescorer` now retains second-pass scores only for first-pass candidates and supports separate weights and custom score combination (cf9c49a10)
 - Japanese analysis now uses morphological tokens and Japanese stop-word filtering instead of bigram segmentation (06aec67a6)
@@ -34,6 +47,7 @@
 - Korean analysis now keeps Hangul word runs intact and applies Korean stop-word filtering (06aec67a6)
 ### Fixed
 
+- Compound corruption and missing-member checks now fail explicitly (1c4a1d3b9)
 - `CJKBigramTokeniser` now distinguishes ideographs from kana and Hangul and preserves supplementary CJK characters as complete UTF-16 code points (06aec67a6)
 - Custom collectors now receive every matching document instead of stopping at 1,024 hits (9f7e16ce4)
 ### Removed
