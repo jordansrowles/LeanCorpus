@@ -89,6 +89,14 @@ internal static class Program
                 BenchmarkSuite.MMapIO,
                 BenchmarkSuite.HnswSearch,
                 BenchmarkSuite.VectorQuantisation,
+                BenchmarkSuite.CompoundFile,
+                BenchmarkSuite.IncrementalBackup,
+                BenchmarkSuite.ReaderManagerLifecycle,
+                BenchmarkSuite.MultiReader,
+                BenchmarkSuite.OrdinalMap,
+                BenchmarkSuite.SearchSession,
+                BenchmarkSuite.RankingEvaluation,
+                BenchmarkSuite.RankingPipeline,
             ]);
         }
 
@@ -308,6 +316,30 @@ internal static class Program
 
         if (suites.Contains(BenchmarkSuite.MMapIO))
             RunSuite<MMapDirectoryIOBenchmarks>("mmap-io", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.CompoundFile))
+            RunSuite<CompoundFileBenchmarks>("compound-file", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.IncrementalBackup))
+            RunSuite<IncrementalBackupBenchmarks>("incremental-backup", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.ReaderManagerLifecycle))
+            RunSuite<ReaderManagerLifecycleBenchmarks>("reader-manager", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.MultiReader))
+            RunSuite<MultiReaderBenchmarks>("multi-reader", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.OrdinalMap))
+            RunSuite<OrdinalMapBenchmarks>("ordinal-map", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.SearchSession))
+            RunSuite<SearchSessionBenchmarks>("search-session", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.RankingEvaluation))
+            RunSuite<RankingEvaluationBenchmarks>("ranking-evaluation", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.RankingPipeline))
+            RunSuite<RankingPipelineBenchmarks>("ranking-pipeline", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         ExecuteSuites(runDir, benchmarkArgs, suiteSummaries, gcDump);
 
@@ -562,7 +594,7 @@ internal static class Program
             Suites:
               all              Run all primary benchmark suites, including Gutenberg (default)
               all-with-explicit  Run all primary plus all explicit-only suites
-              explicit         Run all explicit-only suites (tokenbudget, diagnostics, merge, flush, docvalues-read, bkd, fst-lookup, mmap-io, packed-int-codec, numeric-aggregator, index-writer, concurrent-write, hnsw, vq)
+              explicit         Run all explicit-only suites, including subsystem and recent-feature benchmarks
               index            IndexingBenchmarks -- bulk indexing throughput (vs Lucene.NET)
               query            TermQueryBenchmarks -- single-term search (vs Lucene.NET)
               analysis         AnalysisBenchmarks -- tokenisation pipeline throughput
@@ -627,6 +659,14 @@ internal static class Program
               bkd                 BKDTreeBenchmarks -- BKD range search throughput (explicit only)
               fst-lookup          FstLookupBenchmarks -- FST term dictionary lookup (explicit only)
               mmap-io             MMapDirectoryIOBenchmarks -- raw I/O throughput (explicit only)
+              compound-file       CompoundFileBenchmarks -- loose files vs compound segment storage (explicit only)
+              incremental-backup  IncrementalBackupBenchmarks -- full and parent-linked backup operations (explicit only)
+              reader-manager      ReaderManagerLifecycleBenchmarks -- generic reader lifecycle overhead (explicit only)
+              multi-reader        MultiReaderBenchmarks -- federated search and pagination (explicit only)
+              ordinal-map         OrdinalMapBenchmarks -- global ordinal construction and lookup (explicit only)
+              search-session      SearchSessionBenchmarks -- stable cursor pagination and session lifecycle (explicit only)
+              ranking-evaluation  RankingEvaluationBenchmarks -- IR metrics and MMR diversification (explicit only)
+              ranking-pipeline    RankingPipelineBenchmarks -- profiles, rules and bounded reranking (explicit only)
 
             Output:
               Results are written to bench/{machine-name}/{yyyy-MM-dd}/{HH-mm}/
@@ -761,6 +801,14 @@ internal static class Program
             "bkd" or "bkd-tree" => BenchmarkSuite.BKDTree,
             "fst-lookup" or "fstlookup" => BenchmarkSuite.FstLookup,
             "mmap-io" or "mmapio" => BenchmarkSuite.MMapIO,
+            "compound-file" or "compoundfile" => BenchmarkSuite.CompoundFile,
+            "incremental-backup" or "incrementalbackup" => BenchmarkSuite.IncrementalBackup,
+            "reader-manager" or "readermanager" => BenchmarkSuite.ReaderManagerLifecycle,
+            "multi-reader" or "multireader" => BenchmarkSuite.MultiReader,
+            "ordinal-map" or "ordinalmap" => BenchmarkSuite.OrdinalMap,
+            "search-session" or "searchsession" => BenchmarkSuite.SearchSession,
+            "ranking-evaluation" or "rankingevaluation" => BenchmarkSuite.RankingEvaluation,
+            "ranking-pipeline" or "rankingpipeline" => BenchmarkSuite.RankingPipeline,
             "boolean" => BenchmarkSuite.Boolean,
             "phrase" => BenchmarkSuite.Phrase,
             "prefix" => BenchmarkSuite.Prefix,
@@ -901,6 +949,14 @@ internal static class Program
         BKDTree,
         FstLookup,
         MMapIO,
+        CompoundFile,
+        IncrementalBackup,
+        ReaderManagerLifecycle,
+        MultiReader,
+        OrdinalMap,
+        SearchSession,
+        RankingEvaluation,
+        RankingPipeline,
     }
 
     private sealed record PendingSuite(string Name, Type Type);
