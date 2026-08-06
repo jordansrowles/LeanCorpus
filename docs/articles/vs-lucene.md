@@ -315,7 +315,7 @@ Lucene (Java) refers to Lucene 10.3.1,
 | LZ4 codec (optional package) | ✔   `Rowles.LeanCorpus.Compression.LZ4` | ✔ | ✔ | Optional extension package with zero-change registration; Lucene uses LZ4 within its stored-field formats. |
 | Snappy codec (optional package) | ✔   `Rowles.LeanCorpus.Compression.Snappy` | ❌ | ❌ | Optional extension package with zero-change registration. |
 | Zstandard codec (optional package) | ✔   `Rowles.LeanCorpus.Compression.Zstandard` | ❌ | ❌ | Optional extension package with zero-change registration. |
-| Compound file (.cfs/.cfe) | ❌ | ✔ | ✔ | Backlog |
+| Compound file (.cfs/.cfe) | ✔   `IndexWriterConfig.UseCompoundFile` | ✔ | ✔ | Immutable codec members are packed into `.cfs` and opened through memory-mapped slices; deletion and segment-statistics files remain separate. |
 | SIMD vector ops (AVX-512) | ✔   `SimdIntrinsicsVectorOps` | ❌ | ◐ | Hand-written AVX-512 cosine and dot-product paths through .NET intrinsics; Java Lucene has platform-vectorised implementations but not this .NET API. |
 | Roaring bitmap | ✔   `RoaringBitmap` | ❌ | ◐ | Java Lucene exposes `RoaringDocIdSet`, not the same public bitmap abstraction. |
 | Per-field stored-field compression selection | ✔   `FieldCompressionPolicy` | ❌ | ❌ | Compression policy is selected per stored field; Lucene stored-field compression is selected at codec or segment level. |

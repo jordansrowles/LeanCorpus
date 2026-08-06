@@ -34,6 +34,7 @@ _description: Recorded LeanCorpus architecture decisions and their status.
 <tr><td><a href="ADR021-rowles-text-analysis-package.md">021</a></td><td>2026-07-31</td><td>Accepted</td><td></td><td><a href="ADR021-rowles-text-analysis-package.md">Package Analysis independently while preserving LeanCorpus source inclusion</a></td><td></td></tr>
 <tr><td><a href="ADR022-parent-linked-incremental-backups.md">022</a></td><td>2026-08-05</td><td>Accepted</td><td></td><td><a href="ADR022-parent-linked-incremental-backups.md">Parent-linked manifests define incremental backup chains</a></td><td></td></tr>
 <tr><td><a href="ADR023-immutable-reader-composition-and-ordinals.md">023</a></td><td>2026-08-05</td><td>Accepted</td><td></td><td><a href="ADR023-immutable-reader-composition-and-ordinals.md">Reader composition uses immutable snapshots and term-order ordinals</a></td><td></td></tr>
+<tr><td><a href="ADR024-memory-mapped-compound-segment-files.md">024</a></td><td>2026-08-05</td><td>Accepted</td><td></td><td><a href="ADR024-memory-mapped-compound-segment-files.md">Compound segment files use memory-mapped slices</a></td><td></td></tr>
 </tbody>
 </table>
 </div>

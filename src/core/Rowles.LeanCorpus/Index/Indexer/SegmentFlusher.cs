@@ -60,7 +60,7 @@ internal static class SegmentFlusher
             pbs.WriteTo(basePath + ".pbs");
         }
 
-        RefreshSegmentSize(segInfo, directoryPath);
+        CompleteSegment(segInfo, config, directoryPath);
 
         return segInfo;
     }
@@ -483,7 +483,7 @@ internal static class SegmentFlusher
             pbs.WriteTo(basePath + ".pbs");
         }
 
-        RefreshSegmentSize(segInfo, directoryPath);
+        CompleteSegment(segInfo, config, directoryPath);
 
         return segInfo;
     }
@@ -525,7 +525,7 @@ internal static class SegmentFlusher
             pbs.WriteTo(basePath + ".pbs");
         }
 
-        RefreshSegmentSize(segInfo, directoryPath);
+        CompleteSegment(segInfo, config, directoryPath);
 
         return segInfo;
     }
@@ -556,6 +556,13 @@ internal static class SegmentFlusher
         segment.TotalBytes = totalBytes;
         segment.CodecBytes = codecBytes;
         segment.WriteTo(Path.Combine(directoryPath, segment.SegmentId + ".seg"));
+    }
+
+    internal static void CompleteSegment(SegmentInfo segment, IndexWriterConfig config, string directoryPath)
+    {
+        if (config.UseCompoundFile && CompoundFileWriter.Pack(directoryPath, segment.SegmentId))
+            segment.IsCompoundFile = true;
+        RefreshSegmentSize(segment, directoryPath);
     }
 
     /// <summary>

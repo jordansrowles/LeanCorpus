@@ -148,13 +148,6 @@ public static class IndexFormatInspector
     {
         var basePath = Path.Combine(directoryPath, segmentId);
         var missingFiles = new List<string>();
-        foreach (var extension in RequiredExtensions)
-        {
-            var path = basePath + extension;
-            referencedFiles.Add(path);
-            if (!FileOpenRetry.FileExists(path))
-                missingFiles.Add(Path.GetFileName(path));
-        }
 
         SegmentInfo? segmentInfo = null;
         var warnings = new List<string>();
@@ -177,12 +170,23 @@ public static class IndexFormatInspector
             }
         }
 
+        var requiredExtensions = segmentInfo?.IsCompoundFile == true
+            ? new[] { ".seg", ".cfs" }
+            : RequiredExtensions;
+        foreach (var extension in requiredExtensions)
+        {
+            var path = basePath + extension;
+            referencedFiles.Add(path);
+            if (!FileOpenRetry.FileExists(path))
+                missingFiles.Add(Path.GetFileName(path));
+        }
+
         var segmentFiles = FindSegmentFiles(directoryPath, segmentId);
         var files = new List<CodecFileInventory>(segmentFiles.Count);
         foreach (var filePath in segmentFiles)
         {
             referencedFiles.Add(filePath);
-            if (!options.IncludeOptionalSidecars && !IsRequiredFile(filePath, segmentId))
+            if (!options.IncludeOptionalSidecars && !IsRequiredFile(filePath, segmentId, segmentInfo?.IsCompoundFile == true))
                 continue;
 
             var fieldName = TryGetVectorFieldName(basePath, filePath, segmentInfo);
@@ -351,7 +355,7 @@ public static class IndexFormatInspector
         return true;
     }
 
-    private static bool IsRequiredFile(string filePath, string segmentId)
+    private static bool IsRequiredFile(string filePath, string segmentId, bool isCompoundFile)
     {
         var fileName = Path.GetFileName(filePath);
         foreach (var extension in RequiredExtensions)
@@ -359,6 +363,9 @@ public static class IndexFormatInspector
             if (string.Equals(fileName, segmentId + extension, StringComparison.Ordinal))
                 return true;
         }
+
+        if (isCompoundFile && string.Equals(fileName, segmentId + ".cfs", StringComparison.Ordinal))
+            return true;
 
         return false;
     }

@@ -21,20 +21,32 @@ internal sealed class BKDReader : IDisposable
 
     public static BKDReader Open(string filePath)
     {
-        var input = new Store.IndexInput(filePath);
+        return Open(new Store.IndexInput(filePath));
+    }
 
-        CodecFileHeader.ReadVersion(input, CodecFormats.Bkd);
-
-        int fieldCount = input.ReadInt32();
-        var offsets = new Dictionary<string, long>(fieldCount, StringComparer.Ordinal);
-        for (int f = 0; f < fieldCount; f++)
+    internal static BKDReader Open(Store.IndexInput input)
+    {
+        try
         {
-            string fieldName = input.ReadLengthPrefixedString();
-            offsets[fieldName] = input.Position;
-            SkipNode(input);
-        }
 
-        return new BKDReader(input, offsets);
+            CodecFileHeader.ReadVersion(input, CodecFormats.Bkd);
+
+            int fieldCount = input.ReadInt32();
+            var offsets = new Dictionary<string, long>(fieldCount, StringComparer.Ordinal);
+            for (int f = 0; f < fieldCount; f++)
+            {
+                string fieldName = input.ReadLengthPrefixedString();
+                offsets[fieldName] = input.Position;
+                SkipNode(input);
+            }
+
+            return new BKDReader(input, offsets);
+        }
+        catch
+        {
+            input.Dispose();
+            throw;
+        }
     }
 
     /// <summary>Visits all (docId, value) pairs in [min, max] range for the given field.</summary>

@@ -21,6 +21,14 @@ internal static class SortedDocValuesReader
         if (!FileOpenRetry.FileExists(filePath)) return (values, presence);
 
         using var input = new IndexInput(filePath);
+        return Read(input);
+    }
+
+    internal static (Dictionary<string, string[]> Values, Dictionary<string, RoaringBitmap?> Presence) Read(IndexInput input)
+    {
+        using var inputLifetime = input;
+        var values = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        var presence = new Dictionary<string, RoaringBitmap?>(StringComparer.Ordinal);
 
         byte version = CodecFileHeader.ReadVersion(input, CodecFormats.SortedDocValues);
 
@@ -104,6 +112,13 @@ internal static class SortedDocValuesReader
         if (!FileOpenRetry.FileExists(filePath)) return terms;
 
         using var input = new IndexInput(filePath);
+        return ReadTerms(input);
+    }
+
+    internal static Dictionary<string, string[]> ReadTerms(IndexInput input)
+    {
+        using var inputLifetime = input;
+        var terms = new Dictionary<string, string[]>(StringComparer.Ordinal);
         _ = CodecFileHeader.ReadVersion(input, CodecFormats.SortedDocValues);
         int fieldCount = input.ReadInt32();
         for (int f = 0; f < fieldCount; f++)

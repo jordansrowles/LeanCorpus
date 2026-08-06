@@ -51,6 +51,13 @@ public sealed class IndexWriterConfig
     public bool StoreTermVectors { get; set; }
 
     /// <summary>
+    /// Whether to store immutable segment codec files in one memory-mapped <c>.cfs</c> file.
+    /// Deletion and segment-statistics files remain separate so they can be replaced without
+    /// rewriting the compound file. Defaults to <see langword="false"/> for compatibility.
+    /// </summary>
+    public bool UseCompoundFile { get; set; }
+
+    /// <summary>
     /// When <c>true</c> (default), <see cref="IndexWriter.Commit"/> flushes file contents and
     /// directory metadata to disk via <c>fsync</c> before and after the <c>segments_N</c> rename,
     /// guaranteeing the commit survives a power loss. Fsync failures are surfaced as

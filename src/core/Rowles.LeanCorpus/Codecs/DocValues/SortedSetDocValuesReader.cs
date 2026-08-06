@@ -18,6 +18,13 @@ internal static class SortedSetDocValuesReader
             return values;
 
         using var input = new IndexInput(filePath);
+        return Read(input);
+    }
+
+    internal static Dictionary<string, string[][]> Read(IndexInput input)
+    {
+        using var inputLifetime = input;
+        var values = new Dictionary<string, string[][]>(StringComparer.Ordinal);
         byte version = CodecFileHeader.ReadVersion(input, CodecFormats.SortedSetDocValues);
 
         int fieldCount = input.ReadInt32();
@@ -76,6 +83,13 @@ internal static class SortedSetDocValuesReader
             return terms;
 
         using var input = new IndexInput(filePath);
+        return ReadTerms(input);
+    }
+
+    internal static Dictionary<string, string[]> ReadTerms(IndexInput input)
+    {
+        using var inputLifetime = input;
+        var terms = new Dictionary<string, string[]>(StringComparer.Ordinal);
         _ = CodecFileHeader.ReadVersion(input, CodecFormats.SortedSetDocValues);
         int fieldCount = input.ReadInt32();
         for (int f = 0; f < fieldCount; f++)

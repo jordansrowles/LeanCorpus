@@ -9,6 +9,7 @@ using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
+using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Simd;
 using Rowles.LeanCorpus.Search.Parsing;
@@ -103,7 +104,7 @@ public sealed class Stage2IndexTests : IClassFixture<TestDirectoryFixture>
     public void BackgroundMerge_CommitReturnsImmediately_MergeRunsInBackground()
     {
         var dir = new MMapDirectory(SubDir("bg_merge"));
-        var config = new IndexWriterConfig { MaxBufferedDocs = 2 };
+        var config = new IndexWriterConfig { MaxBufferedDocs = 2, UseCompoundFile = true };
 
         using (var writer = new IndexWriter(dir, config))
         {
@@ -123,6 +124,7 @@ public sealed class Stage2IndexTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
         var results = searcher.Search(new TermQuery("body", "document"), 100);
         Assert.Equal(20, results.TotalHits);
+        Assert.NotEmpty(Directory.GetFiles(dir.DirectoryPath, "*.cfs"));
     }
 
     // ── S2-7: BKD Tree ──────────────────────────────────────────────────────
@@ -274,27 +276,154 @@ public sealed class Stage2IndexTests : IClassFixture<TestDirectoryFixture>
         Assert.NotEmpty(tvdFiles);
     }
 
-    // Compound files were removed because the old implementation packed files
-    // and then extracted them back to disc on read, doubling storage.
     /// <summary>
-    /// Verifies the Compound File Feature: Is Removed scenario.
+    /// Verifies the Compound File Feature: Writes One Container And Searches scenario.
     /// </summary>
-    [Fact(DisplayName = "Compound File Feature: Is Removed")]
-    public void CompoundFileFeature_IsRemoved()
+    [Fact(DisplayName = "Compound File Feature: Writes One Container And Searches")]
+    public void CompoundFileFeature_WritesOneContainerAndSearches()
     {
-        var dir = new MMapDirectory(SubDir("cfs_removed"));
+        var dir = new MMapDirectory(SubDir("cfs_enabled"));
 
-        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig
+        {
+            UseCompoundFile = true,
+            StoreTermVectors = true
+        }))
         {
             var doc = new LeanDocument();
             doc.Add(new TextField("body", "hello world"));
+            doc.Add(new StoredField("label", "one"));
+            doc.Add(new VectorField("embedding", new ReadOnlyMemory<float>([1f, 2f, 3f])));
             writer.AddDocument(doc);
             writer.Commit();
         }
 
-        Assert.Empty(Directory.GetFiles(dir.DirectoryPath, "*.cfs"));
-        Assert.Null(Type.GetType("Rowles.LeanCorpus.Codecs.CompoundFileWriter, Rowles.LeanCorpus"));
-        Assert.Null(Type.GetType("Rowles.LeanCorpus.Codecs.CompoundFileReader, Rowles.LeanCorpus"));
+        Assert.Single(Directory.GetFiles(dir.DirectoryPath, "*.cfs"));
+        Assert.Empty(Directory.GetFiles(dir.DirectoryPath, "*.dic"));
+        Assert.Empty(Directory.GetFiles(dir.DirectoryPath, "*.pos"));
+        Assert.Empty(Directory.GetFiles(dir.DirectoryPath, "*.fdt"));
+        Assert.Empty(Directory.GetFiles(dir.DirectoryPath, "*.fdx"));
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new TermQuery("body", "hello"), 10);
+        Assert.Equal(1, results.TotalHits);
+        Assert.Equal("one", searcher.GetStoredFields(results.ScoreDocs[0].DocId)["label"][0]);
+
+        var segmentInfo = SegmentInfo.ReadFrom(Directory.GetFiles(dir.DirectoryPath, "*.seg").Single());
+        using var segmentReader = new SegmentReader(dir, segmentInfo);
+        var vector = segmentReader.GetVector("embedding", 0);
+        Assert.NotNull(vector);
+        Assert.Equal(1f / MathF.Sqrt(14f), vector![0], 5);
+        Assert.Equal(2f / MathF.Sqrt(14f), vector[1], 5);
+        Assert.Equal(3f / MathF.Sqrt(14f), vector[2], 5);
+        Assert.NotNull(segmentReader.GetTermVectors(0));
+    }
+
+    /// <summary>
+    /// Verifies the Compound File Feature: Reads DocValues And Points From Slices scenario.
+    /// </summary>
+    [Fact(DisplayName = "Compound File Feature: Reads DocValues And Points From Slices")]
+    public void CompoundFileFeature_ReadsDocValuesAndPointsFromSlices()
+    {
+        var dir = new MMapDirectory(SubDir("cfs_docvalues"));
+
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig { UseCompoundFile = true }))
+        {
+            var first = new LeanDocument();
+            first.Add(new TextField("body", "first document"));
+            first.Add(new NumericField("price", 10.5));
+            first.Add(new Int64Field("sequence", 100));
+            first.Add(new StringField("tag", "alpha"));
+            first.Add(new BinaryField("payload", new byte[] { 1, 2, 3 }));
+            writer.AddDocument(first);
+
+            var second = new LeanDocument();
+            second.Add(new TextField("body", "second document"));
+            second.Add(new NumericField("price", 20.5));
+            second.Add(new Int64Field("sequence", 200));
+            second.Add(new StringField("tag", "bravo"));
+            second.Add(new BinaryField("payload", new byte[] { 4, 5, 6 }));
+            writer.AddDocument(second);
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+        var reader = searcher.GetSegmentReaders()[0];
+        Assert.Equal([10.5, 20.5], reader.GetNumericDocValues("price")!);
+        Assert.Equal([100L, 200L], reader.GetInt64DocValues("sequence")!);
+        Assert.Equal(["alpha", "bravo"], reader.GetSortedSetDocValues("tag")!.Select(static values => values[0]));
+        Assert.True(reader.TryGetBinaryDocValues("payload", 1, out var payload));
+        Assert.Equal(new byte[] { 4, 5, 6 }, payload[0]);
+
+        Assert.Equal(1, searcher.Search(new RangeQuery("price", 20, 21), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new Int64RangeQuery("sequence", 150, 250), 10).TotalHits);
+    }
+
+    /// <summary>
+    /// Verifies the Compound File Feature: Corrupt Container Fails When Opened scenario.
+    /// </summary>
+    [Fact(DisplayName = "Compound File Feature: Corrupt Container Fails When Opened")]
+    public void CompoundFileFeature_CorruptContainerFailsWhenOpened()
+    {
+        var path = SubDir("cfs_corrupt");
+        var dir = new MMapDirectory(path);
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig { UseCompoundFile = true }))
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "hello"));
+            writer.AddDocument(doc);
+            writer.Commit();
+        }
+
+        var cfsPath = Directory.GetFiles(path, "*.cfs").Single();
+        using (var stream = new FileStream(cfsPath, FileMode.Open, FileAccess.Write, FileShare.Read))
+        {
+            stream.WriteByte(0);
+        }
+
+        Assert.Throws<InvalidDataException>(() => new IndexSearcher(dir));
+    }
+
+    [Fact(DisplayName = "Compound File Feature: Corrupt Member Header Fails Validation And Recovery")]
+    public void CompoundFileFeature_CorruptMemberHeaderFailsValidationAndRecovery()
+    {
+        var path = SubDir("cfs_corrupt_member");
+        var dir = new MMapDirectory(path);
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig { UseCompoundFile = true }))
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "hello"));
+            writer.AddDocument(doc);
+            writer.Commit();
+        }
+
+        CorruptCompoundMemberHeader(Directory.GetFiles(path, "*.cfs").Single(), ".dic");
+
+        Assert.False(IndexValidator.Check(dir).IsHealthy);
+        Assert.Throws<InvalidDataException>(() => IndexRecovery.RecoverLatestCommit(path, cleanupOrphans: false));
+    }
+
+    private static void CorruptCompoundMemberHeader(string path, string extension)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+        using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+        _ = reader.ReadInt32();
+        _ = reader.ReadInt32();
+        int count = reader.ReadInt32();
+        long memberOffset = -1;
+        for (int i = 0; i < count; i++)
+        {
+            string name = reader.ReadString();
+            long offset = reader.ReadInt64();
+            _ = reader.ReadInt64();
+            if (name.EndsWith(extension, StringComparison.Ordinal))
+                memberOffset = offset;
+        }
+
+        Assert.True(memberOffset >= 0);
+        stream.Position = memberOffset;
+        stream.WriteByte(0xFF);
+        stream.Flush(flushToDisk: true);
     }
 
     // ── S2-9: Payload Support (data model) ──────────────────────────────────

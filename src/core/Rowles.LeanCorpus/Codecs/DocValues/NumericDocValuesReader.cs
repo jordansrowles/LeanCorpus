@@ -21,6 +21,14 @@ internal static class NumericDocValuesReader
         if (!FileOpenRetry.FileExists(filePath)) return (values, presence);
 
         using var input = new IndexInput(filePath);
+        return Read(input);
+    }
+
+    internal static (Dictionary<string, double[]> Values, Dictionary<string, RoaringBitmap?> Presence) Read(IndexInput input)
+    {
+        using var inputLifetime = input;
+        var values = new Dictionary<string, double[]>(StringComparer.Ordinal);
+        var presence = new Dictionary<string, RoaringBitmap?>(StringComparer.Ordinal);
 
         byte version = CodecFileHeader.ReadVersion(input, CodecFormats.NumericDocValues);
         if (version > CodecConstants.NumericDocValuesVersion)

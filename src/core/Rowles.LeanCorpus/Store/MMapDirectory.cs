@@ -42,10 +42,23 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         fileName = ValidateFileName(fileName);
+        return OpenInputCore(fileName, offset: 0, length: null);
+    }
+
+    /// <summary>Opens a bounded member range from a physical directory file.</summary>
+    internal IndexInput OpenInputSlice(string fileName, long offset, long length)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        fileName = ValidateFileName(fileName);
+        return OpenInputCore(fileName, offset, length);
+    }
+
+    private IndexInput OpenInputCore(string fileName, long offset, long? length)
+    {
         var lease = _fileLifetimes.Acquire(fileName);
         try
         {
-            var input = new IndexInput(Path.Combine(DirectoryPath, fileName));
+            var input = new IndexInput(Path.Combine(DirectoryPath, fileName), offset, length);
             input.SetOnDisposed(_ => lease.Dispose());
             TrackInput(input);
             return input;

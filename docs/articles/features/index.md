@@ -919,10 +919,10 @@ Lucene.NET refers to the packaged 4.8 line. Use the column filters to narrow the
   {
     "feature": "Compound file (.cfs & .cfe)",
     "category": "Storage",
-    "leancorpus": "❌",
+    "leancorpus": "✔",
     "luceneNet": "✔",
     "luceneJava": "✔",
-    "notes": "",
+    "notes": "Opt-in compound segment storage packs immutable codec members into memory-mapped .cfs slices; deletion and segment-statistics files remain separate.",
     "details": {
       "LeanCorpus": "",
       "Lucene.NET": "",

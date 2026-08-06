@@ -29,6 +29,7 @@ public sealed class SegmentMerger
     private readonly double _softDeleteRetentionSeconds;
     private readonly Diagnostics.IMetricsCollector _metrics;
     private readonly HnswBuildConfig _hnswBuildConfig;
+    private readonly bool _useCompoundFile;
 
     /// <summary>Default merge threshold: when this many segments exist, merge.</summary>
     public const int DefaultMergeThreshold = 10;
@@ -46,13 +47,15 @@ public sealed class SegmentMerger
     /// <param name="softDeleteRetentionSeconds">Minimum seconds to retain soft-deleted documents during merge.</param>
     /// <param name="hnswBuildConfig">HNSW build configuration used when rebuilding vector graphs during merge.</param>
     /// <param name="metrics">Optional metrics collector. Defaults to <see cref="Diagnostics.NullMetricsCollector.Instance"/>.</param>
+    /// <param name="useCompoundFile">Whether merged immutable codec files should be packed into a compound file.</param>
     public SegmentMerger(
         MMapDirectory directory,
         IMergePolicy mergePolicy,
         int skipInterval = DefaultSkipInterval,
         double softDeleteRetentionSeconds = DefaultSoftDeleteRetentionSeconds,
         HnswBuildConfig? hnswBuildConfig = null,
-        Diagnostics.IMetricsCollector? metrics = null)
+        Diagnostics.IMetricsCollector? metrics = null,
+        bool useCompoundFile = false)
     {
         _directory = directory;
         _mergePolicy = mergePolicy ?? new TieredMergePolicy(DefaultMergeThreshold);
@@ -60,6 +63,7 @@ public sealed class SegmentMerger
         _softDeleteRetentionSeconds = softDeleteRetentionSeconds;
         _hnswBuildConfig = hnswBuildConfig ?? new HnswBuildConfig();
         _metrics = metrics ?? Diagnostics.NullMetricsCollector.Instance;
+        _useCompoundFile = useCompoundFile;
     }
 
     /// <summary>Initialises a merger bound to the given directory with the default tiered policy.</summary>
@@ -253,6 +257,8 @@ public sealed class SegmentMerger
             MaxSequenceNumber = ComputeMergedMaxSeqNo(segments),
             EarliestSoftDeleteTimestamp = ComputeMergedEarliestSoftDeleteTimestamp(segments),
         };
+        if (_useCompoundFile && CompoundFileWriter.Pack(_directory.DirectoryPath, newSegId))
+            mergedInfo.IsCompoundFile = true;
         SegmentFlusher.RefreshSegmentSize(mergedInfo, _directory.DirectoryPath);
         return mergedInfo;
     }

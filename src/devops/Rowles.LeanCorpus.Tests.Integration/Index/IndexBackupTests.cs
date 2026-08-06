@@ -69,6 +69,32 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(2, searcher.Search(new TermQuery("body", "backup"), 10).TotalHits);
     }
 
+    [Fact(DisplayName = "IndexBackup: Compound Segment Restores Without Expanded Members")]
+    public void IndexBackup_CompoundSegment_RestoresWithoutExpandedMembers()
+    {
+        var indexPath = Path.Combine(_fixture.Path, "compound_backup_source");
+        var backupPath = Path.Combine(_fixture.Path, "compound_backup");
+        var restorePath = Path.Combine(_fixture.Path, "compound_backup_restore");
+        Directory.CreateDirectory(indexPath);
+
+        using (var directory = new MMapDirectory(indexPath))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig { UseCompoundFile = true }))
+        {
+            writer.AddDocument(CreateDocument("compound backup document", 1));
+            writer.Commit();
+        }
+
+        var backup = IndexBackup.Backup(indexPath, backupPath);
+        Assert.Contains(backup.Manifest.Files, file => file.FileName.EndsWith(".cfs", StringComparison.Ordinal) && file.IsRequired);
+        Assert.DoesNotContain(backup.Manifest.Files, file => file.FileName.EndsWith(".dic", StringComparison.Ordinal));
+
+        var restored = IndexBackup.Restore(backupPath, restorePath);
+        Assert.True(restored.ValidationResult?.IsHealthy);
+        using var restoredDirectory = new MMapDirectory(restorePath);
+        using var searcher = new IndexSearcher(restoredDirectory);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "compound"), 10).TotalHits);
+    }
+
     [Fact(DisplayName = "IndexBackup: Incremental Backup Reuses Unchanged Files")]
     public void IndexBackup_IncrementalBackup_ReusesUnchangedFilesAndRestoresChain()
     {

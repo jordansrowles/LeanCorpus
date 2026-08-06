@@ -362,7 +362,8 @@ public sealed partial class IndexWriter : IDisposable
                     FlushSegment();
 
                 var merger = new SegmentMerger(_directory, _config.MergePolicy, _config.PostingsSkipInterval,
-                    _config.SoftDeleteRetentionSeconds, _config.HnswBuildConfig);
+                    _config.SoftDeleteRetentionSeconds, _config.HnswBuildConfig,
+                    useCompoundFile: _config.UseCompoundFile);
                 int localOrdinal = _nextSegmentOrdinal;
                 _nextSegmentOrdinal += sourceSegments.Count + 8;
 

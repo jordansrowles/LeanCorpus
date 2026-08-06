@@ -118,8 +118,20 @@ public sealed class ReaderManager<TReader> : IDisposable
             for (int i = _readers.Count - 1; i >= 0; i--)
             {
                 var candidate = _readers[i];
-                if (candidate.IsRetired || !predicate(candidate.Reader) || !candidate.TryAcquire())
+                if (!candidate.TryAcquire(allowRetired: true))
                     continue;
+                bool matches;
+                try { matches = predicate(candidate.Reader); }
+                catch
+                {
+                    candidate.ReleaseLease();
+                    throw;
+                }
+                if (!matches)
+                {
+                    candidate.ReleaseLease();
+                    continue;
+                }
                 lease = new ReaderLease<TReader>(candidate.Reader, () => candidate.ReleaseLease());
                 return true;
             }
@@ -209,7 +221,7 @@ public sealed class ReaderManager<TReader> : IDisposable
             return;
 
         _cts.Cancel();
-        _refreshLoopExited.Wait(TimeSpan.FromSeconds(30));
+        _refreshLoopExited.Wait();
         _cts.Dispose();
         lock (_lock)
         {
@@ -269,13 +281,13 @@ public sealed class ReaderManager<TReader> : IDisposable
         internal bool IsRetired => Volatile.Read(ref _retired) != 0;
         internal int LeaseCount => Math.Max(0, Volatile.Read(ref _refCount) - 1);
 
-        internal bool TryAcquire()
+        internal bool TryAcquire(bool allowRetired = false)
         {
             int current;
             do
             {
                 current = Volatile.Read(ref _refCount);
-                if (current <= 0 || IsRetired)
+                if (current <= 0 || (!allowRetired && IsRetired))
                     return false;
             }
             while (Interlocked.CompareExchange(ref _refCount, current + 1, current) != current);

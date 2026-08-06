@@ -33,6 +33,12 @@ internal sealed class TermDictionaryReader : IDisposable
     public static TermDictionaryReader Open(string filePath)
     {
         using var input = new IndexInput(filePath);
+        return Open(input);
+    }
+
+    internal static TermDictionaryReader Open(IndexInput input)
+    {
+        using var inputLifetime = input;
 
         var result = CodecFileHeader.Read(input, CodecFormats.TermDictionary);
         byte version = result.Version;

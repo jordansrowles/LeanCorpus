@@ -18,6 +18,7 @@ internal sealed partial class SegmentReaderState : IDisposable
 {
     private readonly MMapDirectory _directory;
     private readonly SegmentInfo _info;
+    private readonly SegmentFileAccess _files;
     private TermDictionaryReader? _dictionaryReader;
     private IndexInput? _postingsInput;
     private StoredFieldsReader? _storedReader;
@@ -87,6 +88,7 @@ internal sealed partial class SegmentReaderState : IDisposable
         _directory = directory;
         _info = info;
         _basePath = Path.Combine(directory.DirectoryPath, info.SegmentId);
+        _files = SegmentFileAccess.Open(directory, info);
 
         // Vector fields: record paths only. Opening the mmap-backed readers is deferred
         // until a VectorQuery or explicit vector read actually needs them.
@@ -97,26 +99,27 @@ internal sealed partial class SegmentReaderState : IDisposable
                 if (vf.Quantisation != VectorQuantisation.None)
                 {
                     var vqPath = VectorFilePaths.QuantisedVectorFile(_basePath, vf.FieldName);
-                    if (FileOpenRetry.FileExists(vqPath))
+                    string vqName = Path.GetFileName(vqPath);
+                    if (_files.Exists(vqName[info.SegmentId.Length..]))
                     {
-                        _vectorPaths[vf.FieldName] = vqPath;
+                        _vectorPaths[vf.FieldName] = vqName[info.SegmentId.Length..];
                         _vectorQuantisation[vf.FieldName] = vf.Quantisation;
                     }
                 }
                 else
                 {
                     var perFieldVecPath = VectorFilePaths.VectorFile(_basePath, vf.FieldName);
-                    if (FileOpenRetry.FileExists(perFieldVecPath))
-                        _vectorPaths[vf.FieldName] = perFieldVecPath;
+                    string vectorName = Path.GetFileName(perFieldVecPath);
+                    if (_files.Exists(vectorName[info.SegmentId.Length..]))
+                        _vectorPaths[vf.FieldName] = vectorName[info.SegmentId.Length..];
                 }
             }
         }
         else
         {
             // Legacy single-vector segment: pre-multi-vector layout.
-            var legacyVecPath = _basePath + ".vec";
-            if (FileOpenRetry.FileExists(legacyVecPath))
-                _vectorPaths[string.Empty] = legacyVecPath;
+            if (_files.Exists(".vec"))
+                _vectorPaths[string.Empty] = ".vec";
         }
 
         // DocValues and numeric indexes remain genuinely on demand. The searcher's
@@ -130,7 +133,7 @@ internal sealed partial class SegmentReaderState : IDisposable
             if (_dictionaryReader is not null) return _dictionaryReader;
             var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
             lock (lockObj)
-                return _dictionaryReader ??= TermDictionaryReader.Open(_basePath + ".dic");
+                return _dictionaryReader ??= TermDictionaryReader.Open(_files.OpenInput(".dic"));
         }
     }
 
@@ -143,7 +146,7 @@ internal sealed partial class SegmentReaderState : IDisposable
             lock (lockObj)
             {
                 if (_postingsInput is not null) return _postingsInput;
-                var input = _directory.OpenInput(_info.SegmentId + ".pos");
+                var input = _files.OpenInput(".pos");
                 try
                 {
                     _ = Codecs.Postings.PostingsEnum.ValidateFileHeader(input);
@@ -168,10 +171,8 @@ internal sealed partial class SegmentReaderState : IDisposable
             lock (lockObj)
             {
                 if (_storedReaderLoaded) return _storedReader;
-                var fdtPath = _basePath + ".fdt";
-                var fdxPath = _basePath + ".fdx";
-                if (FileOpenRetry.FileExists(fdtPath) && FileOpenRetry.FileExists(fdxPath))
-                    _storedReader = StoredFieldsReader.Open(fdtPath, fdxPath);
+                if (_files.Exists(".fdt") && _files.Exists(".fdx"))
+                    _storedReader = StoredFieldsReader.Open(_files.OpenInput(".fdt"), _files.OpenInput(".fdx"));
                 Volatile.Write(ref _storedReaderLoaded, true);
                 return _storedReader;
             }
@@ -207,10 +208,12 @@ internal sealed partial class SegmentReaderState : IDisposable
             lock (lockObj)
             {
                 if (_normState is not null) return _normState;
-                var normsData = NormsReader.Read(_basePath + ".nrm");
+                var normsData = NormsReader.Read(_files.OpenInput(".nrm"));
                 var norms = normsData.Norms.ToFrozenDictionary(StringComparer.Ordinal);
                 var boosts = normsData.Boosts.ToFrozenDictionary(StringComparer.Ordinal);
-                var exactLengths = FieldLengthReader.TryRead(_basePath + ".fln");
+                var exactLengths = _files.Exists(".fln")
+                    ? FieldLengthReader.TryRead(_files.OpenInput(".fln"))
+                    : null;
                 FrozenDictionary<string, int[]> lengths;
                 if (exactLengths is not null)
                 {
@@ -284,9 +287,8 @@ internal sealed partial class SegmentReaderState : IDisposable
         lock (lockObj)
         {
             if (_parentBitSetLoaded) return _parentBitSet;
-            var pbsPath = _basePath + ".pbs";
-            if (FileOpenRetry.FileExists(pbsPath))
-                _parentBitSet = ParentBitSet.ReadFrom(pbsPath);
+            if (_files.Exists(".pbs"))
+                _parentBitSet = ParentBitSet.ReadFrom(_files.OpenInput(".pbs"));
             Volatile.Write(ref _parentBitSetLoaded, true);
         }
         return _parentBitSet;
@@ -347,20 +349,18 @@ internal sealed partial class SegmentReaderState : IDisposable
     }
 
     /// <summary>Whether this segment has term vector files.</summary>
-    public bool HasTermVectors => FileOpenRetry.FileExists(_basePath + ".tvd") && FileOpenRetry.FileExists(_basePath + ".tvx");
+    public bool HasTermVectors => _files.Exists(".tvd") && _files.Exists(".tvx");
 
     private TermVectorsReader? EnsureTermVectorsReader()
     {
         if (_termVectorsReader is not null) return _termVectorsReader;
 
-        var tvdPath = _basePath + ".tvd";
-        var tvxPath = _basePath + ".tvx";
-        if (!FileOpenRetry.FileExists(tvdPath) || !FileOpenRetry.FileExists(tvxPath)) return null;
+        if (!_files.Exists(".tvd") || !_files.Exists(".tvx")) return null;
 
         var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
         lock (lockObj)
         {
-            _termVectorsReader ??= TermVectorsReader.Open(tvdPath, tvxPath);
+            _termVectorsReader ??= TermVectorsReader.Open(_files.OpenInput(".tvd"), _files.OpenInput(".tvx"));
         }
         return _termVectorsReader;
     }
@@ -495,6 +495,7 @@ internal sealed partial class SegmentReaderState : IDisposable
         _termVectorsReader?.Dispose();
         _bkdReader?.Dispose();
         _int64BkdReader?.Dispose();
+        _files.Dispose();
     }
 
     private sealed record NormState(

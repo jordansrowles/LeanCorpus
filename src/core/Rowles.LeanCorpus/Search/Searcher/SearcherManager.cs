@@ -90,8 +90,9 @@ public sealed class SearcherManager : IDisposable
         => _readerManager.MaybeRefresh() || _readerManager.ConsumeBackgroundRefreshes();
 
     /// <summary>Async variant of <see cref="MaybeRefresh"/>.</summary>
-    public Task<bool> MaybeRefreshAsync(CancellationToken ct = default)
-        => _readerManager.MaybeRefreshAsync(ct);
+    public async Task<bool> MaybeRefreshAsync(CancellationToken ct = default)
+        => await _readerManager.MaybeRefreshAsync(ct).ConfigureAwait(false)
+            || _readerManager.ConsumeBackgroundRefreshes();
 
     /// <summary>Gets generic lifecycle diagnostics for the managed searchers.</summary>
     public ReaderManagerDiagnostics GetDiagnostics() => _readerManager.GetDiagnostics();

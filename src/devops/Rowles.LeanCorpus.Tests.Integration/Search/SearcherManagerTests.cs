@@ -235,6 +235,27 @@ public sealed class SearcherManagerTests : IDisposable
         Assert.True(refreshed);
     }
 
+    [Fact]
+    public async Task MaybeRefreshAsync_ReportsABackgroundRefresh()
+    {
+        var dir = new MMapDirectory(_dir);
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+        writer.AddDocument(Doc("first"));
+        writer.Commit();
+
+        using var mgr = new SearcherManager(dir, new SearcherManagerConfig
+        {
+            RefreshInterval = TimeSpan.FromMilliseconds(10)
+        });
+        writer.AddDocument(Doc("second"));
+        writer.Commit();
+
+        Assert.True(SpinWait.SpinUntil(
+            () => mgr.GetDiagnostics().Refreshes > 0,
+            TimeSpan.FromSeconds(5)));
+        Assert.True(await mgr.MaybeRefreshAsync());
+    }
+
     /// <summary>
     /// Verifies the Dispose: Is Idempotent scenario.
     /// </summary>

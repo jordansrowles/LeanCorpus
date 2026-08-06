@@ -46,6 +46,7 @@ internal static class SnapshotManager
                     DocCount = s.DocCount,
                     LiveDocCount = s.LiveDocCount,
                     CommitGeneration = s.CommitGeneration,
+                    IsCompoundFile = s.IsCompoundFile,
                     DelGeneration = s.DelGeneration,
                     FieldNames = [.. s.FieldNames],
                     IndexSortFields = s.IndexSortFields is null ? null : [.. s.IndexSortFields],

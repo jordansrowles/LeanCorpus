@@ -17,6 +17,13 @@ internal static class BinaryDocValuesReader
             return values;
 
         using var input = new IndexInput(filePath);
+        return Read(input);
+    }
+
+    internal static Dictionary<string, byte[][][]> Read(IndexInput input)
+    {
+        using var inputLifetime = input;
+        var values = new Dictionary<string, byte[][][]>(StringComparer.Ordinal);
         byte version = CodecFileHeader.ReadVersion(input, CodecFormats.BinaryDocValues);
 
         int fieldCount = input.ReadInt32();

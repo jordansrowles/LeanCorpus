@@ -98,7 +98,10 @@ public static class IndexBackup
             if (!string.Equals(segmentInfo.SegmentId, segmentId, StringComparison.Ordinal))
                 throw new InvalidDataException($"Segment metadata '{segmentFileName}' records segment ID '{segmentInfo.SegmentId}', expected '{segmentId}'.");
 
-            foreach (var extension in RequiredSegmentExtensions)
+            var requiredExtensions = segmentInfo.IsCompoundFile
+                ? new[] { ".seg", ".cfs" }
+                : RequiredSegmentExtensions;
+            foreach (var extension in requiredExtensions)
                 AddEntry(entries, sourceDirectory, segmentId + extension, segmentId, ClassifySegmentFile(segmentId + extension, selectedCommit.Generation), isRequired: true, isCommitFile: false);
 
             foreach (var fileName in EnumerateSegmentFileNames(sourceDirectory, segmentId))
@@ -696,6 +699,7 @@ public static class IndexBackup
         return Path.GetExtension(fileName).ToLowerInvariant() switch
         {
             ".seg" => "segment-metadata",
+            ".cfs" => "compound-segment",
             ".dic" => "term-dictionary",
             ".pos" => "postings",
             ".nrm" => "norms",

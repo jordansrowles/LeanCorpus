@@ -23,6 +23,12 @@ internal static class FieldLengthReader
         if (!FileOpenRetry.FileExists(filePath)) return null;
 
         using var input = new IndexInput(filePath);
+        return TryRead(input);
+    }
+
+    internal static Dictionary<string, int[]> TryRead(IndexInput input)
+    {
+        using var inputLifetime = input;
         byte version = CodecFileHeader.ReadVersion(input, CodecFormats.FieldLengths);
 
         int fieldCount = input.ReadInt32();

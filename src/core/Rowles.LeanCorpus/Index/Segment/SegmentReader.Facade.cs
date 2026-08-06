@@ -160,7 +160,10 @@ public sealed class SegmentReader : IDisposable
         var files = inventory is HashSet<string> set
             ? set
             : new HashSet<string>(inventory, StringComparer.Ordinal);
-        foreach (var extension in new[] { ".seg", ".dic", ".pos", ".nrm" })
+        var required = info.IsCompoundFile
+            ? new[] { ".seg", ".cfs" }
+            : new[] { ".seg", ".dic", ".pos", ".nrm" };
+        foreach (var extension in required)
         {
             var name = info.SegmentId + extension;
             if (!files.Contains(name))

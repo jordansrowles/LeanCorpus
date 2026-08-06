@@ -38,10 +38,31 @@ public sealed unsafe class IndexInput : IDisposable
     /// </summary>
     /// <param name="filePath">The full path of the file to open.</param>
     public IndexInput(string filePath)
+        : this(filePath, 0, length: null)
     {
+    }
+
+    /// <summary>
+    /// Opens a bounded byte range from a file as a memory-mapped input. The physical file
+    /// path is retained for lifetime tracking while positions remain relative to the range.
+    /// </summary>
+    /// <param name="filePath">The full path of the file to open.</param>
+    /// <param name="offset">The first byte in the file included in the input.</param>
+    /// <param name="length">The number of bytes included in the input.</param>
+    internal IndexInput(string filePath, long offset, long? length)
+    {
+        ArgumentNullException.ThrowIfNull(filePath);
+        if (offset < 0)
+            throw new ArgumentOutOfRangeException(nameof(offset));
+
         _filePath = filePath;
-        var fileInfo = new FileInfo(filePath);
-        _length = fileInfo.Length;
+        long fileLength = new FileInfo(filePath).Length;
+        if (offset > fileLength)
+            throw new ArgumentOutOfRangeException(nameof(offset), "The input offset is outside the file.");
+
+        _length = length ?? fileLength - offset;
+        if (_length < 0 || _length > fileLength - offset)
+            throw new ArgumentOutOfRangeException(nameof(length), "The input range is outside the file.");
 
         if (_length == 0)
         {
@@ -59,13 +80,16 @@ public sealed unsafe class IndexInput : IDisposable
         var fs = (FileStream)FileOpenRetry.OpenReadDelete(filePath);
         _mmf = MemoryMappedFile.CreateFromFile(fs, null, 0,
             MemoryMappedFileAccess.Read, HandleInheritability.None, leaveOpen: false);
-        _accessor = _mmf.CreateViewAccessor(0, _length, MemoryMappedFileAccess.Read);
+        const long allocationGranularity = 64 * 1024;
+        long viewOffset = offset - offset % allocationGranularity;
+        long pointerDelta = offset - viewOffset;
+        _accessor = _mmf.CreateViewAccessor(viewOffset, checked(pointerDelta + _length), MemoryMappedFileAccess.Read);
         _ptr = null;
         _accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref _ptr);
-        _ptr += _accessor.PointerOffset;
+        _ptr += _accessor.PointerOffset + pointerDelta;
     }
 
-    /// <summary>Total file length in bytes.</summary>
+    /// <summary>Total input length in bytes.</summary>
     public long Length => _length;
 
     /// <summary>Base pointer for the memory-mapped region. Used for zero-copy reads.</summary>

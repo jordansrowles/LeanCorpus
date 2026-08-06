@@ -66,6 +66,31 @@ public sealed class ReaderManagerAndMultiReaderTests : IDisposable
     }
 
     [Fact]
+    public void ReaderManagerCanLeaseARetiredReaderWhileItIsStillRetained()
+    {
+        int generation = 0;
+        using var manager = new ReaderManager<TestReader>(
+            () => new TestReader(0),
+            current => Volatile.Read(ref generation) > current.Generation
+                ? new TestReader(Volatile.Read(ref generation))
+                : null,
+            TimeSpan.FromHours(1));
+
+        using var original = manager.AcquireLease();
+        generation = 1;
+        Assert.True(manager.MaybeRefresh());
+
+        Assert.True(manager.TryAcquire(
+            reader => reader.Generation == 0,
+            out var retained));
+        using (retained)
+            Assert.Same(original.Reader, retained.Reader);
+
+        original.Dispose();
+        Assert.False(manager.TryAcquire(reader => reader.Generation == 0, out _));
+    }
+
+    [Fact]
     public void MultiReaderUsesStableGlobalIdsAndUnionResults()
     {
         var firstPath = CreateIndex("first", ["common first"]);
