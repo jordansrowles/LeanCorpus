@@ -35,8 +35,9 @@ public class NewTokenFilterBenchmarks
 
     // Lucene.NET state: the raw input string for the tokeniser
     private string _luceneInput = string.Empty;
-    private Lucene.Net.Analysis.TokenStream? _luceneBaseStream;
+    private Lucene.Net.Analysis.Tokenizer? _luceneBaseStream;
     private Lucene.Net.Analysis.TokenStream? _luceneFilter;
+    private bool _luceneStreamConsumed;
     private int _expectedLeanCount;
     private int _expectedLuceneCount;
 
@@ -98,6 +99,7 @@ public class NewTokenFilterBenchmarks
             : _filter.Clone();
         _luceneBaseStream = BuildLuceneBaseStream(_luceneInput);
         _luceneFilter = BuildLuceneFilter(_luceneBaseStream);
+        _luceneStreamConsumed = false;
     }
 
     [IterationCleanup]
@@ -108,6 +110,7 @@ public class NewTokenFilterBenchmarks
         _luceneFilter?.Dispose();
         _luceneFilter = null;
         _luceneBaseStream = null;
+        _luceneStreamConsumed = false;
     }
 
     // --- LeanCorpus benchmark ---
@@ -126,13 +129,30 @@ public class NewTokenFilterBenchmarks
     public int LuceneNet_Apply()
     {
         var filter = _luceneFilter ?? throw new InvalidOperationException("Lucene filter was not prepared.");
+        var baseStream = _luceneBaseStream
+            ?? throw new InvalidOperationException("Lucene base stream was not prepared.");
+
         if (Scenario == "caching")
-            _luceneBaseStream!.Reset();
+        {
+            // CachingTokenFilter replays its cached token state after the first
+            // pass and must not reset its already-consumed input stream.
+            if (!_luceneStreamConsumed)
+                baseStream.Reset();
+        }
+        else if (_luceneStreamConsumed)
+        {
+            // Lucene tokenizers require the completed stream to be disposed
+            // before a fresh reader is supplied for the next invocation.
+            filter.Dispose();
+            baseStream.SetReader(new System.IO.StringReader(_luceneInput));
+        }
+
         int total = 0;
         filter.Reset();
         while (filter.IncrementToken())
             total++;
         filter.End();
+        _luceneStreamConsumed = true;
         return ValidateCount(total, _expectedLuceneCount, "Lucene.NET");
     }
 
@@ -242,7 +262,7 @@ public class NewTokenFilterBenchmarks
     /// <summary>
     /// Builds a whitespace-tokenised base stream matching the LeanCorpus token list.
     /// </summary>
-    private static Lucene.Net.Analysis.TokenStream BuildLuceneBaseStream(string input)
+    private static Lucene.Net.Analysis.Tokenizer BuildLuceneBaseStream(string input)
     {
         return new Lucene.Net.Analysis.Core.WhitespaceTokenizer(
             Lucene.Net.Util.LuceneVersion.LUCENE_48,

@@ -32,7 +32,9 @@ public class TokenFilterBenchmarks
     private ISpanTokenFilter _filter = null!;
     private ISpanTokenFilter _iterationFilter = null!;
     private string _luceneInput = string.Empty;
+    private Lucene.Net.Analysis.Tokenizer? _luceneBaseStream;
     private Lucene.Net.Analysis.TokenStream? _luceneFilter;
+    private bool _luceneStreamConsumed;
     private int _expectedLeanCount;
     private int _expectedLuceneCount;
 
@@ -74,7 +76,9 @@ public class TokenFilterBenchmarks
     public void IterationSetup()
     {
         _iterationFilter = _filter.Clone();
-        _luceneFilter = BuildLuceneFilter(BuildLuceneBaseStream(_luceneInput));
+        _luceneBaseStream = BuildLuceneBaseStream(_luceneInput);
+        _luceneFilter = BuildLuceneFilter(_luceneBaseStream);
+        _luceneStreamConsumed = false;
     }
 
     [IterationCleanup]
@@ -82,6 +86,8 @@ public class TokenFilterBenchmarks
     {
         _luceneFilter?.Dispose();
         _luceneFilter = null;
+        _luceneBaseStream = null;
+        _luceneStreamConsumed = false;
     }
 
     [Benchmark(Baseline = true, Description = "LeanCorpus reused filter")]
@@ -94,7 +100,18 @@ public class TokenFilterBenchmarks
     public int LuceneNet_Apply()
     {
         var filter = _luceneFilter ?? throw new InvalidOperationException("Lucene filter was not prepared.");
-        return ValidateCount(ApplyLucene(filter), _expectedLuceneCount, "Lucene.NET");
+        var baseStream = _luceneBaseStream
+            ?? throw new InvalidOperationException("Lucene base stream was not prepared.");
+
+        if (_luceneStreamConsumed)
+        {
+            filter.Dispose();
+            baseStream.SetReader(new System.IO.StringReader(_luceneInput));
+        }
+
+        int total = ApplyLucene(filter);
+        _luceneStreamConsumed = true;
+        return ValidateCount(total, _expectedLuceneCount, "Lucene.NET");
     }
 
     [Benchmark(Description = "LeanCorpus cold filter pipeline")]
@@ -178,7 +195,7 @@ public class TokenFilterBenchmarks
         return tokens;
     }
 
-    private static Lucene.Net.Analysis.TokenStream BuildLuceneBaseStream(string input)
+    private static Lucene.Net.Analysis.Tokenizer BuildLuceneBaseStream(string input)
         => new Lucene.Net.Analysis.Core.WhitespaceTokenizer(
             Lucene.Net.Util.LuceneVersion.LUCENE_48,
             new System.IO.StringReader(input));
