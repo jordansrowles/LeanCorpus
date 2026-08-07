@@ -1,22 +1,34 @@
 namespace Rowles.LeanCorpus.Store;
 
 /// <summary>Owns one release operation without exposing the leased component's layer.</summary>
-internal struct LifetimeLease : IDisposable
+internal readonly struct LifetimeLease : IDisposable
 {
-    private ILifetimeLeaseOwner? _owner;
-    private readonly object? _token;
+    private readonly ReleaseToken? _token;
 
     internal LifetimeLease(ILifetimeLeaseOwner owner, object token)
     {
-        _owner = owner;
-        _token = token;
+        _token = new ReleaseToken(owner, token);
     }
 
-    public void Dispose()
+    public readonly void Dispose() => _token?.Dispose();
+
+    private sealed class ReleaseToken
     {
-        var owner = Interlocked.Exchange(ref _owner, null);
-        if (owner is not null && _token is not null)
-            owner.ReleaseLease(_token);
+        private readonly ILifetimeLeaseOwner _owner;
+        private readonly object _leaseToken;
+        private int _disposed;
+
+        internal ReleaseToken(ILifetimeLeaseOwner owner, object leaseToken)
+        {
+            _owner = owner;
+            _leaseToken = leaseToken;
+        }
+
+        internal void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                _owner.ReleaseLease(_leaseToken);
+        }
     }
 }
 

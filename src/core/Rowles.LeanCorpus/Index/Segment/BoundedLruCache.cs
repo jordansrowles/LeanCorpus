@@ -3,7 +3,7 @@ using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Index.Segment;
 
 /// <summary>
-/// Thread-safe bounded LRU whose value-type leases prevent active values from being evicted.
+/// Thread-safe bounded LRU whose leases prevent active values from being evicted.
 /// </summary>
 internal sealed class BoundedLruCache<TKey, TValue> : IDisposable, ILifetimeLeaseOwner
     where TKey : notnull
@@ -149,33 +149,50 @@ internal sealed class BoundedLruCache<TKey, TValue> : IDisposable, ILifetimeLeas
         DisposeValues(toDispose);
     }
 
-    internal struct Lease : IDisposable
+    internal readonly struct Lease : IDisposable
     {
-        private BoundedLruCache<TKey, TValue>? _owner;
-        private readonly Entry? _entry;
+        private readonly LeaseToken? _token;
 
         internal Lease(BoundedLruCache<TKey, TValue> owner, Entry entry, TValue value)
         {
-            _owner = owner;
-            _entry = entry;
+            _token = new LeaseToken(owner, entry);
             Value = value;
         }
 
         internal TValue Value { get; }
 
-        public void Dispose()
-        {
-            var owner = Interlocked.Exchange(ref _owner, null);
-            if (owner is not null && _entry is not null)
-                owner.Release(_entry);
-        }
+        public readonly void Dispose() => _token?.Dispose();
 
-        internal LifetimeLease Detach()
+        internal readonly LifetimeLease Detach() => _token?.Detach() ?? default;
+
+        private sealed class LeaseToken
         {
-            var owner = Interlocked.Exchange(ref _owner, null);
-            return owner is null || _entry is null
-                ? default
-                : new LifetimeLease(owner, _entry);
+            private const int Active = 0;
+            private const int Detached = 1;
+            private const int Released = 2;
+
+            private readonly BoundedLruCache<TKey, TValue> _owner;
+            private readonly Entry _entry;
+            private int _state;
+
+            internal LeaseToken(BoundedLruCache<TKey, TValue> owner, Entry entry)
+            {
+                _owner = owner;
+                _entry = entry;
+            }
+
+            internal void Dispose()
+            {
+                if (Interlocked.CompareExchange(ref _state, Released, Active) == Active)
+                    _owner.Release(_entry);
+            }
+
+            internal LifetimeLease Detach()
+            {
+                return Interlocked.CompareExchange(ref _state, Detached, Active) == Active
+                    ? new LifetimeLease(_owner, _entry)
+                    : default;
+            }
         }
     }
 

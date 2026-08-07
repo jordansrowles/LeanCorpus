@@ -43,6 +43,46 @@ public sealed class BoundedLruCacheTests
         leaseA.Dispose();
     }
 
+    [Fact(DisplayName = "Segment Reader Cache: Copied Lease Releases Only Once")]
+    public void Acquire_CopiedLease_ReleasesOnlyOnce()
+    {
+        using var cache = new BoundedLruCache<string, TestState>(1, StringComparer.Ordinal);
+        var state = new TestState();
+        var first = cache.Acquire("a", () => state);
+        var second = cache.Acquire("a", () => state);
+        var firstCopy = first;
+
+        firstCopy.Dispose();
+        first.Dispose();
+        cache.Dispose();
+
+        Assert.False(state.Disposed);
+
+        second.Dispose();
+        Assert.True(state.Disposed);
+    }
+
+    [Fact(DisplayName = "Segment Reader Cache: Copied Detached Lifetime Lease Releases Only Once")]
+    public void DetachedLifetimeLease_CopiedLease_ReleasesOnlyOnce()
+    {
+        using var cache = new BoundedLruCache<string, TestState>(1, StringComparer.Ordinal);
+        var state = new TestState();
+        var first = cache.Acquire("a", () => state);
+        var lifetimeLease = first.Detach();
+        var lifetimeCopy = lifetimeLease;
+        var second = cache.Acquire("a", () => state);
+
+        first.Dispose();
+        lifetimeCopy.Dispose();
+        lifetimeLease.Dispose();
+        cache.Dispose();
+
+        Assert.False(state.Disposed);
+
+        second.Dispose();
+        Assert.True(state.Disposed);
+    }
+
     [Fact(DisplayName = "Segment Reader Cache: Evicted Entry Reloads")]
     public void Acquire_EvictedEntry_Reloads()
     {

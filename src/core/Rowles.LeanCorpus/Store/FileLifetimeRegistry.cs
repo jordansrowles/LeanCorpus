@@ -163,23 +163,35 @@ internal static class FileLifetimeRegistry
     }
 }
 
-/// <summary>A value-type lease over one concrete index file.</summary>
-internal struct FileLease : IDisposable
+/// <summary>A lease over one concrete index file.</summary>
+internal readonly struct FileLease : IDisposable
 {
-    private FileLifetimeRegistry.DirectoryState? _owner;
-    private readonly string? _filePath;
+    private readonly ReleaseToken? _token;
 
     internal FileLease(FileLifetimeRegistry.DirectoryState owner, string filePath)
     {
-        _owner = owner;
-        _filePath = filePath;
+        _token = new ReleaseToken(owner, filePath);
     }
 
-    public void Dispose()
+    public readonly void Dispose() => _token?.Dispose();
+
+    private sealed class ReleaseToken
     {
-        var owner = Interlocked.Exchange(ref _owner, null);
-        if (owner is not null && _filePath is not null)
-            owner.Release(_filePath);
+        private readonly FileLifetimeRegistry.DirectoryState _owner;
+        private readonly string _filePath;
+        private int _disposed;
+
+        internal ReleaseToken(FileLifetimeRegistry.DirectoryState owner, string filePath)
+        {
+            _owner = owner;
+            _filePath = filePath;
+        }
+
+        internal void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                _owner.Release(_filePath);
+        }
     }
 }
 
