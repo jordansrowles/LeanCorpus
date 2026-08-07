@@ -1,42 +1,26 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using BenchmarkDotNet.Attributes;
-using Lucene.Net.Analysis.Standard;
-using Lucene.Net.Util;
-using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.Hnsw;
-using Rowles.LeanCorpus.Codecs.Fst;
-using Rowles.LeanCorpus.Codecs.Bkd;
-using Rowles.LeanCorpus.Codecs.Vectors;
-using Rowles.LeanCorpus.Codecs.TermVectors;
-using Rowles.LeanCorpus.Codecs.TermDictionary;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
-using Rowles.LeanCorpus.Search;
-using Rowles.LeanCorpus.Search.Simd;
-using Rowles.LeanCorpus.Search.Parsing;
-using Rowles.LeanCorpus.Search.Highlighting;
+using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Search.Queries;
+using Rowles.LeanCorpus.Search.Searcher;
+using Rowles.LeanCorpus.Store;
+using IODirectory = System.IO.Directory;
+using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
+using LeanIndexSearcher = Rowles.LeanCorpus.Search.Searcher.IndexSearcher;
 using LeanIndexWriter = Rowles.LeanCorpus.Index.Indexer.IndexWriter;
 using LeanIndexWriterConfig = Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig;
-using LeanIndexSearcher = Rowles.LeanCorpus.Search.Searcher.IndexSearcher;
 using LeanVectorQuery = Rowles.LeanCorpus.Search.Queries.VectorQuery;
 using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;
-using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
-
-// Lucene.NET aliases (avoid ambiguity with LeanCorpus types)
-using LuceneDocument = Lucene.Net.Documents.Document;
-using LuceneStoredField = Lucene.Net.Documents.StoredField;
-using LuceneIndexWriter = Lucene.Net.Index.IndexWriter;
-using LuceneIndexWriterConfig = Lucene.Net.Index.IndexWriterConfig;
-using LuceneDirectoryReader = Lucene.Net.Index.DirectoryReader;
-using LuceneRAMDirectory = Lucene.Net.Store.RAMDirectory;
-using LuceneBytesRef = Lucene.Net.Util.BytesRef;
-using IODirectory = System.IO.Directory;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
-/// Measures HNSW two-phase search latency vs the legacy flat O(n) cosine scan
-/// across realistic dataset sizes and dimensions.
+/// Measures HNSW search against an exact flat reference over the same vectors.
+/// The reference row is deliberately scalar because Lucene.NET 4.8 has no
+/// native vector or HNSW search API.
 /// </summary>
 [MemoryDiagnoser]
 [MarkdownExporterAttribute.GitHub]
@@ -50,7 +34,9 @@ public class HnswSearchBenchmarks
     [Params(64, 128)]
     public int Dimension { get; set; }
 
-    // Index state — guarded by (DocCount, Dimension) key
+    [Params(64, 256)]
+    public int EfSearch { get; set; }
+
     private static readonly System.Threading.Lock s_gate = new();
     private static (int docCount, int dim) s_lastKey;
     private static bool s_built;
@@ -58,14 +44,12 @@ public class HnswSearchBenchmarks
     private static string s_flatPath = string.Empty;
     private static LeanIndexSearcher s_hnswSearcher = default!;
     private static LeanIndexSearcher s_flatSearcher = default!;
-
-    // Lucene.NET index state
-    private static LuceneRAMDirectory? s_luceneDirectory;
-    private static LuceneDirectoryReader? s_luceneReader;
-    private static float[][] s_luceneVectors = [];
-    private static string s_luceneIndexPath = string.Empty;
+    private static float[][] s_referenceVectors = [];
 
     private float[] _query = [];
+    private int[] _flatTopDocumentIds = [];
+    private int _scalarChecksum;
+    private int _hnswChecksum;
 
     [GlobalSetup]
     public void Setup()
@@ -77,31 +61,29 @@ public class HnswSearchBenchmarks
             {
                 if (!s_built || s_lastKey != key)
                 {
+                    DisposeStaticResources();
                     s_hnswPath = Path.Combine(BenchmarkHelpers.TempRoot,
-                        "ll_hnsw_bench_" + Guid.NewGuid().ToString("N"));
+                        "ll-hnsw-bench-" + Guid.NewGuid().ToString("N"));
                     s_flatPath = Path.Combine(BenchmarkHelpers.TempRoot,
-                        "ll_flat_bench_" + Guid.NewGuid().ToString("N"));
+                        "ll-flat-bench-" + Guid.NewGuid().ToString("N"));
                     IODirectory.CreateDirectory(s_hnswPath);
                     IODirectory.CreateDirectory(s_flatPath);
 
-                    var rnd = new Random(7);
+                    var random = new Random(7);
                     var vectors = new float[DocCount][];
                     for (int i = 0; i < DocCount; i++)
                     {
-                        var v = new float[Dimension];
-                        for (int d = 0; d < Dimension; d++)
-                            v[d] = (float)(rnd.NextDouble() * 2 - 1);
-                        vectors[i] = v;
+                        var vector = new float[Dimension];
+                        for (int dimension = 0; dimension < Dimension; dimension++)
+                            vector[dimension] = (float)(random.NextDouble() * 2 - 1);
+                        vectors[i] = vector;
                     }
 
                     BuildIndex(s_hnswPath, vectors, hnsw: true);
                     BuildIndex(s_flatPath, vectors, hnsw: false);
-
                     s_hnswSearcher = new LeanIndexSearcher(new LeanMMapDirectory(s_hnswPath));
                     s_flatSearcher = new LeanIndexSearcher(new LeanMMapDirectory(s_flatPath));
-
-                    BuildLuceneIndex(vectors);
-
+                    s_referenceVectors = vectors;
                     s_lastKey = key;
                     s_built = true;
                 }
@@ -109,142 +91,215 @@ public class HnswSearchBenchmarks
         }
 
         _query = new float[Dimension];
-        var qrnd = new Random(7);
-        for (int d = 0; d < Dimension; d++)
-            _query[d] = (float)(qrnd.NextDouble() * 2 - 1);
+        // Keep the query deterministic but independent from the vector fixture.
+        // Reusing seed 7 made the query identical to document zero.
+        var queryRandom = new Random(17);
+        for (int dimension = 0; dimension < Dimension; dimension++)
+            _query[dimension] = (float)(queryRandom.NextDouble() * 2 - 1);
+
+        var reference = s_flatSearcher.Search(new LeanVectorQuery("emb", _query, topK: 10), 10);
+        _flatTopDocumentIds = reference.ScoreDocs
+            .Select(static scoreDoc => scoreDoc.DocId)
+            .ToArray();
+        if (_flatTopDocumentIds.Length != 10)
+            throw new InvalidOperationException($"Expected ten exact vector results, got {_flatTopDocumentIds.Length}.");
+
+        var scalarTopDocumentIds = ComputeScalarTopDocumentIds();
+        if (!scalarTopDocumentIds.SequenceEqual(_flatTopDocumentIds))
+        {
+            throw new InvalidOperationException(
+                "LeanCorpus flat vector search does not agree with the scalar exact reference.");
+        }
+        _scalarChecksum = ResultChecksum(scalarTopDocumentIds);
+
+        var hnsw = s_hnswSearcher.Search(
+            new LeanVectorQuery("emb", _query, topK: 10, efSearch: EfSearch), 10);
+        if (hnsw.ScoreDocs.Length != 10)
+            throw new InvalidOperationException($"Expected ten HNSW results, got {hnsw.ScoreDocs.Length}.");
+        int recallHits = hnsw.ScoreDocs.Count(scoreDoc =>
+            _flatTopDocumentIds.Contains(scoreDoc.DocId));
+        if (recallHits == 0)
+            throw new InvalidOperationException("HNSW recall is zero against the exact top-ten reference.");
+        _hnswChecksum = ResultChecksum(hnsw);
     }
 
     private static void BuildIndex(string path, float[][] vectors, bool hnsw)
     {
-        var cfg = new LeanIndexWriterConfig
+        var config = new LeanIndexWriterConfig
         {
             BuildHnswOnFlush = hnsw,
             NormaliseVectors = true,
             HnswBuildConfig = new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
             HnswSeed = 1L,
         };
-        using var writer = new LeanIndexWriter(new LeanMMapDirectory(path), cfg);
+
+        using var writer = new LeanIndexWriter(new LeanMMapDirectory(path), config);
         for (int i = 0; i < vectors.Length; i++)
         {
-            var doc = new LeanDocument();
-            doc.Add(new VectorField("emb", new ReadOnlyMemory<float>(vectors[i])));
-            writer.AddDocument(doc);
+            var document = new LeanDocument();
+            document.Add(new VectorField("emb", new ReadOnlyMemory<float>(vectors[i])));
+            writer.AddDocument(document);
         }
         writer.Commit();
     }
 
-    private static void BuildLuceneIndex(float[][] vectors)
-    {
-        s_luceneDirectory = new LuceneRAMDirectory();
-        var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
-        using var writer = new LuceneIndexWriter(
-            s_luceneDirectory,
-            new LuceneIndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
-        for (int i = 0; i < vectors.Length; i++)
-        {
-            var doc = new LuceneDocument();
-            // Store the vector as a binary stored field.
-            var bytes = new byte[vectors[i].Length * sizeof(float)];
-            Buffer.BlockCopy(vectors[i], 0, bytes, 0, bytes.Length);
-            doc.Add(new LuceneStoredField("emb", new LuceneBytesRef(bytes)));
-            writer.AddDocument(doc);
-        }
-        writer.Commit();
-        s_luceneReader = LuceneDirectoryReader.Open(s_luceneDirectory);
-        s_luceneVectors = vectors;
-    }
-
-    [Benchmark(Baseline = true, Description = "Flat scan")]
+    [Benchmark(Baseline = true, Description = "Exact flat scan")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int FlatScan()
     {
-        var q = new LeanVectorQuery("emb", _query, topK: 10);
-        return s_flatSearcher.Search(q, 10).TotalHits;
+        var result = s_flatSearcher.Search(new LeanVectorQuery("emb", _query, topK: 10), 10);
+        ValidateExactResult(result);
+        return ResultChecksum(result);
     }
 
     [Benchmark(Description = "HNSW two-phase")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int Hnsw()
     {
-        var q = new LeanVectorQuery("emb", _query, topK: 10, efSearch: 64);
-        return s_hnswSearcher.Search(q, 10).TotalHits;
+        var result = s_hnswSearcher.Search(
+            new LeanVectorQuery("emb", _query, topK: 10, efSearch: EfSearch), 10);
+        if (result.ScoreDocs.Length != 10)
+            throw new InvalidOperationException($"Expected ten HNSW results, got {result.ScoreDocs.Length}.");
+        int checksum = ResultChecksum(result);
+        if (checksum != _hnswChecksum)
+            throw new InvalidOperationException("The HNSW result changed from the setup fixture.");
+        return checksum;
     }
 
-    [Benchmark(Description = "Lucene.NET flat scan")]
+    [Benchmark(Description = "Reference scalar flat scan")]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LuceneNet_FlatScan()
+    public int Reference_ScalarFlatScan()
     {
-        // Brute-force cosine scan over all vectors stored in Lucene.NET.
-        int topK = 10;
+        var documentIds = ComputeScalarTopDocumentIds();
+        int checksum = ResultChecksum(documentIds);
+        if (checksum != _scalarChecksum)
+            throw new InvalidOperationException("The scalar exact result changed from the setup fixture.");
+        return checksum;
+    }
+
+    private int[] ComputeScalarTopDocumentIds()
+    {
+        const int topK = 10;
         var heap = new (float Similarity, int DocId)[topK];
         int heapSize = 0;
-        int dimension = Dimension;
+        float queryNorm = QueryNorm(_query);
 
-        for (int i = 0; i < s_luceneReader!.NumDocs; i++)
+        for (int i = 0; i < s_referenceVectors.Length; i++)
         {
-            var doc = s_luceneReader.Document(i);
-            var stored = doc.GetBinaryValue("emb");
-            if (stored is null)
-                continue;
-            var vec = new float[stored.Length / sizeof(float)];
-            Buffer.BlockCopy(stored.Bytes, stored.Offset, vec, 0, stored.Length);
-
-            // Cosine similarity: dot product of normalised vectors.
+            var vector = s_referenceVectors[i];
+            float vectorNorm = 0f;
             float dot = 0f;
-            for (int d = 0; d < dimension; d++)
-                dot += vec[d] * _query[d];
+            for (int dimension = 0; dimension < Dimension; dimension++)
+            {
+                vectorNorm += vector[dimension] * vector[dimension];
+                dot += vector[dimension] * _query[dimension];
+            }
+            dot /= MathF.Sqrt(vectorNorm * queryNorm);
 
             if (heapSize < topK || dot > heap[0].Similarity)
             {
                 if (heapSize < topK)
                 {
                     heap[heapSize++] = (dot, i);
-                    // Bubble up.
-                    int c = heapSize - 1;
-                    while (c > 0 && heap[c].Similarity < heap[(c - 1) / 2].Similarity)
-                    {
-                        (heap[c], heap[(c - 1) / 2]) = (heap[(c - 1) / 2], heap[c]);
-                        c = (c - 1) / 2;
-                    }
+                    SiftUp(heap, heapSize - 1);
                 }
                 else
                 {
                     heap[0] = (dot, i);
-                    // Sift down.
-                    int p = 0;
-                    while (true)
-                    {
-                        int smallest = p;
-                        int left = 2 * p + 1;
-                        int right = 2 * p + 2;
-                        if (left < heapSize && heap[left].Similarity < heap[smallest].Similarity)
-                            smallest = left;
-                        if (right < heapSize && heap[right].Similarity < heap[smallest].Similarity)
-                            smallest = right;
-                        if (smallest == p)
-                            break;
-                        (heap[p], heap[smallest]) = (heap[smallest], heap[p]);
-                        p = smallest;
-                    }
+                    SiftDown(heap, heapSize);
                 }
             }
         }
-        return heapSize;
+
+        Array.Sort(heap, 0, heapSize, Comparer<(float Similarity, int DocId)>.Create(
+            static (left, right) =>
+            {
+                int score = right.Similarity.CompareTo(left.Similarity);
+                return score != 0 ? score : left.DocId.CompareTo(right.DocId);
+            }));
+        var documentIds = new int[heapSize];
+        for (int i = 0; i < heapSize; i++)
+            documentIds[i] = heap[i].DocId;
+        return documentIds;
     }
 
-    /// <summary>Release static Lucene.NET resources.</summary>
-    public static void CleanupLuceneResources()
-    {
-        s_luceneReader?.Dispose();
-        s_luceneReader = null;
-        s_luceneDirectory?.Dispose();
-        s_luceneDirectory = null;
-        s_luceneVectors = [];
-    }
+    /// <summary>Release shared resources after all HNSW parameter rows complete.</summary>
+    public static void CleanupLuceneResources() => DisposeStaticResources();
 
     [GlobalCleanup]
-    public void Cleanup()
+    public void Cleanup() => DisposeStaticResources();
+
+    private static void SiftUp((float Similarity, int DocId)[] heap, int index)
     {
-        // Static resources persist for class lifetime.
+        while (index > 0)
+        {
+            int parent = (index - 1) / 2;
+            if (heap[parent].Similarity <= heap[index].Similarity)
+                break;
+            (heap[parent], heap[index]) = (heap[index], heap[parent]);
+            index = parent;
+        }
+    }
+
+    private static void SiftDown((float Similarity, int DocId)[] heap, int size)
+    {
+        int index = 0;
+        while (true)
+        {
+            int smallest = index;
+            int left = 2 * index + 1;
+            int right = left + 1;
+            if (left < size && heap[left].Similarity < heap[smallest].Similarity)
+                smallest = left;
+            if (right < size && heap[right].Similarity < heap[smallest].Similarity)
+                smallest = right;
+            if (smallest == index)
+                return;
+            (heap[index], heap[smallest]) = (heap[smallest], heap[index]);
+            index = smallest;
+        }
+    }
+
+    private void ValidateExactResult(TopDocs result)
+    {
+        var ids = result.ScoreDocs.Select(static scoreDoc => scoreDoc.DocId);
+        if (!ids.SequenceEqual(_flatTopDocumentIds))
+            throw new InvalidOperationException("The flat vector result changed from the setup reference.");
+    }
+
+    private static int ResultChecksum(TopDocs result)
+        => ResultChecksum(result.ScoreDocs.Select(static scoreDoc => scoreDoc.DocId));
+
+    private static int ResultChecksum(IEnumerable<int> documentIds)
+    {
+        int checksum = 17;
+        foreach (int documentId in documentIds)
+            checksum = unchecked((checksum * 31) + documentId);
+        return checksum;
+    }
+
+    private static float QueryNorm(float[] query)
+    {
+        float norm = 0f;
+        for (int i = 0; i < query.Length; i++)
+            norm += query[i] * query[i];
+        return norm;
+    }
+
+    private static void DisposeStaticResources()
+    {
+        if (s_built)
+        {
+            s_hnswSearcher.Dispose();
+            s_flatSearcher.Dispose();
+            BenchmarkHelpers.DeleteDirectory(s_hnswPath);
+            BenchmarkHelpers.DeleteDirectory(s_flatPath);
+        }
+
+        s_built = false;
+        s_lastKey = default;
+        s_hnswPath = string.Empty;
+        s_flatPath = string.Empty;
+        s_referenceVectors = [];
     }
 }

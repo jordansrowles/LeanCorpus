@@ -1,8 +1,5 @@
 using System.Buffers;
 using BenchmarkDotNet.Attributes;
-using Lucene.Net.Analysis.Core;
-using Lucene.Net.Analysis.En;
-using Lucene.Net.Util;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Filters;
@@ -14,14 +11,8 @@ namespace Rowles.LeanCorpus.Benchmarks;
 /// Measures LightEnglishStemmer throughput against Porter stemmer.
 /// Both paths use the zero-allocation <see cref="ISpanStemmer"/> contract
 /// so the allocation column reflects only unavoidable overhead.
-/// <para>
-/// The Lucene.NET PorterStemFilter benchmark constructs a new WhitespaceTokenizer
-/// and PorterStemFilter per word. Lucene.NET does not expose a public API for
-/// resetting the tokenizer with a new input, so the per-word allocation includes
-/// object construction overhead. For a fair pipeline-reuse comparison, see
-/// <see cref="StemmerParityBenchmarks"/> which creates each analyser once and
-/// reuses it across all documents.
-/// </para>
+/// For the reusable Lucene.NET pipeline comparison, see
+/// <see cref="StemmerParityBenchmarks"/>.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -97,22 +88,4 @@ public class LightEnglishStemmerBenchmarks
         return _porterSink.Count;
     }
 
-    [Benchmark(Description = "Lucene.NET PorterStemFilter")]
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LuceneNet_PorterStem()
-    {
-        int count = 0;
-        foreach (var word in _words)
-        {
-            // Use the PorterStemFilter from Lucene.NET's analysis-en module.
-            using var reader = new System.IO.StringReader(word);
-            var tokeniser = new WhitespaceTokenizer(LuceneVersion.LUCENE_48, reader);
-            var filter = new PorterStemFilter(tokeniser);
-            filter.Reset();
-            while (filter.IncrementToken())
-                count++;
-            filter.End();
-        }
-        return count;
-    }
 }

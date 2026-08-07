@@ -57,6 +57,11 @@ public class IndexSortSearchBenchmarks
     private LuceneMMapDirectory? _luceneDirectory;
     private LuceneDirectoryReader? _luceneReader;
     private LuceneIndexSearcher? _luceneSearcher;
+    private int _expectedTotalHits;
+    private int _expectedSortedChecksum;
+    private int _expectedUnsortedChecksum;
+    private int _expectedLuceneChecksum;
+    private string[] _expectedLogicalOrder = [];
 
     [GlobalSetup]
     public void Setup()
@@ -64,6 +69,26 @@ public class IndexSortSearchBenchmarks
         var documentsWithPrices = BenchmarkData.BuildDocumentsWithPrices(DocumentCount);
         BuildSearchIndices(documentsWithPrices);
         BuildLuceneIndex(documentsWithPrices);
+
+        var expected = _unsortedSearcher!.Search(
+            new TermQuery("body", "product"), DocumentCount,
+            LeanSortField.Numeric("price"));
+        _expectedTotalHits = expected.TotalHits;
+
+        var sortedReference = _sortedSearcher!.Search(
+            new TermQuery("body", "product"), TopN,
+            LeanSortField.Numeric("price"));
+        var luceneReference = SearchLucene(TopN);
+        _expectedSortedChecksum = ResultChecksum(sortedReference);
+        _expectedUnsortedChecksum = ResultChecksum(expected.ScoreDocs.Take(TopN).Select(static hit => hit.DocId));
+        _expectedLuceneChecksum = ResultChecksum(luceneReference.ScoreDocs.Select(static hit => hit.Doc));
+
+        _expectedLogicalOrder = LeanLogicalIds(_sortedSearcher, sortedReference);
+        if (!LeanLogicalIds(_unsortedSearcher, expected).Take(TopN).SequenceEqual(_expectedLogicalOrder)
+            || !LuceneLogicalIds(luceneReference).SequenceEqual(_expectedLogicalOrder))
+        {
+            throw new InvalidOperationException("Sorted search fixtures do not agree on logical document order.");
+        }
     }
 
     [GlobalCleanup]
@@ -88,7 +113,8 @@ public class IndexSortSearchBenchmarks
     public int LeanCorpus_SortedSearch_EarlyTermination()
     {
         var topDocs = _sortedSearcher!.Search(new TermQuery("body", "product"), TopN, LeanSortField.Numeric("price"));
-        return topDocs.TotalHits;
+        ValidateResult(topDocs, expectedPartial: true, _expectedSortedChecksum);
+        return ResultChecksum(topDocs);
     }
 
     [Benchmark]
@@ -96,19 +122,64 @@ public class IndexSortSearchBenchmarks
     public int LeanCorpus_SortedSearch_PostSort()
     {
         var topDocs = _unsortedSearcher!.Search(new TermQuery("body", "product"), TopN, LeanSortField.Numeric("price"));
-        return topDocs.TotalHits;
+        ValidateResult(topDocs, expectedPartial: false, _expectedUnsortedChecksum);
+        return ResultChecksum(topDocs);
     }
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LuceneNet_SortedSearch()
+    public int LuceneNet_SortedSearch_FullSort()
     {
-        var q = new LuceneTermQuery(new LuceneTerm("body", "product"));
+        var hits = SearchLucene(TopN);
+        if (hits.TotalHits != _expectedTotalHits)
+            throw new InvalidOperationException($"Lucene sorted fixture expected {_expectedTotalHits} hits, got {hits.TotalHits}.");
+        int checksum = ResultChecksum(hits.ScoreDocs.Select(static hit => hit.Doc));
+        if (checksum != _expectedLuceneChecksum)
+            throw new InvalidOperationException("Lucene sorted result checksum changed between setup and measurement.");
+        return checksum;
+    }
+
+    private void ValidateResult(Rowles.LeanCorpus.Search.Scoring.TopDocs results, bool expectedPartial, int expectedChecksum)
+    {
+        if (results.IsPartial != expectedPartial)
+            throw new InvalidOperationException($"Expected partial={expectedPartial}, got {results.IsPartial}.");
+        if (!expectedPartial && results.TotalHits != _expectedTotalHits)
+            throw new InvalidOperationException($"Expected {_expectedTotalHits} hits, got {results.TotalHits}.");
+        if (ResultChecksum(results) != expectedChecksum)
+            throw new InvalidOperationException("Sorted result checksum changed between setup and measurement.");
+    }
+
+    private static int ResultChecksum(IEnumerable<int> documentIds)
+    {
+        int checksum = 17;
+        foreach (int documentId in documentIds)
+            checksum = unchecked((checksum * 31) + documentId);
+        return checksum;
+    }
+
+    private static int ResultChecksum(Rowles.LeanCorpus.Search.Scoring.TopDocs results)
+        => ResultChecksum(results.ScoreDocs.Select(static scoreDoc => scoreDoc.DocId));
+
+    private Lucene.Net.Search.TopDocs SearchLucene(int topN)
+    {
+        var query = new LuceneTermQuery(new LuceneTerm("body", "product"));
         var sort = new Lucene.Net.Search.Sort(
             new LuceneSortField("price", Lucene.Net.Search.SortFieldType.DOUBLE));
-        var hits = _luceneSearcher!.Search(q, TopN, sort);
-        return hits.TotalHits;
+        return _luceneSearcher!.Search(query, topN, sort);
     }
+
+    private static string[] LeanLogicalIds(
+        LeanIndexSearcher searcher,
+        Rowles.LeanCorpus.Search.Scoring.TopDocs results)
+        => results.ScoreDocs
+            .Take(TopN)
+            .Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["id"][0])
+            .ToArray();
+
+    private string[] LuceneLogicalIds(Lucene.Net.Search.TopDocs results)
+        => results.ScoreDocs
+            .Select(scoreDoc => _luceneReader!.Document(scoreDoc.Doc).Get("id")!)
+            .ToArray();
 
     private void BuildLuceneIndex((string Body, double Price)[] docs)
     {
@@ -124,7 +195,7 @@ public class IndexSortSearchBenchmarks
             var doc = new LuceneDocument();
             doc.Add(new LuceneStringField("id",
                 i.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                Lucene.Net.Documents.Field.Store.NO));
+                Lucene.Net.Documents.Field.Store.YES));
             doc.Add(new LuceneTextField("body", docs[i].Body,
                 Lucene.Net.Documents.Field.Store.NO));
             doc.Add(new LuceneDoubleField("price", docs[i].Price,
