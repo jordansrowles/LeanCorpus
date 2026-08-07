@@ -4,6 +4,8 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 
 public sealed partial class IndexWriter
 {
+    /// <summary>Adds one document asynchronously.</summary>
+    /// <remarks>A token-budget rejection affects only this document and does not poison the writer.</remarks>
     public async ValueTask AddDocumentAsync(LeanDocument doc, CancellationToken cancellationToken = default)
     {
         EnterIndexingOperation();
@@ -21,6 +23,11 @@ public sealed partial class IndexWriter
         }
     }
 
+    /// <summary>Adds documents asynchronously in list order.</summary>
+    /// <remarks>
+    /// This operation is not atomic. If a document is rejected, documents accepted
+    /// earlier in the list remain buffered and may be committed.
+    /// </remarks>
     public async ValueTask AddDocumentsAsync(IReadOnlyList<LeanDocument> documents, CancellationToken cancellationToken = default)
     {
         EnterIndexingOperation();
@@ -48,6 +55,11 @@ public sealed partial class IndexWriter
         }
     }
 
+    /// <summary>Adds documents from an asynchronous sequence in bounded batches.</summary>
+    /// <remarks>
+    /// The sequence is consumed in order. If a document is rejected, documents accepted
+    /// earlier in the sequence remain buffered and may be committed.
+    /// </remarks>
     public async ValueTask AddDocumentsAsync(
         IAsyncEnumerable<LeanDocument> documents,
         int batchSize = 256,
@@ -80,6 +92,11 @@ public sealed partial class IndexWriter
         }
     }
 
+    /// <summary>Adds an adjacent child-parent document block asynchronously.</summary>
+    /// <remarks>
+    /// Token-budget validation is atomic for the complete block. Document blocks are
+    /// not supported when <see cref="IndexWriterConfig.IndexSort"/> is configured.
+    /// </remarks>
     public async ValueTask AddDocumentBlockAsync(IReadOnlyList<LeanDocument> block, CancellationToken cancellationToken = default)
     {
         EnterIndexingOperation();
@@ -88,6 +105,9 @@ public sealed partial class IndexWriter
             ArgumentNullException.ThrowIfNull(block);
             if (block.Count < 2)
                 throw new ArgumentException("A document block requires at least one child and one parent document.", nameof(block));
+            if (_config.IndexSort is not null)
+                throw new NotSupportedException(
+                    "Document blocks cannot be indexed when IndexSort is configured because physical document sorting would break child-parent adjacency.");
             ValidateDocuments(block);
             if (_backpressureSemaphore is not null && block.Count > _config.MaxQueuedDocs)
             {

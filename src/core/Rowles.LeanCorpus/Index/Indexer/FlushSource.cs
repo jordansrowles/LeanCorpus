@@ -28,6 +28,8 @@ internal interface IFlushSource
     Dictionary<string, Dictionary<int, List<double>>> SortedNumericDocValues { get; }
     Dictionary<string, Dictionary<int, List<long>>> Int64SortedDocValues { get; }
     Dictionary<string, Dictionary<int, List<byte[]>>> BinaryDocValues { get; }
+    HashSet<int>? ParentDocIds { get; }
+    List<PostingAccumulator> PostingAccumulators { get; }
     int PostingsCount { get; }
     void CopySortedPostings((string Term, PostingAccumulator Acc)[] target);
     /// <summary>
@@ -64,6 +66,8 @@ internal readonly struct BufferFlushSource : IFlushSource
     public Dictionary<string, Dictionary<int, List<double>>> SortedNumericDocValues => _b.SortedNumericDocValues;
     public Dictionary<string, Dictionary<int, List<long>>> Int64SortedDocValues => _b.Int64SortedDocValues;
     public Dictionary<string, Dictionary<int, List<byte[]>>> BinaryDocValues => _b.BinaryDocValues;
+    public HashSet<int>? ParentDocIds => _b.ParentDocIds;
+    public List<PostingAccumulator> PostingAccumulators => _b.PostingAccumulators;
     public int PostingsCount => _b.PostingsCount;
 
     public void CopySortedPostings((string Term, PostingAccumulator Acc)[] target)
@@ -106,6 +110,8 @@ internal readonly struct DwptFlushSource : IFlushSource
     public Dictionary<string, Dictionary<int, List<double>>> SortedNumericDocValues => _d.SortedNumericDocValues;
     public Dictionary<string, Dictionary<int, List<long>>> Int64SortedDocValues => _d.Int64SortedDocValues;
     public Dictionary<string, Dictionary<int, List<byte[]>>> BinaryDocValues => _d.BinaryDocValues;
+    public HashSet<int>? ParentDocIds => _d.ParentDocIds;
+    public List<PostingAccumulator> PostingAccumulators => _d.PostingAccumulators;
     public int PostingsCount => _d.TermHash.Count;
 
     public void CopySortedPostings((string Term, PostingAccumulator Acc)[] target)

@@ -172,6 +172,12 @@ internal sealed class DocumentsWriterPerThread
     /// </summary>
     public void AddDocument(LeanDocument doc)
     {
+        ValidateTokenBudget(doc);
+        AddDocumentCore(doc);
+    }
+
+    private void AddDocumentCore(LeanDocument doc)
+    {
         int localDocId = DocCount;
         StoredDocStarts.Add(StoredFieldIds.Count);
 
@@ -257,14 +263,49 @@ internal sealed class DocumentsWriterPerThread
 
     public void AddDocumentBlock(IReadOnlyList<LeanDocument> block)
     {
+        // Validate the complete block before mutating any of its documents. A
+        // rejected child must not leave a partially indexed parent/child block.
+        for (int i = 0; i < block.Count; i++)
+            ValidateTokenBudget(block[i]);
+
         for (int i = 0; i < block.Count; i++)
         {
-            AddDocument(block[i]);
+            AddDocumentCore(block[i]);
             if (i == block.Count - 1)
             {
                 ParentDocIds ??= [];
                 ParentDocIds.Add(DocCount - 1);
             }
+        }
+    }
+
+    internal void ValidateTokenBudget(LeanDocument doc)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        int budget = _config.MaxTokensPerDocument;
+        if (budget <= 0 || _config.TokenBudgetPolicy != TokenBudgetPolicy.Reject)
+            return;
+
+        foreach (var field in doc.Fields)
+        {
+            if (field is not TextField textField)
+                continue;
+
+            ReadOnlySpan<char> input = textField.Value.AsSpan();
+            string? filtered = null;
+            if (_config.CharFilters.Count > 0)
+            {
+                filtered = textField.Value;
+                foreach (var charFilter in _config.CharFilters)
+                    filtered = charFilter.Filter(filtered.AsSpan());
+                input = filtered.AsSpan();
+            }
+
+            var analyser = _fieldAnalysers.GetValueOrDefault(textField.Name, _analyser);
+            _countingTokenSink.Reset(budget);
+            analyser.Analyse(input, _countingTokenSink);
+            if (_countingTokenSink.Exceeded)
+                throw new TokenBudgetExceededException(_countingTokenSink.Count, budget);
         }
     }
 
@@ -304,13 +345,6 @@ internal sealed class DocumentsWriterPerThread
         }
         var analyser = _fieldAnalysers.GetValueOrDefault(fieldName, _analyser);
         int budget = _config.MaxTokensPerDocument;
-        if (budget > 0 && _config.TokenBudgetPolicy == TokenBudgetPolicy.Reject)
-        {
-            _countingTokenSink.Reset(budget);
-            analyser.Analyse(input, _countingTokenSink);
-            if (_countingTokenSink.Exceeded)
-                throw new TokenBudgetExceededException(_countingTokenSink.Count, budget);
-        }
         _spanPostingSink.Reset(fieldName, docId, indexOptions, budget, _config.TokenBudgetPolicy);
         analyser.Analyse(input, _spanPostingSink);
         AddTokenCount(fieldName, docId, _spanPostingSink.AcceptedCount);

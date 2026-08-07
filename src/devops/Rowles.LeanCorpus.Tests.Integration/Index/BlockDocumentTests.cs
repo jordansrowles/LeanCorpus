@@ -203,6 +203,28 @@ public sealed class BlockDocumentTests : IClassFixture<TestDirectoryFixture>
     }
 
     /// <summary>
+    /// Verifies index sorting is rejected before it can break block adjacency.
+    /// </summary>
+    [Fact(DisplayName = "Add Document Block: Rejects Index Sort")]
+    public void AddDocumentBlock_RejectsIndexSort()
+    {
+        var dir = Path.Combine(_path, nameof(AddDocumentBlock_RejectsIndexSort));
+        Directory.CreateDirectory(dir);
+        var mmap = new MMapDirectory(dir);
+
+        using var writer = new IndexWriter(mmap, new IndexWriterConfig
+        {
+            IndexSort = new IndexSort(SortField.Numeric("rank"))
+        });
+
+        Assert.Throws<NotSupportedException>(() => writer.AddDocumentBlock(
+        [
+            MakeChild("reply", "child"),
+            MakeParent("parent")
+        ]));
+    }
+
+    /// <summary>
     /// Verifies the Parent Bit Set: Next Parent Finds Correct Parent scenario.
     /// </summary>
     [Fact(DisplayName = "Parent Bit Set: Next Parent Finds Correct Parent")]

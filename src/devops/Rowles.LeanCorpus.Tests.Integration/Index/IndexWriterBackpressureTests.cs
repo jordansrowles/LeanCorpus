@@ -42,10 +42,10 @@ public sealed class IndexWriterBackpressureTests : IClassFixture<TestDirectoryFi
     }
 
     /// <summary>
-    /// Verifies the Add Documents: Body Throws Mid Batch Restores All Backpressure Slots scenario.
+    /// Verifies a rejected document preserves earlier sequentially accepted documents.
     /// </summary>
-    [Fact(DisplayName = "Add Documents: Body Throws Mid Batch Restores Slots And Poisons Writer")]
-    public void AddDocuments_BodyThrowsMidBatch_RestoresSlots_AndPoisonsWriter()
+    [Fact(DisplayName = "Add Documents: Token Rejection Preserves Earlier Documents And Writer")]
+    public void AddDocuments_TokenRejection_PreservesEarlierDocumentsAndWriter()
     {
         var dir = new MMapDirectory(SubDir("c7_addocs_body_throws"));
         var config = new IndexWriterConfig
@@ -68,16 +68,21 @@ public sealed class IndexWriterBackpressureTests : IClassFixture<TestDirectoryFi
         };
 
         Assert.Throws<TokenBudgetExceededException>(() => writer.AddDocuments(docs));
+        Assert.Equal(initial - 2, sem.CurrentCount);
+
+        writer.Commit();
         Assert.Equal(initial, sem.CurrentCount);
-        Assert.Throws<InvalidOperationException>(() => writer.AddDocuments(docs));
+
+        writer.AddDocument(MakeDoc("still usable"));
+        writer.Commit();
         Assert.Equal(initial, sem.CurrentCount);
     }
 
     /// <summary>
-    /// Verifies the Add Document Block: Body Throws Mid Batch Restores All Backpressure Slots scenario.
+    /// Verifies a rejected block is atomic and leaves the writer usable.
     /// </summary>
-    [Fact(DisplayName = "Add Document Block: Body Throws Mid Batch Restores Slots And Poisons Writer")]
-    public void AddDocumentBlock_BodyThrowsMidBatch_RestoresSlots_AndPoisonsWriter()
+    [Fact(DisplayName = "Add Document Block: Token Rejection Is Atomic And Writer Remains Usable")]
+    public void AddDocumentBlock_TokenRejection_IsAtomicAndWriterRemainsUsable()
     {
         var dir = new MMapDirectory(SubDir("c7_block_body_throws"));
         var config = new IndexWriterConfig
@@ -101,15 +106,19 @@ public sealed class IndexWriterBackpressureTests : IClassFixture<TestDirectoryFi
 
         Assert.Throws<TokenBudgetExceededException>(() => writer.AddDocumentBlock(block));
         Assert.Equal(initial, sem.CurrentCount);
-        Assert.Throws<InvalidOperationException>(() => writer.AddDocumentBlock(block));
+        Assert.Throws<TokenBudgetExceededException>(() => writer.AddDocumentBlock(block));
+        Assert.Equal(initial, sem.CurrentCount);
+
+        writer.AddDocument(MakeDoc("still usable"));
+        writer.Commit();
         Assert.Equal(initial, sem.CurrentCount);
     }
 
     /// <summary>
-    /// Verifies the Add Documents: Repeated Failures No Slot Leak Keeps Indexing Responsive scenario.
+    /// Verifies a partial sequential batch can be committed and indexing can continue.
     /// </summary>
-    [Fact(DisplayName = "Add Documents: Failure Restores Slots And Reopen Remains Responsive")]
-    public void AddDocuments_FailureRestoresSlots_AndReopenRemainsResponsive()
+    [Fact(DisplayName = "Add Documents: Partial Batch Commits And Writer Remains Responsive")]
+    public void AddDocuments_PartialBatch_CommitsAndWriterRemainsResponsive()
     {
         var dir = new MMapDirectory(SubDir("c7_stress"));
         var config = new IndexWriterConfig
@@ -130,15 +139,13 @@ public sealed class IndexWriterBackpressureTests : IClassFixture<TestDirectoryFi
         };
 
         Assert.Throws<TokenBudgetExceededException>(() => writer.AddDocuments(docs));
-        Assert.Equal(initial, sem.CurrentCount);
-        Assert.Throws<InvalidOperationException>(() => writer.AddDocuments(docs));
-        Assert.Equal(initial, sem.CurrentCount);
-        writer.Dispose();
+        Assert.Equal(initial - 1, sem.CurrentCount);
 
-        using var reopened = new IndexWriter(dir, config);
-        for (int i = 0; i < 100; i++)
-            reopened.AddDocument(MakeDoc("clean"));
+        writer.Commit();
+        Assert.Equal(initial, sem.CurrentCount);
 
-        reopened.Commit();
+        writer.AddDocument(MakeDoc("clean"));
+        writer.Commit();
+        Assert.Equal(initial, sem.CurrentCount);
     }
 }

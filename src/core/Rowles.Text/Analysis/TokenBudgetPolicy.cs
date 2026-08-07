@@ -11,6 +11,9 @@ public enum TokenBudgetPolicy
     /// <summary>Log a warning and continue indexing with all tokens.</summary>
     Warn,
 
-    /// <summary>Throw an <see cref="TokenBudgetExceededException"/> to reject the document.</summary>
+    /// <summary>
+    /// Throw an <see cref="TokenBudgetExceededException"/> to reject the offending
+    /// document without making the index writer unusable.
+    /// </summary>
     Reject
 }

@@ -120,7 +120,7 @@ public sealed partial class IndexSearcher
         if (_readers.Count > 0 && query is TermQuery tq
             && TryGetIndexSort(out var indexSort) && MatchesSort(sort, indexSort))
         {
-            return SearchWithIndexSortEarlyTermination(tq, topN);
+            return SearchWithIndexSortEarlyTermination(tq, topN, sort);
         }
 
         // We still need every match to pick the top-N by sort key, but topN itself
@@ -271,11 +271,11 @@ public sealed partial class IndexSearcher
         {
             var reader = _readers[readerOrdinal];
             int localDocId = globalId - _docBases[readerOrdinal];
-            if (reader.TryGetNumericValue(fieldName, localDocId, out double value))
-                return value;
             if (reader.TryGetSortedNumericDocValues(fieldName, localDocId, out var values)
                 && values.Count > 0)
                 return selector == SortValueSelector.Max ? values[^1] : values[0];
+            if (reader.TryGetNumericValue(fieldName, localDocId, out double value))
+                return value;
         }
         var stored = GetStoredFields(globalId, new HashSet<string> { fieldName });
         if (stored.TryGetValue(fieldName, out var sv) && sv.Count > 0
@@ -337,11 +337,11 @@ public sealed partial class IndexSearcher
         {
             var reader = _readers[readerOrdinal];
             int localDocId = globalId - _docBases[readerOrdinal];
-            if (reader.TryGetInt64Value(fieldName, localDocId, out long value))
-                return value;
             if (reader.TryGetSortedInt64DocValues(fieldName, localDocId, out var values)
                 && values.Count > 0)
                 return selector == SortValueSelector.Max ? values[^1] : values[0];
+            if (reader.TryGetInt64Value(fieldName, localDocId, out long value))
+                return value;
         }
         var stored = GetStoredFields(globalId, new HashSet<string> { fieldName });
         if (stored.TryGetValue(fieldName, out var sv) && sv.Count > 0
@@ -382,12 +382,37 @@ public sealed partial class IndexSearcher
     {
         indexSortField = default!;
         if (_readers.Count == 0) return false;
-        var fields = _readers[0].Info.IndexSortFields;
-        if (fields is not { Count: 1 }) return false;
-        var parts = fields[0].Split(':');
-        if (parts.Length != 3) return false;
+
+        SortField? commonSort = null;
+        foreach (var reader in _readers)
+        {
+            var fields = reader.Info.IndexSortFields;
+            if (fields is not { Count: 1 }
+                || !TryParseIndexSortField(fields[0], out var readerSort))
+            {
+                return false;
+            }
+
+            if (commonSort is not null && !MatchesSort(commonSort, readerSort))
+                return false;
+
+            commonSort = readerSort;
+        }
+
+        indexSortField = commonSort!;
+        return true;
+    }
+
+    private static bool TryParseIndexSortField(string metadata, out SortField sortField)
+    {
+        sortField = default!;
+        var parts = metadata.Split(':');
+        if (parts.Length is < 3 or > 4) return false;
         if (!Enum.TryParse<SortFieldType>(parts[0], out var type)) return false;
-        indexSortField = new SortField(type, parts[1], bool.Parse(parts[2]));
+        if (!bool.TryParse(parts[2], out bool descending)) return false;
+        var selector = SortValueSelector.Min;
+        if (parts.Length == 4 && !Enum.TryParse(parts[3], out selector)) return false;
+        sortField = new SortField(type, parts[1], descending, selector);
         return true;
     }
 
@@ -796,25 +821,50 @@ public sealed partial class IndexSearcher
         };
     }
 
-    private TopDocs SearchWithIndexSortEarlyTermination(TermQuery tq, int topN)
+    private TopDocs SearchWithIndexSortEarlyTermination(TermQuery tq, int topN, SortField sort)
     {
-        var collector = new TopNCollector(topN);
+        // Every segment is independently sorted. Its first topN live matches are
+        // sufficient candidates for the global topN, but stopping after the first
+        // full segment is not: a later segment may contain better sort keys.
+        var candidates = new List<ScoreDoc>();
+        int observedHits = 0;
         var qt = tq.CachedQualifiedTerm ??= string.Concat(tq.Field, "\x00", tq.Term);
         foreach (var reader in _readers)
         {
-            if (collector.IsFull) break;
             using var pe = reader.GetPostingsEnum(qt);
             if (pe.IsExhausted) continue;
             int docBase = reader.DocBase;
             bool hasDeletions = reader.HasDeletions;
-            while (pe.MoveNext() && !collector.IsFull)
+            int segmentHits = 0;
+            while (pe.MoveNext() && segmentHits < topN)
             {
                 int docId = pe.DocId;
                 if (hasDeletions && !reader.IsLive(docId)) continue;
-                collector.Collect(docBase + docId, 1.0f);
+                candidates.Add(new ScoreDoc(docBase + docId, 1.0f));
+                segmentHits++;
+                observedHits++;
             }
         }
-        return collector.ToTopDocs();
+
+        var docs = candidates.ToArray();
+        int effectiveN = Math.Min(topN, docs.Length);
+        var sorted = sort.Type switch
+        {
+            SortFieldType.DocId => SelectTopByDocId(docs, effectiveN, sort.Descending),
+            SortFieldType.Numeric => SelectTopByNumericField(
+                docs, effectiveN, sort.FieldName, sort.Descending, sort.Selector),
+            SortFieldType.Int64 => SelectTopByInt64Field(
+                docs, effectiveN, sort.FieldName, sort.Descending, sort.Selector),
+            SortFieldType.String => SelectTopByStringField(
+                docs, effectiveN, sort.FieldName, sort.Descending, sort.Selector),
+            _ => docs.Length > effectiveN ? docs[..effectiveN] : docs
+        };
+
+        // The sorted index lets us stop once the requested page is full, so the
+        // hit count is intentionally bounded to the documents observed per segment.
+        // Advertise that contract to callers rather than presenting the page
+        // count as the complete query hit count.
+        return new TopDocs(observedHits, sorted, isPartial: true);
     }
 
     internal interface IParallelTopNCollectorStrategy

@@ -153,9 +153,20 @@ public sealed partial class IndexWriter : IDisposable
     }
     public bool HasPreparedCommit => _preparedGeneration >= 0;
 
+    /// <summary>Adds one document to the index.</summary>
+    /// <remarks>
+    /// When <see cref="IndexWriterConfig.TokenBudgetPolicy"/> is
+    /// <see cref="Analysis.TokenBudgetPolicy.Reject"/>, a token-budget failure rejects
+    /// only this document and does not make the writer unusable.
+    /// </remarks>
     public void AddDocument(LeanDocument doc)
         => DwptManager.AddDocument(this, doc);
 
+    /// <summary>Adds documents sequentially in list order.</summary>
+    /// <remarks>
+    /// This operation is not atomic. If a document is rejected, documents accepted
+    /// earlier in the list remain buffered and may be committed.
+    /// </remarks>
     public void AddDocuments(IReadOnlyList<LeanDocument> documents)
     {
         ArgumentNullException.ThrowIfNull(documents);
@@ -163,6 +174,12 @@ public sealed partial class IndexWriter : IDisposable
             DwptManager.AddDocument(this, documents[i]);
     }
 
+    /// <summary>Adds an adjacent child-parent document block.</summary>
+    /// <remarks>
+    /// Token-budget validation is atomic for the complete block. Document blocks are
+    /// not supported when <see cref="IndexWriterConfig.IndexSort"/> is configured,
+    /// because physical sorting would break the adjacency required by block joins.
+    /// </remarks>
     public void AddDocumentBlock(IReadOnlyList<LeanDocument> block)
         => DwptManager.AddDocumentBlock(this, block);
 
@@ -694,7 +711,7 @@ public sealed partial class IndexWriter : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    if (ex is not ObjectDisposedException)
+                    if (ex is not ObjectDisposedException and not Analysis.TokenBudgetExceededException)
                         MarkIndexingFailed();
                     cmd.Tcs.TrySetException(ex);
                 }

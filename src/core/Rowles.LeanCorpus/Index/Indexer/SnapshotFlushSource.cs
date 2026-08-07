@@ -31,6 +31,8 @@ internal sealed class SnapshotFlushSource : IFlushSource
     public Dictionary<string, Dictionary<int, List<double>>> SortedNumericDocValues => _s.SortedNumericDocValues;
     public Dictionary<string, Dictionary<int, List<long>>> Int64SortedDocValues => _s.Int64SortedDocValues;
     public Dictionary<string, Dictionary<int, List<byte[]>>> BinaryDocValues => _s.BinaryDocValues;
+    public HashSet<int>? ParentDocIds => _s.ParentDocIds;
+    public List<PostingAccumulator> PostingAccumulators => _s.PostingAccumulators;
     public int PostingsCount => _s.TermHash.Count;
 
     public void CopySortedPostings((string Term, PostingAccumulator Acc)[] target)
