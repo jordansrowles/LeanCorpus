@@ -12,12 +12,18 @@ namespace Rowles.LeanCorpus.Index.Backup;
 /// <summary>
 /// Creates, validates, and restores LeanCorpus index backups.
 /// </summary>
+/// <remarks>
+/// Participating directories are canonicalised before they are compared. Backup and restore reject
+/// directories that are the same as, inside, or contain another participating directory. Reparse-point
+/// components are resolved when the platform exposes a safe target; unresolved components are rejected.
+/// </remarks>
 public static class IndexBackup
 {
     /// <summary>Gets the current backup manifest format version.</summary>
     public const string CurrentManifestFormatVersion = "2";
 
     private const string LegacyManifestFormatVersion = "1";
+    private const int MaxCanonicalPathResolutionDepth = 32;
 
     /// <summary>Gets the manifest file name used in backup directories.</summary>
     public const string ManifestFileName = "leancorpus-backup-manifest.json";
@@ -75,7 +81,7 @@ public static class IndexBackup
     private static IndexBackupManifest CreateManifestCore(string indexDirectoryPath, IndexBackupOptions options)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(indexDirectoryPath);
-        var sourceDirectory = Path.GetFullPath(indexDirectoryPath);
+        var sourceDirectory = CanonicaliseDirectoryPath(indexDirectoryPath, nameof(indexDirectoryPath));
         if (!FileOpenRetry.DirectoryExists(sourceDirectory))
             throw new ArgumentException($"Index directory '{sourceDirectory}' does not exist.", nameof(indexDirectoryPath));
 
@@ -128,9 +134,12 @@ public static class IndexBackup
         int chainDepth = 1;
         if (!string.IsNullOrWhiteSpace(options.PreviousBackupDirectoryPath))
         {
-            var previousDirectory = Path.GetFullPath(options.PreviousBackupDirectoryPath);
-            if (SameDirectory(previousDirectory, sourceDirectory))
-                throw new ArgumentException("The previous backup directory must be different from the source index directory.", nameof(options));
+            var previousDirectory = CanonicaliseDirectoryPath(options.PreviousBackupDirectoryPath, nameof(options));
+            EnsureDirectoriesDoNotOverlap(
+                sourceDirectory,
+                previousDirectory,
+                "The previous backup directory must not be the same as, inside, or contain the source index directory.",
+                nameof(options));
 
             parent = ReadManifest(previousDirectory);
             parentFingerprint = ComputeManifestSha256(previousDirectory);
@@ -193,15 +202,26 @@ public static class IndexBackup
         var succeeded = false;
         try
         {
-            var sourceDirectory = Path.GetFullPath(indexDirectoryPath);
-            var backupDirectory = Path.GetFullPath(backupDirectoryPath);
-            if (SameDirectory(sourceDirectory, backupDirectory))
-                throw new ArgumentException("Backup directory must be different from the source index directory.", nameof(backupDirectoryPath));
-            if (!string.IsNullOrWhiteSpace(options.PreviousBackupDirectoryPath)
-                && SameDirectory(Path.GetFullPath(options.PreviousBackupDirectoryPath), backupDirectory))
+            var sourceDirectory = CanonicaliseDirectoryPath(indexDirectoryPath, nameof(indexDirectoryPath));
+            var backupDirectory = CanonicaliseDirectoryPath(backupDirectoryPath, nameof(backupDirectoryPath));
+            EnsureDirectoriesDoNotOverlap(
+                sourceDirectory,
+                backupDirectory,
+                "Backup directory must not be the same as, inside, or contain the source index directory.",
+                nameof(backupDirectoryPath));
+
+            if (!string.IsNullOrWhiteSpace(options.PreviousBackupDirectoryPath))
             {
-                throw new ArgumentException(
-                    "Backup directory must be different from the previous backup directory.",
+                var previousDirectory = CanonicaliseDirectoryPath(options.PreviousBackupDirectoryPath, nameof(options));
+                EnsureDirectoriesDoNotOverlap(
+                    sourceDirectory,
+                    previousDirectory,
+                    "The previous backup directory must not be the same as, inside, or contain the source index directory.",
+                    nameof(options));
+                EnsureDirectoriesDoNotOverlap(
+                    backupDirectory,
+                    previousDirectory,
+                    "Backup directory must not be the same as, inside, or contain the previous backup directory.",
                     nameof(backupDirectoryPath));
             }
 
@@ -283,7 +303,7 @@ public static class IndexBackup
     public static IndexBackupManifest ReadManifest(string backupDirectoryPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(backupDirectoryPath);
-        var backupDirectory = Path.GetFullPath(backupDirectoryPath);
+        var backupDirectory = CanonicaliseDirectoryPath(backupDirectoryPath, nameof(backupDirectoryPath));
         var manifestPath = Path.Combine(backupDirectory, ManifestFileName);
         if (!FileOpenRetry.FileExists(manifestPath))
             throw new InvalidDataException($"Backup manifest '{ManifestFileName}' was not found.");
@@ -344,7 +364,7 @@ public static class IndexBackup
         string backupDirectoryPath,
         bool validateChecksums)
     {
-        var backupDirectory = Path.GetFullPath(backupDirectoryPath);
+        var backupDirectory = CanonicaliseDirectoryPath(backupDirectoryPath, nameof(backupDirectoryPath));
         var manifest = ReadManifest(backupDirectory);
         foreach (var entry in manifest.Files.Where(static entry => entry.PresentInBackup))
         {
@@ -409,10 +429,13 @@ public static class IndexBackup
         string? stagingDirectory = null;
         try
         {
-            var backupDirectory = Path.GetFullPath(backupDirectoryPath);
-            var targetDirectory = Path.GetFullPath(targetIndexDirectoryPath);
-            if (SameDirectory(backupDirectory, targetDirectory))
-                throw new ArgumentException("Restore target directory must be different from the backup directory.", nameof(targetIndexDirectoryPath));
+            var backupDirectory = CanonicaliseDirectoryPath(backupDirectoryPath, nameof(backupDirectoryPath));
+            var targetDirectory = CanonicaliseDirectoryPath(targetIndexDirectoryPath, nameof(targetIndexDirectoryPath));
+            EnsureDirectoriesDoNotOverlap(
+                backupDirectory,
+                targetDirectory,
+                "Restore target directory must not be the same as, inside, or contain the backup directory.",
+                nameof(targetIndexDirectoryPath));
 
             // Validate structure and lengths before mutating the target. Checksums
             // are verified while streaming each file, before its atomic publication.
@@ -503,11 +526,15 @@ public static class IndexBackup
             throw new ArgumentException("At least one backup directory is required.", nameof(backupDirectoryPaths));
 
         options ??= new IndexRestoreOptions();
-        var targetDirectory = Path.GetFullPath(targetIndexDirectoryPath);
-        if (backupDirectoryPaths.Any(path => SameDirectory(Path.GetFullPath(path), targetDirectory)))
-            throw new ArgumentException("Restore target directory must be different from every backup directory.", nameof(targetIndexDirectoryPath));
+        var targetDirectory = CanonicaliseDirectoryPath(targetIndexDirectoryPath, nameof(targetIndexDirectoryPath));
+        var canonicalBackupDirectories = CanonicaliseDirectoryPaths(backupDirectoryPaths, nameof(backupDirectoryPaths));
+        EnsureDirectoriesDoNotOverlap(
+            targetDirectory,
+            canonicalBackupDirectories,
+            "Restore target directory must not be the same as, inside, or contain a backup directory.",
+            nameof(targetIndexDirectoryPath));
 
-        var chain = ReadBackupChain(backupDirectoryPaths);
+        var chain = ReadBackupChain(canonicalBackupDirectories);
         var newest = chain[^1].Manifest;
         var sw = Stopwatch.StartNew();
         using var activity = LeanCorpusActivitySource.Source.StartActivity(LeanCorpusActivitySource.BackupRestore);
@@ -585,12 +612,14 @@ public static class IndexBackup
         if (backupDirectoryPaths.Count == 0)
             throw new ArgumentException("At least one backup directory is required.", nameof(backupDirectoryPaths));
 
-        var chain = new List<(string Directory, IndexBackupManifest Manifest)>(backupDirectoryPaths.Count);
+        var canonicalDirectories = CanonicaliseDirectoryPaths(backupDirectoryPaths, nameof(backupDirectoryPaths));
+        EnsureDirectoriesDoNotOverlap(canonicalDirectories, nameof(backupDirectoryPaths));
+
+        var chain = new List<(string Directory, IndexBackupManifest Manifest)>(canonicalDirectories.Length);
         string? previousFingerprint = null;
-        for (int i = 0; i < backupDirectoryPaths.Count; i++)
+        for (int i = 0; i < canonicalDirectories.Length; i++)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(backupDirectoryPaths[i]);
-            var directory = Path.GetFullPath(backupDirectoryPaths[i]);
+            var directory = canonicalDirectories[i];
             var manifest = ReadManifest(directory);
             if (i == 0)
             {
@@ -676,7 +705,9 @@ public static class IndexBackup
 
     private static string ComputeManifestSha256(string backupDirectoryPath)
     {
-        var manifestPath = Path.Combine(Path.GetFullPath(backupDirectoryPath), ManifestFileName);
+        var manifestPath = Path.Combine(
+            CanonicaliseDirectoryPath(backupDirectoryPath, nameof(backupDirectoryPath)),
+            ManifestFileName);
         using var stream = FileOpenRetry.OpenReadDelete(manifestPath);
         return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream)).ToLowerInvariant();
     }
@@ -934,9 +965,159 @@ public static class IndexBackup
             throw new InvalidDataException($"Backup manifest file name '{fileName}' is unsafe.");
     }
 
+    private static string[] CanonicaliseDirectoryPaths(
+        IReadOnlyList<string> paths,
+        string parameterName)
+    {
+        var canonicalPaths = new string[paths.Count];
+        for (int i = 0; i < paths.Count; i++)
+            canonicalPaths[i] = CanonicaliseDirectoryPath(paths[i], parameterName);
+
+        return canonicalPaths;
+    }
+
+    private static string CanonicaliseDirectoryPath(string path, string parameterName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var canonicalPath = NormaliseDirectory(path);
+        for (int attempt = 0; attempt < MaxCanonicalPathResolutionDepth; attempt++)
+        {
+            var reparsePointPath = FindReparsePoint(canonicalPath);
+            if (reparsePointPath is null)
+                return canonicalPath;
+
+            string? targetPath;
+            try
+            {
+                targetPath = FileOpenRetry.ResolveDirectoryLinkTarget(reparsePointPath);
+            }
+            catch (Exception ex) when (ex is ArgumentException
+                or IOException
+                or UnauthorizedAccessException
+                or NotSupportedException)
+            {
+                throw new ArgumentException(
+                    $"Directory path '{path}' contains a reparse point that cannot be resolved safely.",
+                    parameterName,
+                    ex);
+            }
+
+            if (targetPath is null)
+            {
+                throw new ArgumentException(
+                    $"Directory path '{path}' contains a reparse point that does not resolve to a directory.",
+                    parameterName);
+            }
+
+            var resolvedTargetPath = NormaliseDirectory(targetPath);
+            var remainingPath = Path.GetRelativePath(reparsePointPath, canonicalPath);
+            var nextPath = remainingPath == "."
+                ? resolvedTargetPath
+                : NormaliseDirectory(Path.Combine(resolvedTargetPath, remainingPath));
+            if (SameDirectory(nextPath, canonicalPath))
+            {
+                throw new ArgumentException(
+                    $"Directory path '{path}' contains a reparse point that cannot be resolved safely.",
+                    parameterName);
+            }
+
+            canonicalPath = nextPath;
+        }
+
+        throw new ArgumentException(
+            $"Directory path '{path}' contains too many nested reparse points to resolve safely.",
+            parameterName);
+    }
+
+    private static string? FindReparsePoint(string path)
+    {
+        var current = path;
+        while (true)
+        {
+            try
+            {
+                if ((FileOpenRetry.GetFileAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                    return current;
+            }
+            catch (FileNotFoundException)
+            {
+            }
+            catch (DirectoryNotFoundException)
+            {
+            }
+
+            var parent = Path.GetDirectoryName(current);
+            if (parent is null)
+                return null;
+
+            parent = NormaliseDirectory(parent);
+            if (SameDirectory(parent, current))
+                return null;
+
+            current = parent;
+        }
+    }
+
+    private static void EnsureDirectoriesDoNotOverlap(
+        string left,
+        string right,
+        string message,
+        string parameterName)
+    {
+        if (DirectoriesOverlap(left, right))
+            throw new ArgumentException(message, parameterName);
+    }
+
+    private static void EnsureDirectoriesDoNotOverlap(
+        string directory,
+        IReadOnlyList<string> otherDirectories,
+        string message,
+        string parameterName)
+    {
+        for (int i = 0; i < otherDirectories.Count; i++)
+            EnsureDirectoriesDoNotOverlap(directory, otherDirectories[i], message, parameterName);
+    }
+
+    private static void EnsureDirectoriesDoNotOverlap(
+        IReadOnlyList<string> directories,
+        string parameterName)
+    {
+        for (int i = 0; i < directories.Count; i++)
+        {
+            for (int j = i + 1; j < directories.Count; j++)
+            {
+                if (DirectoriesOverlap(directories[i], directories[j]))
+                {
+                    throw new ArgumentException(
+                        "Backup chain directories must not be the same as, inside, or contain one another.",
+                        parameterName);
+                }
+            }
+        }
+    }
+
+    private static bool DirectoriesOverlap(string left, string right)
+        => IsSameOrDescendant(left, right) || IsSameOrDescendant(right, left);
+
+    private static bool IsSameOrDescendant(string candidate, string ancestor)
+    {
+        if (SameDirectory(candidate, ancestor))
+            return true;
+
+        if (!candidate.StartsWith(ancestor, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return ancestor.Length > 0
+            && (IsDirectorySeparator(ancestor[^1])
+                || (candidate.Length > ancestor.Length && IsDirectorySeparator(candidate[ancestor.Length])));
+    }
+
+    private static bool IsDirectorySeparator(char value)
+        => value == Path.DirectorySeparatorChar || value == Path.AltDirectorySeparatorChar;
+
     private static bool SameDirectory(string left, string right)
         => string.Equals(NormaliseDirectory(left), NormaliseDirectory(right), StringComparison.OrdinalIgnoreCase);
 
     private static string NormaliseDirectory(string path)
-        => Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 }
