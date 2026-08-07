@@ -358,7 +358,7 @@ public sealed class MMapDirectoryTests : IClassFixture<TestDirectoryFixture>
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
         Assert.NotNull(disposedField);
         Assert.True((bool)disposedField.GetValue(input)!);
-        Assert.Throws<NullReferenceException>(() => input.ReadByte());
+        Assert.Throws<ObjectDisposedException>(() => input.ReadByte());
     }
 
     /// <summary>

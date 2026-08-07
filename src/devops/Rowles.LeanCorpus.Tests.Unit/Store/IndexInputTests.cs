@@ -332,8 +332,7 @@ public sealed class IndexInputTests : IDisposable
         var path = WriteFile("disp2.bin", [1, 2, 3]);
         var input = new IndexInput(path);
         input.Dispose();
-        // IndexInput.Dispose sets _ptr = null; ReadByte will NullReferenceException (not ODE)
-        Assert.ThrowsAny<Exception>(() => input.ReadByte());
+        Assert.Throws<ObjectDisposedException>(() => input.ReadByte());
     }
 
     // ── Prefetch ──────────────────────────────────────────────────────────────
