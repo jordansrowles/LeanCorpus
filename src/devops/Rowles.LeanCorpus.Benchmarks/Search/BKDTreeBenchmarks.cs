@@ -66,31 +66,11 @@ public class BKDTreeBenchmarks
             IODirectory.Delete(_indexPath, recursive: true);
     }
 
-    [Benchmark(Baseline = true, Description = "BKD range 1%")]
+    [Benchmark(Baseline = true, Description = "BKD range")]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_BKD_Range1Percent()
+    public int LeanCorpus_BKD_Range()
     {
-        double span = 100.0;
-        double min = 2500.0;
-        return _searcher!.Search(
-            new RangeQuery("value", min, min + span), 100).TotalHits;
-    }
-
-    [Benchmark(Description = "BKD range 10%")]
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_BKD_Range10Percent()
-    {
-        double span = 1000.0;
-        double min = 2500.0;
-        return _searcher!.Search(
-            new RangeQuery("value", min, min + span), 100).TotalHits;
-    }
-
-    [Benchmark(Description = "BKD range 50%")]
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_BKD_Range50Percent()
-    {
-        double span = 5000.0;
+        double span = RangeWidth * 10_000.0;
         double min = 2500.0;
         return _searcher!.Search(
             new RangeQuery("value", min, min + span), 100).TotalHits;

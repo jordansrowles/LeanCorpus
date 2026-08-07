@@ -4,7 +4,6 @@ using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Store;
-using IODirectory = System.IO.Directory;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
@@ -14,6 +13,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 /// </summary>
 [MemoryDiagnoser]
 [MarkdownExporterAttribute.GitHub]
+[InvocationCount(1)]
 public class IndexWriterContentionBenchmarks
 {
     [Params(1, 2, 4, 8)]
@@ -25,12 +25,16 @@ public class IndexWriterContentionBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        _indexPath = Path.Combine(BenchmarkHelpers.TempRoot, $"lc-contention-{Guid.NewGuid():N}");
-        IODirectory.CreateDirectory(_indexPath);
     }
 
-    [GlobalCleanup]
-    public void Cleanup()
+    [IterationSetup]
+    public void IterationSetup()
+    {
+        _indexPath = BenchmarkHelpers.CreateTempDirectory("lc-contention");
+    }
+
+    [IterationCleanup]
+    public void IterationCleanup()
     {
         BenchmarkHelpers.DeleteDirectory(_indexPath);
     }

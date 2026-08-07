@@ -1,4 +1,5 @@
 using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Engines;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
@@ -372,6 +373,8 @@ internal static class Program
             repoRoot,
             gitCommitHash,
             docCount ?? BenchmarkData.DefaultDocCount);
+        if (!report.Provenance.RscriptAvailable)
+            report.QualityFlags.Add("RscriptUnavailable");
 
         BenchmarkRunReportWriter.WriteReport(runDir, machineDir, report);
 
@@ -406,16 +409,8 @@ internal static class Program
 
         var artifactsPath = Path.Combine(runDir, "_runner");
         Directory.CreateDirectory(artifactsPath);
-        var config = DefaultConfig.Instance.WithArtifactsPath(artifactsPath);
+        var baseConfig = DefaultConfig.Instance.WithArtifactsPath(artifactsPath);
         var (job, effectiveBenchmarkArgs) = ExtractJob(benchmarkArgs);
-        if (job is not null)
-        {
-            config = config
-                .AddJob(job)
-                .WithUnionRule(ConfigUnionRule.AlwaysUseGlobal);
-        }
-        if (gcDump)
-            config = config.AddDiagnoser(new GcDumpDiagnoser());
 
         // BDN nightly >= 20260608 goes interactive when args are empty,
         // even when types are supplied via FromTypes. Inject a filter to
@@ -423,14 +418,78 @@ internal static class Program
         if (!HasBenchmarkDotNetOption(effectiveBenchmarkArgs, "--filter", "-f"))
             effectiveBenchmarkArgs = [.. effectiveBenchmarkArgs, "--filter", "*"];
 
-        var summaries = BenchmarkSwitcher
-            .FromTypes([.. PendingSuites.Select(suite => suite.Type)])
-            .Run(effectiveBenchmarkArgs, config);
+        var backupSuite = PendingSuites.SingleOrDefault(
+            suite => suite.Type == typeof(IncrementalBackupBenchmarks));
+        var regularSuites = PendingSuites
+            .Where(suite => suite.Type != typeof(IncrementalBackupBenchmarks))
+            .ToArray();
 
+        if (regularSuites.Length > 0)
+        {
+            var regularConfig = baseConfig;
+            if (job is not null)
+            {
+                // The benchmark project is multi-targeted. Serialise the generated
+                // project build so cross-target reference discovery cannot race the
+                // two target-framework builds on hosts with a single benchmark job.
+                regularConfig = regularConfig
+                    .AddJob(job.WithMsBuildArguments("-m:1"))
+                    .WithUnionRule(ConfigUnionRule.AlwaysUseGlobal);
+            }
+            if (gcDump)
+                regularConfig = regularConfig.AddDiagnoser(new GcDumpDiagnoser());
+
+            var summaries = BenchmarkSwitcher
+                .FromTypes([.. regularSuites.Select(suite => suite.Type)])
+                .Run(effectiveBenchmarkArgs, regularConfig);
+            RecordSuiteSummaries(
+                summaries, regularSuites, artifactsPath, runDir, suiteSummaries);
+        }
+
+        if (backupSuite is not null)
+        {
+            // Durable backup operations must not use BenchmarkDotNet's throughput
+            // pilot, which can invoke a multi-minute operation repeatedly before
+            // measurement. Monitoring performs exactly three direct samples.
+            var backupJob = (job ?? Job.Default)
+                .WithStrategy(RunStrategy.Monitoring)
+                .WithLaunchCount(1)
+                .WithWarmupCount(0)
+                .WithIterationCount(3)
+                .WithInvocationCount(1)
+                .WithUnrollFactor(1)
+                .WithMsBuildArguments("-m:1");
+            var backupConfig = baseConfig
+                .AddJob(backupJob)
+                .WithUnionRule(ConfigUnionRule.AlwaysUseGlobal);
+            if (gcDump)
+                backupConfig = backupConfig.AddDiagnoser(new GcDumpDiagnoser());
+
+            Console.WriteLine("[incremental-backup] Preparing shared loose and compound fixtures...");
+            var fixtureStopwatch = Stopwatch.StartNew();
+            using var sharedBackupFixtures = IncrementalBackupBenchmarks.PrepareSharedFixtures();
+            fixtureStopwatch.Stop();
+            Console.WriteLine(
+                $"[incremental-backup] Shared fixtures prepared in {fixtureStopwatch.Elapsed:g}.");
+            var summaries = BenchmarkSwitcher
+                .FromTypes([backupSuite.Type])
+                .Run(effectiveBenchmarkArgs, backupConfig);
+            RecordSuiteSummaries(
+                summaries, [backupSuite], artifactsPath, runDir, suiteSummaries);
+        }
+    }
+
+    private static void RecordSuiteSummaries(
+        IEnumerable<Summary> summaries,
+        IReadOnlyList<PendingSuite> pendingSuites,
+        string artifactsPath,
+        string runDir,
+        List<(string Suite, Summary Summary)> suiteSummaries)
+    {
         foreach (var summary in summaries)
         {
             var benchmarkType = summary.BenchmarksCases.First().Descriptor.Type;
-            var suite = PendingSuites.First(item => item.Type == benchmarkType);
+            var suite = pendingSuites.First(item => item.Type == benchmarkType);
             suiteSummaries.Add((suite.Name, summary));
             CopySuiteArtifacts(artifactsPath, runDir, suite);
         }

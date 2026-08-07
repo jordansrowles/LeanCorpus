@@ -12,6 +12,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
+[InvocationCount(1)]
 public class CompoundFileBenchmarks
 {
     private const int TopN = 25;
@@ -27,6 +28,7 @@ public class CompoundFileBenchmarks
     private readonly TermQuery _query = new("body", "government");
     private readonly MatchAllDocsQuery _matchAll = new();
     private float[] _queryVector = [];
+    private readonly List<string> _iterationBuildPaths = [];
 
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
 
@@ -55,6 +57,7 @@ public class CompoundFileBenchmarks
     [GlobalCleanup]
     public void Cleanup()
     {
+        CleanupIterationBuilds();
         _looseSearcher?.Dispose();
         _compoundSearcher?.Dispose();
         _looseVectorSearcher?.Dispose();
@@ -65,21 +68,29 @@ public class CompoundFileBenchmarks
         RecentFeatureBenchmarkIndex.Delete(_compoundVectorPath);
     }
 
+    [IterationCleanup]
+    public void CleanupIterationBuilds()
+    {
+        foreach (var path in _iterationBuildPaths)
+            RecentFeatureBenchmarkIndex.Delete(path);
+        _iterationBuildPaths.Clear();
+    }
+
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LooseFiles_IndexAndCommit() => BuildAndDelete(useCompoundFile: false);
+    public int LooseFiles_IndexAndCommit() => BuildAndKeep(useCompoundFile: false);
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int CompoundFile_IndexAndCommit() => BuildAndDelete(useCompoundFile: true);
+    public int CompoundFile_IndexAndCommit() => BuildAndKeep(useCompoundFile: true);
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LooseFiles_IndexCommitUnderMergePressure() => BuildUnderMergePressureAndDelete(useCompoundFile: false);
+    public int LooseFiles_IndexCommitUnderMergePressure() => BuildUnderMergePressureAndKeep(useCompoundFile: false);
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int CompoundFile_IndexCommitUnderMergePressure() => BuildUnderMergePressureAndDelete(useCompoundFile: true);
+    public int CompoundFile_IndexCommitUnderMergePressure() => BuildUnderMergePressureAndKeep(useCompoundFile: true);
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -141,32 +152,20 @@ public class CompoundFileBenchmarks
         return results.TotalHits + facets.Sum(static facet => facet.Buckets.Count);
     }
 
-    private int BuildAndDelete(bool useCompoundFile)
+    private int BuildAndKeep(bool useCompoundFile)
     {
         string path = Path.Combine(BenchmarkHelpers.TempRoot, $"compound-index-{Guid.NewGuid():N}");
-        try
-        {
-            RecentFeatureBenchmarkIndex.Build(path, _documents, useCompoundFile);
-            return Directory.EnumerateFiles(path).Count();
-        }
-        finally
-        {
-            RecentFeatureBenchmarkIndex.Delete(path);
-        }
+        _iterationBuildPaths.Add(path);
+        RecentFeatureBenchmarkIndex.Build(path, _documents, useCompoundFile);
+        return Directory.EnumerateFiles(path).Count();
     }
 
-    private int BuildUnderMergePressureAndDelete(bool useCompoundFile)
+    private int BuildUnderMergePressureAndKeep(bool useCompoundFile)
     {
         string path = Path.Combine(BenchmarkHelpers.TempRoot, $"compound-merge-{Guid.NewGuid():N}");
-        try
-        {
-            RecentFeatureBenchmarkIndex.Build(path, _documents, useCompoundFile, maxBufferedDocs: 100);
-            return Directory.EnumerateFiles(path).Count();
-        }
-        finally
-        {
-            RecentFeatureBenchmarkIndex.Delete(path);
-        }
+        _iterationBuildPaths.Add(path);
+        RecentFeatureBenchmarkIndex.Build(path, _documents, useCompoundFile, maxBufferedDocs: 100);
+        return Directory.EnumerateFiles(path).Count();
     }
 
     private int ReadStoredFields(IndexSearcher searcher)

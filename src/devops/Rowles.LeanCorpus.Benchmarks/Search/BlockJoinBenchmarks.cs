@@ -41,11 +41,23 @@ public class BlockJoinIndexBenchmarks
     public int BlockCount { get; set; }
 
     private (string ParentTitle, string[] ChildBodies)[] _blocks = [];
+    private readonly List<string> _iterationPaths = [];
 
     [GlobalSetup]
     public void Setup()
     {
         _blocks = BenchmarkData.BuildParentChildBlocks(BlockCount, ChildrenPerBlock);
+    }
+
+    [GlobalCleanup]
+    public void Cleanup() => CleanupIterationPaths();
+
+    [IterationCleanup]
+    public void CleanupIterationPaths()
+    {
+        foreach (var path in _iterationPaths)
+            BenchmarkHelpers.DeleteDirectory(path);
+        _iterationPaths.Clear();
     }
 
     [Benchmark(Baseline = true)]
@@ -54,24 +66,17 @@ public class BlockJoinIndexBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-block-index-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
-
-        try
+        _iterationPaths.Add(path);
+        using var directory = new LeanMMapDirectory(path);
+        using var writer = new LeanIndexWriter(directory, new LeanIndexWriterConfig
         {
-            var directory = new LeanMMapDirectory(path);
-            using var writer = new LeanIndexWriter(directory, new LeanIndexWriterConfig
-            {
-                MaxBufferedDocs = 10_000,
-                RamBufferSizeMB = 256
-            });
+            MaxBufferedDocs = 10_000,
+            RamBufferSizeMB = 256
+        });
 
-            IndexLeanBlocks(writer, _blocks);
-            writer.Commit();
-            return _blocks.Length;
-        }
-        finally
-        {
-            BenchmarkHelpers.DeleteDirectory(path);
-        }
+        IndexLeanBlocks(writer, _blocks);
+        writer.Commit();
+        return _blocks.Length;
     }
 
     [Benchmark]
@@ -80,23 +85,16 @@ public class BlockJoinIndexBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"lucenenet-bench-block-index-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
+        _iterationPaths.Add(path);
+        using var directory = new LuceneMMapDirectory(new DirectoryInfo(path));
+        using var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+        using var writer = new Lucene.Net.Index.IndexWriter(
+            directory,
+            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
 
-        try
-        {
-            using var directory = new LuceneMMapDirectory(new DirectoryInfo(path));
-            using var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
-            using var writer = new Lucene.Net.Index.IndexWriter(
-                directory,
-                new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
-
-            IndexLuceneBlocks(writer, _blocks);
-            writer.Commit();
-            return _blocks.Length;
-        }
-        finally
-        {
-            BenchmarkHelpers.DeleteDirectory(path);
-        }
+        IndexLuceneBlocks(writer, _blocks);
+        writer.Commit();
+        return _blocks.Length;
     }
 
     internal static void IndexLeanBlocks(

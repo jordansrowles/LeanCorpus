@@ -31,6 +31,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [KeepBenchmarkFiles]
 [WarmupCount(2)]
 [IterationCount(5)]
+[InvocationCount(1)]
 public class ConcurrentVsSequentialBenchmarks
 {
     /// <summary>
@@ -46,6 +47,7 @@ public class ConcurrentVsSequentialBenchmarks
     private const int DwptThreadCount = 4;
 
     private LeanDocument[] _documents = [];
+    private readonly List<string> _iterationPaths = [];
 
     [GlobalSetup]
     public void Setup()
@@ -62,6 +64,17 @@ public class ConcurrentVsSequentialBenchmarks
         }
     }
 
+    [GlobalCleanup]
+    public void Cleanup() => CleanupIterationPaths();
+
+    [IterationCleanup]
+    public void CleanupIterationPaths()
+    {
+        foreach (var path in _iterationPaths)
+            BenchmarkHelpers.DeleteDirectory(path);
+        _iterationPaths.Clear();
+    }
+
     /// <summary>Sequential foreach + AddDocument (baseline).</summary>
     [Benchmark(Baseline = true)]
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
@@ -69,24 +82,17 @@ public class ConcurrentVsSequentialBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"lc-conc-seq-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(path);
-        try
+        _iterationPaths.Add(path);
+        using var dir = new MMapDirectory(path);
+        using var writer = new IndexWriter(dir, new IndexWriterConfig
         {
-            using var dir = new MMapDirectory(path);
-            using var writer = new IndexWriter(dir, new IndexWriterConfig
-            {
-                MaxBufferedDocs = 10_000,
-                RamBufferSizeMB = 256
-            });
-            foreach (var doc in _documents)
-                writer.AddDocument(doc);
-            writer.Commit();
-            return _documents.Length;
-        }
-        finally
-        {
-            if (IODirectory.Exists(path))
-                IODirectory.Delete(path, recursive: true);
-        }
+            MaxBufferedDocs = 10_000,
+            RamBufferSizeMB = 256
+        });
+        foreach (var doc in _documents)
+            writer.AddDocument(doc);
+        writer.Commit();
+        return _documents.Length;
     }
 
     /// <summary>
@@ -100,23 +106,16 @@ public class ConcurrentVsSequentialBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"lc-conc-batch-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(path);
-        try
+        _iterationPaths.Add(path);
+        using var dir = new MMapDirectory(path);
+        using var writer = new IndexWriter(dir, new IndexWriterConfig
         {
-            using var dir = new MMapDirectory(path);
-            using var writer = new IndexWriter(dir, new IndexWriterConfig
-            {
-                MaxBufferedDocs = 10_000,
-                RamBufferSizeMB = 256
-            });
-            writer.AddDocumentsConcurrent(_documents);
-            writer.Commit();
-            return _documents.Length;
-        }
-        finally
-        {
-            if (IODirectory.Exists(path))
-                IODirectory.Delete(path, recursive: true);
-        }
+            MaxBufferedDocs = 10_000,
+            RamBufferSizeMB = 256
+        });
+        writer.AddDocumentsConcurrent(_documents);
+        writer.Commit();
+        return _documents.Length;
     }
 
     /// <summary>
@@ -132,24 +131,17 @@ public class ConcurrentVsSequentialBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"lc-conc-lf-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(path);
-        try
+        _iterationPaths.Add(path);
+        using var dir = new MMapDirectory(path);
+        using var writer = new IndexWriter(dir, new IndexWriterConfig
         {
-            using var dir = new MMapDirectory(path);
-            using var writer = new IndexWriter(dir, new IndexWriterConfig
-            {
-                MaxBufferedDocs = 10_000,
-                RamBufferSizeMB = 256
-            });
-            writer.InitialiseDwptPool(threadCount: DwptThreadCount);
-            foreach (var doc in _documents)
-                writer.AddDocumentLockFree(doc);
-            writer.Commit();
-            return _documents.Length;
-        }
-        finally
-        {
-            if (IODirectory.Exists(path))
-                IODirectory.Delete(path, recursive: true);
-        }
+            MaxBufferedDocs = 10_000,
+            RamBufferSizeMB = 256
+        });
+        writer.InitialiseDwptPool(threadCount: DwptThreadCount);
+        foreach (var doc in _documents)
+            writer.AddDocumentLockFree(doc);
+        writer.Commit();
+        return _documents.Length;
     }
 }

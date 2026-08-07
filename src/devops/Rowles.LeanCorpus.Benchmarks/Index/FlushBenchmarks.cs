@@ -21,17 +21,27 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [RPlotExporter]
 [WarmupCount(2)]
 [IterationCount(5)]
+[InvocationCount(1)]
 public class FlushBenchmarks
 {
     [Params(100, 1_000, 10_000)]
     public int DocsPerFlush { get; set; }
 
     private string[] _documents = [];
+    private readonly List<string> _createdPaths = [];
 
     [GlobalSetup]
     public void Setup()
     {
         _documents = BenchmarkData.BuildDocuments(DocsPerFlush);
+    }
+
+    [IterationCleanup]
+    public void IterationCleanup()
+    {
+        foreach (var path in _createdPaths)
+            BenchmarkHelpers.DeleteDirectory(path);
+        _createdPaths.Clear();
     }
 
     [Benchmark(Baseline = true, Description = "Flush text-only docs")]
@@ -40,15 +50,15 @@ public class FlushBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"lc-flush-bench-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(path);
+        _createdPaths.Add(path);
 
-        try
+        using (var dir = new MMapDirectory(path))
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig
+               {
+                   MaxBufferedDocs = DocsPerFlush,
+                   RamBufferSizeMB = 64
+               }))
         {
-            var dir = new MMapDirectory(path);
-            using var writer = new IndexWriter(dir, new IndexWriterConfig
-            {
-                MaxBufferedDocs = DocsPerFlush,
-                RamBufferSizeMB = 64
-            });
             for (int i = 0; i < _documents.Length; i++)
             {
                 var doc = new LeanDocument();
@@ -60,11 +70,6 @@ public class FlushBenchmarks
             writer.Commit(); // triggers flush
             return _documents.Length;
         }
-        finally
-        {
-            if (IODirectory.Exists(path))
-                IODirectory.Delete(path, recursive: true);
-        }
     }
 
     [Benchmark(Description = "Flush mixed-field docs")]
@@ -73,15 +78,15 @@ public class FlushBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"lc-flush-bench-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(path);
+        _createdPaths.Add(path);
 
-        try
+        using (var dir = new MMapDirectory(path))
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig
+               {
+                   MaxBufferedDocs = DocsPerFlush,
+                   RamBufferSizeMB = 64
+               }))
         {
-            var dir = new MMapDirectory(path);
-            using var writer = new IndexWriter(dir, new IndexWriterConfig
-            {
-                MaxBufferedDocs = DocsPerFlush,
-                RamBufferSizeMB = 64
-            });
             for (int i = 0; i < _documents.Length; i++)
             {
                 var doc = new LeanDocument();
@@ -95,11 +100,6 @@ public class FlushBenchmarks
             writer.Commit();
             return _documents.Length;
         }
-        finally
-        {
-            if (IODirectory.Exists(path))
-                IODirectory.Delete(path, recursive: true);
-        }
     }
 
     [Benchmark(Description = "Flush docs with vectors")]
@@ -108,20 +108,20 @@ public class FlushBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"lc-flush-bench-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(path);
+        _createdPaths.Add(path);
 
-        try
+        using (var dir = new MMapDirectory(path))
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig
+               {
+                   MaxBufferedDocs = DocsPerFlush,
+                   RamBufferSizeMB = 64,
+                   BuildHnswOnFlush = true,
+                   HnswBuildConfig = new Rowles.LeanCorpus.Codecs.Hnsw.HnswBuildConfig
+                       { M = 8, M0 = 16, EfConstruction = 50 },
+                   HnswSeed = 1L,
+               }))
         {
-            var dir = new MMapDirectory(path);
             var rnd = new Random(7);
-            using var writer = new IndexWriter(dir, new IndexWriterConfig
-            {
-                MaxBufferedDocs = DocsPerFlush,
-                RamBufferSizeMB = 64,
-                BuildHnswOnFlush = true,
-                HnswBuildConfig = new Rowles.LeanCorpus.Codecs.Hnsw.HnswBuildConfig
-                    { M = 8, M0 = 16, EfConstruction = 50 },
-                HnswSeed = 1L,
-            });
             for (int i = 0; i < _documents.Length; i++)
             {
                 var doc = new LeanDocument();
@@ -138,11 +138,6 @@ public class FlushBenchmarks
             writer.Commit();
             return _documents.Length;
         }
-        finally
-        {
-            if (IODirectory.Exists(path))
-                IODirectory.Delete(path, recursive: true);
-        }
     }
 
     [Benchmark(Description = "Flush docs with term vectors")]
@@ -151,16 +146,16 @@ public class FlushBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"lc-flush-bench-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(path);
+        _createdPaths.Add(path);
 
-        try
+        using (var dir = new MMapDirectory(path))
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig
+               {
+                   MaxBufferedDocs = DocsPerFlush,
+                   RamBufferSizeMB = 64,
+                   StoreTermVectors = true,
+               }))
         {
-            var dir = new MMapDirectory(path);
-            using var writer = new IndexWriter(dir, new IndexWriterConfig
-            {
-                MaxBufferedDocs = DocsPerFlush,
-                RamBufferSizeMB = 64,
-                StoreTermVectors = true,
-            });
             for (int i = 0; i < _documents.Length; i++)
             {
                 var doc = new LeanDocument();
@@ -171,11 +166,6 @@ public class FlushBenchmarks
             }
             writer.Commit();
             return _documents.Length;
-        }
-        finally
-        {
-            if (IODirectory.Exists(path))
-                IODirectory.Delete(path, recursive: true);
         }
     }
 }
