@@ -146,6 +146,29 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         Assert.Throws<InvalidDataException>(() => IndexBackup.ValidateBackup(backupPath));
     }
 
+    [Fact(DisplayName = "IndexBackup: Restore Verifies Streaming Checksum Before Commit Publication")]
+    public void IndexBackup_Restore_VerifiesStreamingChecksumBeforeCommitPublication()
+    {
+        var indexPath = CreateIndex("restore_streaming_checksum");
+        var backupPath = Path.Combine(_fixture.Path, "restore_streaming_checksum_backup");
+        var restorePath = Path.Combine(_fixture.Path, "restore_streaming_checksum_target");
+        var backup = IndexBackup.Backup(indexPath, backupPath);
+        var fileToCorrupt = backup.Manifest.Files.First(file => !file.IsCommitFile && file.Length > 0);
+        var corruptPath = Path.Combine(backupPath, fileToCorrupt.FileName);
+
+        using (var stream = File.Open(corruptPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            int original = stream.ReadByte();
+            stream.Position = 0;
+            stream.WriteByte((byte)(original ^ 0xff));
+        }
+
+        Assert.Throws<InvalidDataException>(() => IndexBackup.Restore(backupPath, restorePath));
+        Assert.Empty(Directory.Exists(restorePath)
+            ? Directory.GetFiles(restorePath, "segments_*")
+            : []);
+    }
+
     [Fact(DisplayName = "IndexBackup: Restore Rejects Unsafe Manifest File Name")]
     public void IndexBackup_Restore_RejectsUnsafeManifestFileName()
     {

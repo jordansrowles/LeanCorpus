@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System.Buffers;
+using System.Diagnostics;
 using System.Text.Json;
 using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Index.Segment;
@@ -204,31 +205,42 @@ public static class IndexBackup
                     nameof(backupDirectoryPath));
             }
 
-            // Retry on transient file-not-found — a concurrent background merge
-            // may delete segment files between manifest creation and file copy.
+            // Retry when a concurrent background merge deletes or changes a
+            // segment file between manifest creation and file copy.
             const int maxAttempts = 3;
             int attempt = 1;
+            bool backupDirectoryPrepared = false;
             while (true)
             {
                 try
                 {
                     manifest = CreateManifestCore(sourceDirectory, options);
-                    PrepareDirectory(backupDirectory, options.OverwriteBackupDirectory, "Backup");
+                    if (!backupDirectoryPrepared)
+                    {
+                        PrepareDirectory(backupDirectory, options.OverwriteBackupDirectory, "Backup");
+                        backupDirectoryPrepared = true;
+                    }
 
                     var copiedFiles = new List<string>(manifest.Files.Count);
-                    foreach (var entry in manifest.Files)
+                    foreach (var entry in OrderForPublication(manifest.Files.Where(static entry => entry.PresentInBackup)))
                     {
-                        if (!entry.PresentInBackup)
-                            continue;
                         ValidateManifestFileName(entry.FileName);
                         var sourcePath = Path.Combine(sourceDirectory, entry.FileName);
                         var targetPath = Path.Combine(backupDirectory, entry.FileName);
-                        CopyFileAtomically(sourcePath, targetPath);
+                        CopyFileAtomically(
+                            sourcePath, targetPath, entry.Length, entry.Crc32,
+                            $"Source file '{entry.FileName}' changed while the backup was being copied.",
+                            syncDirectory: false);
                         copiedFiles.Add(entry.FileName);
                     }
 
                     var manifestJson = JsonSerializer.Serialize(manifest, LeanCorpusJsonContext.Default.IndexBackupManifest);
-                    IndexAtomicFileWriter.WriteText(Path.Combine(backupDirectory, ManifestFileName), manifestJson, durable: true);
+                    IndexAtomicFileWriter.WriteText(
+                        Path.Combine(backupDirectory, ManifestFileName),
+                        manifestJson,
+                        durable: true,
+                        syncDirectory: false);
+                    DirectoryFsync.Sync(backupDirectory, strict: true);
 
                     result = new IndexBackupResult
                     {
@@ -239,9 +251,13 @@ public static class IndexBackup
                     succeeded = true;
                     return result;
                 }
-                catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+                catch (Exception ex) when (ex is FileNotFoundException
+                    or DirectoryNotFoundException
+                    or InvalidDataException)
                 {
                     if (attempt >= maxAttempts) throw;
+                    if (backupDirectoryPrepared)
+                        ClearDirectory(backupDirectory);
                     Thread.Sleep(20 * attempt);
                 }
                 attempt++;
@@ -311,7 +327,7 @@ public static class IndexBackup
         var succeeded = false;
         try
         {
-            manifest = ValidateBackupCore(backupDirectoryPath);
+            manifest = ValidateBackupCore(backupDirectoryPath, validateChecksums: true);
             succeeded = true;
             return manifest;
         }
@@ -324,7 +340,9 @@ public static class IndexBackup
         }
     }
 
-    private static IndexBackupManifest ValidateBackupCore(string backupDirectoryPath)
+    private static IndexBackupManifest ValidateBackupCore(
+        string backupDirectoryPath,
+        bool validateChecksums)
     {
         var backupDirectory = Path.GetFullPath(backupDirectoryPath);
         var manifest = ReadManifest(backupDirectory);
@@ -339,9 +357,12 @@ public static class IndexBackup
             if (length != entry.Length)
                 throw new InvalidDataException($"Backup file '{entry.FileName}' has length {length}, expected {entry.Length}.");
 
-            var checksum = ComputeFileCrc32(path);
-            if (checksum != entry.Crc32)
-                throw new InvalidDataException($"Backup file '{entry.FileName}' has CRC-32 {checksum:x8}, expected {entry.Crc32:x8}.");
+            if (validateChecksums)
+            {
+                var checksum = ComputeFileCrc32(path);
+                if (checksum != entry.Crc32)
+                    throw new InvalidDataException($"Backup file '{entry.FileName}' has CRC-32 {checksum:x8}, expected {entry.Crc32:x8}.");
+            }
         }
 
         if (manifest.Kind == IndexBackupKind.Incremental
@@ -363,7 +384,7 @@ public static class IndexBackup
     {
         var chain = ReadBackupChain(backupDirectoryPaths);
         foreach (var (directory, manifest) in chain)
-            ValidateManifestFiles(directory, manifest, chain);
+            ValidateManifestFiles(directory, manifest, chain, validateChecksums: true);
         return chain[^1].Manifest;
     }
 
@@ -385,6 +406,7 @@ public static class IndexBackup
         IndexBackupManifest? manifest = null;
         IndexRestoreResult? result = null;
         var succeeded = false;
+        string? stagingDirectory = null;
         try
         {
             var backupDirectory = Path.GetFullPath(backupDirectoryPath);
@@ -392,11 +414,14 @@ public static class IndexBackup
             if (SameDirectory(backupDirectory, targetDirectory))
                 throw new ArgumentException("Restore target directory must be different from the backup directory.", nameof(targetIndexDirectoryPath));
 
-            manifest = ValidateBackupCore(backupDirectory);
-            PrepareDirectory(targetDirectory, options.OverwriteTargetDirectory, "Restore target");
+            // Validate structure and lengths before mutating the target. Checksums
+            // are verified while streaming each file, before its atomic publication.
+            manifest = ValidateBackupCore(backupDirectory, validateChecksums: false);
+            ValidateDirectoryForRestore(targetDirectory, options.OverwriteTargetDirectory);
+            stagingDirectory = CreateRestoreStagingDirectory(targetDirectory);
 
             var restoredFiles = new List<string>(manifest.Files.Count);
-            foreach (var entry in manifest.Files)
+            foreach (var entry in OrderForPublication(manifest.Files))
             {
                 if (!entry.PresentInBackup)
                     throw new InvalidDataException($"Incremental backup '{backupDirectory}' requires its parent chain for restore.");
@@ -405,25 +430,27 @@ public static class IndexBackup
                     continue;
 
                 var sourcePath = Path.Combine(backupDirectory, entry.FileName);
-                var targetPath = Path.Combine(targetDirectory, entry.FileName);
-                CopyFileAtomically(sourcePath, targetPath);
-
-                // Verify the copy is faithful against the manifest checksum.
-                var targetChecksum = ComputeFileCrc32(targetPath);
-                if (targetChecksum != entry.Crc32)
-                    throw new InvalidDataException(
-                        $"Restored file '{entry.FileName}' has CRC-32 {targetChecksum:x8}, " +
-                        $"expected {entry.Crc32:x8}. The copy may be corrupt.");
+                var targetPath = Path.Combine(stagingDirectory, entry.FileName);
+                CopyFileAtomically(
+                    sourcePath, targetPath, entry.Length, entry.Crc32,
+                    $"Backup file '{entry.FileName}' is corrupt and was not published to the restore target.",
+                    syncDirectory: false);
 
                 restoredFiles.Add(entry.FileName);
             }
 
+            DirectoryFsync.Sync(stagingDirectory, strict: true);
+
             IndexCheckResult? validation = null;
             if (options.ValidateAfterRestore)
             {
-                using var directory = new MMapDirectory(targetDirectory);
+                using var directory = new MMapDirectory(stagingDirectory);
                 validation = IndexValidator.Check(directory);
             }
+
+            PublishRestoreDirectory(
+                stagingDirectory, targetDirectory, options.OverwriteTargetDirectory);
+            stagingDirectory = null;
 
             result = new IndexRestoreResult
             {
@@ -434,6 +461,11 @@ public static class IndexBackup
             };
             succeeded = true;
             return result;
+        }
+        catch
+        {
+            DeleteRestoreStagingDirectory(stagingDirectory);
+            throw;
         }
         finally
         {
@@ -481,13 +513,17 @@ public static class IndexBackup
         using var activity = LeanCorpusActivitySource.Source.StartActivity(LeanCorpusActivitySource.BackupRestore);
         var restoredFiles = new List<string>(newest.Files.Count);
         var succeeded = false;
+        string? stagingDirectory = null;
         try
         {
             for (int i = 0; i < chain.Count; i++)
-                ValidateManifestFiles(chain[i].Directory, chain[i].Manifest, chain);
+                ValidateManifestFiles(
+                    chain[i].Directory, chain[i].Manifest, chain,
+                    validateChecksums: false);
 
-            PrepareDirectory(targetDirectory, options.OverwriteTargetDirectory, "Restore target");
-            foreach (var entry in newest.Files)
+            ValidateDirectoryForRestore(targetDirectory, options.OverwriteTargetDirectory);
+            stagingDirectory = CreateRestoreStagingDirectory(targetDirectory);
+            foreach (var entry in OrderForPublication(newest.Files))
             {
                 ValidateManifestFileName(entry.FileName);
                 if (!options.RestoreCommitStats && string.Equals(entry.Role, "commit-stats", StringComparison.Ordinal))
@@ -495,20 +531,26 @@ public static class IndexBackup
 
                 var sourceDirectory = FindFileDirectory(chain, entry);
                 var sourcePath = Path.Combine(sourceDirectory, entry.FileName);
-                var targetPath = Path.Combine(targetDirectory, entry.FileName);
-                CopyFileAtomically(sourcePath, targetPath);
-                var targetChecksum = ComputeFileCrc32(targetPath);
-                if (targetChecksum != entry.Crc32)
-                    throw new InvalidDataException($"Restored file '{entry.FileName}' has CRC-32 {targetChecksum:x8}, expected {entry.Crc32:x8}. The copy may be corrupt.");
+                var targetPath = Path.Combine(stagingDirectory, entry.FileName);
+                CopyFileAtomically(
+                    sourcePath, targetPath, entry.Length, entry.Crc32,
+                    $"Backup file '{entry.FileName}' is corrupt and was not published to the restore target.",
+                    syncDirectory: false);
                 restoredFiles.Add(entry.FileName);
             }
+
+            DirectoryFsync.Sync(stagingDirectory, strict: true);
 
             IndexCheckResult? validation = null;
             if (options.ValidateAfterRestore)
             {
-                using var directory = new MMapDirectory(targetDirectory);
+                using var directory = new MMapDirectory(stagingDirectory);
                 validation = IndexValidator.Check(directory);
             }
+
+            PublishRestoreDirectory(
+                stagingDirectory, targetDirectory, options.OverwriteTargetDirectory);
+            stagingDirectory = null;
 
             succeeded = true;
             return new IndexRestoreResult
@@ -518,6 +560,11 @@ public static class IndexBackup
                 RestoredFiles = restoredFiles,
                 ValidationResult = validation
             };
+        }
+        catch
+        {
+            DeleteRestoreStagingDirectory(stagingDirectory);
+            throw;
         }
         finally
         {
@@ -571,7 +618,8 @@ public static class IndexBackup
     private static void ValidateManifestFiles(
         string directory,
         IndexBackupManifest manifest,
-        IReadOnlyList<(string Directory, IndexBackupManifest Manifest)> chain)
+        IReadOnlyList<(string Directory, IndexBackupManifest Manifest)> chain,
+        bool validateChecksums)
     {
         foreach (var entry in manifest.Files.Where(static entry => entry.PresentInBackup))
         {
@@ -584,9 +632,12 @@ public static class IndexBackup
             if (length != entry.Length)
                 throw new InvalidDataException($"Backup file '{entry.FileName}' has length {length}, expected {entry.Length}.");
 
-            var checksum = ComputeFileCrc32(path);
-            if (checksum != entry.Crc32)
-                throw new InvalidDataException($"Backup file '{entry.FileName}' has CRC-32 {checksum:x8}, expected {entry.Crc32:x8}.");
+            if (validateChecksums)
+            {
+                var checksum = ComputeFileCrc32(path);
+                if (checksum != entry.Crc32)
+                    throw new InvalidDataException($"Backup file '{entry.FileName}' has CRC-32 {checksum:x8}, expected {entry.Crc32:x8}.");
+            }
         }
 
         if (!ReferenceEquals(manifest, chain[^1].Manifest))
@@ -774,14 +825,99 @@ public static class IndexBackup
             FileOpenRetry.DeleteDirectory(directory, recursive: true);
     }
 
-    private static void CopyFileAtomically(string sourcePath, string targetPath)
+    private static void CopyFileAtomically(
+        string sourcePath,
+        string targetPath,
+        long expectedLength,
+        uint expectedCrc32,
+        string validationError,
+        bool syncDirectory)
     {
         FileOpenRetry.CreateDirectory(Path.GetDirectoryName(targetPath) ?? string.Empty);
-        IndexAtomicFileWriter.Write(targetPath, durable: true, stream =>
+        long length = 0;
+        uint crc = Crc32.Begin();
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+        try
         {
-            using var source = FileOpenRetry.OpenReadDelete(sourcePath);
-            source.CopyTo(stream);
-        });
+            IndexAtomicFileWriter.Write(targetPath, durable: true, syncDirectory: syncDirectory, write: stream =>
+            {
+                using var source = FileOpenRetry.OpenReadDelete(sourcePath);
+                int read;
+                while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    stream.Write(buffer, 0, read);
+                    length += read;
+                    crc = Crc32.Update(crc, buffer.AsSpan(0, read));
+                }
+
+                uint actualCrc32 = Crc32.Finish(crc);
+                if (length != expectedLength || actualCrc32 != expectedCrc32)
+                {
+                    throw new InvalidDataException(
+                        $"{validationError} Length {length}, expected {expectedLength}; " +
+                        $"CRC-32 {actualCrc32:x8}, expected {expectedCrc32:x8}.");
+                }
+            });
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    private static IEnumerable<IndexBackupFileEntry> OrderForPublication(IEnumerable<IndexBackupFileEntry> entries)
+        => entries
+            .OrderBy(static entry => entry.IsCommitFile ? 1 : 0)
+            .ThenBy(static entry => entry.FileName, StringComparer.Ordinal);
+
+    private static void ValidateDirectoryForRestore(string targetDirectory, bool overwrite)
+    {
+        if (FileOpenRetry.DirectoryExists(targetDirectory)
+            && FileOpenRetry.EnumerateFileSystemEntries(targetDirectory).Any()
+            && !overwrite)
+        {
+            throw new InvalidOperationException(
+                $"Restore target directory '{targetDirectory}' is not empty.");
+        }
+    }
+
+    private static string CreateRestoreStagingDirectory(string targetDirectory)
+    {
+        var parent = Path.GetDirectoryName(targetDirectory)
+            ?? throw new InvalidOperationException("Restore target must have a parent directory.");
+        FileOpenRetry.CreateDirectory(parent);
+        var stagingDirectory = string.Concat(
+            targetDirectory, ".restore.", Guid.NewGuid().ToString("N"), ".tmp");
+        FileOpenRetry.CreateDirectory(stagingDirectory);
+        return stagingDirectory;
+    }
+
+    private static void PublishRestoreDirectory(
+        string stagingDirectory,
+        string targetDirectory,
+        bool overwrite)
+    {
+        PrepareDirectory(targetDirectory, overwrite, "Restore target");
+        if (FileOpenRetry.DirectoryExists(targetDirectory))
+            FileOpenRetry.DeleteDirectory(targetDirectory, recursive: false);
+
+        Directory.Move(stagingDirectory, targetDirectory);
+        DirectoryFsync.Sync(Path.GetDirectoryName(targetDirectory) ?? string.Empty, strict: true);
+    }
+
+    private static void DeleteRestoreStagingDirectory(string? stagingDirectory)
+    {
+        if (stagingDirectory is null || !FileOpenRetry.DirectoryExists(stagingDirectory))
+            return;
+
+        try
+        {
+            FileOpenRetry.DeleteDirectory(stagingDirectory, recursive: true);
+        }
+        catch (Exception ex)
+        {
+            LeanCorpusActivitySource.TraceSwallowed(ex, "restore staging directory cleanup");
+        }
     }
 
     private static void ValidateManifestFileName(string fileName)

@@ -23,29 +23,35 @@ internal static class Crc32
     /// <summary>Computes the CRC-32 of <paramref name="data"/>.</summary>
     public static uint Compute(ReadOnlySpan<byte> data)
     {
-        uint c = 0xFFFFFFFFu;
-        foreach (var b in data)
-            c = Table[(c ^ b) & 0xFF] ^ (c >> 8);
-        return c ^ 0xFFFFFFFFu;
+        return Finish(Update(Begin(), data));
     }
 
     /// <summary>Computes the CRC-32 of all bytes read from <paramref name="stream"/>.</summary>
     public static uint Compute(Stream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        uint c = 0xFFFFFFFFu;
+        uint c = Begin();
         Span<byte> buffer = stackalloc byte[16 * 1024];
         int read;
         while ((read = stream.Read(buffer)) > 0)
-        {
-            foreach (var b in buffer[..read])
-                c = Table[(c ^ b) & 0xFF] ^ (c >> 8);
-        }
+            c = Update(c, buffer[..read]);
 
-        return c ^ 0xFFFFFFFFu;
+        return Finish(c);
     }
 
     /// <summary>Computes the CRC-32 of <paramref name="text"/> using UTF-8.</summary>
     public static uint Compute(string text)
         => Compute(System.Text.Encoding.UTF8.GetBytes(text));
+
+    internal static uint Begin() => 0xFFFFFFFFu;
+
+    internal static uint Update(uint state, ReadOnlySpan<byte> data)
+    {
+        foreach (var b in data)
+            state = Table[(state ^ b) & 0xFF] ^ (state >> 8);
+
+        return state;
+    }
+
+    internal static uint Finish(uint state) => state ^ 0xFFFFFFFFu;
 }
