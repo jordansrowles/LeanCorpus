@@ -20,6 +20,52 @@ public sealed class QueryFamilyUnitTests
         Assert.Equal(new MatchAllDocsQuery(), new MatchAllDocsQuery());
     }
 
+    [Fact(DisplayName = "MatchNoDocsQuery: Exposes Reason And Empty Field")]
+    public void MatchNoDocsQuery_Properties_ReflectConstructorArguments()
+    {
+        var query = new MatchNoDocsQuery("no eligible documents");
+
+        Assert.Equal("no eligible documents", query.Reason);
+        Assert.Equal(string.Empty, query.Field);
+    }
+
+    [Fact(DisplayName = "MatchNoDocsQuery: Equal Instances Have Same Hash")]
+    public void MatchNoDocsQuery_EqualInstances_AreEqual()
+    {
+        var first = new MatchNoDocsQuery("filtered by policy");
+        var second = new MatchNoDocsQuery("filtered by policy");
+
+        Assert.Equal(first, second);
+        Assert.Equal(first.GetHashCode(), second.GetHashCode());
+    }
+
+    [Fact(DisplayName = "MatchNoDocsQuery: Different Reasons Are Not Equal")]
+    public void MatchNoDocsQuery_DifferentReasons_AreNotEqual()
+    {
+        var first = new MatchNoDocsQuery("reason one");
+        var second = new MatchNoDocsQuery("reason two");
+
+        Assert.NotEqual(first, second);
+    }
+
+    [Fact(DisplayName = "MatchNoDocsQuery: Different Boosts Are Not Equal")]
+    public void MatchNoDocsQuery_DifferentBoosts_AreNotEqual()
+    {
+        var first = new MatchNoDocsQuery("same reason") { Boost = 1.0f };
+        var second = new MatchNoDocsQuery("same reason") { Boost = 2.0f };
+
+        Assert.NotEqual(first, second);
+    }
+
+    [Fact(DisplayName = "MatchNoDocsQuery: Null And Different Type Are Not Equal")]
+    public void MatchNoDocsQuery_NullAndDifferentType_AreNotEqual()
+    {
+        var query = new MatchNoDocsQuery();
+
+        Assert.False(query.Equals((object?)null));
+        Assert.False(query.Equals("not a query"));
+    }
+
     [Fact(DisplayName = "TermInSetQuery: Normalises Term Order For Equality")]
     public void TermInSetQuery_NormalisesOrder_ForEquality()
     {
