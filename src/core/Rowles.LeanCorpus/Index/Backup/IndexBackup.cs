@@ -901,7 +901,7 @@ public static class IndexBackup
         if (FileOpenRetry.DirectoryExists(targetDirectory))
             FileOpenRetry.DeleteDirectory(targetDirectory, recursive: false);
 
-        Directory.Move(stagingDirectory, targetDirectory);
+        FileOpenRetry.MoveDirectory(stagingDirectory, targetDirectory);
         DirectoryFsync.Sync(Path.GetDirectoryName(targetDirectory) ?? string.Empty, strict: true);
     }
 

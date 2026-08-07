@@ -153,6 +153,24 @@ internal static class FileOpenRetry
     }
 
     /// <summary>
+    /// Moves a directory, retrying on transient locks.
+    /// </summary>
+    internal static void MoveDirectory(string sourcePath, string destPath)
+    {
+        int retries = TransientMaxRetries;
+        while (true)
+        {
+            try
+            {
+                Directory.Move(sourcePath, destPath);
+                return;
+            }
+            catch (IOException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
+            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
+        }
+    }
+
+    /// <summary>
     /// Copies a file, retrying on transient locks.
     /// </summary>
     internal static void Copy(string sourcePath, string destPath, bool overwrite = false)
