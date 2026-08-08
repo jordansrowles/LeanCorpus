@@ -77,22 +77,15 @@ public sealed class SlovakStemmerTests
     [Fact(DisplayName = "SlovakStemmer: Stem(string) handles DTNL restoration")]
     public void StemString_DtnlRestoration()
     {
-        // "zeniam" (women, dat. pl.) -> root "zen" + suffix "iam"
-        // "iam" is in eiSuffix -> RestoreDtnl: last char 'n' -> 'n' (n maps to ň)
+        // "zeniam" (women, dat. pl.) restores the final n to ň after removing "iam".
         Assert.Equal("zeň", _stemmer.Stem("zeniam"));
     }
 
     [Fact(DisplayName = "SlovakStemmer: Stem(string) unchanged for no matching suffix")]
     public void StemString_NoSuffixMatch_ReturnsSame()
     {
-        // "slovo" (word, nom.) has no matching suffix, but "o" matches group 2
-        // Wait - "o" is in group 2. "slovo" -> "slov"
-        // Let's use a word with no suffix match
-        // "auto" -> "o" is in group 2 -> "aut"
-        // Need a 4+ char word with no group match
-        // Actually most Slovak nouns end with a vowel which IS a suffix
-        // Let me use a proper noun or foreign word
-        Assert.Equal("brat", _stemmer.Stem("brat")); // 4 chars, "brat" has no match -> unchanged
+        // "brat" (brother) has no matching suffix or fallback rule.
+        Assert.Equal("brat", _stemmer.Stem("brat"));
     }
 
     [Fact(DisplayName = "SlovakStemmer: Stem(string) handles group 1 suffix iach")]
@@ -111,22 +104,19 @@ public sealed class SlovakStemmerTests
         Assert.Equal("dom", buf[..len].ToString());
     }
 
-    [Fact(DisplayName = "SlovakStemmer: Stem(string) handles long to short vowel conversion")]
-    public void StemString_LongToShortVowel()
+    [Theory(DisplayName = "SlovakStemmer: Stem(string) handles long-vowel rules")]
+    [InlineData("kráľ", "kraľ")]
+    [InlineData("miest", "mest")]
+    [InlineData("vŕch", "vrch")]
+    [InlineData("voľb", "volb")]
+    [InlineData("kríž", "križ")]
+    [InlineData("kľúč", "kľuč")]
+    [InlineData("kmeň", "kmen")]
+    [InlineData("stôl", "stol")]
+    [InlineData("kráľek", "kráľek")]
+    public void StemString_LongVowelRules(string word, string expected)
     {
-        // When no suffix match and word has a long vowel in last syllable,
-        // ProcessGentivPlural converts it: á->a, í->i, etc.
-        // "svojich" -> "ich" is... wait, "ých" is group 1, so "svoj" -> wait
-        // Hmm, let me test with "máslo" -> "o" (group 2) -> "másl" -> ProcessGentivPlural on "másl": "á" in last syllable -> "masl"
-        // Actually "o" is group 2, so "máslo" -> "másl" (already stripped, ProcessGentivPlural not reached)
-        // Try a word with no suffix match:
-        // "máslový" -> group 1 "ový"? No, not in group. Group 1 has "ého", "ý", "y", "ej", "ú", "é"
-        // "máslový" ends with "ý" (group 1) -> "máslov"
-        // Let me find a word where ProcessGentivPlural activates
-        // "hrdin" (hero stem) no suffix match -> ProcessGentivPlural -> "í" is long vowel in last syllable -> "hrdin" (í->i)
-        // Wait, "hrdin" contains "í"? No. Let me use a different approach.
-        // Actually most Slovak words with long vowels get suffix-stripped first. Genitive plural is a fallback.
-        // Let me just verify the algorithm works for standard suffix stripping, which is the main use case.
+        Assert.Equal(expected, _stemmer.Stem(word));
     }
 
     [Fact(DisplayName = "SlovakStemmer: Stem(string) strips group 2 suffix e")]
@@ -148,5 +138,112 @@ public sealed class SlovakStemmerTests
     {
         // "brat" (brother) has no matching suffix, no fallback match -> ProcessGentivPlural -> unchanged
         Assert.Equal("brat", _stemmer.Stem("brat"));
+    }
+
+    [Theory(DisplayName = "SlovakStemmer: Stem(string) handles representative suffix groups")]
+    [InlineData("domovia", "dom")]
+    [InlineData("domom", "dom")]
+    [InlineData("domach", "dom")]
+    [InlineData("zenu", "zen")]
+    [InlineData("ženi", "žeň")]
+    public void StemString_SuffixGroups(string word, string expected)
+    {
+        Assert.Equal(expected, _stemmer.Stem(word));
+    }
+
+    [Theory(DisplayName = "SlovakStemmer: Stem(string) restores d t n and l before i or e endings")]
+    [InlineData("rade", "raď")]
+    [InlineData("meste", "mesť")]
+    [InlineData("zeniam", "zeň")]
+    [InlineData("kole", "koľ")]
+    public void StemString_RestoresDtnl(string word, string expected)
+    {
+        Assert.Equal(expected, _stemmer.Stem(word));
+    }
+
+    [Theory(DisplayName = "SlovakStemmer: Stem(string) avoids over-stemming consonant roots")]
+    [InlineData("psa", "psa")]
+    [InlineData("trsa", "trs")]
+    [InlineData("plsa", "pls")]
+    [InlineData("psra", "psra")]
+    public void StemString_OverStemmingGuard(string word, string expected)
+    {
+        Assert.Equal(expected, _stemmer.Stem(word));
+    }
+
+    [Theory(DisplayName = "SlovakStemmer: Stem(string) handles foreign and ordinary i endings")]
+    [InlineData("kocovi", "koci")]
+    [InlineData("kocami", "koci")]
+    [InlineData("mrazovi", "mrazi")]
+    [InlineData("logovi", "logi")]
+    [InlineData("domovi", "dom")]
+    public void StemString_ForeignIEnding(string word, string expected)
+    {
+        Assert.Equal(expected, _stemmer.Stem(word));
+    }
+
+    [Theory(DisplayName = "SlovakStemmer: Stem(string) handles fallback suffix rewrites")]
+    [InlineData("chlapok", "chlapk")]
+    [InlineData("mrazeň", "mrazň")]
+    [InlineData("stol", "stl")]
+    [InlineData("public", "publik")]
+    [InlineData("otec", "otc")]
+    [InlineData("centrum", "centr")]
+    public void StemString_FallbackSuffixes(string word, string expected)
+    {
+        Assert.Equal(expected, _stemmer.Stem(word));
+    }
+
+    [Theory(DisplayName = "SlovakStemmer: Stem(string) matches case-insensitive suffixes")]
+    [InlineData("DOMOV", "DOM")]
+    [InlineData("domOV", "dom")]
+    public void StemString_CaseInsensitiveSuffixes(string word, string expected)
+    {
+        Assert.Equal(expected, _stemmer.Stem(word));
+    }
+
+    [Fact(DisplayName = "SlovakStemmer: Stem(string) handles a long input")]
+    public void StemString_LongInput_ReducesCorrectly()
+    {
+        string input = new string('b', 62) + "aov";
+        string expected = new string('b', 62) + "a";
+
+        Assert.True(input.Length > 64);
+        Assert.Equal(expected, _stemmer.Stem(input));
+    }
+
+    [Theory(DisplayName = "SlovakStemmer: Stem(Span) matches Stem(string)")]
+    [InlineData("domov", "dom")]
+    [InlineData("kráľ", "kraľ")]
+    [InlineData("chlapok", "chlapk")]
+    [InlineData("meste", "mesť")]
+    [InlineData("brat", "brat")]
+    public void StemSpan_MatchesString(string word, string expected)
+    {
+        Span<char> output = stackalloc char[64];
+
+        int length = _stemmer.Stem(word.AsSpan(), output);
+
+        Assert.Equal(expected.Length, length);
+        Assert.Equal(expected, output[..length].ToString());
+        Assert.Equal(expected, _stemmer.Stem(word));
+    }
+
+    [Fact(DisplayName = "SlovakStemmer: Stem(Span) accepts empty input and empty output")]
+    public void StemSpan_EmptyInput_ReturnsZero()
+    {
+        int length = _stemmer.Stem(ReadOnlySpan<char>.Empty, Span<char>.Empty);
+
+        Assert.Equal(0, length);
+    }
+
+    [Fact(DisplayName = "SlovakStemmer: Stem(Span) returns minus one when long-vowel output does not fit")]
+    public void StemSpan_LongVowel_BufferTooSmall_ReturnsMinusOne()
+    {
+        Span<char> output = stackalloc char[3];
+
+        int length = _stemmer.Stem("kráľ".AsSpan(), output);
+
+        Assert.Equal(-1, length);
     }
 }
