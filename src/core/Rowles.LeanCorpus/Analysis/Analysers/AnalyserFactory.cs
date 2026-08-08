@@ -54,6 +54,6 @@ public static class AnalyserFactory
     /// </summary>
     public static IReadOnlyList<string> SupportedLanguages { get; } =
     [
-        "en", "fr", "de", "es", "it", "pt", "nl", "ru", "ar", "zh", "ja", "ko"
+        "en", "fr", "de", "es", "it", "pt", "nl", "ru", "ar", "zh", "ja", "ko", "sk"
     ];
 }
