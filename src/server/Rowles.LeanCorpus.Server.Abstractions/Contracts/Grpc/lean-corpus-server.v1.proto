@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package rowles.leancorpus.server.v1;
+
+service SearchService {
+  rpc Search (SearchRequest) returns (SearchResponse);
+  rpc Explain (ExplainRequest) returns (ExplainResponse);
+}
+
+service IndexService {
+  rpc ListIndexes (ListIndexesRequest) returns (ListIndexesResponse);
+  rpc CreateIndex (CreateIndexRequest) returns (IndexResponse);
+  rpc DeleteIndex (DeleteIndexRequest) returns (DeleteIndexResponse);
+  rpc BulkDocuments (BulkDocumentsRequest) returns (BulkDocumentsResponse);
+  rpc RefreshIndex (RefreshIndexRequest) returns (RefreshIndexResponse);
+}
+
+service AdminService {
+  rpc GetCluster (GetClusterRequest) returns (ClusterResponse);
+  rpc GetDiagnostics (DiagnosticsRequest) returns (DiagnosticsResponse);
+}
+
+message SearchRequest {}
+message SearchResponse {}
+message ExplainRequest {}
+message ExplainResponse {}
+message ListIndexesRequest {}
+message ListIndexesResponse {}
+message CreateIndexRequest {}
+message IndexResponse {}
+message DeleteIndexRequest {}
+message DeleteIndexResponse {}
+message BulkDocumentsRequest {}
+message BulkDocumentsResponse {}
+message RefreshIndexRequest {}
+message RefreshIndexResponse {}
+message GetClusterRequest {}
+message ClusterResponse {}
+message DiagnosticsRequest {}
+message DiagnosticsResponse {}
