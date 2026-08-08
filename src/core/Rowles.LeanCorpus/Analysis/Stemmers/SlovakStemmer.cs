@@ -152,17 +152,17 @@ public sealed class SlovakStemmer : ISpanStemmer
 
     private bool IsOverStemming(ReadOnlySpan<char> word, ReadOnlySpan<char> suffix)
     {
-        ReadOnlySpan<char> text = RemoveSuffix(word, suffix);
+        ReadOnlySpan<char> rootWord = RemoveSuffix(word, suffix);
         foreach (string vowel in vowels)
         {
-            if (text.Contains(vowel, StringComparison.OrdinalIgnoreCase))
+            if (rootWord.Contains(vowel, StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
         }
         foreach (string letterRandL in lettersRandL)
         {
-            if (text.Contains(letterRandL, StringComparison.OrdinalIgnoreCase) && !text.EndsWith(letterRandL, StringComparison.OrdinalIgnoreCase))
+            if (rootWord.Contains(letterRandL, StringComparison.OrdinalIgnoreCase) && !rootWord.EndsWith(letterRandL, StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
@@ -194,17 +194,17 @@ public sealed class SlovakStemmer : ISpanStemmer
 
     private bool IsLastSyllable(ReadOnlySpan<char> word, ReadOnlySpan<char> longVowel)
     {
-        int startIndex = word.LastIndexOf(longVowel);
-        if (startIndex == -1)
+        int lastVowelIndex = word.LastIndexOf(longVowel);
+        if (lastVowelIndex == -1)
         {
             return false;
         }
 
-        ReadOnlySpan<char> text = word.Slice(startIndex + longVowel.Length);
+        ReadOnlySpan<char> wordWihoutVowel = word.Slice(lastVowelIndex + longVowel.Length);
 
         foreach (string value in vowels)
         {
-            if (text.Contains(value, StringComparison.OrdinalIgnoreCase))
+            if (wordWihoutVowel.Contains(value, StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
@@ -215,18 +215,18 @@ public sealed class SlovakStemmer : ISpanStemmer
 
     private int ChangeLastLetter(ReadOnlySpan<char> word, ReadOnlySpan<char> replacedLetter, ReadOnlySpan<char> newLetter, Span<char> output)
     {
-        int num = word.LastIndexOf(replacedLetter, StringComparison.OrdinalIgnoreCase);
-        ReadOnlySpan<char> suffix = word.Slice(num + replacedLetter.Length);
-        if (num + newLetter.Length + suffix.Length > output.Length)
+        int replacedLetterIndex = word.LastIndexOf(replacedLetter, StringComparison.OrdinalIgnoreCase);
+        ReadOnlySpan<char> suffix = word.Slice(replacedLetterIndex + replacedLetter.Length);
+        if (replacedLetterIndex + newLetter.Length + suffix.Length > output.Length)
         {
             return -1;
         }
 
-        word.Slice(0, num).CopyTo(output);
-        newLetter.CopyTo(output.Slice(num));
-        suffix.CopyTo(output.Slice(num + newLetter.Length));
+        word.Slice(0, replacedLetterIndex).CopyTo(output);
+        newLetter.CopyTo(output.Slice(replacedLetterIndex));
+        suffix.CopyTo(output.Slice(replacedLetterIndex + newLetter.Length));
 
-        return num + newLetter.Length + suffix.Length;
+        return replacedLetterIndex + newLetter.Length + suffix.Length;
     }
 
     private bool IsForeignWord(ReadOnlySpan<char> word, ReadOnlySpan<char> suffix)
