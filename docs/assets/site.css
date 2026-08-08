@@ -29,7 +29,7 @@ body:not([data-search]) > main.lc-docs-layout > .toc-offcanvas {
   font-weight: 600;
   background: var(--bs-primary-bg-subtle);
   padding: .25rem .5rem;
-  margin-left: -.5rem;
+  margin-left: 0.25rem;
   margin-right: -.5rem;
 }
 
@@ -120,7 +120,28 @@ body.lc-api-page .lc-main-navigation {
   margin-right: -.5rem;
 }
 
+/* Landng page: DocFX hides actionbar via :not(article); restore it */
+body[data-layout="landing"] > main > .content > .actionbar {
+  display: flex;
+  align-items: center;
+  margin-top: .5rem;
+}
+
+/* Landng page mobile: show site title before the toggle button */
+body[data-layout="landing"] .actionbar::before {
+  content: "LeanCorpus";
+  font-weight: 600;
+  font-size: 1.05rem;
+  margin-right: auto;
+  color: var(--bs-emphasis-color);
+  display: block;
+}
+
 @media (min-width: 992px) {
+  body[data-layout="landing"] .actionbar::before {
+    display: none;
+  }
+
   body:not([data-search]) > main.lc-docs-layout {
     display: grid;
     grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(180px, 240px);
