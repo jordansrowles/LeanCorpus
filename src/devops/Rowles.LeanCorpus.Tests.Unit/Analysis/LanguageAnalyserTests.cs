@@ -167,6 +167,7 @@ public sealed class LanguageAnalyserTests
         Assert.NotNull(StopWords.ForLanguage("de"));
         Assert.NotNull(StopWords.ForLanguage("ru"));
         Assert.NotNull(StopWords.ForLanguage("zh"));
+        Assert.NotNull(StopWords.ForLanguage("sk"));
         Assert.Null(StopWords.ForLanguage("xx"));
     }
 

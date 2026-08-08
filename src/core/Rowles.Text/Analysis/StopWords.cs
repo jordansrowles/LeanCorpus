@@ -235,6 +235,49 @@ public static class StopWords
         "있다", "없다", "하다", "되다", "같다", "보다"
     ];
 
+    /// <summary>Gets the built-in Slovak stop word list.</summary>
+    public static readonly IReadOnlyList<string> Slovak =
+    [
+        "a", "aby", "aj", "ak", "aká", "akáže", "aké", "akéže", "akého", "akéhože",
+        "akej", "akejže", "akému", "akémuže", "ako", "akože", "akom", "akomže", "akou", "akouže",
+        "akú", "akúže", "akých", "akýchže", "akým", "akýmže", "akými", "akýmiže", "ale", "alebo",
+        "ani", "áno", "asi", "až", "ba", "bez", "bezo", "bol", "bola", "boli",
+        "bolo", "bude", "budem", "budeme", "budeš", "budete", "budú", "by", "byť", "cez",
+        "cezo", "čej", "či", "čí", "čia", "čie", "čieho", "čiemu", "čím", "čími",
+        "čiu", "čo", "čoho", "čom", "čomu", "čou", "ďalšia", "ďalšie", "ďalšieho", "ďalšiemu",
+        "ďalšiu", "ďalší", "ďalších", "ďalším", "ďalšími", "ďalšou", "dnes", "do", "ho", "ešte",
+        "i", "iba", "ich", "im", "iná", "inej", "iné", "iného", "inému", "iní",
+        "inom", "inú", "iný", "iných", "inými", "ja", "je", "jeho", "jej", "jemu",
+        "ju", "k", "ká", "káže", "kam", "kamže", "každá", "každé", "každému", "každí",
+        "každou", "každú", "každý", "každých", "každým", "každými", "kde", "keď", "kej", "kejže",
+        "ké", "kéže", "kie", "kieho", "kiehože", "kiemu", "kiemuže", "kieže", "koho", "kom",
+        "komu", "kou", "kouže", "kto", "ktorá", "ktorej", "ktoré", "ktorí", "ktorou", "ktorú",
+        "ktorý", "ktorých", "ktorým", "ktorými", "ku", "kú", "kúže", "ký", "kýho", "kýhože",
+        "kým", "kýmu", "kýmuže", "kýže", "lebo", "leda", "ledaže", "len", "ma", "má",
+        "majú", "mám", "máme", "máš", "máte", "mať", "medzi", "mi", "mne", "mnou",
+        "mňa", "moj", "moje", "mojej", "mojich", "mojim", "mojimi", "mojou", "moju", "môcť",
+        "môj", "môjho", "môže", "môžem", "môžeme", "môžeš", "môžete", "môžu", "mu", "musieť",
+        "musí", "musia", "musím", "musíme", "musíte", "musíš", "my", "na", "nad", "nado",
+        "nám", "nami", "nás", "náš", "naša", "naše", "našej", "nášho", "naši", "našich",
+        "našim", "našimi", "našou", "ne", "neho", "nech", "nej", "nejaká", "nejaké", "nejakého",
+        "nejakej", "nejakému", "nejakom", "nejakou", "nejakú", "nejakých", "nejakým", "nejakými", "nemu", "než",
+        "nich", "nič", "ničím", "ničoho", "ničom", "ničomu", "nie", "niektorá", "niektoré", "niektorého",
+        "niektorej", "niektorému", "niektorom", "niektorou", "niektorú", "niektorý", "niektorých", "niektorým", "niektorými", "nim",
+        "nimi", "ním", "ňom", "ňou", "ňu", "o", "od", "odo", "on", "ona",
+        "oni", "ono", "ony", "oň", "oňho", "po", "pod", "podo", "podľa", "pokiaľ",
+        "potom", "popod", "popri", "poza", "práve", "pre", "prečo", "preto", "pretože", "pred",
+        "predo", "pri", "s", "sa", "si", "sme", "so", "som", "ste", "sú",
+        "svoj", "svoja", "svoje", "svojho", "svojich", "svojim", "svojím", "svojimi", "svojou", "svoju",
+        "ta", "tá", "tam", "tak", "takže", "táto", "teda", "tej", "ten", "tento",
+        "tiež", "tí", "tie", "tieto", "títo", "to", "toho", "tohto", "tom", "tomto",
+        "tomu", "tomuto", "toto", "tou", "touto", "tu", "tú", "túto", "tvoj", "tvoja",
+        "tvoje", "tvojej", "tvojho", "tvoji", "tvojich", "tvojím", "tvojimi", "ty", "tých", "tým",
+        "tými", "týmto", "už", "v", "vám", "vami", "vás", "váš", "vaša", "vaše",
+        "vašej", "vášho", "vaši", "vašich", "vašim", "vaším", "viac", "vo", "však", "všetci",
+        "všetka", "všetko", "všetky", "všetok", "vy", "z", "za", "začo", "začože", "zo",
+        "že"
+    ];
+
     /// <summary>
     /// Gets the stop word list for a BCP 47 language code, or <see langword="null"/>
     /// if the language is not supported.
@@ -262,6 +305,7 @@ public static class StopWords
             "zh" => Chinese,
             "ja" => Japanese,
             "ko" => Korean,
+            "sk" => Slovak,
             _ => null
         };
     }
@@ -271,6 +315,6 @@ public static class StopWords
     /// </summary>
     public static IReadOnlyList<string> SupportedLanguages { get; } =
     [
-        "en", "fr", "de", "es", "it", "pt", "nl", "ru", "ar", "zh", "ja", "ko"
+        "en", "fr", "de", "es", "it", "pt", "nl", "ru", "ar", "zh", "ja", "ko", "sk"
     ];
 }

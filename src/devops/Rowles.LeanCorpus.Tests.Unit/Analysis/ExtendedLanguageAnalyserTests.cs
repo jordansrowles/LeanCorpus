@@ -22,6 +22,7 @@ public sealed class ExtendedLanguageAnalyserTests
     [InlineData("pt", "As casas grandes são muito bonitas")]
     [InlineData("nl", "De grote huizen zijn erg mooi")]
     [InlineData("ar", "البيوت الكبيرة جميلة جدا")]
+    [InlineData("sk", "Velké domy sú velmi pekné")]
     public void NewLanguages_RemoveStopWordsAndProduceTokens(string code, string text)
     {
         var analyser = AnalyserFactory.Create(code);
@@ -73,12 +74,11 @@ public sealed class ExtendedLanguageAnalyserTests
 
     /// <summary>
     /// Verifies the Factory: Supported Languages Contains All Twelve scenario.
-    /// </summary>
-    [Fact(DisplayName = "Factory: Supported Languages Contains All Twelve")]
-    public void Factory_SupportedLanguages_ContainsAllTwelve()
+    [Fact(DisplayName = "Factory: Supported Languages Contains Expected Codes")]
+    public void Factory_SupportedLanguages_ContainsExpectedCodes()
     {
         var supported = AnalyserFactory.SupportedLanguages;
-        foreach (var code in new[] { "en", "fr", "de", "es", "it", "pt", "nl", "ru", "ar", "zh", "ja", "ko" })
+        foreach (var code in new[] { "en", "fr", "de", "es", "it", "pt", "nl", "ru", "ar", "zh", "ja", "ko", "sk" })
             Assert.Contains(code, supported);
     }
 
@@ -176,5 +176,30 @@ public sealed class ExtendedLanguageAnalyserTests
         // ß → ss expansion exercised here.
         var stemmed = s.Stem("straße");
         Assert.StartsWith("strass", stemmed);
+    }
+
+    /// <summary>
+    /// Verifies the Slovak Stemmer: Strips Common Suffixes scenario.
+    /// </summary>
+    [Fact(DisplayName = "Slovak Stemmer: Strips Common Suffixes")]
+    public void SlovakStemmer_StripsCommonSuffixes()
+    {
+        var s = new SlovakStemmer();
+        Assert.Equal("dom", s.Stem("domov"));
+        Assert.Equal("zen", s.Stem("zenami"));
+        Assert.Equal("mest", s.Stem("mestami"));
+    }
+
+    /// <summary>
+    /// Verifies the Slovak Stop Words: Registered And Contains Common Words scenario.
+    /// </summary>
+    [Fact(DisplayName = "Slovak Stop Words: Registered And Contains Common Words")]
+    public void SlovakStopWords_RegisteredAndContainsCommonWords()
+    {
+        var stops = StopWords.ForLanguage("sk");
+        Assert.NotNull(stops);
+        Assert.Contains("a", stops);
+        Assert.Contains("je", stops);
+        Assert.Contains("sú", stops);
     }
 }
