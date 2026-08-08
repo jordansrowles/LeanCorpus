@@ -55,8 +55,16 @@ public sealed class SlovakStemmer : ISpanStemmer
        "ú", "y", "ý", "ô", "ia", "ie", "iu"
     ];
 
-    public SlovakStemmer()
+    /// <summary>
+    /// Stems the given word and returns the stemmed result as a string.
+    /// Short words (fewer than 4 characters) are returned unchanged.
+    /// </summary>
+    public string Stem(string word)
     {
+        int maxLen = word.Length;
+        Span<char> buf = maxLen <= 64 ? stackalloc char[maxLen] : new char[maxLen];
+        int len = Stem(word.AsSpan(), buf);
+        return len < 0 ? word : new string(buf[..len]);
     }
 
     /// <inheritdoc/>
