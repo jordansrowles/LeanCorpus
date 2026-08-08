@@ -90,8 +90,8 @@
       }
     ],
     "globalMetadata": {
-      "_appTitle": "LeanCorpus 2.1.1",
-      "_appName": "LeanCorpus 2.1.1",
+      "_appTitle": "LeanCorpus 2.2.0",
+      "_appName": "LeanCorpus 2.2.0",
       "_appFooter": "LeanCorpus: a fast, embeddable full-text search engine for .NET",
       "_enableSearch": true,
       "categoryLayout": "nested"
