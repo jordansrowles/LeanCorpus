@@ -17,6 +17,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
 [KeepBenchmarkFiles]
+[InvocationCount(1)]
 public class TokenBudgetBenchmarks
 {
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
@@ -25,11 +26,20 @@ public class TokenBudgetBenchmarks
     public int DocumentCount { get; set; }
 
     private string[] _documents = [];
+    private readonly List<string> _createdPaths = [];
 
     [GlobalSetup]
     public void Setup()
     {
         _documents = BenchmarkData.BuildDocuments(DocumentCount);
+    }
+
+    [IterationCleanup]
+    public void IterationCleanup()
+    {
+        foreach (var path in _createdPaths)
+            BenchmarkHelpers.DeleteDirectory(path);
+        _createdPaths.Clear();
     }
 
     [Benchmark(Baseline = true)]
@@ -73,11 +83,12 @@ public class TokenBudgetBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-budget-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
+        _createdPaths.Add(path);
 
-        try
+        using (var directory = new MMapDirectory(path))
+        using (var writer = new IndexWriter(directory, config))
         {
-            var directory = new MMapDirectory(path);
-            using var writer = new IndexWriter(directory, config);
+            int accepted = 0;
 
             for (int i = 0; i < _documents.Length; i++)
             {
@@ -88,6 +99,7 @@ public class TokenBudgetBenchmarks
                 try
                 {
                     writer.AddDocument(doc);
+                    accepted++;
                 }
                 catch (TokenBudgetExceededException)
                 {
@@ -96,12 +108,7 @@ public class TokenBudgetBenchmarks
             }
 
             writer.Commit();
-            return _documents.Length;
-        }
-        finally
-        {
-            if (Directory.Exists(path))
-                Directory.Delete(path, recursive: true);
+            return accepted;
         }
     }
 }

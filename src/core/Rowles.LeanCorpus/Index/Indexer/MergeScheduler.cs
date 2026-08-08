@@ -58,7 +58,7 @@ internal static class MergeScheduler
             int nextOrdinal = outputOrdinal;
             var merger = new SegmentMerger(writer.Directory, writer.Config.MergePolicy,
                 writer.Config.PostingsSkipInterval, writer.Config.SoftDeleteRetentionSeconds,
-                writer.Config.HnswBuildConfig);
+                writer.Config.HnswBuildConfig, useCompoundFile: writer.Config.UseCompoundFile);
             var merged = merger.MergeAll(sources.ToList(), ref nextOrdinal, writer.CommitGeneration);
             if (merged is null)
                 return;

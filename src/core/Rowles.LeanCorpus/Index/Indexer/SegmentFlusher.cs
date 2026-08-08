@@ -26,19 +26,6 @@ internal static class SegmentFlusher
         long flushSeqNoStart,
         long nextSequenceNumber)
     {
-        // Compute sort permutation if index-time sort is configured
-        int[]? sortPerm = null;
-        int[]? inversePerm = null;
-        if (config.IndexSort is not null)
-        {
-            sortPerm = ComputeSortPermutation(buffer, config.IndexSort);
-            inversePerm = new int[buffer.DocCount];
-            for (int i = 0; i < buffer.DocCount; i++)
-                inversePerm[sortPerm[i]] = i;
-
-            ApplySortPermutation(buffer, sortPerm, inversePerm);
-        }
-
         var segId = $"seg_{nextSegmentOrdinal++}";
         var segInfo = FlushCore(new BufferFlushSource(buffer), config, directoryPath, segId,
             commitGeneration, flushSeqNoStart, nextSequenceNumber, minDocsForHnsw: 0);
@@ -60,7 +47,7 @@ internal static class SegmentFlusher
             pbs.WriteTo(basePath + ".pbs");
         }
 
-        RefreshSegmentSize(segInfo, directoryPath);
+        CompleteSegment(segInfo, config, directoryPath);
 
         return segInfo;
     }
@@ -75,6 +62,18 @@ internal static class SegmentFlusher
         long nextSequenceNumber,
         int minDocsForHnsw)
     {
+        // Apply index-time sorting for every flush source. DWPT and detached
+        // snapshot flushes use this path as well as the original buffer flush,
+        // so sorted metadata cannot get out of sync with physical doc order.
+        if (config.IndexSort is not null)
+        {
+            var sortPerm = ComputeSortPermutation(source, config.IndexSort);
+            var inversePerm = new int[source.DocCount];
+            for (int i = 0; i < source.DocCount; i++)
+                inversePerm[sortPerm[i]] = i;
+            ApplySortPermutation(source, sortPerm, inversePerm);
+        }
+
         var flushSw = System.Diagnostics.Stopwatch.StartNew();
         using var flushActivity = Diagnostics.LeanCorpusActivitySource.Source
             .StartActivity(Diagnostics.LeanCorpusActivitySource.Flush);
@@ -483,7 +482,7 @@ internal static class SegmentFlusher
             pbs.WriteTo(basePath + ".pbs");
         }
 
-        RefreshSegmentSize(segInfo, directoryPath);
+        CompleteSegment(segInfo, config, directoryPath);
 
         return segInfo;
     }
@@ -525,7 +524,7 @@ internal static class SegmentFlusher
             pbs.WriteTo(basePath + ".pbs");
         }
 
-        RefreshSegmentSize(segInfo, directoryPath);
+        CompleteSegment(segInfo, config, directoryPath);
 
         return segInfo;
     }
@@ -556,6 +555,13 @@ internal static class SegmentFlusher
         segment.TotalBytes = totalBytes;
         segment.CodecBytes = codecBytes;
         segment.WriteTo(Path.Combine(directoryPath, segment.SegmentId + ".seg"));
+    }
+
+    internal static void CompleteSegment(SegmentInfo segment, IndexWriterConfig config, string directoryPath)
+    {
+        if (config.UseCompoundFile && CompoundFileWriter.Pack(directoryPath, segment.SegmentId))
+            segment.IsCompoundFile = true;
+        RefreshSegmentSize(segment, directoryPath);
     }
 
     /// <summary>
@@ -671,7 +677,7 @@ internal static class SegmentFlusher
 
 
 
-    private static int[] ComputeSortPermutation(DocumentBufferState buffer, IndexSort sort)
+    private static int[] ComputeSortPermutation(IFlushSource buffer, IndexSort sort)
     {
         int n = buffer.DocCount;
         var perm = new int[n];
@@ -679,6 +685,7 @@ internal static class SegmentFlusher
 
         var fieldCount = sort.Fields.Count;
         var numericKeys = new double[fieldCount][];
+        var int64Keys = new long[fieldCount][];
         var stringKeys = new string?[fieldCount][];
         var sortTypes = new SortFieldType[fieldCount];
         var descFlags = new bool[fieldCount];
@@ -693,21 +700,22 @@ internal static class SegmentFlusher
             {
                 case SortFieldType.Numeric:
                     var numArr = new double[n];
-                    if (buffer.NumericDocValues.TryGetValue(field.FieldName, out var dvList))
-                    {
-                        for (int i = 0; i < Math.Min(n, dvList.Count); i++)
-                            numArr[i] = dvList[i];
-                    }
+                    for (int i = 0; i < n; i++)
+                        numArr[i] = ResolveNumericSortValue(buffer, field, i);
                     numericKeys[f] = numArr;
+                    break;
+
+                case SortFieldType.Int64:
+                    var int64Arr = new long[n];
+                    for (int i = 0; i < n; i++)
+                        int64Arr[i] = ResolveInt64SortValue(buffer, field, i);
+                    int64Keys[f] = int64Arr;
                     break;
 
                 case SortFieldType.String:
                     var strArr = new string?[n];
-                    if (buffer.SortedDocValues.TryGetValue(field.FieldName, out var sdvList))
-                    {
-                        for (int i = 0; i < Math.Min(n, sdvList.Count); i++)
-                            strArr[i] = sdvList[i];
-                    }
+                    for (int i = 0; i < n; i++)
+                        strArr[i] = ResolveStringSortValue(buffer, field, i);
                     stringKeys[f] = strArr;
                     break;
             }
@@ -727,6 +735,7 @@ internal static class SegmentFlusher
                 int cmp = sortTypes[f] switch
                 {
                     SortFieldType.Numeric => numericKeys[f][a].CompareTo(numericKeys[f][b]),
+                    SortFieldType.Int64 => int64Keys[f][a].CompareTo(int64Keys[f][b]),
                     SortFieldType.String => string.Compare(stringKeys[f][a], stringKeys[f][b], StringComparison.Ordinal),
                     SortFieldType.DocId => a.CompareTo(b),
                     _ => 0
@@ -740,7 +749,153 @@ internal static class SegmentFlusher
         return perm;
     }
 
-    private static void ApplySortPermutation(DocumentBufferState buffer, int[] sortPerm, int[] inversePerm)
+    private static double ResolveNumericSortValue(IFlushSource source, SortField field, int docId)
+    {
+        if (source.SortedNumericDocValues.TryGetValue(field.FieldName, out var sortedValues)
+            && sortedValues.TryGetValue(docId, out var multiValues)
+            && multiValues.Count > 0)
+        {
+            return SelectNumericValue(multiValues, field.Selector);
+        }
+
+        if (source.NumericDocValues.TryGetValue(field.FieldName, out var values)
+            && docId < values.Count)
+            return values[docId];
+
+        if (source.NumericIndex.TryGetValue(field.FieldName, out var indexedValues)
+            && indexedValues.TryGetValue(docId, out var indexedValue))
+            return indexedValue;
+
+        return ResolveStoredDouble(source, field.FieldName, docId);
+    }
+
+    private static long ResolveInt64SortValue(IFlushSource source, SortField field, int docId)
+    {
+        if (source.Int64SortedDocValues.TryGetValue(field.FieldName, out var sortedValues)
+            && sortedValues.TryGetValue(docId, out var multiValues)
+            && multiValues.Count > 0)
+        {
+            return SelectInt64Value(multiValues, field.Selector);
+        }
+
+        if (source.Int64DocValues.TryGetValue(field.FieldName, out var values)
+            && docId < values.Count)
+            return values[docId];
+
+        if (source.Int64Index.TryGetValue(field.FieldName, out var indexedValues)
+            && indexedValues.TryGetValue(docId, out var indexedValue))
+            return indexedValue;
+
+        return ResolveStoredInt64(source, field.FieldName, docId);
+    }
+
+    private static string? ResolveStringSortValue(IFlushSource source, SortField field, int docId)
+    {
+        if (source.SortedDocValues.TryGetValue(field.FieldName, out var values)
+            && docId < values.Count)
+            return values[docId];
+
+        if (source.SortedSetDocValues.TryGetValue(field.FieldName, out var sortedValues)
+            && sortedValues.TryGetValue(docId, out var multiValues)
+            && multiValues.Count > 0)
+        {
+            return field.Selector == SortValueSelector.Max
+                ? multiValues.Max(StringComparer.Ordinal)
+                : multiValues.Min(StringComparer.Ordinal);
+        }
+
+        if (source.BinaryDocValues.TryGetValue(field.FieldName, out var binaryValues)
+            && binaryValues.TryGetValue(docId, out var binaryValuesForDoc)
+            && binaryValuesForDoc.Count > 0)
+            return System.Text.Encoding.UTF8.GetString(binaryValuesForDoc[0]);
+
+        return ResolveStoredString(source, field.FieldName, docId);
+    }
+
+    private static double SelectNumericValue(IReadOnlyList<double> values, SortValueSelector selector)
+    {
+        double selected = values[0];
+        for (int i = 1; i < values.Count; i++)
+        {
+            if (selector == SortValueSelector.Max ? values[i] > selected : values[i] < selected)
+                selected = values[i];
+        }
+        return selected;
+    }
+
+    private static long SelectInt64Value(IReadOnlyList<long> values, SortValueSelector selector)
+    {
+        long selected = values[0];
+        for (int i = 1; i < values.Count; i++)
+        {
+            if (selector == SortValueSelector.Max ? values[i] > selected : values[i] < selected)
+                selected = values[i];
+        }
+        return selected;
+    }
+
+    private static double ResolveStoredDouble(IFlushSource source, string fieldName, int docId)
+    {
+        if (!TryGetStoredValue(source, fieldName, docId, out var value))
+            return 0;
+        if (value.IsLong)
+            return value.LongValue;
+        return value.StringValue is not null
+            && double.TryParse(value.StringValue, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : 0;
+    }
+
+    private static long ResolveStoredInt64(IFlushSource source, string fieldName, int docId)
+    {
+        if (!TryGetStoredValue(source, fieldName, docId, out var value))
+            return 0;
+        if (value.IsLong)
+            return value.LongValue;
+        return value.StringValue is not null
+            && long.TryParse(value.StringValue, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : 0;
+    }
+
+    private static string? ResolveStoredString(IFlushSource source, string fieldName, int docId)
+    {
+        return TryGetStoredValue(source, fieldName, docId, out var value)
+            ? value.StringValue
+            : null;
+    }
+
+    private static bool TryGetStoredValue(
+        IFlushSource source,
+        string fieldName,
+        int docId,
+        out Codecs.StoredFields.StoredFieldValue value)
+    {
+        value = default;
+        if ((uint)docId >= (uint)source.StoredDocStarts.Count)
+            return false;
+
+        int start = source.StoredDocStarts[docId];
+        int end = docId + 1 < source.StoredDocStarts.Count
+            ? source.StoredDocStarts[docId + 1]
+            : source.StoredFieldIds.Count;
+        for (int i = start; i < end; i++)
+        {
+            int fieldId = source.StoredFieldIds[i];
+            if ((uint)fieldId < (uint)source.StoredFieldIdToName.Count
+                && string.Equals(source.StoredFieldIdToName[fieldId], fieldName, StringComparison.Ordinal))
+            {
+                value = source.StoredFieldValues[i];
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void ApplySortPermutation(IFlushSource buffer, int[] sortPerm, int[] inversePerm)
     {
         int n = buffer.DocCount;
 
@@ -748,8 +903,9 @@ internal static class SegmentFlusher
         RemapStoredFields(buffer, sortPerm, n);
         RemapDocTokenCounts(buffer, sortPerm, n);
 
-        foreach (var (field, docMap) in buffer.FieldBoosts)
+        foreach (var field in buffer.FieldBoosts.Keys.ToArray())
         {
+            var docMap = buffer.FieldBoosts[field];
             var remapped = new Dictionary<int, float>(docMap.Count);
             foreach (var (oldDoc, boost) in docMap)
             {
@@ -759,8 +915,9 @@ internal static class SegmentFlusher
             buffer.FieldBoosts[field] = remapped;
         }
 
-        foreach (var (field, list) in buffer.NumericDocValues)
+        foreach (var field in buffer.NumericDocValues.Keys.ToArray())
         {
+            var list = buffer.NumericDocValues[field];
             var reordered = new List<double>(n);
             for (int i = 0; i < n; i++)
             {
@@ -770,8 +927,21 @@ internal static class SegmentFlusher
             buffer.NumericDocValues[field] = reordered;
         }
 
-        foreach (var (field, list) in buffer.SortedDocValues)
+        foreach (var field in buffer.Int64DocValues.Keys.ToArray())
         {
+            var list = buffer.Int64DocValues[field];
+            var reordered = new List<long>(n);
+            for (int i = 0; i < n; i++)
+            {
+                int old = sortPerm[i];
+                reordered.Add(old < list.Count ? list[old] : 0);
+            }
+            buffer.Int64DocValues[field] = reordered;
+        }
+
+        foreach (var field in buffer.SortedDocValues.Keys.ToArray())
+        {
+            var list = buffer.SortedDocValues[field];
             var reordered = new List<string?>(n);
             for (int i = 0; i < n; i++)
             {
@@ -783,10 +953,12 @@ internal static class SegmentFlusher
 
         RemapMultiValuedDocValues(buffer.SortedSetDocValues, sortPerm, n);
         RemapMultiValuedDocValues(buffer.SortedNumericDocValues, sortPerm, n);
+        RemapMultiValuedDocValues(buffer.Int64SortedDocValues, sortPerm, n);
         RemapMultiValuedDocValues(buffer.BinaryDocValues, sortPerm, n);
 
-        foreach (var (field, docMap) in buffer.NumericIndex)
+        foreach (var field in buffer.NumericIndex.Keys.ToArray())
         {
+            var docMap = buffer.NumericIndex[field];
             var remapped = new Dictionary<int, double>(docMap.Count);
             foreach (var (oldDoc, val) in docMap)
             {
@@ -794,6 +966,18 @@ internal static class SegmentFlusher
                     remapped[inversePerm[oldDoc]] = val;
             }
             buffer.NumericIndex[field] = remapped;
+        }
+
+        foreach (var field in buffer.Int64Index.Keys.ToArray())
+        {
+            var docMap = buffer.Int64Index[field];
+            var remapped = new Dictionary<int, long>(docMap.Count);
+            foreach (var (oldDoc, val) in docMap)
+            {
+                if (oldDoc < inversePerm.Length)
+                    remapped[inversePerm[oldDoc]] = val;
+            }
+            buffer.Int64Index[field] = remapped;
         }
 
         if (buffer.Vectors.Count > 0)
@@ -810,17 +994,32 @@ internal static class SegmentFlusher
                 }
                 newOuter[fieldName] = remapped;
             }
-            buffer.Vectors = newOuter;
+            buffer.Vectors.Clear();
+            foreach (var (fieldName, docMap) in newOuter)
+                buffer.Vectors[fieldName] = docMap;
+        }
+
+        if (buffer.ParentDocIds is { Count: > 0 } parentDocIds)
+        {
+            var remapped = new HashSet<int>(parentDocIds.Count);
+            foreach (var oldDocId in parentDocIds)
+            {
+                if ((uint)oldDocId < (uint)inversePerm.Length)
+                    remapped.Add(inversePerm[oldDocId]);
+            }
+            parentDocIds.Clear();
+            foreach (var newDocId in remapped)
+                parentDocIds.Add(newDocId);
         }
     }
 
-    private static void RemapPostings(DocumentBufferState buffer, int[] inversePerm)
+    private static void RemapPostings(IFlushSource buffer, int[] inversePerm)
     {
         foreach (var acc in buffer.PostingAccumulators)
             acc.RemapDocIds(inversePerm);
     }
 
-    private static void RemapStoredFields(DocumentBufferState buffer, int[] sortPerm, int n)
+    private static void RemapStoredFields(IFlushSource buffer, int[] sortPerm, int n)
     {
         int totalEntries = buffer.StoredFieldIds.Count;
         var newFieldIds = new List<int>(totalEntries);
@@ -842,12 +1041,15 @@ internal static class SegmentFlusher
             }
         }
 
-        buffer.StoredFieldIds = newFieldIds;
-        buffer.StoredFieldValues = newValues;
-        buffer.StoredDocStarts = newDocStarts;
+        buffer.StoredFieldIds.Clear();
+        buffer.StoredFieldIds.AddRange(newFieldIds);
+        buffer.StoredFieldValues.Clear();
+        buffer.StoredFieldValues.AddRange(newValues);
+        buffer.StoredDocStarts.Clear();
+        buffer.StoredDocStarts.AddRange(newDocStarts);
     }
 
-    private static void RemapDocTokenCounts(DocumentBufferState buffer, int[] sortPerm, int n)
+    private static void RemapDocTokenCounts(IFlushSource buffer, int[] sortPerm, int n)
     {
         if (buffer.DocTokenCounts.Count == 0) return;
         var keysBuf = ArrayPool<string>.Shared.Rent(buffer.DocTokenCounts.Count);

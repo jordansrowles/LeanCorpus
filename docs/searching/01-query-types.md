@@ -10,6 +10,7 @@ Choose the narrowest query that expresses the requirement. Exact term and point 
 |---|---|---|
 | `TermQuery` | One exact indexed term | Input is not analysed automatically. Best basic primitive for exact or pre-analysed terms. |
 | `TermInSetQuery` | Any term from a set | Prefer it to a very large Boolean OR of term queries. |
+| `TermsQuery` | Any exact UTF-8 term from a set | Avoids string conversion during term-dictionary lookup. |
 | `FieldExistsQuery` | Documents with a value | Uses indexed field data rather than stored-field retrieval. |
 | `MatchAllDocsQuery` | Every live document | Often combined with filters, sorting, or aggregations. |
 | `MatchNoDocsQuery` | No documents | Useful as an explicit empty rewrite result. |
@@ -28,6 +29,7 @@ var any = new TermInSetQuery("category", ["books", "music", "games"]);
 | `CombinedFieldsQuery` | One analysed term set across several text fields | Useful when fields represent one logical body with different weights. |
 | `ConstantScoreQuery` | Matching without similarity-based score variation | Wraps another query and assigns a fixed score. |
 | `FunctionScoreQuery` | Combine a query score with a numeric field | Useful for recency, popularity, or business signals. |
+| `FunctionQuery` | Rank every live document from a value source | Uses a `DoubleValuesSource` directly. |
 | `RrfQuery` | Fuse independently ranked child queries | Reciprocal rank fusion avoids comparing unlike score scales directly. |
 
 ## Phrase, span, and intervals
@@ -41,7 +43,12 @@ These queries require indexed positions.
 | `SpanTermQuery` | A term represented as a span | Leaf for other span queries. |
 | `SpanNearQuery` | Ordered or unordered span proximity | Composes span leaves or other span queries. |
 | `SpanOrQuery` | Alternative spans | All clauses must target the same field. |
-| `SpanNotQuery` | Include spans that do not overlap excluded spans | Exclusion is positional, not merely document-level. |
+| `SpanNotQuery` | Include spans from documents without an excluded span | Exclusion currently applies to the whole document. |
+| `SpanFirstQuery` | Spans ending before a field position | Wraps any span query. |
+| `SpanContainingQuery` | Enclosing spans containing another span | Both clauses target the same field. |
+| `SpanWithinQuery` | Inner spans contained by another span | Both clauses target the same field. |
+| `FieldMaskingSpanQuery` | Treat one field's positions as another field | Enables cross-field positional composition. |
+| `SpanMultiTermQueryWrapper` | Position-aware multi-term expansion | Supports prefix, wildcard, fuzzy, regex, and term ranges. |
 | `IntervalsQuery` | Ordered, unordered, alternative, containment, or exclusion trees | Best for a complex positional expression. |
 
 See [Phrase and proximity](03-phrase-and-proximity.md) and [Intervals](10-intervals.md).

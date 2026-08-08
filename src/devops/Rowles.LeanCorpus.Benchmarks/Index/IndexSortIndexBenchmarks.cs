@@ -28,6 +28,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [KeepBenchmarkFiles]
 [WarmupCount(2)]
 [IterationCount(5)]
+[InvocationCount(1)]
 public class IndexSortIndexBenchmarks
 {
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
@@ -36,11 +37,23 @@ public class IndexSortIndexBenchmarks
     public int DocumentCount { get; set; }
 
     private (string Body, double Price)[] _documentsWithPrices = [];
+    private readonly List<string> _iterationPaths = [];
 
     [GlobalSetup]
     public void Setup()
     {
         _documentsWithPrices = BenchmarkData.BuildDocumentsWithPrices(DocumentCount);
+    }
+
+    [GlobalCleanup]
+    public void Cleanup() => CleanupIterationPaths();
+
+    [IterationCleanup]
+    public void CleanupIterationPaths()
+    {
+        foreach (var path in _iterationPaths)
+            BenchmarkHelpers.DeleteDirectory(path);
+        _iterationPaths.Clear();
     }
 
     [Benchmark(Baseline = true)]
@@ -49,25 +62,17 @@ public class IndexSortIndexBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-sort-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
-
-        try
+        _iterationPaths.Add(path);
+        using var directory = new LeanMMapDirectory(path);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig
         {
-            var directory = new LeanMMapDirectory(path);
-            using var writer = new IndexWriter(directory, new IndexWriterConfig
-            {
-                MaxBufferedDocs = 10_000,
-                RamBufferSizeMB = 256
-            });
+            MaxBufferedDocs = 10_000,
+            RamBufferSizeMB = 256
+        });
 
-            IndexDocuments(writer);
-            writer.Commit();
-            return _documentsWithPrices.Length;
-        }
-        finally
-        {
-            if (Directory.Exists(path))
-                Directory.Delete(path, recursive: true);
-        }
+        IndexDocuments(writer);
+        writer.Commit();
+        return _documentsWithPrices.Length;
     }
 
     [Benchmark]
@@ -76,26 +81,18 @@ public class IndexSortIndexBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-sort-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
-
-        try
+        _iterationPaths.Add(path);
+        using var directory = new LeanMMapDirectory(path);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig
         {
-            var directory = new LeanMMapDirectory(path);
-            using var writer = new IndexWriter(directory, new IndexWriterConfig
-            {
-                MaxBufferedDocs = 10_000,
-                RamBufferSizeMB = 256,
-                IndexSort = new IndexSort(SortField.Numeric("price"))
-            });
+            MaxBufferedDocs = 10_000,
+            RamBufferSizeMB = 256,
+            IndexSort = new IndexSort(SortField.Numeric("price"))
+        });
 
-            IndexDocuments(writer);
-            writer.Commit();
-            return _documentsWithPrices.Length;
-        }
-        finally
-        {
-            if (Directory.Exists(path))
-                Directory.Delete(path, recursive: true);
-        }
+        IndexDocuments(writer);
+        writer.Commit();
+        return _documentsWithPrices.Length;
     }
 
     [Benchmark]

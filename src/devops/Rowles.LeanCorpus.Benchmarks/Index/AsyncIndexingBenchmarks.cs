@@ -20,6 +20,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [KeepBenchmarkFiles]
 [WarmupCount(2)]
 [IterationCount(5)]
+[InvocationCount(1)]
 public class AsyncIndexingBenchmarks
 {
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
@@ -28,6 +29,7 @@ public class AsyncIndexingBenchmarks
     public int DocumentCount { get; set; }
 
     private LeanDocument[] _documents = [];
+    private readonly List<string> _iterationPaths = [];
 
     [GlobalSetup]
     public void Setup()
@@ -43,28 +45,35 @@ public class AsyncIndexingBenchmarks
         }
     }
 
+    [GlobalCleanup]
+    public void Cleanup() => CleanupIterationPaths();
+
+    [IterationCleanup]
+    public void CleanupIterationPaths()
+    {
+        foreach (var path in _iterationPaths)
+        {
+            if (IODirectory.Exists(path))
+                IODirectory.Delete(path, recursive: true);
+        }
+        _iterationPaths.Clear();
+    }
+
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_AddDocument_Sync()
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-async-sync-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(path);
-        try
-        {
-            using var dir = new LeanMMapDirectory(path);
-            using var writer = new IndexWriter(
-                dir,
-                new IndexWriterConfig { MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 });
-            foreach (var doc in _documents)
-                writer.AddDocument(doc);
-            writer.Commit();
-            return _documents.Length;
-        }
-        finally
-        {
-            if (IODirectory.Exists(path))
-                IODirectory.Delete(path, recursive: true);
-        }
+        _iterationPaths.Add(path);
+        using var dir = new LeanMMapDirectory(path);
+        using var writer = new IndexWriter(
+            dir,
+            new IndexWriterConfig { MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 });
+        foreach (var doc in _documents)
+            writer.AddDocument(doc);
+        writer.Commit();
+        return _documents.Length;
     }
 
     [Benchmark]
@@ -73,22 +82,15 @@ public class AsyncIndexingBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-async-seq-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(path);
-        try
-        {
-            using var dir = new LeanMMapDirectory(path);
-            using var writer = new IndexWriter(
-                dir,
-                new IndexWriterConfig { MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 });
-            foreach (var doc in _documents)
-                await writer.AddDocumentAsync(doc);
-            writer.Commit();
-            return _documents.Length;
-        }
-        finally
-        {
-            if (IODirectory.Exists(path))
-                IODirectory.Delete(path, recursive: true);
-        }
+        _iterationPaths.Add(path);
+        using var dir = new LeanMMapDirectory(path);
+        using var writer = new IndexWriter(
+            dir,
+            new IndexWriterConfig { MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 });
+        foreach (var doc in _documents)
+            await writer.AddDocumentAsync(doc);
+        writer.Commit();
+        return _documents.Length;
     }
 
     [Benchmark]
@@ -97,20 +99,13 @@ public class AsyncIndexingBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-async-batch-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(path);
-        try
-        {
-            using var dir = new LeanMMapDirectory(path);
-            using var writer = new IndexWriter(
-                dir,
-                new IndexWriterConfig { MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 });
-            await writer.AddDocumentsAsync(_documents);
-            writer.Commit();
-            return _documents.Length;
-        }
-        finally
-        {
-            if (IODirectory.Exists(path))
-                IODirectory.Delete(path, recursive: true);
-        }
+        _iterationPaths.Add(path);
+        using var dir = new LeanMMapDirectory(path);
+        using var writer = new IndexWriter(
+            dir,
+            new IndexWriterConfig { MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 });
+        await writer.AddDocumentsAsync(_documents);
+        writer.Commit();
+        return _documents.Length;
     }
 }

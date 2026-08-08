@@ -1,0 +1,222 @@
+/* LeanCorpus documentation shell. Keep the generated DocFX styles as the base. */
+
+.lc-docs-layout {
+  max-width: none;
+}
+
+.lc-docs-layout .content {
+  min-width: 0;
+  padding: 1rem 0 4rem;
+}
+
+body:not([data-search]) > main.lc-docs-layout > .toc-offcanvas {
+  display: block;
+}
+
+.lc-docs-tree > ul {
+  padding-top: .25rem;
+}
+
+.lc-docs-tree li > ul {
+  border-left: 1px solid var(--bs-border-color);
+  margin-left: .75rem;
+  padding-left: .75rem;
+}
+
+.lc-docs-tree li.active > a,
+.lc-docs-tree li.active > a:hover {
+  color: var(--bs-primary);
+  font-weight: 600;
+  background: var(--bs-primary-bg-subtle);
+  padding: .25rem .5rem;
+  margin-left: 0.25rem;
+  margin-right: -.5rem;
+}
+
+.lc-docs-tree li.active > .expand-stub:before {
+  color: var(--bs-primary);
+}
+
+.lc-sidebar-header {
+  padding: .25rem .75rem 1rem;
+}
+
+.lc-sidebar-header .navbar-brand {
+  display: block;
+  margin-bottom: .75rem;
+  font-size: 1.15rem;
+}
+
+.lc-header-search {
+  max-width: none;
+}
+
+.lc-docs-layout .offcanvas-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.lc-main-navigation {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.lc-main-navigation > .toc {
+  height: 100%;
+}
+
+.lc-api-navigation[hidden] {
+  display: none;
+}
+
+.lc-api-navigation {
+  display: flex;
+  flex: 1 1 55%;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: .75rem;
+  padding-top: .75rem;
+  border-top: 1px solid var(--bs-border-color);
+}
+
+body.lc-api-page .lc-main-navigation {
+  flex-basis: 45%;
+}
+
+.lc-api-navigation-header {
+  flex: none;
+  padding: 0 .75rem .25rem;
+  font-size: .9rem;
+  font-weight: 600;
+}
+
+.lc-api-navigation-header a {
+  color: var(--bs-body-color);
+  text-decoration: none;
+}
+
+.lc-api-tree {
+  display: block;
+  min-height: 0;
+  padding-right: .25rem;
+  overflow-y: auto;
+}
+
+.lc-api-tree ul.nav:not(.level1) {
+  border-left: 1px solid var(--bs-border-color);
+  margin-left: .75rem;
+  padding-left: .75rem;
+}
+
+.lc-api-tree li.active > a,
+.lc-api-tree li.active > a:hover {
+  color: var(--bs-primary);
+  font-weight: 600;
+  background: var(--bs-primary-bg-subtle);
+  padding: .25rem .5rem;
+  margin-left: -.5rem;
+  margin-right: -.5rem;
+}
+
+/* Landng page: DocFX hides actionbar via :not(article); restore it */
+body[data-layout="landing"] > main > .content > .actionbar {
+  display: flex;
+  align-items: center;
+  margin-top: .5rem;
+}
+
+/* Landng page mobile: show site title before the toggle button */
+body[data-layout="landing"] .actionbar::before {
+  content: "LeanCorpus";
+  font-weight: 600;
+  font-size: 1.05rem;
+  margin-right: auto;
+  color: var(--bs-emphasis-color);
+  display: block;
+}
+
+@media (min-width: 992px) {
+  body[data-layout="landing"] .actionbar::before {
+    display: none;
+  }
+
+  body:not([data-search]) > main.lc-docs-layout {
+    display: grid;
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(180px, 240px);
+    column-gap: 2rem;
+    align-items: start;
+  }
+
+  body:not([data-search]) > main.lc-docs-layout > .toc-offcanvas {
+    grid-column: 1;
+    grid-row: 1;
+    position: sticky;
+    top: 1rem;
+    width: auto;
+    max-width: none;
+    max-height: calc(100vh - 2rem);
+    overflow: hidden;
+  }
+
+  body:not([data-search]) > main.lc-docs-layout > .toc-offcanvas .offcanvas-lg,
+  body:not([data-search]) > main.lc-docs-layout > .toc-offcanvas .offcanvas-body {
+    height: calc(100vh - 2rem);
+  }
+
+  body:not([data-search]) > main.lc-docs-layout > .toc-offcanvas .offcanvas-lg {
+    position: static;
+    visibility: visible;
+    transform: none;
+    border: 0;
+    background: transparent;
+  }
+
+  body:not([data-search]) > main.lc-docs-layout > .toc-offcanvas .offcanvas-body {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  body:not([data-search]) > main.lc-docs-layout > .content {
+    grid-column: 2;
+    width: auto;
+    margin: 0;
+    padding-top: 1.5rem;
+  }
+
+  body:not([data-search]) > main.lc-docs-layout > .affix {
+    grid-column: 3;
+    grid-row: 1;
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+  }
+
+  .lc-sidebar-header .navbar-brand {
+    margin-top: .25rem;
+  }
+}
+
+@media (max-width: 991.98px) {
+  body:not([data-search]) > main.lc-docs-layout {
+    display: block;
+  }
+
+  body:not([data-search]) > main.lc-docs-layout > .content {
+    padding-top: 1rem;
+  }
+
+  body:not([data-search]) > main.lc-docs-layout > .affix {
+    display: none;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .lc-sidebar-header {
+    padding-inline: 0;
+  }
+}

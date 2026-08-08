@@ -42,9 +42,11 @@ var french   = AnalyserFactory.Create("fr");
 
 `AnalyserFactory.Create(string)` accepts BCP 47 codes. Region and script subtags are stripped (`en-GB` becomes `en`).
 
-Supported: `en`, `fr`, `de`, `es`, `it`, `pt`, `nl`, `ru`, `ar`, `zh`, `ja`, `ko`.
-
-CJK languages (`zh`, `ja`, `ko`) use bigram tokenisation and skip stemming. `AnalyserFactory.Create("en")` uses `EnglishStemmer`.
+Supported: `en`, `fr`, `de`, `es`, `it`, `pt`, `nl`, `ru`, `ar`, `zh`, `ja`, `ko`, `sk`.
+Chinese uses lexicon-based longest-match segmentation, Japanese uses
+dictionary-backed Viterbi segmentation, and Korean keeps Hangul word runs
+intact. These analysers apply their language stop-word lists and skip
+stemming. `AnalyserFactory.Create("en")` uses `EnglishStemmer`.
 
 ## Per-field override
 

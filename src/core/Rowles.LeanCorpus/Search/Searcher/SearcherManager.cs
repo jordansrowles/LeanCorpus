@@ -1,330 +1,155 @@
-﻿using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using Rowles.LeanCorpus.Index.Compatibility;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Search.Searcher;
 
 /// <summary>
-/// Manages the lifecycle of <see cref="IndexSearcher"/> instances, automatically
-/// refreshing when new commits are detected. Thread-safe acquire/release pattern
-/// with reference counting ensures old searchers are disposed only after all
-/// in-flight searches complete.
+/// Manages the lifecycle of <see cref="IndexSearcher"/> instances through the generic reader manager.
 /// </summary>
 public sealed class SearcherManager : IDisposable
 {
     private readonly MMapDirectory _directory;
     private readonly SearcherManagerConfig _config;
-    private readonly Lock _swapLock = new();
-    private readonly CancellationTokenSource _cts = new();
-    private readonly Task _refreshTask;
-    private readonly ConcurrentDictionary<IndexSearcher, SearcherRef> _searchers = new();
     private readonly QueryCache? _queryCache;
+    private readonly ConditionalWeakTable<IndexSearcher, SearcherMetadata> _metadata = new();
+    private readonly ReaderManager<IndexSearcher> _readerManager;
 
-    private volatile SearcherRef _current;
-    private int _disposed;
-    private volatile bool _disposing;
-    private readonly ManualResetEventSlim _refreshLoopExited = new(false);
-    private volatile Exception? _lastRefreshError;
-    private long _lastRefreshErrorAtTicks;
-    private long _consecutiveRefreshFailures;
-    private int _unobservedBackgroundRefreshes;
+    /// <summary>The exception thrown by the most recent refresh attempt, or <c>null</c> when none has failed.</summary>
+    public Exception? LastRefreshError => _readerManager.LastRefreshError;
 
-    /// <summary>
-    /// The exception thrown by the most recent refresh attempt, or null if the most recent
-    /// refresh succeeded (or none has run yet).
-    /// </summary>
-    public Exception? LastRefreshError => _lastRefreshError;
+    /// <summary>The UTC timestamp at which the most recent refresh exception was recorded.</summary>
+    public DateTime? LastRefreshErrorAt => _readerManager.LastRefreshErrorAt;
 
-    /// <summary>
-    /// The UTC timestamp at which <see cref="LastRefreshError"/> was recorded, or null if
-    /// no refresh has failed yet.
-    /// </summary>
-    public DateTime? LastRefreshErrorAt
-    {
-        get
-        {
-            var ticks = Interlocked.Read(ref _lastRefreshErrorAtTicks);
-            return ticks == 0 ? null : new DateTime(ticks, DateTimeKind.Utc);
-        }
-    }
+    /// <summary>The number of consecutive failed refreshes since the last successful refresh.</summary>
+    public long ConsecutiveRefreshFailures => _readerManager.ConsecutiveRefreshFailures;
 
-    /// <summary>
-    /// Number of consecutive failed refreshes since the last successful one. Reset to zero
-    /// on each successful refresh.
-    /// </summary>
-    public long ConsecutiveRefreshFailures => Interlocked.Read(ref _consecutiveRefreshFailures);
-
-    /// <summary>
-    /// Raised when a refresh fails. The exception is also stored on
-    /// <see cref="LastRefreshError"/> for callers that prefer polling.
-    /// </summary>
+    /// <summary>Raised when a refresh fails.</summary>
     public event EventHandler<RefreshFailedEventArgs>? RefreshFailed;
 
     /// <summary>
-    /// Initialises a new <see cref="SearcherManager"/> for the specified directory, opening an initial
-    /// <see cref="IndexSearcher"/> and starting the background refresh loop.
+    /// Initialises a searcher manager for the specified directory.
     /// </summary>
     /// <param name="directory">The index directory to manage.</param>
-    /// <param name="config">Optional configuration controlling the refresh interval and searcher settings.</param>
+    /// <param name="config">Optional refresh and searcher configuration.</param>
     public SearcherManager(MMapDirectory directory, SearcherManagerConfig? config = null)
     {
-        _directory = directory;
+        _directory = directory ?? throw new ArgumentNullException(nameof(directory));
         _config = config ?? new SearcherManagerConfig();
 
-        // Create a shared query cache so results survive searcher refreshes.
         if (_config.SearcherConfig.EnableQueryCache)
         {
             _queryCache = new QueryCache(_config.SearcherConfig.QueryCacheMaxEntries);
             _config.SearcherConfig.SharedCache = _queryCache;
         }
 
-        IndexOpenGuard.EnsureNoBlockingMigration(directory, _config.CompatibilityMode);
-        // Determine the current commit generation so we don't falsely refresh
-        var latestCommit = Index.IndexRecovery.RecoverLatestCommit(directory.DirectoryPath, cleanupOrphans: false);
-        int initialGen = latestCommit?.Generation ?? 0;
-        long initialContentToken = latestCommit?.ContentToken ?? 0;
-
-        var initialSearcher = new IndexSearcher(directory, _config.SearcherConfig);
-        _current = new SearcherRef(initialSearcher, () => _searchers.TryRemove(initialSearcher, out _), initialGen, initialContentToken);
-        _searchers.TryAdd(initialSearcher, _current);
-        _refreshTask = Task.Run(() => RefreshLoop(_cts.Token));
+        _readerManager = new ReaderManager<IndexSearcher>(
+            OpenInitialSearcher,
+            RefreshSearcher,
+            _config.RefreshInterval);
+        _readerManager.RefreshFailed += OnReaderRefreshFailed;
     }
 
-    /// <summary>
-    /// Acquires a scoped reference to the current searcher. Disposing the returned
-    /// <see cref="SearcherLease"/> releases the reference. This is the preferred
-    /// alternative to <see cref="Acquire"/> + <see cref="Release"/>: the lease
-    /// bypasses the <c>ConditionalWeakTable</c> lookup performed by <c>Release</c>.
-    /// </summary>
+    /// <summary>Acquires a scoped reference to the current searcher.</summary>
     public SearcherLease AcquireLease()
     {
-        var spinWait = new SpinWait();
-        const long timeoutTicks = 30 * TimeSpan.TicksPerSecond;
-        long started = Environment.TickCount64;
-        while (true)
-        {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-            var sr = _current;
-            if (sr.TryIncrementRef())
-                return new SearcherLease(sr.Searcher, sr.DecrementRef);
-            spinWait.SpinOnce();
-            if (spinWait.NextSpinWillYield && Environment.TickCount64 - started > timeoutTicks)
-                throw new TimeoutException("SearcherManager.AcquireLease timed out after 30 seconds. The current searcher reference may be stuck.");
-        }
+        var lease = _readerManager.AcquireLease();
+        return new SearcherLease(lease.Reader, GetMetadata(lease.Reader).Generation, lease.Dispose);
     }
 
-    /// <summary>
-    /// Acquires a reference to the current searcher. The caller must call
-    /// <see cref="Release"/> when done. The searcher remains valid until released.
-    /// </summary>
-    public IndexSearcher Acquire()
+    internal bool TryAcquireLease(int generation, out SearcherLease lease)
     {
-        var spinWait = new SpinWait();
-        const long timeoutTicks = 30 * TimeSpan.TicksPerSecond;
-        long started = Environment.TickCount64;
-        while (true)
+        if (_readerManager.TryAcquire(reader => GetMetadata(reader).Generation == generation, out var readerLease))
         {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-            var sr = _current;
-            if (sr.TryIncrementRef())
-                return sr.Searcher;
-            spinWait.SpinOnce();
-            if (spinWait.NextSpinWillYield && Environment.TickCount64 - started > timeoutTicks)
-                throw new TimeoutException("SearcherManager.Acquire timed out after 30 seconds. The current searcher reference may be stuck.");
+            lease = new SearcherLease(readerLease.Reader, GetMetadata(readerLease.Reader).Generation, readerLease.Dispose);
+            return true;
         }
+
+        lease = default;
+        return false;
     }
 
-    /// <summary>
-    /// Releases a previously acquired searcher. If this was the last reference,
-    /// it will be disposed.
-    /// </summary>
-    public void Release(IndexSearcher searcher)
-    {
-        if (_searchers.TryGetValue(searcher, out var sr))
-            sr.DecrementRef();
-    }
+    internal string DirectoryPath => _directory.DirectoryPath;
 
-    /// <summary>
-    /// Convenience method: acquires a searcher, runs the action, and releases it.
-    /// </summary>
+    /// <summary>Acquires the current searcher. Call <see cref="Release"/> when finished.</summary>
+    public IndexSearcher Acquire() => _readerManager.Acquire();
+
+    /// <summary>Releases a searcher acquired through <see cref="Acquire"/>.</summary>
+    public void Release(IndexSearcher searcher) => _readerManager.Release(searcher);
+
+    /// <summary>Runs an action with a leased searcher and releases it afterwards.</summary>
     public T UsingSearcher<T>(Func<IndexSearcher, T> action)
     {
-        var searcher = Acquire();
-        try { return action(searcher); }
-        finally { Release(searcher); }
+        ArgumentNullException.ThrowIfNull(action);
+        using var lease = AcquireLease();
+        return action(lease.Searcher);
     }
 
-    /// <summary>
-    /// Synchronously checks for a new commit and swaps in a fresh searcher if one is found.
-    /// Returns true if the searcher was refreshed.
-    /// </summary>
+    /// <summary>Synchronously checks for a new commit and publishes a replacement when required.</summary>
     public bool MaybeRefresh()
-    {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        bool refreshed = TryRefresh();
-        bool backgroundRefreshed = Interlocked.Exchange(ref _unobservedBackgroundRefreshes, 0) > 0;
-        return refreshed || backgroundRefreshed;
-    }
+        => _readerManager.MaybeRefresh() || _readerManager.ConsumeBackgroundRefreshes();
 
     /// <summary>Async variant of <see cref="MaybeRefresh"/>.</summary>
-    public Task<bool> MaybeRefreshAsync(CancellationToken ct = default)
-    {
-        ct.ThrowIfCancellationRequested();
-        return Task.FromResult(MaybeRefresh());
-    }
+    public async Task<bool> MaybeRefreshAsync(CancellationToken ct = default)
+        => await _readerManager.MaybeRefreshAsync(ct).ConfigureAwait(false)
+            || _readerManager.ConsumeBackgroundRefreshes();
 
-    /// <summary>Stops the background refresh loop and disposes the current searcher.</summary>
-    public void Dispose()
-    {
-        if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0) return;
-        _disposing = true;
-        _cts.Cancel();
-        _refreshLoopExited.Wait(TimeSpan.FromSeconds(30));
-        _cts.Dispose();
-        lock (_swapLock)
-        {
-            _current.Retire();
-        }
-        _refreshLoopExited.Dispose();
-    }
+    /// <summary>Gets generic lifecycle diagnostics for the managed searchers.</summary>
+    public ReaderManagerDiagnostics GetDiagnostics() => _readerManager.GetDiagnostics();
 
-    private async Task RefreshLoop(CancellationToken ct)
-    {
-        while (!ct.IsCancellationRequested)
-        {
-            try
-            {
-                await Task.Delay(_config.RefreshInterval, ct).ConfigureAwait(false);
-                if (TryRefresh())
-                    Interlocked.Increment(ref _unobservedBackgroundRefreshes);
-            }
-            catch (OperationCanceledException) { break; }
-            catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
-            {
-                RecordRefreshFailure(ex);
-            }
+    /// <summary>Stops refreshes and disposes retained searchers after their leases end.</summary>
+    public void Dispose() => _readerManager.Dispose();
 
-            if (_disposing)
-                break;
-        }
-        _refreshLoopExited.Set();
-    }
-
-    private void RecordRefreshFailure(Exception ex)
-    {
-        _lastRefreshError = ex;
-        Interlocked.Exchange(ref _lastRefreshErrorAtTicks, DateTime.UtcNow.Ticks);
-        var failures = Interlocked.Increment(ref _consecutiveRefreshFailures);
-        try { RefreshFailed?.Invoke(this, new RefreshFailedEventArgs(ex, failures)); }
-        catch (Exception subEx) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(subEx, "refresh-failed event subscriber"); }
-    }
-
-    private bool TryRefresh()
-    {
-        if (Volatile.Read(ref _disposed) != 0)
-            return false;
-
-        try
-        {
-            var refreshed = TryRefreshCore();
-            // Successful path resets failure counter.
-            Interlocked.Exchange(ref _consecutiveRefreshFailures, 0);
-            return refreshed;
-        }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
-        {
-            RecordRefreshFailure(ex);
-            return false;
-        }
-    }
-
-    private bool TryRefreshCore()
+    private IndexSearcher OpenInitialSearcher()
     {
         IndexOpenGuard.EnsureNoBlockingMigration(_directory, _config.CompatibilityMode);
-        // Check if the commit generation on disk is newer than what we have
         var latestCommit = Index.IndexRecovery.RecoverLatestCommit(_directory.DirectoryPath, cleanupOrphans: false);
-        if (latestCommit is null) return false;
+        var searcher = new IndexSearcher(_directory, _config.SearcherConfig);
+        _metadata.Add(searcher, new SearcherMetadata(latestCommit?.Generation ?? 0, latestCommit?.ContentToken ?? 0));
+        return searcher;
+    }
+
+    private IndexSearcher? RefreshSearcher(IndexSearcher current)
+    {
+        IndexOpenGuard.EnsureNoBlockingMigration(_directory, _config.CompatibilityMode);
+        var latestCommit = Index.IndexRecovery.RecoverLatestCommit(_directory.DirectoryPath, cleanupOrphans: false);
+        if (latestCommit is null)
+            return null;
+
+        var currentMetadata = GetMetadata(current);
+        if (latestCommit.Generation <= currentMetadata.Generation)
+            return null;
+
         IndexOpenGuard.EnsureCanOpenSegments(_directory, latestCommit.SegmentIds, _config.CompatibilityMode, forWriting: false);
-
-        if (latestCommit.Generation <= _current.Generation)
-            return false;
-
-        lock (_swapLock)
+        if (latestCommit.ContentToken == currentMetadata.ContentToken)
         {
-            if (Volatile.Read(ref _disposed) != 0)
-                return false;
+            currentMetadata.Generation = latestCommit.Generation;
+            return null;
+        }
 
-            // Double-check under lock
-            if (latestCommit.Generation <= _current.Generation)
-                return false;
+        var replacement = new IndexSearcher(_directory, _config.SearcherConfig);
+        _metadata.Add(replacement, new SearcherMetadata(latestCommit.Generation, latestCommit.ContentToken));
+        _queryCache?.Invalidate();
+        return replacement;
+    }
 
-            if (latestCommit.ContentToken == _current.ContentToken)
-            {
-                _current.Generation = latestCommit.Generation;
-                return false;
-            }
+    private SearcherMetadata GetMetadata(IndexSearcher searcher)
+        => _metadata.TryGetValue(searcher, out var metadata)
+            ? metadata
+            : throw new InvalidOperationException("The searcher is not owned by this manager.");
 
-            var newSearcher = new IndexSearcher(_directory, _config.SearcherConfig);
-            var newRef = new SearcherRef(newSearcher, () => _searchers.TryRemove(newSearcher, out _), latestCommit.Generation, latestCommit.ContentToken);
-            _searchers.TryAdd(newSearcher, newRef);
-
-            // Content has changed — any cached results from the old searcher are stale.
-            _queryCache?.Invalidate();
-
-            var oldRef = _current;
-            _current = newRef;
-            oldRef.Retire();
-            return true;
+    private void OnReaderRefreshFailed(object? sender, ReaderRefreshFailedEventArgs args)
+    {
+        try { RefreshFailed?.Invoke(this, new RefreshFailedEventArgs(args.Exception, args.ConsecutiveFailures)); }
+        catch (Exception subscriberException)
+        {
+            Diagnostics.LeanCorpusActivitySource.TraceSwallowed(subscriberException, "refresh-failed event subscriber");
         }
     }
 
-    /// <summary>Reference-counted wrapper around an IndexSearcher.</summary>
-    private sealed class SearcherRef
+    private sealed class SearcherMetadata(int generation, long contentToken)
     {
-        public IndexSearcher Searcher { get; }
-        public int Generation { get; set; }
-        public long ContentToken { get; }
-        private int _refCount = 1; // 1 = the owner/publish reference held by _current
-        private readonly Action? _onDisposed;
-
-        public SearcherRef(IndexSearcher searcher, Action? onDisposed = null, int generation = 0, long contentToken = 0)
-        {
-            Searcher = searcher;
-            _onDisposed = onDisposed;
-            Generation = generation;
-            ContentToken = contentToken;
-        }
-
-        /// <summary>
-        /// Attempts to increment the ref count atomically. Returns false if the count
-        /// is already zero (the ref has been retired), allowing <see cref="SearcherManager.Acquire"/>
-        /// to retry with a fresh <see cref="SearcherRef"/>.
-        /// </summary>
-        public bool TryIncrementRef()
-        {
-            int current;
-            do
-            {
-                current = Volatile.Read(ref _refCount);
-                if (current <= 0) return false;
-            } while (Interlocked.CompareExchange(ref _refCount, current + 1, current) != current);
-            return true;
-        }
-
-        public void DecrementRef()
-        {
-            if (Interlocked.Decrement(ref _refCount) == 0)
-            {
-                Searcher.Dispose();
-                _onDisposed?.Invoke();
-            }
-        }
-
-        /// <summary>
-        /// Releases the owner/publish reference. Called by <see cref="SearcherManager"/> when
-        /// this ref is swapped out or when the manager is disposed.
-        /// </summary>
-        public void Retire() => DecrementRef();
+        internal int Generation { get; set; } = generation;
+        internal long ContentToken { get; } = contentToken;
     }
 }

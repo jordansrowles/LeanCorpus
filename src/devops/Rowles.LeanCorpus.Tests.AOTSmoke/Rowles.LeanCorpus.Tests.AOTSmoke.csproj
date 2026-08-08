@@ -32,4 +32,11 @@
     <ProjectReference Include="..\..\core\Rowles.LeanCorpus.Compression.Zstandard\Rowles.LeanCorpus.Compression.Zstandard.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\..\..\lexicons\japanese.jlc"
+             Link="lexicons\japanese.jlc"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

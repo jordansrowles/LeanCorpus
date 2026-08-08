@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Threading;
+using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Search.Scoring;
 namespace Rowles.LeanCorpus.Search.Searcher;
 
@@ -97,9 +99,11 @@ public sealed partial class IndexSearcher
         }
 
         float idf = Bm25Scorer.Idf(_totalDocCount, globalDF);
-        long collectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
+        long collectionFreq = RequiresCollectionStatistics(query.Field)
+            ? GetGlobalCollectionFreq(qt)
+            : 0;
         var (f1, f2, f3) = ComputeTermFactors(globalDF, avgDocLength, collectionFreq, query.Field);
-        float score = ScoreTerm(f1, f2, f3, tf, docLength);
+        float score = ScoreTerm(f1, f2, f3, tf, docLength, query.Field);
         if (query.Boost != 1.0f) score *= query.Boost;
         float indexBoost = reader.GetFieldBoost(localDocId, query.Field);
         if (indexBoost != 1.0f) score *= indexBoost;
@@ -205,6 +209,97 @@ public sealed partial class IndexSearcher
     /// <param name="field">Field to scan.</param>
     /// <param name="topN">Maximum number of suggestions to return.</param>
     public IReadOnlyList<(string Term, int DocFreq)> Suggest(string prefix, string field, int topN)
+        => SuggestCore(prefix, field, topN, allowedDocIds: null);
+
+    /// <summary>
+    /// Analyses the input and returns prefix completions, optionally restricted to
+    /// documents matching a context query.
+    /// </summary>
+    public IReadOnlyList<(string Term, int DocFreq)> Suggest(
+        string input,
+        string field,
+        int topN,
+        IAnalyser analyser,
+        Query? contextFilter = null)
+    {
+        ArgumentNullException.ThrowIfNull(analyser);
+        var tokens = AnalyseSuggestionInput(input, analyser);
+        if (tokens.Count == 0)
+            return [];
+
+        HashSet<int>? allowedDocIds = null;
+        if (contextFilter is not null)
+        {
+            var contextResults = Search(contextFilter, int.MaxValue);
+            allowedDocIds = new HashSet<int>(contextResults.ScoreDocs.Length);
+            foreach (var scoreDoc in contextResults.ScoreDocs)
+                allowedDocIds.Add(scoreDoc.DocId);
+            if (allowedDocIds.Count == 0)
+                return [];
+        }
+
+        return SuggestCore(tokens[^1], field, topN, allowedDocIds);
+    }
+
+    /// <summary>Returns phrase-context completions for analysed free text.</summary>
+    public IReadOnlyList<(string Term, int DocFreq)> SuggestNext(
+        string input,
+        string field,
+        int topN,
+        IAnalyser analyser)
+    {
+        ArgumentNullException.ThrowIfNull(analyser);
+        if (topN <= 0)
+            return [];
+
+        var tokens = AnalyseSuggestionInput(input, analyser);
+        if (tokens.Count == 0)
+            return [];
+
+        bool startsNewTerm = input.Length > 0 && char.IsWhiteSpace(input[^1]);
+        string prefix = startsNewTerm ? string.Empty : tokens[^1];
+        int contextCount = startsNewTerm ? tokens.Count : tokens.Count - 1;
+        var candidates = SuggestCore(prefix, field, Math.Max(64, topN * 8), allowedDocIds: null);
+        if (contextCount == 0)
+        {
+            if (candidates.Count <= topN)
+                return candidates;
+            var prefixResults = new (string Term, int DocFreq)[topN];
+            for (int i = 0; i < topN; i++)
+                prefixResults[i] = candidates[i];
+            return prefixResults;
+        }
+
+        var ranked = new List<(string Term, int DocFreq)>(candidates.Count);
+        var phraseTerms = new string[contextCount + 1];
+        for (int i = 0; i < contextCount; i++)
+            phraseTerms[i] = tokens[i];
+
+        foreach (var candidate in candidates)
+        {
+            phraseTerms[^1] = candidate.Term;
+            int phraseHits = Count(new PhraseQuery(field, phraseTerms.ToArray()));
+            if (phraseHits > 0)
+                ranked.Add((candidate.Term, phraseHits));
+        }
+
+        ranked.Sort(static (left, right) =>
+        {
+            int frequency = right.DocFreq.CompareTo(left.DocFreq);
+            return frequency != 0
+                ? frequency
+                : string.CompareOrdinal(left.Term, right.Term);
+        });
+        if (ranked.Count > topN)
+            ranked.RemoveRange(topN, ranked.Count - topN);
+        return ranked;
+    }
+
+    private IReadOnlyList<(string Term, int DocFreq)> SuggestCore(
+        string prefix,
+        string field,
+        int topN,
+        HashSet<int>? allowedDocIds)
     {
         if (topN <= 0 || _readers.Count == 0)
             return [];
@@ -221,8 +316,23 @@ public sealed partial class IndexSearcher
                 using var postings = reader.GetPostingsEnum(qualifiedTerm);
                 if (postings.IsExhausted) continue;
                 var bare = qualifiedTerm.AsSpan(field.Length + 1).ToString();
+                int frequency = postings.DocFreq;
+                if (allowedDocIds is not null)
+                {
+                    frequency = 0;
+                    while (postings.MoveNextUnchecked(out int docId, out _))
+                    {
+                        if (reader.IsLive(docId)
+                            && allowedDocIds.Contains(reader.DocBase + docId))
+                        {
+                            frequency++;
+                        }
+                    }
+                    if (frequency == 0)
+                        continue;
+                }
                 termFreqs.TryGetValue(bare, out int existing);
-                termFreqs[bare] = existing + postings.DocFreq;
+                termFreqs[bare] = existing + frequency;
             }
         }
 
@@ -236,6 +346,25 @@ public sealed partial class IndexSearcher
         if (result.Count > topN)
             result.RemoveRange(topN, result.Count - topN);
         return result;
+    }
+
+    private static List<string> AnalyseSuggestionInput(string input, IAnalyser analyser)
+    {
+        var tokens = new List<string>();
+        analyser.Analyse(input.AsSpan(), new SuggestionTokenSink(tokens));
+        return tokens;
+    }
+
+    private sealed class SuggestionTokenSink(List<string> tokens) : ISpanTokenSink
+    {
+        public void Add(
+            ReadOnlySpan<char> text,
+            int startOffset,
+            int endOffset,
+            string type = Token.DefaultType,
+            int positionIncrement = 1,
+            byte[]? payload = null)
+            => tokens.Add(text.ToString());
     }
 
     /// <summary>Executes a query and returns both top-N results and facet counts for the specified fields.</summary>

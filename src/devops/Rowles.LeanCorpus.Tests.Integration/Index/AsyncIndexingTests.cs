@@ -1,4 +1,5 @@
 using System.Globalization;
+using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
@@ -63,6 +64,31 @@ public sealed class AsyncIndexingTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
         Assert.Equal(1, searcher.Search(new TermQuery("id", "1"), 10).TotalHits);
         Assert.Equal(1, searcher.Search(new TermQuery("id", "2"), 10).TotalHits);
+    }
+
+    [Fact(DisplayName = "Async Indexing: Token Rejection Preserves Earlier Documents And Writer")]
+    public async Task AddDocumentsAsync_TokenRejection_PreservesEarlierDocumentsAndWriter()
+    {
+        var dir = new MMapDirectory(SubDir(nameof(AddDocumentsAsync_TokenRejection_PreservesEarlierDocumentsAndWriter)));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig
+        {
+            MaxTokensPerDocument = 3,
+            TokenBudgetPolicy = TokenBudgetPolicy.Reject
+        });
+
+        await Assert.ThrowsAsync<TokenBudgetExceededException>(() => writer.AddDocumentsAsync(
+        [
+            MakeDoc("accepted", "one two"),
+            MakeDoc("rejected", "one two three four")
+        ]).AsTask());
+
+        await writer.AddDocumentAsync(MakeDoc("after", "still usable"));
+        await writer.CommitAsync();
+
+        using var searcher = new IndexSearcher(dir);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "accepted"), 10).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "rejected"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "after"), 10).TotalHits);
     }
 
     [Fact(DisplayName = "Async Indexing: AddDocumentsAsync Streams Async Enumerable")]

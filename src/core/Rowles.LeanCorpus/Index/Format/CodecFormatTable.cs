@@ -34,6 +34,7 @@ internal static class CodecFormatTable
         [".numl"] = new("Int64 numeric field index", null, HasHeader: false, HeaderFormat: null),
         [".pbs"] = new("Parent bitset", null, HasHeader: false, HeaderFormat: null),
         [".seg"] = new("Segment metadata", null, HasHeader: false, HeaderFormat: null),
+        [".cfs"] = new("Compound segment", null, HasHeader: false, HeaderFormat: null),
         [".stats"] = new("Segment statistics", null, HasHeader: false, HeaderFormat: null),
     };
 

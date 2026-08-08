@@ -207,6 +207,48 @@ public sealed class CollectorTests : IDisposable
         Assert.Equal(11, ((CountCollector)cc).TotalHits); // docs 5-15 inclusive
     }
 
+    [Fact(DisplayName = "Search(ICollector): Custom collector receives more than 1024 hits")]
+    public void Search_Collector_ReceivesMoreThan1024Hits()
+    {
+        var dir = new MMapDirectory(_dir);
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            for (int i = 0; i < 1_100; i++)
+                writer.AddDocument(Doc("match"));
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir, new IndexSearcherConfig());
+        var collector = new TrackingCollector();
+
+        searcher.Search(new TermQuery("body", "match"), collector);
+
+        Assert.Equal(1_100, collector.TotalHits);
+    }
+
+    [Fact(DisplayName = "Search(ILeafCollector): Receives segment and scorer callbacks")]
+    public void Search_LeafCollector_ReceivesSegmentAndScorerCallbacks()
+    {
+        var dir = new MMapDirectory(_dir);
+        using (var writer = new IndexWriter(
+            dir,
+            new IndexWriterConfig { MaxBufferedDocs = 1, MergePolicy = NoMergePolicy.Instance }))
+        {
+            writer.AddDocument(Doc("match"));
+            writer.AddDocument(Doc("match"));
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir, new IndexSearcherConfig());
+        var collector = new TrackingLeafCollector();
+
+        searcher.Search(new TermQuery("body", "match"), collector);
+
+        Assert.Equal(2, collector.TotalHits);
+        Assert.Equal(2, collector.Segments.Count);
+        Assert.All(collector.ScoredDocs, item => Assert.True(item.Score > 0));
+    }
+
     private static LeanDocument Doc(string body)
     {
         var doc = new LeanDocument();
@@ -226,6 +268,29 @@ public sealed class CollectorTests : IDisposable
             TotalHits++;
             DocIds.Add(docId);
             Scores.Add(score);
+        }
+    }
+
+    private sealed class TrackingLeafCollector : ILeafCollector
+    {
+        private Scorer? _scorer;
+
+        public int TotalHits { get; private set; }
+        public List<(int Ordinal, int DocBase, int MaxDoc)> Segments { get; } = [];
+        public List<(int DocId, float Score)> ScoredDocs { get; } = [];
+
+        public void SetSegment(int ordinal, int docBase, int maxDoc)
+            => Segments.Add((ordinal, docBase, maxDoc));
+
+        public void SetScorer(Scorer scorer) => _scorer = scorer;
+
+        public void Collect(int docId, float score)
+        {
+            Assert.NotNull(_scorer);
+            Assert.Equal(docId, _scorer.DocId);
+            Assert.Equal(score, _scorer.Score());
+            TotalHits++;
+            ScoredDocs.Add((docId, score));
         }
     }
 }

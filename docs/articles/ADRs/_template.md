@@ -1,7 +1,17 @@
+---
+adr: ADRnnn
+title: "[title]"
+date: YYYY-MM-DD
+status: Accepted
+version-added: vNext
+summary: "[one sentence summary]"
+areas: [area]
+---
+
 # ADRnnn: [title]
 
 - **Date:** YYYY-MM-DD
-- **Status:** Proposed | Accepted | Deprecated | Superseded by [ADRnnn]
+- **Status:** Accepted | Deprecated
 
 ## Context
 

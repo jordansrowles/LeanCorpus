@@ -14,6 +14,11 @@ Edit the Markdown source and templates. Do not edit generated output in:
 
 API reference pages are generated from XML documentation. If a public member is unclear, improve its XML comment as well as any conceptual guide.
 
+The feature-comparison records live in `docs/articles/features/items`. The docs
+build reads their front matter and replaces `docs/articles/features/index.md`
+with the interactive table, so edit the item files rather than the generated
+index.
+
 ## Navigation
 
 The root `docs/toc.yml` defines the main site navigation. Each section has its own `toc.yml`. Add a page to both the DocFX content patterns and the appropriate table of contents when introducing a new hierarchy.

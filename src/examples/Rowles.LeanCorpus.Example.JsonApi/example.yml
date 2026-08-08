@@ -1,0 +1,4 @@
+name: JSON search API
+summary: Minimal ASP.NET Core API with indexed JSON documents and search endpoints.
+packages: LeanCorpus
+run: dotnet run --project src/examples/Rowles.LeanCorpus.Example.JsonApi

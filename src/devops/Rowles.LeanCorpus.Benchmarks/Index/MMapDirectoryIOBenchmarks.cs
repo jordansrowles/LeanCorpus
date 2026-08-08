@@ -28,6 +28,7 @@ public class MMapDirectoryIOBenchmarks
     private MMapDirectory? _directory;
     private string _dataFilePath = string.Empty;
     private byte[] _writeBuffer = [];
+    private readonly List<string> _writtenPaths = [];
 
     [GlobalSetup]
     public void Setup()
@@ -50,8 +51,21 @@ public class MMapDirectoryIOBenchmarks
     [GlobalCleanup]
     public void Cleanup()
     {
+        _directory?.Dispose();
+        _directory = null;
         if (!string.IsNullOrWhiteSpace(_dirPath) && IODirectory.Exists(_dirPath))
             IODirectory.Delete(_dirPath, recursive: true);
+    }
+
+    [IterationCleanup]
+    public void IterationCleanup()
+    {
+        foreach (var path in _writtenPaths)
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        _writtenPaths.Clear();
     }
 
     [Benchmark(Baseline = true, Description = "Sequential write (4 KiB blocks)")]
@@ -59,37 +73,49 @@ public class MMapDirectoryIOBenchmarks
     public int LeanCorpus_IO_SequentialWrite()
     {
         var path = Path.Combine(_dirPath!, $"write-{Guid.NewGuid():N}.bin");
+        _writtenPaths.Add(path);
         using var output = new IndexOutput(path);
         for (int i = 0; i < BlockCount; i++)
             output.WriteBytes(_writeBuffer);
         return BlockCount;
     }
 
-    [Benchmark(Description = "Sequential read (4 KiB blocks)")]
+    [Benchmark(Description = "Sequential read spans (4 KiB blocks)")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_IO_SequentialRead()
     {
-        var buf = new byte[BlockSize];
         using var input = new IndexInput(_dataFilePath);
+        int checksum = 0;
         for (int i = 0; i < BlockCount; i++)
-            _ = input.ReadBytes(BlockSize);
-        return BlockCount;
+            checksum += input.ReadSpan(BlockSize)[0];
+        return checksum;
     }
 
-    [Benchmark(Description = "Random read (page-stride)")]
+    [Benchmark(Description = "Sequential read arrays (allocation API)")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_IO_SequentialReadBytes()
+    {
+        using var input = new IndexInput(_dataFilePath);
+        int checksum = 0;
+        for (int i = 0; i < BlockCount; i++)
+            checksum += input.ReadBytes(BlockSize)[0];
+        return checksum;
+    }
+
+    [Benchmark(Description = "Random read spans (page-stride)")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_IO_RandomRead()
     {
         var rnd = new Random(7);
-        var buf = new byte[BlockSize];
         using var input = new IndexInput(_dataFilePath);
+        int checksum = 0;
         for (int i = 0; i < BlockCount; i++)
         {
             long pos = (long)rnd.Next(BlockCount) * BlockSize;
             input.Seek(pos);
-            _ = input.ReadBytes(BlockSize);
+            checksum += input.ReadSpan(BlockSize)[0];
         }
-        return BlockCount;
+        return checksum;
     }
 
     [Benchmark(Description = "Byte random read (mmap fault stress)")]

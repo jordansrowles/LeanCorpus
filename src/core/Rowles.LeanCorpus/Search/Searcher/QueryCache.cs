@@ -28,6 +28,7 @@ namespace Rowles.LeanCorpus.Search.Searcher;
 /// </remarks>
 public sealed class QueryCache
 {
+    internal static string CreateQueryFingerprint(Query query) => QueryFingerprint.Create(query);
     private readonly int _maxEntries;
     private volatile ConcurrentDictionary<CacheKey, CacheEntry> _map;
     private readonly Lock _swapLock = new();
@@ -62,8 +63,14 @@ public sealed class QueryCache
     /// Lock-free on the read path.
     /// </summary>
     public TopDocs? TryGet(Query query, int topN)
+        => TryGet(query, topN, string.Empty);
+
+    /// <summary>Tries to retrieve a result using an additional immutable result identity.</summary>
+    /// <remarks>Use this for result-affecting profile, ruleset, or pipeline identities.</remarks>
+    public TopDocs? TryGet(Query query, int topN, string resultIdentity)
     {
-        var key = new CacheKey(QueryFingerprint.Create(query), topN);
+        ArgumentNullException.ThrowIfNull(resultIdentity);
+        var key = new CacheKey(QueryFingerprint.Create(query), topN, resultIdentity);
         var map = _map;
         long gen = Interlocked.Read(ref _generation);
 
@@ -82,8 +89,14 @@ public sealed class QueryCache
     /// the entire dictionary is swapped for a fresh one.
     /// </summary>
     public void Put(Query query, int topN, TopDocs result)
+        => Put(query, topN, result, string.Empty);
+
+    /// <summary>Stores a result using an additional immutable result identity.</summary>
+    public void Put(Query query, int topN, TopDocs result, string resultIdentity)
     {
-        var key = new CacheKey(QueryFingerprint.Create(query), topN);
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(resultIdentity);
+        var key = new CacheKey(QueryFingerprint.Create(query), topN, resultIdentity);
         long gen = Interlocked.Read(ref _generation);
         var entry = new CacheEntry(key, result, gen);
 
@@ -138,7 +151,7 @@ public sealed class QueryCache
         Interlocked.Exchange(ref _map, fresh);
     }
 
-    private readonly record struct CacheKey(string QueryFingerprint, int TopN);
+    private readonly record struct CacheKey(string QueryFingerprint, int TopN, string ResultIdentity);
 
     private sealed class CacheEntry(CacheKey key, TopDocs result, long generation)
     {
@@ -171,7 +184,11 @@ public sealed class QueryCache
                 case PhraseQuery pq:
                     AppendPart(builder, pq.Field);
                     builder.Append("|slop=").Append(pq.Slop);
-                    foreach (var term in pq.Terms) AppendPart(builder, term);
+                    for (int i = 0; i < pq.Terms.Length; i++)
+                    {
+                        builder.Append("|pos=").Append(pq.Positions[i]);
+                        AppendPart(builder, pq.Terms[i]);
+                    }
                     break;
                 case MultiPhraseQuery mpq:
                     AppendPart(builder, mpq.Field);
@@ -184,6 +201,7 @@ public sealed class QueryCache
                     }
                     break;
                 case BooleanQuery bq:
+                    builder.Append("|msm=").Append(bq.MinimumNumberShouldMatch);
                     foreach (var clause in bq.Clauses)
                     {
                         builder.Append("|").Append(clause.Occur).Append("(");
@@ -209,6 +227,22 @@ public sealed class QueryCache
                     AppendPart(builder, rq.Field);
                     builder.Append("|min=").Append(rq.Min.ToString("R", CultureInfo.InvariantCulture));
                     builder.Append("|max=").Append(rq.Max.ToString("R", CultureInfo.InvariantCulture));
+                    builder.Append("|incMin=").Append(rq.IncludeMin);
+                    builder.Append("|incMax=").Append(rq.IncludeMax);
+                    break;
+                case Int64RangeQuery irq:
+                    AppendPart(builder, irq.Field);
+                    builder.Append("|min=").Append(irq.Min);
+                    builder.Append("|max=").Append(irq.Max);
+                    builder.Append("|incMin=").Append(irq.IncludeMin);
+                    builder.Append("|incMax=").Append(irq.IncludeMax);
+                    break;
+                case BinaryRangeQuery brq:
+                    AppendPart(builder, brq.Field);
+                    builder.Append("|incMin=").Append(brq.IncludeLower);
+                    builder.Append("|incMax=").Append(brq.IncludeUpper);
+                    AppendBytes(builder, brq.Lower);
+                    AppendBytes(builder, brq.Upper);
                     break;
                 case MatchAllDocsQuery:
                     break;
@@ -222,10 +256,23 @@ public sealed class QueryCache
                     AppendPart(builder, tisq.Field);
                     foreach (var term in tisq.Terms) AppendPart(builder, term);
                     break;
+                case TermsQuery termsQuery:
+                    AppendPart(builder, termsQuery.Field);
+                    foreach (var term in termsQuery.Terms) AppendBytes(builder, term);
+                    break;
+                case SynonymQuery sq:
+                    AppendPart(builder, sq.Field);
+                    foreach (var term in sq.Terms) AppendPart(builder, term);
+                    break;
                 case PointInSetQuery pisq:
                     AppendPart(builder, pisq.Field);
                     foreach (var point in pisq.Points)
                         builder.Append("|pt=").Append(point.ToString("R", CultureInfo.InvariantCulture));
+                    break;
+                case BinaryPointInSetQuery bpisq:
+                    AppendPart(builder, bpisq.Field);
+                    foreach (var point in bpisq.Points)
+                        AppendBytes(builder, point);
                     break;
                 case PrefixQuery pq:
                     AppendPart(builder, pq.Field);
@@ -241,10 +288,13 @@ public sealed class QueryCache
                     builder.Append("|edits=").Append(fq.MaxEdits).Append("|exp=").Append(fq.MaxExpansions);
                     break;
                 case FunctionScoreQuery fsq:
-                    AppendPart(builder, fsq.NumericField);
+                    AppendValuesSource(builder, fsq.ValuesSource);
                     builder.Append("|mode=").Append(fsq.Mode).Append("(");
                     Append(fsq.Inner, builder);
                     builder.Append(')');
+                    break;
+                case FunctionQuery functionQuery:
+                    AppendValuesSource(builder, functionQuery.ValuesSource);
                     break;
                 case BlockJoinQuery bjq:
                     builder.Append("|child=(");
@@ -298,6 +348,29 @@ public sealed class QueryCache
 
         private static void AppendPart(StringBuilder builder, string value)
             => builder.Append('|').Append(value.Length).Append(':').Append(value);
+
+        private static void AppendValuesSource(
+            StringBuilder builder,
+            Scoring.DoubleValuesSource source)
+        {
+            AppendPart(builder, source.GetType().FullName ?? source.GetType().Name);
+            AppendPart(builder, source.ToString() ?? string.Empty);
+            builder.Append("|hash=").Append(source.GetHashCode());
+        }
+
+        private static void AppendBytes(StringBuilder builder, ReadOnlyMemory<byte>? value)
+        {
+            if (value is null)
+            {
+                builder.Append("|null");
+                return;
+            }
+
+            var span = value.Value.Span;
+            builder.Append('|').Append(span.Length).Append(':');
+            for (int i = 0; i < span.Length; i++)
+                builder.Append(span[i].ToString("X2", CultureInfo.InvariantCulture));
+        }
 
         private static void AppendIntervalsSource(IntervalsSource source, StringBuilder builder)
         {

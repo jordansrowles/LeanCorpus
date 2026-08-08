@@ -1,6 +1,6 @@
 # Tips and how-to
 
-Operational and performance guidance for established LeanCorpus applications.
+Use these focused guides after the core workflow works. Start with production deployment for operational defaults, then tune only from measurements.
 
 - [Stored-field compression](01-compression.md) compares built-in and optional codecs.
 - [Query cache](02-query-cache.md) explains cache identity, eviction, refresh, and sizing.

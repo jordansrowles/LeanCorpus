@@ -16,9 +16,8 @@ internal sealed partial class SegmentReaderState
     {
         return LazyInitializer.EnsureInitialized(ref _numericIndex, ref _lazyInitLock, () =>
         {
-            var numPath = _basePath + ".num";
-            return FileOpenRetry.FileExists(numPath)
-                ? ReadNumericIndex(numPath)
+            return _files.Exists(".num")
+                ? ReadNumericIndex(_files.OpenInput(".num"))
                 : new Dictionary<string, Dictionary<int, double>>();
         })!;
     }
@@ -32,7 +31,9 @@ internal sealed partial class SegmentReaderState
         lock (lockObj)
         {
             if (_numericDocValues is not null) return _numericDocValues;
-            var (vals, pres) = NumericDocValuesReader.Read(_basePath + ".dvn");
+            var (vals, pres) = _files.Exists(".dvn")
+                ? NumericDocValuesReader.Read(_files.OpenInput(".dvn"))
+                : (new Dictionary<string, double[]>(), new Dictionary<string, RoaringBitmap?>());
             _numericDocValuesPresence = pres;
             _numericDocValues = vals;
         }
@@ -44,9 +45,8 @@ internal sealed partial class SegmentReaderState
     {
         return LazyInitializer.EnsureInitialized(ref _int64Index, ref _lazyInitLock, () =>
         {
-            var numlPath = _basePath + ".numl";
-            return FileOpenRetry.FileExists(numlPath)
-                ? ReadInt64Index(numlPath)
+            return _files.Exists(".numl")
+                ? ReadInt64Index(_files.OpenInput(".numl"))
                 : new Dictionary<string, Dictionary<int, long>>();
         })!;
     }
@@ -60,7 +60,9 @@ internal sealed partial class SegmentReaderState
         lock (lockObj)
         {
             if (_int64DocValues is not null) return _int64DocValues;
-            var (vals, pres) = Int64DocValuesReader.Read(_basePath + ".dvnl");
+            var (vals, pres) = _files.Exists(".dvnl")
+                ? Int64DocValuesReader.Read(_files.OpenInput(".dvnl"))
+                : (new Dictionary<string, long[]>(), new Dictionary<string, RoaringBitmap?>());
             _int64DocValuesPresence = pres;
             _int64DocValues = vals;
         }
@@ -76,7 +78,9 @@ internal sealed partial class SegmentReaderState
         lock (lockObj)
         {
             if (_int64SortedDocValues is not null) return _int64SortedDocValues;
-            _int64SortedDocValues = Int64SortedNumericDocValuesReader.Read(_basePath + ".dsnl");
+            _int64SortedDocValues = _files.Exists(".dsnl")
+                ? Int64SortedNumericDocValuesReader.Read(_files.OpenInput(".dsnl"))
+                : new Dictionary<string, long[][]>();
         }
         return _int64SortedDocValues;
     }
@@ -90,7 +94,9 @@ internal sealed partial class SegmentReaderState
         lock (lockObj)
         {
             if (_sortedDocValues is not null) return _sortedDocValues;
-            var (vals, pres) = SortedDocValuesReader.Read(_basePath + ".dvs");
+            var (vals, pres) = _files.Exists(".dvs")
+                ? SortedDocValuesReader.Read(_files.OpenInput(".dvs"))
+                : (new Dictionary<string, string[]>(), new Dictionary<string, RoaringBitmap?>());
             _sortedDocValuesPresence = pres;
             _sortedDocValues = vals;
         }
@@ -106,9 +112,41 @@ internal sealed partial class SegmentReaderState
         lock (lockObj)
         {
             if (_sortedSetDocValues is not null) return _sortedSetDocValues;
-            _sortedSetDocValues = SortedSetDocValuesReader.Read(_basePath + ".dss");
+            _sortedSetDocValues = _files.Exists(".dss")
+                ? SortedSetDocValuesReader.Read(_files.OpenInput(".dss"))
+                : new Dictionary<string, string[][]>();
         }
         return _sortedSetDocValues;
+    }
+
+    private Dictionary<string, string[]> EnsureSortedDocValueTerms()
+    {
+        if (_sortedDocValueTerms is not null) return _sortedDocValueTerms;
+
+        var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
+        lock (lockObj)
+        {
+            if (_sortedDocValueTerms is not null) return _sortedDocValueTerms;
+            _sortedDocValueTerms = _files.Exists(".dvs")
+                ? SortedDocValuesReader.ReadTerms(_files.OpenInput(".dvs"))
+                : new Dictionary<string, string[]>();
+        }
+        return _sortedDocValueTerms;
+    }
+
+    private Dictionary<string, string[]> EnsureSortedSetDocValueTerms()
+    {
+        if (_sortedSetDocValueTerms is not null) return _sortedSetDocValueTerms;
+
+        var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
+        lock (lockObj)
+        {
+            if (_sortedSetDocValueTerms is not null) return _sortedSetDocValueTerms;
+            _sortedSetDocValueTerms = _files.Exists(".dss")
+                ? SortedSetDocValuesReader.ReadTerms(_files.OpenInput(".dss"))
+                : new Dictionary<string, string[]>();
+        }
+        return _sortedSetDocValueTerms;
     }
 
     /// <summary>Lazy-loads sorted-numeric doc values (.dsn).</summary>
@@ -120,7 +158,9 @@ internal sealed partial class SegmentReaderState
         lock (lockObj)
         {
             if (_sortedNumericDocValues is not null) return _sortedNumericDocValues;
-            _sortedNumericDocValues = SortedNumericDocValuesReader.Read(_basePath + ".dsn");
+            _sortedNumericDocValues = _files.Exists(".dsn")
+                ? SortedNumericDocValuesReader.Read(_files.OpenInput(".dsn"))
+                : new Dictionary<string, double[][]>();
         }
         return _sortedNumericDocValues;
     }
@@ -134,7 +174,9 @@ internal sealed partial class SegmentReaderState
         lock (lockObj)
         {
             if (_binaryDocValues is not null) return _binaryDocValues;
-            _binaryDocValues = BinaryDocValuesReader.Read(_basePath + ".dvb");
+            _binaryDocValues = _files.Exists(".dvb")
+                ? BinaryDocValuesReader.Read(_files.OpenInput(".dvb"))
+                : new Dictionary<string, byte[][][]>();
         }
         return _binaryDocValues;
     }
@@ -312,6 +354,14 @@ internal sealed partial class SegmentReaderState
     /// <summary>Returns the SortedSetDocValues array for a field, or null if unavailable.</summary>
     public string[][]? GetSortedSetDocValues(string field)
         => EnsureSortedSetDocValues().GetValueOrDefault(field);
+
+    /// <summary>Returns the sorted local term dictionary for a field, or null if unavailable.</summary>
+    public string[]? GetSortedDocValueTerms(string field)
+        => EnsureSortedDocValueTerms().GetValueOrDefault(field);
+
+    /// <summary>Returns the sorted-set local term dictionary for a field, or null if unavailable.</summary>
+    public string[]? GetSortedSetDocValueTerms(string field)
+        => EnsureSortedSetDocValueTerms().GetValueOrDefault(field);
 
     /// <summary>Returns the SortedNumericDocValues array for a field, or null if unavailable.</summary>
     public double[][]? GetSortedNumericDocValues(string field)
@@ -604,12 +654,11 @@ internal sealed partial class SegmentReaderState
         {
             if (_bkdReaderLoaded) return _bkdReader;
 
-            var bkdPath = _basePath + ".bkd";
-            if (FileOpenRetry.FileExists(bkdPath))
+            if (_files.Exists(".bkd"))
             {
                 try
                 {
-                    _bkdReader = Codecs.Bkd.BKDReader.Open(bkdPath);
+                    _bkdReader = Codecs.Bkd.BKDReader.Open(_files.OpenInput(".bkd"));
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException)
                 {
@@ -635,12 +684,11 @@ internal sealed partial class SegmentReaderState
         {
             if (_int64BkdReaderLoaded) return _int64BkdReader;
 
-            var bkdPath = _basePath + ".bkdl";
-            if (FileOpenRetry.FileExists(bkdPath))
+            if (_files.Exists(".bkdl"))
             {
                 try
                 {
-                    _int64BkdReader = Codecs.Bkd.Int64BKDReader.Open(bkdPath);
+                    _int64BkdReader = Codecs.Bkd.Int64BKDReader.Open(_files.OpenInput(".bkdl"));
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException)
                 {
@@ -696,12 +744,12 @@ internal sealed partial class SegmentReaderState
 
             if (_vectorQuantisation.TryGetValue(fieldName, out var q) && q != VectorQuantisation.None)
             {
-                qr = QuantisedVectorReader.Open(_directory.OpenInput(Path.GetFileName(path)));
+                qr = QuantisedVectorReader.Open(_files.OpenInput(path));
                 _quantisedVectorReaders[fieldName] = qr;
                 return qr.ReadVector(docId);
             }
 
-            vr = VectorReader.Open(_directory.OpenInput(Path.GetFileName(path)));
+            vr = VectorReader.Open(_files.OpenInput(path));
             _vectorReaders[fieldName] = vr;
             return vr.ReadVector(docId);
         }
@@ -721,9 +769,10 @@ internal sealed partial class SegmentReaderState
         {
             if (_hnswGraphs.TryGetValue(fieldName, out cached)) return cached;
             var path = VectorFilePaths.HnswFile(_basePath, fieldName);
+            string hnswExtension = Path.GetFileName(path)[_info.SegmentId.Length..];
             HnswGraph? graph = null;
 
-            if (FileOpenRetry.FileExists(path))
+            if (_files.Exists(hnswExtension))
             {
                 IVectorSource? src = null;
                 if (_vectorReaders.TryGetValue(fieldName, out var vr))
@@ -734,13 +783,13 @@ internal sealed partial class SegmentReaderState
                 {
                     if (_vectorQuantisation.TryGetValue(fieldName, out var q) && q != VectorQuantisation.None)
                     {
-                        qr = QuantisedVectorReader.Open(_directory.OpenInput(Path.GetFileName(vecPath)));
+                        qr = QuantisedVectorReader.Open(_files.OpenInput(vecPath));
                         _quantisedVectorReaders[fieldName] = qr;
                         src = new QuantisedVectorSource(qr);
                     }
                     else
                     {
-                        vr = VectorReader.Open(_directory.OpenInput(Path.GetFileName(vecPath)));
+                        vr = VectorReader.Open(_files.OpenInput(vecPath));
                         _vectorReaders[fieldName] = vr;
                         src = new VectorReaderSource(vr);
                     }
@@ -750,7 +799,7 @@ internal sealed partial class SegmentReaderState
                 {
                     bool? expectedNormalised = _info.VectorFields
                         .FirstOrDefault(vf => vf.FieldName == fieldName)?.Normalised;
-                    graph = HnswReader.Read(path, src, expectedNormalised);
+                    graph = HnswReader.Read(_files.OpenInput(hnswExtension), src, expectedNormalised, docIdRemap: null);
                 }
             }
             _hnswGraphs[fieldName] = graph;
@@ -760,8 +809,14 @@ internal sealed partial class SegmentReaderState
 
     private static Dictionary<string, Dictionary<int, double>> ReadNumericIndex(string filePath)
     {
+        using var input = new IndexInput(filePath);
+        return ReadNumericIndex(input);
+    }
+
+    private static Dictionary<string, Dictionary<int, double>> ReadNumericIndex(IndexInput input)
+    {
         var result = new Dictionary<string, Dictionary<int, double>>();
-        using var fs = FileOpenRetry.OpenReadDelete(filePath);
+        using var fs = new IndexInputStream(input);
         using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
 
         int fieldCount = reader.ReadInt32();
@@ -783,8 +838,14 @@ internal sealed partial class SegmentReaderState
 
     private static Dictionary<string, Dictionary<int, long>> ReadInt64Index(string filePath)
     {
+        using var input = new IndexInput(filePath);
+        return ReadInt64Index(input);
+    }
+
+    private static Dictionary<string, Dictionary<int, long>> ReadInt64Index(IndexInput input)
+    {
         var result = new Dictionary<string, Dictionary<int, long>>();
-        using var fs = FileOpenRetry.OpenReadDelete(filePath);
+        using var fs = new IndexInputStream(input);
         using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
 
         int fieldCount = reader.ReadInt32();

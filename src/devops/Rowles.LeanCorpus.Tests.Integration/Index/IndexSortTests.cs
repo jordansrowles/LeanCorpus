@@ -162,16 +162,158 @@ public sealed class IndexSortTests : IClassFixture<TestDirectoryFixture>
         using (var writer = new IndexWriter(mmap, config))
         {
             for (int i = 100; i >= 1; i--)
-                AddDocWithPrice(writer, $"item{i}", i);
+                AddDocWithPrice(writer, $"item {i}", i);
             writer.Commit();
         }
 
         using var searcher = new IndexSearcher(mmap);
-        var results = searcher.Search(new WildcardQuery("title", "*"), 5, SortField.Numeric("price"));
+        var results = searcher.Search(new TermQuery("title", "item"), 5, SortField.Numeric("price"));
 
-        Assert.True(results.TotalHits >= 5);
+        Assert.Equal(5, results.TotalHits);
+        Assert.True(results.IsPartial);
         var prices = GetStoredDoubles(searcher, results, "price");
         Assert.Equal([1.0, 2.0, 3.0, 4.0, 5.0], prices);
+    }
+
+    /// <summary>
+    /// Verifies early termination merges the best candidates from every sorted segment.
+    /// </summary>
+    [Fact(DisplayName = "Index Sort: Early Termination Merges Multiple Segments")]
+    public void IndexSort_EarlyTermination_MergesMultipleSegments()
+    {
+        var dir = Path.Combine(_path, nameof(IndexSort_EarlyTermination_MergesMultipleSegments));
+        Directory.CreateDirectory(dir);
+        var mmap = new MMapDirectory(dir);
+
+        var config = new IndexWriterConfig
+        {
+            IndexSort = new IndexSort(SortField.Numeric("price")),
+            MaxBufferedDocs = 2,
+            MergePolicy = NoMergePolicy.Instance
+        };
+
+        using (var writer = new IndexWriter(mmap, config))
+        {
+            AddDocWithPrice(writer, "item", 100.0);
+            AddDocWithPrice(writer, "item", 200.0);
+            AddDocWithPrice(writer, "item", 1.0);
+            AddDocWithPrice(writer, "item", 2.0);
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(mmap);
+        var results = searcher.Search(new TermQuery("title", "item"), 3, SortField.Numeric("price"));
+
+        Assert.True(results.IsPartial);
+        Assert.Equal([1.0, 2.0, 100.0], GetStoredDoubles(searcher, results, "price"));
+    }
+
+    /// <summary>
+    /// Verifies the Int64 index sort is physically applied before early termination.
+    /// </summary>
+    [Fact(DisplayName = "Index Sort: Int64 Early Termination Matches Sort Order")]
+    public void IndexSort_Int64EarlyTermination_MatchesSortOrder()
+    {
+        var dir = Path.Combine(_path, nameof(IndexSort_Int64EarlyTermination_MatchesSortOrder));
+        Directory.CreateDirectory(dir);
+        var mmap = new MMapDirectory(dir);
+
+        var config = new IndexWriterConfig
+        {
+            IndexSort = new IndexSort(SortField.Int64("ordinal"))
+        };
+
+        using (var writer = new IndexWriter(mmap, config))
+        {
+            for (long ordinal = 100; ordinal >= 1; ordinal--)
+            {
+                var doc = new LeanDocument();
+                doc.Add(new TextField("title", "item"));
+                doc.Add(new Int64Field("ordinal", ordinal));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(mmap);
+        var results = searcher.Search(new TermQuery("title", "item"), 5, SortField.Int64("ordinal"));
+
+        Assert.Equal(5, results.TotalHits);
+        Assert.True(results.IsPartial);
+        var ordinals = results.ScoreDocs
+            .Select(scoreDoc => long.Parse(
+                searcher.GetStoredFields(scoreDoc.DocId)["ordinal"][0],
+                System.Globalization.CultureInfo.InvariantCulture))
+            .ToArray();
+        Assert.Equal([1L, 2L, 3L, 4L, 5L], ordinals);
+    }
+
+    /// <summary>
+    /// Verifies a non-default multi-valued selector survives segment metadata and early termination.
+    /// </summary>
+    [Fact(DisplayName = "Index Sort: Sorted Numeric Max Selector Matches Sort Order")]
+    public void IndexSort_SortedNumericMaxSelector_MatchesSortOrder()
+    {
+        var dir = Path.Combine(_path, nameof(IndexSort_SortedNumericMaxSelector_MatchesSortOrder));
+        Directory.CreateDirectory(dir);
+        var mmap = new MMapDirectory(dir);
+
+        var config = new IndexWriterConfig
+        {
+            IndexSort = new IndexSort(SortField.SortedNumeric("rank", SortValueSelector.Max))
+        };
+
+        using (var writer = new IndexWriter(mmap, config))
+        {
+            AddDocWithRanks(writer, "a", 50, 1);
+            AddDocWithRanks(writer, "b", 10);
+            AddDocWithRanks(writer, "c", 30, 20);
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(mmap);
+        var results = searcher.Search(
+            new TermQuery("title", "item"),
+            3,
+            SortField.SortedNumeric("rank", SortValueSelector.Max));
+
+        Assert.Equal(3, results.TotalHits);
+        Assert.True(results.IsPartial);
+        var ids = results.ScoreDocs
+            .Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["id"][0])
+            .ToArray();
+        Assert.Equal(["b", "c", "a"], ids);
+    }
+
+    /// <summary>
+    /// Verifies physical string sorting honours the maximum sorted-set selector.
+    /// </summary>
+    [Fact(DisplayName = "Index Sort: Sorted Set Max Selector Matches Sort Order")]
+    public void IndexSort_SortedSetMaxSelector_MatchesSortOrder()
+    {
+        var dir = Path.Combine(_path, nameof(IndexSort_SortedSetMaxSelector_MatchesSortOrder));
+        Directory.CreateDirectory(dir);
+        var mmap = new MMapDirectory(dir);
+        var sort = new SortField(SortFieldType.String, "tags", selector: SortValueSelector.Max);
+
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig
+        {
+            IndexSort = new IndexSort(sort)
+        }))
+        {
+            AddDocWithTags(writer, "a", "a", "z");
+            AddDocWithTags(writer, "b", "b", "m");
+            AddDocWithTags(writer, "c", "c", "y");
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(mmap);
+        var results = searcher.Search(new TermQuery("title", "item"), 3, sort);
+        var ids = results.ScoreDocs
+            .Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["id"][0])
+            .ToArray();
+
+        Assert.Equal(["b", "c", "a"], ids);
     }
 
     /// <summary>
@@ -257,6 +399,29 @@ public sealed class IndexSortTests : IClassFixture<TestDirectoryFixture>
         var doc = new LeanDocument();
         doc.Add(new TextField("name", name));
         doc.Add(new StringField("category", category));
+        writer.AddDocument(doc);
+    }
+
+    private static void AddDocWithRanks(IndexWriter writer, string id, params double[] ranks)
+    {
+        var doc = new LeanDocument();
+        doc.Add(new TextField("title", "item"));
+        doc.Add(new StringField("id", id));
+        foreach (double rank in ranks)
+            doc.Add(new NumericField("rank", rank));
+        writer.AddDocument(doc);
+    }
+
+    private static void AddDocWithTags(IndexWriter writer, string id, params string[] tags)
+    {
+        var doc = new LeanDocument();
+        doc.Add(new TextField("title", "item"));
+        doc.Add(new StringField("id", id));
+        foreach (string tag in tags)
+        {
+            doc.Add(new StringField(
+                "tags", tag, stored: false, boost: 1.0f, docValues: StringDocValues.SortedSet));
+        }
         writer.AddDocument(doc);
     }
 }

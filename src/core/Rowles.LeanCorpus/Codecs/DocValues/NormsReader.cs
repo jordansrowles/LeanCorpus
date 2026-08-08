@@ -15,6 +15,12 @@ internal static class NormsReader
     public static NormsData Read(string filePath)
     {
         using var input = new IndexInput(filePath);
+        return Read(input);
+    }
+
+    internal static NormsData Read(IndexInput input)
+    {
+        using var inputLifetime = input;
 
         byte version = CodecFileHeader.ReadVersion(input, CodecFormats.Norms);
 

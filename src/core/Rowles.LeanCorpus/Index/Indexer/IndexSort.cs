@@ -32,7 +32,15 @@ public sealed class IndexSort : IEquatable<IndexSort>
         Fields = fields.ToArray();
         var serialised = new List<string>(fields.Length);
         foreach (var f in fields)
-            serialised.Add($"{f.Type}:{f.FieldName}:{f.Descending}");
+        {
+            // Keep the original three-part form for the default selector so
+            // existing segment metadata remains readable. Persist a non-default
+            // selector because it changes the physical order and early-termination
+            // must be able to reconstruct the exact sort.
+            serialised.Add(f.Selector == SortValueSelector.Min
+                ? $"{f.Type}:{f.FieldName}:{f.Descending}"
+                : $"{f.Type}:{f.FieldName}:{f.Descending}:{f.Selector}");
+        }
         SerialisedFields = serialised;
     }
 
@@ -44,7 +52,8 @@ public sealed class IndexSort : IEquatable<IndexSort>
         {
             var a = Fields[i];
             var b = other.Fields[i];
-            if (a.Type != b.Type || a.FieldName != b.FieldName || a.Descending != b.Descending)
+            if (a.Type != b.Type || a.FieldName != b.FieldName
+                || a.Descending != b.Descending || a.Selector != b.Selector)
                 return false;
         }
         return true;
@@ -62,6 +71,7 @@ public sealed class IndexSort : IEquatable<IndexSort>
             hc.Add(f.Type);
             hc.Add(f.FieldName);
             hc.Add(f.Descending);
+            hc.Add(f.Selector);
         }
         return hc.ToHashCode();
     }

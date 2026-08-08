@@ -83,7 +83,7 @@ public sealed class FieldQuery
                 AddTerm(tq.Field, tq.Term, positions: null, weight);
                 break;
             case PhraseQuery pq:
-                CollectPhrase(pq.Field, pq.Terms, weight);
+                CollectPhrase(pq, weight);
                 break;
             case MultiPhraseQuery mpq:
                 CollectMultiPhrase(mpq, weight);
@@ -111,13 +111,17 @@ public sealed class FieldQuery
                 foreach (var t in tisQ.Terms)
                     AddTerm(tisQ.Field, t, positions: null, weight);
                 break;
+            case SynonymQuery synonymQuery:
+                foreach (var term in synonymQuery.Terms)
+                    AddTerm(synonymQuery.Field, term, positions: null, weight);
+                break;
         }
     }
 
-    private void CollectPhrase(string field, string[] terms, float weight)
+    private void CollectPhrase(PhraseQuery query, float weight)
     {
-        for (int i = 0; i < terms.Length; i++)
-            AddTerm(field, terms[i], new HashSet<int> { i }, weight);
+        for (int i = 0; i < query.Terms.Length; i++)
+            AddTerm(query.Field, query.Terms[i], new HashSet<int> { query.Positions[i] }, weight);
     }
 
     private void CollectMultiPhrase(MultiPhraseQuery query, float weight)

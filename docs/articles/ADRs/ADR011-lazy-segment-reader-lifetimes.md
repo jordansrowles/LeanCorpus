@@ -1,3 +1,13 @@
+---
+adr: ADR011
+title: Lazy segment readers use bounded leases and process-wide file lifetimes
+date: 2026-07-21
+status: Accepted
+version-added: 2.1.0
+summary: Use bounded lazy segment readers with shared file lifetimes.
+areas: [search, store, indexing, concurrency]
+---
+
 # ADR011: Lazy segment readers use bounded leases and process-wide file lifetimes
 
 - **Date:** 2026-07-21

@@ -77,4 +77,11 @@ public sealed class TermInSetQuery : Query
             hash.Add(term);
         return CombineBoost(hash.ToHashCode());
     }
+
+    /// <inheritdoc/>
+    public override void Visit(QueryVisitor visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        visitor.ConsumeTerms(this, Field, _terms);
+    }
 }

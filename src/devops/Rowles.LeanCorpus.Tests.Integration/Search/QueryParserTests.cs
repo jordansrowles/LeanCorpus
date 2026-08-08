@@ -196,6 +196,79 @@ public sealed class QueryParserTests
         Assert.Equal(Occur.MustNot, bq.Clauses[2].Occur);
     }
 
+    [Fact(DisplayName = "Parse: Explicit Boolean Operators Honour Precedence")]
+    public void Parse_ExplicitBooleanOperators_HonourPrecedence()
+    {
+        var query = _parser.Parse("alpha OR beta AND gamma");
+        var outer = Assert.IsType<BooleanQuery>(query);
+        Assert.Equal(2, outer.Clauses.Count);
+        Assert.IsType<TermQuery>(outer.Clauses[0].Query);
+
+        var conjunction = Assert.IsType<BooleanQuery>(outer.Clauses[1].Query);
+        Assert.Equal(2, conjunction.Clauses.Count);
+        Assert.All(conjunction.Clauses, static clause => Assert.Equal(Occur.Must, clause.Occur));
+    }
+
+    [Fact(DisplayName = "Parse: Explicit Not Creates Prohibited Clause")]
+    public void Parse_ExplicitNot_CreatesProhibitedClause()
+    {
+        var query = _parser.Parse("alpha NOT beta");
+        var boolean = Assert.IsType<BooleanQuery>(query);
+
+        Assert.Equal(Occur.Must, boolean.Clauses[0].Occur);
+        Assert.Equal(Occur.MustNot, boolean.Clauses[1].Occur);
+    }
+
+    [Theory(DisplayName = "Parse: Text Range Creates Term Range Query")]
+    [InlineData("title:[alpha TO omega]", true, true)]
+    [InlineData("title:{alpha TO omega}", false, false)]
+    [InlineData("title:[* TO omega}", true, false)]
+    public void Parse_TextRange_CreatesTermRangeQuery(
+        string text, bool includeLower, bool includeUpper)
+    {
+        var query = Assert.IsType<TermRangeQuery>(_parser.Parse(text));
+
+        Assert.Equal("title", query.Field);
+        Assert.Equal(includeLower, query.IncludeLower);
+        Assert.Equal(includeUpper, query.IncludeUpper);
+        if (text.Contains('*'))
+            Assert.Null(query.LowerTerm);
+    }
+
+    [Fact(DisplayName = "Parse: Field Exists Creates Field Exists Query")]
+    public void Parse_FieldExists_CreatesFieldExistsQuery()
+    {
+        var query = Assert.IsType<FieldExistsQuery>(_parser.Parse("_exists_:title"));
+
+        Assert.Equal("title", query.Field);
+    }
+
+    [Fact(DisplayName = "Parse: Regular Expression Creates Regexp Query")]
+    public void Parse_RegularExpression_CreatesRegexpQuery()
+    {
+        var query = Assert.IsType<RegexpQuery>(_parser.Parse(@"title:/cor(pus|pora)/"));
+
+        Assert.Equal("title", query.Field);
+        Assert.Equal("cor(pus|pora)", query.Pattern);
+    }
+
+    [Fact(DisplayName = "Parse: Constant Score Syntax Wraps Query")]
+    public void Parse_ConstantScoreSyntax_WrapsQuery()
+    {
+        var query = Assert.IsType<ConstantScoreQuery>(_parser.Parse("important^=2.5"));
+
+        Assert.Equal(2.5f, query.ConstantScore);
+        Assert.IsType<TermQuery>(query.Inner);
+    }
+
+    [Fact(DisplayName = "Parse: Pipe Group Creates Disjunction Max Query")]
+    public void Parse_PipeGroup_CreatesDisjunctionMaxQuery()
+    {
+        var query = Assert.IsType<DisjunctionMaxQuery>(_parser.Parse("(alpha | beta | gamma)"));
+
+        Assert.Equal(3, query.Disjuncts.Count);
+    }
+
     /// <summary>
     /// Verifies the Parse: Invalid Syntax Throws Query Parse Exception scenario.
     /// </summary>
@@ -206,6 +279,9 @@ public sealed class QueryParserTests
     [InlineData("title:")]
     [InlineData("+")]
     [InlineData("quick)")]
+    [InlineData("alpha AND")]
+    [InlineData("title:[alpha omega]")]
+    [InlineData("title:/unterminated")]
     public void Parse_InvalidSyntax_ThrowsQueryParseException(string query)
     {
         Assert.Throws<QueryParseException>(() => _parser.Parse(query));

@@ -1,5 +1,7 @@
 ﻿# Vector search
 
+Use this guide when your application already generates compatible embeddings. LeanCorpus stores and searches vectors, but does not choose an embedding model or generate embeddings from document text.
+
 Dense float vectors are stored per segment with an HNSW graph built at flush time. Searches use HNSW when present, then rerank the shortlist with exact cosine similarity.
 
 ```mermaid-latest
@@ -24,7 +26,7 @@ doc.Add(new VectorField("embedding", new float[] { 0.1f, 0.2f, 0.3f, 0.4f }));
 writer.AddDocument(doc);
 ```
 
-All vectors in the same field must have the same dimensionality. Vectors are normalised at index time by default (keeps cosine search cheap).
+All vectors in the same field must have the same dimensionality. Vectors are normalised at index time by default (keeps cosine search cheap). Keep the embedding model, normalisation policy and dimension under application control. Reindex the field when any of those change.
 
 ## Query
 
@@ -75,6 +77,8 @@ var filter = new TermQuery("category", "docs");
 var query = new VectorQuery("embedding", queryVector, topK: 10, filter: filter);
 ```
 
+Apply the filter for tenant, category or permission boundaries rather than filtering results after retrieval. The filter participates in candidate selection and preserves the scope of the search.
+
 ## Fallback
 
 If no HNSW graph exists, falls back to a flat SIMD scan. Vector readers are opened lazily, so non-vector searches don't pay the mmap cost.
@@ -100,7 +104,7 @@ var config = new IndexWriterConfig
 };
 ```
 
-Quantised vectors reduce storage and HNSW graph memory at the cost of a small recall penalty. Use BBQ for disk-bound workloads; Int8 when precision matters more.
+Quantised vectors reduce storage and HNSW graph memory at the cost of a small recall penalty. Use BBQ for disk-bound workloads; Int8 when precision matters more. Measure recall against exact search on your own corpus before changing `efSearch`, oversampling or quantisation.
 
 ## See also
 

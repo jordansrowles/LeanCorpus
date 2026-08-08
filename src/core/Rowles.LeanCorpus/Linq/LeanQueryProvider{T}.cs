@@ -55,7 +55,8 @@ public sealed class LeanQueryProvider<TDocument> : IQueryProvider
     /// <inheritdoc/>
     public TResult Execute<TResult>(Expression expression)
     {
-        return (TResult)ExecuteCore(expression)!;
+        object? result = ExecuteCore(expression);
+        return result is null ? default! : (TResult)result;
     }
 
     /// <inheritdoc/>

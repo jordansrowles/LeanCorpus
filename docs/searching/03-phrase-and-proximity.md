@@ -95,7 +95,7 @@ Set `inOrder: false` when either order is acceptable.
 
 ## `SpanNotQuery`
 
-Return include spans only when they do not overlap an excluded span:
+Return include spans only from documents without an excluded span:
 
 ```csharp
 var included = new SpanNearQuery(
@@ -109,10 +109,21 @@ var excluded = new SpanTermQuery("body", "deprecated");
 var query = new SpanNotQuery(included, excluded);
 ```
 
-This is positional exclusion. A document can still match if it has another include span that does not overlap the excluded span.
+The current implementation applies exclusion to the whole document.
+
+## Span boundaries and containment
+
+`SpanFirstQuery` limits matches to the start of a field. Use
+`SpanContainingQuery` to return enclosing spans and `SpanWithinQuery` to return
+their contained spans.
+
+`FieldMaskingSpanQuery` reports positions from one field under another field
+name, while `SpanMultiTermQueryWrapper` expands prefix, wildcard, fuzzy, regex,
+or term-range matches into position-aware spans.
 
 ## Performance
 
 Positional queries read more postings data than term conjunctions. Cost grows with common terms, repeated positions, alternatives, and slop. Prefer selective terms, keep user-generated alternatives bounded, and use the simplest query that captures the requirement.
 
-For containment and deeper positional trees, see [Intervals](10-intervals.md).
+For another containment surface and deeper positional trees, see
+[Intervals](10-intervals.md).

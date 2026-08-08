@@ -10,9 +10,9 @@
 
   <PropertyGroup>
     <PackageId>LeanCorpus</PackageId>
-    <Version>2.2.0</Version>
-    <AssemblyVersion>2.2.0.0</AssemblyVersion>
-    <FileVersion>2.2.0.0</FileVersion>
+    <Version>2.3.0</Version>
+    <AssemblyVersion>2.3.0.0</AssemblyVersion>
+    <FileVersion>2.3.0.0</FileVersion>
     <Authors>Jordan Rowles</Authors>
     <Description>A .NET-native full-text search engine. Segment-centric indexing, memory-mapped reads, and atomic commit semantics. Targets net10.0 and net11.0.</Description>
     <PackageTags>search;full-text;corpus;indexing;information-retrieval</PackageTags>
@@ -21,7 +21,13 @@
     <RepositoryUrl>https://github.com/jordansrowles/LeanCorpus</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Rowles.Text\Analysis\**\*.cs" LinkBase="Analysis" />
+  </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.Shared" />

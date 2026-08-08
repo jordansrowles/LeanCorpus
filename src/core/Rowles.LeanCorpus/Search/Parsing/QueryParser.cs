@@ -4,14 +4,18 @@ namespace Rowles.LeanCorpus.Search.Parsing;
 /// <summary>
 /// Parses a query string into a Query object tree.
 /// Supports: term, field:term, "phrase", +required, -excluded, (grouping),
-/// prefix*, wild?card, fuzzy~N, "phrase"~N, field:term^boost.
+/// explicit boolean operators, ranges, regular expressions, field existence,
+/// prefix*, wild?card, fuzzy~N, "phrase"~N, boosts, and constant scores.
 /// </summary>
-public sealed class QueryParser
+public class QueryParser
 {
     private readonly string _defaultField;
     private readonly IAnalyser _analyser;
     private readonly bool _lenient;
     private int _depth;
+
+    /// <summary>Gets the analyser used to build query terms.</summary>
+    protected IAnalyser Analyser => _analyser;
 
     /// <summary>Initialises a new <see cref="QueryParser"/> with the given default field and analyser.</summary>
     /// <param name="defaultField">The field used when no explicit <c>field:</c> prefix is present in the query string.</param>
@@ -76,62 +80,160 @@ public sealed class QueryParser
 
         try
         {
-            var clauses = new List<BooleanClause>();
-
-            while (pos < tokens.Count)
-            {
-                if (tokens[pos].Type == QTokenType.RParen)
-                    break;
-
-                var occur = Occur.Should;
-                int operatorOffset = tokens[pos].Offset;
-                if (tokens[pos].Type == QTokenType.Plus)
-                {
-                    occur = Occur.Must;
-                    pos++;
-                }
-                else if (tokens[pos].Type == QTokenType.Minus)
-                {
-                    occur = Occur.MustNot;
-                    pos++;
-                }
-
-                if (pos >= tokens.Count)
-                {
-                    if (_lenient) break;
-                    throw new QueryParseException(
-                        "A required or prohibited operator must be followed by a query clause.",
-                        operatorOffset);
-                }
-
-                Query? subQuery;
-                if (_lenient)
-                {
-                    try { subQuery = ParseClause(tokens, ref pos); }
-                    catch (QueryParseException) { break; }
-                }
-                else
-                {
-                    subQuery = ParseClause(tokens, ref pos);
-                }
-
-                if (subQuery is not null)
-                    clauses.Add(new BooleanClause(subQuery, occur));
-            }
-
-            if (clauses.Count == 1 && clauses[0].Occur == Occur.Should)
-                return clauses[0].Query;
-
-            var builder = new BooleanQuery.Builder();
-            foreach (var c in clauses)
-                builder.Add(c.Query, c.Occur);
-            return builder.Build();
+            var parsed = ParseDisjunction(tokens, ref pos);
+            if (parsed.Query is null)
+                return new BooleanQuery.Builder().Build();
+            if (parsed.Occur == Occur.Should)
+                return parsed.Query;
+            return new BooleanQuery.Builder()
+                .Add(parsed.Query, parsed.Occur)
+                .Build();
         }
         finally
         {
             _depth--;
         }
     }
+
+    private ParsedClause ParseDisjunction(List<QToken> tokens, ref int pos)
+    {
+        var clauses = new List<ParsedClause>();
+        var operators = new List<QTokenType>();
+
+        var first = ParseConjunction(tokens, ref pos);
+        if (first.Query is not null)
+            clauses.Add(first);
+
+        while (pos < tokens.Count && tokens[pos].Type != QTokenType.RParen)
+        {
+            QTokenType op;
+            if (tokens[pos].Type is QTokenType.Or or QTokenType.Pipe)
+            {
+                op = tokens[pos].Type;
+                pos++;
+            }
+            else if (CanStartClause(tokens[pos].Type))
+            {
+                op = QTokenType.Or;
+            }
+            else
+            {
+                break;
+            }
+
+            var next = ParseConjunction(tokens, ref pos);
+            if (next.Query is null)
+                continue;
+            operators.Add(op);
+            clauses.Add(next);
+        }
+
+        if (clauses.Count == 0)
+            return default;
+        if (clauses.Count == 1)
+            return clauses[0];
+
+        if (operators.Count > 0 && operators.All(static op => op == QTokenType.Pipe)
+            && clauses.All(static clause => clause.Occur == Occur.Should))
+        {
+            var disMax = new DisjunctionMaxQuery.Builder();
+            foreach (var clause in clauses)
+                disMax.Add(clause.Query!);
+            return new ParsedClause(disMax.Build(), Occur.Should);
+        }
+
+        var builder = new BooleanQuery.Builder();
+        foreach (var clause in clauses)
+            builder.Add(clause.Query!, clause.Occur);
+        return new ParsedClause(builder.Build(), Occur.Should);
+    }
+
+    private ParsedClause ParseConjunction(List<QToken> tokens, ref int pos)
+    {
+        var first = ParseUnary(tokens, ref pos);
+        if (first.Query is null)
+            return first;
+
+        List<ParsedClause>? clauses = null;
+        while (pos < tokens.Count && tokens[pos].Type is QTokenType.And or QTokenType.Not)
+        {
+            var op = tokens[pos].Type;
+            int operatorOffset = tokens[pos].Offset;
+            pos++;
+            var next = ParseUnary(tokens, ref pos);
+            if (next.Query is null)
+            {
+                if (_lenient)
+                    break;
+                throw new QueryParseException(
+                    "A boolean operator must be followed by a query clause.", operatorOffset);
+            }
+
+            clauses ??= [new ParsedClause(first.Query, PromoteForConjunction(first.Occur))];
+            var nextOccur = op == QTokenType.Not
+                ? Occur.MustNot
+                : PromoteForConjunction(next.Occur);
+            clauses.Add(new ParsedClause(next.Query, nextOccur));
+        }
+
+        if (clauses is null)
+            return first;
+
+        var builder = new BooleanQuery.Builder();
+        foreach (var clause in clauses)
+            builder.Add(clause.Query!, clause.Occur);
+        return new ParsedClause(builder.Build(), Occur.Should);
+    }
+
+    private ParsedClause ParseUnary(List<QToken> tokens, ref int pos)
+    {
+        var occur = Occur.Should;
+        int operatorOffset = pos < tokens.Count ? tokens[pos].Offset : 0;
+        if (pos < tokens.Count)
+        {
+            switch (tokens[pos].Type)
+            {
+                case QTokenType.Plus:
+                    occur = Occur.Must;
+                    pos++;
+                    break;
+                case QTokenType.Minus:
+                case QTokenType.Not:
+                    occur = Occur.MustNot;
+                    pos++;
+                    break;
+            }
+        }
+
+        if (pos >= tokens.Count || tokens[pos].Type == QTokenType.RParen)
+        {
+            if (_lenient)
+                return default;
+            throw new QueryParseException(
+                "A required or prohibited operator must be followed by a query clause.",
+                operatorOffset);
+        }
+
+        Query? query;
+        if (_lenient)
+        {
+            try { query = ParseClause(tokens, ref pos); }
+            catch (QueryParseException) { return default; }
+        }
+        else
+        {
+            query = ParseClause(tokens, ref pos);
+        }
+        return new ParsedClause(query, occur);
+    }
+
+    private static bool CanStartClause(QTokenType type) =>
+        type is QTokenType.Term or QTokenType.Phrase or QTokenType.Regex
+            or QTokenType.LParen or QTokenType.OpenSquare or QTokenType.OpenCurly
+            or QTokenType.Plus or QTokenType.Minus or QTokenType.Not;
+
+    private static Occur PromoteForConjunction(Occur occur) =>
+        occur == Occur.Should ? Occur.Must : occur;
 
     private Query? ParseClause(List<QToken> tokens, ref int pos)
     {
@@ -157,10 +259,20 @@ public sealed class QueryParser
             pos++;
             string field = _defaultField;
 
-            var query = BuildPhraseQuery(field, phrase);
-            query = ApplySlop(query, tokens, ref pos);
+            int slop = ReadSlop(tokens, ref pos);
+            var query = BuildPhraseQuery(field, phrase, slop);
             return ApplyBoost(query, tokens, ref pos);
         }
+
+        if (tokens[pos].Type == QTokenType.Regex)
+        {
+            var query = new RegexpQuery(_defaultField, tokens[pos].Value);
+            pos++;
+            return ApplyBoost(query, tokens, ref pos);
+        }
+
+        if (tokens[pos].Type is QTokenType.OpenSquare or QTokenType.OpenCurly)
+            return ApplyBoost(ParseRange(_defaultField, tokens, ref pos), tokens, ref pos);
 
         // Term (possibly with field: prefix)
         if (tokens[pos].Type == QTokenType.Term)
@@ -174,6 +286,20 @@ public sealed class QueryParser
             if (pos < tokens.Count && tokens[pos].Type == QTokenType.Colon)
             {
                 pos++; // consume ':'
+
+                if (string.Equals(term, "_exists_", StringComparison.Ordinal))
+                {
+                    if (pos < tokens.Count && tokens[pos].Type == QTokenType.Term)
+                    {
+                        var exists = new FieldExistsQuery(tokens[pos].Value);
+                        pos++;
+                        return ApplyBoost(exists, tokens, ref pos);
+                    }
+                    if (_lenient) return null;
+                    throw new QueryParseException(
+                        "_exists_ must be followed by a field name.", termOffset);
+                }
+
                 field = term;
 
                 if (pos < tokens.Count)
@@ -182,9 +308,20 @@ public sealed class QueryParser
                     {
                         var phrase = tokens[pos].Value;
                         pos++;
-                        var pq = BuildPhraseQuery(field, phrase);
-                        pq = ApplySlop(pq, tokens, ref pos);
+                        int slop = ReadSlop(tokens, ref pos);
+                        var pq = BuildPhraseQuery(field, phrase, slop);
                         return ApplyBoost(pq, tokens, ref pos);
+                    }
+                    else if (tokens[pos].Type == QTokenType.Regex)
+                    {
+                        var regex = new RegexpQuery(field, tokens[pos].Value);
+                        pos++;
+                        return ApplyBoost(regex, tokens, ref pos);
+                    }
+                    else if (tokens[pos].Type is QTokenType.OpenSquare or QTokenType.OpenCurly)
+                    {
+                        var range = ParseRange(field, tokens, ref pos);
+                        return ApplyBoost(range, tokens, ref pos);
                     }
                     else if (tokens[pos].Type == QTokenType.Term)
                     {
@@ -210,6 +347,7 @@ public sealed class QueryParser
             // Check for wildcard/prefix/fuzzy suffixes
             if (term.Contains('*') || term.Contains('?'))
             {
+                term = AnalyseMultiTerm(term);
                 if (term.EndsWith('*') && !term.AsSpan()[..^1].Contains('*') && !term.AsSpan()[..^1].Contains('?'))
                 {
                     var q = new PrefixQuery(field, term[..^1]);
@@ -249,16 +387,61 @@ public sealed class QueryParser
             $"Unexpected token '{tokens[pos].Value}' at position {pos}.", tokens[pos].Offset);
     }
 
-    private PhraseQuery BuildPhraseQuery(string field, string phraseText)
+    private Query ParseRange(string field, List<QToken> tokens, ref int pos)
+    {
+        var opening = tokens[pos];
+        bool includeLower = opening.Type == QTokenType.OpenSquare;
+        pos++;
+
+        if (!TryReadRangeBound(tokens, ref pos, out var lower))
+            throw new QueryParseException("A range query must include a lower bound.", opening.Offset);
+        if (pos >= tokens.Count || tokens[pos].Type != QTokenType.To)
+            throw new QueryParseException("A range query must separate its bounds with TO.", opening.Offset);
+        pos++;
+        if (!TryReadRangeBound(tokens, ref pos, out var upper))
+            throw new QueryParseException("A range query must include an upper bound.", opening.Offset);
+        if (pos >= tokens.Count || tokens[pos].Type is not (QTokenType.CloseSquare or QTokenType.CloseCurly))
+            throw new QueryParseException("A range query must end with ']' or '}'.", opening.Offset);
+
+        bool includeUpper = tokens[pos].Type == QTokenType.CloseSquare;
+        pos++;
+        string? lowerTerm = lower == "*" ? null : AnalyseRangeBound(lower);
+        string? upperTerm = upper == "*" ? null : AnalyseRangeBound(upper);
+        return new TermRangeQuery(
+            field,
+            lowerTerm,
+            upperTerm,
+            includeLower,
+            includeUpper);
+    }
+
+    private static bool TryReadRangeBound(List<QToken> tokens, ref int pos, out string value)
+    {
+        if (pos < tokens.Count && tokens[pos].Type is QTokenType.Term or QTokenType.Phrase)
+        {
+            value = tokens[pos].Value;
+            pos++;
+            return true;
+        }
+        value = string.Empty;
+        return false;
+    }
+
+    /// <summary>Builds a phrase query from analysed phrase text.</summary>
+    protected virtual Query BuildPhraseQuery(string field, string phraseText, int slop)
     {
         var tokens = new List<Analysis.Token>();
         var sink = new CapturingSink(tokens);
         _analyser.Analyse(phraseText.AsSpan(), sink);
         var terms = tokens.Select(t => t.Text).ToArray();
-        return terms.Length > 0 ? new PhraseQuery(field, terms) : new PhraseQuery(field, phraseText.Split(' '));
+        var query = terms.Length > 0
+            ? new PhraseQuery(field, terms)
+            : new PhraseQuery(field, phraseText.Split(' '));
+        query.Slop = slop;
+        return query;
     }
 
-    private static PhraseQuery ApplySlop(PhraseQuery query, List<QToken> tokens, ref int pos)
+    private static int ReadSlop(List<QToken> tokens, ref int pos)
     {
         if (pos < tokens.Count && tokens[pos].Type == QTokenType.Tilde)
         {
@@ -266,11 +449,11 @@ public sealed class QueryParser
             if (pos < tokens.Count && tokens[pos].Type == QTokenType.Term &&
                 int.TryParse(tokens[pos].Value, out int slop))
             {
-                query.Slop = slop;
                 pos++;
+                return slop;
             }
         }
-        return query;
+        return 0;
     }
 
     private static Query ApplyBoost(Query query, List<QToken> tokens, ref int pos)
@@ -278,23 +461,35 @@ public sealed class QueryParser
         if (pos < tokens.Count && tokens[pos].Type == QTokenType.Caret)
         {
             pos++;
+            bool constantScore = pos < tokens.Count && tokens[pos].Type == QTokenType.Equal;
+            if (constantScore)
+                pos++;
             if (pos < tokens.Count && tokens[pos].Type == QTokenType.Term &&
                 float.TryParse(tokens[pos].Value, System.Globalization.CultureInfo.InvariantCulture, out float boost))
             {
-                query.Boost = boost;
                 pos++;
+                if (constantScore)
+                    return new ConstantScoreQuery(query, boost);
+                query.Boost = boost;
             }
         }
         return query;
     }
 
-    private string AnalyseTerm(string term)
+    /// <summary>Analyses one literal query term.</summary>
+    protected string AnalyseTerm(string term)
     {
         var tokens = new List<Analysis.Token>();
         var sink = new CapturingSink(tokens);
         _analyser.Analyse(term.AsSpan(), sink);
         return tokens.Count > 0 ? tokens[0].Text : string.Empty;
     }
+
+    /// <summary>Normalises a wildcard or prefix term while preserving its operators.</summary>
+    protected virtual string AnalyseMultiTerm(string term) => term;
+
+    /// <summary>Normalises one bounded term in a text range query.</summary>
+    protected virtual string AnalyseRangeBound(string term) => term;
 
     private sealed class CapturingSink : Analysis.ISpanTokenSink
     {
@@ -325,6 +520,46 @@ public sealed class QueryParser
                 case ':': tokens.Add(new QToken(QTokenType.Colon, ":", i)); i++; continue;
                 case '~': tokens.Add(new QToken(QTokenType.Tilde, "~", i)); i++; continue;
                 case '^': tokens.Add(new QToken(QTokenType.Caret, "^", i)); i++; continue;
+                case '=': tokens.Add(new QToken(QTokenType.Equal, "=", i)); i++; continue;
+                case '|': tokens.Add(new QToken(QTokenType.Pipe, "|", i)); i++; continue;
+                case '[': tokens.Add(new QToken(QTokenType.OpenSquare, "[", i)); i++; continue;
+                case ']': tokens.Add(new QToken(QTokenType.CloseSquare, "]", i)); i++; continue;
+                case '{': tokens.Add(new QToken(QTokenType.OpenCurly, "{", i)); i++; continue;
+                case '}': tokens.Add(new QToken(QTokenType.CloseCurly, "}", i)); i++; continue;
+            }
+
+            if (c == '/')
+            {
+                int slashOffset = i++;
+                var pattern = new System.Text.StringBuilder();
+                bool closed = false;
+                while (i < input.Length)
+                {
+                    if (input[i] == '\\' && i + 1 < input.Length)
+                    {
+                        if (input[i + 1] == '/')
+                        {
+                            pattern.Append('/');
+                            i += 2;
+                            continue;
+                        }
+                        pattern.Append(input[i]);
+                        pattern.Append(input[i + 1]);
+                        i += 2;
+                        continue;
+                    }
+                    if (input[i] == '/')
+                    {
+                        i++;
+                        closed = true;
+                        break;
+                    }
+                    pattern.Append(input[i++]);
+                }
+                if (!closed && !lenient)
+                    throw new QueryParseException("Unmatched regular expression delimiter.", slashOffset);
+                tokens.Add(new QToken(QTokenType.Regex, pattern.ToString(), slashOffset));
+                continue;
             }
 
             if (c == '"')
@@ -367,7 +602,9 @@ public sealed class QueryParser
                     }
 
                     if (char.IsWhiteSpace(ch) || ch == '(' || ch == ')' ||
-                        ch == ':' || ch == '"' || ch == '~' || ch == '^')
+                        ch == ':' || ch == '"' || ch == '~' || ch == '^' ||
+                        ch == '=' || ch == '|' || ch == '[' || ch == ']' ||
+                        ch == '{' || ch == '}')
                     {
                         break;
                     }
@@ -386,7 +623,8 @@ public sealed class QueryParser
                     termValue = input[start..i];
                 }
 
-                tokens.Add(new QToken(QTokenType.Term, termValue, start));
+                var type = !hasEscapes ? GetKeywordType(termValue) : QTokenType.Term;
+                tokens.Add(new QToken(type, termValue, start));
             }
         }
 
@@ -428,9 +666,24 @@ public sealed class QueryParser
             }
         });
     }
-    private enum QTokenType { Term, Phrase, Plus, Minus, LParen, RParen, Colon, Tilde, Caret }
+
+    private static QTokenType GetKeywordType(string value)
+    {
+        if (value.Equals("AND", StringComparison.OrdinalIgnoreCase)) return QTokenType.And;
+        if (value.Equals("OR", StringComparison.OrdinalIgnoreCase)) return QTokenType.Or;
+        if (value.Equals("NOT", StringComparison.OrdinalIgnoreCase)) return QTokenType.Not;
+        if (value.Equals("TO", StringComparison.OrdinalIgnoreCase)) return QTokenType.To;
+        return QTokenType.Term;
+    }
+
+    private enum QTokenType
+    {
+        Term, Phrase, Regex, Plus, Minus, LParen, RParen, Colon, Tilde, Caret,
+        Equal, And, Or, Not, To, Pipe, OpenSquare, CloseSquare, OpenCurly, CloseCurly
+    }
 
     private readonly record struct QToken(QTokenType Type, string Value, int Offset);
+    private readonly record struct ParsedClause(Query? Query, Occur Occur);
 }
 
 /// <summary>Exception thrown when a query string cannot be parsed.</summary>

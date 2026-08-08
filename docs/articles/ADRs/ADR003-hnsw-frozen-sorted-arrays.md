@@ -1,3 +1,13 @@
+---
+adr: ADR003
+title: Sorted parallel arrays for HNSW frozen adjacency
+date: 2026-06-16
+status: Accepted
+version-added: 2.0.0
+summary: Store frozen HNSW adjacency in sorted parallel arrays.
+areas: [vectors, indexing, storage]
+---
+
 # ADR003: Sorted parallel arrays for HNSW frozen adjacency
 
 - **Date:** 2026-06-16

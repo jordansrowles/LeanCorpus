@@ -17,19 +17,21 @@ internal sealed class MultiValuedColumn<T> where T : unmanaged
         // Ensure docStarts has capacity
         if (docId >= _docStarts.Length)
         {
+            int oldLength = _docStarts.Length;
             int newLen = Math.Max(_docStarts.Length * 2, docId + 1);
             if (newLen < 4) newLen = 4;
             Array.Resize(ref _docStarts, newLen);
+            Array.Fill(_docStarts, -1, oldLength, newLen - oldLength);
             // Fill any gap entries with -1 sentinel
             for (int i = _maxDocId + 1; i < docId; i++)
                 _docStarts[i] = -1;
         }
 
         // Allocate starting offset if first value for this doc
-        if (docId >= _maxDocId || _docStarts[docId] < 0)
+        if (_docStarts[docId] < 0)
         {
             _docStarts[docId] = _valueCount;
-            if (docId >= _maxDocId)
+            if (docId > _maxDocId)
                 _maxDocId = docId;
         }
 
@@ -44,13 +46,14 @@ internal sealed class MultiValuedColumn<T> where T : unmanaged
 
     internal ReadOnlySpan<T> GetValues(int docId)
     {
-        if (docId >= _docStarts.Length || _docStarts[docId] < 0)
+        if ((uint)docId >= (uint)_docStarts.Length || _docStarts[docId] < 0)
             return ReadOnlySpan<T>.Empty;
 
         int start = _docStarts[docId];
-        int end = docId + 1 < _docStarts.Length && _docStarts[docId + 1] >= 0
-            ? _docStarts[docId + 1]
-            : _valueCount;
+        int nextDocId = docId + 1;
+        while (nextDocId < _docStarts.Length && _docStarts[nextDocId] < 0)
+            nextDocId++;
+        int end = nextDocId < _docStarts.Length ? _docStarts[nextDocId] : _valueCount;
         return _values.AsSpan(start, end - start);
     }
 

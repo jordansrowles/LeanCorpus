@@ -17,10 +17,11 @@
       {{#description}}<meta name="description" content="{{description}}">{{/description}}
       <link rel="icon" href="{{_rel}}{{{_appFaviconPath}}}{{^_appFaviconPath}}favicon.ico{{/_appFaviconPath}}">
       <link rel="stylesheet" href="{{_rel}}public/docfx.min.css">
+      <link rel="stylesheet" href="{{_rel}}assets/site.css">
       <link rel="stylesheet" href="{{_rel}}public/main.css">
       <link rel="stylesheet" href="{{_rel}}assets/api-icons/api-icons.css">
-      <meta name="docfx:navrel" content="{{_navRel}}">
-      <meta name="docfx:tocrel" content="{{_tocRel}}">
+      <meta name="docfx:navrel" content="{{_rel}}toc.html">
+      <meta name="docfx:tocrel" content="{{_rel}}toc.html">
       {{#_noindex}}<meta name="searchOption" content="noindex">{{/_noindex}}
       {{#_enableSearch}}<meta name="docfx:rel" content="{{_rel}}">{{/_enableSearch}}
       {{^_enableSearch}}<meta name="docfx:rel" content="{{_rel}}">{{/_enableSearch}}
@@ -43,7 +44,7 @@
       <script src="{{_rel}}assets/diagram-renderer.js" defer></script>
       <script type="module" src="./{{_rel}}public/docfx.min.js"></script>
       <script src="{{_rel}}assets/api-icons/api-icons.js" defer></script>
-
+      <script src="{{_rel}}assets/api-navigation.js" defer></script>
       <script>
         const theme = localStorage.getItem('theme') || 'auto'
         document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
@@ -62,56 +63,46 @@
   </head>
 
   {{^redirect_url}}
-  <body class="tex2jax_ignore" data-layout="{{_layout}}{{layout}}" data-yaml-mime="{{yamlmime}}">
-    <header class="bg-body border-bottom">
-      {{^_disableNavbar}}
-      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
-        <div class="container-xxl flex-nowrap">
-          <a class="navbar-brand" href="{{_appLogoUrl}}{{^_appLogoUrl}}{{_rel}}index.html{{/_appLogoUrl}}">
-            {{_appName}}
-          </a>
-          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
-            <i class="bi bi-three-dots"></i>
-          </button>
-          <div class="collapse navbar-collapse" id="navpanel">
-            <div id="navbar">
+  <body class="tex2jax_ignore" data-layout="{{_layout}}{{layout}}" data-yaml-mime="{{yamlmime}}" data-api-root="{{_rel}}api/" data-api-toc="{{_rel}}api/toc.json">
+    <main class="container-xxl lc-docs-layout">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-lg offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <a class="navbar-brand offcanvas-title" id="tocOffcanvasLabel" href="{{_appLogoUrl}}{{^_appLogoUrl}}{{_rel}}index.html{{/_appLogoUrl}}">{{_appName}}</a>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <div class="lc-sidebar-header">
+              <a class="navbar-brand" href="{{_appLogoUrl}}{{^_appLogoUrl}}{{_rel}}index.html{{/_appLogoUrl}}">{{_appName}}</a>
               {{#_enableSearch}}
-              <form class="search" role="search" id="search">
-                <i class="bi bi-search"></i>
+              <form class="search lc-header-search" role="search" id="search">
+                <!--<i class="bi bi-search"></i>-->
                 <input class="form-control" id="search-query" type="search" disabled placeholder="{{__global.search}}" autocomplete="off" aria-label="Search">
               </form>
               {{/_enableSearch}}
             </div>
-          </div>
-        </div>
-      </nav>
-      {{/_disableNavbar}}
-    </header>
-
-    <main class="container-xxl">
-      {{^_disableToc}}
-      <div class="toc-offcanvas">
-        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
-          <div class="offcanvas-header">
-            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
-          </div>
-          <div class="offcanvas-body">
-            <nav class="toc" id="toc"></nav>
+            <div class="lc-main-navigation">
+              <nav class="toc lc-docs-tree" id="toc"></nav>
+            </div>
+            <section class="lc-api-navigation" id="apiNavigation" aria-labelledby="apiNavigationTitle" hidden>
+              <div class="lc-api-navigation-header">
+                <a id="apiNavigationTitle" href="{{_rel}}api/index.html">API reference</a>
+              </div>
+              <nav class="toc lc-api-tree" id="apiToc" aria-label="API documentation">
+                <p class="text-secondary small">Loading API navigation...</p>
+              </nav>
+            </section>
           </div>
         </div>
       </div>
-      {{/_disableToc}}
 
       <div class="content">
         <div class="actionbar">
-          {{^_disableToc}}
-          <button class="btn btn-lg border-0 d-md-none"
+          <button class="btn btn-lg border-0 d-lg-none"
               type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas"
               aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
             <i class="bi bi-list"></i>
           </button>
-          {{/_disableToc}}
 
           {{^_disableBreadcrumb}}
           <nav id="breadcrumb"></nav>

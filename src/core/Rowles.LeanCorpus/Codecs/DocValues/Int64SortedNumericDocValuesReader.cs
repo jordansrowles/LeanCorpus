@@ -16,6 +16,13 @@ internal static class Int64SortedNumericDocValuesReader
             return values;
 
         using var input = new IndexInput(filePath);
+        return Read(input);
+    }
+
+    internal static Dictionary<string, long[][]> Read(IndexInput input)
+    {
+        using var inputLifetime = input;
+        var values = new Dictionary<string, long[][]>(StringComparer.Ordinal);
         byte version = CodecFileHeader.ReadVersion(input, CodecFormats.Int64SortedNumericDocValues);
         if (version > CodecConstants.Int64SortedNumericDocValuesVersion)
             throw new InvalidDataException(

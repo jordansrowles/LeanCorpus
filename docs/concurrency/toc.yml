@@ -1,8 +1,0 @@
-- name: Searcher manager
-  href: 01-searcher-manager.md
-- name: Concurrent indexing
-  href: 02-concurrent-indexing.md
-- name: Snapshots and deletion policies
-  href: 03-snapshots-and-policies.md
-- name: Refresh failures
-  href: 04-refresh-failures.md

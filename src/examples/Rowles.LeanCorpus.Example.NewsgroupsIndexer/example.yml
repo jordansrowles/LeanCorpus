@@ -1,0 +1,4 @@
+name: Newsgroups indexer
+summary: Batch indexes a real text corpus and demonstrates long-running ingestion.
+packages: LeanCorpus
+run: dotnet run --project src/examples/Rowles.LeanCorpus.Example.NewsgroupsIndexer

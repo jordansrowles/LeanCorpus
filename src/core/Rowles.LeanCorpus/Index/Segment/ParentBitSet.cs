@@ -110,8 +110,22 @@ internal sealed class ParentBitSet
     {
         using var fs = FileOpenRetry.OpenReadDelete(filePath);
         using var br = new BinaryReader(fs);
+        return ReadCore(br);
+    }
+
+    internal static ParentBitSet ReadFrom(IndexInput input)
+    {
+        using var fs = new IndexInputStream(input);
+        using var br = new BinaryReader(fs);
+        return ReadCore(br);
+    }
+
+    private static ParentBitSet ReadCore(BinaryReader br)
+    {
         int length = br.ReadInt32();
         int wordCount = br.ReadInt32();
+        if (length < 0 || wordCount < 0 || wordCount > (length + 63) / 64)
+            throw new InvalidDataException("Parent bitset has invalid dimensions.");
         var bits = new long[wordCount];
         for (int i = 0; i < wordCount; i++) bits[i] = br.ReadInt64();
         return new ParentBitSet(bits, length);

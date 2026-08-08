@@ -184,6 +184,10 @@ public sealed class Highlighter : IHighlighter
                 foreach (var t in tisq.Terms)
                     terms.Add(t);
                 break;
+            case SynonymQuery synonymQuery:
+                foreach (var term in synonymQuery.Terms)
+                    terms.Add(term);
+                break;
             case CombinedFieldsQuery cfq:
                 foreach (var t in cfq.Terms)
                     terms.Add(t);

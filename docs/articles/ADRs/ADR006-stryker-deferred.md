@@ -1,3 +1,13 @@
+---
+adr: ADR006
+title: Defer Stryker.NET mutation testing until upstream bug is fixed
+date: 2026-06-17
+status: Accepted
+version-added: 2.0.0
+summary: Defer mutation testing until the upstream Stryker compiler fault is fixed.
+areas: [testing, tooling]
+---
+
 # ADR006: Defer Stryker.NET mutation testing until upstream bug is fixed
 
 - **Date:** 2026-06-17

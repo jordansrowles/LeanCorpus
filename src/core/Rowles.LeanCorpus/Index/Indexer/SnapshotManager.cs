@@ -46,6 +46,7 @@ internal static class SnapshotManager
                     DocCount = s.DocCount,
                     LiveDocCount = s.LiveDocCount,
                     CommitGeneration = s.CommitGeneration,
+                    IsCompoundFile = s.IsCompoundFile,
                     DelGeneration = s.DelGeneration,
                     FieldNames = [.. s.FieldNames],
                     IndexSortFields = s.IndexSortFields is null ? null : [.. s.IndexSortFields],
@@ -87,7 +88,8 @@ internal static class SnapshotManager
         {
             CommitGeneration = snapshot.CommitGeneration,
             OverwriteBackupDirectory = options?.OverwriteBackupDirectory ?? false,
-            IncludeCommitStats = options?.IncludeCommitStats ?? true
+            IncludeCommitStats = options?.IncludeCommitStats ?? true,
+            PreviousBackupDirectoryPath = options?.PreviousBackupDirectoryPath
         };
         return IndexBackup.Backup(directoryPath, backupDirectoryPath, effectiveOptions);
     }

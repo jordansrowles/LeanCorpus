@@ -69,6 +69,181 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(2, searcher.Search(new TermQuery("body", "backup"), 10).TotalHits);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void IndexBackup_Backup_RejectsAncestorAndDescendantTargets(bool targetContainsSource)
+    {
+        var rootPath = Path.Combine(_fixture.Path, $"backup_overlap_{targetContainsSource}");
+        var indexPath = targetContainsSource ? Path.Combine(rootPath, "index") : rootPath;
+        var backupPath = targetContainsSource ? rootPath : Path.Combine(rootPath, "backup");
+        Directory.CreateDirectory(rootPath);
+        CreateIndexAtPath(indexPath);
+
+        var exception = Assert.Throws<ArgumentException>(() => IndexBackup.Backup(
+            indexPath,
+            backupPath,
+            new IndexBackupOptions { OverwriteBackupDirectory = true }));
+
+        Assert.Contains("must not be", exception.Message, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(indexPath, "segments_1")));
+        if (!targetContainsSource)
+            Assert.False(Directory.Exists(backupPath));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void IndexBackup_Restore_RejectsAncestorAndDescendantTargets(bool targetContainsBackup)
+    {
+        var rootPath = Path.Combine(_fixture.Path, $"restore_overlap_{targetContainsBackup}");
+        var indexPath = Path.Combine(rootPath, "index");
+        var backupPath = Path.Combine(rootPath, "backup");
+        var targetPath = targetContainsBackup ? rootPath : Path.Combine(backupPath, "restore");
+        CreateIndexAtPath(indexPath);
+        IndexBackup.Backup(indexPath, backupPath);
+
+        var exception = Assert.Throws<ArgumentException>(() => IndexBackup.Restore(
+            backupPath,
+            targetPath,
+            new IndexRestoreOptions { OverwriteTargetDirectory = true }));
+
+        Assert.Contains("must not be", exception.Message, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(backupPath, IndexBackup.ManifestFileName)));
+        Assert.True(File.Exists(Path.Combine(indexPath, "segments_1")));
+        if (!targetContainsBackup)
+            Assert.False(Directory.Exists(targetPath));
+    }
+
+    [Fact]
+    public void IndexBackup_Backup_ResolvesSymlinkBeforeRelationshipCheck()
+    {
+        var indexPath = CreateIndex("symlink_overlap_source");
+        var linkPath = Path.Combine(_fixture.Path, "symlink_overlap_alias");
+        try
+        {
+            Directory.CreateSymbolicLink(linkPath, indexPath);
+        }
+        catch (IOException)
+        {
+            return;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return;
+        }
+        catch (PlatformNotSupportedException)
+        {
+            return;
+        }
+
+        var backupPath = Path.Combine(indexPath, "backup");
+        Assert.Throws<ArgumentException>(() => IndexBackup.Backup(
+            linkPath,
+            backupPath,
+            new IndexBackupOptions { OverwriteBackupDirectory = true }));
+        Assert.True(File.Exists(Path.Combine(indexPath, "segments_1")));
+    }
+
+    [Fact]
+    public void IndexBackup_Backup_RejectsParentBackupInsideSource()
+    {
+        var indexPath = CreateIndex("parent_backup_inside_source");
+        var backupPath = Path.Combine(_fixture.Path, "parent_backup_inside_source_output");
+
+        Assert.Throws<ArgumentException>(() => IndexBackup.Backup(
+            indexPath,
+            backupPath,
+            new IndexBackupOptions
+            {
+                PreviousBackupDirectoryPath = Path.Combine(indexPath, "previous")
+            }));
+
+        Assert.False(Directory.Exists(backupPath));
+    }
+
+    [Fact]
+    public void IndexBackup_Backup_RejectsTargetInsideParentBackup()
+    {
+        var indexPath = CreateIndex("target_inside_parent_backup_source");
+        var parentBackupPath = Path.Combine(_fixture.Path, "target_inside_parent_backup");
+        var backupPath = Path.Combine(parentBackupPath, "target");
+
+        Assert.Throws<ArgumentException>(() => IndexBackup.Backup(
+            indexPath,
+            backupPath,
+            new IndexBackupOptions
+            {
+                PreviousBackupDirectoryPath = parentBackupPath
+            }));
+
+        Assert.False(Directory.Exists(backupPath));
+    }
+
+    [Fact(DisplayName = "IndexBackup: Compound Segment Restores Without Expanded Members")]
+    public void IndexBackup_CompoundSegment_RestoresWithoutExpandedMembers()
+    {
+        var indexPath = Path.Combine(_fixture.Path, "compound_backup_source");
+        var backupPath = Path.Combine(_fixture.Path, "compound_backup");
+        var restorePath = Path.Combine(_fixture.Path, "compound_backup_restore");
+        Directory.CreateDirectory(indexPath);
+
+        using (var directory = new MMapDirectory(indexPath))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig { UseCompoundFile = true }))
+        {
+            writer.AddDocument(CreateDocument("compound backup document", 1));
+            writer.Commit();
+        }
+
+        var backup = IndexBackup.Backup(indexPath, backupPath);
+        Assert.Contains(backup.Manifest.Files, file => file.FileName.EndsWith(".cfs", StringComparison.Ordinal) && file.IsRequired);
+        Assert.DoesNotContain(backup.Manifest.Files, file => file.FileName.EndsWith(".dic", StringComparison.Ordinal));
+
+        var restored = IndexBackup.Restore(backupPath, restorePath);
+        Assert.True(restored.ValidationResult?.IsHealthy);
+        using var restoredDirectory = new MMapDirectory(restorePath);
+        using var searcher = new IndexSearcher(restoredDirectory);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "compound"), 10).TotalHits);
+    }
+
+    [Fact(DisplayName = "IndexBackup: Incremental Backup Reuses Unchanged Files")]
+    public void IndexBackup_IncrementalBackup_ReusesUnchangedFilesAndRestoresChain()
+    {
+        var indexPath = CreateIndex("incremental_chain");
+        var fullPath = Path.Combine(_fixture.Path, "incremental_chain_full");
+        var deltaPath = Path.Combine(_fixture.Path, "incremental_chain_delta");
+        var restorePath = Path.Combine(_fixture.Path, "incremental_chain_restore");
+
+        var full = IndexBackup.Backup(indexPath, fullPath);
+        using (var directory = new MMapDirectory(indexPath))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig { DeletionPolicy = new KeepLastNCommitsPolicy(2) }))
+        {
+            writer.AddDocument(CreateDocument("third incremental document", 30));
+            writer.Commit();
+        }
+
+        var delta = IndexBackup.Backup(indexPath, deltaPath, new IndexBackupOptions
+        {
+            PreviousBackupDirectoryPath = fullPath
+        });
+
+        Assert.Equal(IndexBackupKind.Incremental, delta.Manifest.Kind);
+        Assert.Equal(2, delta.Manifest.ChainDepth);
+        Assert.NotNull(delta.Manifest.ParentManifestSha256);
+        Assert.Equal(64, delta.Manifest.ParentManifestSha256!.Length);
+        Assert.Contains(delta.Manifest.Files, static file => !file.PresentInBackup);
+        Assert.True(delta.CopiedFiles.Count < full.CopiedFiles.Count);
+        Assert.Throws<InvalidDataException>(() => IndexBackup.ValidateBackup(deltaPath));
+        Assert.Equal(delta.Manifest.CommitGeneration, IndexBackup.ValidateBackup([fullPath, deltaPath]).CommitGeneration);
+        Assert.Throws<InvalidDataException>(() => IndexBackup.Restore(deltaPath, restorePath));
+
+        var restored = IndexBackup.Restore([fullPath, deltaPath], restorePath);
+        Assert.True(restored.ValidationResult?.IsHealthy);
+        using var restoredDirectory = new MMapDirectory(restorePath);
+        using var searcher = new IndexSearcher(restoredDirectory);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "incremental"), 10).TotalHits);
+    }
+
     [Fact(DisplayName = "IndexBackup: Validate Backup Rejects Checksum Mismatch")]
     public void IndexBackup_ValidateBackup_RejectsChecksumMismatch()
     {
@@ -80,6 +255,29 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         File.AppendAllText(Path.Combine(backupPath, fileToCorrupt.FileName), "corruption");
 
         Assert.Throws<InvalidDataException>(() => IndexBackup.ValidateBackup(backupPath));
+    }
+
+    [Fact(DisplayName = "IndexBackup: Restore Verifies Streaming Checksum Before Commit Publication")]
+    public void IndexBackup_Restore_VerifiesStreamingChecksumBeforeCommitPublication()
+    {
+        var indexPath = CreateIndex("restore_streaming_checksum");
+        var backupPath = Path.Combine(_fixture.Path, "restore_streaming_checksum_backup");
+        var restorePath = Path.Combine(_fixture.Path, "restore_streaming_checksum_target");
+        var backup = IndexBackup.Backup(indexPath, backupPath);
+        var fileToCorrupt = backup.Manifest.Files.First(file => !file.IsCommitFile && file.Length > 0);
+        var corruptPath = Path.Combine(backupPath, fileToCorrupt.FileName);
+
+        using (var stream = File.Open(corruptPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            int original = stream.ReadByte();
+            stream.Position = 0;
+            stream.WriteByte((byte)(original ^ 0xff));
+        }
+
+        Assert.Throws<InvalidDataException>(() => IndexBackup.Restore(backupPath, restorePath));
+        Assert.Empty(Directory.Exists(restorePath)
+            ? Directory.GetFiles(restorePath, "segments_*")
+            : []);
     }
 
     [Fact(DisplayName = "IndexBackup: Restore Rejects Unsafe Manifest File Name")]
@@ -120,8 +318,10 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
     }
 
     private string CreateIndex(string name)
+        => CreateIndexAtPath(Path.Combine(_fixture.Path, name));
+
+    private static string CreateIndexAtPath(string path)
     {
-        var path = Path.Combine(_fixture.Path, name);
         Directory.CreateDirectory(path);
         using var directory = new MMapDirectory(path);
         using var writer = new IndexWriter(directory, new IndexWriterConfig { DeletionPolicy = new KeepLastNCommitsPolicy(2) });

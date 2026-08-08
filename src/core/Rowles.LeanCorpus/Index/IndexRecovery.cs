@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
@@ -153,14 +154,27 @@ public static class IndexRecovery
         try
         {
             var basePath = Path.Combine(directoryPath, segId);
+            var segInfo = Segment.SegmentInfo.ReadFrom(basePath + ".seg");
+
+            if (segInfo.IsCompoundFile)
+            {
+                using var compoundDirectory = new MMapDirectory(directoryPath);
+                using var compound = CompoundFileReader.Open(compoundDirectory, segId + ".cfs");
+                foreach (var ext in new[] { ".dic", ".pos", ".nrm", ".fdt", ".fdx" })
+                {
+                    if (!compound.HasFile(segId + ext))
+                        return false;
+                }
+                ValidateCompoundHeaders(compoundDirectory, compound, segId);
+                return true;
+            }
+
             foreach (var ext in RequiredSegmentExtensions)
             {
                 var path = basePath + ext;
                 if (!FileOpenRetry.FileExists(path) || FileOpenRetry.GetFileLength(path) == 0)
                     return false;
             }
-
-            var segInfo = Segment.SegmentInfo.ReadFrom(basePath + ".seg");
 
             foreach (var (ext, format) in HeaderChecks)
             {
@@ -216,6 +230,37 @@ public static class IndexRecovery
         {
             return false;
         }
+    }
+
+    private static void ValidateCompoundHeaders(MMapDirectory directory, CompoundFileReader compound, string segmentId)
+    {
+        ReadCodecHeader(directory, compound, segmentId + ".dic", CodecFormats.TermDictionary, CodecConstants.TermDictionaryVersion);
+        ReadCodecHeader(directory, compound, segmentId + ".nrm", CodecFormats.Norms, CodecConstants.NormsVersion);
+        ReadHeader(directory, compound, segmentId + ".pos", PostingsFileHeader.ReadVersion, CodecConstants.PostingsVersion);
+        ReadHeader(directory, compound, segmentId + ".fdt", StoredFieldsFileHeader.ReadVersion, CodecConstants.StoredFieldsVersion);
+        ReadHeader(directory, compound, segmentId + ".fdx", StoredFieldsFileHeader.ReadVersion, CodecConstants.StoredFieldsVersion);
+    }
+
+    private static void ReadCodecHeader(
+        MMapDirectory directory,
+        CompoundFileReader compound,
+        string memberName,
+        ICodec<byte[]> format,
+        byte currentVersion)
+        => ReadHeader(directory, compound, memberName, reader => CodecFileHeader.ReadVersion(reader, format), currentVersion);
+
+    private static void ReadHeader(
+        MMapDirectory directory,
+        CompoundFileReader compound,
+        string memberName,
+        Func<BinaryReader, byte> readVersion,
+        byte currentVersion)
+    {
+        using var stream = new IndexInputStream(compound.OpenInput(directory, memberName));
+        using var reader = new BinaryReader(stream);
+        byte version = readVersion(reader);
+        if (version > currentVersion)
+            throw new InvalidDataException($"Compound member '{memberName}' uses unsupported version {version}.");
     }
 
     /// <summary>

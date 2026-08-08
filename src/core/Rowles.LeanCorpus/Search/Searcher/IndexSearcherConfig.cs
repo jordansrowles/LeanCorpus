@@ -11,6 +11,11 @@ public sealed class IndexSearcherConfig
     public ISimilarity Similarity { get; set; } = Bm25Similarity.Instance;
 
     /// <summary>
+    /// Optional field-specific scoring models. Fields not present use <see cref="Similarity"/>.
+    /// </summary>
+    public IReadOnlyDictionary<string, ISimilarity>? PerFieldSimilarities { get; set; }
+
+    /// <summary>
     /// Compatibility guardrail applied when opening an index. Defaults to strict mode.
     /// </summary>
     public IndexOpenCompatibilityMode CompatibilityMode { get; set; } = IndexOpenCompatibilityMode.Strict;

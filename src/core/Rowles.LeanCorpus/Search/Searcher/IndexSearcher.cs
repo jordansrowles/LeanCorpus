@@ -29,9 +29,13 @@ public sealed partial class IndexSearcher : IDisposable
     [ThreadStatic] private static PostingsEnum[]? t_postingsBuffer;
     [ThreadStatic] private static ScoreDoc[]? t_collectorHeapCache;
     [ThreadStatic] private static HashSet<(string Field, string Term)>? t_docFreqTermsBuf;
+    [ThreadStatic] private static IndexSearcher? t_similaritySearcher;
+    [ThreadStatic] private static string? t_similarityField;
+    [ThreadStatic] private static ISimilarity? t_fieldSimilarity;
     private static readonly Dictionary<(string Field, string Term), int> EmptyGlobalDFs = new();
     private const string CombinedFieldsDocFreqKey = "\u0001combined-fields";
     private readonly QueryCache? _queryCache;
+    private int _commitGeneration;
     private readonly ConcurrentDictionary<string, long> _collectionFrequencyCache = new(StringComparer.Ordinal);
     private ConcurrentDictionary<MltCacheKey, (string Field, string Term, float Score)[]>? _mltCache;
     private int _mltCacheCount;
@@ -55,21 +59,84 @@ public sealed partial class IndexSearcher : IDisposable
     /// <summary>The query result cache, or null if caching is disabled.</summary>
     public QueryCache? Cache => _queryCache;
 
+    /// <summary>The committed generation represented by this immutable searcher snapshot.</summary>
+    public int CommitGeneration => _commitGeneration;
+
+    internal long SnapshotRetainedBytes => _snapshotLease?.RetainedBytes ?? 0;
+    internal string[] SnapshotRetainedFiles => _snapshotLease?.RetainedFiles ?? [];
+    internal string[] SnapshotPendingDeletionFiles => _snapshotLease?.PendingDeletionFiles ?? [];
+
     /// <summary>Computes scoring factors for a term, dispatching to LM or classic path.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private (float F1, float F2, float F3) ComputeTermFactors(
         int docFreq, float avgDocLength, long collectionFreq, string field)
     {
-        long totalTerms = _useLmScoring ? Stats.GetFieldLengthSum(field) : 0;
-        return _similarity.PrecomputeLmFactors(_totalDocCount, docFreq, avgDocLength, collectionFreq, totalTerms);
+        if (_config.PerFieldSimilarities is null)
+        {
+            long globalTotalTerms = _useLmScoring ? Stats.GetFieldLengthSum(field) : 0;
+            return _similarity.PrecomputeLmFactors(
+                _totalDocCount,
+                docFreq,
+                avgDocLength,
+                collectionFreq,
+                globalTotalTerms);
+        }
+
+        var similarity = GetSimilarity(field);
+        long totalTerms = similarity.RequiresCollectionStatistics
+            ? Stats.GetFieldLengthSum(field)
+            : 0;
+        return similarity.PrecomputeLmFactors(
+            _totalDocCount, docFreq, avgDocLength, collectionFreq, totalTerms);
     }
 
     /// <summary>Scores a term via the unified language-model path.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private float ScoreTerm(float f1, float f2, float f3, int tf, int docLength)
-        => _useBm25Scoring
+    private float ScoreTerm(
+        float f1,
+        float f2,
+        float f3,
+        int tf,
+        int docLength,
+        string field)
+    {
+        if (_config.PerFieldSimilarities is null)
+        {
+            return _useBm25Scoring
+                ? Bm25Scorer.ScorePrecomputed(f1, f2, tf, docLength)
+                : _similarity.ScoreLmPrecomputed(f1, f2, f3, tf, docLength);
+        }
+
+        var similarity = GetSimilarity(field);
+        return similarity is Bm25Similarity
             ? Bm25Scorer.ScorePrecomputed(f1, f2, tf, docLength)
-            : _similarity.ScoreLmPrecomputed(f1, f2, f3, tf, docLength);
+            : similarity.ScoreLmPrecomputed(f1, f2, f3, tf, docLength);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private ISimilarity GetSimilarity(string field)
+    {
+        if (ReferenceEquals(t_similaritySearcher, this)
+            && string.Equals(t_similarityField, field, StringComparison.Ordinal))
+        {
+            return t_fieldSimilarity!;
+        }
+
+        var similarity = _config.PerFieldSimilarities is not null
+            && _config.PerFieldSimilarities.TryGetValue(field, out var fieldSimilarity)
+                ? fieldSimilarity
+                : _similarity;
+        t_similaritySearcher = this;
+        t_similarityField = field;
+        t_fieldSimilarity = similarity;
+        return similarity;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private bool RequiresCollectionStatistics(string field)
+        => _config.PerFieldSimilarities is null
+            ? _useLmScoring
+            : GetSimilarity(field).RequiresCollectionStatistics;
 
     /// <summary>Computes the collection frequency for a term across all segments.</summary>
     private long GetGlobalCollectionFreq(string qualifiedTerm)
@@ -90,6 +157,26 @@ public sealed partial class IndexSearcher : IDisposable
     /// <summary>Exposes the underlying segment readers for advanced use (e.g., spelling suggestions).</summary>
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     internal IReadOnlyList<SegmentReader> GetSegmentReaders() => _readers;
+
+    /// <summary>
+    /// Builds an immutable global ordinal map for a sorted DocValues field across this
+    /// searcher's segment snapshots.
+    /// </summary>
+    /// <param name="fieldName">The sorted or sorted-set DocValues field.</param>
+    /// <param name="sortedSet">When true, reads the sorted-set term dictionary.</param>
+    /// <returns>A map whose source indexes match the current segment order.</returns>
+    public OrdinalMap GetOrdinalMap(string fieldName, bool sortedSet = false)
+    {
+        ArgumentNullException.ThrowIfNull(fieldName);
+        var sourceTerms = new IReadOnlyList<string>[_readers.Count];
+        for (int i = 0; i < _readers.Count; i++)
+        {
+            sourceTerms[i] = sortedSet
+                ? _readers[i].GetSortedSetDocValueTerms(fieldName) ?? Array.Empty<string>()
+                : _readers[i].GetSortedDocValueTerms(fieldName) ?? Array.Empty<string>();
+        }
+        return OrdinalMap.Build(sourceTerms);
+    }
 
     internal int CachedSegmentReaderCount => _segmentReaderCache.Count;
 
@@ -126,13 +213,13 @@ public sealed partial class IndexSearcher : IDisposable
         _segmentReaderCache = new BoundedLruCache<string, SegmentReaderState>(
             config.MaxCachedSegmentReaders, StringComparer.Ordinal);
         _similarity = config.Similarity;
-
         _useLmScoring = _similarity.RequiresCollectionStatistics;
         _useBm25Scoring = _similarity is Bm25Similarity;
 
         IndexOpenGuard.EnsureNoBlockingMigration(directory, config.CompatibilityMode);
 
         var (segmentIds, generation) = LoadLatestCommitWithGeneration();
+        _commitGeneration = generation;
         IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false);
 
         // Load segment readers with a retry loop to handle the narrow window where a
@@ -166,6 +253,7 @@ public sealed partial class IndexSearcher : IDisposable
             {
                 Thread.Sleep(10 * attempt);
                 (segmentIds, generation) = LoadLatestCommitWithGeneration();
+                _commitGeneration = generation;
                 IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false);
             }
             finally
@@ -227,9 +315,9 @@ public sealed partial class IndexSearcher : IDisposable
         _segmentReaderCache = new BoundedLruCache<string, SegmentReaderState>(
             config.MaxCachedSegmentReaders, StringComparer.Ordinal);
         _similarity = config.Similarity;
-
         _useLmScoring = _similarity.RequiresCollectionStatistics;
         _useBm25Scoring = _similarity is Bm25Similarity;
+
         IndexOpenGuard.EnsureNoBlockingMigration(directory, config.CompatibilityMode);
         IndexOpenGuard.EnsureCanOpenSegments(
             directory,
@@ -304,6 +392,8 @@ public sealed partial class IndexSearcher : IDisposable
     /// <returns>A <see cref="TopDocs"/> containing the top-scoring documents and total hit count.</returns>
     public TopDocs Search(Query query, int topN)
     {
+        ArgumentNullException.ThrowIfNull(query);
+        query = RewriteQuery(query);
         int requestedTopN = topN;
         int effectiveTopN = NormaliseTopN(topN);
         if (effectiveTopN <= 0 || _readers.Count == 0)
@@ -347,6 +437,11 @@ public sealed partial class IndexSearcher : IDisposable
 
     private TopDocs SearchCore(Query query, int topN)
     {
+        query = RewriteQuery(query);
+
+        if (query.CreateWeight(this) is { } weight)
+            return ExecuteWeight(query, weight, topN);
+
         // MoreLikeThis is a cross-segment query: extract terms, build BooleanQuery, delegate
         if (query is MoreLikeThisQuery mlt)
             return ExecuteMoreLikeThis(mlt, topN);
@@ -367,7 +462,8 @@ public sealed partial class IndexSearcher : IDisposable
 
         // Fast path for FunctionScoreQuery wrapping a TermQuery: inline scoring,
         // reuse ThreadStatic postings buffer, skip PrecomputeGlobalDocFreqs.
-        if (query is FunctionScoreQuery fsq && fsq.Inner is TermQuery fsqTq)
+        if (query is FunctionScoreQuery { IsSimpleNumericField: true } fsq
+            && fsq.Inner is TermQuery fsqTq)
             return SearchFunctionScoreTermQuery(fsqTq, fsq, topN);
 
         // Fast path for BooleanQuery with all-TermQuery clauses — compute
@@ -405,6 +501,50 @@ public sealed partial class IndexSearcher : IDisposable
         return collector.ToTopDocs();
     }
 
+    internal TopDocs SearchWithCollectorStrategy(Query query, ITopNCollectorStrategy strategy)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(strategy);
+
+        query = RewriteQuery(query);
+        var collector = new TopNCollector(strategy);
+        if (_readers.Count == 0)
+            return collector.ToTopDocs();
+
+        // These query families coordinate results across segments themselves.
+        // Keep their existing execution and feed only their final candidates to
+        // the bounded strategy.
+        if (query is MoreLikeThisQuery or RrfQuery or BlockJoinQuery)
+        {
+            var results = SearchCore(query, _totalDocCount);
+            foreach (var scoreDoc in results.ScoreDocs)
+                collector.Collect(scoreDoc.DocId, scoreDoc.Score);
+            return collector.ToTopDocs();
+        }
+
+        var globalDFs = PrecomputeGlobalDocFreqsForSearch(query);
+        if (_readers.Count > 1 && _config.ParallelSearch
+            && strategy is IParallelTopNCollectorStrategy parallelStrategy)
+        {
+            int maxDop = _config.MaxConcurrency > 0 ? _config.MaxConcurrency : Environment.ProcessorCount;
+            var mergeLock = new Lock();
+            Parallel.ForEach(_readers, new ParallelOptions { MaxDegreeOfParallelism = maxDop }, reader =>
+            {
+                var workerStrategy = parallelStrategy.CreateWorker();
+                var workerCollector = new TopNCollector(workerStrategy);
+                ExecuteQuery(query, reader, globalDFs, ref workerCollector);
+                lock (mergeLock)
+                    parallelStrategy.MergeWorker(workerStrategy);
+            });
+        }
+        else
+        {
+            foreach (var reader in _readers)
+                ExecuteQuery(query, reader, globalDFs, ref collector);
+        }
+        return collector.ToTopDocs();
+    }
+
     /// <summary>
     /// Executes a query and collects results through the provided <see cref="ICollector"/>.
     /// When <paramref name="collector"/> is a <see cref="CountCollector"/>, this uses a
@@ -431,11 +571,51 @@ public sealed partial class IndexSearcher : IDisposable
         }
 
         // Bridge through the scored path for custom collectors that need actual results.
-        int cap = Math.Min(_totalDocCount, 1024);
-        var wrapper = new TopNCollectorWrapper(cap);
-        var result = Search(query, cap);
-        foreach (var sd in result.ScoreDocs)
-            collector.Collect(sd.DocId, sd.Score);
+        var result = Search(query, _totalDocCount);
+        if (collector is not ILeafCollector leafCollector)
+        {
+            foreach (var sd in result.ScoreDocs)
+                collector.Collect(sd.DocId, sd.Score);
+            return;
+        }
+
+        var scorer = new CollectorScorer();
+        for (int ordinal = 0; ordinal < _readers.Count; ordinal++)
+        {
+            int docBase = _docBases[ordinal];
+            int maxDoc = _readers[ordinal].MaxDoc;
+            int endDoc = docBase + maxDoc;
+            leafCollector.SetSegment(ordinal, docBase, maxDoc);
+            leafCollector.SetScorer(scorer);
+
+            // Search results are score ordered, so scan them once per segment.
+            // Segment-aware collectors are intended for aggregation rather than top-N ranking.
+            foreach (var sd in result.ScoreDocs)
+            {
+                if (sd.DocId < docBase || sd.DocId >= endDoc)
+                    continue;
+                scorer.SetCurrent(sd.DocId, sd.Score);
+                leafCollector.Collect(sd.DocId, sd.Score);
+            }
+        }
+    }
+
+    private sealed class CollectorScorer : Scorer
+    {
+        private int _docId = -1;
+        private float _score;
+
+        public override int DocId => _docId;
+
+        public override float Score() => _score;
+
+        public override float Score(int docId, float approximationScore) => approximationScore;
+
+        internal void SetCurrent(int docId, float score)
+        {
+            _docId = docId;
+            _score = score;
+        }
     }
 
     /// <summary>
@@ -446,6 +626,17 @@ public sealed partial class IndexSearcher : IDisposable
     /// <returns>The total number of matching documents.</returns>
     public int Count(Query query)
     {
+        ArgumentNullException.ThrowIfNull(query);
+        query = RewriteQuery(query);
+
+        if (query.CreateWeight(this) is { } weight)
+        {
+            if (ReferenceEquals(weight.Approximation, query))
+                throw new InvalidOperationException(
+                    "A custom query weight cannot use its owning query as its approximation.");
+            return Count(weight.Approximation);
+        }
+
         if (query is MatchAllDocsQuery)
             return Stats.LiveDocCount;
 
@@ -553,7 +744,8 @@ public sealed partial class IndexSearcher : IDisposable
             return ExecuteBlockJoinQuery(bjq, topN);
         if (query is TermQuery tq)
             return SearchTermQuery(tq, topN);
-        if (query is FunctionScoreQuery fsqCt && fsqCt.Inner is TermQuery fsqCtTq)
+        if (query is FunctionScoreQuery { IsSimpleNumericField: true } fsqCt
+            && fsqCt.Inner is TermQuery fsqCtTq)
             return SearchFunctionScoreTermQuery(fsqCtTq, fsqCt, topN);
         // Fast path for BooleanQuery with all-TermQuery clauses
         if (query is BooleanQuery bq && IsAllTermQueryBoolean(bq))
@@ -838,7 +1030,7 @@ public sealed partial class IndexSearcher : IDisposable
     private static bool ShouldSkipGlobalDocFreqs(Query query) =>
         query is PrefixQuery or WildcardQuery or FuzzyQuery
             or MatchAllDocsQuery or MatchNoDocsQuery
-            or FieldExistsQuery or TermInSetQuery or PointInSetQuery
+            or FieldExistsQuery or TermInSetQuery or TermsQuery or PointInSetQuery
             or MultiPhraseQuery or IntervalsQuery or CombinedFieldsQuery;
 
     private Dictionary<(string Field, string Term), int> PrecomputeGlobalDocFreqsForSearch(Query query)
@@ -1062,7 +1254,7 @@ public sealed partial class IndexSearcher : IDisposable
         return result;
     }
 
-    private static void CollectTerms(Query query, HashSet<(string Field, string Term)> terms)
+    private void CollectTerms(Query query, HashSet<(string Field, string Term)> terms)
     {
         switch (query)
         {
@@ -1077,6 +1269,10 @@ public sealed partial class IndexSearcher : IDisposable
                 foreach (var term in pq.Terms)
                     terms.Add((pq.Field, term));
                 break;
+            case SynonymQuery sq:
+                foreach (var term in sq.Terms)
+                    terms.Add((sq.Field, term));
+                break;
             case ConstantScoreQuery csq:
                 CollectTerms(csq.Inner, terms);
                 break;
@@ -1084,9 +1280,48 @@ public sealed partial class IndexSearcher : IDisposable
                 foreach (var d in dmq.Disjuncts)
                     CollectTerms(d, terms);
                 break;
-                // Expansion queries (prefix/wildcard/fuzzy/range/regexp) resolve terms at execution
-                // time per-segment, so no static term collection is needed here.
+            default:
+                var rewritten = query.Rewrite();
+                if (!ReferenceEquals(rewritten, query))
+                    CollectTerms(RewriteQuery(rewritten), terms);
+                else if (query.CreateWeight(this) is { } weight)
+                    CollectTerms(weight.Approximation, terms);
+                break;
         }
+    }
+
+    private TopDocs ExecuteWeight(Query owner, Weight weight, int topN)
+    {
+        if (ReferenceEquals(weight.Approximation, owner))
+            throw new InvalidOperationException(
+                "A custom query weight cannot use its owning query as its approximation.");
+
+        var candidates = SearchCore(weight.Approximation, _totalDocCount);
+        if (candidates.ScoreDocs.Length == 0)
+            return TopDocs.Empty;
+
+        var scorer = weight.CreateScorer(this)
+            ?? throw new InvalidOperationException("Weight.CreateScorer() returned null.");
+        var collector = new TopNCollector(topN);
+        foreach (var candidate in candidates.ScoreDocs)
+            collector.Collect(candidate.DocId, scorer.Score(candidate.DocId, candidate.Score));
+        return collector.ToTopDocs();
+    }
+
+    private static Query RewriteQuery(Query query)
+    {
+        const int maxRewriteRounds = 16;
+        for (int i = 0; i < maxRewriteRounds; i++)
+        {
+            var rewritten = query.Rewrite()
+                ?? throw new InvalidOperationException("Query.Rewrite() returned null.");
+            if (ReferenceEquals(rewritten, query))
+                return query;
+            query = rewritten;
+        }
+
+        throw new InvalidOperationException(
+            $"Query rewrite did not stabilise after {maxRewriteRounds} rounds.");
     }
 
     private TopDocs SearchTermQuery(TermQuery query, int topN, ISideCollector? sideCollector = null)
@@ -1104,7 +1339,9 @@ public sealed partial class IndexSearcher : IDisposable
             postingsArr[i] = _readers[i].GetPostingsEnum(qt);
             globalDF += postingsArr[i].DocFreq;
         }
-        long globalCollectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
+        long globalCollectionFreq = RequiresCollectionStatistics(query.Field)
+            ? GetGlobalCollectionFreq(qt)
+            : 0;
 
         if (globalDF == 0)
         {
@@ -1143,7 +1380,7 @@ public sealed partial class IndexSearcher : IDisposable
 
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                         ? fieldLengths[docId] : 1;
-                    float score = ScoreTerm(f1, f2, f3, tf, docLength);
+                    float score = ScoreTerm(f1, f2, f3, tf, docLength, query.Field);
                     if (boost != 1.0f) score *= boost;
                     score = ApplyFieldBoost(fieldBoosts, docId, score);
                     collector.Collect(docBase + docId, score);
@@ -1181,7 +1418,9 @@ public sealed partial class IndexSearcher : IDisposable
             postingsArr[i] = _readers[i].GetPostingsEnum(qt);
             globalDF += postingsArr[i].DocFreq;
         }
-        long globalCollectionFreq = _useLmScoring ? GetGlobalCollectionFreq(qt) : 0;
+        long globalCollectionFreq = RequiresCollectionStatistics(tq.Field)
+            ? GetGlobalCollectionFreq(qt)
+            : 0;
 
         if (globalDF == 0)
         {
@@ -1223,7 +1462,7 @@ public sealed partial class IndexSearcher : IDisposable
 
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                         ? fieldLengths[docId] : 1;
-                    float score = ScoreTerm(f1, f2, f3, tf, docLength);
+                    float score = ScoreTerm(f1, f2, f3, tf, docLength, tq.Field);
                     if (boost != 1.0f) score *= boost;
                     score = ApplyFieldBoost(fieldBoosts, docId, score);
 

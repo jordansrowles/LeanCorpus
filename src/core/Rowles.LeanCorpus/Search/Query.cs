@@ -20,6 +20,28 @@ public abstract class Query : IEquatable<Query>
     /// <inheritdoc/>
     public bool Equals(Query? other) => Equals((object?)other);
 
+    /// <summary>
+    /// Rewrites this query to an executable query form.
+    /// Custom query types can override this to lower themselves to built-in queries.
+    /// </summary>
+    public virtual Query Rewrite() => this;
+
+    /// <summary>
+    /// Creates a custom weight for this query, or <see langword="null"/> to use built-in dispatch.
+    /// </summary>
+    public virtual Scoring.Weight? CreateWeight(Searcher.IndexSearcher searcher)
+    {
+        ArgumentNullException.ThrowIfNull(searcher);
+        return null;
+    }
+
+    /// <summary>Visits this query and its children.</summary>
+    public virtual void Visit(QueryVisitor visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        visitor.VisitLeaf(this);
+    }
+
     /// <summary>Helper to combine boost into a hash code.</summary>
     protected int CombineBoost(int hash) => HashCode.Combine(hash, Boost);
 }

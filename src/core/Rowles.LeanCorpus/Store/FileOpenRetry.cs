@@ -153,6 +153,24 @@ internal static class FileOpenRetry
     }
 
     /// <summary>
+    /// Moves a directory, retrying on transient locks.
+    /// </summary>
+    internal static void MoveDirectory(string sourcePath, string destPath)
+    {
+        int retries = TransientMaxRetries;
+        while (true)
+        {
+            try
+            {
+                Directory.Move(sourcePath, destPath);
+                return;
+            }
+            catch (IOException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
+            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
+        }
+    }
+
+    /// <summary>
     /// Copies a file, retrying on transient locks.
     /// </summary>
     internal static void Copy(string sourcePath, string destPath, bool overwrite = false)
@@ -172,6 +190,18 @@ internal static class FileOpenRetry
 
     /// <summary>Thin wrapper around File.Exists for centralised I/O.</summary>
     internal static bool FileExists(string path) => File.Exists(path);
+
+    /// <summary>Returns filesystem attributes for path identity checks.</summary>
+    internal static FileAttributes GetFileAttributes(string path) => File.GetAttributes(path);
+
+    /// <summary>Resolves a directory reparse point to its final directory target when available.</summary>
+    internal static string? ResolveDirectoryLinkTarget(string path)
+    {
+        var target = new DirectoryInfo(path).ResolveLinkTarget(returnFinalTarget: true);
+        return target is DirectoryInfo directory && directory.Exists
+            ? directory.FullName
+            : null;
+    }
 
     /// <summary>Returns the length of a file in bytes.</summary>
     internal static long GetFileLength(string path) => new FileInfo(path).Length;

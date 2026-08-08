@@ -21,6 +21,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [KeepBenchmarkFiles]
 [WarmupCount(2)]
 [IterationCount(5)]
+[InvocationCount(1)]
 public class IndexingBenchmarks
 {
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
@@ -33,11 +34,20 @@ public class IndexingBenchmarks
     public IndexingWorkloadProfile Profile { get; set; }
 
     private string[] _documents = [];
+    private readonly List<string> _createdPaths = [];
 
     [GlobalSetup]
     public void Setup()
     {
         _documents = BenchmarkData.BuildDocuments(DocumentCount);
+    }
+
+    [IterationCleanup]
+    public void IterationCleanup()
+    {
+        foreach (var path in _createdPaths)
+            BenchmarkHelpers.DeleteDirectory(path);
+        _createdPaths.Clear();
     }
 
     [Benchmark(Baseline = true)]
@@ -46,18 +56,17 @@ public class IndexingBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-index-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
+        _createdPaths.Add(path);
 
-        try
+        using (var directory = new MMapDirectory(path))
+        using (var writer = new Rowles.LeanCorpus.Index.Indexer.IndexWriter(
+                   directory,
+                   new Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig
+                   {
+                       MaxBufferedDocs = 10_000,
+                       RamBufferSizeMB = 256
+                   }))
         {
-            var directory = new MMapDirectory(path);
-            using var writer = new Rowles.LeanCorpus.Index.Indexer.IndexWriter(
-                directory,
-                new Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig
-                {
-                    MaxBufferedDocs = 10_000,
-                    RamBufferSizeMB = 256
-                });
-
             for (int i = 0; i < _documents.Length; i++)
             {
                 var doc = new LeanDocument();
@@ -68,11 +77,6 @@ public class IndexingBenchmarks
             writer.Commit();
             return _documents.Length;
         }
-        finally
-        {
-            if (Directory.Exists(path))
-                Directory.Delete(path, recursive: true);
-        }
     }
 
     [Benchmark]
@@ -81,15 +85,14 @@ public class IndexingBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"lucenenet-bench-index-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
+        _createdPaths.Add(path);
 
-        try
+        using (var directory = new LuceneMMapDirectory(new DirectoryInfo(path)))
+        using (var analyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48))
+        using (var writer = new Lucene.Net.Index.IndexWriter(
+                   directory,
+                   new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyzer)))
         {
-            using var directory = new LuceneMMapDirectory(new DirectoryInfo(path));
-            using var analyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
-            using var writer = new Lucene.Net.Index.IndexWriter(
-                directory,
-                new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyzer));
-
             for (int i = 0; i < _documents.Length; i++)
             {
                 var doc = new Lucene.Net.Documents.Document();
@@ -99,11 +102,6 @@ public class IndexingBenchmarks
 
             writer.Commit();
             return _documents.Length;
-        }
-        finally
-        {
-            if (Directory.Exists(path))
-                Directory.Delete(path, recursive: true);
         }
     }
 

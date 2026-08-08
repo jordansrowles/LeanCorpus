@@ -1,6 +1,6 @@
 # Concurrency and Near Real Time
 
-Keep searches fresh while indexing continues.
+Use this section when indexing and search overlap. Start with SearcherManager, then read snapshot and refresh guidance before adding custom lifecycle handling.
 
 - [Searcher manager](01-searcher-manager.md)
 - [Concurrent indexing](02-concurrent-indexing.md)

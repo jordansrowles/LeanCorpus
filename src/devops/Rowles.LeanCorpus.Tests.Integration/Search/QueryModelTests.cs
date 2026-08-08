@@ -732,6 +732,17 @@ public sealed class QueryModelTests
         Assert.Equal("hel+o", q.Pattern);
     }
 
+    [Fact(DisplayName = "Query Builder: Synonym Creates Normalised Synonym Query")]
+    public void QueryBuilder_Synonym_CreatesNormalisedSynonymQuery()
+    {
+        var query = QueryBuilder.Synonym("body", "fast", "quick", "fast");
+
+        Assert.Equal(new[] { "fast", "quick" }, query.Terms);
+        Assert.Equal(
+            new SynonymQuery("body", "quick", "fast"),
+            query);
+    }
+
     /// <summary>
     /// Verifies the Query Builder: Constant Score Creates Constant Score Query scenario.
     /// </summary>
@@ -780,9 +791,94 @@ public sealed class QueryModelTests
         {
             b.Must(new TermQuery("f", "x"));
             b.Should(new TermQuery("f", "y"));
+            b.MinimumShouldMatch(1);
         });
 
         Assert.IsType<BooleanQuery>(q);
         Assert.Equal(2, q.Clauses.Count);
+        Assert.Equal(1, q.MinimumNumberShouldMatch);
+    }
+
+    [Fact(DisplayName = "Boolean Query: Minimum Should Match Rejects Negative Values")]
+    public void BooleanQuery_MinimumShouldMatch_RejectsNegativeValues()
+    {
+        var builder = new BooleanQuery.Builder();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => builder.SetMinimumNumberShouldMatch(-1));
+    }
+
+    [Fact(DisplayName = "Query Visitor: Traverses Boolean Clauses And Terms")]
+    public void QueryVisitor_TraversesBooleanClausesAndTerms()
+    {
+        var query = new BooleanQuery.Builder()
+            .Add(new TermQuery("title", "alpha"), Occur.Must)
+            .Add(new SynonymQuery("body", "beta", "gamma"), Occur.Should)
+            .Build();
+        var visitor = new RecordingQueryVisitor();
+
+        query.Visit(visitor);
+
+        Assert.Equal(
+            new[] { "title:alpha", "body:beta", "body:gamma" },
+            visitor.Terms);
+        Assert.Equal(new[] { Occur.Must, Occur.Should }, visitor.Occurrences);
+    }
+
+    [Fact(DisplayName = "Query Visitor: Traverses Phrase Alternatives And Span Children")]
+    public void QueryVisitor_TraversesPhraseAlternativesAndSpanChildren()
+    {
+        var query = new BooleanQuery.Builder()
+            .Add(
+                new MultiPhraseQuery(
+                    "body",
+                    [
+                        ["quick", "fast"],
+                        ["fox"]
+                    ]),
+                Occur.Should)
+            .Add(
+                new SpanNotQuery(
+                    new SpanTermQuery("body", "include"),
+                    new SpanTermQuery("body", "exclude")),
+                Occur.Must)
+            .Build();
+        var visitor = new RecordingQueryVisitor();
+
+        query.Visit(visitor);
+
+        Assert.Equal(
+            new[]
+            {
+                "body:fast",
+                "body:quick",
+                "body:fox",
+                "body:include",
+                "body:exclude"
+            },
+            visitor.Terms);
+        Assert.Equal(
+            new[] { Occur.Should, Occur.Must, Occur.Must, Occur.MustNot },
+            visitor.Occurrences);
+    }
+
+    private sealed class RecordingQueryVisitor : QueryVisitor
+    {
+        public List<string> Terms { get; } = [];
+        public List<Occur> Occurrences { get; } = [];
+
+        public override QueryVisitor GetSubVisitor(Occur occur, Query parent)
+        {
+            Occurrences.Add(occur);
+            return this;
+        }
+
+        public override void ConsumeTerm(Query query, string field, string term)
+            => Terms.Add($"{field}:{term}");
+
+        public override void ConsumeTerms(Query query, string field, IReadOnlyList<string> terms)
+        {
+            foreach (var term in terms)
+                Terms.Add($"{field}:{term}");
+        }
     }
 }

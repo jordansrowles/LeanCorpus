@@ -41,12 +41,14 @@ Lucene (Java) refers to Lucene 10.3.1,
 | N-gram tokeniser | ✔   `NGramTokeniser` | ✔ | ✔ | Lucene: `NGramTokenizer` |
 | Edge n-gram tokeniser | ✔   `EdgeNGramTokeniser` | ✔ | ✔ | Lucene: `EdgeNGramTokenizer` |
 | CJK bigram tokeniser | ✔   `CJKBigramTokeniser` | ✔ | ✔ | Lucene: `CJKBigramTokenizer` |
+| Chinese lexicon tokeniser | ✔   `ChineseLexiconTokeniser` | ✔ | ✔ | Greedy longest-match segmentation with unigram fallback |
+| Japanese morphological tokeniser | ✔   `JapaneseTokeniser` | ✔ | ✔ | Character-class-based segmentation using Kuromoji data; splits at kanji/hiragana/katakana boundaries |
 | ICU tokeniser (Unicode segmenter) | ✔   `IcuTokeniser` / `UnicodeTokenisation` | ✔ | ✔ | |
 | Thai tokeniser | ✔   `ThaiTokeniser` | ✔ | ✔ | Lucene: `ThaiTokenizer` |
 | UAX29 URL/email tokeniser | ✔   `Uax29UrlEmailTokeniser` | ✔ | ✔ | Lucene: `UAX29URLEmailTokenizer` |
 | Wikipedia tokeniser | ✔   `MediaWikiTokeniser` | ✔ | ✔ | Lucene: `WikipediaTokenizer` |
 | Pattern tokeniser | ✔   `PatternTokeniser` | ✔ | ✔ | Lucene: `PatternTokenizer` |
-| Path-hierarchy tokeniser | ❌ | ✔ | ✔ | Lucene: `PathHierarchyTokenizer` |
+| Path-hierarchy tokeniser | ✔   `PathTreeTokeniser` | ✔ | ✔ | Lucene: `PathHierarchyTokenizer`; adds suffix mode, depth payloads, root-aware parsing |
 | Classic tokeniser | ❌ | ✔ | ✔ | Lucene: legacy `ClassicTokenizer` |
 
 ---
@@ -112,9 +114,9 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Dutch | ✔   `DutchStemmer` | ✔ | ✔ | |
 | Russian | ✔   `RussianStemmer` | ✔ | ✔ | |
 | Arabic | ✔   `ArabicStemmer` | ✔ | ✔ | |
-| Chinese | ❌ | ✔ | ✔ | `ChineseStemmer` is a no-op compatibility adapter that returns input unchanged. |
-| Japanese | ❌ | ✔ | ✔ | `JapaneseStemmer` is a no-op compatibility adapter that returns input unchanged. |
-| Korean | ❌ | ✔ | ✔ | `KoreanStemmer` is a no-op compatibility adapter that returns input unchanged. |
+| Chinese | ◐   `ChineseStemmer` | ✔ | ✔ | Identity no-op adapter; Chinese word segmentation is handled by `ChineseLexiconTokeniser` |
+| Japanese | ◐   `JapaneseStemmer` | ✔ | ✔ | Identity no-op adapter; Japanese segmentation is handled by `JapaneseTokeniser` |
+| Korean | ◐   `KoreanStemmer` | ✔ | ✔ | Identity no-op adapter; Korean uses `CJKBigramTokeniser` with word tokenisation |
 | Hindi | ❌ | ✔ | ✔ | Backlog |
 | Turkish | ❌ | ✔ | ✔ | Backlog |
 
@@ -221,18 +223,18 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Multi-level BlockJoinQuery | ❌ | ✔ | ✔ | Backlog |
 | ToParentBlockJoinSortField | ❌ | ✔ | ✔ | Backlog |
 | Join queries (term-based join) | ❌ | ✔ | ✔ | Backlog |
-| Function queries / DoubleValuesSource | ❌ | ◐ | ✔ | Lucene.NET has its older `ValueSource` function-query surface but not Java Lucene's current `DoubleValuesSource` API. |
+| Function queries / DoubleValuesSource | ✔   `FunctionQuery` / `DoubleValuesSource` | ◐ | ✔ | Numeric fields, constants, scores and composed arithmetic sources. |
 | BoostQuery (wrapper) | ✔   `Query.Boost` / `QueryExtensions.WithBoost()` | ✔ | ✔ | LeanCorpus uses a base-query property rather than a wrapper type. |
-| TermsQuery / TermInSetQuery (byte-ref variant) | ❌ | ✔ | ✔ | Backlog |
+| TermsQuery / TermInSetQuery (byte-ref variant) | ✔   `TermsQuery` | ✔ | ✔ | Accepts exact UTF-8 terms and performs byte-oriented FST lookups. |
 | MonitorQuery / Percolator | ❌ | ✔ | ✔ | Backlog |
 | MemoryIndex (single-doc in-memory) | ❌ | ✔ | ✔ | Backlog |
-| QueryRescorer | ❌ | ✔ | ✔ | Backlog |
-| SearchAfter (pagination) | ❌ | ✔ | ✔ | Backlog |
+| QueryRescorer | ✔   `QueryRescorer` | ✔ | ✔ | Candidate-only second-pass scoring with configurable score combination. |
+| SearchAfter (pagination) | ✔   `IndexSearcher.SearchAfter()` | ✔ | ✔ | Score/document-ID and multi-field sort cursors. |
 | Count-only search | ✔   `IndexSearcher.Count()` / `CountCollector` | ✔ | ✔ | |
-| SpanFirstQuery | ❌ | ✔ | ✔ | Backlog |
-| SpanContainingQuery / SpanWithinQuery | ❌ | ✔ | ✔ | Backlog |
-| SpanMultiTermQueryWrapper | ❌ | ✔ | ✔ | Backlog |
-| SpanFieldMaskingQuery | ❌ | ✔ | ✔ | Backlog |
+| SpanFirstQuery | ✔   `SpanFirstQuery` | ✔ | ✔ | |
+| SpanContainingQuery / SpanWithinQuery | ✔ | ✔ | ✔ | |
+| SpanMultiTermQueryWrapper | ✔ | ✔ | ✔ | Prefix, wildcard, fuzzy, regex and term-range expansion. |
+| SpanFieldMaskingQuery | ✔   `FieldMaskingSpanQuery` | ✔ | ✔ | |
 | Byte-vector kNN | ❌ | ❌ | ✔ | Lucene (Java): `KnnByteVectorField` / `KnnByteVectorQuery`. |
 | Vector similarity-threshold query | ❌ | ❌ | ✔ | Lucene (Java): `FloatVectorSimilarityQuery`. |
 
@@ -253,8 +255,8 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Lenient parsing mode | ✔   `QueryParser` | ✔ | ✔ | |
 | Full grammar error positions | ❌ | ✔ | ✔ | Backlog |
 | Standard query parser (SQP) | ❌ | ✔ | ✔ | Backlog |
-| Analysing query parser | ❌ | ✔ | ✔ | `AnalyzingQueryParser` analyses prefix, wildcard, range, and fuzzy terms. |
-| Complex phrase query parser | ❌ | ✔ | ✔ | `ComplexPhraseQueryParser`. |
+| Analysing query parser | ✔   `AnalysingQueryParser` | ✔ | ✔ | Analyses literal portions of prefix and wildcard terms. |
+| Complex phrase query parser | ✔   `ComplexPhraseQueryParser` | ✔ | ✔ | Converts same-field complex phrase clauses to span queries. |
 | Surround query parser | ❌ | ✔ | ✔ | `SurroundQueryParser` supports span-oriented query syntax. |
 | XML query parser | ❌ | ✔ | ✔ | `CoreParser` / `XmlQueryParser`. |
 
@@ -289,7 +291,7 @@ Lucene (Java) refers to Lucene 10.3.1,
 | SortedSetDocValues | ✔   `SortedSetDocValues` / `SortedSetDocValuesReader` | ✔ | ✔ | |
 | SortedNumericDocValues | ✔   `SortedNumericDocValues` / `SortedNumericDocValuesReader` | ✔ | ✔ | |
 | BinaryDocValues | ✔   `BinaryDocValues` / `BinaryDocValuesReader` | ✔ | ✔ | |
-| Cross-segment ordinal mapping | ❌ | ✔ | ✔ | Lucene: `OrdinalMap` for sorted and sorted-set DocValues. |
+| Cross-segment ordinal mapping | ✔   `OrdinalMap` | ✔ | ✔ | Immutable term-order mappings for sorted and sorted-set DocValues, including federated facet merging. |
 | Norms | ✔   `NormsReader` / `NormsWriter` | ✔ | ✔ | |
 | Field lengths | ✔   `FieldLengthReader` / `FieldLengthWriter` | ✔ | ✔ | |
 | DocValues-backed sort fields | ✔   `SortField.Numeric` / `SortField.String` | ✔ | ✔ | Uses DocValues internally |
@@ -313,7 +315,7 @@ Lucene (Java) refers to Lucene 10.3.1,
 | LZ4 codec (optional package) | ✔   `Rowles.LeanCorpus.Compression.LZ4` | ✔ | ✔ | Optional extension package with zero-change registration; Lucene uses LZ4 within its stored-field formats. |
 | Snappy codec (optional package) | ✔   `Rowles.LeanCorpus.Compression.Snappy` | ❌ | ❌ | Optional extension package with zero-change registration. |
 | Zstandard codec (optional package) | ✔   `Rowles.LeanCorpus.Compression.Zstandard` | ❌ | ❌ | Optional extension package with zero-change registration. |
-| Compound file (.cfs/.cfe) | ❌ | ✔ | ✔ | Backlog |
+| Compound file (.cfs/.cfe) | ✔   `IndexWriterConfig.UseCompoundFile` | ✔ | ✔ | Immutable codec members are packed into `.cfs` and opened through memory-mapped slices; deletion and segment-statistics files remain separate. |
 | SIMD vector ops (AVX-512) | ✔   `SimdIntrinsicsVectorOps` | ❌ | ◐ | Hand-written AVX-512 cosine and dot-product paths through .NET intrinsics; Java Lucene has platform-vectorised implementations but not this .NET API. |
 | Roaring bitmap | ✔   `RoaringBitmap` | ❌ | ◐ | Java Lucene exposes `RoaringDocIdSet`, not the same public bitmap abstraction. |
 | Per-field stored-field compression selection | ✔   `FieldCompressionPolicy` | ❌ | ❌ | Compression policy is selected per stored field; Lucene stored-field compression is selected at codec or segment level. |
@@ -351,13 +353,13 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Index validation / checker | ✔   `IndexValidator.Check()` | ✔ | ✔ | |
 | Searcher lease | ✔   `SearcherLease` | ❌ | ❌ | Ref-counted searcher handle with a configurable refresh interval. |
 | Query result cache | ✔   `QueryCache` | ❌ | ✔ | Thread-safe, generation-keyed LRU cache per `SearcherManager`; Java Lucene provides `LRUQueryCache`. |
-| MultiReader (N directories as one) | ❌ | ✔ | ✔ | Backlog |
-| ReaderManager | ❌ | ✔ | ✔ | Backlog |
+| MultiReader (N directories as one) | ✔   `MultiReader` | ✔ | ✔ | Composes immutable directory snapshots with deterministic global document IDs and field sorting. |
+| ReaderManager | ✔   `ReaderManager<TReader>` | ✔ | ✔ | Generic reference-counted reader lifecycle used by `SearcherManager`. |
 | InfoStream (writer diagnostic logging) | ❌ | ✔ | ✔ | Backlog |
 | Live field values | ❌ | ✔ | ✔ | Lucene: `LiveFieldValues` tracks updates not yet visible through a refreshed searcher. |
 | TaxonomyReader / TaxonomyWriter | ❌ | ✔ | ✔ | Backlog |
 | ForceMerge (optimise) | ✔   `IndexWriter.ForceMerge(int maxSegments)` | ✔ | ✔ | |
-| Incremental backup | ❌ | ◐ | ◐ | Backlog. `IndexBackup.Backup()` currently copies every manifest file and does not compare a prior manifest or skip unchanged files; Lucene supplies snapshot and replication primitives rather than this direct API. |
+| Incremental backup | ✔   `IndexBackup.Backup()` | ◐ | ◐ | Parent-linked manifests reuse unchanged files across backup directories and restore the complete chain. |
 
 ---
 

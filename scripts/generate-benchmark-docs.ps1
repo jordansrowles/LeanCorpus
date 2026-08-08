@@ -4,8 +4,7 @@
 
 .DESCRIPTION
     For each machine directory under bench/, scans all completed runs and keeps the
-    newest run per suite. Writes one markdown page per suite into docs/benchmarks/
-    and generates a toc.yml listing all suites.
+    newest run per suite and writes one markdown page per suite into docs/benchmarks/.
 
     Run this before docfx build; docs.ps1 calls it automatically.
 
@@ -182,7 +181,6 @@ foreach ($f in $existingJson) {
     Remove-Item $f.FullName -Force
 }
 
-$tocEntries = [System.Collections.Generic.List[string]]::new()
 $pageCount   = 0
 
 # Sort suites by display name for a stable TOC order
@@ -267,8 +265,6 @@ foreach ($entry in $sortedSuites) {
     Write-Host "  $fileName" -ForegroundColor Green
     $pageCount++
 
-    $tocEntries.Add("- name: $displayName")
-    $tocEntries.Add("  href: $fileName")
 }
 
 # ── benchmark-charts.js ───────────────────────────────────────────────────────
@@ -429,12 +425,7 @@ function render(full){
 $benchmarkChartsJs | Set-Content (Join-Path $OutputDir 'benchmark-charts.js') -Encoding UTF8
 Write-Host "Written: benchmark-charts.js" -ForegroundColor Green
 
-# ── toc.yml ───────────────────────────────────────────────────────────────────
-
-if ($tocEntries.Count -gt 0) {
-    $tocEntries | Set-Content (Join-Path $OutputDir 'toc.yml') -Encoding UTF8
-    Write-Host "Written: toc.yml ($pageCount suites)" -ForegroundColor Green
-} else {
+if ($pageCount -eq 0) {
     Write-Warning "No pages generated."
 }
 

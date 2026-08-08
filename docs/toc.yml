@@ -1,54 +1,404 @@
 - name: Home
   href: index.md
-- name: Getting Started
-  href: getting-started/
-  homepage: getting-started/index.md
-- name: Architecture
-  href: architecture.md
-- name: Why LeanCorpus?
-  href: why-leancorpus.md
-- name: Performance
-  href: performance.md
+- name: About
+  items:
+    - name: Getting Started
+      href: getting-started/index.md
+      items:
+        - name: Installation and first index
+          href: getting-started/01-installation.md
+        - name: Field types
+          href: getting-started/02-fields.md
+        - name: Writer configuration
+          href: getting-started/03-configuration.md
+        - name: Source-generated mapping
+          href: getting-started/04-source-generated-mapping.md
+        - name: Configuration reference
+          href: getting-started/05-configuration-reference.md
+    - name: Concepts
+      href: concepts/index.md
+      items:
+        - name: Documents and fields
+          href: concepts/documents-and-fields.md
+        - name: Analysis and Rowles.Text
+          href: concepts/analysis.md
+        - name: Index lifecycle
+          href: concepts/index-lifecycle.md
+        - name: Queries and ranking
+          href: concepts/queries-and-ranking.md
+        - name: Vector search
+          href: concepts/vector-search.md
+    - name: Architecture
+      href: architecture.md
+    - name: Why LeanCorpus?
+      href: why-leancorpus.md
 - name: Guides
   items:
     - name: Analysis
-      href: analysis/
-      homepage: analysis/index.md
+      href: analysis/index.md
+      items:
+        - name: Analysers
+          href: analysis/01-analysers.md
+        - name: Tokenisers
+          href: analysis/02-tokenisers.md
+        - name: Token filters
+          href: analysis/03-token-filters.md
+        - name: Stemmers
+          href: analysis/04-stemmers.md
+        - name: Stop words and token budget
+          href: analysis/05-stop-words-and-token-budget.md
+        - name: Lexicons
+          href: analysis/06-lexicons.md
+        - name: Hunspell
+          href: analysis/07-hunspell.md
+        - name: Rowles.Text
+          href: analysis/08-rowles-text.md
     - name: Searching
-      href: searching/
-      homepage: searching/index.md
+      href: searching/index.md
+      items:
+        - name: Query types overview
+          href: searching/01-query-types.md
+        - name: Boolean queries
+          href: searching/02-boolean-queries.md
+        - name: Phrase and proximity
+          href: searching/03-phrase-and-proximity.md
+        - name: Query parser
+          href: searching/04-query-parser.md
+        - name: Boosting and scoring
+          href: searching/05-boosting-and-scoring.md
+        - name: Sorting
+          href: searching/06-sorting.md
+        - name: LINQ queries
+          href: searching/07-linq-queries.md
+        - name: Disjunction max
+          href: searching/08-disjunction-max.md
+        - name: Resource controls
+          href: searching/09-resource-controls.md
+        - name: Intervals
+          href: searching/10-intervals.md
+        - name: Score explanations
+          href: searching/11-score-explanations.md
+        - name: Ranking profiles and query rules
+          href: searching/12-ranking.md
+        - name: Pagination and rescoring
+          href: searching/12-pagination-and-rescoring.md
+        - name: Search sessions and cursor pagination
+          href: searching/13-search-sessions.md
     - name: Advanced
-      href: advanced/
-      homepage: advanced/index.md
+      href: advanced/index.md
+      items:
+        - name: Aggregations
+          href: advanced/01-aggregations.md
+        - name: Spelling suggestions
+          href: advanced/02-spell-check.md
+        - name: Highlighting
+          href: advanced/03-highlighting.md
+        - name: Reciprocal rank fusion
+          href: advanced/04-rrf.md
+        - name: Vector search
+          href: advanced/05-vector-search.md
+        - name: Block-join
+          href: advanced/06-block-join.md
+        - name: More like this
+          href: advanced/07-more-like-this.md
+        - name: Filtered vector search
+          href: advanced/08-filtered-vector-search.md
+        - name: Field collapsing
+          href: advanced/09-field-collapsing.md
+        - name: Geo search
+          href: advanced/10-geo-search.md
+        - name: Faceting
+          href: advanced/11-faceting.md
     - name: Concurrency
-      href: concurrency/
-      homepage: concurrency/index.md
-    - name: Index Management
-      href: index-management/
-      homepage: index-management/index.md
+      href: concurrency/index.md
+      items:
+        - name: Searcher manager
+          href: concurrency/01-searcher-manager.md
+        - name: Concurrent indexing
+          href: concurrency/02-concurrent-indexing.md
+        - name: Snapshots and deletion policies
+          href: concurrency/03-snapshots-and-policies.md
+        - name: Refresh failures
+          href: concurrency/04-refresh-failures.md
+    - name: Core and Indexing
+      href: index-management/index.md
+      items:
+        - name: Update and delete
+          href: index-management/01-update-and-delete.md
+        - name: Schema validation
+          href: index-management/02-schema.md
+        - name: Validation and recovery
+          href: index-management/03-validation-recovery.md
+        - name: Index checker CLI
+          href: index-management/04-cli-checker.md
+        - name: Stored round-tripping
+          href: index-management/05-stored-round-tripping.md
+        - name: Async indexing
+          href: index-management/06-async-indexing.md
+        - name: DocValues
+          href: index-management/07-docvalues.md
+        - name: Backup and restore
+          href: index-management/08-backup-and-restore.md
+        - name: Term vectors and payloads
+          href: index-management/09-term-vectors-and-payloads.md
+        - name: Store and file I/O
+          href: index-management/10-store-and-file-io.md
     - name: Observability
-      href: observability/
-      homepage: observability/index.md
-    - name: Tips & How-to
-      href: tips/
-      homepage: tips/index.md
+      href: observability/index.md
+      items:
+        - name: Metrics
+          href: observability/01-metrics.md
+        - name: Slow query log
+          href: observability/02-slow-query-log.md
+        - name: Search analytics
+          href: observability/03-search-analytics.md
+        - name: OpenTelemetry
+          href: observability/04-opentelemetry.md
+        - name: Aspire dashboard
+          href: observability/05-aspire-dashboard.md
+        - name: Index size and statistics
+          href: observability/06-index-size-and-statistics.md
+    - name: Tips and How-to
+      href: tips/index.md
+      items:
+        - name: Stored field compression
+          href: tips/01-compression.md
+        - name: Query cache
+          href: tips/02-query-cache.md
+        - name: Benchmarking
+          href: tips/03-benchmarking.md
+        - name: Production deployment
+          href: tips/04-production-deployment.md
+        - name: Performance tuning
+          href: tips/performance-tuning.md
+        - name: Troubleshooting
+          href: tips/troubleshooting.md
+    - name: Examples
+      href: examples/index.md
     - name: Migration from Lucene.Net
       href: migration.md
 - name: Contributors
-  href: contributors/
-  homepage: contributors/index.md
+  href: contributors/index.md
+  items:
+    - name: Architecture internals
+      href: contributors/architecture-internals.md
+    - name: Storage formats
+      href: contributors/storage-formats.md
+    - name: Search internals
+      href: contributors/search-internals.md
+    - name: Benchmarking
+      href: contributors/benchmarking.md
+    - name: Documentation
+      href: contributors/documentation.md
+    - name: DevOps entry point
+      href: contributors/devops-entry-point.md
+    - name: CodecKit
+      href: contributors/codeckit/index.md
+      items:
+        - name: Creating codecs
+          href: contributors/codeckit/01-creating-codecs.md
+        - name: Adding formats
+          href: contributors/codeckit/02-adding-formats.md
+        - name: Migrations
+          href: contributors/codeckit/03-migrations.md
 - name: Reference
   items:
+    - name: Performance
+      href: performance.md
     - name: API
       href: api/index.md
-    - name: Feature Parity
-      href: articles/vs-lucene.md
-    - name: ADRs
+    - name: Reference guides
+      href: reference/index.md
+      items:
+        - name: API map
+          href: reference/api-map.md
+        - name: Compatibility
+          href: reference/compatibility.md
+        - name: Glossary
+          href: reference/glossary.md
+        - name: Errors and recovery
+          href: reference/errors-and-recovery.md
+        - name: Native AOT and trimming
+          href: reference/native-aot.md
+        - name: Security and data handling
+          href: reference/security.md
+        - name: Upgrade guide
+          href: reference/upgrades.md
+    - name: Feature parity
+      href: articles/features/index.md
+    - name: Architecture decisions
       href: articles/ADRs/index.md
+      items:
+        - name: ADR001 Span body encoding
+          href: articles/ADRs/ADR001-span-body-encoding.md
+        - name: ADR002 Single SIMD path
+          href: articles/ADRs/ADR002-single-simd-path.md
+        - name: ADR003 HNSW frozen sorted arrays
+          href: articles/ADRs/ADR003-hnsw-frozen-sorted-arrays.md
+        - name: ADR004 ConcurrentDictionary cache pattern
+          href: articles/ADRs/ADR004-concurrentdictionary-cache-pattern.md
+        - name: ADR005 DWPT segment flush
+          href: articles/ADRs/ADR005-dwpt-segment-flush.md
+        - name: ADR006 Stryker deferred
+          href: articles/ADRs/ADR006-stryker-deferred.md
+        - name: ADR007 Merge must not block commit
+          href: articles/ADRs/ADR007-merge-must-not-block-commit.md
+        - name: ADR008 Stored fields v2 streaming
+          href: articles/ADRs/ADR008-stored-fields-v2-streaming.md
+        - name: ADR009 CodecKit trailer streaming
+          href: articles/ADRs/ADR009-codeckit-trailer-streaming.md
+        - name: ADR010 Close before rename migration
+          href: articles/ADRs/ADR010-close-before-rename-migration.md
+        - name: ADR011 Lazy segment reader lifetimes
+          href: articles/ADRs/ADR011-lazy-segment-reader-lifetimes.md
+        - name: ADR012 Parallel search opt-in
+          href: articles/ADRs/ADR012-parallel-search-opt-in.md
+        - name: ADR013 Query extension pipeline
+          href: articles/ADRs/ADR013-query-extension-pipeline.md
+        - name: ADR014 Japanese language codec
+          href: articles/ADRs/ADR014-japanese-language-codec.md
+        - name: ADR015 Bounded second-stage search
+          href: articles/ADRs/ADR015-bounded-second-stage-search.md
+        - name: ADR016 Experimental hybrid retrieval ship gates
+          href: articles/ADRs/ADR016-experimental-hybrid-retrieval-ship-gates.md
+        - name: ADR017 Reject Matryoshka prefix retrieval
+          href: articles/ADRs/ADR017-reject-matryoshka-prefix-retrieval.md
+        - name: ADR018 Reject RaBitQ vector codec
+          href: articles/ADRs/ADR018-reject-rabitq-vector-codec.md
+        - name: ADR019 Reject product quantisation
+          href: articles/ADRs/ADR019-reject-product-quantisation.md
+        - name: ADR020 Stop Hybrid Retrieval 2.0 research
+          href: articles/ADRs/ADR020-stop-hybrid-retrieval-2-research.md
+        - name: ADR021 Rowles.Text analysis package
+          href: articles/ADRs/ADR021-rowles-text-analysis-package.md
     - name: Changelog
-      href: changelog/
-      homepage: changelog/index.md
+      href: changelog/index.md
+      items:
+        - name: 2.1.1
+          href: changelog/2.1.1%20-%202026-07-26.md
+        - name: 2.1.0
+          href: changelog/2.1.0%20-%202026-07-25.md
+        - name: 2.0.0
+          href: changelog/2.0.0%20-%202026-07-14.md
+        - name: 1.4.1
+          href: changelog/1.4.1%20-%202026-06-13.md
+        - name: 1.4.0
+          href: changelog/1.4.0%20-%202026-05-29.md
+        - name: 1.3.0
+          href: changelog/1.3.0%20-%202026-05-11.md
+        - name: 1.2.1
+          href: changelog/1.2.1%20-%202026-05-05.md
+        - name: 1.2.0
+          href: changelog/1.2.0%20-%202026-05-04.md
+        - name: 1.1.3
+          href: changelog/1.1.3%20-%202026-05-03.md
+        - name: 1.1.2
+          href: changelog/1.1.2%20-%202026-05-02.md
+        - name: 1.1.1
+          href: changelog/1.1.1%20-%202026-05-01.md
     - name: Benchmarks
-      href: benchmarks/
+      items:
+        - name: Aggregation
+          href: benchmarks/debian-aggregation.md
+        - name: Analysis
+          href: benchmarks/debian-analysis.md
+        - name: Analysis filters
+          href: benchmarks/debian-analysis-filters.md
+        - name: Analysis filters v2
+          href: benchmarks/debian-analysis-filters-v2.md
+        - name: Analysis parity
+          href: benchmarks/debian-analysis-parity.md
+        - name: Async index
+          href: benchmarks/debian-async-index.md
+        - name: Block-Join indexing
+          href: benchmarks/debian-blockjoin-index.md
+        - name: Block-Join search
+          href: benchmarks/debian-blockjoin-search.md
+        - name: Boolean queries
+          href: benchmarks/debian-boolean.md
+        - name: Collapse and facet
+          href: benchmarks/debian-collapse-facet.md
+        - name: Combined queries
+          href: benchmarks/debian-combined.md
+        - name: Deletion commit
+          href: benchmarks/debian-deletion-commit.md
+        - name: Deletion queue
+          href: benchmarks/debian-deletion-queue.md
+        - name: Disjunction max
+          href: benchmarks/debian-dismax.md
+        - name: Function score
+          href: benchmarks/debian-function-score.md
+        - name: Fuzzy queries
+          href: benchmarks/debian-fuzzy.md
+        - name: Geo queries
+          href: benchmarks/debian-geo.md
+        - name: Gutenberg analysis
+          href: benchmarks/debian-gutenberg-analysis.md
+        - name: Gutenberg indexing
+          href: benchmarks/debian-gutenberg-index.md
+        - name: Gutenberg search
+          href: benchmarks/debian-gutenberg-search.md
+        - name: Highlighter
+          href: benchmarks/debian-highlighter.md
+        - name: HNSW
+          href: benchmarks/debian-hnsw.md
+        - name: Hunspell
+          href: benchmarks/debian-hunspell.md
+        - name: Index-sort indexing
+          href: benchmarks/debian-indexsort-index.md
+        - name: Index-sort search
+          href: benchmarks/debian-indexsort-search.md
+        - name: Indexing
+          href: benchmarks/debian-index.md
+        - name: KStemmer
+          href: benchmarks/debian-kstemmer.md
+        - name: Light English stemmer
+          href: benchmarks/debian-lightenglish.md
+        - name: More like this single segment
+          href: benchmarks/debian-mlt-single-segment.md
+        - name: More like this
+          href: benchmarks/debian-mlt.md
+        - name: Multi-phrase
+          href: benchmarks/debian-multiphrase.md
+        - name: N-gram
+          href: benchmarks/debian-ngram.md
+        - name: Parallel search
+          href: benchmarks/debian-parallel.md
+        - name: Pattern tokeniser
+          href: benchmarks/debian-pattern-tokeniser.md
+        - name: Phrase queries
+          href: benchmarks/debian-phrase.md
+        - name: Prefix queries
+          href: benchmarks/debian-prefix.md
+        - name: Query cache
+          href: benchmarks/debian-query-cache.md
+        - name: Range queries
+          href: benchmarks/debian-range.md
+        - name: Regexp queries
+          href: benchmarks/debian-regexp.md
+        - name: Schema and JSON
+          href: benchmarks/debian-schemajson.md
+        - name: Searcher manager
+          href: benchmarks/debian-searcher-mgr.md
+        - name: Similarity
+          href: benchmarks/debian-similarity.md
+        - name: Span queries
+          href: benchmarks/debian-span.md
+        - name: Stemmer
+          href: benchmarks/debian-stemmer.md
+        - name: Suggester
+          href: benchmarks/debian-suggester.md
+        - name: Synonym
+          href: benchmarks/debian-synonym.md
+        - name: Term in set
+          href: benchmarks/debian-terminset.md
+        - name: Term queries
+          href: benchmarks/debian-query.md
+        - name: Term-vector highlighter
+          href: benchmarks/debian-tv-highlighter.md
+        - name: Vector queries
+          href: benchmarks/debian-vq.md
+        - name: Wildcard queries
+          href: benchmarks/debian-wildcard.md
     - name: Coverage
       href: coverage/index.html

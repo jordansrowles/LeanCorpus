@@ -103,6 +103,15 @@ internal static class DwptManager
             if (writer.ShouldThrottleForMerge())
                 writer.ThrottleMerge();
         }
+        catch (TokenBudgetExceededException)
+        {
+            // DocumentsWriterPerThread validates the document before mutating
+            // its buffers. Reject therefore skips only this document and must
+            // not poison the writer or discard earlier accepted documents.
+            if (acquired)
+                ReleaseBackpressure(writer, 1);
+            throw;
+        }
         catch
         {
             if (enteredDwpt)
@@ -130,6 +139,9 @@ internal static class DwptManager
             ArgumentNullException.ThrowIfNull(block);
             if (block.Count < 2)
                 throw new ArgumentException("A document block requires at least one child and one parent document.", nameof(block));
+            if (writer.Config.IndexSort is not null)
+                throw new NotSupportedException(
+                    "Document blocks cannot be indexed when IndexSort is configured because physical document sorting would break child-parent adjacency.");
             writer.ValidateDocuments(block);
             if (writer.BackpressureSemaphore is not null && block.Count > writer.Config.MaxQueuedDocs)
                 throw new InvalidOperationException(
@@ -155,6 +167,13 @@ internal static class DwptManager
                 enteredDwpt = true;
                 dwpt.AddDocumentBlock(block);
             }
+        }
+        catch (TokenBudgetExceededException)
+        {
+            // The whole block is preflighted before its first document is
+            // added, so a rejected block leaves the DWPT unchanged.
+            ReleaseBackpressure(writer, acquired);
+            throw;
         }
         catch
         {

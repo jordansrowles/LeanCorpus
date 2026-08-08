@@ -38,6 +38,15 @@ public class TokeniserSmokeTests
     }
 
     [Fact]
+    public void JapaneseTokeniser_UsesLanguageCodec()
+    {
+        using var tokeniser = new JapaneseTokeniser();
+        var sink = new CountingTokenSink();
+        tokeniser.Tokenise("\u79C1\u306F\u5B66\u751F\u3067\u3059", sink);
+        Assert.Equal(4, sink.Count);
+    }
+
+    [Fact]
     public void EdgeNGramTokeniser_ProducesGrams()
     {
         var tokeniser = new EdgeNGramTokeniser(minGram: 2, maxGram: 4);

@@ -13,4 +13,10 @@ public sealed class IndexBackupOptions
 
     /// <summary>Gets or sets whether <c>stats_N.json</c> is included when present. Defaults to <c>true</c>.</summary>
     public bool IncludeCommitStats { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the previous backup directory used to create a manifest-linked incremental backup.
+    /// When <c>null</c>, all files are copied and the backup is self-contained.
+    /// </summary>
+    public string? PreviousBackupDirectoryPath { get; set; }
 }

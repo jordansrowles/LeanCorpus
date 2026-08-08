@@ -65,44 +65,63 @@ internal sealed class StoredFieldsReader : IDisposable
 
     public static StoredFieldsReader Open(string fdtPath, string fdxPath)
     {
-        // Read .fdx to get block offsets
-        using var fdxStream = FileOpenRetry.OpenReadDelete(fdxPath);
-        using var fdxReader = new BinaryReader(fdxStream, System.Text.Encoding.UTF8, leaveOpen: false);
-
-        byte fdxVersion = StoredFieldsFileHeader.ReadVersion(fdxReader);
-        if (fdxVersion > StoredFieldsFileHeader.V3)
+        var fdtInput = new IndexInput(fdtPath);
+        try
         {
-            throw new InvalidDataException(
-                $"Unsupported stored fields index (.fdx) format version {fdxVersion}. " +
-                $"This build supports up to version {StoredFieldsFileHeader.V3}.");
+            return Open(fdtInput, new IndexInput(fdxPath));
         }
-
-        int fdxBlockSize = fdxReader.ReadInt32();
-        int docCount = fdxReader.ReadInt32();
-        int blockCount = fdxReader.ReadInt32();
-
-        var blockOffsets = new long[blockCount];
-        for (int i = 0; i < blockCount; i++)
-            blockOffsets[i] = fdxReader.ReadInt64();
-
-        // Open .fdt and read its header to get compression type
-        var fs = FileOpenRetry.OpenReadDelete(fdtPath);
-        var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: true);
-
-        fs.Seek(0, SeekOrigin.Begin);
-        byte fdtVersion = StoredFieldsFileHeader.ReadVersion(reader);
-        if (fdtVersion > StoredFieldsFileHeader.V3)
+        catch
         {
-            throw new InvalidDataException(
-                $"Unsupported stored fields data (.fdt) format version {fdtVersion}. " +
-                $"This build supports up to version {StoredFieldsFileHeader.V3}.");
+            fdtInput.Dispose();
+            throw;
         }
+    }
 
-        int fdtBlockSize = reader.ReadInt32();
-        ValidateMatchingHeaders(fdtPath, fdxPath, fdtVersion, fdxVersion, fdtBlockSize, fdxBlockSize);
-        var compression = (FieldCompressionPolicy)reader.ReadByte();
+    internal static StoredFieldsReader Open(IndexInput fdtInput, IndexInput fdxInput)
+    {
+        try
+        {
+            using var fdxStream = new IndexInputStream(fdxInput);
+            using var fdxReader = new BinaryReader(fdxStream, System.Text.Encoding.UTF8, leaveOpen: false);
 
-        return new StoredFieldsReader(fs, reader, fdtBlockSize, docCount, blockOffsets, compression, fdtVersion);
+            byte fdxVersion = StoredFieldsFileHeader.ReadVersion(fdxReader);
+            if (fdxVersion > StoredFieldsFileHeader.V3)
+            {
+                throw new InvalidDataException(
+                    $"Unsupported stored fields index (.fdx) format version {fdxVersion}. " +
+                    $"This build supports up to version {StoredFieldsFileHeader.V3}.");
+            }
+
+            int fdxBlockSize = fdxReader.ReadInt32();
+            int docCount = fdxReader.ReadInt32();
+            int blockCount = fdxReader.ReadInt32();
+
+            var blockOffsets = new long[blockCount];
+            for (int i = 0; i < blockCount; i++)
+                blockOffsets[i] = fdxReader.ReadInt64();
+
+            var fs = new IndexInputStream(fdtInput);
+            var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: true);
+            byte fdtVersion = StoredFieldsFileHeader.ReadVersion(reader);
+            if (fdtVersion > StoredFieldsFileHeader.V3)
+            {
+                fs.Dispose();
+                throw new InvalidDataException(
+                    $"Unsupported stored fields data (.fdt) format version {fdtVersion}. " +
+                    $"This build supports up to version {StoredFieldsFileHeader.V3}.");
+            }
+
+            int fdtBlockSize = reader.ReadInt32();
+            ValidateMatchingHeaders(".fdt", ".fdx", fdtVersion, fdxVersion, fdtBlockSize, fdxBlockSize);
+            var compression = (FieldCompressionPolicy)reader.ReadByte();
+            return new StoredFieldsReader(fs, reader, fdtBlockSize, docCount, blockOffsets, compression, fdtVersion);
+        }
+        catch
+        {
+            fdtInput.Dispose();
+            fdxInput.Dispose();
+            throw;
+        }
     }
 
     private static void ValidateMatchingHeaders(

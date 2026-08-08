@@ -10,9 +10,10 @@ public sealed class BooleanQuery : Query
     private readonly List<BooleanClause> _clauses;
     private readonly bool _frozen;
 
-    private BooleanQuery(List<BooleanClause> clauses, bool frozen)
+    private BooleanQuery(List<BooleanClause> clauses, int minimumNumberShouldMatch, bool frozen)
     {
         _clauses = clauses;
+        MinimumNumberShouldMatch = minimumNumberShouldMatch;
         _frozen = frozen;
     }
 
@@ -30,6 +31,9 @@ public sealed class BooleanQuery : Query
 
     /// <summary>Gets the list of boolean clauses that compose this query.</summary>
     public IReadOnlyList<BooleanClause> Clauses => _clauses;
+
+    /// <summary>Gets the minimum number of SHOULD clauses that a document must match.</summary>
+    public int MinimumNumberShouldMatch { get; }
 
     /// <summary>
     /// Adds a sub-query with the specified occurrence type.
@@ -49,6 +53,7 @@ public sealed class BooleanQuery : Query
     public override bool Equals(object? obj) =>
         obj is BooleanQuery other &&
         Boost == other.Boost &&
+        MinimumNumberShouldMatch == other.MinimumNumberShouldMatch &&
         _clauses.Count == other._clauses.Count &&
         _clauses.SequenceEqual(other._clauses);
 
@@ -57,8 +62,17 @@ public sealed class BooleanQuery : Query
     {
         var h = new HashCode();
         h.Add(nameof(BooleanQuery));
+        h.Add(MinimumNumberShouldMatch);
         foreach (var c in _clauses) h.Add(c);
         return CombineBoost(h.ToHashCode());
+    }
+
+    /// <inheritdoc/>
+    public override void Visit(QueryVisitor visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        foreach (var clause in _clauses)
+            clause.Query.Visit(visitor.GetSubVisitor(clause.Occur, this));
     }
 
     /// <summary>
@@ -76,6 +90,7 @@ public sealed class BooleanQuery : Query
     {
         private readonly List<BooleanClause> _clauses = [];
         private float _boost = 1.0f;
+        private int _minimumNumberShouldMatch;
 
         /// <summary>
         /// Sets the boost factor applied to the whole query.
@@ -85,6 +100,16 @@ public sealed class BooleanQuery : Query
         public Builder WithBoost(float boost)
         {
             _boost = boost;
+            return this;
+        }
+
+        /// <summary>Sets the minimum number of SHOULD clauses that a document must match.</summary>
+        /// <param name="minimum">The non-negative minimum number of matching SHOULD clauses.</param>
+        /// <returns>This builder instance for method chaining.</returns>
+        public Builder SetMinimumNumberShouldMatch(int minimum)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(minimum);
+            _minimumNumberShouldMatch = minimum;
             return this;
         }
 
@@ -107,7 +132,7 @@ public sealed class BooleanQuery : Query
         /// <returns>An immutable <see cref="BooleanQuery"/> containing the added clauses.</returns>
         public BooleanQuery Build()
         {
-            var query = new BooleanQuery([.. _clauses], frozen: true)
+            var query = new BooleanQuery([.. _clauses], _minimumNumberShouldMatch, frozen: true)
             {
                 Boost = _boost,
             };

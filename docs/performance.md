@@ -1,6 +1,6 @@
 # Performance
 
-Benchmark data from the most recent full run on Debian 13, .NET 10.0.3, 100k-document corpus, Intel Xeon E3-1220. All numbers are single-operation measurements from BenchmarkDotNet (not throughput tests).
+Benchmark data from the most recent full run on Debian 13, .NET 10.0.3, a 100k-document corpus and an Intel Xeon E3-1220. All numbers are BenchmarkDotNet single-operation measurements, not service throughput or tail-latency measurements. Compare only workloads with the same corpus, configuration, runtime and host; full artefacts record those inputs.
 
 ## Indexing
 

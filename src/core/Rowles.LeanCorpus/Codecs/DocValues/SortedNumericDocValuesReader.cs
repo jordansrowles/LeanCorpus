@@ -17,6 +17,13 @@ internal static class SortedNumericDocValuesReader
             return values;
 
         using var input = new IndexInput(filePath);
+        return Read(input);
+    }
+
+    internal static Dictionary<string, double[][]> Read(IndexInput input)
+    {
+        using var inputLifetime = input;
+        var values = new Dictionary<string, double[][]>(StringComparer.Ordinal);
         byte version = CodecFileHeader.ReadVersion(input, CodecFormats.SortedNumericDocValues);
 
         int fieldCount = input.ReadInt32();

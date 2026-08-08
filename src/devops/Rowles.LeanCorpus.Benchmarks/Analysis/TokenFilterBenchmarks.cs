@@ -1,18 +1,21 @@
 using BenchmarkDotNet.Attributes;
 using Rowles.LeanCorpus.Analysis;
-using Rowles.LeanCorpus.Analysis.Filters;
 using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis.Filters;
 
 namespace Rowles.LeanCorpus.Benchmarks;
+
 /// <summary>
-/// Compares token filter throughput between LeanCorpus batch (<see cref="ISpanTokenFilter"/>)
-/// and Lucene.NET streaming (<c>TokenFilter</c>) implementations for equivalent filters.
-/// DecimalDigitFilter has no Lucene.NET equivalent and is LeanCorpus-only.
+/// Compares token filter throughput between LeanCorpus batch
+/// (<see cref="ISpanTokenFilter"/>) and Lucene.NET streaming implementations.
+/// Reused and cold pipeline construction are measured separately.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
+[RPlotExporter]
+[InvocationCount(1)]
 public class TokenFilterBenchmarks
 {
     [Params(
@@ -21,93 +24,124 @@ public class TokenFilterBenchmarks
         "truncate-noop",
         "truncate-mutating",
         "unique-mutating",
-        "decimal-digit-mutating",
         "reverse-mutating",
-        "elision-mutating",
-        "shingle-mutating",
-        "word-delimiter-mutating")]
+        "elision-mutating")]
     public string Scenario { get; set; } = "length-noop";
 
-    // LeanCorpus state
     private Token[] _source = [];
     private ISpanTokenFilter _filter = null!;
-
-    // Lucene.NET state: the raw input string for the tokeniser
+    private ISpanTokenFilter _iterationFilter = null!;
     private string _luceneInput = string.Empty;
+    private Lucene.Net.Analysis.Tokenizer? _luceneBaseStream;
+    private Lucene.Net.Analysis.TokenStream? _luceneFilter;
+    private bool _luceneStreamConsumed;
+    private int _expectedLeanCount;
+    private int _expectedLuceneCount;
 
     [GlobalSetup]
     public void Setup()
     {
         (Token[] source, ISpanTokenFilter filter, string input) configured = Scenario switch
         {
-            "length-noop" => (
-                BuildTokens(["quick", "brown", "fox"]),
-                new LengthFilter(2, 8),
-                "quick brown fox"),
-            "length-mutating" => (
-                BuildTokens(["a", "quick", "extraordinary"]),
-                new LengthFilter(2, 8),
-                "a quick extraordinary"),
-            "truncate-noop" => (
-                BuildTokens(["quick", "brown", "fox"]),
-                new TruncateTokenFilter(12),
-                "quick brown fox"),
-            "truncate-mutating" => (
-                BuildTokens(["extraordinary", "token"]),
-                new TruncateTokenFilter(6),
-                "extraordinary token"),
-            "unique-mutating" => (
-                BuildTokens(["fast", "quick", "fast", "rapid"]),
-                new UniqueTokenFilter(),
-                "fast quick fast rapid"),
-            "decimal-digit-mutating" => (
-                BuildTokens(["\u0661\u06F2\uFF134", "plain"]),
-                new DecimalDigitFilter(),
-                $"\u0661\u06F2\uFF134 plain"),
-            "reverse-mutating" => (
-                BuildTokens(["abcdef", "café"]),
-                new ReverseStringFilter(),
-                "abcdef café"),
-            "elision-mutating" => (
-                BuildTokens(["l'avion", "qu\u2019elle"]),
-                new ElisionFilter(),
-                "l'avion qu\u2019elle"),
-            "shingle-mutating" => (
-                BuildTokens(["new", "york", "city"]),
-                new ShingleFilter(2, 3),
-                "new york city"),
-            "word-delimiter-mutating" => (
-                BuildTokens(["WiFi4Schools_test"]),
-                new WordDelimiterFilter(),
-                "WiFi4Schools_test"),
+            "length-noop" => (BuildTokens(["quick", "brown", "fox"]), new LengthFilter(2, 8), "quick brown fox"),
+            "length-mutating" => (BuildTokens(["a", "quick", "extraordinary"]), new LengthFilter(2, 8), "a quick extraordinary"),
+            "truncate-noop" => (BuildTokens(["quick", "brown", "fox"]), new TruncateTokenFilter(12), "quick brown fox"),
+            "truncate-mutating" => (BuildTokens(["extraordinary", "token"]), new TruncateTokenFilter(6), "extraordinary token"),
+            "unique-mutating" => (BuildTokens(["fast", "quick", "fast", "rapid"]), new UniqueTokenFilter(), "fast quick fast rapid"),
+            "reverse-mutating" => (BuildTokens(["abcdef", "café"]), new ReverseStringFilter(), "abcdef café"),
+            "elision-mutating" => (BuildTokens(["l'avion", "qu\u2019elle"]), new ElisionFilter(), "l'avion qu\u2019elle"),
             _ => throw new InvalidOperationException($"Unknown scenario '{Scenario}'.")
         };
 
         _source = configured.source;
         _filter = configured.filter;
         _luceneInput = configured.input;
+
+        var expectedLeanTerms = CaptureLean(_filter.Clone());
+        _expectedLeanCount = expectedLeanTerms.Count;
+        using var baseStream = BuildLuceneBaseStream(_luceneInput);
+        using var luceneFilter = BuildLuceneFilter(baseStream);
+        var expectedLuceneTerms = CaptureLucene(luceneFilter);
+        _expectedLuceneCount = expectedLuceneTerms.Count;
+        if (!expectedLeanTerms.SequenceEqual(expectedLuceneTerms, StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Token-filter fixture '{Scenario}' is not comparable: " +
+                $"LeanCorpus emitted [{string.Join(", ", expectedLeanTerms)}], " +
+                $"Lucene.NET emitted [{string.Join(", ", expectedLuceneTerms)}].");
+        }
     }
 
-    // --- LeanCorpus benchmark ---
+    [IterationSetup]
+    public void IterationSetup()
+    {
+        _iterationFilter = _filter.Clone();
+        _luceneBaseStream = BuildLuceneBaseStream(_luceneInput);
+        _luceneFilter = BuildLuceneFilter(_luceneBaseStream);
+        _luceneStreamConsumed = false;
+    }
 
-    [Benchmark(Baseline = true)]
+    [IterationCleanup]
+    public void IterationCleanup()
+    {
+        _luceneFilter?.Dispose();
+        _luceneFilter = null;
+        _luceneBaseStream = null;
+        _luceneStreamConsumed = false;
+    }
+
+    [Benchmark(Baseline = true, Description = "LeanCorpus reused filter")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_Apply()
-    {
-        var sink = new CountingTokenSink();
-        foreach (var token in _source)
-            _filter.Apply(token.Text.AsSpan(), token.StartOffset, token.EndOffset, token.Type, token.PositionIncrement, token.Payload, sink);
-        return sink.Count;
-    }
+        => ValidateCount(ApplyLean(_iterationFilter), _expectedLeanCount, "LeanCorpus");
 
-    // --- Lucene.NET streaming benchmark ---
-
-    [Benchmark]
+    [Benchmark(Description = "Lucene.NET reused filter")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_Apply()
     {
+        var filter = _luceneFilter ?? throw new InvalidOperationException("Lucene filter was not prepared.");
+        var baseStream = _luceneBaseStream
+            ?? throw new InvalidOperationException("Lucene base stream was not prepared.");
+
+        if (_luceneStreamConsumed)
+        {
+            filter.Dispose();
+            baseStream.SetReader(new System.IO.StringReader(_luceneInput));
+        }
+
+        int total = ApplyLucene(filter);
+        _luceneStreamConsumed = true;
+        return ValidateCount(total, _expectedLuceneCount, "Lucene.NET");
+    }
+
+    [Benchmark(Description = "LeanCorpus cold filter pipeline")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_ApplyColdPipeline()
+        => ValidateCount(ApplyLean(_filter.Clone()), _expectedLeanCount, "LeanCorpus cold");
+
+    [Benchmark(Description = "Lucene.NET cold filter pipeline")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_ApplyColdPipeline()
+    {
         using var baseStream = BuildLuceneBaseStream(_luceneInput);
         using var filter = BuildLuceneFilter(baseStream);
+        return ValidateCount(ApplyLucene(filter), _expectedLuceneCount, "Lucene.NET cold");
+    }
+
+    private int ApplyLean(ISpanTokenFilter filter)
+    {
+        var sink = new CountingTokenSink();
+        foreach (var token in _source)
+        {
+            filter.Apply(token.Text.AsSpan(), token.StartOffset, token.EndOffset,
+                token.Type, token.PositionIncrement, token.Payload, sink);
+        }
+        filter.Finish(sink);
+        return sink.Count;
+    }
+
+    private static int ApplyLucene(Lucene.Net.Analysis.TokenStream filter)
+    {
         int total = 0;
         filter.Reset();
         while (filter.IncrementToken())
@@ -116,7 +150,36 @@ public class TokenFilterBenchmarks
         return total;
     }
 
-    // --- Helpers ---
+    private IReadOnlyList<string> CaptureLean(ISpanTokenFilter filter)
+    {
+        var sink = new TermCaptureSink();
+        foreach (var token in _source)
+        {
+            filter.Apply(token.Text.AsSpan(), token.StartOffset, token.EndOffset,
+                token.Type, token.PositionIncrement, token.Payload, sink);
+        }
+        filter.Finish(sink);
+        return sink.Terms;
+    }
+
+    private static IReadOnlyList<string> CaptureLucene(Lucene.Net.Analysis.TokenStream filter)
+    {
+        var terms = new List<string>();
+        var term = filter.AddAttribute<Lucene.Net.Analysis.TokenAttributes.ICharTermAttribute>();
+        filter.Reset();
+        while (filter.IncrementToken())
+            terms.Add(term.ToString());
+        filter.End();
+        return terms;
+    }
+
+    private static int ValidateCount(int actual, int expected, string implementation)
+    {
+        if (actual != expected)
+            throw new InvalidOperationException(
+                $"{implementation} token-filter output changed: expected {expected}, got {actual}.");
+        return actual;
+    }
 
     private static Token[] BuildTokens(string[] terms)
     {
@@ -132,42 +195,25 @@ public class TokenFilterBenchmarks
         return tokens;
     }
 
-    /// <summary>
-    /// Builds a whitespace-tokenised base stream matching the LeanCorpus token list.
-    /// </summary>
-    private static Lucene.Net.Analysis.TokenStream BuildLuceneBaseStream(string input)
-    {
-        return new Lucene.Net.Analysis.Core.WhitespaceTokenizer(
+    private static Lucene.Net.Analysis.Tokenizer BuildLuceneBaseStream(string input)
+        => new Lucene.Net.Analysis.Core.WhitespaceTokenizer(
             Lucene.Net.Util.LuceneVersion.LUCENE_48,
             new System.IO.StringReader(input));
-    }
 
-    /// <summary>
-    /// Wraps the base stream with the Lucene.NET equivalent of the selected LeanCorpus filter.
-    /// </summary>
     private Lucene.Net.Analysis.TokenStream BuildLuceneFilter(Lucene.Net.Analysis.TokenStream input)
-    {
-        return Scenario switch
+        => Scenario switch
         {
             "length-noop" or "length-mutating" =>
                 new Lucene.Net.Analysis.Miscellaneous.LengthFilter(
                     Lucene.Net.Util.LuceneVersion.LUCENE_48, input, 2, 8),
             "truncate-noop" or "truncate-mutating" =>
                 new Lucene.Net.Analysis.Miscellaneous.TruncateTokenFilter(
-                    input,
-                    Scenario == "truncate-mutating" ? 6 : 12),
-
+                    input, Scenario == "truncate-mutating" ? 6 : 12),
             "unique-mutating" =>
                 new Lucene.Net.Analysis.Miscellaneous.RemoveDuplicatesTokenFilter(input),
-
-            "decimal-digit-mutating" =>
-                // No Lucene.NET equivalent; pass through unchanged.
-                input,
-
             "reverse-mutating" =>
                 new Lucene.Net.Analysis.Reverse.ReverseStringFilter(
                     Lucene.Net.Util.LuceneVersion.LUCENE_48, input),
-
             "elision-mutating" =>
                 new Lucene.Net.Analysis.Util.ElisionFilter(input,
                     new Lucene.Net.Analysis.Util.CharArraySet(
@@ -175,22 +221,20 @@ public class TokenFilterBenchmarks
                         ["l", "m", "t", "qu", "n", "s", "j", "d", "c",
                          "jusqu", "quoiqu", "lorsqu", "puisqu"],
                         ignoreCase: true)),
-
-            "shingle-mutating" =>
-                new Lucene.Net.Analysis.Shingle.ShingleFilter(input, 2, 3),
-
-            "word-delimiter-mutating" =>
-                new Lucene.Net.Analysis.Miscellaneous.WordDelimiterFilter(
-                    Lucene.Net.Util.LuceneVersion.LUCENE_48, input,
-                    Lucene.Net.Analysis.Miscellaneous.WordDelimiterFlags.GENERATE_WORD_PARTS |
-                    Lucene.Net.Analysis.Miscellaneous.WordDelimiterFlags.GENERATE_NUMBER_PARTS |
-                    Lucene.Net.Analysis.Miscellaneous.WordDelimiterFlags.CATENATE_WORDS |
-                    Lucene.Net.Analysis.Miscellaneous.WordDelimiterFlags.CATENATE_NUMBERS |
-                    Lucene.Net.Analysis.Miscellaneous.WordDelimiterFlags.SPLIT_ON_CASE_CHANGE |
-                    Lucene.Net.Analysis.Miscellaneous.WordDelimiterFlags.SPLIT_ON_NUMERICS |
-                    Lucene.Net.Analysis.Miscellaneous.WordDelimiterFlags.STEM_ENGLISH_POSSESSIVE,
-                    Lucene.Net.Analysis.Util.CharArraySet.EMPTY_SET),
             _ => input
         };
+
+    private sealed class TermCaptureSink : ISpanTokenSink
+    {
+        internal List<string> Terms { get; } = [];
+
+        public void Add(
+            ReadOnlySpan<char> text,
+            int startOffset,
+            int endOffset,
+            string type = Token.DefaultType,
+            int positionIncrement = 1,
+            byte[]? payload = null)
+            => Terms.Add(text.ToString());
     }
 }

@@ -8,7 +8,7 @@ namespace Rowles.LeanCorpus.Diagnostics;
 public static class IndexSizeCalculator
 {
     private static readonly string[] SegmentExtensions =
-        [".seg", ".dic", ".pos", ".fdt", ".fdx", ".nrm", ".fln", ".num", ".dvn", ".dvs",
+        [".seg", ".cfs", ".dic", ".pos", ".fdt", ".fdx", ".nrm", ".fln", ".num", ".dvn", ".dvs",
          ".bkd", ".del", ".tvd", ".tvx", ".vec"];
 
     /// <summary>

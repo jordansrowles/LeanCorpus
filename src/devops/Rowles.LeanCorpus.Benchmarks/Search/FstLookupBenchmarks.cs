@@ -25,7 +25,9 @@ public class FstLookupBenchmarks
     private byte[] _fstBlob = [];
     private FstReader _reader = null!;
     private byte[][] _keys = [];
-    private byte[] _prefix = Encoding.UTF8.GetBytes("govern");
+    private byte[] _prefix = Encoding.UTF8.GetBytes("term");
+    private int _expectedHits;
+    private int _expectedPrefixMatches;
 
     [GlobalSetup]
     public void Setup()
@@ -36,6 +38,8 @@ public class FstLookupBenchmarks
             terms[i] = $"term{i:D8}";
 
         Array.Sort(terms, StringComparer.Ordinal);
+        _expectedHits = TermCount / 2;
+        _expectedPrefixMatches = terms.Count(static term => term.StartsWith("term", StringComparison.Ordinal));
 
         var builder = new FstBuilder();
         for (int i = 0; i < terms.Length; i++)
@@ -45,6 +49,10 @@ public class FstLookupBenchmarks
         }
         _fstBlob = builder.Finish();
         _reader = FstReader.Open(_fstBlob);
+
+        int prefixMatches = _reader.EnumerateWithPrefix(_prefix).Count();
+        if (prefixMatches != _expectedPrefixMatches)
+            throw new InvalidOperationException($"FST prefix fixture expected {_expectedPrefixMatches} matches, got {prefixMatches}.");
 
         // Pick representative keys for lookup (50% hit rate).
         var rnd = new Random(7);
@@ -68,6 +76,8 @@ public class FstLookupBenchmarks
             if (_reader.TryGetOutput(_keys[i], out _))
                 hits++;
         }
+        if (hits != _expectedHits)
+            throw new InvalidOperationException($"FST lookup fixture expected {_expectedHits} hits, got {hits}.");
         return hits;
     }
 
@@ -78,6 +88,8 @@ public class FstLookupBenchmarks
         int count = 0;
         foreach (var _ in _reader.EnumerateWithPrefix(_prefix))
             count++;
+        if (count != _expectedPrefixMatches)
+            throw new InvalidOperationException($"FST prefix benchmark expected {_expectedPrefixMatches} matches, got {count}.");
         return count;
     }
 
@@ -85,11 +97,13 @@ public class FstLookupBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_Fst_IntersectAutomaton()
     {
-        // Wildcard: "term000*" — matches all keys.
-        var automaton = new PrefixAutomaton(Encoding.UTF8.GetBytes("term000"));
+        // Prefix: "term" matches every key in this deterministic fixture.
+        var automaton = new PrefixAutomaton(Encoding.UTF8.GetBytes("term"));
         int count = 0;
         foreach (var _ in _reader.IntersectAutomaton(automaton))
             count++;
+        if (count != _expectedPrefixMatches)
+            throw new InvalidOperationException($"FST intersection fixture expected {_expectedPrefixMatches} matches, got {count}.");
         return count;
     }
 }

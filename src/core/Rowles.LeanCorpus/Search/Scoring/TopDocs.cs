@@ -12,8 +12,9 @@ public sealed class TopDocs
     public ScoreDoc[] ScoreDocs { get; }
 
     /// <summary>
-    /// Gets a value indicating whether the search terminated before all segments were
-    /// scored, due to a <c>SearchOptions.Timeout</c> deadline or cancellation.
+    /// Gets a value indicating whether the search terminated before all matches were
+    /// visited, due to a <c>SearchOptions.Timeout</c> deadline, cancellation, or bounded
+    /// index-sort collection.
     /// When true, <see cref="ScoreDocs"/> and <see cref="TotalHits"/> reflect
     /// only the work completed before termination.
     /// </summary>
@@ -33,7 +34,7 @@ public sealed class TopDocs
     /// </summary>
     /// <param name="totalHits">Total number of matching documents seen before termination.</param>
     /// <param name="scoreDocs">Scored documents, typically the top-N by relevance.</param>
-    /// <param name="isPartial">True if the search terminated early due to timeout or budget.</param>
+    /// <param name="isPartial">True if the search terminated early due to timeout, cancellation, or bounded collection.</param>
     public TopDocs(int totalHits, ScoreDoc[] scoreDocs, bool isPartial)
     {
         TotalHits = totalHits;

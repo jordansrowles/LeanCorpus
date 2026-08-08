@@ -38,10 +38,31 @@ public sealed unsafe class IndexInput : IDisposable
     /// </summary>
     /// <param name="filePath">The full path of the file to open.</param>
     public IndexInput(string filePath)
+        : this(filePath, 0, length: null)
     {
+    }
+
+    /// <summary>
+    /// Opens a bounded byte range from a file as a memory-mapped input. The physical file
+    /// path is retained for lifetime tracking while positions remain relative to the range.
+    /// </summary>
+    /// <param name="filePath">The full path of the file to open.</param>
+    /// <param name="offset">The first byte in the file included in the input.</param>
+    /// <param name="length">The number of bytes included in the input.</param>
+    internal IndexInput(string filePath, long offset, long? length)
+    {
+        ArgumentNullException.ThrowIfNull(filePath);
+        if (offset < 0)
+            throw new ArgumentOutOfRangeException(nameof(offset));
+
         _filePath = filePath;
-        var fileInfo = new FileInfo(filePath);
-        _length = fileInfo.Length;
+        long fileLength = new FileInfo(filePath).Length;
+        if (offset > fileLength)
+            throw new ArgumentOutOfRangeException(nameof(offset), "The input offset is outside the file.");
+
+        _length = length ?? fileLength - offset;
+        if (_length < 0 || _length > fileLength - offset)
+            throw new ArgumentOutOfRangeException(nameof(length), "The input range is outside the file.");
 
         if (_length == 0)
         {
@@ -59,17 +80,27 @@ public sealed unsafe class IndexInput : IDisposable
         var fs = (FileStream)FileOpenRetry.OpenReadDelete(filePath);
         _mmf = MemoryMappedFile.CreateFromFile(fs, null, 0,
             MemoryMappedFileAccess.Read, HandleInheritability.None, leaveOpen: false);
-        _accessor = _mmf.CreateViewAccessor(0, _length, MemoryMappedFileAccess.Read);
+        const long allocationGranularity = 64 * 1024;
+        long viewOffset = offset - offset % allocationGranularity;
+        long pointerDelta = offset - viewOffset;
+        _accessor = _mmf.CreateViewAccessor(viewOffset, checked(pointerDelta + _length), MemoryMappedFileAccess.Read);
         _ptr = null;
         _accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref _ptr);
-        _ptr += _accessor.PointerOffset;
+        _ptr += _accessor.PointerOffset + pointerDelta;
     }
 
-    /// <summary>Total file length in bytes.</summary>
+    /// <summary>Total input length in bytes.</summary>
     public long Length => _length;
 
     /// <summary>Base pointer for the memory-mapped region. Used for zero-copy reads.</summary>
-    internal byte* BasePointer => _ptr;
+    internal byte* BasePointer
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _ptr;
+        }
+    }
 
     /// <summary>Current read position within the file.</summary>
     public long Position => _position;
@@ -79,6 +110,9 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Seek(long position)
     {
+        ThrowIfDisposed();
+        if (position < 0 || position > _length)
+            ThrowInvalidSeekPosition();
         _position = position;
     }
 
@@ -88,8 +122,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public byte ReadByte()
     {
-        if (_position >= _length)
-            ThrowEndOfStream();
+        EnsureAvailable(_position, sizeof(byte));
         byte value = _ptr[_position];
         _position++;
         return value;
@@ -99,8 +132,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public byte ReadByte(ref long position)
     {
-        if (position >= _length)
-            ThrowEndOfStream();
+        EnsureAvailable(position, sizeof(byte));
         byte value = _ptr[position];
         position++;
         return value;
@@ -124,8 +156,7 @@ public sealed unsafe class IndexInput : IDisposable
     /// <exception cref="EndOfStreamException">Thrown if fewer than <paramref name="count"/> bytes remain.</exception>
     public byte[] ReadBytes(int count)
     {
-        if (_position + count > _length)
-            ThrowEndOfStream();
+        EnsureAvailable(_position, count);
         var result = new byte[count];
         new ReadOnlySpan<byte>(_ptr + _position, count).CopyTo(result);
         _position += count;
@@ -140,8 +171,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ReadOnlySpan<byte> ReadSpan(int count)
     {
-        if (_position + count > _length)
-            ThrowEndOfStream();
+        EnsureAvailable(_position, count);
         var span = new ReadOnlySpan<byte>(_ptr + _position, count);
         _position += count;
         return span;
@@ -151,8 +181,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ReadOnlySpan<byte> ReadSpan(int count, scoped ref long position)
     {
-        if (position + count > _length)
-            ThrowEndOfStream();
+        EnsureAvailable(position, count);
         var span = new ReadOnlySpan<byte>(_ptr + position, count);
         position += count;
         return span;
@@ -164,8 +193,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int ReadInt32()
     {
-        if (_position + sizeof(int) > _length)
-            ThrowEndOfStream();
+        EnsureAvailable(_position, sizeof(int));
         int value = Unsafe.ReadUnaligned<int>(_ptr + _position);
         _position += sizeof(int);
         return value;
@@ -175,8 +203,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int ReadInt32(ref long position)
     {
-        if (position + sizeof(int) > _length)
-            ThrowEndOfStream();
+        EnsureAvailable(position, sizeof(int));
         int value = Unsafe.ReadUnaligned<int>(_ptr + position);
         position += sizeof(int);
         return value;
@@ -189,9 +216,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void ReadInt32Array(Span<int> dest, int count)
     {
-        int byteCount = count * sizeof(int);
-        if (_position + byteCount > _length)
-            ThrowEndOfStream();
+        int byteCount = EnsureArrayAvailable(_position, count, dest.Length, sizeof(int));
 
         new ReadOnlySpan<byte>(_ptr + _position, byteCount)
             .CopyTo(MemoryMarshal.AsBytes(dest[..count]));
@@ -202,9 +227,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void ReadInt32Array(Span<int> dest, int count, ref long position)
     {
-        int byteCount = count * sizeof(int);
-        if (position + byteCount > _length)
-            ThrowEndOfStream();
+        int byteCount = EnsureArrayAvailable(position, count, dest.Length, sizeof(int));
 
         new ReadOnlySpan<byte>(_ptr + position, byteCount)
             .CopyTo(MemoryMarshal.AsBytes(dest[..count]));
@@ -217,8 +240,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public long ReadInt64()
     {
-        if (_position + sizeof(long) > _length)
-            ThrowEndOfStream();
+        EnsureAvailable(_position, sizeof(long));
         long value = Unsafe.ReadUnaligned<long>(_ptr + _position);
         _position += sizeof(long);
         return value;
@@ -228,8 +250,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public long ReadInt64(ref long position)
     {
-        if (position + sizeof(long) > _length)
-            ThrowEndOfStream();
+        EnsureAvailable(position, sizeof(long));
         long value = Unsafe.ReadUnaligned<long>(_ptr + position);
         position += sizeof(long);
         return value;
@@ -241,8 +262,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public float ReadSingle()
     {
-        if (_position + sizeof(float) > _length)
-            ThrowEndOfStream();
+        EnsureAvailable(_position, sizeof(float));
         float value = Unsafe.ReadUnaligned<float>(_ptr + _position);
         _position += sizeof(float);
         return value;
@@ -252,8 +272,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public float ReadSingle(ref long position)
     {
-        if (position + sizeof(float) > _length)
-            ThrowEndOfStream();
+        EnsureAvailable(position, sizeof(float));
         float value = Unsafe.ReadUnaligned<float>(_ptr + position);
         position += sizeof(float);
         return value;
@@ -263,9 +282,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void ReadSingleArray(Span<float> destination, int count, ref long position)
     {
-        int byteCount = checked(count * sizeof(float));
-        if (position + byteCount > _length)
-            ThrowEndOfStream();
+        int byteCount = EnsureArrayAvailable(position, count, destination.Length, sizeof(float));
 
         new ReadOnlySpan<byte>(_ptr + position, byteCount)
             .CopyTo(MemoryMarshal.AsBytes(destination[..count]));
@@ -278,8 +295,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public double ReadDouble()
     {
-        if (_position + sizeof(double) > _length)
-            ThrowEndOfStream();
+        EnsureAvailable(_position, sizeof(double));
         double value = Unsafe.ReadUnaligned<double>(_ptr + _position);
         _position += sizeof(double);
         return value;
@@ -291,10 +307,10 @@ public sealed unsafe class IndexInput : IDisposable
     /// </summary>
     public string ReadLengthPrefixedString()
     {
+        ThrowIfDisposed();
         int byteLength = Read7BitEncodedInt();
         if (byteLength == 0) return string.Empty;
-        if (_position + byteLength > _length)
-            ThrowEndOfStream();
+        EnsureAvailable(_position, byteLength);
         var span = new ReadOnlySpan<byte>(_ptr + _position, byteLength);
         _position += byteLength;
         return System.Text.Encoding.UTF8.GetString(span);
@@ -305,10 +321,10 @@ public sealed unsafe class IndexInput : IDisposable
     /// </summary>
     public string ReadLengthPrefixedString(ref long position)
     {
+        ThrowIfDisposed();
         int byteLength = Read7BitEncodedInt(ref position);
         if (byteLength == 0) return string.Empty;
-        if (position + byteLength > _length)
-            ThrowEndOfStream();
+        EnsureAvailable(position, byteLength);
         var span = new ReadOnlySpan<byte>(_ptr + position, byteLength);
         position += byteLength;
         return System.Text.Encoding.UTF8.GetString(span);
@@ -321,8 +337,10 @@ public sealed unsafe class IndexInput : IDisposable
         byte b;
         do
         {
-            if (_position >= _length) ThrowEndOfStream();
+            EnsureAvailable(_position, sizeof(byte));
             b = _ptr[_position++];
+            if (shift >= 35)
+                throw new InvalidDataException("7-bit encoded integer is too large or malformed.");
             result |= (b & 0x7F) << shift;
             shift += 7;
         } while ((b & 0x80) != 0);
@@ -336,8 +354,10 @@ public sealed unsafe class IndexInput : IDisposable
         byte b;
         do
         {
-            if (position >= _length) ThrowEndOfStream();
+            EnsureAvailable(position, sizeof(byte));
             b = _ptr[position++];
+            if (shift >= 35)
+                throw new InvalidDataException("7-bit encoded integer is too large or malformed.");
             result |= (b & 0x7F) << shift;
             shift += 7;
         } while ((b & 0x80) != 0);
@@ -350,11 +370,13 @@ public sealed unsafe class IndexInput : IDisposable
     /// </summary>
     public string ReadUtf8String(int charCount)
     {
+        EnsureCursor(_position);
+        if (charCount < 0)
+            ThrowNegativeCount();
         byte* start = _ptr + _position;
         int remaining = (int)Math.Min(_length - _position, int.MaxValue);
         int byteCount = Utf8ByteCount(start, charCount, remaining);
-        if (_position + byteCount > _length)
-            ThrowEndOfStream();
+        EnsureAvailable(_position, byteCount);
 
         Span<char> buf = charCount <= 256 ? stackalloc char[charCount] : new char[charCount];
         System.Text.Encoding.UTF8.GetChars(new ReadOnlySpan<byte>(start, byteCount), buf);
@@ -370,11 +392,13 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int CompareUtf8BytesAndAdvance(int charCount, ReadOnlySpan<byte> termUtf8)
     {
+        EnsureCursor(_position);
+        if (charCount < 0)
+            ThrowNegativeCount();
         byte* start = _ptr + _position;
         int remaining = (int)Math.Min(_length - _position, int.MaxValue);
         int byteCount = Utf8ByteCount(start, charCount, remaining);
-        if (_position + byteCount > _length)
-            ThrowEndOfStream();
+        EnsureAvailable(_position, byteCount);
 
         var fileBytes = new ReadOnlySpan<byte>(start, byteCount);
         _position += byteCount;
@@ -388,11 +412,13 @@ public sealed unsafe class IndexInput : IDisposable
     /// </summary>
     public int CompareCharsAndAdvance(int charCount, ReadOnlySpan<char> term)
     {
+        EnsureCursor(_position);
+        if (charCount < 0)
+            ThrowNegativeCount();
         byte* start = _ptr + _position;
         int remaining = (int)Math.Min(_length - _position, int.MaxValue);
         int byteCount = Utf8ByteCount(start, charCount, remaining);
-        if (_position + byteCount > _length)
-            ThrowEndOfStream();
+        EnsureAvailable(_position, byteCount);
 
         Span<char> buf = charCount <= 256 ? stackalloc char[charCount] : new char[charCount];
         System.Text.Encoding.UTF8.GetChars(new ReadOnlySpan<byte>(start, byteCount), buf);
@@ -436,10 +462,12 @@ public sealed unsafe class IndexInput : IDisposable
             else if ((b & 0xF0) == 0xE0) { seqLen = 3; charLen = 1; }
             else { seqLen = 4; charLen = 2; }
 
-            if (bytes + seqLen > maxBytes)
+            if (seqLen > maxBytes - bytes)
                 ThrowCorruptUtf8();
 
             bytes += seqLen;
+            if (charLen > charCount - chars)
+                ThrowCorruptUtf8();
             chars += charLen;
         }
         return bytes;
@@ -456,13 +484,13 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int ReadVarInt()
     {
+        ThrowIfDisposed();
         uint result = 0;
         int shift = 0;
         byte b;
         do
         {
-            if (_position >= _length)
-                ThrowEndOfStream();
+            EnsureAvailable(_position, sizeof(byte));
             b = _ptr[_position++];
             if (shift >= 35)
                 throw new InvalidDataException("VarInt is too large or malformed.");
@@ -479,13 +507,13 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int ReadVarInt(ref long position)
     {
+        ThrowIfDisposed();
         uint result = 0;
         int shift = 0;
         byte b;
         do
         {
-            if (position >= _length)
-                ThrowEndOfStream();
+            EnsureAvailable(position, sizeof(byte));
             b = _ptr[position++];
             if (shift >= 35)
                 throw new InvalidDataException("VarInt is too large or malformed.");
@@ -507,7 +535,8 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal int ReadVarIntFast()
     {
-        if (_position + 5 <= _length)
+        EnsureCursor(_position);
+        if (_position <= _length - 5)
         {
             byte* p = _ptr + _position;
             uint result = (uint)(p[0] & 0x7F);
@@ -529,7 +558,8 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal int ReadVarIntFast(ref long position)
     {
-        if (position + 5 <= _length)
+        EnsureCursor(position);
+        if (position <= _length - 5)
         {
             byte* p = _ptr + position;
             uint result = (uint)(p[0] & 0x7F);
@@ -554,6 +584,7 @@ public sealed unsafe class IndexInput : IDisposable
     /// </summary>
     public void Prefetch()
     {
+        ThrowIfDisposed();
         if (_length == 0 || _ptr == null) return;
 
         if (OperatingSystem.IsWindows())
@@ -620,4 +651,64 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void ThrowEndOfStream()
         => throw new EndOfStreamException("Attempted to read beyond the end of the mapped file.");
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void ThrowIfDisposed()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void EnsureCursor(long position)
+    {
+        ThrowIfDisposed();
+        if (position < 0)
+            ThrowNegativePosition();
+        if (position > _length)
+            ThrowEndOfStream();
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void EnsureAvailable(long position, long count)
+    {
+        ThrowIfDisposed();
+        if (position < 0)
+            ThrowNegativePosition();
+        if (count < 0)
+            ThrowNegativeCount();
+        if (position > _length || count > _length - position)
+            ThrowEndOfStream();
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private int EnsureArrayAvailable(long position, int count, int destinationLength, int elementSize)
+    {
+        long byteCount = (long)count * elementSize;
+        EnsureAvailable(position, byteCount);
+        if (count > destinationLength)
+            ThrowDestinationTooSmall();
+        if (byteCount > int.MaxValue)
+            ThrowArrayTooLarge();
+        return (int)byteCount;
+    }
+
+    [DoesNotReturn]
+    private static void ThrowInvalidSeekPosition()
+        => throw new ArgumentOutOfRangeException("position", "Position must be within the mapped input.");
+
+    [DoesNotReturn]
+    private static void ThrowNegativePosition()
+        => throw new ArgumentOutOfRangeException("position", "Position must be non-negative.");
+
+    [DoesNotReturn]
+    private static void ThrowNegativeCount()
+        => throw new ArgumentOutOfRangeException("count", "Count must be non-negative.");
+
+    [DoesNotReturn]
+    private static void ThrowDestinationTooSmall()
+        => throw new ArgumentOutOfRangeException("count", "Count exceeds the destination span length.");
+
+    [DoesNotReturn]
+    private static void ThrowArrayTooLarge()
+        => throw new ArgumentOutOfRangeException("count", "The requested array is too large for a byte span.");
 }

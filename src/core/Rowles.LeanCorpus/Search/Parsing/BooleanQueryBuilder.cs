@@ -29,5 +29,12 @@ public sealed class BooleanQueryBuilder
         return this;
     }
 
+    /// <summary>Sets the minimum number of SHOULD clauses that a document must match.</summary>
+    public BooleanQueryBuilder MinimumShouldMatch(int minimum)
+    {
+        _builder.SetMinimumNumberShouldMatch(minimum);
+        return this;
+    }
+
     internal BooleanQuery Build() => _builder.Build();
 }

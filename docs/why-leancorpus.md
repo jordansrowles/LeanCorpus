@@ -45,9 +45,9 @@ LeanCorpus benchmarks against Lucene.Net 4.8 as its external baseline. Both are 
 | **Scoring** | BM25+, BM25L, WAND, SIMD cosine | Classic + LM, expression-based scoring |
 | **Modern queries** | Intervals, RRF, CombinedFields, FunctionScore | Not available |
 | **Observability** | OpenTelemetry, metrics, slow-query log | Not available |
-| **Stemmers** | 11 language stemmers + Hunspell (CJK are no-op adapters) | 15+ Snowball + SmartCN + Kuromoji |
+| **Language analysis** | 11 language stemmers, Hunspell, Chinese lexicon segmentation and Japanese Viterbi tokenisation | 15+ Snowball + SmartCN + Kuromoji |
 
-The [feature comparison](articles/vs-lucene.md) covers every feature category in detail.
+The [feature comparison](articles/features/index.md) covers every feature category in detail.
 
 LeanCorpus is not a Lucene.Net replacement for every use case. It is a fresh implementation that prioritises modern .NET performance, allocation control, and AOT compatibility over ecosystem breadth.
 

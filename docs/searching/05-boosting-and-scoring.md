@@ -59,6 +59,20 @@ var boosted = new FunctionScoreQuery(
     new TermQuery("body", "phone"), "popularity", ScoreMode.Multiply);
 ```
 
+For composed numeric fields, constants, and query scores, pass a
+`DoubleValuesSource` instead:
+
+```csharp
+var source = DoubleValuesSource.FromDoubleField("popularity")
+    .Add(DoubleValuesSource.Constant(1));
+var boosted = new FunctionScoreQuery(
+    new TermQuery("body", "phone"), source, ScoreMode.Multiply);
+```
+
+`FunctionQuery` uses a value source as the score for every live document.
+Derive from `DoubleValuesSource` for application-specific freshness or
+distance calculations.
+
 ## Index-time field boosting
 
 Set a boost on each indexed field value. It persists in segment norms and applies to matching queries:

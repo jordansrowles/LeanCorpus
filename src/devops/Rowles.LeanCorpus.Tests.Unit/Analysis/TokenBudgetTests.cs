@@ -80,6 +80,35 @@ public sealed class TokenBudgetTests : IClassFixture<TestDirectoryFixture>
     }
 
     /// <summary>
+    /// Verifies that rejecting one document does not make the writer unusable.
+    /// </summary>
+    [Fact(DisplayName = "Reject: Writer Remains Usable After Rejected Document")]
+    public void Reject_WriterRemainsUsableAfterRejectedDocument()
+    {
+        var dir = Path.Combine(_path, nameof(Reject_WriterRemainsUsableAfterRejectedDocument));
+        Directory.CreateDirectory(dir);
+        using var mmap = new MMapDirectory(dir);
+        using var writer = new IndexWriter(mmap, new IndexWriterConfig
+        {
+            MaxTokensPerDocument = 2,
+            TokenBudgetPolicy = TokenBudgetPolicy.Reject
+        });
+
+        var rejected = new LeanDocument();
+        rejected.Add(new TextField("body", "one two three"));
+        Assert.Throws<TokenBudgetExceededException>(() => writer.AddDocument(rejected));
+
+        var accepted = new LeanDocument();
+        accepted.Add(new TextField("body", "one two"));
+        writer.AddDocument(accepted);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(mmap);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "one"), 10).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "three"), 10).TotalHits);
+    }
+
+    /// <summary>
     /// Verifies the span analysis path rejects before indexing when the budget is exceeded.
     /// </summary>
     [Fact(DisplayName = "Reject: Span Analysis Throws When Budget Exceeded")]

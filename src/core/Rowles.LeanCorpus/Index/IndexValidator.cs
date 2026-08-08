@@ -143,11 +143,10 @@ public static class IndexValidator
         result.SegmentsChecked++;
         var basePath = Path.Combine(dirPath, segmentId);
 
-        foreach (var extension in RequiredExtensions)
-            IndexFileInspector.CheckRequiredFile(basePath + extension, segmentId, result);
+        bool hasSegmentMetadata = IndexFileInspector.CheckRequiredFile(basePath + ".seg", segmentId, result);
 
         var segPath = basePath + ".seg";
-        if (!FileOpenRetry.FileExists(segPath))
+        if (!hasSegmentMetadata)
             return;
 
         SegmentInfo info;
@@ -200,12 +199,91 @@ public static class IndexValidator
                 false);
         }
 
+        if (info.IsCompoundFile)
+        {
+            result.DocumentsChecked += Math.Max(info.DocCount, 0);
+            ValidateCompoundFile(dirPath, segmentId, result);
+            CheckDeletionGeneration(basePath, segmentId, info, options, result);
+            return;
+        }
+
+        for (int i = 1; i < RequiredExtensions.Length; i++)
+            IndexFileInspector.CheckRequiredFile(basePath + RequiredExtensions[i], segmentId, result);
+
         result.DocumentsChecked += Math.Max(info.DocCount, 0);
         CheckHeaders(basePath, segmentId, options, result);
         CheckStoredFields(basePath, segmentId, info, result);
         CheckDeletionGeneration(basePath, segmentId, info, options, result);
         CheckVectors(basePath, segmentId, info, options, result);
         RunDeepChecks(directoryPath: dirPath, basePath, info, options, result);
+    }
+
+    private static void ValidateCompoundFile(string directoryPath, string segmentId, IndexCheckResult result)
+    {
+        string compoundPath = Path.Combine(directoryPath, segmentId + ".cfs");
+        if (!IndexFileInspector.CheckRequiredFile(compoundPath, segmentId, result))
+            return;
+
+        try
+        {
+            using var compoundDirectory = new MMapDirectory(directoryPath);
+            using var compound = CompoundFileReader.Open(compoundDirectory, segmentId + ".cfs");
+            foreach (var extension in new[] { ".dic", ".pos", ".fdt", ".fdx", ".nrm" })
+            {
+                if (!compound.HasFile(segmentId + extension))
+                {
+                    result.AddIssue(
+                        IndexCheckSeverity.Error,
+                        IndexCheckIssueCodes.RequiredFileMissing,
+                        $"Compound segment '{segmentId}' is missing member '{segmentId + extension}'.",
+                        segmentId + ".cfs",
+                        segmentId,
+                        false);
+                }
+            }
+            ValidateCompoundHeaders(compoundDirectory, compound, segmentId);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException)
+        {
+            result.AddIssue(
+                IndexCheckSeverity.Error,
+                IndexCheckIssueCodes.InvalidCodecMagic,
+                $"Compound segment '{segmentId}' is unreadable: {ex.Message}",
+                segmentId + ".cfs",
+                segmentId,
+                false);
+        }
+    }
+
+    private static void ValidateCompoundHeaders(MMapDirectory directory, CompoundFileReader compound, string segmentId)
+    {
+        ReadCompoundCodecHeader(directory, compound, segmentId + ".dic", CodecFormats.TermDictionary, CodecConstants.TermDictionaryVersion);
+        ReadCompoundCodecHeader(directory, compound, segmentId + ".nrm", CodecFormats.Norms, CodecConstants.NormsVersion);
+        ReadCompoundHeader(directory, compound, segmentId + ".pos", PostingsFileHeader.ReadVersion, CodecConstants.PostingsVersion);
+        ReadCompoundHeader(directory, compound, segmentId + ".fdt", StoredFieldsFileHeader.ReadVersion, CodecConstants.StoredFieldsVersion);
+        ReadCompoundHeader(directory, compound, segmentId + ".fdx", StoredFieldsFileHeader.ReadVersion, CodecConstants.StoredFieldsVersion);
+    }
+
+    private static void ReadCompoundCodecHeader(
+        MMapDirectory directory,
+        CompoundFileReader compound,
+        string memberName,
+        ICodec<byte[]> format,
+        byte currentVersion)
+        => ReadCompoundHeader(directory, compound, memberName, reader => CodecFileHeader.ReadVersion(reader, format), currentVersion);
+
+    private static void ReadCompoundHeader(
+        MMapDirectory directory,
+        CompoundFileReader compound,
+        string memberName,
+        Func<BinaryReader, byte> readVersion,
+        byte currentVersion)
+    {
+        using var stream = new IndexInputStream(compound.OpenInput(directory, memberName));
+        using var reader = new BinaryReader(stream);
+        byte version = readVersion(reader);
+        if (version > currentVersion)
+            throw new InvalidDataException($"Compound member '{memberName}' uses unsupported version {version}.");
     }
 
     private static void CheckHeaders(string basePath, string segmentId, IndexCheckOptions options, IndexCheckResult result)

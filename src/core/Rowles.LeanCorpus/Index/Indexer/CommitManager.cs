@@ -350,7 +350,8 @@ internal static class CommitManager
             int mergeableCount = mergeable.Count;
 
             var merger = new SegmentMerger(writer.Directory, writer.Config.MergePolicy, writer.Config.PostingsSkipInterval,
-                writer.Config.SoftDeleteRetentionSeconds, writer.Config.HnswBuildConfig);
+                writer.Config.SoftDeleteRetentionSeconds, writer.Config.HnswBuildConfig,
+                useCompoundFile: writer.Config.UseCompoundFile);
             int localOrdinal = writer.NextSegmentOrdinal;
             var merged = merger.MergeAll(mergeable, ref localOrdinal, writer.CommitGeneration);
 
@@ -429,7 +430,8 @@ internal static class CommitManager
                 var toMerge = mergeable.GetRange(0, count);
 
                 var merger = new SegmentMerger(writer.Directory, writer.Config.MergePolicy, writer.Config.PostingsSkipInterval,
-                    writer.Config.SoftDeleteRetentionSeconds, writer.Config.HnswBuildConfig);
+                    writer.Config.SoftDeleteRetentionSeconds, writer.Config.HnswBuildConfig,
+                    useCompoundFile: writer.Config.UseCompoundFile);
                 lastMerger = merger;
                 int localOrdinal = writer.NextSegmentOrdinal;
                 var merged = merger.MergeAll(toMerge, ref localOrdinal, writer.CommitGeneration);

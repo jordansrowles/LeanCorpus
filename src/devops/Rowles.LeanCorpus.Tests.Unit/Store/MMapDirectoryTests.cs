@@ -289,6 +289,30 @@ public sealed class MMapDirectoryTests : IClassFixture<TestDirectoryFixture>
         Assert.False(File.Exists(filePath));
     }
 
+    [Fact(DisplayName = "MMap Directory: Copied File Lease Releases Only Once")]
+    public void FileLease_CopiedLease_ReleasesOnlyOnce()
+    {
+        var sub = Path.Combine(_fixture.Path, "file_lease_" + Guid.NewGuid().ToString("N")[..6]);
+        Directory.CreateDirectory(sub);
+        const string fileName = "shared.bin";
+        var filePath = Path.Combine(sub, fileName);
+        File.WriteAllBytes(filePath, [1]);
+
+        var state = FileLifetimeRegistry.ForDirectory(sub);
+        var first = state.Acquire(fileName);
+        var second = state.Acquire(fileName);
+        var firstCopy = first;
+        state.Delete(fileName);
+
+        firstCopy.Dispose();
+        first.Dispose();
+
+        Assert.True(File.Exists(filePath));
+
+        second.Dispose();
+        Assert.False(File.Exists(filePath));
+    }
+
     [Fact(DisplayName = "MMap Directory: Failed Snapshot Acquisition Releases No Files")]
     public void MMapDirectory_FailedSnapshot_ReleasesNoFiles()
     {
@@ -358,7 +382,7 @@ public sealed class MMapDirectoryTests : IClassFixture<TestDirectoryFixture>
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
         Assert.NotNull(disposedField);
         Assert.True((bool)disposedField.GetValue(input)!);
-        Assert.Throws<NullReferenceException>(() => input.ReadByte());
+        Assert.Throws<ObjectDisposedException>(() => input.ReadByte());
     }
 
     /// <summary>

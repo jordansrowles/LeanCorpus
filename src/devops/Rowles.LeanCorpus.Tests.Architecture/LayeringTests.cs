@@ -24,6 +24,10 @@ public sealed class LayeringTests
         .ResideInNamespaceMatching(@"^Rowles\.LeanCorpus\.Index(\.|$)")
         .As("Index types");
 
+    private static readonly IObjectProvider<IType> Analysis = Types().That()
+        .ResideInNamespaceMatching(@"^Rowles\.LeanCorpus\.Analysis(\.|$)")
+        .As("Analysis types");
+
     [Fact]
     public void Store_must_not_depend_on_Search()
     {
@@ -46,5 +50,17 @@ public sealed class LayeringTests
     public void Codecs_must_not_depend_on_Index()
     {
         Types().That().Are(Codecs).Should().NotDependOnAny(Index).Check(ArchitectureContext.Core);
+    }
+
+    [Fact]
+    public void Analysis_must_not_depend_on_Search()
+    {
+        Types().That().Are(Analysis).Should().NotDependOnAny(Search).Check(ArchitectureContext.Core);
+    }
+
+    [Fact]
+    public void Analysis_must_not_depend_on_Index()
+    {
+        Types().That().Are(Analysis).Should().NotDependOnAny(Index).Check(ArchitectureContext.Core);
     }
 }

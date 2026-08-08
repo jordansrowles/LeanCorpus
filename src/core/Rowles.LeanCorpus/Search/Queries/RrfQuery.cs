@@ -89,4 +89,12 @@ public sealed class RrfQuery : Query
         foreach (var q in _queries) h.Add(q);
         return CombineBoost(h.ToHashCode());
     }
+
+    /// <inheritdoc/>
+    public override void Visit(QueryVisitor visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        foreach (var query in _queries)
+            query.Visit(visitor.GetSubVisitor(Occur.Should, this));
+    }
 }

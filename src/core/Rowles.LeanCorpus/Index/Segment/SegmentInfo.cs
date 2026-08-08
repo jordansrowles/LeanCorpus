@@ -30,6 +30,13 @@ public sealed class SegmentInfo
     /// <summary>Gets the commit generation at which this segment was created.</summary>
     public int CommitGeneration { get; init; }
 
+    /// <summary>
+    /// Gets a value indicating whether immutable codec files are stored in the segment's
+    /// memory-mapped compound file. The segment metadata file, deletion files, and segment
+    /// statistics remain separate.
+    /// </summary>
+    public bool IsCompoundFile { get; set; }
+
     /// <summary>Gets the names of all indexed fields present in this segment.</summary>
     public List<string> FieldNames { get; init; } = [];
 

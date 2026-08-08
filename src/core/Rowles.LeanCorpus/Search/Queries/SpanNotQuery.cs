@@ -27,6 +27,14 @@ public sealed class SpanNotQuery : SpanQuery
     }
 
     /// <inheritdoc/>
+    public override void Visit(QueryVisitor visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        Include.Visit(visitor.GetSubVisitor(Occur.Must, this));
+        Exclude.Visit(visitor.GetSubVisitor(Occur.MustNot, this));
+    }
+
+    /// <inheritdoc/>
     public override bool Equals(object? obj) =>
         obj is SpanNotQuery other &&
         Include.Equals(other.Include) && Exclude.Equals(other.Exclude) &&

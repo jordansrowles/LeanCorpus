@@ -56,6 +56,14 @@ public sealed class VectorQuery : Query
     }
 
     /// <inheritdoc/>
+    public override void Visit(QueryVisitor visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        visitor.VisitLeaf(this);
+        Filter?.Visit(visitor.GetSubVisitor(Occur.Must, this));
+    }
+
+    /// <inheritdoc/>
     public override bool Equals(object? obj) =>
         obj is VectorQuery other &&
         string.Equals(Field, other.Field, StringComparison.Ordinal) &&

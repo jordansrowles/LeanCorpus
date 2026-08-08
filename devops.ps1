@@ -804,6 +804,24 @@ if ($Command -eq 'docs') {
     $docfxJson = Join-Path $docsDir 'docfx.json'
     $apiDir   = Join-Path $docsDir 'api'
     $siteDir  = Join-Path $docsDir 'site'
+    $featureComparisonScript = Join-Path $ScriptsDir 'generate-feature-comparison.ps1'
+    $adrIndexScript = Join-Path $ScriptsDir 'generate-adr-index.ps1'
+    $exampleIndexScript = Join-Path $ScriptsDir 'generate-example-index.ps1'
+
+    function New-FeatureComparisonIndex {
+        Write-Host 'Generating feature comparison...' -ForegroundColor Cyan
+        & $featureComparisonScript
+    }
+
+    function New-AdrIndex {
+        Write-Host 'Generating ADR index...' -ForegroundColor Cyan
+        & $adrIndexScript
+    }
+
+    function New-ExampleIndex {
+        Write-Host 'Generating examples catalogue...' -ForegroundColor Cyan
+        & $exampleIndexScript
+    }
 
     if (-not (Get-Command docfx -ErrorAction SilentlyContinue)) {
         dotnet tool install -g docfx
@@ -822,6 +840,9 @@ if ($Command -eq 'docs') {
 
     # --- serve ---
     if ($subCmd -eq 'serve') {
+        New-FeatureComparisonIndex
+        New-AdrIndex
+        New-ExampleIndex
         if (-not (Test-Path (Join-Path $apiDir 'toc.yml'))) {
             Clear-ApiMetadata $docsDir
             Write-Host 'Generating API metadata...' -ForegroundColor Cyan
@@ -840,6 +861,9 @@ if ($Command -eq 'docs') {
         exit $LASTEXITCODE
     }
     # --- build (default) ---
+    New-FeatureComparisonIndex
+    New-AdrIndex
+    New-ExampleIndex
     if (-not $SkipBenchmarks) {
         Write-Host 'Generating benchmark pages...' -ForegroundColor Cyan
         & (Join-Path $ScriptsDir 'generate-benchmark-docs.ps1')
@@ -866,6 +890,7 @@ if ($Command -eq 'docs') {
 
     Write-Host 'Building documentation site...' -ForegroundColor Cyan
     docfx build $docfxJson
+    if ($LASTEXITCODE -ne 0) { Write-Error "docfx build failed"; exit $LASTEXITCODE }
     Write-Host "Site written to: $siteDir" -ForegroundColor Green
     exit 0
 }

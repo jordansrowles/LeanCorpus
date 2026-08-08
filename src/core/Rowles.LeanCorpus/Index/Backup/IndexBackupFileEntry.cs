@@ -25,4 +25,10 @@ public sealed class IndexBackupFileEntry
 
     /// <summary>Gets a value indicating whether this entry is the selected <c>segments_N</c> commit file.</summary>
     public bool IsCommitFile { get; init; }
+
+    /// <summary>
+    /// Gets a value indicating whether the file is physically present in this backup directory.
+    /// Incremental manifests retain entries for inherited files so the complete logical snapshot can be validated.
+    /// </summary>
+    public bool PresentInBackup { get; init; } = true;
 }

@@ -34,6 +34,15 @@ public sealed class SpanNearQuery : SpanQuery
     }
 
     /// <inheritdoc/>
+    public override void Visit(QueryVisitor visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        var childVisitor = visitor.GetSubVisitor(Occur.Must, this);
+        foreach (var clause in Clauses)
+            clause.Visit(childVisitor);
+    }
+
+    /// <inheritdoc/>
     public override bool Equals(object? obj) =>
         obj is SpanNearQuery other &&
         Slop == other.Slop && InOrder == other.InOrder && Boost == other.Boost &&

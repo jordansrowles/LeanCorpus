@@ -79,6 +79,42 @@ if (manager.LastRefreshError is not null)
     Console.Error.WriteLine(manager.LastRefreshError.Message);
 ```
 
+## Generic reader lifecycle
+
+Use `ReaderManager<TReader>` when the retained near-real-time reader is not an
+`IndexSearcher`. It provides the same immutable swap and lease behaviour for any
+`IDisposable` reader:
+
+```csharp
+using var readers = new ReaderManager<MyReader>(
+    openFactory: OpenCurrent,
+    refreshFactory: current => TryOpenNewer(current),
+    refreshInterval: TimeSpan.FromSeconds(1));
+
+using var lease = readers.AcquireLease();
+var result = lease.Reader.Read(request);
+```
+
+The old reader is retired after publication and disposed after its final lease is
+released. `GetDiagnostics()` reports active readers, leases, refreshes, failures,
+and disposed readers. `SearcherManager` is implemented on this lifecycle so the
+searcher-specific API remains compatible.
+
+## Composing directory snapshots
+
+`MultiReader` opens one immutable `IndexSearcher` per directory and assigns global
+document IDs in input order. A later commit does not change an existing composition;
+create a new `MultiReader` when all component snapshots should advance together.
+
+```csharp
+using var reader = new MultiReader([firstDirectory, secondDirectory]);
+var hits = reader.Search(query, 20, SortField.String("category"));
+var nextPage = reader.SearchAfter(hits.ScoreDocs[^1], query, 20, SortField.String("category"));
+```
+
+`GetOrdinalMap(fieldName, sortedSet: true)` returns stable term-order ordinals across
+the component snapshots. This is also used when federated facet counts are merged.
+
 ## See also
 
 - [Refresh failures](04-refresh-failures.md)

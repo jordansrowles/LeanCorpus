@@ -19,20 +19,41 @@ internal sealed class TermVectorsReader : IDisposable
 
     public static TermVectorsReader Open(string tvdPath, string tvxPath)
     {
-        // Read offsets from .tvx index file
-        using var tvxInput = new Store.IndexInput(tvxPath);
-        CodecFileHeader.ReadVersion(tvxInput, CodecFormats.TermVectors);
-
-        int docCount = tvxInput.ReadInt32();
-        var offsets = new long[docCount];
-        for (int i = 0; i < docCount; i++)
-            offsets[i] = tvxInput.ReadInt64();
-
-        // Open .tvd data file as mmap
         var tvdInput = new Store.IndexInput(tvdPath);
-        byte version = CodecFileHeader.ReadVersion(tvdInput, CodecFormats.TermVectors);
+        try
+        {
+            return Open(tvdInput, new Store.IndexInput(tvxPath));
+        }
+        catch
+        {
+            tvdInput.Dispose();
+            throw;
+        }
+    }
 
-        return new TermVectorsReader(tvdInput, offsets, version);
+    internal static TermVectorsReader Open(Store.IndexInput tvdInput, Store.IndexInput tvxInput)
+    {
+        // Read offsets from .tvx index file
+        try
+        {
+            using var tvxLifetime = tvxInput;
+            CodecFileHeader.ReadVersion(tvxInput, CodecFormats.TermVectors);
+
+            int docCount = tvxInput.ReadInt32();
+            var offsets = new long[docCount];
+            for (int i = 0; i < docCount; i++)
+                offsets[i] = tvxInput.ReadInt64();
+
+            byte version = CodecFileHeader.ReadVersion(tvdInput, CodecFormats.TermVectors);
+
+            return new TermVectorsReader(tvdInput, offsets, version);
+        }
+        catch
+        {
+            tvdInput.Dispose();
+            tvxInput.Dispose();
+            throw;
+        }
     }
 
     /// <summary>Returns all term vectors for a document across all stored fields.</summary>

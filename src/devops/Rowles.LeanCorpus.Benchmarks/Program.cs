@@ -1,4 +1,5 @@
 using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Engines;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
@@ -89,6 +90,14 @@ internal static class Program
                 BenchmarkSuite.MMapIO,
                 BenchmarkSuite.HnswSearch,
                 BenchmarkSuite.VectorQuantisation,
+                BenchmarkSuite.CompoundFile,
+                BenchmarkSuite.IncrementalBackup,
+                BenchmarkSuite.ReaderManagerLifecycle,
+                BenchmarkSuite.MultiReader,
+                BenchmarkSuite.OrdinalMap,
+                BenchmarkSuite.SearchSession,
+                BenchmarkSuite.RankingEvaluation,
+                BenchmarkSuite.RankingPipeline,
             ]);
         }
 
@@ -309,6 +318,30 @@ internal static class Program
         if (suites.Contains(BenchmarkSuite.MMapIO))
             RunSuite<MMapDirectoryIOBenchmarks>("mmap-io", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
+        if (suites.Contains(BenchmarkSuite.CompoundFile))
+            RunSuite<CompoundFileBenchmarks>("compound-file", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.IncrementalBackup))
+            RunSuite<IncrementalBackupBenchmarks>("incremental-backup", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.ReaderManagerLifecycle))
+            RunSuite<ReaderManagerLifecycleBenchmarks>("reader-manager", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.MultiReader))
+            RunSuite<MultiReaderBenchmarks>("multi-reader", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.OrdinalMap))
+            RunSuite<OrdinalMapBenchmarks>("ordinal-map", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.SearchSession))
+            RunSuite<SearchSessionBenchmarks>("search-session", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.RankingEvaluation))
+            RunSuite<RankingEvaluationBenchmarks>("ranking-evaluation", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.RankingPipeline))
+            RunSuite<RankingPipelineBenchmarks>("ranking-pipeline", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
         ExecuteSuites(runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (suiteSummaries.Count == 0)
@@ -340,6 +373,8 @@ internal static class Program
             repoRoot,
             gitCommitHash,
             docCount ?? BenchmarkData.DefaultDocCount);
+        if (!report.Provenance.RscriptAvailable)
+            report.QualityFlags.Add("RscriptUnavailable");
 
         BenchmarkRunReportWriter.WriteReport(runDir, machineDir, report);
 
@@ -374,16 +409,8 @@ internal static class Program
 
         var artifactsPath = Path.Combine(runDir, "_runner");
         Directory.CreateDirectory(artifactsPath);
-        var config = DefaultConfig.Instance.WithArtifactsPath(artifactsPath);
+        var baseConfig = DefaultConfig.Instance.WithArtifactsPath(artifactsPath);
         var (job, effectiveBenchmarkArgs) = ExtractJob(benchmarkArgs);
-        if (job is not null)
-        {
-            config = config
-                .AddJob(job)
-                .WithUnionRule(ConfigUnionRule.AlwaysUseGlobal);
-        }
-        if (gcDump)
-            config = config.AddDiagnoser(new GcDumpDiagnoser());
 
         // BDN nightly >= 20260608 goes interactive when args are empty,
         // even when types are supplied via FromTypes. Inject a filter to
@@ -391,14 +418,78 @@ internal static class Program
         if (!HasBenchmarkDotNetOption(effectiveBenchmarkArgs, "--filter", "-f"))
             effectiveBenchmarkArgs = [.. effectiveBenchmarkArgs, "--filter", "*"];
 
-        var summaries = BenchmarkSwitcher
-            .FromTypes([.. PendingSuites.Select(suite => suite.Type)])
-            .Run(effectiveBenchmarkArgs, config);
+        var backupSuite = PendingSuites.SingleOrDefault(
+            suite => suite.Type == typeof(IncrementalBackupBenchmarks));
+        var regularSuites = PendingSuites
+            .Where(suite => suite.Type != typeof(IncrementalBackupBenchmarks))
+            .ToArray();
 
+        if (regularSuites.Length > 0)
+        {
+            var regularConfig = baseConfig;
+            if (job is not null)
+            {
+                // The benchmark project is multi-targeted. Serialise the generated
+                // project build so cross-target reference discovery cannot race the
+                // two target-framework builds on hosts with a single benchmark job.
+                regularConfig = regularConfig
+                    .AddJob(job.WithMsBuildArguments("-m:1"))
+                    .WithUnionRule(ConfigUnionRule.AlwaysUseGlobal);
+            }
+            if (gcDump)
+                regularConfig = regularConfig.AddDiagnoser(new GcDumpDiagnoser());
+
+            var summaries = BenchmarkSwitcher
+                .FromTypes([.. regularSuites.Select(suite => suite.Type)])
+                .Run(effectiveBenchmarkArgs, regularConfig);
+            RecordSuiteSummaries(
+                summaries, regularSuites, artifactsPath, runDir, suiteSummaries);
+        }
+
+        if (backupSuite is not null)
+        {
+            // Durable backup operations must not use BenchmarkDotNet's throughput
+            // pilot, which can invoke a multi-minute operation repeatedly before
+            // measurement. Monitoring performs exactly three direct samples.
+            var backupJob = (job ?? Job.Default)
+                .WithStrategy(RunStrategy.Monitoring)
+                .WithLaunchCount(1)
+                .WithWarmupCount(0)
+                .WithIterationCount(3)
+                .WithInvocationCount(1)
+                .WithUnrollFactor(1)
+                .WithMsBuildArguments("-m:1");
+            var backupConfig = baseConfig
+                .AddJob(backupJob)
+                .WithUnionRule(ConfigUnionRule.AlwaysUseGlobal);
+            if (gcDump)
+                backupConfig = backupConfig.AddDiagnoser(new GcDumpDiagnoser());
+
+            Console.WriteLine("[incremental-backup] Preparing shared loose and compound fixtures...");
+            var fixtureStopwatch = Stopwatch.StartNew();
+            using var sharedBackupFixtures = IncrementalBackupBenchmarks.PrepareSharedFixtures();
+            fixtureStopwatch.Stop();
+            Console.WriteLine(
+                $"[incremental-backup] Shared fixtures prepared in {fixtureStopwatch.Elapsed:g}.");
+            var summaries = BenchmarkSwitcher
+                .FromTypes([backupSuite.Type])
+                .Run(effectiveBenchmarkArgs, backupConfig);
+            RecordSuiteSummaries(
+                summaries, [backupSuite], artifactsPath, runDir, suiteSummaries);
+        }
+    }
+
+    private static void RecordSuiteSummaries(
+        IEnumerable<Summary> summaries,
+        IReadOnlyList<PendingSuite> pendingSuites,
+        string artifactsPath,
+        string runDir,
+        List<(string Suite, Summary Summary)> suiteSummaries)
+    {
         foreach (var summary in summaries)
         {
             var benchmarkType = summary.BenchmarksCases.First().Descriptor.Type;
-            var suite = PendingSuites.First(item => item.Type == benchmarkType);
+            var suite = pendingSuites.First(item => item.Type == benchmarkType);
             suiteSummaries.Add((suite.Name, summary));
             CopySuiteArtifacts(artifactsPath, runDir, suite);
         }
@@ -562,7 +653,7 @@ internal static class Program
             Suites:
               all              Run all primary benchmark suites, including Gutenberg (default)
               all-with-explicit  Run all primary plus all explicit-only suites
-              explicit         Run all explicit-only suites (tokenbudget, diagnostics, merge, flush, docvalues-read, bkd, fst-lookup, mmap-io, packed-int-codec, numeric-aggregator, index-writer, concurrent-write, hnsw, vq)
+              explicit         Run all explicit-only suites, including subsystem and recent-feature benchmarks
               index            IndexingBenchmarks -- bulk indexing throughput (vs Lucene.NET)
               query            TermQueryBenchmarks -- single-term search (vs Lucene.NET)
               analysis         AnalysisBenchmarks -- tokenisation pipeline throughput
@@ -627,6 +718,14 @@ internal static class Program
               bkd                 BKDTreeBenchmarks -- BKD range search throughput (explicit only)
               fst-lookup          FstLookupBenchmarks -- FST term dictionary lookup (explicit only)
               mmap-io             MMapDirectoryIOBenchmarks -- raw I/O throughput (explicit only)
+              compound-file       CompoundFileBenchmarks -- loose files vs compound segment storage (explicit only)
+              incremental-backup  IncrementalBackupBenchmarks -- full and parent-linked backup operations (explicit only)
+              reader-manager      ReaderManagerLifecycleBenchmarks -- generic reader lifecycle overhead (explicit only)
+              multi-reader        MultiReaderBenchmarks -- federated search and pagination (explicit only)
+              ordinal-map         OrdinalMapBenchmarks -- global ordinal construction and lookup (explicit only)
+              search-session      SearchSessionBenchmarks -- stable cursor pagination and session lifecycle (explicit only)
+              ranking-evaluation  RankingEvaluationBenchmarks -- IR metrics and MMR diversification (explicit only)
+              ranking-pipeline    RankingPipelineBenchmarks -- profiles, rules and bounded reranking (explicit only)
 
             Output:
               Results are written to bench/{machine-name}/{yyyy-MM-dd}/{HH-mm}/
@@ -761,6 +860,14 @@ internal static class Program
             "bkd" or "bkd-tree" => BenchmarkSuite.BKDTree,
             "fst-lookup" or "fstlookup" => BenchmarkSuite.FstLookup,
             "mmap-io" or "mmapio" => BenchmarkSuite.MMapIO,
+            "compound-file" or "compoundfile" => BenchmarkSuite.CompoundFile,
+            "incremental-backup" or "incrementalbackup" => BenchmarkSuite.IncrementalBackup,
+            "reader-manager" or "readermanager" => BenchmarkSuite.ReaderManagerLifecycle,
+            "multi-reader" or "multireader" => BenchmarkSuite.MultiReader,
+            "ordinal-map" or "ordinalmap" => BenchmarkSuite.OrdinalMap,
+            "search-session" or "searchsession" => BenchmarkSuite.SearchSession,
+            "ranking-evaluation" or "rankingevaluation" => BenchmarkSuite.RankingEvaluation,
+            "ranking-pipeline" or "rankingpipeline" => BenchmarkSuite.RankingPipeline,
             "boolean" => BenchmarkSuite.Boolean,
             "phrase" => BenchmarkSuite.Phrase,
             "prefix" => BenchmarkSuite.Prefix,
@@ -901,6 +1008,14 @@ internal static class Program
         BKDTree,
         FstLookup,
         MMapIO,
+        CompoundFile,
+        IncrementalBackup,
+        ReaderManagerLifecycle,
+        MultiReader,
+        OrdinalMap,
+        SearchSession,
+        RankingEvaluation,
+        RankingPipeline,
     }
 
     private sealed record PendingSuite(string Name, Type Type);

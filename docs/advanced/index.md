@@ -1,6 +1,6 @@
 # Advanced features
 
-These features extend the core search-and-retrieve model. You can ignore them until you need them.
+Use this section after ordinary indexing and searching work. Read the result-shaping or vector subsection that matches your application requirement.
 
 ## Result shaping
 

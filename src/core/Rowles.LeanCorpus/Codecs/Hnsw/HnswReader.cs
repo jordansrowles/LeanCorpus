@@ -30,8 +30,19 @@ internal static class HnswReader
         bool? expectedNormalised,
         IReadOnlyDictionary<int, int>? docIdRemap)
     {
-        using var fs = FileOpenRetry.OpenReadDelete(filePath);
+        using var input = new IndexInput(filePath);
+        return Read(input, vectorSource, expectedNormalised, docIdRemap);
+    }
+
+    internal static HnswGraph Read(
+        IndexInput input,
+        IVectorSource vectorSource,
+        bool? expectedNormalised,
+        IReadOnlyDictionary<int, int>? docIdRemap)
+    {
+        using var fs = new IndexInputStream(input);
         using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
+        string filePath = input.FilePath ?? "compound member";
 
         byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.Hnsw);
 

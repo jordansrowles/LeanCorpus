@@ -78,6 +78,12 @@ public sealed partial class IndexWriter
                 case BinaryField bf:
                     AppendStoredField(bf.Name, StoredFieldValue.FromBinary(bf.Value.Span), storeDocValues: bf.StoreDocValues);
                     break;
+                case InetAddressField ipf:
+                    AppendStoredField(
+                        ipf.Name,
+                        StoredFieldValue.FromBinary(ipf.Value.Span),
+                        storeDocValues: ipf.StoreDocValues);
+                    break;
             }
         }
 

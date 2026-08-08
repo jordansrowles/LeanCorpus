@@ -19,6 +19,15 @@ public sealed class SpanOrQuery : SpanQuery
     }
 
     /// <inheritdoc/>
+    public override void Visit(QueryVisitor visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        var childVisitor = visitor.GetSubVisitor(Occur.Should, this);
+        foreach (var clause in Clauses)
+            clause.Visit(childVisitor);
+    }
+
+    /// <inheritdoc/>
     public override bool Equals(object? obj) =>
         obj is SpanOrQuery other && Boost == other.Boost &&
         Clauses.Count == other.Clauses.Count &&

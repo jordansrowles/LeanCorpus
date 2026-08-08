@@ -1,3 +1,14 @@
+---
+adr: ADR008
+title: Streaming codec formats bypass the CodecKit envelope
+date: 2026-07-09
+status: Deprecated
+version-added: 2.0.0
+summary: Allow streaming formats to bypass the original CodecKit envelope.
+areas: [codecs, store, indexing]
+superseded-by: ADR009
+---
+
 # ADR008: Streaming codec formats bypass the CodecKit envelope
 
 - **Date:** 2026-07-09

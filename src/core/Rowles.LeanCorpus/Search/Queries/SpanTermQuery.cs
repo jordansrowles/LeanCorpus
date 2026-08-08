@@ -22,6 +22,13 @@ public sealed class SpanTermQuery : SpanQuery
     }
 
     /// <inheritdoc/>
+    public override void Visit(QueryVisitor visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        visitor.ConsumeTerm(this, Field, Term);
+    }
+
+    /// <inheritdoc/>
     public override bool Equals(object? obj) =>
         obj is SpanTermQuery other &&
         string.Equals(Field, other.Field, StringComparison.Ordinal) &&

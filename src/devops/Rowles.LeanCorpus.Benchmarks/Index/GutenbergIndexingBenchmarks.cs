@@ -27,15 +27,29 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [MarkdownExporterAttribute.GitHub]
 [WarmupCount(2)]
 [IterationCount(5)]
+[InvocationCount(1)]
 public class GutenbergIndexingBenchmarks
 {
     private BookParagraph[] _paragraphs = [];
+    private readonly List<string> _iterationPaths = [];
 
     [GlobalSetup]
     public void Setup() => _paragraphs = GutenbergDataLoader.Load();
 
     [GlobalCleanup]
-    public void Cleanup() => _paragraphs = [];
+    public void Cleanup()
+    {
+        CleanupIterationPaths();
+        _paragraphs = [];
+    }
+
+    [IterationCleanup]
+    public void CleanupIterationPaths()
+    {
+        foreach (var path in _iterationPaths)
+            BenchmarkHelpers.DeleteDirectory(path);
+        _iterationPaths.Clear();
+    }
 
     /// <summary>
     /// Indexes all paragraphs with the standard analyser (tokenise+lowercase+stopwords).
@@ -60,68 +74,52 @@ public class GutenbergIndexingBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"lucenenet-realdata-idx-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
+        _iterationPaths.Add(path);
+        using var directory = Lucene.Net.Store.FSDirectory.Open(new DirectoryInfo(path));
+        using var analyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+        using var writer = new LuceneIndexWriter(
+            directory,
+            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyzer));
 
-        try
+        foreach (var para in _paragraphs)
         {
-            using var directory = Lucene.Net.Store.FSDirectory.Open(new DirectoryInfo(path));
-            using var analyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
-            using var writer = new LuceneIndexWriter(
-                directory,
-                new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyzer));
-
-            foreach (var para in _paragraphs)
+            var doc = new Lucene.Net.Documents.Document
             {
-                var doc = new Lucene.Net.Documents.Document
-                {
-                    new LuceneStringField("id",    para.Id,    Field.Store.NO),
-                    new LuceneStringField("title", para.Title, Field.Store.NO),
-                    new LuceneTextField  ("body",  para.Body,  Field.Store.NO)
-                };
-                writer.AddDocument(doc);
-            }
+                new LuceneStringField("id",    para.Id,    Field.Store.NO),
+                new LuceneStringField("title", para.Title, Field.Store.NO),
+                new LuceneTextField  ("body",  para.Body,  Field.Store.NO)
+            };
+            writer.AddDocument(doc);
+        }
 
-            writer.Commit();
-            return _paragraphs.Length;
-        }
-        finally
-        {
-            if (Directory.Exists(path))
-                Directory.Delete(path, recursive: true);
-        }
+        writer.Commit();
+        return _paragraphs.Length;
     }
 
     private int RunLeanIndex(IAnalyser analyser)
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-realdata-idx-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
-
-        try
+        _iterationPaths.Add(path);
+        using var directory = new MMapDirectory(path);
+        using var writer = new LeanIndexWriter(directory, new LeanIndexWriterConfig
         {
-            var directory = new MMapDirectory(path);
-            using var writer = new LeanIndexWriter(directory, new LeanIndexWriterConfig
-            {
-                DefaultAnalyser = analyser,
-                MaxBufferedDocs = 10_000,
-                RamBufferSizeMB = 256,
-                DurableCommits = false
-            });
+            DefaultAnalyser = analyser,
+            MaxBufferedDocs = 10_000,
+            RamBufferSizeMB = 256,
+            DurableCommits = false
+        });
 
-            foreach (var para in _paragraphs)
-            {
-                var doc = new LeanDocument();
-                doc.Add(new LeanStringField("id",    para.Id));
-                doc.Add(new LeanStringField("title", para.Title));
-                doc.Add(new LeanTextField  ("body",  para.Body));
-                writer.AddDocument(doc);
-            }
-
-            writer.Commit();
-            return _paragraphs.Length;
-        }
-        finally
+        foreach (var para in _paragraphs)
         {
-            if (Directory.Exists(path))
-                Directory.Delete(path, recursive: true);
+            var doc = new LeanDocument();
+            doc.Add(new LeanStringField("id",    para.Id));
+            doc.Add(new LeanStringField("title", para.Title));
+            doc.Add(new LeanTextField  ("body",  para.Body));
+            writer.AddDocument(doc);
         }
+
+        writer.Commit();
+        return _paragraphs.Length;
     }
 }

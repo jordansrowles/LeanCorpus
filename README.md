@@ -11,7 +11,7 @@ Inspired by Apache Lucene.
 All projects target .NET 10, and .NET 11. Versions < 10 are not supported. (`LeanCorpus.SourceGen` is a .NET Standard library, for obvious reasons though).
 
 ### Core library
-- ![NuGet Version](https://img.shields.io/nuget/v/LeanCorpus?style=flat&label=LeanCorpus&link=https%3A%2F%2Fwww.nuget.org%2Fpackages%2FLeanLucene%2F)
+- ![NuGet Version](https://img.shields.io/nuget/v/LeanCorpus?style=flat&label=LeanCorpus&link=https%3A%2F%2Fwww.nuget.org%2Fpackages%2FLeanCorpus%2F)
   - 0 dependencies, AOT compatible, includes LINQ, default compressors (Deflate or Brotli)
 
 ### Optional libraries
@@ -30,7 +30,7 @@ This publishes `src\examples\Rowles.LeanCorpus.Example.NativeAot\Rowles.LeanCorp
 The core library has no native sidecar dependencies for compression. Optional packages (`Rowles.LeanCorpus.Compression.LZ4`, `Rowles.LeanCorpus.Compression.Snappy`, `Rowles.LeanCorpus.Compression.Zstandard`) may include RID-specific native binaries; AOT consumers using those packages must call their respective `Register()` methods at startup.
 
 > [!IMPORTANT]
-> While LeanLucene is AOT capable, it does not support (and does not intend to support) Blazor WASM. LeanLucene (and the other segment-centric engines) require use of the OS's filesystem to achieve its performance. It would be too much work (and a project itself) to support a dual approach with a filesystem, and the browsers limited storage. 
+> While LeanCorpus is AOT capable, it does not support (and does not intend to support) Blazor WASM. LeanCorpus (and the other segment-centric engines) require use of the OS's filesystem to achieve its performance. It would be too much work (and a project itself) to support a dual approach with a filesystem, and the browsers limited storage.
 > 
 > Blazor Server/Hybrid remains supported (naturally), as long as the indexing happens server-side.
 

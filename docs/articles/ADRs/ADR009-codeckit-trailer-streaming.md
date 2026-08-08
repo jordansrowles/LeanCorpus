@@ -1,3 +1,14 @@
+---
+adr: ADR009
+title: CodecKit trailer format replaces ADR008 custom headers
+date: 2026-07-11
+status: Accepted
+version-added: 2.0.0
+summary: Use CodecKit trailers for streaming codec formats.
+areas: [codecs, store, indexing]
+supersedes: ADR008
+---
+
 # ADR009: CodecKit trailer format replaces ADR008 custom headers
 
 - **Date:** 2026-07-11

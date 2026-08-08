@@ -17,6 +17,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
 [KeepBenchmarkFiles]
+[InvocationCount(1)]
 public class SchemaAndJsonBenchmarks
 {
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
@@ -26,6 +27,7 @@ public class SchemaAndJsonBenchmarks
 
     private string[] _documents = [];
     private string[] _jsonDocuments = [];
+    private readonly List<string> _iterationPaths = [];
 
     [GlobalSetup]
     public void Setup()
@@ -34,38 +36,41 @@ public class SchemaAndJsonBenchmarks
         _jsonDocuments = BenchmarkData.BuildJsonDocuments(DocumentCount);
     }
 
+    [GlobalCleanup]
+    public void Cleanup() => CleanupIterationPaths();
+
+    [IterationCleanup]
+    public void CleanupIterationPaths()
+    {
+        foreach (var path in _iterationPaths)
+            BenchmarkHelpers.DeleteDirectory(path);
+        _iterationPaths.Clear();
+    }
+
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_Index_NoSchema()
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-schema-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
-
-        try
+        _iterationPaths.Add(path);
+        using var directory = new MMapDirectory(path);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig
         {
-            var directory = new MMapDirectory(path);
-            using var writer = new IndexWriter(directory, new IndexWriterConfig
-            {
-                MaxBufferedDocs = 10_000,
-                RamBufferSizeMB = 256
-            });
+            MaxBufferedDocs = 10_000,
+            RamBufferSizeMB = 256
+        });
 
-            for (int i = 0; i < _documents.Length; i++)
-            {
-                var doc = new LeanDocument();
-                doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-                doc.Add(new LeanTextField("body", _documents[i]));
-                writer.AddDocument(doc);
-            }
-
-            writer.Commit();
-            return _documents.Length;
-        }
-        finally
+        for (int i = 0; i < _documents.Length; i++)
         {
-            if (Directory.Exists(path))
-                Directory.Delete(path, recursive: true);
+            var doc = new LeanDocument();
+            doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            doc.Add(new LeanTextField("body", _documents[i]));
+            writer.AddDocument(doc);
         }
+
+        writer.Commit();
+        return _documents.Length;
     }
 
     [Benchmark]
@@ -74,37 +79,29 @@ public class SchemaAndJsonBenchmarks
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-schema-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
+        _iterationPaths.Add(path);
+        var schema = new IndexSchema { StrictMode = true }
+            .Add(new FieldMapping("id", FieldType.String))
+            .Add(new FieldMapping("body", FieldType.Text));
 
-        try
+        using var directory = new MMapDirectory(path);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig
         {
-            var schema = new IndexSchema { StrictMode = true }
-                .Add(new FieldMapping("id", FieldType.String))
-                .Add(new FieldMapping("body", FieldType.Text));
+            MaxBufferedDocs = 10_000,
+            RamBufferSizeMB = 256,
+            Schema = schema
+        });
 
-            var directory = new MMapDirectory(path);
-            using var writer = new IndexWriter(directory, new IndexWriterConfig
-            {
-                MaxBufferedDocs = 10_000,
-                RamBufferSizeMB = 256,
-                Schema = schema
-            });
-
-            for (int i = 0; i < _documents.Length; i++)
-            {
-                var doc = new LeanDocument();
-                doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-                doc.Add(new LeanTextField("body", _documents[i]));
-                writer.AddDocument(doc);
-            }
-
-            writer.Commit();
-            return _documents.Length;
-        }
-        finally
+        for (int i = 0; i < _documents.Length; i++)
         {
-            if (Directory.Exists(path))
-                Directory.Delete(path, recursive: true);
+            var doc = new LeanDocument();
+            doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            doc.Add(new LeanTextField("body", _documents[i]));
+            writer.AddDocument(doc);
         }
+
+        writer.Commit();
+        return _documents.Length;
     }
 
     [Benchmark]
