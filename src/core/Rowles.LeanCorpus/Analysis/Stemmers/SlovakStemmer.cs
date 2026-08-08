@@ -76,7 +76,7 @@ public sealed class SlovakStemmer : ISpanStemmer
         return RemoveSuffixes(word, output);
     }
 
-    private int RemoveSuffixes(ReadOnlySpan<char> word, Span<char> output)
+    private static int RemoveSuffixes(ReadOnlySpan<char> word, Span<char> output)
     {
         foreach (string[] suffixesGroup in suffixesGroups)
         {
@@ -150,7 +150,7 @@ public sealed class SlovakStemmer : ISpanStemmer
         return ProcessGentivPlural(word, output);
     }
 
-    private bool IsOverStemming(ReadOnlySpan<char> word, ReadOnlySpan<char> suffix)
+    private static bool IsOverStemming(ReadOnlySpan<char> word, ReadOnlySpan<char> suffix)
     {
         ReadOnlySpan<char> rootWord = RemoveSuffix(word, suffix);
         foreach (string vowel in vowels)
@@ -170,7 +170,7 @@ public sealed class SlovakStemmer : ISpanStemmer
         return true;
     }
 
-    private int ProcessGentivPlural(ReadOnlySpan<char> word, Span<char> output)
+    private static int ProcessGentivPlural(ReadOnlySpan<char> word, Span<char> output)
     {
         foreach ((string longLetters, string shortLetters) in longToShortDictionary)
         {
@@ -192,7 +192,7 @@ public sealed class SlovakStemmer : ISpanStemmer
         return word.Length;
     }
 
-    private bool IsLastSyllable(ReadOnlySpan<char> word, ReadOnlySpan<char> longVowel)
+    private static bool IsLastSyllable(ReadOnlySpan<char> word, ReadOnlySpan<char> longVowel)
     {
         int lastVowelIndex = word.LastIndexOf(longVowel);
         if (lastVowelIndex == -1)
@@ -213,7 +213,7 @@ public sealed class SlovakStemmer : ISpanStemmer
         return true;
     }
 
-    private int ChangeLastLetter(ReadOnlySpan<char> word, ReadOnlySpan<char> replacedLetter, ReadOnlySpan<char> newLetter, Span<char> output)
+    private static int ChangeLastLetter(ReadOnlySpan<char> word, ReadOnlySpan<char> replacedLetter, ReadOnlySpan<char> newLetter, Span<char> output)
     {
         int replacedLetterIndex = word.LastIndexOf(replacedLetter, StringComparison.OrdinalIgnoreCase);
         ReadOnlySpan<char> suffix = word.Slice(replacedLetterIndex + replacedLetter.Length);
@@ -229,7 +229,7 @@ public sealed class SlovakStemmer : ISpanStemmer
         return replacedLetterIndex + newLetter.Length + suffix.Length;
     }
 
-    private bool IsForeignWord(ReadOnlySpan<char> word, ReadOnlySpan<char> suffix)
+    private static bool IsForeignWord(ReadOnlySpan<char> word, ReadOnlySpan<char> suffix)
     {
         ReadOnlySpan<char> check = RemoveSuffix(word, suffix);
         if (check.Length == 0)
@@ -250,7 +250,7 @@ public sealed class SlovakStemmer : ISpanStemmer
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private ReadOnlySpan<char> RemoveSuffix(ReadOnlySpan<char> word, ReadOnlySpan<char> suffix)
+    private static ReadOnlySpan<char> RemoveSuffix(ReadOnlySpan<char> word, ReadOnlySpan<char> suffix)
     {
         if (!word.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
         {
@@ -260,7 +260,7 @@ public sealed class SlovakStemmer : ISpanStemmer
         return word.Slice(0, word.Length - suffix.Length);
     }
 
-    private int TryChangeSuffix(ReadOnlySpan<char> word, ReadOnlySpan<char> suffix, ReadOnlySpan<char> newSuffix, Span<char> output)
+    private static int TryChangeSuffix(ReadOnlySpan<char> word, ReadOnlySpan<char> suffix, ReadOnlySpan<char> newSuffix, Span<char> output)
     {
         if (!word.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
         {
@@ -275,7 +275,7 @@ public sealed class SlovakStemmer : ISpanStemmer
         return stemLen + newSuffix.Length;
     }
 
-    private bool IsDtnl(ReadOnlySpan<char> suffix)
+    private static bool IsDtnl(ReadOnlySpan<char> suffix)
     {
         foreach (string value in eiSuffix)
         {
@@ -287,7 +287,7 @@ public sealed class SlovakStemmer : ISpanStemmer
         return false;
     }
 
-    private int RestoreDtnl(ReadOnlySpan<char> wordRoot, Span<char> output)
+    private static int RestoreDtnl(ReadOnlySpan<char> wordRoot, Span<char> output)
     {
         wordRoot.CopyTo(output);
         output[wordRoot.Length - 1] = wordRoot[^1] switch
