@@ -43,6 +43,7 @@ public static class AnalyserFactory
             "zh" => new LanguageAnalyser(new CJKBigramTokeniser(), StopWords.Chinese, stemmer: null),
             "ja" => new LanguageAnalyser(new CJKBigramTokeniser(), StopWords.Japanese, stemmer: null),
             "ko" => new LanguageAnalyser(new CJKBigramTokeniser(), StopWords.Korean, stemmer: null),
+            "sk" => new LanguageAnalyser(new Tokeniser(), StopWords.Slovak, new SlovakStemmer()),
             _ => throw new NotSupportedException(
                 $"Language '{languageCode}' is not supported. Supported: {string.Join(", ", SupportedLanguages)}.")
         };
@@ -53,6 +54,6 @@ public static class AnalyserFactory
     /// </summary>
     public static IReadOnlyList<string> SupportedLanguages { get; } =
     [
-        "en", "fr", "de", "es", "it", "pt", "nl", "ru", "ar", "zh", "ja", "ko"
+        "en", "fr", "de", "es", "it", "pt", "nl", "ru", "ar", "zh", "ja", "ko", "sk"
     ];
 }
