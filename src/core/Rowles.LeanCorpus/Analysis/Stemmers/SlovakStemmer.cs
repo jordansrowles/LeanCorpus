@@ -80,9 +80,33 @@ public sealed class SlovakStemmer : ISpanStemmer
     {
         foreach (string[] suffixesGroup in suffixesGroups)
         {
-            if (TryRemoveSuffixesGroup(word, suffixesGroup, output, out int writenChars))
+            foreach (string suffix in suffixesGroup)
             {
-                return writenChars;
+                if (word.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (IsDtnl(suffix))
+                    {
+                        return RestoreDtnl(RemoveSuffix(word, suffix), output);
+                    }
+                    if (suffix.EndsWith("i", StringComparison.OrdinalIgnoreCase) && IsForeignWord(word, suffix))
+                    {
+                        return TryChangeSuffix(word, suffix, "i", output);
+                    }
+                    if (IsOverStemming(word, suffix))
+                    {
+                        word.CopyTo(output);
+                        return word.Length;
+                    }
+
+                    ReadOnlySpan<char> stem = RemoveSuffix(word, suffix);
+                    if (stem.Length > output.Length)
+                    {
+                        return -1;
+                    }
+
+                    stem.CopyTo(output);
+                    return stem.Length;
+                }
             }
         }
 
@@ -124,46 +148,6 @@ public sealed class SlovakStemmer : ISpanStemmer
         }
 
         return ProcessGentivPlural(word, output);
-    }
-
-    private static bool TryRemoveSuffixesGroup(ReadOnlySpan<char> word, string[] suffixesGroup, Span<char> output, out int writen)
-    {
-        foreach (string suffix in suffixesGroup)
-        {
-            if (word.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
-            {
-                if (IsDtnl(suffix))
-                {
-                    writen = RestoreDtnl(RemoveSuffix(word, suffix), output);
-                    return true;
-                }
-                if (suffix.EndsWith("i", StringComparison.OrdinalIgnoreCase) && IsForeignWord(word, suffix))
-                {
-                    writen = TryChangeSuffix(word, suffix, "i", output);
-                    return true;
-                }
-                if (IsOverStemming(word, suffix))
-                {
-                    word.CopyTo(output);
-                    writen = word.Length;
-                    return true;
-                }
-
-                ReadOnlySpan<char> stem = RemoveSuffix(word, suffix);
-                if (stem.Length > output.Length)
-                {
-                    writen = -1;
-                    return true;
-                }
-
-                stem.CopyTo(output);
-                writen = stem.Length;
-                return true;
-            }
-        }
-
-        writen = 0;
-        return false;
     }
 
     private static bool IsOverStemming(ReadOnlySpan<char> word, ReadOnlySpan<char> suffix)
