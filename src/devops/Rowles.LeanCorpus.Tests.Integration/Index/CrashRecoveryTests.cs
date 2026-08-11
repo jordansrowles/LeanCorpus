@@ -52,6 +52,23 @@ public class CrashRecoveryTests : IDisposable
         Assert.Equal(1, results.TotalHits);
     }
 
+    [Fact(DisplayName = "Recovery: accepts a current canonical compound segment")]
+    public void RecoverLatestCommit_AcceptsCurrentCanonicalCompoundSegment()
+    {
+        using (var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig { UseCompoundFile = true }))
+        {
+            writer.AddDocument(CreateDocument("canonical recovery frame"));
+            writer.Commit();
+        }
+
+        var recovery = IndexRecovery.RecoverLatestCommit(_dir, cleanupOrphans: false);
+
+        Assert.NotNull(recovery);
+        Assert.Equal(1, recovery.Generation);
+        Assert.Single(recovery.SegmentIds);
+        Assert.Single(Directory.GetFiles(_dir, "*.cfs"));
+    }
+
     /// <summary>
     /// Verifies the Corrupt Latest Commit: Falls Back To Previous Generation scenario.
     /// </summary>
@@ -212,6 +229,8 @@ public class CrashRecoveryTests : IDisposable
 
         // Simulate interrupted commit temp files
         File.WriteAllText(Path.Combine(_dir, "segments_99.tmp"), "partial");
+        File.WriteAllText(Path.Combine(_dir, "migration_state.json.tmp"), "partial");
+        File.WriteAllText(Path.Combine(_dir, "seg_0.nrm.0123456789abcdef0123456789abcdef.codec.tmp"), "partial");
         File.WriteAllText(Path.Combine(_dir, "data.tmp"), "partial");
 
         // Act
@@ -219,6 +238,8 @@ public class CrashRecoveryTests : IDisposable
 
         // Assert: recognised temp files are removed, unrelated temp files are left alone.
         Assert.False(File.Exists(Path.Combine(_dir, "segments_99.tmp")));
+        Assert.False(File.Exists(Path.Combine(_dir, "migration_state.json.tmp")));
+        Assert.False(File.Exists(Path.Combine(_dir, "seg_0.nrm.0123456789abcdef0123456789abcdef.codec.tmp")));
         Assert.True(File.Exists(Path.Combine(_dir, "data.tmp")));
     }
 

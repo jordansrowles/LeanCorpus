@@ -2,6 +2,7 @@ using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Codecs.Vectors;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
 
@@ -10,6 +11,9 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 /// </summary>
 public sealed class IndexWriterConfig
 {
+    /// <summary>Gets or sets the immutable codec catalogue used when opening existing segments.</summary>
+    public CodecCatalog CodecCatalog { get; set; } = CodecCatalog.Default;
+
     /// <summary>RAM buffer size in megabytes before an automatic flush.</summary>
     public double RamBufferSizeMB { get; set; } = 512.0;
 

@@ -120,7 +120,12 @@ public sealed class SearcherManager : IDisposable
         if (latestCommit.Generation <= currentMetadata.Generation)
             return null;
 
-        IndexOpenGuard.EnsureCanOpenSegments(_directory, latestCommit.SegmentIds, _config.CompatibilityMode, forWriting: false);
+        IndexOpenGuard.EnsureCanOpenSegments(
+            _directory,
+            latestCommit.SegmentIds,
+            _config.CompatibilityMode,
+            forWriting: false,
+            _config.SearcherConfig.CodecCatalog);
         if (latestCommit.ContentToken == currentMetadata.ContentToken)
         {
             currentMetadata.Generation = latestCommit.Generation;

@@ -1,11 +1,15 @@
 using System.Globalization;
 using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Compatibility;
+using Rowles.LeanCorpus.Index.Format;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Index.Migration;
+using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Store;
@@ -28,7 +32,7 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
     /// <summary>
     /// Creates a minimal index with a single document containing a text field and numeric field.
     /// </summary>
-    private string CreateCurrentVersionIndex(string name)
+    private string CreateCurrentVersionIndex(string name, bool includeInt64DocValues = false)
     {
         var path = Path.Combine(_fixture.Path, name);
         Directory.CreateDirectory(path);
@@ -38,6 +42,12 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         doc.Add(new TextField("body", "hello world test migration"));
         doc.Add(new NumericField("count", 42));
         doc.Add(new StringField("id", "doc-1"));
+        if (includeInt64DocValues)
+        {
+            doc.Add(new Int64Field("count64", 42));
+            doc.Add(new Int64Field("multi64", 2));
+            doc.Add(new Int64Field("multi64", 1));
+        }
         writer.AddDocument(doc);
         writer.Commit();
         return path;
@@ -65,16 +75,147 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         return path;
     }
 
+    private string CreateVectorIndex(string name, VectorQuantisation quantisation)
+    {
+        var path = Path.Combine(_fixture.Path, name);
+        Directory.CreateDirectory(path);
+        using var directory = new MMapDirectory(path);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            VectorQuantisation = quantisation,
+            BuildHnswOnFlush = true,
+            HnswSeed = 739391L,
+        });
+        for (int i = 0; i < 2; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "hello vector migration"));
+            doc.Add(new StringField("id", $"vector-{i}"));
+            doc.Add(new VectorField("embedding", new float[] { i + 1, i + 2, i + 3, i + 4 }));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+        return path;
+    }
+
+    private string CreateTermVectorIndex(string name)
+    {
+        var path = Path.Combine(_fixture.Path, name);
+        Directory.CreateDirectory(path);
+        using var directory = new MMapDirectory(path);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig { StoreTermVectors = true });
+        for (int i = 0; i < 3; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", $"term vector document {i}"));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+        return path;
+    }
+
     /// <summary>
-    /// Patches the first byte (version) of all files matching <paramref name="pattern"/>.
+    /// Re-wraps canonical files matching <paramref name="pattern"/> in their valid legacy envelope.
     /// </summary>
     private static void DowngradeVersionByte(string indexPath, string pattern, byte version)
     {
         foreach (var filePath in Directory.GetFiles(indexPath, pattern))
         {
+            if (CodecCatalog.Default.TryMatchFile(Path.GetFileName(filePath), out var descriptor) &&
+                descriptor?.FormatId == "leancorpus.postings.data" &&
+                version == 0 &&
+                PatchCanonicalFormatVersion(filePath, checked(descriptor.CurrentFormatVersion!.Value - 1)))
+            {
+                continue;
+            }
+
+            if (CodecCatalog.Default.TryMatchFile(Path.GetFileName(filePath), out descriptor) &&
+                descriptor is not null &&
+                TryRewriteCanonicalAsLegacyEnvelope(filePath, descriptor, version == 0
+                    ? checked((byte)(descriptor.CurrentFormatVersion ?? 1))
+                    : version))
+            {
+                continue;
+            }
+
             using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Write, FileShare.None);
             stream.WriteByte(version);
         }
+    }
+
+    private static bool PatchCanonicalFormatVersion(string filePath, int formatVersion)
+    {
+        using (var input = new IndexInput(filePath))
+        {
+            if (input.Length < CodecFileWriter.FixedHeaderLength || unchecked((uint)input.ReadInt32()) != CodecFileWriter.Magic)
+                return false;
+        }
+
+        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Write, FileShare.None);
+        stream.Position = sizeof(uint) + sizeof(byte) + sizeof(byte);
+        Span<byte> bytes = stackalloc byte[sizeof(int)];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(bytes, formatVersion);
+        stream.Write(bytes);
+        return true;
+    }
+
+    private static bool TryRewriteCanonicalAsLegacyEnvelope(
+        string filePath,
+        CodecFileDescriptor descriptor,
+        byte legacyVersion)
+    {
+        byte[] body;
+        long canonicalBodyStart;
+        List<(string Term, long Offset)>? postingsTerms = null;
+        string? postingsDictionaryPath = null;
+        using (var input = new IndexInput(filePath))
+        {
+            if (input.Length < sizeof(int) || unchecked((uint)input.ReadInt32()) != CodecFileWriter.Magic)
+                return false;
+
+            input.Seek(0);
+            using var frame = CodecFileReader.Open(input, descriptor);
+            body = frame.ReadBody();
+            canonicalBodyStart = frame.Metadata.BodyStart;
+        }
+
+        if (descriptor.FormatId == "leancorpus.postings.data")
+        {
+            postingsDictionaryPath = Path.ChangeExtension(filePath, ".dic");
+            using var dictionary = Rowles.LeanCorpus.Codecs.TermDictionary.TermDictionaryReader.Open(postingsDictionaryPath);
+            postingsTerms = dictionary.EnumerateAllTerms();
+        }
+
+        using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
+        stream.WriteByte(legacyVersion);
+        WriteLegacyEnvelopeLength(stream, body.Length);
+        stream.Write(body);
+
+        if (postingsTerms is not null && postingsDictionaryPath is not null)
+        {
+            long offsetDelta = LegacyEnvelopeHeaderSize(body.Length) - canonicalBodyStart;
+            var offsets = postingsTerms.ToDictionary(
+                static item => item.Term,
+                item => checked(item.Offset + offsetDelta),
+                StringComparer.Ordinal);
+            Rowles.LeanCorpus.Codecs.TermDictionary.TermDictionaryWriter.Write(
+                postingsDictionaryPath,
+                offsets.Keys.OrderBy(static term => term, StringComparer.Ordinal).ToList(),
+                offsets,
+                durable: true);
+        }
+        return true;
+    }
+
+    private static void WriteLegacyEnvelopeLength(Stream stream, long value)
+    {
+        ulong encoded = checked((ulong)value << 1);
+        while (encoded >= 0x80)
+        {
+            stream.WriteByte((byte)(encoded | 0x80));
+            encoded >>= 7;
+        }
+        stream.WriteByte((byte)encoded);
     }
 
     /// <summary>
@@ -83,12 +224,22 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
     private static byte ReadVersionByte(string indexPath, string pattern)
     {
         var path = Directory.GetFiles(indexPath, pattern).Single();
+        using (var input = new IndexInput(path))
+        {
+            if (input.Length >= sizeof(int) && unchecked((uint)input.ReadInt32()) == CodecFileWriter.Magic)
+            {
+                input.Seek(0);
+                using var frame = CodecFileReader.Open(input, CodecCatalog.Default);
+                return checked((byte)frame.Metadata.FormatVersion);
+            }
+        }
+
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         return (byte)stream.ReadByte();
     }
 
     /// <summary>
-    /// Re-wraps current v2 stored-fields files as v1 CodecKit envelopes.
+    /// Re-wraps current canonical stored-fields files as v1 CodecKit envelopes.
     /// Used to exercise the stored-fields migration path.
     /// </summary>
     private static void DowngradeStoredFieldsToV1(string indexPath)
@@ -96,29 +247,28 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         var fdtPath = Directory.GetFiles(indexPath, "*.fdt").Single();
         var fdxPath = Directory.GetFiles(indexPath, "*.fdx").Single();
 
-        // Re-wrap .fdt: v2 body is everything after the version byte.
-        var fdtBytes = File.ReadAllBytes(fdtPath);
-        var fdtBody = fdtBytes.AsSpan(1);
+        var (fdtBody, canonicalFdtBodyStart) = ReadCanonicalBody(fdtPath);
         int fdtHeaderSize;
         using (var fs = new FileStream(fdtPath, FileMode.Create, FileAccess.Write, FileShare.None))
         {
             fs.WriteByte(1);
-            fdtHeaderSize = 1 + WriteVarInt64(fs, fdtBody.Length);
+            WriteLegacyEnvelopeLength(fs, fdtBody.Length);
+            fdtHeaderSize = LegacyEnvelopeHeaderSize(fdtBody.Length);
             fs.Write(fdtBody);
         }
 
-        // Re-wrap .fdx and shift block offsets by the extra v1 header bytes.
-        var fdxBytes = File.ReadAllBytes(fdxPath);
-        var fdxBody = fdxBytes.AsSpan(1);
+        // Re-wrap .fdx and shift file-absolute block offsets to the v1 body base.
+        var (fdxBodyBytes, _) = ReadCanonicalBody(fdxPath);
+        var fdxBody = fdxBodyBytes.AsSpan();
         int blockSize = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(fdxBody);
         int docCount = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(fdxBody.Slice(4));
         int blockCount = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(fdxBody.Slice(8));
-        long headerDelta = fdtHeaderSize - 1;
+        long headerDelta = fdtHeaderSize - canonicalFdtBodyStart;
 
         using (var fs = new FileStream(fdxPath, FileMode.Create, FileAccess.Write, FileShare.None))
         {
             fs.WriteByte(1);
-            int fdxHeaderSize = 1 + WriteVarInt64(fs, fdxBody.Length);
+            WriteLegacyEnvelopeLength(fs, fdxBody.Length);
             fs.Write(fdxBody.Slice(0, 12));
             for (int i = 0; i < blockCount; i++)
             {
@@ -130,17 +280,54 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         }
     }
 
-    private static int WriteVarInt64(Stream stream, long value)
+    private static (byte[] Body, long BodyStart) ReadCanonicalBody(string path)
     {
-        int bytesWritten = 0;
-        while (value >= 0x80)
+        Assert.True(CodecCatalog.Default.TryMatchFile(Path.GetFileName(path), out var descriptor));
+        Assert.NotNull(descriptor);
+        using var input = new IndexInput(path);
+        using var frame = CodecFileReader.Open(input, descriptor!);
+        return (frame.ReadBody(), frame.Metadata.BodyStart);
+    }
+
+    private static void DowngradeTermVectorsToV2(string indexPath)
+    {
+        var tvdPath = Directory.GetFiles(indexPath, "*.tvd").Single();
+        var tvxPath = Directory.GetFiles(indexPath, "*.tvx").Single();
+        var (tvdBody, canonicalTvdBodyStart) = ReadCanonicalBody(tvdPath);
+        var (tvxBody, _) = ReadCanonicalBody(tvxPath);
+
+        int tvdHeaderSize = LegacyEnvelopeHeaderSize(tvdBody.Length);
+        int docCount = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(tvxBody);
+        long offsetDelta = tvdHeaderSize - canonicalTvdBodyStart;
+        for (int i = 0; i < docCount; i++)
         {
-            stream.WriteByte((byte)(value | 0x80));
-            value >>= 7;
-            bytesWritten++;
+            Span<byte> offsetBytes = tvxBody.AsSpan(sizeof(int) + i * sizeof(long), sizeof(long));
+            long offset = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(offsetBytes);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(offsetBytes, offset + offsetDelta);
         }
-        stream.WriteByte((byte)value);
-        return bytesWritten + 1;
+
+        WriteLegacyEnvelope(tvdPath, version: 2, tvdBody);
+        WriteLegacyEnvelope(tvxPath, version: 2, tvxBody);
+    }
+
+    private static int LegacyEnvelopeHeaderSize(int bodyLength)
+    {
+        ulong encoded = checked((ulong)bodyLength << 1);
+        int lengthBytes = 1;
+        while (encoded >= 0x80)
+        {
+            lengthBytes++;
+            encoded >>= 7;
+        }
+        return sizeof(byte) + lengthBytes;
+    }
+
+    private static void WriteLegacyEnvelope(string path, byte version, byte[] body)
+    {
+        using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        stream.WriteByte(version);
+        WriteLegacyEnvelopeLength(stream, body.Length);
+        stream.Write(body);
     }
 
     /// <summary>
@@ -149,7 +336,10 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
     private static void AssertIndexReadable(string indexPath, string term = "hello")
     {
         using var directory = new MMapDirectory(indexPath);
-        Assert.Equal(IndexCompatibilityStatus.Compatible, IndexCompatibility.Check(directory).Status);
+        var compatibility = IndexCompatibility.Check(directory);
+        Assert.True(
+            compatibility.Status == IndexCompatibilityStatus.Compatible,
+            $"Compatibility was {compatibility.Status}: {string.Join("; ", compatibility.Issues.Select(i => $"{i.Code}: {i.Message}"))}");
         using var searcher = new IndexSearcher(directory);
         var results = searcher.Search(new TermQuery("body", term), 10);
         Assert.True(results.TotalHits > 0);
@@ -261,7 +451,7 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         Assert.True(result.DryRun);
         Assert.NotEmpty(result.ExecutedActions);
         // Files should not have been modified.
-        Assert.Equal(0, ReadVersionByte(path, "*.fln"));
+        Assert.Equal(CodecConstants.FieldLengthVersion, ReadVersionByte(path, "*.fln"));
     }
 
     [Fact(DisplayName = "Migrate: Plan discovers files with no registered migration writer")]
@@ -309,6 +499,64 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         Assert.False(result.DryRun);
         Assert.Empty(result.ExecutedActions);
         AssertIndexReadable(path);
+    }
+
+    [Fact(DisplayName = "Migrate: Registered family coordinator rewrites all family files")]
+    public void Migrate_FamilyCoordinator_RewritesAllFamilyFiles()
+    {
+        var path = CreateCurrentVersionIndex("migrate_family_coordinator");
+        var segmentId = IndexRecovery.RecoverLatestCommit(path, cleanupOrphans: false)!.SegmentIds.Single();
+        const string familyId = "example.coordinated-migration";
+        var first = CreateCoordinatedDescriptor(
+            "example.coordinated-migration.first",
+            familyId,
+            ".coordinated-a");
+        var second = CreateCoordinatedDescriptor(
+            "example.coordinated-migration.second",
+            familyId,
+            ".coordinated-b");
+        var coordinator = new IncrementingFamilyMigrationCoordinator();
+        var catalog = new CodecCatalogBuilder()
+            .AddBuiltIns()
+            .Add(new CodecFamilyDescriptor(
+                familyId,
+                "Coordinated migration",
+                [first, second],
+                migrationCoordinator: coordinator))
+            .Build();
+        WriteLegacyEnvelope(Path.Combine(path, segmentId + ".coordinated-a"), version: 1, [10]);
+        WriteLegacyEnvelope(Path.Combine(path, segmentId + ".coordinated-b"), version: 1, [20]);
+
+        var plan = IndexCodecMigrator.Plan(new MMapDirectory(path), new IndexCodecMigrationOptions { Catalog = catalog });
+        var action = Assert.Single(plan.Actions, candidate => candidate.FamilyId == familyId);
+        Assert.True(action.CanExecute, action.ReasonCannotExecute);
+        Assert.Equal(2, action.SourcePaths.Count);
+
+        var result = IndexCodecMigrator.Migrate(
+            new MMapDirectory(path),
+            new IndexCodecMigrationOptions
+            {
+                Catalog = catalog,
+                DryRun = false,
+                ValidateBeforeMigration = false,
+                ValidateAfterMigration = true,
+            });
+
+        Assert.True(result.Succeeded,
+            string.Join("; ", result.Issues.Select(issue => $"{issue.Code}: {issue.Message}")));
+        Assert.Equal(1, coordinator.InvocationCount);
+        var migratedSegmentId = IndexRecovery.RecoverLatestCommit(path, cleanupOrphans: false)!.SegmentIds.Single();
+        Assert.Equal(11, ReadSingleBodyByte(Path.Combine(path, migratedSegmentId + ".coordinated-a"), first));
+        Assert.Equal(21, ReadSingleBodyByte(Path.Combine(path, migratedSegmentId + ".coordinated-b"), second));
+        var inventory = IndexFormatInspector.Inspect(new MMapDirectory(path), new IndexFormatInspectionOptions
+        {
+            Catalog = catalog,
+            IncludeChecksums = true,
+        });
+        Assert.DoesNotContain(inventory.Issues, issue => issue.Severity == IndexCheckSeverity.Error);
+        Assert.All(
+            Assert.Single(inventory.Segments).Files.Where(file => file.FamilyId == familyId),
+            file => Assert.True(file.IsCurrent));
     }
 
     // ═══════════════════════════════════════════════════
@@ -459,9 +707,14 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
     /// the version byte was restored to <paramref name="expectedVersion"/>.
     /// Skips the test if the file pattern does not exist in the index.
     /// </summary>
-    private void AssertRewriteRestoresVersion(string testName, string pattern, byte expectedVersion, string searchTerm = "hello")
+    private void AssertRewriteRestoresVersion(
+        string testName,
+        string pattern,
+        byte expectedVersion,
+        string searchTerm = "hello",
+        bool includeInt64DocValues = false)
     {
-        var path = CreateCurrentVersionIndex(testName);
+        var path = CreateCurrentVersionIndex(testName, includeInt64DocValues);
         if (!FileExists(path, pattern))
             return; // File type not produced by this index configuration — skip.
 
@@ -479,7 +732,60 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         Assert.True(result.Succeeded,
             $"Rewrite of {pattern} failed. Issues: {string.Join("; ", result.Issues.Select(i => $"{i.Code}: {i.Message}"))}");
         Assert.Equal(expectedVersion, ReadVersionByte(path, pattern));
+        var rewrittenPath = Directory.GetFiles(path, pattern).Single();
+        if (CodecCatalog.Default.TryMatchFile(Path.GetFileName(rewrittenPath), out var descriptor) &&
+            descriptor is not null && descriptor.FamilyId is "leancorpus.doc-values" or "leancorpus.numeric-structures")
+        {
+            using var input = new IndexInput(rewrittenPath);
+            using var frame = CodecFileReader.Open(input, descriptor);
+            Assert.Equal(CodecFileWriter.CurrentFrameVersion, frame.Metadata.FrameVersion);
+            Assert.Equal(descriptor.CurrentFormatVersion, frame.Metadata.FormatVersion);
+            frame.ValidateChecksum();
+        }
         AssertIndexReadable(path, searchTerm);
+    }
+
+    private void AssertVectorRewritePreservesBody(
+        string testName,
+        string pattern,
+        VectorQuantisation quantisation)
+    {
+        var path = CreateVectorIndex(testName, quantisation);
+        var sourcePath = Directory.GetFiles(path, pattern).Single();
+        Assert.True(CodecCatalog.Default.TryMatchFile(Path.GetFileName(sourcePath), out var descriptor));
+        Assert.NotNull(descriptor);
+
+        DowngradeVersionByte(path, pattern, 0);
+        byte[] expectedBody;
+        using (var input = new IndexInput(sourcePath))
+        using (var legacy = CodecFileReader.OpenSupported(input, descriptor!))
+        {
+            Assert.False(legacy.IsCanonical);
+            expectedBody = legacy.ReadBody();
+        }
+
+        var result = IndexCodecMigrator.Migrate(
+            new MMapDirectory(path),
+            new IndexCodecMigrationOptions
+            {
+                DryRun = false,
+                ValidateBeforeMigration = false,
+                ValidateAfterMigration = false,
+            });
+
+        Assert.True(result.Succeeded,
+            $"Rewrite of {pattern} failed. Issues: {string.Join("; ", result.Issues.Select(i => $"{i.Code}: {i.Message}"))}");
+        var rewrittenPath = Directory.GetFiles(path, pattern).Single();
+        using (var input = new IndexInput(rewrittenPath))
+        using (var frame = CodecFileReader.Open(input, descriptor!))
+        {
+            Assert.Equal(CodecFileWriter.CurrentFrameVersion, frame.Metadata.FrameVersion);
+            Assert.Equal(descriptor!.CurrentFormatVersion, frame.Metadata.FormatVersion);
+            Assert.Equal(expectedBody, frame.ReadBody());
+        }
+        using var directory = new MMapDirectory(path);
+        using var searcher = new IndexSearcher(directory);
+        Assert.True(searcher.Search(new TermQuery("body", "hello"), 10).TotalHits > 0);
     }
 
     [Fact(DisplayName = "Migrate: Rewrite field lengths")]
@@ -506,9 +812,49 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
     public void Migrate_Rewrite_BinaryDocValues()
         => AssertRewriteRestoresVersion("migrate_rewrite_dvb", "*.dvb", CodecConstants.BinaryDocValuesVersion);
 
+    [Fact(DisplayName = "Migrate: Rewrite Int64 doc values")]
+    public void Migrate_Rewrite_Int64DocValues()
+        => AssertRewriteRestoresVersion(
+            "migrate_rewrite_dvnl",
+            "*.dvnl",
+            CodecConstants.Int64DocValuesVersion,
+            includeInt64DocValues: true);
+
+    [Fact(DisplayName = "Migrate: Rewrite Int64 sorted numeric doc values")]
+    public void Migrate_Rewrite_Int64SortedNumericDocValues()
+        => AssertRewriteRestoresVersion(
+            "migrate_rewrite_dsnl",
+            "*.dsnl",
+            CodecConstants.Int64SortedNumericDocValuesVersion,
+            includeInt64DocValues: true);
+
+    [Fact(DisplayName = "Migrate: Reframe float vectors without changing body offsets")]
+    public void Migrate_Rewrite_FloatVectors()
+        => AssertVectorRewritePreservesBody("migrate_rewrite_vec", "*.vec", VectorQuantisation.None);
+
+    [Fact(DisplayName = "Migrate: Reframe quantised vectors without changing metadata")]
+    public void Migrate_Rewrite_QuantisedVectors()
+        => AssertVectorRewritePreservesBody("migrate_rewrite_vq", "*.vq", VectorQuantisation.Int8);
+
+    [Fact(DisplayName = "Migrate: Reframe HNSW without changing persisted seed")]
+    public void Migrate_Rewrite_Hnsw()
+        => AssertVectorRewritePreservesBody("migrate_rewrite_hnsw", "*.hnsw", VectorQuantisation.None);
+
     [Fact(DisplayName = "Migrate: Rewrite norms")]
     public void Migrate_Rewrite_Norms()
         => AssertRewriteRestoresVersion("migrate_rewrite_nrm", "*.nrm", CodecConstants.NormsVersion);
+
+    [Fact(DisplayName = "Migrate: Rewrite BKD into the canonical frame")]
+    public void Migrate_Rewrite_Bkd()
+        => AssertRewriteRestoresVersion("migrate_rewrite_bkd", "*.bkd", CodecConstants.BKDVersion);
+
+    [Fact(DisplayName = "Migrate: Rewrite Int64 BKD into the canonical frame")]
+    public void Migrate_Rewrite_Int64Bkd()
+        => AssertRewriteRestoresVersion(
+            "migrate_rewrite_bkdl",
+            "*.bkdl",
+            CodecConstants.Int64BKDVersion,
+            includeInt64DocValues: true);
 
     // ═══════════════════════════════════════════════════
     //  Term dictionary and stored fields
@@ -613,6 +959,36 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         Assert.Equal(CodecConstants.StoredFieldsVersion, ReadVersionByte(path, "*.fdt"));
         Assert.Equal(CodecConstants.StoredFieldsVersion, ReadVersionByte(path, "*.fdx"));
         AssertIndexReadable(path);
+    }
+
+    [Fact(DisplayName = "Migrate: Rewrite term vectors as one coordinated canonical family")]
+    public void Migrate_Rewrite_TermVectors()
+    {
+        var path = CreateTermVectorIndex("migrate_rewrite_term_vectors");
+        DowngradeTermVectorsToV2(path);
+
+        var result = IndexCodecMigrator.Migrate(
+            new MMapDirectory(path),
+            new IndexCodecMigrationOptions
+            {
+                DryRun = false,
+                ValidateBeforeMigration = false,
+                ValidateAfterMigration = false,
+            });
+
+        Assert.True(result.Succeeded,
+            $"Migration failed. Issues: {string.Join("; ", result.Issues.Select(i => $"{i.Code}: {i.Message}"))}");
+        Assert.Equal(CodecConstants.TermVectorsVersion, ReadVersionByte(path, "*.tvd"));
+        Assert.Equal(CodecConstants.TermVectorsVersion, ReadVersionByte(path, "*.tvx"));
+
+        foreach (string file in Directory.GetFiles(path, "*.tv?"))
+        {
+            Assert.True(CodecCatalog.Default.TryMatchFile(Path.GetFileName(file), out var descriptor));
+            using var input = new IndexInput(file);
+            using var frame = CodecFileReader.Open(input, descriptor!);
+            frame.ValidateChecksum();
+        }
+        AssertIndexReadable(path, "term");
     }
 
     [Fact(DisplayName = "Migrate: Rewrite stored fields preserves source compression policy")]
@@ -852,6 +1228,78 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
             issue => issue.Severity == IndexCheckSeverity.Error);
     }
 
+    [Fact(DisplayName = "Migrate: Compound segment is repacked and remains compound")]
+    public void Migrate_CompoundSegment_RepackedAndRemainsCompound()
+    {
+        var path = CreateCurrentVersionIndex("migrate_compound_repack");
+        DowngradeVersionByte(path, "*.fln", 0);
+
+        var segmentPath = Directory.GetFiles(path, "*.seg").Single();
+        var sourceInfo = SegmentInfo.ReadFrom(segmentPath);
+        Assert.True(CompoundFileWriter.Pack(path, sourceInfo.SegmentId));
+        sourceInfo.IsCompoundFile = true;
+        sourceInfo.WriteTo(segmentPath);
+
+        var result = IndexCodecMigrator.Migrate(
+            new MMapDirectory(path),
+            new IndexCodecMigrationOptions
+            {
+                DryRun = false,
+                ValidateBeforeMigration = false,
+                ValidateAfterMigration = true,
+            });
+
+        Assert.True(result.Succeeded,
+            $"Migration failed: {string.Join("; ", result.Issues.Select(i => $"{i.Code}: {i.Message}"))}");
+        var targetSegmentId = IndexRecovery.RecoverLatestCommit(path, cleanupOrphans: false)!.SegmentIds.Single();
+        var targetInfo = SegmentInfo.ReadFrom(Path.Combine(path, targetSegmentId + ".seg"));
+        Assert.True(targetInfo.IsCompoundFile);
+        Assert.True(File.Exists(Path.Combine(path, targetSegmentId + ".cfs")));
+        Assert.False(File.Exists(Path.Combine(path, targetSegmentId + ".dic")));
+        Assert.NotNull(result.ValidationResult);
+        Assert.True(result.ValidationResult.IsHealthy,
+            string.Join("; ", result.ValidationResult.DetailedIssues.Select(i => $"{i.Code}: {i.Message}")));
+        AssertIndexReadable(path);
+    }
+
+    [Fact(DisplayName = "Migrate: A subsequent merge cannot downgrade current formats")]
+    public void Migrate_ThenMerge_RemainsCurrent()
+    {
+        var path = CreateIndexWithMultipleDocuments("migrate_then_merge_current");
+        DowngradeVersionByte(path, "*.fln", 0);
+
+        var migration = IndexCodecMigrator.Migrate(
+            new MMapDirectory(path),
+            new IndexCodecMigrationOptions
+            {
+                DryRun = false,
+                ValidateBeforeMigration = false,
+                ValidateAfterMigration = true,
+            });
+        Assert.True(migration.Succeeded,
+            $"Migration failed: {string.Join("; ", migration.Issues.Select(i => $"{i.Code}: {i.Message}"))}");
+
+        using (var directory = new MMapDirectory(path))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig()))
+        {
+            var document = new LeanDocument();
+            document.Add(new TextField("body", "document added after migration"));
+            document.Add(new NumericField("count", 100));
+            document.Add(new StringField("id", "doc-after-migration"));
+            writer.AddDocument(document);
+            writer.Commit();
+            writer.ForceMerge(1);
+            writer.Commit();
+        }
+
+        var plan = IndexCodecMigrator.Plan(new MMapDirectory(path));
+        Assert.All(plan.Actions, action => Assert.Equal(IndexCodecMigrationActionKind.NoOp, action.Kind));
+        var validation = IndexValidator.Check(new MMapDirectory(path), new IndexCheckOptions { Deep = true });
+        Assert.True(validation.IsHealthy,
+            string.Join("; ", validation.DetailedIssues.Select(i => $"{i.Code}: {i.Message}")));
+        AssertIndexReadable(path, "document");
+    }
+
     [Fact(DisplayName = "Migrate: Failed migration leaves source commit generation unchanged")]
     public void Migrate_FailedMigration_LeavesSourceCommitUnchanged()
     {
@@ -969,5 +1417,61 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         // Hard to trigger genuinely; this test documents the pattern exists.
         var ex = new OutOfMemoryException();
         Assert.True(ex is OutOfMemoryException);
+    }
+
+    private static CodecFileDescriptor CreateCoordinatedDescriptor(
+        string formatId,
+        string familyId,
+        string extension)
+        => new(
+            formatId,
+            familyId,
+            formatId,
+            CodecFileMatcher.Extension(extension),
+            currentFormatVersion: 2,
+            supportedVersions:
+            [
+                new CodecVersionDescriptor(
+                    1,
+                    "legacy",
+                    legacyFraming: CodecLegacyFraming.CodecKitEnvelope,
+                    migrationBehaviour: CodecMigrationBehaviour.CoordinatedRewrite),
+                new CodecVersionDescriptor(
+                    2,
+                    "current",
+                    isWritable: true,
+                    migrationBehaviour: CodecMigrationBehaviour.CoordinatedRewrite),
+            ],
+            accessKind: CodecAccessKind.Streaming,
+            currentFraming: CodecFramingPolicy.Canonical,
+            checksumPolicy: CodecChecksumPolicy.XxHash64,
+            migrationBehaviour: CodecMigrationBehaviour.CoordinatedRewrite,
+            temporaryFileMatchers: [CodecFileMatcher.ExtensionWithTrailingSuffix(extension, ".codec.tmp")]);
+
+    private static byte ReadSingleBodyByte(string path, CodecFileDescriptor descriptor)
+    {
+        using var input = new IndexInput(path);
+        using var frame = CodecFileReader.Open(input, descriptor);
+        using var body = frame.OpenBodyInput();
+        Assert.Equal(1, body.Length);
+        return body.ReadByte();
+    }
+
+    private sealed class IncrementingFamilyMigrationCoordinator : ICodecFamilyMigrationCoordinator
+    {
+        public int InvocationCount { get; private set; }
+
+        public void Migrate(
+            IReadOnlyDictionary<string, IndexInput> sourceBodies,
+            IReadOnlyDictionary<string, IndexOutput> targetBodies)
+        {
+            InvocationCount++;
+            Assert.Equal(sourceBodies.Keys.Order(StringComparer.Ordinal), targetBodies.Keys.Order(StringComparer.Ordinal));
+            foreach (var (formatId, source) in sourceBodies)
+            {
+                Assert.Equal(1, source.Length);
+                targetBodies[formatId].WriteByte(checked((byte)(source.ReadByte() + 1)));
+            }
+        }
     }
 }

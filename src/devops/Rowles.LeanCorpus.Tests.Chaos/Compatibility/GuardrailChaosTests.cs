@@ -2,7 +2,6 @@ using FsCheck;
 using FsCheck.Xunit;
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Index.Compatibility;
-using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Tests.Chaos.Infrastructure;
 
@@ -30,14 +29,13 @@ public sealed class GuardrailChaosTests : IClassFixture<ChaosDirectoryFixture>
         Assert.False(result.CanWrite);
         Assert.False(result.CanValidate);
         Assert.True(result.MustReject);
-        using var searcher = new IndexSearcher(directory);
-        Assert.Throws<InvalidDataException>(() => searcher.Search(new TermQuery("body", "hello"), 10));
+        Assert.Throws<InvalidDataException>(() => new IndexSearcher(directory));
     }
 
     private static void WriteCodecVersion(string path, int version)
     {
         using var stream = File.Open(path, FileMode.Open, FileAccess.Write, FileShare.None);
-        stream.Position = 0;
-        stream.WriteByte((byte)version);
+        stream.Position = 6;
+        stream.Write(BitConverter.GetBytes(version));
     }
 }

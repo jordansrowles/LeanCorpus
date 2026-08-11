@@ -220,7 +220,7 @@ public sealed partial class IndexSearcher : IDisposable
 
         var (segmentIds, generation) = LoadLatestCommitWithGeneration();
         _commitGeneration = generation;
-        IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false);
+        IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false, config.CodecCatalog);
 
         // Load segment readers with a retry loop to handle the narrow window where a
         // background merge has deleted segment files but the commit file still references
@@ -254,7 +254,7 @@ public sealed partial class IndexSearcher : IDisposable
                 Thread.Sleep(10 * attempt);
                 (segmentIds, generation) = LoadLatestCommitWithGeneration();
                 _commitGeneration = generation;
-                IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false);
+                IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false, config.CodecCatalog);
             }
             finally
             {
@@ -323,7 +323,8 @@ public sealed partial class IndexSearcher : IDisposable
             directory,
             segments.Select(static segment => segment.SegmentId),
             config.CompatibilityMode,
-            forWriting: false);
+            forWriting: false,
+            config.CodecCatalog);
         try
         {
             var segmentIds = segments.Select(static segment => segment.SegmentId).ToList();

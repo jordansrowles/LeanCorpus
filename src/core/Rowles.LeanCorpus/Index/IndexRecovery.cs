@@ -1,10 +1,8 @@
 using System.Text.Json;
-using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Serialization;
 using Rowles.LeanCorpus.Store;
 
@@ -85,19 +83,16 @@ public static class IndexRecovery
     }
 
     /// <summary>
-    /// Required per-segment file extensions checked during recovery. A commit referencing a
-    /// segment whose required files are missing or empty falls back to the prior generation.
+    /// Required logical codec files checked during recovery. Their descriptors are the authority
+    /// for both current frames and supported historical frames.
     /// </summary>
-    private static readonly string[] RequiredSegmentExtensions = [".seg", ".dic", ".pos", ".nrm", ".fdt", ".fdx"];
-
-    /// <summary>
-    /// Per-extension codec format for dual-format header validation.
-    /// Files that exist but fail header validation cause the commit to be rejected.
-    /// </summary>
-    private static readonly (string Ext, ICodec<byte[]> Format)[] HeaderChecks =
+    private static readonly RequiredSegmentFile[] RequiredSegmentFiles =
     [
-        (".dic", CodecFormats.TermDictionary),
-        (".nrm", CodecFormats.Norms),
+        new(".dic", "leancorpus.term-dictionary.data"),
+        new(".pos", "leancorpus.postings.data"),
+        new(".nrm", "leancorpus.norms.data"),
+        new(".fdt", "leancorpus.stored-fields.data"),
+        new(".fdx", "leancorpus.stored-fields.index"),
     ];
 
     /// <summary>
@@ -160,68 +155,29 @@ public static class IndexRecovery
             {
                 using var compoundDirectory = new MMapDirectory(directoryPath);
                 using var compound = CompoundFileReader.Open(compoundDirectory, segId + ".cfs");
-                foreach (var ext in new[] { ".dic", ".pos", ".nrm", ".fdt", ".fdx" })
+                foreach (var required in RequiredSegmentFiles)
                 {
-                    if (!compound.HasFile(segId + ext))
+                    string memberName = segId + required.Extension;
+                    if (!compound.HasFile(memberName))
                         return false;
+                    ValidateCodecFile(compound.OpenInput(compoundDirectory, memberName), required.Descriptor);
                 }
-                ValidateCompoundHeaders(compoundDirectory, compound, segId);
+                ValidateVectorFiles(segInfo, fileName => compound.HasFile(fileName),
+                    fileName => compound.OpenInput(compoundDirectory, fileName));
                 return true;
             }
 
-            foreach (var ext in RequiredSegmentExtensions)
+            foreach (var required in RequiredSegmentFiles)
             {
-                var path = basePath + ext;
+                var path = basePath + required.Extension;
                 if (!FileOpenRetry.FileExists(path) || FileOpenRetry.GetFileLength(path) == 0)
                     return false;
+                ValidateCodecFile(new IndexInput(path), required.Descriptor);
             }
 
-            foreach (var (ext, format) in HeaderChecks)
-            {
-                var path = basePath + ext;
-                if (!FileOpenRetry.FileExists(path)) return false;
-            using var fs = FileOpenRetry.OpenReadDelete(path);
-                using var reader = new BinaryReader(fs);
-                CodecFileHeader.ReadVersion(reader, format);
-            }
-
-            // .pos uses PostingsFileHeader, not the CodecKit envelope
-            {
-                var posPath = basePath + ".pos";
-                if (!FileOpenRetry.FileExists(posPath)) return false;
-                using var posFs = FileOpenRetry.OpenReadDelete(posPath);
-                using var posReader = new BinaryReader(posFs);
-                PostingsFileHeader.ReadVersion(posReader);
-            }
-
-            // .fdt/.fdx use StoredFieldsFileHeader, not the CodecKit envelope
-            {
-                var fdtPath = basePath + ".fdt";
-                if (!FileOpenRetry.FileExists(fdtPath)) return false;
-                using var fdtFs = FileOpenRetry.OpenReadDelete(fdtPath);
-                using var fdtReader = new BinaryReader(fdtFs);
-                StoredFieldsFileHeader.ReadVersion(fdtReader);
-            }
-            {
-                var fdxPath = basePath + ".fdx";
-                if (!FileOpenRetry.FileExists(fdxPath)) return false;
-                using var fdxFs = FileOpenRetry.OpenReadDelete(fdxPath);
-                using var fdxReader = new BinaryReader(fdxFs);
-                StoredFieldsFileHeader.ReadVersion(fdxReader);
-            }
-
-            foreach (var vf in segInfo.VectorFields)
-            {
-                var vecPath = vf.Quantisation != Codecs.Vectors.VectorQuantisation.None
-                    ? Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, vf.FieldName)
-                    : Codecs.Vectors.VectorFilePaths.VectorFile(basePath, vf.FieldName);
-                if (!FileOpenRetry.FileExists(vecPath)) return false;
-                if (vf.HasHnsw)
-                {
-                    var hnswPath = Codecs.Vectors.VectorFilePaths.HnswFile(basePath, vf.FieldName);
-                    if (!FileOpenRetry.FileExists(hnswPath)) return false;
-                }
-            }
+            ValidateVectorFiles(segInfo,
+                fileName => FileOpenRetry.FileExists(Path.Combine(directoryPath, fileName)),
+                fileName => new IndexInput(Path.Combine(directoryPath, fileName)));
 
             return true;
         }
@@ -232,35 +188,85 @@ public static class IndexRecovery
         }
     }
 
-    private static void ValidateCompoundHeaders(MMapDirectory directory, CompoundFileReader compound, string segmentId)
+    private static void ValidateVectorFiles(
+        Segment.SegmentInfo segment,
+        Func<string, bool> exists,
+        Func<string, IndexInput> open)
     {
-        ReadCodecHeader(directory, compound, segmentId + ".dic", CodecFormats.TermDictionary, CodecConstants.TermDictionaryVersion);
-        ReadCodecHeader(directory, compound, segmentId + ".nrm", CodecFormats.Norms, CodecConstants.NormsVersion);
-        ReadHeader(directory, compound, segmentId + ".pos", PostingsFileHeader.ReadVersion, CodecConstants.PostingsVersion);
-        ReadHeader(directory, compound, segmentId + ".fdt", StoredFieldsFileHeader.ReadVersion, CodecConstants.StoredFieldsVersion);
-        ReadHeader(directory, compound, segmentId + ".fdx", StoredFieldsFileHeader.ReadVersion, CodecConstants.StoredFieldsVersion);
+        foreach (var vector in segment.VectorFields)
+        {
+            bool quantised = vector.Quantisation != VectorQuantisation.None;
+            string vectorFile = quantised
+                ? Path.GetFileName(VectorFilePaths.QuantisedVectorFile(segment.SegmentId, vector.FieldName))
+                : Path.GetFileName(VectorFilePaths.VectorFile(segment.SegmentId, vector.FieldName));
+            var vectorDescriptor = quantised ? VectorCodecFiles.Quantised : VectorCodecFiles.Float32;
+            if (!exists(vectorFile))
+                throw new InvalidDataException($"Segment '{segment.SegmentId}' is missing vector file '{vectorFile}'.");
+            ValidateCodecFile(open(vectorFile), vectorDescriptor);
+
+            if (!vector.HasHnsw)
+                continue;
+
+            string hnswFile = Path.GetFileName(VectorFilePaths.HnswFile(segment.SegmentId, vector.FieldName));
+            if (!exists(hnswFile))
+                throw new InvalidDataException($"Segment '{segment.SegmentId}' is missing HNSW file '{hnswFile}'.");
+            ValidateCodecFile(open(hnswFile), VectorCodecFiles.Hnsw);
+        }
     }
 
-    private static void ReadCodecHeader(
-        MMapDirectory directory,
-        CompoundFileReader compound,
-        string memberName,
-        ICodec<byte[]> format,
-        byte currentVersion)
-        => ReadHeader(directory, compound, memberName, reader => CodecFileHeader.ReadVersion(reader, format), currentVersion);
-
-    private static void ReadHeader(
-        MMapDirectory directory,
-        CompoundFileReader compound,
-        string memberName,
-        Func<BinaryReader, byte> readVersion,
-        byte currentVersion)
+    private static void ValidateCodecFile(IndexInput input, CodecFileDescriptor descriptor)
     {
-        using var stream = new IndexInputStream(compound.OpenInput(directory, memberName));
-        using var reader = new BinaryReader(stream);
-        byte version = readVersion(reader);
-        if (version > currentVersion)
-            throw new InvalidDataException($"Compound member '{memberName}' uses unsupported version {version}.");
+        using var inputLifetime = input;
+        if (HasCanonicalFrameMagic(input))
+        {
+            using var canonical = CodecFileReader.Open(input, descriptor);
+            canonical.ValidateChecksum();
+            return;
+        }
+
+        switch (descriptor.FormatId)
+        {
+            case "leancorpus.postings.data":
+                ValidateLegacyVersion(PostingsFileHeader.ReadVersion(input), descriptor);
+                return;
+            case "leancorpus.stored-fields.data":
+                using (var data = StoredFieldsCodecFiles.OpenData(input))
+                    ValidateLegacyVersion(data.Version, descriptor);
+                return;
+            case "leancorpus.stored-fields.index":
+                using (var index = StoredFieldsCodecFiles.OpenIndex(input))
+                    ValidateLegacyVersion(index.Version, descriptor);
+                return;
+            default:
+                using (var legacy = LegacyCodecFileReader.Open(input, descriptor))
+                    ValidateLegacyVersion(legacy.Metadata.FormatVersion, descriptor);
+                return;
+        }
+    }
+
+    private static bool HasCanonicalFrameMagic(IndexInput input)
+    {
+        if (input.Length - input.Position < sizeof(int))
+            return false;
+
+        long start = input.Position;
+        uint magic = unchecked((uint)input.ReadInt32());
+        input.Seek(start);
+        return magic == CodecFileWriter.Magic;
+    }
+
+    private static void ValidateLegacyVersion(int version, CodecFileDescriptor descriptor)
+    {
+        if (!descriptor.SupportedVersions.Any(candidate => candidate.Version == version && candidate.IsReadable))
+        {
+            throw new InvalidDataException(
+                $"Codec format '{descriptor.FormatId}' uses unreadable legacy version {version}.");
+        }
+    }
+
+    private sealed record RequiredSegmentFile(string Extension, string FormatId)
+    {
+        internal CodecFileDescriptor Descriptor => CodecCatalog.Default.GetFile(FormatId);
     }
 
     /// <summary>
@@ -310,7 +316,7 @@ public static class IndexRecovery
     }
 
     private static bool IsRecognisedTemporaryFile(string fileName)
-        => Codecs.CodecKit.Formats.CodecFormats.IsRecognisedTemporaryFile(fileName);
+        => CodecCatalog.Default.TryMatchTemporaryFile(fileName, out _);
 
     /// <summary>
     /// Removes segment files that are not referenced by the active commit. Uses a

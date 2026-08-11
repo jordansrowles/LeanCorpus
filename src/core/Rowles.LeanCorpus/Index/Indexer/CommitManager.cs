@@ -253,7 +253,12 @@ internal static class CommitManager
         IndexOpenGuard.EnsureNoBlockingMigration(directory, config.CompatibilityMode);
         var recovery = IndexRecovery.RecoverLatestCommit(directory.DirectoryPath);
         if (recovery is null) return;
-        IndexOpenGuard.EnsureCanOpenSegments(directory, recovery.SegmentIds, config.CompatibilityMode, forWriting: true);
+        IndexOpenGuard.EnsureCanOpenSegments(
+            directory,
+            recovery.SegmentIds,
+            config.CompatibilityMode,
+            forWriting: true,
+            config.CodecCatalog);
 
         writer.CommitGeneration = recovery.Generation;
         writer.ContentToken = recovery.ContentToken;

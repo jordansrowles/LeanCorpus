@@ -1,4 +1,5 @@
 ﻿using Rowles.LeanCorpus.Index;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 
 namespace Rowles.LeanCorpus.Search.Searcher;
 
@@ -7,6 +8,9 @@ namespace Rowles.LeanCorpus.Search.Searcher;
 /// </summary>
 public sealed class IndexSearcherConfig
 {
+    /// <summary>Gets or sets the immutable codec catalogue used for compatibility inspection.</summary>
+    public CodecCatalog CodecCatalog { get; set; } = CodecCatalog.Default;
+
     /// <summary>Scoring model. Default: BM25.</summary>
     public ISimilarity Similarity { get; set; } = Bm25Similarity.Instance;
 

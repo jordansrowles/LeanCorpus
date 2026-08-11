@@ -1,3 +1,5 @@
+using Rowles.LeanCorpus.Codecs.CodecKit;
+
 namespace Rowles.LeanCorpus.Index.Migration;
 
 /// <summary>
@@ -5,6 +7,9 @@ namespace Rowles.LeanCorpus.Index.Migration;
 /// </summary>
 public sealed class IndexCodecMigrationOptions
 {
+    /// <summary>Gets or sets the immutable codec catalogue used to inspect and validate migration input.</summary>
+    public CodecCatalog Catalog { get; set; } = CodecCatalog.Default;
+
     /// <summary>Gets or sets whether migration should only report actions. Defaults to <c>true</c>.</summary>
     public bool DryRun { get; set; } = true;
 
