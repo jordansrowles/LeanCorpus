@@ -3,6 +3,7 @@ Set-StrictMode -Version Latest
 
 function ConvertFrom-DevOpsArguments {
     param([string[]]$Arguments = @())
+    if ($null -eq $Arguments) { $Arguments = @() }
 
     $state = @{
         Parsed = @{}

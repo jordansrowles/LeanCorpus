@@ -29,15 +29,15 @@ function Invoke-DevOps {
     param([string]$Command, [string[]]$Arguments)
 
     switch ($Command) {
-        'build'      { Invoke-DevOpsBuild $Arguments }
-        'test'       { Invoke-DevOpsTest $Arguments }
-        'aot'        { Invoke-DevOpsAot $Arguments }
-        'coverage'   { Invoke-DevOpsCoverage $Arguments }
-        'benchmark'  { Invoke-DevOpsBenchmark $Arguments }
-        'data'       { Invoke-DevOpsData $Arguments }
-        'docs'       { Invoke-DevOpsDocs $Arguments }
-        'benchmarks' { Invoke-DevOpsBenchmarks $Arguments }
-        'setup'      { Invoke-DevOpsSetup $Arguments }
+        'build'      { Invoke-DevOpsBuild -Arguments $Arguments }
+        'test'       { Invoke-DevOpsTest -Arguments $Arguments }
+        'aot'        { Invoke-DevOpsAot -Arguments $Arguments }
+        'coverage'   { Invoke-DevOpsCoverage -Arguments $Arguments }
+        'benchmark'  { Invoke-DevOpsBenchmark -Arguments $Arguments }
+        'data'       { Invoke-DevOpsData -Arguments $Arguments }
+        'docs'       { Invoke-DevOpsDocs -Arguments $Arguments }
+        'benchmarks' { Invoke-DevOpsBenchmarks -Arguments $Arguments }
+        'setup'      { Invoke-DevOpsSetup -Arguments $Arguments }
         ''           { Invoke-DevOpsHelp }
         '--help'     { Invoke-DevOpsHelp }
         '-Help'      { Invoke-DevOpsHelp }
