@@ -98,6 +98,39 @@ public sealed class ScratchBufferTests
         Assert.Equal(-1, context.RemainingInScope);
     }
 
+    [Fact(DisplayName = "EnterScope rejects a negative scope length")]
+    public void EnterScope_NegativeLength_Throws()
+    {
+        var context = new CodecContext(new CodecOptions(), CodecRegistry.Default);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => context.EnterScope(-1));
+        Assert.False(context.InScope);
+    }
+
+    [Fact(DisplayName = "ConsumeScope rejects a negative byte count")]
+    public void ConsumeScope_NegativeBytes_Throws()
+    {
+        var context = new CodecContext(new CodecOptions(), CodecRegistry.Default);
+
+        using (context.EnterScope(10))
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() => context.ConsumeScope(-1));
+            Assert.Equal(10, context.RemainingInScope);
+        }
+    }
+
+    [Fact(DisplayName = "ConsumeScope rejects consumption beyond the current scope")]
+    public void ConsumeScope_BeyondRemaining_Throws()
+    {
+        var context = new CodecContext(new CodecOptions(), CodecRegistry.Default);
+
+        using (context.EnterScope(10))
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() => context.ConsumeScope(11));
+            Assert.Equal(10, context.RemainingInScope);
+        }
+    }
+
     [Fact(DisplayName = "PushDepth increments and decrements depth")]
     public void PushDepth_IncrementsAndDecrements()
     {

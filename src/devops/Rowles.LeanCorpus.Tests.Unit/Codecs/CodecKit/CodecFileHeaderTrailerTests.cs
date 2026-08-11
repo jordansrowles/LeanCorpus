@@ -66,6 +66,26 @@ public sealed class CodecFileHeaderTrailerTests : IDisposable
         Assert.Equal(original, result.Body);
     }
 
+    [Fact(DisplayName = "Read(IndexInput) round-trips a trailer-framed file")]
+    public void CodecFileHeader_Read_IndexInput_TrailerRoundTrips()
+    {
+        byte version = CodecConstants.PostingsVersion;
+        byte[] original = [0xDE, 0xAD, 0xBE, 0xEF];
+        var path = TempFile("read_index_input_trailer.dat");
+
+        using (var output = new IndexOutput(path, durable: false))
+        using (var scope = CodecFileHeader.BeginStreamingWrite(output, version))
+        {
+            scope.Output.WriteBytes(original);
+        }
+
+        using var input = new IndexInput(path);
+        var result = CodecFileHeader.Read(input, CodecFormats.Postings);
+
+        Assert.Equal(version, result.Version);
+        Assert.Equal(original, result.Body);
+    }
+
     // ═══════════════════════════════════════════════════
     //  Envelope fallback tests
     // ═══════════════════════════════════════════════════

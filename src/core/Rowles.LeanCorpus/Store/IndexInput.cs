@@ -24,6 +24,7 @@ public sealed unsafe class IndexInput : IDisposable
     internal void SetOnDisposed(Action<IndexInput> callback) => _onDisposed = callback;
 
     private readonly string? _filePath;
+    private readonly long _fileOffset;
     private Action<IndexInput>? _onDisposed;
     private readonly MemoryMappedFile? _mmf;
     private readonly MemoryMappedViewAccessor? _accessor;
@@ -56,6 +57,7 @@ public sealed unsafe class IndexInput : IDisposable
             throw new ArgumentOutOfRangeException(nameof(offset));
 
         _filePath = filePath;
+        _fileOffset = offset;
         long fileLength = new FileInfo(filePath).Length;
         if (offset > fileLength)
             throw new ArgumentOutOfRangeException(nameof(offset), "The input offset is outside the file.");
@@ -91,6 +93,15 @@ public sealed unsafe class IndexInput : IDisposable
 
     /// <summary>Total input length in bytes.</summary>
     public long Length => _length;
+
+    /// <summary>Opens a separately owned input bounded to a range within this input.</summary>
+    internal IndexInput OpenSlice(long offset, long length)
+    {
+        ThrowIfDisposed();
+        if (offset < 0 || length < 0 || offset > _length || length > _length - offset)
+            throw new ArgumentOutOfRangeException(nameof(offset), "The input slice is outside the current input range.");
+        return new IndexInput(_filePath!, checked(_fileOffset + offset), length);
+    }
 
     /// <summary>Base pointer for the memory-mapped region. Used for zero-copy reads.</summary>
     internal byte* BasePointer

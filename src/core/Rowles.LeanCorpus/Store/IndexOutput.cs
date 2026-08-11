@@ -8,7 +8,7 @@ namespace Rowles.LeanCorpus.Store;
 /// Buffered sequential writer backed by <see cref="FileStream"/> and
 /// <see cref="ArrayPool{T}"/>. Used at index-build time only.
 /// </summary>
-public sealed class IndexOutput : IDisposable
+public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
 {
     private const int BufferSize = 65536;
 
