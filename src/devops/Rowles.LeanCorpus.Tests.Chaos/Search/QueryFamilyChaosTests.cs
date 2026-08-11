@@ -29,7 +29,8 @@ public sealed class QueryFamilyChaosTests : IClassFixture<ChaosDirectoryFixture>
             using var directory = BuildNumericIndex(path);
             var bkdFile = Directory.GetFiles(path, "*.bkd").Single();
             var bkdLen = (int)new FileInfo(bkdFile).Length;
-            FlipByte(bkdFile, Math.Min(16, bkdLen - 1));
+            Assert.True(bkdLen > 16);
+            FlipByte(bkdFile, bkdLen - 17);
 
             using var searcher = new IndexSearcher(directory);
             var results = searcher.Search(new PointInSetQuery("price", 10.0, 30.0), 10);

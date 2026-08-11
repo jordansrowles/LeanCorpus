@@ -21,6 +21,7 @@ internal static class BkdCodecFiles
             if (unchecked((uint)magic) == CodecFileWriter.Magic)
             {
                 var current = CodecFileReader.Open(input, descriptor);
+                current.ValidateChecksum();
                 input.Seek(current.Metadata.BodyStart);
                 return new BkdReadFrame(current.Metadata.BodyStart, current.BodyEnd, current);
             }

@@ -186,6 +186,11 @@ public static class IndexRecovery
                     continue;
                 }
 
+                // BKD files are query accelerators backed by authoritative numeric indexes.
+                // Their readers validate them and fall back to those indexes when corrupt.
+                if (IsRecoverableQueryAccelerator(descriptor))
+                    continue;
+
                 ValidateCodecFile(source.OpenInput(fileName), descriptor, segInfo.DocCount);
             }
 
@@ -197,6 +202,10 @@ public static class IndexRecovery
             return false;
         }
     }
+
+    private static bool IsRecoverableQueryAccelerator(CodecFileDescriptor descriptor)
+        => descriptor.FormatId is "leancorpus.numeric-structures.bkd"
+            or "leancorpus.numeric-structures.int64-bkd";
 
     private static void EnsureVectorFilesExist(Segment.SegmentInfo segment, Segment.ISegmentFileSource source)
     {
