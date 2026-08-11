@@ -94,10 +94,19 @@ internal static class CodecFormats
         var format = CodecMigrationRegistry.Default.Get(ext);
         if (format != null)
         {
-            // Add newest first so the VersionEnvelope encodes the current version.
+            // The catalogue-backed current version remains authoritative while this
+            // compatibility envelope is retained for legacy reads.
+            var currentStep = format.Steps.FirstOrDefault(step => step.Version == currentVersion);
+            cases.Add(Codec.VersionCase<byte[], byte[]>(
+                currentVersion,
+                currentStep?.Label ?? $"{ext}-v{currentVersion}",
+                currentStep?.Reader ?? Codec.BytesOwnedRemaining()));
+
             for (int i = format.Steps.Count - 1; i >= 0; i--)
             {
                 var step = format.Steps[i];
+                if (step.Version == currentVersion)
+                    continue;
                 cases.Add(Codec.VersionCase<byte[], byte[]>(
                     (byte)step.Version, step.Label, step.Reader));
             }
@@ -117,84 +126,4 @@ internal static class CodecFormats
             cases: cases.ToArray());
     }
 
-    // ─── Temporary-file cleanup ───────────────────────────────────────────
-
-    /// <summary>
-    /// On-disk file extensions (without leading dot) that codec writers use.
-    /// Temp files matching <c>*.ext.tmp</c> or <c>*.ext.body.tmp</c> are
-    /// recognised as safe to clean up. When adding a new codec that writes
-    /// via <see cref="Store.IndexOutput"/> or <see cref="Store.IndexAtomicFileWriter"/>,
-    /// add its extension here.
-    /// </summary>
-    private static readonly HashSet<string> CodecExtensions = new(StringComparer.Ordinal)
-    {
-        // Segment & commit
-        "seg",
-        // Term dictionary & postings
-        "dic", "pos", "tim",
-        // Norms & field lengths
-        "nrm", "fln",
-        // Stored fields
-        "fdt", "fdx",
-        // Doc values (on-disk conventions)
-        "dvn", "dvs", "dss", "dsn", "dvb",
-        // 64-bit integer doc values
-        "dvnl", "dsnl",
-        // Term vectors
-        "tvd", "tvx",
-        // Vectors & HNSW
-        "vec", "vq", "hnsw",
-        // BKD tree & roaring bitmaps
-        "bkd", "rbm",
-        // Long BKD tree
-        "bkdl",
-        // Numeric index
-        "num", "numl",
-        // Parent bitset
-        "pbs",
-        // Deletions (also matched by _gen_ prefix below)
-        "del",
-    };
-
-    /// <summary>
-    /// Returns <c>true</c> when <paramref name="fileName"/> matches a known
-    /// temporary-file pattern produced by codec atomic writes, commit staging,
-    /// or migration. Safe to delete.
-    /// </summary>
-    internal static bool IsRecognisedTemporaryFile(string fileName)
-    {
-        // Exact match
-        if (fileName == "migration_state.json.tmp")
-            return true;
-
-        // Commit staging: segments_N.tmp
-        if (fileName.StartsWith("segments_", StringComparison.Ordinal) &&
-            fileName.EndsWith(".tmp", StringComparison.Ordinal))
-            return true;
-
-        // Stats snapshot: stats_N.json.tmp (commit-level)
-        if (fileName.StartsWith("stats_", StringComparison.Ordinal) &&
-            fileName.EndsWith(".json.tmp", StringComparison.Ordinal))
-            return true;
-
-        // Segment-level stats: seg_X.stats.json.tmp
-        if (fileName.EndsWith(".stats.json.tmp", StringComparison.Ordinal))
-            return true;
-
-        // Per-generation deletion bitmaps
-        if (fileName.Contains("_gen_", StringComparison.Ordinal) &&
-            fileName.EndsWith(".del.tmp", StringComparison.Ordinal))
-            return true;
-
-        // Codec data files: *.ext.tmp or *.ext.body.tmp
-        foreach (var ext in CodecExtensions)
-        {
-            var suffix = "." + ext;
-            if (fileName.EndsWith(suffix + ".tmp", StringComparison.Ordinal) ||
-                fileName.EndsWith(suffix + ".body.tmp", StringComparison.Ordinal))
-                return true;
-        }
-
-        return false;
-    }
 }

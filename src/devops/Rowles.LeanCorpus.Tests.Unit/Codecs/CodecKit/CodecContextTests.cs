@@ -9,6 +9,26 @@ namespace Rowles.LeanCorpus.Tests.Unit.Codecs.CodecKit;
 [Trait("Category", "CodecKit")]
 public sealed class CodecContextTests
 {
+    [Fact(DisplayName = "PopPath invalidates the cached current path")]
+    public void CodecContext_PopPath_InvalidatesCurrentPathCache()
+    {
+        var context = new CodecContext(CodecOptions.Default, CodecRegistry.Default);
+
+        using (context.PushPath("{outer}"))
+        {
+            Assert.Equal("{outer}", context.CurrentPath);
+
+            using (context.PushPath("{inner}"))
+            {
+                Assert.Equal("{outer} {inner}", context.CurrentPath);
+            }
+
+            Assert.Equal("{outer}", context.CurrentPath);
+        }
+
+        Assert.Empty(context.CurrentPath);
+    }
+
     [Fact(DisplayName = "ByteOffset increments through sequential reads")]
     public void ByteOffset_IncrementsThroughReads()
     {

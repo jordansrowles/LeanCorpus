@@ -263,6 +263,13 @@ public sealed class CodecsTests : IClassFixture<TestDirectoryFixture>
         }
 
         VectorWriter.Write(filePath + ".vec", vectors);
+        using (var input = new Rowles.LeanCorpus.Store.IndexInput(filePath + ".vec"))
+        using (var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.vectors.float32")))
+        {
+            Assert.Equal(CodecFileWriter.CurrentFrameVersion, frame.Metadata.FrameVersion);
+            Assert.Equal(CodecConstants.VectorVersion, frame.Metadata.FormatVersion);
+            frame.ValidateChecksum();
+        }
         using var reader = VectorReader.Open(filePath + ".vec");
 
         for (int i = 0; i < 50; i++)
@@ -270,6 +277,25 @@ public sealed class CodecsTests : IClassFixture<TestDirectoryFixture>
             var restored = reader.ReadVector(i);
             Assert.Equal(vectorArrays[i], restored);
         }
+    }
+
+    [Fact(DisplayName = "Vec File: Production Reader Reads Legacy Envelope")]
+    public void VecFile_ProductionReaderReadsLegacyEnvelope()
+    {
+        string canonicalPath = System.IO.Path.Combine(_fixture.Path, "vec_legacy_source.vec");
+        string legacyPath = System.IO.Path.Combine(_fixture.Path, "vec_legacy_fixture.vec");
+        VectorWriter.Write(canonicalPath, [new float[] { 1f, 2f, 3f }]);
+
+        byte[] body;
+        using (var input = new Rowles.LeanCorpus.Store.IndexInput(canonicalPath))
+        using (var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.vectors.float32")))
+            body = frame.ReadBody();
+
+        using (var output = new Rowles.LeanCorpus.Store.IndexOutput(legacyPath))
+            CodecFileHeader.Write(output, CodecFormats.Vectors, body);
+
+        using var reader = VectorReader.Open(legacyPath);
+        Assert.Equal([1f, 2f, 3f], reader.ReadVector(0));
     }
 
     private static void WriteVarInt(BinaryWriter writer, int value)
