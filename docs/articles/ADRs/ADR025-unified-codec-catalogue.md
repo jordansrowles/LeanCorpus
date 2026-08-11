@@ -51,8 +51,10 @@ calling `Build()`. Registration discovery must not use reflection.
 
 `CodecMigrationRegistry`, `CodecFormatTable`, format-version constants,
 extension-based migration switches and temporary-file lists cease to be
-independent authorities. They may remain temporarily as compatibility shims while
-consumers move, but only catalogue declarations may define current metadata.
+independent authorities. The mutable migration registry and disconnected typed
+format specifications are removed. Fixed internal legacy envelopes remain only
+where supported older files require them, and only catalogue declarations may
+define current metadata.
 
 Every persistent format is represented, including externally framed JSON and
 container formats such as `.seg`, `segments_N`, statistics files and `.cfs`.

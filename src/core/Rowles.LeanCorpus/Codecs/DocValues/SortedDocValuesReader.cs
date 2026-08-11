@@ -102,6 +102,7 @@ internal static class SortedDocValuesReader
             values[fieldName] = fieldValues;
         }
 
+        frame.ValidateChecksum();
         return (values, presence);
     }
 
@@ -145,6 +146,7 @@ internal static class SortedDocValuesReader
             terms[fieldName] = fieldTerms;
         }
 
+        frame.ValidateChecksum();
         return terms;
     }
 
@@ -238,6 +240,7 @@ internal static class SortedDocValuesReader
             results.Add((fieldName, fieldValues));
         }
 
+        frame.ValidateChecksum();
         return results;
     }
 

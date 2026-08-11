@@ -67,11 +67,17 @@ internal sealed class StoredFieldsReader : IDisposable
     internal FieldCompressionPolicy Compression => _compression;
 
     public static StoredFieldsReader Open(string fdtPath, string fdxPath)
+        => OpenPaths(fdtPath, fdxPath, requireMatchingVersions: true);
+
+    internal static StoredFieldsReader OpenForMigration(string fdtPath, string fdxPath)
+        => OpenPaths(fdtPath, fdxPath, requireMatchingVersions: false);
+
+    private static StoredFieldsReader OpenPaths(string fdtPath, string fdxPath, bool requireMatchingVersions)
     {
         var fdtInput = new IndexInput(fdtPath);
         try
         {
-            return Open(fdtInput, new IndexInput(fdxPath));
+            return Open(fdtInput, new IndexInput(fdxPath), requireMatchingVersions);
         }
         catch
         {
@@ -81,6 +87,9 @@ internal sealed class StoredFieldsReader : IDisposable
     }
 
     internal static StoredFieldsReader Open(IndexInput fdtInput, IndexInput fdxInput)
+        => Open(fdtInput, fdxInput, requireMatchingVersions: true);
+
+    private static StoredFieldsReader Open(IndexInput fdtInput, IndexInput fdxInput, bool requireMatchingVersions)
     {
         StoredFieldsReadFrame? fdtFrame = null;
         try
@@ -112,7 +121,7 @@ internal sealed class StoredFieldsReader : IDisposable
 
             fdtFrame = StoredFieldsCodecFiles.OpenData(fdtInput);
             int fdtBlockSize = fdtInput.ReadInt32();
-            ValidateMatchingHeaders(".fdt", ".fdx", fdtFrame.Version, fdxVersion, fdtBlockSize, fdxBlockSize);
+            ValidateMatchingHeaders(".fdt", ".fdx", fdtFrame.Version, fdxVersion, fdtBlockSize, fdxBlockSize, requireMatchingVersions);
             if (fdtBlockSize is < 1 or > MaxBlockSize)
                 throw new InvalidDataException($"Stored fields block size {fdtBlockSize} is out of range [1, {MaxBlockSize}].");
             var compression = (FieldCompressionPolicy)fdtInput.ReadByte();
@@ -163,9 +172,10 @@ internal sealed class StoredFieldsReader : IDisposable
         int fdtVersion,
         int fdxVersion,
         int fdtBlockSize,
-        int fdxBlockSize)
+        int fdxBlockSize,
+        bool requireMatchingVersions)
     {
-        if (fdtVersion != fdxVersion)
+        if (requireMatchingVersions && fdtVersion != fdxVersion)
         {
             throw new InvalidDataException(
                 $"Mismatched stored fields versions between '{fdtPath}' and '{fdxPath}'.");

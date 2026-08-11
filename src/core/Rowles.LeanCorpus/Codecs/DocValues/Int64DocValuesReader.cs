@@ -86,6 +86,7 @@ internal static class Int64DocValuesReader
             values[fieldName] = fieldValues;
         }
 
+        frame.ValidateChecksum();
         return (values, presence);
     }
 }

@@ -66,6 +66,27 @@ public sealed class DocValuesCanonicalFrameTests : IDisposable
         AssertSampleRoundTrip(kind, legacyPath);
     }
 
+    [Theory]
+    [InlineData(DocValuesKind.Numeric)]
+    [InlineData(DocValuesKind.Sorted)]
+    [InlineData(DocValuesKind.SortedSet)]
+    [InlineData(DocValuesKind.SortedNumeric)]
+    [InlineData(DocValuesKind.Binary)]
+    [InlineData(DocValuesKind.Int64)]
+    [InlineData(DocValuesKind.Int64SortedNumeric)]
+    public void ProductionReader_RejectsCanonicalChecksumMismatch(DocValuesKind kind)
+    {
+        string path = Path.Combine(_directory, "corrupt" + Extension(kind));
+        WriteSample(kind, path);
+        byte[] bytes = File.ReadAllBytes(path);
+        bytes[^1] ^= 0x01;
+        File.WriteAllBytes(path, bytes);
+
+        var exception = Assert.Throws<CodecFileException>(() => AssertSampleRoundTrip(kind, path));
+
+        Assert.Equal(CodecFileErrorCode.ChecksumMismatch, exception.ErrorCode);
+    }
+
     private static void WriteSample(DocValuesKind kind, string path)
     {
         switch (kind)

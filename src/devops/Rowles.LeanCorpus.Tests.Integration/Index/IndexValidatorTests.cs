@@ -2,6 +2,7 @@ using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Queries;
@@ -376,6 +377,36 @@ public sealed class IndexValidatorTests : IClassFixture<TestDirectoryFixture>
         var result = IndexValidator.Check(dir, new IndexCheckOptions { VerifyDocValues = true });
 
         Assert.Contains(result.DetailedIssues, i => i.Code == IndexCheckIssueCodes.DocValuesReadFailure);
+    }
+
+    [Theory(DisplayName = "Check: Deep validation reads Int64 DocValues variants")]
+    [InlineData("*.dvnl", "leancorpus.doc-values.int64")]
+    [InlineData("*.dsnl", "leancorpus.doc-values.int64-sorted-numeric")]
+    public void Check_DeepInt64DocValuesSemanticCorruption_ReturnsReadFailure(string pattern, string formatId)
+    {
+        var dir = new MMapDirectory(SubDir("val_deep_int64_" + formatId.Split('.').Last()));
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            var document = new LeanDocument();
+            document.Add(new Int64Field("single", 42));
+            document.Add(new Int64Field("multi", 1));
+            document.Add(new Int64Field("multi", 2));
+            writer.AddDocument(document);
+            writer.Commit();
+        }
+
+        var path = Directory.GetFiles(dir.DirectoryPath, pattern).Single();
+        CodecFileWriter.WriteAtomically(
+            path,
+            CodecCatalog.Default.GetFile(formatId),
+            durable: false,
+            body => body.WriteInt32(int.MaxValue));
+
+        var result = IndexValidator.Check(dir, new IndexCheckOptions { Deep = true });
+
+        Assert.Contains(result.DetailedIssues, issue =>
+            issue.Code == IndexCheckIssueCodes.DocValuesReadFailure &&
+            issue.FileName == Path.GetFileName(path));
     }
 
     private MMapDirectory CreateIndex(string name, bool useCompoundFile)

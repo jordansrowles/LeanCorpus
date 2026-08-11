@@ -108,6 +108,28 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
         }
     }
 
+    [Fact(DisplayName = "Read rejects a canonical checksum mismatch")]
+    public void Read_RejectsCanonicalChecksumMismatch()
+    {
+        var vectors = BuildRandomVectors(count: 8, dim: 4, seed: 17);
+        var source = new ArrayVectorSource(vectors);
+        var graph = HnswGraphBuilder.Build(
+            source,
+            Enumerable.Range(0, vectors.Length).ToArray(),
+            new HnswBuildConfig { M = 4, M0 = 8, EfConstruction = 20 },
+            seed: 19L);
+        graph.Freeze();
+        string path = Path.Combine(_fixture.Path, "hnsw_corrupt_checksum.hnsw");
+        HnswWriter.Write(path, graph, source.Dimension, normalised: false);
+        byte[] bytes = File.ReadAllBytes(path);
+        bytes[^1] ^= 0x01;
+        File.WriteAllBytes(path, bytes);
+
+        var exception = Assert.Throws<CodecFileException>(() => HnswReader.Read(path, source));
+
+        Assert.Equal(CodecFileErrorCode.ChecksumMismatch, exception.ErrorCode);
+    }
+
     /// <summary>
     /// Verifies the Roundtrip: Search Results Identical scenario.
     /// </summary>

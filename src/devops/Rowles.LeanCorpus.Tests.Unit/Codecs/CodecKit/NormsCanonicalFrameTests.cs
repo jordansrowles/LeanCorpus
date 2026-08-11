@@ -52,6 +52,20 @@ public sealed class NormsCanonicalFrameTests : IDisposable
         Assert.Equal(new float[] { 1f, 2f, 1f }, restored.Boosts["title"]);
     }
 
+    [Fact]
+    public void ProductionReader_RejectsCanonicalChecksumMismatch()
+    {
+        string path = Path.Combine(_directory, "corrupt.nrm");
+        NormsWriter.Write(path, new Dictionary<string, float[]> { ["body"] = [0.25f, 0.5f] });
+        byte[] bytes = File.ReadAllBytes(path);
+        bytes[^1] ^= 0x01;
+        File.WriteAllBytes(path, bytes);
+
+        var exception = Assert.Throws<CodecFileException>(() => NormsReader.Read(path));
+
+        Assert.Equal(CodecFileErrorCode.ChecksumMismatch, exception.ErrorCode);
+    }
+
     public void Dispose()
     {
         if (!Directory.Exists(_directory))

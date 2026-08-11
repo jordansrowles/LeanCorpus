@@ -56,6 +56,7 @@ internal static class Int64SortedNumericDocValuesReader
             values[fieldName] = perDoc;
         }
 
+        frame.ValidateChecksum();
         return values;
     }
 

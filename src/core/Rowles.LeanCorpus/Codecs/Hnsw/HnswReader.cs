@@ -140,6 +140,8 @@ internal static class HnswReader
         }
 
         var config = new HnswBuildConfig { M = m, M0 = m0, EfConstruction = efConstruction };
-        return HnswGraph.FromFrozen(vectorSource, config, seed, levels, entryPoint, maxLevel, nodeCount);
+        var graph = HnswGraph.FromFrozen(vectorSource, config, seed, levels, entryPoint, maxLevel, nodeCount);
+        frame.ValidateChecksum();
+        return graph;
     }
 }

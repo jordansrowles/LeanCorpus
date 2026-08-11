@@ -15,7 +15,8 @@ The exact files depend on enabled fields and features.
 | Term vectors | `.tvd`, `.tvx` | streaming data and random-access index |
 | DocValues | `.dvn`, `.dvs`, `.dss`, `.dsn`, `.dvb`, `.dvnl`, `.dsnl` | sequential columns |
 | Numeric structures | `.bkd`, `.bkdl`, `.num`, `.numl` | direct traversal and sparse sidecars |
-| Vectors | `.vec`, `.vq`, `.hnsw` | retained random access |
+| Vectors | `.vec`, `.vq` | retained random access |
+| HNSW graph | `.hnsw` | materialised read |
 | Deletions and joins | `.del`, `.pbs` | bitmap payloads |
 | Segment infrastructure | `.seg`, `.stats.json`, `.cfs` | JSON metadata or container |
 
@@ -67,13 +68,13 @@ Current writers never emit these legacy outer frames.
 
 ## Random-access formats
 
-Postings, vectors, HNSW and BKD readers retain an input and perform direct offset arithmetic. Their offsets must stay inside the declared body range. Adding Frame v1 must not materialise these files or scan checksums during ordinary search opens.
+Postings, vector and BKD readers retain an input and perform direct offset arithmetic. Their offsets must stay inside the declared body range. Adding Frame v1 must not materialise these files or scan checksums during ordinary search opens. HNSW graphs use their established frozen in-memory adjacency representation and validate the checksum after materialisation.
 
 Stored-field and term-vector pairs coordinate offsets across their data and index bodies. Their current and historical pair versions are validated together.
 
-## External and versionless files
+## External and independently framed files
 
-`.seg`, `segments_N`, statistics JSON and `.cfs` retain their own serialisation or container rules. Minor binary sidecars such as `.num`, `.numl` and `.pbs` are explicit catalogue entries even when they remain versionless. This means recovery and tooling know their ownership and temporary-file patterns without pretending they use Frame v1.
+`.seg`, `segments_N`, statistics JSON and `.cfs` retain their own serialisation or container rules. Minor binary sidecars such as `.num`, `.numl` and `.pbs` are explicit catalogue entries and use canonical Frame v1. This means recovery and tooling know their ownership and temporary-file patterns while applying the same framing and integrity policy as other codec files.
 
 ## Compatibility and migration
 

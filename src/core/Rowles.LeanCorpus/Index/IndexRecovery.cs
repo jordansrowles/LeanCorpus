@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.Bkd;
 using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Codecs.Vectors;
@@ -25,12 +26,18 @@ public static class IndexRecovery
     /// When <c>false</c> (reader-side polling), only inspects the directory and never mutates it —
     /// reader threads must not race the writer by deleting in-flight segment files.
     /// </param>
-    public static RecoveryResult? RecoverLatestCommit(string directoryPath, bool cleanupOrphans = true)
+    /// <param name="catalog">The immutable codec catalogue used for file validation and temporary-file recognition.</param>
+    public static RecoveryResult? RecoverLatestCommit(
+        string directoryPath,
+        bool cleanupOrphans = true,
+        CodecCatalog? catalog = null)
     {
+        catalog ??= CodecCatalog.Default;
+
         // Clean up any leftover temp files from interrupted commits (writer-side only).
         if (cleanupOrphans)
         {
-            CleanupTempFiles(directoryPath);
+            CleanupTempFiles(directoryPath, catalog);
             PromotePendingCommits(directoryPath);
         }
 
@@ -39,9 +46,10 @@ public static class IndexRecovery
             return null;
 
         // Try each commit from newest to oldest
-        foreach (var (generation, filePath) in commitFiles)
+        for (int commitIndex = 0; commitIndex < commitFiles.Count; commitIndex++)
         {
-            var result = TryLoadCommit(directoryPath, filePath, generation);
+            var (generation, filePath) = commitFiles[commitIndex];
+            var result = TryLoadCommit(directoryPath, filePath, generation, catalog, wasFallback: commitIndex > 0);
             if (result is not null)
             {
                 if (cleanupOrphans)
@@ -88,11 +96,11 @@ public static class IndexRecovery
     /// </summary>
     private static readonly RequiredSegmentFile[] RequiredSegmentFiles =
     [
-        new(".dic", "leancorpus.term-dictionary.data"),
-        new(".pos", "leancorpus.postings.data"),
-        new(".nrm", "leancorpus.norms.data"),
-        new(".fdt", "leancorpus.stored-fields.data"),
-        new(".fdx", "leancorpus.stored-fields.index"),
+        new(".dic"),
+        new(".pos"),
+        new(".nrm"),
+        new(".fdt"),
+        new(".fdx"),
     ];
 
     /// <summary>
@@ -101,7 +109,12 @@ public static class IndexRecovery
     /// Validates the required per-segment files (.seg, .dic, .pos, .nrm) as well as any
     /// vector and HNSW files declared in the segment metadata.
     /// </summary>
-    private static RecoveryResult? TryLoadCommit(string directoryPath, string commitFilePath, int generation)
+    private static RecoveryResult? TryLoadCommit(
+        string directoryPath,
+        string commitFilePath,
+        int generation,
+        CodecCatalog catalog,
+        bool wasFallback)
     {
         try
         {
@@ -120,7 +133,7 @@ public static class IndexRecovery
             var validSegments = new List<string>();
             foreach (var segId in commitData.Segments)
             {
-                if (!ValidateSegment(directoryPath, segId))
+                if (!ValidateSegment(directoryPath, segId, catalog))
                     return null;
                 validSegments.Add(segId);
             }
@@ -131,7 +144,7 @@ public static class IndexRecovery
                 ContentToken = commitData.ContentToken,
                 SegmentIds = validSegments,
                 CommitFilePath = commitFilePath,
-                WasFallback = false
+                WasFallback = wasFallback
             };
         }
         catch (JsonException)
@@ -144,40 +157,37 @@ public static class IndexRecovery
         }
     }
 
-    private static bool ValidateSegment(string directoryPath, string segId)
+    private static bool ValidateSegment(string directoryPath, string segId, CodecCatalog catalog)
     {
         try
         {
             var basePath = Path.Combine(directoryPath, segId);
             var segInfo = Segment.SegmentInfo.ReadFrom(basePath + ".seg");
 
-            if (segInfo.IsCompoundFile)
-            {
-                using var compoundDirectory = new MMapDirectory(directoryPath);
-                using var compound = CompoundFileReader.Open(compoundDirectory, segId + ".cfs");
-                foreach (var required in RequiredSegmentFiles)
-                {
-                    string memberName = segId + required.Extension;
-                    if (!compound.HasFile(memberName))
-                        return false;
-                    ValidateCodecFile(compound.OpenInput(compoundDirectory, memberName), required.Descriptor);
-                }
-                ValidateVectorFiles(segInfo, fileName => compound.HasFile(fileName),
-                    fileName => compound.OpenInput(compoundDirectory, fileName));
-                return true;
-            }
+            using var directory = new MMapDirectory(directoryPath);
+            using Segment.ISegmentFileSource source = segInfo.IsCompoundFile
+                ? new Segment.CompoundSegmentFileSource(directory, segId)
+                : new Segment.LooseSegmentFileSource(directory, segId);
 
             foreach (var required in RequiredSegmentFiles)
             {
-                var path = basePath + required.Extension;
-                if (!FileOpenRetry.FileExists(path) || FileOpenRetry.GetFileLength(path) == 0)
+                string fileName = segId + required.Extension;
+                if (!source.FileExists(fileName) || source.GetFileLength(fileName) == 0)
                     return false;
-                ValidateCodecFile(new IndexInput(path), required.Descriptor);
             }
 
-            ValidateVectorFiles(segInfo,
-                fileName => FileOpenRetry.FileExists(Path.Combine(directoryPath, fileName)),
-                fileName => new IndexInput(Path.Combine(directoryPath, fileName)));
+            EnsureVectorFilesExist(segInfo, source);
+
+            foreach (var fileName in source.EnumerateFiles())
+            {
+                if (!catalog.TryMatchFile(fileName, out var descriptor) ||
+                    descriptor?.CurrentFormatVersion is null)
+                {
+                    continue;
+                }
+
+                ValidateCodecFile(source.OpenInput(fileName), descriptor, segInfo.DocCount);
+            }
 
             return true;
         }
@@ -188,10 +198,7 @@ public static class IndexRecovery
         }
     }
 
-    private static void ValidateVectorFiles(
-        Segment.SegmentInfo segment,
-        Func<string, bool> exists,
-        Func<string, IndexInput> open)
+    private static void EnsureVectorFilesExist(Segment.SegmentInfo segment, Segment.ISegmentFileSource source)
     {
         foreach (var vector in segment.VectorFields)
         {
@@ -199,22 +206,19 @@ public static class IndexRecovery
             string vectorFile = quantised
                 ? Path.GetFileName(VectorFilePaths.QuantisedVectorFile(segment.SegmentId, vector.FieldName))
                 : Path.GetFileName(VectorFilePaths.VectorFile(segment.SegmentId, vector.FieldName));
-            var vectorDescriptor = quantised ? VectorCodecFiles.Quantised : VectorCodecFiles.Float32;
-            if (!exists(vectorFile))
+            if (!source.FileExists(vectorFile))
                 throw new InvalidDataException($"Segment '{segment.SegmentId}' is missing vector file '{vectorFile}'.");
-            ValidateCodecFile(open(vectorFile), vectorDescriptor);
 
             if (!vector.HasHnsw)
                 continue;
 
             string hnswFile = Path.GetFileName(VectorFilePaths.HnswFile(segment.SegmentId, vector.FieldName));
-            if (!exists(hnswFile))
+            if (!source.FileExists(hnswFile))
                 throw new InvalidDataException($"Segment '{segment.SegmentId}' is missing HNSW file '{hnswFile}'.");
-            ValidateCodecFile(open(hnswFile), VectorCodecFiles.Hnsw);
         }
     }
 
-    private static void ValidateCodecFile(IndexInput input, CodecFileDescriptor descriptor)
+    private static void ValidateCodecFile(IndexInput input, CodecFileDescriptor descriptor, int maxDoc)
     {
         using var inputLifetime = input;
         if (HasCanonicalFrameMagic(input))
@@ -222,6 +226,34 @@ public static class IndexRecovery
             using var canonical = CodecFileReader.Open(input, descriptor);
             canonical.ValidateChecksum();
             return;
+        }
+
+        if (descriptor.SupportedVersions.Any(static version =>
+                version.IsReadable && (version.LegacyFraming & CodecLegacyFraming.Headerless) != 0))
+        {
+            switch (descriptor.FormatId)
+            {
+                case "leancorpus.numeric-structures.numeric-index":
+                    _ = NumericIndexCodec.ReadDouble(input);
+                    return;
+                case "leancorpus.numeric-structures.int64-numeric-index":
+                    _ = NumericIndexCodec.ReadInt64(input);
+                    return;
+                case "leancorpus.deletes.live-docs":
+                    _ = Segment.LiveDocs.Deserialise(input, maxDoc);
+                    return;
+                case "leancorpus.deletes.parent-bitset":
+                    _ = Segment.ParentBitSet.ReadFrom(input);
+                    return;
+                default:
+                    if (descriptor.ValidationHandler is null)
+                    {
+                        throw new InvalidDataException(
+                            $"Headerless codec format '{descriptor.FormatId}' has no recovery validation handler.");
+                    }
+                    descriptor.ValidationHandler.Validate(input);
+                    return;
+            }
         }
 
         switch (descriptor.FormatId)
@@ -264,10 +296,7 @@ public static class IndexRecovery
         }
     }
 
-    private sealed record RequiredSegmentFile(string Extension, string FormatId)
-    {
-        internal CodecFileDescriptor Descriptor => CodecCatalog.Default.GetFile(FormatId);
-    }
+    private sealed record RequiredSegmentFile(string Extension);
 
     /// <summary>
     /// Promotes orphaned <c>segments_N.pending</c> files to full commits.
@@ -301,22 +330,22 @@ public static class IndexRecovery
     /// <summary>
     /// Removes temp files left by interrupted write-then-rename commits.
     /// </summary>
-    private static void CleanupTempFiles(string directoryPath)
+    private static void CleanupTempFiles(string directoryPath, CodecCatalog catalog)
     {
         if (!FileOpenRetry.DirectoryExists(directoryPath))
             return;
 
         foreach (var tmpFile in FileOpenRetry.GetFiles(directoryPath, "*.tmp"))
         {
-            if (!IsRecognisedTemporaryFile(Path.GetFileName(tmpFile)))
+            if (!IsRecognisedTemporaryFile(Path.GetFileName(tmpFile), catalog))
                 continue;
 
             try { FileOpenRetry.Delete(tmpFile); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "temp file cleanup"); }
         }
     }
 
-    private static bool IsRecognisedTemporaryFile(string fileName)
-        => CodecCatalog.Default.TryMatchTemporaryFile(fileName, out _);
+    private static bool IsRecognisedTemporaryFile(string fileName, CodecCatalog catalog)
+        => catalog.TryMatchTemporaryFile(fileName, out _);
 
     /// <summary>
     /// Removes segment files that are not referenced by the active commit. Uses a

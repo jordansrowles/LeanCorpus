@@ -103,6 +103,7 @@ internal static class NumericDocValuesReader
             values[fieldName] = fieldValues;
         }
 
+        frame.ValidateChecksum();
         return (values, presence);
     }
 
@@ -187,6 +188,7 @@ internal static class NumericDocValuesReader
             results.Add((fieldName, fieldValues, fieldPresence));
         }
 
+        frame.ValidateChecksum();
         return results;
     }
 }

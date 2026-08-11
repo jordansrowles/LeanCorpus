@@ -27,11 +27,17 @@ internal sealed class TermVectorsReader : IDisposable
     }
 
     public static TermVectorsReader Open(string tvdPath, string tvxPath)
+        => OpenPaths(tvdPath, tvxPath, requireMatchingVersions: true);
+
+    internal static TermVectorsReader OpenForMigration(string tvdPath, string tvxPath)
+        => OpenPaths(tvdPath, tvxPath, requireMatchingVersions: false);
+
+    private static TermVectorsReader OpenPaths(string tvdPath, string tvxPath, bool requireMatchingVersions)
     {
         var tvdInput = new Store.IndexInput(tvdPath);
         try
         {
-            return Open(tvdInput, new Store.IndexInput(tvxPath));
+            return Open(tvdInput, new Store.IndexInput(tvxPath), requireMatchingVersions);
         }
         catch
         {
@@ -41,6 +47,9 @@ internal sealed class TermVectorsReader : IDisposable
     }
 
     internal static TermVectorsReader Open(Store.IndexInput tvdInput, Store.IndexInput tvxInput)
+        => Open(tvdInput, tvxInput, requireMatchingVersions: true);
+
+    private static TermVectorsReader Open(Store.IndexInput tvdInput, Store.IndexInput tvxInput, bool requireMatchingVersions)
     {
         TermVectorsReadFrame? tvdFrame = null;
         try
@@ -64,7 +73,7 @@ internal sealed class TermVectorsReader : IDisposable
             }
 
             tvdFrame = TermVectorsCodecFiles.OpenData(tvdInput);
-            if (tvdFrame.Version != tvxVersion)
+            if (requireMatchingVersions && tvdFrame.Version != tvxVersion)
                 throw new InvalidDataException("Mismatched term vectors versions between '.tvd' and '.tvx'.");
 
             long previousOffset = -1;

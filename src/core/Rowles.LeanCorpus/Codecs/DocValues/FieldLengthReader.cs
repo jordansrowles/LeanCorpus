@@ -52,6 +52,7 @@ internal static class FieldLengthReader
             result[fieldName] = lengths;
         }
 
+        frame.ValidateChecksum();
         return result;
     }
 
@@ -84,6 +85,7 @@ internal static class FieldLengthReader
             results.Add((fieldName, lengths));
         }
 
+        frame.ValidateChecksum();
         return results;
     }
 }

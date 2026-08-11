@@ -220,8 +220,8 @@ public sealed class FaultInjectionTests : IDisposable
     /// <see cref="EndOfStreamException"/> (truncated before CRC), both of which
     /// derive from <see cref="IOException"/>.
     /// </summary>
-    [Fact(DisplayName = "Corrupt Del File: Throws Io Exception On First Deletion Access")]
-    public void CorruptDelFile_ThrowsIoException_OnFirstDeletionAccess()
+    [Fact(DisplayName = "Corrupt Del File: Recovery Rejects Commit On Open")]
+    public void CorruptDelFile_RecoveryRejectsCommitOnOpen()
     {
         string path = SubDir("crash-corrupt-del");
 
@@ -239,10 +239,9 @@ public sealed class FaultInjectionTests : IDisposable
         Assert.NotEmpty(delFiles);
         File.WriteAllBytes(delFiles[0], []);
 
-        // Metadata-only opening succeeds. The first operation that needs live-doc
-        // state must surface the corruption rather than silently returning results.
-        using var searcher = new IndexSearcher(new MMapDirectory(path));
-        Assert.ThrowsAny<Exception>(() => searcher.Search(new MatchAllDocsQuery(), 10));
+        // Recovery validates every recognised codec file before accepting a commit.
+        using var directory = new MMapDirectory(path);
+        Assert.Throws<InvalidDataException>(() => new IndexSearcher(directory));
     }
 
     // ---- crash window: partial commit rename (temp file exists, final file absent) ----

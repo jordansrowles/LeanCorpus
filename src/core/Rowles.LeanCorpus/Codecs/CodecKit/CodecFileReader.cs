@@ -31,7 +31,8 @@ public static class CodecFileReader
                     current.Metadata.BodyStart,
                     current.Metadata.BodyLength,
                     current,
-                    current.ReadBody);
+                    current.ReadBody,
+                    current.ValidateChecksum);
             }
         }
 
@@ -44,7 +45,8 @@ public static class CodecFileReader
             legacy.Metadata.BodyStart,
             legacy.Metadata.BodyLength,
             legacy,
-            legacy.ReadBody);
+            legacy.ReadBody,
+            static () => { });
     }
 
     /// <summary>Opens a canonical frame and validates it against one expected descriptor.</summary>
@@ -55,11 +57,31 @@ public static class CodecFileReader
         bool ownsInput = false)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
+        CodecFileChecksumAlgorithm requiredChecksum = descriptor.ChecksumPolicy switch
+        {
+            CodecChecksumPolicy.None => CodecFileChecksumAlgorithm.None,
+            CodecChecksumPolicy.XxHash64 => CodecFileChecksumAlgorithm.XxHash64,
+            _ => throw new ArgumentOutOfRangeException(nameof(descriptor), descriptor.ChecksumPolicy, "Unknown catalogue checksum policy."),
+        };
         var readableVersions = descriptor.SupportedVersions
             .Where(static version => version.IsReadable)
             .Select(static version => version.Version)
             .ToHashSet();
-        return Open(input, options, descriptor.FormatId, readableVersions, ownsInput);
+        var session = Open(input, options, descriptor.FormatId, readableVersions, ownsInput);
+        if (session.Metadata.ChecksumAlgorithm != requiredChecksum)
+        {
+            session.Dispose();
+            throw new CodecFileException(
+                CodecFileErrorCode.UnsupportedChecksumAlgorithm,
+                $"Codec format '{descriptor.FormatId}' requires checksum algorithm '{requiredChecksum}', but the file declares '{session.Metadata.ChecksumAlgorithm}'.",
+                fileName: input.FilePath is null ? null : Path.GetFileName(input.FilePath),
+                formatId: session.Metadata.FormatId,
+                frameVersion: session.Metadata.FrameVersion,
+                formatVersion: session.Metadata.FormatVersion,
+                byteOffset: session.Metadata.BodyStart);
+        }
+
+        return session;
     }
 
     /// <summary>Opens a canonical frame and validates its declared format against a catalogue.</summary>
@@ -265,6 +287,7 @@ public sealed class CodecBodyReadSession : IDisposable
 {
     private readonly IDisposable _frameSession;
     private readonly Func<byte[]> _readBody;
+    private readonly Action _validateChecksum;
 
     internal CodecBodyReadSession(
         IndexInput input,
@@ -273,7 +296,8 @@ public sealed class CodecBodyReadSession : IDisposable
         long bodyStart,
         long bodyLength,
         IDisposable frameSession,
-        Func<byte[]> readBody)
+        Func<byte[]> readBody,
+        Action validateChecksum)
     {
         Input = input;
         FormatVersion = formatVersion;
@@ -282,6 +306,7 @@ public sealed class CodecBodyReadSession : IDisposable
         BodyLength = bodyLength;
         _frameSession = frameSession;
         _readBody = readBody;
+        _validateChecksum = validateChecksum;
     }
 
     internal IndexInput Input { get; }
@@ -296,6 +321,9 @@ public sealed class CodecBodyReadSession : IDisposable
 
     /// <summary>Materialises the body using the configured operation-specific limit.</summary>
     public byte[] ReadBody() => _readBody();
+
+    /// <summary>Validates the canonical body checksum, or does nothing for a legacy frame.</summary>
+    public void ValidateChecksum() => _validateChecksum();
 
     /// <summary>Opens a seekable stream bounded to the codec body.</summary>
     public Stream OpenBodyStream()

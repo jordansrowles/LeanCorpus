@@ -72,6 +72,7 @@ internal static class SortedSetDocValuesReader
             values[fieldName] = perDoc;
         }
 
+        frame.ValidateChecksum();
         return values;
     }
 
@@ -112,6 +113,7 @@ internal static class SortedSetDocValuesReader
             terms[fieldName] = fieldTerms;
         }
 
+        frame.ValidateChecksum();
         return terms;
     }
 
@@ -170,6 +172,7 @@ internal static class SortedSetDocValuesReader
             results.Add((fieldName, perDoc));
         }
 
+        frame.ValidateChecksum();
         return results;
     }
 

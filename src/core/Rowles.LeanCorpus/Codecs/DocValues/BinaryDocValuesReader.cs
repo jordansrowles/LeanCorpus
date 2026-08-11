@@ -72,6 +72,7 @@ internal static class BinaryDocValuesReader
             values[fieldName] = perDoc;
         }
 
+        frame.ValidateChecksum();
         return values;
     }
 
@@ -131,6 +132,7 @@ internal static class BinaryDocValuesReader
             results.Add((fieldName, perDoc));
         }
 
+        frame.ValidateChecksum();
         return results;
     }
 

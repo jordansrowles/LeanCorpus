@@ -39,7 +39,7 @@ internal static class CodecCatalogBuiltIns
         Family("leancorpus.vectors", "Vectors",
             VersionedFile("leancorpus.vectors.float32", "leancorpus.vectors", "Vectors", ".vec", CodecConstants.VectorVersion, CodecAccessKind.RandomAccess),
             VersionedFile("leancorpus.vectors.quantised", "leancorpus.vectors", "Quantised vectors", ".vq", CodecConstants.QuantisedVectorVersion, CodecAccessKind.RandomAccess),
-            VersionedFile("leancorpus.vectors.hnsw", "leancorpus.vectors", "HNSW", ".hnsw", CodecConstants.HnswVersion, CodecAccessKind.RandomAccess)),
+            VersionedFile("leancorpus.vectors.hnsw", "leancorpus.vectors", "HNSW", ".hnsw", CodecConstants.HnswVersion, CodecAccessKind.Materialised)),
         Family("leancorpus.deletes", "Deletes and bitmaps",
             VersionedFile(
                 "leancorpus.deletes.live-docs",

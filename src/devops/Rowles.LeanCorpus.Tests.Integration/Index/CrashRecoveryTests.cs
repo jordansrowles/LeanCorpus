@@ -2,6 +2,7 @@
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Simd;
@@ -102,6 +103,87 @@ public class CrashRecoveryTests : IDisposable
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
         var results = searcher.Search(new TermQuery("body", "first"), 10);
         Assert.Equal(1, results.TotalHits);
+    }
+
+    [Fact(DisplayName = "Recovery: corrupt optional codec file falls back and reports fallback")]
+    public void RecoverLatestCommit_CorruptOptionalCodecFile_FallsBackAndReportsFallback()
+    {
+        var config = new IndexWriterConfig
+        {
+            DeletionPolicy = new KeepLastNCommitsPolicy(2)
+        };
+        using (var writer = new IndexWriter(new MMapDirectory(_dir), config))
+        {
+            var first = CreateDocument("first generation");
+            first.Add(new NumericField("price", 1));
+            writer.AddDocument(first);
+            writer.Commit();
+
+            var second = CreateDocument("second generation");
+            second.Add(new NumericField("price", 2));
+            writer.AddDocument(second);
+            writer.Commit();
+        }
+
+        var latestCommit = JsonSerializer.Deserialize<JsonElement>(
+            CommitFileFormat.ReadJson(Path.Combine(_dir, "segments_2")));
+        var latestSegments = latestCommit.GetProperty("Segments");
+        string latestSegment = latestSegments[latestSegments.GetArrayLength() - 1].GetString()!;
+        string docValuesPath = Path.Combine(_dir, latestSegment + ".dvn");
+        byte[] bytes = File.ReadAllBytes(docValuesPath);
+        bytes[^17] ^= 0x5a;
+        File.WriteAllBytes(docValuesPath, bytes);
+
+        var recovery = IndexRecovery.RecoverLatestCommit(_dir, cleanupOrphans: false);
+
+        Assert.NotNull(recovery);
+        Assert.Equal(1, recovery.Generation);
+        Assert.True(recovery.WasFallback);
+    }
+
+    [Fact(DisplayName = "Recovery: corrupt legacy headerless numeric sidecar falls back")]
+    public void RecoverLatestCommit_CorruptLegacyHeaderlessNumericSidecar_FallsBack()
+    {
+        var config = new IndexWriterConfig
+        {
+            DeletionPolicy = new KeepLastNCommitsPolicy(2)
+        };
+        using (var writer = new IndexWriter(new MMapDirectory(_dir), config))
+        {
+            var first = CreateDocument("first headerless generation");
+            first.Add(new NumericField("price", 1));
+            writer.AddDocument(first);
+            writer.Commit();
+
+            var second = CreateDocument("second headerless generation");
+            second.Add(new NumericField("price", 2));
+            writer.AddDocument(second);
+            writer.Commit();
+        }
+
+        var latestCommit = JsonSerializer.Deserialize<JsonElement>(
+            CommitFileFormat.ReadJson(Path.Combine(_dir, "segments_2")));
+        var latestSegments = latestCommit.GetProperty("Segments");
+        string latestSegment = latestSegments[latestSegments.GetArrayLength() - 1].GetString()!;
+        string numericIndexPath = Path.Combine(_dir, latestSegment + ".num");
+        byte[] canonicalBytes = File.ReadAllBytes(numericIndexPath);
+        byte[] corruptLegacyBody;
+        using (var input = new IndexInput(numericIndexPath))
+        using (var frame = CodecFileReader.Open(
+                   input,
+                   CodecCatalog.Default.GetFile("leancorpus.numeric-structures.numeric-index")))
+        {
+            corruptLegacyBody = canonicalBytes
+                .AsSpan(checked((int)frame.Metadata.BodyStart), checked((int)frame.Metadata.BodyLength - 1))
+                .ToArray();
+        }
+        File.WriteAllBytes(numericIndexPath, corruptLegacyBody);
+
+        var recovery = IndexRecovery.RecoverLatestCommit(_dir, cleanupOrphans: false);
+
+        Assert.NotNull(recovery);
+        Assert.Equal(1, recovery.Generation);
+        Assert.True(recovery.WasFallback);
     }
 
     /// <summary>
@@ -241,6 +323,35 @@ public class CrashRecoveryTests : IDisposable
         Assert.False(File.Exists(Path.Combine(_dir, "migration_state.json.tmp")));
         Assert.False(File.Exists(Path.Combine(_dir, "seg_0.nrm.0123456789abcdef0123456789abcdef.codec.tmp")));
         Assert.True(File.Exists(Path.Combine(_dir, "data.tmp")));
+    }
+
+    [Fact(DisplayName = "Recovery: custom catalogue temporary files are cleaned up")]
+    public void RecoverLatestCommit_CustomCatalogue_CleansCustomTemporaryFile()
+    {
+        using (var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig()))
+        {
+            writer.AddDocument(CreateDocument("custom catalogue"));
+            writer.Commit();
+        }
+
+        var customDescriptor = new CodecFileDescriptor(
+            "example.custom.data",
+            "example.custom",
+            "Example custom data",
+            CodecFileMatcher.Extension(".custom"),
+            currentFormatVersion: null,
+            temporaryFileMatchers: [CodecFileMatcher.ExtensionWithTrailingSuffix(".custom", ".tmp")]);
+        var catalog = new CodecCatalogBuilder()
+            .AddBuiltIns()
+            .Add(new CodecFamilyDescriptor("example.custom", "Example custom", [customDescriptor]))
+            .Build();
+        string temporaryPath = Path.Combine(_dir, "segment.custom.tmp");
+        File.WriteAllText(temporaryPath, "partial");
+
+        var recovery = IndexRecovery.RecoverLatestCommit(_dir, catalog: catalog);
+
+        Assert.NotNull(recovery);
+        Assert.False(File.Exists(temporaryPath));
     }
 
     /// <summary>

@@ -48,6 +48,20 @@ public sealed class CanonicalAuxiliaryFrameTests : IDisposable
     }
 
     [Fact]
+    public void FieldLengthReader_RejectsCanonicalChecksumMismatch()
+    {
+        string path = Path.Combine(_directory, "corrupt.fln");
+        FieldLengthWriter.Write(path, new Dictionary<string, int[]> { ["body"] = [1, 2, 3] });
+        byte[] bytes = File.ReadAllBytes(path);
+        bytes[^1] ^= 0x01;
+        File.WriteAllBytes(path, bytes);
+
+        var exception = Assert.Throws<CodecFileException>(() => FieldLengthReader.TryRead(path));
+
+        Assert.Equal(CodecFileErrorCode.ChecksumMismatch, exception.ErrorCode);
+    }
+
+    [Fact]
     public void LiveDocsWriter_EmitsCanonicalCurrentFrame()
     {
         string path = Path.Combine(_directory, "segment.del");

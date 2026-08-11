@@ -222,7 +222,8 @@ public static class IndexValidator
                 IndexCheckIssueCodes.UnknownCodecFormat or
                 IndexCheckIssueCodes.CodecChecksumMismatch or
                 IndexCheckIssueCodes.CodecFormatMismatch or
-                IndexCheckIssueCodes.InvalidCodecFrame)
+                IndexCheckIssueCodes.InvalidCodecFrame or
+                IndexCheckIssueCodes.CodecSemanticValidationFailure)
             {
                 result.AddIssue(issue);
             }
@@ -718,6 +719,8 @@ public static class IndexValidator
         TryReadDocValues(basePath + ".dss", info, result, static path => SortedSetDocValuesReader.Read(path).Values.Select(static values => values.Length));
         TryReadDocValues(basePath + ".dsn", info, result, static path => SortedNumericDocValuesReader.Read(path).Values.Select(static values => values.Length));
         TryReadDocValues(basePath + ".dvb", info, result, static path => BinaryDocValuesReader.Read(path).Values.Select(static values => values.Length));
+        TryReadDocValues(basePath + ".dvnl", info, result, static path => Int64DocValuesReader.Read(path).Values.Values.Select(static values => values.Length));
+        TryReadDocValues(basePath + ".dsnl", info, result, static path => Int64SortedNumericDocValuesReader.Read(path).Values.Select(static values => values.Length));
     }
 
     private static void TryReadDocValues(

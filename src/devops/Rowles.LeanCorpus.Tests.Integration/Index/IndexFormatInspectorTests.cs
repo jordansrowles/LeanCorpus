@@ -224,6 +224,14 @@ public sealed class IndexFormatInspectorTests : IClassFixture<TestDirectoryFixtu
         var file = Assert.Single(inventory.OrphanFiles, candidate => candidate.Extension == ".custom");
         Assert.Equal(CodecFileErrorCode.SemanticValidationFailure, file.ErrorCode);
         Assert.False(file.IsSupported);
+
+        var validation = IndexValidator.Check(directory, new IndexCheckOptions
+        {
+            Catalog = catalog,
+            Deep = true,
+        });
+        Assert.Contains(validation.DetailedIssues, issue =>
+            issue.Code == IndexCheckIssueCodes.CodecSemanticValidationFailure);
     }
 
     [Fact]

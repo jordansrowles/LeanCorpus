@@ -330,6 +330,13 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         stream.Write(body);
     }
 
+    private static void WriteCustomHeader(string path, byte version, byte[] body)
+    {
+        using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        stream.WriteByte(version);
+        stream.Write(body);
+    }
+
     /// <summary>
     /// Verifies the index is queryable after migration.
     /// </summary>
@@ -381,7 +388,7 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
             IndexCodecMigrationActionKind.NoOp, action.Kind));
     }
 
-    [Fact(DisplayName = "Plan: Downgraded file produces a RewriteFile action")]
+    [Fact(DisplayName = "Plan: Legacy framing produces a Reframe action")]
     public void Plan_DowngradedFile_ProducesRewriteAction()
     {
         var path = CreateCurrentVersionIndex("plan_downgraded");
@@ -391,7 +398,7 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         var plan = IndexCodecMigrator.Plan(new MMapDirectory(path));
 
         Assert.Contains(plan.Actions, action =>
-            action.Kind == IndexCodecMigrationActionKind.RewriteFile &&
+            action.Kind == IndexCodecMigrationActionKind.Reframe &&
             action.FileName!.EndsWith(".fln", StringComparison.Ordinal));
     }
 
@@ -916,7 +923,6 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         var plan = IndexCodecMigrator.Plan(new MMapDirectory(path));
 
         Assert.DoesNotContain(plan.Actions, action =>
-            action.Kind == IndexCodecMigrationActionKind.RewriteFile &&
             action.FileName!.EndsWith(".dic", StringComparison.Ordinal));
 
         Assert.NotEmpty(plan.Issues);
@@ -961,6 +967,33 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         AssertIndexReadable(path);
     }
 
+    [Fact(DisplayName = "Migrate: Stored-fields family rewrites when only the index member is legacy")]
+    public void Migrate_StoredFieldsIndexOnlyLegacy_RewritesFamily()
+    {
+        var path = CreateCurrentVersionIndex("migrate_rewrite_fdx_only");
+        var fdxPath = Directory.GetFiles(path, "*.fdx").Single();
+        var (body, _) = ReadCanonicalBody(fdxPath);
+        WriteCustomHeader(fdxPath, version: 2, body);
+
+        var plan = IndexCodecMigrator.Plan(new MMapDirectory(path));
+        Assert.Contains(plan.Actions, action =>
+            action.Kind == IndexCodecMigrationActionKind.CoordinatedRewrite &&
+            action.FileName!.EndsWith(".fdx", StringComparison.Ordinal));
+
+        var result = IndexCodecMigrator.Migrate(new MMapDirectory(path), new IndexCodecMigrationOptions
+        {
+            DryRun = false,
+            ValidateBeforeMigration = false,
+            ValidateAfterMigration = true,
+        });
+
+        Assert.True(result.Succeeded,
+            string.Join("; ", result.Issues.Select(i => $"{i.Code}: {i.Message}")));
+        Assert.Equal(CodecConstants.StoredFieldsVersion, ReadVersionByte(path, "*.fdt"));
+        Assert.Equal(CodecConstants.StoredFieldsVersion, ReadVersionByte(path, "*.fdx"));
+        AssertIndexReadable(path);
+    }
+
     [Fact(DisplayName = "Migrate: Rewrite term vectors as one coordinated canonical family")]
     public void Migrate_Rewrite_TermVectors()
     {
@@ -989,6 +1022,66 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
             frame.ValidateChecksum();
         }
         AssertIndexReadable(path, "term");
+    }
+
+    [Fact(DisplayName = "Migrate: Term-vector family rewrites when only the index member is legacy")]
+    public void Migrate_TermVectorIndexOnlyLegacy_RewritesFamily()
+    {
+        var path = CreateTermVectorIndex("migrate_rewrite_tvx_only");
+        var tvxPath = Directory.GetFiles(path, "*.tvx").Single();
+        var (body, _) = ReadCanonicalBody(tvxPath);
+        WriteLegacyEnvelope(tvxPath, version: 2, body);
+
+        var plan = IndexCodecMigrator.Plan(new MMapDirectory(path));
+        Assert.Contains(plan.Actions, action =>
+            action.Kind == IndexCodecMigrationActionKind.CoordinatedRewrite &&
+            action.FileName!.EndsWith(".tvx", StringComparison.Ordinal));
+
+        var result = IndexCodecMigrator.Migrate(new MMapDirectory(path), new IndexCodecMigrationOptions
+        {
+            DryRun = false,
+            ValidateBeforeMigration = false,
+            ValidateAfterMigration = true,
+        });
+
+        Assert.True(result.Succeeded,
+            string.Join("; ", result.Issues.Select(i => $"{i.Code}: {i.Message}")));
+        Assert.Equal(CodecConstants.TermVectorsVersion, ReadVersionByte(path, "*.tvd"));
+        Assert.Equal(CodecConstants.TermVectorsVersion, ReadVersionByte(path, "*.tvx"));
+        AssertIndexReadable(path, "term");
+    }
+
+    [Fact(DisplayName = "Migrate: Legacy live docs rewrite through the current writer")]
+    public void Migrate_LegacyLiveDocs_RewritesCurrentFrame()
+    {
+        var path = CreateIndexWithMultipleDocuments("migrate_legacy_live_docs");
+        using (var directory = new MMapDirectory(path))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig()))
+        {
+            writer.DeleteDocuments(new TermQuery("id", "doc-1"));
+            writer.Commit();
+        }
+
+        var delPath = Directory.GetFiles(path, "*.del").Single();
+        File.WriteAllBytes(delPath, HistoricalCodecFixtures.LiveDocsHeaderlessV1);
+
+        var plan = IndexCodecMigrator.Plan(new MMapDirectory(path));
+        Assert.Contains(plan.Actions, action =>
+            action.Kind == IndexCodecMigrationActionKind.Rewrite &&
+            action.FileName!.EndsWith(".del", StringComparison.Ordinal));
+
+        var result = IndexCodecMigrator.Migrate(new MMapDirectory(path), new IndexCodecMigrationOptions
+        {
+            DryRun = false,
+            ValidateBeforeMigration = false,
+            ValidateAfterMigration = true,
+        });
+
+        Assert.True(result.Succeeded,
+            string.Join("; ", result.Issues.Select(i => $"{i.Code}: {i.Message}")));
+        using var input = new IndexInput(Directory.GetFiles(path, "*.del").Single());
+        using var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.deletes.live-docs"));
+        frame.ValidateChecksum();
     }
 
     [Fact(DisplayName = "Migrate: Rewrite stored fields preserves source compression policy")]

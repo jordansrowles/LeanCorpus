@@ -374,6 +374,31 @@ public sealed class CodecFileFrameTests : IDisposable
         Assert.Equal(FormatId, exception.FormatId);
     }
 
+    [Fact(DisplayName = "Descriptor open enforces its checksum policy")]
+    public void Open_DescriptorChecksumMismatch_ThrowsStructuredError()
+    {
+        string path = WriteFrame("descriptor-checksum-mismatch.lccf", [0x01], CodecFileChecksumAlgorithm.None);
+        using var input = new IndexInput(path);
+        var descriptor = Descriptor();
+
+        AssertError(
+            CodecFileErrorCode.UnsupportedChecksumAlgorithm,
+            () => CodecFileReader.Open(input, descriptor));
+    }
+
+    [Fact(DisplayName = "Supported body session validates canonical checksums")]
+    public void OpenSupported_ValidateChecksum_DetectsCorruptBody()
+    {
+        string path = CorruptValidFrame(
+            "supported-session-corrupt-body.lccf",
+            bytes => bytes[16 + FormatId.Length] ^= 0x20,
+            [0x01, 0x02]);
+        using var input = new IndexInput(path);
+        using var session = CodecFileReader.OpenSupported(input, Descriptor());
+
+        AssertError(CodecFileErrorCode.ChecksumMismatch, session.ValidateChecksum);
+    }
+
     [Fact(DisplayName = "Open enforces the codec-file size limit before parsing")]
     public void Open_MaxCodecFileBytes_ThrowsStructuredError()
     {
@@ -462,4 +487,24 @@ public sealed class CodecFileFrameTests : IDisposable
         => Convert.FromHexString(value.Replace(" ", string.Empty, StringComparison.Ordinal));
 
     private string TempFile(string name) => Path.Combine(_tempDirectory, name);
+
+    private static CodecFileDescriptor Descriptor()
+        => new(
+            FormatId,
+            "test.family",
+            "Test frame",
+            CodecFileMatcher.Extension(".lccf"),
+            currentFormatVersion: 7,
+            [new CodecVersionDescriptor(
+                7,
+                "test-frame-v7",
+                isReadable: true,
+                isWritable: true,
+                CodecLegacyFraming.CodecKitEnvelope,
+                CodecMigrationBehaviour.Reframe)],
+            CodecAccessKind.Materialised,
+            CodecFramingPolicy.Canonical,
+            CodecChecksumPolicy.XxHash64,
+            CodecMigrationBehaviour.Reframe,
+            [CodecFileMatcher.Extension(".lccf.tmp")]);
 }

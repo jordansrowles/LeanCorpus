@@ -48,8 +48,11 @@ public static class IndexCodecMigrator
             ["leancorpus.numeric-structures.numeric-index"] = static context => RewriteNumericIndex(context.SourcePath, context.TargetPath),
             ["leancorpus.numeric-structures.int64-numeric-index"] = static context => RewriteInt64NumericIndex(context.SourcePath, context.TargetPath),
             ["leancorpus.deletes.parent-bitset"] = static context => RewriteParentBitSet(context.SourcePath, context.TargetPath),
+            ["leancorpus.deletes.live-docs"] = static context => RewriteLiveDocs(context),
             ["leancorpus.stored-fields.data"] = static context => RewriteStoredFields(context.TargetDirectory, context.Action, context.SegmentIdMap),
+            ["leancorpus.stored-fields.index"] = static context => RewriteStoredFields(context.TargetDirectory, context.Action, context.SegmentIdMap),
             ["leancorpus.term-vectors.data"] = static context => RewriteTermVectors(context.TargetDirectory, context.Action, context.SegmentIdMap),
+            ["leancorpus.term-vectors.index"] = static context => RewriteTermVectors(context.TargetDirectory, context.Action, context.SegmentIdMap),
         };
 
     /// <summary>
@@ -792,7 +795,9 @@ public static class IndexCodecMigrator
         IReadOnlyDictionary<string, string> segmentIdMap,
         HashSet<string> rewrittenTargetPaths)
     {
-        if (action.Kind != IndexCodecMigrationActionKind.RewriteFile)
+        if (action.Kind is not (IndexCodecMigrationActionKind.Reframe or
+            IndexCodecMigrationActionKind.Rewrite or
+            IndexCodecMigrationActionKind.CoordinatedRewrite))
             return;
 
         if (action.FormatId is null || !catalog.TryGetFile(action.FormatId, out var descriptor) || descriptor is null)
@@ -1223,7 +1228,7 @@ public static class IndexCodecMigrator
 
         try
         {
-            using (var reader = StoredFieldsReader.Open(sourceBase + ".fdt", sourceBase + ".fdx"))
+            using (var reader = StoredFieldsReader.OpenForMigration(sourceBase + ".fdt", sourceBase + ".fdx"))
             {
                 StoredFieldsWriter.Write(
                     temporaryFdtPath,
@@ -1262,7 +1267,7 @@ public static class IndexCodecMigrator
 
         try
         {
-            using (var reader = TermVectorsReader.Open(sourceBase + ".tvd", sourceBase + ".tvx"))
+            using (var reader = TermVectorsReader.OpenForMigration(sourceBase + ".tvd", sourceBase + ".tvx"))
             using (var writer = new TermVectorsStreamWriter(temporaryTvdPath, temporaryTvxPath))
             {
                 for (int docId = 0; docId < reader.DocCount; docId++)
@@ -1356,6 +1361,17 @@ public static class IndexCodecMigrator
         RewriteSidecar(targetPath, bitSet.WriteTo);
     }
 
+    private static void RewriteLiveDocs(MigrationRewriteContext context)
+    {
+        if (context.Action.SegmentId is null)
+            throw new InvalidDataException($"Live-docs action for '{context.Action.SourcePath}' has no segment ID.");
+
+        var segmentPath = Path.Combine(context.TargetDirectory, context.Action.SegmentId + ".seg");
+        var segmentInfo = SegmentInfo.ReadFrom(segmentPath);
+        var liveDocs = LiveDocs.Deserialise(context.SourcePath, segmentInfo.DocCount);
+        LiveDocs.Serialise(context.TargetPath, liveDocs, durable: true);
+    }
+
     private static void RewriteSidecar(string targetPath, Action<string> write)
     {
         string temporaryPath = targetPath + ".tmp";
@@ -1433,7 +1449,14 @@ public static class IndexCodecMigrator
                 : file.FileName;
             actions.Add(new IndexCodecMigrationAction
             {
-                Kind = IndexCodecMigrationActionKind.RewriteFile,
+                Kind = !canExecute
+                    ? IndexCodecMigrationActionKind.Unsupported
+                    : behaviour switch
+                    {
+                        CodecMigrationBehaviour.Reframe => IndexCodecMigrationActionKind.Reframe,
+                        CodecMigrationBehaviour.CoordinatedRewrite => IndexCodecMigrationActionKind.CoordinatedRewrite,
+                        _ => IndexCodecMigrationActionKind.Rewrite,
+                    },
                 SourcePath = file.FileName,
                 SourcePaths = actionFiles.Select(static candidate => candidate.FileName).ToArray(),
                 TargetPath = null,

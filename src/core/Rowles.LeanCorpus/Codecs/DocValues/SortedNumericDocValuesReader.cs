@@ -57,6 +57,7 @@ internal static class SortedNumericDocValuesReader
             values[fieldName] = perDoc;
         }
 
+        frame.ValidateChecksum();
         return values;
     }
 
@@ -101,6 +102,7 @@ internal static class SortedNumericDocValuesReader
             results.Add((fieldName, perDoc));
         }
 
+        frame.ValidateChecksum();
         return results;
     }
 

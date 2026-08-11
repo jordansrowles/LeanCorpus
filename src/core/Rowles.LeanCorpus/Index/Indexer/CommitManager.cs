@@ -251,7 +251,9 @@ internal static class CommitManager
         var directory = writer.Directory;
         var config = writer.Config;
         IndexOpenGuard.EnsureNoBlockingMigration(directory, config.CompatibilityMode);
-        var recovery = IndexRecovery.RecoverLatestCommit(directory.DirectoryPath);
+        var recovery = IndexRecovery.RecoverLatestCommit(
+            directory.DirectoryPath,
+            catalog: config.CodecCatalog);
         if (recovery is null) return;
         IndexOpenGuard.EnsureCanOpenSegments(
             directory,

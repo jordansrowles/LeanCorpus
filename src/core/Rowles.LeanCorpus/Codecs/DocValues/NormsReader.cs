@@ -25,12 +25,14 @@ internal static class NormsReader
         var (version, frame) = OpenBody(input);
         using (frame)
         {
-            return version switch
+            NormsData result = version switch
             {
                 0 or 2 or 3 => ReadV2Body(input), // v0 is a test downgrade; v3 has the same body format as v2
                 1 => ReadV1Body(input),
                 _ => throw new NotSupportedException($"Unsupported norms version: {version}")
             };
+            frame?.ValidateChecksum();
+            return result;
         }
     }
 
@@ -103,6 +105,7 @@ internal static class NormsReader
             results.Add((fieldName, norms, boosts));
         }
 
+        frame?.ValidateChecksum();
         return results;
     }
 
@@ -168,7 +171,7 @@ internal static class NormsReader
         return boosts;
     }
 
-    private static (int Version, IDisposable? Frame) OpenBody(IndexInput input)
+    private static (int Version, CodecBodyReadSession? Frame) OpenBody(IndexInput input)
     {
         long start = input.Position;
         int legacyVersion = input.ReadByte();

@@ -130,7 +130,12 @@ internal sealed class LiveDocs
     /// </summary>
     public static LiveDocs Deserialise(string filePath, int maxDoc)
     {
-        using var input = new IndexInput(filePath);
+        return Deserialise(new IndexInput(filePath), maxDoc);
+    }
+
+    internal static LiveDocs Deserialise(IndexInput input, int maxDoc)
+    {
+        using var inputLifetime = input;
         if (input.Length >= sizeof(int))
         {
             int magic = input.ReadInt32();

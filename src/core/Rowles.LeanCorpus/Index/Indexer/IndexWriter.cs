@@ -336,7 +336,8 @@ public sealed partial class IndexWriter : IDisposable
         {
             var recovery = IndexRecovery.RecoverLatestCommit(
                 sourceDirectory.DirectoryPath,
-                cleanupOrphans: false);
+                cleanupOrphans: false,
+                catalog: _config.CodecCatalog);
             if (recovery is null)
                 throw new InvalidDataException(
                     $"No valid commit found in source directory '{sourceDirectory.DirectoryPath}'.");

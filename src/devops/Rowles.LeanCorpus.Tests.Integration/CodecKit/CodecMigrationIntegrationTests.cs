@@ -47,45 +47,6 @@ public sealed class CodecMigrationIntegrationTests : IClassFixture<TestDirectory
     }
 
     // ═══════════════════════════════════════════════════
-    //  Encode picks newest version
-    // ═══════════════════════════════════════════════════
-
-    [Fact(DisplayName = "Multi-step format encodes with newest version")]
-    public void MultiStepFormat_Encode_UsesNewestVersion()
-    {
-        var format = new CodecFormat("test-multi",
-        [
-            new CodecVersionStep(1, "v1", TaggedReader(1)),
-            new CodecVersionStep(2, "v2", TaggedReader(2)),
-            new CodecVersionStep(3, "v3", TaggedReader(3)),
-        ]);
-
-        CodecMigrationRegistry.Default.Register(format);
-
-        // Create a VersionEnvelope that uses the registry (simulating CodecFormats.Create).
-        // CodecFormats.Create checks the registry; we can also construct one manually.
-        var codec = Codec.VersionEnvelope<byte[], byte>(
-            versionCodec: Codec.UInt8,
-            bodyLengthCodec: Codec.VarInt64,
-            unknown: (ver, body) => body,
-            cases:
-            [
-                // Newest first (matching CodecFormats.Create's reverse iteration)
-                Codec.VersionCase<byte[], byte[]>((byte)3, "v3", TaggedReader(3)),
-                Codec.VersionCase<byte[], byte[]>((byte)2, "v2", TaggedReader(2)),
-                Codec.VersionCase<byte[], byte[]>((byte)1, "v1", TaggedReader(1)),
-            ]);
-
-        // Encode a body — the tag byte is stripped by the reader's encode,
-        // so we provide a full tagged model and verify the round-trip.
-        byte[] model = [0xAA, 0xBB, 0x03]; // last byte is the tag for v3
-        byte[] encoded = Codec.EncodeToArray(codec, model);
-
-        // First byte of encoded output is the version byte.
-        Assert.Equal(3, encoded[0]);
-    }
-
-    // ═══════════════════════════════════════════════════
     //  Decode dispatches by version byte
     // ═══════════════════════════════════════════════════
 
@@ -240,64 +201,6 @@ public sealed class CodecMigrationIntegrationTests : IClassFixture<TestDirectory
         var result2 = Codec.Decode(codec, v2Data);
 
         Assert.Equal([0x10, 0x20], result2);
-    }
-
-    // ═══════════════════════════════════════════════════
-    //  CodecFormats.Create integration with registry
-    // ═══════════════════════════════════════════════════
-
-    [Fact(DisplayName = "CodecFormats.Create uses registry when registered")]
-    public void CodecFormats_Create_UsesRegistry()
-    {
-        // Register a multi-step format for "pos" (overriding the default single-step)
-        var v1Reader = TaggedReader(1);
-        var v2Reader = TaggedReader(2);
-
-        var format = new CodecFormat("test-pos-registry",
-        [
-            new CodecVersionStep(1, "pos-v1", v1Reader),
-            new CodecVersionStep(2, "pos-v2", v2Reader),
-        ]);
-
-        CodecMigrationRegistry.Default.Register(format);
-
-        // Build a codec that uses the registry (simulating CodecFormats.Create logic).
-        var codec = BuildFromRegistry("test-pos-registry");
-
-        Assert.NotNull(codec);
-
-        // v1 data should dispatch through v1 reader
-        byte[] v1Data = [0x01, 0x02, 0x42];
-        var result = Codec.Decode(codec, v1Data);
-        AssertTagged(result, 1);
-    }
-
-    /// <summary>
-    /// Builds a VersionEnvelope from the registry, matching CodecFormats.Create logic.
-    /// </summary>
-    private static ICodec<byte[]> BuildFromRegistry(string ext)
-    {
-        var cases = new List<VersionCaseDefinition<byte[]>>();
-
-        var format = CodecMigrationRegistry.Default.Get(ext);
-        if (format != null)
-        {
-            for (int i = format.Steps.Count - 1; i >= 0; i--)
-            {
-                var step = format.Steps[i];
-                cases.Add(Codec.VersionCase<byte[], byte[]>(
-                    (byte)step.Version, step.Label, step.Reader));
-            }
-        }
-
-        if (cases.Count == 0)
-            throw new InvalidOperationException($"No format registered for '{ext}'.");
-
-        return Codec.VersionEnvelope<byte[], byte>(
-            versionCodec: Codec.UInt8,
-            bodyLengthCodec: Codec.VarInt64,
-            unknown: (ver, body) => body,
-            cases: cases.ToArray());
     }
 
     /// <summary>

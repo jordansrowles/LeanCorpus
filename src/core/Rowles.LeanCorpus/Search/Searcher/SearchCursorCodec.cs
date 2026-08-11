@@ -60,11 +60,17 @@ internal sealed class SearchCursorCodec
         if (parts.Length != (_key is null ? 1 : 2)) throw Invalid("Cursor integrity format is invalid.");
         byte[] payload;
         try { payload = FromBase64Url(parts[0]); } catch (FormatException) { throw Invalid("Cursor encoding is invalid."); }
+        if (!string.Equals(parts[0], Base64Url(payload), StringComparison.Ordinal))
+        {
+            if (_key is not null) throw Integrity();
+            throw Invalid("Cursor encoding is not canonical.");
+        }
         if (payload.Length > _maximumBytes) throw Invalid("Cursor payload exceeds the configured size limit.");
         if (_key is not null)
         {
             byte[] supplied;
             try { supplied = FromBase64Url(parts[1]); } catch (FormatException) { throw Integrity(); }
+            if (!string.Equals(parts[1], Base64Url(supplied), StringComparison.Ordinal)) throw Integrity();
             var expected = HMACSHA256.HashData(_key, payload);
             if (supplied.Length != expected.Length || !CryptographicOperations.FixedTimeEquals(supplied, expected)) throw Integrity();
         }
