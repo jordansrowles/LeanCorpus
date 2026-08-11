@@ -3,5 +3,5 @@ category: Indexing.Management
 leancorpus: ✔   IndexFormatInspector.Inspect()
 lucene.net: ❌
 lucene (java): ❌
-notes: Structured inventory of codec versions, sidecars, and orphan files.
+notes: Logical loose/compound inventory of format IDs, frame and body versions, checksums, sidecars and orphan files.
 ---

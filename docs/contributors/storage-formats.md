@@ -1,103 +1,93 @@
 # Storage formats
 
-A LeanCorpus commit is a manifest plus a set of immutable segment files. Format changes must preserve the ability to identify the version being read, reject malformed lengths before allocating, and either remain readable or have an explicit migration path.
+A LeanCorpus commit is a manifest plus immutable segment files. `CodecCatalog` is the authoritative inventory of persistent file roles, current body-format versions, access patterns, framing, checksums and migration policy.
 
 ## Segment inventory
 
-The exact inventory depends on the fields and features used by a segment.
+The exact files depend on enabled fields and features.
 
-| Extension | Contents |
-|---|---|
-| `.dic` | Term dictionary backed by an FST |
-| `.pos` | Postings, frequencies, positions, offsets, and optional payloads |
-| `.fdt`, `.fdx` | Stored-field data and block index |
-| `.dvd`, `.dvm` | DocValues data and metadata |
-| `.nrm` | Field-length norms |
-| `.bkd` | Numeric point index |
-| `.vec`, `.vem`, `.hnsw` | Vector values, vector metadata, and optional HNSW graph |
-| `.tvd`, `.tvx` | Term-vector data and index |
-| `.del` | Deletion bitmap |
-| `.sdel` | Soft-deletion metadata |
-| `.pbs` | Parent markers for block joins |
-| `.srt` | Index-sort metadata |
+| Family | Files | Access |
+|---|---|---|
+| Term dictionary | `.dic` | materialised FST metadata |
+| Postings | `.pos` | streaming write, lazy/random read offsets |
+| Norms and field lengths | `.nrm`, `.fln` | materialised |
+| Stored fields | `.fdt`, `.fdx` | streaming data and random-access index |
+| Term vectors | `.tvd`, `.tvx` | streaming data and random-access index |
+| DocValues | `.dvn`, `.dvs`, `.dss`, `.dsn`, `.dvb`, `.dvnl`, `.dsnl` | sequential columns |
+| Numeric structures | `.bkd`, `.bkdl`, `.num`, `.numl` | direct traversal and sparse sidecars |
+| Vectors | `.vec`, `.vq`, `.hnsw` | retained random access |
+| Deletions and joins | `.del`, `.pbs` | bitmap payloads |
+| Segment infrastructure | `.seg`, `.stats.json`, `.cfs` | JSON metadata or container |
 
-`segments_N` identifies the files belonging to a commit. Collection statistics may be stored separately as `stats_N.json`.
+`segments_N` identifies the segments in a commit and `stats_N.json` stores commit statistics. JSON and compound files are catalogue entries but are not mechanically wrapped in the binary frame.
 
-## CodecKit envelope
+## Canonical binary Frame v1
 
-Most CodecKit-framed files begin with a one-byte format version followed by a variable-length body size and the body. The size is validated before the body is allocated or decoded.
+Current versioned binary files have a positive identity and a body checksum. All numeric fields are little-endian.
 
-![CodecKit envelope showing a version byte, variable-length body size, and body bytes](../assets/diagrams/codeckit-envelope.svg)
+| Field | Size | Rule |
+|---|---:|---|
+| Magic | 4 | bytes `LCCF` |
+| Frame version | 1 | `1` |
+| Format ID length | 1 | 1 to 64 bytes |
+| Body-format version | 4 | positive integer |
+| Flags | 4 | zero in Frame v1 |
+| Checksum algorithm | 1 | built-ins use xxHash64 |
+| Reserved | 1 | zero |
+| Format ID | variable | namespaced lowercase ASCII |
+| Body | variable | format-specific bytes |
+| Body length | 8 | exact physical body length |
+| Checksum | 8 | checksum of the body only |
 
-The diagram is generated from `docs/diagrams/codeckit-envelope.edn` using Bytefield-SVG. The SVG is committed so DocFX builds do not require Node.js. Run `npm ci` and `npm run diagrams` in `docs/diagrams` after changing its source.
+Frame version describes this outer structure. Body-format version describes the codec body. They change independently.
 
-Some streaming formats use a trailer form instead:
+Normal opens validate framing and bounds but do not scan a large body checksum. `IndexValidator` deep validation performs that scan. Materialising reads are constrained separately from the maximum permitted file size.
+
+## Supported historical framing
+
+Supported 1.x and 2.x bodies may use:
 
 ```text
-[version: byte] [body: bodyLength bytes] [bodyLength: int64 little-endian]
+[version: byte][zigzag VarInt64 body length][body]
 ```
 
-The fixed-width trailer lets a reader seek backwards from the end. Stored fields have their own streaming header because buffering a complete stored-field file would defeat block streaming.
+or the ADR009 trailer:
 
-## Checksums
-
-Framing and checksumming are separate concerns:
-
-- `CodecFileHeader` identifies the version and body boundary. It does not add a checksum by itself.
-- `WithChecksumCodec` wraps a codec when a checksummed payload is required.
-- `segments_N` uses its commit checksum representation rather than the generic CodecKit envelope.
-- file-level validation also checks declared lengths, expected versions, referenced files, and format-specific invariants.
-
-Do not document or implement a universal `magic + body + CRC32` shape. The repository contains several deliberately different framing strategies.
-
-## Version registration
-
-`CodecFormat` identifies a logical format and its ordered `CodecVersionStep` readers. A writer uses the current step. A reader dispatches according to the version stored in the file.
-
-```mermaid-latest
-flowchart LR
-    V[Version byte] --> R[CodecFormat registry]
-    R --> S1[Version step 1]
-    R --> S2[Version step 2]
-    R --> SN[Current version step]
-    S1 --> D[Decoded model]
-    S2 --> D
-    SN --> D
+```text
+[version: byte][body][body length: int64]
 ```
 
-A format change requires:
+Postings and stored fields also had declared custom streaming headers. Live-doc files had a headerless outer representation containing a framed Roaring bitmap. Legacy detection is permitted only when the catalogue descriptor declares that framing for the detected body version.
 
-1. a new version constant and `CodecVersionStep`;
-2. the previous reader retained when backward reading is supported;
-3. malformed and boundary-case tests;
-4. compatibility inventory and migration coverage;
-5. documentation of the on-disk difference.
+Current writers never emit these legacy outer frames.
 
-See [Adding formats](codeckit/02-adding-formats.md) and [Codec migrations](codeckit/03-migrations.md).
+## Loose and compound files
 
-## Commit format
+`ISegmentFileSource` exposes a logical file name and bounded `IndexInput` for both loose files and members stored in `.cfs`. A canonical footer is checked against the logical member boundary, not the end of the container. Inspector, compatibility and validator output therefore report both the logical member and its physical location.
 
-The commit manifest is published after all referenced files. Its checksum protects the serialised manifest. Readers reject an invalid or incomplete generation and recovery can select the latest valid predecessor.
+## Random-access formats
 
-```mermaid-latest
-packet-beta
-    0-7: "Manifest JSON (variable length)"
-    8-11: "Line break & #crc32="
-    12-15: "CRC32 & line break"
-```
+Postings, vectors, HNSW and BKD readers retain an input and perform direct offset arithmetic. Their offsets must stay inside the declared body range. Adding Frame v1 must not materialise these files or scan checksums during ordinary search opens.
 
-The packet is schematic because the JSON and hexadecimal checksum text have variable lengths. Use it to explain ordering, not fixed byte offsets.
+Stored-field and term-vector pairs coordinate offsets across their data and index bodies. Their current and historical pair versions are validated together.
 
-## Compatibility inspection and migration
+## External and versionless files
 
-`IndexFormatInspector` inventories codec versions without opening the index for normal search. `IndexCompatibility` evaluates that inventory against the current reader. `IndexOpenGuard` enforces the configured compatibility mode.
+`.seg`, `segments_N`, statistics JSON and `.cfs` retain their own serialisation or container rules. Minor binary sidecars such as `.num`, `.numl` and `.pbs` are explicit catalogue entries even when they remain versionless. This means recovery and tooling know their ownership and temporary-file patterns without pretending they use Frame v1.
 
-`IndexCodecMigrator` performs user-facing staged migration. This is distinct from adding a new `CodecVersionStep`: contributors define readable formats, while operators use migration APIs to rewrite an existing index safely.
+## Compatibility and migration
 
-See [validation, recovery, and compatibility](../index-management/03-validation-recovery.md) for operational examples.
+`IndexFormatInspector` inventories logical files. `IndexCompatibility` applies open policy. `IndexValidator` layers container, frame, body and cross-file checks. `IndexCodecMigrator` stages descriptor-led reframe, rewrite and coordinated-rewrite actions through normal current writers.
 
-## Store abstraction
+A 3.0-written canonical index cannot be opened by 2.x. Retain a verified backup before migration when application rollback is possible.
 
-`MMapDirectory` is the normal filesystem-backed directory. `IndexInput` and `IndexOutput` provide bounded reads, writes, seeking, slicing, and lifetime ownership. `IndexAtomicFileWriter`, `DirectoryFsync`, and `FileOpenRetry` centralise platform-sensitive filesystem behaviour.
+## Store boundary
 
-Keep raw filesystem access behind the Store boundary. This preserves retry policy, atomic publication, Windows sharing behaviour, metrics, and testability.
+`MMapDirectory`, `IndexInput` and `IndexOutput` own filesystem and mapped-file lifetimes. `IndexAtomicFileWriter`, `DirectoryFsync` and `FileOpenRetry` centralise publication and platform-sensitive retry behaviour. Keep raw filesystem access behind this boundary.
+
+## See also
+
+- [CodecKit](codeckit/index.md)
+- [Adding persistent formats](codeckit/02-adding-formats.md)
+- [Codec migrations](codeckit/03-migrations.md)
+- [Validation and recovery](../index-management/03-validation-recovery.md)

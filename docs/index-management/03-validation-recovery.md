@@ -24,7 +24,7 @@ Console.WriteLine($"Documents checked: {result.DocumentsChecked}");
 
 ## Shallow validation
 
-The default check verifies: newest readable `segments_N` commit, segment metadata, required segment files (`.seg`, `.dic`, `.pos`, `.fdt`, `.fdx`, `.nrm`), optional sidecars when present (`.dvn`, `.dvs`, `.dss`, `.dsn`, `.dvb`, `.num`, `.bkd`, `.fln`, `.tvd`, `.tvx`, `.pbs`), vector files (`.vec`, `.hnsw`), live docs (`.del`, `_gen_N.del`), codec headers, stored-field compression metadata, deletion generation files, vector descriptors, and HNSW descriptors.
+The default check is catalogue-driven. It verifies the newest readable `segments_N` commit, logical loose and compound members, canonical or declared legacy framing, format identity and version support, exact body bounds, segment metadata, required files and relevant cross-file descriptors. It does not scan every large body checksum.
 
 ## Deep validation
 
@@ -46,6 +46,8 @@ var result = IndexValidator.Check(dir, new IndexCheckOptions
 | `VerifyVectors` | Opens vector files, checks count and dimensions |
 | `VerifyHnsw` | Reads HNSW graph files through the vector reader source |
 | `VerifyLiveDocs` | Deserialises live-doc bitsets, checks live counts |
+
+Deep validation also streams canonical bodies through their declared checksum algorithm. It reports a structured frame or checksum issue without materialising random-access files.
 
 ## Issue fields
 
@@ -83,11 +85,14 @@ foreach (var segment in inventory.Segments)
 {
     Console.WriteLine(segment.SegmentId);
     foreach (var file in segment.Files)
-        Console.WriteLine($"  {file.FileName}: {file.CodecName} v{file.Version}");
+        Console.WriteLine(
+            $"  {file.FileName}: {file.FormatId}, frame={file.FrameVersion}, " +
+            $"format={file.FormatVersion}, checksum={file.ChecksumStatus}, " +
+            $"location={file.PhysicalLocation}");
 }
 ```
 
-Reports segment IDs, file names, codec names, codec versions, DocValues sidecars, vector files, HNSW files, live-doc generations, and orphan files. Future codec versions are reported in `inventory.Issues` rather than thrown.
+Reports stable format and family IDs, frame kind/version, body-format version, current status, checksum algorithm/status, logical member name, physical loose/compound location, sidecars and orphan files. Future, unknown, mismatched and corrupt formats are reported in `inventory.Issues` rather than guessed.
 
 ## Compatibility and migration
 
@@ -109,7 +114,7 @@ if (compatibility.CanMigrate)
 }
 ```
 
-Compatibility statuses: `Compatible`, `MigrationRecommended`, `MigrationRequired`, `UnsupportedFutureFormat`, `Corrupt`, `Empty`. The result also exposes `CanRead`, `CanWrite`, `CanValidate`, `CanMigrate`, `MustReject`, and `RequiresMigration`.
+Compatibility statuses: `Compatible`, `MigrationRecommended`, `MigrationRequired`, `UnsupportedFutureFormat`, `UnknownFormat`, `Corrupt`, `Empty`. The result also exposes `CanRead`, `CanWrite`, `CanValidate`, `CanMigrate`, `MustReject`, and `RequiresMigration`.
 
 `IndexCodecMigrator.Migrate` copies the index to a staging directory, rewrites older codec files, deep-validates the staged index, publishes the files back, and records `migration_state.json` markers:
 
@@ -128,6 +133,7 @@ New commit files include a CRC32 trailer. Recovery validates it before loading t
 ## See also
 
 - [Index checker CLI](04-cli-checker.md)
+- [Migrating indexes to 3.0](11-codec-migration-3-0.md)
 - <xref:Rowles.LeanCorpus.Index.IndexValidator>
 - <xref:Rowles.LeanCorpus.Index.IndexRecovery>
 - <xref:Rowles.LeanCorpus.Index.Format.IndexFormatInspector>

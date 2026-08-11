@@ -143,6 +143,8 @@
           href: index-management/09-term-vectors-and-payloads.md
         - name: Store and file I/O
           href: index-management/10-store-and-file-io.md
+        - name: Migrating indexes to 3.0
+          href: index-management/11-codec-migration-3-0.md
     - name: Observability
       href: observability/index.md
       items:

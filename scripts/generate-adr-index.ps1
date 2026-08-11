@@ -116,7 +116,7 @@ function Get-AdrFrontMatter([string]$Path) {
         throw "ADR '$Path' has an invalid ADR identifier '$($frontMatter['adr'])'."
     }
 
-    if ($frontMatter['status'] -notin @('Accepted', 'Deprecated')) {
+    if ($frontMatter['status'] -notin @('Accepted', 'Deprecated', 'Superseded')) {
         throw "ADR '$Path' has an invalid status '$($frontMatter['status'])'."
     }
 

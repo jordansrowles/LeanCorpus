@@ -779,7 +779,7 @@ Lucene.NET refers to the packaged 4.8 line. Use the column filters to narrow the
     "leancorpus": "✔",
     "luceneNet": "◐",
     "luceneJava": "◐",
-    "notes": "LeanCorpus CodecKit provides composable binary codecs, framing, checksums, validation, and versioning beyond index-format selection.",
+    "notes": "LeanCorpus CodecKit preserves composable ICodec bodies beneath a canonical persistent-file frame and immutable format catalogue.",
     "details": {
       "LeanCorpus": "ICodec<T> / Codec / CodecRegistry",
       "Lucene.NET": "",
@@ -792,22 +792,9 @@ Lucene.NET refers to the packaged 4.8 line. Use the column filters to narrow the
     "leancorpus": "✔",
     "luceneNet": "❌",
     "luceneJava": "❌",
-    "notes": "Dry-run planning, staged migration, rollback, and abandon without full reindexing.",
+    "notes": "Catalogue-led dry-run planning, staged rewrites, deep validation and recoverable publication without full reindexing.",
     "details": {
       "LeanCorpus": "IndexCodecMigrator.Plan() / Migrate()",
-      "Lucene.NET": "",
-      "Lucene (Java)": ""
-    }
-  },
-  {
-    "feature": "Codec migration registry",
-    "category": "Storage",
-    "leancorpus": "✔",
-    "luceneNet": "❌",
-    "luceneJava": "❌",
-    "notes": "Ordered in-process format-version migrations.",
-    "details": {
-      "LeanCorpus": "CodecMigrationRegistry / CodecVersionStep",
       "Lucene.NET": "",
       "Lucene (Java)": ""
     }
@@ -1494,7 +1481,7 @@ Lucene.NET refers to the packaged 4.8 line. Use the column filters to narrow the
     "leancorpus": "✔",
     "luceneNet": "❌",
     "luceneJava": "❌",
-    "notes": "Structured inventory of codec versions, sidecars, and orphan files.",
+    "notes": "Logical loose/compound inventory of format IDs, frame and body versions, checksums, sidecars and orphan files.",
     "details": {
       "LeanCorpus": "IndexFormatInspector.Inspect()",
       "Lucene.NET": "",
@@ -3070,6 +3057,19 @@ Lucene.NET refers to the packaged 4.8 line. Use the column filters to narrow the
     "notes": "",
     "details": {
       "LeanCorpus": "",
+      "Lucene.NET": "",
+      "Lucene (Java)": ""
+    }
+  },
+  {
+    "feature": "Persistent format catalogue",
+    "category": "Storage",
+    "leancorpus": "✔",
+    "luceneNet": "❌",
+    "luceneJava": "❌",
+    "notes": "Immutable namespaced catalogue for persistent file roles, versions, framing, checksums, validation and migration policy.",
+    "details": {
+      "LeanCorpus": "CodecCatalog / CodecFileDescriptor",
       "Lucene.NET": "",
       "Lucene (Java)": ""
     }
