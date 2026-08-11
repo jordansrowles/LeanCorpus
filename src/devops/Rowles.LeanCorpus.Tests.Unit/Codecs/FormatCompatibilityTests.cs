@@ -127,7 +127,7 @@ public sealed class FormatCompatibilityTests : IDisposable
         var exception = Assert.Throws<InvalidDataException>(() =>
             CodecFileHeader.Read(reader, CodecFormats.TermDictionary));
 
-        Assert.Contains("CodecKit file is corrupt or truncated", exception.Message);
+        Assert.Contains("truncated", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -218,7 +218,7 @@ public sealed class FormatCompatibilityTests : IDisposable
         GC.WaitForPendingFinalizers();
         GC.Collect();
 
-        // Assert - Verify that .dic and .pos files start with the correct CodecKit header
+        // Assert - Verify that .dic and .pos files use the canonical CodecKit frame.
         var dicFiles = System.IO.Directory.GetFiles(indexPath, "*.dic");
         var posFiles = System.IO.Directory.GetFiles(indexPath, "*.pos");
 
@@ -228,21 +228,17 @@ public sealed class FormatCompatibilityTests : IDisposable
         // Verify .dic file header
         foreach (var dicFile in dicFiles)
         {
-            using var fs = new FileStream(dicFile, FileMode.Open, FileAccess.Read, FileShare.Read);
-            using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
-
-            byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.TermDictionary);
-            Assert.Equal(CodecConstants.TermDictionaryVersion, version);
+            using var input = new IndexInput(dicFile);
+            using var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.term-dictionary.data"));
+            Assert.Equal(CodecConstants.TermDictionaryVersion, frame.Metadata.FormatVersion);
         }
 
         // Verify .pos file header
         foreach (var posFile in posFiles)
         {
-            using var fs = new FileStream(posFile, FileMode.Open, FileAccess.Read, FileShare.Read);
-            using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
-
-            byte version = PostingsFileHeader.ReadVersion(reader);
-            Assert.Equal(CodecConstants.PostingsVersion, version);
+            using var input = new IndexInput(posFile);
+            using var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.postings.data"));
+            Assert.Equal(CodecConstants.PostingsVersion, frame.Metadata.FormatVersion);
         }
     }
 

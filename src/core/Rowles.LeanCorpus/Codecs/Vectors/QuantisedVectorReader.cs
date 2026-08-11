@@ -1,5 +1,4 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.Vectors;
@@ -26,6 +25,7 @@ internal sealed class QuantisedVectorReader : IDisposable
     // BBQ parameters
     private readonly float[]? _centroid;
     private readonly int _bbqPackedBytes;
+    private readonly IDisposable _frame;
 
     private bool _disposed;
 
@@ -38,7 +38,8 @@ internal sealed class QuantisedVectorReader : IDisposable
         long packedStart,
         float min,
         float alpha,
-        float[]? centroid)
+        float[]? centroid,
+        IDisposable frame)
     {
         _input = input;
         _docCount = docCount;
@@ -50,6 +51,7 @@ internal sealed class QuantisedVectorReader : IDisposable
         _alpha = alpha;
         _centroid = centroid;
         _bbqPackedBytes = (dimension + 7) / 8;
+        _frame = frame;
     }
 
     public static QuantisedVectorReader Open(string filePath)
@@ -62,19 +64,17 @@ internal sealed class QuantisedVectorReader : IDisposable
     internal static QuantisedVectorReader Open(IndexInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
+        CodecBodyReadSession? frame = null;
         try
         {
-            byte version = CodecFileHeader.ReadVersion(input, CodecFormats.QuantisedVectors);
-
-            if (version > CodecConstants.QuantisedVectorVersion)
-                throw new InvalidDataException(
-                    $"Unsupported quantised vector format version {version}. " +
-                    $"This build supports up to version {CodecConstants.QuantisedVectorVersion}.");
+            frame = CodecFileReader.OpenSupported(input, VectorCodecFiles.Quantised);
 
             long offset = input.Position;
 
             int docCount = input.ReadInt32(ref offset);
             int dimension = input.ReadInt32(ref offset);
+            if (docCount < 0 || dimension <= 0)
+                throw new InvalidDataException("Quantised vector file contains an invalid document count or dimension.");
 
             var quantisation = (VectorQuantisation)input.ReadByte(ref offset);
 
@@ -102,12 +102,17 @@ internal sealed class QuantisedVectorReader : IDisposable
             long correctionStart = offset;
             int correctionSize = quantisation == VectorQuantisation.Int8 ? 1 : 3;
             long packedStart = offset + (long)docCount * correctionSize * sizeof(float);
+            int packedBytes = quantisation == VectorQuantisation.Int8 ? dimension : (dimension + 7) / 8;
+            long dataEnd = checked(packedStart + (long)docCount * packedBytes);
+            if (dataEnd != checked(frame.BodyStart + frame.BodyLength))
+                throw new InvalidDataException("Quantised vector body length does not match its metadata.");
 
             return new QuantisedVectorReader(input, docCount, dimension,
-                quantisation, correctionStart, packedStart, min, alpha, centroid);
+                quantisation, correctionStart, packedStart, min, alpha, centroid, frame);
         }
         catch
         {
+            frame?.Dispose();
             input.Dispose();
             throw;
         }
@@ -251,6 +256,7 @@ internal sealed class QuantisedVectorReader : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _frame.Dispose();
         _input.Dispose();
     }
 }

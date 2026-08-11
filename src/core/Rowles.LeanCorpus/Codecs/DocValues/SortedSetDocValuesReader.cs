@@ -1,6 +1,5 @@
 using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 using System.Collections.Generic;
 
@@ -25,7 +24,7 @@ internal static class SortedSetDocValuesReader
     {
         using var inputLifetime = input;
         var values = new Dictionary<string, string[][]>(StringComparer.Ordinal);
-        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.SortedSetDocValues);
+        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.SortedSet);
 
         int fieldCount = input.ReadInt32();
         for (int f = 0; f < fieldCount; f++)
@@ -90,7 +89,7 @@ internal static class SortedSetDocValuesReader
     {
         using var inputLifetime = input;
         var terms = new Dictionary<string, string[]>(StringComparer.Ordinal);
-        _ = CodecFileHeader.ReadVersion(input, CodecFormats.SortedSetDocValues);
+        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.SortedSet);
         int fieldCount = input.ReadInt32();
         for (int f = 0; f < fieldCount; f++)
         {
@@ -122,7 +121,7 @@ internal static class SortedSetDocValuesReader
             return new List<(string, IReadOnlyList<string>?[])>(0);
 
         using var input = new IndexInput(filePath);
-        byte version = CodecFileHeader.ReadVersionAndSkipHeader(input);
+        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.SortedSet);
 
         int fieldCount = input.ReadInt32();
         var results = new List<(string, IReadOnlyList<string>?[])>(fieldCount);

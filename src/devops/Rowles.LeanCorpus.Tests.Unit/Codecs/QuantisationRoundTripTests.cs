@@ -1,5 +1,8 @@
 using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.Vectors;
+using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Codecs;
@@ -16,6 +19,15 @@ public sealed class QuantisationRoundTripTests : IClassFixture<TestDirectoryFixt
     public QuantisationRoundTripTests(TestDirectoryFixture fixture) => _fixture = fixture;
 
     private string TempFile(string name) => System.IO.Path.Combine(_fixture.Path, name);
+
+    private static void AssertCurrentFrame(string path, string formatId, byte expectedVersion)
+    {
+        using var input = new IndexInput(path);
+        using var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile(formatId));
+        Assert.Equal(CodecFileWriter.CurrentFrameVersion, frame.Metadata.FrameVersion);
+        Assert.Equal(expectedVersion, frame.Metadata.FormatVersion);
+        frame.ValidateChecksum();
+    }
 
     // --------------- Int8 scalar quantisation ---------------
 
@@ -37,6 +49,7 @@ public sealed class QuantisationRoundTripTests : IClassFixture<TestDirectoryFixt
 
         var path = TempFile("int8_roundtrip.vq");
         QuantisedVectorWriter.WriteInt8(path, docCount, dim, original);
+        AssertCurrentFrame(path, "leancorpus.vectors.quantised", CodecConstants.QuantisedVectorVersion);
 
         using var reader = QuantisedVectorReader.Open(path);
         Assert.Equal(docCount, reader.DocCount);
@@ -141,6 +154,7 @@ public sealed class QuantisationRoundTripTests : IClassFixture<TestDirectoryFixt
 
         var path = TempFile("bbq_roundtrip.vq");
         QuantisedVectorWriter.WriteBBQ(path, docCount, dim, original, centroid);
+        AssertCurrentFrame(path, "leancorpus.vectors.quantised", CodecConstants.QuantisedVectorVersion);
 
         using var reader = QuantisedVectorReader.Open(path);
         Assert.Equal(docCount, reader.DocCount);
@@ -234,5 +248,30 @@ public sealed class QuantisationRoundTripTests : IClassFixture<TestDirectoryFixt
         QuantisedVectorWriter.WriteBBQ(bbqPath, 1, 3, original, new float[] { 0f, 0f, 0f });
         using (var r = QuantisedVectorReader.Open(bbqPath))
             Assert.Equal(VectorQuantisation.BBQ, r.Quantisation);
+    }
+
+    [Fact(DisplayName = "Quantisation: Production reader reads legacy envelope")]
+    public void ProductionReader_ReadsLegacyEnvelope()
+    {
+        var canonicalPath = TempFile("legacy_source.vq");
+        var legacyPath = TempFile("legacy_fixture.vq");
+        var vectors = new Dictionary<int, ReadOnlyMemory<float>>
+        {
+            [0] = new float[] { -1f, 0f, 1f },
+        };
+        QuantisedVectorWriter.WriteInt8(canonicalPath, 1, 3, vectors);
+
+        byte[] body;
+        using (var input = new IndexInput(canonicalPath))
+        using (var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.vectors.quantised")))
+            body = frame.ReadBody();
+
+        using (var output = new IndexOutput(legacyPath))
+            CodecFileHeader.Write(output, CodecFormats.QuantisedVectors, body);
+
+        using var reader = QuantisedVectorReader.Open(legacyPath);
+        Assert.Equal(VectorQuantisation.Int8, reader.Quantisation);
+        Assert.Equal(3, reader.Dimension);
+        Assert.Equal(1, reader.DocCount);
     }
 }

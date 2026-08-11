@@ -1,4 +1,5 @@
 using System.IO;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Util;
 using Rowles.LeanCorpus.Store;
 
@@ -96,8 +97,10 @@ internal sealed class LiveDocs
     /// </param>
     public static void Serialise(string filePath, LiveDocs liveDocs, bool durable = false)
     {
-        IndexAtomicFileWriter.Write(filePath, durable, stream =>
+        var descriptor = CodecCatalog.Default.GetFile("leancorpus.deletes.live-docs");
+        CodecFileWriter.WriteAtomically(filePath, descriptor, durable, body =>
         {
+            using var stream = body.AsStream();
             using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
             liveDocs._deletedDocs.Serialise(writer);
 
@@ -127,15 +130,35 @@ internal sealed class LiveDocs
     /// </summary>
     public static LiveDocs Deserialise(string filePath, int maxDoc)
     {
-        using var fs = FileOpenRetry.OpenReadDelete(filePath);
-        using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8);
+        using var input = new IndexInput(filePath);
+        if (input.Length >= sizeof(int))
+        {
+            int magic = input.ReadInt32();
+            input.Seek(0);
+            if (unchecked((uint)magic) == CodecFileWriter.Magic)
+            {
+                var descriptor = CodecCatalog.Default.GetFile("leancorpus.deletes.live-docs");
+                using var frame = CodecFileReader.Open(input, descriptor);
+                frame.ValidateChecksum();
+                using var body = new IndexInputStream(input, frame.Metadata.BodyStart, frame.Metadata.BodyLength, leaveOpen: true);
+                return DeserialiseBody(body, maxDoc);
+            }
+        }
+
+        using var stream = new IndexInputStream(input, 0, input.Length, leaveOpen: true);
+        return DeserialiseBody(stream, maxDoc);
+    }
+
+    private static LiveDocs DeserialiseBody(Stream stream, int maxDoc)
+    {
+        using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
 
         var deletedDocs = RoaringBitmap.Deserialise(reader);
 
         Dictionary<int, long>? timestamps = null;
 
         // Check if there is trailing data after the bitmap
-        long remaining = fs.Length - fs.Position;
+        long remaining = stream.Length - stream.Position;
         if (remaining >= 4)
         {
             try

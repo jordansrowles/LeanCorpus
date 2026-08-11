@@ -2,7 +2,6 @@ using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Store;
 
@@ -54,37 +53,35 @@ internal static class NormsWriter
         bool durable = false,
         IReadOnlyDictionary<string, Dictionary<int, float>>? sparseFieldBoosts = null)
     {
-        var bodyBuf = new ArrayBufferWriter<byte>(4096);
-
-        PostingsWriter.WriteVarInt(bodyBuf, fieldNorms.Count);
-
-        foreach (var (fieldName, norms) in fieldNorms)
+        var descriptor = CodecCatalog.Default.GetFile("leancorpus.norms.data");
+        CodecFileWriter.WriteAtomically(filePath, descriptor, durable, bodyOutput =>
         {
-            int count = docCount >= 0 ? docCount : norms.Length;
+            PostingsWriter.WriteVarInt(bodyOutput, fieldNorms.Count);
 
-            if (sparseFieldBoosts is not null && sparseFieldBoosts.TryGetValue(fieldName, out var sparseBoosts))
+            foreach (var (fieldName, norms) in fieldNorms)
             {
-                // Sparse boosts handled inline; write header + norms then sparse boosts
-                var fieldBytes = Encoding.UTF8.GetBytes(fieldName);
-                PostingsWriter.WriteVarInt(bodyBuf, fieldBytes.Length);
-                bodyBuf.WriteBytes(fieldBytes);
+                int count = docCount >= 0 ? docCount : norms.Length;
 
-                PostingsWriter.WriteVarInt(bodyBuf, count);
+                if (sparseFieldBoosts is not null && sparseFieldBoosts.TryGetValue(fieldName, out var sparseBoosts))
+                {
+                    var fieldBytes = Encoding.UTF8.GetBytes(fieldName);
+                    PostingsWriter.WriteVarInt(bodyOutput, fieldBytes.Length);
+                    bodyOutput.WriteBytes(fieldBytes);
 
-                for (int i = 0; i < count; i++)
-                    bodyBuf.WriteByte(QuantiseNorm(norms[i]));
+                    PostingsWriter.WriteVarInt(bodyOutput, count);
 
-                WriteSparseBoosts(bodyBuf, sparseBoosts, count);
+                    for (int i = 0; i < count; i++)
+                        bodyOutput.WriteByte(QuantiseNorm(norms[i]));
+
+                    WriteSparseBoosts(bodyOutput, sparseBoosts, count);
+                }
+                else
+                {
+                    float[]? boosts = fieldBoosts is not null && fieldBoosts.TryGetValue(fieldName, out var dense) ? dense : null;
+                    WriteFieldBlock(bodyOutput, fieldName, norms, boosts, count);
+                }
             }
-            else
-            {
-                float[]? boosts = fieldBoosts is not null && fieldBoosts.TryGetValue(fieldName, out var dense) ? dense : null;
-                WriteFieldBlock(bodyBuf, fieldName, norms, boosts, count);
-            }
-        }
-
-        using var output = new IndexOutput(filePath, durable);
-        CodecFileHeader.Write(output, CodecFormats.Norms, bodyBuf.WrittenSpan);
+        });
     }
 
     private static void WriteDenseBoosts(IBufferWriter<byte> bw, float[] boosts, int count)

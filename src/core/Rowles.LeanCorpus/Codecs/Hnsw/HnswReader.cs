@@ -2,7 +2,6 @@ using Rowles.LeanCorpus.Codecs.Vectors;
 using System.IO;
 using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Codecs.Hnsw;
 
@@ -40,11 +39,10 @@ internal static class HnswReader
         bool? expectedNormalised,
         IReadOnlyDictionary<int, int>? docIdRemap)
     {
-        using var fs = new IndexInputStream(input);
+        using var frame = CodecFileReader.OpenSupported(input, VectorCodecFiles.Hnsw);
+        using var fs = frame.OpenBodyStream();
         using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
         string filePath = input.FilePath ?? "compound member";
-
-        byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.Hnsw);
 
         int dimension = reader.ReadInt32();
         bool normalised = reader.ReadByte() != 0;

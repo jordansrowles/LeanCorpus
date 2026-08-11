@@ -48,14 +48,14 @@ public sealed class HeaderRoundTripIntegrationTests : IClassFixture<TestDirector
             writer.Commit();
         }
 
-        // Verify .pos file
+        // Verify canonical codec frames.
         var posFiles = Directory.GetFiles(dir.DirectoryPath, "*.pos");
         Assert.NotEmpty(posFiles);
         foreach (var posFile in posFiles)
         {
             using var input = new IndexInput(posFile);
-            byte version = PostingsFileHeader.ReadVersion(input);
-            Assert.Equal(CodecConstants.PostingsVersion, version);
+            using var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.postings.data"));
+            Assert.Equal(CodecConstants.PostingsVersion, frame.Metadata.FormatVersion);
         }
 
         // Verify .fdt file
@@ -63,19 +63,19 @@ public sealed class HeaderRoundTripIntegrationTests : IClassFixture<TestDirector
         Assert.NotEmpty(fdtFiles);
         foreach (var fdtFile in fdtFiles)
         {
-            using var fs = new FileStream(fdtFile, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
-            using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
-            byte version = StoredFieldsFileHeader.ReadVersion(reader);
-            Assert.Equal(CodecConstants.StoredFieldsVersion, version);
+            using var input = new IndexInput(fdtFile);
+            using var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.stored-fields.data"));
+            Assert.Equal(CodecConstants.StoredFieldsVersion, frame.Metadata.FormatVersion);
         }
 
-        // Verify .tim file
-        var timFiles = Directory.GetFiles(dir.DirectoryPath, "*.tim");
-        foreach (var timFile in timFiles)
+        // Verify .dic file
+        var dictionaryFiles = Directory.GetFiles(dir.DirectoryPath, "*.dic");
+        Assert.NotEmpty(dictionaryFiles);
+        foreach (var dictionaryFile in dictionaryFiles)
         {
-            using var input = new IndexInput(timFile);
-            byte version = CodecFileHeader.ReadVersion(input, CodecFormats.TermDictionary);
-            Assert.Equal(CodecConstants.TermDictionaryVersion, version);
+            using var input = new IndexInput(dictionaryFile);
+            using var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.term-dictionary.data"));
+            Assert.Equal(CodecConstants.TermDictionaryVersion, frame.Metadata.FormatVersion);
         }
 
         // Verify .tvx files
@@ -83,8 +83,8 @@ public sealed class HeaderRoundTripIntegrationTests : IClassFixture<TestDirector
         foreach (var tvxFile in tvxFiles)
         {
             using var input = new IndexInput(tvxFile);
-            byte version = CodecFileHeader.ReadVersion(input, CodecFormats.TermVectors);
-            Assert.Equal(CodecConstants.TermVectorsVersion, version);
+            using var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.term-vectors.index"));
+            Assert.Equal(CodecConstants.TermVectorsVersion, frame.Metadata.FormatVersion);
         }
     }
 
@@ -105,15 +105,14 @@ public sealed class HeaderRoundTripIntegrationTests : IClassFixture<TestDirector
             writer.Commit();
         }
 
-        // Corrupt first byte of .pos to version=0xFF
+        // Corrupt the canonical semantic format version to an unsupported value.
         var posFiles = Directory.GetFiles(dir.DirectoryPath, "*.pos");
         Assert.NotEmpty(posFiles);
         byte[] bytes = File.ReadAllBytes(posFiles[0]);
-        bytes[0] = 0xFF;
+        BitConverter.GetBytes(int.MaxValue).CopyTo(bytes, 6);
         File.WriteAllBytes(posFiles[0], bytes);
 
-        using var searcher = new IndexSearcher(dir);
-        Assert.ThrowsAny<Exception>(() => searcher.Search(new TermQuery("body", "corruption"), 10));
+        Assert.Throws<InvalidDataException>(() => new IndexSearcher(dir));
     }
 
     [Fact(DisplayName = "Corrupt VarInt bodyLen in .pos (truncated) → IndexSearcher throws")]
@@ -171,8 +170,8 @@ public sealed class HeaderRoundTripIntegrationTests : IClassFixture<TestDirector
         foreach (var posFile in posFiles)
         {
             using var input = new IndexInput(posFile);
-            byte version = PostingsFileHeader.ReadVersion(input);
-            Assert.Equal(CodecConstants.PostingsVersion, version);
+            using var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.postings.data"));
+            Assert.Equal(CodecConstants.PostingsVersion, frame.Metadata.FormatVersion);
         }
     }
 }

@@ -1,5 +1,4 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Util;
 using System.Collections.Generic;
@@ -30,11 +29,7 @@ internal static class NumericDocValuesReader
         var values = new Dictionary<string, double[]>(StringComparer.Ordinal);
         var presence = new Dictionary<string, RoaringBitmap?>(StringComparer.Ordinal);
 
-        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.NumericDocValues);
-        if (version > CodecConstants.NumericDocValuesVersion)
-            throw new InvalidDataException(
-                $"Unsupported numeric doc values (.dvn) format version {version}. " +
-                $"This build supports up to v{CodecConstants.NumericDocValuesVersion}.");
+        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.Numeric);
 
         int fieldCount = input.ReadInt32();
 
@@ -118,11 +113,7 @@ internal static class NumericDocValuesReader
 
         using var input = new IndexInput(filePath);
 
-        byte version = CodecFileHeader.ReadVersionAndSkipHeader(input);
-        if (version > CodecConstants.NumericDocValuesVersion)
-            throw new InvalidDataException(
-                $"Unsupported numeric doc values (.dvn) format version {version}. " +
-                $"This build supports up to v{CodecConstants.NumericDocValuesVersion}.");
+        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.Numeric);
 
         int fieldCount = input.ReadInt32();
         var results = new List<(string Name, double[] Values, RoaringBitmap? Presence)>(fieldCount);

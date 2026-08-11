@@ -1,5 +1,7 @@
 using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.StoredFields;
+using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Codecs;
@@ -11,7 +13,7 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
 
     public StoredFieldsStreamingTests(TestDirectoryFixture fixture) => _fixture = fixture;
 
-    [Fact(DisplayName = "Stored Fields v3: writer emits version 3")]
+    [Fact(DisplayName = "Stored Fields v3: writer emits coordinated canonical frames")]
     public void Writer_EmitsVersion3()
     {
         var path = Path.Combine(_fixture.Path, $"sf-v3-{Guid.NewGuid():N}");
@@ -25,8 +27,8 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
 
         StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", docs.Length, docId => docs[docId]);
 
-        Assert.Equal(StoredFieldsFileHeader.V3, File.ReadAllBytes(path + ".fdt")[0]);
-        Assert.Equal(StoredFieldsFileHeader.V3, File.ReadAllBytes(path + ".fdx")[0]);
+        AssertCanonicalFrame(path + ".fdt", StoredFieldsCodecFiles.Data);
+        AssertCanonicalFrame(path + ".fdx", StoredFieldsCodecFiles.Index);
     }
 
     [Fact(DisplayName = "Stored Fields v2: round-trip many documents")]
@@ -136,8 +138,8 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         };
 
         StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", docs.Length, docId => docs[docId]);
-        int fdtHeaderSize = RewriteAsV1(path + ".fdt");
-        RewriteFdxAsV1(path + ".fdx", fdtHeaderSize - 1);
+        long fdtOffsetDelta = RewriteAsV1(path + ".fdt", StoredFieldsCodecFiles.Data);
+        RewriteFdxAsV1(path + ".fdx", fdtOffsetDelta);
 
         using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
         var stored = reader.ReadDocument(0);
@@ -167,11 +169,10 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", docs);
 
         // Overwrite rawLength in the first block header with a value exceeding the limit.
-        // .fdt layout: [version:1][blockSize:4][compression:1] then [docCount:4][rawLength:4][compLength:4]...
-        // rawLength is at offset 1 + 4 + 1 + 4 = 10
+        long bodyStart = ReadCanonicalBodyStart(path + ".fdt", StoredFieldsCodecFiles.Data);
         using (var fs = new FileStream(path + ".fdt", FileMode.Open, FileAccess.ReadWrite, FileShare.None))
         {
-            fs.Position = 10;
+            fs.Position = bodyStart + sizeof(int) + sizeof(byte) + sizeof(int);
             var bombLength = BitConverter.GetBytes(StoredFieldsReader.MaxDecompressedBlockBytes + 1);
             fs.Write(bombLength);
         }
@@ -193,10 +194,10 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", docs);
 
         // Overwrite docCount in the first block header to exceed blockSize (default 16).
-        // docCount is at offset 1 + 4 + 1 = 6
+        long bodyStart = ReadCanonicalBodyStart(path + ".fdt", StoredFieldsCodecFiles.Data);
         using (var fs = new FileStream(path + ".fdt", FileMode.Open, FileAccess.ReadWrite, FileShare.None))
         {
-            fs.Position = 6;
+            fs.Position = bodyStart + sizeof(int) + sizeof(byte);
             fs.Write(BitConverter.GetBytes(9999));
         }
 
@@ -206,21 +207,20 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
     }
 
 
-    private static int RewriteAsV1(string filePath)
+    private static long RewriteAsV1(string filePath, CodecFileDescriptor descriptor)
     {
-        var bytes = File.ReadAllBytes(filePath);
-        var body = bytes.AsSpan(1);
+        var (body, canonicalBodyStart) = ReadCanonicalBody(filePath, descriptor);
         using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
         fs.WriteByte(StoredFieldsFileHeader.V1);
         int varintSize = WriteVarInt64(fs, body.Length);
         fs.Write(body);
-        return 1 + varintSize;
+        return 1 + varintSize - canonicalBodyStart;
     }
 
     private static void RewriteFdxAsV1(string filePath, long offsetDelta)
     {
-        var bytes = File.ReadAllBytes(filePath);
-        var body = bytes.AsSpan(1);
+        var (bodyBytes, _) = ReadCanonicalBody(filePath, StoredFieldsCodecFiles.Index);
+        var body = bodyBytes.AsSpan();
         int blockCount = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(body.Slice(8));
 
         for (int i = 0; i < blockCount; i++)
@@ -234,6 +234,30 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         fs.WriteByte(StoredFieldsFileHeader.V1);
         WriteVarInt64(fs, body.Length);
         fs.Write(body);
+    }
+
+    private static void AssertCanonicalFrame(string path, CodecFileDescriptor descriptor)
+    {
+        using var input = new IndexInput(path);
+        using var frame = CodecFileReader.Open(input, descriptor);
+        Assert.Equal(descriptor.FormatId, frame.Metadata.FormatId);
+        Assert.Equal(descriptor.CurrentFormatVersion, frame.Metadata.FormatVersion);
+        Assert.Equal(CodecFileChecksumAlgorithm.XxHash64, frame.Metadata.ChecksumAlgorithm);
+        frame.ValidateChecksum();
+    }
+
+    private static long ReadCanonicalBodyStart(string path, CodecFileDescriptor descriptor)
+    {
+        using var input = new IndexInput(path);
+        using var frame = CodecFileReader.Open(input, descriptor);
+        return frame.Metadata.BodyStart;
+    }
+
+    private static (byte[] Body, long BodyStart) ReadCanonicalBody(string path, CodecFileDescriptor descriptor)
+    {
+        using var input = new IndexInput(path);
+        using var frame = CodecFileReader.Open(input, descriptor);
+        return (frame.ReadBody(), frame.Metadata.BodyStart);
     }
 
     private static int WriteVarInt64(Stream stream, long value)

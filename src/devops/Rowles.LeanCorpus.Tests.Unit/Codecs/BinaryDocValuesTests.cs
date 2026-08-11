@@ -1,6 +1,7 @@
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Codecs;
 
@@ -76,15 +77,17 @@ public sealed class BinaryDocValuesTests : IDisposable
         };
 
         BinaryDocValuesWriter.Write(path, fields, 1);
-        OverwriteInt32(path, StartsOffset(fieldName) + sizeof(int), 0);
+        OverwriteInt32(path, StartsOffset(path, fieldName) + sizeof(int), 0);
 
-        Assert.Throws<InvalidDataException>(() => BinaryDocValuesReader.Read(path));
+        Assert.ThrowsAny<InvalidDataException>(() => BinaryDocValuesReader.Read(path));
     }
 
-    private static int StartsOffset(string fieldName)
+    private static int StartsOffset(string path, string fieldName)
     {
         int byteCount = System.Text.Encoding.UTF8.GetByteCount(fieldName);
-        return 2 + sizeof(int) + VarIntLength(byteCount) + byteCount + sizeof(int);
+        using var input = new IndexInput(path);
+        using var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.doc-values.binary"));
+        return checked((int)frame.Metadata.BodyStart) + sizeof(int) + VarIntLength(byteCount) + byteCount + sizeof(int);
     }
 
     private static int VarIntLength(int value)

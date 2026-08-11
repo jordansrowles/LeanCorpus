@@ -16,7 +16,7 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
     private const int DefaultBlockSize = 16;
 
     private readonly IndexOutput _fdtOutput;
-    private readonly CodecFileHeader.StreamingWriteScope _fdtScope;
+    private readonly CodecWriteSession _fdtScope;
     private readonly string _fdtPath;
     private readonly string _fdxPath;
     private readonly int _blockSize;
@@ -42,7 +42,7 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
         _blockOffsets = new List<long>();
         _intraOffsets = new List<int>(blockSize);
 
-        _fdtScope = CodecFileHeader.BeginStreamingWrite(_fdtOutput, CodecConstants.StoredFieldsVersion);
+        _fdtScope = CodecFileWriter.Begin(_fdtOutput, StoredFieldsCodecFiles.Data);
         _fdtScope.Output.WriteInt32(blockSize);
         _fdtScope.Output.WriteByte((byte)compression);
     }
@@ -107,13 +107,13 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
 
         var (compData, compLength) = StoredFieldCompression.Compress(rawData, _compression);
 
-        _blockOffsets.Add(_fdtOutput.Position);
-        _fdtOutput.WriteInt32(_docsInBlock);
-        _fdtOutput.WriteInt32(rawLength);
-        _fdtOutput.WriteInt32(compLength);
+        _blockOffsets.Add(_fdtScope.Output.Position);
+        _fdtScope.Output.WriteInt32(_docsInBlock);
+        _fdtScope.Output.WriteInt32(rawLength);
+        _fdtScope.Output.WriteInt32(compLength);
         for (int i = 0; i < _docsInBlock; i++)
-            _fdtOutput.WriteInt32(_intraOffsets[i]);
-        _fdtOutput.WriteBytes(compData.AsSpan(0, compLength));
+            _fdtScope.Output.WriteInt32(_intraOffsets[i]);
+        _fdtScope.Output.WriteBytes(compData.AsSpan(0, compLength));
 
         _rawBuf.Clear();
         _intraOffsets.Clear();
@@ -128,19 +128,24 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
         try
         {
             FlushBlock();
-            _fdtScope.Dispose();
+            _fdtScope.Complete();
         }
         finally
         {
+            _fdtScope.Dispose();
             _fdtOutput.Dispose();
         }
 
         try
         {
             using var fdxOutput = new IndexOutput(_fdxPath);
-            StoredFieldsFileHeader.WriteV3FdxHeader(fdxOutput, _blockSize, _docCount, _blockOffsets.Count);
+            using var fdxScope = CodecFileWriter.Begin(fdxOutput, StoredFieldsCodecFiles.Index);
+            fdxScope.Output.WriteInt32(_blockSize);
+            fdxScope.Output.WriteInt32(_docCount);
+            fdxScope.Output.WriteInt32(_blockOffsets.Count);
             foreach (var offset in _blockOffsets)
-                fdxOutput.WriteInt64(offset);
+                fdxScope.Output.WriteInt64(offset);
+            fdxScope.Complete();
         }
         catch
         {

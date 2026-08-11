@@ -75,6 +75,14 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
         var path = Path.Combine(_fixture.Path, "hnsw_roundtrip.hnsw");
         HnswWriter.Write(path, built, source.Dimension, normalised: false);
 
+        using (var input = new Rowles.LeanCorpus.Store.IndexInput(path))
+        using (var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.vectors.hnsw")))
+        {
+            Assert.Equal(CodecFileWriter.CurrentFrameVersion, frame.Metadata.FrameVersion);
+            Assert.Equal(CodecConstants.HnswVersion, frame.Metadata.FormatVersion);
+            frame.ValidateChecksum();
+        }
+
         var loaded = HnswReader.Read(path, source);
 
         Assert.Equal(built.NodeCount, loaded.NodeCount);

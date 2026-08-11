@@ -774,7 +774,7 @@ public sealed class FSTDictionaryTests : IClassFixture<TestDirectoryFixture>
         WriteDictionary(path, ["body\0test"], new Dictionary<string, long> { ["body\0test"] = 1 });
 
         using var input = new IndexInput(path);
-        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.TermDictionary);
-        Assert.Equal(CodecConstants.TermDictionaryVersion, version);
+        using var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.term-dictionary.data"));
+        Assert.Equal(CodecConstants.TermDictionaryVersion, frame.Metadata.FormatVersion);
     }
 }

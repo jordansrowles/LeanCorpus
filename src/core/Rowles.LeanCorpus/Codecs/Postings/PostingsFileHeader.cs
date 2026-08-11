@@ -1,4 +1,5 @@
 using System.IO;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.Postings;
@@ -36,6 +37,20 @@ internal static class PostingsFileHeader
     /// </summary>
     internal static byte ReadVersion(IndexInput input)
     {
+        long start = input.Position;
+        if (input.Length - start >= sizeof(int))
+        {
+            int magic = input.ReadInt32();
+            input.Seek(start);
+            if (unchecked((uint)magic) == CodecFileWriter.Magic)
+            {
+                var descriptor = CodecCatalog.Default.GetFile("leancorpus.postings.data");
+                using var session = CodecFileReader.Open(input, descriptor);
+                input.Seek(session.Metadata.BodyStart);
+                return checked((byte)session.Metadata.FormatVersion);
+            }
+        }
+
         byte version = input.ReadByte();
 
         if (version == V1)

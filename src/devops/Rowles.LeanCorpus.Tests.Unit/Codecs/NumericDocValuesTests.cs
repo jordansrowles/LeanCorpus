@@ -1,3 +1,4 @@
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Store;
 
@@ -135,7 +136,7 @@ public sealed class NumericDocValuesTests : IDisposable
         long offset = BitsPerValueByteOffset(path, fieldName);
         OverwriteByte(path, offset, 65);
 
-        Assert.Throws<InvalidDataException>(() => NumericDocValuesReader.Read(path));
+        Assert.ThrowsAny<InvalidDataException>(() => NumericDocValuesReader.Read(path));
     }
 
     /// <summary>
@@ -152,7 +153,7 @@ public sealed class NumericDocValuesTests : IDisposable
         var bytes = File.ReadAllBytes(path);
         File.WriteAllBytes(path, bytes.AsSpan(0, (int)offset).ToArray());
 
-        Assert.Throws<InvalidDataException>(() => NumericDocValuesReader.Read(path));
+        Assert.Throws<CodecFileException>(() => NumericDocValuesReader.Read(path));
     }
 
     private static long BitsPerValueByteOffset(string path, string fieldName)
@@ -165,20 +166,9 @@ public sealed class NumericDocValuesTests : IDisposable
 
     private static long ComputeBodyOffset(string path)
     {
-        var bytes = File.ReadAllBytes(path);
-        long offset = 1; // skip version byte
-        while (offset < bytes.Length)
-        {
-            if ((bytes[offset] & 0x80) == 0)
-            {
-                offset++;
-                break;
-            }
-
-            offset++;
-        }
-
-        return offset;
+        using var input = new IndexInput(path);
+        using var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.doc-values.numeric"));
+        return frame.Metadata.BodyStart;
     }
 
     private static void OverwriteByte(string path, long offset, byte value)

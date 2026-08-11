@@ -1,5 +1,4 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Util;
 using System.Collections.Generic;
@@ -30,7 +29,7 @@ internal static class SortedDocValuesReader
         var values = new Dictionary<string, string[]>(StringComparer.Ordinal);
         var presence = new Dictionary<string, RoaringBitmap?>(StringComparer.Ordinal);
 
-        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.SortedDocValues);
+        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.Sorted);
 
         int fieldCount = input.ReadInt32();
 
@@ -119,7 +118,7 @@ internal static class SortedDocValuesReader
     {
         using var inputLifetime = input;
         var terms = new Dictionary<string, string[]>(StringComparer.Ordinal);
-        _ = CodecFileHeader.ReadVersion(input, CodecFormats.SortedDocValues);
+        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.Sorted);
         int fieldCount = input.ReadInt32();
         for (int f = 0; f < fieldCount; f++)
         {
@@ -156,7 +155,7 @@ internal static class SortedDocValuesReader
 
         using var input = new IndexInput(filePath);
 
-        byte version = CodecFileHeader.ReadVersionAndSkipHeader(input);
+        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.Sorted);
 
         int fieldCount = input.ReadInt32();
 
@@ -199,7 +198,7 @@ internal static class SortedDocValuesReader
                 throw new InvalidDataException(
                     $"Sorted DocValues field '{fieldName}' has bitsPerOrd={bitsPerOrd}, max is 63.");
 
-            var fieldValues = new string[docCount];
+            var fieldValues = new string?[docCount];
 
             if (bitsPerOrd == 0)
             {
@@ -224,6 +223,15 @@ internal static class SortedDocValuesReader
                         throw new InvalidDataException(
                             $"Sorted DocValues field '{fieldName}' has ordinal {ord} but ordTable has {ordTable.Length} entries.");
                     fieldValues[i] = ordTable[ord];
+                }
+            }
+
+            if (fieldPresence is not null)
+            {
+                for (int docId = 0; docId < fieldValues.Length; docId++)
+                {
+                    if (!fieldPresence.Contains(docId))
+                        fieldValues[docId] = null;
                 }
             }
 

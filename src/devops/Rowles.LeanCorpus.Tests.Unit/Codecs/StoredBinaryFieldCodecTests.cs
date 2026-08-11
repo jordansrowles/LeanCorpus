@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
@@ -36,31 +37,32 @@ public sealed class StoredBinaryFieldCodecTests : IClassFixture<TestDirectoryFix
         Assert.Equal(new byte[] { 0xCA, 0xFE, 0xBA, 0xBE }, mixed["blob"][0].BinaryValue);
     }
 
-    [Fact(DisplayName = "Stored Fields: Open Rejects Mismatched Fdt Version")]
-    public void StoredFields_Open_RejectsMismatchedFdtVersion()
+    [Fact(DisplayName = "Stored Fields: Open Rejects Unsupported Canonical Fdt Version")]
+    public void StoredFields_Open_RejectsUnsupportedCanonicalFdtVersion()
     {
         var path = WriteStoredFieldsFixture();
 
         using (var stream = new FileStream(path + ".fdt", FileMode.Open, FileAccess.ReadWrite, FileShare.None))
         using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            stream.Position = 0;
-            writer.Write((byte)99);
+            stream.Position = 6;
+            writer.Write(99);
         }
 
-        var exception = Assert.Throws<InvalidDataException>(() => StoredFieldsReader.Open(path + ".fdt", path + ".fdx"));
-        Assert.Contains("Unsupported stored fields data (.fdt) format version", exception.Message, StringComparison.Ordinal);
+        var exception = Assert.Throws<CodecFileException>(() => StoredFieldsReader.Open(path + ".fdt", path + ".fdx"));
+        Assert.Equal(CodecFileErrorCode.UnsupportedFormatVersion, exception.ErrorCode);
     }
 
     [Fact(DisplayName = "Stored Fields: Open Rejects Mismatched Block Size")]
     public void StoredFields_Open_RejectsMismatchedBlockSize()
     {
         var path = WriteStoredFieldsFixture();
+        long bodyStart = GetCanonicalBodyStart(path + ".fdt", "leancorpus.stored-fields.data");
 
         using (var stream = new FileStream(path + ".fdt", FileMode.Open, FileAccess.ReadWrite, FileShare.None))
         using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            stream.Position = 2; // skip CodecKit header (version:byte + VarInt bodyLen)
+            stream.Position = bodyStart;
             writer.Write(32);
         }
 
@@ -76,12 +78,12 @@ public sealed class StoredBinaryFieldCodecTests : IClassFixture<TestDirectoryFix
         using (var stream = new FileStream(path + ".fdt", FileMode.Open, FileAccess.ReadWrite, FileShare.None))
         using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: false))
         {
-            stream.Position = 0;
-            writer.Write((byte)(CodecConstants.StoredFieldsVersion + 1));
+            stream.Position = 6;
+            writer.Write((int)CodecConstants.StoredFieldsVersion + 1);
         }
 
-        var exception = Assert.Throws<InvalidDataException>(() => StoredFieldsReader.Open(path + ".fdt", path + ".fdx"));
-        Assert.Contains("Unsupported stored fields data (.fdt) format version", exception.Message, StringComparison.Ordinal);
+        var exception = Assert.Throws<CodecFileException>(() => StoredFieldsReader.Open(path + ".fdt", path + ".fdx"));
+        Assert.Equal(CodecFileErrorCode.UnsupportedFormatVersion, exception.ErrorCode);
     }
 
     [Fact(DisplayName = "Binary Field: Preserves Raw Bytes")]
@@ -110,5 +112,12 @@ public sealed class StoredBinaryFieldCodecTests : IClassFixture<TestDirectoryFix
 
         StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", docs.Length, docId => docs[docId]);
         return path;
+    }
+
+    private static long GetCanonicalBodyStart(string path, string formatId)
+    {
+        using var input = new IndexInput(path);
+        using var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile(formatId));
+        return frame.Metadata.BodyStart;
     }
 }

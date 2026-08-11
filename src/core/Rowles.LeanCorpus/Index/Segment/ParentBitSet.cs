@@ -1,4 +1,5 @@
-﻿using Rowles.LeanCorpus.Store;
+﻿using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Index.Segment;
 
@@ -9,6 +10,9 @@ namespace Rowles.LeanCorpus.Index.Segment;
 /// </summary>
 internal sealed class ParentBitSet
 {
+    internal static CodecFileDescriptor Descriptor { get; } =
+        CodecCatalog.Default.GetFile("leancorpus.deletes.parent-bitset");
+
     private readonly long[] _bits;
     private readonly int _length;
 
@@ -98,36 +102,52 @@ internal sealed class ParentBitSet
     /// <summary>Writes the bitset to a binary file (.pbs).</summary>
     public void WriteTo(string filePath)
     {
-        using var fs = FileOpenRetry.Open(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
-        using var bw = new BinaryWriter(fs);
-        bw.Write(_length);
-        bw.Write(_bits.Length);
-        foreach (var word in _bits) bw.Write(word);
+        using var output = new IndexOutput(filePath);
+        using var frame = CodecFileWriter.Begin(output, Descriptor);
+        frame.Output.WriteInt32(_length);
+        frame.Output.WriteInt32(_bits.Length);
+        foreach (var word in _bits)
+            frame.Output.WriteInt64(word);
+        frame.Complete();
     }
 
     /// <summary>Reads a bitset from a binary file (.pbs).</summary>
     public static ParentBitSet ReadFrom(string filePath)
     {
-        using var fs = FileOpenRetry.OpenReadDelete(filePath);
-        using var br = new BinaryReader(fs);
-        return ReadCore(br);
+        return ReadFrom(new IndexInput(filePath));
     }
 
     internal static ParentBitSet ReadFrom(IndexInput input)
     {
-        using var fs = new IndexInputStream(input);
-        using var br = new BinaryReader(fs);
-        return ReadCore(br);
-    }
+        using var inputLifetime = input;
+        IDisposable? frame = null;
+        long bodyEnd = input.Length;
+        if (input.Length - input.Position >= sizeof(int))
+        {
+            long start = input.Position;
+            int magic = input.ReadInt32();
+            input.Seek(start);
+            if (unchecked((uint)magic) == CodecFileWriter.Magic)
+            {
+                var canonical = CodecFileReader.Open(input, Descriptor);
+                canonical.ValidateChecksum();
+                frame = canonical;
+                bodyEnd = canonical.BodyEnd;
+                input.Seek(canonical.Metadata.BodyStart);
+            }
+        }
 
-    private static ParentBitSet ReadCore(BinaryReader br)
-    {
-        int length = br.ReadInt32();
-        int wordCount = br.ReadInt32();
-        if (length < 0 || wordCount < 0 || wordCount > (length + 63) / 64)
-            throw new InvalidDataException("Parent bitset has invalid dimensions.");
-        var bits = new long[wordCount];
-        for (int i = 0; i < wordCount; i++) bits[i] = br.ReadInt64();
-        return new ParentBitSet(bits, length);
+        using (frame)
+        {
+            int length = input.ReadInt32();
+            int wordCount = input.ReadInt32();
+            if (length < 0 || wordCount < 0 || wordCount > (length + 63) / 64)
+                throw new InvalidDataException("Parent bitset has invalid dimensions.");
+            if (input.Position + (long)wordCount * sizeof(long) != bodyEnd)
+                throw new InvalidDataException("Parent bitset length does not match its declared dimensions.");
+            var bits = new long[wordCount];
+            for (int i = 0; i < wordCount; i++) bits[i] = input.ReadInt64();
+            return new ParentBitSet(bits, length);
+        }
     }
 }

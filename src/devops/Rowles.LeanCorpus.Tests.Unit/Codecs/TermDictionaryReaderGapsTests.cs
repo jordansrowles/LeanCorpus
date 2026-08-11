@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
 using System.Text;
@@ -37,7 +38,8 @@ public sealed class TermDictionaryReaderGapsTests : IDisposable
             writer.Write((byte)CodecConstants.TermDictionaryVersion);
         }
 
-        Assert.Throws<InvalidDataException>(() => TermDictionaryReader.Open(path));
+        var exception = Assert.Throws<CodecFileException>(() => TermDictionaryReader.Open(path));
+        Assert.Equal(CodecFileErrorCode.UnsupportedFormatVersion, exception.ErrorCode);
     }
 
     [Fact(DisplayName = "TermDictionaryReader: Open Rejects Unsupported Version")]
@@ -51,7 +53,8 @@ public sealed class TermDictionaryReaderGapsTests : IDisposable
             writer.Write((byte)0);
         }
 
-        Assert.Throws<InvalidDataException>(() => TermDictionaryReader.Open(path));
+        var exception = Assert.Throws<CodecFileException>(() => TermDictionaryReader.Open(path));
+        Assert.Equal(CodecFileErrorCode.UnsupportedFormatVersion, exception.ErrorCode);
     }
 
     [Fact(DisplayName = "TermDictionaryReader: V2 Exact Lookup Returns Offset")]
@@ -116,8 +119,8 @@ public sealed class TermDictionaryReaderGapsTests : IDisposable
             ("body\0alpha", 11L),
             ("body\0beta", 22L));
 
-        var ex = Assert.Throws<InvalidDataException>(() => TermDictionaryReader.Open(path));
-        Assert.Contains("too small", ex.Message, StringComparison.OrdinalIgnoreCase);
+        var ex = Assert.Throws<CodecFileException>(() => TermDictionaryReader.Open(path));
+        Assert.Equal(CodecFileErrorCode.InvalidBodyLength, ex.ErrorCode);
     }
 
     [Fact(DisplayName = "TermDictionaryReader: V2 Dictionary Is Rejected With Migrate Hint")]
@@ -133,8 +136,8 @@ public sealed class TermDictionaryReaderGapsTests : IDisposable
             writer.Write(0);
         }
 
-        var ex = Assert.Throws<InvalidDataException>(() => TermDictionaryReader.Open(path));
-        Assert.Contains("migrate", ex.Message, StringComparison.OrdinalIgnoreCase);
+        var ex = Assert.Throws<CodecFileException>(() => TermDictionaryReader.Open(path));
+        Assert.Equal(CodecFileErrorCode.UnsupportedFormatVersion, ex.ErrorCode);
     }
 
     private string WriteDictionary()

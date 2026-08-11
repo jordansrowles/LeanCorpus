@@ -13,7 +13,7 @@ internal sealed class TermVectorsStreamWriter : IDisposable
     private readonly string _tvdPath;
     private readonly string _tvxPath;
     private readonly IndexOutput _tvdOutput;
-    private readonly CodecFileHeader.StreamingWriteScope _tvdScope;
+    private readonly CodecWriteSession _tvdScope;
     private readonly List<long> _offsets;
     private bool _disposed;
 
@@ -22,7 +22,7 @@ internal sealed class TermVectorsStreamWriter : IDisposable
         _tvdPath = tvdPath;
         _tvxPath = tvxPath;
         _tvdOutput = new IndexOutput(tvdPath);
-        _tvdScope = CodecFileHeader.BeginStreamingWrite(_tvdOutput, CodecConstants.TermVectorsVersion);
+        _tvdScope = CodecFileWriter.Begin(_tvdOutput, TermVectorsCodecFiles.Data);
         _offsets = new List<long>();
     }
 
@@ -58,16 +58,24 @@ internal sealed class TermVectorsStreamWriter : IDisposable
         if (_disposed) return;
         _disposed = true;
 
-        // Finish .tvd: dispose scope (writes trailer), then dispose the underlying output.
-        _tvdScope.Dispose();
-        _tvdOutput.Dispose();
+        // Finish .tvd before publishing the paired offset index.
+        try
+        {
+            _tvdScope.Complete();
+        }
+        finally
+        {
+            _tvdScope.Dispose();
+            _tvdOutput.Dispose();
+        }
 
-        // Write .tvx offset index via streaming scope.
+        // Write .tvx offset index through the coordinated current descriptor.
         using var tvxOutput = new IndexOutput(_tvxPath);
-        using var tvxScope = CodecFileHeader.BeginStreamingWrite(tvxOutput, CodecConstants.TermVectorsVersion);
+        using var tvxScope = CodecFileWriter.Begin(tvxOutput, TermVectorsCodecFiles.Index);
         tvxScope.Output.WriteInt32(_offsets.Count);
         foreach (var off in _offsets)
             tvxScope.Output.WriteInt64(off);
+        tvxScope.Complete();
     }
 
     private void WriteOffsets(TermVectorEntry entry)

@@ -1,6 +1,7 @@
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.DocValues;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Tests.Unit.Codecs;
 
@@ -74,15 +75,15 @@ public sealed class SortedNumericDocValuesTests : IDisposable
         };
 
         SortedNumericDocValuesWriter.Write(path, fields, 1);
-        OverwriteInt32(path, StartsOffset(fieldName), 1);
+        OverwriteInt32(path, StartsOffset(path, fieldName), 1);
 
-        Assert.Throws<InvalidDataException>(() => SortedNumericDocValuesReader.Read(path));
+        Assert.ThrowsAny<InvalidDataException>(() => SortedNumericDocValuesReader.Read(path));
     }
 
-    private static int StartsOffset(string fieldName)
+    private static int StartsOffset(string path, string fieldName)
     {
         int byteCount = System.Text.Encoding.UTF8.GetByteCount(fieldName);
-        return 2 + sizeof(int) + VarIntLength(byteCount) + byteCount + sizeof(int);
+        return checked((int)ComputeBodyOffset(path)) + sizeof(int) + VarIntLength(byteCount) + byteCount + sizeof(int);
     }
 
     private static int VarIntLength(int value)
@@ -121,7 +122,7 @@ public sealed class SortedNumericDocValuesTests : IDisposable
         long offset = BitsPerValueByteOffset(path, fieldName, docCount: 2);
         OverwriteByte(path, offset, 65);
 
-        Assert.Throws<InvalidDataException>(() => SortedNumericDocValuesReader.Read(path));
+        Assert.ThrowsAny<InvalidDataException>(() => SortedNumericDocValuesReader.Read(path));
     }
 
     /// <summary>
@@ -141,7 +142,7 @@ public sealed class SortedNumericDocValuesTests : IDisposable
         var bytes = File.ReadAllBytes(path);
         File.WriteAllBytes(path, bytes.AsSpan(0, (int)offset).ToArray());
 
-        Assert.Throws<InvalidDataException>(() => SortedNumericDocValuesReader.Read(path));
+        Assert.Throws<CodecFileException>(() => SortedNumericDocValuesReader.Read(path));
     }
 
     private static long BitsPerValueByteOffset(string path, string fieldName, int docCount)
@@ -154,20 +155,9 @@ public sealed class SortedNumericDocValuesTests : IDisposable
 
     private static long ComputeBodyOffset(string path)
     {
-        var bytes = File.ReadAllBytes(path);
-        long offset = 1; // skip version byte
-        while (offset < bytes.Length)
-        {
-            if ((bytes[offset] & 0x80) == 0)
-            {
-                offset++;
-                break;
-            }
-
-            offset++;
-        }
-
-        return offset;
+        using var input = new IndexInput(path);
+        using var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.doc-values.sorted-numeric"));
+        return frame.Metadata.BodyStart;
     }
 
     private static void OverwriteByte(string path, long offset, byte value)

@@ -1,5 +1,4 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 
 namespace Rowles.LeanCorpus.Codecs.Bkd;
 
@@ -12,11 +11,15 @@ internal sealed class BKDReader : IDisposable
     private const int MaxBkdDepth = 64;
     private readonly Store.IndexInput _input;
     private readonly Dictionary<string, long> _fieldOffsets;
+    private readonly long _bodyEnd;
+    private readonly BkdReadFrame _frame;
 
-    private BKDReader(Store.IndexInput input, Dictionary<string, long> fieldOffsets)
+    private BKDReader(Store.IndexInput input, Dictionary<string, long> fieldOffsets, long bodyEnd, BkdReadFrame frame)
     {
         _input = input;
         _fieldOffsets = fieldOffsets;
+        _bodyEnd = bodyEnd;
+        _frame = frame;
     }
 
     public static BKDReader Open(string filePath)
@@ -26,24 +29,31 @@ internal sealed class BKDReader : IDisposable
 
     internal static BKDReader Open(Store.IndexInput input)
     {
+        BkdReadFrame? frame = null;
         try
         {
-
-            CodecFileHeader.ReadVersion(input, CodecFormats.Bkd);
+            frame = BkdCodecFiles.Open(input, BkdCodecFiles.Double);
 
             int fieldCount = input.ReadInt32();
+            if (fieldCount < 0 || fieldCount > (frame.BodyEnd - input.Position) / 6)
+                throw new InvalidDataException($"BKD field count {fieldCount} is invalid for the remaining body.");
             var offsets = new Dictionary<string, long>(fieldCount, StringComparer.Ordinal);
             for (int f = 0; f < fieldCount; f++)
             {
                 string fieldName = input.ReadLengthPrefixedString();
                 offsets[fieldName] = input.Position;
-                SkipNode(input);
+                SkipNode(input, frame.BodyEnd);
             }
 
-            return new BKDReader(input, offsets);
+            if (input.Position != frame.BodyEnd)
+                throw new InvalidDataException("BKD body contains trailing or unparsed bytes.");
+            var result = new BKDReader(input, offsets, frame.BodyEnd, frame);
+            frame = null;
+            return result;
         }
         catch
         {
+            frame?.Dispose();
             input.Dispose();
             throw;
         }
@@ -58,7 +68,7 @@ internal sealed class BKDReader : IDisposable
             return false;
 
         _input.Seek(offset);
-        SearchNode(_input, min, max, visitor);
+        SearchNode(_input, _bodyEnd, min, max, visitor);
         return true;
     }
 
@@ -80,13 +90,13 @@ internal sealed class BKDReader : IDisposable
             return results;
 
         _input.Seek(offset);
-        SearchNodeExactSet(_input, values, results);
+        SearchNodeExactSet(_input, _bodyEnd, values, results);
         return results;
     }
 
     public bool HasField(string field) => _fieldOffsets.ContainsKey(field);
 
-    private static void SearchNode(Store.IndexInput input, double min, double max, Action<int, double> visitor, int depth = 0)
+    private static void SearchNode(Store.IndexInput input, long bodyEnd, double min, double max, Action<int, double> visitor, int depth = 0)
     {
         if (depth > MaxBkdDepth)
             throw new InvalidDataException("BKD tree exceeds maximum recursion depth.");
@@ -94,7 +104,7 @@ internal sealed class BKDReader : IDisposable
         byte marker = input.ReadByte();
         if (marker == 1)
         {
-            int count = ValidateLeafCount(input);
+            int count = ValidateLeafCount(input, bodyEnd);
             for (int i = 0; i < count; i++)
             {
                 double value = input.ReadDouble();
@@ -107,14 +117,14 @@ internal sealed class BKDReader : IDisposable
         {
             double splitValue = input.ReadDouble();
             if (min <= splitValue)
-                SearchNode(input, min, max, visitor, depth + 1);
+                SearchNode(input, bodyEnd, min, max, visitor, depth + 1);
             else
-                SkipNode(input, depth + 1);
+                SkipNode(input, bodyEnd, depth + 1);
 
             if (max >= splitValue)
-                SearchNode(input, min, max, visitor, depth + 1);
+                SearchNode(input, bodyEnd, min, max, visitor, depth + 1);
             else
-                SkipNode(input, depth + 1);
+                SkipNode(input, bodyEnd, depth + 1);
         }
         else
         {
@@ -122,7 +132,7 @@ internal sealed class BKDReader : IDisposable
         }
     }
 
-    private static void SearchNodeExactSet(Store.IndexInput input, IReadOnlySet<double> values, List<(int DocId, double Value)> results, int depth = 0)
+    private static void SearchNodeExactSet(Store.IndexInput input, long bodyEnd, IReadOnlySet<double> values, List<(int DocId, double Value)> results, int depth = 0)
     {
         if (depth > MaxBkdDepth)
             throw new InvalidDataException("BKD tree exceeds maximum recursion depth.");
@@ -130,7 +140,7 @@ internal sealed class BKDReader : IDisposable
         byte marker = input.ReadByte();
         if (marker == 1)
         {
-            int count = ValidateLeafCount(input);
+            int count = ValidateLeafCount(input, bodyEnd);
             for (int i = 0; i < count; i++)
             {
                 double value = input.ReadDouble();
@@ -142,8 +152,8 @@ internal sealed class BKDReader : IDisposable
         else if (marker == 0)
         {
             input.ReadDouble(); // split value
-            SearchNodeExactSet(input, values, results, depth + 1);
-            SearchNodeExactSet(input, values, results, depth + 1);
+            SearchNodeExactSet(input, bodyEnd, values, results, depth + 1);
+            SearchNodeExactSet(input, bodyEnd, values, results, depth + 1);
         }
         else
         {
@@ -151,7 +161,7 @@ internal sealed class BKDReader : IDisposable
         }
     }
 
-    private static void SkipNode(Store.IndexInput input, int depth = 0)
+    private static void SkipNode(Store.IndexInput input, long bodyEnd, int depth = 0)
     {
         if (depth > MaxBkdDepth)
             throw new InvalidDataException("BKD tree exceeds maximum recursion depth.");
@@ -159,14 +169,14 @@ internal sealed class BKDReader : IDisposable
         byte marker = input.ReadByte();
         if (marker == 1)
         {
-            int count = ValidateLeafCount(input);
+            int count = ValidateLeafCount(input, bodyEnd);
             input.Seek(input.Position + count * 12L);
         }
         else if (marker == 0)
         {
             input.ReadDouble(); // split value
-            SkipNode(input, depth + 1);
-            SkipNode(input, depth + 1);
+            SkipNode(input, bodyEnd, depth + 1);
+            SkipNode(input, bodyEnd, depth + 1);
         }
         else
         {
@@ -174,16 +184,22 @@ internal sealed class BKDReader : IDisposable
         }
     }
 
-    private static int ValidateLeafCount(Store.IndexInput input)
+    private static int ValidateLeafCount(Store.IndexInput input, long bodyEnd)
     {
         int count = input.ReadInt32();
         if (count < 0)
             throw new InvalidDataException($"BKD tree has negative leaf count: {count}.");
-        long remaining = input.Length - input.Position;
+        long remaining = bodyEnd - input.Position;
         if (count > remaining / 12)
             throw new InvalidDataException($"BKD tree leaf count {count} exceeds remaining bytes ({remaining}).");
         return count;
     }
 
-    public void Dispose() => _input.Dispose();
+    internal IReadOnlyCollection<string> FieldNames => _fieldOffsets.Keys;
+
+    public void Dispose()
+    {
+        _frame.Dispose();
+        _input.Dispose();
+    }
 }

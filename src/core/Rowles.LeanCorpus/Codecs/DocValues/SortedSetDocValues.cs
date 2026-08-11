@@ -1,6 +1,5 @@
 using System.Buffers;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
@@ -16,14 +15,12 @@ internal static class SortedSetDocValuesWriter
         int docCount,
         bool durable = false)
     {
-        var bodyBuf = new ArrayBufferWriter<byte>(4096);
-        bodyBuf.WriteInt32(fields.Count);
-
-        foreach (var (fieldName, values) in fields)
-            WriteFieldBlock(bodyBuf, fieldName, values, docCount);
-
-        using var output = new IndexOutput(filePath, durable);
-        CodecFileHeader.Write(output, CodecFormats.SortedSetDocValues, bodyBuf.WrittenSpan);
+        CodecFileWriter.WriteAtomically(filePath, DocValuesCodecFiles.SortedSet, durable, bodyOutput =>
+        {
+            bodyOutput.WriteInt32(fields.Count);
+            foreach (var (fieldName, values) in fields)
+                WriteFieldBlock(bodyOutput, fieldName, values, docCount);
+        });
     }
 
     internal static void WriteFieldBlock(

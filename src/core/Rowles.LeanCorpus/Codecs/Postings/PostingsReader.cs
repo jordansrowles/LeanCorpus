@@ -1,3 +1,4 @@
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.Postings;
@@ -9,12 +10,33 @@ internal static class PostingsReader
 {
     public static int[] ReadDocIds(string filePath, string term)
     {
-        using var fs = FileOpenRetry.OpenReadDelete(filePath);
-        using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
+        using var input = new IndexInput(filePath);
+        if (input.Length >= sizeof(int))
+        {
+            int magic = input.ReadInt32();
+            input.Seek(0);
+            if (unchecked((uint)magic) == CodecFileWriter.Magic)
+            {
+                var descriptor = CodecCatalog.Default.GetFile("leancorpus.postings.data");
+                using var session = CodecFileReader.Open(input, descriptor);
+                using var body = new IndexInputStream(
+                    input,
+                    session.Metadata.BodyStart,
+                    session.Metadata.BodyLength,
+                    leaveOpen: true);
+                using var canonicalReader = new BinaryReader(body, System.Text.Encoding.UTF8, leaveOpen: false);
+                return ReadBody(canonicalReader);
+            }
+        }
 
-        // Skip CodecKit envelope
-        PostingsFileHeader.ReadVersion(reader);
+        using var legacyStream = new IndexInputStream(input, 0, input.Length, leaveOpen: true);
+        using var legacyReader = new BinaryReader(legacyStream, System.Text.Encoding.UTF8, leaveOpen: false);
+        PostingsFileHeader.ReadVersion(legacyReader);
+        return ReadBody(legacyReader);
+    }
 
+    private static int[] ReadBody(BinaryReader reader)
+    {
         // Read header
         int docFreq = reader.ReadInt32();
         reader.ReadInt64(); // skipOffset
