@@ -2,7 +2,6 @@ using System.Buffers;
 using System.IO;
 using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Util;
 
@@ -23,18 +22,16 @@ internal static class Int64DocValuesWriter
         IReadOnlyDictionary<string, IReadOnlySet<int>>? presenceSets = null,
         bool durable = false)
     {
-        var bodyBuf = new ArrayBufferWriter<byte>(4096);
-        bodyBuf.WriteInt32(fields.Count);
-
-        foreach (var (fieldName, values) in fields)
+        CodecFileWriter.WriteAtomically(filePath, DocValuesCodecFiles.Int64, durable, bodyOutput =>
         {
-            IReadOnlySet<int>? presenceSet = null;
-            presenceSets?.TryGetValue(fieldName, out presenceSet);
-            WriteFieldBlock(bodyBuf, fieldName, values, docCount, presenceSet);
-        }
-
-        using var output = new IndexOutput(filePath, durable);
-        CodecFileHeader.Write(output, CodecFormats.Int64DocValues, bodyBuf.WrittenSpan);
+            bodyOutput.WriteInt32(fields.Count);
+            foreach (var (fieldName, values) in fields)
+            {
+                IReadOnlySet<int>? presenceSet = null;
+                presenceSets?.TryGetValue(fieldName, out presenceSet);
+                WriteFieldBlock(bodyOutput, fieldName, values, docCount, presenceSet);
+            }
+        });
     }
 
     internal static void WriteFieldBlock(

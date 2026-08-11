@@ -1,5 +1,4 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Util;
 
@@ -27,11 +26,7 @@ internal static class Int64DocValuesReader
         var values = new Dictionary<string, long[]>(StringComparer.Ordinal);
         var presence = new Dictionary<string, RoaringBitmap?>(StringComparer.Ordinal);
 
-        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.Int64DocValues);
-        if (version > CodecConstants.Int64DocValuesVersion)
-            throw new InvalidDataException(
-                $"Unsupported Int64 doc values (.dvnl) format version {version}. " +
-                $"This build supports up to v{CodecConstants.Int64DocValuesVersion}.");
+        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.Int64);
 
         int fieldCount = input.ReadInt32();
 
