@@ -581,9 +581,11 @@ internal static class SegmentFlusher
         string posPath = basePath + ".pos";
         using (var posOutput = new IndexOutput(posPath))
         {
-            using var scope = CodecFileHeader.BeginStreamingWrite(posOutput, CodecConstants.PostingsVersion);
+            var descriptor = CodecCatalog.Default.GetFile("leancorpus.postings.data");
+            using var frame = CodecFileWriter.Begin(posOutput, descriptor);
+            var bodyOutput = frame.Output;
 
-            using var blockWriter = new BlockPostingsWriter(posOutput);
+            using var blockWriter = new BlockPostingsWriter(bodyOutput);
 
             foreach (var (qt, acc) in accumulatorTerms)
             {
@@ -597,7 +599,7 @@ internal static class SegmentFlusher
                 bool hasPositions = acc.HasPositions;
                 bool hasPayloads = acc.HasPayloads;
 
-                long bodyOffset = posOutput.Position;
+                long bodyOffset = bodyOutput.Position;
                 blockWriter.StartTerm();
                 for (int i = 0; i < ids.Length; i++)
                 {
@@ -614,10 +616,10 @@ internal static class SegmentFlusher
                     for (int i = 0; i < ids.Length; i++)
                     {
                         acc.GetEncodedPositionDeltas(i, out var deltaBytes, out int firstPos, out int freq);
-                        posOutput.WriteVarInt(freq);
+                        bodyOutput.WriteVarInt(freq);
                         if (freq == 0) continue;
 
-                        posOutput.WriteVarInt(firstPos);
+                        bodyOutput.WriteVarInt(firstPos);
                         int prevPos = firstPos;
 
                         if (hasPayloads)
@@ -625,12 +627,12 @@ internal static class SegmentFlusher
                             var payload0 = acc.GetPayload(i, 0);
                             if (payload0 is { Length: > 0 })
                             {
-                                posOutput.WriteVarInt(payload0.Length);
-                                posOutput.WriteBytes(payload0);
+                                bodyOutput.WriteVarInt(payload0.Length);
+                                bodyOutput.WriteBytes(payload0);
                             }
                             else
                             {
-                                posOutput.WriteVarInt(0);
+                                bodyOutput.WriteVarInt(0);
                             }
                         }
 
@@ -640,7 +642,7 @@ internal static class SegmentFlusher
                             deltaOffset += PostingAccumulator.ReadVarInt(
                                 deltaBytes.Slice(deltaOffset), out int delta);
                             int abs = firstPos + delta;
-                            posOutput.WriteVarInt(abs - prevPos);
+                            bodyOutput.WriteVarInt(abs - prevPos);
                             prevPos = abs;
 
                             if (hasPayloads)
@@ -648,27 +650,29 @@ internal static class SegmentFlusher
                                 var payload = acc.GetPayload(i, pi);
                                 if (payload is { Length: > 0 })
                                 {
-                                    posOutput.WriteVarInt(payload.Length);
-                                    posOutput.WriteBytes(payload);
+                                    bodyOutput.WriteVarInt(payload.Length);
+                                    bodyOutput.WriteBytes(payload);
                                 }
                                 else
                                 {
-                                    posOutput.WriteVarInt(0);
+                                    bodyOutput.WriteVarInt(0);
                                 }
                             }
                         }
                     }
                 }
 
-                long metadataOffset = posOutput.Position;
+                long metadataOffset = bodyOutput.Position;
                 postingsOffsets[qt] = metadataOffset;
-                posOutput.WriteInt64(bodyOffset);
-                posOutput.WriteInt32(meta.DocFreq);
-                posOutput.WriteInt64(meta.SkipOffset);
-                posOutput.WriteBoolean(hasFreqs);
-                posOutput.WriteBoolean(hasPositions);
-                posOutput.WriteBoolean(hasPayloads);
+                bodyOutput.WriteInt64(bodyOffset);
+                bodyOutput.WriteInt32(meta.DocFreq);
+                bodyOutput.WriteInt64(meta.SkipOffset);
+                bodyOutput.WriteBoolean(hasFreqs);
+                bodyOutput.WriteBoolean(hasPositions);
+                bodyOutput.WriteBoolean(hasPayloads);
             }
+
+            frame.Complete();
         }
 
         // Metadata offsets are absolute file positions.
@@ -1123,43 +1127,13 @@ internal static class SegmentFlusher
     private static void WriteNumericIndex(Dictionary<string, Dictionary<int, double>> numericIndex, string filePath)
     {
         if (numericIndex.Count == 0) return;
-
-        using var output = new IndexOutput(filePath);
-
-        output.WriteInt32(numericIndex.Count);
-        foreach (var (fieldName, docValues) in numericIndex)
-        {
-            var fieldBytes = System.Text.Encoding.UTF8.GetBytes(fieldName);
-            output.WriteVarInt(fieldBytes.Length);
-            output.WriteBytes(fieldBytes);
-            output.WriteInt32(docValues.Count);
-            foreach (var (docId, value) in docValues)
-            {
-                output.WriteInt32(docId);
-                output.WriteInt64(System.BitConverter.DoubleToInt64Bits(value));
-            }
-        }
+        NumericIndexCodec.WriteDouble(filePath, numericIndex);
     }
 
     private static void WriteInt64Index(Dictionary<string, Dictionary<int, long>> int64Index, string filePath)
     {
         if (int64Index.Count == 0) return;
-
-        using var output = new IndexOutput(filePath);
-
-        output.WriteInt32(int64Index.Count);
-        foreach (var (fieldName, docValues) in int64Index)
-        {
-            var fieldBytes = System.Text.Encoding.UTF8.GetBytes(fieldName);
-            output.WriteVarInt(fieldBytes.Length);
-            output.WriteBytes(fieldBytes);
-            output.WriteInt32(docValues.Count);
-            foreach (var (docId, value) in docValues)
-            {
-                output.WriteInt32(docId);
-                output.WriteInt64(value);
-            }
-        }
+        NumericIndexCodec.WriteInt64(filePath, int64Index);
     }
 
     private static (float min, float alpha) ComputeInt8Params(

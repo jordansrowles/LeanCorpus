@@ -41,10 +41,13 @@ public sealed class FieldPayloadChaosTests : IClassFixture<ChaosDirectoryFixture
                 }
             ]);
 
-        // v3 trailer has 8-byte trailer at end; truncate past it into the body.
+        // Truncate the canonical footer and the final body bytes.
         using (var stream = new FileStream(basePath + ".tvd", FileMode.Open, FileAccess.Write, FileShare.None))
             stream.SetLength(stream.Length - 10);
-        using var reader = TermVectorsReader.Open(basePath + ".tvd", basePath + ".tvx");
-        Assert.ThrowsAny<Exception>(() => reader.GetTermVector(0));
+        Assert.ThrowsAny<Exception>(() =>
+        {
+            using var reader = TermVectorsReader.Open(basePath + ".tvd", basePath + ".tvx");
+            reader.GetTermVector(0);
+        });
     }
 }

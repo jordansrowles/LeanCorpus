@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
@@ -87,6 +88,17 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
             IndexSort = sort,
         };
 
+    private static void AssertCurrentCanonicalFrame(string path)
+    {
+        Assert.True(CodecCatalog.Default.TryMatchFile(Path.GetFileName(path), out var descriptor));
+        Assert.NotNull(descriptor);
+        using var input = new IndexInput(path);
+        using var frame = CodecFileReader.Open(input, descriptor!);
+        Assert.Equal(CodecFileWriter.CurrentFrameVersion, frame.Metadata.FrameVersion);
+        Assert.Equal(descriptor!.CurrentFormatVersion, frame.Metadata.FormatVersion);
+        frame.ValidateChecksum();
+    }
+
     /// <summary>
     /// Verifies the Merge: Preserves Field Lengths BM25 Scores Match Unmerged scenario.
     /// </summary>
@@ -145,6 +157,7 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
         var mergedId = MergeSegmentsForTest(dir, mmap);
         var dvnPath = Path.Combine(dir, mergedId + ".dvn");
         Assert.True(File.Exists(dvnPath), $"Expected merged segment {mergedId} to have a .dvn file");
+        AssertCurrentCanonicalFrame(dvnPath);
 
         // Sort by numeric DocValues field — works only if .dvn survives the merge.
         using var searcher = new IndexSearcher(mmap);
@@ -177,6 +190,7 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
         var mergedId = MergeSegmentsForTest(dir, mmap);
         var dvsPath = Path.Combine(dir, mergedId + ".dvs");
         Assert.True(File.Exists(dvsPath), $"Expected merged segment {mergedId} to have a .dvs file");
+        AssertCurrentCanonicalFrame(dvsPath);
 
         using var searcher = new IndexSearcher(mmap);
         var sorted = searcher.Search(new WildcardQuery("id", "*"), 10, SortField.String("category"));
@@ -200,6 +214,9 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
             doc1.Add(new StringField("tag", "blue"));
             doc1.Add(new NumericField("score", 2));
             doc1.Add(new NumericField("score", 1));
+            doc1.Add(new Int64Field("count64", 10));
+            doc1.Add(new Int64Field("rank64", 2));
+            doc1.Add(new Int64Field("rank64", 1));
             doc1.Add(new StoredField("note", "first"));
             doc1.Add(new StoredField("note", "second"));
             writer.AddDocument(doc1);
@@ -208,6 +225,8 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
             victim.Add(new StringField("id", "victim"));
             victim.Add(new StringField("tag", "victim"));
             victim.Add(new NumericField("score", 99));
+            victim.Add(new Int64Field("count64", 99));
+            victim.Add(new Int64Field("rank64", 99));
             victim.Add(new StoredField("note", "deleted"));
             writer.AddDocument(victim);
 
@@ -215,6 +234,8 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
             doc2.Add(new StringField("id", "live-b"));
             doc2.Add(new StringField("tag", "green"));
             doc2.Add(new NumericField("score", 3));
+            doc2.Add(new Int64Field("count64", 30));
+            doc2.Add(new Int64Field("rank64", 3));
             doc2.Add(new StoredField("note", "third"));
             writer.AddDocument(doc2);
 
@@ -227,6 +248,11 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
         var sortedSet = SortedSetDocValuesReader.Read(Path.Combine(dir, mergedId + ".dss"));
         var sortedNumeric = SortedNumericDocValuesReader.Read(Path.Combine(dir, mergedId + ".dsn"));
         var binary = BinaryDocValuesReader.Read(Path.Combine(dir, mergedId + ".dvb"));
+        var int64 = Int64DocValuesReader.Read(Path.Combine(dir, mergedId + ".dvnl"));
+        var int64Sorted = Int64SortedNumericDocValuesReader.Read(Path.Combine(dir, mergedId + ".dsnl"));
+
+        foreach (string extension in new[] { ".dss", ".dsn", ".dvb", ".dvnl", ".dsnl" })
+            AssertCurrentCanonicalFrame(Path.Combine(dir, mergedId + extension));
 
         int firstDocIndex = Array.FindIndex(sortedSet["tag"], static values => values.SequenceEqual(["blue", "red"]));
         int secondDocIndex = Array.FindIndex(sortedSet["tag"], static values => values.SequenceEqual(["green"]));
@@ -240,6 +266,10 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
 
         Assert.Equal(["first", "second"], binary["note"][firstDocIndex].Select(static value => System.Text.Encoding.UTF8.GetString(value)));
         Assert.Equal(["third"], binary["note"][secondDocIndex].Select(static value => System.Text.Encoding.UTF8.GetString(value)));
+        Assert.Equal(10, int64.Values["count64"][firstDocIndex]);
+        Assert.Equal(30, int64.Values["count64"][secondDocIndex]);
+        Assert.Equal([1, 2], int64Sorted["rank64"][firstDocIndex]);
+        Assert.Equal([3], int64Sorted["rank64"][secondDocIndex]);
     }
 
     /// <summary>

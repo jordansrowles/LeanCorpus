@@ -345,7 +345,8 @@ public sealed partial class IndexWriter : IDisposable
                 sourceDirectory,
                 recovery.SegmentIds,
                 _config.CompatibilityMode,
-                forWriting: false);
+                forWriting: false,
+                _config.CodecCatalog);
 
             var sourceSegments = new List<SegmentInfo>();
             foreach (var segId in recovery.SegmentIds)

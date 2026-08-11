@@ -341,7 +341,7 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
             MaxBufferedDocs = 3,                   // flush every 3 docs to produce multiple segments
             SoftDeletesEnabled = true,
             SoftDeleteRetentionSeconds = 0.001,    // effectively immediate expiry
-            MergeThreshold = 10                    // keep tiered merge from interfering
+            MergePolicy = NoMergePolicy.Instance
         };
 
         using var writer = new IndexWriter(dir, config);
@@ -350,7 +350,7 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         for (int i = 1; i <= 12; i++)
         {
             var doc = new LeanDocument();
-            doc.Add(new TextField("id", $"doc-{i}"));
+            doc.Add(new StringField("id", $"doc-{i}"));
             doc.Add(new TextField("body", $"content number {i}"));
             writer.AddDocument(doc);
         }
@@ -377,9 +377,10 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         Assert.Single(finalSegFiles);
 
         // Verify we can search the remaining documents
-        using var reader = new Rowles.LeanCorpus.Index.Segment.SegmentReader(dir,
-            Rowles.LeanCorpus.Index.Segment.SegmentInfo.ReadFrom(finalSegFiles[0]));
-        Assert.True(reader.MaxDoc >= 6, $"Expected at least 6 live docs, got {reader.MaxDoc}");
+        var finalInfo = Rowles.LeanCorpus.Index.Segment.SegmentInfo.ReadFrom(finalSegFiles[0]);
+        Assert.Equal(6, finalInfo.LiveDocCount);
+        using var reader = new Rowles.LeanCorpus.Index.Segment.SegmentReader(dir, finalInfo);
+        Assert.Equal(6, reader.MaxDoc);
     }
     /// <summary>
     /// Verifies that soft-deleted documents still within the retention window
@@ -394,7 +395,7 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
             MaxBufferedDocs = 3,               // flush every 3 docs
             SoftDeletesEnabled = true,
             SoftDeleteRetentionSeconds = 3600, // 1 hour — well beyond test duration
-            MergeThreshold = 10                // keep tiered merge from interfering
+            MergePolicy = NoMergePolicy.Instance
         };
 
         using var writer = new IndexWriter(dir, config);
@@ -403,7 +404,7 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         for (int i = 1; i <= 9; i++)
         {
             var doc = new LeanDocument();
-            doc.Add(new TextField("id", $"doc-{i}"));
+            doc.Add(new StringField("id", $"doc-{i}"));
             doc.Add(new TextField("body", $"content number {i}"));
             writer.AddDocument(doc);
         }
@@ -414,6 +415,10 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
             writer.SoftDeleteDocuments(new Rowles.LeanCorpus.Search.Queries.TermQuery("id", $"doc-{i}"));
         writer.Commit();
 
+        var retainedSourceSegments = writer.GetNrtSegments();
+        Assert.Equal(6, retainedSourceSegments.Sum(static segment => segment.LiveDocCount));
+        Assert.Equal(1, retainedSourceSegments.Count(static segment => segment.EarliestSoftDeleteTimestamp.HasValue));
+
         // Compact immediately — retention window has not elapsed
         int merged = writer.Compact();
         Assert.True(merged > 1, $"Expected multiple segments merged, got {merged}");
@@ -422,11 +427,16 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         var finalSegFiles = System.IO.Directory.GetFiles(SubDir("compact_sd_retain"), "*.seg");
         Assert.Single(finalSegFiles);
 
-        // All 9 documents should still be present — the soft-deleted docs
-        // are within the retention window and must survive the merge.
+        // All 9 documents remain physically present for retention, while the three
+        // soft-deleted documents must remain hidden from searches after the merge.
         using var reader = new Rowles.LeanCorpus.Index.Segment.SegmentReader(dir,
             Rowles.LeanCorpus.Index.Segment.SegmentInfo.ReadFrom(finalSegFiles[0]));
         Assert.Equal(9, reader.MaxDoc);
+        Assert.Equal(6, Enumerable.Range(0, reader.MaxDoc).Count(reader.IsLive));
+
+        using var searcher = new IndexSearcher(dir);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc-1"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "doc-4"), 10).TotalHits);
     }
 
     /// <summary>

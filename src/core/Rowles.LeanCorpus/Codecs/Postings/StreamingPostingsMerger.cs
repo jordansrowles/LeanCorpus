@@ -53,8 +53,10 @@ internal static class StreamingPostingsMerger
 
             // Write the current streaming header and sequential v4 term records.
             using var posOutput = new IndexOutput(posOutputPath, dropPageCache: true);
-            using var scope = CodecFileHeader.BeginStreamingWrite(posOutput, CodecConstants.PostingsVersion);
-            using var blockWriter = new BlockPostingsWriter(posOutput);
+            var descriptor = CodecCatalog.Default.GetFile("leancorpus.postings.data");
+            using var frame = CodecFileWriter.Begin(posOutput, descriptor);
+            var bodyOutput = frame.Output;
+            using var blockWriter = new BlockPostingsWriter(bodyOutput);
 
             var sortedTerms = new List<string>();
             var offsets = new Dictionary<string, long>(StringComparer.Ordinal);
@@ -92,7 +94,7 @@ internal static class StreamingPostingsMerger
                     hasPayloads |= pl;
                 }
 
-                long bodyOffset = posOutput.Position;
+                long bodyOffset = bodyOutput.Position;
                 blockWriter.StartTerm();
 
                 string fieldName = QualifiedTermHelpers.GetFieldName(currentTerm).ToString();
@@ -136,17 +138,17 @@ internal static class StreamingPostingsMerger
                     foreach (int idx in participants)
                     {
                         var cursor = cursors[idx];
-                        cursor.WritePositionsForTerm(posOutput, hasPayloads);
+                        cursor.WritePositionsForTerm(bodyOutput, hasPayloads);
                     }
                 }
 
-                long metadataOffset = posOutput.Position;
-                posOutput.WriteInt64(bodyOffset);
-                posOutput.WriteInt32(meta.DocFreq);
-                posOutput.WriteInt64(meta.SkipOffset);
-                posOutput.WriteBoolean(hasFreqs);
-                posOutput.WriteBoolean(hasPositions);
-                posOutput.WriteBoolean(hasPayloads);
+                long metadataOffset = bodyOutput.Position;
+                bodyOutput.WriteInt64(bodyOffset);
+                bodyOutput.WriteInt32(meta.DocFreq);
+                bodyOutput.WriteInt64(meta.SkipOffset);
+                bodyOutput.WriteBoolean(hasFreqs);
+                bodyOutput.WriteBoolean(hasPositions);
+                bodyOutput.WriteBoolean(hasPayloads);
 
                 if (meta.DocFreq > 0)
                 {
@@ -162,6 +164,7 @@ internal static class StreamingPostingsMerger
                 }
             }
 
+            frame.Complete();
             // Metadata offsets are absolute file positions, so no rekeying is needed.
             TermDictionaryWriter.Write(dicOutputPath, sortedTerms, offsets, dropPageCache: true);
             return new Result(sortedTerms, offsets);
@@ -268,7 +271,7 @@ internal static class StreamingPostingsMerger
         /// Must be called exactly <c>count</c> times after <see cref="DecodeCurrentPostings"/>,
         /// in the same order as the doc IDs returned by that method.
         /// </summary>
-        internal void WriteDocPositions(IndexOutput output, bool hasPayloads)
+        internal void WriteDocPositions(ISequentialIndexOutput output, bool hasPayloads)
         {
             int posCount = _pos.ReadVarInt();
             output.WriteVarInt(posCount);
@@ -300,7 +303,7 @@ internal static class StreamingPostingsMerger
         /// Writes all position data for the current term by streaming one doc at a time
         /// through <see cref="WriteDocPositions"/>.
         /// </summary>
-        internal void WritePositionsForTerm(IndexOutput output, bool hasPayloads)
+        internal void WritePositionsForTerm(ISequentialIndexOutput output, bool hasPayloads)
         {
             if (!_decodedHasPositions) return;
 

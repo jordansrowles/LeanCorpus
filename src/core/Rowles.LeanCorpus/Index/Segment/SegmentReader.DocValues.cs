@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Codecs.DocValues;
+using Rowles.LeanCorpus.Codecs.Bkd;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Store;
@@ -814,27 +815,7 @@ internal sealed partial class SegmentReaderState
     }
 
     private static Dictionary<string, Dictionary<int, double>> ReadNumericIndex(IndexInput input)
-    {
-        var result = new Dictionary<string, Dictionary<int, double>>();
-        using var fs = new IndexInputStream(input);
-        using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
-
-        int fieldCount = reader.ReadInt32();
-        for (int f = 0; f < fieldCount; f++)
-        {
-            string fieldName = reader.ReadString();
-            int entryCount = reader.ReadInt32();
-            var fieldMap = new Dictionary<int, double>(entryCount);
-            for (int e = 0; e < entryCount; e++)
-            {
-                int docId = reader.ReadInt32();
-                double value = reader.ReadDouble();
-                fieldMap[docId] = value;
-            }
-            result[fieldName] = fieldMap;
-        }
-        return result;
-    }
+        => NumericIndexCodec.ReadDouble(input);
 
     private static Dictionary<string, Dictionary<int, long>> ReadInt64Index(string filePath)
     {
@@ -843,25 +824,5 @@ internal sealed partial class SegmentReaderState
     }
 
     private static Dictionary<string, Dictionary<int, long>> ReadInt64Index(IndexInput input)
-    {
-        var result = new Dictionary<string, Dictionary<int, long>>();
-        using var fs = new IndexInputStream(input);
-        using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
-
-        int fieldCount = reader.ReadInt32();
-        for (int f = 0; f < fieldCount; f++)
-        {
-            string fieldName = reader.ReadString();
-            int entryCount = reader.ReadInt32();
-            var fieldMap = new Dictionary<int, long>(entryCount);
-            for (int e = 0; e < entryCount; e++)
-            {
-                int docId = reader.ReadInt32();
-                long value = reader.ReadInt64();
-                fieldMap[docId] = value;
-            }
-            result[fieldName] = fieldMap;
-        }
-        return result;
-    }
+        => NumericIndexCodec.ReadInt64(input);
 }
