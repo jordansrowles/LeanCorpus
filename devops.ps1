@@ -6,7 +6,7 @@
 .DESCRIPTION
     Single entry point for all devops tasks.
       devops build     [-Configuration <c>] [-Framework <tfm>]
-      devops test      [-Suite <name>] [-Framework <tfm>] [-Configuration <c>] [-Filter <expr>] [-Verbosity <level>] [-List]
+      devops test      [-Suite <name>] [-Framework <tfm>] [-Configuration <c>] [-Filter <expr>] [-Verbosity <level>] [-HangTimeout <duration|off>] [-List]
       devops aot       [-RuntimeIdentifier <rid>]
       devops coverage  [-Framework <tfm>] [-Configuration <c>] [-Clean] [-IncludePerformance] [-GenerateReport]
       devops benchmark [-Suite <name>] [-Strat <name>] [-DocCount <n>] [-Framework <tfm>]
@@ -74,6 +74,7 @@ if (-not $Command -or $Command -eq '--help' -or $Command -eq '-Help' -or $Comman
     Write-Host '      -Configuration      Debug or Release (default: Release)'
     Write-Host '      -Filter             xUnit filter expression (e.g. FullyQualifiedName~Writer)'
     Write-Host '      -Verbosity          Test output detail: quiet, minimal, normal, detailed'
+    Write-Host '      -HangTimeout        Integration test hang timeout (default: 100s; use off to disable)'
     Write-Host '      -List               List available suites and exit'
     Write-Host ''
     Write-Host '    aot                  Run NativeAOT smoke tests for both frameworks'
@@ -143,18 +144,18 @@ if (-not $Command -or $Command -eq '--help' -or $Command -eq '-Help' -or $Comman
 # ═════════════════════════════════════════════════════════════════════════════
 
 function Parse-Args {
-    param([string[]]$Args)
+    param([string[]]$InputArgs)
     $parsed = @{}
-    for ($i = 0; $i -lt $Args.Count; $i++) {
-        $arg = $Args[$i]
+    for ($i = 0; $i -lt $InputArgs.Count; $i++) {
+        $arg = $InputArgs[$i]
         if ($arg -eq '--') {
-            $parsed['PassThrough'] = $Args[($i + 1)..($Args.Count - 1)]
+            $parsed['PassThrough'] = $InputArgs[($i + 1)..($InputArgs.Count - 1)]
             break
         }
         if ($arg.StartsWith('-')) {
             $name = $arg.TrimStart('-')
-            if ($i + 1 -lt $Args.Count -and -not $Args[$i + 1].StartsWith('-')) {
-                $parsed[$name] = $Args[$i + 1]
+            if ($i + 1 -lt $InputArgs.Count -and -not $InputArgs[$i + 1].StartsWith('-')) {
+                $parsed[$name] = $InputArgs[$i + 1]
                 $i++
             } else {
                 $parsed[$name] = $true
@@ -264,6 +265,7 @@ function Get-SuiteMap {
         tokenbudget          = 'TokenBudgetBenchmarks'
         diagnostics          = 'DiagnosticsBenchmarks'
         'packed-int-codec'   = 'PackedIntCodecBenchmarks'
+        'codec-frame'        = 'CodecFrameBenchmarks'
         'numeric-aggregator' = 'NumericAggregatorSimdBenchmarks'
         'index-writer'       = 'IndexWriterContentionBenchmarks'
         'concurrent-write'   = 'ConcurrentVsSequentialBenchmarks'
@@ -425,6 +427,7 @@ if ($Command -eq 'test') {
     $Framework = Get-ParsedValue $parsed 'Framework' (Get-DefaultFramework)
     $Configuration = Get-ParsedValue $parsed 'Configuration' 'Release'
     $Filter = Get-ParsedValue $parsed 'Filter' ''
+    $HangTimeout = Get-ParsedValue $parsed 'HangTimeout' '100s'
     $List = ($RemainingArgs -contains '-List') -or ($RemainingArgs -contains '--List')
     $TestVerbosity = Get-Arg 'Verbosity' ''
 
@@ -440,7 +443,7 @@ if ($Command -eq 'test') {
         exit 0
     }
 
-    $toRun = if ($Suite -eq 'all') { [string[]]($testSuites.Keys) } else { @($Suite) }
+    [string[]]$toRun = if ($Suite -eq 'all') { [string[]]($testSuites.Keys) } else { @($Suite) }
     $testArgs = @('--configuration', $Configuration, '--framework', $Framework, '--no-restore')
     if ($Filter) { $testArgs += @('--filter', $Filter) }
 
@@ -452,14 +455,19 @@ if ($Command -eq 'test') {
     Write-Host "  Framework:     $Framework"
     Write-Host "  Configuration: $Configuration"
     if ($Filter) { Write-Host "  Filter:        $Filter" }
+    if ($toRun -contains 'integration') { Write-Host "  Hang timeout:  $HangTimeout" }
     Write-Host ''
 
     $failed = @()
     foreach ($key in $toRun) {
         $ts = $testSuites[$key]
         $projectPath = Join-Path $RepoRoot $ts.Project
+        $suiteArgs = @($testArgs)
+        if ($key -eq 'integration' -and $HangTimeout -ne 'off') {
+            $suiteArgs += @('--blame-hang', '--blame-hang-timeout', $HangTimeout, '--blame-hang-dump-type', 'none')
+        }
         Write-Host "  $($ts.Name)..." -ForegroundColor DarkGray
-        dotnet test $projectPath @testArgs
+        dotnet test $projectPath @suiteArgs
         if ($LASTEXITCODE -ne 0) {
             Write-Host "  $($ts.Name) — FAILED" -ForegroundColor Red
             $failed += $ts.Name

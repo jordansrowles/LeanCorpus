@@ -79,6 +79,7 @@ internal static class Program
                 BenchmarkSuite.TokenBudget,
                 BenchmarkSuite.Diagnostics,
                 BenchmarkSuite.PackedIntCodec,
+                BenchmarkSuite.CodecFrame,
                 BenchmarkSuite.NumericAggregatorSimd,
                 BenchmarkSuite.IndexWriterContention,
                 BenchmarkSuite.ConcurrentWrite,
@@ -289,6 +290,9 @@ internal static class Program
         // Microbenchmarks — explicit only, not included in --suite all.
         if (suites.Contains(BenchmarkSuite.PackedIntCodec))
             RunSuite<PackedIntCodecBenchmarks>("packed-int-codec", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.CodecFrame))
+            RunSuite<CodecFrameBenchmarks>("codec-frame", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (suites.Contains(BenchmarkSuite.NumericAggregatorSimd))
             RunSuite<NumericAggregatorSimdBenchmarks>("numeric-aggregator", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -708,6 +712,7 @@ internal static class Program
               tokenbudget         TokenBudgetBenchmarks -- token budget enforcement overhead (explicit only)
               diagnostics         DiagnosticsBenchmarks -- SlowQueryLog + Analytics hook overhead (explicit only)
               packed-int-codec    PackedIntCodecBenchmarks -- Pack/Unpack scalar loop throughput (explicit only)
+              codec-frame         CodecFrameBenchmarks -- canonical framing and checksum write overhead (explicit only)
               numeric-aggregator  NumericAggregatorSimdBenchmarks -- scalar vs Vector256 aggregation (explicit only)
               index-writer        IndexWriterContentionBenchmarks -- concurrent AddDocument throughput (explicit only)
               concurrent-write    ConcurrentVsSequentialBenchmarks -- DWPT parallel vs sequential indexing (explicit only)
@@ -851,6 +856,7 @@ internal static class Program
             "analysisfiltersv2" or "analysis-filters-v2" => BenchmarkSuite.AnalysisFiltersV2,
             "patterntokeniser" or "pattern-tokeniser" => BenchmarkSuite.PatternTokeniser,
             "packedintcodec" or "packed-int-codec" => BenchmarkSuite.PackedIntCodec,
+            "codecframe" or "codec-frame" => BenchmarkSuite.CodecFrame,
             "numericaggregator" or "numeric-aggregator" => BenchmarkSuite.NumericAggregatorSimd,
             "indexwriter" or "index-writer" => BenchmarkSuite.IndexWriterContention,
             "concurrentwrite" or "concurrent-write" => BenchmarkSuite.ConcurrentWrite,
@@ -999,6 +1005,7 @@ internal static class Program
         AnalysisFiltersV2,
         PatternTokeniser,
         PackedIntCodec,
+        CodecFrame,
         NumericAggregatorSimd,
         IndexWriterContention,
         ConcurrentWrite,
