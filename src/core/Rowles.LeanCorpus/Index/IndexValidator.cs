@@ -1,11 +1,9 @@
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.Hnsw;
-using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Codecs.Vectors;
+using Rowles.LeanCorpus.Index.Format;
 using Rowles.LeanCorpus.Index.Migration;
 using Rowles.LeanCorpus.Store;
 
@@ -17,21 +15,6 @@ namespace Rowles.LeanCorpus.Index;
 public static class IndexValidator
 {
     private static readonly string[] RequiredExtensions = [".seg", ".dic", ".pos", ".fdt", ".fdx", ".nrm"];
-
-    private static readonly (string Extension, byte Version, ICodec<byte[]> Format, string FileType)[] HeaderChecks =
-    [
-        (".dic", CodecConstants.TermDictionaryVersion, CodecFormats.TermDictionary, "term dictionary (.dic)"),
-        (".nrm", CodecConstants.NormsVersion, CodecFormats.Norms, "norms (.nrm)"),
-        (".dvn", CodecConstants.NumericDocValuesVersion, CodecFormats.NumericDocValues, "numeric doc values (.dvn)"),
-        (".dvs", CodecConstants.SortedDocValuesVersion, CodecFormats.SortedDocValues, "sorted doc values (.dvs)"),
-        (".dss", CodecConstants.SortedSetDocValuesVersion, CodecFormats.SortedSetDocValues, "sorted-set doc values (.dss)"),
-        (".dsn", CodecConstants.SortedNumericDocValuesVersion, CodecFormats.SortedNumericDocValues, "sorted-numeric doc values (.dsn)"),
-        (".dvb", CodecConstants.BinaryDocValuesVersion, CodecFormats.BinaryDocValues, "binary doc values (.dvb)"),
-        (".bkd", CodecConstants.BKDVersion, CodecFormats.Bkd, "BKD tree (.bkd)"),
-        (".fln", CodecConstants.FieldLengthVersion, CodecFormats.FieldLengths, "field lengths (.fln)"),
-        (".tvd", CodecConstants.TermVectorsVersion, CodecFormats.TermVectors, "term vectors data (.tvd)"),
-        (".tvx", CodecConstants.TermVectorsVersion, CodecFormats.TermVectors, "term vectors index (.tvx)")
-    ];
 
     /// <summary>
     /// Validates the latest commit in <paramref name="directory"/>.
@@ -53,10 +36,20 @@ public static class IndexValidator
         ArgumentNullException.ThrowIfNull(directory);
 
         options ??= new IndexCheckOptions();
+        var catalog = options.Catalog ?? throw new ArgumentException("The codec catalogue cannot be null.", nameof(options));
         var result = new IndexCheckResult();
         var dirPath = directory.DirectoryPath;
+        var formatInventory = IndexFormatInspector.Inspect(directory, new IndexFormatInspectionOptions
+        {
+            IncludeOptionalSidecars = options.IncludeOptionalSidecars,
+            IncludeFileSizes = false,
+            IncludeChecksums = options.Deep,
+            Catalog = catalog
+        });
+        AddFrameIssues(formatInventory, result);
+        result.FilesChecked = formatInventory.Segments.Sum(static segment => segment.Files.Count);
         CheckMigrationMarker(dirPath, result);
-        CheckStaleTemporaryFiles(dirPath, result);
+        CheckStaleTemporaryFiles(dirPath, catalog, result);
         var commits = IndexFileInspector.FindCommitFiles(dirPath);
         if (commits.Count == 0)
         {
@@ -114,7 +107,7 @@ public static class IndexValidator
         }
     }
 
-    private static void CheckStaleTemporaryFiles(string dirPath, IndexCheckResult result)
+    private static void CheckStaleTemporaryFiles(string dirPath, CodecCatalog catalog, IndexCheckResult result)
     {
         if (!FileOpenRetry.DirectoryExists(dirPath))
             return;
@@ -122,7 +115,7 @@ public static class IndexValidator
         foreach (var path in FileOpenRetry.EnumerateFiles(dirPath, "*.tmp"))
         {
             var fileName = Path.GetFileName(path);
-            if (!IsRecognisedTemporaryFile(fileName))
+            if (!IsRecognisedTemporaryFile(fileName, catalog))
                 continue;
 
             result.AddIssue(
@@ -135,8 +128,8 @@ public static class IndexValidator
         }
     }
 
-    private static bool IsRecognisedTemporaryFile(string fileName)
-        => Codecs.CodecKit.Formats.CodecFormats.IsRecognisedTemporaryFile(fileName);
+    private static bool IsRecognisedTemporaryFile(string fileName, CodecCatalog catalog)
+        => catalog.TryMatchTemporaryFile(fileName, out _);
 
     private static void CheckSegment(string dirPath, string segmentId, IndexCheckOptions options, IndexCheckResult result)
     {
@@ -204,6 +197,7 @@ public static class IndexValidator
             result.DocumentsChecked += Math.Max(info.DocCount, 0);
             ValidateCompoundFile(dirPath, segmentId, result);
             CheckDeletionGeneration(basePath, segmentId, info, options, result);
+            RunCompoundDeepChecks(dirPath, info, options, result);
             return;
         }
 
@@ -211,11 +205,28 @@ public static class IndexValidator
             IndexFileInspector.CheckRequiredFile(basePath + RequiredExtensions[i], segmentId, result);
 
         result.DocumentsChecked += Math.Max(info.DocCount, 0);
-        CheckHeaders(basePath, segmentId, options, result);
         CheckStoredFields(basePath, segmentId, info, result);
         CheckDeletionGeneration(basePath, segmentId, info, options, result);
         CheckVectors(basePath, segmentId, info, options, result);
         RunDeepChecks(directoryPath: dirPath, basePath, info, options, result);
+    }
+
+    private static void AddFrameIssues(IndexFormatInventory inventory, IndexCheckResult result)
+    {
+        foreach (var issue in inventory.Issues)
+        {
+            if (issue.Code is IndexCheckIssueCodes.InvalidCodecMagic or
+                IndexCheckIssueCodes.UnsupportedCodecVersion or
+                IndexCheckIssueCodes.UnsupportedFutureCodecVersion or
+                IndexCheckIssueCodes.UnsupportedCodecFrameVersion or
+                IndexCheckIssueCodes.UnknownCodecFormat or
+                IndexCheckIssueCodes.CodecChecksumMismatch or
+                IndexCheckIssueCodes.CodecFormatMismatch or
+                IndexCheckIssueCodes.InvalidCodecFrame)
+            {
+                result.AddIssue(issue);
+            }
+        }
     }
 
     private static void ValidateCompoundFile(string directoryPath, string segmentId, IndexCheckResult result)
@@ -241,7 +252,6 @@ public static class IndexValidator
                         false);
                 }
             }
-            ValidateCompoundHeaders(compoundDirectory, compound, segmentId);
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException)
         {
@@ -250,95 +260,6 @@ public static class IndexValidator
                 IndexCheckIssueCodes.InvalidCodecMagic,
                 $"Compound segment '{segmentId}' is unreadable: {ex.Message}",
                 segmentId + ".cfs",
-                segmentId,
-                false);
-        }
-    }
-
-    private static void ValidateCompoundHeaders(MMapDirectory directory, CompoundFileReader compound, string segmentId)
-    {
-        ReadCompoundCodecHeader(directory, compound, segmentId + ".dic", CodecFormats.TermDictionary, CodecConstants.TermDictionaryVersion);
-        ReadCompoundCodecHeader(directory, compound, segmentId + ".nrm", CodecFormats.Norms, CodecConstants.NormsVersion);
-        ReadCompoundHeader(directory, compound, segmentId + ".pos", PostingsFileHeader.ReadVersion, CodecConstants.PostingsVersion);
-        ReadCompoundHeader(directory, compound, segmentId + ".fdt", StoredFieldsFileHeader.ReadVersion, CodecConstants.StoredFieldsVersion);
-        ReadCompoundHeader(directory, compound, segmentId + ".fdx", StoredFieldsFileHeader.ReadVersion, CodecConstants.StoredFieldsVersion);
-    }
-
-    private static void ReadCompoundCodecHeader(
-        MMapDirectory directory,
-        CompoundFileReader compound,
-        string memberName,
-        ICodec<byte[]> format,
-        byte currentVersion)
-        => ReadCompoundHeader(directory, compound, memberName, reader => CodecFileHeader.ReadVersion(reader, format), currentVersion);
-
-    private static void ReadCompoundHeader(
-        MMapDirectory directory,
-        CompoundFileReader compound,
-        string memberName,
-        Func<BinaryReader, byte> readVersion,
-        byte currentVersion)
-    {
-        using var stream = new IndexInputStream(compound.OpenInput(directory, memberName));
-        using var reader = new BinaryReader(stream);
-        byte version = readVersion(reader);
-        if (version > currentVersion)
-            throw new InvalidDataException($"Compound member '{memberName}' uses unsupported version {version}.");
-    }
-
-    private static void CheckHeaders(string basePath, string segmentId, IndexCheckOptions options, IndexCheckResult result)
-    {
-        foreach (var (extension, version, format, fileType) in HeaderChecks)
-        {
-            if (!options.IncludeOptionalSidecars && !IsRequiredHeader(extension))
-                continue;
-
-            IndexFileInspector.CheckCodecHeader(basePath + extension, version, format, fileType, segmentId, result);
-        }
-
-        // .pos uses PostingsFileHeader directly (like .fdt/.fdx), not the CodecKit envelope
-        CheckPostingsHeader(basePath + ".pos", segmentId, result);
-
-        if (options.IncludeOptionalSidecars)
-        {
-            IndexFileInspector.CheckOptionalFile(basePath + ".num", segmentId, result);
-            IndexFileInspector.CheckOptionalFile(basePath + ".pbs", segmentId, result);
-        }
-    }
-
-    private static bool IsRequiredHeader(string extension)
-        => extension is ".dic" or ".pos" or ".nrm";
-
-    private static void CheckPostingsHeader(string filePath, string segmentId, IndexCheckResult result)
-    {
-        if (!FileOpenRetry.FileExists(filePath))
-            return;
-
-        result.FilesChecked++;
-        var fileName = Path.GetFileName(filePath);
-        try
-        {
-            using var stream = FileOpenRetry.OpenReadDelete(filePath);
-            using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: false);
-            byte version = PostingsFileHeader.ReadVersion(reader);
-            if (version > CodecConstants.PostingsVersion)
-            {
-                result.AddIssue(
-                    IndexCheckSeverity.Error,
-                    IndexCheckIssueCodes.UnsupportedCodecVersion,
-                    $"Unsupported postings (.pos) format version {version}; this build supports up to version {CodecConstants.PostingsVersion}.",
-                    fileName,
-                    segmentId,
-                    false);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or EndOfStreamException or InvalidDataException)
-        {
-            result.AddIssue(
-                IndexCheckSeverity.Error,
-                IndexCheckIssueCodes.InvalidCodecMagic,
-                $"Cannot read postings (.pos) header from '{fileName}': {ex.Message}",
-                fileName,
                 segmentId,
                 false);
         }
@@ -359,54 +280,10 @@ public static class IndexValidator
         var fileName = Path.GetFileName(fdtPath);
         try
         {
-            using var stream = FileOpenRetry.OpenReadDelete(fdtPath);
-            using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: false);
-            byte version;
-            try
-            {
-                version = StoredFieldsFileHeader.ReadVersion(reader);
-            }
-            catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
-            {
-                result.AddIssue(
-                    IndexCheckSeverity.Error,
-                    IndexCheckIssueCodes.InvalidStoredFieldHeader,
-                    $"Invalid stored fields data file: {ex.Message}",
-                    fileName,
-                    segmentId,
-                    false);
-                return;
-            }
-            if (version > CodecConstants.StoredFieldsVersion)
-            {
-                try
-                {
-                    reader.ReadInt32(); // blockSize
-                    reader.ReadByte();  // compression
-                }
-                catch (EndOfStreamException)
-                {
-                    result.AddIssue(
-                        IndexCheckSeverity.Error,
-                        IndexCheckIssueCodes.InvalidStoredFieldHeader,
-                        $"Invalid stored fields data file: header is truncated.",
-                        fileName,
-                        segmentId,
-                        false);
-                    return;
-                }
-
-                result.AddIssue(
-                    IndexCheckSeverity.Error,
-                    IndexCheckIssueCodes.UnsupportedStoredFieldVersion,
-                    $"Unsupported stored fields format version {version}; this build supports up to version {CodecConstants.StoredFieldsVersion}.",
-                    fileName,
-                    segmentId,
-                    false);
-                return;
-            }
-            reader.ReadInt32();
-            byte policyByte = reader.ReadByte();
+            using var input = new IndexInput(fdtPath);
+            using var frame = StoredFieldsCodecFiles.OpenData(input);
+            input.ReadInt32();
+            byte policyByte = input.ReadByte();
             if (!CompressionCodecRegistry.TryGet(policyByte, out _))
             {
                 result.AddIssue(
@@ -418,7 +295,7 @@ public static class IndexValidator
                     false);
             }
         }
-        catch (Exception ex) when (ex is IOException or EndOfStreamException)
+        catch (Exception ex) when (ex is IOException or EndOfStreamException or InvalidDataException)
         {
             result.AddIssue(
                 IndexCheckSeverity.Error,
@@ -439,58 +316,11 @@ public static class IndexValidator
         var fileName = Path.GetFileName(fdxPath);
         try
         {
-            using var stream = FileOpenRetry.OpenReadDelete(fdxPath);
-            using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: false);
-
-            byte version;
-            try
-            {
-                version = StoredFieldsFileHeader.ReadVersion(reader);
-            }
-            catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
-            {
-                result.AddIssue(
-                    IndexCheckSeverity.Error,
-                    IndexCheckIssueCodes.InvalidStoredFieldHeader,
-                    $"Invalid stored fields index file: {ex.Message}",
-                    fileName,
-                    segmentId,
-                    false);
-                return;
-            }
-            if (version > CodecConstants.StoredFieldsVersion)
-            {
-                try
-                {
-                    reader.ReadInt32(); // blockSize
-                    reader.ReadInt32(); // docCount
-                    reader.ReadInt32(); // blockCount
-                }
-                catch (EndOfStreamException)
-                {
-                    result.AddIssue(
-                        IndexCheckSeverity.Error,
-                        IndexCheckIssueCodes.InvalidStoredFieldHeader,
-                        $"Invalid stored fields index file: header is truncated.",
-                        fileName,
-                        segmentId,
-                        false);
-                    return;
-                }
-
-                result.AddIssue(
-                    IndexCheckSeverity.Error,
-                    IndexCheckIssueCodes.UnsupportedStoredFieldVersion,
-                    $"Unsupported stored fields index format version {version}; this build supports up to version {CodecConstants.StoredFieldsVersion}.",
-                    fileName,
-                    segmentId,
-                    false);
-                return;
-            }
-
-            int blockSize = reader.ReadInt32();
-            int docCount = reader.ReadInt32();
-            int blockCount = reader.ReadInt32();
+            using var input = new IndexInput(fdxPath);
+            using var frame = StoredFieldsCodecFiles.OpenIndex(input);
+            int blockSize = input.ReadInt32();
+            int docCount = input.ReadInt32();
+            int blockCount = input.ReadInt32();
             if (blockSize <= 0 || blockCount < 0 || docCount < 0 || docCount != info.DocCount)
             {
                 result.AddIssue(
@@ -505,7 +335,7 @@ public static class IndexValidator
             long previous = -1;
             for (int i = 0; i < blockCount; i++)
             {
-                long current = reader.ReadInt64();
+                long current = input.ReadInt64();
                 if (current < previous || current < 0)
                 {
                     result.AddIssue(
@@ -521,7 +351,7 @@ public static class IndexValidator
                 previous = current;
             }
         }
-        catch (Exception ex) when (ex is IOException or EndOfStreamException)
+        catch (Exception ex) when (ex is IOException or EndOfStreamException or InvalidDataException)
         {
             result.AddIssue(
                 IndexCheckSeverity.Error,
@@ -614,39 +444,10 @@ public static class IndexValidator
         var fileName = Path.GetFileName(vectorPath);
         try
         {
-            using var stream = FileOpenRetry.OpenReadDelete(vectorPath);
-            using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: false);
-            byte version;
-            try
-            {
-                version = CodecFileHeader.ReadVersion(reader, CodecFormats.Vectors);
-            }
-            catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
-            {
-                result.AddIssue(
-                    IndexCheckSeverity.Error,
-                    IndexCheckIssueCodes.InvalidVectorHeader,
-                    $"Invalid vector header for field '{vectorField.FieldName}': {ex.Message}",
-                    fileName,
-                    segmentId,
-                    false);
-                return;
-            }
-
-            if (version > CodecConstants.VectorVersion)
-            {
-                result.AddIssue(
-                    IndexCheckSeverity.Error,
-                    IndexCheckIssueCodes.InvalidVectorHeader,
-                    $"Invalid vector header for field '{vectorField.FieldName}'.",
-                    fileName,
-                    segmentId,
-                    false);
-                return;
-            }
-
-            int vectorCount = reader.ReadInt32();
-            int dimension = reader.ReadInt32();
+            using var input = new IndexInput(vectorPath);
+            using var frame = CodecFileReader.OpenSupported(input, VectorCodecFiles.Float32);
+            int vectorCount = input.ReadInt32();
+            int dimension = input.ReadInt32();
             if (vectorCount != info.DocCount)
             {
                 result.AddIssue(
@@ -687,39 +488,10 @@ public static class IndexValidator
         var fileName = Path.GetFileName(hnswPath);
         try
         {
-            using var stream = FileOpenRetry.OpenReadDelete(hnswPath);
-            using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: false);
-            byte version;
-            try
-            {
-                version = CodecFileHeader.ReadVersion(reader, CodecFormats.Hnsw);
-            }
-            catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
-            {
-                result.AddIssue(
-                    IndexCheckSeverity.Error,
-                    IndexCheckIssueCodes.InvalidHnswHeader,
-                    $"Invalid HNSW header for field '{vectorField.FieldName}': {ex.Message}",
-                    fileName,
-                    segmentId,
-                    false);
-                return;
-            }
-
-            if (version > CodecConstants.HnswVersion)
-            {
-                result.AddIssue(
-                    IndexCheckSeverity.Error,
-                    IndexCheckIssueCodes.InvalidHnswHeader,
-                    $"Invalid HNSW header for field '{vectorField.FieldName}'.",
-                    fileName,
-                    segmentId,
-                    false);
-                return;
-            }
-
-            int dimension = reader.ReadInt32();
-            bool normalised = reader.ReadByte() != 0;
+            using var input = new IndexInput(hnswPath);
+            using var frame = CodecFileReader.OpenSupported(input, VectorCodecFiles.Hnsw);
+            int dimension = input.ReadInt32();
+            bool normalised = input.ReadByte() != 0;
             if (dimension != vectorField.Dimension)
             {
                 result.AddIssue(
@@ -771,6 +543,172 @@ public static class IndexValidator
             ValidateVectorsDeep(basePath, info, result);
         if (options.Deep || options.VerifyHnsw)
             ValidateHnswDeep(basePath, info, result);
+        if (options.Deep)
+            ValidateTermVectorsDeep(directoryPath, info, result);
+    }
+
+    private static void RunCompoundDeepChecks(
+        string directoryPath,
+        SegmentInfo info,
+        IndexCheckOptions options,
+        IndexCheckResult result)
+    {
+        if (options.Deep || options.VerifyDocValues)
+            ValidateCompoundDocValuesDeep(directoryPath, info, result);
+        if (options.Deep || options.VerifyStoredFields)
+            ValidateCompoundStoredFieldsDeep(directoryPath, info, result);
+        if (options.Deep || options.VerifyPostings)
+            ValidatePostingsDeep(directoryPath, info, result);
+        if (options.Deep || options.VerifyVectors)
+            ValidateCompoundVectorsDeep(directoryPath, info, result);
+        if (options.Deep || options.VerifyHnsw)
+            ValidateCompoundHnswDeep(directoryPath, info, result);
+        if (options.Deep)
+            ValidateTermVectorsDeep(directoryPath, info, result);
+    }
+
+    private static void ValidateCompoundDocValuesDeep(
+        string directoryPath,
+        SegmentInfo info,
+        IndexCheckResult result)
+    {
+        try
+        {
+            using var directory = new MMapDirectory(directoryPath);
+            using var reader = new SegmentReader(directory, info);
+            foreach (var fieldName in info.FieldNames)
+            {
+                ValidateDocValuesLength(reader.GetNumericDocValues(fieldName), info);
+                ValidateDocValuesLength(reader.GetSortedDocValues(fieldName), info);
+                ValidateDocValuesLength(reader.GetSortedSetDocValues(fieldName), info);
+                ValidateDocValuesLength(reader.GetSortedNumericDocValues(fieldName), info);
+                ValidateDocValuesLength(reader.GetBinaryDocValues(fieldName), info);
+                ValidateDocValuesLength(reader.GetInt64DocValues(fieldName), info);
+                ValidateDocValuesLength(reader.GetSortedInt64DocValues(fieldName), info);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or EndOfStreamException or InvalidOperationException)
+        {
+            result.AddIssue(
+                IndexCheckSeverity.Error,
+                IndexCheckIssueCodes.DocValuesReadFailure,
+                $"Cannot read compound DocValues for segment '{info.SegmentId}': {ex.Message}",
+                info.SegmentId + ".cfs",
+                info.SegmentId,
+                false);
+        }
+    }
+
+    private static void ValidateDocValuesLength(Array? values, SegmentInfo info)
+    {
+        if (values is not null && values.Length != info.DocCount)
+            throw new InvalidDataException($"DocValues field length {values.Length} does not match segment DocCount {info.DocCount}.");
+    }
+
+    private static void ValidateCompoundStoredFieldsDeep(
+        string directoryPath,
+        SegmentInfo info,
+        IndexCheckResult result)
+    {
+        try
+        {
+            using var directory = new MMapDirectory(directoryPath);
+            using var reader = new SegmentReader(directory, info);
+            for (int docId = 0; docId < info.DocCount; docId++)
+                reader.GetStoredFieldValues(docId);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or EndOfStreamException or InvalidOperationException)
+        {
+            result.AddIssue(
+                IndexCheckSeverity.Error,
+                IndexCheckIssueCodes.StoredFieldsReadFailure,
+                $"Cannot read compound stored fields for segment '{info.SegmentId}': {ex.Message}",
+                info.SegmentId + ".cfs",
+                info.SegmentId,
+                false);
+        }
+    }
+
+    private static void ValidateCompoundVectorsDeep(
+        string directoryPath,
+        SegmentInfo info,
+        IndexCheckResult result)
+    {
+        try
+        {
+            using var directory = new MMapDirectory(directoryPath);
+            using var reader = new SegmentReader(directory, info);
+            foreach (var vectorField in info.VectorFields)
+            {
+                for (int docId = 0; docId < info.DocCount; docId++)
+                {
+                    var vector = reader.GetVector(vectorField.FieldName, docId);
+                    if (vector is not null && vector.Length != vectorField.Dimension)
+                        throw new InvalidDataException($"Vector dimension {vector.Length} does not match declared dimension {vectorField.Dimension}.");
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or EndOfStreamException or InvalidOperationException)
+        {
+            result.AddIssue(
+                IndexCheckSeverity.Error,
+                IndexCheckIssueCodes.VectorReadFailure,
+                $"Cannot read compound vectors for segment '{info.SegmentId}': {ex.Message}",
+                info.SegmentId + ".cfs",
+                info.SegmentId,
+                false);
+        }
+    }
+
+    private static void ValidateCompoundHnswDeep(
+        string directoryPath,
+        SegmentInfo info,
+        IndexCheckResult result)
+    {
+        try
+        {
+            using var directory = new MMapDirectory(directoryPath);
+            using var reader = new SegmentReader(directory, info);
+            foreach (var vectorField in info.VectorFields)
+            {
+                if (vectorField.HasHnsw && reader.GetHnswGraph(vectorField.FieldName) is null)
+                    throw new InvalidDataException($"HNSW graph for field '{vectorField.FieldName}' is missing.");
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or EndOfStreamException or InvalidOperationException)
+        {
+            result.AddIssue(
+                IndexCheckSeverity.Error,
+                IndexCheckIssueCodes.HnswReadFailure,
+                $"Cannot read compound HNSW data for segment '{info.SegmentId}': {ex.Message}",
+                info.SegmentId + ".cfs",
+                info.SegmentId,
+                false);
+        }
+    }
+
+    private static void ValidateTermVectorsDeep(
+        string directoryPath,
+        SegmentInfo info,
+        IndexCheckResult result)
+    {
+        try
+        {
+            using var directory = new MMapDirectory(directoryPath);
+            using var reader = new SegmentReader(directory, info);
+            for (int docId = 0; docId < info.DocCount; docId++)
+                reader.GetTermVectors(docId);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or EndOfStreamException or InvalidOperationException)
+        {
+            result.AddIssue(
+                IndexCheckSeverity.Error,
+                IndexCheckIssueCodes.TermVectorsReadFailure,
+                $"Cannot read term vectors for segment '{info.SegmentId}': {ex.Message}",
+                info.SegmentId + ".tvd",
+                info.SegmentId,
+                false);
+        }
     }
 
     private static void ValidateDocValuesDeep(string basePath, SegmentInfo info, IndexCheckResult result)

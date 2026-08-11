@@ -136,4 +136,25 @@ public static class IndexCheckIssueCodes
 
     /// <summary>A migration succeeded but its staging directory could not be removed.</summary>
     public const string MigrationStagingCleanupFailed = "LLIDX043";
+
+    /// <summary>A canonical codec file uses an unsupported frame version.</summary>
+    public const string UnsupportedCodecFrameVersion = "LLIDX044";
+
+    /// <summary>A self-identifying codec file declares an unregistered format.</summary>
+    public const string UnknownCodecFormat = "LLIDX045";
+
+    /// <summary>A canonical codec body checksum does not match its footer.</summary>
+    public const string CodecChecksumMismatch = "LLIDX046";
+
+    /// <summary>A codec file's declared format does not match its logical file role.</summary>
+    public const string CodecFormatMismatch = "LLIDX047";
+
+    /// <summary>A canonical codec frame is structurally invalid.</summary>
+    public const string InvalidCodecFrame = "LLIDX048";
+
+    /// <summary>Term vectors could not be read during deep validation.</summary>
+    public const string TermVectorsReadFailure = "LLIDX049";
+
+    /// <summary>A codec descriptor's semantic body validation failed.</summary>
+    public const string CodecSemanticValidationFailure = "LLIDX050";
 }

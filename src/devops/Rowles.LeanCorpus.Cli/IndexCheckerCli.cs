@@ -516,7 +516,16 @@ public static class IndexCheckerCli
         {
             writer.WriteLine($"Segment {segment.SegmentId}: docs={segment.DocCount?.ToString() ?? "-"}, live={segment.LiveDocCount?.ToString() ?? "-"}, files={segment.Files.Count}");
             foreach (var file in segment.Files)
-                writer.WriteLine($"  {file.FileName} {file.CodecName} v{file.Version?.ToString() ?? "-"} current={file.CurrentVersion?.ToString() ?? "-"} supported={file.IsSupported}");
+            {
+                writer.WriteLine($"  {file.FileName}");
+                writer.WriteLine($"    format: {file.FormatId ?? file.CodecName}");
+                writer.WriteLine($"    frame: {file.FrameVersion?.ToString() ?? file.FrameKind.ToString()}");
+                writer.WriteLine($"    format-version: {file.FormatVersion?.ToString() ?? "-"}");
+                writer.WriteLine($"    current: {file.IsCurrent}");
+                writer.WriteLine($"    checksum: {file.ChecksumAlgorithm?.ToString() ?? "none"}");
+                writer.WriteLine($"    checksum-status: {file.ChecksumStatus}");
+                writer.WriteLine($"    location: {file.PhysicalLocation}");
+            }
         }
     }
 
@@ -744,6 +753,16 @@ internal sealed class CliCodecFileInventoryDto
     public required string FileName { get; init; }
     public required string Extension { get; init; }
     public required string CodecName { get; init; }
+    public string? FormatId { get; init; }
+    public string? FamilyId { get; init; }
+    public required string FrameKind { get; init; }
+    public int? FrameVersion { get; init; }
+    public int? FormatVersion { get; init; }
+    public int? CurrentFormatVersion { get; init; }
+    public string? ChecksumAlgorithm { get; init; }
+    public required string ChecksumStatus { get; init; }
+    public required string PhysicalLocation { get; init; }
+    public string? CompoundFileName { get; init; }
     public byte? Version { get; init; }
     public byte? CurrentVersion { get; init; }
     public required bool HasValidMagic { get; init; }
@@ -759,6 +778,16 @@ internal sealed class CliCodecFileInventoryDto
             FileName = file.FileName,
             Extension = file.Extension,
             CodecName = file.CodecName,
+            FormatId = file.FormatId,
+            FamilyId = file.FamilyId,
+            FrameKind = file.FrameKind.ToString(),
+            FrameVersion = file.FrameVersion,
+            FormatVersion = file.FormatVersion,
+            CurrentFormatVersion = file.CurrentFormatVersion,
+            ChecksumAlgorithm = file.ChecksumAlgorithm?.ToString(),
+            ChecksumStatus = file.ChecksumStatus.ToString(),
+            PhysicalLocation = file.PhysicalLocation.ToString(),
+            CompoundFileName = file.CompoundFileName,
             Version = file.Version,
             CurrentVersion = file.CurrentVersion,
             HasValidMagic = file.HasValidMagic,

@@ -38,23 +38,36 @@ public sealed class IndexOpenGuardTests : IClassFixture<TestDirectoryFixture>
 
     private static void WriteVarInt64(Stream stream, long value)
     {
-        while (value >= 0x80)
+        ulong encoded = unchecked((ulong)((value << 1) ^ (value >> 63)));
+        while (encoded >= 0x80)
         {
-            stream.WriteByte((byte)(value | 0x80));
-            value >>= 7;
+            stream.WriteByte((byte)(encoded | 0x80));
+            encoded >>= 7;
         }
-        stream.WriteByte((byte)value);
+        stream.WriteByte((byte)encoded);
     }
 
-    [Fact(DisplayName = "EnsureCanOpenSegments: current-version files succeed")]
-    public void EnsureCanOpenSegments_CurrentVersion_Succeeds()
+    [Fact(DisplayName = "EnsureCanOpenSegments: current-version legacy framing requires migration")]
+    public void EnsureCanOpenSegments_CurrentVersionLegacyFrame_ForWriting_Throws()
     {
-        var dir = new MMapDirectory(SubDir(nameof(EnsureCanOpenSegments_CurrentVersion_Succeeds)));
+        var dir = new MMapDirectory(SubDir(nameof(EnsureCanOpenSegments_CurrentVersionLegacyFrame_ForWriting_Throws)));
         var segPath = Path.Combine(dir.DirectoryPath, "seg_0.dic");
         WriteCodecFile(segPath, CodecFormats.TermDictionary, CodecConstants.TermDictionaryVersion, [0x01]);
 
-        // Should not throw.
-        IndexOpenGuard.EnsureCanOpenSegments(dir, ["seg_0"], IndexOpenCompatibilityMode.Strict, forWriting: false);
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            IndexOpenGuard.EnsureCanOpenSegments(dir, ["seg_0"], IndexOpenCompatibilityMode.Strict, forWriting: true));
+        Assert.Contains("older", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "EnsureCanOpenSegments: current canonical Norms succeeds for writing")]
+    public void EnsureCanOpenSegments_CurrentCanonicalNorms_ForWriting_Succeeds()
+    {
+        var dir = new MMapDirectory(SubDir(nameof(EnsureCanOpenSegments_CurrentCanonicalNorms_ForWriting_Succeeds)));
+        var normsPath = Path.Combine(dir.DirectoryPath, "seg_0.nrm");
+        var descriptor = CodecCatalog.Default.GetFile("leancorpus.norms.data");
+        CodecFileWriter.WriteAtomically(normsPath, descriptor, durable: false, static body => body.WriteByte(0));
+
+        IndexOpenGuard.EnsureCanOpenSegments(dir, ["seg_0"], IndexOpenCompatibilityMode.Strict, forWriting: true);
     }
 
     [Fact(DisplayName = "EnsureCanOpenSegments: writer rejects future version")]
@@ -145,7 +158,7 @@ public sealed class IndexOpenGuardTests : IClassFixture<TestDirectoryFixture>
     public void EnsureCanOpenSegments_NonCodecFiles_Skipped()
     {
         var dir = new MMapDirectory(SubDir(nameof(EnsureCanOpenSegments_NonCodecFiles_Skipped)));
-        // Write a file with an extension not in CodecFormatTable.
+        // Write a file with an extension not claimed by the codec catalogue.
         File.WriteAllText(Path.Combine(dir.DirectoryPath, "seg_0.xyz"), "garbage");
 
         // Should not throw — unknown extensions are silently skipped.

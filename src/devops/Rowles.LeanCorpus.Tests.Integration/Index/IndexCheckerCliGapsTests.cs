@@ -184,11 +184,11 @@ public sealed class IndexCheckerCliGapsTests : IClassFixture<TestDirectoryFixtur
 
     // ── WriteCompatibilityText migration actions loop (line 543) ─────────────
 
-    [Fact(DisplayName = "IndexCheckerCli: Compat old-version index text output writes migration actions")]
-    public void Compat_OldVersionDic_TextOutput_WritesMigrationActions()
+    [Fact(DisplayName = "IndexCheckerCli: Compat older readable index text output writes migration actions")]
+    public void Compat_OlderReadableIndex_TextOutput_WritesMigrationActions()
     {
         var path = CreateIndex("cli_gaps_compat_actions");
-        WriteCodecVersion(path, "*.dic", CodecConstants.TermDictionaryVersion - 1);
+        WriteCodecVersion(path, "*.nrm", CodecConstants.NormsVersion - 1);
         using var output = new StringWriter();
         using var error  = new StringWriter();
 
@@ -196,17 +196,17 @@ public sealed class IndexCheckerCliGapsTests : IClassFixture<TestDirectoryFixtur
 
         Assert.Equal(0, code);
         var text = output.ToString();
-        Assert.Contains("Status: Compatible", text);
+        Assert.Contains("Status: MigrationRecommended", text);
         Assert.Empty(error.ToString());
     }
 
     // ── WriteMigrationText actions loop (line 551) ───────────────────────────
 
-    [Fact(DisplayName = "IndexCheckerCli: Migrate dry-run old-version index text output writes actions")]
-    public void Migrate_DryRun_OldVersionDic_TextOutput_WritesActions()
+    [Fact(DisplayName = "IndexCheckerCli: Migrate dry-run older readable index text output writes actions")]
+    public void Migrate_DryRun_OlderReadableIndex_TextOutput_WritesActions()
     {
         var path = CreateIndex("cli_gaps_migrate_actions");
-        WriteCodecVersion(path, "*.dic", CodecConstants.TermDictionaryVersion - 1);
+        WriteCodecVersion(path, "*.nrm", CodecConstants.NormsVersion - 1);
         using var output = new StringWriter();
         using var error  = new StringWriter();
 
@@ -225,7 +225,7 @@ public sealed class IndexCheckerCliGapsTests : IClassFixture<TestDirectoryFixtur
     public void Migrate_DryRun_Json_WritesMigrationDto()
     {
         var path = CreateIndex("cli_gaps_migrate_json");
-        WriteCodecVersion(path, "*.dic", CodecConstants.TermDictionaryVersion - 1);
+        WriteCodecVersion(path, "*.nrm", CodecConstants.NormsVersion - 1);
         using var output = new StringWriter();
         using var error  = new StringWriter();
 
@@ -319,7 +319,7 @@ public sealed class IndexCheckerCliGapsTests : IClassFixture<TestDirectoryFixtur
     {
         var path = Directory.GetFiles(indexPath, pattern).Single();
         using var stream = File.Open(path, FileMode.Open, FileAccess.Write, FileShare.None);
-        stream.Position = sizeof(int);
-        stream.WriteByte((byte)version);
+        stream.Position = 6;
+        stream.Write(BitConverter.GetBytes(version));
     }
 }

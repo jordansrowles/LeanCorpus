@@ -106,11 +106,13 @@ internal sealed class CompoundFileReader : IDisposable
 {
     private readonly string _fileName;
     private readonly Dictionary<string, Entry> _entries;
+    private readonly IReadOnlyList<string> _fileNames;
 
     private CompoundFileReader(string fileName, Dictionary<string, Entry> entries)
     {
         _fileName = fileName;
         _entries = entries;
+        _fileNames = Array.AsReadOnly(entries.Keys.OrderBy(static name => name, StringComparer.Ordinal).ToArray());
     }
 
     internal static CompoundFileReader Open(MMapDirectory directory, string fileName)
@@ -146,10 +148,35 @@ internal sealed class CompoundFileReader : IDisposable
                 throw new InvalidDataException($"Compound file '{fileName}' has an out-of-range member '{name}'.");
         }
 
+        var orderedEntries = entries
+            .OrderBy(static pair => pair.Value.Offset)
+            .ThenBy(static pair => pair.Key, StringComparer.Ordinal)
+            .ToArray();
+        for (int i = 1; i < orderedEntries.Length; i++)
+        {
+            var previous = orderedEntries[i - 1];
+            var current = orderedEntries[i];
+            if (current.Value.Offset < previous.Value.Offset + previous.Value.Length)
+            {
+                throw new InvalidDataException(
+                    $"Compound file '{fileName}' has overlapping members '{previous.Key}' and '{current.Key}'.");
+            }
+        }
+
         return new CompoundFileReader(fileName, entries);
     }
 
     internal bool HasFile(string fileName) => _entries.ContainsKey(fileName);
+
+    /// <summary>Gets a stable snapshot of logical member names in ordinal order.</summary>
+    internal IReadOnlyList<string> FileNames => _fileNames;
+
+    internal long GetFileLength(string fileName)
+    {
+        if (!_entries.TryGetValue(fileName, out var entry))
+            throw new FileNotFoundException($"Compound member '{fileName}' was not found.", _fileName);
+        return entry.Length;
+    }
 
     internal IndexInput OpenInput(MMapDirectory directory, string fileName)
     {

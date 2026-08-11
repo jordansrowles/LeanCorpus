@@ -1,7 +1,5 @@
 using Rowles.LeanCorpus.Index.Migration;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.Postings;
-using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Index.Format;
 using Rowles.LeanCorpus.Store;
 
@@ -22,7 +20,8 @@ internal static class IndexOpenGuard
         MMapDirectory directory,
         IEnumerable<string> segmentIds,
         IndexOpenCompatibilityMode mode,
-        bool forWriting)
+        bool forWriting,
+        CodecCatalog? catalog = null)
     {
         if (mode == IndexOpenCompatibilityMode.UnsafeIgnoreCompatibility)
             return;
@@ -34,74 +33,39 @@ internal static class IndexOpenGuard
         if (!forWriting)
             return;
 
+        catalog ??= CodecCatalog.Default;
+
         var migrationRecommended = false;
         foreach (var segmentId in segmentIds)
         {
-            foreach (var filePath in FindSegmentFiles(directory.DirectoryPath, segmentId))
+            var inspection = IndexFormatInspector.InspectSegmentFiles(
+                directory,
+                segmentId,
+                new IndexFormatInspectionOptions
+                {
+                    IncludeOptionalSidecars = true,
+                    IncludeFileSizes = false,
+                    IncludeChecksums = false,
+                    Catalog = catalog
+                });
+
+            var blockingIssue = inspection.Issues.FirstOrDefault(static issue => issue.Severity == IndexCheckSeverity.Error);
+            if (blockingIssue is not null)
             {
-                if (!TryReadSupportedVersion(filePath, out var version, out var currentVersion))
-                    continue;
+                throw new InvalidDataException(
+                    $"Index at '{directory.DirectoryPath}' contains incompatible codec file '{blockingIssue.FileName}': {blockingIssue.Message}");
+            }
 
-                if (version > currentVersion)
-                    throw new InvalidDataException($"Index at '{directory.DirectoryPath}' uses unsupported future codec file '{Path.GetFileName(filePath)}' version {version}. Run a compatibility check before opening it.");
-
-                if (version < currentVersion)
-                    migrationRecommended = true;
+            if (inspection.Files.Any(static file =>
+                    file.CurrentFormatVersion.HasValue &&
+                    file.IsSupported &&
+                    !file.IsCurrent))
+            {
+                migrationRecommended = true;
             }
         }
 
-        if (forWriting && migrationRecommended)
+        if (migrationRecommended)
             throw new InvalidDataException($"Index at '{directory.DirectoryPath}' contains supported older codec files. Migrate the index before opening it for writing.");
-    }
-
-    private static IEnumerable<string> FindSegmentFiles(string directoryPath, string segmentId)
-    {
-        foreach (var file in FileOpenRetry.GetFiles(directoryPath, segmentId + ".*"))
-            yield return file;
-        foreach (var file in FileOpenRetry.GetFiles(directoryPath, segmentId + "_gen_*.del"))
-            yield return file;
-        foreach (var file in FileOpenRetry.GetFiles(directoryPath, segmentId + "_v_*.*"))
-            yield return file;
-    }
-
-    private static bool TryReadSupportedVersion(string filePath, out byte version, out byte currentVersion)
-    {
-        version = 0;
-        currentVersion = 0;
-        var extension = GetCodecExtension(filePath);
-        if (!CodecFormatTable.TryGet(extension, out var descriptor) ||
-            !descriptor.HasHeader ||
-            descriptor.CurrentVersion is null)
-        {
-            return false;
-        }
-
-        // Let IO / data-corruption exceptions propagate so that unreadable
-        // segment files are not silently skipped during compatibility checks.
-        using var stream = FileOpenRetry.OpenReadDelete(filePath);
-        using var reader = new BinaryReader(stream);
-        if (extension is ".pos")
-        {
-            version = PostingsFileHeader.ReadVersion(reader);
-        }
-        else if (extension is ".fdt" or ".fdx")
-        {
-            version = StoredFieldsFileHeader.ReadVersion(reader);
-        }
-        else
-        {
-            version = CodecFileHeader.ReadVersion(reader, descriptor.HeaderFormat!);
-        }
-        currentVersion = descriptor.CurrentVersion.Value;
-        return true;
-    }
-
-    private static string GetCodecExtension(string filePath)
-    {
-        var fileName = Path.GetFileName(filePath);
-        if (fileName.EndsWith(".stats.json", StringComparison.OrdinalIgnoreCase))
-            return ".stats";
-
-        return Path.GetExtension(filePath);
     }
 }

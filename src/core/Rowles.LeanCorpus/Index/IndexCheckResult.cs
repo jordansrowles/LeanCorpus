@@ -32,6 +32,13 @@ public sealed class IndexCheckResult
     internal void AddIssue(string issue)
         => AddIssue(IndexCheckSeverity.Error, IndexCheckIssueCodes.LegacyIssue, issue, null, null, false);
 
+    internal void AddIssue(IndexCheckIssue issue)
+    {
+        ArgumentNullException.ThrowIfNull(issue);
+        _detailedIssues.Add(issue);
+        _issues.Add(issue.ToString());
+    }
+
     internal void AddIssue(
         IndexCheckSeverity severity,
         string code,

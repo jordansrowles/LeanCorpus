@@ -273,7 +273,7 @@ public sealed class IndexCheckerCliTests : IClassFixture<TestDirectoryFixture>
     {
         var path = Directory.GetFiles(indexPath, pattern).Single();
         using var stream = File.Open(path, FileMode.Open, FileAccess.Write, FileShare.None);
-        stream.Position = 0;
-        stream.WriteByte((byte)version);
+        stream.Position = 6;
+        stream.Write(BitConverter.GetBytes(version));
     }
 }

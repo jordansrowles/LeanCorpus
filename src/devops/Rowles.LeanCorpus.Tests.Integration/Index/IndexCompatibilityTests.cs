@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
@@ -54,33 +55,33 @@ public sealed class IndexCompatibilityTests : IClassFixture<TestDirectoryFixture
     public void Check_OlderReadableCodec_ReturnsMigrationRecommended()
     {
         using var directory = CreateIndex("compat_old");
-        WriteCodecVersion(directory, "*.dic", 1);
+        WriteCodecVersion(directory, "*.nrm", CodecConstants.NormsVersion - 1);
 
         var result = IndexCompatibility.Check(directory);
 
-        Assert.Equal(IndexCompatibilityStatus.Compatible, result.Status);
+        Assert.Equal(IndexCompatibilityStatus.MigrationRecommended, result.Status);
         Assert.True(result.CanRead);
-        Assert.True(result.CanWrite);
+        Assert.False(result.CanWrite);
         Assert.True(result.CanValidate);
         Assert.False(result.MustReject);
-        Assert.False(result.CanMigrate);
+        Assert.True(result.CanMigrate);
     }
 
     [Fact]
     public void Check_OlderReadableCodec_WhenCurrentFormatsRequired_ReturnsMigrationRequired()
     {
         using var directory = CreateIndex("compat_required");
-        WriteCodecVersion(directory, "*.dic", 1);
+        WriteCodecVersion(directory, "*.nrm", CodecConstants.NormsVersion - 1);
 
         var result = IndexCompatibility.Check(directory, new IndexCompatibilityOptions { RequireCurrentFormats = true });
 
-        Assert.Equal(IndexCompatibilityStatus.Compatible, result.Status);
-        Assert.True(result.CanRead);
-        Assert.True(result.CanWrite);
+        Assert.Equal(IndexCompatibilityStatus.MigrationRequired, result.Status);
+        Assert.False(result.CanRead);
+        Assert.False(result.CanWrite);
         Assert.True(result.CanValidate);
         Assert.False(result.MustReject);
-        Assert.False(result.RequiresMigration);
-        Assert.False(result.CanMigrate);
+        Assert.True(result.RequiresMigration);
+        Assert.True(result.CanMigrate);
     }
 
     [Fact]
@@ -99,6 +100,48 @@ public sealed class IndexCompatibilityTests : IClassFixture<TestDirectoryFixture
     }
 
     [Fact]
+    public void Check_UnknownCanonicalFormat_ReturnsUnknownFormat()
+    {
+        using var directory = CreateIndex("compat_unknown");
+        var path = Directory.GetFiles(directory.DirectoryPath, "*.dic").Single();
+        using (var stream = File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            stream.Position = 5;
+            int length = stream.ReadByte();
+            var replacement = System.Text.Encoding.ASCII.GetBytes("x." + new string('x', length - 2));
+            stream.Position = CodecFileWriter.FixedHeaderLength;
+            stream.Write(replacement);
+        }
+
+        var result = IndexCompatibility.Check(directory);
+
+        Assert.Equal(IndexCompatibilityStatus.UnknownFormat, result.Status);
+        Assert.False(result.CanRead);
+        Assert.False(result.CanWrite);
+        Assert.True(result.CanValidate);
+        Assert.True(result.MustReject);
+        Assert.Contains(result.Issues, issue => issue.Code == IndexCheckIssueCodes.UnknownCodecFormat);
+    }
+
+    [Fact]
+    public void Check_ExplicitCatalogues_AreIsolatedFromTheDefaultCatalogue()
+    {
+        using var directory = CreateIndex("compat_catalogue_isolation");
+        var isolatedCatalogue = CreateIsolatedCatalogue();
+
+        var defaultBefore = IndexCompatibility.Check(directory);
+        var isolated = IndexCompatibility.Check(directory, new IndexCompatibilityOptions
+        {
+            Catalog = isolatedCatalogue,
+        });
+        var defaultAfter = IndexCompatibility.Check(directory);
+
+        Assert.Equal(IndexCompatibilityStatus.Compatible, defaultBefore.Status);
+        Assert.Equal(IndexCompatibilityStatus.UnknownFormat, isolated.Status);
+        Assert.Equal(IndexCompatibilityStatus.Compatible, defaultAfter.Status);
+    }
+
+    [Fact]
     public void Check_CorruptIndex_ReturnsCorruptMustReject()
     {
         using var directory = CreateIndex("compat_corrupt");
@@ -114,14 +157,12 @@ public sealed class IndexCompatibilityTests : IClassFixture<TestDirectoryFixture
     }
 
     [Fact]
-    public void IndexSearcher_FutureCodec_ThrowsInvalidDataExceptionOnFirstAccess()
+    public void IndexSearcher_FutureCodec_IsRejectedDuringRecovery()
     {
         using var directory = CreateIndex("compat_searcher_guard");
         WriteCodecKitVersion(directory, "*.dic", CodecConstants.TermDictionaryVersion + 1);
 
-        using var searcher = new IndexSearcher(directory);
-        Assert.Throws<InvalidDataException>(() =>
-            searcher.Search(new TermQuery("body", "test"), 10));
+        Assert.Throws<InvalidDataException>(() => new IndexSearcher(directory));
     }
 
     [Fact]
@@ -197,16 +238,43 @@ public sealed class IndexCompatibilityTests : IClassFixture<TestDirectoryFixture
     private static void WriteCodecVersion(MMapDirectory directory, string pattern, int version)
     {
         var path = Directory.GetFiles(directory.DirectoryPath, pattern).Single();
-        using var stream = File.Open(path, FileMode.Open, FileAccess.Write, FileShare.None);
-        stream.Position = sizeof(int);
+        byte[] body;
+        using (var input = new IndexInput(path))
+        using (var frame = CodecFileReader.Open(input))
+            body = frame.ReadBody();
+
+        using var stream = File.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
         stream.WriteByte((byte)version);
+        ulong length = (ulong)body.Length << 1;
+        while (length >= 0x80)
+        {
+            stream.WriteByte((byte)(length | 0x80));
+            length >>= 7;
+        }
+        stream.WriteByte((byte)length);
+        stream.Write(body);
     }
 
     private static void WriteCodecKitVersion(MMapDirectory directory, string pattern, int version)
     {
         var path = Directory.GetFiles(directory.DirectoryPath, pattern).Single();
         using var stream = File.Open(path, FileMode.Open, FileAccess.Write, FileShare.None);
-        stream.Position = 0;
-        stream.WriteByte((byte)version);
+        stream.Position = 6;
+        stream.Write(BitConverter.GetBytes(version));
+    }
+
+    private static CodecCatalog CreateIsolatedCatalogue()
+    {
+        const string familyId = "example.catalogue-isolation";
+        var file = new CodecFileDescriptor(
+            "example.catalogue-isolation.data",
+            familyId,
+            "Catalogue isolation data",
+            CodecFileMatcher.Extension(".custom"),
+            currentFormatVersion: null);
+
+        return new CodecCatalogBuilder()
+            .Add(new CodecFamilyDescriptor(familyId, "Catalogue isolation", [file]))
+            .Build();
     }
 }

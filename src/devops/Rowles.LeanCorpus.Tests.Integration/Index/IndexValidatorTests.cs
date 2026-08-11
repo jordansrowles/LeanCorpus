@@ -1,6 +1,7 @@
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Codecs;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Queries;
@@ -229,7 +230,7 @@ public sealed class IndexValidatorTests : IClassFixture<TestDirectoryFixture>
 
         var result = IndexValidator.Check(dir);
 
-        Assert.Contains(result.DetailedIssues, i => i.Code == IndexCheckIssueCodes.InvalidCodecMagic && i.FileName == Path.GetFileName(dssFile));
+        Assert.Contains(result.DetailedIssues, i => i.Code == IndexCheckIssueCodes.InvalidCodecFrame && i.FileName == Path.GetFileName(dssFile));
     }
 
     [Fact(DisplayName = "Check: Unregistered Stored Field Compression Returns Issue")]
@@ -243,14 +244,11 @@ public sealed class IndexValidatorTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         var fdtFile = Directory.GetFiles(dir.DirectoryPath, "*.fdt").Single();
-        // v2 .fdt layout: [version:1][blockSize:int32][compression:byte]...
-        int compressionOffset;
-        using (var readStream = File.OpenRead(fdtFile))
-        using (var reader = new BinaryReader(readStream))
+        long compressionOffset;
+        using (var input = new IndexInput(fdtFile))
+        using (var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.stored-fields.data")))
         {
-            reader.ReadByte(); // version
-            reader.ReadInt32(); // skip blockSize
-            compressionOffset = (int)readStream.Position;
+            compressionOffset = frame.Metadata.BodyStart + sizeof(int);
         }
         using (var stream = File.Open(fdtFile, FileMode.Open, FileAccess.Write, FileShare.None))
         {
@@ -261,6 +259,46 @@ public sealed class IndexValidatorTests : IClassFixture<TestDirectoryFixture>
         var result = IndexValidator.Check(dir);
 
         Assert.Contains(result.DetailedIssues, i => i.Code == IndexCheckIssueCodes.UnregisteredCompressionPolicy);
+    }
+
+    [Fact(DisplayName = "Check: Deep validation reports canonical checksum mismatch")]
+    public void Check_DeepCanonicalChecksumMismatch_ReturnsStableCode()
+    {
+        var dir = CreateIndex("val_deep_checksum", useCompoundFile: false);
+        var normsPath = Directory.GetFiles(dir.DirectoryPath, "*.nrm").Single();
+        CorruptCanonicalBody(normsPath, physicalBaseOffset: 0);
+
+        var result = IndexValidator.Check(dir, new IndexCheckOptions { Deep = true });
+
+        Assert.Contains(result.DetailedIssues, issue =>
+            issue.Code == IndexCheckIssueCodes.CodecChecksumMismatch &&
+            issue.FileName == Path.GetFileName(normsPath));
+    }
+
+    [Fact(DisplayName = "Check: Deep validation reports compound member checksum mismatch")]
+    public void Check_DeepCompoundMemberChecksumMismatch_ReturnsLogicalMemberIssue()
+    {
+        var dir = CreateIndex("val_deep_compound_checksum", useCompoundFile: true);
+        var cfsPath = Directory.GetFiles(dir.DirectoryPath, "*.cfs").Single();
+        var segmentId = Path.GetFileNameWithoutExtension(cfsPath);
+        var memberName = segmentId + ".nrm";
+        long memberOffset = ReadCompoundMemberOffset(cfsPath, memberName);
+        long memberBodyStart;
+
+        using (var compound = CompoundFileReader.Open(dir, Path.GetFileName(cfsPath)))
+        using (var member = compound.OpenInput(dir, memberName))
+        using (var frame = CodecFileReader.Open(member, CodecCatalog.Default.GetFile("leancorpus.norms.data")))
+        {
+            memberBodyStart = frame.Metadata.BodyStart;
+        }
+        CorruptCanonicalBody(cfsPath, memberOffset, memberBodyStart);
+
+        var result = IndexValidator.Check(dir, new IndexCheckOptions { Deep = true });
+
+        Assert.Contains(result.DetailedIssues, issue =>
+            issue.Code == IndexCheckIssueCodes.CodecChecksumMismatch &&
+            issue.FileName == memberName &&
+            issue.SegmentId == segmentId);
     }
 
     [Fact(DisplayName = "Check: Missing Deletion Generation File Returns Issue")]
@@ -338,5 +376,54 @@ public sealed class IndexValidatorTests : IClassFixture<TestDirectoryFixture>
         var result = IndexValidator.Check(dir, new IndexCheckOptions { VerifyDocValues = true });
 
         Assert.Contains(result.DetailedIssues, i => i.Code == IndexCheckIssueCodes.DocValuesReadFailure);
+    }
+
+    private MMapDirectory CreateIndex(string name, bool useCompoundFile)
+    {
+        var directory = new MMapDirectory(SubDir(name));
+        using var writer = new IndexWriter(directory, new IndexWriterConfig { UseCompoundFile = useCompoundFile });
+        var document = new LeanDocument();
+        document.Add(new TextField("body", "checksum validation"));
+        writer.AddDocument(document);
+        writer.Commit();
+        return directory;
+    }
+
+    private static void CorruptCanonicalBody(string path, long physicalBaseOffset, long? knownBodyStart = null)
+    {
+        long bodyStart = knownBodyStart ?? ReadCanonicalBodyStart(path);
+        using var stream = File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        stream.Position = checked(physicalBaseOffset + bodyStart);
+        int value = stream.ReadByte();
+        Assert.NotEqual(-1, value);
+        stream.Position = checked(physicalBaseOffset + bodyStart);
+        stream.WriteByte((byte)(value ^ 0xff));
+    }
+
+    private static long ReadCanonicalBodyStart(string path)
+    {
+        using var input = new IndexInput(path);
+        using var frame = CodecFileReader.Open(input);
+        Assert.True(frame.Metadata.BodyLength > 0);
+        return frame.Metadata.BodyStart;
+    }
+
+    private static long ReadCompoundMemberOffset(string path, string memberName)
+    {
+        using var stream = File.OpenRead(path);
+        using var reader = new BinaryReader(stream);
+        reader.ReadInt32();
+        reader.ReadInt32();
+        int count = reader.ReadInt32();
+        for (int i = 0; i < count; i++)
+        {
+            string name = reader.ReadString();
+            long offset = reader.ReadInt64();
+            reader.ReadInt64();
+            if (name == memberName)
+                return offset;
+        }
+
+        throw new InvalidDataException($"Compound member '{memberName}' was not found.");
     }
 }
