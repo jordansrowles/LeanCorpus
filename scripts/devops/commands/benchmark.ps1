@@ -7,7 +7,7 @@ function Invoke-DevOpsBenchmark {
     $repoRoot = Get-RepoRoot
     $scriptsPath = Get-ScriptsPath
 
-    # Detect 'remote' subcommand before full parsing
+    # Detect subcommands before full parsing
     $subCmd = if ($Arguments.Count -gt 0 -and -not $Arguments[0].StartsWith('-')) { $Arguments[0] } else { 'run' }
     if ($subCmd -eq 'remote') {
         $remoteScript = Join-Path $scriptsPath 'benchmarks/send-remote.ps1'
@@ -15,9 +15,15 @@ function Invoke-DevOpsBenchmark {
         if ($remoteArgs.Count -gt 0) { & $remoteScript @remoteArgs } else { & $remoteScript }
         exit $LASTEXITCODE
     }
+    if ($subCmd -eq 'affected') {
+        $affectedArgs = @($Arguments | Select-Object -Skip 1)
+        Invoke-AffectedBenchmarks -Arguments $affectedArgs
+        exit $LASTEXITCODE
+    }
 
     $parsed = ConvertFrom-DevOpsArguments $Arguments
     $suite = $parsed.Get('Suite', 'all')
+    if (-not $parsed.Get('Suite', '') -and $parsed.Positionals.Count -gt 0) { $suite = $parsed.Positionals[0] }
     $strat = $parsed.Get('Strat', 'default')
     $framework = $parsed.Get('Framework', (Get-DefaultFramework))
     $docCount = [int]($parsed.Get('DocCount', '0'))
@@ -32,6 +38,8 @@ function Invoke-DevOpsBenchmark {
     $gcDump = $parsed.Has('GcDump')
     $controlled = $parsed.Has('Controlled')
     $passThrough = $parsed.PassThrough
+    $area = $parsed.Get('Area', '')
+    $group = $parsed.Get('Group', '')
 
     $suiteMap = Import-PowerShellDataFile "$PSScriptRoot/../config/benchmark-suites.psd1"
     $stratMap = Import-PowerShellDataFile "$PSScriptRoot/../config/benchmark-strategies.psd1"
@@ -40,9 +48,13 @@ function Invoke-DevOpsBenchmark {
         Write-Host ''
         Write-Host '  Available benchmark suites (-Suite):'
         Write-Host ''
+        Write-Host '    core                LeanCorpus core benchmarks'
+        Write-Host '    text                Rowles.Text analysis benchmarks'
+        Write-Host '    compression         Compression codec benchmarks'
         foreach ($name in $suiteMap.Keys) {
             Write-Host ("    {0,-22} {1}" -f $name, $suiteMap[$name])
         }
+        Write-Host '    affected            Benchmarks for dirty source areas'
         Write-Host ''
         Write-Host '  Available strategies (-Strat):'
         Write-Host ''
@@ -51,6 +63,25 @@ function Invoke-DevOpsBenchmark {
         }
         Write-Host ''
         exit 0
+    }
+
+    if ($area -or $group) {
+        if ($suite -notin @('core', 'text')) {
+            Write-Error '-Area and -Group require the core or text benchmark suite.'
+            exit 1
+        }
+
+        Invoke-SelectedBenchmarks -Suite $suite -Area $area -Group $group -Framework $framework -Dry $dry
+        exit $LASTEXITCODE
+    }
+
+    $projectPath = Resolve-BenchmarkProjectPath $suite
+
+    # The Rowles.Text and Compression runners do not use the custom --suite
+    # protocol; only the core runner does.
+    $runArgs = @()
+    if ($suite -in @('core', 'all', 'all-with-explicit')) {
+        $runArgs += @('--suite', $suite)
     }
 
     $stratCfg = Resolve-BenchmarkStrategy $strat
@@ -67,13 +98,10 @@ function Invoke-DevOpsBenchmark {
     if ($docCount -gt 0) { $effectiveDocCount = $docCount }
     elseif ($stratDocCount -gt 0) { $effectiveDocCount = $stratDocCount }
 
-    $projectPath = Get-BenchmarkProjectPath
-
     if ($prepareData) {
         Prepare-BenchmarkData -RepoRoot $repoRoot -ScriptsPath $scriptsPath -BookCount $bookCount
     }
 
-    $runArgs = @('--suite', $suite)
     if ($effectiveDocCount -gt 0) {
         $runArgs += @('--doccount', $effectiveDocCount.ToString())
         $env:BENCH_DOC_COUNT = $effectiveDocCount.ToString()
@@ -108,4 +136,158 @@ function Invoke-DevOpsBenchmark {
     Write-Host ''
     dotnet run -c Release --framework $framework --project $projectPath -- @runArgs @stratJobArgs @passThrough
     exit $LASTEXITCODE
+}
+
+function Resolve-BenchmarkProjectPath {
+    param([string]$Suite)
+
+    switch ($Suite) {
+        'text'        { return Join-Path (Get-RepoRoot) 'src/devops/Rowles.Text.Benchmarks/Rowles.Text.Benchmarks.csproj' }
+        'compression' { return Join-Path (Get-RepoRoot) 'src/devops/Rowles.LeanCorpus.Benchmarks.Compression/Rowles.LeanCorpus.Benchmarks.Compression.csproj' }
+        default       { return Get-BenchmarkProjectPath }
+    }
+}
+
+function Invoke-AffectedBenchmarks {
+    param([string[]]$Arguments)
+
+    $parsed = ConvertFrom-DevOpsArguments $Arguments
+    $framework = $parsed.Get('Framework', (Get-DefaultFramework))
+    $area = $parsed.Get('Area', '')
+    $group = $parsed.Get('Group', '')
+    $dry = $parsed.Has('Dry')
+    $repoRoot = Get-RepoRoot
+    $groups = Import-PowerShellDataFile "$PSScriptRoot/../config/benchmark-groups.psd1"
+
+    $dirty = @(Get-DirtyFiles $repoRoot)
+    Write-Heading 'Affected benchmark runner'
+    Write-Host "  Dirty files:   $($dirty.Count)"
+    Write-Host ''
+
+    # project key -> ordered set of benchmark class names
+    $targets = @{}
+    foreach ($file in $dirty) {
+        $normalised = $file.Replace('\', '/')
+        foreach ($name in $groups.Keys) {
+            $entry = $groups[$name]
+            if (-not (Test-BenchmarkGroupSelection -Name $name -Entry $entry -Area $area -Group $group)) {
+                continue
+            }
+            foreach ($glob in $entry.Globs) {
+                if (Test-GlobMatch -Path $normalised -Glob $glob) {
+                    if (-not $targets.ContainsKey($entry.Project)) {
+                        $targets[$entry.Project] = [System.Collections.Generic.HashSet[string]]::new()
+                    }
+                    foreach ($b in $entry.Benchmarks) {
+                        [void]$targets[$entry.Project].Add($b)
+                    }
+                }
+            }
+        }
+    }
+
+    if ($targets.Count -eq 0) {
+        Write-Failure 'No benchmark group matched the dirty files. Refusing to run zero benchmarks.'
+        exit 1
+    }
+
+    Invoke-BenchmarkTargets -Targets $targets -Framework $framework -Dry $dry
+}
+
+function Invoke-SelectedBenchmarks {
+    param(
+        [string]$Suite,
+        [string]$Area,
+        [string]$Group,
+        [string]$Framework,
+        [bool]$Dry
+    )
+
+    $groups = Import-PowerShellDataFile "$PSScriptRoot/../config/benchmark-groups.psd1"
+    $targets = @{}
+    foreach ($name in $groups.Keys) {
+        $entry = $groups[$name]
+        if ($entry.Project -ne $Suite -or -not (Test-BenchmarkGroupSelection -Name $name -Entry $entry -Area $Area -Group $Group)) {
+            continue
+        }
+
+        if (-not $targets.ContainsKey($entry.Project)) {
+            $targets[$entry.Project] = [System.Collections.Generic.HashSet[string]]::new()
+        }
+        foreach ($benchmark in $entry.Benchmarks) {
+            [void]$targets[$entry.Project].Add($benchmark)
+        }
+    }
+
+    if ($targets.Count -eq 0) {
+        Write-Error "No benchmark groups matched suite '$Suite', Area='$Area', Group='$Group'."
+        exit 1
+    }
+
+    Write-Heading 'Selected benchmark runner'
+    if ($Area) { Write-Host "  Area:          $Area" }
+    if ($Group) { Write-Host "  Group:         $Group" }
+    Write-Host ''
+    Invoke-BenchmarkTargets -Targets $targets -Framework $Framework -Dry $Dry
+}
+
+function Test-BenchmarkGroupSelection {
+    param(
+        [string]$Name,
+        $Entry,
+        [string]$Area,
+        [string]$Group
+    )
+
+    $areas = @($Area -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $groups = @($Group -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+
+    return ($areas.Count -eq 0 -or $areas -contains $Entry.Area) -and
+           ($groups.Count -eq 0 -or $groups -contains $Name)
+}
+
+function Invoke-BenchmarkTargets {
+    param(
+        [hashtable]$Targets,
+        [string]$Framework,
+        [bool]$Dry
+    )
+
+    $failed = @()
+    foreach ($project in $Targets.Keys | Sort-Object) {
+        $classes = @($Targets[$project]) | Sort-Object
+        $projectPath = Resolve-BenchmarkProjectPath $project
+
+        foreach ($class in $classes) {
+            # BDN --filter is a single glob (no OR), so run one class per call.
+            $projectArgs = @()
+            if ($project -eq 'core') { $projectArgs = @('--suite', 'all') }
+
+            Write-Info "  $project/$class..."
+            if ($Dry) {
+                $filterArgs = if ($project -eq 'core') { "--suite all -- --filter `"*$class*`"" } else { "--filter `"*$class*`"" }
+                Write-Host "    dotnet run -c Release --framework $Framework --project `"$projectPath`" -- $filterArgs"
+                continue
+            }
+            if ($project -eq 'core') {
+                dotnet run -c Release --framework $framework --project $projectPath -- @projectArgs -- --filter "*$class*"
+            } else {
+                dotnet run -c Release --framework $framework --project $projectPath -- --filter "*$class*"
+            }
+            if ($LASTEXITCODE -ne 0) {
+                Write-Failure "  $project/$class - FAILED"
+                $failed += "$project/$class"
+            } else {
+                Write-Success "  $project/$class - passed"
+            }
+        }
+    }
+
+    Write-Host ''
+    if ($failed.Count -gt 0) {
+        Write-Error "Failed benchmark projects: $($failed -join ', ')"
+        exit 1
+    }
+    Write-Success 'All selected benchmark targets passed.'
+    exit 0
 }

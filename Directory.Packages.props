@@ -9,6 +9,7 @@
     <PackageVersion Include="coverlet.collector" Version="6.0.4" />
     <PackageVersion Include="FsCheck" Version="3.3.2" />
     <PackageVersion Include="FsCheck.Xunit" Version="3.3.2" />
+    <PackageVersion Include="FsCheck.Xunit.v3" Version="3.3.2" />
     <PackageVersion Include="K4os.Compression.LZ4" Version="1.3.8" />
     <PackageVersion Include="Lucene.Net" Version="4.8.0-beta00016" />
     <PackageVersion Include="Lucene.Net.Analysis.Common" Version="4.8.0-beta00016" />
@@ -32,6 +33,7 @@
     <PackageVersion Include="TngTech.ArchUnitNET" Version="0.13.3" />
     <PackageVersion Include="TngTech.ArchUnitNET.xUnit" Version="0.13.3" />
     <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.v3" Version="3.0.0" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
     <PackageVersion Include="ZstdSharp.Port" Version="0.8.8" />
   </ItemGroup>

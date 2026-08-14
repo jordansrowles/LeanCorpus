@@ -1,10 +1,14 @@
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
+using Rowles.LeanCorpus.Tests.Metadata;
 using Xunit;
 
 namespace Rowles.Text.Tests;
 
+[Category(TestCategory.Unit)]
+[Area(TestArea.Analysers)]
+[Area(TestArea.Tokenisers)]
 public sealed class StandalonePackageTests
 {
     [Fact]

@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="FsCheck" />
+    <PackageReference Include="FsCheck.Xunit.v3" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\core\Rowles.LeanCorpus\Rowles.LeanCorpus.csproj" />
+    <ProjectReference Include="..\..\core\Rowles.LeanCorpus.Compression.LZ4\Rowles.LeanCorpus.Compression.LZ4.csproj" />
+    <ProjectReference Include="..\..\core\Rowles.LeanCorpus.Compression.Snappy\Rowles.LeanCorpus.Compression.Snappy.csproj" />
+    <ProjectReference Include="..\..\core\Rowles.LeanCorpus.Compression.Zstandard\Rowles.LeanCorpus.Compression.Zstandard.csproj" />
+    <ProjectReference Include="..\Rowles.LeanCorpus.Cli\Rowles.LeanCorpus.Cli.csproj" />
+  </ItemGroup>
+
+  <!-- Shared infrastructure: xunit-agnostic fixtures sourced into this project. -->
+  <ItemGroup>
+    <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Fixtures\TestDirectoryFixture.cs"
+             Link="Foundation\Infrastructure\TestDirectoryFixture.cs" />
+    <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Fixtures\HistoricalCodecFixtures.cs"
+             Link="Foundation\Infrastructure\HistoricalCodecFixtures.cs" />
+    <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Fixtures\HistoricalIndexFixtures.cs"
+             Link="Foundation\Infrastructure\HistoricalIndexFixtures.cs" />
+    <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Infrastructure\MaterialisingTokenSink.cs"
+             Link="Foundation\Infrastructure\MaterialisingTokenSink.cs" />
+  </ItemGroup>
+
+  <!-- Historical fixture bytes: keep the manifest names stable regardless of project. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\Rowles.LeanCorpus.Tests.Shared\Fixtures\Indexes\*.fixture.b64"
+                      Link="Fixtures\Indexes\%(Filename)%(Extension)"
+                      LogicalName="Rowles.LeanCorpus.Tests.Shared.Fixtures.Indexes.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\..\lexicons\japanese.jlc"
+             Link="lexicons\japanese.jlc"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

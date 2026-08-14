@@ -1,8 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
-  <ItemGroup>
-    <PackageReference Include="xunit" />
-  </ItemGroup>
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <IsTestProject>false</IsTestProject>
@@ -10,10 +6,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\core\Rowles.LeanCorpus\Rowles.LeanCorpus.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.Unit" />
   </ItemGroup>
 
   <ItemGroup>

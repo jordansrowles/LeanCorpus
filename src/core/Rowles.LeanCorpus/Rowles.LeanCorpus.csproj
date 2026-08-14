@@ -31,9 +31,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.Shared" />
-    <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.Unit" />
-    <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.Integration" />
-    <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.Chaos" />
+    <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.Core" />
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Profiling" />
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.AOTSmoke" />
   </ItemGroup>

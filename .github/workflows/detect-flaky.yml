@@ -40,10 +40,8 @@ jobs:
         shell: pwsh
         run: |
           $projects = @(
-            'src/devops/Rowles.LeanCorpus.Tests.Unit/Rowles.LeanCorpus.Tests.Unit.csproj'
-            'src/devops/Rowles.LeanCorpus.Tests.Integration/Rowles.LeanCorpus.Tests.Integration.csproj'
-            'src/devops/Rowles.LeanCorpus.Tests.Chaos/Rowles.LeanCorpus.Tests.Chaos.csproj'
-            'src/devops/Rowles.LeanCorpus.Tests.CompressionParity/Rowles.LeanCorpus.Tests.CompressionParity.csproj'
+            'src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj'
+            'src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj'
             'src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj'
             'src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj'
             'src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj'
@@ -60,10 +58,8 @@ jobs:
         shell: pwsh
         run: |
           $projects = @(
-            'src/devops/Rowles.LeanCorpus.Tests.Unit/Rowles.LeanCorpus.Tests.Unit.csproj'
-            'src/devops/Rowles.LeanCorpus.Tests.Integration/Rowles.LeanCorpus.Tests.Integration.csproj'
-            'src/devops/Rowles.LeanCorpus.Tests.Chaos/Rowles.LeanCorpus.Tests.Chaos.csproj'
-            'src/devops/Rowles.LeanCorpus.Tests.CompressionParity/Rowles.LeanCorpus.Tests.CompressionParity.csproj'
+            'src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj'
+            'src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj'
             'src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj'
             'src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj'
             'src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj'
@@ -83,10 +79,8 @@ jobs:
           CHAOS_ITERATIONS: 1000
         run: |
           $suites = @(
-            @{ Name = 'unit'; Project = 'src/devops/Rowles.LeanCorpus.Tests.Unit/Rowles.LeanCorpus.Tests.Unit.csproj' }
-            @{ Name = 'integration'; Project = 'src/devops/Rowles.LeanCorpus.Tests.Integration/Rowles.LeanCorpus.Tests.Integration.csproj' }
-            @{ Name = 'chaos'; Project = 'src/devops/Rowles.LeanCorpus.Tests.Chaos/Rowles.LeanCorpus.Tests.Chaos.csproj' }
-            @{ Name = 'compression-parity'; Project = 'src/devops/Rowles.LeanCorpus.Tests.CompressionParity/Rowles.LeanCorpus.Tests.CompressionParity.csproj' }
+            @{ Name = 'text'; Project = 'src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj' }
+            @{ Name = 'core'; Project = 'src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj' }
             @{ Name = 'sourcegen'; Project = 'src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj' }
             @{ Name = 'architecture'; Project = 'src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj' }
           )
