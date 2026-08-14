@@ -38,7 +38,7 @@ internal static class HnswWriter
                 {
                     var neighbours = graph.GetNeighbours(docId, level);
                     bodyOutput.WriteInt32(docId);
-                    bodyOutput.WriteInt32(neighbours.Count);
+                    bodyOutput.WriteInt32(neighbours.Length);
                     foreach (var n in neighbours)
                         bodyOutput.WriteInt32(n);
                 }

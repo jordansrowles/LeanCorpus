@@ -888,7 +888,7 @@ public static class IndexValidator
             {
                 using var vectorReader = VectorReader.Open(vectorPath);
                 var source = new VectorReaderSource(vectorReader);
-                HnswReader.Read(hnswPath, source, vectorField.Normalised);
+                using var graph = HnswReader.Read(hnswPath, source, vectorField.Normalised);
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or EndOfStreamException)
             {

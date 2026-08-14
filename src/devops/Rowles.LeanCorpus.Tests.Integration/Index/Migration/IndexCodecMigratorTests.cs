@@ -1503,6 +1503,58 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         Assert.Equal(IndexMigrationState.Published, IndexMigrationRecovery.GetState(path).State);
     }
 
+    [Fact(DisplayName = "Migrate: reframe streams bodies without body-sized managed allocation")]
+    public void Migrate_Reframe_UsesBoundedManagedMemory()
+    {
+        const int paddedBodyLength = 32 * 1024 * 1024;
+        string path = CreateCurrentVersionIndex("bounded-reframe");
+        string numericPath = Directory.GetFiles(path, "*.dvn").Single();
+        var descriptor = CodecCatalog.Default.GetFile("leancorpus.doc-values.numeric");
+
+        byte[] originalBody;
+        using (var input = new IndexInput(numericPath))
+        using (var frame = CodecFileReader.Open(input, descriptor))
+            originalBody = frame.ReadBody();
+
+        using (var output = new IndexOutput(numericPath))
+        {
+            using var legacyFrame = CodecFileHeader.BeginStreamingWrite(
+                output,
+                checked((byte)descriptor.CurrentFormatVersion!.Value));
+            output.WriteBytes(originalBody);
+            byte[] padding = new byte[64 * 1024];
+            for (int remaining = paddedBodyLength - originalBody.Length; remaining > 0;)
+            {
+                int count = Math.Min(remaining, padding.Length);
+                output.WriteBytes(padding.AsSpan(0, count));
+                remaining -= count;
+            }
+        }
+
+        using var directory = new MMapDirectory(path);
+        Assert.Contains(
+            IndexCodecMigrator.Plan(directory).Actions,
+            action => action.FileName == Path.GetFileName(numericPath)
+                && action.Kind == IndexCodecMigrationActionKind.Reframe);
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        var result = IndexCodecMigrator.Migrate(directory, new IndexCodecMigrationOptions
+        {
+            DryRun = false,
+            ValidateBeforeMigration = false,
+            ValidateAfterMigration = false,
+        });
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Issues.Select(issue => issue.Message)));
+        Assert.True(
+            allocated < paddedBodyLength / 2,
+            $"Migration allocated {allocated:N0} bytes for a {paddedBodyLength:N0}-byte body.");
+    }
+
     [Fact(DisplayName = "Migrate: OutOfMemoryException bubbles up uncaught")]
     public void Migrate_OutOfMemoryException_BubblesUp()
     {

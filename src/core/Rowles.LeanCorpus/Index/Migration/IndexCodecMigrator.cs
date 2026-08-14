@@ -1131,9 +1131,23 @@ public static class IndexCodecMigrator
         string temporaryPath = targetPath + ".tmp";
         try
         {
-            using (var input = new IndexInput(sourcePath))
-            using (var frame = CodecFileReader.OpenSupported(input, descriptor))
+            using var input = new IndexInput(sourcePath);
+            if (SupportsLegacyFraming(descriptor, CodecLegacyFraming.Headerless))
             {
+                CodecFileWriter.WriteAtomically(temporaryPath, descriptor, durable: true, bodyOutput =>
+                {
+                    long remaining = input.Length;
+                    while (remaining > 0)
+                    {
+                        int count = (int)Math.Min(64 * 1024, remaining);
+                        bodyOutput.WriteBytes(input.ReadSpan(count));
+                        remaining -= count;
+                    }
+                });
+            }
+            else
+            {
+                using var frame = CodecFileReader.OpenSupported(input, descriptor);
                 CodecFileWriter.WriteAtomically(temporaryPath, descriptor, durable: true, bodyOutput =>
                 {
                     long remaining = frame.BodyLength;
@@ -1154,6 +1168,11 @@ public static class IndexCodecMigrator
             throw;
         }
     }
+
+    private static bool SupportsLegacyFraming(
+        CodecFileDescriptor descriptor,
+        CodecLegacyFraming framing)
+        => descriptor.SupportedVersions.Any(version => (version.LegacyFraming & framing) != 0);
 
     private static void RewriteFieldLengths(string sourcePath, string targetPath)
     {

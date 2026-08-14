@@ -8,6 +8,7 @@ internal static class CodecCatalogBuiltIns
             VersionedFile("leancorpus.term-dictionary.data", "leancorpus.term-dictionary", "Term dictionary", ".dic", CodecConstants.TermDictionaryVersion, CodecAccessKind.Materialised)),
         Family("leancorpus.postings", "Postings",
             VersionedFile("leancorpus.postings.data", "leancorpus.postings", "Postings", ".pos", CodecConstants.PostingsVersion, CodecAccessKind.Streaming,
+                currentMigrationBehaviour: CodecMigrationBehaviour.Rewrite,
                 legacyFraming: CodecLegacyFraming.CodecKitEnvelope | CodecLegacyFraming.CodecKitTrailer | CodecLegacyFraming.CustomHeader)),
         Family("leancorpus.norms", "Norms",
             VersionedFile("leancorpus.norms.data", "leancorpus.norms", "Norms", ".nrm", CodecConstants.NormsVersion, CodecAccessKind.Materialised)),
@@ -39,7 +40,7 @@ internal static class CodecCatalogBuiltIns
         Family("leancorpus.vectors", "Vectors",
             VersionedFile("leancorpus.vectors.float32", "leancorpus.vectors", "Vectors", ".vec", CodecConstants.VectorVersion, CodecAccessKind.RandomAccess),
             VersionedFile("leancorpus.vectors.quantised", "leancorpus.vectors", "Quantised vectors", ".vq", CodecConstants.QuantisedVectorVersion, CodecAccessKind.RandomAccess),
-            VersionedFile("leancorpus.vectors.hnsw", "leancorpus.vectors", "HNSW", ".hnsw", CodecConstants.HnswVersion, CodecAccessKind.Materialised)),
+            VersionedFile("leancorpus.vectors.hnsw", "leancorpus.vectors", "HNSW", ".hnsw", CodecConstants.HnswVersion, CodecAccessKind.RandomAccess)),
         Family("leancorpus.deletes", "Deletes and bitmaps",
             VersionedFile(
                 "leancorpus.deletes.live-docs",

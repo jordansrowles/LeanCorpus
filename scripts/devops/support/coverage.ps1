@@ -26,7 +26,7 @@ function Find-CoverageResults {
 
 function New-CoverageReport {
     param(
-        [string[]]$XmlFiles,
+        [System.IO.FileInfo[]]$XmlFiles,
         [string]$OutputDir,
         [string]$Title = 'LeanCorpus Coverage'
     )

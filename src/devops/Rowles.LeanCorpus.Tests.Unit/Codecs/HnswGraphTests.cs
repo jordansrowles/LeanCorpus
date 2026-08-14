@@ -134,8 +134,8 @@ public sealed class HnswGraphTests
             var nodesB = graphB.GetNodesAtLevel(level).OrderBy(x => x).ToArray();
             Assert.Equal(nodesA, nodesB);
             foreach (var docId in nodesA)
-                Assert.Equal(graphA.GetNeighbours(docId, level).OrderBy(x => x),
-                             graphB.GetNeighbours(docId, level).OrderBy(x => x));
+                Assert.Equal(graphA.GetNeighbours(docId, level).ToArray().OrderBy(x => x),
+                             graphB.GetNeighbours(docId, level).ToArray().OrderBy(x => x));
         }
     }
 

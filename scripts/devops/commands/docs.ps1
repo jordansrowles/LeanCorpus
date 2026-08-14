@@ -78,7 +78,7 @@ function Invoke-DevOpsDocs {
     }
 
     if (-not $skipCoverage) {
-        $xmlFiles = Find-CoverageResults (Join-Path $repoRoot 'coverage-results')
+        $xmlFiles = @(Find-CoverageResults (Join-Path $repoRoot 'coverage-results'))
         if ($xmlFiles.Count -gt 0) {
             New-CoverageReport -XmlFiles $xmlFiles -OutputDir (Join-Path $docsDir 'coverage')
         }

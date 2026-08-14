@@ -16,4 +16,8 @@
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.Unit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Fixtures/Indexes/*.fixture.b64" />
+  </ItemGroup>
+
 </Project>

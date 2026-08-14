@@ -487,6 +487,8 @@ internal sealed partial class SegmentReaderState : IDisposable
         _postingsInput?.Dispose();
         _dictionaryReader?.Dispose();
         _storedReader?.Dispose();
+        foreach (var graph in _hnswGraphs.Values)
+            graph?.Dispose();
         foreach (var r in _vectorReaders.Values) r.Dispose();
         _vectorReaders.Clear();
         _vectorPaths.Clear();

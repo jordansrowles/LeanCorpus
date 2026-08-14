@@ -83,7 +83,7 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
             frame.ValidateChecksum();
         }
 
-        var loaded = HnswReader.Read(path, source);
+        using var loaded = HnswReader.Read(path, source);
 
         Assert.Equal(built.NodeCount, loaded.NodeCount);
         Assert.Equal(built.MaxLevel, loaded.MaxLevel);
@@ -101,15 +101,15 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
 
             foreach (var docId in originalNodes)
             {
-                var origNeighbours = built.GetNeighbours(docId, level).OrderBy(x => x).ToArray();
-                var loadedNeighbours = loaded.GetNeighbours(docId, level).OrderBy(x => x).ToArray();
+                var origNeighbours = built.GetNeighbours(docId, level).ToArray().OrderBy(x => x).ToArray();
+                var loadedNeighbours = loaded.GetNeighbours(docId, level).ToArray().OrderBy(x => x).ToArray();
                 Assert.Equal(origNeighbours, loadedNeighbours);
             }
         }
     }
 
-    [Fact(DisplayName = "Read rejects a canonical checksum mismatch")]
-    public void Read_RejectsCanonicalChecksumMismatch()
+    [Fact(DisplayName = "Normal read defers canonical checksum validation")]
+    public void Read_DefersCanonicalChecksumValidation()
     {
         var vectors = BuildRandomVectors(count: 8, dim: 4, seed: 17);
         var source = new ArrayVectorSource(vectors);
@@ -125,8 +125,12 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
         bytes[^1] ^= 0x01;
         File.WriteAllBytes(path, bytes);
 
-        var exception = Assert.Throws<CodecFileException>(() => HnswReader.Read(path, source));
+        using var loaded = HnswReader.Read(path, source);
+        Assert.Equal(graph.NodeCount, loaded.NodeCount);
 
+        using var input = new Rowles.LeanCorpus.Store.IndexInput(path);
+        using var frame = CodecFileReader.Open(input, CodecCatalog.Default.GetFile("leancorpus.vectors.hnsw"));
+        var exception = Assert.Throws<CodecFileException>(frame.ValidateChecksum);
         Assert.Equal(CodecFileErrorCode.ChecksumMismatch, exception.ErrorCode);
     }
 
@@ -145,7 +149,7 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
 
         var path = Path.Combine(_fixture.Path, "hnsw_search.hnsw");
         HnswWriter.Write(path, built, source.Dimension, normalised: false);
-        var loaded = HnswReader.Read(path, source);
+        using var loaded = HnswReader.Read(path, source);
 
         var query = vectors[0];
         var options = new HnswTraversalOptions { Ef = 50, TopK = 10 };
@@ -174,7 +178,7 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
         });
 
         var source = new TrivialVectorSource { Dimension = 16 };
-        var remapped = HnswReader.Read(
+        using var remapped = HnswReader.Read(
             sourcePath, source, expectedNormalised: false,
             docIdRemap: new Dictionary<int, int> { [0] = 0 });
 
@@ -185,7 +189,7 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
         var rewrittenPath = Path.Combine(_fixture.Path, "hnsw_remap_rewritten.hnsw");
         HnswWriter.Write(rewrittenPath, remapped, source.Dimension, normalised: false);
 
-        var rewritten = HnswReader.Read(rewrittenPath, source);
+        using var rewritten = HnswReader.Read(rewrittenPath, source);
         Assert.Equal(0, rewritten.MaxLevel);
         Assert.Equal(1, rewritten.LevelCount);
         Assert.Equal(1, rewritten.NodeCount);

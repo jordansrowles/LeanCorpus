@@ -54,6 +54,8 @@
     diagnostics          = 'DiagnosticsBenchmarks'
     'packed-int-codec'   = 'PackedIntCodecBenchmarks'
     'codec-frame'        = 'CodecFrameBenchmarks'
+    'codec-frame-read'   = 'CodecFrameReadBenchmarks'
+    'codec-migration'    = 'CodecMigrationBenchmarks'
     'numeric-aggregator' = 'NumericAggregatorSimdBenchmarks'
     'index-writer'       = 'IndexWriterContentionBenchmarks'
     'concurrent-write'   = 'ConcurrentVsSequentialBenchmarks'

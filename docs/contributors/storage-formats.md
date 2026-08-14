@@ -16,7 +16,7 @@ The exact files depend on enabled fields and features.
 | DocValues | `.dvn`, `.dvs`, `.dss`, `.dsn`, `.dvb`, `.dvnl`, `.dsnl` | sequential columns |
 | Numeric structures | `.bkd`, `.bkdl`, `.num`, `.numl` | direct traversal and sparse sidecars |
 | Vectors | `.vec`, `.vq` | retained random access |
-| HNSW graph | `.hnsw` | materialised read |
+| HNSW graph | `.hnsw` | retained random-access adjacency |
 | Deletions and joins | `.del`, `.pbs` | bitmap payloads |
 | Segment infrastructure | `.seg`, `.stats.json`, `.cfs` | JSON metadata or container |
 
@@ -68,7 +68,7 @@ Current writers never emit these legacy outer frames.
 
 ## Random-access formats
 
-Postings, vector and BKD readers retain an input and perform direct offset arithmetic. Their offsets must stay inside the declared body range. Adding Frame v1 must not materialise these files or scan checksums during ordinary search opens. HNSW graphs use their established frozen in-memory adjacency representation and validate the checksum after materialisation.
+Postings, vector, HNSW and BKD readers retain an input and perform direct offset arithmetic. Their offsets must stay inside the declared body range. Adding Frame v1 must not materialise these files or scan checksums during ordinary search opens. HNSW loads only the graph index needed to locate each node's neighbours; adjacency remains in the bounded body input. Deep validation scans its checksum explicitly.
 
 Stored-field and term-vector pairs coordinate offsets across their data and index bodies. Their current and historical pair versions are validated together.
 

@@ -1,6 +1,7 @@
 using BenchmarkDotNet.Attributes;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Index.Format;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Store;
 
@@ -150,6 +151,22 @@ public class CompoundFileBenchmarks
     {
         var (results, facets) = _compoundSearcher!.SearchWithFacets(_query, TopN, "category");
         return results.TotalHits + facets.Sum(static facet => facet.Buckets.Count);
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LooseFiles_FormatInspection()
+    {
+        using var directory = new MMapDirectory(_loosePath);
+        return IndexFormatInspector.Inspect(directory).Segments.Sum(static segment => segment.Files.Count);
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int CompoundFile_FormatInspection()
+    {
+        using var directory = new MMapDirectory(_compoundPath);
+        return IndexFormatInspector.Inspect(directory).Segments.Sum(static segment => segment.Files.Count);
     }
 
     private int BuildAndKeep(bool useCompoundFile)

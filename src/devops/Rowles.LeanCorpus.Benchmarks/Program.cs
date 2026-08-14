@@ -80,6 +80,8 @@ internal static class Program
                 BenchmarkSuite.Diagnostics,
                 BenchmarkSuite.PackedIntCodec,
                 BenchmarkSuite.CodecFrame,
+                BenchmarkSuite.CodecFrameRead,
+                BenchmarkSuite.CodecMigration,
                 BenchmarkSuite.NumericAggregatorSimd,
                 BenchmarkSuite.IndexWriterContention,
                 BenchmarkSuite.ConcurrentWrite,
@@ -293,6 +295,12 @@ internal static class Program
 
         if (suites.Contains(BenchmarkSuite.CodecFrame))
             RunSuite<CodecFrameBenchmarks>("codec-frame", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.CodecFrameRead))
+            RunSuite<CodecFrameReadBenchmarks>("codec-frame-read", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.CodecMigration))
+            RunSuite<CodecMigrationBenchmarks>("codec-migration", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (suites.Contains(BenchmarkSuite.NumericAggregatorSimd))
             RunSuite<NumericAggregatorSimdBenchmarks>("numeric-aggregator", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -712,7 +720,9 @@ internal static class Program
               tokenbudget         TokenBudgetBenchmarks -- token budget enforcement overhead (explicit only)
               diagnostics         DiagnosticsBenchmarks -- SlowQueryLog + Analytics hook overhead (explicit only)
               packed-int-codec    PackedIntCodecBenchmarks -- Pack/Unpack scalar loop throughput (explicit only)
-              codec-frame         CodecFrameBenchmarks -- canonical framing and checksum write overhead (explicit only)
+              codec-frame         CodecFrameBenchmarks -- frame write and checksum cost (explicit only)
+              codec-frame-read    CodecFrameReadBenchmarks -- frame open and checksum validation costs (explicit only)
+              codec-migration     CodecMigrationBenchmarks -- streamed migration throughput and allocation (explicit only)
               numeric-aggregator  NumericAggregatorSimdBenchmarks -- scalar vs Vector256 aggregation (explicit only)
               index-writer        IndexWriterContentionBenchmarks -- concurrent AddDocument throughput (explicit only)
               concurrent-write    ConcurrentVsSequentialBenchmarks -- DWPT parallel vs sequential indexing (explicit only)
@@ -857,6 +867,8 @@ internal static class Program
             "patterntokeniser" or "pattern-tokeniser" => BenchmarkSuite.PatternTokeniser,
             "packedintcodec" or "packed-int-codec" => BenchmarkSuite.PackedIntCodec,
             "codecframe" or "codec-frame" => BenchmarkSuite.CodecFrame,
+            "codecframeread" or "codec-frame-read" => BenchmarkSuite.CodecFrameRead,
+            "codecmigration" or "codec-migration" => BenchmarkSuite.CodecMigration,
             "numericaggregator" or "numeric-aggregator" => BenchmarkSuite.NumericAggregatorSimd,
             "indexwriter" or "index-writer" => BenchmarkSuite.IndexWriterContention,
             "concurrentwrite" or "concurrent-write" => BenchmarkSuite.ConcurrentWrite,
@@ -1006,6 +1018,8 @@ internal static class Program
         PatternTokeniser,
         PackedIntCodec,
         CodecFrame,
+        CodecFrameRead,
+        CodecMigration,
         NumericAggregatorSimd,
         IndexWriterContention,
         ConcurrentWrite,
