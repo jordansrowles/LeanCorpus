@@ -36,6 +36,7 @@ function Invoke-DevOpsCoverage {
     }
     Write-Host ''
 
+    $generatedSourceFilter = '**/obj/**/*.cs'
     foreach ($tp in $testProjects) {
         $projName = [System.IO.Path]::GetFileNameWithoutExtension($tp)
         Write-Info "  $projName..."
@@ -44,6 +45,7 @@ function Invoke-DevOpsCoverage {
         if (-not $includePerformance) {
             $covArgs += @('--filter', 'Coverage!=Skip')
         }
+        $covArgs += @('--', "DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.ExcludeByFile=$generatedSourceFilter")
         Invoke-DotNet $covArgs
     }
 

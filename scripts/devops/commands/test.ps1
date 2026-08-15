@@ -1,12 +1,72 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+function Invoke-TestProcessWithProgress {
+    param(
+        [string]$FileName,
+        [string[]]$Arguments,
+        [string]$SuiteName,
+        [int]$SuiteNumber,
+        [int]$SuiteCount
+    )
+
+    Write-Info "  [$SuiteNumber/$SuiteCount] $SuiteName..."
+
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $process = $null
+    $processStarted = $false
+    try {
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = $FileName
+        $startInfo.WorkingDirectory = (Get-Location).Path
+        $startInfo.UseShellExecute = $false
+        foreach ($argument in $Arguments) {
+            [void]$startInfo.ArgumentList.Add($argument)
+        }
+
+        $process = [System.Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
+        $processStarted = $process.Start()
+        if (-not $processStarted) {
+            throw "Unable to start $FileName for $SuiteName."
+        }
+
+        $progressInterval = [System.TimeSpan]::FromSeconds(30)
+        $nextProgress = $stopwatch.Elapsed.Add($progressInterval)
+        while (-not $process.HasExited) {
+            [void]$process.WaitForExit(1000)
+            if (-not $process.HasExited -and $stopwatch.Elapsed -ge $nextProgress) {
+                $elapsed = $stopwatch.Elapsed.ToString('hh\:mm\:ss')
+                Write-Host "  [$SuiteNumber/$SuiteCount] $SuiteName still running ($elapsed elapsed)..." -ForegroundColor DarkGray
+                $nextProgress = $nextProgress.Add($progressInterval)
+            }
+        }
+        $process.WaitForExit()
+        $exitCode = $process.ExitCode
+    } finally {
+        $stopwatch.Stop()
+        if ($processStarted -and -not $process.HasExited) {
+            $process.Kill()
+            $process.WaitForExit()
+        }
+        if ($null -ne $process) {
+            $process.Dispose()
+        }
+    }
+
+    return [pscustomobject]@{
+        ExitCode = $exitCode
+        Elapsed  = $stopwatch.Elapsed
+    }
+}
+
 function Invoke-DevOpsTest {
     param([string[]]$Arguments = @())
 
     $parsed = ConvertFrom-DevOpsArguments $Arguments
     $framework = $parsed.Get('Framework', (Get-DefaultFramework))
     $configuration = $parsed.Get('Configuration', 'Release')
+    $runtimeIdentifier = $parsed.Get('RuntimeIdentifier', '')
     $suite = $parsed.Get('Suite', '')
     if (-not $suite -and $parsed.Positionals.Count -gt 0) { $suite = $parsed.Positionals[0] }
     if (-not $suite) { $suite = 'all' }
@@ -43,7 +103,7 @@ function Invoke-DevOpsTest {
         $filter = if ($filter) { "$filter&$traitFilter" } else { $traitFilter }
     }
 
-    [string[]]$toRun = if ($suite -eq 'all') { @('core', 'text', 'sourcegen', 'architecture') } else { @($suite) }
+    [string[]]$toRun = if ($suite -eq 'all') { @('core', 'text', 'sourcegen', 'architecture', 'aot') } else { @($suite) }
     $testArgs = @('--configuration', $configuration, '--framework', $framework, '--no-restore')
     if ($filter) { $testArgs += @('--filter', $filter) }
 
@@ -62,25 +122,39 @@ function Invoke-DevOpsTest {
     Write-Host ''
 
     $failed = @()
+    $suiteNumber = 0
+    $suiteCount = $toRun.Count
     foreach ($key in $toRun) {
+        $suiteNumber++
         if (-not $testSuites.ContainsKey($key)) {
-            Write-Failure "Unknown test suite '$key'."
+            Write-Failure "  [$suiteNumber/$suiteCount] Unknown test suite '$key'."
             $failed += $key
             continue
         }
         $ts = $testSuites[$key]
-        $projectPath = Join-Path $repoRoot $ts.Project
-        $suiteArgs = @($testArgs)
-        if ($key -eq 'integration' -and $hangTimeout -ne 'off') {
-            $suiteArgs += @('--blame-hang', '--blame-hang-timeout', $hangTimeout, '--blame-hang-dump-type', 'none')
+        if ($ts.ContainsKey('Command') -and $ts.Command -eq 'aot') {
+            $processFileName = 'pwsh'
+            $processArguments = @('-NoProfile', '-File', (Join-Path $repoRoot 'devops.ps1'), 'aot')
+            if ($runtimeIdentifier) {
+                $processArguments += @('-RuntimeIdentifier', $runtimeIdentifier)
+            }
+        } else {
+            $projectPath = Join-Path $repoRoot $ts.Project
+            $suiteArgs = @($testArgs)
+            if ($key -eq 'integration' -and $hangTimeout -ne 'off') {
+                $suiteArgs += @('--blame-hang', '--blame-hang-timeout', $hangTimeout, '--blame-hang-dump-type', 'none')
+            }
+            $processFileName = 'dotnet'
+            $processArguments = @('test', $projectPath) + $suiteArgs
         }
-        Write-Info "  $($ts.Name)..."
-        dotnet test $projectPath @suiteArgs
-        if ($LASTEXITCODE -ne 0) {
-            Write-Failure "  $($ts.Name) - FAILED"
+        $result = Invoke-TestProcessWithProgress -FileName $processFileName -Arguments $processArguments `
+            -SuiteName $ts.Name -SuiteNumber $suiteNumber -SuiteCount $suiteCount
+        $elapsed = $result.Elapsed.ToString('hh\:mm\:ss')
+        if ($result.ExitCode -ne 0) {
+            Write-Failure "  [$suiteNumber/$suiteCount] $($ts.Name) - FAILED ($elapsed)"
             $failed += $ts.Name
         } else {
-            Write-Success "  $($ts.Name) - passed"
+            Write-Success "  [$suiteNumber/$suiteCount] $($ts.Name) - passed ($elapsed)"
         }
     }
     Write-Host ''
@@ -156,9 +230,13 @@ function Invoke-AffectedTests {
     }
 
     $failed = @()
-    foreach ($suiteKey in $targets.Keys | Sort-Object) {
+    $suiteKeys = @($targets.Keys | Sort-Object)
+    $suiteNumber = 0
+    $suiteCount = $suiteKeys.Count
+    foreach ($suiteKey in $suiteKeys) {
+        $suiteNumber++
         if (-not $testSuites.ContainsKey($suiteKey)) {
-            Write-Failure "Code-area mapping references unknown suite '$suiteKey'."
+            Write-Failure "  [$suiteNumber/$suiteCount] Code-area mapping references unknown suite '$suiteKey'."
             $failed += $suiteKey
             continue
         }
@@ -177,13 +255,15 @@ function Invoke-AffectedTests {
         $suiteArgs = @('--configuration', $Configuration, '--framework', $Framework, '--no-restore', '--filter', $areaFilter)
         if ($Verbosity) { $suiteArgs += @('--logger', "console;verbosity=$Verbosity") }
 
-        Write-Info "  $($ts.Name) (Area=$($areas -join ','))..."
-        dotnet test $projectPath @suiteArgs
-        if ($LASTEXITCODE -ne 0) {
-            Write-Failure "  $($ts.Name) - FAILED"
+        $suiteName = "$($ts.Name) (Area=$($areas -join ','))"
+        $result = Invoke-TestProjectWithProgress -ProjectPath $projectPath -Arguments $suiteArgs `
+            -SuiteName $suiteName -SuiteNumber $suiteNumber -SuiteCount $suiteCount
+        $elapsed = $result.Elapsed.ToString('hh\:mm\:ss')
+        if ($result.ExitCode -ne 0) {
+            Write-Failure "  [$suiteNumber/$suiteCount] $suiteName - FAILED ($elapsed)"
             $failed += $ts.Name
         } else {
-            Write-Success "  $($ts.Name) - passed"
+            Write-Success "  [$suiteNumber/$suiteCount] $suiteName - passed ($elapsed)"
         }
     }
 

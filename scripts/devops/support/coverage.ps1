@@ -9,7 +9,8 @@ function Find-CoverageProjects {
         Get-ChildItem $testProjectsRoot -Filter '*.csproj' -Recurse |
             Where-Object {
                 $dirName = $_.Directory.Name
-                $dirName -like 'Rowles.LeanCorpus.Tests.*' -and
+                ($dirName -eq 'Rowles.Text.Tests' -or
+                $dirName -like 'Rowles.LeanCorpus.Tests.*') -and
                 $dirName -ne 'Rowles.LeanCorpus.Tests.Shared' -and
                 $dirName -ne 'Rowles.LeanCorpus.Tests.AOTSmoke' -and
                 $dirName -ne 'Rowles.LeanCorpus.Benchmarks'
@@ -35,7 +36,7 @@ function New-CoverageReport {
     $reportPaths = ($XmlFiles | ForEach-Object { $_.FullName }) -join ';'
 
     Write-Heading 'Generating coverage report...'
-    reportgenerator "-reports:$reportPaths" "-targetdir:$OutputDir" '-reporttypes:Html' "-title:$Title"
+    reportgenerator "-reports:$reportPaths" "-targetdir:$OutputDir" '-reporttypes:Html' "-title:$Title" '-filefilters:-**/obj/**/*.cs'
     if ($LASTEXITCODE -eq 0) {
         Write-Success "Coverage report written to: $OutputDir"
     }
