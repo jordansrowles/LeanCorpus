@@ -681,7 +681,7 @@ internal static class SegmentFlusher
 
 
 
-    private static int[] ComputeSortPermutation(IFlushSource buffer, IndexSort sort)
+    internal static int[] ComputeSortPermutation(IFlushSource buffer, IndexSort sort)
     {
         int n = buffer.DocCount;
         var perm = new int[n];
@@ -816,7 +816,7 @@ internal static class SegmentFlusher
         return ResolveStoredString(source, field.FieldName, docId);
     }
 
-    private static double SelectNumericValue(IReadOnlyList<double> values, SortValueSelector selector)
+    internal static double SelectNumericValue(IReadOnlyList<double> values, SortValueSelector selector)
     {
         double selected = values[0];
         for (int i = 1; i < values.Count; i++)
@@ -827,7 +827,7 @@ internal static class SegmentFlusher
         return selected;
     }
 
-    private static long SelectInt64Value(IReadOnlyList<long> values, SortValueSelector selector)
+    internal static long SelectInt64Value(IReadOnlyList<long> values, SortValueSelector selector)
     {
         long selected = values[0];
         for (int i = 1; i < values.Count; i++)
@@ -899,7 +899,7 @@ internal static class SegmentFlusher
         return false;
     }
 
-    private static void ApplySortPermutation(IFlushSource buffer, int[] sortPerm, int[] inversePerm)
+    internal static void ApplySortPermutation(IFlushSource buffer, int[] sortPerm, int[] inversePerm)
     {
         int n = buffer.DocCount;
 
@@ -1099,7 +1099,7 @@ internal static class SegmentFlusher
         }
     }
 
-    private static Dictionary<string, IReadOnlyList<T>?[]> ToDenseMultiValueColumns<T>(
+    internal static Dictionary<string, IReadOnlyList<T>?[]> ToDenseMultiValueColumns<T>(
         Dictionary<string, Dictionary<int, List<T>>> source,
         int docCount)
     {
@@ -1136,7 +1136,7 @@ internal static class SegmentFlusher
         NumericIndexCodec.WriteInt64(filePath, int64Index);
     }
 
-    private static (float min, float alpha) ComputeInt8Params(
+    internal static (float min, float alpha) ComputeInt8Params(
         IReadOnlyDictionary<int, ReadOnlyMemory<float>> perField)
     {
         float min = float.MaxValue;
@@ -1155,7 +1155,7 @@ internal static class SegmentFlusher
         return (min, (max - min) / 255f);
     }
 
-    private static float[] ComputeBBQCentroid(
+    internal static float[] ComputeBBQCentroid(
         IReadOnlyDictionary<int, ReadOnlyMemory<float>> perField,
         int dimension)
     {
