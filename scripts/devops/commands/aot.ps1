@@ -12,13 +12,9 @@ function Invoke-DevOpsAot {
         $runtimeIdentifier = if ($IsLinux) { 'linux-x64' } elseif ($IsMacOS) { 'osx-x64' } else { 'win-x64' }
     }
 
-    # Use writable NuGet cache locations (default HTTP cache may be read-only in CI)
-    if (-not $env:NUGET_HTTP_CACHE_PATH) {
-        $env:NUGET_HTTP_CACHE_PATH = Join-Path ([System.IO.Path]::GetTempPath()) 'nuget-http-cache'
-    }
-    if (-not $env:NUGET_PACKAGES) {
-        $env:NUGET_PACKAGES = Join-Path ([System.IO.Path]::GetTempPath()) 'nuget-packages'
-    }
+    # Respect the persistent per-user NuGet cache unless the caller provides an
+    # explicit cache location. Temporary caches can retain incomplete packages
+    # after an interrupted restore and make later AOT publishes fail mysteriously.
 
     $project = Get-AotProjectPath
 
