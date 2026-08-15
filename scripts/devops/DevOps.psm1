@@ -24,6 +24,7 @@ $Script:BenchmarkStrategies = Import-PowerShellDataFile "$PSScriptRoot/config/be
 . "$PSScriptRoot/commands/docs.ps1"
 . "$PSScriptRoot/commands/benchmarks.ps1"
 . "$PSScriptRoot/commands/setup.ps1"
+. "$PSScriptRoot/commands/report.ps1"
 
 function Invoke-DevOps {
     param([string]$Command, [string[]]$Arguments)
@@ -38,6 +39,7 @@ function Invoke-DevOps {
         'docs'       { Invoke-DevOpsDocs -Arguments $Arguments }
         'benchmarks' { Invoke-DevOpsBenchmarks -Arguments $Arguments }
         'setup'      { Invoke-DevOpsSetup -Arguments $Arguments }
+        'report'     { Invoke-DevOpsReport -Arguments $Arguments }
         ''           { Invoke-DevOpsHelp }
         '--help'     { Invoke-DevOpsHelp }
         '-Help'      { Invoke-DevOpsHelp }
@@ -119,6 +121,14 @@ function Invoke-DevOpsHelp {
     Write-Host ''
 
     Write-Host '    setup                Verify dev environment and directories'
+    Write-Host '    report               Repository health report'
+    Write-Host '      git                 Repository/commit-level stats (default: all groups)'
+    Write-Host '      files               Per-file facts and history'
+    Write-Host '      code                Source-code health'
+    Write-Host '      -Top                Entries per list (default: 10)'
+    Write-Host '      -Path               Restrict file/code scans to a glob (e.g. src/core/**)'
+    Write-Host '      -Json               Emit a single JSON object instead of terminal output'
+    Write-Host '      -Strict             Exit non-zero on illegal names, severe god classes, or AOT-hostile patterns'
     Write-Host ''
     Write-Host '  Examples:'
     Write-Host '    devops build'
@@ -132,6 +142,8 @@ function Invoke-DevOpsHelp {
     Write-Host '    devops docs serve'
     Write-Host '    devops docs metadata'
     Write-Host '    devops data gutenberg -BookCount 500'
+    Write-Host '    devops report'
+    Write-Host '    devops report code -Strict'
     Write-Host ''
     exit 0
 }
