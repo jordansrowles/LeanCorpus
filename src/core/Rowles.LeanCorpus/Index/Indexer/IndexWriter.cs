@@ -194,16 +194,18 @@ public sealed partial class IndexWriter : IDisposable
             {
                 lock (_writeLock)
                 {
-                    int preFlushSegmentCount = _committedSegments.Count;
-
                     DwptManager.WaitForPendingFlushes(this);
                     DwptManager.FlushDwptPool(this);
                     if (_buffer.DocCount > 0)
                         FlushSegment();
 
                     QueueDelete(field, term, isSoftDelete: false);
+                    // Flushes can materialise documents targeted by earlier deletes.
+                    // Apply the complete queue to every committed segment so those
+                    // deletes are not cleared before the newly materialised segment
+                    // is examined.
                     DeletionApplier.ApplyPendingDeletions(
-                        _deleteQueue, _committedSegments.GetRange(0, preFlushSegmentCount),
+                        _deleteQueue, _committedSegments,
                         _directory, _commitGeneration, _config.DurableCommits, _config.Metrics);
                     enteredCore = true;
                     DwptManager.AddDocument(this, replacement);
