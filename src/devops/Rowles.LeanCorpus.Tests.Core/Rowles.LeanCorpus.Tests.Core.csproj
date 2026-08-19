@@ -33,6 +33,8 @@
              Link="Foundation\Infrastructure\HistoricalIndexFixtures.cs" />
     <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Infrastructure\MaterialisingTokenSink.cs"
              Link="Foundation\Infrastructure\MaterialisingTokenSink.cs" />
+    <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Metamorphic\MetamorphicRelations.cs"
+             Link="Foundation\Metamorphic\MetamorphicRelations.cs" />
   </ItemGroup>
 
   <!-- Historical fixture bytes: keep the manifest names stable regardless of project. -->

@@ -53,5 +53,6 @@ global using Rowles.LeanCorpus.Store;
 global using Rowles.LeanCorpus.Tests.Metadata;
 global using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 global using Rowles.LeanCorpus.Tests.Shared.Infrastructure;
+global using Rowles.LeanCorpus.Tests.Shared.Metamorphic;
 global using Rowles.LeanCorpus.Util;
 global using Xunit;

@@ -9,6 +9,13 @@ public enum TestCategory
     Chaos
 }
 
+public enum TestTechnique
+{
+    PropertyBased,
+    StateMachine,
+    Metamorphic
+}
+
 public enum TestArea
 {
     Foundation,
@@ -50,5 +57,16 @@ public sealed class AreaAttribute(TestArea area) : Attribute, ITraitAttribute
     public IReadOnlyCollection<KeyValuePair<string, string>> GetTraits() =>
     [
         new("Area", Area.ToString())
+    ];
+}
+
+[AttributeUsage(AttributeTargets.Assembly | AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true, Inherited = true)]
+public sealed class TechniqueAttribute(TestTechnique technique) : Attribute, ITraitAttribute
+{
+    public TestTechnique Technique { get; } = technique;
+
+    public IReadOnlyCollection<KeyValuePair<string, string>> GetTraits() =>
+    [
+        new("Technique", Technique.ToString())
     ];
 }
