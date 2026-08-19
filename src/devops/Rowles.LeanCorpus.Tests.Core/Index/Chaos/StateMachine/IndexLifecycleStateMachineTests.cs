@@ -119,4 +119,32 @@ public sealed class IndexLifecycleStateMachineTests
         harness.AssertCommitted(model.Committed);
         harness.AssertSearch(new SearchSpec(SearchKind.BodyTerm, "replacement"), model.Committed);
     }
+
+    [Fact(DisplayName = "Index lifecycle query update preserves pending deletions after flushing")]
+    public void Query_update_preserves_pending_deletions_after_flushing()
+    {
+        using var harness = new IndexHarness();
+        var model = IndexModel.Empty;
+        var existing = ModelDocument.Create(0);
+        var pending = ModelDocument.Create(1);
+
+        harness.Add(existing);
+        model = model.Add(existing);
+        harness.Commit();
+        model = model.Commit();
+
+        harness.Add(pending);
+        model = model.Add(pending);
+        harness.Delete(pending.Id);
+        model = model.Delete(pending.Id);
+
+        var replacement = model.Working[existing.Id].Replacement();
+        harness.UpdateByQuery(replacement);
+        model = model.Update(replacement);
+        harness.Commit();
+        model = model.Commit();
+
+        harness.AssertCommitted(model.Committed);
+        harness.AssertSearch(new SearchSpec(SearchKind.BodyTerm, "replacement"), model.Committed);
+    }
 }

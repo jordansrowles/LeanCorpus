@@ -259,8 +259,11 @@ public sealed partial class IndexWriter : IDisposable
                     foreach (var (f, t) in terms)
                         QueueDelete(f, t, isSoftDelete: false);
 
+                    // Flushing can materialise documents targeted by earlier deletes.
+                    // Apply the complete queue to every committed segment before it is
+                    // cleared, including segments materialised by this update.
                     DeletionApplier.ApplyPendingDeletions(
-                        _deleteQueue, _committedSegments.GetRange(0, preFlushSegmentCount),
+                        _deleteQueue, _committedSegments,
                         _directory, _commitGeneration, _config.DurableCommits, _config.Metrics);
                     enteredCore = true;
                     DwptManager.AddDocument(this, replacement);

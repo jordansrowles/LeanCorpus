@@ -127,6 +127,34 @@ public sealed class MergeCorrectnessTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(0, disposableResults.TotalHits);
     }
 
+    [Fact(DisplayName = "Background merge does not publish a document deleted while it is running")]
+    public async Task BackgroundMerge_DoesNotResurrectDeleteCommittedDuringMerge()
+    {
+        var dir = new MMapDirectory(SubDir("background_merge_delete_race"));
+        var config = new IndexWriterConfig
+        {
+            MaxBufferedDocs = 1,
+            MergePolicy = new TieredMergePolicy(2),
+            MaxConcurrentMerges = 1
+        };
+
+        using var writer = new IndexWriter(dir, config);
+        for (int i = 0; i < 24; i++)
+            writer.AddDocument(MakeDoc($"doc-{i}", LargeBody(i)));
+        writer.Commit();
+
+        writer.DeleteDocuments(new TermQuery("id", "doc-0"));
+        writer.Commit();
+        var merge = writer.MergeTask;
+        if (merge is not null)
+            await merge.WaitAsync(TimeSpan.FromSeconds(30));
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc-0"), 1).TotalHits);
+        Assert.Equal(23, searcher.Search(new TermQuery("body", "payload"), 24).TotalHits);
+    }
+
     /// <summary>
     /// Verifies the Delete And Commit: Stored Fields Surviving Docs Accessible scenario.
     /// </summary>
@@ -214,4 +242,7 @@ public sealed class MergeCorrectnessTests : IClassFixture<TestDirectoryFixture>
         doc.Add(new StringField("id", id));
         return doc;
     }
+
+    private static string LargeBody(int number) =>
+        $"document {number} " + string.Concat(Enumerable.Repeat("payload ", 8_192));
 }

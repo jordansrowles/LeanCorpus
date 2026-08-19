@@ -38,6 +38,13 @@ internal sealed class IndexHarness : IDisposable
         Writer.UpdateDocument("id", replacement.Id, replacement.ToLeanDocument());
     }
 
+    public void UpdateByQuery(ModelDocument replacement)
+    {
+        Writer.UpdateDocuments(
+            new TermQuery("id", replacement.Id),
+            replacement.ToLeanDocument());
+    }
+
     public void Commit()
     {
         Writer.Commit();
