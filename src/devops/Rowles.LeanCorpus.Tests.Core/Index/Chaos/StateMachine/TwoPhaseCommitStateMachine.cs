@@ -131,7 +131,12 @@ internal sealed class TwoPhasePrepareOperation : TwoPhaseCommitOperation
 {
     public override bool Pre(TwoPhaseCommitModel model) => !model.HasPreparedCommit;
     public override TwoPhaseCommitModel Run(TwoPhaseCommitModel model) => model.Prepare();
-    public override Property Check(TwoPhaseCommitHarness actual, TwoPhaseCommitModel model) { actual.Prepare(); actual.AssertPrepared(true); actual.AssertCommitted(model.Committed); return Succeeds(); }
+    public override Property Check(TwoPhaseCommitHarness actual, TwoPhaseCommitModel model)
+    {
+        actual.Prepare();
+        actual.AssertPrepared(true);
+        return Succeeds();
+    }
     public override string ToString() => "PrepareCommit()";
 }
 

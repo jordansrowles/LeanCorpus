@@ -309,7 +309,7 @@ public sealed class ConcurrentIndexingTests : IDisposable
         using var readersStarted = new CountdownEvent(4);
 
         var readers = Enumerable.Range(0, 4)
-            .Select(_ => Task.Run(async () =>
+            .Select(_ => Task.Factory.StartNew(async () =>
             {
                 readersStarted.Signal();
                 while (!cts.Token.IsCancellationRequested)
@@ -334,7 +334,7 @@ public sealed class ConcurrentIndexingTests : IDisposable
 
                     await Task.Yield();
                 }
-            }))
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap())
             .ToArray();
 
         try

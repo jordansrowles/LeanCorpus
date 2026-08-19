@@ -63,9 +63,11 @@ public sealed class TwoPhaseCommitTests : IClassFixture<TestDirectoryFixture>
     public void PrepareCommit_ThenRollback_DiscardsData()
     {
         var dir = new MMapDirectory(SubDir("twophase_rollback"));
-        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+        using var writer = new IndexWriter(dir, new IndexWriterConfig { MaxBufferedDocs = 3 });
 
-        writer.AddDocument(CreateDoc("body", "ephemeral data"));
+        writer.AddDocument(CreateDoc("body", "ephemeral data 1"));
+        writer.AddDocument(CreateDoc("body", "ephemeral data 2"));
+        writer.AddDocument(CreateDoc("body", "ephemeral data 3"));
         writer.PrepareCommit();
         writer.Rollback();
 
@@ -77,6 +79,11 @@ public sealed class TwoPhaseCommitTests : IClassFixture<TestDirectoryFixture>
         var segNFiles = System.IO.Directory.GetFiles(SubDir("twophase_rollback"), "segments_*")
             .Where(f => !f.EndsWith(".pending", StringComparison.Ordinal)).ToArray();
         Assert.Empty(segNFiles);
+
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        Assert.Equal(0, searcher.Search(new MatchAllDocsQuery(), 1).TotalHits);
     }
 
     [Fact(DisplayName = "Two-phase: Rollback before PrepareCommit is a no-op")]

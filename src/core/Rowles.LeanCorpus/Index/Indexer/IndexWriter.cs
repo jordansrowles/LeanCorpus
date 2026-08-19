@@ -38,6 +38,7 @@ public sealed partial class IndexWriter : IDisposable
     private int _preparedGeneration = -1;
     private List<SegmentInfo>? _preparedSegments;
     private long _preparedContentToken;
+    private long _preparedRollbackContentToken;
     private readonly List<SegmentInfo> _committedSegments = [];
     private readonly PendingDeleteQueue _deleteQueue = new();
     private readonly Dictionary<string, FileSyncState> _syncedFileStates = new(StringComparer.Ordinal);
@@ -761,6 +762,7 @@ public sealed partial class IndexWriter : IDisposable
     internal ref bool ContentChangedSinceCommit => ref _contentChangedSinceCommit;
     internal ref int PreparedGeneration => ref _preparedGeneration;
     internal ref long PreparedContentToken => ref _preparedContentToken;
+    internal ref long PreparedRollbackContentToken => ref _preparedRollbackContentToken;
     internal ref List<SegmentInfo>? PreparedSegments => ref _preparedSegments;
     internal ref int FlushElection => ref _flushElection;
     internal ref int SemaphoreSlotsHeld => ref _semaphoreSlotsHeld;
