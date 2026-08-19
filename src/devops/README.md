@@ -39,7 +39,7 @@ Use the closest production area. A test that crosses an important subsystem boun
 
 ## Metadata and selection
 
-Tests declare a singular `Category` and one or more `Area` traits from [`Rowles.LeanCorpus.Tests.Core/Metadata/TestMetadata.cs`](Rowles.LeanCorpus.Tests.Core/Metadata/TestMetadata.cs):
+Tests declare a singular `Category`, one or more `Area` traits and, where useful, one or more `Technique` traits from [`Rowles.LeanCorpus.Tests.Core/Metadata/TestMetadata.cs`](Rowles.LeanCorpus.Tests.Core/Metadata/TestMetadata.cs):
 
 | Category | Use |
 | --- | --- |
@@ -71,10 +71,25 @@ Prefer an oracle that is independent of the implementation decision being exerci
 | Integration | `*/Integration` | Observable index, API or filesystem result. Use stored logical IDs, not internal document IDs. |
 | Chaos and FsCheck | `*/Chaos` | Invariant, reference model, round-trip property, corruption rejection or bounded fallback. |
 | State machines | `Index/Chaos/StateMachine` | A simple immutable model and an isolated harness owning its directory, writer and readers. Each operation must describe itself for FsCheck shrinking. |
-| Metamorphic/equivalence | `Index/Integration/WriterEquivalenceTests.cs`, `MergeEquivalenceTests.cs` | Compare equivalent executions, for example sequential versus concurrent indexing or unmerged versus merged segments. Compare logical results, not only a hit count, where the contract permits. |
+| Metamorphic/equivalence | `Index/Chaos/Metamorphic`, `Tests.Shared/Metamorphic/MetamorphicRelations.cs`, `Index/Integration/WriterEquivalenceTests.cs`, `MergeEquivalenceTests.cs` | Compare equivalent executions, for example sequential versus concurrent indexing or unmerged versus merged segments. Compare logical results, not only a hit count, where the contract permits. |
 | Native AOT | `Rowles.LeanCorpus.Tests.AOTSmoke` | Publish the executable for each target framework and RID, then run it. |
 
 Do not use a shared `ChaosDirectoryFixture` for a state machine. A machine owns its environment so a shrunk trace remains isolated and reproducible. Keep a clear distinction between generated-input fuzzing, model-based histories, metamorphic transformations and systematic concurrency: they expose different failures.
+
+### Metamorphic testing
+
+Metamorphic tests prove a relation between multiple executions when a single expected result is impractical or would duplicate the implementation. They belong under the owning production area in `Chaos/Metamorphic` and use both `Technique(PropertyBased)` and `Technique(Metamorphic)`.
+
+The shared relation layer is [`Rowles.LeanCorpus.Tests.Shared/Metamorphic/MetamorphicRelations.cs`](Rowles.LeanCorpus.Tests.Shared/Metamorphic/MetamorphicRelations.cs). `MetamorphicObservation` captures ordered logical IDs and stored fields. `MetamorphicRelations.Holds` then evaluates one of these relations:
+
+| Relation | Meaning |
+| --- | --- |
+| `Exact`, `OrderedEquivalent`, `RoundTrip` | Ordered logical IDs and stored fields are identical. |
+| `SetEquivalent`, `Idempotent`, `Commutative` | Logical ID set and stored fields are identical; hit ordering may differ. |
+| `MonotonicSubset` | The transformed result is a subset of the baseline. |
+| `Approximate` | Result counts differ by no more than the specified tolerance. |
+
+Use stored, stable IDs as observations. Do not compare internal document IDs, segment names, scores, timing, or incidental hit order unless that order is itself the relation under test. The first examples are [`Index/Chaos/Metamorphic/IndexMetamorphicTests.cs`](Rowles.LeanCorpus.Tests.Core/Index/Chaos/Metamorphic/IndexMetamorphicTests.cs): sequential versus concurrent ingestion is set-equivalent, and force-merge preserves logical results exactly.
 
 ## Running, coverage and generated output
 
