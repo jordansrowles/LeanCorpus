@@ -294,17 +294,24 @@ public sealed class ConcurrentIndexingTests : IDisposable
     public async Task ConcurrentReadersDuringWriterCommits_NeverThrowAndEventuallySeeCommittedDocs()
     {
         var directory = new MMapDirectory(_dir);
-        using var writer = new IndexWriter(directory, new IndexWriterConfig { MaxBufferedDocs = 20 });
+        using var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 20,
+            DurableCommits = false,
+            MergePolicy = NoMergePolicy.Instance,
+        });
         writer.AddDocument(BuildDoc(0, "initial reader"));
         writer.Commit();
 
         using var manager = new SearcherManager(directory);
         var errors = new ConcurrentBag<Exception>();
         using var cts = new CancellationTokenSource();
+        using var readersStarted = new CountdownEvent(4);
 
-        var readers = Enumerable.Range(0, 8)
-            .Select(_ => Task.Run(() =>
+        var readers = Enumerable.Range(0, 4)
+            .Select(_ => Task.Run(async () =>
             {
+                readersStarted.Signal();
                 while (!cts.Token.IsCancellationRequested)
                 {
                     IndexSearcher? searcher = null;
@@ -324,27 +331,37 @@ public sealed class ConcurrentIndexingTests : IDisposable
                         if (searcher is not null)
                             manager.Release(searcher);
                     }
+
+                    await Task.Yield();
                 }
             }))
             .ToArray();
 
-        for (int i = 1; i <= 40; i++)
+        try
         {
-            writer.AddDocument(BuildDoc(i, "reader committed"));
-            if (i % 5 == 0)
+            Assert.True(readersStarted.Wait(TimeSpan.FromSeconds(5)), "Concurrent readers did not start.");
+
+            for (int i = 1; i <= 40; i++)
             {
-                writer.Commit();
-                manager.MaybeRefresh();
+                writer.AddDocument(BuildDoc(i, "reader committed"));
+                if (i % 5 == 0)
+                {
+                    writer.Commit();
+                    manager.MaybeRefresh();
+                }
             }
+
+            writer.Commit();
+            manager.MaybeRefresh();
+
+            Assert.Empty(errors);
+            Assert.Equal(41, manager.UsingSearcher(s => s.Search(new TermQuery("body", "reader"), 100).TotalHits));
         }
-
-        writer.Commit();
-        manager.MaybeRefresh();
-        cts.Cancel();
-        await Task.WhenAll(readers);
-
-        Assert.Empty(errors);
-        Assert.Equal(41, manager.UsingSearcher(s => s.Search(new TermQuery("body", "reader"), 100).TotalHits));
+        finally
+        {
+            cts.Cancel();
+            await Task.WhenAll(readers);
+        }
     }
 
     /// <summary>

@@ -16,7 +16,6 @@ internal static class CommitManager
 {
     public static void CommitWithLocks(IndexWriter writer)
     {
-        WaitForBackgroundMerges(writer);
         lock (writer.MergeIoLock)
         lock (writer.WriteLock)
         {

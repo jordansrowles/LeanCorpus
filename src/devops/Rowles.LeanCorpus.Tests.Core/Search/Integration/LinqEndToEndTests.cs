@@ -18,9 +18,10 @@ namespace Rowles.LeanCorpus.Tests.Core.Search.Linq;
 /// </summary>
 [Category(TestCategory.Integration)]
 [Area(TestArea.Search)]
-public sealed class LinqEndToEndTests : IClassFixture<TestDirectoryFixture>
+public sealed class LinqEndToEndTests : IClassFixture<TestDirectoryFixture>, IDisposable
 {
     private readonly TestDirectoryFixture _fixture;
+    private readonly List<(IndexSearcher Searcher, MMapDirectory Directory)> _ownedSearchers = [];
 
     public LinqEndToEndTests(TestDirectoryFixture fixture)
     {
@@ -112,8 +113,19 @@ public sealed class LinqEndToEndTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         var searcher = new IndexSearcher(dir);
+        _ownedSearchers.Add((searcher, dir));
         var map = new ArticleMap();
         return map.AsQueryable(searcher, Resolver);
+    }
+
+    public void Dispose()
+    {
+        for (int i = _ownedSearchers.Count - 1; i >= 0; i--)
+        {
+            _ownedSearchers[i].Searcher.Dispose();
+            _ownedSearchers[i].Directory.Dispose();
+        }
+        _ownedSearchers.Clear();
     }
 
     // === Where: single condition ===
