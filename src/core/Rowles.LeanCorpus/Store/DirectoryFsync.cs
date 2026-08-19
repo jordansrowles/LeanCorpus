@@ -131,6 +131,13 @@ internal static class DirectoryFsync
 
     private static void SyncFileCore(string filePath)
     {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            fs.Flush(flushToDisk: true);
+            return;
+        }
+
         try
         {
             using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);

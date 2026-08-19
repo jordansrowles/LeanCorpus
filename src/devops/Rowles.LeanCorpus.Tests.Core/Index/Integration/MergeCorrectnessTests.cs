@@ -112,9 +112,9 @@ public sealed class MergeCorrectnessTests : IClassFixture<TestDirectoryFixture>
             writer.Commit();
             _output.WriteLine("Deleted all 'disposable' docs, merge should be triggered");
 
-            // Let background merge settle
-            Thread.Sleep(500);
-            writer.Commit();
+            // Commit intentionally does not wait for background merges (ADR007).
+            // This test needs a completed merge before asserting physical reclamation.
+            writer.ForceMerge(1);
         }
 
         // Assert: only keeper docs survive

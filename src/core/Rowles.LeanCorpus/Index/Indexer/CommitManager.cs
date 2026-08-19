@@ -134,11 +134,11 @@ internal static class CommitManager
         long bytes = 0;
         int count = 0;
 
-        foreach (var filePath in FileOpenRetry.GetFiles(writer.Directory.DirectoryPath, "*"))
+        var currentFiles = GetCurrentSegmentFiles(writer);
+        foreach (var filePath in currentFiles)
         {
             var fileName = Path.GetFileName(filePath);
-            if (string.Equals(fileName, "write.lock", StringComparison.Ordinal) ||
-                fileName.StartsWith("segments_", StringComparison.Ordinal))
+            if (fileName.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -156,6 +156,28 @@ internal static class CommitManager
 
         stopwatch.Stop();
         writer.Config.Metrics.RecordFileSync(stopwatch.Elapsed, bytes, count);
+    }
+
+    private static string[] GetCurrentSegmentFiles(IndexWriter writer)
+    {
+        var files = new HashSet<string>(StringComparer.Ordinal);
+        var directoryPath = writer.Directory.DirectoryPath;
+
+        foreach (var segment in writer.CommittedSegments)
+        {
+            foreach (var filePath in FileOpenRetry.EnumerateFiles(directoryPath, segment.SegmentId + ".*"))
+                files.Add(filePath);
+            foreach (var filePath in FileOpenRetry.EnumerateFiles(directoryPath, segment.SegmentId + "_gen_*.del"))
+                files.Add(filePath);
+            foreach (var filePath in FileOpenRetry.EnumerateFiles(directoryPath, segment.SegmentId + "_v_*.*"))
+                files.Add(filePath);
+        }
+
+        var statsPath = IndexStats.GetStatsPath(directoryPath, writer.CommitGeneration);
+        if (FileOpenRetry.FileExists(statsPath))
+            files.Add(statsPath);
+
+        return files.ToArray();
     }
 
     public static void WriteCommitStats(IndexWriter writer)
