@@ -150,11 +150,10 @@ public sealed class StreamingPostingsMergerTests : IDisposable
         var docMapArr = new int[maxOldId + 1];
         for (int i = 0; i < docMapArr.Length; i++) docMapArr[i] = -1;
         foreach (var kv in docIdMap) docMapArr[kv.Key] = kv.Value;
+        string basePath = Path.Combine(_dir, name);
         return new StreamingPostingsMerger.Source
         {
-            DicPath = dicPath,
-            PosPath = posPath,
-            NormsPath = nrmPath,
+            OpenInput = extension => new IndexInput(basePath + extension),
             DocIdMap = docMapArr
         };
     }

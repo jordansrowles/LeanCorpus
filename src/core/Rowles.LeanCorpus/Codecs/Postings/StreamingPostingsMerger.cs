@@ -25,9 +25,7 @@ internal static class StreamingPostingsMerger
     /// </summary>
     internal sealed class Source
     {
-        internal required string DicPath { get; init; }
-        internal required string PosPath { get; init; }
-        internal required string NormsPath { get; init; }
+        internal required Func<string, IndexInput> OpenInput { get; init; }
         internal required int[] DocIdMap { get; init; }
     }
 
@@ -43,7 +41,7 @@ internal static class StreamingPostingsMerger
                 if (c.HasMore)
                 {
                     cursors.Add(c);
-                    cursorNorms.Add(NormsReader.Read(s.NormsPath));
+                    cursorNorms.Add(NormsReader.Read(s.OpenInput(".nrm")));
                 }
                 else
                 {
@@ -210,12 +208,23 @@ internal static class StreamingPostingsMerger
 
         internal static Cursor Open(Source src)
         {
-            var dic = TermDictionaryReader.Open(src.DicPath);
-            var pos = new IndexInput(src.PosPath);
-            pos.Prefetch();
-            PostingsFileHeader.ReadVersion(pos);
-            var terms = dic.EnumerateAllTerms();
-            return new Cursor(src, dic, pos, terms);
+            TermDictionaryReader? dic = null;
+            IndexInput? pos = null;
+            try
+            {
+                dic = TermDictionaryReader.Open(src.OpenInput(".dic"));
+                pos = src.OpenInput(".pos");
+                pos.Prefetch();
+                PostingsFileHeader.ReadVersion(pos);
+                var terms = dic.EnumerateAllTerms();
+                return new Cursor(src, dic, pos, terms);
+            }
+            catch
+            {
+                pos?.Dispose();
+                dic?.Dispose();
+                throw;
+            }
         }
 
         internal bool HasMore => _index < _terms.Count;

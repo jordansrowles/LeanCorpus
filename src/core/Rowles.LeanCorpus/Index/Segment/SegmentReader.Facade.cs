@@ -229,6 +229,8 @@ public sealed class SegmentReader : IDisposable
     public bool IsSoftDeleted(int docId, out long timestamp) { using var lease = AcquireReadLease(); return lease.State.IsSoftDeleted(docId, out timestamp); }
     public bool HasDeletions { get { if (TryGetFastState(out var state)) return state.HasDeletions; using var lease = AcquireReadLease(); return lease.State.HasDeletions; } }
     internal ParentBitSet? GetParentBitSet() { using var lease = AcquireReadLease(); return lease.State.GetParentBitSet(); }
+    internal bool FileExists(string extension) { using var lease = AcquireReadLease(); return lease.State.FileExists(extension); }
+    internal IndexInput OpenInput(string extension) { using var lease = AcquireReadLease(); return lease.State.OpenInput(extension); }
     public float GetNorm(int docId, string field) { if (TryGetFastState(out var state)) return state.GetNorm(docId, field); using var lease = AcquireReadLease(); return lease.State.GetNorm(docId, field); }
     public float GetFieldBoost(int docId, string field) { if (TryGetFastState(out var state)) return state.GetFieldBoost(docId, field); using var lease = AcquireReadLease(); return lease.State.GetFieldBoost(docId, field); }
     internal bool TryGetFieldBoosts(string field, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out float[]? boosts) { if (TryGetFastState(out var state)) return state.TryGetFieldBoosts(field, out boosts); using var lease = AcquireReadLease(); return lease.State.TryGetFieldBoosts(field, out boosts); }

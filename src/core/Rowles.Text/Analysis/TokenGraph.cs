@@ -52,8 +52,18 @@ internal sealed class TokenGraph
         foreach (var edge in _edges.OrderBy(static edge => edge.StartPosition).ThenBy(static edge => edge.Order))
         {
             int increment = edge.StartPosition - previousPosition;
-            sink.Add(edge.Token.Text.AsSpan(), edge.Token.StartOffset, edge.Token.EndOffset,
-                edge.Token.Type, increment, flatten ? 1 : edge.Token.PositionLength, edge.Token.Payload);
+            if (flatten)
+            {
+                // Flattened streams have unit-length edges, so use the original sink contract.
+                // This avoids depending on default interface dispatch in NativeAOT consumers.
+                sink.Add(edge.Token.Text.AsSpan(), edge.Token.StartOffset, edge.Token.EndOffset,
+                    edge.Token.Type, increment, edge.Token.Payload);
+            }
+            else
+            {
+                sink.Add(edge.Token.Text.AsSpan(), edge.Token.StartOffset, edge.Token.EndOffset,
+                    edge.Token.Type, increment, edge.Token.PositionLength, edge.Token.Payload);
+            }
             previousPosition = edge.StartPosition;
         }
     }

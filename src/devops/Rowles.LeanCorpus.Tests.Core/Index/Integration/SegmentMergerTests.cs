@@ -100,6 +100,63 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
     }
 
     /// <summary>
+    /// Verifies compound source segments are merged through logical bounded inputs, including
+    /// postings, DocValues, stored fields, term vectors, vectors and HNSW graph seeding.
+    /// </summary>
+    [Fact(DisplayName = "Merge: Reads Compound Sources Without Temporary Materialisation")]
+    public void Merge_ReadsCompoundSources_WithoutTemporaryMaterialisation()
+    {
+        var dir = SubDir(nameof(Merge_ReadsCompoundSources_WithoutTemporaryMaterialisation));
+        var mmap = new MMapDirectory(dir);
+
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 2,
+            MergeThreshold = 100,
+            StoreTermVectors = true,
+            UseCompoundFile = true,
+        }))
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                var doc = new LeanDocument();
+                doc.Add(new TextField("body", $"compound document {i}"));
+                doc.Add(new StoredField("label", $"doc-{i}"));
+                doc.Add(new NumericField("price", 10.0 + i));
+                doc.Add(new Int64Field("sequence", 100 + i));
+                doc.Add(new StringField("tag", i % 2 == 0 ? "even" : "odd"));
+                doc.Add(new BinaryField("payload", new byte[] { (byte)i, (byte)(i + 1) }));
+                doc.Add(new VectorField("embedding", new ReadOnlyMemory<float>([1f, i + 1f, 0.5f])));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+
+        var sourceSegments = Directory.GetFiles(dir, "seg_*.seg").Select(SegmentInfo.ReadFrom).ToArray();
+        Assert.Equal(2, sourceSegments.Length);
+        Assert.All(sourceSegments, static segment => Assert.True(segment.IsCompoundFile));
+        Assert.Empty(Directory.GetFiles(dir, "*.dic"));
+
+        string mergedId = MergeSegmentsForTest(dir, mmap);
+
+        Assert.Empty(Directory.GetDirectories(dir, ".merge-*"));
+        using var searcher = new IndexSearcher(mmap);
+        var results = searcher.Search(new TermQuery("body", "compound"), 10);
+        Assert.Equal(4, results.TotalHits);
+        Assert.Equal(4, searcher.Search(new RangeQuery("price", 10, 13), 10).TotalHits);
+
+        var mergedInfo = SegmentInfo.ReadFrom(Path.Combine(dir, mergedId + ".seg"));
+        using var reader = new SegmentReader(mmap, mergedInfo);
+        Assert.Equal([10.0, 11.0, 12.0, 13.0], reader.GetNumericDocValues("price")!);
+        Assert.Equal([100L, 101L, 102L, 103L], reader.GetInt64DocValues("sequence")!);
+        Assert.NotNull(reader.GetTermVectors(0));
+        Assert.NotNull(reader.GetVector("embedding", 3));
+        Assert.NotNull(reader.GetHnswGraph("embedding"));
+        Assert.True(reader.TryGetBinaryDocValues("payload", 2, out var payload));
+        Assert.Equal(new byte[] { 2, 3 }, payload[0]);
+    }
+
+    /// <summary>
     /// Verifies the Merge: Preserves Field Lengths BM25 Scores Match Unmerged scenario.
     /// </summary>
     [Fact(DisplayName = "Merge: Preserves Field Lengths BM25 Scores Match Unmerged")]

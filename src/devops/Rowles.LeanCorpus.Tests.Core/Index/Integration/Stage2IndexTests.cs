@@ -99,7 +99,7 @@ public sealed class Stage2IndexTests : IClassFixture<TestDirectoryFixture>
     /// Verifies the Background Merge: Commit Returns Immediately Merge Runs In Background scenario.
     /// </summary>
     [Fact(DisplayName = "Background Merge: Commit Returns Immediately Merge Runs In Background")]
-    public void BackgroundMerge_CommitReturnsImmediately_MergeRunsInBackground()
+    public async Task BackgroundMerge_CommitReturnsImmediately_MergeRunsInBackground()
     {
         var dir = new MMapDirectory(SubDir("bg_merge"));
         var config = new IndexWriterConfig { MaxBufferedDocs = 2, UseCompoundFile = true };
@@ -114,6 +114,10 @@ public sealed class Stage2IndexTests : IClassFixture<TestDirectoryFixture>
                 writer.AddDocument(doc);
                 if (i % 2 == 1) writer.Commit();
             }
+
+            var merge = writer.MergeTask;
+            Assert.NotNull(merge);
+            await merge;
             writer.Commit();
             // Dispose waits for any in-progress background merge to complete.
         }

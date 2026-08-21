@@ -72,6 +72,12 @@ internal sealed partial class SegmentReaderState : IDisposable
     /// <summary>Gets the directory this reader was opened from.</summary>
     internal MMapDirectory Directory => _directory;
 
+    /// <summary>Returns whether a logical segment file exists.</summary>
+    internal bool FileExists(string extension) => _files.Exists(extension);
+
+    /// <summary>Opens a separately owned input for a logical segment file.</summary>
+    internal IndexInput OpenInput(string extension) => _files.OpenInput(extension);
+
     /// <summary>Gets the total number of documents in this segment, including deleted documents.</summary>
     public int MaxDoc => _info.DocCount;
 
