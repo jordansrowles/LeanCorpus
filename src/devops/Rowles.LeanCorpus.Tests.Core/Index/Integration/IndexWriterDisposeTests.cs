@@ -105,6 +105,52 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
     }
 
     /// <summary>
+    /// Issue identified in Lucene.NET #1284
+    /// Regression coverage for it in our base: a shutdown flush failure must not skip
+    /// mandatory writer cleanup or leave the exclusive write lock held.
+    /// </summary>
+    [Fact(DisplayName = "Dispose: Flush Failure Releases Write Lock")]
+    public void Dispose_PendingFlushFails_ReleasesWriteLockAndRethrowsFailure()
+    {
+        var path = SubDir("dispose_flush_failure");
+        using var directory = new MMapDirectory(path);
+        var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            DefaultAnalyser = new WhitespaceAnalyser(),
+            DurableCommits = false,
+        });
+
+        var dwpt = writer.DwptPool![0];
+        lock (dwpt)
+        {
+            var document = new LeanDocument();
+            document.Add(new TextField("body", "dispose failure"));
+            dwpt.AddDocument(document);
+            writer.FlushPending.Add(new FlushPendingState
+            {
+                Snapshot = DwptFlushSnapshot.CaptureFrom(dwpt),
+                SegmentOrdinal = 0,
+                SeqStart = 0,
+                SeqEnd = 0,
+            });
+        }
+
+        string conflictingPath = Path.Combine(path, "seg_0.seg");
+        Directory.CreateDirectory(conflictingPath);
+        try
+        {
+            Assert.ThrowsAny<IOException>(() => writer.Dispose());
+        }
+        finally
+        {
+            Directory.Delete(conflictingPath, recursive: true);
+        }
+
+        Assert.False(File.Exists(Path.Combine(path, "write.lock")));
+        using var reopened = new IndexWriter(directory, new IndexWriterConfig { DurableCommits = false });
+    }
+
+    /// <summary>
     /// Verifies the Add Document Lock Free: After Dispose Throws Object Disposed Exception scenario.
     /// </summary>
     [Fact(DisplayName = "Add Document Lock Free: After Dispose Throws Object Disposed Exception")]

@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using System.Runtime.ExceptionServices;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
@@ -516,49 +517,88 @@ public sealed partial class IndexWriter : IDisposable
         // Prevent new callers from entering while we drain in-flight operations.
         Volatile.Write(ref _closing, 1);
 
+        Exception? failure = null;
+        try
+        {
+            DrainIndexingOperations();
+
+            // Drain any pending detached flushes and publish their segments.
+            lock (_writeLock)
+                DwptManager.WaitForPendingFlushes(this);
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
+        finally
+        {
+            DisposeResources(ref failure);
+        }
+
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    private void DrainIndexingOperations()
+    {
         var spinWait = new SpinWait();
         const long drainTimeoutTicks = 30 * TimeSpan.TicksPerSecond;
         long started = Environment.TickCount64;
         while (Volatile.Read(ref _inFlightAdds) != 0)
         {
             spinWait.SpinOnce();
-            if (spinWait.NextSpinWillYield)
+            if (!spinWait.NextSpinWillYield)
+                continue;
+
+            if (Environment.TickCount64 - started > drainTimeoutTicks)
             {
-                if (Environment.TickCount64 - started > drainTimeoutTicks)
-                {
-                    Diagnostics.LeanCorpusActivitySource.TraceSwallowed(
-                        new TimeoutException(
-                            $"IndexWriter.Dispose timed out after 30 seconds waiting for " +
-                            $"{Volatile.Read(ref _inFlightAdds)} in-flight indexing operation(s) to complete."),
-                        "dispose-drain-timeout");
-                    MarkIndexingFailed();
-                    break;
-                }
-                Thread.Sleep(1);
+                Diagnostics.LeanCorpusActivitySource.TraceSwallowed(
+                    new TimeoutException(
+                        $"IndexWriter.Dispose timed out after 30 seconds waiting for " +
+                        $"{Volatile.Read(ref _inFlightAdds)} in-flight indexing operation(s) to complete."),
+                    "dispose-drain-timeout");
+                MarkIndexingFailed();
+                return;
             }
+            Thread.Sleep(1);
         }
+    }
 
-        // Drain any pending detached flushes and publish their segments
-        lock (_writeLock)
-            DwptManager.WaitForPendingFlushes(this);
-
-        _mergeCts.Cancel();
+    private void DisposeResources(ref Exception? failure)
+    {
+        CaptureDisposeFailure(ref failure, _mergeCts.Cancel, "dispose-cancel-merges");
         try { _mergeTask?.Wait(); }
         catch (AggregateException) { /* Expected: merge task cancelled during shutdown */ }
         catch (ObjectDisposedException) { /* CTS already disposed */ }
         catch (TaskSchedulerException) { /* Task was rejected by scheduler during shutdown */ }
-        _mergeCts.Dispose();
+        CaptureDisposeFailure(ref failure, _mergeCts.Dispose, "dispose-merge-cancellation");
 
-        _backpressureSemaphore?.Dispose();
-        _flushSemaphore?.Dispose();
+        CaptureDisposeFailure(ref failure, () => _backpressureSemaphore?.Dispose(), "dispose-backpressure");
+        CaptureDisposeFailure(ref failure, () => _flushSemaphore?.Dispose(), "dispose-flush-semaphore");
 
-
-        _asyncWriteChannel.Writer.Complete();
+        CaptureDisposeFailure(ref failure, () => { _asyncWriteChannel.Writer.Complete(); }, "dispose-async-writes");
         try { _asyncWriteConsumer.Wait(TimeSpan.FromSeconds(30)); }
         catch (AggregateException) { }
-        _writeLockFile.Dispose();
+        CaptureDisposeFailure(ref failure, _writeLockFile.Dispose, "dispose-write-lock-handle");
+
         var lockPath = Path.Combine(_directory.DirectoryPath, "write.lock");
-        try { FileOpenRetry.Delete(lockPath); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "write-lock file delete"); }
+        try { FileOpenRetry.Delete(lockPath); }
+        catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "write-lock file delete"); }
+    }
+
+    private static void CaptureDisposeFailure(ref Exception? failure, Action action, string operation)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex)
+        {
+            if (failure is null)
+                failure = ex;
+            else
+                Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, operation);
+        }
     }
 
     internal void EnterIndexingOperation()
