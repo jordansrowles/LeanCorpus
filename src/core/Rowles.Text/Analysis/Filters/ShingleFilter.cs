@@ -4,7 +4,7 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 /// Emits contiguous token shingles for phrase-oriented analysis.
 /// </summary>
 /// <remarks>
-/// Buffers tokens during <see cref="Apply"/> and generates shingles covering
+/// Buffers tokens during application and generates shingles covering
 /// <see cref="MinShingleSize"/> to <see cref="MaxShingleSize"/> tokens in
 /// <see cref="ISpanTokenFilter.Finish"/>. When <see cref="OutputUnigrams"/> is
 /// <c>true</c>, original tokens are emitted alongside shingles.
@@ -76,8 +76,13 @@ public sealed class ShingleFilter : ISpanTokenFilter
 
         _buffer.Add(token);
 
-        if (_outputUnigrams)
-            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+    }
+
+    /// <inheritdoc/>
+    public void Apply(ReadOnlySpan<char> text, int startOffset, int endOffset, string type,
+        int positionIncrement, int positionLength, byte[]? payload, ISpanTokenSink sink)
+    {
+        _buffer.Add(new Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload, positionLength));
     }
 
     /// <inheritdoc/>
@@ -88,26 +93,39 @@ public sealed class ShingleFilter : ISpanTokenFilter
         if (_buffer.Count == 0)
             return;
 
-        int maxSize = Math.Min(_maxShingleSize, _buffer.Count);
+        var input = new TokenGraph();
+        foreach (var token in _buffer)
+            input.Add(token);
+        input.ValidateOrdered();
 
-        for (int size = _minShingleSize; size <= maxSize; size++)
+        var edges = input.Edges;
+        for (int i = 0; i < edges.Count; i++)
         {
-            for (int start = 0; start <= _buffer.Count - size; start++)
+            if (edges[i].Token.PositionLength != 1 || (i > 0 && edges[i].StartPosition != edges[i - 1].StartPosition + 1))
+                throw new InvalidOperationException("ShingleFilter requires one linear token at each position. Flatten or otherwise linearise the input before shingling.");
+        }
+
+        var output = new TokenGraph();
+        for (int start = 0; start < _buffer.Count; start++)
+        {
+            if (_outputUnigrams)
+                output.Add(_buffer[start], edges[start].StartPosition);
+
+            int maxSize = Math.Min(_maxShingleSize, _buffer.Count - start);
+            for (int size = _minShingleSize; size <= maxSize; size++)
             {
                 var shingleText = CreateShingle(start, size);
 
                 var first = _buffer[start];
                 var last = _buffer[start + size - 1];
 
-                sink.Add(
-                    shingleText.AsSpan(),
-                    first.StartOffset,
-                    last.EndOffset,
-                    first.Type,
-                    positionIncrement: 0,
-                    payload: null);
+                int positionLength = _outputUnigrams ? size : size - _minShingleSize + 1;
+                output.Add(shingleText.AsSpan(), first.StartOffset, last.EndOffset, first.Type,
+                    edges[start].StartPosition, positionLength);
             }
         }
+
+        output.Emit(sink);
 
         _buffer.Clear();
     }

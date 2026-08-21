@@ -211,10 +211,12 @@ play/AB
 
         var matSink = new MaterialisingTokenSink();
         foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        filter.Finish(matSink);
         tokens.Clear();
         tokens.AddRange(matSink.Tokens);
 
-        Assert.Equal([0, 0, 1], tokens.Select(static token => token.PositionIncrement));
+        Assert.Equal([1, 0, 1], tokens.Select(static token => token.PositionIncrement));
+        Assert.All(tokens, static token => Assert.Equal(1, token.PositionLength));
     }
 
     [Fact(DisplayName = "Hunspell Dictionary: Prefix Suffix Cross Product Generates Stem")]

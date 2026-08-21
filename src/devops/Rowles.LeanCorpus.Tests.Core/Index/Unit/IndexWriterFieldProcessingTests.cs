@@ -260,6 +260,21 @@ public sealed class IndexWriterFieldProcessingTests : IClassFixture<TestDirector
         Assert.Equal([0], two.GetPositions(0).ToArray());
     }
 
+    /// <summary>
+    /// Verifies that index-time graph edges cannot be silently persisted without
+    /// FlattenGraphFilter, preserving the existing positions codec layout.
+    /// </summary>
+    [Fact(DisplayName = "IndexWriter field processing: rejects unflattened token graph edges")]
+    public void AddDocumentCore_RejectsUnflattenedTokenGraphEdges()
+    {
+        var directory = new MMapDirectory(SubDir(nameof(AddDocumentCore_RejectsUnflattenedTokenGraphEdges)));
+        using var writer = new IndexWriter(directory, new IndexWriterConfig { DefaultAnalyser = new GraphAnalyser() });
+
+        var exception = Assert.Throws<InvalidOperationException>(() => InvokeAddDocumentCore(writer, TextDocument("body", "new york")));
+
+        Assert.Contains("FlattenGraphFilter", exception.Message, StringComparison.Ordinal);
+    }
+
     [Fact(DisplayName = "IndexWriter field processing: rejects conflicting field boosts")]
     public void AddDocumentCore_RejectsConflictingFieldBoosts()
     {
@@ -357,5 +372,11 @@ public sealed class IndexWriterFieldProcessingTests : IClassFixture<TestDirector
             sink.Add(input.Slice(0, 3), 0, 3, positionIncrement: 0);
             sink.Add(input.Slice(4, 3), 4, 7, positionIncrement: 0);
         }
+    }
+
+    private sealed class GraphAnalyser : IAnalyser
+    {
+        public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink) =>
+            sink.Add(input, 0, input.Length, Token.DefaultType, 1, 2, null);
     }
 }

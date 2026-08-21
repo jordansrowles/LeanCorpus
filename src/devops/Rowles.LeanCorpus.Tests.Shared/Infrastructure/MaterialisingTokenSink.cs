@@ -25,4 +25,11 @@ public sealed class MaterialisingTokenSink : ISpanTokenSink
     {
         Tokens.Add(new Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload));
     }
+
+    /// <inheritdoc/>
+    public void Add(ReadOnlySpan<char> text, int startOffset, int endOffset, string type,
+        int positionIncrement, int positionLength, byte[]? payload)
+    {
+        Tokens.Add(new Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload, positionLength));
+    }
 }

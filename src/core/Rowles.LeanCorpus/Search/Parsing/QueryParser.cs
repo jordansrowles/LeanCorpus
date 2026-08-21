@@ -12,6 +12,7 @@ public class QueryParser
     private readonly string _defaultField;
     private readonly IAnalyser _analyser;
     private readonly bool _lenient;
+    private readonly int _maxGraphPaths;
     private int _depth;
 
     /// <summary>Gets the analyser used to build query terms.</summary>
@@ -25,11 +26,14 @@ public class QueryParser
     /// result built from valid tokens. When <see langword="false"/> (default), syntax errors throw
     /// <see cref="QueryParseException"/>.
     /// </param>
-    public QueryParser(string defaultField, IAnalyser analyser, bool lenient = false)
+    /// <param name="maxGraphPaths">The maximum complete analysed phrase paths permitted before parsing fails.</param>
+    public QueryParser(string defaultField, IAnalyser analyser, bool lenient = false, int maxGraphPaths = 256)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxGraphPaths, 1);
         _defaultField = defaultField;
         _analyser = analyser;
         _lenient = lenient;
+        _maxGraphPaths = maxGraphPaths;
     }
 
     /// <summary>Parses the query string into a <see cref="Query"/> object tree.</summary>
@@ -433,12 +437,60 @@ public class QueryParser
         var tokens = new List<Analysis.Token>();
         var sink = new CapturingSink(tokens);
         _analyser.Analyse(phraseText.AsSpan(), sink);
-        var terms = tokens.Select(t => t.Text).ToArray();
-        var query = terms.Length > 0
-            ? new PhraseQuery(field, terms)
-            : new PhraseQuery(field, phraseText.Split(' '));
-        query.Slop = slop;
-        return query;
+        if (tokens.Count == 0)
+            return new PhraseQuery(field, slop, phraseText.Split(' '));
+
+        var graph = new Analysis.TokenGraph();
+        foreach (var token in tokens)
+            graph.Add(token);
+        graph.ValidateOrdered();
+
+        int start = graph.Edges.Min(static edge => edge.StartPosition);
+        int end = graph.Edges.Max(static edge => edge.EndPosition);
+        var byStart = graph.Edges.GroupBy(static edge => edge.StartPosition)
+            .ToDictionary(static group => group.Key, static group => group.ToArray());
+        var paths = new List<Analysis.TokenGraph.TokenEdge[]>();
+        var path = new List<Analysis.TokenGraph.TokenEdge>();
+        CollectGraphPaths(start);
+
+        if (paths.Count == 0)
+            throw new QueryParseException("Analysed phrase token graph has no complete path.", 0);
+
+        Query CreatePathQuery(Analysis.TokenGraph.TokenEdge[] edges)
+        {
+            var terms = edges.Select(static edge => edge.Token.Text).ToArray();
+            var positions = edges.Select(edge => edge.StartPosition - start).ToArray();
+            return new PhraseQuery(field, terms, positions, slop);
+        }
+
+        if (paths.Count == 1)
+            return CreatePathQuery(paths[0]);
+
+        var builder = new BooleanQuery.Builder();
+        foreach (var graphPath in paths)
+            builder.Add(CreatePathQuery(graphPath), Occur.Should);
+        return builder.Build();
+
+        void CollectGraphPaths(int position)
+        {
+            if (position == end)
+            {
+                paths.Add(path.ToArray());
+                if (paths.Count > _maxGraphPaths)
+                    throw new QueryParseException($"Analysed phrase graph exceeds the configured maximum of {_maxGraphPaths} paths.", 0);
+                return;
+            }
+
+            if (!byStart.TryGetValue(position, out var nextEdges))
+                return;
+
+            foreach (var edge in nextEdges)
+            {
+                path.Add(edge);
+                CollectGraphPaths(edge.EndPosition);
+                path.RemoveAt(path.Count - 1);
+            }
+        }
     }
 
     private static int ReadSlop(List<QToken> tokens, ref int pos)
@@ -498,6 +550,10 @@ public class QueryParser
         public void Add(ReadOnlySpan<char> text, int startOffset, int endOffset,
             string type = Analysis.Token.DefaultType, int positionIncrement = 1, byte[]? payload = null)
             => _tokens.Add(new Analysis.Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload));
+
+        public void Add(ReadOnlySpan<char> text, int startOffset, int endOffset, string type,
+            int positionIncrement, int positionLength, byte[]? payload)
+            => _tokens.Add(new Analysis.Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload, positionLength));
     }
 
     private static List<QToken> Tokenize(string input, bool lenient)

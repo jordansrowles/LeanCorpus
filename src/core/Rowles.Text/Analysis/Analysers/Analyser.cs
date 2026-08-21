@@ -81,7 +81,19 @@ public sealed class Analyser : IAnalyser
             int positionIncrement = 1,
             byte[]? payload = null)
         {
-            ApplyAt(0, text, startOffset, endOffset, type, positionIncrement, payload);
+            ApplyAt(0, text, startOffset, endOffset, type, positionIncrement, 1, payload);
+        }
+
+        public void Add(
+            ReadOnlySpan<char> text,
+            int startOffset,
+            int endOffset,
+            string type,
+            int positionIncrement,
+            int positionLength,
+            byte[]? payload)
+        {
+            ApplyAt(0, text, startOffset, endOffset, type, positionIncrement, positionLength, payload);
         }
 
         /// <summary>
@@ -104,15 +116,16 @@ public sealed class Analyser : IAnalyser
             int endOffset,
             string type,
             int positionIncrement,
+            int positionLength,
             byte[]? payload)
         {
             if (filterIndex >= _filters.Length)
             {
-                _finalSink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+                _finalSink.Add(text, startOffset, endOffset, type, positionIncrement, positionLength, payload);
                 return;
             }
 
-            _filters[filterIndex].Apply(text, startOffset, endOffset, type, positionIncrement, payload, _stageSinks[filterIndex]);
+            _filters[filterIndex].Apply(text, startOffset, endOffset, type, positionIncrement, positionLength, payload, _stageSinks[filterIndex]);
         }
 
         private sealed class StageSink : ISpanTokenSink
@@ -134,7 +147,19 @@ public sealed class Analyser : IAnalyser
                 int positionIncrement = 1,
                 byte[]? payload = null)
             {
-                _owner.ApplyAt(_nextFilterIndex, text, startOffset, endOffset, type, positionIncrement, payload);
+                _owner.ApplyAt(_nextFilterIndex, text, startOffset, endOffset, type, positionIncrement, 1, payload);
+            }
+
+            public void Add(
+                ReadOnlySpan<char> text,
+                int startOffset,
+                int endOffset,
+                string type,
+                int positionIncrement,
+                int positionLength,
+                byte[]? payload)
+            {
+                _owner.ApplyAt(_nextFilterIndex, text, startOffset, endOffset, type, positionIncrement, positionLength, payload);
             }
         }
     }

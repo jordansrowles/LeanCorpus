@@ -20,13 +20,15 @@ public readonly struct Token
         int endOffset,
         string type = DefaultType,
         int positionIncrement = 1,
-        byte[]? payload = null)
+        byte[]? payload = null,
+        int positionLength = 1)
     {
         Text = text;
         StartOffset = startOffset;
         EndOffset = endOffset;
         Type = ValidateType(type);
         PositionIncrement = positionIncrement;
+        PositionLength = ValidatePositionLength(positionLength);
         Payload = payload;
     }
 
@@ -35,6 +37,13 @@ public readonly struct Token
         if (string.IsNullOrWhiteSpace(type))
             throw new ArgumentException("Token type must be a non-empty value.", nameof(type));
         return type;
+    }
+
+    internal static int ValidatePositionLength(int positionLength)
+    {
+        if (positionLength < 1)
+            throw new ArgumentOutOfRangeException(nameof(positionLength), "Position length must be at least one.");
+        return positionLength;
     }
 
     /// <summary>
@@ -61,6 +70,12 @@ public readonly struct Token
     /// Gets the position increment for this token relative to the previous emitted token.
     /// </summary>
     public int PositionIncrement { get; }
+
+    /// <summary>
+    /// Gets the number of positions spanned by this token edge. The default value of one
+    /// represents an ordinary linear token.
+    /// </summary>
+    public int PositionLength { get; }
 
     /// <summary>
     /// Gets the optional payload bytes associated with this token position.

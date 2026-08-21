@@ -368,7 +368,27 @@ public class AnalysisParityTests
         tokens.Clear();
         tokens.AddRange(matSink.Tokens);
 
-        Assert.Equal(["new", "york", "city", "new york", "york city", "new york city"], tokens.Select(t => t.Text));
+        Assert.Equal(["new", "new york", "new york city", "york", "york city", "city"], tokens.Select(static token => token.Text));
+        Assert.Equal([1, 0, 0, 1, 0, 1], tokens.Select(static token => token.PositionIncrement));
+        Assert.Equal([1, 2, 3, 1, 2, 1], tokens.Select(static token => token.PositionLength));
+    }
+
+    /// <summary>
+    /// Regression coverage for the token-graph failure identified alongside Lucene.NET #943:
+    /// ShingleFilter without unigrams must retain connected output positions.
+    /// </summary>
+    [Fact(DisplayName = "Shingle Filter: Output Without Unigrams Uses Connected Graph Positions")]
+    public void ShingleFilter_WithoutUnigrams_UsesConnectedGraphPositions()
+    {
+        var filter = new ShingleFilter(minShingleSize: 2, maxShingleSize: 3, outputUnigrams: false);
+        var sink = new MaterialisingTokenSink();
+        foreach (var token in new[] { new Token("new", 0, 3), new Token("york", 4, 8), new Token("city", 9, 13) })
+            filter.Apply(token.Text.AsSpan(), token.StartOffset, token.EndOffset, token.Type, token.PositionIncrement, token.Payload, sink);
+        filter.Finish(sink);
+
+        Assert.Equal(["new york", "new york city", "york city"], sink.Tokens.Select(static token => token.Text));
+        Assert.Equal([1, 0, 1], sink.Tokens.Select(static token => token.PositionIncrement));
+        Assert.Equal([1, 2, 1], sink.Tokens.Select(static token => token.PositionLength));
     }
 
     /// <summary>

@@ -21,4 +21,31 @@ public interface ISpanTokenSink
         string type = Token.DefaultType,
         int positionIncrement = 1,
         byte[]? payload = null);
+
+    /// <summary>
+    /// Adds a token edge with an explicit position length.
+    /// </summary>
+    /// <remarks>
+    /// Implementations of the legacy overload receive a length of one. New sinks that
+    /// consume token graphs must implement this overload so graph information is not lost.
+    /// </remarks>
+    /// <param name="text">The token text span.</param>
+    /// <param name="startOffset">The start character offset.</param>
+    /// <param name="endOffset">The exclusive end character offset.</param>
+    /// <param name="type">The token type.</param>
+    /// <param name="positionIncrement">The relative token start position.</param>
+    /// <param name="positionLength">The positive number of positions spanned by the token.</param>
+    /// <param name="payload">The optional payload bytes.</param>
+    void Add(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        int positionLength,
+        byte[]? payload)
+    {
+        Token.ValidatePositionLength(positionLength);
+        Add(text, startOffset, endOffset, type, positionIncrement, payload);
+    }
 }
