@@ -54,6 +54,7 @@
     bkd                  = 'BKDTreeBenchmarks'
     'fst-lookup'         = 'FstLookupBenchmarks'
     'mmap-io'            = 'MMapDirectoryIOBenchmarks'
+    'windows-filesystem' = 'WindowsFileSystemBenchmarks'
     hnsw                 = 'HnswSearchBenchmarks'
     vq                   = 'VectorQuantisationBenchmarks'
     'tv-highlighter'     = 'TermVectorHighlighterBenchmarks'

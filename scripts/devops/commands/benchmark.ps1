@@ -80,7 +80,7 @@ function Invoke-DevOpsBenchmark {
     # The Rowles.Text and Compression runners do not use the custom --suite
     # protocol; only the core runner does.
     $runArgs = @()
-    if ($suite -in @('core', 'all', 'all-with-explicit')) {
+    if ($suite -notin @('text', 'compression')) {
         $runArgs += @('--suite', $suite)
     }
 

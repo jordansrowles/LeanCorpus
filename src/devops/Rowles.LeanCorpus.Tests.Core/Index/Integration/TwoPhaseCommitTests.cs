@@ -51,6 +51,8 @@ public sealed class TwoPhaseCommitTests : IClassFixture<TestDirectoryFixture>
         segFiles = System.IO.Directory.GetFiles(SubDir("twophase_pub"), "segments_*")
             .Where(f => !f.EndsWith(".pending", StringComparison.Ordinal)).ToArray();
         Assert.NotEmpty(segFiles);
+        Assert.Empty(DirtyFileTracker.Snapshot(SubDir("twophase_pub"),
+            static fileName => fileName.StartsWith("segments_", StringComparison.Ordinal)));
 
         // Reader should see the data.
         using var reader = new Rowles.LeanCorpus.Index.Segment.SegmentReader(dir,

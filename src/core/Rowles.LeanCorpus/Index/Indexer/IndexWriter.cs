@@ -42,7 +42,6 @@ public sealed partial class IndexWriter : IDisposable
     private long _preparedRollbackContentToken;
     private readonly List<SegmentInfo> _committedSegments = [];
     private readonly PendingDeleteQueue _deleteQueue = new();
-    private readonly Dictionary<string, FileSyncState> _syncedFileStates = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _fieldOrdinals = new(StringComparer.Ordinal);
 
     // --- Backpressure state ---
@@ -131,7 +130,6 @@ public sealed partial class IndexWriter : IDisposable
 
         // Load existing commit state if present
         CommitManager.LoadLatestCommit(this);
-        CaptureExistingFileSyncState();
         DwptManager.InitialiseDwptPool(this);
 
         // Start async write consumer
@@ -145,14 +143,6 @@ public sealed partial class IndexWriter : IDisposable
 
     public long NextSequenceNumber => Volatile.Read(ref _nextSequenceNumber);
 
-    private void CaptureExistingFileSyncState()
-    {
-        foreach (var filePath in FileOpenRetry.GetFiles(_directory.DirectoryPath, "*"))
-        {
-            var metadata = FileOpenRetry.GetFileMetadata(filePath);
-            _syncedFileStates[filePath] = new FileSyncState(metadata.Length, metadata.LastWriteTimeUtc.Ticks);
-        }
-    }
     public bool HasPreparedCommit => _preparedGeneration >= 0;
 
     /// <summary>Adds one document to the index.</summary>
@@ -836,7 +826,6 @@ public sealed partial class IndexWriter : IDisposable
         return ordinal;
     }
     internal Dictionary<string, int> FieldOrdinals => _fieldOrdinals;
-    internal Dictionary<string, FileSyncState> SyncedFileStates => _syncedFileStates;
     internal List<IndexSnapshot> HeldSnapshots => _heldSnapshots;
     internal DocumentsWriterPerThread[]? DwptPool { get => _dwptPool; set => _dwptPool = value; }
     internal SemaphoreSlim? BackpressureSemaphore => _backpressureSemaphore;
@@ -845,5 +834,3 @@ public sealed partial class IndexWriter : IDisposable
     internal ref int ActiveFlushCount => ref _activeFlushCount;
     internal SemaphoreSlim? FlushSemaphore => _flushSemaphore;
 }
-
-internal readonly record struct FileSyncState(long Length, long LastWriteTimeUtcTicks);

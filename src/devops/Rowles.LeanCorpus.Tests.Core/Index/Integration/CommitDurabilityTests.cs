@@ -8,6 +8,7 @@ using Rowles.LeanCorpus.Search.Parsing;
 using Rowles.LeanCorpus.Search.Highlighting;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Diagnostics;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index;
 
@@ -127,6 +128,32 @@ public class CommitDurabilityTests : IDisposable
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
         var results = searcher.Search(new TermQuery("body", "valid"), 10);
         Assert.Equal(1, results.TotalHits);
+    }
+
+    /// <summary>
+    /// Verifies that a later metadata-only commit does not resynchronise unchanged segment files.
+    /// This protects issue #59's dirty-file contract from regressing to directory enumeration.
+    /// </summary>
+    [Fact(DisplayName = "Durable Commit: Synchronises Only Files Changed Since Prior Commit")]
+    public void DurableCommit_SynchronisesOnlyFilesChangedSincePriorCommit()
+    {
+        var metrics = new DefaultMetricsCollector();
+        using var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig
+        {
+            DurableCommits = true,
+            Metrics = metrics
+        });
+        var doc = new LeanDocument();
+        doc.Add(new TextField("body", "dirty file tracking"));
+        writer.AddDocument(doc);
+        writer.Commit();
+        long firstFileCount = metrics.GetSnapshot().FileSyncFileCount;
+
+        writer.Commit();
+
+        var snapshot = metrics.GetSnapshot();
+        Assert.True(firstFileCount > 1);
+        Assert.Equal(1, snapshot.FileSyncFileCount - firstFileCount);
     }
 
     private static void AssertNonEmptyFile(string path)

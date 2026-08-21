@@ -13,6 +13,7 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
     private const int BufferSize = 65536;
 
     private readonly FileStream _stream;
+    private readonly string _filePath;
     private readonly byte[] _buffer;
     private readonly bool _durable;
     private readonly bool _dropPageCache;
@@ -38,6 +39,7 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
     /// </param>
     public IndexOutput(string filePath, bool durable = false, bool dropPageCache = false)
     {
+        _filePath = filePath;
         _stream = (FileStream)FileOpenRetry.Open(filePath, FileMode.Create, FileAccess.Write, FileShare.None,
             bufferSize: BufferSize, options: FileOptions.SequentialScan);
         _buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
@@ -214,12 +216,14 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
     {
         if (_disposed) return;
         _disposed = true;
+        bool completed = false;
 
         try
         {
             FlushBuffer();
             if (_durable)
-                _stream.Flush(flushToDisk: true);
+                FileOpenRetry.FlushToDisk(_stream);
+            completed = true;
         }
         finally
         {
@@ -233,6 +237,8 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
             }
             ArrayPool<byte>.Shared.Return(_buffer);
             _stream.Dispose();
+            if (completed)
+                DirtyFileTracker.MarkWritten(_filePath);
         }
     }
 }

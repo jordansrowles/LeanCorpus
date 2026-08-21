@@ -84,7 +84,7 @@ A 3.0-written canonical index cannot be opened by 2.x. Retain a verified backup 
 
 ## Store boundary
 
-`MMapDirectory`, `IndexInput` and `IndexOutput` own filesystem and mapped-file lifetimes. `IndexAtomicFileWriter`, `DirectoryFsync` and `FileOpenRetry` centralise publication and platform-sensitive retry behaviour. Keep raw filesystem access behind this boundary.
+`MMapDirectory`, `IndexInput` and `IndexOutput` own filesystem and mapped-file lifetimes. `IndexAtomicFileWriter`, `DirectoryFsync`, `DirtyFileTracker` and the platform filesystem implementations centralise publication, durability and precise retry behaviour. Durable commits synchronise only process-written files referenced by the commit; they do not enumerate or materialise codec files. Keep raw filesystem access behind this boundary.
 
 ## See also
 

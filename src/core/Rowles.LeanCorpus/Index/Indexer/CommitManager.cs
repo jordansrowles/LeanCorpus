@@ -44,7 +44,9 @@ internal static class CommitManager
         var pendingPath = Path.Combine(dirPath, $"segments_{writer.PreparedGeneration}.pending");
         var finalPath = Path.Combine(dirPath, $"segments_{writer.PreparedGeneration}");
 
-        FileOpenRetry.Move(pendingPath, finalPath, overwrite: false);
+        var publishedCommit = FileOpenRetry.Move(pendingPath, finalPath, overwrite: false);
+        if (!writer.Config.DurableCommits)
+            DirtyFileTracker.Forget(finalPath);
         // The rename is the irreversible publication boundary. Establish the published
         // state before doing anything that can throw, so a later failure cannot be rolled
         // back over the commit file that readers can already observe.
@@ -63,6 +65,7 @@ internal static class CommitManager
                     publicationSync(dirPath);
                 else
                     DirectoryFsync.Sync(dirPath, strict: true);
+                DirtyFileTracker.MarkSynced(publishedCommit);
             }
 
             writer.Config.DeletionPolicy.OnCommit(dirPath, writer.CommitGeneration,
@@ -143,6 +146,9 @@ internal static class CommitManager
         else
         {
             IndexAtomicFileWriter.WriteText(commitFile, fileContent, durable: false);
+            // Non-durable commit files are publication markers, not inputs to a later
+            // durable commit. Retaining every generation would grow process-wide state.
+            DirtyFileTracker.Forget(commitFile);
         }
     }
 
@@ -152,50 +158,54 @@ internal static class CommitManager
         long bytes = 0;
         int count = 0;
 
-        var currentFiles = GetCurrentSegmentFiles(writer);
-        foreach (var filePath in currentFiles)
+        string statsFileName = Path.GetFileName(IndexStats.GetStatsPath(
+            writer.Directory.DirectoryPath, writer.CommitGeneration));
+        var segmentIds = new HashSet<string>(writer.CommittedSegments.Count, StringComparer.Ordinal);
+        foreach (var segment in writer.CommittedSegments)
+            segmentIds.Add(segment.SegmentId);
+
+        var dirtyFiles = DirtyFileTracker.Snapshot(
+            writer.Directory.DirectoryPath,
+            fileName => fileName.Equals(statsFileName, StringComparison.Ordinal) ||
+                        BelongsToCommittedSegment(fileName, segmentIds));
+
+        foreach (var dirtyFile in dirtyFiles)
         {
-            var fileName = Path.GetFileName(filePath);
+            var fileName = Path.GetFileName(dirtyFile.Path);
             if (fileName.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            try
             {
-                continue;
+                DirectoryFsync.SyncFile(dirtyFile.Path, strict: true);
+                bytes += FileOpenRetry.GetFileLength(dirtyFile.Path);
+                count++;
+                DirtyFileTracker.MarkSynced(dirtyFile);
             }
-
-            var metadata = FileOpenRetry.GetFileMetadata(filePath);
-            var current = new FileSyncState(metadata.Length, metadata.LastWriteTimeUtc.Ticks);
-            if (writer.SyncedFileStates.TryGetValue(filePath, out var synced) && synced == current)
-                continue;
-
-            DirectoryFsync.SyncFile(filePath, strict: true);
-            writer.SyncedFileStates[filePath] = current;
-            bytes += metadata.Length;
-            count++;
+            catch (IOException) when (!FileOpenRetry.FileExists(dirtyFile.Path))
+            {
+                // Failed merge cleanup and external fault-injection tests can remove
+                // a process-written file after the dirty snapshot was taken. It is no
+                // longer publishable data, so discard only the observed dirty version.
+                DirtyFileTracker.MarkSynced(dirtyFile);
+            }
         }
 
         stopwatch.Stop();
         writer.Config.Metrics.RecordFileSync(stopwatch.Elapsed, bytes, count);
     }
 
-    private static string[] GetCurrentSegmentFiles(IndexWriter writer)
+    private static bool BelongsToCommittedSegment(string fileName, HashSet<string> segmentIds)
     {
-        var files = new HashSet<string>(StringComparer.Ordinal);
-        var directoryPath = writer.Directory.DirectoryPath;
+        int separator = fileName.IndexOf('.');
+        int generationSeparator = fileName.IndexOf("_gen_", StringComparison.Ordinal);
+        int vectorSeparator = fileName.IndexOf("_v_", StringComparison.Ordinal);
+        if (generationSeparator >= 0 && (separator < 0 || generationSeparator < separator))
+            separator = generationSeparator;
+        if (vectorSeparator >= 0 && (separator < 0 || vectorSeparator < separator))
+            separator = vectorSeparator;
 
-        foreach (var segment in writer.CommittedSegments)
-        {
-            foreach (var filePath in FileOpenRetry.EnumerateFiles(directoryPath, segment.SegmentId + ".*"))
-                files.Add(filePath);
-            foreach (var filePath in FileOpenRetry.EnumerateFiles(directoryPath, segment.SegmentId + "_gen_*.del"))
-                files.Add(filePath);
-            foreach (var filePath in FileOpenRetry.EnumerateFiles(directoryPath, segment.SegmentId + "_v_*.*"))
-                files.Add(filePath);
-        }
-
-        var statsPath = IndexStats.GetStatsPath(directoryPath, writer.CommitGeneration);
-        if (FileOpenRetry.FileExists(statsPath))
-            files.Add(statsPath);
-
-        return files.ToArray();
+        return separator > 0 && segmentIds.Contains(fileName[..separator]);
     }
 
     public static void WriteCommitStats(IndexWriter writer)

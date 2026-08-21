@@ -31,7 +31,11 @@ public sealed class DefaultMetricsCollector : IMetricsCollector
     // ── Cache line 5: Commit counters ──
     private long _commitCount;
     private long _commitTotalMs;
-    private long _pad5_0, _pad5_1, _pad5_2, _pad5_3, _pad5_4, _pad5_5;
+    private long _fileSyncOperationCount;
+    private long _fileSyncTotalMs;
+    private long _fileSyncBytes;
+    private long _fileSyncFileCount;
+    private long _pad5_0, _pad5_1;
 
     // ── Cache line 6: HNSW counters ──
     private long _hnswSearchCount;
@@ -94,6 +98,15 @@ public sealed class DefaultMetricsCollector : IMetricsCollector
     }
 
     /// <inheritdoc/>
+    public void RecordFileSync(TimeSpan elapsed, long bytes, int fileCount)
+    {
+        Interlocked.Increment(ref _fileSyncOperationCount);
+        Interlocked.Add(ref _fileSyncTotalMs, (long)elapsed.TotalMilliseconds);
+        Interlocked.Add(ref _fileSyncBytes, bytes);
+        Interlocked.Add(ref _fileSyncFileCount, fileCount);
+    }
+
+    /// <inheritdoc/>
     public void RecordHnswSearch(TimeSpan elapsed, int nodesVisited)
     {
         Interlocked.Increment(ref _hnswSearchCount);
@@ -137,6 +150,10 @@ public sealed class DefaultMetricsCollector : IMetricsCollector
             MergeTotalMs = Interlocked.Read(ref _mergeTotalMs),
             CommitCount = Interlocked.Read(ref _commitCount),
             CommitTotalMs = Interlocked.Read(ref _commitTotalMs),
+            FileSyncOperationCount = Interlocked.Read(ref _fileSyncOperationCount),
+            FileSyncTotalMs = Interlocked.Read(ref _fileSyncTotalMs),
+            FileSyncBytes = Interlocked.Read(ref _fileSyncBytes),
+            FileSyncFileCount = Interlocked.Read(ref _fileSyncFileCount),
             LatencyHistogram = buckets,
             HnswSearchCount = Interlocked.Read(ref _hnswSearchCount),
             HnswSearchTotalMs = Interlocked.Read(ref _hnswSearchTotalMs),

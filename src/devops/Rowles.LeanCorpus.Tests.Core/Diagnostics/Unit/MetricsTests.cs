@@ -79,6 +79,21 @@ public class MetricsTests : IDisposable
         Assert.Equal(1, snap.CommitCount);
     }
 
+    /// <summary>Verifies that durable synchronisation volume is observable.</summary>
+    [Fact(DisplayName = "Default Metrics Collector: Records File Synchronisation")]
+    public void DefaultMetricsCollector_RecordsFileSynchronisation()
+    {
+        var metrics = new DefaultMetricsCollector();
+
+        metrics.RecordFileSync(TimeSpan.FromMilliseconds(12), 4096, 3);
+
+        var snap = metrics.GetSnapshot();
+        Assert.Equal(1, snap.FileSyncOperationCount);
+        Assert.Equal(12, snap.FileSyncTotalMs);
+        Assert.Equal(4096, snap.FileSyncBytes);
+        Assert.Equal(3, snap.FileSyncFileCount);
+    }
+
     /// <summary>
     /// Verifies the Latency Histogram: Distributes Samples scenario.
     /// </summary>

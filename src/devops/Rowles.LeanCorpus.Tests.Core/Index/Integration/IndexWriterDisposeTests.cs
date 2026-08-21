@@ -139,7 +139,9 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
         Directory.CreateDirectory(conflictingPath);
         try
         {
-            Assert.ThrowsAny<IOException>(() => writer.Dispose());
+            var failure = Record.Exception(() => writer.Dispose());
+            Assert.True(failure is IOException or UnauthorizedAccessException,
+                $"Expected a filesystem failure, got {failure?.GetType().FullName ?? "no exception"}.");
         }
         finally
         {

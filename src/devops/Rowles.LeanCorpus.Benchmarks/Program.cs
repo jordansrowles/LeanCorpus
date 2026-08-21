@@ -94,6 +94,7 @@ internal static class Program
                 BenchmarkSuite.HnswSearch,
                 BenchmarkSuite.VectorQuantisation,
                 BenchmarkSuite.CompoundFile,
+                BenchmarkSuite.WindowsFileSystem,
                 BenchmarkSuite.IncrementalBackup,
                 BenchmarkSuite.ReaderManagerLifecycle,
                 BenchmarkSuite.MultiReader,
@@ -296,6 +297,9 @@ internal static class Program
 
         if (suites.Contains(BenchmarkSuite.CompoundFile))
             RunSuite<CompoundFileBenchmarks>("compound-file", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.WindowsFileSystem))
+            RunSuite<WindowsFileSystemBenchmarks>("windows-filesystem", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (suites.Contains(BenchmarkSuite.IncrementalBackup))
             RunSuite<IncrementalBackupBenchmarks>("incremental-backup", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -686,6 +690,7 @@ internal static class Program
               fst-lookup          FstLookupBenchmarks -- FST term dictionary lookup (explicit only)
               mmap-io             MMapDirectoryIOBenchmarks -- raw I/O throughput (explicit only)
               compound-file       CompoundFileBenchmarks -- loose files vs compound segment storage (explicit only)
+              windows-filesystem  WindowsFileSystemBenchmarks -- durability and compound-file matrix (explicit only)
               incremental-backup  IncrementalBackupBenchmarks -- full and parent-linked backup operations (explicit only)
               reader-manager      ReaderManagerLifecycleBenchmarks -- generic reader lifecycle overhead (explicit only)
               multi-reader        MultiReaderBenchmarks -- federated search and pagination (explicit only)
@@ -826,6 +831,7 @@ internal static class Program
             "fst-lookup" or "fstlookup" => BenchmarkSuite.FstLookup,
             "mmap-io" or "mmapio" => BenchmarkSuite.MMapIO,
             "compound-file" or "compoundfile" => BenchmarkSuite.CompoundFile,
+            "windows-filesystem" or "windowsfilesystem" => BenchmarkSuite.WindowsFileSystem,
             "incremental-backup" or "incrementalbackup" => BenchmarkSuite.IncrementalBackup,
             "reader-manager" or "readermanager" => BenchmarkSuite.ReaderManagerLifecycle,
             "multi-reader" or "multireader" => BenchmarkSuite.MultiReader,
@@ -958,6 +964,7 @@ internal static class Program
         FstLookup,
         MMapIO,
         CompoundFile,
+        WindowsFileSystem,
         IncrementalBackup,
         ReaderManagerLifecycle,
         MultiReader,

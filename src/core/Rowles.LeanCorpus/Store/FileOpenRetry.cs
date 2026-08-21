@@ -10,7 +10,7 @@ namespace Rowles.LeanCorpus.Store;
 /// On Windows, freshly flushed files can be briefly locked by antivirus
 /// real-time scanners intercepting FlushFileBuffers. Read, move, delete,
 /// and copy operations retry a few times to absorb these transient locks.
-/// On Linux there are no mandatory file locks, so retry is skipped entirely.
+/// On POSIX systems there are no mandatory file locks, so retry is skipped entirely.
 ///
 /// Write/create operations (<see cref="Open(string, FileMode, FileAccess, FileShare)"/>
 /// and its overload) do NOT retry. Creating or opening a file for exclusive
@@ -21,8 +21,8 @@ namespace Rowles.LeanCorpus.Store;
 internal static class FileOpenRetry
 {
     // Windows: transient Defender scan locks need a brief retry window.
-    // Linux: no mandatory file locking; zero retry overhead.
-    private static readonly int TransientMaxRetries = OperatingSystem.IsWindows() ? 5 : 0;
+    // POSIX: no mandatory file locking; error classification skips retry and sleep.
+    private const int TransientMaxRetries = 5;
     private static readonly int TransientRetryDelayMs = 200;
 
     /// <summary>
@@ -38,16 +38,17 @@ internal static class FileOpenRetry
             {
                 return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
             }
-            catch (Exception ex) when ((ex is UnauthorizedAccessException or IOException) && retries-- > 0)
+            catch (Exception ex) when (ShouldRetry(ex, ref retries))
             {
-                Thread.Sleep(TransientRetryDelayMs);
+                DelayBeforeRetry();
             }
         }
     }
 
     /// <summary>
-    /// Opens a file for reading with <see cref="FileShare.Read"/> and
-    /// <see cref="FileShare.Delete"/>, retrying on transient locks.
+    /// Opens an immutable file for reading with read, write and delete sharing,
+    /// retrying on transient locks. Write sharing lets the short-lived Windows
+    /// durability handle coexist with mapped readers; outputs remain exclusive.
     /// </summary>
     internal static Stream OpenReadDelete(string path)
     {
@@ -56,18 +57,19 @@ internal static class FileOpenRetry
         {
             try
             {
-                return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+                return new FileStream(path, FileMode.Open, FileAccess.Read,
+                    FileShare.Read | FileShare.Write | FileShare.Delete);
             }
-            catch (Exception ex) when ((ex is UnauthorizedAccessException or IOException) && retries-- > 0)
+            catch (Exception ex) when (ShouldRetry(ex, ref retries))
             {
-                Thread.Sleep(TransientRetryDelayMs);
+                DelayBeforeRetry();
             }
         }
     }
 
     /// <summary>
     /// Reads the entire contents of a file as a UTF-8 string, opening with
-    /// <see cref="FileShare.Read"/> and <see cref="FileShare.Delete"/> so that
+    /// full sharing so that
     /// concurrent deletion (e.g. commit-policy pruning of old <c>segments_N</c>
     /// files) can proceed on Windows. Retries on transient locks and
     /// converts to <see cref="IOException"/> on exhaustion so callers that
@@ -96,7 +98,9 @@ internal static class FileOpenRetry
     /// </summary>
     internal static Stream Open(string path, FileMode mode, FileAccess access, FileShare share)
     {
-        return new FileStream(path, mode, access, share);
+        var stream = new FileStream(path, mode, access, share);
+        RecordCreation(mode);
+        return stream;
     }
 
     /// <summary>
@@ -106,11 +110,18 @@ internal static class FileOpenRetry
     internal static Stream Open(string path, FileMode mode, FileAccess access, FileShare share,
         int bufferSize, FileOptions options)
     {
-        return new FileStream(path, mode, access, share, bufferSize, options);
+        var stream = new FileStream(path, mode, access, share, bufferSize, options);
+        RecordCreation(mode);
+        return stream;
     }
 
     /// <summary>Flushes a facade-created file stream through to durable storage.</summary>
-    internal static void FlushToDisk(Stream stream) => ((FileStream)stream).Flush(flushToDisk: true);
+    internal static void FlushToDisk(Stream stream)
+    {
+        long startedAt = Diagnostics.FileSystemDiagnostics.StartSync();
+        try { ((FileStream)stream).Flush(flushToDisk: true); }
+        finally { Diagnostics.FileSystemDiagnostics.RecordSync(startedAt); }
+    }
 
     /// <summary>
     /// Deletes a file, retrying on transient locks.
@@ -125,10 +136,10 @@ internal static class FileOpenRetry
             try
             {
                 File.Delete(path);
+                DirtyFileTracker.Delete(path);
                 return;
             }
-            catch (IOException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
-            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
+            catch (Exception ex) when (ShouldRetry(ex, ref retries)) { DelayBeforeRetry(); }
             catch (FileNotFoundException) { return; }
             catch (DirectoryNotFoundException) { return; }
         }
@@ -137,7 +148,7 @@ internal static class FileOpenRetry
     /// <summary>
     /// Moves a file, retrying on transient locks.
     /// </summary>
-    internal static void Move(string sourcePath, string destPath, bool overwrite = false)
+    internal static DirtyFileTracker.DirtyFile Move(string sourcePath, string destPath, bool overwrite = false)
     {
         int retries = TransientMaxRetries;
         while (true)
@@ -145,10 +156,9 @@ internal static class FileOpenRetry
             try
             {
                 File.Move(sourcePath, destPath, overwrite);
-                return;
+                return DirtyFileTracker.Move(sourcePath, destPath);
             }
-            catch (IOException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
-            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
+            catch (Exception ex) when (ShouldRetry(ex, ref retries)) { DelayBeforeRetry(); }
         }
     }
 
@@ -165,8 +175,7 @@ internal static class FileOpenRetry
                 Directory.Move(sourcePath, destPath);
                 return;
             }
-            catch (IOException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
-            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
+            catch (Exception ex) when (ShouldRetry(ex, ref retries)) { DelayBeforeRetry(); }
         }
     }
 
@@ -181,10 +190,10 @@ internal static class FileOpenRetry
             try
             {
                 File.Copy(sourcePath, destPath, overwrite);
+                DirtyFileTracker.MarkWritten(destPath);
                 return;
             }
-            catch (IOException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
-            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
+            catch (Exception ex) when (ShouldRetry(ex, ref retries)) { DelayBeforeRetry(); }
         }
     }
 
@@ -249,10 +258,10 @@ internal static class FileOpenRetry
             try
             {
                 Directory.Delete(path, recursive);
+                DirtyFileTracker.ForgetDirectory(path);
                 return;
             }
-            catch (IOException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
-            catch (UnauthorizedAccessException) when (retries-- > 0) { Thread.Sleep(TransientRetryDelayMs); }
+            catch (Exception ex) when (ShouldRetry(ex, ref retries)) { DelayBeforeRetry(); }
             catch (DirectoryNotFoundException) { return; }
         }
     }
@@ -288,6 +297,26 @@ internal static class FileOpenRetry
         string? line;
         while ((line = sr.ReadLine()) is not null)
             yield return line;
+    }
+
+    private static bool ShouldRetry(Exception exception, ref int retries)
+    {
+        if (retries <= 0 || !PlatformFileSystem.Current.IsTransient(exception))
+            return false;
+        retries--;
+        return true;
+    }
+
+    private static void DelayBeforeRetry()
+    {
+        Diagnostics.FileSystemDiagnostics.RecordRetry(TransientRetryDelayMs);
+        Thread.Sleep(TransientRetryDelayMs);
+    }
+
+    private static void RecordCreation(FileMode mode)
+    {
+        if (mode is FileMode.Create or FileMode.CreateNew)
+            Diagnostics.FileSystemDiagnostics.RecordFileCreated();
     }
 }
 

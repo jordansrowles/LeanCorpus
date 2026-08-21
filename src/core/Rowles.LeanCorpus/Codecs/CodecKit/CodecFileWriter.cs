@@ -75,9 +75,12 @@ public static class CodecFileWriter
                 session.Complete();
             }
 
-            FileOpenRetry.Move(temporaryPath, path, overwrite: true);
+            var publishedFile = FileOpenRetry.Move(temporaryPath, path, overwrite: true);
             if (durable)
+            {
                 DirectoryFsync.Sync(Path.GetDirectoryName(path) ?? string.Empty, strict: true);
+                DirtyFileTracker.MarkSynced(publishedFile);
+            }
         }
         catch
         {

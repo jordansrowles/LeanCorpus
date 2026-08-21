@@ -42,11 +42,15 @@ internal static class IndexAtomicFileWriter
                 if (durable)
                     FileOpenRetry.FlushToDisk(stream);
             }
+            DirtyFileTracker.MarkWritten(tempPath);
 
-            FileOpenRetry.Move(tempPath, path, overwrite: true);
+            var publishedFile = FileOpenRetry.Move(tempPath, path, overwrite: true);
 
             if (durable && syncDirectory)
                 DirectoryFsync.Sync(Path.GetDirectoryName(path) ?? string.Empty, strict: true);
+
+            if (durable)
+                DirtyFileTracker.MarkSynced(publishedFile);
         }
         catch
         {
