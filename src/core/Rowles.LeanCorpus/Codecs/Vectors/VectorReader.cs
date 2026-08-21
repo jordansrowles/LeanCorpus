@@ -92,7 +92,7 @@ internal sealed class VectorReader : IDisposable
         if (_int8)
         {
             long position = _dataStart + (long)docId * _dimension;
-            var packed = _input.ReadSpan(_dimension, ref position);
+            var packed = _input.BorrowSpan(_dimension, ref position);
             for (int j = 0; j < _dimension; j++)
                 vector[j] = _int8Min + _int8Alpha * packed[j];
         }

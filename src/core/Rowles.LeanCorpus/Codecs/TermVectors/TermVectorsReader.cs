@@ -139,7 +139,7 @@ internal sealed class TermVectorsReader : IDisposable
                         if (payloadLength < 0 || payloadLength > _bodyEnd - position)
                             throw new InvalidDataException($"Term vector payload length {payloadLength} is invalid for the remaining data body.");
                         payloads[p] = payloadLength > 0
-                            ? _tvdInput.ReadSpan(payloadLength, ref position).ToArray()
+                            ? _tvdInput.BorrowSpan(payloadLength, ref position).ToArray()
                             : null;
                     }
                 }

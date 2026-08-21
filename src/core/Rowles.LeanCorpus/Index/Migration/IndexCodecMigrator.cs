@@ -644,7 +644,7 @@ public static class IndexCodecMigrator
                         while (remaining > 0)
                         {
                             int count = (int)Math.Min(64 * 1024, remaining);
-                            output.WriteBytes(input.ReadSpan(count));
+                            output.WriteBytes(input.BorrowSpan(count));
                             remaining -= count;
                         }
                     }
@@ -1140,7 +1140,7 @@ public static class IndexCodecMigrator
                     while (remaining > 0)
                     {
                         int count = (int)Math.Min(64 * 1024, remaining);
-                        bodyOutput.WriteBytes(input.ReadSpan(count));
+                        bodyOutput.WriteBytes(input.BorrowSpan(count));
                         remaining -= count;
                     }
                 });
@@ -1154,7 +1154,7 @@ public static class IndexCodecMigrator
                     while (remaining > 0)
                     {
                         int count = (int)Math.Min(64 * 1024, remaining);
-                        bodyOutput.WriteBytes(input.ReadSpan(count));
+                        bodyOutput.WriteBytes(input.BorrowSpan(count));
                         remaining -= count;
                     }
                 });
@@ -1527,7 +1527,7 @@ public static class IndexCodecMigrator
                 while (remaining > 0)
                 {
                     int count = (int)Math.Min(64 * 1024, remaining);
-                    target.WriteBytes(body.ReadSpan(count));
+                    target.WriteBytes(body.BorrowSpan(count));
                     remaining -= count;
                 }
             });
@@ -1587,7 +1587,7 @@ public static class IndexCodecMigrator
                     while (remaining > 0)
                     {
                         int count = (int)Math.Min(64 * 1024, remaining);
-                        output.WriteBytes(body.ReadSpan(count));
+                        output.WriteBytes(body.BorrowSpan(count));
                         remaining -= count;
                     }
                 });

@@ -28,7 +28,7 @@ internal readonly struct IndexInputSequence
 
         // Read the remaining bytes into a contiguous buffer for SequenceReader
         // (small overhead — headers are small; body navigation uses IndexInput directly)
-        var bytes = input.ReadSpan(remainingInt).ToArray();
+        var bytes = input.BorrowSpan(remainingInt).ToArray();
         var memory = new ReadOnlyMemory<byte>(bytes);
         _sequence = new ReadOnlySequence<byte>(memory);
         // Reset position so SyncPositionBack works correctly

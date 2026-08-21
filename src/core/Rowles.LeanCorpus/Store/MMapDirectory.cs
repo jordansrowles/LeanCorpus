@@ -9,6 +9,8 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
     private readonly List<WeakReference<IndexInput>> _trackedInputs = [];
     private readonly Lock _trackLock = new();
     private readonly FileLifetimeRegistry.DirectoryState _fileLifetimes;
+    private readonly OperationDrain _operations = new();
+    private int _disposeStarted;
     private volatile bool _disposed;
 
     /// <inheritdoc/>
@@ -55,6 +57,8 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
 
     private IndexInput OpenInputCore(string fileName, long offset, long? length)
     {
+        using var operation = _operations.Enter(this);
+        ObjectDisposedException.ThrowIf(_disposed, this);
         var lease = _fileLifetimes.Acquire(fileName);
         try
         {
@@ -94,13 +98,16 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
     }
 
     /// <summary>
-    /// Disposes this directory. Any tracked <see cref="IndexInput"/> instances that have
-    /// not yet been disposed are closed. Callers should ensure all active readers are
-    /// disposed before calling this method.
+    /// Disposes this directory. Disposal waits for active reader and retained input
+    /// operations, then closes every tracked <see cref="IndexInput"/>.
     /// </summary>
     public void Dispose()
     {
+        if (Interlocked.CompareExchange(ref _disposeStarted, 1, 0) != 0)
+            return;
+
         _disposed = true;
+        _operations.BeginDisposeAndWait();
         lock (_trackLock)
         {
             foreach (var weakRef in _trackedInputs)
@@ -111,6 +118,8 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
             _trackedInputs.Clear();
         }
     }
+
+    internal LifetimeLease AcquireOperationLease() => _operations.Acquire(this);
 
     private void TrackInput(IndexInput input)
     {

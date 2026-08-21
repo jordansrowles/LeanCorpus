@@ -57,6 +57,128 @@ public sealed class LazySegmentReaderTests : IDisposable
         Assert.Throws<ArgumentOutOfRangeException>(() => new IndexSearcher(directory, config));
     }
 
+    [Fact(DisplayName = "Index Searcher: Resident State Dispose Waits For Active Reader Lease")]
+    public async Task Dispose_PermanentlyResidentState_WaitsForActiveReaderLease()
+    {
+        Directory.CreateDirectory(_path);
+        using var directory = new MMapDirectory(_path);
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            DefaultAnalyser = new WhitespaceAnalyser(),
+            MaxBufferedDocs = 8,
+            MergePolicy = NoMergePolicy.Instance,
+            DurableCommits = false,
+        }))
+        {
+            var document = new LeanDocument();
+            document.Add(new TextField("body", "resident", stored: false));
+            writer.AddDocument(document);
+            writer.Commit();
+        }
+
+        var searcher = new IndexSearcher(directory, new IndexSearcherConfig
+        {
+            EnableQueryCache = false,
+            MaxCachedSegmentReaders = 8,
+        });
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "resident"), 10).TotalHits);
+        var lease = searcher.GetSegmentReaders()[0].AcquireReadLease();
+
+        var dispose = Task.Run(searcher.Dispose);
+        try
+        {
+            await WaitUntilRejectedAsync(
+                () => searcher.GetSegmentReaders()[0].AcquireReadLease());
+            Assert.False(dispose.IsCompleted);
+        }
+        finally
+        {
+            lease.Dispose();
+        }
+        await dispose.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+    }
+
+    [Fact(DisplayName = "MMap Directory: Dispose Waits For Active Segment Reader Lease")]
+    public async Task DirectoryDispose_ActiveSegmentReaderLease_WaitsForLease()
+    {
+        Directory.CreateDirectory(_path);
+        var directory = new MMapDirectory(_path);
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            DefaultAnalyser = new WhitespaceAnalyser(),
+            MaxBufferedDocs = 8,
+            MergePolicy = NoMergePolicy.Instance,
+            DurableCommits = false,
+        }))
+        {
+            var document = new LeanDocument();
+            document.Add(new TextField("body", "resident", stored: false));
+            writer.AddDocument(document);
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(directory, new IndexSearcherConfig
+        {
+            EnableQueryCache = false,
+            MaxCachedSegmentReaders = 8,
+        });
+        var lease = searcher.GetSegmentReaders()[0].AcquireReadLease();
+
+        var dispose = Task.Run(directory.Dispose);
+        try
+        {
+            await WaitUntilRejectedAsync(() => directory.AcquireOperationLease());
+            Assert.False(dispose.IsCompleted);
+        }
+        finally
+        {
+            lease.Dispose();
+        }
+        await dispose.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+    }
+
+    [Fact(DisplayName = "Index Searcher: Retained Positions Cursor Survives Searcher Disposal")]
+    public void Dispose_RetainedPositionsCursor_DefersStateReclamation()
+    {
+        Directory.CreateDirectory(_path);
+        using var directory = new MMapDirectory(_path);
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            DefaultAnalyser = new WhitespaceAnalyser(),
+            MaxBufferedDocs = 8,
+            MergePolicy = NoMergePolicy.Instance,
+            DurableCommits = false,
+        }))
+        {
+            var document = new LeanDocument();
+            document.Add(new TextField("body", "resident resident", stored: false));
+            writer.AddDocument(document);
+            writer.Commit();
+        }
+
+        var searcher = new IndexSearcher(directory, new IndexSearcherConfig
+        {
+            EnableQueryCache = false,
+            MaxCachedSegmentReaders = 8,
+        });
+        var postings = searcher.GetSegmentReaders()[0]
+            .GetPostingsEnumWithPositions("body\0resident");
+        Assert.True(postings.MoveNext());
+        Assert.Equal(2, postings.GetCurrentPositions().Length);
+
+        try
+        {
+            searcher.Dispose();
+            postings.Reset();
+            Assert.True(postings.MoveNext());
+            Assert.Equal(2, postings.GetCurrentPositions().Length);
+        }
+        finally
+        {
+            postings.Dispose();
+        }
+    }
+
     [Fact(DisplayName = "Index Searcher: Eviction Preserves Query Results Scores Fields DocValues Vectors And Deletions")]
     public void Eviction_AcrossQueryFamilies_PreservesResultsAndValues()
     {
@@ -149,6 +271,25 @@ public sealed class LazySegmentReaderTests : IDisposable
         {
             Assert.Equal(expected.ScoreDocs[i].DocId, actual.ScoreDocs[i].DocId);
             Assert.Equal(expected.ScoreDocs[i].Score, actual.ScoreDocs[i].Score);
+        }
+    }
+
+    private static async Task WaitUntilRejectedAsync(Func<IDisposable> acquire)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            timeout.Token, TestContext.Current.CancellationToken);
+        while (true)
+        {
+            try
+            {
+                acquire().Dispose();
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+            await Task.Delay(1, cancellation.Token);
         }
     }
 

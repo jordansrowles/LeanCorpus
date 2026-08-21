@@ -43,7 +43,7 @@ internal sealed class IndexInputStream : Stream
         int available = (int)Math.Min(count, _start + _length - _input.Position);
         if (available <= 0)
             return 0;
-        _input.ReadSpan(available).CopyTo(buffer.AsSpan(offset, available));
+        _input.ReadBytes(buffer.AsSpan(offset, available));
         return available;
     }
 
@@ -52,7 +52,7 @@ internal sealed class IndexInputStream : Stream
         int available = (int)Math.Min(buffer.Length, _start + _length - _input.Position);
         if (available <= 0)
             return 0;
-        _input.ReadSpan(available).CopyTo(buffer);
+        _input.ReadBytes(buffer[..available]);
         return available;
     }
 

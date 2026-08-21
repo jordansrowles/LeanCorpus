@@ -673,7 +673,7 @@ internal sealed class HnswGraph : IDisposable
 
             long position = _neighbourOffsets[index];
             int byteCount = checked(_neighbourCounts[index] * sizeof(int));
-            return MemoryMarshal.Cast<byte, int>(_input.ReadSpan(byteCount, ref position));
+            return MemoryMarshal.Cast<byte, int>(_input.BorrowSpan(byteCount, ref position));
         }
 
         internal override int[] NodeIds => _sortedDocIds;

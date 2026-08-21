@@ -25,12 +25,14 @@ public sealed unsafe class IndexInput : IDisposable
 
     private readonly string? _filePath;
     private readonly long _fileOffset;
+    private readonly OperationDrain _operations = new();
     private Action<IndexInput>? _onDisposed;
     private readonly MemoryMappedFile? _mmf;
     private readonly MemoryMappedViewAccessor? _accessor;
     private readonly long _length;
     private long _position;
     private bool _disposed;
+    private int _disposeStarted;
     private byte* _ptr;
 
     /// <summary>
@@ -97,7 +99,7 @@ public sealed unsafe class IndexInput : IDisposable
     /// <summary>Opens a separately owned input bounded to a range within this input.</summary>
     internal IndexInput OpenSlice(long offset, long length)
     {
-        ThrowIfDisposed();
+        using var operation = EnterReadScope();
         if (offset < 0 || length < 0 || offset > _length || length > _length - offset)
             throw new ArgumentOutOfRangeException(nameof(offset), "The input slice is outside the current input range.");
         return new IndexInput(_filePath!, checked(_fileOffset + offset), length);
@@ -121,7 +123,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Seek(long position)
     {
-        ThrowIfDisposed();
+        using var operation = EnterReadScope();
         if (position < 0 || position > _length)
             ThrowInvalidSeekPosition();
         _position = position;
@@ -133,6 +135,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public byte ReadByte()
     {
+        using var operation = EnterReadScope();
         EnsureAvailable(_position, sizeof(byte));
         byte value = _ptr[_position];
         _position++;
@@ -143,6 +146,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public byte ReadByte(ref long position)
     {
+        using var operation = EnterReadScope();
         EnsureAvailable(position, sizeof(byte));
         byte value = _ptr[position];
         position++;
@@ -167,6 +171,7 @@ public sealed unsafe class IndexInput : IDisposable
     /// <exception cref="EndOfStreamException">Thrown if fewer than <paramref name="count"/> bytes remain.</exception>
     public byte[] ReadBytes(int count)
     {
+        using var operation = EnterReadScope();
         EnsureAvailable(_position, count);
         var result = new byte[count];
         new ReadOnlySpan<byte>(_ptr + _position, count).CopyTo(result);
@@ -174,13 +179,49 @@ public sealed unsafe class IndexInput : IDisposable
         return result;
     }
 
+    /// <summary>Copies bytes into a caller-owned buffer without exposing mapped memory.</summary>
+    internal void ReadBytes(Span<byte> destination)
+    {
+        using var operation = EnterReadScope();
+        EnsureAvailable(_position, destination.Length);
+        new ReadOnlySpan<byte>(_ptr + _position, destination.Length).CopyTo(destination);
+        _position += destination.Length;
+    }
+
     /// <summary>
-    /// Returns a read-only span over the memory-mapped buffer at the current position
-    /// without allocating. Advances the position by <paramref name="count"/> bytes.
-    /// The span is only valid while the <see cref="IndexInput"/> is not disposed.
+    /// Returns a stable read-only span containing bytes from the current position.
+    /// Advances the position by <paramref name="count"/> bytes. The returned data
+    /// remains valid after this input is disposed.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ReadOnlySpan<byte> ReadSpan(int count)
+    {
+        using var operation = EnterReadScope();
+        EnsureAvailable(_position, count);
+        var bytes = new byte[count];
+        new ReadOnlySpan<byte>(_ptr + _position, count).CopyTo(bytes);
+        _position += count;
+        return bytes;
+    }
+
+    /// <summary>Stateless variant of <see cref="ReadSpan(int)"/> using a caller-supplied cursor.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public ReadOnlySpan<byte> ReadSpan(int count, scoped ref long position)
+    {
+        using var operation = EnterReadScope();
+        EnsureAvailable(position, count);
+        var bytes = new byte[count];
+        new ReadOnlySpan<byte>(_ptr + position, count).CopyTo(bytes);
+        position += count;
+        return bytes;
+    }
+
+    /// <summary>
+    /// Borrows a zero-copy span while the caller owns a containing input, segment or
+    /// query lifetime lease. The span must not escape that operation.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal ReadOnlySpan<byte> BorrowSpan(int count)
     {
         EnsureAvailable(_position, count);
         var span = new ReadOnlySpan<byte>(_ptr + _position, count);
@@ -188,9 +229,9 @@ public sealed unsafe class IndexInput : IDisposable
         return span;
     }
 
-    /// <summary>Stateless variant of <see cref="ReadSpan(int)"/> using a caller-supplied cursor.</summary>
+    /// <summary>Stateless zero-copy borrowed-span variant.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ReadOnlySpan<byte> ReadSpan(int count, scoped ref long position)
+    internal ReadOnlySpan<byte> BorrowSpan(int count, scoped ref long position)
     {
         EnsureAvailable(position, count);
         var span = new ReadOnlySpan<byte>(_ptr + position, count);
@@ -204,6 +245,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int ReadInt32()
     {
+        using var operation = EnterReadScope();
         EnsureAvailable(_position, sizeof(int));
         int value = Unsafe.ReadUnaligned<int>(_ptr + _position);
         _position += sizeof(int);
@@ -214,6 +256,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int ReadInt32(ref long position)
     {
+        using var operation = EnterReadScope();
         EnsureAvailable(position, sizeof(int));
         int value = Unsafe.ReadUnaligned<int>(_ptr + position);
         position += sizeof(int);
@@ -227,6 +270,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void ReadInt32Array(Span<int> dest, int count)
     {
+        using var operation = EnterReadScope();
         int byteCount = EnsureArrayAvailable(_position, count, dest.Length, sizeof(int));
 
         new ReadOnlySpan<byte>(_ptr + _position, byteCount)
@@ -238,6 +282,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void ReadInt32Array(Span<int> dest, int count, ref long position)
     {
+        using var operation = EnterReadScope();
         int byteCount = EnsureArrayAvailable(position, count, dest.Length, sizeof(int));
 
         new ReadOnlySpan<byte>(_ptr + position, byteCount)
@@ -251,6 +296,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public long ReadInt64()
     {
+        using var operation = EnterReadScope();
         EnsureAvailable(_position, sizeof(long));
         long value = Unsafe.ReadUnaligned<long>(_ptr + _position);
         _position += sizeof(long);
@@ -261,6 +307,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public long ReadInt64(ref long position)
     {
+        using var operation = EnterReadScope();
         EnsureAvailable(position, sizeof(long));
         long value = Unsafe.ReadUnaligned<long>(_ptr + position);
         position += sizeof(long);
@@ -273,6 +320,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public float ReadSingle()
     {
+        using var operation = EnterReadScope();
         EnsureAvailable(_position, sizeof(float));
         float value = Unsafe.ReadUnaligned<float>(_ptr + _position);
         _position += sizeof(float);
@@ -283,6 +331,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public float ReadSingle(ref long position)
     {
+        using var operation = EnterReadScope();
         EnsureAvailable(position, sizeof(float));
         float value = Unsafe.ReadUnaligned<float>(_ptr + position);
         position += sizeof(float);
@@ -293,6 +342,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void ReadSingleArray(Span<float> destination, int count, ref long position)
     {
+        using var operation = EnterReadScope();
         int byteCount = EnsureArrayAvailable(position, count, destination.Length, sizeof(float));
 
         new ReadOnlySpan<byte>(_ptr + position, byteCount)
@@ -306,6 +356,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public double ReadDouble()
     {
+        using var operation = EnterReadScope();
         EnsureAvailable(_position, sizeof(double));
         double value = Unsafe.ReadUnaligned<double>(_ptr + _position);
         _position += sizeof(double);
@@ -318,7 +369,7 @@ public sealed unsafe class IndexInput : IDisposable
     /// </summary>
     public string ReadLengthPrefixedString()
     {
-        ThrowIfDisposed();
+        using var operation = EnterReadScope();
         int byteLength = Read7BitEncodedInt();
         if (byteLength == 0) return string.Empty;
         EnsureAvailable(_position, byteLength);
@@ -332,7 +383,7 @@ public sealed unsafe class IndexInput : IDisposable
     /// </summary>
     public string ReadLengthPrefixedString(ref long position)
     {
-        ThrowIfDisposed();
+        using var operation = EnterReadScope();
         int byteLength = Read7BitEncodedInt(ref position);
         if (byteLength == 0) return string.Empty;
         EnsureAvailable(position, byteLength);
@@ -381,6 +432,7 @@ public sealed unsafe class IndexInput : IDisposable
     /// </summary>
     public string ReadUtf8String(int charCount)
     {
+        using var operation = EnterReadScope();
         EnsureCursor(_position);
         if (charCount < 0)
             ThrowNegativeCount();
@@ -403,6 +455,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int CompareUtf8BytesAndAdvance(int charCount, ReadOnlySpan<byte> termUtf8)
     {
+        using var operation = EnterReadScope();
         EnsureCursor(_position);
         if (charCount < 0)
             ThrowNegativeCount();
@@ -423,6 +476,7 @@ public sealed unsafe class IndexInput : IDisposable
     /// </summary>
     public int CompareCharsAndAdvance(int charCount, ReadOnlySpan<char> term)
     {
+        using var operation = EnterReadScope();
         EnsureCursor(_position);
         if (charCount < 0)
             ThrowNegativeCount();
@@ -495,30 +549,21 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int ReadVarInt()
     {
-        ThrowIfDisposed();
-        uint result = 0;
-        int shift = 0;
-        byte b;
-        do
-        {
-            EnsureAvailable(_position, sizeof(byte));
-            b = _ptr[_position++];
-            if (shift >= 35)
-                throw new InvalidDataException("VarInt is too large or malformed.");
-            result |= (uint)(b & 0x7F) << shift;
-            shift += 7;
-        } while ((b & 0x80) != 0);
-
-        if (result > int.MaxValue)
-            throw new InvalidDataException("VarInt exceeds Int32 range.");
-        return (int)result;
+        using var operation = EnterReadScope();
+        return ReadVarIntCore(ref _position);
     }
 
     /// <summary>Stateless variant of <see cref="ReadVarInt()"/> using a caller-supplied cursor.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int ReadVarInt(ref long position)
     {
-        ThrowIfDisposed();
+        using var operation = EnterReadScope();
+        return ReadVarIntCore(ref position);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private int ReadVarIntCore(ref long position)
+    {
         uint result = 0;
         int shift = 0;
         byte b;
@@ -546,6 +591,7 @@ public sealed unsafe class IndexInput : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal int ReadVarIntFast()
     {
+        using var operation = EnterReadScope();
         EnsureCursor(_position);
         if (_position <= _length - 5)
         {
@@ -562,13 +608,14 @@ public sealed unsafe class IndexInput : IDisposable
             _position += 5;
             return (int)result;
         }
-        return ReadVarInt();
+        return ReadVarIntCore(ref _position);
     }
 
     /// <summary>Stateless variant of <see cref="ReadVarIntFast()"/> using a caller-supplied cursor.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal int ReadVarIntFast(ref long position)
     {
+        using var operation = EnterReadScope();
         EnsureCursor(position);
         if (position <= _length - 5)
         {
@@ -585,7 +632,7 @@ public sealed unsafe class IndexInput : IDisposable
             position += 5;
             return (int)result;
         }
-        return ReadVarInt(ref position);
+        return ReadVarIntCore(ref position);
     }
 
     /// <summary>
@@ -595,7 +642,7 @@ public sealed unsafe class IndexInput : IDisposable
     /// </summary>
     public void Prefetch()
     {
-        ThrowIfDisposed();
+        using var operation = EnterReadScope();
         if (_length == 0 || _ptr == null) return;
 
         if (OperatingSystem.IsWindows())
@@ -626,9 +673,17 @@ public sealed unsafe class IndexInput : IDisposable
     /// <summary>Releases the memory-mapped file view and underlying file resources.</summary>
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
+        if (Interlocked.CompareExchange(ref _disposeStarted, 1, 0) != 0)
+            return;
 
+        _disposed = true;
+        _operations.BeginDisposeAndWait();
+        ReleaseResources(notifyDirectory: true);
+        GC.SuppressFinalize(this);
+    }
+
+    private void ReleaseResources(bool notifyDirectory)
+    {
         if (_accessor is not null)
         {
             _accessor.SafeMemoryMappedViewHandle.ReleasePointer();
@@ -636,11 +691,13 @@ public sealed unsafe class IndexInput : IDisposable
             _accessor.Dispose();
         }
         _mmf?.Dispose();
-        GC.SuppressFinalize(this);
 
-        // Notify the directory that this input's file mapping is released so
-        // any pending-delete file can now be removed.
-        _onDisposed?.Invoke(this);
+        if (notifyDirectory)
+        {
+            // Notify the directory that this input's file mapping is released so
+            // any pending-delete file can now be removed.
+            _onDisposed?.Invoke(this);
+        }
     }
 
     /// <summary>
@@ -649,14 +706,25 @@ public sealed unsafe class IndexInput : IDisposable
     /// </summary>
     ~IndexInput()
     {
-        if (_disposed) return;
-        if (_accessor is not null)
-        {
-            _accessor.SafeMemoryMappedViewHandle.ReleasePointer();
-            _ptr = null;
-            _accessor.Dispose();
-        }
-        _mmf?.Dispose();
+        if (Interlocked.CompareExchange(ref _disposeStarted, 1, 0) != 0)
+            return;
+
+        _disposed = true;
+        ReleaseResources(notifyDirectory: false);
+    }
+
+    private ReadScope EnterReadScope() => new(this);
+
+    internal IndexInputLifetimeLease AcquireLifetimeLease()
+        => new(this, _operations.Acquire(this));
+
+    private struct ReadScope : IDisposable
+    {
+        private OperationDrain.Scope _inputScope;
+
+        internal ReadScope(IndexInput input) => _inputScope = input._operations.Enter(input);
+
+        public void Dispose() => _inputScope.Dispose();
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]

@@ -333,7 +333,7 @@ public struct BlockPostingsEnum : IDisposable
         }
         else
         {
-            var docData = _docInput.ReadSpan(docPackedBytes, ref _cursorPosition);
+            var docData = _docInput.BorrowSpan(docPackedBytes, ref _cursorPosition);
             PackedIntCodec.UnpackDelta(docData, docNumBits, prevDocId, _docIdBlock);
         }
 
@@ -349,7 +349,7 @@ public struct BlockPostingsEnum : IDisposable
         else
         {
             int freqPackedBytes = freqNumBits * 16;
-            var freqData = _docInput.ReadSpan(freqPackedBytes, ref _cursorPosition);
+            var freqData = _docInput.BorrowSpan(freqPackedBytes, ref _cursorPosition);
             PackedIntCodec.Unpack(freqData, freqNumBits, _freqBlock);
         }
 

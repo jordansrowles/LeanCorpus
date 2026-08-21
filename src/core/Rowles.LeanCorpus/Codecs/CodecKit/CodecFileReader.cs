@@ -398,7 +398,7 @@ public sealed class CodecReadSession : IDisposable
             while (remaining > 0)
             {
                 int count = (int)Math.Min(64 * 1024, remaining);
-                accumulator.Append(_input.ReadSpan(count));
+                accumulator.Append(_input.BorrowSpan(count));
                 remaining -= count;
             }
             ValidateChecksum(accumulator.GetChecksum());

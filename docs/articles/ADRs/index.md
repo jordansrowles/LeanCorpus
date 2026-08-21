@@ -37,6 +37,7 @@ _description: Recorded LeanCorpus architecture decisions and their status.
 <tr><td><a href="ADR024-memory-mapped-compound-segment-files.md">024</a></td><td>2026-08-05</td><td>Accepted</td><td></td><td><a href="ADR024-memory-mapped-compound-segment-files.md">Compound segment files use memory-mapped slices</a></td><td></td></tr>
 <tr><td><a href="ADR025-unified-codec-catalogue.md">025</a></td><td>2026-08-09</td><td>Accepted</td><td></td><td><a href="ADR025-unified-codec-catalogue.md">Unified codec catalogue defines every persistent format</a></td><td></td></tr>
 <tr><td><a href="ADR026-canonical-binary-file-frame.md">026</a></td><td>2026-08-09</td><td>Accepted</td><td><a href="ADR009-codeckit-trailer-streaming.md">009</a></td><td><a href="ADR026-canonical-binary-file-frame.md">Canonical binary files use the self-identifying LCCF Frame v1</a></td><td></td></tr>
+<tr><td><a href="ADR027-memory-mapped-operation-lifetimes.md">027</a></td><td>2026-08-21</td><td>Accepted</td><td></td><td><a href="ADR027-memory-mapped-operation-lifetimes.md">Memory mappings drain active operations before reclamation</a></td><td></td></tr>
 </tbody>
 </table>
 </div>

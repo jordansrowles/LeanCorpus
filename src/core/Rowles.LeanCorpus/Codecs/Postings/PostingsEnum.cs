@@ -10,10 +10,9 @@ namespace Rowles.LeanCorpus.Codecs.Postings;
 /// Optionally decodes positions when created via <see cref="CreateWithPositions"/>.
 /// 
 /// <para><b>Lifetime contract:</b> When using the lazy position path, this struct holds a raw
-/// <c>byte*</c> pointer into a memory-mapped <see cref="IndexInput"/>. The source input
-/// (<see cref="_sourceInput"/>) must remain open and un-disposed for the entire lifetime
-/// of this PostingsEnum. Callers must not dispose the IndexInput while any PostingsEnum
-/// referencing it is still alive.</para>
+/// <c>byte*</c> pointer into a memory-mapped <see cref="IndexInput"/>. The cursor retains the
+/// input mapping until the cursor is disposed, so disposing the source input or its owning
+/// searcher waits for active cursor operations to finish.</para>
 /// </summary>
 public unsafe struct PostingsEnum : IDisposable
 {
@@ -342,6 +341,25 @@ public unsafe struct PostingsEnum : IDisposable
     /// <remarks>Use <see cref="CreateWithPositions"/> when the caller needs positions or payloads.</remarks>
     public static PostingsEnum Create(IndexInput input, long offset)
     {
+        var inputLease = input.AcquireLifetimeLease();
+        try
+        {
+            var postings = CreateCore(input, offset);
+            if (postings.DocFreq == 0)
+                inputLease.Dispose();
+            else
+                postings.AttachInputLifetimeLease(inputLease);
+            return postings;
+        }
+        catch
+        {
+            inputLease.Dispose();
+            throw;
+        }
+    }
+
+    private static PostingsEnum CreateCore(IndexInput input, long offset)
+    {
         ReadTermMetadata(input, offset, out long docStartOffset, out int docFreq,
             out long skipOffset, out _, out _, out _);
 
@@ -357,6 +375,25 @@ public unsafe struct PostingsEnum : IDisposable
     /// Actual position values are decoded on-demand via <see cref="GetCurrentPositions"/>.
     /// </summary>
     public static PostingsEnum CreateWithPositions(IndexInput input, long offset)
+    {
+        var inputLease = input.AcquireLifetimeLease();
+        try
+        {
+            var postings = CreateWithPositionsCore(input, offset);
+            if (postings.DocFreq == 0)
+                inputLease.Dispose();
+            else
+                postings.AttachInputLifetimeLease(inputLease);
+            return postings;
+        }
+        catch
+        {
+            inputLease.Dispose();
+            throw;
+        }
+    }
+
+    private static PostingsEnum CreateWithPositionsCore(IndexInput input, long offset)
     {
         ReadTermMetadata(input, offset, out long docStartOffset, out int docFreq,
             out long skipOffset, out bool hasFreqs, out bool hasPositions, out bool hasPayloads);
@@ -876,7 +913,11 @@ public unsafe struct PostingsEnum : IDisposable
     public static PostingsEnum Empty => new(null, null, 0);
 
     /// <summary>Transfers a segment-state lease to this cursor's shared disposal guard.</summary>
-    internal readonly void AttachLifetimeLease(LifetimeLease lease) => _guard?.AttachLifetimeLease(lease);
+    internal readonly void AttachLifetimeLease(LifetimeLease stateLease)
+        => _guard?.AttachLifetimeLease(stateLease);
+
+    private readonly void AttachInputLifetimeLease(IndexInputLifetimeLease lease)
+        => _guard?.AttachInputLifetimeLease(lease);
 
     private readonly bool TryEnterLease() => _guard?.TryEnter() ?? true;
 
@@ -893,19 +934,36 @@ public unsafe struct PostingsEnum : IDisposable
         private int _state;
         private LifetimeLease _lifetimeLease;
         private bool _hasLifetimeLease;
+        private IndexInputLifetimeLease _inputLifetimeLease;
+        private bool _hasInputLifetimeLease;
 
-        public void AttachLifetimeLease(LifetimeLease lease)
+        public void AttachLifetimeLease(LifetimeLease stateLease)
         {
-            _lifetimeLease = lease;
+            _lifetimeLease = stateLease;
             _hasLifetimeLease = true;
+        }
+
+        public void AttachInputLifetimeLease(IndexInputLifetimeLease lease)
+        {
+            _inputLifetimeLease = lease;
+            _hasInputLifetimeLease = true;
         }
 
         public void ReleaseReaderLease()
         {
-            if (!_hasLifetimeLease)
-                return;
-            _hasLifetimeLease = false;
-            _lifetimeLease.Dispose();
+            // Release the mapping lease before the cache lease. Releasing the cache
+            // lease can synchronously evict and dispose the segment state, whose
+            // IndexInput.Dispose() must not wait on this cursor's own mapping lease.
+            if (_hasInputLifetimeLease)
+            {
+                _hasInputLifetimeLease = false;
+                _inputLifetimeLease.Dispose();
+            }
+            if (_hasLifetimeLease)
+            {
+                _hasLifetimeLease = false;
+                _lifetimeLease.Dispose();
+            }
         }
 
         public bool TryEnter()

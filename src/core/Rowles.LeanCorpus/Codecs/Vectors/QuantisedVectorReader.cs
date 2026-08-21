@@ -158,7 +158,7 @@ internal sealed class QuantisedVectorReader : IDisposable
             throw new ArgumentOutOfRangeException(nameof(docId));
 
         long position = _packedStart + (long)docId * _dimension;
-        return _input.ReadSpan(_dimension, ref position);
+        return _input.BorrowSpan(_dimension, ref position);
     }
 
     /// <summary>Returns raw bit-packed bytes for BBQ distance computation.</summary>
@@ -170,7 +170,7 @@ internal sealed class QuantisedVectorReader : IDisposable
             throw new ArgumentOutOfRangeException(nameof(docId));
 
         long position = _packedStart + (long)docId * _bbqPackedBytes;
-        return _input.ReadSpan(_bbqPackedBytes, ref position);
+        return _input.BorrowSpan(_bbqPackedBytes, ref position);
     }
 
     /// <summary>Returns the BBQ centroid, or throws for non-BBQ quantisation.</summary>
@@ -222,7 +222,7 @@ internal sealed class QuantisedVectorReader : IDisposable
     private void DequantiseInt8(int docId, Span<float> destination)
     {
         long position = _packedStart + (long)docId * _dimension;
-        var packed = _input.ReadSpan(_dimension, ref position);
+        var packed = _input.BorrowSpan(_dimension, ref position);
         for (int j = 0; j < _dimension; j++)
         {
             byte qv = packed[j];
@@ -236,7 +236,7 @@ internal sealed class QuantisedVectorReader : IDisposable
         byte[] bits = System.Buffers.ArrayPool<byte>.Shared.Rent(_bbqPackedBytes);
         try
         {
-            _input.ReadSpan(_bbqPackedBytes, ref position).CopyTo(bits);
+            _input.BorrowSpan(_bbqPackedBytes, ref position).CopyTo(bits);
 
             for (int j = 0; j < _dimension; j++)
             {
