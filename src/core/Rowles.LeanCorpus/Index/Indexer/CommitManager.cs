@@ -45,21 +45,39 @@ internal static class CommitManager
         var finalPath = Path.Combine(dirPath, $"segments_{writer.PreparedGeneration}");
 
         FileOpenRetry.Move(pendingPath, finalPath, overwrite: false);
-        if (writer.Config.DurableCommits)
-            DirectoryFsync.Sync(dirPath, strict: true);
-
+        // The rename is the irreversible publication boundary. Establish the published
+        // state before doing anything that can throw, so a later failure cannot be rolled
+        // back over the commit file that readers can already observe.
         writer.CommitGeneration = writer.PreparedGeneration;
         writer.ContentToken = writer.PreparedContentToken;
         writer.ContentChangedSinceCommit = false;
-
-        writer.Config.DeletionPolicy.OnCommit(dirPath, writer.CommitGeneration,
-            SnapshotManager.GetSnapshotProtectedSegments(writer));
-        CleanupObsoleteMergeSegments(writer);
-
-        MergeScheduler.ScheduleBackgroundMerge(writer);
-
         writer.PreparedGeneration = -1;
         writer.PreparedSegments = null;
+
+        try
+        {
+            if (writer.Config.DurableCommits)
+            {
+                var publicationSync = writer.Config.PreparedCommitPublicationSync;
+                if (publicationSync is not null)
+                    publicationSync(dirPath);
+                else
+                    DirectoryFsync.Sync(dirPath, strict: true);
+            }
+
+            writer.Config.DeletionPolicy.OnCommit(dirPath, writer.CommitGeneration,
+                SnapshotManager.GetSnapshotProtectedSegments(writer));
+            CleanupObsoleteMergeSegments(writer);
+
+            MergeScheduler.ScheduleBackgroundMerge(writer);
+        }
+        catch
+        {
+            // Publication already happened. Continuing would permit file deletion or a
+            // second publication attempt against an in-memory state that cannot be rolled back.
+            writer.MarkIndexingFailed();
+            throw;
+        }
     }
 
     private static void CommitCore(IndexWriter writer)

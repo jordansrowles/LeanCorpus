@@ -229,6 +229,7 @@ public sealed partial class IndexWriter : IDisposable
     public void SoftDeleteDocuments(TermQuery query)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ThrowIfIndexingFailed();
         if (!_config.SoftDeletesEnabled)
             throw new InvalidOperationException(
                 "SoftDeletesEnabled must be true in IndexWriterConfig to use SoftDeleteDocuments.");
@@ -613,7 +614,7 @@ public sealed partial class IndexWriter : IDisposable
                 throw new ObjectDisposedException(nameof(IndexWriter),
                     "The writer is shutting down. No new indexing operations are accepted.");
             throw new InvalidOperationException(
-                "The writer is unusable because an indexing operation failed after mutating the in-memory buffer. Dispose the writer and reopen from the last commit.");
+                "The writer is unusable after an unrecoverable failure. Dispose the writer and reopen from the last commit.");
         }
     }
 
@@ -625,6 +626,13 @@ public sealed partial class IndexWriter : IDisposable
     internal void MarkIndexingFailed()
     {
         Volatile.Write(ref _indexingFailed, 1);
+    }
+
+    internal void ThrowIfIndexingFailed()
+    {
+        if (Volatile.Read(ref _indexingFailed) != 0)
+            throw new InvalidOperationException(
+                "The writer is unusable after an unrecoverable failure. Dispose the writer and reopen from the last commit.");
     }
 
     internal void ValidateDocument(LeanDocument doc)

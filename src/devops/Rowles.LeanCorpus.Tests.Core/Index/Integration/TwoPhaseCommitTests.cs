@@ -176,6 +176,39 @@ public sealed class TwoPhaseCommitTests : IClassFixture<TestDirectoryFixture>
         Assert.False(writer.HasPreparedCommit);
     }
 
+    /// <summary>
+    /// Verifies the writer cannot roll back or retry after a failure following the irreversible
+    /// commit-file rename. This covers the same checkpoint-publication failure mode identified
+    /// in LUCENE-5958 and tracked for Lucene.NET review in issue #1293.
+    /// </summary>
+    [Fact(DisplayName = "Two-phase: post-publication sync failure preserves published commit")]
+    public void Commit_PostPublicationSyncFailure_PreservesPublishedCommitAndPoisonsWriter()
+    {
+        var path = SubDir("twophase-post-publication-sync-failure");
+        var config = new IndexWriterConfig();
+        using var directory = new MMapDirectory(path);
+        using var writer = new IndexWriter(directory, config);
+
+        writer.AddDocument(CreateDoc("body", "published despite sync failure"));
+        writer.PrepareCommit();
+        config.PreparedCommitPublicationSync = _ => throw new IOException("injected post-publication sync failure");
+
+        Assert.Throws<IOException>(writer.Commit);
+
+        Assert.False(writer.HasPreparedCommit);
+        Assert.NotEmpty(System.IO.Directory.GetFiles(path, "segments_*")
+            .Where(static file => !file.EndsWith(".pending", StringComparison.Ordinal)));
+        Assert.Empty(System.IO.Directory.GetFiles(path, "segments_*.pending"));
+
+        Assert.Throws<InvalidOperationException>(writer.Commit);
+        Assert.Throws<InvalidOperationException>(writer.Rollback);
+        Assert.Throws<InvalidOperationException>(
+            () => writer.DeleteDocuments(new TermQuery("body", "published")));
+
+        using var searcher = new IndexSearcher(directory);
+        Assert.Equal(1, searcher.Search(new MatchAllDocsQuery(), 1).TotalHits);
+    }
+
     [Fact(DisplayName = "Two-phase: PrepareCommit includes pending deletions")]
     public void PrepareCommit_IncludesPendingDeletions()
     {
