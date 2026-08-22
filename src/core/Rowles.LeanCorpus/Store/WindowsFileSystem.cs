@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
@@ -19,13 +20,33 @@ internal sealed partial class WindowsFileSystem : IPlatformFileSystem
     private const int ErrorLockViolation = 33;
     private const int ErrorDeletePending = 303;
 
+    private readonly ConcurrentDictionary<string, DirectoryCapabilityState> _directoryCapabilities =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Func<string, bool, DirectorySyncResult>? _syncHandleForTesting;
+
     internal static readonly WindowsFileSystem Instance = new();
 
     private WindowsFileSystem() { }
 
-    public void SyncFile(string path) => SyncHandle(path, isDirectory: false);
+    internal WindowsFileSystem(Func<string, bool, DirectorySyncResult> syncHandleForTesting)
+    {
+        _syncHandleForTesting = syncHandleForTesting;
+    }
 
-    public void SyncDirectory(string path) => SyncHandle(path, isDirectory: true);
+    public void SyncFile(string path) => _ = Sync(path, isDirectory: false);
+
+    public DirectorySyncResult SyncDirectory(string path)
+    {
+        string root = Path.GetPathRoot(Path.GetFullPath(path)) ?? path;
+        var state = _directoryCapabilities.GetOrAdd(root, static _ => new DirectoryCapabilityState());
+        if (Volatile.Read(ref state.Unsupported) != 0)
+            return DirectorySyncResult.SkippedUnsupported;
+
+        DirectorySyncResult result = Sync(path, isDirectory: true);
+        if (result == DirectorySyncResult.Unsupported)
+            Volatile.Write(ref state.Unsupported, 1);
+        return result;
+    }
 
     public bool IsTransient(Exception exception)
     {
@@ -36,7 +57,12 @@ internal sealed partial class WindowsFileSystem : IPlatformFileSystem
         return error is ErrorSharingViolation or ErrorLockViolation or ErrorDeletePending;
     }
 
-    private static void SyncHandle(string path, bool isDirectory)
+    private DirectorySyncResult Sync(string path, bool isDirectory) =>
+        _syncHandleForTesting is null
+            ? SyncHandle(path, isDirectory)
+            : _syncHandleForTesting(path, isDirectory);
+
+    private static DirectorySyncResult SyncHandle(string path, bool isDirectory)
     {
         using SafeFileHandle handle = CreateFileW(
             path,
@@ -51,15 +77,16 @@ internal sealed partial class WindowsFileSystem : IPlatformFileSystem
             ThrowWin32(path, isDirectory, Marshal.GetLastWin32Error());
 
         if (FlushFileBuffers(handle))
-            return;
+            return DirectorySyncResult.Succeeded;
 
         int error = Marshal.GetLastWin32Error();
         // Windows commonly refuses FlushFileBuffers on a directory handle. NTFS still
         // journals the metadata operation, so match the established best-effort contract.
         if (isDirectory && error == ErrorAccessDenied)
-            return;
+            return DirectorySyncResult.Unsupported;
 
         ThrowWin32(path, isDirectory, error);
+        return DirectorySyncResult.Succeeded;
     }
 
     private static void ThrowWin32(string path, bool isDirectory, int error)
@@ -88,4 +115,9 @@ internal sealed partial class WindowsFileSystem : IPlatformFileSystem
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool FlushFileBuffers(SafeFileHandle handle);
+
+    private sealed class DirectoryCapabilityState
+    {
+        internal int Unsupported;
+    }
 }

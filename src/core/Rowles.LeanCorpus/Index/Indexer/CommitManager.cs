@@ -66,6 +66,7 @@ internal static class CommitManager
                 else
                     DirectoryFsync.Sync(dirPath, strict: true);
                 DirtyFileTracker.MarkSynced(publishedCommit);
+                DirtyFileTracker.MarkDurableGeneration(dirPath, writer.CommitGeneration);
             }
 
             writer.Config.DeletionPolicy.OnCommit(dirPath, writer.CommitGeneration,
@@ -142,6 +143,8 @@ internal static class CommitManager
             SyncChangedFiles(writer);
             DirectoryFsync.Sync(dirPath, strict: true);
             IndexAtomicFileWriter.WriteText(commitFile, fileContent, durable: true);
+            if (!pending)
+                DirtyFileTracker.MarkDurableGeneration(dirPath, gen);
         }
         else
         {
@@ -340,6 +343,17 @@ internal static class CommitManager
             }
 
             writer.CommittedSegments.Add(seg);
+        }
+
+        if (config.DurableCommits)
+        {
+            var segmentIds = new HashSet<string>(writer.CommittedSegments.Count, StringComparer.Ordinal);
+            foreach (var segment in writer.CommittedSegments)
+                segmentIds.Add(segment.SegmentId);
+            DirtyFileTracker.RequireDurabilityBaseline(
+                dirPath,
+                recovery.Generation,
+                directory.ListAll().Where(fileName => BelongsToCommittedSegment(fileName, segmentIds)));
         }
 
         if (config.TrackSequenceNumbers)

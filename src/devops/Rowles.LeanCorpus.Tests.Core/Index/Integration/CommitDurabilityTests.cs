@@ -156,6 +156,107 @@ public class CommitDurabilityTests : IDisposable
         Assert.Equal(1, snapshot.FileSyncFileCount - firstFileCount);
     }
 
+    /// <summary>
+    /// Verifies that the first durable commit after a process restart synchronises every
+    /// inherited segment file before the commit publication barrier. The tracker reset models
+    /// a fresh process whose in-memory dirty state cannot contain the earlier writer's files.
+    /// </summary>
+    [Theory(DisplayName = "Durable Commit: Restart Establishes Referenced File Baseline")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DurableCommit_Restart_EstablishesReferencedFileBaseline(bool useCompoundFile)
+    {
+        using (var firstWriter = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig
+        {
+            DurableCommits = false,
+            UseCompoundFile = useCompoundFile
+        }))
+        {
+            var document = new LeanDocument();
+            document.Add(new TextField("body", "restart durability baseline"));
+            firstWriter.AddDocument(document);
+            firstWriter.Commit();
+        }
+
+        string[] inheritedSegmentFiles = Directory.EnumerateFiles(_dir)
+            .Where(path => Path.GetFileName(path).StartsWith("seg_", StringComparison.Ordinal))
+            .Select(Path.GetFullPath)
+            .ToArray();
+        Assert.NotEmpty(inheritedSegmentFiles);
+
+        DirtyFileTracker.ForgetDirectory(_dir);
+        var fileSystem = new RecordingFileSystem();
+        using (PlatformFileSystem.OverrideForTesting(fileSystem))
+        using (var secondWriter = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig
+        {
+            DurableCommits = true,
+            UseCompoundFile = useCompoundFile
+        }))
+        {
+            secondWriter.Commit();
+
+            int firstDirectoryBarrier = fileSystem.Operations.FindIndex(static operation =>
+                operation.StartsWith("directory:", StringComparison.Ordinal));
+            Assert.True(firstDirectoryBarrier >= 0);
+            foreach (string inheritedFile in inheritedSegmentFiles)
+            {
+                int fileSync = fileSystem.Operations.IndexOf("file:" + inheritedFile);
+                Assert.InRange(fileSync, 0, firstDirectoryBarrier - 1);
+            }
+
+            fileSystem.Operations.Clear();
+            secondWriter.Commit();
+            Assert.DoesNotContain(fileSystem.Operations, operation =>
+                operation.StartsWith("file:", StringComparison.Ordinal) &&
+                inheritedSegmentFiles.Contains(operation["file:".Length..], StringComparer.Ordinal));
+        }
+    }
+
+    /// <summary>Verifies that reopening a generation already made durable by this process does not baseline it again.</summary>
+    [Fact(DisplayName = "Durable Commit: Same-Process Reopen Reuses Established Baseline")]
+    public void DurableCommit_SameProcessReopen_ReusesEstablishedBaseline()
+    {
+        var fileSystem = new RecordingFileSystem();
+        using (PlatformFileSystem.OverrideForTesting(fileSystem))
+        {
+            using (var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig { DurableCommits = true }))
+            {
+                var document = new LeanDocument();
+                document.Add(new TextField("body", "known durable generation"));
+                writer.AddDocument(document);
+                writer.Commit();
+            }
+
+            string[] inheritedSegmentFiles = Directory.EnumerateFiles(_dir)
+                .Where(path => Path.GetFileName(path).StartsWith("seg_", StringComparison.Ordinal))
+                .Select(Path.GetFullPath)
+                .ToArray();
+            fileSystem.Operations.Clear();
+
+            using var reopened = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig { DurableCommits = true });
+            reopened.Commit();
+
+            Assert.DoesNotContain(fileSystem.Operations, operation =>
+                operation.StartsWith("file:", StringComparison.Ordinal) &&
+                inheritedSegmentFiles.Contains(operation["file:".Length..], StringComparer.Ordinal));
+        }
+    }
+
+    private sealed class RecordingFileSystem : IPlatformFileSystem
+    {
+        internal List<string> Operations { get; } = [];
+
+        public void SyncFile(string path) => Operations.Add("file:" + Path.GetFullPath(path));
+
+        public DirectorySyncResult SyncDirectory(string path)
+        {
+            Operations.Add("directory:" + Path.GetFullPath(path));
+            return DirectorySyncResult.Succeeded;
+        }
+
+        public bool IsTransient(Exception exception) => false;
+    }
+
     private static void AssertNonEmptyFile(string path)
     {
         Assert.True(File.Exists(path), $"Expected {path} to exist");

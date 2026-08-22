@@ -115,12 +115,31 @@ internal static class FileOpenRetry
         return stream;
     }
 
+    /// <summary>
+    /// Creates a committed index artefact whose successful close automatically registers the
+    /// final written version for commit-time durability.
+    /// </summary>
+    internal static Stream CreateTrackedIndexFile(
+        string path,
+        int bufferSize = 4096,
+        FileOptions options = FileOptions.None)
+    {
+        var stream = new TrackedIndexFileStream(path, bufferSize, options);
+        Diagnostics.FileSystemDiagnostics.RecordFileCreated();
+        return stream;
+    }
+
     /// <summary>Flushes a facade-created file stream through to durable storage.</summary>
     internal static void FlushToDisk(Stream stream)
     {
         long startedAt = Diagnostics.FileSystemDiagnostics.StartSync();
+        long fileStartedAt = Diagnostics.FileSystemDiagnostics.StartFileSync();
         try { ((FileStream)stream).Flush(flushToDisk: true); }
-        finally { Diagnostics.FileSystemDiagnostics.RecordSync(startedAt); }
+        finally
+        {
+            Diagnostics.FileSystemDiagnostics.RecordFileSync(fileStartedAt);
+            Diagnostics.FileSystemDiagnostics.RecordSync(startedAt);
+        }
     }
 
     /// <summary>
@@ -317,6 +336,25 @@ internal static class FileOpenRetry
     {
         if (mode is FileMode.Create or FileMode.CreateNew)
             Diagnostics.FileSystemDiagnostics.RecordFileCreated();
+    }
+
+    private sealed class TrackedIndexFileStream : FileStream
+    {
+        private readonly string _path;
+        private int _registered;
+
+        internal TrackedIndexFileStream(string path, int bufferSize, FileOptions options)
+            : base(path, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize, options)
+        {
+            _path = path;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing && Interlocked.Exchange(ref _registered, 1) == 0)
+                DirtyFileTracker.MarkWritten(_path);
+        }
     }
 }
 

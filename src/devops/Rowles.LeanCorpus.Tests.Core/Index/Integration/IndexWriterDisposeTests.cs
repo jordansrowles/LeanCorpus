@@ -35,7 +35,7 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
     /// and the writer must be cleanly disposed afterwards.
     /// </summary>
     [Fact(DisplayName = "Dispose: During Concurrent Add Document Lock Free No Object Disposed Race")]
-    public async Task Dispose_DuringConcurrentAddDocumentLockFree_NoObjectDisposedRace()
+    public void Dispose_DuringConcurrentAddDocumentLockFree_NoObjectDisposedRace()
     {
         var dir = SubDir("h12_race");
         var config = new IndexWriterConfig { MaxBufferedDocs = 10_000 };
@@ -43,43 +43,47 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
         writer.InitialiseDwptPool(threadCount: 8);
 
         const int producerCount = 32;
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         var exceptions = new System.Collections.Concurrent.ConcurrentBag<Exception>();
         var tasks = new Task[producerCount];
 
         for (int t = 0; t < producerCount; t++)
         {
-            tasks[t] = Task.Run(() =>
-            {
-                while (!cts.Token.IsCancellationRequested)
+            tasks[t] = Task.Factory.StartNew(
+                () =>
                 {
-                    try
+                    while (!cts.Token.IsCancellationRequested)
                     {
-                        var doc = new LeanDocument();
-                        doc.Add(new TextField("body", "concurrent stress test document"));
-                        writer.AddDocumentLockFree(doc);
+                        try
+                        {
+                            var doc = new LeanDocument();
+                            doc.Add(new TextField("body", "concurrent stress test document"));
+                            writer.AddDocumentLockFree(doc);
+                        }
+                        catch (ObjectDisposedException ode)
+                        {
+                            exceptions.Add(ode);
+                            return; // expected after Dispose: exit cleanly
+                        }
+                        catch (Exception ex)
+                        {
+                            exceptions.Add(ex);
+                            return;
+                        }
                     }
-                    catch (ObjectDisposedException ode)
-                    {
-                        exceptions.Add(ode);
-                        return; // expected after Dispose — exit cleanly
-                    }
-                    catch (Exception ex)
-                    {
-                        exceptions.Add(ex);
-                        return;
-                    }
-                }
-            });
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
         }
 
         // Let producers run for 100 ms, then dispose the writer
-        await Task.Delay(100);
+        Thread.Sleep(100);
         writer.Dispose();
 
         // Signal producers to stop and wait for all to finish
         cts.Cancel();
-        await Task.WhenAll(tasks);
+        Task.WaitAll(tasks);
 
         // ObjectDisposedException thrown by our own guard (re-check after increment) is
         // the expected graceful exit signal. Any other exception type indicates a real bug

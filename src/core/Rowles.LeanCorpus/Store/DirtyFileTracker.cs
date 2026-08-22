@@ -1,8 +1,10 @@
+using System.Collections.Concurrent;
+
 namespace Rowles.LeanCorpus.Store;
 
 /// <summary>
-/// Tracks files written by this process so commits synchronise only changed files.
-/// Versions prevent a concurrent write from being cleared by an older sync.
+/// Tracks process-written index files by directory so a commit inspects only its own files.
+/// Versions prevent a concurrent rewrite from being cleared by an older synchronisation.
 /// </summary>
 internal static class DirtyFileTracker
 {
@@ -12,81 +14,162 @@ internal static class DirtyFileTracker
     private static readonly StringComparison s_pathComparison = OperatingSystem.IsWindows()
         ? StringComparison.OrdinalIgnoreCase
         : StringComparison.Ordinal;
-    private static readonly Dictionary<string, Entry> s_files = new(s_pathComparer);
-    private static readonly Lock s_lock = new();
-    private static long s_version;
-
+    private static readonly ConcurrentDictionary<string, DirectoryDirtyState> s_directories =
+        new(s_pathComparer);
     internal static void MarkWritten(string path)
     {
-        string fullPath = Path.GetFullPath(path);
-        lock (s_lock)
-            s_files[fullPath] = new Entry(++s_version);
+        Diagnostics.FileSystemDiagnostics.RecordDirtyRegistration();
+        SplitPath(path, out string directory, out string fileName);
+        var state = s_directories.GetOrAdd(directory, static _ => new DirectoryDirtyState());
+        lock (state.SyncRoot)
+            state.Files[fileName] = new Entry(++state.NextVersion);
     }
 
     internal static DirtyFile Move(string sourcePath, string destinationPath)
     {
-        string source = Path.GetFullPath(sourcePath);
-        string destination = Path.GetFullPath(destinationPath);
-        lock (s_lock)
+        SplitPath(sourcePath, out string sourceDirectory, out string sourceName);
+        SplitPath(destinationPath, out string destinationDirectory, out string destinationName);
+
+        if (s_pathComparer.Equals(sourceDirectory, destinationDirectory))
         {
-            s_files.Remove(source);
-            long version = ++s_version;
-            s_files[destination] = new Entry(version);
-            return new DirtyFile(destination, version);
+            var state = s_directories.GetOrAdd(destinationDirectory, static _ => new DirectoryDirtyState());
+            lock (state.SyncRoot)
+            {
+                state.Files.Remove(sourceName);
+                long version = ++state.NextVersion;
+                state.Files[destinationName] = new Entry(version);
+                return new DirtyFile(Path.Combine(destinationDirectory, destinationName), version);
+            }
+        }
+
+        ForgetCore(sourceDirectory, sourceName);
+        var destinationState = s_directories.GetOrAdd(destinationDirectory, static _ => new DirectoryDirtyState());
+        lock (destinationState.SyncRoot)
+        {
+            long version = ++destinationState.NextVersion;
+            destinationState.Files[destinationName] = new Entry(version);
+            return new DirtyFile(Path.Combine(destinationDirectory, destinationName), version);
         }
     }
 
     internal static void Forget(string path)
     {
-        string fullPath = Path.GetFullPath(path);
-        lock (s_lock)
-            s_files.Remove(fullPath);
+        SplitPath(path, out string directory, out string fileName);
+        ForgetCore(directory, fileName);
     }
 
     internal static void Delete(string path) => Forget(path);
 
     internal static void ForgetDirectory(string directoryPath)
     {
-        string directory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directoryPath));
+        string directory = CanonicaliseDirectory(directoryPath);
         string prefix = directory + Path.DirectorySeparatorChar;
-        lock (s_lock)
+        foreach (string candidate in s_directories.Keys)
         {
-            // Dictionary.Remove does not invalidate enumerators on supported runtimes.
-            foreach (string path in s_files.Keys)
-            {
-                if (path.StartsWith(prefix, s_pathComparison))
-                    s_files.Remove(path);
-            }
+            if (s_pathComparer.Equals(candidate, directory) || candidate.StartsWith(prefix, s_pathComparison))
+                s_directories.TryRemove(candidate, out _);
         }
     }
 
     internal static List<DirtyFile> Snapshot(string directoryPath, Func<string, bool> includeFileName)
     {
-        string directory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directoryPath));
-        var result = new List<DirtyFile>();
-        lock (s_lock)
+        string directory = CanonicaliseDirectory(directoryPath);
+        if (!s_directories.TryGetValue(directory, out var state))
         {
-            foreach (var (path, entry) in s_files)
+            Diagnostics.FileSystemDiagnostics.RecordDirtySnapshot(0, 0);
+            return [];
+        }
+
+        List<DirtyFile> result;
+        int scanned;
+        lock (state.SyncRoot)
+        {
+            scanned = state.Files.Count;
+            result = new List<DirtyFile>(scanned);
+            foreach (var (fileName, entry) in state.Files)
             {
-                if (!s_pathComparer.Equals(Path.GetDirectoryName(path), directory))
-                    continue;
-                string fileName = Path.GetFileName(path);
                 if (includeFileName(fileName))
-                    result.Add(new DirtyFile(path, entry.Version));
+                    result.Add(new DirtyFile(Path.Combine(directory, fileName), entry.Version));
             }
         }
+
+        Diagnostics.FileSystemDiagnostics.RecordDirtySnapshot(scanned, result.Count);
         return result;
+    }
+
+    /// <summary>
+    /// Establishes the one-time baseline required when a process first opens an existing commit.
+    /// A generation already made durable by this process does not need to be registered again.
+    /// </summary>
+    internal static void RequireDurabilityBaseline(
+        string directoryPath,
+        int generation,
+        IEnumerable<string> referencedFileNames)
+    {
+        string directory = CanonicaliseDirectory(directoryPath);
+        var state = s_directories.GetOrAdd(directory, static _ => new DirectoryDirtyState());
+        lock (state.SyncRoot)
+        {
+            if (state.DurableGeneration >= generation)
+                return;
+
+            foreach (string fileName in referencedFileNames)
+            {
+                if (state.Files.ContainsKey(fileName))
+                    continue;
+                Diagnostics.FileSystemDiagnostics.RecordDirtyRegistration();
+                state.Files[fileName] = new Entry(++state.NextVersion);
+            }
+        }
+    }
+
+    internal static void MarkDurableGeneration(string directoryPath, int generation)
+    {
+        string directory = CanonicaliseDirectory(directoryPath);
+        var state = s_directories.GetOrAdd(directory, static _ => new DirectoryDirtyState());
+        lock (state.SyncRoot)
+            state.DurableGeneration = Math.Max(state.DurableGeneration, generation);
     }
 
     internal static void MarkSynced(DirtyFile file)
     {
-        lock (s_lock)
+        SplitPath(file.Path, out string directory, out string fileName);
+        if (!s_directories.TryGetValue(directory, out var state))
+            return;
+
+        lock (state.SyncRoot)
         {
-            if (s_files.TryGetValue(file.Path, out var current) && current.Version == file.Version)
-                s_files.Remove(file.Path);
+            if (state.Files.TryGetValue(fileName, out var current) && current.Version == file.Version)
+                state.Files.Remove(fileName);
         }
     }
 
+    private static void ForgetCore(string directory, string fileName)
+    {
+        if (!s_directories.TryGetValue(directory, out var state))
+            return;
+        lock (state.SyncRoot)
+            state.Files.Remove(fileName);
+    }
+
+    private static void SplitPath(string path, out string directory, out string fileName)
+    {
+        string fullPath = Path.GetFullPath(path);
+        directory = CanonicaliseDirectory(Path.GetDirectoryName(fullPath) ?? string.Empty);
+        fileName = Path.GetFileName(fullPath);
+    }
+
+    private static string CanonicaliseDirectory(string path) =>
+        Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+
     internal readonly record struct DirtyFile(string Path, long Version);
     private readonly record struct Entry(long Version);
+
+    private sealed class DirectoryDirtyState
+    {
+        internal readonly Lock SyncRoot = new();
+        internal readonly Dictionary<string, Entry> Files = new(s_pathComparer);
+        internal long NextVersion;
+        internal int DurableGeneration = -1;
+    }
 }

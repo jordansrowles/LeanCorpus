@@ -14,7 +14,11 @@ internal sealed partial class PosixFileSystem : IPlatformFileSystem
 
     public void SyncFile(string path) => SyncDescriptor(path, O_RDONLY);
 
-    public void SyncDirectory(string path) => SyncDescriptor(path, O_RDONLY);
+    public DirectorySyncResult SyncDirectory(string path)
+    {
+        SyncDescriptor(path, O_RDONLY);
+        return DirectorySyncResult.Succeeded;
+    }
 
     public bool IsTransient(Exception exception) => false;
 

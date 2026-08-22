@@ -40,17 +40,35 @@ read, write and delete sharing so the short-lived synchronisation handle can coe
 with mapped readers; this does not let another exclusive `IndexOutput` open while a
 reader remains active.
 
-Successful output close, copy and atomic publication update a process-wide,
-versioned dirty-file tracker. Durable commit snapshots only dirty files referenced
-by the commit being published, synchronises them, then clears the exact versions
-it observed. A write racing an older synchronisation receives a newer version and
-cannot be cleared by that operation. Already-durable atomic files are cleared
-after their file and directory synchronisation completes.
+Successful committed-output close, copy and atomic publication update a versioned
+dirty-file state owned by that canonical directory. Durable commit snapshots only
+its directory's state and only files referenced by the commit being published,
+synchronises them, then clears the exact versions it observed. A write racing an
+older synchronisation receives a newer directory-local version and cannot be
+cleared by that operation. Store's tracked index-file stream makes registration a
+close-time property of the write API rather than a convention at each codec call.
+Diagnostic, lock and export streams remain explicitly untracked.
+
+Opening an existing index establishes a one-time durability baseline for its
+physical segment files before the first durable publication in the process. Once
+that generation is known durable, later unchanged and same-process reopened
+commits use incremental tracking. This does not add commit or codec metadata and
+therefore deliberately repeats the baseline after a genuine process restart.
+
+File synchronisation owns the same bounded Windows retry policy as other transient
+filesystem operations: five retries at 200 ms for sharing violation, lock violation
+and delete-pending errors only. Windows directory flush support is probed per volume.
+After `FlushFileBuffers` on an opened directory returns `ERROR_ACCESS_DENIED`, later
+barriers on that volume skip the unsupported native call. Errors opening the
+directory, and every unrelated flush error, still propagate in strict mode.
 
 Production defaults remain unchanged: durable commits are enabled and compound
-files remain opt-in. A dedicated four-way benchmark covers durable and non-durable
-commits with loose and compound segment files, and reports synchronisation time,
-bytes, file count, retries, retry delay and physical files created.
+files remain opt-in. A dedicated benchmark covers fresh and repeated commits in
+durable and non-durable modes with loose and compound segment files. It reports
+dirty registrations, snapshot scan and return counts, file and directory
+synchronisation, unsupported directory results, immediate atomic durability,
+retries, allocation and physical files created. Detailed dirty counters are opt-in
+so production writes do not add global atomic contention merely for measurement.
 
 ## Rationale
 
@@ -61,8 +79,9 @@ shared, so the platform seam cannot develop a second indexing lifecycle.
 Versioned dirty tracking removes repeated directory enumeration and metadata
 queries from commit without scanning file contents or materialising codec data.
 It preserves the close-before-rename invariant and the mmap-backed compound-file
-design. Keeping the tracker process-wide also matches the process-wide lifetime
-registry used for files shared by several directory and reader instances.
+design. Keeping directory states discoverable process-wide lets writer instances
+reuse a known durable generation, while the hot locks and dictionaries remain
+isolated per index. Directory deletion removes the state and its descendants.
 
 ## Windows evidence
 
@@ -91,16 +110,26 @@ Windows workloads should benchmark opting into compound files.
 
 - Durable commit work is proportional to files written since the prior commit,
   rather than every file currently belonging to the index.
+- Fresh indexes do not contend on or scan dirty entries belonging to other indexes.
 - Windows synchronisation can coexist with readers and deletion leases without
   weakening exclusive output ownership.
-- Permanent filesystem failures are surfaced without retry delay.
-- Files written outside the Store facade must explicitly update dirty state.
-- Files created by an earlier process are assumed to have crossed that process's
-  commit durability boundary and are not re-synchronised on writer open.
+- Permanent filesystem failures are surfaced without retry delay, while bounded
+  transient failures during file synchronisation use the shared retry policy.
+- Committed index streams register themselves on close. Raw Store writes must be
+  explicitly classified as tracked index state or untracked diagnostics or export.
+- Files inherited from an earlier process are synchronised once before its first
+  durable commit can publish them again.
+- Windows volumes that reject directory `FlushFileBuffers` incur one capability
+  probe rather than one rejected native call per publication barrier.
 - Filesystem counters are process-wide diagnostics and benchmark evidence, not
   per-writer correctness state.
 - No codec, compound container or commit format changes are introduced, so no
   index migration is required.
+
+Microsoft documents `FILE_FLAG_BACKUP_SEMANTICS` as the mechanism for obtaining a
+directory handle, but does not list `FlushFileBuffers` among the operations that
+accept such handles. The Windows barrier therefore remains best-effort and the
+unsupported result is cached only after the directory was opened successfully.
 
 ## Related decisions
 
@@ -109,3 +138,5 @@ Windows workloads should benchmark opting into compound files.
 - ADR011 defines shared reader and deletion lifetimes.
 - ADR024 keeps compound members mmap-backed rather than materialised.
 - ADR027 defines operation lifetimes around those mappings.
+- [Microsoft: Directory Handles](https://learn.microsoft.com/en-us/windows/win32/fileio/obtaining-a-handle-to-a-directory)
+- [Microsoft: FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers)

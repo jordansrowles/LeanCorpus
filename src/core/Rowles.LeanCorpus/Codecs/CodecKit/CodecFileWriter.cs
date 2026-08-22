@@ -64,6 +64,8 @@ public static class CodecFileWriter
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(writeBody);
+        if (durable)
+            Diagnostics.FileSystemDiagnostics.RecordImmediateDurableAtomicWrite();
 
         string temporaryPath = string.Concat(path, ".", Guid.NewGuid().ToString("N"), ".codec.tmp");
         try

@@ -23,21 +23,27 @@ internal static class DirectoryFsync
     {
         if (string.IsNullOrEmpty(directoryPath)) return;
         long startedAt = Diagnostics.FileSystemDiagnostics.StartSync();
+        long directoryStartedAt = Diagnostics.FileSystemDiagnostics.StartDirectorySync();
+        DirectorySyncResult result = DirectorySyncResult.Failed;
         try
         {
             if (strict)
             {
-                PlatformFileSystem.Current.SyncDirectory(directoryPath);
+                result = PlatformFileSystem.SyncDirectory(directoryPath);
                 return;
             }
 
-            try { PlatformFileSystem.Current.SyncDirectory(directoryPath); }
+            try { result = PlatformFileSystem.SyncDirectory(directoryPath); }
             catch (FileNotFoundException ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "directory fsync (non-strict)"); }
             catch (DirectoryNotFoundException ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "directory fsync (non-strict)"); }
             catch (UnauthorizedAccessException ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "directory fsync (non-strict)"); }
             catch (IOException ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "directory fsync (non-strict)"); }
         }
-        finally { Diagnostics.FileSystemDiagnostics.RecordSync(startedAt); }
+        finally
+        {
+            Diagnostics.FileSystemDiagnostics.RecordDirectorySync(directoryStartedAt, result);
+            Diagnostics.FileSystemDiagnostics.RecordSync(startedAt);
+        }
     }
 
     /// <summary>
@@ -49,6 +55,7 @@ internal static class DirectoryFsync
     {
         if (string.IsNullOrEmpty(filePath)) return;
         long startedAt = Diagnostics.FileSystemDiagnostics.StartSync();
+        long fileStartedAt = Diagnostics.FileSystemDiagnostics.StartFileSync();
         try
         {
             if (strict)
@@ -65,11 +72,15 @@ internal static class DirectoryFsync
             catch (UnauthorizedAccessException ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "fsync (non-strict)"); }
             catch (IOException ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "fsync (non-strict)"); }
         }
-        finally { Diagnostics.FileSystemDiagnostics.RecordSync(startedAt); }
+        finally
+        {
+            Diagnostics.FileSystemDiagnostics.RecordFileSync(fileStartedAt);
+            Diagnostics.FileSystemDiagnostics.RecordSync(startedAt);
+        }
     }
 
     private static void SyncFileCore(string filePath)
     {
-        PlatformFileSystem.Current.SyncFile(filePath);
+        PlatformFileSystem.SyncFile(filePath);
     }
 }
