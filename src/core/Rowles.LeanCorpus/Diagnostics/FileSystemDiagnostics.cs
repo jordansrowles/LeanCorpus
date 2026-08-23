@@ -22,6 +22,11 @@ public static class FileSystemDiagnostics
     private static long s_directorySyncSkippedCount;
     private static long s_directorySyncStopwatchTicks;
     private static long s_immediateDurableAtomicWriteCount;
+    private static long s_indexInputOpenCount;
+    private static long s_memoryMappedFileCreationCount;
+    private static long s_memoryMappedViewCreationCount;
+    private static long s_activeLifetimeLeases;
+    private static long s_maximumActiveLifetimeLeases;
     private static int s_detailedMeasurementScopes;
 
     /// <summary>Returns a point-in-time snapshot of filesystem counters.</summary>
@@ -43,12 +48,18 @@ public static class FileSystemDiagnostics
         DirectorySyncUnsupportedCount = Interlocked.Read(ref s_directorySyncUnsupportedCount),
         DirectorySyncSkippedCount = Interlocked.Read(ref s_directorySyncSkippedCount),
         DirectorySyncElapsedMilliseconds = ToMilliseconds(Interlocked.Read(ref s_directorySyncStopwatchTicks)),
-        ImmediateDurableAtomicWriteCount = Interlocked.Read(ref s_immediateDurableAtomicWriteCount)
+        ImmediateDurableAtomicWriteCount = Interlocked.Read(ref s_immediateDurableAtomicWriteCount),
+        IndexInputOpenCount = Interlocked.Read(ref s_indexInputOpenCount),
+        MemoryMappedFileCreationCount = Interlocked.Read(ref s_memoryMappedFileCreationCount),
+        MemoryMappedViewCreationCount = Interlocked.Read(ref s_memoryMappedViewCreationCount),
+        ActiveLifetimeLeases = Interlocked.Read(ref s_activeLifetimeLeases),
+        MaximumActiveLifetimeLeases = Interlocked.Read(ref s_maximumActiveLifetimeLeases)
     };
 
     /// <summary>
-    /// Enables detailed dirty-tracker and atomic-writer counters until the returned scope is disposed.
-    /// The counters are disabled by default to keep indexing writes free of extra global atomics.
+    /// Enables detailed dirty-tracker, atomic-writer, input, mapping, and lifetime-lease counters
+    /// until the returned scope is disposed. The counters are disabled by default to keep hot
+    /// indexing and search paths free of extra global atomics.
     /// </summary>
     public static IDisposable BeginDetailedMeasurement()
     {
@@ -116,6 +127,44 @@ public static class FileSystemDiagnostics
             Interlocked.Increment(ref s_immediateDurableAtomicWriteCount);
     }
 
+    internal static void RecordIndexInputOpen()
+    {
+        if (Volatile.Read(ref s_detailedMeasurementScopes) != 0)
+            Interlocked.Increment(ref s_indexInputOpenCount);
+    }
+
+    internal static void RecordMemoryMappedFileCreation()
+    {
+        if (Volatile.Read(ref s_detailedMeasurementScopes) != 0)
+            Interlocked.Increment(ref s_memoryMappedFileCreationCount);
+    }
+
+    internal static void RecordMemoryMappedViewCreation()
+    {
+        if (Volatile.Read(ref s_detailedMeasurementScopes) != 0)
+            Interlocked.Increment(ref s_memoryMappedViewCreationCount);
+    }
+
+    internal static bool RecordLifetimeLeaseAcquired()
+    {
+        if (Volatile.Read(ref s_detailedMeasurementScopes) == 0)
+            return false;
+
+        long active = Interlocked.Increment(ref s_activeLifetimeLeases);
+        long maximum = Volatile.Read(ref s_maximumActiveLifetimeLeases);
+        while (active > maximum)
+        {
+            long observed = Interlocked.CompareExchange(ref s_maximumActiveLifetimeLeases, active, maximum);
+            if (observed == maximum)
+                break;
+            maximum = observed;
+        }
+
+        return true;
+    }
+
+    internal static void RecordLifetimeLeaseReleased() => Interlocked.Decrement(ref s_activeLifetimeLeases);
+
     private static double ToMilliseconds(long ticks) => ticks * 1000d / Stopwatch.Frequency;
 
     private sealed class DetailedMeasurementScope : IDisposable
@@ -178,4 +227,19 @@ public readonly record struct FileSystemDiagnosticsSnapshot(
 
     /// <summary>Gets the number of atomic writers requesting immediate independent durability.</summary>
     public long ImmediateDurableAtomicWriteCount { get; init; }
+
+    /// <summary>Gets the number of logical <c>IndexInput</c> instances opened.</summary>
+    public long IndexInputOpenCount { get; init; }
+
+    /// <summary>Gets the number of physical memory-mapped files created.</summary>
+    public long MemoryMappedFileCreationCount { get; init; }
+
+    /// <summary>Gets the number of physical memory-mapped views created.</summary>
+    public long MemoryMappedViewCreationCount { get; init; }
+
+    /// <summary>Gets the current number of active long-lived operation leases.</summary>
+    public long ActiveLifetimeLeases { get; init; }
+
+    /// <summary>Gets the process-wide high-water mark for active long-lived operation leases.</summary>
+    public long MaximumActiveLifetimeLeases { get; init; }
 }

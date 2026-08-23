@@ -405,7 +405,8 @@ public unsafe struct PostingsEnum : IDisposable
             var blockEnumLazy = BlockPostingsEnum.Create(input, docStartOffset, skipOffset, docFreq);
 
             long posCursor = skipOffset;
-            int posSkipCount = input.ReadInt32(ref posCursor);
+            using var reader = input.BeginReadSession();
+            int posSkipCount = reader.ReadInt32(ref posCursor);
             posCursor += (long)posSkipCount * 15;
 
             var posOffsets = RentPosOffsets(docFreq);
@@ -413,15 +414,15 @@ public unsafe struct PostingsEnum : IDisposable
 
             for (int i = 0; i < docFreq; i++)
             {
-                int posCount = input.ReadVarInt(ref posCursor);
+                int posCount = reader.ReadVarInt(ref posCursor);
                 posCounts[i] = posCount;
                 posOffsets[i] = posCursor;
                 for (int j = 0; j < posCount; j++)
                 {
-                    input.ReadVarInt(ref posCursor);
+                    reader.ReadVarInt(ref posCursor);
                     if (hasPayloads)
                     {
-                        int payloadLen = input.ReadVarInt(ref posCursor);
+                        int payloadLen = reader.ReadVarInt(ref posCursor);
                         if (payloadLen > 0)
                             posCursor += payloadLen;
                     }
@@ -447,7 +448,8 @@ public unsafe struct PostingsEnum : IDisposable
             return new PostingsEnum(docIds, freqs, docFreq);
 
         long posSkipCursor = skipOffset;
-        int skipCount = input.ReadInt32(ref posSkipCursor);
+        using var positionReader = input.BeginReadSession();
+        int skipCount = positionReader.ReadInt32(ref posSkipCursor);
         posSkipCursor += (long)skipCount * 15;
 
         var positionByteOffsets = RentPosOffsets(docFreq);
@@ -455,15 +457,15 @@ public unsafe struct PostingsEnum : IDisposable
 
         for (int i = 0; i < docFreq; i++)
         {
-            int posCount = input.ReadVarInt(ref posSkipCursor);
+            int posCount = positionReader.ReadVarInt(ref posSkipCursor);
             positionCounts[i] = posCount;
             positionByteOffsets[i] = posSkipCursor;
             for (int j = 0; j < posCount; j++)
             {
-                input.ReadVarInt(ref posSkipCursor);
+                positionReader.ReadVarInt(ref posSkipCursor);
                 if (hasPayloads)
                 {
-                    int payloadLen = input.ReadVarInt(ref posSkipCursor);
+                    int payloadLen = positionReader.ReadVarInt(ref posSkipCursor);
                     if (payloadLen > 0)
                         posSkipCursor += payloadLen;
                 }
@@ -477,15 +479,16 @@ public unsafe struct PostingsEnum : IDisposable
         out int docFreq, out long skipOffset, out bool hasFreqs, out bool hasPositions,
         out bool hasPayloads)
     {
+        using var reader = input.BeginReadSession();
         long versionCursor = 0;
-        byte version = input.ReadByte(ref versionCursor);
+        byte version = reader.ReadByte(ref versionCursor);
         long cursor = offset;
-        docStartOffset = version >= PostingsFileHeader.V4 ? input.ReadInt64(ref cursor) : cursor;
-        docFreq = input.ReadInt32(ref cursor);
-        skipOffset = input.ReadInt64(ref cursor);
-        hasFreqs = input.ReadBoolean(ref cursor);
-        hasPositions = input.ReadBoolean(ref cursor);
-        hasPayloads = input.ReadBoolean(ref cursor);
+        docStartOffset = version >= PostingsFileHeader.V4 ? reader.ReadInt64(ref cursor) : cursor;
+        docFreq = reader.ReadInt32(ref cursor);
+        skipOffset = reader.ReadInt64(ref cursor);
+        hasFreqs = reader.ReadByte(ref cursor) != 0;
+        hasPositions = reader.ReadByte(ref cursor) != 0;
+        hasPayloads = reader.ReadByte(ref cursor) != 0;
         if (version < PostingsFileHeader.V4)
         {
             docStartOffset = cursor;
@@ -494,12 +497,12 @@ public unsafe struct PostingsEnum : IDisposable
                 // Migration tests and interrupted upgrades may expose v4-shaped data
                 // whose version byte still identifies the previous layout.
                 cursor = offset;
-                docStartOffset = input.ReadInt64(ref cursor);
-                docFreq = input.ReadInt32(ref cursor);
-                skipOffset = input.ReadInt64(ref cursor);
-                hasFreqs = input.ReadBoolean(ref cursor);
-                hasPositions = input.ReadBoolean(ref cursor);
-                hasPayloads = input.ReadBoolean(ref cursor);
+                docStartOffset = reader.ReadInt64(ref cursor);
+                docFreq = reader.ReadInt32(ref cursor);
+                skipOffset = reader.ReadInt64(ref cursor);
+                hasFreqs = reader.ReadByte(ref cursor) != 0;
+                hasPositions = reader.ReadByte(ref cursor) != 0;
+                hasPayloads = reader.ReadByte(ref cursor) != 0;
             }
         }
     }

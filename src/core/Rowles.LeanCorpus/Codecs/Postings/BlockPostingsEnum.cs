@@ -70,7 +70,8 @@ public struct BlockPostingsEnum : IDisposable
     {
         // Use a local cursor so we do not mutate the shared docInput._position.
         long cursor = skipOffset;
-        int skipCount = docInput.ReadInt32(ref cursor);
+        using var reader = docInput.BeginReadSession();
+        int skipCount = reader.ReadInt32(ref cursor);
         if (skipCount < 0)
             throw new InvalidDataException("Postings data is corrupt: negative skip count.");
         int loadCount = Math.Min(skipCount, MaxPreloadedSkipEntries);
@@ -79,11 +80,11 @@ public struct BlockPostingsEnum : IDisposable
         {
             skipEntries[i] = new SkipEntry
             {
-                LastDocId = docInput.ReadInt32(ref cursor),
-                DocByteOffset = docInput.ReadInt64(ref cursor),
-                PosFileOffset = hasPositions ? docInput.ReadInt64(ref cursor) : 0,
-                MaxFreqInBlock = (ushort)(docInput.ReadByte(ref cursor) | (docInput.ReadByte(ref cursor) << 8)),
-                MaxNormInBlock = docInput.ReadByte(ref cursor)
+                LastDocId = reader.ReadInt32(ref cursor),
+                DocByteOffset = reader.ReadInt64(ref cursor),
+                PosFileOffset = hasPositions ? reader.ReadInt64(ref cursor) : 0,
+                MaxFreqInBlock = (ushort)(reader.ReadByte(ref cursor) | (reader.ReadByte(ref cursor) << 8)),
+                MaxNormInBlock = reader.ReadByte(ref cursor)
             };
         }
 
@@ -318,7 +319,8 @@ public struct BlockPostingsEnum : IDisposable
         // Freqs:  [numBits:1byte][packed data: numBits*16 bytes]
 
         // Decode doc IDs (delta-encoded)
-        int docNumBits = _docInput.ReadByte(ref _cursorPosition);
+        using var reader = _docInput.BeginReadSession();
+        int docNumBits = reader.ReadByte(ref _cursorPosition);
         if (docNumBits > 32)
             throw new InvalidDataException(
                 $"Postings data is corrupt: docNumBits={docNumBits} exceeds 32.");
@@ -333,12 +335,12 @@ public struct BlockPostingsEnum : IDisposable
         }
         else
         {
-            var docData = _docInput.BorrowSpan(docPackedBytes, ref _cursorPosition);
+            var docData = reader.BorrowSpan(docPackedBytes, ref _cursorPosition);
             PackedIntCodec.UnpackDelta(docData, docNumBits, prevDocId, _docIdBlock);
         }
 
         // Decode frequencies (stored as freq-1, bit-packed with embedded numBits header)
-        int freqNumBits = _docInput.ReadByte(ref _cursorPosition);
+        int freqNumBits = reader.ReadByte(ref _cursorPosition);
         if (freqNumBits > 32)
             throw new InvalidDataException(
                 $"Postings data is corrupt: freqNumBits={freqNumBits} exceeds 32.");
@@ -349,7 +351,7 @@ public struct BlockPostingsEnum : IDisposable
         else
         {
             int freqPackedBytes = freqNumBits * 16;
-            var freqData = _docInput.BorrowSpan(freqPackedBytes, ref _cursorPosition);
+            var freqData = reader.BorrowSpan(freqPackedBytes, ref _cursorPosition);
             PackedIntCodec.Unpack(freqData, freqNumBits, _freqBlock);
         }
 
@@ -358,7 +360,8 @@ public struct BlockPostingsEnum : IDisposable
 
     private void DecodeTailAtCurrentPosition()
     {
-        int tailCount = _docInput.ReadVarInt(ref _cursorPosition);
+        using var reader = _docInput.BeginReadSession();
+        int tailCount = reader.ReadVarInt(ref _cursorPosition);
         if (tailCount <= 0)
             throw new InvalidDataException(
                 "Postings data is corrupt: tail block has zero or negative count.");
@@ -370,7 +373,7 @@ public struct BlockPostingsEnum : IDisposable
 
         for (int i = 0; i < tailCount; i++)
         {
-            int delta = _docInput.ReadVarIntFast(ref _cursorPosition);
+            int delta = reader.ReadVarIntFast(ref _cursorPosition);
             prevDocId += delta;
             _docIdBlock[i] = prevDocId;
         }
@@ -381,7 +384,7 @@ public struct BlockPostingsEnum : IDisposable
                 "Postings data is corrupt: doc ID delta overflow in tail block.");
 
         for (int i = 0; i < tailCount; i++)
-            _freqBlock[i] = _docInput.ReadVarIntFast(ref _cursorPosition);
+            _freqBlock[i] = reader.ReadVarIntFast(ref _cursorPosition);
 
         _blockCount = tailCount;
     }

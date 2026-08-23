@@ -70,13 +70,14 @@ internal sealed class QuantisedVectorReader : IDisposable
             frame = CodecFileReader.OpenSupported(input, VectorCodecFiles.Quantised);
 
             long offset = input.Position;
+            using var reader = input.BeginReadSession();
 
-            int docCount = input.ReadInt32(ref offset);
-            int dimension = input.ReadInt32(ref offset);
+            int docCount = reader.ReadInt32(ref offset);
+            int dimension = reader.ReadInt32(ref offset);
             if (docCount < 0 || dimension <= 0)
                 throw new InvalidDataException("Quantised vector file contains an invalid document count or dimension.");
 
-            var quantisation = (VectorQuantisation)input.ReadByte(ref offset);
+            var quantisation = (VectorQuantisation)reader.ReadByte(ref offset);
 
             float min = 0f, alpha = 0f;
             float[]? centroid = null;
@@ -84,14 +85,14 @@ internal sealed class QuantisedVectorReader : IDisposable
             switch (quantisation)
             {
                 case VectorQuantisation.Int8:
-                    min = input.ReadSingle(ref offset);
-                    alpha = input.ReadSingle(ref offset);
+                    min = reader.ReadSingle(ref offset);
+                    alpha = reader.ReadSingle(ref offset);
                     break;
 
                 case VectorQuantisation.BBQ:
                     centroid = new float[dimension];
                     for (int j = 0; j < dimension; j++)
-                        centroid[j] = input.ReadSingle(ref offset);
+                        centroid[j] = reader.ReadSingle(ref offset);
                     break;
 
                 default:

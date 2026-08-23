@@ -15,7 +15,7 @@ Keep the backing files on a local filesystem with reliable mapping, rename, and 
 
 ## Inputs and outputs
 
-`IndexInput` provides bounded sequential reads, seeking, and slicing. A slice has its own logical bounds while sharing the underlying file lifetime. `IndexOutput` provides controlled writes and position tracking.
+`IndexInput` provides bounded sequential reads, seeking, and slicing. A slice has its own logical bounds and file lifetime. Compound-file member views additionally share their container mapping because the container owner encloses every member lifetime. Internal decoders can hold one scoped read session across a bounded loop so primitive reads do not repeatedly enter the disposal drain. `IndexOutput` provides controlled writes and position tracking, avoids a second `FileStream` buffer, and accepts an expected size for preallocating large sequential outputs.
 
 Codec code should accept these abstractions instead of opening files directly. Validate lengths before creating slices or allocating buffers.
 

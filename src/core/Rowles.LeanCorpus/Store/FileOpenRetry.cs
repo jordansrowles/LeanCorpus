@@ -122,9 +122,10 @@ internal static class FileOpenRetry
     internal static Stream CreateTrackedIndexFile(
         string path,
         int bufferSize = 4096,
-        FileOptions options = FileOptions.None)
+        FileOptions options = FileOptions.None,
+        long preallocationSize = 0)
     {
-        var stream = new TrackedIndexFileStream(path, bufferSize, options);
+        var stream = new TrackedIndexFileStream(path, bufferSize, options, preallocationSize);
         Diagnostics.FileSystemDiagnostics.RecordFileCreated();
         return stream;
     }
@@ -343,8 +344,16 @@ internal static class FileOpenRetry
         private readonly string _path;
         private int _registered;
 
-        internal TrackedIndexFileStream(string path, int bufferSize, FileOptions options)
-            : base(path, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize, options)
+        internal TrackedIndexFileStream(string path, int bufferSize, FileOptions options, long preallocationSize)
+            : base(path, new FileStreamOptions
+            {
+                Mode = FileMode.Create,
+                Access = FileAccess.Write,
+                Share = FileShare.None,
+                BufferSize = bufferSize,
+                Options = options,
+                PreallocationSize = preallocationSize
+            })
         {
             _path = path;
         }

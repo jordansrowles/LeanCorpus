@@ -106,56 +106,57 @@ internal sealed class TermVectorsReader : IDisposable
             return new();
 
         long position = _offsets[docId];
-        int fieldCount = _tvdInput.ReadInt32(ref position);
+        using var reader = _tvdInput.BeginReadSession();
+        int fieldCount = reader.ReadInt32(ref position);
         if (fieldCount < 0 || fieldCount > (_bodyEnd - position) / 5)
             throw new InvalidDataException($"Term vector field count {fieldCount} is invalid for the remaining data body.");
         var result = new Dictionary<string, List<TermVectorEntry>>(fieldCount, StringComparer.Ordinal);
 
         for (int f = 0; f < fieldCount; f++)
         {
-            string fieldName = _tvdInput.ReadLengthPrefixedString(ref position);
-            int termCount = _tvdInput.ReadInt32(ref position);
+            string fieldName = reader.ReadLengthPrefixedString(ref position);
+            int termCount = reader.ReadInt32(ref position);
             if (termCount < 0 || termCount > (_bodyEnd - position) / 11)
                 throw new InvalidDataException($"Term vector term count {termCount} is invalid for the remaining data body.");
             var entries = new List<TermVectorEntry>(termCount);
             for (int t = 0; t < termCount; t++)
             {
-                string term = _tvdInput.ReadLengthPrefixedString(ref position);
-                int freq = _tvdInput.ReadInt32(ref position);
-                int posCount = _tvdInput.ReadInt32(ref position);
+                string term = reader.ReadLengthPrefixedString(ref position);
+                int freq = reader.ReadInt32(ref position);
+                int posCount = reader.ReadInt32(ref position);
                 if (posCount < 0 || posCount > (_bodyEnd - position) / sizeof(int))
                     throw new InvalidDataException($"Term vector position count {posCount} is invalid for the remaining data body.");
                 var positions = new int[posCount];
                 for (int p = 0; p < posCount; p++)
-                    positions[p] = _tvdInput.ReadInt32(ref position);
-                bool hasPayloads = _tvdInput.ReadBoolean(ref position);
+                    positions[p] = reader.ReadInt32(ref position);
+                bool hasPayloads = reader.ReadByte(ref position) != 0;
                 byte[]?[]? payloads = null;
                 if (hasPayloads)
                 {
                     payloads = new byte[]?[posCount];
                     for (int p = 0; p < posCount; p++)
                     {
-                        int payloadLength = _tvdInput.ReadInt32(ref position);
+                        int payloadLength = reader.ReadInt32(ref position);
                         if (payloadLength < 0 || payloadLength > _bodyEnd - position)
                             throw new InvalidDataException($"Term vector payload length {payloadLength} is invalid for the remaining data body.");
                         payloads[p] = payloadLength > 0
-                            ? _tvdInput.BorrowSpan(payloadLength, ref position).ToArray()
+                            ? reader.BorrowSpan(payloadLength, ref position).ToArray()
                             : null;
                     }
                 }
                 if (_version >= 2)
                 {
-                    bool hasOffsets = _tvdInput.ReadBoolean(ref position);
+                    bool hasOffsets = reader.ReadByte(ref position) != 0;
                     int[]? startOffsets = null;
                     int[]? endOffsets = null;
                     if (hasOffsets)
                     {
                         startOffsets = new int[posCount];
                         for (int p = 0; p < posCount; p++)
-                            startOffsets[p] = _tvdInput.ReadInt32(ref position);
+                            startOffsets[p] = reader.ReadInt32(ref position);
                         endOffsets = new int[posCount];
                         for (int p = 0; p < posCount; p++)
-                            endOffsets[p] = _tvdInput.ReadInt32(ref position);
+                            endOffsets[p] = reader.ReadInt32(ref position);
                     }
 
                     entries.Add(new TermVectorEntry(term, freq, positions, payloads, startOffsets, endOffsets));

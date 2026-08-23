@@ -66,6 +66,11 @@ public class WindowsFileSystemBenchmarks
             $"dirty_scanned={after.DirtySnapshotEntriesScanned - _before.DirtySnapshotEntriesScanned} " +
             $"dirty_returned={after.DirtySnapshotEntriesReturned - _before.DirtySnapshotEntriesReturned} " +
             $"immediate_durable_atomic_writes={after.ImmediateDurableAtomicWriteCount - _before.ImmediateDurableAtomicWriteCount} " +
+            $"index_input_opens={after.IndexInputOpenCount - _before.IndexInputOpenCount} " +
+            $"mmf_creations={after.MemoryMappedFileCreationCount - _before.MemoryMappedFileCreationCount} " +
+            $"mmf_view_creations={after.MemoryMappedViewCreationCount - _before.MemoryMappedViewCreationCount} " +
+            $"active_lifetime_leases={after.ActiveLifetimeLeases} " +
+            $"maximum_active_lifetime_leases={after.MaximumActiveLifetimeLeases} " +
             $"changed_sync_files={metrics.FileSyncFileCount} changed_sync_bytes={metrics.FileSyncBytes} " +
             $"retries={after.RetryCount - _before.RetryCount} " +
             $"retry_delay_ms={after.RetryDelayMilliseconds - _before.RetryDelayMilliseconds} " +

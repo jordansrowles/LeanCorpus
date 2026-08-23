@@ -69,6 +69,9 @@ dirty registrations, snapshot scan and return counts, file and directory
 synchronisation, unsupported directory results, immediate atomic durability,
 retries, allocation and physical files created. Detailed dirty counters are opt-in
 so production writes do not add global atomic contention merely for measurement.
+Storage-path diagnostics also report logical input opens, physical mapped files
+and views, and the lifetime-lease high-water mark so mapping amplification can be
+distinguished from synchronisation cost.
 
 ## Rationale
 

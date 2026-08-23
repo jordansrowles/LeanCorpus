@@ -8,6 +8,7 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
 {
     private const int DisposeRequested = int.MinValue;
     private static readonly object s_leaseToken = new();
+    private static readonly object s_measuredLeaseToken = new();
 
     private readonly object _waitLock = new();
     private int _state;
@@ -29,7 +30,8 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
     internal LifetimeLease Acquire(object owner)
     {
         EnterCore(owner);
-        return new LifetimeLease(this, s_leaseToken);
+        bool measured = Diagnostics.FileSystemDiagnostics.RecordLifetimeLeaseAcquired();
+        return new LifetimeLease(this, measured ? s_measuredLeaseToken : s_leaseToken);
     }
 
     private void EnterCore(object owner)
@@ -77,7 +79,12 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
             Monitor.PulseAll(_waitLock);
     }
 
-    void ILifetimeLeaseOwner.ReleaseLease(object token) => Exit();
+    void ILifetimeLeaseOwner.ReleaseLease(object token)
+    {
+        if (ReferenceEquals(token, s_measuredLeaseToken))
+            Diagnostics.FileSystemDiagnostics.RecordLifetimeLeaseReleased();
+        Exit();
+    }
 
     internal struct Scope : IDisposable
     {

@@ -47,6 +47,9 @@ whole lifetime as an executing reader operation.
 Public `IndexInput.ReadSpan` methods return stable copied data. Internal codecs use
 explicit borrowed spans only while a containing input, segment or query lifetime is
 active, preserving zero-copy hot paths without exposing an unowned mapped span.
+Primitive public reads retain their per-call drain. Internal decoding loops acquire
+one scoped read session for a complete postings block or term-vector document and
+perform their primitive reads under that containing operation.
 
 ## Rationale
 
@@ -67,5 +70,7 @@ files should not serialise their reads.
 - Active reads cannot observe an unmapped pointer.
 - Resident state remains cache-pinned until its reader drains.
 - Public `ReadSpan` calls allocate; internal borrowed spans remain zero-copy.
+- Hot internal decoders amortise drain synchronisation over a bounded decoding
+  operation rather than acquiring it for every primitive value.
 - No index format or package dependency changes are required.
 - ADR011 and ADR024 remain valid, with this decision defining their mmap boundary.

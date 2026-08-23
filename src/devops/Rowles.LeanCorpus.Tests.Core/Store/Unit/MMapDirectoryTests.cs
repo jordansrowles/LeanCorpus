@@ -89,6 +89,17 @@ public sealed class MMapDirectoryTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(expected, actual);
     }
 
+    [Fact(DisplayName = "Index Output: Preallocation Preserves Logical Length")]
+    public void IndexOutput_Preallocation_PreservesLogicalLength()
+    {
+        string filePath = Path.Combine(_fixture.Path, "test_preallocation.bin");
+        using (var output = new IndexOutput(filePath, preallocationSize: 1024 * 1024))
+            output.WriteBytes([1, 2, 3, 4]);
+
+        Assert.Equal(4, new FileInfo(filePath).Length);
+        Assert.Equal([1, 2, 3, 4], File.ReadAllBytes(filePath));
+    }
+
     /// <summary>
     /// Verifies the Index Input: Read Int 32 Beyond File End Throws End Of Stream Exception scenario.
     /// </summary>

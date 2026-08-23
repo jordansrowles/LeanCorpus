@@ -37,10 +37,11 @@ internal static class CompoundFileWriter
         var cfsPath = Path.Combine(directoryPath, cfsName);
         var temporaryPath = cfsPath + ".tmp";
         var entries = new Entry[sourceFiles.Length];
+        long expectedLength = GetExpectedLength(directoryPath, sourceFiles);
         try
         {
             long directoryOffset;
-            using (var output = new IndexOutput(temporaryPath))
+            using (var output = new IndexOutput(temporaryPath, preallocationSize: expectedLength))
             {
                 output.WriteInt32(Magic);
                 output.WriteInt32(Version);
@@ -98,6 +99,30 @@ internal static class CompoundFileWriter
         }
     }
 
+    private static long GetExpectedLength(string directoryPath, IReadOnlyList<string> sourceFiles)
+    {
+        long length = 3L * sizeof(int);
+        foreach (var name in sourceFiles)
+        {
+            int nameByteCount = Encoding.UTF8.GetByteCount(name);
+            length = checked(length + Get7BitEncodedLength(nameByteCount) + nameByteCount + 2L * sizeof(long));
+            length = checked(length + FileOpenRetry.GetFileLength(Path.Combine(directoryPath, name)));
+        }
+        return length;
+    }
+
+    private static int Get7BitEncodedLength(int value)
+    {
+        int length = 1;
+        uint remaining = (uint)value;
+        while (remaining >= 0x80)
+        {
+            remaining >>= 7;
+            length++;
+        }
+        return length;
+    }
+
     private readonly record struct Entry(string Name, long Offset, long Length);
 }
 
@@ -107,63 +132,70 @@ internal sealed class CompoundFileReader : IDisposable
     private readonly string _fileName;
     private readonly Dictionary<string, Entry> _entries;
     private readonly IReadOnlyList<string> _fileNames;
+    private readonly IndexInput _input;
 
-    private CompoundFileReader(string fileName, Dictionary<string, Entry> entries)
+    private CompoundFileReader(string fileName, Dictionary<string, Entry> entries, IndexInput input)
     {
         _fileName = fileName;
         _entries = entries;
+        _input = input;
         _fileNames = Array.AsReadOnly(entries.Keys.OrderBy(static name => name, StringComparer.Ordinal).ToArray());
     }
 
     internal static CompoundFileReader Open(MMapDirectory directory, string fileName)
     {
-        string path = Path.Combine(directory.DirectoryPath, fileName);
-        long fileLength = FileOpenRetry.GetFileLength(path);
-        using var stream = FileOpenRetry.OpenReadDelete(path);
-        using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: false);
-
-        if (reader.ReadInt32() != CompoundFileWriter.Magic)
-            throw new InvalidDataException($"Compound file '{fileName}' has an invalid magic.");
-        if (reader.ReadInt32() != CompoundFileWriter.Version)
-            throw new InvalidDataException($"Compound file '{fileName}' has an unsupported version.");
-
-        int entryCount = reader.ReadInt32();
-        if (entryCount < 1 || entryCount > CompoundFileWriter.MaxEntries)
-            throw new InvalidDataException($"Compound file '{fileName}' has an invalid entry count {entryCount}.");
-
-        var entries = new Dictionary<string, Entry>(entryCount, StringComparer.Ordinal);
-        for (int i = 0; i < entryCount; i++)
+        var input = directory.OpenInput(fileName);
+        try
         {
-            string name = ReadBoundedString(reader, fileName);
-            long offset = reader.ReadInt64();
-            long length = reader.ReadInt64();
-            if (!entries.TryAdd(name, new Entry(offset, length)))
-                throw new InvalidDataException($"Compound file '{fileName}' contains duplicate member '{name}'.");
-        }
+            long fileLength = input.Length;
+            if (input.ReadInt32() != CompoundFileWriter.Magic)
+                throw new InvalidDataException($"Compound file '{fileName}' has an invalid magic.");
+            if (input.ReadInt32() != CompoundFileWriter.Version)
+                throw new InvalidDataException($"Compound file '{fileName}' has an unsupported version.");
 
-        long dataStart = stream.Position;
-        foreach (var (name, entry) in entries)
-        {
-            if (entry.Offset < dataStart || entry.Offset > fileLength || entry.Length < 0 || entry.Length > fileLength - entry.Offset)
-                throw new InvalidDataException($"Compound file '{fileName}' has an out-of-range member '{name}'.");
-        }
+            int entryCount = input.ReadInt32();
+            if (entryCount < 1 || entryCount > CompoundFileWriter.MaxEntries)
+                throw new InvalidDataException($"Compound file '{fileName}' has an invalid entry count {entryCount}.");
 
-        var orderedEntries = entries
-            .OrderBy(static pair => pair.Value.Offset)
-            .ThenBy(static pair => pair.Key, StringComparer.Ordinal)
-            .ToArray();
-        for (int i = 1; i < orderedEntries.Length; i++)
-        {
-            var previous = orderedEntries[i - 1];
-            var current = orderedEntries[i];
-            if (current.Value.Offset < previous.Value.Offset + previous.Value.Length)
+            var entries = new Dictionary<string, Entry>(entryCount, StringComparer.Ordinal);
+            for (int i = 0; i < entryCount; i++)
             {
-                throw new InvalidDataException(
-                    $"Compound file '{fileName}' has overlapping members '{previous.Key}' and '{current.Key}'.");
+                string name = ReadBoundedString(input, fileName);
+                long offset = input.ReadInt64();
+                long length = input.ReadInt64();
+                if (!entries.TryAdd(name, new Entry(offset, length)))
+                    throw new InvalidDataException($"Compound file '{fileName}' contains duplicate member '{name}'.");
             }
-        }
 
-        return new CompoundFileReader(fileName, entries);
+            long dataStart = input.Position;
+            foreach (var (name, entry) in entries)
+            {
+                if (entry.Offset < dataStart || entry.Offset > fileLength || entry.Length < 0 || entry.Length > fileLength - entry.Offset)
+                    throw new InvalidDataException($"Compound file '{fileName}' has an out-of-range member '{name}'.");
+            }
+
+            var orderedEntries = entries
+                .OrderBy(static pair => pair.Value.Offset)
+                .ThenBy(static pair => pair.Key, StringComparer.Ordinal)
+                .ToArray();
+            for (int i = 1; i < orderedEntries.Length; i++)
+            {
+                var previous = orderedEntries[i - 1];
+                var current = orderedEntries[i];
+                if (current.Value.Offset < previous.Value.Offset + previous.Value.Length)
+                {
+                    throw new InvalidDataException(
+                        $"Compound file '{fileName}' has overlapping members '{previous.Key}' and '{current.Key}'.");
+                }
+            }
+
+            return new CompoundFileReader(fileName, entries, input);
+        }
+        catch
+        {
+            input.Dispose();
+            throw;
+        }
     }
 
     internal bool HasFile(string fileName) => _entries.ContainsKey(fileName);
@@ -182,30 +214,26 @@ internal sealed class CompoundFileReader : IDisposable
     {
         if (!_entries.TryGetValue(fileName, out var entry))
             throw new FileNotFoundException($"Compound member '{fileName}' was not found.", _fileName);
-        return directory.OpenInputSlice(_fileName, entry.Offset, entry.Length);
+        return _input.OpenSharedSlice(entry.Offset, entry.Length);
     }
 
-    public void Dispose()
-    {
-    }
+    public void Dispose() => _input.Dispose();
 
-    private static string ReadBoundedString(BinaryReader reader, string fileName)
+    private static string ReadBoundedString(IndexInput input, string fileName)
     {
-        int byteCount = ReadBounded7BitInt(reader, fileName);
+        int byteCount = ReadBounded7BitInt(input, fileName);
         if (byteCount is < 0 or > 1024)
             throw new InvalidDataException($"Compound file '{fileName}' has an overlong member name.");
-        var bytes = reader.ReadBytes(byteCount);
-        if (bytes.Length != byteCount)
-            throw new EndOfStreamException($"Compound file '{fileName}' has a truncated member name.");
+        var bytes = input.ReadBytes(byteCount);
         return Encoding.UTF8.GetString(bytes);
     }
 
-    private static int ReadBounded7BitInt(BinaryReader reader, string fileName)
+    private static int ReadBounded7BitInt(IndexInput input, string fileName)
     {
         int result = 0;
         for (int shift = 0; shift < 35; shift += 7)
         {
-            int value = reader.ReadByte();
+            int value = input.ReadByte();
             result |= (value & 0x7F) << shift;
             if ((value & 0x80) == 0)
                 return result;

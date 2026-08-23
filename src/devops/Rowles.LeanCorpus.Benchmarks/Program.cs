@@ -95,6 +95,7 @@ internal static class Program
                 BenchmarkSuite.VectorQuantisation,
                 BenchmarkSuite.CompoundFile,
                 BenchmarkSuite.WindowsFileSystem,
+                BenchmarkSuite.WindowsStoragePath,
                 BenchmarkSuite.IncrementalBackup,
                 BenchmarkSuite.ReaderManagerLifecycle,
                 BenchmarkSuite.MultiReader,
@@ -300,6 +301,9 @@ internal static class Program
 
         if (suites.Contains(BenchmarkSuite.WindowsFileSystem))
             RunSuite<WindowsFileSystemBenchmarks>("windows-filesystem", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.WindowsStoragePath))
+            RunSuite<WindowsStoragePathBenchmarks>("windows-storage-path", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (suites.Contains(BenchmarkSuite.IncrementalBackup))
             RunSuite<IncrementalBackupBenchmarks>("incremental-backup", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -691,6 +695,7 @@ internal static class Program
               mmap-io             MMapDirectoryIOBenchmarks -- raw I/O throughput (explicit only)
               compound-file       CompoundFileBenchmarks -- loose files vs compound segment storage (explicit only)
               windows-filesystem  WindowsFileSystemBenchmarks -- durability and compound-file matrix (explicit only)
+              windows-storage     WindowsStoragePathBenchmarks -- decoding, mapping and sequential-write paths (explicit only)
               incremental-backup  IncrementalBackupBenchmarks -- full and parent-linked backup operations (explicit only)
               reader-manager      ReaderManagerLifecycleBenchmarks -- generic reader lifecycle overhead (explicit only)
               multi-reader        MultiReaderBenchmarks -- federated search and pagination (explicit only)
@@ -832,6 +837,7 @@ internal static class Program
             "mmap-io" or "mmapio" => BenchmarkSuite.MMapIO,
             "compound-file" or "compoundfile" => BenchmarkSuite.CompoundFile,
             "windows-filesystem" or "windowsfilesystem" => BenchmarkSuite.WindowsFileSystem,
+            "windows-storage" or "windowsstorage" => BenchmarkSuite.WindowsStoragePath,
             "incremental-backup" or "incrementalbackup" => BenchmarkSuite.IncrementalBackup,
             "reader-manager" or "readermanager" => BenchmarkSuite.ReaderManagerLifecycle,
             "multi-reader" or "multireader" => BenchmarkSuite.MultiReader,
@@ -965,6 +971,7 @@ internal static class Program
         MMapIO,
         CompoundFile,
         WindowsFileSystem,
+        WindowsStoragePath,
         IncrementalBackup,
         ReaderManagerLifecycle,
         MultiReader,

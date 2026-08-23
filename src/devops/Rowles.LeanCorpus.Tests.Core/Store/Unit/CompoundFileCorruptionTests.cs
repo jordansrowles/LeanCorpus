@@ -37,6 +37,78 @@ public sealed class CompoundFileCorruptionTests : IDisposable
     }
 
     [Fact]
+    public void Open_MultipleMembers_SharesOnePhysicalMapping()
+    {
+        const string fileName = "shared-map.cfs";
+        WriteCompound(
+            fileName,
+            [0x10, 0x11, 0x20, 0x21],
+            ("seg_test.dic", 0, 2),
+            ("seg_test.pos", 2, 2));
+
+        using var directory = new MMapDirectory(_path);
+        using var compound = CompoundFileReader.Open(directory, fileName);
+        using var first = compound.OpenInput(directory, "seg_test.dic");
+        using var second = compound.OpenInput(directory, "seg_test.pos");
+
+        Assert.Same(first.MappingIdentity, second.MappingIdentity);
+        Assert.Equal([0x10, 0x11], first.ReadBytes(2));
+        Assert.Equal([0x20, 0x21], second.ReadBytes(2));
+    }
+
+    [Fact]
+    public async Task Dispose_WithOpenMember_WaitsForMemberLifetime()
+    {
+        const string fileName = "shared-lifetime.cfs";
+        WriteCompound(fileName, [0x10, 0x11], ("seg_test.dic", 0, 2));
+
+        using var directory = new MMapDirectory(_path);
+        var compound = CompoundFileReader.Open(directory, fileName);
+        var member = compound.OpenInput(directory, "seg_test.dic");
+        var dispose = Task.Run(compound.Dispose);
+        try
+        {
+            await Task.Delay(25, TestContext.Current.CancellationToken);
+            Assert.False(dispose.IsCompleted);
+            Assert.Equal(0x10, member.ReadByte());
+        }
+        finally
+        {
+            member.Dispose();
+        }
+
+        await dispose.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task NestedSlice_RetainsContainerWithoutBlockingMemberDisposal()
+    {
+        const string fileName = "nested-lifetime.cfs";
+        WriteCompound(fileName, [0x10, 0x11], ("seg_test.dic", 0, 2));
+
+        using var directory = new MMapDirectory(_path);
+        var compound = CompoundFileReader.Open(directory, fileName);
+        var member = compound.OpenInput(directory, "seg_test.dic");
+        var nested = member.OpenSlice(1, 1);
+        member.Dispose();
+
+        var dispose = Task.Run(compound.Dispose);
+        try
+        {
+            await Task.Delay(25, TestContext.Current.CancellationToken);
+            Assert.False(dispose.IsCompleted);
+            Assert.Same(member.MappingIdentity, nested.MappingIdentity);
+            Assert.Equal(0x11, nested.ReadByte());
+        }
+        finally
+        {
+            nested.Dispose();
+        }
+
+        await dispose.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public void Open_InvalidMagic_Throws()
     {
         WriteCompound("bad-magic.cfs", [0x01], ("member", 0, 1));
