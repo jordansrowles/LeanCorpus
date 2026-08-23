@@ -55,6 +55,8 @@ public sealed class MergeFailureTests : IClassFixture<TestDirectoryFixture>
             var ex = Assert.Throws<InvalidOperationException>(() =>
                 writer.AddDocument(MakeDoc("doc-2", "should be gated")));
             Assert.Contains("unusable", ex.Message, StringComparison.OrdinalIgnoreCase);
+            var inner = Assert.IsType<FileNotFoundException>(ex.InnerException);
+            Assert.Contains("seg_0.dic", inner.Message, StringComparison.Ordinal);
         }
     }
 

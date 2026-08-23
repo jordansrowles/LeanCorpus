@@ -29,7 +29,12 @@ internal static class MergeScheduler
                     if (selected.Count < 2)
                         break;
 
-                    sources = selected.ToArray();
+                    var selectedIds = new HashSet<string>(
+                        selected.Select(static segment => segment.SegmentId),
+                        StringComparer.Ordinal);
+                    sources = writer.CommittedSegments
+                        .Where(segment => selectedIds.Contains(segment.SegmentId))
+                        .ToArray();
                     sourceStates = sources.Select(static source => new MergeSourceState(
                         source.DelGeneration, source.LiveDocCount)).ToArray();
                     foreach (var source in sources)
@@ -105,7 +110,7 @@ internal static class MergeScheduler
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "background-merge");
-            writer.MarkIndexingFailed();
+            writer.MarkIndexingFailed(ex);
         }
         finally
         {

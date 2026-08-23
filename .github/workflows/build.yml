@@ -142,13 +142,18 @@ jobs:
       - name: Test
         run: |
           dotnet test src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj -c Release --no-build --logger "trx;LogFileName=rowles-text-test-results.trx"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:CHAOS_ITERATIONS = "1000"; dotnet test src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj -c Release --no-build --logger "trx;LogFileName=core-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet test src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-build --logger "trx;LogFileName=sourcegen-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test architecture rules
         run: |
           dotnet test src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj -c Release -f net10.0 --no-build --logger "trx;LogFileName=architecture-net10-test-results.trx" --results-directory architecture-test-results/net10.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet test src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj -c Release -f net11.0 --no-build --logger "trx;LogFileName=architecture-net11-test-results.trx" --results-directory architecture-test-results/net11.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run Native AOT smoke tests
         run: dotnet run --project src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-build --framework net10.0

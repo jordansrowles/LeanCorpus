@@ -37,7 +37,11 @@ internal static class CompoundFileWriter
         var cfsPath = Path.Combine(directoryPath, cfsName);
         var temporaryPath = cfsPath + ".tmp";
         var entries = new Entry[sourceFiles.Length];
-        long expectedLength = GetExpectedLength(directoryPath, sourceFiles);
+        // Keep Windows compound writes incremental rather than eagerly extending every output.
+        // Retain reservation on POSIX, where it avoids fragmented merge output.
+        long expectedLength = OperatingSystem.IsWindows()
+            ? 0
+            : GetExpectedLength(directoryPath, sourceFiles);
         try
         {
             long directoryOffset;

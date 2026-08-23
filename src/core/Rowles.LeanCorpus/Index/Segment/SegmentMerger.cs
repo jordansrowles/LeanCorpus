@@ -111,8 +111,14 @@ public sealed class SegmentMerger
             if (toMerge.Count < 2)
                 break;
 
+            // Merge policies select candidates by size and deletion density, but document IDs
+            // must follow the committed segment order rather than an unstable policy sort.
+            var selectedIds = new HashSet<string>(
+                toMerge.Select(static segment => segment.SegmentId),
+                StringComparer.Ordinal);
+            var orderedForMerge = result.Where(segment => selectedIds.Contains(segment.SegmentId)).ToList();
             var merged = MergeSegments(
-                toMerge is List<SegmentInfo> list ? list : new List<SegmentInfo>(toMerge),
+                orderedForMerge,
                 ref nextSegmentOrdinal, commitGeneration);
             if (merged == null)
                 break;

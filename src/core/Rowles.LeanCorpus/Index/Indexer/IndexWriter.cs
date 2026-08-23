@@ -80,6 +80,7 @@ public sealed partial class IndexWriter : IDisposable
     private int _closing;       // 0 = open, 1 = Dispose has started draining (prevents TOCTOU)
     private int _inFlightAdds;  // count of indexing callers that passed the disposed-check gate
     private int _indexingFailed;
+    private Exception? _indexingFailure;
     private readonly Stream _writeLockFile;
 
     /// <summary>
@@ -603,8 +604,7 @@ public sealed partial class IndexWriter : IDisposable
             if (Volatile.Read(ref _closing) != 0)
                 throw new ObjectDisposedException(nameof(IndexWriter),
                     "The writer is shutting down. No new indexing operations are accepted.");
-            throw new InvalidOperationException(
-                "The writer is unusable after an unrecoverable failure. Dispose the writer and reopen from the last commit.");
+            throw CreateIndexingFailureException();
         }
     }
 
@@ -613,17 +613,23 @@ public sealed partial class IndexWriter : IDisposable
         Interlocked.Decrement(ref _inFlightAdds);
     }
 
-    internal void MarkIndexingFailed()
+    internal void MarkIndexingFailed(Exception? failure = null)
     {
+        if (failure is not null)
+            Interlocked.CompareExchange(ref _indexingFailure, failure, null);
         Volatile.Write(ref _indexingFailed, 1);
     }
 
     internal void ThrowIfIndexingFailed()
     {
         if (Volatile.Read(ref _indexingFailed) != 0)
-            throw new InvalidOperationException(
-                "The writer is unusable after an unrecoverable failure. Dispose the writer and reopen from the last commit.");
+            throw CreateIndexingFailureException();
     }
+
+    private InvalidOperationException CreateIndexingFailureException()
+        => new(
+            "The writer is unusable after an unrecoverable failure. Dispose the writer and reopen from the last commit.",
+            Volatile.Read(ref _indexingFailure));
 
     internal void ValidateDocument(LeanDocument doc)
     {
