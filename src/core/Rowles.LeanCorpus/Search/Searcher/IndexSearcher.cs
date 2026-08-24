@@ -381,7 +381,7 @@ public sealed partial class IndexSearcher : IDisposable
             : Math.Max(generationMarker, vectorMarker);
         if (marker > 0)
             candidate = candidate[..marker];
-        return segmentIds.Contains(candidate);
+        return segmentIds.Contains(candidate) && SegmentReader.IsSegmentFile(candidate, fileName);
     }
 
     /// <summary>

@@ -204,10 +204,13 @@ public sealed class SegmentReader : IDisposable
         => inventory.Where(name => IsSegmentFile(segmentId, name))
             .ToArray();
 
-    private static bool IsSegmentFile(string segmentId, string name)
-        => name.Equals(segmentId + ".seg", StringComparison.Ordinal)
-            || name.StartsWith(segmentId + ".", StringComparison.Ordinal)
-            || name.StartsWith(segmentId + "_", StringComparison.Ordinal);
+    // Atomic writers briefly expose GUID-suffixed temporary files in the directory.
+    // They are publication machinery, not immutable files belonging to the snapshot.
+    internal static bool IsSegmentFile(string segmentId, string name)
+        => !name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)
+            && (name.Equals(segmentId + ".seg", StringComparison.Ordinal)
+                || name.StartsWith(segmentId + ".", StringComparison.Ordinal)
+                || name.StartsWith(segmentId + "_", StringComparison.Ordinal));
 
     internal static void ValidateRequiredFiles(SegmentInfo info, IReadOnlyCollection<string> inventory)
     {
