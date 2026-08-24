@@ -1,6 +1,6 @@
 # Migrating indexes to 3.0
 
-LeanCorpus 3.0 introduces a canonical self-identifying frame with checksums for current binary codec files. Supported 1.x and 2.x indexes remain readable, and the migration tooling can rewrite supported formats without a full reindex.
+LeanCorpus 3.0 introduces a canonical self-identifying frame with checksums for current binary codec files. Supported indexes from 2.0 onwards remain readable, and the migration tooling can rewrite supported formats without a full reindex.
 
 ## Before upgrading
 

@@ -46,7 +46,7 @@ Normal opens validate framing and bounds but do not scan a large body checksum. 
 
 ## Supported historical framing
 
-Supported 1.x and 2.x bodies may use:
+Supported 2.x bodies may use:
 
 ```text
 [version: byte][zigzag VarInt64 body length][body]

@@ -23,7 +23,7 @@ function Invoke-DevOpsAot {
         Write-Heading "Publishing AOT smoke tests for $tfm ($runtimeIdentifier)..."
         dotnet publish $project -c Release -r $runtimeIdentifier --self-contained true -f $tfm
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "dotnet publish failed for $tfm with exit code $LASTEXITCODE."
+            Write-Failure "dotnet publish failed for $tfm with exit code $LASTEXITCODE."
             $failed += $tfm
             continue
         }

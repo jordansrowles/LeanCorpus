@@ -91,7 +91,15 @@ function Invoke-DevOpsBenchmark {
     if ($controlled) {
         if ($docCount -le 0 -and $stratDocCount -le 0) { $stratDocCount = 1000 }
         if ($stratJobArgs.Count -eq 0) { $stratJobArgs = @('--job', 'short') }
-        $corpusOnly = $true
+        $standaloneSuites = @(
+            'codec-frame',
+            'codec-frame-read',
+            'codec-migration',
+            'compound-file',
+            'windows-filesystem',
+            'windows-storage'
+        )
+        if ($suite -notin $standaloneSuites) { $corpusOnly = $true }
     }
 
     $effectiveDocCount = 0

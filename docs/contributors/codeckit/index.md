@@ -5,7 +5,7 @@ CodecKit has two related jobs:
 1. `ICodec<T>` composes in-memory values into binary bodies.
 2. `CodecCatalog` describes every persistent LeanCorpus file role, while canonical Frame v1 identifies and protects current binary files.
 
-The catalogue is the authority for persistent format IDs, body-format versions, file matching, access patterns, checksums and migration policy. Fixed internal version envelopes remain only for reading supported 1.x and 2.x files.
+The catalogue is the authority for persistent format IDs, body-format versions, file matching, access patterns, checksums and migration policy. Fixed internal version envelopes remain only for reading supported 2.x files.
 
 ## Key types
 

@@ -3,7 +3,7 @@ using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.CodecKit;
 
-/// <summary>Legacy file framing kinds retained for reading supported 1.x and 2.x indexes.</summary>
+/// <summary>Legacy file framing kinds retained for reading supported 2.x indexes.</summary>
 public enum LegacyCodecFrameKind
 {
     Envelope,

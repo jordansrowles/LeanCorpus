@@ -81,7 +81,7 @@ Do not increment a body-format version merely because the outer frame changed.
 
 ## Backwards and downgrade policy
 
-LeanCorpus 3.0 reads intentionally supported 1.x and 2.x formats and can migrate supported paths. Current writers emit canonical Frame v1. Older LeanCorpus releases do not understand that frame, so opening a 3.0-written index with a 2.x binary is unsupported. Keep a verified backup if rollback to an older application version may be required.
+LeanCorpus 3.0 reads supported formats from 2.0 onwards and can migrate supported paths. Current writers emit canonical Frame v1. Older LeanCorpus releases do not understand that frame, so opening a 3.0-written index with a 2.x binary is unsupported. Keep a verified backup if rollback to an older application version may be required.
 
 ## See also
 

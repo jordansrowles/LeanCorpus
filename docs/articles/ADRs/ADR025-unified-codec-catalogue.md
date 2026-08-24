@@ -35,7 +35,7 @@ file matching, inspection, validation, migration, compound-file handling or
 temporary-file cleanup. This is unsuitable for plugins, AOT, deterministic tests
 and processes hosting indexes with different format sets.
 
-LeanCorpus 3.0 must continue to read intentionally supported 1.x and 2.x indexes,
+LeanCorpus 3.0 must continue to read supported indexes from 2.0 onwards,
 but it must write one self-identifying current storage generation. Large postings,
 vector, BKD and graph files must remain streaming or random access rather than
 being forced through `byte[]`.
@@ -138,7 +138,7 @@ must not contain another framing parser.
 
 ### Compatibility and legacy readers
 
-LeanCorpus 3.0 reads the 1.x and 2.x generations that are intentionally listed in
+LeanCorpus 3.0 reads the 2.x generations that are intentionally listed in
 catalogue version history and writes only the canonical generation. Opening and
 searching a supported old index remains allowed. Mutating an old-format index
 continues to require migration unless a later decision explicitly relaxes that

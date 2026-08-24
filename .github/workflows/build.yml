@@ -72,7 +72,7 @@ jobs:
           dotnet test src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj -c Release -f net11.0 --no-build --logger "trx;LogFileName=architecture-net11-test-results.trx" --results-directory architecture-test-results/net11.0
 
       - name: Run Native AOT smoke tests
-        run: dotnet run --project src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-build --framework net10.0
+        run: ./devops aot
 
       - name: Upload test results
         if: always()
@@ -156,7 +156,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run Native AOT smoke tests
-        run: dotnet run --project src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-build --framework net10.0
+        run: .\devops.ps1 aot
 
       - name: Upload test results
         if: always()
