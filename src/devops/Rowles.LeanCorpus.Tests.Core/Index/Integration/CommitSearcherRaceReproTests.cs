@@ -49,7 +49,7 @@ public sealed class CommitSearcherRaceReproTests : IClassFixture<TestDirectoryFi
     {
         var dirPath = SubDir("commit_searcher_race");
         using var dir = new MMapDirectory(dirPath);
-        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+        using var writer = new IndexWriter(dir, new IndexWriterConfig { DurableCommits = false });
         using var manager = new SearcherManager(dir, null);
 
         int iterations = 200;
@@ -111,7 +111,7 @@ public sealed class CommitSearcherRaceReproTests : IClassFixture<TestDirectoryFi
     {
         var dirPath = SubDir("commit_searcher_stress");
         using var dir = new MMapDirectory(dirPath);
-        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+        using var writer = new IndexWriter(dir, new IndexWriterConfig { DurableCommits = false });
         using var manager = new SearcherManager(dir, null);
 
         int iterations = 600;
