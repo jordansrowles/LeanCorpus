@@ -53,9 +53,9 @@ public sealed class SegmentReaderThreadSafetyTests : IDisposable
         // Establish reference counts for each term
         var referenceDocFreqs = new Dictionary<string, int>();
         for (int t = 0; t < 10; t++)
-            referenceDocFreqs[$"alpha{t}"] = searcher.Search(new TermQuery("body", $"alpha{t}"), docCount).TotalHits;
+            referenceDocFreqs[$"alpha{t}"] = searcher.Search(new TermQuery("body", $"alpha{t}"), docCount, TestContext.Current.CancellationToken).TotalHits;
         for (int t = 0; t < 5; t++)
-            referenceDocFreqs[$"beta{t}"] = searcher.Search(new TermQuery("body", $"beta{t}"), docCount).TotalHits;
+            referenceDocFreqs[$"beta{t}"] = searcher.Search(new TermQuery("body", $"beta{t}"), docCount, TestContext.Current.CancellationToken).TotalHits;
 
         var errors = new System.Collections.Concurrent.ConcurrentBag<string>();
         var exceptions = new System.Collections.Concurrent.ConcurrentBag<Exception>();
@@ -118,7 +118,7 @@ public sealed class SegmentReaderThreadSafetyTests : IDisposable
 
         using var searcher = new IndexSearcher(directory);
 
-        var reference = searcher.Search(new TermQuery("body", "target"), docCount);
+        var reference = searcher.Search(new TermQuery("body", "target"), docCount, TestContext.Current.CancellationToken);
         var expectedIds = reference.ScoreDocs.Select(sd => sd.DocId).OrderBy(id => id).ToArray();
 
         var errors = new System.Collections.Concurrent.ConcurrentBag<string>();

@@ -49,8 +49,8 @@ public sealed class QueryCacheTests : IDisposable
         using var searcher = new IndexSearcher(dir, config);
 
         var q = new TermQuery("body", "hello");
-        var first = searcher.Search(q, 10);
-        var second = searcher.Search(q, 10);
+        var first = searcher.Search(q, 10, TestContext.Current.CancellationToken);
+        var second = searcher.Search(q, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(first.TotalHits, second.TotalHits);
         Assert.NotNull(searcher.Cache);
@@ -91,8 +91,8 @@ public sealed class QueryCacheTests : IDisposable
         var config = new IndexSearcherConfig { EnableQueryCache = true };
         using var searcher = new IndexSearcher(dir, config);
 
-        searcher.Search(new TermQuery("body", "alpha"), 10);
-        searcher.Search(new TermQuery("body", "beta"), 10);
+        searcher.Search(new TermQuery("body", "alpha"), 10, TestContext.Current.CancellationToken);
+        searcher.Search(new TermQuery("body", "beta"), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, searcher.Cache!.Count);
         Assert.Equal(0, searcher.Cache.Hits);
@@ -116,8 +116,8 @@ public sealed class QueryCacheTests : IDisposable
         using var searcher = new IndexSearcher(dir, config);
 
         var q = new TermQuery("body", "test");
-        searcher.Search(q, 5);
-        searcher.Search(q, 10);
+        searcher.Search(q, 5, TestContext.Current.CancellationToken);
+        searcher.Search(q, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, searcher.Cache!.Count);
     }

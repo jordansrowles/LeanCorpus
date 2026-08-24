@@ -61,7 +61,7 @@ public sealed class BlockJoinBenchmarkReproTests : IClassFixture<TestDirectoryFi
         using var searcher = new IndexSearcher(mmap);
         var childQuery = new TermQuery("body", "comment");
         var blockJoin = new BlockJoinQuery(childQuery);
-        var topDocs = searcher.Search(blockJoin, 25);
+        var topDocs = searcher.Search(blockJoin, 25, TestContext.Current.CancellationToken);
 
         Assert.True(topDocs.TotalHits > 0, "Expected at least 1 parent hit from block-join query");
     }

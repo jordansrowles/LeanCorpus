@@ -111,11 +111,11 @@ public class CharFilterTests : IDisposable
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
 
         // Should find "content" (tags stripped before indexing)
-        var results = searcher.Search(new TermQuery("body", "content"), 10);
+        var results = searcher.Search(new TermQuery("body", "content"), 10, TestContext.Current.CancellationToken);
         Assert.True(results.TotalHits >= 1);
 
         // Should NOT find literal HTML tags
-        var tagResults = searcher.Search(new TermQuery("body", "<p>"), 10);
+        var tagResults = searcher.Search(new TermQuery("body", "<p>"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(0, tagResults.TotalHits);
     }
 
@@ -140,7 +140,7 @@ public class CharFilterTests : IDisposable
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
 
         // Hyphens/underscores replaced with spaces → separate tokens
-        var results = searcher.Search(new TermQuery("body", "world"), 10);
+        var results = searcher.Search(new TermQuery("body", "world"), 10, TestContext.Current.CancellationToken);
         Assert.True(results.TotalHits >= 1);
     }
 
@@ -169,7 +169,7 @@ public class CharFilterTests : IDisposable
 
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
         // "item" should be found (digits stripped after HTML strip)
-        var results = searcher.Search(new TermQuery("body", "item"), 10);
+        var results = searcher.Search(new TermQuery("body", "item"), 10, TestContext.Current.CancellationToken);
         Assert.True(results.TotalHits >= 1);
     }
 }

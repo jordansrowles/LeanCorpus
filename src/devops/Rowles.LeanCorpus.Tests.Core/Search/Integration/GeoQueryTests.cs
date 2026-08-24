@@ -62,7 +62,7 @@ public sealed class GeoQueryTests : IDisposable
 
         // Box covering Western Europe (London + Paris)
         var query = new GeoBoundingBoxQuery("location", 47.0, 53.0, -2.0, 4.0);
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
     }
@@ -79,7 +79,7 @@ public sealed class GeoQueryTests : IDisposable
 
         // Box over middle of Pacific
         var query = new GeoBoundingBoxQuery("location", 0.0, 1.0, -170.0, -169.0);
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, results.TotalHits);
     }
@@ -96,7 +96,7 @@ public sealed class GeoQueryTests : IDisposable
 
         // 400km radius from London — should include London, possibly Paris (~340km)
         var query = new GeoDistanceQuery("location", 51.5074, -0.1278, 400_000.0);
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.True(results.TotalHits >= 1, "Should find at least London");
         Assert.True(results.TotalHits <= 2, "Should find at most London and Paris");
@@ -114,7 +114,7 @@ public sealed class GeoQueryTests : IDisposable
 
         // 10km radius centred exactly on Tokyo
         var query = new GeoDistanceQuery("location", 35.6762, 139.6503, 10_000.0);
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, results.TotalHits);
     }
@@ -131,7 +131,7 @@ public sealed class GeoQueryTests : IDisposable
 
         // 10,000km radius from centre of Atlantic — should reach London/Paris/NY
         var query = new GeoDistanceQuery("location", 45.0, -30.0, 10_000_000.0);
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.True(results.TotalHits >= 3, $"Expected ≥3 hits, got {results.TotalHits}");
     }
@@ -148,7 +148,7 @@ public sealed class GeoQueryTests : IDisposable
 
         // Find Tokyo via tight bounding box
         var query = new GeoBoundingBoxQuery("location", 35.0, 36.0, 139.0, 140.0);
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
 
         var stored = searcher.GetStoredFields(results.ScoreDocs[0].DocId);

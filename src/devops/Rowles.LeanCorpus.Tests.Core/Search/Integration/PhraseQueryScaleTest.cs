@@ -64,12 +64,12 @@ public class PhraseQueryScaleTest(ITestOutputHelper output) : IDisposable
         var searcher = new IndexSearcher(dir);
 
         sw.Restart();
-        var results2 = searcher.Search(new PhraseQuery("body", ["alpha", "beta"]), 10);
+        var results2 = searcher.Search(new PhraseQuery("body", ["alpha", "beta"]), 10, TestContext.Current.CancellationToken);
         output.WriteLine($"N={docCount}: 2-word phrase hits={results2.TotalHits} took {sw.ElapsedMilliseconds}ms");
         Assert.True(results2.TotalHits > 0);
 
         sw.Restart();
-        var results3 = searcher.Search(new PhraseQuery("body", ["alpha", "beta", "gamma"]), 10);
+        var results3 = searcher.Search(new PhraseQuery("body", ["alpha", "beta", "gamma"]), 10, TestContext.Current.CancellationToken);
         output.WriteLine($"N={docCount}: 3-word phrase hits={results3.TotalHits} took {sw.ElapsedMilliseconds}ms");
         Assert.True(results3.TotalHits > 0);
         Assert.Equal(docCount, results3.TotalHits);
@@ -107,7 +107,7 @@ public class PhraseQueryScaleTest(ITestOutputHelper output) : IDisposable
         output.WriteLine($"25K docs with backpressure flush: {sw.ElapsedMilliseconds}ms");
 
         var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new PhraseQuery("body", ["alpha", "beta", "gamma"]), 10);
+        var results = searcher.Search(new PhraseQuery("body", ["alpha", "beta", "gamma"]), 10, TestContext.Current.CancellationToken);
         output.WriteLine($"TotalHits={results.TotalHits}");
         Assert.True(results.TotalHits > 0);
         searcher.Dispose();

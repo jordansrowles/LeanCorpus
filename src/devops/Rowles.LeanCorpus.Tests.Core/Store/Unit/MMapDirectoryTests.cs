@@ -360,12 +360,12 @@ public sealed class MMapDirectoryTests : IClassFixture<TestDirectoryFixture>
                 gate.Wait();
                 try { lease = first.AcquireSnapshot([name]); }
                 catch (FileNotFoundException) { }
-            });
+            }, TestContext.Current.CancellationToken);
             var delete = Task.Run(() =>
             {
                 gate.Wait();
                 second.DeleteFile(name);
-            });
+            }, TestContext.Current.CancellationToken);
             gate.Set();
             await Task.WhenAll(acquire, delete);
             lease?.Dispose();

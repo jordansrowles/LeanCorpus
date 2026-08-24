@@ -71,13 +71,13 @@ public sealed class AllocationRegressionTests : IClassFixture<TestDirectoryFixtu
 
         // Warmup
         for (int i = 0; i < warmup; i++)
-            searcher.Search(query, 25);
+            searcher.Search(query, 25, TestContext.Current.CancellationToken);
 
         // Measure
         long allocBefore = GC.GetAllocatedBytesForCurrentThread();
         var sw = Stopwatch.StartNew();
         for (int i = 0; i < measured; i++)
-            searcher.Search(query, 25);
+            searcher.Search(query, 25, TestContext.Current.CancellationToken);
         sw.Stop();
         long allocAfter = GC.GetAllocatedBytesForCurrentThread();
 
@@ -87,7 +87,7 @@ public sealed class AllocationRegressionTests : IClassFixture<TestDirectoryFixtu
         _output.WriteLine($"BooleanQuery Must(2 terms) over {docCount} docs:");
         _output.WriteLine($"  Avg allocation: {avgBytes:F0} bytes/query");
         _output.WriteLine($"  Avg latency:    {avgUs:F1} µs/query");
-        _output.WriteLine($"  Total hits:     {searcher.Search(query, 25).TotalHits}");
+        _output.WriteLine($"  Total hits:     {searcher.Search(query, 25, TestContext.Current.CancellationToken).TotalHits}");
 
         // Budget: ≤ 16 KB per query — v3 block codec uses constant-size block buffers
         Assert.True(avgBytes <= 16384,
@@ -129,13 +129,13 @@ public sealed class AllocationRegressionTests : IClassFixture<TestDirectoryFixtu
 
         // Warmup
         for (int i = 0; i < warmup; i++)
-            searcher.Search(query, 25);
+            searcher.Search(query, 25, TestContext.Current.CancellationToken);
 
         // Measure
         long allocBefore = GC.GetAllocatedBytesForCurrentThread();
         var sw = Stopwatch.StartNew();
         for (int i = 0; i < measured; i++)
-            searcher.Search(query, 25);
+            searcher.Search(query, 25, TestContext.Current.CancellationToken);
         sw.Stop();
         long allocAfter = GC.GetAllocatedBytesForCurrentThread();
 
@@ -145,7 +145,7 @@ public sealed class AllocationRegressionTests : IClassFixture<TestDirectoryFixtu
         _output.WriteLine($"BooleanQuery Should(3 terms) over {docCount} docs:");
         _output.WriteLine($"  Avg allocation: {avgBytes:F0} bytes/query");
         _output.WriteLine($"  Avg latency:    {avgUs:F1} µs/query");
-        _output.WriteLine($"  Total hits:     {searcher.Search(query, 25).TotalHits}");
+        _output.WriteLine($"  Total hits:     {searcher.Search(query, 25, TestContext.Current.CancellationToken).TotalHits}");
 
         // Budget: ≤ 16 KB per query — v3 block codec uses constant-size block buffers
         Assert.True(avgBytes <= 16384,
@@ -183,13 +183,13 @@ public sealed class AllocationRegressionTests : IClassFixture<TestDirectoryFixtu
 
         // Warmup
         for (int i = 0; i < warmup; i++)
-            searcher.Search(query, 25);
+            searcher.Search(query, 25, TestContext.Current.CancellationToken);
 
         // Measure
         long allocBefore = GC.GetAllocatedBytesForCurrentThread();
         var sw = Stopwatch.StartNew();
         for (int i = 0; i < measured; i++)
-            searcher.Search(query, 25);
+            searcher.Search(query, 25, TestContext.Current.CancellationToken);
         sw.Stop();
         long allocAfter = GC.GetAllocatedBytesForCurrentThread();
 
@@ -199,7 +199,7 @@ public sealed class AllocationRegressionTests : IClassFixture<TestDirectoryFixtu
         _output.WriteLine($"PhraseQuery(\"quick\",\"brown\") over {docCount} docs:");
         _output.WriteLine($"  Avg allocation: {avgBytes:F0} bytes/query");
         _output.WriteLine($"  Avg latency:    {avgUs:F1} µs/query");
-        _output.WriteLine($"  Total hits:     {searcher.Search(query, 25).TotalHits}");
+        _output.WriteLine($"  Total hits:     {searcher.Search(query, 25, TestContext.Current.CancellationToken).TotalHits}");
 
         // Budget: ≤ 16 KB per query — v3 block codec uses constant-size block buffers
         Assert.True(avgBytes <= 16384,
@@ -238,13 +238,13 @@ public sealed class AllocationRegressionTests : IClassFixture<TestDirectoryFixtu
 
         // Warmup
         for (int i = 0; i < warmup; i++)
-            searcher.Search(query, 25);
+            searcher.Search(query, 25, TestContext.Current.CancellationToken);
 
         // Measure
         long allocBefore = GC.GetAllocatedBytesForCurrentThread();
         var sw = Stopwatch.StartNew();
         for (int i = 0; i < measured; i++)
-            searcher.Search(query, 25);
+            searcher.Search(query, 25, TestContext.Current.CancellationToken);
         sw.Stop();
         long allocAfter = GC.GetAllocatedBytesForCurrentThread();
 
@@ -254,7 +254,7 @@ public sealed class AllocationRegressionTests : IClassFixture<TestDirectoryFixtu
         _output.WriteLine($"WildcardQuery(\"bench*\") over {docCount} docs:");
         _output.WriteLine($"  Avg allocation: {avgBytes:F0} bytes/query");
         _output.WriteLine($"  Avg latency:    {avgUs:F1} µs/query");
-        _output.WriteLine($"  Total hits:     {searcher.Search(query, 25).TotalHits}");
+        _output.WriteLine($"  Total hits:     {searcher.Search(query, 25, TestContext.Current.CancellationToken).TotalHits}");
 
         // Budget: ≤ 50 KB per query — regression guard (was 402 KB, target <15 KB)
         Assert.True(avgBytes <= 51200,
@@ -295,12 +295,12 @@ public sealed class AllocationRegressionTests : IClassFixture<TestDirectoryFixtu
         var query = new WildcardQuery("body", "m*rket");
 
         for (int i = 0; i < warmup; i++)
-            searcher.Search(query, 25);
+            searcher.Search(query, 25, TestContext.Current.CancellationToken);
 
         long allocBefore = GC.GetAllocatedBytesForCurrentThread();
         var sw = Stopwatch.StartNew();
         for (int i = 0; i < measured; i++)
-            searcher.Search(query, 25);
+            searcher.Search(query, 25, TestContext.Current.CancellationToken);
         sw.Stop();
         long allocAfter = GC.GetAllocatedBytesForCurrentThread();
 
@@ -310,7 +310,7 @@ public sealed class AllocationRegressionTests : IClassFixture<TestDirectoryFixtu
         _output.WriteLine($"WildcardQuery(\"m*rket\") over {nonMatchingTerms + 20} docs:");
         _output.WriteLine($"  Avg allocation: {avgBytes:F0} bytes/query");
         _output.WriteLine($"  Avg latency:    {avgUs:F1} µs/query");
-        _output.WriteLine($"  Total hits:     {searcher.Search(query, 25).TotalHits}");
+        _output.WriteLine($"  Total hits:     {searcher.Search(query, 25, TestContext.Current.CancellationToken).TotalHits}");
 
         Assert.True(avgBytes <= 102400,
             $"WildcardQuery allocated {avgBytes:F0} bytes/query, budget is 102400 bytes");
@@ -348,13 +348,13 @@ public sealed class AllocationRegressionTests : IClassFixture<TestDirectoryFixtu
 
         // Warmup
         for (int i = 0; i < warmup; i++)
-            searcher.Search(query, 25);
+            searcher.Search(query, 25, TestContext.Current.CancellationToken);
 
         // Measure
         long allocBefore = GC.GetAllocatedBytesForCurrentThread();
         var sw = Stopwatch.StartNew();
         for (int i = 0; i < measured; i++)
-            searcher.Search(query, 25);
+            searcher.Search(query, 25, TestContext.Current.CancellationToken);
         sw.Stop();
         long allocAfter = GC.GetAllocatedBytesForCurrentThread();
 
@@ -364,7 +364,7 @@ public sealed class AllocationRegressionTests : IClassFixture<TestDirectoryFixtu
         _output.WriteLine($"FuzzyQuery(\"benchmork\", maxEdits=2) over {docCount} docs:");
         _output.WriteLine($"  Avg allocation: {avgBytes:F0} bytes/query");
         _output.WriteLine($"  Avg latency:    {avgUs:F1} µs/query");
-        _output.WriteLine($"  Total hits:     {searcher.Search(query, 25).TotalHits}");
+        _output.WriteLine($"  Total hits:     {searcher.Search(query, 25, TestContext.Current.CancellationToken).TotalHits}");
 
         // Budget: ≤ 50 KB per query — regression guard (was 402 KB, target <15 KB)
         Assert.True(avgBytes <= 51200,
@@ -408,16 +408,16 @@ public sealed class AllocationRegressionTests : IClassFixture<TestDirectoryFixtu
         // Warmup
         for (int i = 0; i < warmup; i++)
         {
-            searcher.Search(query1, 25);
-            searcher.Search(query2, 25);
+            searcher.Search(query1, 25, TestContext.Current.CancellationToken);
+            searcher.Search(query2, 25, TestContext.Current.CancellationToken);
         }
 
         // Measure
         long allocBefore = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < measured; i++)
         {
-            searcher.Search(query1, 25);
-            searcher.Search(query2, 25);
+            searcher.Search(query1, 25, TestContext.Current.CancellationToken);
+            searcher.Search(query2, 25, TestContext.Current.CancellationToken);
         }
         long allocAfter = GC.GetAllocatedBytesForCurrentThread();
 
@@ -499,12 +499,12 @@ public sealed class AllocationRegressionTests : IClassFixture<TestDirectoryFixtu
         var query = new TermQuery("body", "alpha");
 
         for (int i = 0; i < warmup; i++)
-            searcher.Search(query, 25);
+            searcher.Search(query, 25, TestContext.Current.CancellationToken);
 
         long allocBefore = GC.GetAllocatedBytesForCurrentThread();
         var sw = Stopwatch.StartNew();
         for (int i = 0; i < measured; i++)
-            searcher.Search(query, 25);
+            searcher.Search(query, 25, TestContext.Current.CancellationToken);
         sw.Stop();
         long allocAfter = GC.GetAllocatedBytesForCurrentThread();
 
@@ -554,12 +554,12 @@ public sealed class AllocationRegressionTests : IClassFixture<TestDirectoryFixtu
         var query = new BlockJoinQuery(new TermQuery("body", "comment"));
 
         for (int i = 0; i < warmup; i++)
-            searcher.Search(query, 10);
+            searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         long allocBefore = GC.GetAllocatedBytesForCurrentThread();
         var sw = Stopwatch.StartNew();
         for (int i = 0; i < measured; i++)
-            searcher.Search(query, 10);
+            searcher.Search(query, 10, TestContext.Current.CancellationToken);
         sw.Stop();
         long allocAfter = GC.GetAllocatedBytesForCurrentThread();
 

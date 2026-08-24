@@ -118,7 +118,7 @@ public sealed class HnswMetricsTests : IClassFixture<TestDirectoryFixture>
         var query = new float[8];
         for (int d = 0; d < query.Length; d++) query[d] = (float)(rnd.NextDouble() * 2 - 1);
 
-        searcher.Search(new VectorQuery("embedding", query, topK: 5), 5);
+        searcher.Search(new VectorQuery("embedding", query, topK: 5), 5, TestContext.Current.CancellationToken);
 
         var snapshot = searcherMetrics.GetSnapshot();
         Assert.Equal(1, snapshot.HnswSearchCount);
@@ -138,7 +138,7 @@ public sealed class HnswMetricsTests : IClassFixture<TestDirectoryFixture>
         var query = new float[16];
         for (int d = 0; d < query.Length; d++) query[d] = (float)(rnd.NextDouble() * 2 - 1);
 
-        var top = searcher.Search(new VectorQuery("embedding", query, topK: 3), 3);
+        var top = searcher.Search(new VectorQuery("embedding", query, topK: 3), 3, TestContext.Current.CancellationToken);
         Assert.True(top.TotalHits > 0);
 
         var explanation = searcher.Explain(new VectorQuery("embedding", query, topK: 3), top.ScoreDocs[0].DocId);

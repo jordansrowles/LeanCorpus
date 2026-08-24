@@ -81,10 +81,10 @@ public sealed class LazySegmentReaderTests : IDisposable
             EnableQueryCache = false,
             MaxCachedSegmentReaders = 8,
         });
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "resident"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "resident"), 10, TestContext.Current.CancellationToken).TotalHits);
         var lease = searcher.GetSegmentReaders()[0].AcquireReadLease();
 
-        var dispose = Task.Run(searcher.Dispose);
+        var dispose = Task.Run(searcher.Dispose, TestContext.Current.CancellationToken);
         try
         {
             await WaitUntilRejectedAsync(
@@ -124,7 +124,7 @@ public sealed class LazySegmentReaderTests : IDisposable
         });
         var lease = searcher.GetSegmentReaders()[0].AcquireReadLease();
 
-        var dispose = Task.Run(directory.Dispose);
+        var dispose = Task.Run(directory.Dispose, TestContext.Current.CancellationToken);
         try
         {
             await WaitUntilRejectedAsync(() => directory.AcquireOperationLease());
@@ -241,7 +241,9 @@ public sealed class LazySegmentReaderTests : IDisposable
         ];
 
         foreach (var query in queries)
-            AssertTopDocsEqual(retained.Search(query, 20), bounded.Search(query, 20));
+            AssertTopDocsEqual(
+                retained.Search(query, 20, TestContext.Current.CancellationToken),
+                bounded.Search(query, 20, TestContext.Current.CancellationToken));
 
         for (int docId = 0; docId < 9; docId++)
             Assert.Equal(retained.GetStoredFields(docId), bounded.GetStoredFields(docId));
@@ -323,7 +325,7 @@ public sealed class LazySegmentReaderTests : IDisposable
         var oldSegmentIds = oldSearcher.GetSegmentReaders()
             .Select(static reader => reader.Info.SegmentId)
             .ToArray();
-        var expected = oldSearcher.Search(new TermQuery("body", "stable"), 20);
+        var expected = oldSearcher.Search(new TermQuery("body", "stable"), 20, TestContext.Current.CancellationToken);
 
         using (var writerDirectory = new MMapDirectory(_path))
         using (var writer = new IndexWriter(writerDirectory, new IndexWriterConfig
@@ -335,10 +337,12 @@ public sealed class LazySegmentReaderTests : IDisposable
             writer.Compact();
         }
 
-        Assert.Equal(8, oldSearcher.Search(new TermQuery("body", "stable"), 20).TotalHits);
+        Assert.Equal(8, oldSearcher.Search(new TermQuery("body", "stable"), 20, TestContext.Current.CancellationToken).TotalHits);
         Assert.Contains(oldSegmentIds, id => File.Exists(Path.Combine(_path, id + ".seg")));
         using (var refreshed = new IndexSearcher(new MMapDirectory(_path)))
-            AssertTopDocsEqual(expected, refreshed.Search(new TermQuery("body", "stable"), 20));
+            AssertTopDocsEqual(
+                expected,
+                refreshed.Search(new TermQuery("body", "stable"), 20, TestContext.Current.CancellationToken));
 
         oldSearcher.Dispose();
         Assert.All(oldSegmentIds, id => Assert.False(File.Exists(Path.Combine(_path, id + ".seg"))));

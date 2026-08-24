@@ -65,7 +65,7 @@ public sealed class PhraseQueryScaleTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new PhraseQuery("body", "quick", "brown", "fox"), expectedHits + 10);
+        var results = searcher.Search(new PhraseQuery("body", "quick", "brown", "fox"), expectedHits + 10, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"1K docs: expected {expectedHits} hits, got {results.TotalHits}");
         Assert.Equal(expectedHits, results.TotalHits);
@@ -106,7 +106,7 @@ public sealed class PhraseQueryScaleTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new PhraseQuery("body", "search", "engine", "optimisation"), expectedHits + 10);
+        var results = searcher.Search(new PhraseQuery("body", "search", "engine", "optimisation"), expectedHits + 10, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"5K docs: expected {expectedHits} hits, got {results.TotalHits}");
         Assert.Equal(expectedHits, results.TotalHits);
@@ -146,7 +146,7 @@ public sealed class PhraseQueryScaleTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new PhraseQuery("body", "hello", "world"), expectedHits + 10);
+        var results = searcher.Search(new PhraseQuery("body", "hello", "world"), expectedHits + 10, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"1.5K docs, 2-word phrase: expected {expectedHits} hits, got {results.TotalHits}");
         Assert.Equal(expectedHits, results.TotalHits);
@@ -187,7 +187,7 @@ public sealed class PhraseQueryScaleTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new PhraseQuery("body", 2, "quick", "fox"), expectedHits + 10);
+        var results = searcher.Search(new PhraseQuery("body", 2, "quick", "fox"), expectedHits + 10, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"1K docs, slop phrase: expected {expectedHits} hits, got {results.TotalHits}");
         Assert.Equal(expectedHits, results.TotalHits);
@@ -231,7 +231,7 @@ public sealed class PhraseQueryScaleTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new PhraseQuery("body", "machine", "learning"), expectedHits + 10);
+        var results = searcher.Search(new PhraseQuery("body", "machine", "learning"), expectedHits + 10, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"Multi-segment ({segmentCount}×{docsPerSegment}): expected {expectedHits} hits, got {results.TotalHits}");
         Assert.Equal(expectedHits, results.TotalHits);

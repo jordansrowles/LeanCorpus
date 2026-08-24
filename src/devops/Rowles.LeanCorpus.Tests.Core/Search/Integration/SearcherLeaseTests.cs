@@ -61,7 +61,7 @@ public sealed class SearcherLeaseTests : IClassFixture<TestDirectoryFixture>
         using var mgr = new SearcherManager(dir);
 
         using var lease = mgr.AcquireLease();
-        var results = lease.Searcher.Search(new TermQuery("body", "hello"), 10);
+        var results = lease.Searcher.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
     }
 

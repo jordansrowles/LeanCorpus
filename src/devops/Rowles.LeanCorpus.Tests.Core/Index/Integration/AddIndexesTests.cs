@@ -60,10 +60,10 @@ public sealed class AddIndexesTests : IClassFixture<TestDirectoryFixture>
 
         // Verify.
         using var searcher = new IndexSearcher(tgtDir, new IndexSearcherConfig());
-        var all = searcher.Search(new MatchAllDocsQuery(), 200);
+        var all = searcher.Search(new MatchAllDocsQuery(), 200, TestContext.Current.CancellationToken);
         Assert.Equal(100, all.TotalHits);
 
-        var results = searcher.Search(new TermQuery("body", "document"), 10);
+        var results = searcher.Search(new TermQuery("body", "document"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(100, results.TotalHits);
         foreach (var sd in results.ScoreDocs)
             Assert.True(sd.DocId is >= 0 and < 100);
@@ -106,13 +106,13 @@ public sealed class AddIndexesTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(tgtDir, new IndexSearcherConfig());
-        var all = searcher.Search(new MatchAllDocsQuery(), 200);
+        var all = searcher.Search(new MatchAllDocsQuery(), 200, TestContext.Current.CancellationToken);
         Assert.Equal(80, all.TotalHits);
 
-        var batch1 = searcher.Search(new TermQuery("body", "batch1"), 100);
+        var batch1 = searcher.Search(new TermQuery("body", "batch1"), 100, TestContext.Current.CancellationToken);
         Assert.Equal(50, batch1.TotalHits);
 
-        var batch2 = searcher.Search(new TermQuery("body", "batch2"), 100);
+        var batch2 = searcher.Search(new TermQuery("body", "batch2"), 100, TestContext.Current.CancellationToken);
         Assert.Equal(30, batch2.TotalHits);
     }
 
@@ -149,7 +149,7 @@ public sealed class AddIndexesTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(tgtDir, new IndexSearcherConfig());
-        var results = searcher.Search(new TermQuery("body", "rare"), 10);
+        var results = searcher.Search(new TermQuery("body", "rare"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(3, results.TotalHits);
 
         // Doc 1 (freq 3) > Doc 2 (freq 2) > Doc 0 (freq 1).
@@ -187,15 +187,15 @@ public sealed class AddIndexesTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(tgtDir, new IndexSearcherConfig());
-        var all = searcher.Search(new MatchAllDocsQuery(), 50);
+        var all = searcher.Search(new MatchAllDocsQuery(), 50, TestContext.Current.CancellationToken);
         Assert.Equal(20, all.TotalHits);
 
         // Numeric range query proof that doc values and BKD survive.
-        var priceResults = searcher.Search(new RangeQuery("price", 0.0, 5.0), 50);
+        var priceResults = searcher.Search(new RangeQuery("price", 0.0, 5.0), 50, TestContext.Current.CancellationToken);
         Assert.Equal(4, priceResults.TotalHits); // prices 0, 1.5, 3.0, 4.5
 
         // Sorted doc values: aggregate on category.
-        var catResults = searcher.Search(new TermQuery("category", "alpha"), 50);
+        var catResults = searcher.Search(new TermQuery("category", "alpha"), 50, TestContext.Current.CancellationToken);
         Assert.Equal(7, catResults.TotalHits); // i % 3 == 0 for i=0,3,6,9,12,15,18 = 7 docs
     }
 
@@ -224,7 +224,7 @@ public sealed class AddIndexesTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(tgtDir, new IndexSearcherConfig());
-        var results = searcher.Search(new TermQuery("body", "hello"), 10);
+        var results = searcher.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
 
         var stored = searcher.GetStoredFields(results.ScoreDocs[0].DocId);
@@ -265,7 +265,7 @@ public sealed class AddIndexesTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(tgtDir, new IndexSearcherConfig());
-        var results = searcher.Search(new TermQuery("body", "keep"), 20);
+        var results = searcher.Search(new TermQuery("body", "keep"), 20, TestContext.Current.CancellationToken);
         Assert.Equal(8, results.TotalHits);
     }
 
@@ -298,13 +298,13 @@ public sealed class AddIndexesTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(tgtDir, new IndexSearcherConfig());
-        var all = searcher.Search(new MatchAllDocsQuery(), 10);
+        var all = searcher.Search(new MatchAllDocsQuery(), 10, TestContext.Current.CancellationToken);
         Assert.Equal(2, all.TotalHits);
 
-        var srcResults = searcher.Search(new TermQuery("body", "source"), 10);
+        var srcResults = searcher.Search(new TermQuery("body", "source"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, srcResults.TotalHits);
 
-        var tgtResults = searcher.Search(new TermQuery("body", "target"), 10);
+        var tgtResults = searcher.Search(new TermQuery("body", "target"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, tgtResults.TotalHits);
     }
 
@@ -339,7 +339,7 @@ public sealed class AddIndexesTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(tgtDir, new IndexSearcherConfig());
-        var results = searcher.Search(new TermQuery("body", "rare"), 10);
+        var results = searcher.Search(new TermQuery("body", "rare"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(2, results.TotalHits);
         // The short doc should score higher than the long doc.
         Assert.True(results.ScoreDocs[0].Score > results.ScoreDocs[1].Score,
@@ -380,10 +380,10 @@ public sealed class AddIndexesTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(tgtDir, new IndexSearcherConfig());
-        var all = searcher.Search(new MatchAllDocsQuery(), 10);
+        var all = searcher.Search(new MatchAllDocsQuery(), 10, TestContext.Current.CancellationToken);
         Assert.Equal(2, all.TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "alpha"), 10).TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "beta"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "alpha"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "beta"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     /// <summary>
@@ -410,8 +410,7 @@ public sealed class AddIndexesTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(tgtDir, new IndexSearcherConfig());
-        var phraseResults = searcher.Search(
-            new PhraseQuery("body", "quick", "brown", "fox"), 10);
+        var phraseResults = searcher.Search(new PhraseQuery("body", "quick", "brown", "fox"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, phraseResults.TotalHits);
     }
 
@@ -445,15 +444,15 @@ public sealed class AddIndexesTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(tgtDir, new IndexSearcherConfig());
-        var all = searcher.Search(new MatchAllDocsQuery(), n + 10);
+        var all = searcher.Search(new MatchAllDocsQuery(), n + 10, TestContext.Current.CancellationToken);
         Assert.Equal(n, all.TotalHits);
 
         // Verify a specific doc is findable via numeric range.
-        var spotCheck = searcher.Search(new RangeQuery("val", 42.0, 42.0), 10);
+        var spotCheck = searcher.Search(new RangeQuery("val", 42.0, 42.0), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, spotCheck.TotalHits);
 
         // Doc values: range query should find docs 0-99.
-        var rangeResults = searcher.Search(new RangeQuery("val", 0.0, 99.0), n);
+        var rangeResults = searcher.Search(new RangeQuery("val", 0.0, 99.0), n, TestContext.Current.CancellationToken);
         Assert.Equal(100, rangeResults.TotalHits);
     }
 }

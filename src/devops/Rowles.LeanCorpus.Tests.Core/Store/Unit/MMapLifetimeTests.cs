@@ -18,7 +18,7 @@ public sealed class MMapLifetimeTests : IDisposable
         var input = new IndexInput(filePath);
         var lease = input.AcquireLifetimeLease();
 
-        var dispose = Task.Run(input.Dispose);
+        var dispose = Task.Run(input.Dispose, TestContext.Current.CancellationToken);
         try
         {
             await WaitUntilRejectedAsync(() => input.AcquireLifetimeLease());
@@ -42,7 +42,7 @@ public sealed class MMapLifetimeTests : IDisposable
         var input = directory.OpenInput("input.bin");
         var lease = input.AcquireLifetimeLease();
 
-        var dispose = Task.Run(directory.Dispose);
+        var dispose = Task.Run(directory.Dispose, TestContext.Current.CancellationToken);
         try
         {
             await WaitUntilRejectedAsync(() => directory.AcquireOperationLease());

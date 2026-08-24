@@ -46,7 +46,7 @@ public sealed class Int64EndToEndTests : IClassFixture<TestDirectoryFixture>
 
         using var searcher = new IndexSearcher(dir);
 
-        var rangeResults = searcher.Search(new Int64RangeQuery("value", 1_500_000_000_000L, long.MaxValue), 10);
+        var rangeResults = searcher.Search(new Int64RangeQuery("value", 1_500_000_000_000L, long.MaxValue), 10, TestContext.Current.CancellationToken);
         Assert.Equal(2, rangeResults.TotalHits);
         var rangeIds = GetIdsSorted(searcher, rangeResults);
         Assert.Equal(new[] { "b", "c" }, rangeIds);
@@ -61,11 +61,11 @@ public sealed class Int64EndToEndTests : IClassFixture<TestDirectoryFixture>
                     includeMax: false),
                 Occur.Must)
             .Build();
-        var exclusiveResults = searcher.Search(exclusiveRange, 10);
+        var exclusiveResults = searcher.Search(exclusiveRange, 10, TestContext.Current.CancellationToken);
         Assert.Single(exclusiveResults.ScoreDocs);
         Assert.Equal(new[] { "b" }, GetIds(searcher, exclusiveResults));
 
-        var pointResults = searcher.Search(new Int64PointInSetQuery("value", 1_000_000_000_000L, 3_000_000_000_000L), 10);
+        var pointResults = searcher.Search(new Int64PointInSetQuery("value", 1_000_000_000_000L, 3_000_000_000_000L), 10, TestContext.Current.CancellationToken);
         Assert.Equal(2, pointResults.TotalHits);
         var pointIds = GetIdsSorted(searcher, pointResults);
         Assert.Equal(new[] { "a", "c" }, pointIds);
@@ -101,7 +101,7 @@ public sealed class Int64EndToEndTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new Int64PointInSetQuery("value", snowflake), 10);
+        var results = searcher.Search(new Int64PointInSetQuery("value", snowflake), 10, TestContext.Current.CancellationToken);
         Assert.Single(results.ScoreDocs);
         var stored = searcher.GetStoredFields(results.ScoreDocs[0].DocId);
         Assert.Equal("snowflake", stored["id"][0]);
@@ -123,7 +123,7 @@ public sealed class Int64EndToEndTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new MatchAllDocsQuery(), 10);
+        var results = searcher.Search(new MatchAllDocsQuery(), 10, TestContext.Current.CancellationToken);
         Assert.Single(results.ScoreDocs);
         var stored = searcher.GetStoredFields(results.ScoreDocs[0].DocId);
         Assert.Equal("min", stored["id"][0]);

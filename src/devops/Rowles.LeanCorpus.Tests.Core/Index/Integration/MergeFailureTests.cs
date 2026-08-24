@@ -47,7 +47,7 @@ public sealed class MergeFailureTests : IClassFixture<TestDirectoryFixture>
             var task = writer.MergeTask;
             if (task is not null)
             {
-                try { await task.WaitAsync(TimeSpan.FromSeconds(30)); }
+                try { await task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken); }
                 catch (Exception) { /* expected: merge failed */ }
             }
 

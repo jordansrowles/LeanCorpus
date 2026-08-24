@@ -100,7 +100,7 @@ public sealed class IndexSnapshotTests : IDisposable
 
         // Open a searcher using the snapshot's segment list
         using var searcher = new IndexSearcher(directory, snapshot.Segments);
-        var results = searcher.Search(new TermQuery("body", "document"), 10);
+        var results = searcher.Search(new TermQuery("body", "document"), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(5, results.TotalHits);
 
@@ -165,8 +165,8 @@ public sealed class IndexSnapshotTests : IDisposable
 
             using var snapshotSearcher = new IndexSearcher(directory, snapshot.Segments);
 
-            Assert.Equal(1, snapshotSearcher.Search(new TermQuery("body", "alpha"), 10).TotalHits);
-            Assert.Equal(0, snapshotSearcher.Search(new TermQuery("body", "later"), 10).TotalHits);
+            Assert.Equal(1, snapshotSearcher.Search(new TermQuery("body", "alpha"), 10, TestContext.Current.CancellationToken).TotalHits);
+            Assert.Equal(0, snapshotSearcher.Search(new TermQuery("body", "later"), 10, TestContext.Current.CancellationToken).TotalHits);
             Assert.All(snapshot.Segments, segment =>
             {
                 Assert.True(File.Exists(Path.Combine(_dir, segment.SegmentId + ".seg")));

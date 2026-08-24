@@ -398,8 +398,8 @@ public sealed class BlockMaxWandScorerTests
             using var searcherWand = new IndexSearcher(storeDir, new IndexSearcherConfig { EnableBlockMaxWand = true });
             using var searcherScalar = new IndexSearcher(storeDir);
 
-            var wandResults = searcherWand.Search(q, 2);
-            var scalarResults = searcherScalar.Search(q, 2);
+            var wandResults = searcherWand.Search(q, 2, TestContext.Current.CancellationToken);
+            var scalarResults = searcherScalar.Search(q, 2, TestContext.Current.CancellationToken);
 
             AssertEquivalentResults(scalarResults, wandResults);
             Assert.Equal(3, wandResults.TotalHits);
@@ -438,8 +438,8 @@ public sealed class BlockMaxWandScorerTests
             using var searcherWand = new IndexSearcher(storeDir, new IndexSearcherConfig { EnableBlockMaxWand = true });
             using var searcherScalar = new IndexSearcher(storeDir);
 
-            var wandResults = searcherWand.Search(q, 10);
-            var scalarResults = searcherScalar.Search(q, 10);
+            var wandResults = searcherWand.Search(q, 10, TestContext.Current.CancellationToken);
+            var scalarResults = searcherScalar.Search(q, 10, TestContext.Current.CancellationToken);
 
             AssertEquivalentResults(scalarResults, wandResults);
             Assert.Equal(1, wandResults.TotalHits);
@@ -474,9 +474,9 @@ public sealed class BlockMaxWandScorerTests
             using var searcherWand = new IndexSearcher(storeDir, new IndexSearcherConfig { EnableBlockMaxWand = true });
             using var searcherScalar = new IndexSearcher(storeDir);
 
-            var wandNoMN = searcherWand.Search(qNoMustNot, 10);
-            var wandWithMN = searcherWand.Search(qWithMustNot, 10);
-            var scalarWithMN = searcherScalar.Search(qWithMustNot, 10);
+            var wandNoMN = searcherWand.Search(qNoMustNot, 10, TestContext.Current.CancellationToken);
+            var wandWithMN = searcherWand.Search(qWithMustNot, 10, TestContext.Current.CancellationToken);
+            var scalarWithMN = searcherScalar.Search(qWithMustNot, 10, TestContext.Current.CancellationToken);
 
             Assert.Equal(wandNoMN.TotalHits, wandWithMN.TotalHits);
             AssertEquivalentResults(scalarWithMN, wandWithMN);
@@ -515,8 +515,8 @@ public sealed class BlockMaxWandScorerTests
             using var searcherWand = new IndexSearcher(storeDir, new IndexSearcherConfig { EnableBlockMaxWand = true });
             using var searcherScalar = new IndexSearcher(storeDir);
 
-            var wandResults = searcherWand.Search(q, 10);
-            var scalarResults = searcherScalar.Search(q, 10);
+            var wandResults = searcherWand.Search(q, 10, TestContext.Current.CancellationToken);
+            var scalarResults = searcherScalar.Search(q, 10, TestContext.Current.CancellationToken);
 
             AssertEquivalentResults(scalarResults, wandResults);
             Assert.Equal(1, wandResults.TotalHits);
@@ -557,8 +557,8 @@ public sealed class BlockMaxWandScorerTests
             using var searcherWand = new IndexSearcher(storeDir, new IndexSearcherConfig { EnableBlockMaxWand = true });
             using var searcherScalar = new IndexSearcher(storeDir);
 
-            var wandResults = searcherWand.Search(q, 10);
-            var scalarResults = searcherScalar.Search(q, 10);
+            var wandResults = searcherWand.Search(q, 10, TestContext.Current.CancellationToken);
+            var scalarResults = searcherScalar.Search(q, 10, TestContext.Current.CancellationToken);
 
             AssertEquivalentResults(scalarResults, wandResults);
             Assert.True(wandResults.TotalHits < 3);
@@ -597,8 +597,8 @@ public sealed class BlockMaxWandScorerTests
             using var searcherWand = new IndexSearcher(storeDir, new IndexSearcherConfig { EnableBlockMaxWand = true });
             using var searcherScalar = new IndexSearcher(storeDir);
 
-            var wandResults = searcherWand.Search(q, 5);
-            var scalarResults = searcherScalar.Search(q, 5);
+            var wandResults = searcherWand.Search(q, 5, TestContext.Current.CancellationToken);
+            var scalarResults = searcherScalar.Search(q, 5, TestContext.Current.CancellationToken);
 
             AssertEquivalentResults(scalarResults, wandResults);
             Assert.True(wandResults.TotalHits > wandResults.ScoreDocs.Length);

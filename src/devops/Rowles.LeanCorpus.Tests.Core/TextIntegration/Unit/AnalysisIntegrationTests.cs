@@ -60,12 +60,12 @@ public sealed class AnalysisIntegrationTests : IClassFixture<TestDirectoryFixtur
         using var searcher = new IndexSearcher(dir);
 
         // "ll" is a bigram of "hello"
-        var results = searcher.Search(new TermQuery("body", "ll"), 10);
+        var results = searcher.Search(new TermQuery("body", "ll"), 10, TestContext.Current.CancellationToken);
         _output.WriteLine($"NGram E2E: TermQuery('ll') on 'hello' → {results.TotalHits} hits");
         Assert.Equal(1, results.TotalHits);
 
         // "ell" is a trigram of "hello"
-        var results2 = searcher.Search(new TermQuery("body", "ell"), 10);
+        var results2 = searcher.Search(new TermQuery("body", "ell"), 10, TestContext.Current.CancellationToken);
         _output.WriteLine($"NGram E2E: TermQuery('ell') on 'hello' → {results2.TotalHits} hits");
         Assert.Equal(1, results2.TotalHits);
     }
@@ -100,7 +100,7 @@ public sealed class AnalysisIntegrationTests : IClassFixture<TestDirectoryFixtur
         using var searcher = new IndexSearcher(dir);
 
         // "ca" bigram should match "cat" and "cart" but not "dog"
-        var results = searcher.Search(new TermQuery("body", "ca"), 10);
+        var results = searcher.Search(new TermQuery("body", "ca"), 10, TestContext.Current.CancellationToken);
         _output.WriteLine($"NGram bigram: TermQuery('ca') → {results.TotalHits} hits");
         Assert.Equal(2, results.TotalHits);
     }
@@ -124,7 +124,7 @@ public sealed class AnalysisIntegrationTests : IClassFixture<TestDirectoryFixtur
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "bc"), 10);
+        var results = searcher.Search(new TermQuery("body", "bc"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
     }
 
@@ -147,7 +147,7 @@ public sealed class AnalysisIntegrationTests : IClassFixture<TestDirectoryFixtur
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "ab"), 10);
+        var results = searcher.Search(new TermQuery("body", "ab"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
     }
 
@@ -175,12 +175,12 @@ public sealed class AnalysisIntegrationTests : IClassFixture<TestDirectoryFixtur
         using var searcher = new IndexSearcher(dir);
 
         // "he" is an edge n-gram of "hello"
-        var results = searcher.Search(new TermQuery("body", "he"), 10);
+        var results = searcher.Search(new TermQuery("body", "he"), 10, TestContext.Current.CancellationToken);
         _output.WriteLine($"EdgeNGram E2E: TermQuery('he') on 'hello world' → {results.TotalHits} hits");
         Assert.Equal(1, results.TotalHits);
 
         // "wo" is an edge n-gram of "world"
-        var results2 = searcher.Search(new TermQuery("body", "wo"), 10);
+        var results2 = searcher.Search(new TermQuery("body", "wo"), 10, TestContext.Current.CancellationToken);
         _output.WriteLine($"EdgeNGram E2E: TermQuery('wo') on 'hello world' → {results2.TotalHits} hits");
         Assert.Equal(1, results2.TotalHits);
     }
@@ -206,7 +206,7 @@ public sealed class AnalysisIntegrationTests : IClassFixture<TestDirectoryFixtur
         using var searcher = new IndexSearcher(dir);
 
         // "lo" is NOT an edge n-gram of "hello" (it's in the middle)
-        var results = searcher.Search(new TermQuery("body", "lo"), 10);
+        var results = searcher.Search(new TermQuery("body", "lo"), 10, TestContext.Current.CancellationToken);
         _output.WriteLine($"EdgeNGram: TermQuery('lo') on 'hello' → {results.TotalHits} hits (expected 0)");
         Assert.Equal(0, results.TotalHits);
     }
@@ -239,7 +239,7 @@ public sealed class AnalysisIntegrationTests : IClassFixture<TestDirectoryFixtur
 
         foreach (var term in new[] { "cafe", "naive", "resume" })
         {
-            var results = searcher.Search(new TermQuery("body", term), 10);
+            var results = searcher.Search(new TermQuery("body", term), 10, TestContext.Current.CancellationToken);
             _output.WriteLine($"AccentFolding E2E: TermQuery('{term}') → {results.TotalHits} hits");
             Assert.Equal(1, results.TotalHits);
         }
@@ -268,7 +268,7 @@ public sealed class AnalysisIntegrationTests : IClassFixture<TestDirectoryFixtur
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "cafe"), 10);
+        var results = searcher.Search(new TermQuery("body", "cafe"), 10, TestContext.Current.CancellationToken);
         _output.WriteLine($"AccentFolding (no accents): TermQuery('cafe') → {results.TotalHits} hits");
         Assert.Equal(1, results.TotalHits);
     }

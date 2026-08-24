@@ -126,12 +126,12 @@ public sealed class CollectorTests : IDisposable
 
         // Count via Count() should match TotalHits from Search().
         int count = searcher.Count(new TermQuery("body", "document"));
-        int totalHits = searcher.Search(new TermQuery("body", "document"), 10).TotalHits;
+        int totalHits = searcher.Search(new TermQuery("body", "document"), 10, TestContext.Current.CancellationToken).TotalHits;
         Assert.Equal(totalHits, count);
 
         // Same for range query.
         int rangeCount = searcher.Count(new RangeQuery("val", 0.0, 99.0));
-        int rangeHits = searcher.Search(new RangeQuery("val", 0.0, 99.0), 10).TotalHits;
+        int rangeHits = searcher.Search(new RangeQuery("val", 0.0, 99.0), 10, TestContext.Current.CancellationToken).TotalHits;
         Assert.Equal(rangeHits, rangeCount);
     }
 

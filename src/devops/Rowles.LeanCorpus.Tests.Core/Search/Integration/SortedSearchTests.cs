@@ -292,7 +292,7 @@ public sealed class SortedSearchTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var firstPass = searcher.Search(new MatchAllDocsQuery(), 10);
+        var firstPass = searcher.Search(new MatchAllDocsQuery(), 10, TestContext.Current.CancellationToken);
         var rescored = new QueryRescorer(
             new TermQuery("body", "preferred"),
             weight: 5).Rescore(searcher, firstPass, 10);
@@ -319,7 +319,7 @@ public sealed class SortedSearchTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var firstPass = searcher.Search(new TermQuery("body", "item"), 2);
+        var firstPass = searcher.Search(new TermQuery("body", "item"), 2, TestContext.Current.CancellationToken);
         var rescored = new SortRescorer(
             SortField.Numeric("rank", descending: true))
             .Rescore(searcher, firstPass, 2);
@@ -436,7 +436,7 @@ public sealed class SortedSearchTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
 
         // Act
-        var defaultResults = searcher.Search(new TermQuery("body", "search"), 3);
+        var defaultResults = searcher.Search(new TermQuery("body", "search"), 3, TestContext.Current.CancellationToken);
         var sortedResults = searcher.Search(new TermQuery("body", "search"), 3, SortField.Score);
 
         // Assert

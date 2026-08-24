@@ -434,8 +434,8 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(6, Enumerable.Range(0, reader.MaxDoc).Count(reader.IsLive));
 
         using var searcher = new IndexSearcher(dir);
-        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc-1"), 10).TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("id", "doc-4"), 10).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc-1"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "doc-4"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     /// <summary>
@@ -632,13 +632,11 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         // Search for specific documents to verify no loss
         using var searcher = new IndexSearcher(dir);
 
-        var results = searcher.Search(
-            new TermQuery("body", "500"), 10);
+        var results = searcher.Search(new TermQuery("body", "500"), 10, TestContext.Current.CancellationToken);
         Assert.True(results.TotalHits > 0, "Should find documents containing '500'");
 
         // Verify total document count via MatchAllDocs
-        var all = searcher.Search(
-            new MatchAllDocsQuery(), docCount + 100);
+        var all = searcher.Search(new MatchAllDocsQuery(), docCount + 100, TestContext.Current.CancellationToken);
         Assert.Equal(docCount, all.TotalHits);
     }
 
@@ -677,12 +675,12 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
 
         // Verify total document count
         using var searcher = new IndexSearcher(dir);
-        var all = searcher.Search(new MatchAllDocsQuery(), batchCount * docsPerBatch + 100);
+        var all = searcher.Search(new MatchAllDocsQuery(), batchCount * docsPerBatch + 100, TestContext.Current.CancellationToken);
         Assert.Equal(batchCount * docsPerBatch, all.TotalHits);
 
         // Verify documents from first and last batches are searchable
-        var first = searcher.Search(new TermQuery("body", "batch0"), docsPerBatch + 10);
-        var last = searcher.Search(new TermQuery("body", "batch9"), docsPerBatch + 10);
+        var first = searcher.Search(new TermQuery("body", "batch0"), docsPerBatch + 10, TestContext.Current.CancellationToken);
+        var last = searcher.Search(new TermQuery("body", "batch9"), docsPerBatch + 10, TestContext.Current.CancellationToken);
         Assert.Equal(docsPerBatch, first.TotalHits);
         Assert.Equal(docsPerBatch, last.TotalHits);
     }
@@ -724,8 +722,8 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
 
         // Snapshot should reflect committed state at creation time
         using var snapshotSearcher = new IndexSearcher(dir, snapshot.Segments);
-        var initial = snapshotSearcher.Search(new TermQuery("body", "initial"), 1000);
-        var later = snapshotSearcher.Search(new TermQuery("body", "later"), 1000);
+        var initial = snapshotSearcher.Search(new TermQuery("body", "initial"), 1000, TestContext.Current.CancellationToken);
+        var later = snapshotSearcher.Search(new TermQuery("body", "later"), 1000, TestContext.Current.CancellationToken);
         Assert.True(initial.TotalHits > 0, "Snapshot should contain initial documents");
         Assert.Equal(0, later.TotalHits); // Snapshot should not see later documents
 
@@ -733,7 +731,7 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
 
         // After commit, new searcher should see everything
         using var searcher = new IndexSearcher(dir);
-        var all = searcher.Search(new MatchAllDocsQuery(), 1100);
+        var all = searcher.Search(new MatchAllDocsQuery(), 1100, TestContext.Current.CancellationToken);
         Assert.Equal(1000, all.TotalHits);
     }
 
@@ -775,15 +773,15 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var all = searcher.Search(new MatchAllDocsQuery(), 1000);
+        var all = searcher.Search(new MatchAllDocsQuery(), 1000, TestContext.Current.CancellationToken);
         Assert.Equal(500, all.TotalHits); // 500 docs: 400 original + 100 replacements
 
         // Originals that were not deleted should still be there
-        var remaining = searcher.Search(new TermQuery("body", "target"), 500);
+        var remaining = searcher.Search(new TermQuery("body", "target"), 500, TestContext.Current.CancellationToken);
         Assert.Equal(400, remaining.TotalHits);
 
         // Replacements should be searchable
-        var repl = searcher.Search(new TermQuery("body", "replacement"), 200);
+        var repl = searcher.Search(new TermQuery("body", "replacement"), 200, TestContext.Current.CancellationToken);
         Assert.Equal(100, repl.TotalHits);
     }
 
@@ -824,7 +822,7 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var postRollback = searcher.Search(new TermQuery("body", "postrollback"), 200);
+        var postRollback = searcher.Search(new TermQuery("body", "postrollback"), 200, TestContext.Current.CancellationToken);
         Assert.Equal(100, postRollback.TotalHits);
     }
 
@@ -860,7 +858,7 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         // Verify documents survive reopen
         using var reopenDir = new MMapDirectory(subDirPath);
         using var searcher = new IndexSearcher(reopenDir);
-        var all = searcher.Search(new MatchAllDocsQuery(), 600);
+        var all = searcher.Search(new MatchAllDocsQuery(), 600, TestContext.Current.CancellationToken);
         Assert.Equal(500, all.TotalHits);
     }
 }

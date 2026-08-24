@@ -145,8 +145,8 @@ public class MetricsTests : IDisposable
         var config = new IndexSearcherConfig { Metrics = metrics };
         using var searcher = new IndexSearcher(new MMapDirectory(_dir), config);
 
-        searcher.Search(new TermQuery("body", "hello"), 10);
-        searcher.Search(new TermQuery("body", "world"), 10);
+        searcher.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
+        searcher.Search(new TermQuery("body", "world"), 10, TestContext.Current.CancellationToken);
 
         var snap = metrics.GetSnapshot();
         Assert.Equal(2, snap.SearchCount);

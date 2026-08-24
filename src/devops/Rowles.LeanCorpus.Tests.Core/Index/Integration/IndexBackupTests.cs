@@ -65,7 +65,7 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         Assert.True(restore.ValidationResult.IsHealthy);
         using var directory = new MMapDirectory(restorePath);
         using var searcher = new IndexSearcher(directory);
-        Assert.Equal(2, searcher.Search(new TermQuery("body", "backup"), 10).TotalHits);
+        Assert.Equal(2, searcher.Search(new TermQuery("body", "backup"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Theory]
@@ -202,7 +202,7 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         Assert.True(restored.ValidationResult?.IsHealthy);
         using var restoredDirectory = new MMapDirectory(restorePath);
         using var searcher = new IndexSearcher(restoredDirectory);
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "compound"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "compound"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "IndexBackup: Incremental Backup Reuses Unchanged Files")]
@@ -240,7 +240,7 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         Assert.True(restored.ValidationResult?.IsHealthy);
         using var restoredDirectory = new MMapDirectory(restorePath);
         using var searcher = new IndexSearcher(restoredDirectory);
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "incremental"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "incremental"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "IndexBackup: Validate Backup Rejects Checksum Mismatch")]

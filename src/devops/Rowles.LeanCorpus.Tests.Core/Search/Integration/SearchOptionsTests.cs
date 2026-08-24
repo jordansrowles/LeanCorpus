@@ -133,7 +133,7 @@ public sealed class SearchOptionsTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
 
         var query = new TermQuery("body", "term5");
-        var plain = searcher.Search(query, topN: 10);
+        var plain = searcher.Search(query, topN: 10, cancellationToken: TestContext.Current.CancellationToken);
         var bounded = searcher.Search(query, topN: 10, SearchOptions.Default);
 
         Assert.False(bounded.IsPartial);
@@ -281,7 +281,7 @@ public sealed class SearchOptionsTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
 
         var query = new TermQuery("body", "term5");
-        var plain = searcher.Search(query, topN: 10);
+        var plain = searcher.Search(query, topN: 10, cancellationToken: TestContext.Current.CancellationToken);
         var opts = new SearchOptions { StreamResults = false };
         var emitted = searcher.Search(query, opts).ToList();
 
@@ -340,7 +340,7 @@ public sealed class SearchOptionsTests : IClassFixture<TestDirectoryFixture>
         var opts = new SearchOptions { StreamResults = true };
 
         var emitted = new List<ScoreDoc>();
-        await foreach (var sd in searcher.SearchAsync(query, opts))
+        await foreach (var sd in searcher.SearchAsync(query, opts, TestContext.Current.CancellationToken))
             emitted.Add(sd);
 
         Assert.NotEmpty(emitted);
@@ -384,7 +384,7 @@ public sealed class SearchOptionsTests : IClassFixture<TestDirectoryFixture>
         var opts = new SearchOptions { StreamResults = true };
 
         var emitted = new List<ScoreDoc>();
-        await foreach (var sd in searcher.SearchAsync(query, opts))
+        await foreach (var sd in searcher.SearchAsync(query, opts, TestContext.Current.CancellationToken))
             emitted.Add(sd);
 
         Assert.Empty(emitted);

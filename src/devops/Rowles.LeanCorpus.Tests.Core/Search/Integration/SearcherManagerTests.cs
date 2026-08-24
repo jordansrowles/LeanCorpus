@@ -49,7 +49,7 @@ public sealed class SearcherManagerTests : IDisposable
         var searcher = mgr.Acquire();
         try
         {
-            var results = searcher.Search(new TermQuery("body", "hello"), 10);
+            var results = searcher.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
             Assert.Equal(1, results.TotalHits);
         }
         finally
@@ -162,8 +162,8 @@ public sealed class SearcherManagerTests : IDisposable
             writer.Commit();
 
             Assert.True(mgr.MaybeRefresh());
-            Assert.Equal(1, held.Search(new TermQuery("body", "first"), 10).TotalHits);
-            Assert.Equal(0, held.Search(new TermQuery("body", "second"), 10).TotalHits);
+            Assert.Equal(1, held.Search(new TermQuery("body", "first"), 10, TestContext.Current.CancellationToken).TotalHits);
+            Assert.Equal(0, held.Search(new TermQuery("body", "second"), 10, TestContext.Current.CancellationToken).TotalHits);
             Assert.Equal(2, mgr.UsingSearcher(s => s.Search(new TermQuery("body", "first"), 10).TotalHits
                 + s.Search(new TermQuery("body", "second"), 10).TotalHits));
         }
@@ -192,7 +192,7 @@ public sealed class SearcherManagerTests : IDisposable
         mgr.Dispose();
 
         Assert.Throws<ObjectDisposedException>(() => mgr.Acquire());
-        Assert.Equal(1, held.Search(new TermQuery("body", "held"), 10).TotalHits);
+        Assert.Equal(1, held.Search(new TermQuery("body", "held"), 10, TestContext.Current.CancellationToken).TotalHits);
 
         mgr.Release(held);
     }
@@ -233,7 +233,7 @@ public sealed class SearcherManagerTests : IDisposable
         writer.AddDocument(Doc("second"));
         writer.Commit();
 
-        bool refreshed = await mgr.MaybeRefreshAsync();
+        bool refreshed = await mgr.MaybeRefreshAsync(TestContext.Current.CancellationToken);
         Assert.True(refreshed);
     }
 
@@ -255,7 +255,7 @@ public sealed class SearcherManagerTests : IDisposable
         Assert.True(SpinWait.SpinUntil(
             () => mgr.GetDiagnostics().Refreshes > 0,
             TimeSpan.FromSeconds(5)));
-        Assert.True(await mgr.MaybeRefreshAsync());
+        Assert.True(await mgr.MaybeRefreshAsync(TestContext.Current.CancellationToken));
     }
 
     /// <summary>
@@ -360,7 +360,7 @@ public sealed class SearcherManagerTests : IDisposable
                 catch (IOException) { /* Transient; skip this commit cycle */ }
                 catch (InvalidDataException) { /* Transient; skip this commit cycle */ }
             }
-        });
+        }, TestContext.Current.CancellationToken);
 
         await Task.WhenAll(workers.Append(refreshTask));
 
@@ -393,7 +393,7 @@ public sealed class SearcherManagerTests : IDisposable
         var searcher1 = mgr.Acquire();
         try
         {
-            searcher1.Search(new TermQuery("body", "hello"), 10);
+            searcher1.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
         }
         finally { mgr.Release(searcher1); }
 
@@ -409,7 +409,7 @@ public sealed class SearcherManagerTests : IDisposable
         var searcher2 = mgr.Acquire();
         try
         {
-            searcher2.Search(new TermQuery("body", "hello"), 10);
+            searcher2.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
             Assert.True(searcher2.Cache!.Hits > 0,
                 $"Cache should produce a hit after surviving the refresh. Hits: {searcher2.Cache.Hits}");
         }
@@ -438,7 +438,7 @@ public sealed class SearcherManagerTests : IDisposable
 
         // Populate the cache.
         var s1 = mgr.Acquire();
-        try { s1.Search(new TermQuery("body", "initial"), 10); }
+        try { s1.Search(new TermQuery("body", "initial"), 10, TestContext.Current.CancellationToken); }
         finally { mgr.Release(s1); }
 
         long hitsBefore = mgr.UsingSearcher(s => s.Cache!.Hits);

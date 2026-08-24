@@ -105,7 +105,7 @@ public sealed class RrfQueryTests : IClassFixture<TestDirectoryFixture>
             .Add(new TermQuery("body", "world"));
 
         // Act
-        var results = searcher.Search(rrf, 10);
+        var results = searcher.Search(rrf, 10, TestContext.Current.CancellationToken);
 
         // Assert — doc 1 should rank highest (appears in both result lists)
         Assert.True(results.TotalHits > 0);

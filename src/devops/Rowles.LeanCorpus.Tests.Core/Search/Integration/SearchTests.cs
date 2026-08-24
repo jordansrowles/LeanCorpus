@@ -50,7 +50,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "corpus"), 10);
+        var results = searcher.Search(new TermQuery("body", "corpus"), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
         var docIds = results.ScoreDocs.Select(sd => sd.DocId).OrderBy(id => id).ToArray();
@@ -75,7 +75,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "nonexistent"), 10);
+        var results = searcher.Search(new TermQuery("body", "nonexistent"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(0, results.TotalHits);
     }
 
@@ -102,7 +102,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
             .Add(new TermQuery("body", "fast"), Occur.Must)
             .Add(new TermQuery("body", "search"), Occur.Must)
             .Build();
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
     }
@@ -135,7 +135,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         var query = new BooleanQuery.Builder()
             .Add(clause, Occur.Must)
             .Build();
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, results.TotalHits);
     }
@@ -156,7 +156,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("title", "world"), 10);
+        var results = searcher.Search(new TermQuery("title", "world"), 10, TestContext.Current.CancellationToken);
         var stored = searcher.GetStoredFields(results.ScoreDocs[0].DocId);
 
         Assert.Equal(1, results.TotalHits);
@@ -180,9 +180,9 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "findable"), 10);
+        var results = searcher.Search(new TermQuery("body", "findable"), 10, TestContext.Current.CancellationToken);
         var stored = searcher.GetStoredFields(results.ScoreDocs[0].DocId);
-        var storedOnlyResults = searcher.Search(new TermQuery("title", "hello world"), 10);
+        var storedOnlyResults = searcher.Search(new TermQuery("title", "hello world"), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, results.TotalHits);
         Assert.Equal("hello world", stored["title"][0]);
@@ -212,7 +212,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
             .Add(new TermQuery("body", "alpha"), Occur.Should)
             .Add(new TermQuery("body", "beta"), Occur.Should)
             .Build();
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(4, results.TotalHits);
     }
@@ -240,7 +240,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
             .Add(new TermQuery("body", "search"), Occur.Must)
             .Add(new TermQuery("body", "slow"), Occur.MustNot)
             .Build();
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
     }
@@ -265,7 +265,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "performance"), 10);
+        var results = searcher.Search(new TermQuery("body", "performance"), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
         // Doc B (index 1) should rank higher due to higher term frequency
@@ -294,7 +294,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
         foreach (var term in uniqueTerms)
         {
-            var results = searcher.Search(new TermQuery("body", term), 10);
+            var results = searcher.Search(new TermQuery("body", term), 10, TestContext.Current.CancellationToken);
             Assert.True(results.TotalHits >= 1,
                 $"Expected at least 1 result for term '{term}', got {results.TotalHits}");
         }
@@ -343,7 +343,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new RangeQuery("price", 20, 60), 10);
+        var results = searcher.Search(new RangeQuery("price", 20, 60), 10, TestContext.Current.CancellationToken);
         Assert.Equal(2, results.TotalHits);
     }
 
@@ -362,9 +362,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(
-            new RangeQuery("price", 10, 30, includeMin: false, includeMax: false),
-            10);
+        var results = searcher.Search(new RangeQuery("price", 10, 30, includeMin: false, includeMax: false), 10, TestContext.Current.CancellationToken);
 
         Assert.Single(results.ScoreDocs);
     }
@@ -389,7 +387,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new PhraseQuery("body", "quick", "brown"), 10);
+        var results = searcher.Search(new PhraseQuery("body", "quick", "brown"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
         Assert.Equal(0, results.ScoreDocs[0].DocId);
     }
@@ -423,7 +421,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "relevance"), 10);
+        var results = searcher.Search(new TermQuery("body", "relevance"), 10, TestContext.Current.CancellationToken);
 
         Assert.True(results.TotalHits >= 2);
         Assert.Equal(0, results.ScoreDocs[0].DocId);
@@ -457,7 +455,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
 
         using var searcher = new IndexSearcher(dir);
         var query = new VectorQuery("embedding", [1f, 0f, 0f, 0f], topK: 2);
-        var results = searcher.Search(query, 2);
+        var results = searcher.Search(query, 2, TestContext.Current.CancellationToken);
 
         Assert.True(results.TotalHits >= 2);
         // Doc 0 is exact match (cos=1.0), doc 2 is close; doc 1 is orthogonal
@@ -486,7 +484,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new VectorQuery("vec", [1f, 0f, 0f], topK: 10), 10);
+        var results = searcher.Search(new VectorQuery("vec", [1f, 0f, 0f], topK: 10), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
         Assert.True(results.ScoreDocs[0].Score >= results.ScoreDocs[1].Score);
@@ -578,7 +576,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "search"), 10);
+        var results = searcher.Search(new TermQuery("body", "search"), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
         // Shorter doc should rank higher (BM25 length normalisation)
@@ -603,7 +601,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new RangeQuery("score", 25, 55), 10);
+        var results = searcher.Search(new RangeQuery("score", 25, 55), 10, TestContext.Current.CancellationToken);
 
         // Values: 30, 40, 50 => 3 docs
         Assert.Equal(3, results.TotalHits);
@@ -648,7 +646,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "common"), 5);
+        var results = searcher.Search(new TermQuery("body", "common"), 5, TestContext.Current.CancellationToken);
 
         Assert.Equal(20, results.TotalHits);
         Assert.Equal(5, results.ScoreDocs.Length);
@@ -702,7 +700,7 @@ public sealed class SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new PhraseQuery("content", "quick", "brown", "fox"), 10);
+        var results = searcher.Search(new PhraseQuery("content", "quick", "brown", "fox"), 10, TestContext.Current.CancellationToken);
 
         // Should match all 6 documents across both segments
         Assert.Equal(6, results.TotalHits);

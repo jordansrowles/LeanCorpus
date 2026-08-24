@@ -55,12 +55,12 @@ public sealed class BoundaryAndStressTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
 
         // Search on the empty field should return 0 hits, not crash
-        var results = searcher.Search(new TermQuery("body", ""), 10);
+        var results = searcher.Search(new TermQuery("body", ""), 10, TestContext.Current.CancellationToken);
         _output.WriteLine($"Empty field TermQuery('') → {results.TotalHits} hits");
         Assert.Equal(0, results.TotalHits);
 
         // The other field should still be searchable (analyser splits "non-empty" → "non", "empti")
-        var titleResults = searcher.Search(new TermQuery("title", "title"), 10);
+        var titleResults = searcher.Search(new TermQuery("title", "title"), 10, TestContext.Current.CancellationToken);
         _output.WriteLine($"Non-empty field → {titleResults.TotalHits} hits");
         Assert.Equal(1, titleResults.TotalHits);
     }
@@ -82,7 +82,7 @@ public sealed class BoundaryAndStressTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "findable"), 10);
+        var results = searcher.Search(new TermQuery("body", "findable"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
 
         var stored = searcher.GetStoredFields(results.ScoreDocs[0].DocId);
@@ -115,7 +115,7 @@ public sealed class BoundaryAndStressTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "findme"), 10);
+        var results = searcher.Search(new TermQuery("body", "findme"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
 
         var stored = searcher.GetStoredFields(results.ScoreDocs[0].DocId);
@@ -142,7 +142,7 @@ public sealed class BoundaryAndStressTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "marker"), 10);
+        var results = searcher.Search(new TermQuery("body", "marker"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
 
         var stored = searcher.GetStoredFields(results.ScoreDocs[0].DocId);
@@ -169,7 +169,7 @@ public sealed class BoundaryAndStressTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "marker"), 10);
+        var results = searcher.Search(new TermQuery("body", "marker"), 10, TestContext.Current.CancellationToken);
         var stored = searcher.GetStoredFields(results.ScoreDocs[0].DocId);
         _output.WriteLine($"Mixed scripts round-trip: '{stored["greeting"][0]}'");
         Assert.Equal(mixed, stored["greeting"][0]);
@@ -234,7 +234,7 @@ public sealed class BoundaryAndStressTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "alpha"), 10);
+        var results = searcher.Search(new TermQuery("body", "alpha"), 10, TestContext.Current.CancellationToken);
         _output.WriteLine($"5000-token doc: TermQuery('alpha') → {results.TotalHits} hits, score={results.ScoreDocs[0].Score:F4}");
         Assert.Equal(1, results.TotalHits);
         Assert.True(results.ScoreDocs[0].Score > 0);
@@ -308,7 +308,7 @@ public sealed class BoundaryAndStressTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "doc"), 10);
+        var results = searcher.Search(new TermQuery("body", "doc"), 10, TestContext.Current.CancellationToken);
         _output.WriteLine($"MaxBufferedDocs=1: {results.TotalHits} total hits across segments");
         Assert.Equal(5, results.TotalHits);
     }

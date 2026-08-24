@@ -55,7 +55,7 @@ public sealed class IndexSearcherThreadSafetyTests : IDisposable
         for (int t = 0; t < 20; t++)
         {
             string term = $"word{t}";
-            var hits = searcher.Search(new TermQuery("body", term), docCount);
+            var hits = searcher.Search(new TermQuery("body", term), docCount, TestContext.Current.CancellationToken);
             referenceResults[term] = hits.ScoreDocs.Select(sd => sd.DocId).OrderBy(id => id).ToArray();
         }
 
@@ -110,7 +110,7 @@ public sealed class IndexSearcherThreadSafetyTests : IDisposable
 
         using var searcher = new IndexSearcher(directory);
 
-        var reference = searcher.Search(new PhraseQuery("body", ["quick", "brown"]), docCount);
+        var reference = searcher.Search(new PhraseQuery("body", ["quick", "brown"]), docCount, TestContext.Current.CancellationToken);
         var expectedIds = reference.ScoreDocs.Select(sd => sd.DocId).OrderBy(id => id).ToArray();
 
         var errors = new System.Collections.Concurrent.ConcurrentBag<string>();

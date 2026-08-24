@@ -342,7 +342,7 @@ public sealed class IndexSortTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(mmap);
-        var results = searcher.Search(new TermQuery("title", "hello"), 10);
+        var results = searcher.Search(new TermQuery("title", "hello"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(2, results.TotalHits);
     }
 

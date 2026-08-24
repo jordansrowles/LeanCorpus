@@ -53,8 +53,8 @@ public sealed class Phase3SearchTests : IClassFixture<TestDirectoryFixture>
         var noBoost = new RangeQuery("price", 10.0, 30.0);
         var boosted = new RangeQuery("price", 10.0, 30.0) { Boost = 2.0f };
 
-        var noBoostResults = searcher.Search(noBoost, 10);
-        var boostedResults = searcher.Search(boosted, 10);
+        var noBoostResults = searcher.Search(noBoost, 10, TestContext.Current.CancellationToken);
+        var boostedResults = searcher.Search(boosted, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(noBoostResults.TotalHits, boostedResults.TotalHits);
 
@@ -84,7 +84,7 @@ public sealed class Phase3SearchTests : IClassFixture<TestDirectoryFixture>
         var query = new RangeQuery("val", 0.0, 100.0);
         Assert.Equal(1.0f, query.Boost);
 
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
         Assert.True(results.ScoreDocs[0].Score > 0f);
     }
@@ -110,7 +110,7 @@ public sealed class Phase3SearchTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "target"), 100);
+        var results = searcher.Search(new TermQuery("body", "target"), 100, TestContext.Current.CancellationToken);
 
         // docs 0, 3, 6, 9, 12, 15, 18 = 7 documents
         Assert.Equal(7, results.TotalHits);
@@ -135,19 +135,19 @@ public sealed class Phase3SearchTests : IClassFixture<TestDirectoryFixture>
 
         // PhraseQuery with exact adjacency should match "alpha beta"
         var exact = new PhraseQuery("body", 0, "alpha", "beta");
-        Assert.Equal(1, searcher.Search(exact, 10).TotalHits);
+        Assert.Equal(1, searcher.Search(exact, 10, TestContext.Current.CancellationToken).TotalHits);
 
         // "alpha gamma" with slop=1 should match (beta is between them)
         var sloppy = new PhraseQuery("body", 1, "alpha", "gamma");
-        Assert.Equal(1, searcher.Search(sloppy, 10).TotalHits);
+        Assert.Equal(1, searcher.Search(sloppy, 10, TestContext.Current.CancellationToken).TotalHits);
 
         // "alpha delta" with slop=0 SHOULD match (alpha@3, delta@4 are adjacent)
         var adjacent = new PhraseQuery("body", 0, "alpha", "delta");
-        Assert.Equal(1, searcher.Search(adjacent, 10).TotalHits);
+        Assert.Equal(1, searcher.Search(adjacent, 10, TestContext.Current.CancellationToken).TotalHits);
 
         // "beta delta" with slop=0 should NOT match (beta@1, delta@4 — not adjacent)
         var noMatch = new PhraseQuery("body", 0, "beta", "delta");
-        Assert.Equal(0, searcher.Search(noMatch, 10).TotalHits);
+        Assert.Equal(0, searcher.Search(noMatch, 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     /// <summary>
@@ -167,8 +167,8 @@ public sealed class Phase3SearchTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
 
         // "hello" appears 3 times, "world" 1 time — hello should score higher
-        var helloResults = searcher.Search(new TermQuery("body", "hello"), 10);
-        var worldResults = searcher.Search(new TermQuery("body", "world"), 10);
+        var helloResults = searcher.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
+        var worldResults = searcher.Search(new TermQuery("body", "world"), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, helloResults.TotalHits);
         Assert.Equal(1, worldResults.TotalHits);
@@ -196,7 +196,7 @@ public sealed class Phase3SearchTests : IClassFixture<TestDirectoryFixture>
 
         // Verify search still works correctly with large posting list
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "common"), 1000);
+        var results = searcher.Search(new TermQuery("body", "common"), 1000, TestContext.Current.CancellationToken);
         Assert.Equal(500, results.TotalHits);
     }
 
@@ -221,8 +221,8 @@ public sealed class Phase3SearchTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        Assert.Equal(6, searcher.Search(new TermQuery("body", "even"), 20).TotalHits);
-        Assert.Equal(6, searcher.Search(new TermQuery("body", "odd"), 20).TotalHits);
+        Assert.Equal(6, searcher.Search(new TermQuery("body", "even"), 20, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(6, searcher.Search(new TermQuery("body", "odd"), 20, TestContext.Current.CancellationToken).TotalHits);
     }
 
     /// <summary>
@@ -247,6 +247,6 @@ public sealed class Phase3SearchTests : IClassFixture<TestDirectoryFixture>
 
         using var searcher = new IndexSearcher(dir);
         var pq = new PhraseQuery("body", 0, "quick", "brown");
-        Assert.Equal(2, searcher.Search(pq, 10).TotalHits);
+        Assert.Equal(2, searcher.Search(pq, 10, TestContext.Current.CancellationToken).TotalHits);
     }
 }

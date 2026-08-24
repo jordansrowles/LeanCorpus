@@ -62,7 +62,7 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         using var searcher = new IndexSearcher(dir);
         var query = BuildBooleanQuery(
             (new TermQuery("body", "alpha"), Occur.Must));
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
     }
@@ -97,7 +97,7 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
             (new TermQuery("body", "red"), Occur.Must),
             (new TermQuery("body", "green"), Occur.Must),
             (new TermQuery("body", "blue"), Occur.Must));
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
     }
@@ -125,7 +125,7 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         var query = BuildBooleanQuery(
             (new TermQuery("body", "alpha"), Occur.Must),
             (new TermQuery("body", "beta"), Occur.Must));
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, results.TotalHits);
     }
@@ -148,7 +148,7 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         var query = BuildBooleanQuery(
             (new TermQuery("body", "some"), Occur.Must),
             (new TermQuery("body", "nonexistent"), Occur.Must));
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, results.TotalHits);
     }
@@ -174,7 +174,7 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         using var searcher = new IndexSearcher(dir);
         var query = BuildBooleanQuery(
             (new TermQuery("body", "alpha"), Occur.Should));
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
     }
@@ -209,7 +209,7 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         var query = BuildBooleanQuery(
             (new TermQuery("body", "alpha"), Occur.Should),
             (new TermQuery("body", "beta"), Occur.Should));
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(3, results.TotalHits);
         // Doc matching both terms should rank highest
@@ -238,7 +238,7 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         var query = BuildBooleanQuery(
             (new TermQuery("body", "search"), Occur.Must),
             (new TermQuery("body", "database"), Occur.MustNot));
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
     }
@@ -266,7 +266,7 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
             (new TermQuery("body", "search"), Occur.Must),
             (new TermQuery("body", "database"), Occur.MustNot),
             (new TermQuery("body", "cache"), Occur.MustNot));
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
     }
@@ -295,7 +295,7 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         var query = BuildBooleanQuery(
             (new TermQuery("body", "fast"), Occur.Must),
             (new TermQuery("body", "search"), Occur.Should));
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
         // Doc matching both Must + Should should rank higher
@@ -327,7 +327,7 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
             (alternatives, Occur.Must),
             (new TermQuery("title", "after"), Occur.Must));
 
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, results.TotalHits);
         var stored = searcher.GetStoredFields(results.ScoreDocs[0].DocId);
@@ -359,7 +359,7 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         using var searcher = new IndexSearcher(dir);
         var query = BuildBooleanQuery(
             (new TermQuery("body", "fast"), Occur.Must));
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
         var docIds = results.ScoreDocs.Select(sd => sd.DocId).ToHashSet();
@@ -393,7 +393,7 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         var query = BuildBooleanQuery(
             (new TermQuery("body", "fast"), Occur.Should),
             (new TermQuery("body", "search"), Occur.Should));
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
         var docIds = results.ScoreDocs.Select(sd => sd.DocId).ToHashSet();
@@ -423,7 +423,7 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         var query = BuildBooleanQuery(
             (new TermQuery("body", "fast"), Occur.Must),
             (new TermQuery("body", "search"), Occur.MustNot));
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, results.TotalHits);
     }
@@ -441,7 +441,7 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         using var searcher = new IndexSearcher(dir);
         var query = BuildBooleanQuery(
             (new TermQuery("body", "anything"), Occur.Must));
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, results.TotalHits);
     }
@@ -469,7 +469,7 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
             (new TermQuery("body", "alpha"), Occur.Should),
             (new TermQuery("body", "beta"), Occur.Should),
             (new TermQuery("body", "gamma"), Occur.MustNot));
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         // Docs: 0 (alpha beta), 1 (gamma delta), 2 (alpha gamma), 3 (beta delta)
         // Should matches: alpha→[0,2], beta→[0,3] → union [0,2,3]
@@ -509,7 +509,7 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
             (new TermQuery("body", "red"), Occur.Should),
             (new TermQuery("body", "green"), Occur.Should),
             (new TermQuery("body", "blue"), Occur.Should));
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(3, results.TotalHits);
         // Doc matching most terms should rank highest

@@ -135,13 +135,13 @@ public sealed class MultiValuedFieldTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
         
         // Each tag value should be searchable
-        var appleResults = searcher.Search(new TermQuery("tags", "apple"), 10);
+        var appleResults = searcher.Search(new TermQuery("tags", "apple"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, appleResults.TotalHits);
 
-        var bananaResults = searcher.Search(new TermQuery("tags", "banana"), 10);
+        var bananaResults = searcher.Search(new TermQuery("tags", "banana"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, bananaResults.TotalHits);
 
-        var cherryResults = searcher.Search(new TermQuery("tags", "cherry"), 10);
+        var cherryResults = searcher.Search(new TermQuery("tags", "cherry"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, cherryResults.TotalHits);
     }
 

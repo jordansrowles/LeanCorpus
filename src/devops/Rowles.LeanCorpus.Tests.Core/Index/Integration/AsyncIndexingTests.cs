@@ -45,11 +45,11 @@ public sealed class AsyncIndexingTests : IClassFixture<TestDirectoryFixture>
     {
         var dir = new MMapDirectory(SubDir(nameof(AddDocumentAsync_IndexesSingleDocument)));
         using var writer = new IndexWriter(dir, new IndexWriterConfig());
-        await writer.AddDocumentAsync(MakeDoc("1", "hello world async"));
-        await writer.CommitAsync();
+        await writer.AddDocumentAsync(MakeDoc("1", "hello world async"), TestContext.Current.CancellationToken);
+        await writer.CommitAsync(TestContext.Current.CancellationToken);
 
         using var searcher = new IndexSearcher(dir);
-        Assert.True(searcher.Search(new TermQuery("id", "1"), 10).TotalHits > 0);
+        Assert.True(searcher.Search(new TermQuery("id", "1"), 10, TestContext.Current.CancellationToken).TotalHits > 0);
     }
 
     [Fact(DisplayName = "Async Indexing: AddDocumentsAsync Indexes Batched Documents")]
@@ -58,12 +58,12 @@ public sealed class AsyncIndexingTests : IClassFixture<TestDirectoryFixture>
         var dir = new MMapDirectory(SubDir(nameof(AddDocumentsAsync_IndexesBatchedDocuments)));
         using var writer = new IndexWriter(dir, new IndexWriterConfig());
         var batch = new[] { MakeDoc("1", "hello"), MakeDoc("2", "world") };
-        await writer.AddDocumentsAsync(batch);
-        await writer.CommitAsync();
+        await writer.AddDocumentsAsync(batch, TestContext.Current.CancellationToken);
+        await writer.CommitAsync(TestContext.Current.CancellationToken);
 
         using var searcher = new IndexSearcher(dir);
-        Assert.Equal(1, searcher.Search(new TermQuery("id", "1"), 10).TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("id", "2"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "1"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "2"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "Async Indexing: Token Rejection Preserves Earlier Documents And Writer")]
@@ -76,19 +76,18 @@ public sealed class AsyncIndexingTests : IClassFixture<TestDirectoryFixture>
             TokenBudgetPolicy = TokenBudgetPolicy.Reject
         });
 
-        await Assert.ThrowsAsync<TokenBudgetExceededException>(() => writer.AddDocumentsAsync(
-        [
+        await Assert.ThrowsAsync<TokenBudgetExceededException>(() => writer.AddDocumentsAsync([
             MakeDoc("accepted", "one two"),
             MakeDoc("rejected", "one two three four")
-        ]).AsTask());
+        ], TestContext.Current.CancellationToken).AsTask());
 
-        await writer.AddDocumentAsync(MakeDoc("after", "still usable"));
-        await writer.CommitAsync();
+        await writer.AddDocumentAsync(MakeDoc("after", "still usable"), TestContext.Current.CancellationToken);
+        await writer.CommitAsync(TestContext.Current.CancellationToken);
 
         using var searcher = new IndexSearcher(dir);
-        Assert.Equal(1, searcher.Search(new TermQuery("id", "accepted"), 10).TotalHits);
-        Assert.Equal(0, searcher.Search(new TermQuery("id", "rejected"), 10).TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("id", "after"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "accepted"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "rejected"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "after"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "Async Indexing: AddDocumentsAsync Streams Async Enumerable")]
@@ -97,13 +96,13 @@ public sealed class AsyncIndexingTests : IClassFixture<TestDirectoryFixture>
         var dir = new MMapDirectory(SubDir(nameof(AddDocumentsAsync_StreamsAsyncEnumerable)));
         using var writer = new IndexWriter(dir, new IndexWriterConfig());
         var docs = new[] { MakeDoc("1", "hello"), MakeDoc("2", "world"), MakeDoc("3", "test") };
-        await writer.AddDocumentsAsync(ToAsyncEnumerable(docs), batchSize: 2);
-        await writer.CommitAsync();
+        await writer.AddDocumentsAsync(ToAsyncEnumerable(docs), batchSize: 2, cancellationToken: TestContext.Current.CancellationToken);
+        await writer.CommitAsync(TestContext.Current.CancellationToken);
 
         using var searcher = new IndexSearcher(dir);
-        Assert.Equal(1, searcher.Search(new TermQuery("id", "1"), 10).TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("id", "2"), 10).TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("id", "3"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "1"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "2"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "3"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "Async Indexing: Async Enumerable Batches Clamp To MaxQueuedDocs")]
@@ -114,13 +113,13 @@ public sealed class AsyncIndexingTests : IClassFixture<TestDirectoryFixture>
         using var writer = new IndexWriter(dir, config);
         var docs = new[] { MakeDoc("1", "first doc"), MakeDoc("2", "second doc"), MakeDoc("3", "third doc") };
         // batchSize=256 but MaxQueuedDocs=2 clamps it — smaller batches go through the channel.
-        await writer.AddDocumentsAsync(ToAsyncEnumerable(docs), batchSize: 256);
-        await writer.CommitAsync();
+        await writer.AddDocumentsAsync(ToAsyncEnumerable(docs), batchSize: 256, cancellationToken: TestContext.Current.CancellationToken);
+        await writer.CommitAsync(TestContext.Current.CancellationToken);
 
         using var searcher = new IndexSearcher(dir);
-        Assert.Equal(3, searcher.Search(new TermQuery("id", "1"), 10).TotalHits
-                         + searcher.Search(new TermQuery("id", "2"), 10).TotalHits
-                         + searcher.Search(new TermQuery("id", "3"), 10).TotalHits);
+        Assert.Equal(3, searcher.Search(new TermQuery("id", "1"), 10, TestContext.Current.CancellationToken).TotalHits
+                         + searcher.Search(new TermQuery("id", "2"), 10, TestContext.Current.CancellationToken).TotalHits
+                         + searcher.Search(new TermQuery("id", "3"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "Async Indexing: Async Enumerable Source Failure Keeps Completed Batches")]
@@ -131,20 +130,20 @@ public sealed class AsyncIndexingTests : IClassFixture<TestDirectoryFixture>
         // First batch
         using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
         {
-            await writer.AddDocumentsAsync(ToAsyncEnumerable(new[] { MakeDoc("1", "batch1") }), batchSize: 1);
-            await writer.CommitAsync();
+            await writer.AddDocumentsAsync(ToAsyncEnumerable(new[] { MakeDoc("1", "batch1") }), batchSize: 1, cancellationToken: TestContext.Current.CancellationToken);
+            await writer.CommitAsync(TestContext.Current.CancellationToken);
         }
 
         // Second batch — reopen
         using (var writer2 = new IndexWriter(dir, new IndexWriterConfig()))
         {
-            await writer2.AddDocumentsAsync(ToAsyncEnumerable(new[] { MakeDoc("2", "batch2") }), batchSize: 1);
-            await writer2.CommitAsync();
+            await writer2.AddDocumentsAsync(ToAsyncEnumerable(new[] { MakeDoc("2", "batch2") }), batchSize: 1, cancellationToken: TestContext.Current.CancellationToken);
+            await writer2.CommitAsync(TestContext.Current.CancellationToken);
         }
 
         using var searcher = new IndexSearcher(dir);
-        Assert.Equal(1, searcher.Search(new TermQuery("id", "1"), 10).TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("id", "2"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "1"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "2"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "Async Indexing: AddDocumentBlockAsync Writes Parent Bit Set")]
@@ -157,12 +156,12 @@ public sealed class AsyncIndexingTests : IClassFixture<TestDirectoryFixture>
             MakeDoc("child", "nested content"),
             MakeDoc("parent", "parent content")
         };
-        await writer.AddDocumentBlockAsync(block);
-        await writer.CommitAsync();
+        await writer.AddDocumentBlockAsync(block, TestContext.Current.CancellationToken);
+        await writer.CommitAsync(TestContext.Current.CancellationToken);
 
         using var searcher = new IndexSearcher(dir);
-        Assert.Equal(1, searcher.Search(new TermQuery("id", "child"), 10).TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("id", "parent"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "child"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "parent"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "Async Indexing: CommitAsync Persists Buffered Documents")]
@@ -171,11 +170,11 @@ public sealed class AsyncIndexingTests : IClassFixture<TestDirectoryFixture>
         var dir = new MMapDirectory(SubDir(nameof(CommitAsync_PersistsBufferedDocuments)));
         var config = new IndexWriterConfig { MaxBufferedDocs = 100 };
         using var writer = new IndexWriter(dir, config);
-        await writer.AddDocumentAsync(MakeDoc("1", "buffered content"));
-        await writer.CommitAsync();
+        await writer.AddDocumentAsync(MakeDoc("1", "buffered content"), TestContext.Current.CancellationToken);
+        await writer.CommitAsync(TestContext.Current.CancellationToken);
 
         using var searcher = new IndexSearcher(dir);
-        Assert.True(searcher.Search(new TermQuery("id", "1"), 10).TotalHits > 0);
+        Assert.True(searcher.Search(new TermQuery("id", "1"), 10, TestContext.Current.CancellationToken).TotalHits > 0);
     }
 
     [Fact(DisplayName = "Async Indexing: AddDocumentAsync After Dispose Throws")]
@@ -185,7 +184,7 @@ public sealed class AsyncIndexingTests : IClassFixture<TestDirectoryFixture>
         var writer = new IndexWriter(dir, new IndexWriterConfig());
         writer.Dispose();
         await Assert.ThrowsAsync<ObjectDisposedException>(() =>
-            writer.AddDocumentAsync(MakeDoc("1", "late")).AsTask());
+            writer.AddDocumentAsync(MakeDoc("1", "late"), TestContext.Current.CancellationToken).AsTask());
     }
 
     [Fact(DisplayName = "Async Indexing: CommitAsync After Dispose Throws")]
@@ -194,7 +193,7 @@ public sealed class AsyncIndexingTests : IClassFixture<TestDirectoryFixture>
         var dir = new MMapDirectory(SubDir(nameof(CommitAsync_AfterDispose_Throws)));
         var writer = new IndexWriter(dir, new IndexWriterConfig());
         writer.Dispose();
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => writer.CommitAsync());
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => writer.CommitAsync(TestContext.Current.CancellationToken));
     }
 
     private static async IAsyncEnumerable<LeanDocument> ToAsyncEnumerable(IReadOnlyList<LeanDocument> docs)

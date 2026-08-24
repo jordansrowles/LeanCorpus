@@ -36,8 +36,8 @@ public sealed class AdvancedAnalysisIntegrationTests : IClassFixture<TestDirecto
         }
 
         using var searcher = new IndexSearcher(directory);
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "dev@example.com"), 10).TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "https://example.com/docs"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "dev@example.com"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "https://example.com/docs"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "MediaWiki Tokeniser With Type Filter: Indexes Category Terms Only")]
@@ -58,8 +58,8 @@ public sealed class AdvancedAnalysisIntegrationTests : IClassFixture<TestDirecto
         }
 
         using var searcher = new IndexSearcher(directory);
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "search"), 10).TotalHits);
-        Assert.Equal(0, searcher.Search(new TermQuery("body", "ignored"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "search"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "ignored"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "Metaphone Filter: Phonetic Alternate Is Searchable")]
@@ -77,7 +77,7 @@ public sealed class AdvancedAnalysisIntegrationTests : IClassFixture<TestDirecto
         }
 
         using var searcher = new IndexSearcher(directory);
-        Assert.Equal(1, searcher.Search(new TermQuery("body", PhoneticEncoding.EncodeMetaphone("phone")), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", PhoneticEncoding.EncodeMetaphone("phone")), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "Metaphone Filter: Same Position Alternate Preserves Phrase Matching")]
@@ -96,7 +96,7 @@ public sealed class AdvancedAnalysisIntegrationTests : IClassFixture<TestDirecto
 
         using var searcher = new IndexSearcher(directory);
         var phrase = new PhraseQuery("body", PhoneticEncoding.EncodeMetaphone("phone"), "book");
-        Assert.Equal(1, searcher.Search(phrase, 10).TotalHits);
+        Assert.Equal(1, searcher.Search(phrase, 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "Hunspell Stem Filter: Stemmed Term Matches Inflected Document")]
@@ -129,7 +129,7 @@ play/RD
         }
 
         using var searcher = new IndexSearcher(directory);
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "play"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "play"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "Limit Token Count Filter: Drops Terms Beyond Limit")]
@@ -147,8 +147,8 @@ play/RD
         }
 
         using var searcher = new IndexSearcher(directory);
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "alpha"), 10).TotalHits);
-        Assert.Equal(0, searcher.Search(new TermQuery("body", "gamma"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "alpha"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "gamma"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     private string SubDir(string name)

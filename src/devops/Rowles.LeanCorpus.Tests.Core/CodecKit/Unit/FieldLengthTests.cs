@@ -137,7 +137,7 @@ public class FieldLengthTests : IDisposable
         writer.Dispose();
 
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
-        var results = searcher.Search(new TermQuery("body", "one"), 10);
+        var results = searcher.Search(new TermQuery("body", "one"), 10, TestContext.Current.CancellationToken);
 
         // The exact field length for doc 0 should be 5 (not quantised approximation)
         Assert.True(results.TotalHits >= 1);
@@ -163,7 +163,7 @@ public class FieldLengthTests : IDisposable
 
         // Should still open and search without error
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
-        var results = searcher.Search(new TermQuery("body", "hello"), 10);
+        var results = searcher.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
         Assert.True(results.TotalHits >= 1);
     }
 

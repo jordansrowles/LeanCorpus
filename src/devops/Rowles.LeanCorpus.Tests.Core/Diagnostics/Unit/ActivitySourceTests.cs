@@ -70,7 +70,7 @@ public sealed class ActivitySourceTests : IDisposable
         using var writer = CreateAndPopulateIndex();
 
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
-        searcher.Search(new TermQuery("body", "hello"), 5);
+        searcher.Search(new TermQuery("body", "hello"), 5, TestContext.Current.CancellationToken);
 
         var activity = Scoped(scope).FirstOrDefault(a => a.OperationName == "leancorpus.search");
         Assert.NotNull(activity);
@@ -87,7 +87,7 @@ public sealed class ActivitySourceTests : IDisposable
         using var writer = CreateAndPopulateIndex();
 
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
-        searcher.Search(new TermQuery("body", "hello"), 10);
+        searcher.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
 
         var activity = Scoped(scope).FirstOrDefault(a => a.OperationName == "leancorpus.search");
         Assert.NotNull(activity);

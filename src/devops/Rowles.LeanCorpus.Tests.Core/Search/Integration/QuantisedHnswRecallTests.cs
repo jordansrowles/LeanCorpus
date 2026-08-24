@@ -84,7 +84,7 @@ public sealed class QuantisedHnswRecallTests : IClassFixture<TestDirectoryFixtur
             .ToHashSet();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new VectorQuery("embedding", query, topK: topK, efSearch: 100), topK);
+        var results = searcher.Search(new VectorQuery("embedding", query, topK: topK, efSearch: 100), topK, TestContext.Current.CancellationToken);
 
         Assert.True(results.TotalHits > 0, "Int8 HNSW search returned no hits.");
         var found = results.ScoreDocs.Select(sd => sd.DocId).ToHashSet();
@@ -132,7 +132,7 @@ public sealed class QuantisedHnswRecallTests : IClassFixture<TestDirectoryFixtur
             .ToHashSet();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new VectorQuery("embedding", query, topK: topK, efSearch: 100), topK);
+        var results = searcher.Search(new VectorQuery("embedding", query, topK: topK, efSearch: 100), topK, TestContext.Current.CancellationToken);
 
         Assert.True(results.TotalHits > 0, "BBQ HNSW search returned no hits.");
         var found = results.ScoreDocs.Select(sd => sd.DocId).ToHashSet();
@@ -171,7 +171,7 @@ public sealed class QuantisedHnswRecallTests : IClassFixture<TestDirectoryFixtur
 
         var query = BuildRandomVectors(1, dim, seed: 77)[0];
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new VectorQuery("v", query, topK: 5), 5);
+        var results = searcher.Search(new VectorQuery("v", query, topK: 5), 5, TestContext.Current.CancellationToken);
         Assert.True(results.TotalHits > 0, "Default quantisation search returned no hits.");
     }
 }

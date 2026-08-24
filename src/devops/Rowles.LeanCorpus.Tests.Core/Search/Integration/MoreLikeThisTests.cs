@@ -168,7 +168,7 @@ public class MoreLikeThisTests : IDisposable
 
         var query = new MoreLikeThisQuery(0, ["body"],
             new MoreLikeThisParameters { MinTermFreq = 1, MinDocFreq = 1, MinWordLength = 3 });
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.True(results.TotalHits > 0);
     }

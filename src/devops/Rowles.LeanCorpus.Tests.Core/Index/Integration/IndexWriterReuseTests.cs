@@ -49,8 +49,8 @@ public class IndexWriterReuseTests
             }
 
             using var searcher = new IndexSearcher(new MMapDirectory(dir));
-            var results1 = searcher.Search(new TermQuery("body", "one"), 10);
-            var results2 = searcher.Search(new TermQuery("body", "two"), 10);
+            var results1 = searcher.Search(new TermQuery("body", "one"), 10, TestContext.Current.CancellationToken);
+            var results2 = searcher.Search(new TermQuery("body", "two"), 10, TestContext.Current.CancellationToken);
 
             Assert.Equal(5, results1.TotalHits);
             Assert.Equal(5, results2.TotalHits);
@@ -91,7 +91,7 @@ public class IndexWriterReuseTests
             }
 
             using var searcher = new IndexSearcher(new MMapDirectory(dir));
-            var results = searcher.Search(new PhraseQuery("body", ["quick", "brown"]), 10);
+            var results = searcher.Search(new PhraseQuery("body", ["quick", "brown"]), 10, TestContext.Current.CancellationToken);
 
             Assert.Equal(2, results.TotalHits);
         }

@@ -57,7 +57,7 @@ public sealed class IndexSearcherGapsTests : IDisposable
     {
         using var dir = BuildIndex("hello world");
         using var searcher = new IndexSearcher(dir);
-        var result = searcher.Search(new TermQuery("body", "hello"), 0);
+        var result = searcher.Search(new TermQuery("body", "hello"), 0, TestContext.Current.CancellationToken);
         Assert.Empty(result.ScoreDocs);
     }
 
@@ -66,7 +66,7 @@ public sealed class IndexSearcherGapsTests : IDisposable
     {
         using var dir = EmptyIndex();
         using var searcher = new IndexSearcher(dir);
-        var result = searcher.Search(new TermQuery("body", "hello"), 10);
+        var result = searcher.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
         Assert.Empty(result.ScoreDocs);
     }
 
@@ -182,7 +182,12 @@ public sealed class IndexSearcherGapsTests : IDisposable
     {
         using var dir = BuildIndex("the quick brown fox", "the lazy dog");
         using var searcher = new IndexSearcher(dir);
-        var result = searcher.Search("quick", "body", 10);
+        var result = searcher.Search(
+            "quick",
+            "body",
+            10,
+            analyser: null,
+            cancellationToken: TestContext.Current.CancellationToken);
         Assert.True(result.TotalHits > 0);
     }
 
@@ -205,7 +210,7 @@ public sealed class IndexSearcherGapsTests : IDisposable
         var bq = new BooleanQuery.Builder()
             .Add(new TermQuery("body", "brown"), Occur.Must)
             .Build();
-        var result = searcher.Search(bq, 10);
+        var result = searcher.Search(bq, 10, TestContext.Current.CancellationToken);
         Assert.True(result.TotalHits > 0);
     }
 
@@ -214,7 +219,7 @@ public sealed class IndexSearcherGapsTests : IDisposable
     {
         using var dir = BuildIndex("programming language", "python rocks", "prolog fun");
         using var searcher = new IndexSearcher(dir);
-        var result = searcher.Search(new PrefixQuery("body", "pro"), 10);
+        var result = searcher.Search(new PrefixQuery("body", "pro"), 10, TestContext.Current.CancellationToken);
         Assert.True(result.TotalHits > 0);
     }
 
@@ -223,7 +228,7 @@ public sealed class IndexSearcherGapsTests : IDisposable
     {
         using var dir = BuildIndex("jumper cable", "jumping jacks");
         using var searcher = new IndexSearcher(dir);
-        var result = searcher.Search(new WildcardQuery("body", "jump*"), 10);
+        var result = searcher.Search(new WildcardQuery("body", "jump*"), 10, TestContext.Current.CancellationToken);
         Assert.True(result.TotalHits > 0);
     }
 
@@ -232,7 +237,7 @@ public sealed class IndexSearcherGapsTests : IDisposable
     {
         using var dir = BuildIndex("colour theory", "color wheel");
         using var searcher = new IndexSearcher(dir);
-        var result = searcher.Search(new FuzzyQuery("body", "colour", 1), 10);
+        var result = searcher.Search(new FuzzyQuery("body", "colour", 1), 10, TestContext.Current.CancellationToken);
         Assert.True(result.TotalHits > 0);
     }
 
@@ -246,8 +251,8 @@ public sealed class IndexSearcherGapsTests : IDisposable
         var segments = searcher1.GetSegmentReaders().Select(r => r.Info).ToList();
 
         using var searcher2 = new IndexSearcher(dir, segments);
-        var r1 = searcher1.Search(new TermQuery("body", "hello"), 10);
-        var r2 = searcher2.Search(new TermQuery("body", "hello"), 10);
+        var r1 = searcher1.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
+        var r2 = searcher2.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(r1.TotalHits, r2.TotalHits);
     }
 
@@ -260,8 +265,8 @@ public sealed class IndexSearcherGapsTests : IDisposable
         var cfg = new IndexSearcherConfig { EnableQueryCache = true, QueryCacheMaxEntries = 16 };
         using var searcher = new IndexSearcher(dir, cfg);
         var query = new TermQuery("body", "cache");
-        var r1 = searcher.Search(query, 10);
-        var r2 = searcher.Search(query, 10);
+        var r1 = searcher.Search(query, 10, TestContext.Current.CancellationToken);
+        var r2 = searcher.Search(query, 10, TestContext.Current.CancellationToken);
         Assert.Equal(r1.TotalHits, r2.TotalHits);
         Assert.NotNull(searcher.Cache);
     }

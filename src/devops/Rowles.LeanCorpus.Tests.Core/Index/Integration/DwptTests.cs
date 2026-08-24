@@ -61,7 +61,7 @@ public sealed class DwptTests
 
             // Assert
             using var searcher = new IndexSearcher(mmap);
-            var results = searcher.Search(new TermQuery("body", "document"), topN: 200);
+            var results = searcher.Search(new TermQuery("body", "document"), topN: 200, cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Equal(100, results.TotalHits);
         }
@@ -99,7 +99,7 @@ public sealed class DwptTests
 
             // Assert — every document should be searchable
             using var searcher = new IndexSearcher(mmap);
-            var results = searcher.Search(new TermQuery("body", "document"), topN: 1500);
+            var results = searcher.Search(new TermQuery("body", "document"), topN: 1500, cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Equal(1000, results.TotalHits);
         }
@@ -137,7 +137,7 @@ public sealed class DwptTests
 
             // Assert — all 500 documents should be searchable
             using var searcher = new IndexSearcher(mmap);
-            var results = searcher.Search(new TermQuery("body", "document"), topN: 600);
+            var results = searcher.Search(new TermQuery("body", "document"), topN: 600, cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Equal(500, results.TotalHits);
         }
@@ -272,7 +272,7 @@ public sealed class DwptTests
 
             // Assert — all documents from both DWPT slots should be indexed and searchable
             using var searcher = new IndexSearcher(mmap);
-            var results = searcher.Search(new TermQuery("body", "document"), topN: 300);
+            var results = searcher.Search(new TermQuery("body", "document"), topN: 300, cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Equal(200, results.TotalHits);
 

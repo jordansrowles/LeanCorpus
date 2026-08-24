@@ -46,7 +46,7 @@ public sealed class SlowQueryLogTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(mmap, config);
 
         // Act
-        searcher.Search(new TermQuery("body", "hello"), 10);
+        searcher.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
         log.Dispose(); // drain the async writer
 
         // Assert
@@ -82,7 +82,7 @@ public sealed class SlowQueryLogTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(mmap, config);
 
         // Act
-        searcher.Search(new TermQuery("body", "hello"), 10);
+        searcher.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Empty(sw.ToString());

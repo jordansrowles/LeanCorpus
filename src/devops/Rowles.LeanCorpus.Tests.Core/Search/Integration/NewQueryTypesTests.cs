@@ -53,7 +53,7 @@ public sealed class NewQueryTypesTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermRangeQuery("fruit", "banana", "date"), 10);
+        var results = searcher.Search(new TermRangeQuery("fruit", "banana", "date"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(3, results.TotalHits); // banana, cherry, date
     }
 
@@ -74,8 +74,7 @@ public sealed class NewQueryTypesTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(
-            new TermRangeQuery("fruit", "banana", "date", includeLower: false, includeUpper: false), 10);
+        var results = searcher.Search(new TermRangeQuery("fruit", "banana", "date", includeLower: false, includeUpper: false), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits); // only cherry
     }
 
@@ -96,7 +95,7 @@ public sealed class NewQueryTypesTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermRangeQuery("fruit", null, "banana"), 10);
+        var results = searcher.Search(new TermRangeQuery("fruit", null, "banana"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(2, results.TotalHits); // apple, banana
     }
 
@@ -117,7 +116,7 @@ public sealed class NewQueryTypesTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermRangeQuery("fruit", "banana", null), 10);
+        var results = searcher.Search(new TermRangeQuery("fruit", "banana", null), 10, TestContext.Current.CancellationToken);
         Assert.Equal(2, results.TotalHits); // banana, cherry
     }
 
@@ -140,8 +139,7 @@ public sealed class NewQueryTypesTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(
-            new ConstantScoreQuery(new TermQuery("body", "hello"), 5.0f), 10);
+        var results = searcher.Search(new ConstantScoreQuery(new TermQuery("body", "hello"), 5.0f), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(3, results.TotalHits);
         Assert.All(results.ScoreDocs, sd => Assert.Equal(5.0f, sd.Score));
@@ -161,8 +159,7 @@ public sealed class NewQueryTypesTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(
-            new ConstantScoreQuery(new TermQuery("body", "notfound")), 10);
+        var results = searcher.Search(new ConstantScoreQuery(new TermQuery("body", "notfound")), 10, TestContext.Current.CancellationToken);
         Assert.Equal(0, results.TotalHits);
     }
 
@@ -183,7 +180,7 @@ public sealed class NewQueryTypesTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new ConstantScoreQuery(new TermQuery("tag", "needleword")), 1);
+        var results = searcher.Search(new ConstantScoreQuery(new TermQuery("tag", "needleword")), 1, TestContext.Current.CancellationToken);
 
         Assert.Equal(10_025, results.TotalHits);
     }
@@ -216,7 +213,7 @@ public sealed class NewQueryTypesTests : IClassFixture<TestDirectoryFixture>
         dmq.Add(new TermQuery("title", "corpus"));
         dmq.Add(new TermQuery("body", "corpus"));
 
-        var results = searcher.Search(dmq, 10);
+        var results = searcher.Search(dmq, 10, TestContext.Current.CancellationToken);
         Assert.Equal(2, results.TotalHits);
     }
 
@@ -240,13 +237,13 @@ public sealed class NewQueryTypesTests : IClassFixture<TestDirectoryFixture>
         var dmq0 = new DisjunctionMaxQuery(0.0f);
         dmq0.Add(new TermQuery("title", "corpus"));
         dmq0.Add(new TermQuery("body", "corpus"));
-        var r0 = searcher.Search(dmq0, 10);
+        var r0 = searcher.Search(dmq0, 10, TestContext.Current.CancellationToken);
 
         // With tiebreaker = 0.5: score = max + 0.5 * sum(rest)
         var dmq5 = new DisjunctionMaxQuery(0.5f);
         dmq5.Add(new TermQuery("title", "corpus"));
         dmq5.Add(new TermQuery("body", "corpus"));
-        var r5 = searcher.Search(dmq5, 10);
+        var r5 = searcher.Search(dmq5, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, r0.TotalHits);
         Assert.Equal(1, r5.TotalHits);
@@ -273,7 +270,7 @@ public sealed class NewQueryTypesTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
         var dmq = new DisjunctionMaxQuery();
         dmq.Add(new TermQuery("tag", "needleword"));
-        var results = searcher.Search(dmq, 1);
+        var results = searcher.Search(dmq, 1, TestContext.Current.CancellationToken);
 
         Assert.Equal(10_025, results.TotalHits);
     }
@@ -298,7 +295,7 @@ public sealed class NewQueryTypesTests : IClassFixture<TestDirectoryFixture>
 
         using var searcher = new IndexSearcher(dir);
         // Matches "car" and "card" and "cargo" — all starting with "car"
-        var results = searcher.Search(new RegexpQuery("word", "^car"), 10);
+        var results = searcher.Search(new RegexpQuery("word", "^car"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(3, results.TotalHits);
     }
 
@@ -316,7 +313,7 @@ public sealed class NewQueryTypesTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new RegexpQuery("word", "^xyz"), 10);
+        var results = searcher.Search(new RegexpQuery("word", "^xyz"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(0, results.TotalHits);
     }
 

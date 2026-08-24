@@ -63,7 +63,7 @@ public sealed class LiveDocsTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "alpha"), 10);
+        var results = searcher.Search(new TermQuery("body", "alpha"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(0, results.TotalHits);
     }
 
@@ -109,14 +109,14 @@ public sealed class LiveDocsTests : IClassFixture<TestDirectoryFixture>
             using var searcher = new IndexSearcher(dir);
 
             // Search for deleted document — assert 0 results
-            var deletedResults = searcher.Search(new TermQuery("id", "doc2"), 10);
+            var deletedResults = searcher.Search(new TermQuery("id", "doc2"), 10, TestContext.Current.CancellationToken);
             Assert.Equal(0, deletedResults.TotalHits);
 
             // Search for non-deleted documents — assert they're found
-            var doc1Results = searcher.Search(new TermQuery("id", "doc1"), 10);
+            var doc1Results = searcher.Search(new TermQuery("id", "doc1"), 10, TestContext.Current.CancellationToken);
             Assert.Equal(1, doc1Results.TotalHits);
 
-            var doc3Results = searcher.Search(new TermQuery("id", "doc3"), 10);
+            var doc3Results = searcher.Search(new TermQuery("id", "doc3"), 10, TestContext.Current.CancellationToken);
             Assert.Equal(1, doc3Results.TotalHits);
         }
     }
@@ -152,8 +152,8 @@ public sealed class LiveDocsTests : IClassFixture<TestDirectoryFixture>
 
         using var searcher = new IndexSearcher(dir);
 
-        Assert.Equal(0, searcher.Search(new TermQuery("id", "victim"), 10).TotalHits);
-        Assert.Equal(3, searcher.Search(new TermQuery("id", "survivor"), 10).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "victim"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(3, searcher.Search(new TermQuery("id", "survivor"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     /// <summary>
@@ -190,9 +190,9 @@ public sealed class LiveDocsTests : IClassFixture<TestDirectoryFixture>
 
         using var searcher = new IndexSearcher(dir);
 
-        Assert.Equal(0, searcher.Search(new TermQuery("body", "old"), 10).ScoreDocs
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "old"), 10, TestContext.Current.CancellationToken).ScoreDocs
             .Count(hit => searcher.GetStoredFields(hit.DocId)["id"][0] == "doc-1"));
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "replacement"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "replacement"), 10, TestContext.Current.CancellationToken).TotalHits);
         Assert.Equal(4, searcher.Stats.LiveDocCount);
     }
 
@@ -224,10 +224,10 @@ public sealed class LiveDocsTests : IClassFixture<TestDirectoryFixture>
 
         using var searcher = new IndexSearcher(dir);
 
-        Assert.Equal(0, searcher.Search(new TermQuery("id", "alpha"), 10).TotalHits);
-        Assert.Equal(0, searcher.Search(new TermQuery("id", "charlie"), 10).TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("id", "bravo"), 10).TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("id", "delta"), 10).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "alpha"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "charlie"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "bravo"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "delta"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     /// <summary>
@@ -271,11 +271,11 @@ public sealed class LiveDocsTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
 
         Assert.Equal(3, searcher.Stats.LiveDocCount);
-        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc-1"), 10).TotalHits);
-        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc-3"), 10).TotalHits);
-        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc-5"), 10).TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("id", "doc-2"), 10).TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("id", "doc-4"), 10).TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("id", "doc-6"), 10).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc-1"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc-3"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc-5"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "doc-2"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "doc-4"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "doc-6"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 }

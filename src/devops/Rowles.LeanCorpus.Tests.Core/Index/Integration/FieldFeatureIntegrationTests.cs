@@ -37,7 +37,7 @@ public sealed class FieldFeatureIntegrationTests : IClassFixture<TestDirectoryFi
         }
 
         using var searcher = new IndexSearcher(dir);
-        var hit = Assert.Single(searcher.Search(new TermQuery("id", "blob-1"), 10).ScoreDocs);
+        var hit = Assert.Single(searcher.Search(new TermQuery("id", "blob-1"), 10, TestContext.Current.CancellationToken).ScoreDocs);
         var binaryFields = searcher.GetStoredBinaryFields(hit.DocId);
 
         Assert.Equal(new byte[] { 0xCA, 0xFE, 0xBA, 0xBE }, binaryFields["blob"][0]);
@@ -62,7 +62,7 @@ public sealed class FieldFeatureIntegrationTests : IClassFixture<TestDirectoryFi
         }
 
         using var searcher = new IndexSearcher(dir);
-        var hit = Assert.Single(searcher.Search(new TermQuery("id", "blob-1"), 10).ScoreDocs);
+        var hit = Assert.Single(searcher.Search(new TermQuery("id", "blob-1"), 10, TestContext.Current.CancellationToken).ScoreDocs);
         var first = searcher.GetStoredBinaryFields(hit.DocId)["blob"][0];
         first[0] = 99;
 
@@ -91,7 +91,7 @@ public sealed class FieldFeatureIntegrationTests : IClassFixture<TestDirectoryFi
         }
 
         using var searcher = new IndexSearcher(dir);
-        var hits = searcher.Search(new TermQuery("body", "alpha"), 10);
+        var hits = searcher.Search(new TermQuery("body", "alpha"), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, hits.TotalHits);
         Assert.Equal("boosted", searcher.GetStoredFields(hits.ScoreDocs[0].DocId)["id"][0]);
@@ -130,7 +130,7 @@ public sealed class FieldFeatureIntegrationTests : IClassFixture<TestDirectoryFi
         MergeSegmentsForTest(dirPath, dir);
 
         using var searcher = new IndexSearcher(dir);
-        var hit = Assert.Single(searcher.Search(new TermQuery("id", "payload-a"), 10).ScoreDocs);
+        var hit = Assert.Single(searcher.Search(new TermQuery("id", "payload-a"), 10, TestContext.Current.CancellationToken).ScoreDocs);
         var reader = Assert.Single(searcher.GetSegmentReaders());
         int localDocId = hit.DocId - reader.DocBase;
 

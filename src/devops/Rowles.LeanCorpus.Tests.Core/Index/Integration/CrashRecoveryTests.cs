@@ -50,7 +50,7 @@ public class CrashRecoveryTests : IDisposable
 
         // Assert — index works
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
-        var results = searcher.Search(new TermQuery("body", "hello"), 10);
+        var results = searcher.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
     }
 
@@ -102,7 +102,7 @@ public class CrashRecoveryTests : IDisposable
 
         // Act — re-open should fall back to segments_1
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
-        var results = searcher.Search(new TermQuery("body", "first"), 10);
+        var results = searcher.Search(new TermQuery("body", "first"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
     }
 
@@ -218,8 +218,8 @@ public class CrashRecoveryTests : IDisposable
         File.WriteAllText(segments2, corruptCommit);
 
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "first"), 10).TotalHits);
-        Assert.Equal(0, searcher.Search(new TermQuery("body", "second"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "first"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "second"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     /// <summary>
@@ -237,7 +237,7 @@ public class CrashRecoveryTests : IDisposable
         File.WriteAllText(Path.Combine(_dir, "segments_99.tmp"), "{\"Segments\":[\"missing\"],");
 
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
-        var results = searcher.Search(new TermQuery("body", "stable"), 10);
+        var results = searcher.Search(new TermQuery("body", "stable"), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, results.TotalHits);
     }
@@ -260,7 +260,7 @@ public class CrashRecoveryTests : IDisposable
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
 
         Assert.Equal(2, searcher.Stats.LiveDocCount);
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "alpha"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "alpha"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     /// <summary>
@@ -373,8 +373,8 @@ public class CrashRecoveryTests : IDisposable
 
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
 
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "survivor"), 10).TotalHits);
-        Assert.Equal(0, searcher.Search(new TermQuery("body", "victim"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "survivor"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "victim"), 10, TestContext.Current.CancellationToken).TotalHits);
         Assert.Equal(1, searcher.Stats.LiveDocCount);
     }
 
@@ -412,7 +412,7 @@ public class CrashRecoveryTests : IDisposable
 
         // Act — should fall back to segments_1
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
-        var results = searcher.Search(new TermQuery("body", "first"), 10);
+        var results = searcher.Search(new TermQuery("body", "first"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
     }
 
@@ -448,7 +448,7 @@ public class CrashRecoveryTests : IDisposable
         File.Delete(Path.Combine(_dir, lastSeg + ".dic"));
 
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
-        var results = searcher.Search(new TermQuery("body", "first"), 10);
+        var results = searcher.Search(new TermQuery("body", "first"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
     }
 

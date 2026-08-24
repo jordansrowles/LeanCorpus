@@ -104,7 +104,7 @@ public class FieldCompressionTests : IDisposable
             IndexDocs(dir, new IndexWriterConfig { CompressionPolicy = policy }, count: 10);
 
             using var searcher = new IndexSearcher(new MMapDirectory(dir));
-            var results = searcher.Search(new TermQuery("body", "fox"), 100);
+            var results = searcher.Search(new TermQuery("body", "fox"), 100, TestContext.Current.CancellationToken);
             Assert.Equal(10, results.TotalHits);
 
             var stored = searcher.GetStoredFields(results.ScoreDocs[0].DocId);

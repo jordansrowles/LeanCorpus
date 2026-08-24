@@ -31,7 +31,7 @@ public sealed class PaginationRelevanceTests : IClassFixture<TestDirectoryFixtur
             ("d", "common", 1));
         var query = new TermQuery("body", "common");
 
-        var first = searcher.Search(query, 2);
+        var first = searcher.Search(query, 2, TestContext.Current.CancellationToken);
         var second = searcher.SearchAfter(first.ScoreDocs[^1], query, 2);
 
         Assert.Equal(new[] { 0, 1 }, first.ScoreDocs.Select(static hit => hit.DocId));
@@ -71,7 +71,7 @@ public sealed class PaginationRelevanceTests : IClassFixture<TestDirectoryFixtur
             nameof(QueryRescorer_DoesNotIntroduceSecondPassOnlyDocuments),
             ("candidate", "common", 1),
             ("outside", "preferred", 2));
-        var firstPass = searcher.Search(new TermQuery("body", "common"), 1);
+        var firstPass = searcher.Search(new TermQuery("body", "common"), 1, TestContext.Current.CancellationToken);
 
         var rescored = new QueryRescorer(
             new TermQuery("body", "preferred"),
@@ -95,7 +95,7 @@ public sealed class PaginationRelevanceTests : IClassFixture<TestDirectoryFixtur
             .Multiply(DoubleValuesSource.Constant(2))
             .Add(DoubleValuesSource.Scores);
 
-        var results = searcher.Search(new FunctionQuery(source), 2);
+        var results = searcher.Search(new FunctionQuery(source), 2, TestContext.Current.CancellationToken);
 
         Assert.Equal("high", searcher.GetStoredFields(results.ScoreDocs[0].DocId)["id"][0]);
         Assert.True(results.ScoreDocs[0].Score > results.ScoreDocs[1].Score);
@@ -115,7 +115,7 @@ public sealed class PaginationRelevanceTests : IClassFixture<TestDirectoryFixtur
             source,
             ScoreMode.Multiply);
 
-        var results = searcher.Search(query, 2);
+        var results = searcher.Search(query, 2, TestContext.Current.CancellationToken);
 
         Assert.Equal("high", searcher.GetStoredFields(results.ScoreDocs[0].DocId)["id"][0]);
     }

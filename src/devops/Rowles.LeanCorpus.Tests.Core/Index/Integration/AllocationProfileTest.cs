@@ -57,14 +57,14 @@ public class AllocationProfileTest : IDisposable
     [Fact(DisplayName = "Term Query: Allocation Per Query Under 5 KB")]
     public void TermQuery_AllocationPerQuery_Under5KB()
     {
-        for (int w = 0; w < 50; w++) _searcher.Search(new TermQuery("body", "search"), 25);
+        for (int w = 0; w < 50; w++) _searcher.Search(new TermQuery("body", "search"), 25, TestContext.Current.CancellationToken);
 
         GC.Collect(2, GCCollectionMode.Forced, true, true);
         long before = GC.GetAllocatedBytesForCurrentThread();
 
         const int iterations = 1000;
         for (int q = 0; q < iterations; q++)
-            _searcher.Search(new TermQuery("body", "search"), 25);
+            _searcher.Search(new TermQuery("body", "search"), 25, TestContext.Current.CancellationToken);
 
         long totalAlloc = GC.GetAllocatedBytesForCurrentThread() - before;
         long perQuery = totalAlloc / iterations;
@@ -84,7 +84,7 @@ public class AllocationProfileTest : IDisposable
             .Add(new TermQuery("body", "benchmark"), Occur.Must)
             .Build();
         for (int w = 0; w < 50; w++)
-            _searcher.Search(warmBq, 25);
+            _searcher.Search(warmBq, 25, TestContext.Current.CancellationToken);
 
         GC.Collect(2, GCCollectionMode.Forced, true, true);
         long before = GC.GetAllocatedBytesForCurrentThread();
@@ -96,7 +96,7 @@ public class AllocationProfileTest : IDisposable
                 .Add(new TermQuery("body", "search"), Occur.Must)
                 .Add(new TermQuery("body", "benchmark"), Occur.Must)
                 .Build();
-            _searcher.Search(bq, 25);
+            _searcher.Search(bq, 25, TestContext.Current.CancellationToken);
         }
 
         long totalAlloc = GC.GetAllocatedBytesForCurrentThread() - before;
@@ -112,14 +112,14 @@ public class AllocationProfileTest : IDisposable
     [Fact(DisplayName = "Phrase Query: Allocation Per Query Under 20 KB")]
     public void PhraseQuery_AllocationPerQuery_Under20KB()
     {
-        for (int w = 0; w < 50; w++) _searcher.Search(new PhraseQuery("body", "dotnet", "segment"), 25);
+        for (int w = 0; w < 50; w++) _searcher.Search(new PhraseQuery("body", "dotnet", "segment"), 25, TestContext.Current.CancellationToken);
 
         GC.Collect(2, GCCollectionMode.Forced, true, true);
         long before = GC.GetAllocatedBytesForCurrentThread();
 
         const int iterations = 1000;
         for (int q = 0; q < iterations; q++)
-            _searcher.Search(new PhraseQuery("body", "dotnet", "segment"), 25);
+            _searcher.Search(new PhraseQuery("body", "dotnet", "segment"), 25, TestContext.Current.CancellationToken);
 
         long totalAlloc = GC.GetAllocatedBytesForCurrentThread() - before;
         long perQuery = totalAlloc / iterations;
@@ -134,14 +134,14 @@ public class AllocationProfileTest : IDisposable
     [Fact(DisplayName = "Wildcard Query: Allocation Per Query Under 100 KB")]
     public void WildcardQuery_AllocationPerQuery_Under100KB()
     {
-        for (int w = 0; w < 50; w++) _searcher.Search(new WildcardQuery("body", "search*"), 25);
+        for (int w = 0; w < 50; w++) _searcher.Search(new WildcardQuery("body", "search*"), 25, TestContext.Current.CancellationToken);
 
         GC.Collect(2, GCCollectionMode.Forced, true, true);
         long before = GC.GetAllocatedBytesForCurrentThread();
 
         const int iterations = 1000;
         for (int q = 0; q < iterations; q++)
-            _searcher.Search(new WildcardQuery("body", "search*"), 25);
+            _searcher.Search(new WildcardQuery("body", "search*"), 25, TestContext.Current.CancellationToken);
 
         long totalAlloc = GC.GetAllocatedBytesForCurrentThread() - before;
         long perQuery = totalAlloc / iterations;
@@ -156,14 +156,14 @@ public class AllocationProfileTest : IDisposable
     [Fact(DisplayName = "Fuzzy Query: Allocation Per Query Under 100 KB")]
     public void FuzzyQuery_AllocationPerQuery_Under100KB()
     {
-        for (int w = 0; w < 50; w++) _searcher.Search(new FuzzyQuery("body", "serch"), 25);
+        for (int w = 0; w < 50; w++) _searcher.Search(new FuzzyQuery("body", "serch"), 25, TestContext.Current.CancellationToken);
 
         GC.Collect(2, GCCollectionMode.Forced, true, true);
         long before = GC.GetAllocatedBytesForCurrentThread();
 
         const int iterations = 1000;
         for (int q = 0; q < iterations; q++)
-            _searcher.Search(new FuzzyQuery("body", "serch"), 25);
+            _searcher.Search(new FuzzyQuery("body", "serch"), 25, TestContext.Current.CancellationToken);
 
         long totalAlloc = GC.GetAllocatedBytesForCurrentThread() - before;
         long perQuery = totalAlloc / iterations;

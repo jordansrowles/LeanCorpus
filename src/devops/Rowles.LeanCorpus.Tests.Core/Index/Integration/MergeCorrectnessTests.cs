@@ -70,14 +70,14 @@ public sealed class MergeCorrectnessTests : IClassFixture<TestDirectoryFixture>
 
         // Assert: search should find 10 docs, not 12
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "common"), 20);
+        var results = searcher.Search(new TermQuery("body", "common"), 20, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"After delete+merge: {results.TotalHits} docs match 'common'");
         Assert.Equal(10, results.TotalHits);
 
         // Verify specific deletions
-        var deletedA = searcher.Search(new TermQuery("id", "doc3"), 10);
-        var deletedB = searcher.Search(new TermQuery("id", "doc7"), 10);
+        var deletedA = searcher.Search(new TermQuery("id", "doc3"), 10, TestContext.Current.CancellationToken);
+        var deletedB = searcher.Search(new TermQuery("id", "doc7"), 10, TestContext.Current.CancellationToken);
         _output.WriteLine($"  doc3 hits: {deletedA.TotalHits} (expected 0)");
         _output.WriteLine($"  doc7 hits: {deletedB.TotalHits} (expected 0)");
         Assert.Equal(0, deletedA.TotalHits);
@@ -119,8 +119,8 @@ public sealed class MergeCorrectnessTests : IClassFixture<TestDirectoryFixture>
 
         // Assert: only keeper docs survive
         using var searcher = new IndexSearcher(dir);
-        var keeperResults = searcher.Search(new TermQuery("group", "keeper"), 10);
-        var disposableResults = searcher.Search(new TermQuery("group", "disposable"), 10);
+        var keeperResults = searcher.Search(new TermQuery("group", "keeper"), 10, TestContext.Current.CancellationToken);
+        var disposableResults = searcher.Search(new TermQuery("group", "disposable"), 10, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"After merge: keeper={keeperResults.TotalHits}, disposable={disposableResults.TotalHits}");
         Assert.Equal(6, keeperResults.TotalHits);
@@ -147,12 +147,12 @@ public sealed class MergeCorrectnessTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
         var merge = writer.MergeTask;
         if (merge is not null)
-            await merge.WaitAsync(TimeSpan.FromSeconds(30));
+            await merge.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc-0"), 1).TotalHits);
-        Assert.Equal(23, searcher.Search(new TermQuery("body", "payload"), 24).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc-0"), 1, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(23, searcher.Search(new TermQuery("body", "payload"), 24, TestContext.Current.CancellationToken).TotalHits);
     }
 
     /// <summary>
@@ -184,20 +184,20 @@ public sealed class MergeCorrectnessTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
 
         // Verify surviving doc stored fields are accessible
-        var doc0Results = searcher.Search(new TermQuery("id", "doc0"), 10);
+        var doc0Results = searcher.Search(new TermQuery("id", "doc0"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, doc0Results.TotalHits);
         var stored = searcher.GetStoredFields(doc0Results.ScoreDocs[0].DocId);
         _output.WriteLine($"Stored fields for doc0: id={stored["id"][0]}");
         Assert.Equal("doc0", stored["id"][0]);
 
         // Verify deleted docs are truly gone
-        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc1"), 10).TotalHits);
-        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc4"), 10).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc1"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc4"), 10, TestContext.Current.CancellationToken).TotalHits);
 
         // Verify remaining docs
         foreach (var id in new[] { "doc0", "doc2", "doc3", "doc5" })
         {
-            var r = searcher.Search(new TermQuery("id", id), 10);
+            var r = searcher.Search(new TermQuery("id", id), 10, TestContext.Current.CancellationToken);
             _output.WriteLine($"  {id} → {r.TotalHits} hits");
             Assert.Equal(1, r.TotalHits);
         }

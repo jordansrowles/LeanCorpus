@@ -75,7 +75,7 @@ public sealed class BlockDocumentTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(mmap);
-        var results = searcher.Search(new TermQuery("body", "brilliant"), 10);
+        var results = searcher.Search(new TermQuery("body", "brilliant"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
     }
 
@@ -112,8 +112,7 @@ public sealed class BlockDocumentTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(mmap);
 
         // Search for child docs with "alpha", expect the parent of block 1
-        var results = searcher.Search(
-            new BlockJoinQuery(new TermQuery("body", "alpha")), 10);
+        var results = searcher.Search(new BlockJoinQuery(new TermQuery("body", "alpha")), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, results.TotalHits);
 
@@ -157,8 +156,7 @@ public sealed class BlockDocumentTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(mmap);
 
         // "science" appears in both blocks — should return both parents
-        var results = searcher.Search(
-            new BlockJoinQuery(new TermQuery("body", "science")), 10);
+        var results = searcher.Search(new BlockJoinQuery(new TermQuery("body", "science")), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
     }
@@ -185,7 +183,7 @@ public sealed class BlockDocumentTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(mmap);
-        var results = searcher.Search(new BlockJoinQuery(new TermQuery("title", "parent")), 10);
+        var results = searcher.Search(new BlockJoinQuery(new TermQuery("title", "parent")), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, results.TotalHits);
     }

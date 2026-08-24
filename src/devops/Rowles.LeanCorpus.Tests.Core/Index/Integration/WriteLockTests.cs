@@ -98,7 +98,7 @@ public sealed class WriteLockTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "stale"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "stale"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     /// <summary>

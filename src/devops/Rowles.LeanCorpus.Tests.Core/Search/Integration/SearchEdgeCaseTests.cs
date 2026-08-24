@@ -59,7 +59,7 @@ public sealed class SearchEdgeCaseTests : IClassFixture<TestDirectoryFixture>
             .Add(new TermQuery("body", "beta"), Occur.Should)
             .Build();
 
-        var results = searcher.Search(new ConstantScoreQuery(boolQ, 7.5f), 10);
+        var results = searcher.Search(new ConstantScoreQuery(boolQ, 7.5f), 10, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"ConstantScoreQuery(BooleanQuery) → {results.TotalHits} hits");
         Assert.Equal(3, results.TotalHits);
@@ -87,8 +87,7 @@ public sealed class SearchEdgeCaseTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(
-            new ConstantScoreQuery(new RangeQuery("price", 15, 35), 3.0f), 10);
+        var results = searcher.Search(new ConstantScoreQuery(new RangeQuery("price", 15, 35), 3.0f), 10, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"ConstantScoreQuery(RangeQuery 15..35) → {results.TotalHits} hits");
         Assert.Equal(2, results.TotalHits); // 20, 30
@@ -109,8 +108,7 @@ public sealed class SearchEdgeCaseTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(
-            new ConstantScoreQuery(new TermQuery("body", "nonexistent"), 10f), 10);
+        var results = searcher.Search(new ConstantScoreQuery(new TermQuery("body", "nonexistent"), 10f), 10, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"ConstantScoreQuery(zero result inner) → {results.TotalHits} hits");
         Assert.Equal(0, results.TotalHits);
@@ -148,7 +146,7 @@ public sealed class SearchEdgeCaseTests : IClassFixture<TestDirectoryFixture>
         var dmq = new DisjunctionMaxQuery(0.0f);
         dmq.Add(new TermQuery("title", "corpus"));
 
-        var results = searcher.Search(dmq, 10);
+        var results = searcher.Search(dmq, 10, TestContext.Current.CancellationToken);
         _output.WriteLine($"DisjunctionMaxQuery after delete → {results.TotalHits} hits");
         var docIds = results.ScoreDocs.Select(sd => sd.DocId).ToHashSet();
         _output.WriteLine($"  DocIds: [{string.Join(", ", docIds)}]");
@@ -177,7 +175,7 @@ public sealed class SearchEdgeCaseTests : IClassFixture<TestDirectoryFixture>
         var q = new SpanNearQuery(
             [new SpanTermQuery("body", "quick"), new SpanTermQuery("body", "brown")],
             slop: 2, inOrder: false);
-        var results = searcher.Search(q, 10);
+        var results = searcher.Search(q, 10, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"SpanNearQuery inOrder=false (reversed terms) → {results.TotalHits} hits");
         Assert.Equal(1, results.TotalHits);
@@ -201,7 +199,7 @@ public sealed class SearchEdgeCaseTests : IClassFixture<TestDirectoryFixture>
         var q = new SpanNearQuery(
             [new SpanTermQuery("body", "quick"), new SpanTermQuery("body", "brown")],
             slop: 2, inOrder: true);
-        var results = searcher.Search(q, 10);
+        var results = searcher.Search(q, 10, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"SpanNearQuery inOrder=true (reversed terms) → {results.TotalHits} hits");
         Assert.Equal(0, results.TotalHits);
@@ -226,7 +224,7 @@ public sealed class SearchEdgeCaseTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new WildcardQuery("body", "*ning"), 10);
+        var results = searcher.Search(new WildcardQuery("body", "*ning"), 10, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"WildcardQuery('*ning') → {results.TotalHits} hits");
         // "running" and "swimming" end in "ning"... wait, only "running" ends in "ning"
@@ -249,7 +247,7 @@ public sealed class SearchEdgeCaseTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new WildcardQuery("body", "*xyz"), 10);
+        var results = searcher.Search(new WildcardQuery("body", "*xyz"), 10, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"WildcardQuery('*xyz') → {results.TotalHits} hits");
         Assert.Equal(0, results.TotalHits);
@@ -275,7 +273,7 @@ public sealed class SearchEdgeCaseTests : IClassFixture<TestDirectoryFixture>
 
         using var searcher = new IndexSearcher(dir);
         // Match terms consisting only of vowels
-        var results = searcher.Search(new RegexpQuery("word", "^[aeiou]+$"), 10);
+        var results = searcher.Search(new RegexpQuery("word", "^[aeiou]+$"), 10, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"RegexpQuery('^[aeiou]+$') → {results.TotalHits} hits");
         // "aaa" and "ooo" are all-vowel; "bee" has 'b'
@@ -299,7 +297,7 @@ public sealed class SearchEdgeCaseTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new RegexpQuery("word", "^exact$"), 10);
+        var results = searcher.Search(new RegexpQuery("word", "^exact$"), 10, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"RegexpQuery('^exact$') → {results.TotalHits} hits");
         Assert.Equal(1, results.TotalHits);
@@ -323,7 +321,7 @@ public sealed class SearchEdgeCaseTests : IClassFixture<TestDirectoryFixture>
 
         using var searcher = new IndexSearcher(dir);
         // "c.t" matches 3-char words: cat, cut, cot — not coat (4 chars)
-        var results = searcher.Search(new RegexpQuery("word", "^c.t$"), 10);
+        var results = searcher.Search(new RegexpQuery("word", "^c.t$"), 10, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"RegexpQuery('^c.t$') → {results.TotalHits} hits");
         Assert.Equal(3, results.TotalHits);
@@ -356,7 +354,7 @@ public sealed class SearchEdgeCaseTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
         var fsq = new FunctionScoreQuery(
             new TermQuery("body", "hello"), "boost", ScoreMode.Multiply);
-        var results = searcher.Search(fsq, 10);
+        var results = searcher.Search(fsq, 10, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"FunctionScoreQuery with missing field → {results.TotalHits} hits");
         foreach (var sd in results.ScoreDocs)
@@ -385,7 +383,7 @@ public sealed class SearchEdgeCaseTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "match"), 100);
+        var results = searcher.Search(new TermQuery("body", "match"), 100, TestContext.Current.CancellationToken);
 
         _output.WriteLine($"TopN=100, actual matches=3 → ScoreDocs.Length={results.ScoreDocs.Length}");
         Assert.Equal(3, results.TotalHits);

@@ -83,7 +83,7 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
 
         // Signal producers to stop and wait for all to finish
         cts.Cancel();
-        Task.WaitAll(tasks);
+        Task.WaitAll(tasks, TestContext.Current.CancellationToken);
 
         // ObjectDisposedException thrown by our own guard (re-check after increment) is
         // the expected graceful exit signal. Any other exception type indicates a real bug
@@ -241,12 +241,12 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
                 {
                     exceptions.Add(ex);
                 }
-            });
+            }, TestContext.Current.CancellationToken);
         }
 
         // Start all producers, wait briefly, then dispose
         started.Set();
-        await Task.Delay(50);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
         writer.Dispose();
         await Task.WhenAll(tasks);
 

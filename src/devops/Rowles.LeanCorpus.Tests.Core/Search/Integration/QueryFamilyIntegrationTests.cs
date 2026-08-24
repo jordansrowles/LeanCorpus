@@ -49,7 +49,7 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new MatchAllDocsQuery(), 10);
+        var results = searcher.Search(new MatchAllDocsQuery(), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(3, results.TotalHits);
     }
@@ -67,7 +67,7 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new MatchNoDocsQuery("test"), 10);
+        var results = searcher.Search(new MatchNoDocsQuery("test"), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, results.TotalHits);
     }
@@ -91,7 +91,7 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new FieldExistsQuery("note"), 10);
+        var results = searcher.Search(new FieldExistsQuery("note"), 10, TestContext.Current.CancellationToken);
 
         Assert.Single(results.ScoreDocs);
         Assert.Equal("stored", searcher.GetStoredFields(results.ScoreDocs[0].DocId)["id"][0]);
@@ -114,7 +114,7 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermInSetQuery("body", "blue", "red"), 10);
+        var results = searcher.Search(new TermInSetQuery("body", "blue", "red"), 10, TestContext.Current.CancellationToken);
         var ids = results.ScoreDocs.Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["id"][0]).OrderBy(static id => id).ToArray();
 
         Assert.Equal(2, results.TotalHits);
@@ -144,7 +144,7 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new SynonymQuery("body", "quick", "fast"), 10);
+        var results = searcher.Search(new SynonymQuery("body", "quick", "fast"), 10, TestContext.Current.CancellationToken);
         var ids = results.ScoreDocs
             .Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["id"][0])
             .ToArray();
@@ -167,7 +167,7 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new RewritingQuery(), 10);
+        var results = searcher.Search(new RewritingQuery(), 10, TestContext.Current.CancellationToken);
 
         Assert.Single(results.ScoreDocs);
     }
@@ -189,7 +189,7 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
 
         using var searcher = new IndexSearcher(dir);
         var query = new DocIdWeightQuery();
-        var results = searcher.Search(query, 3);
+        var results = searcher.Search(query, 3, TestContext.Current.CancellationToken);
 
         Assert.Equal(new[] { 2, 1, 0 }, results.ScoreDocs.Select(static scoreDoc => scoreDoc.DocId));
         Assert.Equal(3, searcher.Count(query));
@@ -227,7 +227,7 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
             .Add(new TermQuery("body", "match"), Occur.Should)
             .Build();
 
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(
             "title",
@@ -313,7 +313,7 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
             .SetMinimumNumberShouldMatch(2)
             .Build();
 
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
         var ids = results.ScoreDocs
             .Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["id"][0])
             .OrderBy(static id => id)
@@ -350,7 +350,7 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
             .SetMinimumNumberShouldMatch(2)
             .Build();
 
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
     }
@@ -372,7 +372,7 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new PointInSetQuery("price", 30.0, 10.0), 10);
+        var results = searcher.Search(new PointInSetQuery("price", 30.0, 10.0), 10, TestContext.Current.CancellationToken);
         var ids = results.ScoreDocs.Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["id"][0]).OrderBy(static id => id).ToArray();
 
         Assert.Equal(2, results.TotalHits);
@@ -400,16 +400,16 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
 
         Assert.Equal(
             1,
-            searcher.Search(new Int32RangeQuery("integer", 1, 3, false, false), 10).TotalHits);
+            searcher.Search(new Int32RangeQuery("integer", 1, 3, false, false), 10, TestContext.Current.CancellationToken).TotalHits);
         Assert.Equal(
             2,
-            searcher.Search(new Int32PointInSetQuery("integer", 1, 3), 10).TotalHits);
+            searcher.Search(new Int32PointInSetQuery("integer", 1, 3), 10, TestContext.Current.CancellationToken).TotalHits);
         Assert.Equal(
             1,
-            searcher.Search(new SingleRangeQuery("single", 1, 3, false, false), 10).TotalHits);
+            searcher.Search(new SingleRangeQuery("single", 1, 3, false, false), 10, TestContext.Current.CancellationToken).TotalHits);
         Assert.Equal(
             2,
-            searcher.Search(new SinglePointInSetQuery("single", 1, 3), 10).TotalHits);
+            searcher.Search(new SinglePointInSetQuery("single", 1, 3), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "Binary Queries: Match Ranges And Point Sets")]
@@ -431,14 +431,10 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
 
         Assert.Equal(
             1,
-            searcher.Search(
-                new BinaryRangeQuery("binary", new byte[] { 1 }, new byte[] { 3 }, false, false),
-                10).TotalHits);
+            searcher.Search(new BinaryRangeQuery("binary", new byte[] { 1 }, new byte[] { 3 }, false, false), 10, TestContext.Current.CancellationToken).TotalHits);
         Assert.Equal(
             2,
-            searcher.Search(
-                new BinaryPointInSetQuery("binary", [1], [3]),
-                10).TotalHits);
+            searcher.Search(new BinaryPointInSetQuery("binary", [1], [3]), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "IP Address Queries: Match IPv4 And IPv6 Values")]
@@ -465,20 +461,16 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
 
         Assert.Equal(
             2,
-            searcher.Search(
-                new InetAddressRangeQuery(
+            searcher.Search(new InetAddressRangeQuery(
                     "address",
                     IPAddress.Parse("10.0.0.1"),
-                    IPAddress.Parse("10.0.0.2")),
-                10).TotalHits);
+                    IPAddress.Parse("10.0.0.2")), 10, TestContext.Current.CancellationToken).TotalHits);
         Assert.Equal(
             2,
-            searcher.Search(
-                new InetAddressPointInSetQuery(
+            searcher.Search(new InetAddressPointInSetQuery(
                     "address",
                     IPAddress.Parse("10.0.0.2"),
-                    IPAddress.Parse("2001:db8::1")),
-                10).TotalHits);
+                    IPAddress.Parse("2001:db8::1")), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "MultiPhraseQuery: Alternative Slot Matches Multiple Documents")]
@@ -508,7 +500,7 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
             new[] { "fast", "quick" },
             new[] { "brown" }
         });
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
         var ids = results.ScoreDocs.Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["id"][0]).OrderBy(static id => id).ToArray();
 
         Assert.Equal(2, results.TotalHits);
@@ -543,7 +535,7 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
                 new IntervalsTermSource("body", "alpha"),
                 new IntervalsTermSource("body", "beta")));
 
-        var orderedResults = searcher.Search(ordered, 10);
+        var orderedResults = searcher.Search(ordered, 10, TestContext.Current.CancellationToken);
         Assert.Equal(2, orderedResults.TotalHits);
 
         var notContaining = new IntervalsQuery(
@@ -554,7 +546,7 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
                     new IntervalsTermSource("body", "gamma")),
                 new IntervalsTermSource("body", "beta")));
 
-        var notContainingResults = searcher.Search(notContaining, 10);
+        var notContainingResults = searcher.Search(notContaining, 10, TestContext.Current.CancellationToken);
         Assert.Single(notContainingResults.ScoreDocs);
         Assert.Equal("clean", searcher.GetStoredFields(notContainingResults.ScoreDocs[0].DocId)["id"][0]);
     }
@@ -586,7 +578,7 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
 
         using var searcher = new IndexSearcher(dir);
         var allTerms = new CombinedFieldsQuery(["title", "body"], ["alpha", "beta"], minimumShouldMatch: 2);
-        var allTermResults = searcher.Search(allTerms, 10);
+        var allTermResults = searcher.Search(allTerms, 10, TestContext.Current.CancellationToken);
 
         Assert.Single(allTermResults.ScoreDocs);
         Assert.Equal("split", searcher.GetStoredFields(allTermResults.ScoreDocs[0].DocId)["id"][0]);
@@ -600,7 +592,7 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
                 ["body"] = 1.0f
             });
 
-        var weightedResults = searcher.Search(weighted, 10);
+        var weightedResults = searcher.Search(weighted, 10, TestContext.Current.CancellationToken);
         Assert.Equal(3, weightedResults.TotalHits);
         var weightedDocs = weightedResults.ScoreDocs
             .Select(scoreDoc => new

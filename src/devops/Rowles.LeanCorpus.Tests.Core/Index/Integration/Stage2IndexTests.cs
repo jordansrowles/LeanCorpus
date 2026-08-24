@@ -124,7 +124,7 @@ public sealed class Stage2IndexTests : IClassFixture<TestDirectoryFixture>
 
         // Should be searchable after merge completes
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "document"), 100);
+        var results = searcher.Search(new TermQuery("body", "document"), 100, TestContext.Current.CancellationToken);
         Assert.Equal(20, results.TotalHits);
         Assert.NotEmpty(Directory.GetFiles(dir.DirectoryPath, "*.cfs"));
     }
@@ -307,7 +307,7 @@ public sealed class Stage2IndexTests : IClassFixture<TestDirectoryFixture>
         Assert.Empty(Directory.GetFiles(dir.DirectoryPath, "*.fdx"));
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "hello"), 10);
+        var results = searcher.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
         Assert.Equal("one", searcher.GetStoredFields(results.ScoreDocs[0].DocId)["label"][0]);
 
@@ -357,8 +357,8 @@ public sealed class Stage2IndexTests : IClassFixture<TestDirectoryFixture>
         Assert.True(reader.TryGetBinaryDocValues("payload", 1, out var payload));
         Assert.Equal(new byte[] { 4, 5, 6 }, payload[0]);
 
-        Assert.Equal(1, searcher.Search(new RangeQuery("price", 20, 21), 10).TotalHits);
-        Assert.Equal(1, searcher.Search(new Int64RangeQuery("sequence", 150, 250), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new RangeQuery("price", 20, 21), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new Int64RangeQuery("sequence", 150, 250), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     /// <summary>
@@ -477,7 +477,7 @@ public sealed class Stage2IndexTests : IClassFixture<TestDirectoryFixture>
 
         using var searcher = new IndexSearcher(dir);
         // Just verify it doesn't throw
-        var results = searcher.Search(new TermQuery("body", "hello"), 10);
+        var results = searcher.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
     }
 

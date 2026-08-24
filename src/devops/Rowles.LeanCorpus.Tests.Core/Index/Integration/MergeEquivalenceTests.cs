@@ -202,8 +202,8 @@ public sealed class MergeEquivalenceTests : IClassFixture<TestDirectoryFixture>
             merger.CleanupSegmentFiles(seg);
 
         using var searcher = new IndexSearcher(new MMapDirectory(dir));
-        Assert.Equal(3, searcher.Search(new TermQuery("body", "keeper"), 20).TotalHits);
-        Assert.Equal(0, searcher.Search(new TermQuery("body", "victim"), 20).TotalHits);
+        Assert.Equal(3, searcher.Search(new TermQuery("body", "keeper"), 20, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "victim"), 20, TestContext.Current.CancellationToken).TotalHits);
     }
 
     // ---- helpers ----

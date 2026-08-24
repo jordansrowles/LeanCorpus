@@ -107,7 +107,7 @@ public sealed class HnswIncrementalMergeTests : IClassFixture<TestDirectoryFixtu
         int hits = 0;
         for (int i = 0; i < allDocs.Count; i++)
         {
-            var top = searcher.Search(new VectorQuery("embedding", allDocs[i], topK: 5), 5);
+            var top = searcher.Search(new VectorQuery("embedding", allDocs[i], topK: 5), 5, TestContext.Current.CancellationToken);
             if (top.TotalHits > 0 && top.ScoreDocs[0].Score > 0.99f)
                 hits++;
         }

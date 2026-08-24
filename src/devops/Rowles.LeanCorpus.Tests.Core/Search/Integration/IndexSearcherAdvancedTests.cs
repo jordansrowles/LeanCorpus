@@ -76,7 +76,7 @@ public sealed class IndexSearcherAdvancedTests : IDisposable
             slop: 0,
             inOrder: true);
 
-        var result = searcher.Search(query, 10);
+        var result = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.True(result.TotalHits > 0);
     }
@@ -93,7 +93,7 @@ public sealed class IndexSearcherAdvancedTests : IDisposable
             slop: 2,
             inOrder: false);
 
-        var result = searcher.Search(query, 10);
+        var result = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.True(result.TotalHits > 0);
     }
@@ -110,7 +110,7 @@ public sealed class IndexSearcherAdvancedTests : IDisposable
             slop: 0,
             inOrder: true);
 
-        var result = searcher.Search(query, 10);
+        var result = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, result.TotalHits);
     }
@@ -126,7 +126,7 @@ public sealed class IndexSearcherAdvancedTests : IDisposable
             new SpanTermQuery("body", "apple"),
             new SpanTermQuery("body", "cherry"));
 
-        var result = searcher.Search(query, 10);
+        var result = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, result.TotalHits);
     }
@@ -142,7 +142,7 @@ public sealed class IndexSearcherAdvancedTests : IDisposable
             new SpanTermQuery("body", "cherry"),
             new SpanTermQuery("body", "mango"));
 
-        var result = searcher.Search(query, 10);
+        var result = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, result.TotalHits);
     }
@@ -160,7 +160,7 @@ public sealed class IndexSearcherAdvancedTests : IDisposable
         var exclude = new SpanTermQuery("body", "cherry");
         var query = new SpanNotQuery(include, exclude);
 
-        var result = searcher.Search(query, 10);
+        var result = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         // Only "apple pie is great" should match (apple present, cherry absent)
         Assert.Equal(1, result.TotalHits);
@@ -177,7 +177,7 @@ public sealed class IndexSearcherAdvancedTests : IDisposable
             new SpanTermQuery("body", "apple"),
             new SpanTermQuery("body", "cherry"));
 
-        var result = searcher.Search(query, 10);
+        var result = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, result.TotalHits);
     }
@@ -220,7 +220,7 @@ public sealed class IndexSearcherAdvancedTests : IDisposable
             .Build();
         var bjq = new BlockJoinQuery(childQuery);
 
-        var result = searcher.Search(bjq, 10);
+        var result = searcher.Search(bjq, 10, TestContext.Current.CancellationToken);
 
         Assert.True(result.TotalHits > 0);
     }
@@ -247,7 +247,7 @@ public sealed class IndexSearcherAdvancedTests : IDisposable
         using var searcher = new IndexSearcher(mmap);
         var query = new VectorQuery("embedding", [1f, 0f, 0f], topK: 3);
 
-        var result = searcher.Search(query, 10);
+        var result = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.True(result.TotalHits > 0);
     }
@@ -262,7 +262,7 @@ public sealed class IndexSearcherAdvancedTests : IDisposable
         using var searcher = new IndexSearcher(mmap);
 
         var query = new VectorQuery("embedding", [1f, 0f, 0f], topK: 3);
-        var result = searcher.Search(query, 10);
+        var result = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, result.TotalHits);
     }

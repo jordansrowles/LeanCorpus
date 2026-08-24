@@ -64,7 +64,7 @@ public sealed class BKDTreeEdgeCaseTests : IClassFixture<TestDirectoryFixture>
 
         // Act - Query with range that includes the value
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new RangeQuery("price", 40.0, 45.0), topN: docCount + 1);
+        var results = searcher.Search(new RangeQuery("price", 40.0, 45.0), topN: docCount + 1, cancellationToken: TestContext.Current.CancellationToken);
 
         // Assert
         _output.WriteLine($"RangeQuery [40.0, 45.0] returned {results.TotalHits} hits");
@@ -111,7 +111,7 @@ public sealed class BKDTreeEdgeCaseTests : IClassFixture<TestDirectoryFixture>
 
         // Act - Query for range outside all values
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new RangeQuery("price", 200.0, 300.0), topN: 10);
+        var results = searcher.Search(new RangeQuery("price", 200.0, 300.0), topN: 10, cancellationToken: TestContext.Current.CancellationToken);
 
         // Assert
         _output.WriteLine($"RangeQuery [200.0, 300.0] returned {results.TotalHits} hits");
@@ -119,7 +119,7 @@ public sealed class BKDTreeEdgeCaseTests : IClassFixture<TestDirectoryFixture>
         Assert.Empty(results.ScoreDocs);
 
         // Also test range below all values
-        var resultsBelow = searcher.Search(new RangeQuery("price", -100.0, 0.0), topN: 10);
+        var resultsBelow = searcher.Search(new RangeQuery("price", -100.0, 0.0), topN: 10, cancellationToken: TestContext.Current.CancellationToken);
         _output.WriteLine($"RangeQuery [-100.0, 0.0] returned {resultsBelow.TotalHits} hits");
         Assert.Equal(0, resultsBelow.TotalHits);
 
@@ -156,7 +156,7 @@ public sealed class BKDTreeEdgeCaseTests : IClassFixture<TestDirectoryFixture>
 
         // Act - Query for exact single value (min == max)
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new RangeQuery("price", targetPrice, targetPrice), topN: 10);
+        var results = searcher.Search(new RangeQuery("price", targetPrice, targetPrice), topN: 10, cancellationToken: TestContext.Current.CancellationToken);
 
         // Assert
         _output.WriteLine($"RangeQuery [{targetPrice}, {targetPrice}] (single point) returned {results.TotalHits} hits");
@@ -170,7 +170,7 @@ public sealed class BKDTreeEdgeCaseTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(targetPrice.ToString(), stored["price"][0]);
 
         // Test with a value that doesn't exist
-        var noResults = searcher.Search(new RangeQuery("price", 50.5, 50.5), topN: 10);
+        var noResults = searcher.Search(new RangeQuery("price", 50.5, 50.5), topN: 10, cancellationToken: TestContext.Current.CancellationToken);
         _output.WriteLine($"RangeQuery [50.5, 50.5] (non-existent point) returned {noResults.TotalHits} hits");
         Assert.Equal(0, noResults.TotalHits);
 
@@ -207,22 +207,22 @@ public sealed class BKDTreeEdgeCaseTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
 
         // Act & Assert - Test 1: Range covering negative values
-        var negativeResults = searcher.Search(new RangeQuery("temp", -20.0, 0.0), topN: 10);
+        var negativeResults = searcher.Search(new RangeQuery("temp", -20.0, 0.0), topN: 10, cancellationToken: TestContext.Current.CancellationToken);
         _output.WriteLine($"RangeQuery [-20.0, 0.0] returned {negativeResults.TotalHits} hits");
         Assert.Equal(4, negativeResults.TotalHits); // -20, -10, -5, 0
 
         // Test 2: Range covering only negative values (excluding zero)
-        var strictlyNegative = searcher.Search(new RangeQuery("temp", -20.0, -0.1), topN: 10);
+        var strictlyNegative = searcher.Search(new RangeQuery("temp", -20.0, -0.1), topN: 10, cancellationToken: TestContext.Current.CancellationToken);
         _output.WriteLine($"RangeQuery [-20.0, -0.1] returned {strictlyNegative.TotalHits} hits");
         Assert.Equal(3, strictlyNegative.TotalHits); // -20, -10, -5
 
         // Test 3: Range spanning negative to positive
-        var crossZero = searcher.Search(new RangeQuery("temp", -5.0, 10.0), topN: 10);
+        var crossZero = searcher.Search(new RangeQuery("temp", -5.0, 10.0), topN: 10, cancellationToken: TestContext.Current.CancellationToken);
         _output.WriteLine($"RangeQuery [-5.0, 10.0] returned {crossZero.TotalHits} hits");
         Assert.Equal(4, crossZero.TotalHits); // -5, 0, 5, 10
 
         // Test 4: All values
-        var allValues = searcher.Search(new RangeQuery("temp", -100.0, 100.0), topN: 10);
+        var allValues = searcher.Search(new RangeQuery("temp", -100.0, 100.0), topN: 10, cancellationToken: TestContext.Current.CancellationToken);
         _output.WriteLine($"RangeQuery [-100.0, 100.0] returned {allValues.TotalHits} hits");
         Assert.Equal(temperatures.Length, allValues.TotalHits);
 
@@ -263,17 +263,17 @@ public sealed class BKDTreeEdgeCaseTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
 
         // Act & Assert - Test small range
-        var smallRange = searcher.Search(new RangeQuery("value", 1.0, 3.0), topN: 10);
+        var smallRange = searcher.Search(new RangeQuery("value", 1.0, 3.0), topN: 10, cancellationToken: TestContext.Current.CancellationToken);
         _output.WriteLine($"RangeQuery [1.0, 3.0] returned {smallRange.TotalHits} hits");
         Assert.Equal(5, smallRange.TotalHits); // 1.0, 1.5, 2.0, 2.5, 3.0
 
         // Test fractional range
-        var fractional = searcher.Search(new RangeQuery("value", 0.0, 1.0), topN: 10);
+        var fractional = searcher.Search(new RangeQuery("value", 0.0, 1.0), topN: 10, cancellationToken: TestContext.Current.CancellationToken);
         _output.WriteLine($"RangeQuery [0.0, 1.0] returned {fractional.TotalHits} hits");
         Assert.Equal(3, fractional.TotalHits); // 0.1, 0.5, 1.0
 
         // Test large value range
-        var largeRange = searcher.Search(new RangeQuery("value", 10.0, 1000.0), topN: 10);
+        var largeRange = searcher.Search(new RangeQuery("value", 10.0, 1000.0), topN: 10, cancellationToken: TestContext.Current.CancellationToken);
         _output.WriteLine($"RangeQuery [10.0, 1000.0] returned {largeRange.TotalHits} hits");
         Assert.Equal(3, largeRange.TotalHits); // 10.0, 100.0, 1000.0
 
@@ -307,7 +307,7 @@ public sealed class BKDTreeEdgeCaseTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
 
         // Act & Assert - Verify both boundaries are inclusive
-        var results = searcher.Search(new RangeQuery("value", 20.0, 40.0), topN: 10);
+        var results = searcher.Search(new RangeQuery("value", 20.0, 40.0), topN: 10, cancellationToken: TestContext.Current.CancellationToken);
         _output.WriteLine($"RangeQuery [20.0, 40.0] returned {results.TotalHits} hits");
         Assert.Equal(3, results.TotalHits); // Should include 20.0, 30.0, 40.0
 

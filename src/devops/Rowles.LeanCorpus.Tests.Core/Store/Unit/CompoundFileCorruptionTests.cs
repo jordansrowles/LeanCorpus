@@ -65,7 +65,7 @@ public sealed class CompoundFileCorruptionTests : IDisposable
         using var directory = new MMapDirectory(_path);
         var compound = CompoundFileReader.Open(directory, fileName);
         var member = compound.OpenInput(directory, "seg_test.dic");
-        var dispose = Task.Run(compound.Dispose);
+        var dispose = Task.Run(compound.Dispose, TestContext.Current.CancellationToken);
         try
         {
             await Task.Delay(25, TestContext.Current.CancellationToken);
@@ -92,7 +92,7 @@ public sealed class CompoundFileCorruptionTests : IDisposable
         var nested = member.OpenSlice(1, 1);
         member.Dispose();
 
-        var dispose = Task.Run(compound.Dispose);
+        var dispose = Task.Run(compound.Dispose, TestContext.Current.CancellationToken);
         try
         {
             await Task.Delay(25, TestContext.Current.CancellationToken);

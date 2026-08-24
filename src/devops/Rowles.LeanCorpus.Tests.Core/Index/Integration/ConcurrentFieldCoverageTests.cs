@@ -51,7 +51,7 @@ public sealed class ConcurrentFieldCoverageTests : IDisposable
 
         using var searcher = new IndexSearcher(directory);
         var query = new VectorQuery("emb", new float[] { 0f, 1f, 0.5f, 0.25f }, topK: 5);
-        var results = searcher.Search(query, 5);
+        var results = searcher.Search(query, 5, TestContext.Current.CancellationToken);
 
         Assert.True(results.TotalHits > 0, "Expected vector hits but the concurrent path dropped vectors.");
     }
@@ -81,7 +81,7 @@ public sealed class ConcurrentFieldCoverageTests : IDisposable
 
         using var searcher = new IndexSearcher(directory);
         var query = new VectorQuery("emb", new float[] { 0f, 1f, 0.5f, 0.25f }, topK: 5);
-        var results = searcher.Search(query, 5);
+        var results = searcher.Search(query, 5, TestContext.Current.CancellationToken);
 
         Assert.True(results.TotalHits > 0);
     }
@@ -110,7 +110,7 @@ public sealed class ConcurrentFieldCoverageTests : IDisposable
 
         using var searcher = new IndexSearcher(directory);
         var query = new GeoBoundingBoxQuery("location", 47.0, 53.0, -2.0, 4.0);
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
     }

@@ -44,8 +44,8 @@ public sealed class SearchAnalyticsTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(mmap, config);
 
         // Act
-        searcher.Search(new TermQuery("body", "hello"), 10);
-        searcher.Search(new TermQuery("body", "world"), 10);
+        searcher.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
+        searcher.Search(new TermQuery("body", "world"), 10, TestContext.Current.CancellationToken);
 
         // Assert
         var events = analytics.GetRecentEvents(10);
@@ -77,9 +77,9 @@ public sealed class SearchAnalyticsTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(mmap, config);
 
         // Act — perform 3 searches, only the latest 2 should be retained
-        searcher.Search(new TermQuery("body", "hello"), 10);
-        searcher.Search(new TermQuery("body", "world"), 10);
-        searcher.Search(new TermQuery("body", "hello"), 5);
+        searcher.Search(new TermQuery("body", "hello"), 10, TestContext.Current.CancellationToken);
+        searcher.Search(new TermQuery("body", "world"), 10, TestContext.Current.CancellationToken);
+        searcher.Search(new TermQuery("body", "hello"), 5, TestContext.Current.CancellationToken);
 
         // Assert
         var events = analytics.GetRecentEvents(10);
@@ -109,7 +109,7 @@ public sealed class SearchAnalyticsTests : IClassFixture<TestDirectoryFixture>
         var config = new IndexSearcherConfig { SearchAnalytics = analytics };
         using var searcher = new IndexSearcher(mmap, config);
 
-        searcher.Search(new TermQuery("body", "test"), 10);
+        searcher.Search(new TermQuery("body", "test"), 10, TestContext.Current.CancellationToken);
 
         // Act
         var sw = new StringWriter();

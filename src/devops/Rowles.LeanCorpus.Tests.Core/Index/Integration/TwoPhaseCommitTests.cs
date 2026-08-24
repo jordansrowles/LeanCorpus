@@ -85,7 +85,7 @@ public sealed class TwoPhaseCommitTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        Assert.Equal(0, searcher.Search(new MatchAllDocsQuery(), 1).TotalHits);
+        Assert.Equal(0, searcher.Search(new MatchAllDocsQuery(), 1, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "Two-phase: Rollback before PrepareCommit is a no-op")]
@@ -208,7 +208,7 @@ public sealed class TwoPhaseCommitTests : IClassFixture<TestDirectoryFixture>
             () => writer.DeleteDocuments(new TermQuery("body", "published")));
 
         using var searcher = new IndexSearcher(directory);
-        Assert.Equal(1, searcher.Search(new MatchAllDocsQuery(), 1).TotalHits);
+        Assert.Equal(1, searcher.Search(new MatchAllDocsQuery(), 1, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "Two-phase: PrepareCommit includes pending deletions")]

@@ -49,8 +49,8 @@ public sealed class FaultInjectionTests : IDisposable
         }
 
         using var searcher = new IndexSearcher(new MMapDirectory(path));
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "keep"), 10).TotalHits);
-        Assert.Equal(0, searcher.Search(new TermQuery("body", "delete"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "keep"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "delete"), 10, TestContext.Current.CancellationToken).TotalHits);
         Assert.Equal(1, searcher.Stats.LiveDocCount);
     }
 
@@ -84,11 +84,11 @@ public sealed class FaultInjectionTests : IDisposable
         }
 
         using var searcher = new IndexSearcher(new MMapDirectory(path));
-        Assert.Equal(0, searcher.Search(new TermQuery("body", "one"),   10).TotalHits);
-        Assert.Equal(0, searcher.Search(new TermQuery("body", "two"),   10).TotalHits);
-        Assert.Equal(0, searcher.Search(new TermQuery("body", "three"), 10).TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "zero"),  10).TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "four"),  10).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "one"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "two"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "three"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "zero"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "four"), 10, TestContext.Current.CancellationToken).TotalHits);
         Assert.Equal(2, searcher.Stats.LiveDocCount);
     }
 
@@ -117,7 +117,7 @@ public sealed class FaultInjectionTests : IDisposable
 
         using var searcher = new IndexSearcher(new MMapDirectory(path));
         Assert.Equal(2, searcher.Stats.LiveDocCount);
-        Assert.Equal(0, searcher.Search(new TermQuery("body", "beta"), 10).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "beta"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     // ---- crash window: .del present but .seg referencing stale del generation ----
@@ -162,7 +162,7 @@ public sealed class FaultInjectionTests : IDisposable
         // is treated as live. This is the expected degraded-but-safe crash recovery.
         using var searcher = new IndexSearcher(new MMapDirectory(path));
         Assert.Equal(2, searcher.Stats.LiveDocCount);
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "target"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "target"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     // ---- crash window: .seg updated, .del missing ----
@@ -192,7 +192,7 @@ public sealed class FaultInjectionTests : IDisposable
         // Verify deletion is applied before we corrupt state.
         using (var preSearcher = new IndexSearcher(new MMapDirectory(path)))
         {
-            Assert.Equal(0, preSearcher.Search(new TermQuery("body", "target"), 10).TotalHits);
+            Assert.Equal(0, preSearcher.Search(new TermQuery("body", "target"), 10, TestContext.Current.CancellationToken).TotalHits);
         }
 
         // Step 2: delete the .del file to simulate post-write loss.
@@ -206,8 +206,8 @@ public sealed class FaultInjectionTests : IDisposable
         // the .seg file (which still says 1); it is not recomputed from the absent bitmap.
         // The correct observable is that both documents are searchable.
         using var searcher = new IndexSearcher(new MMapDirectory(path));
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "survivor"), 10).TotalHits);
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "target"),   10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "survivor"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "target"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     // ---- crash window: truncated .del file ----
@@ -266,7 +266,7 @@ public sealed class FaultInjectionTests : IDisposable
         File.WriteAllText(Path.Combine(path, "segments_2.tmp"), "{\"Segments\":[\"seg_99\"],\"Generation\":2}");
 
         using var searcher = new IndexSearcher(new MMapDirectory(path));
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "committed"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "committed"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     // ---- durable mode: fsync errors propagate ----
@@ -293,7 +293,7 @@ public sealed class FaultInjectionTests : IDisposable
         // Writer disposed. Reopen fresh.
         using var searcher = new IndexSearcher(new MMapDirectory(path));
         for (int i = 0; i < 5; i++)
-            Assert.Equal(1, searcher.Search(new TermQuery("body", $"{i}"), 10).TotalHits);
+            Assert.Equal(1, searcher.Search(new TermQuery("body", $"{i}"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     // ---- del file present before any deletion ----
@@ -333,8 +333,8 @@ public sealed class FaultInjectionTests : IDisposable
         // Note: Stats.LiveDocCount reflects the SegmentInfo metadata in the .seg file,
         // which was written before we added the del file manually -- asserting on
         // search results is the reliable correctness check here.
-        Assert.Equal(0, searcher.Search(new TermQuery("body", "dead"), 10).TotalHits);
-        Assert.Equal(2, searcher.Search(new TermQuery("body", "live"), 10).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "dead"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(2, searcher.Search(new TermQuery("body", "live"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     // ---- helpers ----

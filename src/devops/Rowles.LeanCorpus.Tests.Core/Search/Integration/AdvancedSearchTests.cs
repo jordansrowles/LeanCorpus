@@ -56,7 +56,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new PrefixQuery("body", "search"), 10);
+        var results = searcher.Search(new PrefixQuery("body", "search"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(3, results.TotalHits);
     }
 
@@ -86,7 +86,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
             ? new PrefixQuery("title", pattern)
             : new WildcardQuery("title", pattern);
 
-        var results = searcher.Search(query, topN: 10);
+        var results = searcher.Search(query, topN: 10, cancellationToken: TestContext.Current.CancellationToken);
 
         var hit = Assert.Single(results.ScoreDocs);
         Assert.Equal(1, results.TotalHits);
@@ -109,7 +109,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new PrefixQuery("body", "xyz"), 10);
+        var results = searcher.Search(new PrefixQuery("body", "xyz"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(0, results.TotalHits);
     }
 
@@ -133,7 +133,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new WildcardQuery("body", "te?t"), 10);
+        var results = searcher.Search(new WildcardQuery("body", "te?t"), 10, TestContext.Current.CancellationToken);
         // "test", "text", "tent" match; "tilt" does not
         Assert.Equal(3, results.TotalHits);
     }
@@ -156,7 +156,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new WildcardQuery("body", "run*"), 10);
+        var results = searcher.Search(new WildcardQuery("body", "run*"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(3, results.TotalHits);
     }
 
@@ -180,7 +180,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new FuzzyQuery("body", "lucene", 1), 10);
+        var results = searcher.Search(new FuzzyQuery("body", "lucene", 1), 10, TestContext.Current.CancellationToken);
         var bodies = results.ScoreDocs
             .Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["body"][0])
             .ToArray();
@@ -206,7 +206,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new FuzzyQuery("body", "precision", 2), 10);
+        var results = searcher.Search(new FuzzyQuery("body", "precision", 2), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
     }
 
@@ -225,7 +225,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new FuzzyQuery("body", "xyz", 1), 10);
+        var results = searcher.Search(new FuzzyQuery("body", "xyz", 1), 10, TestContext.Current.CancellationToken);
         Assert.Equal(0, results.TotalHits);
     }
 
@@ -267,7 +267,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new FuzzyQuery("body", "goverment", 1), 10);
+        var results = searcher.Search(new FuzzyQuery("body", "goverment", 1), 10, TestContext.Current.CancellationToken);
         var docIds = results.ScoreDocs.Select(scoreDoc => scoreDoc.DocId).ToArray();
 
         Assert.Equal(2, results.TotalHits);
@@ -289,7 +289,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new FuzzyQuery("body", "markts", maxEdits: 2, maxExpansions: 1), 10);
+        var results = searcher.Search(new FuzzyQuery("body", "markts", maxEdits: 2, maxExpansions: 1), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, results.TotalHits);
         Assert.Equal("markts", searcher.GetStoredFields(results.ScoreDocs[0].DocId)["body"][0]);
@@ -353,7 +353,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
 
         using var searcher = new IndexSearcher(dir);
         var pq = new PhraseQuery("body", 1, "quick", "fox");
-        var results = searcher.Search(pq, 10);
+        var results = searcher.Search(pq, 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
     }
 
@@ -374,7 +374,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
         // "quick" is at 1, "jumps" is at 4 — distance 3, slop 1 is too small
         var pq = new PhraseQuery("body", 1, "quick", "jumps");
-        var results = searcher.Search(pq, 10);
+        var results = searcher.Search(pq, 10, TestContext.Current.CancellationToken);
         Assert.Equal(0, results.TotalHits);
     }
 
@@ -398,7 +398,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
 
         using var searcher = new IndexSearcher(dir);
         var pq = new PhraseQuery("body", "quick", "brown");
-        var results = searcher.Search(pq, 10);
+        var results = searcher.Search(pq, 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
         Assert.Equal(0, results.ScoreDocs[0].DocId);
     }
@@ -416,7 +416,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
 
         using var searcher = new IndexSearcher(dir);
         var query = new PhraseQuery("body", ["quick", "brown"], [0, 2]);
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Single(results.ScoreDocs);
         Assert.Equal(
@@ -439,7 +439,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new PhraseQuery("body", "new", "york", "city"), 10);
+        var results = searcher.Search(new PhraseQuery("body", "new", "york", "city"), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, results.TotalHits);
         Assert.Equal("new york city guide", searcher.GetStoredFields(results.ScoreDocs[0].DocId)["body"][0]);
@@ -460,7 +460,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new PhraseQuery("body", 1, "quick", "brown", "fox"), 10);
+        var results = searcher.Search(new PhraseQuery("body", 1, "quick", "brown", "fox"), 10, TestContext.Current.CancellationToken);
         var bodies = results.ScoreDocs
             .Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["body"][0])
             .ToArray();
@@ -483,7 +483,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new PhraseQuery("body", "alpha", "alpha"), 10);
+        var results = searcher.Search(new PhraseQuery("body", "alpha", "alpha"), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, results.TotalHits);
         Assert.Equal("alpha alpha beta", searcher.GetStoredFields(results.ScoreDocs[0].DocId)["body"][0]);
@@ -516,8 +516,8 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         var unboosted = new TermQuery("body", "important");
         var boosted = new TermQuery("body", "important") { Boost = 3.0f };
 
-        var r1 = searcher.Search(unboosted, 10);
-        var r2 = searcher.Search(boosted, 10);
+        var r1 = searcher.Search(unboosted, 10, TestContext.Current.CancellationToken);
+        var r2 = searcher.Search(boosted, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, r1.TotalHits);
         Assert.Equal(1, r2.TotalHits);
@@ -557,9 +557,9 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var alphaResults = searcher.Search(new TermQuery("body", "alpha"), 10);
-        var betaResults = searcher.Search(new TermQuery("body", "beta"), 10);
-        var gammaResults = searcher.Search(new TermQuery("body", "gamma"), 10);
+        var alphaResults = searcher.Search(new TermQuery("body", "alpha"), 10, TestContext.Current.CancellationToken);
+        var betaResults = searcher.Search(new TermQuery("body", "beta"), 10, TestContext.Current.CancellationToken);
+        var gammaResults = searcher.Search(new TermQuery("body", "gamma"), 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, alphaResults.TotalHits);
         Assert.Equal(1, betaResults.TotalHits);
@@ -593,11 +593,11 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
 
         // "the" should be stop-word removed from "body" (default analyser)
-        var bodyThe = searcher.Search(new TermQuery("body", "the"), 10);
+        var bodyThe = searcher.Search(new TermQuery("body", "the"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(0, bodyThe.TotalHits);
 
         // "The" should be in "exact" field (no lowercase, no stop word removal)
-        var exactThe = searcher.Search(new TermQuery("exact", "The"), 10);
+        var exactThe = searcher.Search(new TermQuery("exact", "The"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, exactThe.TotalHits);
     }
 
@@ -627,7 +627,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "common"), 200);
+        var results = searcher.Search(new TermQuery("body", "common"), 200, TestContext.Current.CancellationToken);
         Assert.Equal(docsPerThread * threadCount, results.TotalHits);
     }
 
@@ -648,7 +648,12 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search("Quick", "body", 10);
+        var results = searcher.Search(
+            "Quick",
+            "body",
+            10,
+            analyser: null,
+            cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
     }
 
@@ -673,7 +678,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
 
         using var searcher = new IndexSearcher(dir);
         // Just verify search still works — the Advance is used internally
-        var results = searcher.Search(new TermQuery("body", "even"), 20);
+        var results = searcher.Search(new TermQuery("body", "even"), 20, TestContext.Current.CancellationToken);
         Assert.Equal(10, results.TotalHits);
     }
 
@@ -698,7 +703,7 @@ public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "document"), 20);
+        var results = searcher.Search(new TermQuery("body", "document"), 20, TestContext.Current.CancellationToken);
         Assert.Equal(20, results.TotalHits);
     }
 

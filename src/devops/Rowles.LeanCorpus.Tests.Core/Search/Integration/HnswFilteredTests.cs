@@ -91,7 +91,7 @@ public sealed class HnswFilteredTests : IClassFixture<TestDirectoryFixture>
             efSearch: 64,
             filter: new TermQuery("colour", "red"));
 
-        var results = searcher.Search(query, 10);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
         Assert.True(results.TotalHits > 0);
         // All returned docs must match the filter (red, indices % 3 == 0).
         foreach (var sd in results.ScoreDocs)
@@ -133,7 +133,7 @@ public sealed class HnswFilteredTests : IClassFixture<TestDirectoryFixture>
             topK: 5,
             filter: new TermQuery("tag", "rare"));
 
-        var results = searcher.Search(query, 5);
+        var results = searcher.Search(query, 5, TestContext.Current.CancellationToken);
         Assert.True(results.TotalHits > 0);
         Assert.True(results.TotalHits <= 2);
         Assert.Equal(5, results.ScoreDocs[0].DocId);
@@ -155,7 +155,7 @@ public sealed class HnswFilteredTests : IClassFixture<TestDirectoryFixture>
             topK: 5,
             filter: new TermQuery("colour", "magenta"));
 
-        var results = searcher.Search(query, 5);
+        var results = searcher.Search(query, 5, TestContext.Current.CancellationToken);
         Assert.Equal(0, results.TotalHits);
     }
 }

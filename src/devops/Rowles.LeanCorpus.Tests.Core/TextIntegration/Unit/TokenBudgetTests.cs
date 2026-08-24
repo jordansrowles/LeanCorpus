@@ -46,8 +46,8 @@ public sealed class TokenBudgetTests : IClassFixture<TestDirectoryFixture>
 
         // Act — search for a term that would only exist beyond the budget
         using var searcher = new IndexSearcher(mmap);
-        var hitsFour = searcher.Search(new TermQuery("body", "four"), 10);
-        var hitsOne = searcher.Search(new TermQuery("body", "one"), 10);
+        var hitsFour = searcher.Search(new TermQuery("body", "four"), 10, TestContext.Current.CancellationToken);
+        var hitsOne = searcher.Search(new TermQuery("body", "one"), 10, TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Equal(0, hitsFour.TotalHits);
@@ -106,8 +106,8 @@ public sealed class TokenBudgetTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(mmap);
-        Assert.Equal(1, searcher.Search(new TermQuery("body", "one"), 10).TotalHits);
-        Assert.Equal(0, searcher.Search(new TermQuery("body", "three"), 10).TotalHits);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "one"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "three"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     /// <summary>
@@ -161,8 +161,8 @@ public sealed class TokenBudgetTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(mmap);
-        var first = searcher.Search(new TermQuery("body", "ab"), 10);
-        var second = searcher.Search(new TermQuery("body", "bc"), 10);
+        var first = searcher.Search(new TermQuery("body", "ab"), 10, TestContext.Current.CancellationToken);
+        var second = searcher.Search(new TermQuery("body", "bc"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, first.TotalHits);
         Assert.Equal(0, second.TotalHits);
     }
@@ -193,7 +193,7 @@ public sealed class TokenBudgetTests : IClassFixture<TestDirectoryFixture>
 
         // Act — all tokens should be indexed
         using var searcher = new IndexSearcher(mmap);
-        var hits = searcher.Search(new TermQuery("body", "four"), 10);
+        var hits = searcher.Search(new TermQuery("body", "four"), 10, TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Equal(1, hits.TotalHits);
@@ -220,7 +220,7 @@ public sealed class TokenBudgetTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(mmap);
-        var hits = searcher.Search(new TermQuery("body", "j"), 10);
+        var hits = searcher.Search(new TermQuery("body", "j"), 10, TestContext.Current.CancellationToken);
 
         // Assert — all tokens indexed
         Assert.Equal(1, hits.TotalHits);

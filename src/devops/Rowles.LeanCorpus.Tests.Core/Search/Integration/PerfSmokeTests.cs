@@ -68,14 +68,14 @@ public sealed class PerfSmokeTests : IClassFixture<TestDirectoryFixture>
 
         // Warmup
         for (int i = 0; i < warmup; i++)
-            searcher.Search(query, topN);
+            searcher.Search(query, topN, TestContext.Current.CancellationToken);
 
         // Measure
         long allocBefore = GC.GetAllocatedBytesForCurrentThread();
         var sw = Stopwatch.StartNew();
 
         for (int i = 0; i < iterations; i++)
-            searcher.Search(query, topN);
+            searcher.Search(query, topN, TestContext.Current.CancellationToken);
 
         sw.Stop();
         long allocAfter = GC.GetAllocatedBytesForCurrentThread();
@@ -86,7 +86,7 @@ public sealed class PerfSmokeTests : IClassFixture<TestDirectoryFixture>
         _output.WriteLine($"TermQuery(\"{queryTerm}\") over {docCount} docs, top {topN}:");
         _output.WriteLine($"  Avg latency:    {avgUs:F1} µs");
         _output.WriteLine($"  Avg allocation: {avgKb:F2} KB");
-        _output.WriteLine($"  Total hits:     {searcher.Search(query, topN).TotalHits}");
+        _output.WriteLine($"  Total hits:     {searcher.Search(query, topN, TestContext.Current.CancellationToken).TotalHits}");
 
         // Gross regression guard: catches 5× regressions without being sensitive to suite contention.
         // For precise latency profiling use the BenchmarkDotNet suites under scripts/benchmark.ps1.

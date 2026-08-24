@@ -94,7 +94,7 @@ public sealed class HnswEndToEndTests : IClassFixture<TestDirectoryFixture>
             .ToHashSet();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new VectorQuery("embedding", query, topK: topK, efSearch: 100), topK);
+        var results = searcher.Search(new VectorQuery("embedding", query, topK: topK, efSearch: 100), topK, TestContext.Current.CancellationToken);
 
         Assert.True(results.TotalHits > 0, "HNSW search returned no hits.");
         var found = results.ScoreDocs.Select(sd => sd.DocId).ToHashSet();
@@ -137,11 +137,11 @@ public sealed class HnswEndToEndTests : IClassFixture<TestDirectoryFixture>
 
         using var searcher = new IndexSearcher(dir);
 
-        var resA = searcher.Search(new VectorQuery("vecA", [1f, 0f, 0f, 0f], topK: 1), 1);
+        var resA = searcher.Search(new VectorQuery("vecA", [1f, 0f, 0f, 0f], topK: 1), 1, TestContext.Current.CancellationToken);
         Assert.Equal(1, resA.TotalHits);
         Assert.Equal(0, resA.ScoreDocs[0].DocId);
 
-        var resB = searcher.Search(new VectorQuery("vecB", [1f, 0f, 0f, 0f], topK: 1), 1);
+        var resB = searcher.Search(new VectorQuery("vecB", [1f, 0f, 0f, 0f], topK: 1), 1, TestContext.Current.CancellationToken);
         Assert.Equal(1, resB.TotalHits);
         Assert.Equal(1, resB.ScoreDocs[0].DocId);
     }
@@ -176,7 +176,7 @@ public sealed class HnswEndToEndTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new VectorQuery("v", [1f, 0f, 0f], topK: 2), 2);
+        var results = searcher.Search(new VectorQuery("v", [1f, 0f, 0f], topK: 2), 2, TestContext.Current.CancellationToken);
         Assert.True(results.TotalHits > 0);
         // Doc 0 (exact) should be top, doc 1 (close) second.
         Assert.Equal(0, results.ScoreDocs[0].DocId);

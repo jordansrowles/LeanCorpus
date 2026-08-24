@@ -33,7 +33,7 @@ public sealed class QueryFamilyChaosTests : IClassFixture<ChaosDirectoryFixture>
             FlipByte(bkdFile, bkdLen - 17);
 
             using var searcher = new IndexSearcher(directory);
-            var results = searcher.Search(new PointInSetQuery("price", 10.0, 30.0), 10);
+            var results = searcher.Search(new PointInSetQuery("price", 10.0, 30.0), 10, TestContext.Current.CancellationToken);
             Assert.Equal(2, results.TotalHits);
         }
         finally
@@ -57,7 +57,7 @@ public sealed class QueryFamilyChaosTests : IClassFixture<ChaosDirectoryFixture>
                 Assert.ThrowsAny<Exception>(() =>
                 {
                     using var searcher = new IndexSearcher(directory);
-                    var results = searcher.Search(new FieldExistsQuery("note"), 10);
+                    var results = searcher.Search(new FieldExistsQuery("note"), 10, TestContext.Current.CancellationToken);
                     _ = searcher.GetStoredFields(results.ScoreDocs[0].DocId);
                 });
             }
@@ -87,7 +87,7 @@ public sealed class QueryFamilyChaosTests : IClassFixture<ChaosDirectoryFixture>
                     {
                         new[] { "quick", "fast" },
                         new[] { "brown" }
-                    }), 10);
+                    }), 10, TestContext.Current.CancellationToken);
                 });
             }
         }

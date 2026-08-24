@@ -141,9 +141,9 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
 
         Assert.Empty(Directory.GetDirectories(dir, ".merge-*"));
         using var searcher = new IndexSearcher(mmap);
-        var results = searcher.Search(new TermQuery("body", "compound"), 10);
+        var results = searcher.Search(new TermQuery("body", "compound"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(4, results.TotalHits);
-        Assert.Equal(4, searcher.Search(new RangeQuery("price", 10, 13), 10).TotalHits);
+        Assert.Equal(4, searcher.Search(new RangeQuery("price", 10, 13), 10, TestContext.Current.CancellationToken).TotalHits);
 
         var mergedInfo = SegmentInfo.ReadFrom(Path.Combine(dir, mergedId + ".seg"));
         using var reader = new SegmentReader(mmap, mergedInfo);
@@ -186,7 +186,7 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
 
         // Sanity: searching still returns the merged docs.
         using var searcher = new IndexSearcher(mmap);
-        var results = searcher.Search(new TermQuery("body", "alpha"), 10);
+        var results = searcher.Search(new TermQuery("body", "alpha"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(2, results.TotalHits);
     }
 
@@ -356,7 +356,7 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
 
         using var searcher = new IndexSearcher(mmap);
         // 110.0..120.0 inclusive should hit doc1 (110) and doc2 (120).
-        var hits = searcher.Search(new RangeQuery("price", 110.0, 120.0), 10);
+        var hits = searcher.Search(new RangeQuery("price", 110.0, 120.0), 10, TestContext.Current.CancellationToken);
         Assert.Equal(2, hits.TotalHits);
     }
 
@@ -434,7 +434,7 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
         Assert.True(File.Exists(pbsPath), $"Expected merged segment {mergedId} to have a .pbs file");
 
         using var searcher = new IndexSearcher(mmap);
-        var parents = searcher.Search(new BlockJoinQuery(new TermQuery("body", "alpha")), 10);
+        var parents = searcher.Search(new BlockJoinQuery(new TermQuery("body", "alpha")), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, parents.TotalHits);
         var stored = searcher.GetStoredFields(parents.ScoreDocs[0].DocId);
         Assert.True(stored.ContainsKey("title"));

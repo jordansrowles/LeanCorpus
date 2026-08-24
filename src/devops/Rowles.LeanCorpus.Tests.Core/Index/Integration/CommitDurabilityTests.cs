@@ -69,7 +69,7 @@ public class CommitDurabilityTests : IDisposable
         // Assert — every committed document survives the writer restart
         for (int i = 0; i < 3; i++)
         {
-            var results = searcher.Search(new TermQuery("body", $"{i}"), 10);
+            var results = searcher.Search(new TermQuery("body", $"{i}"), 10, TestContext.Current.CancellationToken);
             Assert.Equal(1, results.TotalHits);
         }
     }
@@ -126,7 +126,7 @@ public class CommitDurabilityTests : IDisposable
         }
 
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
-        var results = searcher.Search(new TermQuery("body", "valid"), 10);
+        var results = searcher.Search(new TermQuery("body", "valid"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
     }
 

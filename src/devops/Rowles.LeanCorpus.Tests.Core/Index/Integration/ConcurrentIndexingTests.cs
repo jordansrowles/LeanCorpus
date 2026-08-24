@@ -50,7 +50,7 @@ public sealed class ConcurrentIndexingTests : IDisposable
         writer.Commit();
 
         using var searcher = new IndexSearcher(directory);
-        var results = searcher.Search(new TermQuery("body", "document"), 200);
+        var results = searcher.Search(new TermQuery("body", "document"), 200, TestContext.Current.CancellationToken);
 
         Assert.Equal(100, results.TotalHits);
     }
@@ -77,7 +77,7 @@ public sealed class ConcurrentIndexingTests : IDisposable
         writer.Commit();
 
         using var searcher = new IndexSearcher(directory);
-        var results = searcher.Search(new TermQuery("body", "hello"), 100);
+        var results = searcher.Search(new TermQuery("body", "hello"), 100, TestContext.Current.CancellationToken);
 
         Assert.Equal(50, results.TotalHits);
 
@@ -102,7 +102,7 @@ public sealed class ConcurrentIndexingTests : IDisposable
         writer.Commit();
 
         using var searcher = new IndexSearcher(directory);
-        var results = searcher.Search(new TermQuery("body", "anything"), 10);
+        var results = searcher.Search(new TermQuery("body", "anything"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(0, results.TotalHits);
     }
 
@@ -128,7 +128,7 @@ public sealed class ConcurrentIndexingTests : IDisposable
         writer.Commit();
 
         using var searcher = new IndexSearcher(directory);
-        var results = searcher.Search(new TermQuery("body", "product"), 100);
+        var results = searcher.Search(new TermQuery("body", "product"), 100, TestContext.Current.CancellationToken);
 
         Assert.Equal(30, results.TotalHits);
     }
@@ -163,7 +163,7 @@ public sealed class ConcurrentIndexingTests : IDisposable
         // Every unique term must resolve to exactly one document whose stored id matches
         for (int i = 0; i < DocCount; i++)
         {
-            var hits = searcher.Search(new TermQuery("body", $"uniqueterm{i}"), 10);
+            var hits = searcher.Search(new TermQuery("body", $"uniqueterm{i}"), 10, TestContext.Current.CancellationToken);
             Assert.True(hits.TotalHits == 1,
                 $"Expected exactly 1 hit for uniqueterm{i}, got {hits.TotalHits}");
 
@@ -244,7 +244,7 @@ public sealed class ConcurrentIndexingTests : IDisposable
         while (!Task.WhenAll(producers).IsCompleted)
         {
             writer.Commit();
-            await Task.Delay(5);
+            await Task.Delay(5, TestContext.Current.CancellationToken);
         }
 
         await Task.WhenAll(producers);
@@ -252,7 +252,7 @@ public sealed class ConcurrentIndexingTests : IDisposable
 
         Assert.Empty(errors);
         using var searcher = new IndexSearcher(directory);
-        Assert.Equal(ProducerCount * DocsPerProducer, searcher.Search(new TermQuery("body", "shared"), 1_000).TotalHits);
+        Assert.Equal(ProducerCount * DocsPerProducer, searcher.Search(new TermQuery("body", "shared"), 1_000, TestContext.Current.CancellationToken).TotalHits);
     }
 
     /// <summary>
@@ -282,8 +282,8 @@ public sealed class ConcurrentIndexingTests : IDisposable
 
         using var searcher = new IndexSearcher(directory);
 
-        Assert.Equal(0, searcher.Search(new TermQuery("group", "victim"), DocCount).TotalHits);
-        Assert.Equal(80, searcher.Search(new TermQuery("group", "keeper"), DocCount).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("group", "victim"), DocCount, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(80, searcher.Search(new TermQuery("group", "keeper"), DocCount, TestContext.Current.CancellationToken).TotalHits);
         Assert.Equal(80, searcher.Stats.LiveDocCount);
     }
 
@@ -334,12 +334,14 @@ public sealed class ConcurrentIndexingTests : IDisposable
 
                     await Task.Yield();
                 }
-            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap())
+            }, TestContext.Current.CancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap())
             .ToArray();
 
         try
         {
-            Assert.True(readersStarted.Wait(TimeSpan.FromSeconds(5)), "Concurrent readers did not start.");
+            Assert.True(
+                readersStarted.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken),
+                "Concurrent readers did not start.");
 
             for (int i = 1; i <= 40; i++)
             {
@@ -387,8 +389,8 @@ public sealed class ConcurrentIndexingTests : IDisposable
         }
 
         using var searcher = new IndexSearcher(directory);
-        var baseline = searcher.Search(new TermQuery("body", "baseline"), 1000).TotalHits;
-        var concurrent = searcher.Search(new TermQuery("body", "concurrent"), 1000).TotalHits;
+        var baseline = searcher.Search(new TermQuery("body", "baseline"), 1000, TestContext.Current.CancellationToken).TotalHits;
+        var concurrent = searcher.Search(new TermQuery("body", "concurrent"), 1000, TestContext.Current.CancellationToken).TotalHits;
         Assert.Equal(20, baseline);
         Assert.Equal(50, concurrent);
     }

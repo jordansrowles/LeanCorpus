@@ -65,7 +65,7 @@ public sealed class LargeScaleStressTests : IClassFixture<TestDirectoryFixture>
 
         // Assert - Verify documents are searchable (use modest topN)
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new TermQuery("body", "document"), topN: totalDocs + 1);
+        var results = searcher.Search(new TermQuery("body", "document"), topN: totalDocs + 1, cancellationToken: TestContext.Current.CancellationToken);
 
         _output.WriteLine($"Search returned {results.TotalHits:N0} hits");
         Assert.Equal(totalDocs, results.TotalHits);
@@ -118,15 +118,15 @@ public sealed class LargeScaleStressTests : IClassFixture<TestDirectoryFixture>
         // Assert - all documents searchable after merge
         using var searcher = new IndexSearcher(dir);
 
-        var allDocsResults = searcher.Search(new TermQuery("body", "segment"), topN: totalDocs + 1);
+        var allDocsResults = searcher.Search(new TermQuery("body", "segment"), topN: totalDocs + 1, cancellationToken: TestContext.Current.CancellationToken);
         _output.WriteLine($"Search for 'segment' returned {allDocsResults.TotalHits:N0} hits");
         Assert.Equal(totalDocs, allDocsResults.TotalHits);
 
-        var specificResults = searcher.Search(new TermQuery("body", "1500"), topN: 10);
+        var specificResults = searcher.Search(new TermQuery("body", "1500"), topN: 10, cancellationToken: TestContext.Current.CancellationToken);
         _output.WriteLine($"Search for '1500' returned {specificResults.TotalHits:N0} hits");
         Assert.True(specificResults.TotalHits > 0, "Should find document 1500");
 
-        var rangeResults = searcher.Search(new RangeQuery("sequence", 0, totalDocs - 1), topN: totalDocs + 1);
+        var rangeResults = searcher.Search(new RangeQuery("sequence", 0, totalDocs - 1), topN: totalDocs + 1, cancellationToken: TestContext.Current.CancellationToken);
         _output.WriteLine($"Range query [0, {totalDocs - 1}] returned {rangeResults.TotalHits:N0} hits");
         Assert.Equal(totalDocs, rangeResults.TotalHits);
 

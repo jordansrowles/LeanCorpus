@@ -57,21 +57,21 @@ public sealed class BkdSearchBench : IClassFixture<TestDirectoryFixture>
 
         for (int i = 0; i < warmup; i++)
         {
-            _ = searcher.Search(tightQuery, int.MaxValue);
-            _ = searcher.Search(openQuery, int.MaxValue);
+            _ = searcher.Search(tightQuery, int.MaxValue, TestContext.Current.CancellationToken);
+            _ = searcher.Search(openQuery, int.MaxValue, TestContext.Current.CancellationToken);
         }
 
         var sw = Stopwatch.StartNew();
         int hits = 0;
         for (int i = 0; i < iterations; i++)
-            hits = searcher.Search(tightQuery, int.MaxValue).TotalHits;
+            hits = searcher.Search(tightQuery, int.MaxValue, TestContext.Current.CancellationToken).TotalHits;
         sw.Stop();
         double tightMs = sw.Elapsed.TotalMilliseconds / iterations;
 
         sw.Restart();
         int openHits = 0;
         for (int i = 0; i < iterations; i++)
-            openHits = searcher.Search(openQuery, int.MaxValue).TotalHits;
+            openHits = searcher.Search(openQuery, int.MaxValue, TestContext.Current.CancellationToken).TotalHits;
         sw.Stop();
         double openMs = sw.Elapsed.TotalMilliseconds / iterations;
 

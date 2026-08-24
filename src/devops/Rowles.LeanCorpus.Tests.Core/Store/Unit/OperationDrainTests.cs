@@ -14,7 +14,7 @@ public sealed class OperationDrainTests
         var lease = drain.Acquire(owner);
         var copy = lease;
 
-        var dispose = Task.Run(drain.BeginDisposeAndWait);
+        var dispose = Task.Run(drain.BeginDisposeAndWait, TestContext.Current.CancellationToken);
         try
         {
             await WaitUntilRejectedAsync(() => drain.Acquire(owner));
@@ -36,7 +36,7 @@ public sealed class OperationDrainTests
         var drain = new OperationDrain();
         var scope = drain.Enter(new object());
 
-        var dispose = Task.Run(drain.BeginDisposeAndWait);
+        var dispose = Task.Run(drain.BeginDisposeAndWait, TestContext.Current.CancellationToken);
         try
         {
             await WaitUntilRejectedAsync(() => drain.Acquire(new object()));

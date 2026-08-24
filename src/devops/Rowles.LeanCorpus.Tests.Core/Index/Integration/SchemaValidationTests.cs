@@ -109,9 +109,9 @@ public sealed class SchemaValidationTests
         invalid.Add(new StringField("id", "missing-title"));
 
         Assert.Throws<SchemaValidationException>(() => writer.AddDocuments([valid, invalid]));
-        await Assert.ThrowsAsync<SchemaValidationException>(() => writer.AddDocumentsAsync([valid, invalid]).AsTask());
+        await Assert.ThrowsAsync<SchemaValidationException>(() => writer.AddDocumentsAsync([valid, invalid], TestContext.Current.CancellationToken).AsTask());
         Assert.Throws<SchemaValidationException>(() => writer.AddDocumentBlock([valid, invalid]));
-        await Assert.ThrowsAsync<SchemaValidationException>(() => writer.AddDocumentBlockAsync([valid, invalid]).AsTask());
+        await Assert.ThrowsAsync<SchemaValidationException>(() => writer.AddDocumentBlockAsync([valid, invalid], TestContext.Current.CancellationToken).AsTask());
         Assert.Throws<SchemaValidationException>(() => writer.UpdateDocument("id", "1", invalid));
     }
 }

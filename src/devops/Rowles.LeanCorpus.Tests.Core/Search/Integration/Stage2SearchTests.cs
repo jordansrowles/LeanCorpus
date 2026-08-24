@@ -96,7 +96,7 @@ public sealed class Stage2SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir, TfIdfSimilarity.Instance);
-        var results = searcher.Search(new TermQuery("body", "quick"), 10);
+        var results = searcher.Search(new TermQuery("body", "quick"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
         Assert.True(results.ScoreDocs[0].Score > 0f);
     }
@@ -123,7 +123,7 @@ public sealed class Stage2SearchTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
         var inner = new TermQuery("body", "hello");
         var fsq = new FunctionScoreQuery(inner, "boost", ScoreMode.Multiply);
-        var results = searcher.Search(fsq, 10);
+        var results = searcher.Search(fsq, 10, TestContext.Current.CancellationToken);
         Assert.Equal(3, results.TotalHits);
         // Higher boost field value → higher score
         Assert.True(results.ScoreDocs[0].Score >= results.ScoreDocs[1].Score);
@@ -149,7 +149,7 @@ public sealed class Stage2SearchTests : IClassFixture<TestDirectoryFixture>
 
         using var searcher = new IndexSearcher(dir);
         var fsq = new FunctionScoreQuery(new TermQuery("body", "test"), "rank", ScoreMode.Replace);
-        var results = searcher.Search(fsq, 10);
+        var results = searcher.Search(fsq, 10, TestContext.Current.CancellationToken);
         Assert.Equal(2, results.TotalHits);
         Assert.Equal(100.0f, results.ScoreDocs[0].Score, precision: 1);
         Assert.Equal(50.0f, results.ScoreDocs[1].Score, precision: 1);
@@ -186,7 +186,7 @@ public sealed class Stage2SearchTests : IClassFixture<TestDirectoryFixture>
         var q = new SpanNearQuery(
             [new SpanTermQuery("body", "quick"), new SpanTermQuery("body", "brown")],
             slop: 0, inOrder: true);
-        var results = searcher.Search(q, 10);
+        var results = searcher.Search(q, 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
     }
 
@@ -207,7 +207,7 @@ public sealed class Stage2SearchTests : IClassFixture<TestDirectoryFixture>
         var q = new SpanNearQuery(
             [new SpanTermQuery("body", "quick"), new SpanTermQuery("body", "fox")],
             slop: 2, inOrder: true);
-        var results = searcher.Search(q, 10);
+        var results = searcher.Search(q, 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
     }
 
@@ -228,7 +228,7 @@ public sealed class Stage2SearchTests : IClassFixture<TestDirectoryFixture>
         var q = new SpanNearQuery(
             [new SpanTermQuery("body", "quick"), new SpanTermQuery("body", "lazy")],
             slop: 1, inOrder: true);
-        var results = searcher.Search(q, 10);
+        var results = searcher.Search(q, 10, TestContext.Current.CancellationToken);
         Assert.Equal(0, results.TotalHits);
     }
 
@@ -252,7 +252,7 @@ public sealed class Stage2SearchTests : IClassFixture<TestDirectoryFixture>
         var q = new SpanOrQuery(
             new SpanTermQuery("body", "quick"),
             new SpanTermQuery("body", "lazy"));
-        var results = searcher.Search(q, 10);
+        var results = searcher.Search(q, 10, TestContext.Current.CancellationToken);
         Assert.Equal(2, results.TotalHits);
     }
 
@@ -277,7 +277,7 @@ public sealed class Stage2SearchTests : IClassFixture<TestDirectoryFixture>
         var q = new SpanNotQuery(
             new SpanTermQuery("body", "brown"),
             new SpanTermQuery("body", "fox"));
-        var results = searcher.Search(q, 10);
+        var results = searcher.Search(q, 10, TestContext.Current.CancellationToken);
         Assert.Equal(1, results.TotalHits);
     }
 
