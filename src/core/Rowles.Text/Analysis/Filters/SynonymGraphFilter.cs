@@ -6,7 +6,7 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 /// and inserts replacement tokens at the same position offsets.
 /// </summary>
 /// <remarks>
-/// Buffers tokens during <see cref="Apply"/> and performs trie-based longest-match
+/// Buffers tokens during application and performs trie-based longest-match
 /// synonym expansion in <see cref="ISpanTokenFilter.Finish"/>.
 /// </remarks>
 public sealed class SynonymGraphFilter : ISpanTokenFilter
@@ -45,8 +45,13 @@ public sealed class SynonymGraphFilter : ISpanTokenFilter
             positionIncrement,
             payload));
 
-        // Pass through unchanged; synonym expansion happens in Finish.
-        sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+    }
+
+    /// <inheritdoc/>
+    public void Apply(ReadOnlySpan<char> text, int startOffset, int endOffset, string type,
+        int positionIncrement, int positionLength, byte[]? payload, ISpanTokenSink sink)
+    {
+        _buffer.Add(new Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload, positionLength));
     }
 
     /// <inheritdoc/>
@@ -57,29 +62,31 @@ public sealed class SynonymGraphFilter : ISpanTokenFilter
         if (_buffer.Count == 0)
             return;
 
-        // The buffered tokens were already emitted as pass-through by Apply.
-        // Now emit synonym replacements: for each position where a synonym
-        // matches, inject replacement tokens at position 0 (same position).
+        var input = new TokenGraph();
+        foreach (var token in _buffer)
+            input.Add(token);
+        input.ValidateOrdered();
+
+        var output = new TokenGraph();
+        foreach (var edge in input.Edges)
+            output.Add(edge.Token, edge.StartPosition);
+
+        // Emit each configured replacement as an alternative single edge spanning
+        // the matched source phrase. SynonymMap values are individual replacement
+        // terms; multi-token targets are not part of its current public contract.
         int i = 0;
         while (i < _buffer.Count)
         {
             int matchLen = _map.TryMatch(_buffer, i, out var replacements);
             if (matchLen > 0)
             {
-                var first = _buffer[i];
-                var last = _buffer[i + matchLen - 1];
+                var first = input.Edges[i];
+                var last = input.Edges[i + matchLen - 1];
 
-                // Emit replacement tokens at the same position as the first
-                // matched source token.
                 for (int r = 0; r < replacements!.Length; r++)
                 {
-                    sink.Add(
-                        replacements[r].AsSpan(),
-                        first.StartOffset,
-                        last.EndOffset,
-                        first.Type,
-                        positionIncrement: r == 0 ? 1 : 0,
-                        payload: null);
+                    output.Add(replacements[r].AsSpan(), first.Token.StartOffset, last.Token.EndOffset,
+                        first.Token.Type, first.StartPosition, last.EndPosition - first.StartPosition);
                 }
                 i += matchLen;
             }
@@ -89,6 +96,7 @@ public sealed class SynonymGraphFilter : ISpanTokenFilter
             }
         }
 
+        output.Emit(sink);
         _buffer.Clear();
     }
 

@@ -8,21 +8,62 @@
 
   const apiRoot = new URL(body.dataset.apiRoot, window.location.href)
   const currentUrl = new URL(window.location.href)
-  if (!currentUrl.pathname.startsWith(apiRoot.pathname)) return
+  const apiToggle = document.getElementById('lc-api-tree-toggle')
+  const isApiPage = currentUrl.pathname.startsWith(apiRoot.pathname)
+  let loaded = false
+  let loading = false
 
-  body.classList.add('lc-api-page')
-  section.hidden = false
+  const readPreference = () => {
+    try {
+      const value = localStorage.getItem('show-api-tree')
+      return value === 'true' ? true : value === 'false' ? false : null
+    } catch {
+      return null
+    }
+  }
+
+  const writePreference = value => {
+    try {
+      localStorage.setItem('show-api-tree', String(value))
+    } catch {
+      // The switch remains available for the current page when storage is disabled.
+    }
+  }
 
   const tocUrl = new URL(body.dataset.apiToc, window.location.href)
-  fetch(tocUrl)
-    .then(response => {
-      if (!response.ok) throw new Error(`API navigation request failed with ${response.status}`)
-      return response.json()
-    })
-    .then(model => render(model.items || []))
-    .catch(() => {
-      tree.replaceChildren(message('API navigation could not be loaded.'))
-    })
+
+  function setVisible(visible, persist) {
+    if (persist) writePreference(visible)
+    section.hidden = !visible
+    body.classList.toggle('lc-api-tree-visible', visible)
+    if (apiToggle && apiToggle.checked !== visible) apiToggle.checked = visible
+    if (visible) load()
+  }
+
+  function load() {
+    if (loaded || loading) return
+
+    loading = true
+    fetch(tocUrl)
+      .then(response => {
+        if (!response.ok) throw new Error(`API navigation request failed with ${response.status}`)
+        return response.json()
+      })
+      .then(model => {
+        render(model.items || [])
+        loaded = true
+      })
+      .catch(() => {
+        tree.replaceChildren(message('API navigation could not be loaded.'))
+      })
+      .finally(() => {
+        loading = false
+      })
+  }
+
+  const storedVisibility = readPreference()
+  setVisible(storedVisibility ?? isApiPage, false)
+  apiToggle?.addEventListener('change', () => setVisible(apiToggle.checked, true))
 
   function render(items) {
     markCurrentBranch(items)

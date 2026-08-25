@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\core\Rowles.Text\Rowles.Text.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+    <PackageReference Include="BenchmarkDotNet.Annotations" ExcludeAssets="buildTransitive" />
+
+    <PackageReference Include="Lucene.Net" />
+    <PackageReference Include="Lucene.Net.Analysis.Common" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Rowles.LeanCorpus.Benchmarks\Infrastructure\BenchmarkData.cs"
+             Link="Infrastructure\BenchmarkData.cs" />
+    <Compile Include="..\Rowles.LeanCorpus.Benchmarks\Infrastructure\GutenbergDataLoader.cs"
+             Link="Infrastructure\GutenbergDataLoader.cs" />
+    <Compile Include="..\Rowles.LeanCorpus.Benchmarks\Infrastructure\RealDataPool.cs"
+             Link="Infrastructure\RealDataPool.cs" />
+  </ItemGroup>
+
+</Project>

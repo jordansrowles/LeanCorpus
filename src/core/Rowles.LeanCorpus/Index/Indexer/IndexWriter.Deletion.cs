@@ -25,6 +25,7 @@ public sealed partial class IndexWriter
         using var activity = Diagnostics.LeanCorpusActivitySource.Source
             .StartActivity(Diagnostics.LeanCorpusActivitySource.DeleteQueue);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ThrowIfIndexingFailed();
         lock (_writeLock)
         {
             QueueDelete(query.Field, query.Term, isSoftDelete: false);

@@ -14,20 +14,20 @@ namespace Rowles.LeanCorpus.Codecs.TermVectors;
 /// <para>Version history:</para>
 /// <para>v1: per-term layout ended after payloads.  No offset data.</para>
 /// <para>v2: adds [hasOffsets:bool] with conditional [startOffsets:int32[]] [endOffsets:int32[]] for highlighters.</para>
-/// <para>v3: CodecKit trailer format (streaming write, 8-byte Int64 trailer).</para>
+/// <para>v3: current writes use the canonical CodecKit frame; legacy trailer-framed v3 remains readable.</para>
 /// </remarks>
 internal static class TermVectorsWriter
 {
     public static void Write(string tvdPath, string tvxPath,
         IReadOnlyList<Dictionary<string, List<TermVectorEntry>>?> docs)
     {
-        // Track file-absolute offsets; BeginStreamingWrite writes the version byte
-        // at position 0, so body starts at position 1.  Offsets are thus file-absolute.
+        // Track file-absolute offsets so reads remain direct regardless of the
+        // variable-length canonical frame header.
         var offsets = new long[docs.Count];
 
-        // Write .tvd data via streaming scope (trailer written on dispose).
+        // Write .tvd data through the current catalogue descriptor.
         using (var tvdOutput = new IndexOutput(tvdPath))
-        using (var tvdScope = CodecFileHeader.BeginStreamingWrite(tvdOutput, CodecConstants.TermVectorsVersion))
+        using (var tvdScope = CodecFileWriter.Begin(tvdOutput, TermVectorsCodecFiles.Data))
         {
             for (int d = 0; d < docs.Count; d++)
             {
@@ -55,19 +55,21 @@ internal static class TermVectorsWriter
                     }
                 }
             }
+            tvdScope.Complete();
         }
 
-        // Write .tvx offset index via streaming scope.
+        // Write .tvx offset index through the coordinated current descriptor.
         using (var tvxOutput = new IndexOutput(tvxPath))
-        using (var tvxScope = CodecFileHeader.BeginStreamingWrite(tvxOutput, CodecConstants.TermVectorsVersion))
+        using (var tvxScope = CodecFileWriter.Begin(tvxOutput, TermVectorsCodecFiles.Index))
         {
             tvxScope.Output.WriteInt32(docs.Count);
             foreach (var offset in offsets)
                 tvxScope.Output.WriteInt64(offset);
+            tvxScope.Complete();
         }
     }
 
-    private static void WriteOffsets(IndexOutput output, TermVectorEntry entry)
+    private static void WriteOffsets(CodecBodyOutput output, TermVectorEntry entry)
     {
         bool hasOffsets = entry.StartOffsets is { Length: > 0 } && entry.EndOffsets is { Length: > 0 };
         output.WriteByte(hasOffsets ? (byte)1 : (byte)0);
@@ -82,7 +84,7 @@ internal static class TermVectorsWriter
             output.WriteInt32(entry.EndOffsets[i]);
     }
 
-    private static void WritePayloads(IndexOutput output, TermVectorEntry entry)
+    private static void WritePayloads(CodecBodyOutput output, TermVectorEntry entry)
     {
         bool hasPayloads = entry.Payloads is { Length: > 0 } payloads
             && payloads.Any(static payload => payload is { Length: > 0 });

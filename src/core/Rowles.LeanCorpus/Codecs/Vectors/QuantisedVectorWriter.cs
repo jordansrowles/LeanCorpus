@@ -1,7 +1,6 @@
 using System.Buffers;
 using System.Runtime.InteropServices;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.Vectors;
@@ -73,13 +72,13 @@ internal static class QuantisedVectorWriter
 
         float alpha = (max - min) / 255f;
 
-        var bodyBuf = new ArrayBufferWriter<byte>(4096);
-
-        bodyBuf.WriteInt32(docCount);
-        bodyBuf.WriteInt32(dimension);
-        bodyBuf.WriteByte((byte)VectorQuantisation.Int8);
-        bodyBuf.WriteSingle(min);
-        bodyBuf.WriteSingle(alpha);
+        CodecFileWriter.WriteAtomically(filePath, VectorCodecFiles.Quantised, durable: false, bodyOutput =>
+        {
+        bodyOutput.WriteInt32(docCount);
+        bodyOutput.WriteInt32(dimension);
+        bodyOutput.WriteByte((byte)VectorQuantisation.Int8);
+        bodyOutput.WriteSingle(min);
+        bodyOutput.WriteSingle(alpha);
 
         // --- Pass 2: quantise, write corrections, save packed bytes ---
         Span<float> zero = dimension <= 256 ? stackalloc float[dimension] : new float[dimension];
@@ -109,7 +108,7 @@ internal static class QuantisedVectorWriter
                     correction += alpha * qv * error;
                 }
 
-                bodyBuf.WriteSingle(correction);
+                bodyOutput.WriteSingle(correction);
 
                 // Save packed bytes for Pass 3.
                 var packed = new byte[dimension];
@@ -124,10 +123,8 @@ internal static class QuantisedVectorWriter
 
         // --- Pass 3: write packed bytes (no re-quantisation) ---
         foreach (var packed in packedDocs)
-            bodyBuf.WriteBytes(packed, 0, packed.Length);
-
-        using var output = new IndexOutput(filePath);
-        CodecFileHeader.Write(output, CodecFormats.QuantisedVectors, bodyBuf.WrittenSpan);
+            bodyOutput.WriteBytes(packed, 0, packed.Length);
+        });
     }
 
     /// <summary>
@@ -150,15 +147,16 @@ internal static class QuantisedVectorWriter
 
         int packedBytes = (dimension + 7) / 8;
 
-        var bodyBuf = new ArrayBufferWriter<byte>(4096);
-
-        bodyBuf.WriteInt32(docCount);
-        bodyBuf.WriteInt32(dimension);
-        bodyBuf.WriteByte((byte)VectorQuantisation.BBQ);
+        float[] centroidValues = centroid.ToArray();
+        CodecFileWriter.WriteAtomically(filePath, VectorCodecFiles.Quantised, durable: false, bodyOutput =>
+        {
+        bodyOutput.WriteInt32(docCount);
+        bodyOutput.WriteInt32(dimension);
+        bodyOutput.WriteByte((byte)VectorQuantisation.BBQ);
 
         // Write centroid
         for (int j = 0; j < dimension; j++)
-            bodyBuf.WriteSingle(centroid[j]);
+            bodyOutput.WriteSingle(centroidValues[j]);
 
         Span<float> zero = dimension <= 256 ? stackalloc float[dimension] : new float[dimension];
         zero.Clear();
@@ -182,7 +180,7 @@ internal static class QuantisedVectorWriter
                 float corr3 = 0f;
                 for (int j = 0; j < dimension; j++)
                 {
-                    float residual = span[j] - centroid[j];
+                    float residual = span[j] - centroidValues[j];
                     if (residual > 0f)
                     {
                         int byteIdx = j / 8;
@@ -196,9 +194,9 @@ internal static class QuantisedVectorWriter
                     corr3 += residual * residual;
                 }
 
-                bodyBuf.WriteSingle(corr1);
-                bodyBuf.WriteSingle(corr2);
-                bodyBuf.WriteSingle(corr3);
+                bodyOutput.WriteSingle(corr1);
+                bodyOutput.WriteSingle(corr2);
+                bodyOutput.WriteSingle(corr3);
 
                 // Save packed bits for Pass 2.
                 var packed = new byte[packedBytes];
@@ -213,9 +211,7 @@ internal static class QuantisedVectorWriter
 
         // --- Pass 2: write bit-packed data (no re-quantisation) ---
         foreach (var packed in packedDocs)
-            bodyBuf.WriteBytes(packed, 0, packed.Length);
-
-        using var output = new IndexOutput(filePath);
-        CodecFileHeader.Write(output, CodecFormats.QuantisedVectors, bodyBuf.WrittenSpan);
+            bodyOutput.WriteBytes(packed, 0, packed.Length);
+        });
     }
 }

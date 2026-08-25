@@ -8,7 +8,7 @@ namespace Rowles.LeanCorpus.Store;
 /// Buffered sequential writer backed by <see cref="FileStream"/> and
 /// <see cref="ArrayPool{T}"/>. Used at index-build time only.
 /// </summary>
-public sealed class IndexOutput : IDisposable
+public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
 {
     private const int BufferSize = 65536;
 
@@ -36,10 +36,22 @@ public sealed class IndexOutput : IDisposable
     /// to release written pages from the page cache after closing. This prevents merge output
     /// from evicting hot search data from the cache. No effect on Windows or macOS. Defaults to <c>false</c>.
     /// </param>
-    public IndexOutput(string filePath, bool durable = false, bool dropPageCache = false)
+    /// <param name="preallocationSize">
+    /// Expected final file size used to reserve storage before large sequential writes. The logical
+    /// file length still reflects bytes actually written. Defaults to zero when the size is unknown.
+    /// </param>
+    public IndexOutput(
+        string filePath,
+        bool durable = false,
+        bool dropPageCache = false,
+        long preallocationSize = 0)
     {
-        _stream = (FileStream)FileOpenRetry.Open(filePath, FileMode.Create, FileAccess.Write, FileShare.None,
-            bufferSize: BufferSize, options: FileOptions.SequentialScan);
+        ArgumentOutOfRangeException.ThrowIfNegative(preallocationSize);
+        _stream = (FileStream)FileOpenRetry.CreateTrackedIndexFile(
+            filePath,
+            bufferSize: 1,
+            options: FileOptions.SequentialScan,
+            preallocationSize: preallocationSize);
         _buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
         _bufferPosition = 0;
         _durable = durable;
@@ -214,12 +226,11 @@ public sealed class IndexOutput : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-
         try
         {
             FlushBuffer();
             if (_durable)
-                _stream.Flush(flushToDisk: true);
+                FileOpenRetry.FlushToDisk(_stream);
         }
         finally
         {

@@ -58,12 +58,12 @@ Keep repository arguments before `--`. Everything after it is passed to the benc
 
 ## Test suites
 
-`Get-TestSuites` is the canonical alias map. It maps short names to project paths. Architecture and compression-parity tests are distinct suites because their dependencies and purpose differ from normal unit tests.
+`scripts/devops/config/test-suites.psd1` is the canonical alias map. It maps short names to project paths or, for Native AOT, to the dedicated command route. The current suites are `core`, `text`, `sourcegen`, `architecture`, and `aot`.
 
 When adding a test project:
 
 1. add it to the solution and normal build wiring;
-2. add a clear alias to `Get-TestSuites`;
+2. add a clear alias to `test-suites.psd1`;
 3. make the default test selection explicit;
 4. update CI only when the suite belongs in required validation;
 5. update contributor documentation when its role is not obvious.
@@ -72,7 +72,7 @@ Do not bypass the central map with a second list in another script.
 
 ## Benchmarks
 
-`Get-SuiteMap` maps public aliases such as `query`, `hnsw`, `blockjoin`, and `query-cache` to benchmark suite selections. `Get-StratMap` and `Resolve-Strat` define workload and BenchmarkDotNet job presets.
+`scripts/devops/config/benchmark-suites.psd1` maps public aliases such as `query`, `hnsw`, `blockjoin`, and `query-cache` to benchmark suite selections. `benchmark-strategies.psd1` and `Resolve-BenchmarkStrategy` define workload and BenchmarkDotNet job presets.
 
 ```mermaid-latest
 flowchart LR
@@ -101,16 +101,20 @@ The `docs` command has `build`, `metadata`, and `serve` paths.
 The build sequence can:
 
 1. regenerate the feature-comparison index from item front matter;
-2. regenerate benchmark pages unless `-SkipBenchmarks` is set;
-3. regenerate coverage HTML when source data exists unless `-SkipCoverage` is set;
-4. clear and regenerate DocFX API metadata;
-5. remove inherited external members from generated API YAML;
-6. copy changelog content;
-7. build the DocFX site.
+2. regenerate the ADR index;
+3. copy canonical repository guides into the ignored `docs/.generated` staging tree;
+4. regenerate benchmark pages unless `-SkipBenchmarks` is set;
+5. regenerate coverage HTML when source data exists unless `-SkipCoverage` is set;
+6. clear and regenerate DocFX API metadata;
+7. remove inherited external members from generated API YAML;
+8. copy changelog content;
+9. build the DocFX site.
 
 `-SkipBenchmarks` avoids an expensive or unrelated benchmark-report refresh. It does not skip conceptual pages or API metadata.
 
-Generated API, site, benchmark, and coverage output must remain generated. Change their source or generator instead of patching the output.
+DocFX warnings are grouped by code in the console. Complete metadata and build diagnostics are written as JSON lines to `artifacts/docs/docfx-metadata.jsonl` and `artifacts/docs/docfx-build.jsonl`. A status line is printed every 30 seconds while DocFX is running so a slow API pass does not appear stuck.
+
+Generated repository copies, API, site, benchmark, and coverage output must remain generated. Change their canonical source or generator instead of patching the output.
 
 ## Tool discovery
 

@@ -16,7 +16,6 @@ internal static class CommitManager
 {
     public static void CommitWithLocks(IndexWriter writer)
     {
-        WaitForBackgroundMerges(writer);
         lock (writer.MergeIoLock)
         lock (writer.WriteLock)
         {
@@ -45,22 +44,44 @@ internal static class CommitManager
         var pendingPath = Path.Combine(dirPath, $"segments_{writer.PreparedGeneration}.pending");
         var finalPath = Path.Combine(dirPath, $"segments_{writer.PreparedGeneration}");
 
-        FileOpenRetry.Move(pendingPath, finalPath, overwrite: false);
-        if (writer.Config.DurableCommits)
-            DirectoryFsync.Sync(dirPath, strict: true);
-
+        var publishedCommit = FileOpenRetry.Move(pendingPath, finalPath, overwrite: false);
+        if (!writer.Config.DurableCommits)
+            DirtyFileTracker.Forget(finalPath);
+        // The rename is the irreversible publication boundary. Establish the published
+        // state before doing anything that can throw, so a later failure cannot be rolled
+        // back over the commit file that readers can already observe.
         writer.CommitGeneration = writer.PreparedGeneration;
         writer.ContentToken = writer.PreparedContentToken;
         writer.ContentChangedSinceCommit = false;
-
-        writer.Config.DeletionPolicy.OnCommit(dirPath, writer.CommitGeneration,
-            SnapshotManager.GetSnapshotProtectedSegments(writer));
-        CleanupObsoleteMergeSegments(writer);
-
-        MergeScheduler.ScheduleBackgroundMerge(writer);
-
         writer.PreparedGeneration = -1;
         writer.PreparedSegments = null;
+
+        try
+        {
+            if (writer.Config.DurableCommits)
+            {
+                var publicationSync = writer.Config.PreparedCommitPublicationSync;
+                if (publicationSync is not null)
+                    publicationSync(dirPath);
+                else
+                    DirectoryFsync.Sync(dirPath, strict: true);
+                DirtyFileTracker.MarkSynced(publishedCommit);
+                DirtyFileTracker.MarkDurableGeneration(dirPath, writer.CommitGeneration);
+            }
+
+            writer.Config.DeletionPolicy.OnCommit(dirPath, writer.CommitGeneration,
+                SnapshotManager.GetSnapshotProtectedSegments(writer));
+            CleanupObsoleteMergeSegments(writer);
+
+            MergeScheduler.ScheduleBackgroundMerge(writer);
+        }
+        catch
+        {
+            // Publication already happened. Continuing would permit file deletion or a
+            // second publication attempt against an in-memory state that cannot be rolled back.
+            writer.MarkIndexingFailed();
+            throw;
+        }
     }
 
     private static void CommitCore(IndexWriter writer)
@@ -122,10 +143,15 @@ internal static class CommitManager
             SyncChangedFiles(writer);
             DirectoryFsync.Sync(dirPath, strict: true);
             IndexAtomicFileWriter.WriteText(commitFile, fileContent, durable: true);
+            if (!pending)
+                DirtyFileTracker.MarkDurableGeneration(dirPath, gen);
         }
         else
         {
             IndexAtomicFileWriter.WriteText(commitFile, fileContent, durable: false);
+            // Non-durable commit files are publication markers, not inputs to a later
+            // durable commit. Retaining every generation would grow process-wide state.
+            DirtyFileTracker.Forget(commitFile);
         }
     }
 
@@ -135,28 +161,54 @@ internal static class CommitManager
         long bytes = 0;
         int count = 0;
 
-        foreach (var filePath in FileOpenRetry.GetFiles(writer.Directory.DirectoryPath, "*"))
+        string statsFileName = Path.GetFileName(IndexStats.GetStatsPath(
+            writer.Directory.DirectoryPath, writer.CommitGeneration));
+        var segmentIds = new HashSet<string>(writer.CommittedSegments.Count, StringComparer.Ordinal);
+        foreach (var segment in writer.CommittedSegments)
+            segmentIds.Add(segment.SegmentId);
+
+        var dirtyFiles = DirtyFileTracker.Snapshot(
+            writer.Directory.DirectoryPath,
+            fileName => fileName.Equals(statsFileName, StringComparison.Ordinal) ||
+                        BelongsToCommittedSegment(fileName, segmentIds));
+
+        foreach (var dirtyFile in dirtyFiles)
         {
-            var fileName = Path.GetFileName(filePath);
-            if (string.Equals(fileName, "write.lock", StringComparison.Ordinal) ||
-                fileName.StartsWith("segments_", StringComparison.Ordinal))
+            var fileName = Path.GetFileName(dirtyFile.Path);
+            if (fileName.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            try
             {
-                continue;
+                DirectoryFsync.SyncFile(dirtyFile.Path, strict: true);
+                bytes += FileOpenRetry.GetFileLength(dirtyFile.Path);
+                count++;
+                DirtyFileTracker.MarkSynced(dirtyFile);
             }
-
-            var metadata = FileOpenRetry.GetFileMetadata(filePath);
-            var current = new FileSyncState(metadata.Length, metadata.LastWriteTimeUtc.Ticks);
-            if (writer.SyncedFileStates.TryGetValue(filePath, out var synced) && synced == current)
-                continue;
-
-            DirectoryFsync.SyncFile(filePath, strict: true);
-            writer.SyncedFileStates[filePath] = current;
-            bytes += metadata.Length;
-            count++;
+            catch (IOException) when (!FileOpenRetry.FileExists(dirtyFile.Path))
+            {
+                // Failed merge cleanup and external fault-injection tests can remove
+                // a process-written file after the dirty snapshot was taken. It is no
+                // longer publishable data, so discard only the observed dirty version.
+                DirtyFileTracker.MarkSynced(dirtyFile);
+            }
         }
 
         stopwatch.Stop();
         writer.Config.Metrics.RecordFileSync(stopwatch.Elapsed, bytes, count);
+    }
+
+    private static bool BelongsToCommittedSegment(string fileName, HashSet<string> segmentIds)
+    {
+        int separator = fileName.IndexOf('.');
+        int generationSeparator = fileName.IndexOf("_gen_", StringComparison.Ordinal);
+        int vectorSeparator = fileName.IndexOf("_v_", StringComparison.Ordinal);
+        if (generationSeparator >= 0 && (separator < 0 || generationSeparator < separator))
+            separator = generationSeparator;
+        if (vectorSeparator >= 0 && (separator < 0 || vectorSeparator < separator))
+            separator = vectorSeparator;
+
+        return separator > 0 && segmentIds.Contains(fileName[..separator]);
     }
 
     public static void WriteCommitStats(IndexWriter writer)
@@ -251,13 +303,20 @@ internal static class CommitManager
         var directory = writer.Directory;
         var config = writer.Config;
         IndexOpenGuard.EnsureNoBlockingMigration(directory, config.CompatibilityMode);
-        var recovery = IndexRecovery.RecoverLatestCommit(directory.DirectoryPath);
+        var recovery = IndexRecovery.RecoverLatestCommit(
+            directory.DirectoryPath,
+            catalog: config.CodecCatalog);
         if (recovery is null) return;
-        IndexOpenGuard.EnsureCanOpenSegments(directory, recovery.SegmentIds, config.CompatibilityMode, forWriting: true);
+        IndexOpenGuard.EnsureCanOpenSegments(
+            directory,
+            recovery.SegmentIds,
+            config.CompatibilityMode,
+            forWriting: true,
+            config.CodecCatalog);
 
         writer.CommitGeneration = recovery.Generation;
         writer.ContentToken = recovery.ContentToken;
-        writer.NextSegmentOrdinal = recovery.SegmentIds.Count;
+        writer.NextSegmentOrdinal = GetNextSegmentOrdinal(recovery.SegmentIds);
 
         var dirPath = directory.DirectoryPath;
         foreach (var segId in recovery.SegmentIds)
@@ -286,6 +345,17 @@ internal static class CommitManager
             writer.CommittedSegments.Add(seg);
         }
 
+        if (config.DurableCommits)
+        {
+            var segmentIds = new HashSet<string>(writer.CommittedSegments.Count, StringComparer.Ordinal);
+            foreach (var segment in writer.CommittedSegments)
+                segmentIds.Add(segment.SegmentId);
+            DirtyFileTracker.RequireDurabilityBaseline(
+                dirPath,
+                recovery.Generation,
+                directory.ListAll().Where(fileName => BelongsToCommittedSegment(fileName, segmentIds)));
+        }
+
         if (config.TrackSequenceNumbers)
         {
             long maxSeq = 0;
@@ -310,6 +380,23 @@ internal static class CommitManager
         {
             try { directory.DeleteFile(Path.GetFileName(file)); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "vector file delete"); }
         }
+    }
+
+    private static int GetNextSegmentOrdinal(IEnumerable<string> segmentIds)
+    {
+        int nextOrdinal = 0;
+        foreach (string segmentId in segmentIds)
+        {
+            if (!segmentId.StartsWith("seg_", StringComparison.Ordinal) ||
+                !int.TryParse(segmentId.AsSpan("seg_".Length), out int ordinal))
+            {
+                continue;
+            }
+
+            nextOrdinal = Math.Max(nextOrdinal, ordinal + 1);
+        }
+
+        return nextOrdinal;
     }
 
     public static int CompactWithLocks(IndexWriter writer)
@@ -484,6 +571,8 @@ internal static class CommitManager
         lock (writer.MergeIoLock)
         lock (writer.WriteLock)
         {
+            var (rollbackSegments, rollbackContentToken) = CapturePublishedState(writer);
+
             DwptManager.WaitForPendingFlushes(writer);
             DwptManager.FlushDwptPool(writer);
 
@@ -504,8 +593,9 @@ internal static class CommitManager
             writer.ContentChangedSinceCommit = false;
 
             writer.PreparedGeneration = gen;
-            writer.PreparedSegments = new List<SegmentInfo>(writer.CommittedSegments);
+            writer.PreparedSegments = rollbackSegments;
             writer.PreparedContentToken = writer.ContentToken;
+            writer.PreparedRollbackContentToken = rollbackContentToken;
 
             return gen;
         }
@@ -523,21 +613,74 @@ internal static class CommitManager
 
         if (writer.PreparedSegments is not null)
         {
-            var committedIds = new HashSet<string>(
-                writer.CommittedSegments.Select(static s => s.SegmentId),
+            var rollbackSegments = writer.PreparedSegments;
+            var rollbackIds = new HashSet<string>(
+                rollbackSegments.Select(static s => s.SegmentId),
                 StringComparer.Ordinal);
-            foreach (var seg in writer.PreparedSegments)
+            foreach (var seg in writer.CommittedSegments)
             {
-                if (!committedIds.Contains(seg.SegmentId))
-                {
-                    writer.CommittedSegments.Remove(seg);
+                if (!rollbackIds.Contains(seg.SegmentId))
                     DeleteSegmentFiles(seg.SegmentId, writer.Directory);
-                }
             }
+
+            writer.CommittedSegments.Clear();
+            writer.CommittedSegments.AddRange(rollbackSegments);
+            foreach (var segment in rollbackSegments)
+                segment.WriteTo(Path.Combine(directoryPath, segment.SegmentId + ".seg"));
         }
 
+        writer.ContentToken = writer.PreparedRollbackContentToken;
+        writer.ContentChangedSinceCommit = false;
         writer.PreparedGeneration = -1;
         writer.PreparedSegments = null;
+    }
+
+    private static SegmentInfo CloneSegmentInfo(SegmentInfo segment) => new()
+    {
+        SegmentId = segment.SegmentId,
+        DocCount = segment.DocCount,
+        LiveDocCount = segment.LiveDocCount,
+        TotalBytes = segment.TotalBytes,
+        CodecBytes = new Dictionary<string, long>(segment.CodecBytes, StringComparer.Ordinal),
+        CommitGeneration = segment.CommitGeneration,
+        IsCompoundFile = segment.IsCompoundFile,
+        FieldNames = [.. segment.FieldNames],
+        IndexSortFields = segment.IndexSortFields is null ? null : [.. segment.IndexSortFields],
+        VectorFields = [.. segment.VectorFields],
+        DelGeneration = segment.DelGeneration,
+        MinSequenceNumber = segment.MinSequenceNumber,
+        MaxSequenceNumber = segment.MaxSequenceNumber,
+        EarliestSoftDeleteTimestamp = segment.EarliestSoftDeleteTimestamp
+    };
+
+    private static (List<SegmentInfo> Segments, long ContentToken) CapturePublishedState(IndexWriter writer)
+    {
+        var recovery = IndexRecovery.RecoverLatestCommit(
+            writer.Directory.DirectoryPath,
+            cleanupOrphans: false,
+            writer.Config.CodecCatalog);
+        if (recovery is null)
+            return ([], 0);
+
+        var currentSegments = writer.CommittedSegments.ToDictionary(
+            static segment => segment.SegmentId,
+            StringComparer.Ordinal);
+        var publishedSegments = new List<SegmentInfo>(recovery.SegmentIds.Count);
+        foreach (string segmentId in recovery.SegmentIds)
+        {
+            if (currentSegments.TryGetValue(segmentId, out var segment))
+            {
+                publishedSegments.Add(CloneSegmentInfo(segment));
+                continue;
+            }
+
+            var segmentPath = Path.Combine(
+                writer.Directory.DirectoryPath,
+                segmentId + ".seg");
+            publishedSegments.Add(SegmentInfo.ReadFrom(segmentPath));
+        }
+
+        return (publishedSegments, recovery.ContentToken);
     }
 
     private static void WaitForBackgroundMerges(IndexWriter writer)

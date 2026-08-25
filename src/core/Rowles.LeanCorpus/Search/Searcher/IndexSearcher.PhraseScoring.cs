@@ -62,16 +62,16 @@ public sealed partial class IndexSearcher
         }
 
         // Streaming merge: iterate leader, advance followers
-        while (postingsArr[leaderIdx].MoveNext())
+        while (postingsArr[leaderIdx].MoveNextUnchecked(out int docId, out int leaderTf))
         {
-            int docId = postingsArr[leaderIdx].DocId;
             if (hasDeletions && !reader.IsLive(docId)) continue;
 
             bool allMatch = true;
             for (int i = 0; i < termCount; i++)
             {
                 if (i == leaderIdx) continue;
-                if (!postingsArr[i].Advance(docId) || postingsArr[i].DocId != docId)
+                if (!postingsArr[i].AdvanceUnchecked(docId, out int followerDocId, out _) ||
+                    followerDocId != docId)
                 {
                     allMatch = false;
                     break;
@@ -84,7 +84,7 @@ public sealed partial class IndexSearcher
             bool hasAllPositions = true;
             for (int i = 0; i < termCount; i++)
             {
-                if (postingsArr[i].GetCurrentPositions().IsEmpty)
+                if (postingsArr[i].GetCurrentPositionsUnchecked().IsEmpty)
                 {
                     hasAllPositions = false;
                     break;
@@ -99,7 +99,6 @@ public sealed partial class IndexSearcher
                 // Sum scores across all terms using the leader's term frequency
                 // as an estimate of the phrase frequency.
                 float score = 0;
-                int leaderTf = postingsArr[leaderIdx].Freq;
                 for (int i = 0; i < termCount; i++)
                 {
                     var (f1, f2, f3) = termFactors[i];
@@ -361,8 +360,8 @@ public sealed partial class IndexSearcher
         // For 2 terms (common case): O(n+m) two-pointer merge on sorted positions
         if (termCount == 2)
         {
-            var pos0 = postings[0].GetCurrentPositions();
-            var pos1 = postings[1].GetCurrentPositions();
+            var pos0 = postings[0].GetCurrentPositionsUnchecked();
+            var pos1 = postings[1].GetCurrentPositionsUnchecked();
             return HasTwoTermPositionsWithinSlop(
                 pos0, pos1, expectedPositions[1] - expectedPositions[0], slop);
         }
@@ -370,9 +369,9 @@ public sealed partial class IndexSearcher
         // 3-term specialisation: direct span access, zero allocation (matches 2-term path)
         if (termCount == 3)
         {
-            var pos0 = postings[0].GetCurrentPositions();
-            var pos1 = postings[1].GetCurrentPositions();
-            var pos2 = postings[2].GetCurrentPositions();
+            var pos0 = postings[0].GetCurrentPositionsUnchecked();
+            var pos1 = postings[1].GetCurrentPositionsUnchecked();
+            var pos2 = postings[2].GetCurrentPositionsUnchecked();
             return HasThreeTermPositionsWithinSlop(
                 pos0,
                 pos1,
@@ -391,7 +390,7 @@ public sealed partial class IndexSearcher
         {
             for (int i = 0; i < termCount; i++)
             {
-                var span = postings[i].GetCurrentPositions();
+                var span = postings[i].GetCurrentPositionsUnchecked();
                 if (span.IsEmpty) return false;
                 var rented = ArrayPool<int>.Shared.Rent(span.Length);
                 span.CopyTo(rented);

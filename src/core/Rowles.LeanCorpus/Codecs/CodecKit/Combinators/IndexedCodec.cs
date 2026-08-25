@@ -46,7 +46,7 @@ internal sealed class IndexedCodec<THeader, TCursor>
         long readPos = input.Position;
         long remaining = input.Length - readPos;
         int chunkSize = (int)Math.Min(remaining, MaxHeaderBytes);
-        var headerBytes = input.ReadSpan(chunkSize, ref readPos);
+        var headerBytes = input.BorrowSpan(chunkSize, ref readPos);
 
         // Decode header from the captured bytes
         var sequence = new ReadOnlySequence<byte>(headerBytes.ToArray());

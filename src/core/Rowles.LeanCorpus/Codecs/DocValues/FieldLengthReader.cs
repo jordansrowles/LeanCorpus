@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
@@ -29,7 +28,8 @@ internal static class FieldLengthReader
     internal static Dictionary<string, int[]> TryRead(IndexInput input)
     {
         using var inputLifetime = input;
-        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.FieldLengths);
+        var descriptor = CodecCatalog.Default.GetFile("leancorpus.field-lengths.data");
+        using var frame = CodecFileReader.OpenSupported(input, descriptor);
 
         int fieldCount = input.ReadInt32();
         var result = new Dictionary<string, int[]>(fieldCount, StringComparer.Ordinal);
@@ -52,6 +52,7 @@ internal static class FieldLengthReader
             result[fieldName] = lengths;
         }
 
+        frame.ValidateChecksum();
         return result;
     }
 
@@ -60,7 +61,8 @@ internal static class FieldLengthReader
         if (!FileOpenRetry.FileExists(filePath)) return new List<(string Name, int[] Lengths)>(0);
 
         using var input = new IndexInput(filePath);
-        byte version = CodecFileHeader.ReadVersionAndSkipHeader(input);
+        var descriptor = CodecCatalog.Default.GetFile("leancorpus.field-lengths.data");
+        using var frame = CodecFileReader.OpenSupported(input, descriptor);
 
         int fieldCount = input.ReadInt32();
         var results = new List<(string Name, int[] Lengths)>(fieldCount);
@@ -83,6 +85,7 @@ internal static class FieldLengthReader
             results.Add((fieldName, lengths));
         }
 
+        frame.ValidateChecksum();
         return results;
     }
 }

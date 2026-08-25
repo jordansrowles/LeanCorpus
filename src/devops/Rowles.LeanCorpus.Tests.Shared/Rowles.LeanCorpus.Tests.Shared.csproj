@@ -1,8 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
-  <ItemGroup>
-    <PackageReference Include="xunit" />
-  </ItemGroup>
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <IsTestProject>false</IsTestProject>
@@ -13,7 +9,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.Unit" />
+    <EmbeddedResource Include="Fixtures/Indexes/*.fixture.b64" />
   </ItemGroup>
 
 </Project>

@@ -56,6 +56,6 @@ var analyser = new Analyser(
 - [Token filters](03-token-filters.md)
 - [Stemmers](04-stemmers.md)
 - [Stop words and token budget](05-stop-words-and-token-budget.md)
-- [Lexicons](06-lexicons.md)
+- [Lexicons](https://leancorpus.com/analysis/06-lexicons.html)
 - [Hunspell](07-hunspell.md)
-- [Rowles.Text](08-rowles-text.md)
+- [Rowles.Text](https://leancorpus.com/analysis/08-rowles-text.html)

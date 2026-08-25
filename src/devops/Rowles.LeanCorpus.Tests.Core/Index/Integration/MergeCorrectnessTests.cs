@@ -1,0 +1,248 @@
+using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Index;
+using Rowles.LeanCorpus.Search;
+using Rowles.LeanCorpus.Search.Simd;
+using Rowles.LeanCorpus.Search.Parsing;
+using Rowles.LeanCorpus.Search.Highlighting;
+using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Tests.Shared.Fixtures;
+namespace Rowles.LeanCorpus.Tests.Core.Index;
+
+/// <summary>
+/// Correctness tests for delete + merge interaction:
+/// verifies that deleted documents are properly excluded after segment merges.
+/// </summary>
+[Category(TestCategory.Integration)]
+[Area(TestArea.Index)]
+public sealed class MergeCorrectnessTests : IClassFixture<TestDirectoryFixture>
+{
+    private readonly TestDirectoryFixture _fixture;
+    private readonly ITestOutputHelper _output;
+
+    public MergeCorrectnessTests(TestDirectoryFixture fixture, ITestOutputHelper output)
+    {
+        _fixture = fixture;
+        _output = output;
+    }
+
+    private string SubDir(string name)
+    {
+        var path = Path.Combine(_fixture.Path, name);
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    /// <summary>
+    /// Verifies the Delete In Multiple Segments: Then Merge All Deleted Docs Gone scenario.
+    /// </summary>
+    [Fact(DisplayName = "Delete In Multiple Segments: Then Merge All Deleted Docs Gone")]
+    public void DeleteInMultipleSegments_ThenMerge_AllDeletedDocsGone()
+    {
+        // Arrange: create many 1-doc segments to trigger tiered merge (threshold=10),
+        // delete specific docs, then add enough commits to trigger merge.
+        var dir = new MMapDirectory(SubDir("merge_multi_delete"));
+        var config = new IndexWriterConfig { MaxBufferedDocs = 1 };
+
+        using (var writer = new IndexWriter(dir, config))
+        {
+            // Create 12 single-doc segments, each auto-flushed
+            for (int i = 0; i < 12; i++)
+            {
+                var doc = new LeanDocument();
+                doc.Add(new TextField("id", $"doc{i}"));
+                doc.Add(new TextField("body", "common content here"));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+            _output.WriteLine("Committed 12 single-doc segments");
+
+            // Delete two docs
+            writer.DeleteDocuments(new TermQuery("id", "doc3"));
+            writer.DeleteDocuments(new TermQuery("id", "doc7"));
+            writer.Commit();
+            _output.WriteLine("Deleted doc3 and doc7, merge should be triggered");
+
+            // Another commit to allow background merge to settle
+            Thread.Sleep(500);
+            writer.Commit();
+        }
+
+        // Assert: search should find 10 docs, not 12
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new TermQuery("body", "common"), 20, TestContext.Current.CancellationToken);
+
+        _output.WriteLine($"After delete+merge: {results.TotalHits} docs match 'common'");
+        Assert.Equal(10, results.TotalHits);
+
+        // Verify specific deletions
+        var deletedA = searcher.Search(new TermQuery("id", "doc3"), 10, TestContext.Current.CancellationToken);
+        var deletedB = searcher.Search(new TermQuery("id", "doc7"), 10, TestContext.Current.CancellationToken);
+        _output.WriteLine($"  doc3 hits: {deletedA.TotalHits} (expected 0)");
+        _output.WriteLine($"  doc7 hits: {deletedB.TotalHits} (expected 0)");
+        Assert.Equal(0, deletedA.TotalHits);
+        Assert.Equal(0, deletedB.TotalHits);
+    }
+
+    /// <summary>
+    /// Verifies the Delete All Docs In One Group: After Merge Only Kept Docs Remain scenario.
+    /// </summary>
+    [Fact(DisplayName = "Delete All Docs In One Group: After Merge Only Kept Docs Remain")]
+    public void DeleteAllDocsInOneGroup_AfterMerge_OnlyKeptDocsRemain()
+    {
+        var dir = new MMapDirectory(SubDir("merge_all_deleted"));
+        var config = new IndexWriterConfig { MaxBufferedDocs = 1 };
+
+        using (var writer = new IndexWriter(dir, config))
+        {
+            // Create 6 disposable docs and 6 keeper docs (interleaved, 12 segments)
+            for (int i = 0; i < 12; i++)
+            {
+                var doc = new LeanDocument();
+                bool disposable = i < 6;
+                doc.Add(new TextField("group", disposable ? "disposable" : "keeper"));
+                doc.Add(new TextField("body", "content here"));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+            _output.WriteLine("Committed 12 single-doc segments (6 disposable, 6 keeper)");
+
+            // Delete ALL disposable docs
+            writer.DeleteDocuments(new TermQuery("group", "disposable"));
+            writer.Commit();
+            _output.WriteLine("Deleted all 'disposable' docs, merge should be triggered");
+
+            // Commit intentionally does not wait for background merges (ADR007).
+            // This test needs a completed merge before asserting physical reclamation.
+            writer.ForceMerge(1);
+        }
+
+        // Assert: only keeper docs survive
+        using var searcher = new IndexSearcher(dir);
+        var keeperResults = searcher.Search(new TermQuery("group", "keeper"), 10, TestContext.Current.CancellationToken);
+        var disposableResults = searcher.Search(new TermQuery("group", "disposable"), 10, TestContext.Current.CancellationToken);
+
+        _output.WriteLine($"After merge: keeper={keeperResults.TotalHits}, disposable={disposableResults.TotalHits}");
+        Assert.Equal(6, keeperResults.TotalHits);
+        Assert.Equal(0, disposableResults.TotalHits);
+    }
+
+    [Fact(DisplayName = "Background merge does not publish a document deleted while it is running")]
+    public async Task BackgroundMerge_DoesNotResurrectDeleteCommittedDuringMerge()
+    {
+        var dir = new MMapDirectory(SubDir("background_merge_delete_race"));
+        var config = new IndexWriterConfig
+        {
+            MaxBufferedDocs = 1,
+            MergePolicy = new TieredMergePolicy(2),
+            MaxConcurrentMerges = 1
+        };
+
+        using var writer = new IndexWriter(dir, config);
+        for (int i = 0; i < 24; i++)
+            writer.AddDocument(MakeDoc($"doc-{i}", LargeBody(i)));
+        writer.Commit();
+
+        writer.DeleteDocuments(new TermQuery("id", "doc-0"));
+        writer.Commit();
+        var merge = writer.MergeTask;
+        if (merge is not null)
+            await merge.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc-0"), 1, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(23, searcher.Search(new TermQuery("body", "payload"), 24, TestContext.Current.CancellationToken).TotalHits);
+    }
+
+    /// <summary>
+    /// Verifies the Delete And Commit: Stored Fields Surviving Docs Accessible scenario.
+    /// </summary>
+    [Fact(DisplayName = "Delete And Commit: Stored Fields Surviving Docs Accessible")]
+    public void DeleteAndCommit_StoredFields_SurvivingDocsAccessible()
+    {
+        var dir = new MMapDirectory(SubDir("merge_storedfields"));
+        var config = new IndexWriterConfig { MaxBufferedDocs = 2 };
+
+        using (var writer = new IndexWriter(dir, config))
+        {
+            for (int i = 0; i < 6; i++)
+            {
+                var doc = new LeanDocument();
+                doc.Add(new TextField("id", $"doc{i}"));
+                doc.Add(new TextField("body", $"content for doc {i}"));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+
+            // Delete doc1 and doc4
+            writer.DeleteDocuments(new TermQuery("id", "doc1"));
+            writer.DeleteDocuments(new TermQuery("id", "doc4"));
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+
+        // Verify surviving doc stored fields are accessible
+        var doc0Results = searcher.Search(new TermQuery("id", "doc0"), 10, TestContext.Current.CancellationToken);
+        Assert.Equal(1, doc0Results.TotalHits);
+        var stored = searcher.GetStoredFields(doc0Results.ScoreDocs[0].DocId);
+        _output.WriteLine($"Stored fields for doc0: id={stored["id"][0]}");
+        Assert.Equal("doc0", stored["id"][0]);
+
+        // Verify deleted docs are truly gone
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc1"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("id", "doc4"), 10, TestContext.Current.CancellationToken).TotalHits);
+
+        // Verify remaining docs
+        foreach (var id in new[] { "doc0", "doc2", "doc3", "doc5" })
+        {
+            var r = searcher.Search(new TermQuery("id", id), 10, TestContext.Current.CancellationToken);
+            _output.WriteLine($"  {id} → {r.TotalHits} hits");
+            Assert.Equal(1, r.TotalHits);
+        }
+    }
+
+    [Fact(DisplayName = "Merge failure marks writer as failed and gates future operations")]
+    public void MergeFailure_MarksWriterFailed()
+    {
+        var dirPath = SubDir("merge_failure_gate");
+        var dir = new MMapDirectory(dirPath);
+
+        // MaxBufferedDocs=1 forces each doc into its own segment.
+        // MergeThrottleSegments=1 triggers a synchronous-wait merge after the second doc.
+        var config = new IndexWriterConfig { MaxBufferedDocs = 1, MergeThrottleSegments = 1, MergePolicy = new TieredMergePolicy(2) };
+
+        using (var writer = new IndexWriter(dir, config))
+        {
+            // First doc creates segment
+            writer.AddDocument(MakeDoc("doc-0", "hello world first"));
+            writer.Commit();
+
+            // Corrupt the first segment by deleting its .dic file so the merge fails.
+            var seg0Dic = Path.Combine(dirPath, "seg_0.dic");
+            Assert.True(File.Exists(seg0Dic), "Expected seg_0.dic to exist before corruption.");
+            File.Delete(seg0Dic);
+
+            // Second doc triggers throttle merge, which blocks via Wait().
+            // The merge fails because seg_0.dic is missing, but the failure is caught.
+            writer.AddDocument(MakeDoc("doc-1", "hello world second"));
+
+            // Writer should now be marked as failed. The next indexing operation must throw.
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                writer.AddDocument(MakeDoc("doc-2", "should be gated")));
+            Assert.Contains("unusable", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static LeanDocument MakeDoc(string id, string body)
+    {
+        var doc = new LeanDocument();
+        doc.Add(new TextField("body", body));
+        doc.Add(new StringField("id", id));
+        return doc;
+    }
+
+    private static string LargeBody(int number) =>
+        $"document {number} " + string.Concat(Enumerable.Repeat("payload ", 8_192));
+}

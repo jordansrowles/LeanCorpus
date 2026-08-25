@@ -27,6 +27,16 @@ internal static class IndexRepairRecommendations
             IndexCheckIssueCodes.InvalidCodecMagic =>
                 ["Restore the affected codec file from backup, or rebuild the affected segment from source documents."],
 
+            IndexCheckIssueCodes.UnsupportedCodecFrameVersion or
+            IndexCheckIssueCodes.UnknownCodecFormat or
+            IndexCheckIssueCodes.CodecFormatMismatch =>
+                ["Use a LeanCorpus build that recognises the codec frame and format, or restore the affected file from a compatible backup."],
+
+            IndexCheckIssueCodes.CodecChecksumMismatch or
+            IndexCheckIssueCodes.InvalidCodecFrame or
+            IndexCheckIssueCodes.CodecSemanticValidationFailure =>
+                ["Restore the affected codec file from backup, or rebuild the affected segment from source documents."],
+
             IndexCheckIssueCodes.UnsupportedCodecVersion or
             IndexCheckIssueCodes.UnsupportedFutureCodecVersion =>
                 ["Open the index with a newer LeanCorpus build that supports this codec version, or restore an index written by a supported build."],
@@ -64,6 +74,9 @@ internal static class IndexRepairRecommendations
 
             IndexCheckIssueCodes.PostingsReadFailure =>
                 ["Restore postings and term dictionary files from backup, rebuild the affected segment, or run codec migration when the postings format is older and supported."],
+
+            IndexCheckIssueCodes.TermVectorsReadFailure =>
+                ["Restore term-vector files from backup, or rebuild the affected segment from source documents."],
 
             IndexCheckIssueCodes.MigrationRequired or
             IndexCheckIssueCodes.MigrationRecommended =>

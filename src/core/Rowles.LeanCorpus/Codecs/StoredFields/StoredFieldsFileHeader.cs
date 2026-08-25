@@ -4,10 +4,11 @@ using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Codecs.StoredFields;
 
 /// <summary>
-/// Manual header read/write for stored-fields files.
+/// Legacy header reader for stored-fields files.
 /// v1 used the CodecKit envelope: [version:byte][VarInt64 bodyLen][body].
 /// v2 streams directly: [version:byte][body] (ADR008 custom header).
-/// v3 uses the CodecKit trailer: [version:byte][body][bodyLen:int64].
+/// v3 legacy data uses the CodecKit trailer while legacy index files retain the custom header.
+/// Current v3 writes use the canonical CodecKit frame.
 /// </summary>
 internal static class StoredFieldsFileHeader
 {
@@ -36,15 +37,16 @@ internal static class StoredFieldsFileHeader
     }
 
     /// <summary>
-    /// Writes the v3 .fdx header: a single version byte followed by block metadata.
-    /// Body format is identical to v2; only the version byte changes (v2 to v3).
+    /// Reads the version from a logical file input and skips any v1-only length prefix.
     /// </summary>
-    internal static void WriteV3FdxHeader(IndexOutput output, int blockSize, int docCount, int blockCount)
+    internal static byte ReadVersion(IndexInput input)
     {
-        output.WriteByte(V3);
-        output.WriteInt32(blockSize);
-        output.WriteInt32(docCount);
-        output.WriteInt32(blockCount);
+        byte version = input.ReadByte();
+
+        if (version == V1)
+            SkipVarInt64(input);
+
+        return version;
     }
 
     private static void SkipVarInt64(BinaryReader reader)
@@ -52,6 +54,17 @@ internal static class StoredFieldsFileHeader
         for (int i = 0; i < 10; i++)
         {
             byte b = reader.ReadByte();
+            if ((b & 0x80) == 0) return;
+        }
+
+        throw new InvalidDataException("VarInt64 body length is malformed (exceeds 10 bytes).");
+    }
+
+    private static void SkipVarInt64(IndexInput input)
+    {
+        for (int i = 0; i < 10; i++)
+        {
+            byte b = input.ReadByte();
             if ((b & 0x80) == 0) return;
         }
 

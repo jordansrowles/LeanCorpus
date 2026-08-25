@@ -162,6 +162,7 @@ public static class CodecFileHeader
             long bodyLen = input.ReadInt64();
             if (1L + bodyLen + 8L == frameLen && bodyLen >= 0)
             {
+                input.Seek(startPos);
                 byte version = input.ReadByte();
                 byte[] body;
                 if (bodyLen == 0)
@@ -204,11 +205,69 @@ public static class CodecFileHeader
 
     public static ReadResult Read(BinaryReader reader, ICodec<byte[]> format)
     {
-        var stream = reader.BaseStream;
-        long remaining = stream.Length - stream.Position;
-        if (remaining < 1)
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(format);
+
+        if (reader.BaseStream.CanSeek && reader.BaseStream.Length - reader.BaseStream.Position < 1)
             throw new InvalidDataException("CodecKit file is truncated: no payload bytes found.");
-        byte[] raw = reader.ReadBytes((int)remaining);
+
+        byte version;
+        try
+        {
+            version = reader.ReadByte();
+        }
+        catch (EndOfStreamException ex)
+        {
+            throw new InvalidDataException("CodecKit file is truncated: no payload bytes found.", ex);
+        }
+
+        Span<byte> encodedLength = stackalloc byte[10];
+        ulong encodedValue = 0;
+        int encodedLengthBytes = 0;
+        for (; encodedLengthBytes < encodedLength.Length; encodedLengthBytes++)
+        {
+            byte value;
+            try
+            {
+                value = reader.ReadByte();
+            }
+            catch (EndOfStreamException ex)
+            {
+                throw new InvalidDataException("CodecKit envelope body length is truncated.", ex);
+            }
+
+            encodedLength[encodedLengthBytes] = value;
+            encodedValue |= (ulong)(value & 0x7F) << (encodedLengthBytes * 7);
+            if ((value & 0x80) == 0)
+            {
+                encodedLengthBytes++;
+                break;
+            }
+        }
+
+        if (encodedLengthBytes == encodedLength.Length &&
+            (encodedLength[encodedLengthBytes - 1] & 0x80) != 0)
+        {
+            throw new InvalidDataException("CodecKit envelope body length is malformed (exceeds 10 bytes).");
+        }
+
+        long bodyLength = (long)(encodedValue >> 1);
+        if ((encodedValue & 1) != 0)
+            bodyLength = ~bodyLength;
+        if (bodyLength < 0 || bodyLength > int.MaxValue)
+            throw new InvalidDataException($"Invalid envelope body length: {bodyLength}");
+
+        byte[] body = reader.ReadBytes((int)bodyLength);
+        if (body.Length != bodyLength)
+        {
+            throw new InvalidDataException(
+                $"CodecKit envelope is truncated: expected {bodyLength} body bytes, got {body.Length}.");
+        }
+
+        byte[] raw = new byte[1 + encodedLengthBytes + body.Length];
+        raw[0] = version;
+        encodedLength[..encodedLengthBytes].CopyTo(raw.AsSpan(1));
+        body.CopyTo(raw.AsSpan(1 + encodedLengthBytes));
 
         var seq = new ReadOnlySequence<byte>(raw);
         var seqReader = new SequenceReader<byte>(seq);

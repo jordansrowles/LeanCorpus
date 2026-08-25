@@ -57,9 +57,8 @@ public sealed partial class IndexSearcher
             foreach (var qualifiedTerm in query.QualifiedTerms)
             {
                 using var postings = reader.GetPostingsEnum(qualifiedTerm);
-                while (postings.MoveNext())
+                while (postings.MoveNextUnchecked(out int docId, out _))
                 {
-                    int docId = postings.DocId;
                     if (!reader.IsLive(docId) || seen[docId])
                         continue;
 
@@ -98,9 +97,8 @@ public sealed partial class IndexSearcher
             foreach (var qualifiedTerm in query.QualifiedTerms)
             {
                 using var postings = reader.GetPostingsEnum(qualifiedTerm);
-                while (postings.MoveNext())
+                while (postings.MoveNextUnchecked(out int docId, out _))
                 {
-                    int docId = postings.DocId;
                     if (!reader.IsLive(docId) || seen[docId])
                         continue;
 

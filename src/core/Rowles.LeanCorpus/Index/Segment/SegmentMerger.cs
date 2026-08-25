@@ -1,4 +1,3 @@
-using System.Buffers;
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Hnsw;
@@ -10,7 +9,6 @@ using Rowles.LeanCorpus.Codecs.TermVectors;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Index.Indexer;
 
 namespace Rowles.LeanCorpus.Index.Segment;
@@ -113,8 +111,14 @@ public sealed class SegmentMerger
             if (toMerge.Count < 2)
                 break;
 
+            // Merge policies select candidates by size and deletion density, but document IDs
+            // must follow the committed segment order rather than an unstable policy sort.
+            var selectedIds = new HashSet<string>(
+                toMerge.Select(static segment => segment.SegmentId),
+                StringComparer.Ordinal);
+            var orderedForMerge = result.Where(segment => selectedIds.Contains(segment.SegmentId)).ToList();
             var merged = MergeSegments(
-                toMerge is List<SegmentInfo> list ? list : new List<SegmentInfo>(toMerge),
+                orderedForMerge,
                 ref nextSegmentOrdinal, commitGeneration);
             if (merged == null)
                 break;
@@ -178,38 +182,36 @@ public sealed class SegmentMerger
         // Phase 1: build per-segment doc-id remap (live docs only).
         // Use int[] with -1 sentinel; flat arrays beat Dictionary on both lookup
         // cost and allocation pressure for the hot streaming-merge inner loop.
-        var perSegmentMaps = new List<(SegmentInfo Seg, int[] DocIdMap, string DirectoryPath)>(segments.Count);
+        var perSegmentMaps = new List<(SegmentInfo Seg, int[] DocIdMap, SegmentReader Reader)>(segments.Count);
+        var retainedSoftDeletes = new List<(int DocId, long Timestamp)>();
         int newDocId = 0;
+        long softDeleteCutoff = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - (long)(_softDeleteRetentionSeconds * 1000);
         foreach (var segInfo in segments)
         {
             var reader = readers[segInfo.SegmentId];
             var docIdMap = new int[segInfo.DocCount];
+            bool retainSoftDeletes = ShouldRetainSoftDeletes(segInfo);
             for (int oldDocId = 0; oldDocId < segInfo.DocCount; oldDocId++)
             {
-                docIdMap[oldDocId] = reader.IsLive(oldDocId) ? newDocId++ : -1;
-            }
-            perSegmentMaps.Add((segInfo, docIdMap, reader.Directory.DirectoryPath));
-        }
-
-        // Check soft-delete retention: if a doc is soft-deleted and its timestamp
-        // is still within the retention window, keep it (treat it as live for merge purposes).
-        for (int i = 0; i < perSegmentMaps.Count; i++)
-        {
-            var (segInfo, docIdMap, _) = perSegmentMaps[i];
-            var reader = readers[segInfo.SegmentId];
-
-            if (!ShouldRetainSoftDeletes(segInfo)) continue;
-
-            long cutoff = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - (long)(_softDeleteRetentionSeconds * 1000);
-
-            for (int oldDocId = 0; oldDocId < segInfo.DocCount; oldDocId++)
-            {
-                // If doc was soft-deleted but retention hasn't elapsed, remap it as live.
-                if (docIdMap[oldDocId] < 0 && reader.IsSoftDeleted(oldDocId, out long ts) && ts > cutoff)
+                if (reader.IsLive(oldDocId))
                 {
                     docIdMap[oldDocId] = newDocId++;
+                    continue;
                 }
+
+                if (retainSoftDeletes &&
+                    reader.IsSoftDeleted(oldDocId, out long timestamp) &&
+                    timestamp > softDeleteCutoff)
+                {
+                    int retainedDocId = newDocId++;
+                    docIdMap[oldDocId] = retainedDocId;
+                    retainedSoftDeletes.Add((retainedDocId, timestamp));
+                    continue;
+                }
+
+                docIdMap[oldDocId] = -1;
             }
+            perSegmentMaps.Add((segInfo, docIdMap, reader));
         }
         int totalDocs = newDocId;
         if (totalDocs == 0) return null;
@@ -232,7 +234,7 @@ public sealed class SegmentMerger
         {
             ctx.StoredWriter = storedWriter;
             ctx.TermVectorWriter = tvWriter;
-            AccumulateDocPayloads(perSegmentMaps, readers, ctx);
+            AccumulateDocPayloads(perSegmentMaps, ctx);
         }
 
         // Phase 4: emit per-codec output files.
@@ -244,18 +246,27 @@ public sealed class SegmentMerger
         WriteBkdTree(ctx, basePath);
         WriteParentBitSet(ctx, basePath);
 
+        LiveDocs? mergedLiveDocs = null;
+        if (retainedSoftDeletes.Count > 0)
+        {
+            mergedLiveDocs = new LiveDocs(totalDocs);
+            foreach (var (docId, timestamp) in retainedSoftDeletes)
+                mergedLiveDocs.SoftDelete(docId, timestamp);
+            LiveDocs.Serialise(basePath + ".del", mergedLiveDocs);
+        }
+
         var mergedInfo = new SegmentInfo
         {
             SegmentId = newSegId,
             DocCount = totalDocs,
-            LiveDocCount = totalDocs,
+            LiveDocCount = mergedLiveDocs?.LiveCount ?? totalDocs,
             CommitGeneration = commitGeneration,
             FieldNames = fieldNames.ToList(),
             IndexSortFields = segments[0].IndexSortFields,
             VectorFields = mergedVectorFields,
             MinSequenceNumber = ComputeMergedMinSeqNo(segments),
             MaxSequenceNumber = ComputeMergedMaxSeqNo(segments),
-            EarliestSoftDeleteTimestamp = ComputeMergedEarliestSoftDeleteTimestamp(segments),
+            EarliestSoftDeleteTimestamp = mergedLiveDocs?.EarliestSoftDeleteTimestamp,
         };
         if (_useCompoundFile && CompoundFileWriter.Pack(_directory.DirectoryPath, newSegId))
             mergedInfo.IsCompoundFile = true;
@@ -290,7 +301,7 @@ public sealed class SegmentMerger
         internal Dictionary<string, bool> VectorFieldNormalised { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, bool> VectorFieldHadHnsw { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, VectorQuantisation> VectorFieldQuantisation { get; } = new(StringComparer.Ordinal);
-        internal Dictionary<string, List<(SegmentInfo Seg, Dictionary<int, int> OldToNew, string DirectoryPath)>> VectorFieldRemaps { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, List<(SegmentInfo Seg, Dictionary<int, int> OldToNew, SegmentReader Reader)>> VectorFieldRemaps { get; } = new(StringComparer.Ordinal);
 
         internal MergeContext(int totalDocs, HashSet<string> fieldNames)
         {
@@ -300,18 +311,15 @@ public sealed class SegmentMerger
     }
 
     private void MergePostings(
-        IReadOnlyList<(SegmentInfo Seg, int[] DocIdMap, string DirectoryPath)> sources,
+        IReadOnlyList<(SegmentInfo Seg, int[] DocIdMap, SegmentReader Reader)> sources,
         string basePath)
     {
         var merger = new List<StreamingPostingsMerger.Source>(sources.Count);
-        foreach (var (seg, map, dirPath) in sources)
+        foreach (var (_, map, reader) in sources)
         {
-            var segBase = Path.Combine(dirPath, seg.SegmentId);
             merger.Add(new StreamingPostingsMerger.Source
             {
-                DicPath = segBase + ".dic",
-                PosPath = segBase + ".pos",
-                NormsPath = segBase + ".nrm",
+                OpenInput = reader.OpenInput,
                 DocIdMap = map,
             });
         }
@@ -319,38 +327,28 @@ public sealed class SegmentMerger
     }
 
     private void AccumulateDocPayloads(
-        IReadOnlyList<(SegmentInfo Seg, int[] DocIdMap, string DirectoryPath)> sources,
-        IReadOnlyDictionary<string, SegmentReader> readers,
+        IReadOnlyList<(SegmentInfo Seg, int[] DocIdMap, SegmentReader Reader)> sources,
         MergeContext ctx)
     {
-        foreach (var (segInfo, docIdMap, dirPath) in sources)
+        foreach (var (segInfo, docIdMap, reader) in sources)
         {
-            var reader = readers[segInfo.SegmentId];
             bool segHasTermVectors = reader.HasTermVectors;
             var segParentBitSet = reader.GetParentBitSet();
 
-            var flnPath = Path.Combine(dirPath, segInfo.SegmentId + ".fln");
-            var segFieldLengths = FieldLengthReader.TryRead(flnPath)
-                ?? new Dictionary<string, int[]>(StringComparer.Ordinal);
+            var segFieldLengths = reader.FileExists(".fln")
+                ? FieldLengthReader.TryRead(reader.OpenInput(".fln"))
+                    ?? new Dictionary<string, int[]>(StringComparer.Ordinal)
+                : new Dictionary<string, int[]>(StringComparer.Ordinal);
 
-            var segNumericDvs = NumericDocValuesReader.Read(
-                Path.Combine(dirPath, segInfo.SegmentId + ".dvn"));
-            var segSortedDvs = SortedDocValuesReader.Read(
-                Path.Combine(dirPath, segInfo.SegmentId + ".dvs"));
-            var segSortedSetDvs = SortedSetDocValuesReader.Read(
-                Path.Combine(dirPath, segInfo.SegmentId + ".dss"));
-            var segSortedNumericDvs = SortedNumericDocValuesReader.Read(
-                Path.Combine(dirPath, segInfo.SegmentId + ".dsn"));
-            var segBinaryDvs = BinaryDocValuesReader.Read(
-                Path.Combine(dirPath, segInfo.SegmentId + ".dvb"));
-            var segNumericIndex = ReadNumericIndex(
-                Path.Combine(dirPath, segInfo.SegmentId + ".num"));
-            var segInt64Index = ReadInt64Index(
-                Path.Combine(dirPath, segInfo.SegmentId + ".numl"));
-            var segInt64Dvs = Int64DocValuesReader.Read(
-                Path.Combine(dirPath, segInfo.SegmentId + ".dvnl"));
-            var segInt64SortedDvs = Int64SortedNumericDocValuesReader.Read(
-                Path.Combine(dirPath, segInfo.SegmentId + ".dsnl"));
+            var segNumericDvs = ReadNumericDocValues(reader);
+            var segSortedDvs = ReadSortedDocValues(reader);
+            var segSortedSetDvs = ReadSortedSetDocValues(reader);
+            var segSortedNumericDvs = ReadSortedNumericDocValues(reader);
+            var segBinaryDvs = ReadBinaryDocValues(reader);
+            var segNumericIndex = ReadNumericIndex(reader);
+            var segInt64Index = ReadInt64Index(reader);
+            var segInt64Dvs = ReadInt64DocValues(reader);
+            var segInt64SortedDvs = ReadInt64SortedDocValues(reader);
 
             // Pre-build a name->VectorFieldInfo dictionary so the per-doc/per-field
             // loop body avoids an O(N) LINQ scan for each posting.
@@ -479,13 +477,13 @@ public sealed class SegmentMerger
 
                         if (!ctx.VectorFieldRemaps.TryGetValue(vfName, out var remapList))
                         {
-                            remapList = new List<(SegmentInfo, Dictionary<int, int>, string)>();
+                            remapList = new List<(SegmentInfo, Dictionary<int, int>, SegmentReader)>();
                             ctx.VectorFieldRemaps[vfName] = remapList;
                         }
                         var entry = remapList.FirstOrDefault(t => ReferenceEquals(t.Seg, segInfo));
                         if (entry.OldToNew is null)
                         {
-                            entry = (segInfo, new Dictionary<int, int>(), dirPath);
+                            entry = (segInfo, new Dictionary<int, int>(), reader);
                             remapList.Add(entry);
                         }
                         entry.OldToNew[oldDocId] = remapDocId;
@@ -505,7 +503,7 @@ public sealed class SegmentMerger
     }
 
     private static void WriteNorms(
-        IReadOnlyList<(SegmentInfo Seg, int[] DocIdMap, string DirectoryPath)> perSegmentMaps,
+        IReadOnlyList<(SegmentInfo Seg, int[] DocIdMap, SegmentReader Reader)> perSegmentMaps,
         IReadOnlyDictionary<string, SegmentReader> readers,
         IReadOnlyCollection<string> fieldNames,
         string basePath,
@@ -601,13 +599,14 @@ public sealed class SegmentMerger
 
                     if (seed.OldToNew is not null && seed.OldToNew.Count > 0)
                     {
-                        var seedHnswPath = Codecs.Vectors.VectorFilePaths.HnswFile(
-                            Path.Combine(seed.DirectoryPath, seed.Seg.SegmentId), fieldName);
-                        if (FileOpenRetry.FileExists(seedHnswPath))
+                        string seedHnswExtension = Codecs.Vectors.VectorFilePaths.HnswFile(
+                            string.Empty, fieldName);
+                        if (seed.Reader.FileExists(seedHnswExtension))
                         {
                             try
                             {
-                                graph = HnswReader.Read(seedHnswPath, src, normalised, seed.OldToNew);
+                                graph = HnswReader.Read(
+                                    seed.Reader.OpenInput(seedHnswExtension), src, normalised, seed.OldToNew);
                                 graph.Thaw();
                                 foreach (var docId in perField.Keys)
                                     if (!graph.ContainsNode(docId)) graph.Insert(docId);
@@ -692,47 +691,30 @@ public sealed class SegmentMerger
     {
         if (ctx.NumericDocValues.Count > 0)
         {
-            string tmpBody = basePath + ".dvn.body.tmp";
-            try
+            CodecFileWriter.WriteAtomically(basePath + ".dvn", DocValuesCodecFiles.Numeric, durable: false, bodyOutput =>
             {
-                using (var output = new Store.IndexOutput(tmpBody))
+                bodyOutput.WriteInt32(ctx.NumericDocValues.Count);
+                string[] fieldKeys = System.Buffers.ArrayPool<string>.Shared.Rent(ctx.NumericDocValues.Count);
+                try
                 {
-                    output.WriteInt32(ctx.NumericDocValues.Count);
-                    string[] fieldKeys = System.Buffers.ArrayPool<string>.Shared.Rent(ctx.NumericDocValues.Count);
-                    try
+                    int kn = 0;
+                    foreach (var key in ctx.NumericDocValues.Keys) fieldKeys[kn++] = key;
+                    for (int i = 0; i < kn; i++)
                     {
-                        int kn = 0;
-                        foreach (var key in ctx.NumericDocValues.Keys) fieldKeys[kn++] = key;
-                        for (int i = 0; i < kn; i++)
-                        {
-                            var field = fieldKeys[i];
-                            ctx.NumericFields.TryGetValue(field, out var sparseMap);
-                            IReadOnlySet<int>? presenceSet = sparseMap is not null
-                                ? (IReadOnlySet<int>)sparseMap.Keys.ToHashSet()
-                                : null;
-                            NumericDocValuesWriter.WriteFieldBlock(output, field, ctx.NumericDocValues[field], ctx.TotalDocs, presenceSet);
-                            ctx.NumericDocValues.Remove(field);
-                        }
-                    }
-                    finally
-                    {
-                        System.Buffers.ArrayPool<string>.Shared.Return(fieldKeys, clearArray: true);
+                        var field = fieldKeys[i];
+                        ctx.NumericFields.TryGetValue(field, out var sparseMap);
+                        IReadOnlySet<int>? presenceSet = sparseMap is not null
+                            ? (IReadOnlySet<int>)sparseMap.Keys.ToHashSet()
+                            : null;
+                        NumericDocValuesWriter.WriteFieldBlock(bodyOutput, field, ctx.NumericDocValues[field], ctx.TotalDocs, presenceSet);
+                        ctx.NumericDocValues.Remove(field);
                     }
                 }
-
-                byte[] body;
-                using (var fs = FileOpenRetry.OpenReadDelete(tmpBody))
+                finally
                 {
-                    body = new byte[fs.Length];
-                    fs.ReadExactly(body);
+                    System.Buffers.ArrayPool<string>.Shared.Return(fieldKeys, clearArray: true);
                 }
-                using (var output = new Store.IndexOutput(basePath + ".dvn"))
-                    CodecFileHeader.Write(output, CodecFormats.NumericDocValues, body);
-            }
-            finally
-            {
-                TryDeleteTemporaryFile(tmpBody);
-            }
+            });
         }
         if (ctx.Int64DocValues.Count > 0)
         {
@@ -747,43 +729,26 @@ public sealed class SegmentMerger
 
         if (ctx.SortedDocValues.Count > 0)
         {
-            string tmpBody = basePath + ".dvs.body.tmp";
-            try
+            CodecFileWriter.WriteAtomically(basePath + ".dvs", DocValuesCodecFiles.Sorted, durable: false, bodyOutput =>
             {
-                using (var output = new Store.IndexOutput(tmpBody))
+                bodyOutput.WriteInt32(ctx.SortedDocValues.Count);
+                string[] fieldKeys = System.Buffers.ArrayPool<string>.Shared.Rent(ctx.SortedDocValues.Count);
+                try
                 {
-                    output.WriteInt32(ctx.SortedDocValues.Count);
-                    string[] fieldKeys = System.Buffers.ArrayPool<string>.Shared.Rent(ctx.SortedDocValues.Count);
-                    try
+                    int kn = 0;
+                    foreach (var key in ctx.SortedDocValues.Keys) fieldKeys[kn++] = key;
+                    for (int i = 0; i < kn; i++)
                     {
-                        int kn = 0;
-                        foreach (var key in ctx.SortedDocValues.Keys) fieldKeys[kn++] = key;
-                        for (int i = 0; i < kn; i++)
-                        {
-                            var field = fieldKeys[i];
-                            SortedDocValuesWriter.WriteFieldBlock(output, field, ctx.SortedDocValues[field], ctx.TotalDocs);
-                            ctx.SortedDocValues.Remove(field);
-                        }
-                    }
-                    finally
-                    {
-                        System.Buffers.ArrayPool<string>.Shared.Return(fieldKeys, clearArray: true);
+                        var field = fieldKeys[i];
+                        SortedDocValuesWriter.WriteFieldBlock(bodyOutput, field, ctx.SortedDocValues[field], ctx.TotalDocs);
+                        ctx.SortedDocValues.Remove(field);
                     }
                 }
-
-                byte[] body;
-                using (var fs = FileOpenRetry.OpenReadDelete(tmpBody))
+                finally
                 {
-                    body = new byte[fs.Length];
-                    fs.ReadExactly(body);
+                    System.Buffers.ArrayPool<string>.Shared.Return(fieldKeys, clearArray: true);
                 }
-                using (var output = new Store.IndexOutput(basePath + ".dvs"))
-                    CodecFileHeader.Write(output, CodecFormats.SortedDocValues, body);
-            }
-            finally
-            {
-                TryDeleteTemporaryFile(tmpBody);
-            }
+            });
         }
         if (ctx.SortedSetDocValues.Count > 0)
             SortedSetDocValuesWriter.Write(basePath + ".dss", ctx.SortedSetDocValues, ctx.TotalDocs);
@@ -885,96 +850,69 @@ public sealed class SegmentMerger
     }
 
     private static void WriteNumericIndex(string filePath, Dictionary<string, Dictionary<int, double>> numericIndex)
-    {
-        using var output = new IndexOutput(filePath);
-
-        output.WriteInt32(numericIndex.Count);
-        foreach (var (fieldName, docValues) in numericIndex)
-        {
-            var fieldBytes = System.Text.Encoding.UTF8.GetBytes(fieldName);
-            output.WriteVarInt(fieldBytes.Length);
-            output.WriteBytes(fieldBytes);
-            output.WriteInt32(docValues.Count);
-            foreach (var (docId, value) in docValues)
-            {
-                output.WriteInt32(docId);
-                output.WriteInt64(System.BitConverter.DoubleToInt64Bits(value));
-            }
-        }
-    }
+        => NumericIndexCodec.WriteDouble(filePath, numericIndex);
 
     private static void WriteInt64Index(string filePath, Dictionary<string, Dictionary<int, long>> int64Index)
-    {
-        using var output = new IndexOutput(filePath);
+        => NumericIndexCodec.WriteInt64(filePath, int64Index);
 
-        output.WriteInt32(int64Index.Count);
-        foreach (var (fieldName, docValues) in int64Index)
-        {
-            var fieldBytes = System.Text.Encoding.UTF8.GetBytes(fieldName);
-            output.WriteVarInt(fieldBytes.Length);
-            output.WriteBytes(fieldBytes);
-            output.WriteInt32(docValues.Count);
-            foreach (var (docId, value) in docValues)
-            {
-                output.WriteInt32(docId);
-                output.WriteInt64(value);
-            }
-        }
-    }
-
-    private static Dictionary<string, Dictionary<int, double>> ReadNumericIndex(string filePath)
+    private static Dictionary<string, Dictionary<int, double>> ReadNumericIndex(SegmentReader reader)
     {
         var result = new Dictionary<string, Dictionary<int, double>>(StringComparer.Ordinal);
-        if (!FileOpenRetry.FileExists(filePath))
+        if (!reader.FileExists(".num"))
             return result;
 
-        using var fs = FileOpenRetry.OpenReadDelete(filePath);
-        using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
-
-        int fieldCount = reader.ReadInt32();
-        for (int f = 0; f < fieldCount; f++)
-        {
-            string fieldName = reader.ReadString();
-            int entryCount = reader.ReadInt32();
-            var fieldMap = new Dictionary<int, double>(entryCount);
-            for (int e = 0; e < entryCount; e++)
-            {
-                int docId = reader.ReadInt32();
-                double value = reader.ReadDouble();
-                fieldMap[docId] = value;
-            }
-            result[fieldName] = fieldMap;
-        }
-
-        return result;
+        return NumericIndexCodec.ReadDouble(reader.OpenInput(".num"));
     }
 
-    private static Dictionary<string, Dictionary<int, long>> ReadInt64Index(string filePath)
+    private static Dictionary<string, Dictionary<int, long>> ReadInt64Index(SegmentReader reader)
     {
         var result = new Dictionary<string, Dictionary<int, long>>(StringComparer.Ordinal);
-        if (!FileOpenRetry.FileExists(filePath))
+        if (!reader.FileExists(".numl"))
             return result;
 
-        using var fs = FileOpenRetry.OpenReadDelete(filePath);
-        using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
-
-        int fieldCount = reader.ReadInt32();
-        for (int f = 0; f < fieldCount; f++)
-        {
-            string fieldName = reader.ReadString();
-            int entryCount = reader.ReadInt32();
-            var fieldMap = new Dictionary<int, long>(entryCount);
-            for (int e = 0; e < entryCount; e++)
-            {
-                int docId = reader.ReadInt32();
-                long value = reader.ReadInt64();
-                fieldMap[docId] = value;
-            }
-            result[fieldName] = fieldMap;
-        }
-
-        return result;
+        return NumericIndexCodec.ReadInt64(reader.OpenInput(".numl"));
     }
+
+    private static (Dictionary<string, double[]> Values,
+        Dictionary<string, Util.RoaringBitmap?> Presence) ReadNumericDocValues(SegmentReader reader)
+        => reader.FileExists(".dvn")
+            ? NumericDocValuesReader.Read(reader.OpenInput(".dvn"))
+            : (new Dictionary<string, double[]>(StringComparer.Ordinal),
+                new Dictionary<string, Util.RoaringBitmap?>(StringComparer.Ordinal));
+
+    private static (Dictionary<string, long[]> Values,
+        Dictionary<string, Util.RoaringBitmap?> Presence) ReadInt64DocValues(SegmentReader reader)
+        => reader.FileExists(".dvnl")
+            ? Int64DocValuesReader.Read(reader.OpenInput(".dvnl"))
+            : (new Dictionary<string, long[]>(StringComparer.Ordinal),
+                new Dictionary<string, Util.RoaringBitmap?>(StringComparer.Ordinal));
+
+    private static (Dictionary<string, string[]> Values,
+        Dictionary<string, Util.RoaringBitmap?> Presence) ReadSortedDocValues(SegmentReader reader)
+        => reader.FileExists(".dvs")
+            ? SortedDocValuesReader.Read(reader.OpenInput(".dvs"))
+            : (new Dictionary<string, string[]>(StringComparer.Ordinal),
+                new Dictionary<string, Util.RoaringBitmap?>(StringComparer.Ordinal));
+
+    private static Dictionary<string, string[][]> ReadSortedSetDocValues(SegmentReader reader)
+        => reader.FileExists(".dss")
+            ? SortedSetDocValuesReader.Read(reader.OpenInput(".dss"))
+            : new Dictionary<string, string[][]>(StringComparer.Ordinal);
+
+    private static Dictionary<string, double[][]> ReadSortedNumericDocValues(SegmentReader reader)
+        => reader.FileExists(".dsn")
+            ? SortedNumericDocValuesReader.Read(reader.OpenInput(".dsn"))
+            : new Dictionary<string, double[][]>(StringComparer.Ordinal);
+
+    private static Dictionary<string, long[][]> ReadInt64SortedDocValues(SegmentReader reader)
+        => reader.FileExists(".dsnl")
+            ? Int64SortedNumericDocValuesReader.Read(reader.OpenInput(".dsnl"))
+            : new Dictionary<string, long[][]>(StringComparer.Ordinal);
+
+    private static Dictionary<string, byte[][][]> ReadBinaryDocValues(SegmentReader reader)
+        => reader.FileExists(".dvb")
+            ? BinaryDocValuesReader.Read(reader.OpenInput(".dvb"))
+            : new Dictionary<string, byte[][][]>(StringComparer.Ordinal);
 
     /// <summary>
     /// Returns <c>true</c> if this segment contains soft-deleted documents that may still
@@ -1038,20 +976,6 @@ public sealed class SegmentMerger
             }
         }
         return max;
-    }
-
-    private static long? ComputeMergedEarliestSoftDeleteTimestamp(List<SegmentInfo> segments)
-    {
-        long? earliest = null;
-        foreach (var seg in segments)
-        {
-            if (seg.EarliestSoftDeleteTimestamp.HasValue)
-            {
-                if (!earliest.HasValue || seg.EarliestSoftDeleteTimestamp.Value < earliest.Value)
-                    earliest = seg.EarliestSoftDeleteTimestamp.Value;
-            }
-        }
-        return earliest;
     }
 
     private static (float min, float alpha) ComputeInt8ParamsMerge(

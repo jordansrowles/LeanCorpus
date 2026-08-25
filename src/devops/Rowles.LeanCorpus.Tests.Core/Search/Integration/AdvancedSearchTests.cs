@@ -1,0 +1,752 @@
+using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis.Tokenisers;
+using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Index;
+using Rowles.LeanCorpus.Search;
+using Rowles.LeanCorpus.Search.Simd;
+using Rowles.LeanCorpus.Search.Parsing;
+using Rowles.LeanCorpus.Search.Highlighting;
+using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Tests.Shared.Fixtures;
+namespace Rowles.LeanCorpus.Tests.Core.Search;
+
+/// <summary>
+/// Contains unit tests for Advanced Search.
+/// </summary>
+[Category(TestCategory.Integration)]
+[Area(TestArea.Search)]
+public sealed class AdvancedSearchTests : IClassFixture<TestDirectoryFixture>
+{
+    private readonly TestDirectoryFixture _fixture;
+    private readonly ITestOutputHelper _output;
+
+    public AdvancedSearchTests(TestDirectoryFixture fixture, ITestOutputHelper output)
+    {
+        _fixture = fixture;
+        _output = output;
+    }
+
+    private string SubDir(string name)
+    {
+        var path = System.IO.Path.Combine(_fixture.Path, name);
+        System.IO.Directory.CreateDirectory(path);
+        return path;
+    }
+
+    // --- Prefix Query ---
+
+    /// <summary>
+    /// Verifies the Prefix Query: Matches Terms With Prefix scenario.
+    /// </summary>
+    [Fact(DisplayName = "Prefix Query: Matches Terms With Prefix")]
+    public void PrefixQuery_MatchesTermsWithPrefix()
+    {
+        var dir = new MMapDirectory(SubDir("prefix_match"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        var terms = new[] { "search", "searching", "searched", "other" };
+        foreach (var t in terms)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", t));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new PrefixQuery("body", "search"), 10, TestContext.Current.CancellationToken);
+        Assert.Equal(3, results.TotalHits);
+    }
+
+    /// <summary>
+    /// Verifies the Pattern Query: Multiple Matching Terms In Document Returns Document Once scenario.
+    /// </summary>
+    /// <param name="queryType">The queryType value for the test case.</param>
+    /// <param name="pattern">The pattern value for the test case.</param>
+    [Theory(DisplayName = "Pattern Query: Multiple Matching Terms In Document Returns Document Once")]
+    [InlineData("prefix", "word")]
+    [InlineData("wildcard", "word*")]
+    [InlineData("wildcard", "*ord*")]
+    public void PatternQuery_MultipleMatchingTermsInDocument_ReturnsDocumentOnce(string queryType, string pattern)
+    {
+        var pathPattern = pattern.Replace("*", "star", StringComparison.Ordinal);
+        var dir = new MMapDirectory(SubDir($"pattern_dedup_{queryType}_{pathPattern}"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        var doc = new LeanDocument();
+        doc.Add(new TextField("title", "word wordy wordless", stored: false));
+        doc.Add(new StoredField("id", "1"));
+        writer.AddDocument(doc);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        Query query = queryType == "prefix"
+            ? new PrefixQuery("title", pattern)
+            : new WildcardQuery("title", pattern);
+
+        var results = searcher.Search(query, topN: 10, cancellationToken: TestContext.Current.CancellationToken);
+
+        var hit = Assert.Single(results.ScoreDocs);
+        Assert.Equal(1, results.TotalHits);
+        var stored = searcher.GetStoredFields(hit.DocId);
+        Assert.Equal("1", stored["id"][0]);
+    }
+
+    /// <summary>
+    /// Verifies the Prefix Query: No Match Returns Empty scenario.
+    /// </summary>
+    [Fact(DisplayName = "Prefix Query: No Match Returns Empty")]
+    public void PrefixQuery_NoMatch_ReturnsEmpty()
+    {
+        var dir = new MMapDirectory(SubDir("prefix_nomatch"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        var doc = new LeanDocument();
+        doc.Add(new TextField("body", "hello world"));
+        writer.AddDocument(doc);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new PrefixQuery("body", "xyz"), 10, TestContext.Current.CancellationToken);
+        Assert.Equal(0, results.TotalHits);
+    }
+
+    // --- Wildcard Query ---
+
+    /// <summary>
+    /// Verifies the Wildcard Query: Question Mark Matches Single Char scenario.
+    /// </summary>
+    [Fact(DisplayName = "Wildcard Query: Question Mark Matches Single Char")]
+    public void WildcardQuery_QuestionMark_MatchesSingleChar()
+    {
+        var dir = new MMapDirectory(SubDir("wildcard_single"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        foreach (var t in new[] { "test", "text", "tent", "tilt" })
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", t));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new WildcardQuery("body", "te?t"), 10, TestContext.Current.CancellationToken);
+        // "test", "text", "tent" match; "tilt" does not
+        Assert.Equal(3, results.TotalHits);
+    }
+
+    /// <summary>
+    /// Verifies the Wildcard Query: Asterisk Matches Multiple Chars scenario.
+    /// </summary>
+    [Fact(DisplayName = "Wildcard Query: Asterisk Matches Multiple Chars")]
+    public void WildcardQuery_Asterisk_MatchesMultipleChars()
+    {
+        var dir = new MMapDirectory(SubDir("wildcard_multi"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        foreach (var t in new[] { "running", "runner", "run", "other" })
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", t));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new WildcardQuery("body", "run*"), 10, TestContext.Current.CancellationToken);
+        Assert.Equal(3, results.TotalHits);
+    }
+
+    // --- Fuzzy Query ---
+
+    /// <summary>
+    /// Verifies the Fuzzy Query: One Edit Distance Matches Typo scenario.
+    /// </summary>
+    [Fact(DisplayName = "Fuzzy Query: One Edit Distance Matches Typo")]
+    public void FuzzyQuery_OneEditDistance_MatchesTypo()
+    {
+        var dir = new MMapDirectory(SubDir("fuzzy_1edit"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        foreach (var t in new[] { "lucene", "lusene", "lycexe", "other" })
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", t));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new FuzzyQuery("body", "lucene", 1), 10, TestContext.Current.CancellationToken);
+        var bodies = results.ScoreDocs
+            .Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["body"][0])
+            .ToArray();
+
+        Assert.Equal(2, results.TotalHits);
+        Assert.Contains("lucene", bodies);
+        Assert.Contains("lusene", bodies);
+        Assert.DoesNotContain("lycexe", bodies);
+    }
+
+    /// <summary>
+    /// Verifies the Fuzzy Query: Exact Match Includes Zero Distance scenario.
+    /// </summary>
+    [Fact(DisplayName = "Fuzzy Query: Exact Match Includes Zero Distance")]
+    public void FuzzyQuery_ExactMatch_IncludesZeroDistance()
+    {
+        var dir = new MMapDirectory(SubDir("fuzzy_exact"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        var doc = new LeanDocument();
+        doc.Add(new TextField("body", "precision"));
+        writer.AddDocument(doc);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new FuzzyQuery("body", "precision", 2), 10, TestContext.Current.CancellationToken);
+        Assert.Equal(1, results.TotalHits);
+    }
+
+    /// <summary>
+    /// Verifies the Fuzzy Query: Beyond Threshold No Match scenario.
+    /// </summary>
+    [Fact(DisplayName = "Fuzzy Query: Beyond Threshold No Match")]
+    public void FuzzyQuery_BeyondThreshold_NoMatch()
+    {
+        var dir = new MMapDirectory(SubDir("fuzzy_beyond"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        var doc = new LeanDocument();
+        doc.Add(new TextField("body", "abcdef"));
+        writer.AddDocument(doc);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new FuzzyQuery("body", "xyz", 1), 10, TestContext.Current.CancellationToken);
+        Assert.Equal(0, results.TotalHits);
+    }
+
+    /// <summary>
+    /// Verifies the Fuzzy Query: Benchmark Terms Match Expected Documents scenario.
+    /// </summary>
+    [Fact(DisplayName = "Fuzzy Query: Benchmark Terms Match Expected Documents")]
+    public void FuzzyQuery_BenchmarkTerms_MatchExpectedDocuments()
+    {
+        var dir = new MMapDirectory(SubDir("fuzzy_benchmark_terms"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        AddBody(writer, "government policy");
+        AddBody(writer, "president statement");
+        AddBody(writer, "markets rally");
+        AddBody(writer, "governor market pressure");
+        AddBody(writer, "unrelated archive");
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+
+        AssertMatchedBodies(searcher, new FuzzyQuery("body", "goverment", 1), "government policy");
+        AssertMatchedBodies(searcher, new FuzzyQuery("body", "presiden", 1), "president statement");
+        AssertMatchedBodies(searcher, new FuzzyQuery("body", "markts", 1), "markets rally");
+    }
+
+    /// <summary>
+    /// Verifies the Fuzzy Query: Multiple Term Expansions Count A Document Once scenario.
+    /// </summary>
+    [Fact(DisplayName = "Fuzzy Query: Multiple Term Expansions Count A Document Once")]
+    public void FuzzyQuery_MultipleTermExpansions_CountDocumentOnce()
+    {
+        var dir = new MMapDirectory(SubDir("fuzzy_unique_docs"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        AddBody(writer, "goverment government");
+        AddBody(writer, "government");
+        AddBody(writer, "other");
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new FuzzyQuery("body", "goverment", 1), 10, TestContext.Current.CancellationToken);
+        var docIds = results.ScoreDocs.Select(scoreDoc => scoreDoc.DocId).ToArray();
+
+        Assert.Equal(2, results.TotalHits);
+        Assert.Equal(docIds.Distinct().Count(), docIds.Length);
+    }
+
+    /// <summary>
+    /// Verifies the Fuzzy Query: Max Expansions Keeps Closest Terms scenario.
+    /// </summary>
+    [Fact(DisplayName = "Fuzzy Query: Max Expansions Keeps Closest Terms")]
+    public void FuzzyQuery_MaxExpansions_KeepsClosestTerms()
+    {
+        var dir = new MMapDirectory(SubDir("fuzzy_max_expansions"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        AddBody(writer, "markts");
+        AddBody(writer, "markets");
+        AddBody(writer, "market");
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new FuzzyQuery("body", "markts", maxEdits: 2, maxExpansions: 1), 10, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, results.TotalHits);
+        Assert.Equal("markts", searcher.GetStoredFields(results.ScoreDocs[0].DocId)["body"][0]);
+    }
+
+    // --- Levenshtein Distance ---
+
+    /// <summary>
+    /// Verifies the Levenshtein Distance: Identical Strings Returns Zero scenario.
+    /// </summary>
+    [Fact(DisplayName = "Levenshtein Distance: Identical Strings Returns Zero")]
+    public void LevenshteinDistance_IdenticalStrings_ReturnsZero()
+    {
+        Assert.Equal(0, LevenshteinDistance.Compute("hello", "hello"));
+    }
+
+    /// <summary>
+    /// Verifies the Levenshtein Distance: One Insertion Returns One scenario.
+    /// </summary>
+    [Fact(DisplayName = "Levenshtein Distance: One Insertion Returns One")]
+    public void LevenshteinDistance_OneInsertion_ReturnsOne()
+    {
+        Assert.Equal(1, LevenshteinDistance.Compute("cat", "cats"));
+    }
+
+    /// <summary>
+    /// Verifies the Levenshtein Distance: One Substitution Returns One scenario.
+    /// </summary>
+    [Fact(DisplayName = "Levenshtein Distance: One Substitution Returns One")]
+    public void LevenshteinDistance_OneSubstitution_ReturnsOne()
+    {
+        Assert.Equal(1, LevenshteinDistance.Compute("cat", "bat"));
+    }
+
+    /// <summary>
+    /// Verifies the Levenshtein Distance: Empty Strings Returns Other Length scenario.
+    /// </summary>
+    [Fact(DisplayName = "Levenshtein Distance: Empty Strings Returns Other Length")]
+    public void LevenshteinDistance_EmptyStrings_ReturnsOtherLength()
+    {
+        Assert.Equal(5, LevenshteinDistance.Compute("", "hello"));
+        Assert.Equal(3, LevenshteinDistance.Compute("abc", ""));
+        Assert.Equal(0, LevenshteinDistance.Compute("", ""));
+    }
+
+    // --- Proximity / Slop ---
+
+    /// <summary>
+    /// Verifies the Phrase Query: With Slop Matches Non Adjacent Terms scenario.
+    /// </summary>
+    [Fact(DisplayName = "Phrase Query: With Slop Matches Non Adjacent Terms")]
+    public void PhraseQuery_WithSlop_MatchesNonAdjacentTerms()
+    {
+        var dir = new MMapDirectory(SubDir("slop_match"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        var doc = new LeanDocument();
+        doc.Add(new TextField("body", "the quick brown fox jumps"));
+        writer.AddDocument(doc);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var pq = new PhraseQuery("body", 1, "quick", "fox");
+        var results = searcher.Search(pq, 10, TestContext.Current.CancellationToken);
+        Assert.Equal(1, results.TotalHits);
+    }
+
+    /// <summary>
+    /// Verifies the Phrase Query: Slop Too Small No Match scenario.
+    /// </summary>
+    [Fact(DisplayName = "Phrase Query: Slop Too Small No Match")]
+    public void PhraseQuery_SlopTooSmall_NoMatch()
+    {
+        var dir = new MMapDirectory(SubDir("slop_nomatch"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        var doc = new LeanDocument();
+        doc.Add(new TextField("body", "the quick brown fox jumps"));
+        writer.AddDocument(doc);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        // "quick" is at 1, "jumps" is at 4 — distance 3, slop 1 is too small
+        var pq = new PhraseQuery("body", 1, "quick", "jumps");
+        var results = searcher.Search(pq, 10, TestContext.Current.CancellationToken);
+        Assert.Equal(0, results.TotalHits);
+    }
+
+    /// <summary>
+    /// Verifies the Phrase Query: Exact Phrase Slop 0 Matches Adjacent Only scenario.
+    /// </summary>
+    [Fact(DisplayName = "Phrase Query: Exact Phrase Slop 0 Matches Adjacent Only")]
+    public void PhraseQuery_ExactPhraseSlop0_MatchesAdjacentOnly()
+    {
+        var dir = new MMapDirectory(SubDir("slop_zero"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        var doc1 = new LeanDocument();
+        doc1.Add(new TextField("body", "quick brown"));
+        writer.AddDocument(doc1);
+
+        var doc2 = new LeanDocument();
+        doc2.Add(new TextField("body", "quick red brown"));
+        writer.AddDocument(doc2);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var pq = new PhraseQuery("body", "quick", "brown");
+        var results = searcher.Search(pq, 10, TestContext.Current.CancellationToken);
+        Assert.Equal(1, results.TotalHits);
+        Assert.Equal(0, results.ScoreDocs[0].DocId);
+    }
+
+    [Fact(DisplayName = "Phrase Query: Explicit Positions Match An Exact Gap")]
+    public void PhraseQuery_ExplicitPositions_MatchExactGap()
+    {
+        var dir = new MMapDirectory(SubDir("phrase_explicit_positions"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        AddBody(writer, "quick brown");
+        AddBody(writer, "quick red brown");
+        AddBody(writer, "quick red green brown");
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var query = new PhraseQuery("body", ["quick", "brown"], [0, 2]);
+        var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
+
+        Assert.Single(results.ScoreDocs);
+        Assert.Equal(
+            "quick red brown",
+            searcher.GetStoredFields(results.ScoreDocs[0].DocId)["body"][0]);
+    }
+
+    /// <summary>
+    /// Verifies the Phrase Query: Exact Three Word Matches Adjacent Terms scenario.
+    /// </summary>
+    [Fact(DisplayName = "Phrase Query: Exact Three Word Matches Adjacent Terms")]
+    public void PhraseQuery_ExactThreeWord_MatchesAdjacentTerms()
+    {
+        var dir = new MMapDirectory(SubDir("phrase_exact_three"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        AddBody(writer, "new york city guide");
+        AddBody(writer, "new fast york city");
+        AddBody(writer, "new york old city");
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new PhraseQuery("body", "new", "york", "city"), 10, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, results.TotalHits);
+        Assert.Equal("new york city guide", searcher.GetStoredFields(results.ScoreDocs[0].DocId)["body"][0]);
+    }
+
+    /// <summary>
+    /// Verifies the Phrase Query: Slop One Allows One Gap On Adjacent Links scenario.
+    /// </summary>
+    [Fact(DisplayName = "Phrase Query: Slop One Allows One Gap On Adjacent Links")]
+    public void PhraseQuery_SlopOne_AllowsOneGapOnAdjacentLinks()
+    {
+        var dir = new MMapDirectory(SubDir("phrase_slop_one"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        AddBody(writer, "the quick agile brown fox");
+        AddBody(writer, "the quick agile bright brown fox");
+        AddBody(writer, "the brown quick fox");
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new PhraseQuery("body", 1, "quick", "brown", "fox"), 10, TestContext.Current.CancellationToken);
+        var bodies = results.ScoreDocs
+            .Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["body"][0])
+            .ToArray();
+
+        Assert.Equal(1, results.TotalHits);
+        Assert.Contains("the quick agile brown fox", bodies);
+    }
+
+    /// <summary>
+    /// Verifies the Phrase Query: Repeated Term Uses Ordered Positions scenario.
+    /// </summary>
+    [Fact(DisplayName = "Phrase Query: Repeated Term Uses Ordered Positions")]
+    public void PhraseQuery_RepeatedTerm_UsesOrderedPositions()
+    {
+        var dir = new MMapDirectory(SubDir("phrase_repeated_term"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        AddBody(writer, "alpha alpha beta");
+        AddBody(writer, "alpha beta alpha");
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new PhraseQuery("body", "alpha", "alpha"), 10, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, results.TotalHits);
+        Assert.Equal("alpha alpha beta", searcher.GetStoredFields(results.ScoreDocs[0].DocId)["body"][0]);
+    }
+
+    // --- Field-Level Boosting ---
+
+    /// <summary>
+    /// Verifies the Boosting: Higher Boost Produces Higher Score scenario.
+    /// </summary>
+    [Fact(DisplayName = "Boosting: Higher Boost Produces Higher Score")]
+    public void Boosting_HigherBoost_ProducesHigherScore()
+    {
+        var dir = new MMapDirectory(SubDir("boost_score"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        // Need multiple docs so BM25 IDF gives non-zero scores
+        var doc1 = new LeanDocument();
+        doc1.Add(new TextField("body", "important data"));
+        writer.AddDocument(doc1);
+
+        var doc2 = new LeanDocument();
+        doc2.Add(new TextField("body", "other data only"));
+        writer.AddDocument(doc2);
+
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+
+        var unboosted = new TermQuery("body", "important");
+        var boosted = new TermQuery("body", "important") { Boost = 3.0f };
+
+        var r1 = searcher.Search(unboosted, 10, TestContext.Current.CancellationToken);
+        var r2 = searcher.Search(boosted, 10, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, r1.TotalHits);
+        Assert.Equal(1, r2.TotalHits);
+        Assert.True(r2.ScoreDocs[0].Score > r1.ScoreDocs[0].Score,
+            $"Boosted score {r2.ScoreDocs[0].Score} should be > unboosted {r1.ScoreDocs[0].Score}");
+    }
+
+    // --- Update Documents ---
+
+    /// <summary>
+    /// Verifies the Update Document: Replaces Existing scenario.
+    /// </summary>
+    [Fact(DisplayName = "Update Document: Replaces Existing")]
+    public void UpdateDocument_ReplacesExisting()
+    {
+        var dirPath = SubDir("update_doc");
+        var dir = new MMapDirectory(dirPath);
+        var config = new IndexWriterConfig { MaxBufferedDocs = 1000 };
+        using var writer = new IndexWriter(dir, config);
+
+        var doc1 = new LeanDocument();
+        doc1.Add(new TextField("id", "doc1"));
+        doc1.Add(new TextField("body", "alpha content here"));
+        writer.AddDocument(doc1);
+
+        var doc2 = new LeanDocument();
+        doc2.Add(new TextField("id", "doc2"));
+        doc2.Add(new TextField("body", "gamma content here"));
+        writer.AddDocument(doc2);
+
+        writer.Commit();
+
+        var replacement = new LeanDocument();
+        replacement.Add(new TextField("id", "doc1"));
+        replacement.Add(new TextField("body", "beta content here"));
+        writer.UpdateDocument("id", "doc1", replacement);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var alphaResults = searcher.Search(new TermQuery("body", "alpha"), 10, TestContext.Current.CancellationToken);
+        var betaResults = searcher.Search(new TermQuery("body", "beta"), 10, TestContext.Current.CancellationToken);
+        var gammaResults = searcher.Search(new TermQuery("body", "gamma"), 10, TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, alphaResults.TotalHits);
+        Assert.Equal(1, betaResults.TotalHits);
+        Assert.Equal(1, gammaResults.TotalHits);
+    }
+
+    // --- Per-Field Analysers ---
+
+    /// <summary>
+    /// Verifies the Per Field Analyser: Different Fields Use Different Analysis scenario.
+    /// </summary>
+    [Fact(DisplayName = "Per Field Analyser: Different Fields Use Different Analysis")]
+    public void PerFieldAnalyser_DifferentFieldsUseDifferentAnalysis()
+    {
+        var dir = new MMapDirectory(SubDir("perfield_analyser"));
+        var config = new IndexWriterConfig
+        {
+            FieldAnalysers =
+            {
+                ["exact"] = new Analyser(new Tokeniser()) // no lowercase, no stop words
+            }
+        };
+        using var writer = new IndexWriter(dir, config);
+
+        var doc = new LeanDocument();
+        doc.Add(new TextField("body", "The Quick Brown Fox"));
+        doc.Add(new TextField("exact", "The Quick Brown Fox"));
+        writer.AddDocument(doc);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+
+        // "the" should be stop-word removed from "body" (default analyser)
+        var bodyThe = searcher.Search(new TermQuery("body", "the"), 10, TestContext.Current.CancellationToken);
+        Assert.Equal(0, bodyThe.TotalHits);
+
+        // "The" should be in "exact" field (no lowercase, no stop word removal)
+        var exactThe = searcher.Search(new TermQuery("exact", "The"), 10, TestContext.Current.CancellationToken);
+        Assert.Equal(1, exactThe.TotalHits);
+    }
+
+    // --- Concurrent Indexing ---
+
+    /// <summary>
+    /// Verifies the Concurrent Indexing: Parallel Adds All Docs Searchable scenario.
+    /// </summary>
+    [Fact(DisplayName = "Concurrent Indexing: Parallel Adds All Docs Searchable")]
+    public void ConcurrentIndexing_ParallelAdds_AllDocsSearchable()
+    {
+        var dir = new MMapDirectory(SubDir("concurrent_add"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        const int docsPerThread = 25;
+        const int threadCount = 4;
+
+        Parallel.For(0, threadCount, t =>
+        {
+            for (int i = 0; i < docsPerThread; i++)
+            {
+                var doc = new LeanDocument();
+                doc.Add(new TextField("body", $"thread{t}_doc{i} common"));
+                writer.AddDocument(doc);
+            }
+        });
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new TermQuery("body", "common"), 200, TestContext.Current.CancellationToken);
+        Assert.Equal(docsPerThread * threadCount, results.TotalHits);
+    }
+
+    // --- Query-Time Analysis ---
+
+    /// <summary>
+    /// Verifies the Query Time Analysis: String Search Matches Case Insensitive scenario.
+    /// </summary>
+    [Fact(DisplayName = "Query Time Analysis: String Search Matches Case Insensitive")]
+    public void QueryTimeAnalysis_StringSearch_MatchesCaseInsensitive()
+    {
+        var dir = new MMapDirectory(SubDir("queryanalysis"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        var doc = new LeanDocument();
+        doc.Add(new TextField("body", "The Quick Brown Fox"));
+        writer.AddDocument(doc);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(
+            "Quick",
+            "body",
+            10,
+            analyser: null,
+            cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(1, results.TotalHits);
+    }
+
+    // --- PostingsEnum.Advance ---
+
+    /// <summary>
+    /// Verifies the Postings Enum: Advance Skips To Target Doc ID scenario.
+    /// </summary>
+    [Fact(DisplayName = "Postings Enum: Advance Skips To Target Doc ID")]
+    public void PostingsEnum_Advance_SkipsToTargetDocId()
+    {
+        var dir = new MMapDirectory(SubDir("advance_skip"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        for (int i = 0; i < 20; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", i % 2 == 0 ? "even" : "odd"));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        // Just verify search still works — the Advance is used internally
+        var results = searcher.Search(new TermQuery("body", "even"), 20, TestContext.Current.CancellationToken);
+        Assert.Equal(10, results.TotalHits);
+    }
+
+    // --- Stored Fields Compression ---
+
+    /// <summary>
+    /// Verifies the Stored Fields Compression: Round-trip Preserves Data scenario.
+    /// </summary>
+    [Fact(DisplayName = "Stored Fields Compression: Round-trip Preserves Data")]
+    public void StoredFieldsCompression_RoundTrip_PreservesData()
+    {
+        var dir = new MMapDirectory(SubDir("stored_compress"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+
+        // Index enough docs to fill at least one compression block (16)
+        for (int i = 0; i < 20; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", $"document number {i} with some content"));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var results = searcher.Search(new TermQuery("body", "document"), 20, TestContext.Current.CancellationToken);
+        Assert.Equal(20, results.TotalHits);
+    }
+
+    // --- Wildcard Pattern Matching Utility ---
+
+    /// <summary>
+    /// Verifies the Wildcard Query: Matches Correct Results scenario.
+    /// </summary>
+    /// <param name="text">The text value for the test case.</param>
+    /// <param name="pattern">The pattern value for the test case.</param>
+    /// <param name="expected">The expected value for the test case.</param>
+    [Theory(DisplayName = "Wildcard Query: Matches Correct Results")]
+    [InlineData("test", "test", true)]
+    [InlineData("test", "te?t", true)]
+    [InlineData("test", "t*", true)]
+    [InlineData("test", "*est", true)]
+    [InlineData("test", "t*t", true)]
+    [InlineData("test", "x*", false)]
+    [InlineData("test", "te?", false)]
+    [InlineData("café", "caf?", true)]
+    [InlineData("café", "ca?", false)]
+    [InlineData("", "*", true)]
+    [InlineData("", "?", false)]
+    public void WildcardQuery_Matches_CorrectResults(string text, string pattern, bool expected)
+    {
+        Assert.Equal(expected, WildcardQuery.Matches(text, pattern));
+    }
+
+    private static void AddBody(IndexWriter writer, string body)
+    {
+        var doc = new LeanDocument();
+        doc.Add(new TextField("body", body));
+        writer.AddDocument(doc);
+    }
+
+    private static void AssertMatchedBodies(IndexSearcher searcher, Query query, params string[] expectedBodies)
+    {
+        var results = searcher.Search(query, 10);
+        var bodies = results.ScoreDocs
+            .Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["body"][0])
+            .OrderBy(body => body, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(expectedBodies.OrderBy(body => body, StringComparer.Ordinal), bodies);
+    }
+}

@@ -25,7 +25,7 @@ internal static class StoredFieldsWriter
         int docCount = docStarts.Count;
 
         using var fdtOutput = new IndexOutput(fdtPath);
-        using var fdtScope = CodecFileHeader.BeginStreamingWrite(fdtOutput, CodecConstants.StoredFieldsVersion);
+        using var fdtScope = CodecFileWriter.Begin(fdtOutput, StoredFieldsCodecFiles.Data);
         fdtScope.Output.WriteInt32(blockSize);
         fdtScope.Output.WriteByte((byte)compression);
 
@@ -104,13 +104,13 @@ internal static class StoredFieldsWriter
 
                 var (compData, compLength) = StoredFieldCompression.Compress(rawData, compression);
 
-                blockOffsets.Add(fdtOutput.Position);
-                fdtOutput.WriteInt32(blockDocCount);
-                fdtOutput.WriteInt32(rawLength);
-                fdtOutput.WriteInt32(compLength);
+                blockOffsets.Add(fdtScope.Output.Position);
+                fdtScope.Output.WriteInt32(blockDocCount);
+                fdtScope.Output.WriteInt32(rawLength);
+                fdtScope.Output.WriteInt32(compLength);
                 for (int i = 0; i < blockDocCount; i++)
-                    fdtOutput.WriteInt32(intraOffsets[i]);
-                fdtOutput.WriteBytes(compData.AsSpan(0, compLength));
+                    fdtScope.Output.WriteInt32(intraOffsets[i]);
+                fdtScope.Output.WriteBytes(compData.AsSpan(0, compLength));
             }
         }
         finally
@@ -118,6 +118,7 @@ internal static class StoredFieldsWriter
             ArrayPool<bool>.Shared.Return(seenFieldId);
         }
 
+        fdtScope.Complete();
         WriteFdx(fdxPath, blockSize, docCount, blockOffsets);
     }
 
@@ -142,7 +143,7 @@ internal static class StoredFieldsWriter
         FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate)
     {
         using var fdtOutput = new IndexOutput(fdtPath);
-        using var fdtScope = CodecFileHeader.BeginStreamingWrite(fdtOutput, CodecConstants.StoredFieldsVersion);
+        using var fdtScope = CodecFileWriter.Begin(fdtOutput, StoredFieldsCodecFiles.Data);
         fdtScope.Output.WriteInt32(blockSize);
         fdtScope.Output.WriteByte((byte)compression);
 
@@ -182,24 +183,29 @@ internal static class StoredFieldsWriter
 
             var (compData, compLength) = StoredFieldCompression.Compress(rawData, compression);
 
-            blockOffsets.Add(fdtOutput.Position);
-            fdtOutput.WriteInt32(blockCount);
-            fdtOutput.WriteInt32(rawLength);
-            fdtOutput.WriteInt32(compLength);
+            blockOffsets.Add(fdtScope.Output.Position);
+            fdtScope.Output.WriteInt32(blockCount);
+            fdtScope.Output.WriteInt32(rawLength);
+            fdtScope.Output.WriteInt32(compLength);
             for (int i = 0; i < blockCount; i++)
-                fdtOutput.WriteInt32(intraOffsets[i]);
-            fdtOutput.WriteBytes(compData.AsSpan(0, compLength));
+                fdtScope.Output.WriteInt32(intraOffsets[i]);
+            fdtScope.Output.WriteBytes(compData.AsSpan(0, compLength));
         }
 
+        fdtScope.Complete();
         WriteFdx(fdxPath, blockSize, docCount, blockOffsets);
     }
 
     private static void WriteFdx(string fdxPath, int blockSize, int docCount, List<long> blockOffsets)
     {
         using var fdxOutput = new IndexOutput(fdxPath);
-        StoredFieldsFileHeader.WriteV3FdxHeader(fdxOutput, blockSize, docCount, blockOffsets.Count);
+        using var fdxScope = CodecFileWriter.Begin(fdxOutput, StoredFieldsCodecFiles.Index);
+        fdxScope.Output.WriteInt32(blockSize);
+        fdxScope.Output.WriteInt32(docCount);
+        fdxScope.Output.WriteInt32(blockOffsets.Count);
         foreach (var offset in blockOffsets)
-            fdxOutput.WriteInt64(offset);
+            fdxScope.Output.WriteInt64(offset);
+        fdxScope.Complete();
     }
 
     private static void WriteStoredValue(IBufferWriter<byte> writer, StoredFieldValue value, Span<byte> encodeBuf)

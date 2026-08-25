@@ -1,111 +1,132 @@
-# Adding formats to the pipeline
+# Adding persistent formats
 
-A "format" is a named codec ID (like `"pos"` or `"nrm"`) registered in `CodecMigrationRegistry` with one or more `CodecVersionStep`s. Readers and writers use the format via `CodecFileHeader`.
+A persistent format is a file role in an immutable `CodecCatalog`. It is not merely an extension or a `CodecConstants` value.
 
-## Register a format
+## Choose stable identities
 
-```csharp
-using Rowles.LeanCorpus.Codecs.CodecKit;
+Use namespaced lowercase identifiers. A family groups files that must be understood or migrated together.
 
-var reg = CodecMigrationRegistry.Default;
-
-reg.Register(new CodecFormat("myf", [
-    new CodecVersionStep(1, "myf-v1", Codec.BytesOwnedRemaining()),
-]));
+```text
+example.product
+example.product.data
+example.product.index
 ```
 
-The `CodecVersionStep` holds a reader codec for that version. The body codec is typically `BytesOwnedRemaining()` (reads all remaining bytes as `byte[]`). The actual parsing of those bytes happens in the reader class, not in the codec itself.
+Identifiers are persistent wire identities. Do not rename one after release.
 
-At startup, built-in formats are registered by `CodecFormats`:
+## Declare versions and storage policy
 
 ```csharp
-// CodecFormats.cs (simplified)
-reg.Register(new CodecFormat("nrm", [
-    new CodecVersionStep(1, "nrm-v1", Codec.BytesOwnedRemaining()),
-    new CodecVersionStep(2, "nrm-v2", Codec.BytesOwnedRemaining())
-]));
+var data = new CodecFileDescriptor(
+    formatId: "example.product.data",
+    familyId: "example.product",
+    displayName: "Product data",
+    fileMatcher: CodecFileMatcher.Extension(".prd"),
+    currentFormatVersion: 2,
+    supportedVersions:
+    [
+        new CodecVersionDescriptor(
+            1,
+            "example-product-v1",
+            isReadable: true,
+            legacyFraming: CodecLegacyFraming.CodecKitEnvelope,
+            migrationBehaviour: CodecMigrationBehaviour.Rewrite),
+        new CodecVersionDescriptor(
+            2,
+            "example-product-v2",
+            isReadable: true,
+            isWritable: true,
+            migrationBehaviour: CodecMigrationBehaviour.Rewrite),
+    ],
+    accessKind: CodecAccessKind.RandomAccess,
+    currentFraming: CodecFramingPolicy.Canonical,
+    checksumPolicy: CodecChecksumPolicy.XxHash64,
+    migrationBehaviour: CodecMigrationBehaviour.Rewrite,
+    temporaryFileMatchers:
+    [
+        CodecFileMatcher.ExtensionWithTrailingSuffix(".prd", ".tmp")
+    ]);
 
-reg.Register(new CodecFormat("fln", [
-    new CodecVersionStep(1, "fln-v1", Codec.BytesOwnedRemaining())
-]));
+var family = new CodecFamilyDescriptor(
+    "example.product",
+    "Product files",
+    [data]);
+
+var catalog = new CodecCatalogBuilder()
+    .AddBuiltIns()
+    .Add(family)
+    .Build();
 ```
 
-## Wire into a writer
+The builder rejects duplicate IDs, overlapping physical claims, inconsistent current versions, canonical formats without checksums, and invalid temporary-file matchers. Built-in IDs cannot be silently replaced.
+
+## Select the access kind
+
+| Access kind | Use when |
+|---|---|
+| `Materialised` | The complete body is deliberately decoded into an in-memory model |
+| `Streaming` | The body is consumed sequentially and may be large |
+| `RandomAccess` | The reader retains a bounded `IndexInput` and seeks directly |
+| `External` | Another serialiser owns the representation, such as JSON or a container |
+
+The descriptor is an enforceable resource contract. Do not label a file `RandomAccess` and then call `ReadBody()` during a normal open.
+
+## Implement the writer
+
+Use the descriptor's current version. Do not repeat a version literal in the writer.
 
 ```csharp
-using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
-
-// Build body bytes in an ArrayBufferWriter<byte>
-var bodyBuf = new ArrayBufferWriter<byte>();
-// ... write your data into bodyBuf ...
-
-// Write the envelope: version byte + length + body
-CodecFileHeader.Write(output, CodecFormats.Norms, bodyBuf.WrittenSpan);
-```
-
-`CodecFileHeader.Write` looks up the current version from `CodecConstants` and writes `[version:byte][VarInt64 bodyLen][body bytes]`.
-
-> **Exception:** stored fields (.fdt/.fdx) stream directly to `IndexOutput` through `StoredFieldsFileHeader` and do not use `CodecFileHeader.Write`. They still register `fdt`/`fdx` version steps in `CodecMigrationRegistry` so readers can dispatch between the legacy v1 envelope and the streaming v2 layout.
-
-## Wire into a reader
-
-```csharp
-// Read version byte (validates against the format's version steps)
-byte version = CodecFileHeader.ReadVersion(input, CodecFormats.Norms);
-
-// Read the body length and body bytes
-int bodyLen = Codec.Decode<int>(VarInt32Codec.Instance, input);
-byte[] body = new byte[bodyLen];
-input.ReadBytes(body, 0, bodyLen);
-
-// Parse body bytes based on version
-switch (version)
+CodecFileWriter.WriteAtomically(path, data, durable, body =>
 {
-    case 1:
-        // parse v1 body
-        break;
-    case 2:
-        // parse v2 body
-        break;
-}
+    body.WriteInt32(recordCount);
+    WriteRecords(body, records);
+});
 ```
 
-`ReadVersion` dispatches through the format's version step to read the version byte and validate it. The body length and parsing are handled by your reader.
+For a multi-file family, ensure direct, flush, merge and migration paths all call the same normal writers. Coordinated files must be published as one validated operation.
 
-## CodecConstants versions
+## Implement the reader
 
-Each format has a version constant in `CodecConstants`:
+Use `CodecFileReader.OpenSupported` when supported historical envelopes or trailers must remain readable. Branch on `FormatVersion`, not frame version.
 
 ```csharp
-public static class CodecConstants
+using var input = new IndexInput(path);
+using var session = CodecFileReader.OpenSupported(input, data);
+
+return session.FormatVersion switch
 {
-    public const int NormsVersion          = 2;
-    public const int PostingsVersion       = 1;
-    public const int StoredFieldsVersion   = 2;
-    public const int TermVectorsVersion    = 2;
-    public const int HnswVersion           = 1;
-    public const int VectorVersion         = 1;
-    // ...
-}
+    1 => OpenV1(input, session.BodyStart, session.BodyLength),
+    2 => OpenV2(input, session.BodyStart, session.BodyLength),
+    _ => throw new InvalidDataException("Unsupported product format version.")
+};
 ```
 
-`CodecFileHeader.Write` uses these constants to pick the current version. When you bump a version, update both `CodecConstants` and the `CodecFormat` registration.
+Retained readers must keep all offsets inside `[BodyStart, BodyStart + BodyLength)`. Deep checksum validation is explicit.
 
-## The complete picture
+For specialist semantic checks, register an `ICodecFileValidationHandler` on the file descriptor. Deep inspection supplies it with a separately owned `IndexInput` bounded to the decoded body. When correctness depends on several members, register an `ICodecFamilyValidationCoordinator` on the family instead. It receives the available body inputs keyed by stable format ID for each logical segment, with loose and compound storage handled identically.
 
-```
-Writer                          Reader
-──────                          ──────
-Build body bytes                CodecFileHeader.ReadVersion(format)
-  ↓                                   ↓
-CodecFileHeader.Write(              reads version byte
-  output, format, body)              validates against format steps
-  ↓                                   ↓
-writes [version][length][body]     reads body length
-                                   reads body bytes
-                                   parses based on version
-```
+## Add the complete integration
+
+A persistent format is complete only when all applicable surfaces agree:
+
+1. catalogue descriptor and invariant tests;
+2. current direct, flush and merge writers;
+3. canonical and supported legacy readers;
+4. logical loose and compound inspection;
+5. compatibility and open-guard policy;
+6. shallow and deep validation;
+7. migration or an explicit unsupported policy;
+8. temporary-file and recovery recognition;
+9. golden, corruption and backwards-fixture tests;
+10. contributor and user documentation.
+
+## Version changes
+
+Bump the body-format version only when the body wire representation changes. A move from a legacy envelope to canonical Frame v1 does not itself change the body-format version. Retain readable historical descriptors and fixtures for every version promised by the compatibility policy.
+
+## Versionless formats
+
+JSON manifests, compound containers and deliberately retained sidecars still belong in the catalogue. Declare them with `currentFormatVersion: null`, the appropriate `External` or `Container` framing policy, and no canonical checksum policy. Their own schema or container validator remains responsible for integrity.
 
 ## See also
 

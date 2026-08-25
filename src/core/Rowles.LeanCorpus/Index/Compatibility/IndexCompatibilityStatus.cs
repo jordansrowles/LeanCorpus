@@ -21,5 +21,8 @@ public enum IndexCompatibilityStatus
     UnsupportedFutureFormat = 4,
 
     /// <summary>The index is corrupt or structurally invalid.</summary>
-    Corrupt = 5
+    Corrupt = 5,
+
+    /// <summary>The index contains a self-identifying file whose format is not registered.</summary>
+    UnknownFormat = 6
 }

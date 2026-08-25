@@ -35,15 +35,20 @@ the segment is created. Existing non-compound segments remain readable.
 The `.cfs` format has a fixed magic and version, a bounded directory containing
 the member name, byte offset, and byte length, followed by the member bytes.
 Readers validate every directory range against the container length and open a
-member with an `IndexInput` slice. The slice maps only the required aligned view
-of the physical `.cfs` file, so codecs retain their existing zero-copy reads.
+member with an `IndexInput` slice. One owning input maps the physical `.cfs` file;
+member inputs are lightweight bounded views that share its pointer and lifetime.
+The owner cannot unmap until every member view has drained, so codecs retain their
+existing zero-copy reads without creating one Windows mapping object and view per
+logical member.
 
 ## Rationale
 
 Memory-mapped slices preserve the current codec APIs and avoid both extraction
-files and full-file byte arrays. Keeping mutable sidecars outside the compound
-file makes deletion updates atomic and lets the existing lifetime registry defer
-cleanup of the single immutable container.
+files and full-file byte arrays. Sharing the container mapping also bounds physical
+handles and mapping objects by open compound readers rather than logical members.
+Keeping mutable sidecars outside the compound file makes deletion updates atomic
+and lets the existing lifetime registry defer cleanup of the single immutable
+container.
 
 ## Consequences
 
@@ -51,6 +56,8 @@ cleanup of the single immutable container.
   one file per immutable codec component.
 - Stored fields use a seekable `IndexInput` stream adapter; other codecs read
   directly from mapped slices.
+- Member inputs have independent positions and bounds but retain their shared
+  mapping owner until disposal.
 - Backup, validation, format inspection, sizing, migration, and cleanup must
   recognise `.cfs` as the immutable segment payload.
 - The feature is opt-in to avoid changing the file layout of existing writers.

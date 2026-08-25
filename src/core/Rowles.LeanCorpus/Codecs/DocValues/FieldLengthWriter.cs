@@ -1,7 +1,6 @@
 using System.Buffers;
 using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
@@ -31,16 +30,12 @@ internal static class FieldLengthWriter
 
     internal static void Write(string filePath, IReadOnlyDictionary<string, int[]> fieldTokenCounts, int docCount = -1, bool durable = false)
     {
-        var bodyBuf = new ArrayBufferWriter<byte>(4096);
-
-        bodyBuf.WriteInt32(fieldTokenCounts.Count);
-
-        foreach (var (fieldName, counts) in fieldTokenCounts)
+        var descriptor = CodecCatalog.Default.GetFile("leancorpus.field-lengths.data");
+        CodecFileWriter.WriteAtomically(filePath, descriptor, durable, bodyOutput =>
         {
-            WriteFieldBlock(bodyBuf, fieldName, counts);
-        }
-
-        using var output = new IndexOutput(filePath, durable);
-        CodecFileHeader.Write(output, CodecFormats.FieldLengths, bodyBuf.WrittenSpan);
+            bodyOutput.WriteInt32(fieldTokenCounts.Count);
+            foreach (var (fieldName, counts) in fieldTokenCounts)
+                WriteFieldBlock(bodyOutput, fieldName, counts);
+        });
     }
 }

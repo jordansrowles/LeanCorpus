@@ -637,6 +637,7 @@ public class AnalysisSmokeTests
         var sink = new CountingTokenSink();
         fg.Apply("a".AsSpan(), 0, 1, Token.DefaultType, 1, null, sink);
         fg.Apply("b".AsSpan(), 0, 1, Token.DefaultType, 0, null, sink);
+        fg.Finish(sink);
         Assert.True(sink.Count >= 1, $"FlattenGraphFilter expected >=1 token, got {sink.Count}");
     }
 

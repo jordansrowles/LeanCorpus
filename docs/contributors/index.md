@@ -1,43 +1,68 @@
 # Contributor guide
 
-This section explains the internal contracts behind LeanCorpus and the workflows used to change them safely. It is aimed at people working on the repository rather than applications consuming the NuGet packages.
+This section routes repository contributors to the shortest useful guide. Package consumers should begin with the [LeanCorpus documentation](../index.md).
 
-## Start here
+> [!NOTE]
+> When this page links to a repository contribution guide, that repository file is the source of truth. Generated site copies should carry a header naming their source and must not be edited directly.
 
-| Area | Use it when |
-|---|---|
-| [Architecture internals](architecture-internals.md) | You need to trace indexing, commits, refreshes, merges, or file ownership |
-| [Storage formats](storage-formats.md) | You are changing a segment file, commit format, checksum, or compatibility rule |
-| [Search internals](search-internals.md) | You are working on query rewriting, scoring, FSTs, BKD trees, HNSW, bitsets, or collectors |
-| [Benchmarking](benchmarking.md) | You need to add a benchmark or assess a performance change |
-| [Documentation](documentation.md) | You are changing the DocFX site, diagrams, API comments, or generated reference material |
-| [DevOps entry point](devops-entry-point.md) | You need to understand or extend `devops` and `devops.ps1` |
-| [CodecKit](codeckit/index.md) | You are adding or evolving a binary codec |
+## Make a first contribution
+
+1. Read the repository [CONTRIBUTING guide](../../CONTRIBUTING.md).
+2. Run `./devops setup` and `./devops build`.
+3. Choose the subsystem that owns the behaviour.
+4. Run one focused test selection.
+5. Make the change and add tests.
+6. Run `./devops test -Suite affected`.
+7. Add compatibility, AOT, documentation or benchmark validation when the claim requires it.
+
+## Choose your contributor path
+
+| I want to... | Guide |
+| --- | --- |
+| Make a normal LeanCorpus change | [General contribution guide](../../CONTRIBUTING.md) |
+| Change analysers, filters, tokenisers, stemmers or languages | [Rowles.Text contribution guide](../../src/core/Rowles.Text/CONTRIBUTING.md) |
+| Add tests, benchmarks or repository tooling | [DevOps and tests contribution guide](../../src/devops/CONTRIBUTING.md) |
+| Understand `devops` and `devops.ps1` | [DevOps entry point](devops-entry-point.md) |
+| Change the DocFX site or generated documentation | [Documentation](documentation.md) |
+| Add or assess a benchmark | [Benchmarking](benchmarking.md) |
+
+## Follow a subsystem into the internals
+
+| Work | Read next |
+| --- | --- |
+| Trace indexing, commits, refreshes, merges or file ownership | [Architecture internals](architecture-internals.md) |
+| Change a segment file, commit format, checksum or compatibility rule | [Storage formats](storage-formats.md) |
+| Work on query rewriting, scoring, FSTs, BKD trees, HNSW or collectors | [Search internals](search-internals.md) |
+| Add or evolve a binary codec | [CodecKit](codeckit/index.md) |
+
+> [!IMPORTANT]
+> Storage formats, Native AOT and platform-specific filesystem behaviour need validation beyond an ordinary unit test. Record the environment and the boundary actually tested.
 
 ## Repository map
 
 | Path | Purpose |
-|---|---|
-| `src/core/Rowles.LeanCorpus` | Core indexing, storage, codec, analysis, and search implementation |
-| `src/core/Rowles.LeanCorpus.Compression.*` | Optional stored-field compression providers |
-| `src/core/Rowles.LeanCorpus.SourceGen` | Roslyn source generator |
-| `src/devops/Rowles.LeanCorpus.Cli` | Command-line maintenance tools |
-| `src/devops/Rowles.LeanCorpus.Tests.*` | Unit, integration, chaos, AOT, and codec parity tests |
-| `src/devops/Rowles.LeanCorpus.Benchmarks*` | BenchmarkDotNet suites and corpus workloads |
-| `src/examples` | Usage examples and Native AOT samples |
-| `docs` | DocFX source, templates, diagrams, and generated reports |
+| --- | --- |
+| `src/core/Rowles.LeanCorpus` | Core indexing, search, storage, mapping and codecs |
+| `src/core/Rowles.Text` | Canonical analysis source and standalone package |
+| `src/core/Rowles.LeanCorpus.SourceGen` | Typed mapping source generator |
+| `src/core/Rowles.LeanCorpus.Compression.*` | Optional stored-field compression |
+| `src/server` | Pre-release server contracts and implementation |
+| `src/devops` | Tests, benchmarks, CLI and profiling |
+| `scripts/devops` | Repository automation |
+| `src/examples` | Runnable examples and end-to-end workloads |
+| `docs` | DocFX source and generated documentation inputs |
+| `lexicons` | Language data and generated lexicon assets |
 
-## Change discipline
+## Validate the change you made
 
-Storage changes require an explicit compatibility decision. Search changes require correctness tests before performance measurements. Public API changes should update XML comments and the relevant guide. Native AOT compatibility is part of the normal contract, not a separate optional target.
+Use the narrowest command that can disprove your claim, then widen only where needed:
 
-Use the repository entry point for validation:
-
-```powershell
+```bash
 ./devops build
-./devops test
+./devops test -Suite affected
+./devops test -Suite architecture
 ./devops aot
-./devops docs -SkipBenchmarks
+./devops docs build -SkipBenchmarks
 ```
 
-Choose the narrowest command that covers the change, then run broader validation only when the affected boundary requires it.
+Run `./devops --help` for the current command surface.

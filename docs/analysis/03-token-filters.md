@@ -88,9 +88,9 @@ See [Hunspell](07-hunspell.md) for dictionary loading and limitations.
 
 | Filter | Behaviour and configuration |
 |---|---|
-| `SynonymGraphFilter` | Expands entries from `SynonymMap` while retaining position relationships. |
-| `FlattenGraphFilter` | Normalises same-position alternatives for LeanCorpus's linear postings model. |
-| `ShingleFilter` | Emits token n-grams. Configure minimum and maximum size, unigram output, and separator. |
+| `SynonymGraphFilter` | Expands source phrases into alternate token-graph edges. |
+| `FlattenGraphFilter` | Converts graph edges to unit-length positions for postings. Required before indexing a graph-producing pipeline. |
+| `ShingleFilter` | Emits connected token n-gram graph edges. Configure minimum and maximum size, unigram output, and separator. |
 | `CommonGramsFilter` | Emits common-word bigrams using a supplied word set and separator. |
 
 ```csharp
@@ -104,7 +104,7 @@ var analyser = new Analyser(
     new FlattenGraphFilter());
 ```
 
-Expansion increases postings and can change phrase positions. Keep synonym maps bounded and version them with the indexed corpus.
+Expansion increases postings and can change phrase positions. Keep synonym maps bounded and version them with the indexed corpus. Graph-producing filters require `FlattenGraphFilter` at index time; quoted queries retain graph paths and are bounded to prevent unbounded expansion.
 
 ## Language and phonetic filters
 

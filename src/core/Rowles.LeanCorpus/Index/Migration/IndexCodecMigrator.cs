@@ -1,12 +1,13 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using System.IO;
-using System.Buffers;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using System.Diagnostics;
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
+using Rowles.LeanCorpus.Codecs.Vectors;
+using Rowles.LeanCorpus.Codecs.TermVectors;
+using Rowles.LeanCorpus.Codecs.Bkd;
 using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
 using Rowles.LeanCorpus.Index.Format;
@@ -22,20 +23,37 @@ namespace Rowles.LeanCorpus.Index.Migration;
 /// </summary>
 public static class IndexCodecMigrator
 {
-    private static readonly HashSet<string> ExecutableRewriteExtensions =
-    [
-        ".dic",
-        ".pos",
-        ".nrm",
-        ".dvn",
-        ".dvs",
-        ".dss",
-        ".dsn",
-        ".dvb",
-        ".fln",
-        ".fdt",
-        ".fdx"
-    ];
+    private delegate void BuiltInMigrationWriter(MigrationRewriteContext context);
+
+    // This is intentionally keyed by stable catalogue identifiers, never by physical
+    // extensions. The catalogue remains the sole authority for file recognition and
+    // migration behaviour; this table connects established normal writers to their
+    // logical persistent role until each writer supplies a descriptor handler directly.
+    private static readonly IReadOnlyDictionary<string, BuiltInMigrationWriter> BuiltInMigrationWriters =
+        new Dictionary<string, BuiltInMigrationWriter>(StringComparer.Ordinal)
+        {
+            ["leancorpus.term-dictionary.data"] = static context => RewriteTermDictionary(context.SourcePath, context.TargetPath),
+            ["leancorpus.postings.data"] = static context => RewritePostings(context.TargetDirectory, context.Action, context.SegmentIdMap, context.Catalog),
+            ["leancorpus.norms.data"] = static context => RewriteNorms(context.SourcePath, context.TargetPath),
+            ["leancorpus.field-lengths.data"] = static context => RewriteFieldLengths(context.SourcePath, context.TargetPath),
+            ["leancorpus.doc-values.numeric"] = static context => RewriteNumericDocValues(context.SourcePath, context.TargetPath),
+            ["leancorpus.doc-values.sorted"] = static context => RewriteSortedDocValues(context.SourcePath, context.TargetPath),
+            ["leancorpus.doc-values.sorted-set"] = static context => RewriteSortedSetDocValues(context.SourcePath, context.TargetPath),
+            ["leancorpus.doc-values.sorted-numeric"] = static context => RewriteSortedNumericDocValues(context.SourcePath, context.TargetPath),
+            ["leancorpus.doc-values.binary"] = static context => RewriteBinaryDocValues(context.SourcePath, context.TargetPath),
+            ["leancorpus.doc-values.int64"] = static context => RewriteInt64DocValues(context.SourcePath, context.TargetPath),
+            ["leancorpus.doc-values.int64-sorted-numeric"] = static context => RewriteInt64SortedNumericDocValues(context.SourcePath, context.TargetPath),
+            ["leancorpus.numeric-structures.bkd"] = static context => RewriteBkd(context.SourcePath, context.TargetPath),
+            ["leancorpus.numeric-structures.int64-bkd"] = static context => RewriteInt64Bkd(context.SourcePath, context.TargetPath),
+            ["leancorpus.numeric-structures.numeric-index"] = static context => RewriteNumericIndex(context.SourcePath, context.TargetPath),
+            ["leancorpus.numeric-structures.int64-numeric-index"] = static context => RewriteInt64NumericIndex(context.SourcePath, context.TargetPath),
+            ["leancorpus.deletes.parent-bitset"] = static context => RewriteParentBitSet(context.SourcePath, context.TargetPath),
+            ["leancorpus.deletes.live-docs"] = static context => RewriteLiveDocs(context),
+            ["leancorpus.stored-fields.data"] = static context => RewriteStoredFields(context.TargetDirectory, context.Action, context.SegmentIdMap),
+            ["leancorpus.stored-fields.index"] = static context => RewriteStoredFields(context.TargetDirectory, context.Action, context.SegmentIdMap),
+            ["leancorpus.term-vectors.data"] = static context => RewriteTermVectors(context.TargetDirectory, context.Action, context.SegmentIdMap),
+            ["leancorpus.term-vectors.index"] = static context => RewriteTermVectors(context.TargetDirectory, context.Action, context.SegmentIdMap),
+        };
 
     /// <summary>
     /// Builds a deterministic codec migration plan for <paramref name="directory"/>.
@@ -77,22 +95,27 @@ public static class IndexCodecMigrator
     {
         options ??= new IndexCodecMigrationOptions();
 
-        var inventory = IndexFormatInspector.Inspect(directory);
-        return PlanCore(inventory);
+        var catalog = options.Catalog ?? throw new ArgumentException("The codec catalogue cannot be null.", nameof(options));
+        var inventory = IndexFormatInspector.Inspect(directory, new IndexFormatInspectionOptions { Catalog = catalog });
+        return PlanCore(inventory, catalog);
     }
 
     internal static IndexCodecMigrationPlan Plan(IndexFormatInventory inventory)
+        => Plan(inventory, CodecCatalog.Default);
+
+    internal static IndexCodecMigrationPlan Plan(IndexFormatInventory inventory, CodecCatalog catalog)
     {
         ArgumentNullException.ThrowIfNull(inventory);
+        ArgumentNullException.ThrowIfNull(catalog);
 
-        return PlanCore(inventory);
+        return PlanCore(inventory, catalog);
     }
 
-    private static IndexCodecMigrationPlan PlanCore(IndexFormatInventory inventory)
+    private static IndexCodecMigrationPlan PlanCore(IndexFormatInventory inventory, CodecCatalog catalog)
     {
         var actions = new List<IndexCodecMigrationAction>();
-        AddActions(inventory.Segments.SelectMany(static segment => segment.Files), actions);
-        AddActions(inventory.OrphanFiles, actions);
+        AddActions(inventory.Segments.SelectMany(static segment => segment.Files), catalog, actions);
+        AddActions(inventory.OrphanFiles, catalog, actions);
 
         return new IndexCodecMigrationPlan
         {
@@ -207,7 +230,7 @@ public static class IndexCodecMigrator
 
         if (options.ValidateBeforeMigration)
         {
-            var validation = IndexValidator.Check(directory, new IndexCheckOptions { Deep = true });
+            var validation = IndexValidator.Check(directory, new IndexCheckOptions { Deep = true, Catalog = options.Catalog });
             var ignoredSegments = new HashSet<string>(
                 plan.Actions
                     .Where(static action => action.SourcePath.EndsWith(".dic", StringComparison.Ordinal))
@@ -283,16 +306,24 @@ public static class IndexCodecMigrator
             currentState = IndexMigrationState.InProgress;
 
             CleanupTemporaryFiles(targetDirectory);
+            MaterialiseCompoundMembers(targetDirectory, plan.Actions);
 
             var rewrittenTargetPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var rewrittenStoredFieldSegments = new HashSet<string>(StringComparer.Ordinal);
+            var rewrittenCoordinatedFamilies = new HashSet<string>(StringComparer.Ordinal);
             foreach (var action in plan.Actions)
             {
-                ExecuteRewrite(targetDirectory, action, rewrittenStoredFieldSegments, segmentIdMap, rewrittenTargetPaths);
+                ExecuteRewrite(
+                    targetDirectory,
+                    action,
+                    options.Catalog,
+                    rewrittenCoordinatedFamilies,
+                    segmentIdMap,
+                    rewrittenTargetPaths);
                 executed.Add(action);
             }
 
             MigrateSegmentSidecars(targetDirectory, segmentIdMap, rewrittenTargetPaths);
+            RepackMigratedCompoundSegments(targetDirectory, plan.Actions, segmentIdMap);
 
             var newCommitGeneration = sourceCommitGeneration + 1;
             WriteMigratedCommit(targetDirectory, plan, segmentIdMap, newCommitGeneration);
@@ -302,7 +333,7 @@ public static class IndexCodecMigrator
             if (options.ValidateAfterMigration)
             {
                 using var target = new MMapDirectory(targetDirectory);
-                validationResult = IndexValidator.Check(target, new IndexCheckOptions { Deep = true });
+                validationResult = IndexValidator.Check(target, new IndexCheckOptions { Deep = true, Catalog = options.Catalog });
                 if (HasErrors(validationResult))
                 {
                     IndexMigrationRecovery.WriteMarker(
@@ -548,7 +579,10 @@ public static class IndexCodecMigrator
                     SegmentId = newSegmentId,
                     DocCount = info.DocCount,
                     LiveDocCount = info.LiveDocCount,
+                    TotalBytes = info.TotalBytes,
+                    CodecBytes = new Dictionary<string, long>(info.CodecBytes, StringComparer.Ordinal),
                     CommitGeneration = info.CommitGeneration,
+                    IsCompoundFile = info.IsCompoundFile,
                     FieldNames = info.FieldNames,
                     IndexSortFields = info.IndexSortFields,
                     VectorFields = info.VectorFields,
@@ -577,6 +611,66 @@ public static class IndexCodecMigrator
                     FileOpenRetry.Move(oldFile, newPath, overwrite: false);
                 }
             }
+        }
+    }
+
+    private static void MaterialiseCompoundMembers(string targetDirectory, IReadOnlyList<IndexCodecMigrationAction> actions)
+    {
+        var compoundFiles = actions
+            .Where(static action => !string.IsNullOrEmpty(action.CompoundFileName))
+            .Select(static action => action.CompoundFileName!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (compoundFiles.Length == 0)
+            return;
+
+        using var directory = new MMapDirectory(targetDirectory);
+        foreach (var compoundFileName in compoundFiles)
+        {
+            using var compound = CompoundFileReader.Open(directory, compoundFileName);
+            foreach (var memberName in compound.FileNames)
+            {
+                var destination = Path.Combine(targetDirectory, memberName);
+                if (FileOpenRetry.FileExists(destination))
+                    continue;
+
+                var temporary = destination + ".tmp";
+                try
+                {
+                    using var input = compound.OpenInput(directory, memberName);
+                    using (var output = new IndexOutput(temporary, durable: true))
+                    {
+                        long remaining = input.Length;
+                        while (remaining > 0)
+                        {
+                            int count = (int)Math.Min(64 * 1024, remaining);
+                            output.WriteBytes(input.BorrowSpan(count));
+                            remaining -= count;
+                        }
+                    }
+                    FileOpenRetry.Move(temporary, destination, overwrite: false);
+                }
+                catch
+                {
+                    TryDeleteTemporaryFile(temporary);
+                    throw;
+                }
+            }
+        }
+    }
+
+    private static void RepackMigratedCompoundSegments(
+        string targetDirectory,
+        IReadOnlyList<IndexCodecMigrationAction> actions,
+        IReadOnlyDictionary<string, string> segmentIdMap)
+    {
+        foreach (var sourceSegmentId in actions
+                     .Where(static action => !string.IsNullOrEmpty(action.CompoundFileName) && action.SegmentId is not null)
+                     .Select(static action => action.SegmentId!)
+                     .Distinct(StringComparer.Ordinal))
+        {
+            var targetSegmentId = segmentIdMap.TryGetValue(sourceSegmentId, out var mapped) ? mapped : sourceSegmentId;
+            _ = CompoundFileWriter.Pack(targetDirectory, targetSegmentId);
         }
     }
 
@@ -696,12 +790,18 @@ public static class IndexCodecMigrator
     private static void ExecuteRewrite(
         string targetDirectory,
         IndexCodecMigrationAction action,
-        HashSet<string> rewrittenStoredFieldSegments,
+        CodecCatalog catalog,
+        HashSet<string> rewrittenCoordinatedFamilies,
         IReadOnlyDictionary<string, string> segmentIdMap,
         HashSet<string> rewrittenTargetPaths)
     {
-        if (action.Kind != IndexCodecMigrationActionKind.RewriteFile)
+        if (action.Kind is not (IndexCodecMigrationActionKind.Reframe or
+            IndexCodecMigrationActionKind.Rewrite or
+            IndexCodecMigrationActionKind.CoordinatedRewrite))
             return;
+
+        if (action.FormatId is null || !catalog.TryGetFile(action.FormatId, out var descriptor) || descriptor is null)
+            throw new InvalidDataException($"Migration action for '{action.SourcePath}' has no registered codec descriptor.");
 
         var sourceFileName = action.SourcePath;
         var targetFileName = GetTargetFileName(sourceFileName, action.SegmentId, segmentIdMap);
@@ -709,94 +809,75 @@ public static class IndexCodecMigrator
         var targetPath = Path.Combine(targetDirectory, targetFileName);
         rewrittenTargetPaths.Add(targetPath);
 
-        switch (Path.GetExtension(targetFileName))
+        var behaviour = GetMigrationBehaviour(descriptor, action.FromVersion);
+        if (behaviour == CodecMigrationBehaviour.CoordinatedRewrite && action.SegmentId is not null)
         {
-            case ".dic":
-                RewriteTermDictionary(sourcePath, targetPath);
-                break;
-            case ".pos":
-                RewritePostings(targetDirectory, action, segmentIdMap);
-                break;
-            case ".nrm":
-                RewriteNorms(sourcePath, targetPath);
-                break;
-            case ".dvn":
-                RewriteNumericDocValues(sourcePath, targetPath);
-                break;
-            case ".dvs":
-                RewriteSortedDocValues(sourcePath, targetPath);
-                break;
-            case ".dss":
-                RewriteSortedSetDocValues(sourcePath, targetPath);
-                break;
-            case ".dsn":
-                RewriteSortedNumericDocValues(sourcePath, targetPath);
-                break;
-            case ".dvb":
-                RewriteBinaryDocValues(sourcePath, targetPath);
-                break;
-            case ".fln":
-                RewriteFieldLengths(sourcePath, targetPath);
-                break;
-            case ".fdt":
-            case ".fdx":
-                if (action.SegmentId is not null)
-                {
-                    var segmentKey = segmentIdMap.TryGetValue(action.SegmentId, out var newId) ? newId : action.SegmentId;
-                    if (!rewrittenStoredFieldSegments.Add(segmentKey))
-                        return;
-                }
-                RewriteStoredFields(targetDirectory, action, segmentIdMap);
-                break;
-            default:
-                throw new InvalidDataException($"No migration writer is registered for '{action.SourcePath}'.");
+            var segmentKey = segmentIdMap.TryGetValue(action.SegmentId, out var newId) ? newId : action.SegmentId;
+            if (!rewrittenCoordinatedFamilies.Add($"{descriptor.FamilyId}:{segmentKey}"))
+                return;
         }
+
+        var context = new MigrationRewriteContext(
+            targetDirectory,
+            sourcePath,
+            targetPath,
+            action,
+            descriptor,
+            catalog,
+            segmentIdMap,
+            rewrittenTargetPaths);
+        if (behaviour == CodecMigrationBehaviour.CoordinatedRewrite &&
+            catalog.TryGetFamily(descriptor.FamilyId, out var family) &&
+            family?.MigrationCoordinator is not null)
+        {
+            RewriteWithFamilyCoordinator(context, family);
+            return;
+        }
+
+        if (descriptor.MigrationHandler is not null)
+        {
+            RewriteWithDescriptorHandler(context);
+            return;
+        }
+
+        if (behaviour == CodecMigrationBehaviour.Reframe)
+        {
+            ReframeCodecFile(context.SourcePath, context.TargetPath, context.Descriptor);
+            return;
+        }
+
+        if (BuiltInMigrationWriters.TryGetValue(descriptor.FormatId, out var writer))
+        {
+            writer(context);
+            return;
+        }
+
+        throw new InvalidDataException($"No migration writer is registered for codec format '{descriptor.FormatId}'.");
     }
 
     private static void RewriteTermDictionary(string sourcePath, string targetPath)
     {
-        byte version;
-        {
-            using var fs = FileOpenRetry.OpenReadDelete(sourcePath);
-            using var br = new BinaryReader(fs);
-            try
-            {
-                version = CodecFileHeader.ReadVersion(br, CodecFormats.TermDictionary);
-            }
-            catch (Exception ex) when (ex is InvalidDataException)
-            {
-                throw new InvalidDataException(
-                    $"Invalid term dictionary file '{sourcePath}': {ex.Message}", ex);
-            }
-        }
+        List<(string Term, long Offset)> allTerms;
+        using (var reader = TermDictionaryReader.Open(sourcePath))
+            allTerms = reader.EnumerateAllTerms();
 
-        if (version == CodecConstants.TermDictionaryVersion)
-        {
-            // No format change; copy to target if the segment ID was renamed.
-            if (!string.Equals(sourcePath, targetPath, StringComparison.Ordinal))
-                FileOpenRetry.Copy(sourcePath, targetPath, overwrite: true);
-            return;
-        }
+        var offsets = new Dictionary<string, long>(allTerms.Count, StringComparer.Ordinal);
+        foreach (var (term, offset) in allTerms)
+            offsets[term] = offset;
 
-        var temporaryPath = targetPath + ".tmp";
+        var sorted = new List<string>(offsets.Keys);
+        sorted.Sort(StringComparer.Ordinal);
         try
         {
-            using var reader = TermDictionaryReader.Open(sourcePath);
-            var allTerms = reader.EnumerateAllTerms();
-
-            var offsets = new Dictionary<string, long>(allTerms.Count, StringComparer.Ordinal);
-            foreach (var (term, offset) in allTerms)
-                offsets[term] = offset;
-
-            var sorted = new List<string>(offsets.Keys);
-            sorted.Sort(StringComparer.Ordinal);
-            TermDictionaryWriter.Write(temporaryPath, sorted, offsets, durable: true);
-            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
+            TermDictionaryWriter.Write(targetPath, sorted, offsets, durable: true);
         }
-        catch { TryDeleteTemporaryFile(temporaryPath); throw; }
+        catch (Exception ex) when (ex is IOException or InvalidDataException)
+        {
+            throw new InvalidDataException($"Cannot rewrite term dictionary '{sourcePath}': {ex.Message}", ex);
+        }
     }
 
-    private static void RewritePostings(string targetDirectory, IndexCodecMigrationAction action, IReadOnlyDictionary<string, string> segmentIdMap)
+    private static void RewritePostings(string targetDirectory, IndexCodecMigrationAction action, IReadOnlyDictionary<string, string> segmentIdMap, CodecCatalog catalog)
     {
         if (action.SegmentId is null)
             throw new InvalidDataException($"Postings action for '{action.SourcePath}' has no segment ID.");
@@ -826,8 +907,10 @@ public static class IndexCodecMigrator
             {
                 _ = PostingsEnum.ValidateFileHeader(input);
 
-                using var bodyOutput = new IndexOutput(temporaryPosPath, durable: true);
-                using var scope = CodecFileHeader.BeginStreamingWrite(bodyOutput, CodecConstants.PostingsVersion);
+                using var output = new IndexOutput(temporaryPosPath, durable: true);
+                var descriptor = catalog.GetFile("leancorpus.postings.data");
+                using var frame = CodecFileWriter.Begin(output, descriptor);
+                var bodyOutput = frame.Output;
                 using var blockWriter = new BlockPostingsWriter(bodyOutput);
 
                 foreach (var (term, offset) in dictionary.EnumerateTerms())
@@ -866,7 +949,7 @@ public static class IndexCodecMigrator
                     bodyOutput.WriteBoolean(hasPositions);
                     bodyOutput.WriteBoolean(hasPayloads);
                 }
-                // scope.Dispose() writes 8-byte trailer here.
+                frame.Complete();
             }
             // dictionary and input are now disposed, MMF handles released.
 
@@ -896,25 +979,16 @@ public static class IndexCodecMigrator
         foreach (var (_, values, _) in allFields)
             if (values.Length > maxDocCount) maxDocCount = values.Length;
 
-        var temporaryPath = targetPath + ".tmp";
-        var fieldBuf = new ArrayBufferWriter<byte>(4096);
-        try
+        var fields = new Dictionary<string, double[]>(allFields.Count, StringComparer.Ordinal);
+        var presence = new Dictionary<string, IReadOnlySet<int>>(allFields.Count, StringComparer.Ordinal);
+        foreach (var (fieldName, fieldValues, fieldPresence) in allFields)
         {
-            {
-                using var output = new IndexOutput(temporaryPath, durable: true);
-                using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.NumericDocValuesVersion);
-                scope.Output.WriteInt32(allFields.Count);
-                foreach (var (fieldName, fieldValues, pres) in allFields)
-                {
-                    var presenceSet = pres is not null ? pres.ToHashSet() : null;
-                    fieldBuf.Clear();
-                    NumericDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount, presenceSet);
-                    scope.Output.WriteBytes(fieldBuf.WrittenSpan);
-                }
-            }
-            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
+            fields.Add(fieldName, fieldValues);
+            if (fieldPresence is not null)
+                presence.Add(fieldName, fieldPresence.ToHashSet());
         }
-        catch { TryDeleteTemporaryFile(temporaryPath); throw; }
+
+        NumericDocValuesWriter.Write(targetPath, fields, maxDocCount, presence, durable: true);
     }
 
     private static void RewriteSortedDocValues(string sourcePath, string targetPath)
@@ -927,25 +1001,11 @@ public static class IndexCodecMigrator
         foreach (var (_, values) in allFields)
             if (values.Length > maxDocCount) maxDocCount = values.Length;
 
-        var temporaryPath = targetPath + ".tmp";
-        var fieldBuf = new ArrayBufferWriter<byte>(4096);
-        try
-        {
-            {
-                using var output = new IndexOutput(temporaryPath, durable: true);
-                using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.SortedDocValuesVersion);
-                scope.Output.WriteInt32(allFields.Count);
-                foreach (var (fieldName, fieldValues) in allFields)
-                {
-                    var nullableValues = fieldValues.Select(static v => (string?)v).ToArray();
-                    fieldBuf.Clear();
-                    SortedDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, nullableValues, maxDocCount);
-                    scope.Output.WriteBytes(fieldBuf.WrittenSpan);
-                }
-            }
-            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
-        }
-        catch { TryDeleteTemporaryFile(temporaryPath); throw; }
+        var fields = allFields.ToDictionary(
+            static field => field.Name,
+            static field => field.Values,
+            StringComparer.Ordinal);
+        SortedDocValuesWriter.Write(targetPath, fields, maxDocCount, durable: true);
     }
 
     private static void RewriteNorms(string sourcePath, string targetPath)
@@ -961,27 +1021,24 @@ public static class IndexCodecMigrator
         foreach (var (_, normBytes, _) in allFields)
             if (normBytes.Length > maxDocCount) maxDocCount = normBytes.Length;
 
-        var temporaryPath = targetPath + ".tmp";
-        var fieldBuf = new ArrayBufferWriter<byte>(4096);
-        try
+        var fieldNorms = new Dictionary<string, float[]>(allFields.Count, StringComparer.Ordinal);
+        var fieldBoosts = new Dictionary<string, float[]>(allFields.Count, StringComparer.Ordinal);
+        foreach (var (fieldName, normBytes, boosts) in allFields)
         {
-            {
-                using var output = new IndexOutput(temporaryPath, durable: true);
-                using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.NormsVersion);
-                scope.Output.WriteInt32(allFields.Count);
-                foreach (var (fieldName, normBytes, fieldBoosts) in allFields)
-                {
-                    var norms = new float[normBytes.Length];
-                    for (int i = 0; i < normBytes.Length; i++)
-                        norms[i] = normBytes[i] / 255f;
-                    fieldBuf.Clear();
-                    NormsWriter.WriteFieldBlock(fieldBuf, fieldName, norms, fieldBoosts, maxDocCount);
-                    scope.Output.WriteBytes(fieldBuf.WrittenSpan);
-                }
-            }
-            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
+            var norms = new float[normBytes.Length];
+            for (int i = 0; i < normBytes.Length; i++)
+                norms[i] = normBytes[i] / 255f;
+            fieldNorms.Add(fieldName, norms);
+            if (boosts is not null)
+                fieldBoosts.Add(fieldName, boosts);
         }
-        catch { TryDeleteTemporaryFile(temporaryPath); throw; }
+
+        NormsWriter.Write(
+            targetPath,
+            fieldNorms,
+            fieldBoosts.Count == 0 ? null : fieldBoosts,
+            docCount: maxDocCount,
+            durable: true);
     }
 
     private static void RewriteSortedSetDocValues(string sourcePath, string targetPath)
@@ -994,24 +1051,11 @@ public static class IndexCodecMigrator
         foreach (var (_, values) in allFields)
             if (values.Length > maxDocCount) maxDocCount = values.Length;
 
-        var temporaryPath = targetPath + ".tmp";
-        var fieldBuf = new ArrayBufferWriter<byte>(4096);
-        try
-        {
-            {
-                using var output = new IndexOutput(temporaryPath, durable: true);
-                using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.SortedSetDocValuesVersion);
-                scope.Output.WriteInt32(allFields.Count);
-                foreach (var (fieldName, fieldValues) in allFields)
-                {
-                    fieldBuf.Clear();
-                    SortedSetDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
-                    scope.Output.WriteBytes(fieldBuf.WrittenSpan);
-                }
-            }
-            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
-        }
-        catch { TryDeleteTemporaryFile(temporaryPath); throw; }
+        var fields = allFields.ToDictionary(
+            static field => field.Name,
+            static field => field.Values,
+            StringComparer.Ordinal);
+        SortedSetDocValuesWriter.Write(targetPath, fields, maxDocCount, durable: true);
     }
 
     private static void RewriteSortedNumericDocValues(string sourcePath, string targetPath)
@@ -1024,24 +1068,11 @@ public static class IndexCodecMigrator
         foreach (var (_, values) in allFields)
             if (values.Length > maxDocCount) maxDocCount = values.Length;
 
-        var temporaryPath = targetPath + ".tmp";
-        var fieldBuf = new ArrayBufferWriter<byte>(4096);
-        try
-        {
-            {
-                using var output = new IndexOutput(temporaryPath, durable: true);
-                using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.SortedNumericDocValuesVersion);
-                scope.Output.WriteInt32(allFields.Count);
-                foreach (var (fieldName, fieldValues) in allFields)
-                {
-                    fieldBuf.Clear();
-                    SortedNumericDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
-                    scope.Output.WriteBytes(fieldBuf.WrittenSpan);
-                }
-            }
-            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
-        }
-        catch { TryDeleteTemporaryFile(temporaryPath); throw; }
+        var fields = allFields.ToDictionary(
+            static field => field.Name,
+            static field => field.Values,
+            StringComparer.Ordinal);
+        SortedNumericDocValuesWriter.Write(targetPath, fields, maxDocCount, durable: true);
     }
 
     private static void RewriteBinaryDocValues(string sourcePath, string targetPath)
@@ -1054,25 +1085,94 @@ public static class IndexCodecMigrator
         foreach (var (_, values) in allFields)
             if (values.Length > maxDocCount) maxDocCount = values.Length;
 
-        var temporaryPath = targetPath + ".tmp";
-        var fieldBuf = new ArrayBufferWriter<byte>(4096);
+        var fields = allFields.ToDictionary(
+            static field => field.Name,
+            static field => field.Values,
+            StringComparer.Ordinal);
+        BinaryDocValuesWriter.Write(targetPath, fields, maxDocCount, durable: true);
+    }
+
+    private static void RewriteInt64DocValues(string sourcePath, string targetPath)
+    {
+        var (fields, bitmaps) = Int64DocValuesReader.Read(sourcePath);
+        if (fields.Count == 0)
+            return;
+
+        int maxDocCount = fields.Values.Max(static values => values.Length);
+        var presence = new Dictionary<string, IReadOnlySet<int>>(bitmaps.Count, StringComparer.Ordinal);
+        foreach (var (fieldName, bitmap) in bitmaps)
+        {
+            if (bitmap is not null)
+                presence.Add(fieldName, bitmap.ToHashSet());
+        }
+
+        Int64DocValuesWriter.Write(targetPath, fields, maxDocCount, presence, durable: true);
+    }
+
+    private static void RewriteInt64SortedNumericDocValues(string sourcePath, string targetPath)
+    {
+        var values = Int64SortedNumericDocValuesReader.Read(sourcePath);
+        if (values.Count == 0)
+            return;
+
+        int maxDocCount = values.Values.Max(static fieldValues => fieldValues.Length);
+        var fields = values.ToDictionary(
+            static field => field.Key,
+            static field => field.Value.Select(static docValues => (IReadOnlyList<long>?)docValues).ToArray(),
+            StringComparer.Ordinal);
+        Int64SortedNumericDocValuesWriter.Write(targetPath, fields, maxDocCount, durable: true);
+    }
+
+    private static void ReframeCodecFile(
+        string sourcePath,
+        string targetPath,
+        CodecFileDescriptor descriptor)
+    {
+        string temporaryPath = targetPath + ".tmp";
         try
         {
+            using var input = new IndexInput(sourcePath);
+            if (SupportsLegacyFraming(descriptor, CodecLegacyFraming.Headerless))
             {
-                using var output = new IndexOutput(temporaryPath, durable: true);
-                using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.BinaryDocValuesVersion);
-                scope.Output.WriteInt32(allFields.Count);
-                foreach (var (fieldName, fieldValues) in allFields)
+                CodecFileWriter.WriteAtomically(temporaryPath, descriptor, durable: true, bodyOutput =>
                 {
-                    fieldBuf.Clear();
-                    BinaryDocValuesWriter.WriteFieldBlock(fieldBuf, fieldName, fieldValues, maxDocCount);
-                    scope.Output.WriteBytes(fieldBuf.WrittenSpan);
-                }
+                    long remaining = input.Length;
+                    while (remaining > 0)
+                    {
+                        int count = (int)Math.Min(64 * 1024, remaining);
+                        bodyOutput.WriteBytes(input.BorrowSpan(count));
+                        remaining -= count;
+                    }
+                });
             }
+            else
+            {
+                using var frame = CodecFileReader.OpenSupported(input, descriptor);
+                CodecFileWriter.WriteAtomically(temporaryPath, descriptor, durable: true, bodyOutput =>
+                {
+                    long remaining = frame.BodyLength;
+                    while (remaining > 0)
+                    {
+                        int count = (int)Math.Min(64 * 1024, remaining);
+                        bodyOutput.WriteBytes(input.BorrowSpan(count));
+                        remaining -= count;
+                    }
+                });
+            }
+
             FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
         }
-        catch { TryDeleteTemporaryFile(temporaryPath); throw; }
+        catch
+        {
+            TryDeleteTemporaryFile(temporaryPath);
+            throw;
+        }
     }
+
+    private static bool SupportsLegacyFraming(
+        CodecFileDescriptor descriptor,
+        CodecLegacyFraming framing)
+        => descriptor.SupportedVersions.Any(version => (version.LegacyFraming & framing) != 0);
 
     private static void RewriteFieldLengths(string sourcePath, string targetPath)
     {
@@ -1083,28 +1183,10 @@ public static class IndexCodecMigrator
         if (allFields.Count == 0)
             return;
 
-        int maxDocCount = 0;
-        foreach (var (_, lengths) in allFields)
-            if (lengths.Length > maxDocCount) maxDocCount = lengths.Length;
-
-        var temporaryPath = targetPath + ".tmp";
-        var fieldBuf = new ArrayBufferWriter<byte>(4096);
-        try
-        {
-            {
-                using var output = new IndexOutput(temporaryPath, durable: true);
-                using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.FieldLengthVersion);
-                scope.Output.WriteInt32(allFields.Count);
-                foreach (var (fieldName, lengths) in allFields)
-                {
-                    fieldBuf.Clear();
-                    FieldLengthWriter.WriteFieldBlock(fieldBuf, fieldName, lengths);
-                    scope.Output.WriteBytes(fieldBuf.WrittenSpan);
-                }
-            }
-            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
-        }
-        catch { TryDeleteTemporaryFile(temporaryPath); throw; }
+        var fields = new Dictionary<string, int[]>(allFields.Count, StringComparer.Ordinal);
+        foreach (var (fieldName, lengths) in allFields)
+            fields.Add(fieldName, lengths);
+        FieldLengthWriter.Write(targetPath, fields, durable: true);
     }
 
     private static List<PostingRow> ReadPostingRows(IndexInput input, long offset)
@@ -1123,7 +1205,7 @@ public static class IndexCodecMigrator
         return rows;
     }
 
-    private static void WritePositionRows(IndexOutput output, List<PostingRow> postings, bool hasPayloads)
+    private static void WritePositionRows(ISequentialIndexOutput output, List<PostingRow> postings, bool hasPayloads)
     {
         foreach (var posting in postings)
         {
@@ -1165,7 +1247,7 @@ public static class IndexCodecMigrator
 
         try
         {
-            using (var reader = StoredFieldsReader.Open(sourceBase + ".fdt", sourceBase + ".fdx"))
+            using (var reader = StoredFieldsReader.OpenForMigration(sourceBase + ".fdt", sourceBase + ".fdx"))
             {
                 StoredFieldsWriter.Write(
                     temporaryFdtPath,
@@ -1186,6 +1268,144 @@ public static class IndexCodecMigrator
         }
     }
 
+    private static void RewriteTermVectors(string targetDirectory, IndexCodecMigrationAction action, IReadOnlyDictionary<string, string> segmentIdMap)
+    {
+        if (action.SegmentId is null)
+            throw new InvalidDataException($"Term vectors action for '{action.SourcePath}' has no segment ID.");
+
+        var sourceSegmentId = action.SegmentId;
+        if (!segmentIdMap.TryGetValue(sourceSegmentId, out var targetSegmentId))
+            targetSegmentId = sourceSegmentId;
+
+        var sourceBase = Path.Combine(targetDirectory, sourceSegmentId);
+        var targetBase = Path.Combine(targetDirectory, targetSegmentId);
+        var tvdPath = targetBase + ".tvd";
+        var tvxPath = targetBase + ".tvx";
+        var temporaryTvdPath = tvdPath + ".tmp";
+        var temporaryTvxPath = tvxPath + ".tmp";
+
+        try
+        {
+            using (var reader = TermVectorsReader.OpenForMigration(sourceBase + ".tvd", sourceBase + ".tvx"))
+            using (var writer = new TermVectorsStreamWriter(temporaryTvdPath, temporaryTvxPath))
+            {
+                for (int docId = 0; docId < reader.DocCount; docId++)
+                    writer.AddDocument(reader.GetTermVector(docId));
+            }
+
+            FileOpenRetry.Move(temporaryTvdPath, tvdPath, overwrite: true);
+            FileOpenRetry.Move(temporaryTvxPath, tvxPath, overwrite: true);
+        }
+        catch
+        {
+            TryDeleteTemporaryFile(temporaryTvdPath);
+            TryDeleteTemporaryFile(temporaryTvxPath);
+            throw;
+        }
+    }
+
+    private static void RewriteBkd(string sourcePath, string targetPath)
+    {
+        var fields = new Dictionary<string, List<(double Value, int DocId)>>(StringComparer.Ordinal);
+        using (var reader = BKDReader.Open(sourcePath))
+        {
+            foreach (string field in reader.FieldNames)
+            {
+                var points = new List<(double Value, int DocId)>();
+                reader.VisitRange(field, double.NegativeInfinity, double.PositiveInfinity,
+                    (docId, value) => points.Add((value, docId)));
+                fields.Add(field, points);
+            }
+        }
+
+        string temporaryPath = targetPath + ".tmp";
+        try
+        {
+            BKDWriter.Write(temporaryPath, fields);
+            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
+        }
+        catch
+        {
+            TryDeleteTemporaryFile(temporaryPath);
+            throw;
+        }
+    }
+
+    private static void RewriteInt64Bkd(string sourcePath, string targetPath)
+    {
+        var fields = new Dictionary<string, List<(long Value, int DocId)>>(StringComparer.Ordinal);
+        using (var reader = Int64BKDReader.Open(sourcePath))
+        {
+            foreach (string field in reader.FieldNames)
+            {
+                var points = new List<(long Value, int DocId)>();
+                reader.VisitRange(field, long.MinValue, long.MaxValue,
+                    (docId, value) => points.Add((value, docId)));
+                fields.Add(field, points);
+            }
+        }
+
+        string temporaryPath = targetPath + ".tmp";
+        try
+        {
+            Int64BKDWriter.Write(temporaryPath, fields);
+            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
+        }
+        catch
+        {
+            TryDeleteTemporaryFile(temporaryPath);
+            throw;
+        }
+    }
+
+    private static void RewriteNumericIndex(string sourcePath, string targetPath)
+    {
+        Dictionary<string, Dictionary<int, double>> fields;
+        using (var input = new IndexInput(sourcePath))
+            fields = NumericIndexCodec.ReadDouble(input);
+        RewriteSidecar(targetPath, temporaryPath => NumericIndexCodec.WriteDouble(temporaryPath, fields));
+    }
+
+    private static void RewriteInt64NumericIndex(string sourcePath, string targetPath)
+    {
+        Dictionary<string, Dictionary<int, long>> fields;
+        using (var input = new IndexInput(sourcePath))
+            fields = NumericIndexCodec.ReadInt64(input);
+        RewriteSidecar(targetPath, temporaryPath => NumericIndexCodec.WriteInt64(temporaryPath, fields));
+    }
+
+    private static void RewriteParentBitSet(string sourcePath, string targetPath)
+    {
+        var bitSet = ParentBitSet.ReadFrom(sourcePath);
+        RewriteSidecar(targetPath, bitSet.WriteTo);
+    }
+
+    private static void RewriteLiveDocs(MigrationRewriteContext context)
+    {
+        if (context.Action.SegmentId is null)
+            throw new InvalidDataException($"Live-docs action for '{context.Action.SourcePath}' has no segment ID.");
+
+        var segmentPath = Path.Combine(context.TargetDirectory, context.Action.SegmentId + ".seg");
+        var segmentInfo = SegmentInfo.ReadFrom(segmentPath);
+        var liveDocs = LiveDocs.Deserialise(context.SourcePath, segmentInfo.DocCount);
+        LiveDocs.Serialise(context.TargetPath, liveDocs, durable: true);
+    }
+
+    private static void RewriteSidecar(string targetPath, Action<string> write)
+    {
+        string temporaryPath = targetPath + ".tmp";
+        try
+        {
+            write(temporaryPath);
+            FileOpenRetry.Move(temporaryPath, targetPath, overwrite: true);
+        }
+        catch
+        {
+            TryDeleteTemporaryFile(temporaryPath);
+            throw;
+        }
+    }
+
 
     private static void TryDeleteTemporaryFile(string path)
     {
@@ -1201,33 +1421,187 @@ public static class IndexCodecMigrator
         }
     }
 
-    private static void AddActions(IEnumerable<CodecFileInventory> files, List<IndexCodecMigrationAction> actions)
+    private static void AddActions(IEnumerable<CodecFileInventory> inventoryFiles, CodecCatalog catalog, List<IndexCodecMigrationAction> actions)
     {
+        var files = inventoryFiles.ToArray();
+        var coordinated = new HashSet<string>(StringComparer.Ordinal);
         foreach (var file in files)
         {
-            if (file.Version is null ||
-                file.CurrentVersion is null ||
+            if (file.FormatId is null ||
+                file.FormatVersion is null ||
+                file.CurrentFormatVersion is null ||
                 file.IsCurrent ||
                 !file.HasValidMagic ||
-                !file.IsSupported)
+                !file.IsSupported ||
+                !catalog.TryGetFile(file.FormatId, out var descriptor) || descriptor is null)
             {
                 continue;
             }
 
-            bool canExecute = ExecutableRewriteExtensions.Contains(file.Extension);
+            var behaviour = GetMigrationBehaviour(descriptor, file.FormatVersion);
+            if (behaviour == CodecMigrationBehaviour.None)
+                continue;
+
+            var actionFiles = new[] { file };
+            if (behaviour == CodecMigrationBehaviour.CoordinatedRewrite)
+            {
+                var key = $"{descriptor.FamilyId}:{file.SegmentId}:{file.CompoundFileName}";
+                if (!coordinated.Add(key))
+                    continue;
+
+                actionFiles = files
+                    .Where(candidate => candidate.FamilyId == descriptor.FamilyId &&
+                                        candidate.SegmentId == file.SegmentId &&
+                                        candidate.CompoundFileName == file.CompoundFileName)
+                    .ToArray();
+            }
+
+            bool hasFamilyCoordinator = catalog.TryGetFamily(descriptor.FamilyId, out var family) &&
+                                        family?.MigrationCoordinator is not null;
+            bool canExecute = behaviour is not CodecMigrationBehaviour.Unsupported
+                && (behaviour == CodecMigrationBehaviour.Reframe ||
+                    descriptor.MigrationHandler is not null ||
+                    hasFamilyCoordinator ||
+                    BuiltInMigrationWriters.ContainsKey(descriptor.FormatId));
+            string subject = behaviour == CodecMigrationBehaviour.CoordinatedRewrite
+                ? $"{descriptor.FamilyId} files for segment '{file.SegmentId}'"
+                : file.FileName;
             actions.Add(new IndexCodecMigrationAction
             {
-                Kind = IndexCodecMigrationActionKind.RewriteFile,
+                Kind = !canExecute
+                    ? IndexCodecMigrationActionKind.Unsupported
+                    : behaviour switch
+                    {
+                        CodecMigrationBehaviour.Reframe => IndexCodecMigrationActionKind.Reframe,
+                        CodecMigrationBehaviour.CoordinatedRewrite => IndexCodecMigrationActionKind.CoordinatedRewrite,
+                        _ => IndexCodecMigrationActionKind.Rewrite,
+                    },
                 SourcePath = file.FileName,
+                SourcePaths = actionFiles.Select(static candidate => candidate.FileName).ToArray(),
                 TargetPath = null,
-                Description = $"Rewrite {file.FileName} from {file.CodecName} v{file.Version} to v{file.CurrentVersion}.",
+                Description = $"Rewrite {subject} from {file.CodecName} v{file.FormatVersion} to v{file.CurrentFormatVersion}.",
                 CanExecute = canExecute,
-                ReasonCannotExecute = canExecute ? null : $"No migration writer is registered for {file.CodecName}.",
+                ReasonCannotExecute = canExecute ? null : $"No migration writer is registered for codec format '{descriptor.FormatId}'.",
                 SegmentId = file.SegmentId,
                 FileName = file.FileName,
+                FormatId = descriptor.FormatId,
+                FamilyId = descriptor.FamilyId,
+                CompoundFileName = file.CompoundFileName,
                 FromVersion = file.Version,
                 ToVersion = file.CurrentVersion
             });
+        }
+    }
+
+    private static CodecMigrationBehaviour GetMigrationBehaviour(CodecFileDescriptor descriptor, int? version)
+    {
+        if (version is int concreteVersion)
+        {
+            foreach (var supported in descriptor.SupportedVersions)
+            {
+                if (supported.Version == concreteVersion)
+                    return supported.MigrationBehaviour;
+            }
+        }
+
+        return descriptor.MigrationBehaviour;
+    }
+
+    private static void RewriteWithDescriptorHandler(MigrationRewriteContext context)
+    {
+        var temporaryBodyPath = context.TargetPath + ".body.tmp";
+        try
+        {
+            using (var source = new IndexInput(context.SourcePath))
+            using (var frame = CodecFileReader.OpenSupported(source, context.Descriptor))
+            using (var body = new IndexInput(context.SourcePath, frame.BodyStart, frame.BodyLength))
+            using (var targetBody = new IndexOutput(temporaryBodyPath, durable: true))
+            {
+                context.Descriptor.MigrationHandler!.Migrate(body, targetBody);
+            }
+
+            CodecFileWriter.WriteAtomically(context.TargetPath, context.Descriptor, durable: true, target =>
+            {
+                using var body = new IndexInput(temporaryBodyPath);
+                long remaining = body.Length;
+                while (remaining > 0)
+                {
+                    int count = (int)Math.Min(64 * 1024, remaining);
+                    target.WriteBytes(body.BorrowSpan(count));
+                    remaining -= count;
+                }
+            });
+        }
+        finally
+        {
+            TryDeleteTemporaryFile(temporaryBodyPath);
+        }
+    }
+
+    private static void RewriteWithFamilyCoordinator(
+        MigrationRewriteContext context,
+        CodecFamilyDescriptor family)
+    {
+        var sourceBodies = new Dictionary<string, IndexInput>(StringComparer.Ordinal);
+        var targetBodies = new Dictionary<string, IndexOutput>(StringComparer.Ordinal);
+        var targetFiles = new Dictionary<string, (string Path, string BodyPath, CodecFileDescriptor Descriptor)>(StringComparer.Ordinal);
+        try
+        {
+            foreach (var sourceFileName in context.Action.SourcePaths)
+            {
+                if (!context.Catalog.TryMatchFile(sourceFileName, out var descriptor) ||
+                    descriptor is null ||
+                    descriptor.FamilyId != family.FamilyId)
+                {
+                    throw new InvalidDataException(
+                        $"Coordinated migration for family '{family.FamilyId}' cannot resolve source file '{sourceFileName}'.");
+                }
+
+                var sourcePath = Path.Combine(context.TargetDirectory, sourceFileName);
+                using var source = new IndexInput(sourcePath);
+                using var frame = CodecFileReader.OpenSupported(source, descriptor);
+                if (!sourceBodies.TryAdd(descriptor.FormatId, frame.OpenBodyInput()))
+                {
+                    throw new InvalidDataException(
+                        $"Coordinated migration family '{family.FamilyId}' has multiple files for format '{descriptor.FormatId}'.");
+                }
+
+                var targetFileName = GetTargetFileName(sourceFileName, context.Action.SegmentId, context.SegmentIdMap);
+                var targetPath = Path.Combine(context.TargetDirectory, targetFileName);
+                var bodyPath = targetPath + ".family-body.tmp";
+                targetFiles.Add(descriptor.FormatId, (targetPath, bodyPath, descriptor));
+                targetBodies.Add(descriptor.FormatId, new IndexOutput(bodyPath, durable: true));
+            }
+
+            family.MigrationCoordinator!.Migrate(sourceBodies, targetBodies);
+            foreach (var output in targetBodies.Values)
+                output.Dispose();
+            targetBodies.Clear();
+
+            foreach (var target in targetFiles.Values)
+            {
+                CodecFileWriter.WriteAtomically(target.Path, target.Descriptor, durable: true, output =>
+                {
+                    using var body = new IndexInput(target.BodyPath);
+                    long remaining = body.Length;
+                    while (remaining > 0)
+                    {
+                        int count = (int)Math.Min(64 * 1024, remaining);
+                        output.WriteBytes(body.BorrowSpan(count));
+                        remaining -= count;
+                    }
+                });
+                context.RewrittenTargetPaths.Add(target.Path);
+            }
+        }
+        finally
+        {
+            foreach (var input in sourceBodies.Values)
+                input.Dispose();
+            foreach (var output in targetBodies.Values)
+                output.Dispose();
+            foreach (var target in targetFiles.Values)
+                TryDeleteTemporaryFile(target.BodyPath);
         }
     }
 
@@ -1238,4 +1612,14 @@ public static class IndexCodecMigrator
             StringComparison.OrdinalIgnoreCase);
 
     private sealed record PostingRow(int DocId, int Frequency, int[] Positions, byte[][] Payloads);
+
+    private sealed record MigrationRewriteContext(
+        string TargetDirectory,
+        string SourcePath,
+        string TargetPath,
+        IndexCodecMigrationAction Action,
+        CodecFileDescriptor Descriptor,
+        CodecCatalog Catalog,
+        IReadOnlyDictionary<string, string> SegmentIdMap,
+        HashSet<string> RewrittenTargetPaths);
 }

@@ -25,9 +25,9 @@ internal static class PostingsWriter
             prev = docIds[i];
         }
 
-        using var output = new IndexOutput(filePath);
-        using var scope = CodecFileHeader.BeginStreamingWrite(output, CodecConstants.PostingsVersion);
-        output.WriteBytes(bodyBuf.WrittenSpan);
+        var descriptor = CodecCatalog.Default.GetFile("leancorpus.postings.data");
+        CodecFileWriter.WriteAtomically(filePath, descriptor, durable: false,
+            body => body.WriteBytes(bodyBuf.WrittenSpan));
     }
 
     /// <summary>Writes a non-negative integer using variable-length encoding (LEB128).</summary>

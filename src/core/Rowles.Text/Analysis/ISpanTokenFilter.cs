@@ -25,6 +25,28 @@ public interface ISpanTokenFilter
         ISpanTokenSink sink);
 
     /// <summary>
+    /// Applies the filter to a token edge with an explicit position length.
+    /// </summary>
+    /// <remarks>
+    /// Legacy filter implementations are adapted by preserving their input edge length.
+    /// Graph-producing filters must override this member when they create new edges.
+    /// </remarks>
+    void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        int positionLength,
+        byte[]? payload,
+        ISpanTokenSink sink)
+    {
+        Token.ValidatePositionLength(positionLength);
+        Apply(text, startOffset, endOffset, type, positionIncrement, payload,
+            new PositionLengthForwardingSink(sink, positionLength));
+    }
+
+    /// <summary>
     /// Called after all tokens have been processed, allowing stateful filters to flush
     /// buffered tokens into the pipeline. The default implementation is a no-op.
     /// </summary>

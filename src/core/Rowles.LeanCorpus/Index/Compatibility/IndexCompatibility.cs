@@ -20,9 +20,14 @@ public static class IndexCompatibility
         ArgumentNullException.ThrowIfNull(directory);
         options ??= new IndexCompatibilityOptions();
 
-        var inventory = IndexFormatInspector.Inspect(directory);
-        var validation = IndexValidator.Check(directory, new IndexCheckOptions { Deep = options.DeepValidation });
-        var migrationPlan = IndexCodecMigrator.Plan(inventory);
+        var catalog = options.Catalog ?? throw new ArgumentException("The codec catalogue cannot be null.", nameof(options));
+        var inventory = IndexFormatInspector.Inspect(directory, new IndexFormatInspectionOptions { Catalog = catalog });
+        var validation = IndexValidator.Check(directory, new IndexCheckOptions
+        {
+            Deep = options.DeepValidation,
+            Catalog = catalog
+        });
+        var migrationPlan = IndexCodecMigrator.Plan(inventory, catalog);
 
         var issues = new List<IndexCheckIssue>(migrationPlan.Inventory.Issues);
         foreach (var issue in validation.DetailedIssues)
@@ -46,6 +51,7 @@ public static class IndexCompatibility
         var status = DetermineStatus(
             hasNoCommit,
             migrationPlan.Inventory.HasUnsupportedFutureFormat,
+            migrationPlan.Inventory.HasUnknownFormat,
             hasValidationErrors,
             hasMigrationActions,
             migrationPlan.CanExecute,
@@ -58,7 +64,7 @@ public static class IndexCompatibility
             CanWrite = status is IndexCompatibilityStatus.Empty or IndexCompatibilityStatus.Compatible,
             CanValidate = status is not IndexCompatibilityStatus.UnsupportedFutureFormat,
             CanMigrate = hasMigrationActions && migrationPlan.CanExecute,
-            MustReject = status is IndexCompatibilityStatus.UnsupportedFutureFormat or IndexCompatibilityStatus.Corrupt,
+            MustReject = status is IndexCompatibilityStatus.UnsupportedFutureFormat or IndexCompatibilityStatus.UnknownFormat or IndexCompatibilityStatus.Corrupt,
             RequiresMigration = status is IndexCompatibilityStatus.MigrationRequired,
             Inventory = migrationPlan.Inventory,
             Issues = issues,
@@ -69,6 +75,7 @@ public static class IndexCompatibility
     private static IndexCompatibilityStatus DetermineStatus(
         bool hasNoCommit,
         bool hasUnsupportedFutureFormat,
+        bool hasUnknownFormat,
         bool hasValidationErrors,
         bool hasMigrationActions,
         bool canExecuteMigration,
@@ -78,6 +85,8 @@ public static class IndexCompatibility
             return IndexCompatibilityStatus.Empty;
         if (hasUnsupportedFutureFormat)
             return IndexCompatibilityStatus.UnsupportedFutureFormat;
+        if (hasUnknownFormat)
+            return IndexCompatibilityStatus.UnknownFormat;
         if (hasValidationErrors)
             return IndexCompatibilityStatus.Corrupt;
         if (hasMigrationActions && (!options.AllowSupportedOlderFormats || options.RequireCurrentFormats || !canExecuteMigration))

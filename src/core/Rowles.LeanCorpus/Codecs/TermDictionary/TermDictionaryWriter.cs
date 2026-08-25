@@ -1,6 +1,5 @@
 using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.Fst;
 using Rowles.LeanCorpus.Store;
 
@@ -18,8 +17,7 @@ internal static class TermDictionaryWriter
         bool durable = false, bool dropPageCache = false)
     {
         var blob = BuildFst(sortedTerms, postingsOffsets);
-        using var output = new IndexOutput(filePath, durable, dropPageCache);
-        CodecFileHeader.Write(output, CodecFormats.TermDictionary, blob);
+        WriteBlob(filePath, blob, durable, dropPageCache);
     }
 
     /// <summary>
@@ -28,8 +26,13 @@ internal static class TermDictionaryWriter
     /// </summary>
     internal static void WriteBlob(string filePath, byte[] fstBlob, bool durable = false, bool dropPageCache = false)
     {
-        using var output = new IndexOutput(filePath, durable, dropPageCache);
-        CodecFileHeader.Write(output, CodecFormats.TermDictionary, fstBlob);
+        var descriptor = CodecCatalog.Default.GetFile("leancorpus.term-dictionary.data");
+        CodecFileWriter.WriteAtomically(
+            filePath,
+            descriptor,
+            durable,
+            body => body.WriteBytes(fstBlob),
+            dropPageCache);
     }
 
     private static byte[] BuildFst(List<string> sortedTerms, Dictionary<string, long> postingsOffsets)
@@ -86,7 +89,6 @@ internal static class TermDictionaryWriter
         foreach (var (key, offset) in sortedPairs)
             builder.Add(key, offset);
 
-        using var output = new IndexOutput(filePath, durable);
-        CodecFileHeader.Write(output, CodecFormats.TermDictionary, builder.Finish());
+        WriteBlob(filePath, builder.Finish(), durable);
     }
 }

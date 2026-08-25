@@ -1,6 +1,5 @@
 using System.Buffers;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.Bkd;
@@ -21,16 +20,16 @@ internal static class BKDWriter
             throw new ArgumentOutOfRangeException(nameof(maxLeafSize), maxLeafSize,
                 "maxLeafSize must be at least 2. Values below 2 degenerate the tree into a single flat leaf node.");
 
-        var bodyBuf = new ArrayBufferWriter<byte>(4096);
-        bodyBuf.WriteInt32(fieldPoints.Count);
+        using var output = new IndexOutput(filePath);
+        using var frame = CodecFileWriter.Begin(output, BkdCodecFiles.Double);
+        frame.Output.WriteInt32(fieldPoints.Count);
         foreach (var (field, points) in fieldPoints)
         {
-            bodyBuf.WriteString(field);
+            frame.Output.WriteString(field);
             points.Sort((a, b) => a.Value.CompareTo(b.Value));
-            WriteNode(bodyBuf, points, 0, points.Count, maxLeafSize);
+            WriteNode(frame.Output, points, 0, points.Count, maxLeafSize);
         }
-        using var output = new IndexOutput(filePath);
-        CodecFileHeader.Write(output, CodecFormats.Bkd, bodyBuf.WrittenSpan);
+        frame.Complete();
     }
 
     private static void WriteNode(IBufferWriter<byte> writer, List<(double Value, int DocId)> points, int start, int end, int maxLeafSize)

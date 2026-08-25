@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using System.Runtime.ExceptionServices;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
@@ -38,9 +39,9 @@ public sealed partial class IndexWriter : IDisposable
     private int _preparedGeneration = -1;
     private List<SegmentInfo>? _preparedSegments;
     private long _preparedContentToken;
+    private long _preparedRollbackContentToken;
     private readonly List<SegmentInfo> _committedSegments = [];
     private readonly PendingDeleteQueue _deleteQueue = new();
-    private readonly Dictionary<string, FileSyncState> _syncedFileStates = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _fieldOrdinals = new(StringComparer.Ordinal);
 
     // --- Backpressure state ---
@@ -79,6 +80,7 @@ public sealed partial class IndexWriter : IDisposable
     private int _closing;       // 0 = open, 1 = Dispose has started draining (prevents TOCTOU)
     private int _inFlightAdds;  // count of indexing callers that passed the disposed-check gate
     private int _indexingFailed;
+    private Exception? _indexingFailure;
     private readonly Stream _writeLockFile;
 
     /// <summary>
@@ -129,7 +131,6 @@ public sealed partial class IndexWriter : IDisposable
 
         // Load existing commit state if present
         CommitManager.LoadLatestCommit(this);
-        CaptureExistingFileSyncState();
         DwptManager.InitialiseDwptPool(this);
 
         // Start async write consumer
@@ -143,14 +144,6 @@ public sealed partial class IndexWriter : IDisposable
 
     public long NextSequenceNumber => Volatile.Read(ref _nextSequenceNumber);
 
-    private void CaptureExistingFileSyncState()
-    {
-        foreach (var filePath in FileOpenRetry.GetFiles(_directory.DirectoryPath, "*"))
-        {
-            var metadata = FileOpenRetry.GetFileMetadata(filePath);
-            _syncedFileStates[filePath] = new FileSyncState(metadata.Length, metadata.LastWriteTimeUtc.Ticks);
-        }
-    }
     public bool HasPreparedCommit => _preparedGeneration >= 0;
 
     /// <summary>Adds one document to the index.</summary>
@@ -194,16 +187,18 @@ public sealed partial class IndexWriter : IDisposable
             {
                 lock (_writeLock)
                 {
-                    int preFlushSegmentCount = _committedSegments.Count;
-
                     DwptManager.WaitForPendingFlushes(this);
                     DwptManager.FlushDwptPool(this);
                     if (_buffer.DocCount > 0)
                         FlushSegment();
 
                     QueueDelete(field, term, isSoftDelete: false);
+                    // Flushes can materialise documents targeted by earlier deletes.
+                    // Apply the complete queue to every committed segment so those
+                    // deletes are not cleared before the newly materialised segment
+                    // is examined.
                     DeletionApplier.ApplyPendingDeletions(
-                        _deleteQueue, _committedSegments.GetRange(0, preFlushSegmentCount),
+                        _deleteQueue, _committedSegments,
                         _directory, _commitGeneration, _config.DurableCommits, _config.Metrics);
                     enteredCore = true;
                     DwptManager.AddDocument(this, replacement);
@@ -225,6 +220,7 @@ public sealed partial class IndexWriter : IDisposable
     public void SoftDeleteDocuments(TermQuery query)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ThrowIfIndexingFailed();
         if (!_config.SoftDeletesEnabled)
             throw new InvalidOperationException(
                 "SoftDeletesEnabled must be true in IndexWriterConfig to use SoftDeleteDocuments.");
@@ -257,8 +253,11 @@ public sealed partial class IndexWriter : IDisposable
                     foreach (var (f, t) in terms)
                         QueueDelete(f, t, isSoftDelete: false);
 
+                    // Flushing can materialise documents targeted by earlier deletes.
+                    // Apply the complete queue to every committed segment before it is
+                    // cleared, including segments materialised by this update.
                     DeletionApplier.ApplyPendingDeletions(
-                        _deleteQueue, _committedSegments.GetRange(0, preFlushSegmentCount),
+                        _deleteQueue, _committedSegments,
                         _directory, _commitGeneration, _config.DurableCommits, _config.Metrics);
                     enteredCore = true;
                     DwptManager.AddDocument(this, replacement);
@@ -336,7 +335,8 @@ public sealed partial class IndexWriter : IDisposable
         {
             var recovery = IndexRecovery.RecoverLatestCommit(
                 sourceDirectory.DirectoryPath,
-                cleanupOrphans: false);
+                cleanupOrphans: false,
+                catalog: _config.CodecCatalog);
             if (recovery is null)
                 throw new InvalidDataException(
                     $"No valid commit found in source directory '{sourceDirectory.DirectoryPath}'.");
@@ -345,7 +345,8 @@ public sealed partial class IndexWriter : IDisposable
                 sourceDirectory,
                 recovery.SegmentIds,
                 _config.CompatibilityMode,
-                forWriting: false);
+                forWriting: false,
+                _config.CodecCatalog);
 
             var sourceSegments = new List<SegmentInfo>();
             foreach (var segId in recovery.SegmentIds)
@@ -508,49 +509,88 @@ public sealed partial class IndexWriter : IDisposable
         // Prevent new callers from entering while we drain in-flight operations.
         Volatile.Write(ref _closing, 1);
 
+        Exception? failure = null;
+        try
+        {
+            DrainIndexingOperations();
+
+            // Drain any pending detached flushes and publish their segments.
+            lock (_writeLock)
+                DwptManager.WaitForPendingFlushes(this);
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
+        finally
+        {
+            DisposeResources(ref failure);
+        }
+
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    private void DrainIndexingOperations()
+    {
         var spinWait = new SpinWait();
         const long drainTimeoutTicks = 30 * TimeSpan.TicksPerSecond;
         long started = Environment.TickCount64;
         while (Volatile.Read(ref _inFlightAdds) != 0)
         {
             spinWait.SpinOnce();
-            if (spinWait.NextSpinWillYield)
+            if (!spinWait.NextSpinWillYield)
+                continue;
+
+            if (Environment.TickCount64 - started > drainTimeoutTicks)
             {
-                if (Environment.TickCount64 - started > drainTimeoutTicks)
-                {
-                    Diagnostics.LeanCorpusActivitySource.TraceSwallowed(
-                        new TimeoutException(
-                            $"IndexWriter.Dispose timed out after 30 seconds waiting for " +
-                            $"{Volatile.Read(ref _inFlightAdds)} in-flight indexing operation(s) to complete."),
-                        "dispose-drain-timeout");
-                    MarkIndexingFailed();
-                    break;
-                }
-                Thread.Sleep(1);
+                Diagnostics.LeanCorpusActivitySource.TraceSwallowed(
+                    new TimeoutException(
+                        $"IndexWriter.Dispose timed out after 30 seconds waiting for " +
+                        $"{Volatile.Read(ref _inFlightAdds)} in-flight indexing operation(s) to complete."),
+                    "dispose-drain-timeout");
+                MarkIndexingFailed();
+                return;
             }
+            Thread.Sleep(1);
         }
+    }
 
-        // Drain any pending detached flushes and publish their segments
-        lock (_writeLock)
-            DwptManager.WaitForPendingFlushes(this);
-
-        _mergeCts.Cancel();
+    private void DisposeResources(ref Exception? failure)
+    {
+        CaptureDisposeFailure(ref failure, _mergeCts.Cancel, "dispose-cancel-merges");
         try { _mergeTask?.Wait(); }
         catch (AggregateException) { /* Expected: merge task cancelled during shutdown */ }
         catch (ObjectDisposedException) { /* CTS already disposed */ }
         catch (TaskSchedulerException) { /* Task was rejected by scheduler during shutdown */ }
-        _mergeCts.Dispose();
+        CaptureDisposeFailure(ref failure, _mergeCts.Dispose, "dispose-merge-cancellation");
 
-        _backpressureSemaphore?.Dispose();
-        _flushSemaphore?.Dispose();
+        CaptureDisposeFailure(ref failure, () => _backpressureSemaphore?.Dispose(), "dispose-backpressure");
+        CaptureDisposeFailure(ref failure, () => _flushSemaphore?.Dispose(), "dispose-flush-semaphore");
 
-
-        _asyncWriteChannel.Writer.Complete();
+        CaptureDisposeFailure(ref failure, () => { _asyncWriteChannel.Writer.Complete(); }, "dispose-async-writes");
         try { _asyncWriteConsumer.Wait(TimeSpan.FromSeconds(30)); }
         catch (AggregateException) { }
-        _writeLockFile.Dispose();
+        CaptureDisposeFailure(ref failure, _writeLockFile.Dispose, "dispose-write-lock-handle");
+
         var lockPath = Path.Combine(_directory.DirectoryPath, "write.lock");
-        try { FileOpenRetry.Delete(lockPath); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "write-lock file delete"); }
+        try { FileOpenRetry.Delete(lockPath); }
+        catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "write-lock file delete"); }
+    }
+
+    private static void CaptureDisposeFailure(ref Exception? failure, Action action, string operation)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex)
+        {
+            if (failure is null)
+                failure = ex;
+            else
+                Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, operation);
+        }
     }
 
     internal void EnterIndexingOperation()
@@ -564,8 +604,7 @@ public sealed partial class IndexWriter : IDisposable
             if (Volatile.Read(ref _closing) != 0)
                 throw new ObjectDisposedException(nameof(IndexWriter),
                     "The writer is shutting down. No new indexing operations are accepted.");
-            throw new InvalidOperationException(
-                "The writer is unusable because an indexing operation failed after mutating the in-memory buffer. Dispose the writer and reopen from the last commit.");
+            throw CreateIndexingFailureException();
         }
     }
 
@@ -574,10 +613,23 @@ public sealed partial class IndexWriter : IDisposable
         Interlocked.Decrement(ref _inFlightAdds);
     }
 
-    internal void MarkIndexingFailed()
+    internal void MarkIndexingFailed(Exception? failure = null)
     {
+        if (failure is not null)
+            Interlocked.CompareExchange(ref _indexingFailure, failure, null);
         Volatile.Write(ref _indexingFailed, 1);
     }
+
+    internal void ThrowIfIndexingFailed()
+    {
+        if (Volatile.Read(ref _indexingFailed) != 0)
+            throw CreateIndexingFailureException();
+    }
+
+    private InvalidOperationException CreateIndexingFailureException()
+        => new(
+            "The writer is unusable after an unrecoverable failure. Dispose the writer and reopen from the last commit.",
+            Volatile.Read(ref _indexingFailure));
 
     internal void ValidateDocument(LeanDocument doc)
     {
@@ -754,6 +806,7 @@ public sealed partial class IndexWriter : IDisposable
     internal ref bool ContentChangedSinceCommit => ref _contentChangedSinceCommit;
     internal ref int PreparedGeneration => ref _preparedGeneration;
     internal ref long PreparedContentToken => ref _preparedContentToken;
+    internal ref long PreparedRollbackContentToken => ref _preparedRollbackContentToken;
     internal ref List<SegmentInfo>? PreparedSegments => ref _preparedSegments;
     internal ref int FlushElection => ref _flushElection;
     internal ref int SemaphoreSlotsHeld => ref _semaphoreSlotsHeld;
@@ -779,7 +832,6 @@ public sealed partial class IndexWriter : IDisposable
         return ordinal;
     }
     internal Dictionary<string, int> FieldOrdinals => _fieldOrdinals;
-    internal Dictionary<string, FileSyncState> SyncedFileStates => _syncedFileStates;
     internal List<IndexSnapshot> HeldSnapshots => _heldSnapshots;
     internal DocumentsWriterPerThread[]? DwptPool { get => _dwptPool; set => _dwptPool = value; }
     internal SemaphoreSlim? BackpressureSemaphore => _backpressureSemaphore;
@@ -788,5 +840,3 @@ public sealed partial class IndexWriter : IDisposable
     internal ref int ActiveFlushCount => ref _activeFlushCount;
     internal SemaphoreSlim? FlushSemaphore => _flushSemaphore;
 }
-
-internal readonly record struct FileSyncState(long Length, long LastWriteTimeUtcTicks);

@@ -1,80 +1,105 @@
 # CodecKit
 
-CodecKit is the internal serialisation framework that every LeanCorpus codec file format is built on. It handles versioned envelopes, checksumming, compression, and recovery.
+CodecKit has two related jobs:
 
-This section is for contributors adding or evolving codec formats. End users don't need to touch CodecKit directly.
+1. `ICodec<T>` composes in-memory values into binary bodies.
+2. `CodecCatalog` describes every persistent LeanCorpus file role, while canonical Frame v1 identifies and protects current binary files.
+
+The catalogue is the authority for persistent format IDs, body-format versions, file matching, access patterns, checksums and migration policy. Fixed internal version envelopes remain only for reading supported 2.x files.
 
 ## Key types
 
 | Type | Role |
 |---|---|
-| `ICodec<T>` | Central interface: `Encode(T, IBufferWriter<byte>, CodecContext)` and `Decode(ref SequenceReader<byte>, CodecContext)` |
-| `Codec` | Static entry point with `Encode`, `Decode`, `TryEncode`, `TryDecode`, `EncodeToArray` |
-| `CodecFileHeader` | Wraps a codec body in `[version:byte][VarInt64 bodyLen][body]` |
-| `CodecFormat` | Maps a codec ID (e.g. `"pos"`, `"nrm"`) to an ordered list of `CodecVersionStep`s |
-| `CodecVersionStep` | One version of a format: `(int Version, string Label, ICodec<byte[]> Reader)` |
-| `CodecMigrationRegistry` | Global registry of all codec formats, keyed by codec ID |
-| `CodecContext` | Per-operation mutable state: depth, path, offsets, scratch buffers, checkpoints |
-| `CodecOptions` | Immutable config: max frame bytes, max nesting depth, UTF-8 validation, etc. |
+| `ICodec<T>` | Immutable body encoder and decoder |
+| `CodecCatalog` | Immutable catalogue of persistent format families and file roles |
+| `CodecCatalogBuilder` | Builds and validates a catalogue snapshot |
+| `CodecFileDescriptor` | Stable format ID, matcher, versions, framing, checksum and migration policy |
+| `CodecFileWriter` | Streams a current body into canonical Frame v1 |
+| `CodecFileReader` | Opens canonical or explicitly supported legacy framing |
+| `CodecWriteSession` | Owns a streaming body output and finalises its footer |
+| `CodecBodyReadSession` | Exposes a bounded body and its detected version |
+| `CodecContext` | Per-operation paths, limits, scratch space and checkpoints |
+| `CodecOptions` | Immutable resource and materialisation limits |
 
-## How it fits in
+## Persistent write path
 
-```mermaid-latest
-flowchart LR
-    M[In-memory model] --> E[ICodec encode]
-    E --> W[Optional wrappers: length, compression, checksum]
-    W --> H[CodecFileHeader or streaming header]
-    H --> F[IndexOutput file]
-    F --> V[Read version and validate bounds]
-    V --> D[Version-step decode]
-    D --> RM[Decoded model]
+Normal flush, merge, direct and migration writers must call the same current writer. A typical streaming writer is:
+
+```csharp
+var descriptor = catalog.GetFile("example.product.data");
+CodecFileWriter.WriteAtomically(path, descriptor, durable: false, body =>
+{
+    body.WriteInt32(items.Count);
+    foreach (var item in items)
+        WriteItem(body, item);
+});
 ```
 
-At write time, a segment flusher builds the body bytes for most codec files (postings, doc values, etc.) and calls `CodecFileHeader.Write(output, CodecFormats.Postings, bodySpan)`. The header writes the current version byte and length-prefixed body. Stored fields (.fdt/.fdx) stream directly to `IndexOutput` via `StoredFieldsFileHeader` and only buffer block offsets for the index.
+Large bodies should be written incrementally. Do not assemble a postings, vector, BKD or stored-field file in one `byte[]` merely to add framing.
 
-At read time, `CodecFileHeader.ReadVersion(input, CodecFormats.Postings)` reads the version byte and dispatches to the correct `CodecVersionStep`'s reader codec.
+## Persistent read path
 
-CodecKit lives under `Rowles.LeanCorpus.Codecs.CodecKit`.
+Current readers use the descriptor and retain a bounded input where random access is required:
 
-The byte-level envelope and the exceptions to it are documented in [Storage formats](../storage-formats.md).
+```csharp
+var descriptor = catalog.GetFile("example.product.data");
+using var input = new IndexInput(path);
+using var frame = CodecFileReader.OpenSupported(input, descriptor);
 
-## File layout
-
+long bodyStart = frame.BodyStart;
+long bodyLength = frame.BodyLength;
 ```
-CodecKit/
-├── Codec.cs, ICodec.cs          # Entry point and interface
-├── CodecFileHeader.cs           # Envelope writer/reader
-├── CodecFormat.cs               # Format = codec ID + version steps
-├── CodecVersionStep.cs          # One version of a format
-├── CodecMigrationRegistry.cs    # Global format registry
-├── Codecs/                      # Codec definitions
-│   ├── CodecContext.cs          # Per-operation state
-│   ├── CodecOptions.cs          # Global limits
-│   ├── CodecResult.cs           # Success/failure struct
-│   ├── CodecFailure.cs          # Error details
-│   ├── RecordBuilder.cs         # Fluent builder for record codecs
-│   └── ...
-├── Internal/                    # Implementation codecs
-│   ├── RecordCodec.cs           # Composes N fields into one codec
-│   ├── VersionEnvelopeCodec.cs  # [version][length][body]
-│   ├── VersionedCodec.cs        # [version][body] (no length prefix)
-│   ├── ChoiceCodec.cs           # Tag-based discriminated union
-│   ├── WithChecksumCodec.cs     # Wraps inner codec with checksum
-│   ├── WithCompressionCodec.cs  # Wraps inner codec with deflate
-│   ├── LengthPrefixedCodec.cs   # [length][body]
-│   ├── OptionalCodec.cs         # [flag][body?]
-│   ├── RepeatCodec.cs           # Fixed/repeated elements
-│   └── ...
-├── Combinators/
-│   └── IndexedCodec.cs          # Eager header + lazy body via IndexInput
-├── Primitives/                  # Leaf codecs for scalar types
-│   ├── Int32LECodec.cs          # Little-endian 32-bit int
-│   ├── VarInt32Codec.cs         # Variable-length integer
-│   ├── Utf8StringCodec.cs       # Length-prefixed UTF-8 string
-│   └── ...
-├── Checksum/                    # Checksum algorithms
-├── Compression/                 # Compression level enum
-├── Recovery/                    # Frame scanning for corrupt data
-└── Formats/
-    └── CodecFormats.cs          # Built-in format registrations
+
+Opening is structural and does not automatically scan a large body checksum. Deep validation calls the checksum scan explicitly. Materialising readers call `ReadBody()`, which applies `CodecOptions.MaxMaterialisedBodyBytes`.
+
+## Canonical Frame v1
+
+All integers are little-endian.
+
+```text
+[magic: uint32 = LCCF]
+[frame-version: byte = 1]
+[format-id-length: byte]
+[format-version: int32]
+[flags: uint32 = 0]
+[checksum-algorithm: byte]
+[reserved: byte = 0]
+[format-id: lowercase ASCII]
+[body]
+[body-length: int64]
+[body-checksum: uint64]
 ```
+
+Frame version and body-format version are separate. Current built-in binary formats use xxHash64 over the body only. The footer must end at the physical or logical file boundary, so the same parser works for loose files and bounded compound members.
+
+## Logical files and compound storage
+
+`ISegmentFileSource` presents the same logical member interface for loose and compound segments. Inspection, compatibility and validation work on logical names and bounded inputs. Code that guesses a format from the `.cfs` container name is incorrect.
+
+## Pure codecs remain useful
+
+Frame v1 does not replace `ICodec<T>`. Primitives, record builders, optional values, checksums and compression combinators remain appropriate inside bodies or for non-persistent values. See [Creating codecs](01-creating-codecs.md).
+
+## Source layout
+
+```text
+Codecs/CodecKit/
+├── Catalog/                  immutable format catalogue and descriptors
+├── CodecFileFrame.cs         frame metadata and structured errors
+├── CodecFileWriter.cs        canonical streaming writer
+├── CodecFileReader.cs        canonical and supported-reader entry points
+├── LegacyCodecFileReader.cs  legacy envelope and trailer adapters
+├── Codecs/                   ICodec implementations and operation context
+├── Primitives/               scalar body codecs
+├── Combinators/              higher-level body composition
+└── Checksum/                 checksum providers and accumulators
+```
+
+## See also
+
+- [Adding persistent formats](02-adding-formats.md)
+- [Codec migrations](03-migrations.md)
+- [Storage formats](../storage-formats.md)
+- [ADR025: unified codec catalogue](../../articles/ADRs/ADR025-unified-codec-catalogue.md)
+- [ADR026: canonical binary file frame](../../articles/ADRs/ADR026-canonical-binary-file-frame.md)

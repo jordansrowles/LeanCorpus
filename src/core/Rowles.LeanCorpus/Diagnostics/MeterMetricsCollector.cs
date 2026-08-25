@@ -26,6 +26,9 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
     private readonly Histogram<double> _mergeDuration;
     private readonly Counter<long> _mergeSegments;
     private readonly Histogram<double> _commitDuration;
+    private readonly Histogram<double> _fileSyncDuration;
+    private readonly Counter<long> _fileSyncBytes;
+    private readonly Counter<long> _fileSyncFiles;
     private readonly Histogram<double> _hnswSearchDuration;
     private readonly Histogram<long> _hnswNodesVisited;
     private readonly Histogram<double> _hnswBuildDuration;
@@ -57,7 +60,11 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
     // ── Cache line 5: Commit ──
     private long _snCommitCount;
     private long _snCommitTotalMs;
-    private long _padSn5_0, _padSn5_1, _padSn5_2, _padSn5_3, _padSn5_4, _padSn5_5;
+    private long _snFileSyncOperationCount;
+    private long _snFileSyncTotalMs;
+    private long _snFileSyncBytes;
+    private long _snFileSyncFileCount;
+    private long _padSn5_0, _padSn5_1;
 
     // ── Cache line 6: HNSW ──
     private long _snHnswSearchCount;
@@ -123,6 +130,16 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
         _commitDuration = _meter.CreateHistogram<double>(
             "leancorpus.index.commit.duration", unit: "ms",
             description: "Elapsed time for each index commit.");
+
+        _fileSyncDuration = _meter.CreateHistogram<double>(
+            "leancorpus.store.sync.duration", unit: "ms",
+            description: "Elapsed time synchronising changed index files.");
+        _fileSyncBytes = _meter.CreateCounter<long>(
+            "leancorpus.store.sync.bytes", unit: "By",
+            description: "Bytes submitted for durable file synchronisation.");
+        _fileSyncFiles = _meter.CreateCounter<long>(
+            "leancorpus.store.sync.files", unit: "{file}",
+            description: "Changed files submitted for durable synchronisation.");
 
         _hnswSearchDuration = _meter.CreateHistogram<double>(
             "leancorpus.hnsw.search.duration", unit: "ms",
@@ -209,6 +226,18 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
     }
 
     /// <inheritdoc/>
+    public void RecordFileSync(TimeSpan elapsed, long bytes, int fileCount)
+    {
+        _fileSyncDuration.Record(elapsed.TotalMilliseconds);
+        _fileSyncBytes.Add(bytes);
+        _fileSyncFiles.Add(fileCount);
+        Interlocked.Increment(ref _snFileSyncOperationCount);
+        Interlocked.Add(ref _snFileSyncTotalMs, (long)elapsed.TotalMilliseconds);
+        Interlocked.Add(ref _snFileSyncBytes, bytes);
+        Interlocked.Add(ref _snFileSyncFileCount, fileCount);
+    }
+
+    /// <inheritdoc/>
     public void RecordHnswSearch(TimeSpan elapsed, int nodesVisited)
     {
         double ms = elapsed.TotalMilliseconds;
@@ -260,6 +289,10 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
             MergeTotalMs = Interlocked.Read(ref _snMergeTotalMs),
             CommitCount = Interlocked.Read(ref _snCommitCount),
             CommitTotalMs = Interlocked.Read(ref _snCommitTotalMs),
+            FileSyncOperationCount = Interlocked.Read(ref _snFileSyncOperationCount),
+            FileSyncTotalMs = Interlocked.Read(ref _snFileSyncTotalMs),
+            FileSyncBytes = Interlocked.Read(ref _snFileSyncBytes),
+            FileSyncFileCount = Interlocked.Read(ref _snFileSyncFileCount),
             LatencyHistogram = buckets,
             HnswSearchCount = Interlocked.Read(ref _snHnswSearchCount),
             HnswSearchTotalMs = Interlocked.Read(ref _snHnswSearchTotalMs),

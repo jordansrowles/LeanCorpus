@@ -12,3 +12,4 @@ Use this section to model fields, ingest documents, maintain durable index files
 - [Backup and restore](08-backup-and-restore.md)
 - [Term vectors and payloads](09-term-vectors-and-payloads.md)
 - [Store and file I/O](10-store-and-file-io.md)
+- [Migrating indexes to 3.0](11-codec-migration-3-0.md)

@@ -1,0 +1,451 @@
+using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis.Tokenisers;
+
+namespace Rowles.Text.Tests;
+
+/// <summary>
+/// Contains unit tests for analysis parity components.
+/// </summary>
+[Category(TestCategory.Unit)]
+[Area(TestArea.Analysers)]
+public class AnalysisParityTests
+{
+    /// <summary>
+    /// Verifies the Whitespace Tokeniser: Preserves Punctuation And Offsets scenario.
+    /// </summary>
+    [Fact(DisplayName = "Whitespace Tokeniser: Preserves Punctuation And Offsets")]
+    public void WhitespaceTokeniser_PreservesPunctuationAndOffsets()
+    {
+        var tokeniser = new WhitespaceTokeniser();
+
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise("Hello,  world!\tagain", matSink);
+        var tokens = matSink.Tokens;
+
+        Assert.Equal(3, tokens.Count);
+        Assert.Equal("Hello,", tokens[0].Text);
+        Assert.Equal(0, tokens[0].StartOffset);
+        Assert.Equal(6, tokens[0].EndOffset);
+        Assert.Equal("world!", tokens[1].Text);
+        Assert.Equal(8, tokens[1].StartOffset);
+        Assert.Equal(14, tokens[1].EndOffset);
+        Assert.Equal("again", tokens[2].Text);
+        Assert.Equal(15, tokens[2].StartOffset);
+        Assert.Equal(20, tokens[2].EndOffset);
+    }
+
+    /// <summary>
+    /// Verifies the Keyword Tokeniser: Empty Input Returns Empty List scenario.
+    /// </summary>
+    [Fact(DisplayName = "Keyword Tokeniser: Empty Input Returns Empty List")]
+    public void KeywordTokeniser_EmptyInput_ReturnsEmptyList()
+    {
+        var tokeniser = new KeywordTokeniser();
+
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise(ReadOnlySpan<char>.Empty, matSink);
+        var tokens = matSink.Tokens;
+
+        Assert.Empty(tokens);
+    }
+
+    /// <summary>
+    /// Verifies the Keyword Tokeniser: Non Empty Input Returns Full Span Token scenario.
+    /// </summary>
+    [Fact(DisplayName = "Keyword Tokeniser: Non Empty Input Returns Full Span Token")]
+    public void KeywordTokeniser_NonEmptyInput_ReturnsFullSpanToken()
+    {
+        var tokeniser = new KeywordTokeniser();
+
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise("ID-123 Value", matSink);
+        var tokens = matSink.Tokens;
+
+        Assert.Single(tokens);
+        Assert.Equal("ID-123 Value", tokens[0].Text);
+        Assert.Equal(0, tokens[0].StartOffset);
+        Assert.Equal(12, tokens[0].EndOffset);
+    }
+
+    /// <summary>
+    /// Verifies the Letter Tokeniser: Splits On Digits And Punctuation scenario.
+    /// </summary>
+    [Fact(DisplayName = "Letter Tokeniser: Splits On Digits And Punctuation")]
+    public void LetterTokeniser_SplitsOnDigitsAndPunctuation()
+    {
+        var tokeniser = new LetterTokeniser();
+
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise("abc123déf!", matSink);
+        var tokens = matSink.Tokens;
+
+        Assert.Equal(2, tokens.Count);
+        Assert.Equal("abc", tokens[0].Text);
+        Assert.Equal(0, tokens[0].StartOffset);
+        Assert.Equal(3, tokens[0].EndOffset);
+        Assert.Equal("déf", tokens[1].Text);
+        Assert.Equal(6, tokens[1].StartOffset);
+        Assert.Equal(9, tokens[1].EndOffset);
+    }
+
+    /// <summary>
+    /// Verifies the Whitespace Analyser: Applies No Normalisation scenario.
+    /// </summary>
+    [Fact(DisplayName = "Whitespace Analyser: Applies No Normalisation")]
+    public void WhitespaceAnalyser_AppliesNoNormalisation()
+    {
+        var analyser = new WhitespaceAnalyser();
+
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("The, QUICK", matSink);
+        var tokens = matSink.Tokens;
+
+        Assert.Equal(["The,", "QUICK"], tokens.Select(t => t.Text));
+    }
+
+    /// <summary>
+    /// Verifies the Keyword Analyser: Returns Full Input Token scenario.
+    /// </summary>
+    [Fact(DisplayName = "Keyword Analyser: Returns Full Input Token")]
+    public void KeywordAnalyser_ReturnsFullInputToken()
+    {
+        var analyser = new KeywordAnalyser();
+
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("Mixed CASE, punctuation!", matSink);
+        var tokens = matSink.Tokens;
+
+        Assert.Single(tokens);
+        Assert.Equal("Mixed CASE, punctuation!", tokens[0].Text);
+    }
+
+    /// <summary>
+    /// Verifies the Simple Analyser: Lowercases Letter Tokens And Keeps Stop Words scenario.
+    /// </summary>
+    [Fact(DisplayName = "Simple Analyser: Lowercases Letter Tokens And Keeps Stop Words")]
+    public void SimpleAnalyser_LowercasesLetterTokensAndKeepsStopWords()
+    {
+        var analyser = new SimpleAnalyser();
+
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("The QUICK 123 fox", matSink);
+        var tokens = matSink.Tokens;
+
+        Assert.Equal(["the", "quick", "fox"], tokens.Select(t => t.Text));
+    }
+
+    /// <summary>
+    /// Verifies the Length Filter: Removes Tokens Outside Inclusive Range scenario.
+    /// </summary>
+    [Fact(DisplayName = "Length Filter: Removes Tokens Outside Inclusive Range")]
+    public void LengthFilter_RemovesTokensOutsideInclusiveRange()
+    {
+        var tokens = new List<Token> { new("a", 0, 1), new("abc", 2, 5), new("abcdef", 6, 12) };
+        var filter = new LengthFilter(2, 4);
+
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
+
+        Assert.Single(tokens);
+        Assert.Equal("abc", tokens[0].Text);
+    }
+
+    /// <summary>
+    /// Verifies the Length Filter: Rejects Invalid Range scenario.
+    /// </summary>
+    [Fact(DisplayName = "Length Filter: Rejects Invalid Range")]
+    public void LengthFilter_RejectsInvalidRange()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new LengthFilter(-1, 4));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new LengthFilter(0, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new LengthFilter(5, 4));
+    }
+
+    /// <summary>
+    /// Verifies the Truncate Token Filter: Truncates Text And End Offset scenario.
+    /// </summary>
+    [Fact(DisplayName = "Truncate Token Filter: Truncates Text And End Offset")]
+    public void TruncateTokenFilter_TruncatesTextAndEndOffset()
+    {
+        var tokens = new List<Token> { new("abcdef", 10, 16), new("xy", 20, 22) };
+        var filter = new TruncateTokenFilter(3);
+
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
+
+        Assert.Equal("abc", tokens[0].Text);
+        Assert.Equal(10, tokens[0].StartOffset);
+        Assert.Equal(13, tokens[0].EndOffset);
+        Assert.Equal("xy", tokens[1].Text);
+        Assert.Equal(22, tokens[1].EndOffset);
+    }
+
+    /// <summary>
+    /// Verifies the Truncate Token Filter: Rejects Invalid Length scenario.
+    /// </summary>
+    [Fact(DisplayName = "Truncate Token Filter: Rejects Invalid Length")]
+    public void TruncateTokenFilter_RejectsInvalidLength()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new TruncateTokenFilter(0));
+    }
+
+    /// <summary>
+    /// Verifies the Unique Token Filter: Deduplicates At Same Position scenario.
+    /// </summary>
+    [Fact(DisplayName = "Unique Token Filter: Deduplicates At Same Position")]
+    public void UniqueTokenFilter_RemovesGlobalDuplicates()
+    {
+        // Same position: "a", "b", "a" → only first "a" and "b" pass through.
+        var tokens = new List<Token>
+        {
+            new("a", 0, 1, positionIncrement: 1),
+            new("b", 2, 3, positionIncrement: 0),
+            new("a", 4, 5, positionIncrement: 0),
+        };
+        var filter = new UniqueTokenFilter();
+
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        filter.Finish(matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
+
+        Assert.Equal(["a", "b"], tokens.Select(t => t.Text));
+    }
+
+    /// <summary>
+    /// Verifies the Unique Token Filter: Different Positions Not Deduplicated scenario.
+    /// </summary>
+    [Fact(DisplayName = "Unique Token Filter: Different Positions Not Deduplicated")]
+    public void UniqueTokenFilter_SamePositionModeKeepsLaterPosition()
+    {
+        var tokens = new List<Token>
+        {
+            new("fast", 0, 4, positionIncrement: 1),
+            new("quick", 0, 4, positionIncrement: 0),
+            new("fast", 0, 4, positionIncrement: 0),
+            new("fast", 5, 9, positionIncrement: 1),
+        };
+        var filter = new UniqueTokenFilter();
+
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        filter.Finish(matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
+
+        // Position 0: "fast" (kept), "quick" (kept), "fast" (dup, dropped)
+        // Position 1: "fast" (kept — different position)
+        Assert.Equal(["fast", "quick", "fast"], tokens.Select(t => t.Text));
+    }
+
+    /// <summary>
+    /// Verifies the Decimal Digit Filter: Normalises Unicode Digits scenario.
+    /// </summary>
+    [Fact(DisplayName = "Decimal Digit Filter: Normalises Unicode Digits")]
+    public void DecimalDigitFilter_NormalisesUnicodeDigits()
+    {
+        var tokens = new List<Token> { new("\u0661\u06F2\uFF134x", 0, 5) };
+        var filter = new DecimalDigitFilter();
+
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
+
+        Assert.Equal("1234x", tokens[0].Text);
+        Assert.Equal(0, tokens[0].StartOffset);
+        Assert.Equal(5, tokens[0].EndOffset);
+    }
+
+    /// <summary>
+    /// Verifies the Reverse String Filter: Reverses Token Text scenario.
+    /// </summary>
+    [Fact(DisplayName = "Reverse String Filter: Reverses Token Text")]
+    public void ReverseStringFilter_ReversesTokenText()
+    {
+        var tokens = new List<Token> { new("café", 2, 6), new("x", 7, 8) };
+        var filter = new ReverseStringFilter();
+
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
+
+        Assert.Equal("éfac", tokens[0].Text);
+        Assert.Equal(2, tokens[0].StartOffset);
+        Assert.Equal(6, tokens[0].EndOffset);
+        Assert.Equal("x", tokens[1].Text);
+    }
+
+    /// <summary>
+    /// Verifies the Reverse String Filter handles tokens longer than the stackalloc threshold.
+    /// </summary>
+    [Fact(DisplayName = "Reverse String Filter: Handles Long Token Via ArrayPool")]
+    public void ReverseStringFilter_HandlesLongTokenViaArrayPool()
+    {
+        // 200 chars — exceeds the 128-char stackalloc threshold.
+        string longText = new('a', 200);
+        var filter = new ReverseStringFilter();
+        var matSink = new MaterialisingTokenSink();
+        filter.Apply(longText.AsSpan(), 0, 200, "word", 1, null, matSink);
+        var tokens = matSink.Tokens.ToList();
+
+        Assert.Single(tokens);
+        Assert.Equal(200, tokens[0].Text.Length);
+        Assert.Equal(new string('a', 200), tokens[0].Text); // reversed palindrome is identical
+    }
+
+    /// <summary>
+    /// Verifies the Elision Filter: Removes Default French Article scenario.
+    /// </summary>
+    [Fact(DisplayName = "Elision Filter: Removes Default French Article")]
+    public void ElisionFilter_RemovesDefaultFrenchArticle()
+    {
+        var tokens = new List<Token> { new("l'avion", 0, 7), new("qu\u2019elle", 10, 17) };
+        var filter = new ElisionFilter();
+
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
+
+        Assert.Equal("avion", tokens[0].Text);
+        Assert.Equal(2, tokens[0].StartOffset);
+        Assert.Equal(7, tokens[0].EndOffset);
+        Assert.Equal("elle", tokens[1].Text);
+        Assert.Equal(13, tokens[1].StartOffset);
+        Assert.Equal(17, tokens[1].EndOffset);
+    }
+
+    /// <summary>
+    /// Verifies the Keyword Marker Filter: Stemmed Analyser Skips Marked Token scenario.
+    /// </summary>
+    [Fact(DisplayName = "Keyword Marker Filter: Stemmed Analyser Skips Marked Token")]
+    public void KeywordMarkerFilter_StemmedAnalyserSkipsMarkedToken()
+    {
+        var analyser = new StemmedAnalyser(new KeywordMarkerFilter(["running"]));
+
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("running jumped", matSink);
+        var tokens = matSink.Tokens;
+
+        Assert.Equal(["running", "jump"], tokens.Select(t => t.Text));
+    }
+
+    /// <summary>
+    /// Verifies the Keyword Marker Filter: Language Analyser Skips Marked Token scenario.
+    /// </summary>
+    [Fact(DisplayName = "Keyword Marker Filter: Language Analyser Skips Marked Token")]
+    public void KeywordMarkerFilter_LanguageAnalyserSkipsMarkedToken()
+    {
+        var analyser = new LanguageAnalyser(new Tokeniser(), StopWords.English, new EnglishStemmer(), new KeywordMarkerFilter(["running"]));
+
+        var matSink = new MaterialisingTokenSink();
+        analyser.Analyse("running jumped", matSink);
+        var tokens = matSink.Tokens;
+
+        Assert.Equal(["running", "jump"], tokens.Select(t => t.Text));
+    }
+
+    /// <summary>
+    /// Verifies the Shingle Filter: Emits Unigrams And Shingles scenario.
+    /// </summary>
+    [Fact(DisplayName = "Shingle Filter: Emits Unigrams And Shingles")]
+    public void ShingleFilter_EmitsUnigramsAndShingles()
+    {
+        var tokens = new List<Token> { new("new", 0, 3), new("york", 4, 8), new("city", 9, 13) };
+        var filter = new ShingleFilter(minShingleSize: 2, maxShingleSize: 3);
+
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        filter.Finish(matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
+
+        Assert.Equal(["new", "new york", "new york city", "york", "york city", "city"], tokens.Select(static token => token.Text));
+        Assert.Equal([1, 0, 0, 1, 0, 1], tokens.Select(static token => token.PositionIncrement));
+        Assert.Equal([1, 2, 3, 1, 2, 1], tokens.Select(static token => token.PositionLength));
+    }
+
+    /// <summary>
+    /// Regression coverage for the token-graph failure identified alongside Lucene.NET #943:
+    /// ShingleFilter without unigrams must retain connected output positions.
+    /// </summary>
+    [Fact(DisplayName = "Shingle Filter: Output Without Unigrams Uses Connected Graph Positions")]
+    public void ShingleFilter_WithoutUnigrams_UsesConnectedGraphPositions()
+    {
+        var filter = new ShingleFilter(minShingleSize: 2, maxShingleSize: 3, outputUnigrams: false);
+        var sink = new MaterialisingTokenSink();
+        foreach (var token in new[] { new Token("new", 0, 3), new Token("york", 4, 8), new Token("city", 9, 13) })
+            filter.Apply(token.Text.AsSpan(), token.StartOffset, token.EndOffset, token.Type, token.PositionIncrement, token.Payload, sink);
+        filter.Finish(sink);
+
+        Assert.Equal(["new york", "new york city", "york city"], sink.Tokens.Select(static token => token.Text));
+        Assert.Equal([1, 0, 1], sink.Tokens.Select(static token => token.PositionIncrement));
+        Assert.Equal([1, 2, 1], sink.Tokens.Select(static token => token.PositionLength));
+    }
+
+    /// <summary>
+    /// Verifies the Shingle Filter: Rejects Invalid Sizes scenario.
+    /// </summary>
+    [Fact(DisplayName = "Shingle Filter: Rejects Invalid Sizes")]
+    public void ShingleFilter_RejectsInvalidSizes()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ShingleFilter(0, 2));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ShingleFilter(3, 2));
+    }
+
+    /// <summary>
+    /// <summary>
+    /// Verifies the Word Delimiter Filter: Splits Compound Token scenario.
+    /// </summary>
+    [Fact(DisplayName = "Word Delimiter Filter: Splits Compound Token")]
+    public void WordDelimiterFilter_SplitsCompoundToken()
+    {
+        var tokens = new List<Token> { new("WiFi4Schools_test", 10, 27) };
+        var filter = new WordDelimiterFilter();
+
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
+
+        // "WiFi4Schools_test" with default settings splits into
+        // "Wi", "Fi", "4", "Schools", "test".
+        Assert.Equal(["Wi", "Fi", "4", "Schools", "test"], tokens.Select(t => t.Text));
+    }
+
+    /// <summary>
+    /// Verifies the Word Delimiter Filter: Preserves Original And Concatenates scenario.
+    /// </summary>
+    [Fact(DisplayName = "Word Delimiter Filter: Preserves Original And Concatenates")]
+    public void WordDelimiterFilter_PreservesOriginalAndConcatenates()
+    {
+        var tokens = new List<Token> { new("abc-123-def", 0, 11) };
+        var filter = new WordDelimiterFilter
+        {
+            CatenateWords = true,
+            CatenateNumbers = true,
+            CatenateAll = true,
+            PreserveOriginal = true,
+        };
+
+        var matSink = new MaterialisingTokenSink();
+        foreach (var t in tokens) filter.Apply(t.Text.AsSpan(), t.StartOffset, t.EndOffset, t.Type, t.PositionIncrement, t.Payload, matSink);
+        tokens.Clear();
+        tokens.AddRange(matSink.Tokens);
+
+        // Parts: "abc", "123", "def" (in order)
+        // CatenateWords: "abcdef"
+        // CatenateNumbers: "123" (single part, skipped — count > 1 needed)
+        // CatenateAll: "abc123def"
+        // PreserveOriginal: "abc-123-def"
+        Assert.Equal(["abc", "123", "def", "abcdef", "abc123def", "abc-123-def"], tokens.Select(t => t.Text));
+    }
+}

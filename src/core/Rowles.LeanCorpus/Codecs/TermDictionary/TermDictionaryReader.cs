@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Text.RegularExpressions;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.Fst;
 using Rowles.LeanCorpus.Store;
 
@@ -40,14 +39,9 @@ internal sealed class TermDictionaryReader : IDisposable
     {
         using var inputLifetime = input;
 
-        var result = CodecFileHeader.Read(input, CodecFormats.TermDictionary);
-        byte version = result.Version;
-        if (version > CodecConstants.TermDictionaryVersion)
-            throw new InvalidDataException(
-                $"Unsupported term dictionary format version {version}. This build supports up to v{CodecConstants.TermDictionaryVersion}. " +
-                "Run 'leancorpus-cli migrate' (or IndexCodecMigrator) to upgrade the segment.");
-
-        var fst = FstReader.Open(result.Body);
+        var descriptor = CodecCatalog.Default.GetFile("leancorpus.term-dictionary.data");
+        using var frame = CodecFileReader.OpenSupported(input, descriptor);
+        var fst = FstReader.Open(frame.ReadBody());
         return new TermDictionaryReader(fst);
     }
 

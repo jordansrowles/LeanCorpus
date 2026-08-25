@@ -1,3 +1,12 @@
 #!/usr/bin/env bash
 # Wrapper: ./devops build|test|aot|coverage|benchmark|data|docs|benchmarks [...]
+
+# Non-interactive shells may not source the user's interactive .bashrc PATH.
+# Prefer the user's installed SDK when it is available so restore and test use
+# the same SDK, including the net11 preview SDK required by this repository.
+if [[ -x "${HOME}/.dotnet/dotnet" ]]; then
+  export DOTNET_ROOT="${HOME}/.dotnet"
+  export PATH="${DOTNET_ROOT}:${DOTNET_ROOT}/tools:${PATH}"
+fi
+
 exec pwsh -NoProfile -File "$(dirname "$0")/devops.ps1" "$@"

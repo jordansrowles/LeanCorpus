@@ -1,5 +1,4 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.Vectors;
@@ -17,17 +16,20 @@ internal sealed class VectorReader : IDisposable
     private readonly bool _int8;
     private readonly float _int8Min;
     private readonly float _int8Alpha;
+    private readonly IDisposable _frame;
     private bool _disposed;
 
     private VectorReader(
         IndexInput input,
         int vectorCount, int dimension, long dataStart,
+        IDisposable frame,
         bool int8 = false, float int8Min = 0f, float int8Alpha = 0f)
     {
         _input = input;
         _vectorCount = vectorCount;
         _dimension = dimension;
         _dataStart = dataStart;
+        _frame = frame;
         _int8 = int8;
         _int8Min = int8Min;
         _int8Alpha = int8Alpha;
@@ -43,20 +45,19 @@ internal sealed class VectorReader : IDisposable
     internal static VectorReader Open(IndexInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
+        CodecBodyReadSession? frame = null;
         try
         {
-            byte version = CodecFileHeader.ReadVersion(input, CodecFormats.Vectors);
-
-            if (version > CodecConstants.VectorVersion)
-                throw new InvalidDataException(
-                    $"Unsupported vector format version {version}. " +
-                    $"This build supports up to version {CodecConstants.VectorVersion}. " +
-                    "Please upgrade LeanCorpus.");
+            frame = CodecFileReader.OpenSupported(input, VectorCodecFiles.Float32);
 
             int vectorCount = input.ReadInt32();
             int dimension = input.ReadInt32();
+            if (vectorCount < 0 || dimension < 0)
+                throw new InvalidDataException("Vector file contains a negative vector count or dimension.");
 
             byte format = input.ReadByte();
+            if (format is not (byte)VectorQuantisation.None and not (byte)VectorQuantisation.Int8)
+                throw new InvalidDataException($"Unsupported vector data format {format}.");
 
             float int8Min = 0f, int8Alpha = 0f;
             bool isInt8 = format == (byte)VectorQuantisation.Int8;
@@ -67,11 +68,16 @@ internal sealed class VectorReader : IDisposable
             }
 
             long dataStart = input.Position;
+            long stride = isInt8 ? dimension : checked((long)dimension * sizeof(float));
+            long dataEnd = checked(dataStart + vectorCount * stride);
+            if (dataEnd != checked(frame.BodyStart + frame.BodyLength))
+                throw new InvalidDataException("Vector file body length does not match its declared vector count and dimension.");
 
-            return new VectorReader(input, vectorCount, dimension, dataStart, isInt8, int8Min, int8Alpha);
+            return new VectorReader(input, vectorCount, dimension, dataStart, frame, isInt8, int8Min, int8Alpha);
         }
         catch
         {
+            frame?.Dispose();
             input.Dispose();
             throw;
         }
@@ -79,11 +85,14 @@ internal sealed class VectorReader : IDisposable
 
     public float[] ReadVector(int docId)
     {
+        if ((uint)docId >= (uint)_vectorCount)
+            throw new ArgumentOutOfRangeException(nameof(docId));
+
         var vector = new float[_dimension];
         if (_int8)
         {
             long position = _dataStart + (long)docId * _dimension;
-            var packed = _input.ReadSpan(_dimension, ref position);
+            var packed = _input.BorrowSpan(_dimension, ref position);
             for (int j = 0; j < _dimension; j++)
                 vector[j] = _int8Min + _int8Alpha * packed[j];
         }
@@ -102,6 +111,7 @@ internal sealed class VectorReader : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _frame.Dispose();
         _input.Dispose();
     }
 }

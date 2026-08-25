@@ -6,6 +6,7 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 /// </summary>
 public sealed class FlattenGraphFilter : ISpanTokenFilter
 {
+    private readonly TokenGraph _graph = new();
 
     /// <inheritdoc/>
     public void Apply(
@@ -17,6 +18,23 @@ public sealed class FlattenGraphFilter : ISpanTokenFilter
         byte[]? payload,
         ISpanTokenSink sink)
     {
-        sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+        Apply(text, startOffset, endOffset, type, positionIncrement, 1, payload, sink);
     }
+
+    /// <inheritdoc/>
+    public void Apply(ReadOnlySpan<char> text, int startOffset, int endOffset, string type,
+        int positionIncrement, int positionLength, byte[]? payload, ISpanTokenSink sink)
+    {
+        _graph.Add(new Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload, positionLength));
+    }
+
+    /// <inheritdoc/>
+    public void Finish(ISpanTokenSink sink)
+    {
+        _graph.Emit(sink, flatten: true);
+        _graph.Clear();
+    }
+
+    /// <inheritdoc/>
+    public ISpanTokenFilter Clone() => new FlattenGraphFilter();
 }

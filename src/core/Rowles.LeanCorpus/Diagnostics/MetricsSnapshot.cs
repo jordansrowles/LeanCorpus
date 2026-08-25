@@ -50,6 +50,18 @@ public sealed class MetricsSnapshot
     /// <summary>Gets the cumulative time spent committing in milliseconds.</summary>
     public long CommitTotalMs { get; init; }
 
+    /// <summary>Number of durable file synchronisation phases recorded.</summary>
+    public long FileSyncOperationCount { get; init; }
+
+    /// <summary>Cumulative time spent synchronising changed files.</summary>
+    public long FileSyncTotalMs { get; init; }
+
+    /// <summary>Total bytes submitted for durable file synchronisation.</summary>
+    public long FileSyncBytes { get; init; }
+
+    /// <summary>Total changed files submitted for durable synchronisation.</summary>
+    public long FileSyncFileCount { get; init; }
+
     /// <summary>
     /// Latency histogram: buckets are [&lt;1ms, &lt;5ms, &lt;10ms, &lt;50ms, &lt;100ms, &lt;500ms, &lt;1000ms, ≥1000ms].
     /// </summary>

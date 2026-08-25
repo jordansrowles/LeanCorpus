@@ -103,7 +103,10 @@ public sealed class SearcherManager : IDisposable
     private IndexSearcher OpenInitialSearcher()
     {
         IndexOpenGuard.EnsureNoBlockingMigration(_directory, _config.CompatibilityMode);
-        var latestCommit = Index.IndexRecovery.RecoverLatestCommit(_directory.DirectoryPath, cleanupOrphans: false);
+        var latestCommit = Index.IndexRecovery.RecoverLatestCommit(
+            _directory.DirectoryPath,
+            cleanupOrphans: false,
+            catalog: _config.SearcherConfig.CodecCatalog);
         var searcher = new IndexSearcher(_directory, _config.SearcherConfig);
         _metadata.Add(searcher, new SearcherMetadata(latestCommit?.Generation ?? 0, latestCommit?.ContentToken ?? 0));
         return searcher;
@@ -112,7 +115,10 @@ public sealed class SearcherManager : IDisposable
     private IndexSearcher? RefreshSearcher(IndexSearcher current)
     {
         IndexOpenGuard.EnsureNoBlockingMigration(_directory, _config.CompatibilityMode);
-        var latestCommit = Index.IndexRecovery.RecoverLatestCommit(_directory.DirectoryPath, cleanupOrphans: false);
+        var latestCommit = Index.IndexRecovery.RecoverLatestCommit(
+            _directory.DirectoryPath,
+            cleanupOrphans: false,
+            catalog: _config.SearcherConfig.CodecCatalog);
         if (latestCommit is null)
             return null;
 
@@ -120,7 +126,12 @@ public sealed class SearcherManager : IDisposable
         if (latestCommit.Generation <= currentMetadata.Generation)
             return null;
 
-        IndexOpenGuard.EnsureCanOpenSegments(_directory, latestCommit.SegmentIds, _config.CompatibilityMode, forWriting: false);
+        IndexOpenGuard.EnsureCanOpenSegments(
+            _directory,
+            latestCommit.SegmentIds,
+            _config.CompatibilityMode,
+            forWriting: false,
+            _config.SearcherConfig.CodecCatalog);
         if (latestCommit.ContentToken == currentMetadata.ContentToken)
         {
             currentMetadata.Generation = latestCommit.Generation;

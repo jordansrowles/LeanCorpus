@@ -1,0 +1,2808 @@
+{
+  "Title": "Rowles.LeanCorpus.Benchmarks.IncrementalBackupBenchmarks-20260807-125520",
+  "HostEnvironmentInfo": {
+    "BenchmarkDotNetCaption": "BenchmarkDotNet",
+    "BenchmarkDotNetVersion": "0.16.0-nightly.20260427.506",
+    "OsVersion": "Linux Debian GNU/Linux 13 (trixie)",
+    "ProcessorName": "Intel Xeon CPU E3-1220 V2 3.10GHz",
+    "PhysicalProcessorCount": 1,
+    "PhysicalCoreCount": 4,
+    "LogicalCoreCount": 4,
+    "RuntimeVersion": ".NET 10.0.3 (10.0.3, 10.0.326.7603)",
+    "Architecture": "X64",
+    "HasAttachedDebugger": false,
+    "HasRyuJit": true,
+    "Configuration": "RELEASE",
+    "DotNetCliVersion": "11.0.100-preview.1.26104.118",
+    "ChronometerFrequency": {
+      "Hertz": 1000000000
+    },
+    "HardwareTimerKind": "Unknown"
+  },
+  "Benchmarks": [
+    {
+      "DisplayInfo": "IncrementalBackupBenchmarks.FullBackup: Job-NNSGVX(Arguments=-m:1, InvocationCount=1, IterationCount=3, LaunchCount=1, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=0) [UseCompoundFile=False, DocumentCount=500]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "IncrementalBackupBenchmarks",
+      "Method": "FullBackup",
+      "MethodTitle": "FullBackup",
+      "Parameters": "UseCompoundFile=False&DocumentCount=500",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.IncrementalBackupBenchmarks.FullBackup(UseCompoundFile: False, DocumentCount: 500)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          1724856020,
+          1772068023,
+          1835567595
+        ],
+        "N": 3,
+        "Min": 1724856020,
+        "LowerFence": 1665428340.25,
+        "Q1": 1748462021.5,
+        "Median": 1772068023,
+        "Mean": 1777497212.6666667,
+        "Q3": 1803817809,
+        "UpperFence": 1886851490.25,
+        "Max": 1835567595,
+        "InterquartileRange": 55355787.5,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 32074757.910609584,
+        "Variance": 3086370285072636.5,
+        "StandardDeviation": 55555110.341647565,
+        "Skewness": 0.09679287195038848,
+        "Kurtosis": 0.6666666666666661,
+        "ConfidenceInterval": {
+          "N": 3,
+          "Mean": 1777497212.6666667,
+          "StandardError": 32074757.910609584,
+          "Level": 12,
+          "Margin": 1013532021.6421084,
+          "Lower": 763965191.0245583,
+          "Upper": 2791029234.308775
+        },
+        "Percentiles": {
+          "P0": 1724856020,
+          "P25": 1748462021.5,
+          "P50": 1772068023,
+          "P67": 1793657877.48,
+          "P80": 1810167766.2,
+          "P85": 1816517723.3999999,
+          "P90": 1822867680.6000001,
+          "P95": 1829217637.8,
+          "P100": 1835567595
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 264464
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 1724856020
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 1772068023
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 1835567595
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 1617188327
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 1724856020
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 1772068023
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 1835567595
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 264464,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    },
+    {
+      "DisplayInfo": "IncrementalBackupBenchmarks.IncrementalBackup_SmallDelta: Job-NNSGVX(Arguments=-m:1, InvocationCount=1, IterationCount=3, LaunchCount=1, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=0) [UseCompoundFile=False, DocumentCount=500]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "IncrementalBackupBenchmarks",
+      "Method": "IncrementalBackup_SmallDelta",
+      "MethodTitle": "IncrementalBackup_SmallDelta",
+      "Parameters": "UseCompoundFile=False&DocumentCount=500",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.IncrementalBackupBenchmarks.IncrementalBackup_SmallDelta(UseCompoundFile: False, DocumentCount: 500)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          1516399462,
+          830144128,
+          1169446449
+        ],
+        "N": 3,
+        "Min": 830144128,
+        "LowerFence": 485103788,
+        "Q1": 999795288.5,
+        "Median": 1169446449,
+        "Mean": 1171996679.6666667,
+        "Q3": 1342922955.5,
+        "UpperFence": 1857614456,
+        "Max": 1516399462,
+        "InterquartileRange": 343127667,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 198108954.54959697,
+        "Variance": 1.177414736182028E+17,
+        "StandardDeviation": 343134774.7142554,
+        "Skewness": 0.007431743990100494,
+        "Kurtosis": 0.6666666666666665,
+        "ConfidenceInterval": {
+          "N": 3,
+          "Mean": 1171996679.6666667,
+          "StandardError": 198108954.54959697,
+          "Level": 12,
+          "Margin": 6260055641.562333,
+          "Lower": -5088058961.895666,
+          "Upper": 7432052321.229
+        },
+        "Percentiles": {
+          "P0": 830144128,
+          "P25": 999795288.5,
+          "P50": 1169446449,
+          "P67": 1287410473.42,
+          "P80": 1377618256.8000002,
+          "P85": 1412313558.1,
+          "P90": 1447008859.3999999,
+          "P95": 1481704160.7,
+          "P100": 1516399462
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 241384
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 1516399462
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 830144128
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 1169446449
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 843816196
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 1516399462
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 830144128
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 1169446449
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 241384,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    },
+    {
+      "DisplayInfo": "IncrementalBackupBenchmarks.IncrementalBackup_Unchanged: Job-NNSGVX(Arguments=-m:1, InvocationCount=1, IterationCount=3, LaunchCount=1, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=0) [UseCompoundFile=False, DocumentCount=500]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "IncrementalBackupBenchmarks",
+      "Method": "IncrementalBackup_Unchanged",
+      "MethodTitle": "IncrementalBackup_Unchanged",
+      "Parameters": "UseCompoundFile=False&DocumentCount=500",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.IncrementalBackupBenchmarks.IncrementalBackup_Unchanged(UseCompoundFile: False, DocumentCount: 500)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          193945701,
+          71778378,
+          71421896
+        ],
+        "N": 3,
+        "Min": 71421896,
+        "LowerFence": -20292716.75,
+        "Q1": 71600137,
+        "Median": 71778378,
+        "Mean": 112381991.66666667,
+        "Q3": 132862039.5,
+        "UpperFence": 224754893.25,
+        "Max": 193945701,
+        "InterquartileRange": 61261902.5,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 40781984.503019,
+        "Variance": 4989510780013446,
+        "StandardDeviation": 70636469.1927155,
+        "Skewness": 0.3848891509525774,
+        "Kurtosis": 0.6666666666666665,
+        "ConfidenceInterval": {
+          "N": 3,
+          "Mean": 112381991.66666667,
+          "StandardError": 40781984.503019,
+          "Level": 12,
+          "Margin": 1288672148.831705,
+          "Lower": -1176290157.1650383,
+          "Upper": 1401054140.4983718
+        },
+        "Percentiles": {
+          "P0": 71421896,
+          "P25": 71600137,
+          "P50": 71778378,
+          "P67": 113315267.82,
+          "P80": 145078771.8,
+          "P85": 157295504.10000002,
+          "P90": 169512236.39999998,
+          "P95": 181728968.7,
+          "P100": 193945701
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 161528
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 193945701
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 71778378
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 71421896
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 212239965
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 193945701
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 71778378
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 71421896
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 161528,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    },
+    {
+      "DisplayInfo": "IncrementalBackupBenchmarks.ValidateFullBackup: Job-NNSGVX(Arguments=-m:1, InvocationCount=1, IterationCount=3, LaunchCount=1, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=0) [UseCompoundFile=False, DocumentCount=500]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "IncrementalBackupBenchmarks",
+      "Method": "ValidateFullBackup",
+      "MethodTitle": "ValidateFullBackup",
+      "Parameters": "UseCompoundFile=False&DocumentCount=500",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.IncrementalBackupBenchmarks.ValidateFullBackup(UseCompoundFile: False, DocumentCount: 500)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          66434901,
+          2002485,
+          1569307
+        ],
+        "N": 3,
+        "Min": 1569307,
+        "LowerFence": -46863299.5,
+        "Q1": 1785896,
+        "Median": 2002485,
+        "Mean": 23335564.333333332,
+        "Q3": 34218693,
+        "UpperFence": 82867888.5,
+        "Max": 66434901,
+        "InterquartileRange": 32432797,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 21550031.141701628,
+        "Variance": 1393211526624929.5,
+        "StandardDeviation": 37325748.842118755,
+        "Skewness": 0.3848418604330015,
+        "Kurtosis": 0.6666666666666667,
+        "ConfidenceInterval": {
+          "N": 3,
+          "Mean": 23335564.333333332,
+          "StandardError": 21550031.141701628,
+          "Level": 12,
+          "Margin": 680960607.4150457,
+          "Lower": -657625043.0817124,
+          "Upper": 704296171.7483791
+        },
+        "Percentiles": {
+          "P0": 1569307,
+          "P25": 1785896,
+          "P50": 2002485,
+          "P67": 23909506.439999994,
+          "P80": 40661934.60000001,
+          "P85": 47105176.20000001,
+          "P90": 53548417.79999999,
+          "P95": 59991659.39999999,
+          "P100": 66434901
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 43272
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 66434901
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 2002485
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 1569307
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 2098910
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 66434901
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 2002485
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 1569307
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 43272,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    },
+    {
+      "DisplayInfo": "IncrementalBackupBenchmarks.ValidateBackupChain: Job-NNSGVX(Arguments=-m:1, InvocationCount=1, IterationCount=3, LaunchCount=1, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=0) [UseCompoundFile=False, DocumentCount=500]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "IncrementalBackupBenchmarks",
+      "Method": "ValidateBackupChain",
+      "MethodTitle": "ValidateBackupChain",
+      "Parameters": "UseCompoundFile=False&DocumentCount=500",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.IncrementalBackupBenchmarks.ValidateBackupChain(UseCompoundFile: False, DocumentCount: 500)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          71352930,
+          2342066,
+          2102808
+        ],
+        "N": 3,
+        "Min": 2102808,
+        "LowerFence": -49715154.5,
+        "Q1": 2222437,
+        "Median": 2342066,
+        "Mean": 25265934.666666668,
+        "Q3": 36847498,
+        "UpperFence": 88785089.5,
+        "Max": 71352930,
+        "InterquartileRange": 34625061,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 23043601.174285945,
+        "Variance": 1593022665238657.2,
+        "StandardDeviation": 39912688.0232171,
+        "Skewness": 0.3848846194454562,
+        "Kurtosis": 0.6666666666666665,
+        "ConfidenceInterval": {
+          "N": 3,
+          "Mean": 25265934.666666668,
+          "StandardError": 23043601.174285945,
+          "Level": 12,
+          "Margin": 728156008.1974325,
+          "Lower": -702890073.5307659,
+          "Upper": 753421942.8640991
+        },
+        "Percentiles": {
+          "P0": 2102808,
+          "P25": 2222437,
+          "P50": 2342066,
+          "P67": 25805759.759999987,
+          "P80": 43748584.400000006,
+          "P85": 50649670.80000001,
+          "P90": 57550757.19999999,
+          "P95": 64451843.599999994,
+          "P100": 71352930
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 110536
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 71352930
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 2342066
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 2102808
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 2884586
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 71352930
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 2342066
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 2102808
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 110536,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    },
+    {
+      "DisplayInfo": "IncrementalBackupBenchmarks.RestoreFullBackup: Job-NNSGVX(Arguments=-m:1, InvocationCount=1, IterationCount=3, LaunchCount=1, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=0) [UseCompoundFile=False, DocumentCount=500]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "IncrementalBackupBenchmarks",
+      "Method": "RestoreFullBackup",
+      "MethodTitle": "RestoreFullBackup",
+      "Parameters": "UseCompoundFile=False&DocumentCount=500",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.IncrementalBackupBenchmarks.RestoreFullBackup(UseCompoundFile: False, DocumentCount: 500)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          1054821290,
+          948359690,
+          812672697
+        ],
+        "N": 3,
+        "Min": 812672697,
+        "LowerFence": 698904748.75,
+        "Q1": 880516193.5,
+        "Median": 948359690,
+        "Mean": 938617892.3333334,
+        "Q3": 1001590490,
+        "UpperFence": 1183201934.75,
+        "Max": 1054821290,
+        "InterquartileRange": 121074296.5,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 70071778.05484797,
+        "Variance": 14730162239303616,
+        "StandardDeviation": 121367879.76768655,
+        "Skewness": -0.07974954992133293,
+        "Kurtosis": 0.6666666666666667,
+        "ConfidenceInterval": {
+          "N": 3,
+          "Mean": 938617892.3333334,
+          "StandardError": 70071778.05484797,
+          "Level": 12,
+          "Margin": 2214201930.063373,
+          "Lower": -1275584037.7300396,
+          "Upper": 3152819822.3967066
+        },
+        "Percentiles": {
+          "P0": 812672697,
+          "P25": 880516193.5,
+          "P50": 948359690,
+          "P67": 984556634,
+          "P80": 1012236650,
+          "P85": 1022882810,
+          "P90": 1033528970,
+          "P95": 1044175130,
+          "P100": 1054821290
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 121488
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 1054821290
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 948359690
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 812672697
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 939462799
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 1054821290
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 948359690
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 812672697
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 121488,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    },
+    {
+      "DisplayInfo": "IncrementalBackupBenchmarks.RestoreBackupChain: Job-NNSGVX(Arguments=-m:1, InvocationCount=1, IterationCount=3, LaunchCount=1, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=0) [UseCompoundFile=False, DocumentCount=500]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "IncrementalBackupBenchmarks",
+      "Method": "RestoreBackupChain",
+      "MethodTitle": "RestoreBackupChain",
+      "Parameters": "UseCompoundFile=False&DocumentCount=500",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.IncrementalBackupBenchmarks.RestoreBackupChain(UseCompoundFile: False, DocumentCount: 500)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          1864422176,
+          1572703247,
+          1689807328
+        ],
+        "N": 3,
+        "Min": 1572703247,
+        "LowerFence": 1412466090.75,
+        "Q1": 1631255287.5,
+        "Median": 1689807328,
+        "Mean": 1708977583.6666667,
+        "Q3": 1777114752,
+        "UpperFence": 1995903948.75,
+        "Max": 1864422176,
+        "InterquartileRange": 145859464.5,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 84755742.00994839,
+        "Variance": 21550607410970784,
+        "StandardDeviation": 146801251.39443052,
+        "Skewness": 0.1283595916470484,
+        "Kurtosis": 0.6666666666666665,
+        "ConfidenceInterval": {
+          "N": 3,
+          "Mean": 1708977583.6666667,
+          "StandardError": 84755742.00994839,
+          "Level": 12,
+          "Margin": 2678201306.6014557,
+          "Lower": -969223722.934789,
+          "Upper": 4387178890.268123
+        },
+        "Percentiles": {
+          "P0": 1572703247,
+          "P25": 1631255287.5,
+          "P50": 1689807328,
+          "P67": 1749176376.32,
+          "P80": 1794576236.8,
+          "P85": 1812037721.6,
+          "P90": 1829499206.4,
+          "P95": 1846960691.2,
+          "P100": 1864422176
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 273864
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 1864422176
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 1572703247
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 1689807328
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 1469069523
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 1864422176
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 1572703247
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 1689807328
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 273864,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    },
+    {
+      "DisplayInfo": "IncrementalBackupBenchmarks.RestoreFullBackup_WithValidation: Job-NNSGVX(Arguments=-m:1, InvocationCount=1, IterationCount=3, LaunchCount=1, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=0) [UseCompoundFile=False, DocumentCount=500]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "IncrementalBackupBenchmarks",
+      "Method": "RestoreFullBackup_WithValidation",
+      "MethodTitle": "RestoreFullBackup_WithValidation",
+      "Parameters": "UseCompoundFile=False&DocumentCount=500",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.IncrementalBackupBenchmarks.RestoreFullBackup_WithValidation(UseCompoundFile: False, DocumentCount: 500)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          1067407842,
+          936142049,
+          788648067
+        ],
+        "N": 3,
+        "Min": 788648067,
+        "LowerFence": 653325226.75,
+        "Q1": 862395058,
+        "Median": 936142049,
+        "Mean": 930732652.6666666,
+        "Q3": 1001774945.5,
+        "UpperFence": 1210844776.75,
+        "Max": 1067407842,
+        "InterquartileRange": 139379887.5,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 80516456.32215187,
+        "Variance": 19448699216030970,
+        "StandardDeviation": 139458593.19536737,
+        "Skewness": -0.03873018861337612,
+        "Kurtosis": 0.6666666666666665,
+        "ConfidenceInterval": {
+          "N": 3,
+          "Mean": 930732652.6666666,
+          "StandardError": 80516456.32215187,
+          "Level": 12,
+          "Margin": 2544243887.329723,
+          "Lower": -1613511234.6630564,
+          "Upper": 3474976539.9963894
+        },
+        "Percentiles": {
+          "P0": 788648067,
+          "P25": 862395058,
+          "P50": 936142049,
+          "P67": 980772418.62,
+          "P80": 1014901524.8,
+          "P85": 1028028104.1,
+          "P90": 1041154683.4,
+          "P95": 1054281262.7,
+          "P100": 1067407842
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 208592
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 1067407842
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 936142049
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 788648067
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 833887861
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 1067407842
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 936142049
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 788648067
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 208592,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    },
+    {
+      "DisplayInfo": "IncrementalBackupBenchmarks.FullBackup: Job-NNSGVX(Arguments=-m:1, InvocationCount=1, IterationCount=3, LaunchCount=1, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=0) [UseCompoundFile=True, DocumentCount=500]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "IncrementalBackupBenchmarks",
+      "Method": "FullBackup",
+      "MethodTitle": "FullBackup",
+      "Parameters": "UseCompoundFile=True&DocumentCount=500",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.IncrementalBackupBenchmarks.FullBackup(UseCompoundFile: True, DocumentCount: 500)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          552295534,
+          417084317,
+          430226568
+        ],
+        "N": 3,
+        "Min": 417084317,
+        "LowerFence": 322247029.75,
+        "Q1": 423655442.5,
+        "Median": 430226568,
+        "Mean": 466535473,
+        "Q3": 491261051,
+        "UpperFence": 592669463.75,
+        "Max": 552295534,
+        "InterquartileRange": 67605608.5,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 43047534.72375834,
+        "Variance": 5559270737379540,
+        "StandardDeviation": 74560517.28213492,
+        "Skewness": 0.3714906984688077,
+        "Kurtosis": 0.666666666666667,
+        "ConfidenceInterval": {
+          "N": 3,
+          "Mean": 466535473,
+          "StandardError": 43047534.72375834,
+          "Level": 12,
+          "Margin": 1360261393.612821,
+          "Lower": -893725920.6128211,
+          "Upper": 1826796866.612821
+        },
+        "Percentiles": {
+          "P0": 417084317,
+          "P25": 423655442.5,
+          "P50": 430226568,
+          "P67": 471730016.43999994,
+          "P80": 503467947.6,
+          "P85": 515674844.2,
+          "P90": 527881740.8,
+          "P95": 540088637.4,
+          "P100": 552295534
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 104696
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 552295534
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 417084317
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 430226568
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 496221248
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 552295534
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 417084317
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 430226568
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 104696,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    },
+    {
+      "DisplayInfo": "IncrementalBackupBenchmarks.IncrementalBackup_SmallDelta: Job-NNSGVX(Arguments=-m:1, InvocationCount=1, IterationCount=3, LaunchCount=1, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=0) [UseCompoundFile=True, DocumentCount=500]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "IncrementalBackupBenchmarks",
+      "Method": "IncrementalBackup_SmallDelta",
+      "MethodTitle": "IncrementalBackup_SmallDelta",
+      "Parameters": "UseCompoundFile=True&DocumentCount=500",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.IncrementalBackupBenchmarks.IncrementalBackup_SmallDelta(UseCompoundFile: True, DocumentCount: 500)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          437988427,
+          279671631,
+          282426295
+        ],
+        "N": 3,
+        "Min": 279671631,
+        "LowerFence": 162311366,
+        "Q1": 281048963,
+        "Median": 282426295,
+        "Mean": 333362117.6666667,
+        "Q3": 360207361,
+        "UpperFence": 478944958,
+        "Max": 437988427,
+        "InterquartileRange": 79158398,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 52319198.18758053,
+        "Variance": 8211895496973990,
+        "StandardDeviation": 90619509.472155,
+        "Skewness": 0.3845000940797678,
+        "Kurtosis": 0.6666666666666662,
+        "ConfidenceInterval": {
+          "N": 3,
+          "Mean": 333362117.6666667,
+          "StandardError": 52319198.18758053,
+          "Level": 12,
+          "Margin": 1653237192.2349715,
+          "Lower": -1319875074.5683048,
+          "Upper": 1986599309.9016383
+        },
+        "Percentiles": {
+          "P0": 279671631,
+          "P25": 281048963,
+          "P50": 282426295,
+          "P67": 335317419.88,
+          "P80": 375763574.20000005,
+          "P85": 391319787.40000004,
+          "P90": 406876000.59999996,
+          "P95": 422432213.79999995,
+          "P100": 437988427
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 107224
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 437988427
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 279671631
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 282426295
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 295005431
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 437988427
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 279671631
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 282426295
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 107224,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    },
+    {
+      "DisplayInfo": "IncrementalBackupBenchmarks.IncrementalBackup_Unchanged: Job-NNSGVX(Arguments=-m:1, InvocationCount=1, IterationCount=3, LaunchCount=1, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=0) [UseCompoundFile=True, DocumentCount=500]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "IncrementalBackupBenchmarks",
+      "Method": "IncrementalBackup_Unchanged",
+      "MethodTitle": "IncrementalBackup_Unchanged",
+      "Parameters": "UseCompoundFile=True&DocumentCount=500",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.IncrementalBackupBenchmarks.IncrementalBackup_Unchanged(UseCompoundFile: True, DocumentCount: 500)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          190599267,
+          71405530,
+          71592959
+        ],
+        "N": 3,
+        "Min": 71405530,
+        "LowerFence": -17896058.25,
+        "Q1": 71499244.5,
+        "Median": 71592959,
+        "Mean": 111199252,
+        "Q3": 131096113,
+        "UpperFence": 220491415.75,
+        "Max": 190599267,
+        "InterquartileRange": 59596868.5,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 39700044.36986471,
+        "Variance": 4728280568907679,
+        "StandardDeviation": 68762493.91134442,
+        "Skewness": 0.3848969623147384,
+        "Kurtosis": 0.6666666666666667,
+        "ConfidenceInterval": {
+          "N": 3,
+          "Mean": 111199252,
+          "StandardError": 39700044.36986471,
+          "Level": 12,
+          "Margin": 1254483863.6540678,
+          "Lower": -1143284611.6540678,
+          "Upper": 1365683115.6540678
+        },
+        "Percentiles": {
+          "P0": 71405530,
+          "P25": 71499244.5,
+          "P50": 71592959,
+          "P67": 112055103.71999998,
+          "P80": 142996743.8,
+          "P85": 154897374.60000002,
+          "P90": 166798005.39999998,
+          "P95": 178698636.2,
+          "P100": 190599267
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 84640
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 190599267
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 71405530
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 71592959
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 74551099
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 190599267
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 71405530
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 71592959
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 84640,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    },
+    {
+      "DisplayInfo": "IncrementalBackupBenchmarks.ValidateFullBackup: Job-NNSGVX(Arguments=-m:1, InvocationCount=1, IterationCount=3, LaunchCount=1, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=0) [UseCompoundFile=True, DocumentCount=500]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "IncrementalBackupBenchmarks",
+      "Method": "ValidateFullBackup",
+      "MethodTitle": "ValidateFullBackup",
+      "Parameters": "UseCompoundFile=True&DocumentCount=500",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.IncrementalBackupBenchmarks.ValidateFullBackup(UseCompoundFile: True, DocumentCount: 500)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          65074746,
+          1439485,
+          1231420
+        ],
+        "N": 3,
+        "Min": 1231420,
+        "LowerFence": -46547042,
+        "Q1": 1335452.5,
+        "Median": 1439485,
+        "Mean": 22581883.666666668,
+        "Q3": 33257115.5,
+        "UpperFence": 81139610,
+        "Max": 65074746,
+        "InterquartileRange": 31921663,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 21246516.0651558,
+        "Variance": 1354243334720770.2,
+        "StandardDeviation": 36800045.308678225,
+        "Skewness": 0.3848863374055743,
+        "Kurtosis": 0.6666666666666666,
+        "ConfidenceInterval": {
+          "N": 3,
+          "Mean": 22581883.666666668,
+          "StandardError": 21246516.0651558,
+          "Level": 12,
+          "Margin": 671369817.9853117,
+          "Lower": -648787934.3186451,
+          "Upper": 693951701.6519784
+        },
+        "Percentiles": {
+          "P0": 1231420,
+          "P25": 1335452.5,
+          "P50": 1439485,
+          "P67": 23075473.73999999,
+          "P80": 39620641.60000001,
+          "P85": 45984167.70000001,
+          "P90": 52347693.79999999,
+          "P95": 58711219.89999999,
+          "P100": 65074746
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 19232
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 65074746
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 1439485
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 1231420
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 1684605
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 65074746
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 1439485
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 1231420
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 19232,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    },
+    {
+      "DisplayInfo": "IncrementalBackupBenchmarks.ValidateBackupChain: Job-NNSGVX(Arguments=-m:1, InvocationCount=1, IterationCount=3, LaunchCount=1, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=0) [UseCompoundFile=True, DocumentCount=500]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "IncrementalBackupBenchmarks",
+      "Method": "ValidateBackupChain",
+      "MethodTitle": "ValidateBackupChain",
+      "Parameters": "UseCompoundFile=True&DocumentCount=500",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.IncrementalBackupBenchmarks.ValidateBackupChain(UseCompoundFile: True, DocumentCount: 500)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          74000792,
+          1747701,
+          1509672
+        ],
+        "N": 3,
+        "Min": 1509672,
+        "LowerFence": -52739653.5,
+        "Q1": 1628686.5,
+        "Median": 1747701,
+        "Mean": 25752721.666666668,
+        "Q3": 37874246.5,
+        "UpperFence": 92242586.5,
+        "Max": 74000792,
+        "InterquartileRange": 36245560,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 24124133.024967067,
+        "Variance": 1745921382618920.2,
+        "StandardDeviation": 41784224.08779323,
+        "Skewness": 0.38488612758635604,
+        "Kurtosis": 0.6666666666666664,
+        "ConfidenceInterval": {
+          "N": 3,
+          "Mean": 25752721.666666668,
+          "StandardError": 24124133.024967067,
+          "Level": 12,
+          "Margin": 762299792.9805213,
+          "Lower": -736547071.3138547,
+          "Upper": 788052514.647188
+        },
+        "Percentiles": {
+          "P0": 1509672,
+          "P25": 1628686.5,
+          "P50": 1747701,
+          "P67": 26313751.93999999,
+          "P80": 45099555.6,
+          "P85": 52324864.70000001,
+          "P90": 59550173.79999999,
+          "P95": 66775482.9,
+          "P100": 74000792
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 45728
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 74000792
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 1747701
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 1509672
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 2128466
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 74000792
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 1747701
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 1509672
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 45728,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    },
+    {
+      "DisplayInfo": "IncrementalBackupBenchmarks.RestoreFullBackup: Job-NNSGVX(Arguments=-m:1, InvocationCount=1, IterationCount=3, LaunchCount=1, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=0) [UseCompoundFile=True, DocumentCount=500]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "IncrementalBackupBenchmarks",
+      "Method": "RestoreFullBackup",
+      "MethodTitle": "RestoreFullBackup",
+      "Parameters": "UseCompoundFile=True&DocumentCount=500",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.IncrementalBackupBenchmarks.RestoreFullBackup(UseCompoundFile: True, DocumentCount: 500)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          365137514,
+          271660141,
+          271975463
+        ],
+        "N": 3,
+        "Min": 271660141,
+        "LowerFence": 201709772.25,
+        "Q1": 271817802,
+        "Median": 271975463,
+        "Mean": 302924372.6666667,
+        "Q3": 318556488.5,
+        "UpperFence": 388664518.25,
+        "Max": 365137514,
+        "InterquartileRange": 46738686.5,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 31106703.848269872,
+        "Variance": 2902881072911902.5,
+        "StandardDeviation": 53878391.52120173,
+        "Skewness": 0.38488534818815867,
+        "Kurtosis": 0.666666666666666,
+        "ConfidenceInterval": {
+          "N": 3,
+          "Mean": 302924372.6666667,
+          "StandardError": 31106703.848269872,
+          "Level": 12,
+          "Margin": 982942428.6170748,
+          "Lower": -680018055.9504082,
+          "Upper": 1285866801.2837415
+        },
+        "Percentiles": {
+          "P0": 271660141,
+          "P25": 271817802,
+          "P50": 271975463,
+          "P67": 303650560.34,
+          "P80": 327872693.6,
+          "P85": 337188898.70000005,
+          "P90": 346505103.79999995,
+          "P95": 355821308.9,
+          "P100": 365137514
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 51480
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 365137514
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 271660141
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 271975463
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 262905058
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 365137514
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 271660141
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 271975463
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 51480,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    },
+    {
+      "DisplayInfo": "IncrementalBackupBenchmarks.RestoreBackupChain: Job-NNSGVX(Arguments=-m:1, InvocationCount=1, IterationCount=3, LaunchCount=1, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=0) [UseCompoundFile=True, DocumentCount=500]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "IncrementalBackupBenchmarks",
+      "Method": "RestoreBackupChain",
+      "MethodTitle": "RestoreBackupChain",
+      "Parameters": "UseCompoundFile=True&DocumentCount=500",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.IncrementalBackupBenchmarks.RestoreBackupChain(UseCompoundFile: True, DocumentCount: 500)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          640408047,
+          430829706,
+          398281148
+        ],
+        "N": 3,
+        "Min": 398281148,
+        "LowerFence": 232960252.75,
+        "Q1": 414555427,
+        "Median": 430829706,
+        "Mean": 489839633.6666667,
+        "Q3": 535618876.5,
+        "UpperFence": 717214050.75,
+        "Max": 640408047,
+        "InterquartileRange": 121063449.5,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 75868279.44373497,
+        "Variance": 17267987477257974,
+        "StandardDeviation": 131407714.6793824,
+        "Skewness": 0.35850479578091604,
+        "Kurtosis": 0.6666666666666666,
+        "ConfidenceInterval": {
+          "N": 3,
+          "Mean": 489839633.6666667,
+          "StandardError": 75868279.44373497,
+          "Level": 12,
+          "Margin": 2397365893.062035,
+          "Lower": -1907526259.3953683,
+          "Upper": 2887205526.7287016
+        },
+        "Percentiles": {
+          "P0": 398281148,
+          "P25": 414555427,
+          "P50": 430829706,
+          "P67": 502086341.93999994,
+          "P80": 556576710.6,
+          "P85": 577534544.7,
+          "P90": 598492378.8,
+          "P95": 619450212.9,
+          "P100": 640408047
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 91056
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 640408047
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 430829706
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 398281148
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 463902653
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 640408047
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 430829706
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 398281148
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 91056,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    },
+    {
+      "DisplayInfo": "IncrementalBackupBenchmarks.RestoreFullBackup_WithValidation: Job-NNSGVX(Arguments=-m:1, InvocationCount=1, IterationCount=3, LaunchCount=1, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=0) [UseCompoundFile=True, DocumentCount=500]",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "IncrementalBackupBenchmarks",
+      "Method": "RestoreFullBackup_WithValidation",
+      "MethodTitle": "RestoreFullBackup_WithValidation",
+      "Parameters": "UseCompoundFile=True&DocumentCount=500",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.IncrementalBackupBenchmarks.RestoreFullBackup_WithValidation(UseCompoundFile: True, DocumentCount: 500)",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          468503396,
+          306818331,
+          262646321
+        ],
+        "N": 3,
+        "Min": 262646321,
+        "LowerFence": 130339519.75,
+        "Q1": 284732326,
+        "Median": 306818331,
+        "Mean": 345989349.3333333,
+        "Q3": 387660863.5,
+        "UpperFence": 542053669.75,
+        "Max": 468503396,
+        "InterquartileRange": 102928537.5,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 62570121.56996783,
+        "Variance": 11745060339841658,
+        "StandardDeviation": 108374629.5949456,
+        "Skewness": 0.3142224029240988,
+        "Kurtosis": 0.666666666666667,
+        "ConfidenceInterval": {
+          "N": 3,
+          "Mean": 345989349.3333333,
+          "StandardError": 62570121.56996783,
+          "Level": 12,
+          "Margin": 1977156678.3431647,
+          "Lower": -1631167329.0098314,
+          "Upper": 2323146027.676498
+        },
+        "Percentiles": {
+          "P0": 262646321,
+          "P25": 284732326,
+          "P50": 306818331,
+          "P67": 361791253.09999996,
+          "P80": 403829370,
+          "P85": 419997876.50000006,
+          "P90": 436166382.99999994,
+          "P95": 452334889.5,
+          "P100": 468503396
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 92176
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 468503396
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 306818331
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 262646321
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 273873359
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 468503396
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 2,
+          "Operations": 1,
+          "Nanoseconds": 306818331
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 3,
+          "Operations": 1,
+          "Nanoseconds": 262646321
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 92176,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    }
+  ]
+}

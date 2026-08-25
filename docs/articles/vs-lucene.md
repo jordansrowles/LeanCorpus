@@ -329,7 +329,7 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Object-store pluggable directory | ❌ | ❌ | ❌ | Backlog; none of the compared libraries includes a built-in object-store directory. |
 | Directory abstraction | ✔   `LeanDirectory` | ✔ | ✔ | Base abstraction for index storage implementations. |
 | Codec composition framework | ✔   `ICodec<T>` / `Codec` / `CodecRegistry` | ◐ | ◐ | LeanCorpus CodecKit provides composable binary codecs, framing, checksums, validation, and versioning beyond index-format selection. |
-| Codec migration registry | ✔   `CodecMigrationRegistry` / `CodecVersionStep` | ❌ | ❌ | Ordered in-process format-version migrations. |
+| Catalogue-driven codec migration | ✔   immutable descriptors and migration policies | ❌ | ❌ | Plans and executes supported persistent-format migrations. |
 
 ---
 

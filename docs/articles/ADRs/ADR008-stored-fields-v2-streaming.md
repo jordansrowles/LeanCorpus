@@ -58,7 +58,7 @@ prefix when the version byte is 1.
 CodecKit is still used for migration and compatibility:
 
 - `CodecFormats` registers version steps for `fdt`, `fdx`, and `pos` in
-  `CodecMigrationRegistry`.
+  the built-in legacy compatibility reader.
 - `IndexFormatInspector` special-cases `.fdt`/`.fdx`/`.pos` and reads the
   version byte through the format's `*FileHeader.ReadVersion`, then reports the
   version against the registry.
@@ -83,7 +83,8 @@ the write path.
   and `StoredFieldsReader` bypass `CodecFileHeader`.
 - `CodecFormats.StoredFields` was removed; `CodecFormats.Postings` is a legacy
   v1-only codec for tests and backward compatibility.
-- `StoredFieldsFormat` remains as the legacy v1 body codec for tests.
+- LeanCorpus 3.0 removed the disconnected `StoredFieldsFormat` test specification;
+  production legacy readers remain the authority for supported v1 bodies.
 - Existing v1 indexes remain readable; `IndexCodecMigrator` rewrites them to v2.
 - Documentation in `docs/articles/05-codecs.md`,
   `docs/articles/07-feature-comparison.md`, and

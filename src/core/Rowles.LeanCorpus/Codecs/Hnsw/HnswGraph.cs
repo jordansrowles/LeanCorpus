@@ -1,6 +1,8 @@
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Rowles.LeanCorpus.Util;
 using Rowles.LeanCorpus.Codecs.Vectors;
+using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Codecs.Hnsw;
 
 /// <summary>
@@ -18,7 +20,7 @@ namespace Rowles.LeanCorpus.Codecs.Hnsw;
 /// than the simple top-M variant, which gives materially better recall on clustered embedding
 /// spaces typical of real-world workloads.</para>
 /// </remarks>
-internal sealed class HnswGraph
+internal sealed class HnswGraph : IDisposable
 {
     private const int NoEntryPoint = -1;
 
@@ -36,7 +38,8 @@ internal sealed class HnswGraph
 
     // Populated after Freeze: stable adjacency arrays for thread-safe reads.
     // volatile ensures the frozen graph is fully visible to all threads on ARM64.
-    private volatile List<FrozenLevel>? _frozenLevels;
+    private volatile List<ReadOnlyLevel>? _frozenLevels;
+    private IndexInput? _retainedInput;
 
     /// <summary>Vector dimension; matches <see cref="IVectorSource.Dimension"/>.</summary>
     public int Dimension => _vectors.Dimension;
@@ -72,8 +75,8 @@ internal sealed class HnswGraph
     }
 
     /// <summary>
-    /// Builds an <see cref="HnswGraph"/> from pre-loaded adjacency. Used by the reader to materialise
-    /// a graph from a .hnsw file. The graph is created in the read-only state immediately.
+    /// Builds an <see cref="HnswGraph"/> from pre-loaded adjacency. Used by migration paths that
+    /// remap persisted node identifiers. The graph is created in the read-only state immediately.
     /// </summary>
     internal static HnswGraph FromFrozen(
         IVectorSource vectors,
@@ -91,7 +94,32 @@ internal sealed class HnswGraph
             EntryPoint = entryPoint,
             MaxLevel = maxLevel,
             NodeCount = nodeCount,
+            _frozenLevels = [.. levels],
+        };
+    }
+
+    /// <summary>
+    /// Builds a read-only graph whose adjacency remains in a bounded codec-body input.
+    /// Only the sorted node identifiers and neighbour offsets are materialised.
+    /// </summary>
+    internal static HnswGraph FromMapped(
+        IVectorSource vectors,
+        HnswBuildConfig config,
+        long seed,
+        List<ReadOnlyLevel> levels,
+        int entryPoint,
+        int maxLevel,
+        int nodeCount,
+        IndexInput retainedInput)
+    {
+        ArgumentNullException.ThrowIfNull(retainedInput);
+        return new HnswGraph(vectors, config, seed, frozen: true)
+        {
+            EntryPoint = entryPoint,
+            MaxLevel = maxLevel,
+            NodeCount = nodeCount,
             _frozenLevels = levels,
+            _retainedInput = retainedInput,
         };
     }
 
@@ -136,7 +164,7 @@ internal sealed class HnswGraph
     {
         if (IsReadOnly) return;
 
-        var frozen = new List<FrozenLevel>(_mutableLevels.Count);
+        var frozen = new List<ReadOnlyLevel>(_mutableLevels.Count);
         foreach (var level in _mutableLevels)
             frozen.Add(FrozenLevel.FromMutable(level));
         _frozenLevels = frozen;
@@ -164,6 +192,7 @@ internal sealed class HnswGraph
             _mutableLevels.Add(dict);
         }
         _frozenLevels = null;
+        ReleaseRetainedInput();
     }
 
     /// <summary>True if a node with the given id is already present at layer 0.</summary>
@@ -305,11 +334,13 @@ internal sealed class HnswGraph
     }
 
     /// <summary>Returns the neighbours of a node at a given layer. Used by the writer.</summary>
-    internal IReadOnlyList<int> GetNeighbours(int docId, int level)
+    internal ReadOnlySpan<int> GetNeighbours(int docId, int level)
     {
         if (_frozenLevels is not null)
             return _frozenLevels[level].GetNeighbours(docId);
-        return _mutableLevels[level].TryGetValue(docId, out var list) ? list : (IReadOnlyList<int>)Array.Empty<int>();
+        return _mutableLevels[level].TryGetValue(docId, out var list)
+            ? CollectionsMarshal.AsSpan(list)
+            : ReadOnlySpan<int>.Empty;
     }
 
     /// <summary>Enumerates every document identifier present at a given layer. Used by the writer.</summary>
@@ -363,11 +394,20 @@ internal sealed class HnswGraph
         return current;
     }
 
-    private IReadOnlyList<int> NeighboursAt(int docId, int level)
+    private ReadOnlySpan<int> NeighboursAt(int docId, int level)
     {
         if (_frozenLevels is not null)
             return _frozenLevels[level].GetNeighbours(docId);
-        return _mutableLevels[level].TryGetValue(docId, out var list) ? list : (IReadOnlyList<int>)Array.Empty<int>();
+        return _mutableLevels[level].TryGetValue(docId, out var list)
+            ? CollectionsMarshal.AsSpan(list)
+            : ReadOnlySpan<int>.Empty;
+    }
+
+    public void Dispose() => ReleaseRetainedInput();
+
+    private void ReleaseRetainedInput()
+    {
+        Interlocked.Exchange(ref _retainedInput, null)?.Dispose();
     }
 
     /// <summary>
@@ -537,7 +577,18 @@ internal sealed class HnswGraph
     /// <c>Dictionary&lt;int, int[]&gt;</c> with parallel sorted arrays
     /// for cache-friendly sequential access during search.
     /// </summary>
-    internal sealed class FrozenLevel
+    internal abstract class ReadOnlyLevel
+    {
+        internal abstract int Count { get; }
+
+        internal abstract bool ContainsNode(int docId);
+
+        internal abstract ReadOnlySpan<int> GetNeighbours(int docId);
+
+        internal abstract int[] NodeIds { get; }
+    }
+
+    internal sealed class FrozenLevel : ReadOnlyLevel
     {
         private readonly int[] _sortedDocIds;
         private readonly int[][] _neighbourArrays;
@@ -548,20 +599,20 @@ internal sealed class HnswGraph
             _neighbourArrays = neighbourArrays;
         }
 
-        internal int Count => _sortedDocIds.Length;
+        internal override int Count => _sortedDocIds.Length;
 
         /// <summary>Binary search for cache-friendly O(log N) lookup.</summary>
-        internal bool ContainsNode(int docId)
+        internal override bool ContainsNode(int docId)
             => Array.BinarySearch(_sortedDocIds, docId) >= 0;
 
-        internal int[] GetNeighbours(int docId)
+        internal override ReadOnlySpan<int> GetNeighbours(int docId)
         {
             int idx = Array.BinarySearch(_sortedDocIds, docId);
-            return idx >= 0 ? _neighbourArrays[idx] : Array.Empty<int>();
+            return idx >= 0 ? _neighbourArrays[idx] : ReadOnlySpan<int>.Empty;
         }
 
         /// <summary>Sorted doc IDs at this level — used by the writer.</summary>
-        internal int[] NodeIds => _sortedDocIds;
+        internal override int[] NodeIds => _sortedDocIds;
 
         /// <summary>Creates a <c>Dictionary&lt;int, int[]&gt;</c> from this level.</summary>
         internal Dictionary<int, int[]> ToDictionary()
@@ -587,5 +638,44 @@ internal sealed class HnswGraph
             Array.Sort(docIds, neighbourArrays);
             return new FrozenLevel(docIds, neighbourArrays);
         }
+    }
+
+    /// <summary>Read-only adjacency backed by a retained, bounded codec-body input.</summary>
+    internal sealed class MappedLevel : ReadOnlyLevel
+    {
+        private readonly IndexInput _input;
+        private readonly int[] _sortedDocIds;
+        private readonly long[] _neighbourOffsets;
+        private readonly int[] _neighbourCounts;
+
+        internal MappedLevel(
+            IndexInput input,
+            int[] sortedDocIds,
+            long[] neighbourOffsets,
+            int[] neighbourCounts)
+        {
+            _input = input;
+            _sortedDocIds = sortedDocIds;
+            _neighbourOffsets = neighbourOffsets;
+            _neighbourCounts = neighbourCounts;
+        }
+
+        internal override int Count => _sortedDocIds.Length;
+
+        internal override bool ContainsNode(int docId)
+            => Array.BinarySearch(_sortedDocIds, docId) >= 0;
+
+        internal override ReadOnlySpan<int> GetNeighbours(int docId)
+        {
+            int index = Array.BinarySearch(_sortedDocIds, docId);
+            if (index < 0 || _neighbourCounts[index] == 0)
+                return ReadOnlySpan<int>.Empty;
+
+            long position = _neighbourOffsets[index];
+            int byteCount = checked(_neighbourCounts[index] * sizeof(int));
+            return MemoryMarshal.Cast<byte, int>(_input.BorrowSpan(byteCount, ref position));
+        }
+
+        internal override int[] NodeIds => _sortedDocIds;
     }
 }

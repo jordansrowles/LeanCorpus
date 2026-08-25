@@ -45,9 +45,24 @@
       <script type="module" src="./{{_rel}}public/docfx.min.js"></script>
       <script src="{{_rel}}assets/api-icons/api-icons.js" defer></script>
       <script src="{{_rel}}assets/api-navigation.js" defer></script>
+      <script src="{{_rel}}assets/display-settings.js" defer></script>
       <script>
-        const theme = localStorage.getItem('theme') || 'auto'
-        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+        (() => {
+          const root = document.documentElement
+          const readPreference = (key, fallback) => {
+            try {
+              return localStorage.getItem(key) || fallback
+            } catch {
+              return fallback
+            }
+          }
+          const theme = readPreference('theme', 'auto')
+          const contentSize = readPreference('content-size', 'default')
+          const validTheme = ['light', 'dark', 'auto'].includes(theme) ? theme : 'auto'
+          const validContentSize = ['compact', 'default', 'large', 'x-large'].includes(contentSize) ? contentSize : 'default'
+          root.dataset.contentSize = validContentSize
+          root.setAttribute('data-bs-theme', validTheme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : validTheme)
+        })()
       </script>
 
       {{#_googleAnalyticsTagId}}
@@ -80,6 +95,29 @@
                 <input class="form-control" id="search-query" type="search" disabled placeholder="{{__global.search}}" autocomplete="off" aria-label="Search">
               </form>
               {{/_enableSearch}}
+              <div class="lc-display-controls" aria-label="Display settings">
+                <label class="lc-display-control" for="lc-theme-select">
+                  <span>Theme</span>
+                  <select class="form-select form-select-sm" id="lc-theme-select" autocomplete="off">
+                    <option value="auto">System</option>
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                  </select>
+                </label>
+                <label class="lc-display-control" for="lc-content-size-select">
+                  <span>Content size</span>
+                  <select class="form-select form-select-sm" id="lc-content-size-select" autocomplete="off">
+                    <option value="compact">Compact</option>
+                    <option value="default">Default</option>
+                    <option value="large">Large</option>
+                    <option value="x-large">Extra large</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-check form-switch lc-api-tree-control">
+                <input class="form-check-input" type="checkbox" role="switch" id="lc-api-tree-toggle" aria-controls="apiNavigation" autocomplete="off">
+                <label class="form-check-label" for="lc-api-tree-toggle">Show API tree</label>
+              </div>
             </div>
             <div class="lc-main-navigation">
               <nav class="toc lc-docs-tree" id="toc"></nav>

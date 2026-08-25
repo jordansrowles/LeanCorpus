@@ -28,4 +28,7 @@ public sealed record IndexFormatInventory
 
     /// <summary>Gets a value indicating whether any file uses a future unsupported codec version.</summary>
     public required bool HasUnsupportedFutureFormat { get; init; }
+
+    /// <summary>Gets a value indicating whether a self-identifying file declares an unregistered format.</summary>
+    public bool HasUnknownFormat { get; init; }
 }

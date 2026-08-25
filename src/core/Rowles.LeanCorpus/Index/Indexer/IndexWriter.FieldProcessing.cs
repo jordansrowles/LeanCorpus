@@ -430,7 +430,19 @@ public sealed partial class IndexWriter
             string type = Token.DefaultType,
             int positionIncrement = 1,
             byte[]? payload = null)
+            => Add(text, startOffset, endOffset, type, positionIncrement, 1, payload);
+
+        public void Add(
+            ReadOnlySpan<char> text,
+            int startOffset,
+            int endOffset,
+            string type,
+            int positionIncrement,
+            int positionLength,
+            byte[]? payload)
         {
+            if (positionLength != 1)
+                throw new InvalidOperationException("Index-time token graphs require FlattenGraphFilter before indexing.");
             if (_budget > 0 &&
                 _budgetPolicy == Analysis.TokenBudgetPolicy.Truncate &&
                 AcceptedCount >= _budget)

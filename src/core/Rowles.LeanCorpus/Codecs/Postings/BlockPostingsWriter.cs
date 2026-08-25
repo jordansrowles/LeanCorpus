@@ -12,8 +12,8 @@ internal sealed class BlockPostingsWriter : IDisposable
 {
     private const int BlockSize = PackedIntCodec.BlockSize; // 128
 
-    private readonly IndexOutput _docOut;
-    private readonly IndexOutput? _posOut;
+    private readonly ISequentialIndexOutput _docOut;
+    private readonly ISequentialIndexOutput? _posOut;
 
     // Buffered values for the current block
     private readonly int[] _docBuffer = new int[BlockSize];
@@ -37,7 +37,7 @@ internal sealed class BlockPostingsWriter : IDisposable
     // Scratch space for bit-packing
     private readonly byte[] _packScratch = new byte[1 + 32 * 16]; // max output of Pack
 
-    public BlockPostingsWriter(IndexOutput docOut, IndexOutput? posOut = null)
+    public BlockPostingsWriter(ISequentialIndexOutput docOut, ISequentialIndexOutput? posOut = null)
     {
         _docOut = docOut;
         _posOut = posOut;

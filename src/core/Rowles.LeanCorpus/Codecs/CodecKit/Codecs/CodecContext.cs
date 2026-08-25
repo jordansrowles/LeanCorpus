@@ -92,7 +92,10 @@ public sealed class CodecContext
     private void PopPath()
     {
         if (_pathSegments.Count > 0)
+        {
             _pathSegments.RemoveAt(_pathSegments.Count - 1);
+            _cachedPath = null;
+        }
     }
 
     #endregion
@@ -127,8 +130,14 @@ public sealed class CodecContext
     /// Enters a delimited scope of the given byte length.
     /// Returns a disposable guard that exits the scope on dispose.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="length"/> is negative.
+    /// </exception>
     public IDisposable EnterScope(long length)
     {
+        if (length < 0)
+            throw new ArgumentOutOfRangeException(nameof(length), length, "Scope length must be non-negative.");
+
         _scopes.Push(new ScopeInfo(length));
         return new ScopeGuard(this);
     }
@@ -136,11 +145,26 @@ public sealed class CodecContext
     /// <summary>
     /// Consumes bytes from the current scope.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="bytes"/> is negative or exceeds the bytes remaining in the current scope.
+    /// </exception>
     public void ConsumeScope(long bytes)
     {
+        if (bytes < 0)
+            throw new ArgumentOutOfRangeException(nameof(bytes), bytes, "Consumed byte count must be non-negative.");
+
         if (_scopes.Count > 0)
         {
             var scope = _scopes.Peek();
+
+            if (bytes > scope.Remaining)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(bytes),
+                    bytes,
+                    $"Cannot consume more than the {scope.Remaining} bytes remaining in the current scope.");
+            }
+
             scope.Remaining -= bytes;
         }
     }

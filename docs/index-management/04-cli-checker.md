@@ -63,7 +63,20 @@ leancorpus-cli.exe check <path> [--deep] [--json] [--postings] [--stored-fields]
 leancorpus-cli.exe inspect .\index --json --output .\inventory.json
 ```
 
-Reports file inventory without constructing search readers.
+Reports file inventory without constructing search readers. Text output separates the outer frame from the body format:
+
+```text
+seg_1.pos
+  format: leancorpus.postings.data
+  frame: 1
+  format-version: 4
+  current: True
+  checksum: XxHash64
+  checksum-status: NotVerified
+  location: LooseFile
+```
+
+A deep `check` changes a valid canonical checksum status to `Valid`. Compound members report `CompoundMember` and include their owning `.cfs` file in JSON output.
 
 ## Compatibility
 
@@ -78,6 +91,7 @@ leancorpus-cli.exe compat .\index --deep
 | `MigrationRecommended` | Readable, but a current-format rewrite is available |
 | `MigrationRequired` | Policy requires migration before open |
 | `UnsupportedFutureFormat` | At least one codec version is newer than this build |
+| `UnknownFormat` | A persistent file or declared frame identity is not in the active catalogue |
 | `Corrupt` | Validation found error-severity issues |
 
 ## Migration
@@ -90,7 +104,7 @@ leancorpus-cli.exe migrate .\index --dry-run --json
 leancorpus-cli.exe migrate .\index --execute --staging .\index.migration
 ```
 
-Staged migration writes `migration_state.json` while it works. Normal opens reject an incomplete marker.
+Dry-run actions distinguish reframe, rewrite, coordinated rewrite, compound repack and unsupported paths. Staged migration writes `migration_state.json` while it works. Normal opens reject an incomplete marker.
 
 ## Backup and restore
 
@@ -147,5 +161,6 @@ leancorpus-cli.exe compat .\artifacts\newsgroups-index
 ## See also
 
 - [Validation and recovery](03-validation-recovery.md)
+- [Migrating indexes to 3.0](11-codec-migration-3-0.md)
 - <xref:Rowles.LeanCorpus.Index.IndexValidator>
 - <xref:Rowles.LeanCorpus.Index.Format.IndexFormatInspector>

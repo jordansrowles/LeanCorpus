@@ -2,6 +2,7 @@ using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Codecs.Vectors;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
 
@@ -10,6 +11,9 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 /// </summary>
 public sealed class IndexWriterConfig
 {
+    /// <summary>Gets or sets the immutable codec catalogue used when opening existing segments.</summary>
+    public CodecCatalog CodecCatalog { get; set; } = CodecCatalog.Default;
+
     /// <summary>RAM buffer size in megabytes before an automatic flush.</summary>
     public double RamBufferSizeMB { get; set; } = 512.0;
 
@@ -60,12 +64,18 @@ public sealed class IndexWriterConfig
     /// <summary>
     /// When <c>true</c> (default), <see cref="IndexWriter.Commit"/> flushes file contents and
     /// directory metadata to disk via <c>fsync</c> before and after the <c>segments_N</c> rename,
-    /// guaranteeing the commit survives a power loss. Fsync failures are surfaced as
-    /// <see cref="IOException"/> from <c>Commit</c>; the commit fails closed rather than reporting
-    /// success on a host whose storage refused to flush. Disable only for write-heavy benchmarks
-    /// where durability is not required.
+    /// guaranteeing the commit survives a power loss. If the final directory fsync fails after
+    /// the atomic rename, the commit may already be visible but its durability is unconfirmed;
+    /// <see cref="IndexWriter.Commit"/> throws and the writer must be disposed and reopened.
+    /// Disable only for write-heavy benchmarks where durability is not required.
     /// </summary>
     public bool DurableCommits { get; set; } = true;
+
+    /// <summary>
+    /// Test-only replacement for the directory sync performed after a prepared commit has
+    /// been atomically published. When <see langword="null"/>, the platform directory sync is used.
+    /// </summary>
+    internal Action<string>? PreparedCommitPublicationSync { get; set; }
 
     /// <summary>
     /// Compatibility guardrail applied when opening an existing index. Defaults to strict mode.

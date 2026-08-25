@@ -220,7 +220,7 @@ public sealed partial class IndexSearcher : IDisposable
 
         var (segmentIds, generation) = LoadLatestCommitWithGeneration();
         _commitGeneration = generation;
-        IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false);
+        IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false, config.CodecCatalog);
 
         // Load segment readers with a retry loop to handle the narrow window where a
         // background merge has deleted segment files but the commit file still references
@@ -254,7 +254,7 @@ public sealed partial class IndexSearcher : IDisposable
                 Thread.Sleep(10 * attempt);
                 (segmentIds, generation) = LoadLatestCommitWithGeneration();
                 _commitGeneration = generation;
-                IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false);
+                IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false, config.CodecCatalog);
             }
             finally
             {
@@ -323,7 +323,8 @@ public sealed partial class IndexSearcher : IDisposable
             directory,
             segments.Select(static segment => segment.SegmentId),
             config.CompatibilityMode,
-            forWriting: false);
+            forWriting: false,
+            config.CodecCatalog);
         try
         {
             var segmentIds = segments.Select(static segment => segment.SegmentId).ToList();
@@ -380,7 +381,7 @@ public sealed partial class IndexSearcher : IDisposable
             : Math.Max(generationMarker, vectorMarker);
         if (marker > 0)
             candidate = candidate[..marker];
-        return segmentIds.Contains(candidate);
+        return segmentIds.Contains(candidate) && SegmentReader.IsSegmentFile(candidate, fileName);
     }
 
     /// <summary>
@@ -730,11 +731,49 @@ public sealed partial class IndexSearcher : IDisposable
     /// </summary>
     public TopDocs Search(Query query, int topN, CancellationToken cancellationToken)
     {
-        if (topN <= 0 || _readers.Count == 0)
+        ArgumentNullException.ThrowIfNull(query);
+        query = RewriteQuery(query);
+        int requestedTopN = topN;
+        int effectiveTopN = NormaliseTopN(topN);
+        if (effectiveTopN <= 0 || _readers.Count == 0)
             return TopDocs.Empty;
 
         cancellationToken.ThrowIfCancellationRequested();
 
+        using var activity = Diagnostics.LeanCorpusActivitySource.Source
+            .StartActivity(Diagnostics.LeanCorpusActivitySource.Search);
+        activity?.SetTag("query.type", query.GetType().Name);
+
+        if (_queryCache is not null)
+        {
+            var cached = _queryCache.TryGet(query, requestedTopN);
+            if (cached is not null)
+            {
+                _config.Metrics.RecordCacheHit();
+                activity?.SetTag("search.cache_hit", true);
+                activity?.SetTag("search.total_hits", cached.TotalHits);
+                return cached;
+            }
+            _config.Metrics.RecordCacheMiss();
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var result = SearchCancellableCore(query, effectiveTopN, cancellationToken);
+        sw.Stop();
+        _config.Metrics.RecordSearchLatency(sw.Elapsed);
+
+        activity?.SetTag("search.cache_hit", false);
+        activity?.SetTag("search.total_hits", result.TotalHits);
+
+        _config.SlowQueryLog?.MaybeLog(query, sw.Elapsed, result.TotalHits);
+        _config.SearchAnalytics?.Record(query, sw.Elapsed, result.TotalHits, cacheHit: false);
+
+        _queryCache?.Put(query, requestedTopN, result);
+        return result;
+    }
+
+    private TopDocs SearchCancellableCore(Query query, int topN, CancellationToken cancellationToken)
+    {
         // Cross-segment / composite queries: dispatch before the generic ExecuteQuery path
         if (query is MoreLikeThisQuery mlt)
             return ExecuteMoreLikeThis(mlt, topN);
@@ -1045,7 +1084,10 @@ public sealed partial class IndexSearcher : IDisposable
 
     private (List<string> SegmentIds, int Generation) LoadLatestCommitWithGeneration()
     {
-        var recovery = IndexRecovery.RecoverLatestCommit(_directory.DirectoryPath, cleanupOrphans: false);
+        var recovery = IndexRecovery.RecoverLatestCommit(
+            _directory.DirectoryPath,
+            cleanupOrphans: false,
+            catalog: _config.CodecCatalog);
         return recovery is not null
             ? (recovery.SegmentIds, recovery.Generation)
             : ([], 0);

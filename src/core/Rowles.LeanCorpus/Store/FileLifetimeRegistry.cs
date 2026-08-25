@@ -42,14 +42,18 @@ internal static class FileLifetimeRegistry
         internal FileLease Acquire(string fileName)
         {
             var filePath = GetPath(fileName);
+            FileLease lease;
             lock (_lock)
             {
-                if (!File.Exists(filePath))
-                    throw new FileNotFoundException($"Index file is missing: '{filePath}'.", filePath);
-
                 GetOrAdd(filePath).LeaseCount++;
-                return new FileLease(this, filePath);
+                lease = new FileLease(this, filePath);
             }
+
+            if (File.Exists(filePath))
+                return lease;
+
+            lease.Dispose();
+            throw new FileNotFoundException($"Index file is missing: '{filePath}'.", filePath);
         }
 
         internal FileSnapshotLease AcquireSnapshot(IReadOnlyCollection<string> fileNames)
@@ -59,38 +63,52 @@ internal static class FileLifetimeRegistry
 
             var paths = new string[fileNames.Count];
             int index = 0;
+            foreach (var fileName in fileNames)
+                paths[index++] = GetPath(fileName);
+
             lock (_lock)
             {
-                foreach (var fileName in fileNames)
-                {
-                    var filePath = GetPath(fileName);
-                    if (!File.Exists(filePath))
-                        throw new FileNotFoundException($"Index file is missing: '{filePath}'.", filePath);
-                    paths[index++] = filePath;
-                }
-
                 foreach (var filePath in paths)
                     GetOrAdd(filePath).LeaseCount++;
             }
-            return new FileSnapshotLease(this, paths);
+
+            var lease = new FileSnapshotLease(this, paths);
+            foreach (var filePath in paths)
+            {
+                if (File.Exists(filePath))
+                    continue;
+                lease.Dispose();
+                throw new FileNotFoundException($"Index file is missing: '{filePath}'.", filePath);
+            }
+            return lease;
         }
 
         internal FileSnapshotLease AcquireSnapshot(
             Func<string, bool> includeFile,
             out string[] inventory)
         {
+            inventory = Directory.GetFiles(_directoryPath)
+                .Select(Path.GetFileName)
+                .Where(static name => name is not null)
+                .Select(static name => name!)
+                .ToArray();
+            var selectedPaths = inventory.Where(includeFile).Select(GetPath).ToArray();
+
             lock (_lock)
             {
-                inventory = Directory.GetFiles(_directoryPath)
-                    .Select(Path.GetFileName)
-                    .Where(static name => name is not null)
-                    .Select(static name => name!)
-                    .ToArray();
-                var selected = inventory.Where(includeFile).ToArray();
-                foreach (var fileName in selected)
-                    GetOrAdd(GetPath(fileName)).LeaseCount++;
-                return new FileSnapshotLease(this, selected.Select(GetPath).ToArray());
+                foreach (var filePath in selectedPaths)
+                    GetOrAdd(filePath).LeaseCount++;
             }
+
+            var lease = new FileSnapshotLease(this, selectedPaths);
+            foreach (var filePath in selectedPaths)
+            {
+                if (File.Exists(filePath))
+                    continue;
+                lease.Dispose();
+                throw new FileNotFoundException($"Index file is missing: '{filePath}'.", filePath);
+            }
+            return lease;
         }
 
         internal void Delete(string fileName)

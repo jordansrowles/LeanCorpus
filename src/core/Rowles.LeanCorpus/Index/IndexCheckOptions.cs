@@ -1,10 +1,15 @@
-﻿namespace Rowles.LeanCorpus.Index;
+﻿using Rowles.LeanCorpus.Codecs.CodecKit;
+
+namespace Rowles.LeanCorpus.Index;
 
 /// <summary>
 /// Options controlling index validation depth.
 /// </summary>
 public sealed class IndexCheckOptions
 {
+    /// <summary>Gets or sets the immutable codec catalogue used for frame and temporary-file validation.</summary>
+    public CodecCatalog Catalog { get; set; } = CodecCatalog.Default;
+
     /// <summary>Gets or sets a value indicating whether all deep validation checks should run.</summary>
     public bool Deep { get; set; }
 

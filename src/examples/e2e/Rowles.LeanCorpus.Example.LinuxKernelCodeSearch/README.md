@@ -1,125 +1,163 @@
-# Linux Kernel Code Search
+# Linux kernel code search
 
-End-to-end example that indexes the Linux kernel source tree and runs search scenarios. Serves as a reproducible regression test for the high-segment-count `IndexSearcher` open-time problem tracked by [GitHub issue #42](https://github.com/jordansrowles/LeanCorpus/issues/42).
+This end-to-end workload indexes Linux kernel source one line per document and measures searcher open time, working set and representative query latency. It was created for [issue #42](https://github.com/jordansrowles/LeanCorpus/issues/42).
 
-## Corpus
+> [!WARNING]
+> The full workload clones about 1.5 GB of source and can create tens of millions of documents across thousands of segments. Start with the bounded smoke run.
 
-Linux kernel `v6.6` LTS. Clone depth-1:
+## Prerequisites
 
+- A Release-capable .NET SDK supported by the repository.
+- A local Linux kernel source checkout.
+- A dedicated index path with sufficient free space.
+- A separate output path for telemetry JSON.
+
+Clone Linux `v6.6` LTS:
+
+```bash
+git clone --depth 1 --branch v6.6 \
+  https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
 ```
-git clone --depth 1 --branch v6.6 https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+
+## Run a bounded smoke workload
+
+Build the example:
+
+```bash
+dotnet build --configuration Release \
+  src/examples/e2e/Rowles.LeanCorpus.Example.LinuxKernelCodeSearch
 ```
 
-Roughly 70K `.c` and `.h` files, roughly 30M lines, roughly 1.5 GB raw source.
+Index a bounded sample without compaction:
 
-## Document model
+```bash
+dotnet run --configuration Release \
+  --project src/examples/e2e/Rowles.LeanCorpus.Example.LinuxKernelCodeSearch \
+  -- \
+  --source /path/to/linux \
+  --index /path/to/kernel-index-smoke \
+  --output /path/to/kernel-output-smoke \
+  --max-docs 100000 \
+  --no-compact
+```
 
-One document per line of code:
+Expected result:
+
+- indexing progress is printed;
+- the final segment count is reported;
+- search scenarios run;
+- a metrics JSON file is written under the output path.
+
+Use this run to confirm paths, permissions and telemetry before removing the document bound.
+
+## Reproduce the high-segment-count issue
+
+1. Choose fresh, dedicated index and output paths.
+2. Run the full corpus with `--no-compact`.
+3. Record the final document and segment counts.
+4. Stop the process.
+5. Open the preserved index in a fresh Release process with `--skip-index`.
+6. Repeat with the default cache.
+7. Repeat with `--max-cached-segment-readers` at least equal to the segment count.
+8. Compare open time, working set, cold query and warm query measurements.
+
+Full indexing:
+
+```bash
+dotnet run --configuration Release \
+  --project src/examples/e2e/Rowles.LeanCorpus.Example.LinuxKernelCodeSearch \
+  -- \
+  --source /path/to/linux \
+  --index /path/to/kernel-index \
+  --output /path/to/kernel-output \
+  --no-compact \
+  --skip-search
+```
+
+Fresh-process search:
+
+```bash
+dotnet run --configuration Release \
+  --project src/examples/e2e/Rowles.LeanCorpus.Example.LinuxKernelCodeSearch \
+  -- \
+  --index /path/to/kernel-index \
+  --output /path/to/kernel-output \
+  --skip-index
+```
+
+> [!IMPORTANT]
+> Compare runs only when corpus, index, segment count, commit, framework, configuration and host state are equivalent.
+
+## Workload design
+
+The `v6.6` corpus contains roughly 70,000 C and header files and about 30 million lines. Each source line becomes one document.
 
 | Field | Type | Stored | Indexed |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `path_id` | String | Yes | Docs only |
-| `line` | Stored (int) | Yes | No |
-| `content` | Text | Yes | Yes (Docs, Freqs, Positions) |
+| `line` | Stored integer | Yes | No |
+| `content` | Text | Yes | Docs, frequencies and positions |
 
-`WhitespaceAnalyser` is used for all text fields. `path_id` is a numeric file identifier that resolves to a full path via the console output.
+`WhitespaceAnalyser` is used for text. `NoMergePolicy` and `MaxBufferedDocs = 10,000` deliberately create thousands of unmerged segments on a full run.
 
-## Build
+## Useful options
 
-```
-dotnet build
-```
-
-No solution entry needed: the example is standalone.
-
-## Run
-
-```
-dotnet run -- [options]
-```
-
-| Flag | Default | Description |
-|---|---|---|
-| `--source <path>` | `./linux` | Path to Linux kernel clone |
-| `--index <path>` | `./kernel-index` | Path for index directory |
-| `--output <path>` | `./output` | Path for telemetry output |
-| `--max-docs <n>` | `0` (all) | Max documents to index |
-| `--max-cached-segment-readers <n>` | `256` | Maximum retained heavy segment readers |
-| `--scenario <name>` | all | Run one query scenario |
-| `--warmup <n>` | `10` | Warmup iterations per scenario |
-| `--measured <n>` | `50` | Measured iterations per scenario |
-| `--no-compact` | `false` | Skip `Compact()` after indexing |
-| `--skip-index` | `false` | Skip indexing, only search |
-| `--skip-search` | `false` | Skip search, only index |
-
-Indexing uses `NoMergePolicy` to maximise segment count. `MaxBufferedDocs` is 10,000. With 30M lines, this produces roughly 3,000 unmerged segments.
+| Flag | Default | Use |
+| --- | --- | --- |
+| `--source <path>` | `./linux` | Kernel checkout |
+| `--index <path>` | `./kernel-index` | Persistent index directory |
+| `--output <path>` | `./output` | Telemetry output |
+| `--max-docs <n>` | `0`, all | Bound a smoke run |
+| `--max-cached-segment-readers <n>` | `256` | Control retained heavy readers |
+| `--scenario <name>` | All | Run one query scenario |
+| `--warmup <n>` | `10` | Warm-up iterations |
+| `--measured <n>` | `50` | Measured iterations |
+| `--no-compact` | False | Preserve high segment count |
+| `--skip-index` | False | Search an existing index |
+| `--skip-search` | False | Build the index only |
 
 ## Query scenarios
 
-Each scenario records an untimed-cache first query, then runs 10 warmup iterations and 50 measured iterations by default. Results include first-query latency, p50, p99, hit count, and working set after the cold and warm passes. The query-result cache is disabled so repeated measurements exercise segment-reader caching.
+| Scenario | Query shape |
+| --- | --- |
+| `term-symbol` | Exact term |
+| `phrase-symbol` | Phrase |
+| `wildcard-callsite` | Wildcard |
+| `fuzzy-typo` | Fuzzy term |
+| `regex-grep` | Regular expression |
+| `boolean-filter` | Filtered Boolean query |
+| `stored-retrieval` | Stored fields for top match-all hits |
 
-| Scenario | Query |
-|---|---|
-| term-symbol | `TermQuery("content", "task_struct")` |
-| phrase-symbol | `PhraseQuery("content", "struct", "task_struct")` |
-| wildcard-callsite | `WildcardQuery("content", "*kmalloc*")` |
-| fuzzy-typo | `FuzzyQuery("content", "schedulr")` |
-| regex-grep | `RegexpQuery("content", "BUG_ON.*")` |
-| boolean-filter | `BooleanQuery(TermQuery("path_id", ...) + WildcardQuery("content", "*spin_lock*"))` |
-| stored-retrieval | Read stored fields for top 100 `MatchAllDocsQuery` hits |
+The query-result cache is disabled so repeated measurements exercise segment-reader caching.
 
-## Telemetry
+## Read the metrics
 
-After the run, a metrics JSON file is written to the output directory:
+The JSON output records:
 
-```json
-{
-  "index_time_ms": ...,
-  "docs_indexed": ...,
-  "final_segment_count": ...,
-  "commit_time_ms": ...,
-  "index_size_bytes": ...,
-  "max_cached_segment_readers": 256,
-  "working_set_before_open_bytes": ...,
-  "searcher_open_ms": ...,
-  "searcher_open_working_set_bytes": ...,
-  "scenarios": [
-    {
-      "name": "term-symbol",
-      "first_query_ms": ...,
-      "p50_ms": ...,
-      "p99_ms": ...,
-      "total_hits": ...,
-      "working_set_after_cold_bytes": ...,
-      "working_set_after_warm_bytes": ...
-    }
-  ]
-}
-```
+- indexing, commit and searcher-open time;
+- indexed document and final segment counts;
+- index size and process working set;
+- configured segment-reader cache capacity;
+- first-query, p50 and p99 latency;
+- hit counts and working set after cold and warm passes.
 
-## Measured comparison
+Keep the raw JSON with the source commit and run command. A Markdown summary is not a substitute for the evidence.
 
-These Linux measurements use the same 27-million-document, 2,700-segment index and a fresh Release `--skip-index` process. The earlier 555-segment observation remains useful preliminary evidence, but is not the acceptance index.
+## Historical measured comparison
+
+The existing acceptance measurements used the same 27-million-document, 2,700-segment index and fresh Release `--skip-index` processes.
 
 | Reader implementation | Segments | Cache | Open time | Working set after open |
-|---|---:|---:|---:|---:|
-| Eager, preliminary | 555 | n/a | 3.440 s | 643.6 MiB |
-| Eager baseline | 2,700 | n/a | 77.888 s | 2,905 MiB |
+| --- | ---: | ---: | ---: | ---: |
+| Eager, preliminary | 555 | Not applicable | 3.440 s | 643.6 MiB |
+| Eager baseline | 2,700 | Not applicable | 77.888 s | 2,905 MiB |
 | Lazy readers | 2,700 | 256 | 0.757 s | 75.8 MiB |
 | Lazy readers | 2,700 | 2,700 | 0.806 s | 74.0 MiB |
 
-The default-capacity term scenario recorded a 1.581 s cold query and a 1.128 s subsequent broad reload pass, with 3,077 hits. This deliberately used one measured reload iteration because repeated broad passes churn a cache smaller than the segment count.
+With cache capacity covering every segment, the term scenario recorded a 2.038 s cold query and 5.811 ms p50. The phrase scenario recorded a 2.201 s cold query and 27.386 ms p50.
 
-With capacity covering every segment, the term scenario recorded a 2.038 s cold query, 5.811 ms p50, 9.672 ms p99, and 3,077 hits. The phrase scenario recorded a 2.201 s cold query, 27.386 ms p50, 82.742 ms p99, and 1,308 hits. Its warm p50 was lower than the eager baseline of 32.51 ms. The narrow term p50 did not meet the five per cent parity target against the eager baseline of 3.39 ms, so that acceptance target remains open.
+The narrow term p50 did not meet the five per cent parity target against the 3.39 ms eager baseline, so that acceptance target remained open. Full-index compaction also remained unmeasured because both compared builds reached the CodecKit scratch-buffer limit.
 
-The reader cache bounds retained heavy state, not the memory touched by a query. A broad query over more segments than the configured capacity can repeatedly reload readers and increase latency. Set `MaxCachedSegmentReaders` to at least the active segment count when stable warm-query latency matters more than the additional retained memory.
+## After the run
 
-Compaction timing could not be compared on this acceptance index. Both the reconstructed eager build and the lazy-reader build reached the existing CodecKit scratch-buffer limit while writing the merged term dictionary: 151,771,577 bytes requested against a 67,108,864-byte limit. Smaller-index merge and cleanup tests pass, but the ten per cent compaction criterion is therefore unmeasured here.
-
-## Reproducing the segment-count issue
-
-1. Clone the Linux kernel source
-2. Run with `--no-compact` to skip merging: `dotnet run -- --source /path/to/linux --no-compact`
-3. Stop the process, then open the preserved index in a fresh process with `--skip-index`
-4. Observe the open, working-set, and scenario metrics
-5. Repeat with the default cache and with `--max-cached-segment-readers` at least equal to the segment count
+The source checkout, index and telemetry paths are independent. Confirm that you no longer need the index or raw evidence before removing those directories.

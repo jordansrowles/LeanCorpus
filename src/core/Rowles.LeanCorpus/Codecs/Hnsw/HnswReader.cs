@@ -1,14 +1,13 @@
-using Rowles.LeanCorpus.Codecs.Vectors;
-using System.IO;
-using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Store;
+
 namespace Rowles.LeanCorpus.Codecs.Hnsw;
 
 /// <summary>
-/// Reads a <see cref="HnswGraph"/> previously written by <see cref="HnswWriter"/>. The graph
-/// is materialised into the frozen, read-only state ready for concurrent search.
+/// Reads a <see cref="HnswGraph"/> previously written by <see cref="HnswWriter"/>.
+/// Normal search opens retain a bounded body input and materialise only node identifiers
+/// and neighbour offsets. Merge remapping materialises adjacency because it rewrites it.
 /// </summary>
 internal static class HnswReader
 {
@@ -29,93 +28,179 @@ internal static class HnswReader
         IVectorSource vectorSource,
         bool? expectedNormalised,
         IReadOnlyDictionary<int, int>? docIdRemap)
-    {
-        using var input = new IndexInput(filePath);
-        return Read(input, vectorSource, expectedNormalised, docIdRemap);
-    }
+        => Read(new IndexInput(filePath), vectorSource, expectedNormalised, docIdRemap);
 
+    /// <summary>
+    /// Takes ownership of <paramref name="input"/>. A separately owned bounded body slice is
+    /// retained by the returned graph only when no remapping is requested.
+    /// </summary>
     internal static HnswGraph Read(
         IndexInput input,
         IVectorSource vectorSource,
         bool? expectedNormalised,
         IReadOnlyDictionary<int, int>? docIdRemap)
     {
-        using var fs = new IndexInputStream(input);
-        using var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: false);
-        string filePath = input.FilePath ?? "compound member";
+        ArgumentNullException.ThrowIfNull(input);
+        IndexInput? body = null;
+        try
+        {
+            using (input)
+            using (var frame = CodecFileReader.OpenSupported(input, VectorCodecFiles.Hnsw))
+            {
+                body = frame.OpenBodyInput();
+            }
 
-        byte version = CodecFileHeader.ReadVersion(reader, CodecFormats.Hnsw);
+            string filePath = input.FilePath ?? "compound member";
+            long position = 0;
+            int dimension = body.ReadInt32(ref position);
+            bool normalised = body.ReadByte(ref position) != 0;
+            if (expectedNormalised is bool expected && expected != normalised)
+                throw new InvalidDataException(
+                    $"HNSW file at '{filePath}' declares Normalised={normalised} but the segment field declares Normalised={expected}.");
+            if (vectorSource.Dimension != dimension)
+                throw new InvalidDataException(
+                    $"HNSW file dimension {dimension} does not match vector source dimension {vectorSource.Dimension}.");
 
-        int dimension = reader.ReadInt32();
-        bool normalised = reader.ReadByte() != 0;
-        if (expectedNormalised is bool expected && expected != normalised)
-            throw new InvalidDataException(
-                $"HNSW file at '{filePath}' declares Normalised={normalised} but the segment field declares Normalised={expected}.");
-        if (vectorSource.Dimension != dimension)
-            throw new InvalidDataException(
-                $"HNSW file dimension {dimension} does not match vector source dimension {vectorSource.Dimension}.");
+            int m = body.ReadInt32(ref position);
+            int m0 = body.ReadInt32(ref position);
+            int efConstruction = body.ReadInt32(ref position);
+            long seed = body.ReadInt64(ref position);
+            int entryPoint = body.ReadInt32(ref position);
+            int maxLevel = body.ReadInt32(ref position);
+            int nodeCount = body.ReadInt32(ref position);
+            int levelCount = body.ReadInt32(ref position);
 
-        int m = reader.ReadInt32();
-        int m0 = reader.ReadInt32();
-        int efConstruction = reader.ReadInt32();
-        long seed = reader.ReadInt64();
-        int entryPoint = reader.ReadInt32();
-        int maxLevel = reader.ReadInt32();
-        int nodeCount = reader.ReadInt32();
-        int levelCount = reader.ReadInt32();
+            if (maxLevel < 0)
+                throw new InvalidDataException($"HNSW file at '{filePath}' has negative maxLevel ({maxLevel}).");
+            if (nodeCount < 0)
+                throw new InvalidDataException($"HNSW file at '{filePath}' has negative nodeCount ({nodeCount}).");
+            if (levelCount < 0 || levelCount > maxLevel + 1)
+                throw new InvalidDataException(
+                    $"HNSW file at '{filePath}' has levelCount {levelCount} but maxLevel is {maxLevel} (valid range 0..{maxLevel + 1}).");
 
-        // Defend against malformed files that could cause OOM or corrupt reads.
-        if (maxLevel < 0)
-            throw new InvalidDataException(
-                $"HNSW file at '{filePath}' has negative maxLevel ({maxLevel}).");
-        if (nodeCount < 0)
-            throw new InvalidDataException(
-                $"HNSW file at '{filePath}' has negative nodeCount ({nodeCount}).");
-        if (levelCount < 0 || levelCount > maxLevel + 1)
-            throw new InvalidDataException(
-                $"HNSW file at '{filePath}' has levelCount {levelCount} but maxLevel is {maxLevel} (valid range 0..{maxLevel + 1}).");
+            var config = new HnswBuildConfig { M = m, M0 = m0, EfConstruction = efConstruction };
+            if (docIdRemap is null)
+            {
+                var levels = CreateMappedLevels(body, filePath, nodeCount, levelCount, ref position);
+                EnsureFullyConsumed(body, filePath, position);
+                var graph = HnswGraph.FromMapped(
+                    vectorSource, config, seed, levels, entryPoint, maxLevel, nodeCount, body);
+                body = null;
+                return graph;
+            }
 
-        // Collect per-level (docId, neighbours) pairs, then sort by docId.
-        var levels = new List<HnswGraph.FrozenLevel>(levelCount);
+            var remappedLevels = ReadRemappedLevels(
+                body, filePath, nodeCount, levelCount, docIdRemap, ref position);
+            EnsureFullyConsumed(body, filePath, position);
+            body.Dispose();
+            body = null;
+
+            entryPoint = docIdRemap.TryGetValue(entryPoint, out int newEntry) ? newEntry : -1;
+            while (maxLevel >= 0 && remappedLevels[maxLevel].Count == 0)
+                maxLevel--;
+            if (remappedLevels.Count > maxLevel + 1)
+                remappedLevels.RemoveRange(maxLevel + 1, remappedLevels.Count - maxLevel - 1);
+            nodeCount = remappedLevels.Count > 0 ? remappedLevels[0].Count : 0;
+            if (entryPoint == -1 && maxLevel >= 0)
+            {
+                var topIds = remappedLevels[maxLevel].NodeIds;
+                if (topIds.Length > 0)
+                    entryPoint = topIds[0];
+            }
+
+            return HnswGraph.FromFrozen(
+                vectorSource, config, seed, remappedLevels, entryPoint, maxLevel, nodeCount);
+        }
+        catch
+        {
+            body?.Dispose();
+            input.Dispose();
+            throw;
+        }
+    }
+
+    private static List<HnswGraph.ReadOnlyLevel> CreateMappedLevels(
+        IndexInput body,
+        string filePath,
+        int nodeCount,
+        int levelCount,
+        ref long position)
+    {
+        var levels = new List<HnswGraph.ReadOnlyLevel>(levelCount);
         for (int i = 0; i < levelCount; i++)
-            levels.Add(null!); // placeholder; filled in reverse order below
+            levels.Add(null!);
 
         for (int level = levelCount - 1; level >= 0; level--)
         {
-            int nodes = reader.ReadInt32();
-            if (nodes < 0 || nodes > nodeCount)
-                throw new InvalidDataException(
-                    $"HNSW file at '{filePath}' level {level} declares {nodes} nodes (valid range 0..{nodeCount}).");
+            int nodes = ReadNodeCount(body, filePath, nodeCount, level, ref position);
+            var locations = new NodeLocation[nodes];
+            for (int node = 0; node < nodes; node++)
+            {
+                int docId = body.ReadInt32(ref position);
+                int neighbourCount = body.ReadInt32(ref position);
+                ValidateNeighbourCount(filePath, nodeCount, level, docId, neighbourCount);
+                long neighbourOffset = position;
+                position = checked(position + checked((long)neighbourCount * sizeof(int)));
+                if (position > body.Length)
+                    throw new EndOfStreamException($"HNSW file at '{filePath}' is truncated in level {level} adjacency.");
+                locations[node] = new NodeLocation(docId, neighbourOffset, neighbourCount);
+            }
+
+            Array.Sort(locations, static (left, right) => left.DocId.CompareTo(right.DocId));
+            var docIds = new int[nodes];
+            var offsets = new long[nodes];
+            var counts = new int[nodes];
+            for (int node = 0; node < nodes; node++)
+            {
+                if (node > 0 && locations[node - 1].DocId == locations[node].DocId)
+                    throw new InvalidDataException(
+                        $"HNSW file at '{filePath}' level {level} contains duplicate node {locations[node].DocId}.");
+                docIds[node] = locations[node].DocId;
+                offsets[node] = locations[node].NeighbourOffset;
+                counts[node] = locations[node].NeighbourCount;
+            }
+            levels[level] = new HnswGraph.MappedLevel(body, docIds, offsets, counts);
+        }
+
+        return levels;
+    }
+
+    private static List<HnswGraph.FrozenLevel> ReadRemappedLevels(
+        IndexInput body,
+        string filePath,
+        int nodeCount,
+        int levelCount,
+        IReadOnlyDictionary<int, int> docIdRemap,
+        ref long position)
+    {
+        var levels = new List<HnswGraph.FrozenLevel>(levelCount);
+        for (int i = 0; i < levelCount; i++)
+            levels.Add(null!);
+
+        for (int level = levelCount - 1; level >= 0; level--)
+        {
+            int nodes = ReadNodeCount(body, filePath, nodeCount, level, ref position);
             var docIds = new List<int>(nodes);
             var neighbourLists = new List<int[]>(nodes);
-
-            for (int n = 0; n < nodes; n++)
+            for (int node = 0; node < nodes; node++)
             {
-                int docId = reader.ReadInt32();
-                int neighCount = reader.ReadInt32();
-                if (neighCount < 0 || neighCount > nodeCount)
-                    throw new InvalidDataException(
-                        $"HNSW file at '{filePath}' node {docId} at level {level} has neighCount {neighCount} (valid range 0..{nodeCount}).");
-                var arr = new int[neighCount];
-                for (int k = 0; k < neighCount; k++)
-                    arr[k] = reader.ReadInt32();
+                int docId = body.ReadInt32(ref position);
+                int neighbourCount = body.ReadInt32(ref position);
+                ValidateNeighbourCount(filePath, nodeCount, level, docId, neighbourCount);
+                var neighbours = new int[neighbourCount];
+                body.ReadInt32Array(neighbours, neighbourCount, ref position);
 
-                if (docIdRemap is null)
+                if (!docIdRemap.TryGetValue(docId, out int newDocId))
+                    continue;
+
+                var remapped = new List<int>(neighbours.Length);
+                foreach (int neighbour in neighbours)
                 {
-                    docIds.Add(docId);
-                    neighbourLists.Add(arr);
+                    if (docIdRemap.TryGetValue(neighbour, out int newNeighbour))
+                        remapped.Add(newNeighbour);
                 }
-                else if (docIdRemap.TryGetValue(docId, out int newDocId))
-                {
-                    var remapped = new List<int>(arr.Length);
-                    foreach (int neigh in arr)
-                    {
-                        if (docIdRemap.TryGetValue(neigh, out int newNeigh))
-                            remapped.Add(newNeigh);
-                    }
-                    docIds.Add(newDocId);
-                    neighbourLists.Add(remapped.ToArray());
-                }
+                docIds.Add(newDocId);
+                neighbourLists.Add(remapped.ToArray());
             }
 
             var sortedIds = docIds.ToArray();
@@ -124,24 +209,41 @@ internal static class HnswReader
             levels[level] = new HnswGraph.FrozenLevel(sortedIds, sortedNeighbours);
         }
 
-        if (docIdRemap is not null)
-        {
-            entryPoint = docIdRemap.TryGetValue(entryPoint, out int newEntry) ? newEntry : -1;
-            // Remove top levels emptied by remapping so a later rewrite preserves
-            // the levelCount == maxLevel + 1 invariant.
-            while (maxLevel >= 0 && levels[maxLevel].Count == 0) maxLevel--;
-            if (levels.Count > maxLevel + 1)
-                levels.RemoveRange(maxLevel + 1, levels.Count - maxLevel - 1);
-            nodeCount = levels.Count > 0 ? levels[0].Count : 0;
-            // If the original entry point was dropped, pick any surviving top-level node.
-            if (entryPoint == -1 && maxLevel >= 0)
-            {
-                var topIds = levels[maxLevel].NodeIds;
-                if (topIds.Length > 0) entryPoint = topIds[0];
-            }
-        }
-
-        var config = new HnswBuildConfig { M = m, M0 = m0, EfConstruction = efConstruction };
-        return HnswGraph.FromFrozen(vectorSource, config, seed, levels, entryPoint, maxLevel, nodeCount);
+        return levels;
     }
+
+    private static int ReadNodeCount(
+        IndexInput body,
+        string filePath,
+        int nodeCount,
+        int level,
+        ref long position)
+    {
+        int nodes = body.ReadInt32(ref position);
+        if (nodes < 0 || nodes > nodeCount)
+            throw new InvalidDataException(
+                $"HNSW file at '{filePath}' level {level} declares {nodes} nodes (valid range 0..{nodeCount}).");
+        return nodes;
+    }
+
+    private static void ValidateNeighbourCount(
+        string filePath,
+        int nodeCount,
+        int level,
+        int docId,
+        int neighbourCount)
+    {
+        if (neighbourCount < 0 || neighbourCount > nodeCount)
+            throw new InvalidDataException(
+                $"HNSW file at '{filePath}' node {docId} at level {level} has neighCount {neighbourCount} (valid range 0..{nodeCount}).");
+    }
+
+    private static void EnsureFullyConsumed(IndexInput body, string filePath, long position)
+    {
+        if (position != body.Length)
+            throw new InvalidDataException(
+                $"HNSW file at '{filePath}' contains {body.Length - position} trailing body bytes.");
+    }
+
+    private readonly record struct NodeLocation(int DocId, long NeighbourOffset, int NeighbourCount);
 }

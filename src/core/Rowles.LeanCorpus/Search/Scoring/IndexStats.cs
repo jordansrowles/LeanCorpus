@@ -98,7 +98,7 @@ public sealed class IndexStats
         // (test harness cleanup, antivirus, etc), tolerate it provided the
         // destination ended up with content.
         var tmp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        using (var fs = FileOpenRetry.Open(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+        using (var fs = FileOpenRetry.CreateTrackedIndexFile(tmp))
         using (var sw = FileOpenRetry.OpenTextWriter(fs, Encoding.UTF8))
             sw.Write(json);
         try

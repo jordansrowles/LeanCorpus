@@ -24,9 +24,11 @@ public sealed class SegmentReader : IDisposable
     private readonly Func<SegmentReaderState> _stateFactory;
     private readonly bool _ownsCache;
     private readonly bool _permanentlyResident;
-    private SegmentReaderState? _residentState;
+    private readonly OperationDrain _operations = new();
+    private ResidentStateHandle? _residentState;
     private FileSnapshotLease? _snapshot;
     private bool _disposed;
+    private int _disposeStarted;
 
     /// <summary>Gets or sets the document base offset for this reader within the global document namespace.</summary>
     public int DocBase { get; set; }
@@ -87,12 +89,33 @@ public sealed class SegmentReader : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (ReferenceEquals(t_pinnedReader, this) && t_pinnedState is not null)
             return new SegmentReaderLease(t_pinnedState);
-        if (Volatile.Read(ref _residentState) is { } resident)
-            return new SegmentReaderLease(resident);
-        var lease = _cache.Acquire(_info.SegmentId, _stateFactory);
-        if (_permanentlyResident)
-            Volatile.Write(ref _residentState, lease.Value);
-        return new SegmentReaderLease(lease);
+
+        var operationLease = _operations.Acquire(this);
+        LifetimeLease directoryLease = default;
+        try
+        {
+            directoryLease = _directory.AcquireOperationLease();
+            if (Volatile.Read(ref _residentState) is not null)
+                return new SegmentReaderLease(
+                    _cache.Acquire(_info.SegmentId, _stateFactory), operationLease, directoryLease);
+
+            var cacheLease = _cache.Acquire(_info.SegmentId, _stateFactory);
+            if (!_permanentlyResident)
+                return new SegmentReaderLease(cacheLease, operationLease, directoryLease);
+
+            var candidate = new ResidentStateHandle(cacheLease.Value, cacheLease.Detach());
+            var published = Interlocked.CompareExchange(ref _residentState, candidate, null);
+            if (published is not null)
+                candidate.Dispose();
+            return new SegmentReaderLease(
+                _cache.Acquire(_info.SegmentId, _stateFactory), operationLease, directoryLease);
+        }
+        catch
+        {
+            directoryLease.Dispose();
+            operationLease.Dispose();
+            throw;
+        }
     }
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
@@ -103,8 +126,8 @@ public sealed class SegmentReader : IDisposable
             state = t_pinnedState;
             return true;
         }
-        state = Volatile.Read(ref _residentState);
-        return state is not null;
+        state = null;
+        return false;
     }
 
     internal SegmentQueryLease AcquireQueryLease()
@@ -113,28 +136,57 @@ public sealed class SegmentReader : IDisposable
         if (ReferenceEquals(t_pinnedReader, this) && t_pinnedState is not null)
         {
             t_pinDepth++;
-            return new SegmentQueryLease(this, default, ownsCacheLease: false);
+            return new SegmentQueryLease(
+                this, default, default, default, ownsCacheLease: false);
         }
 
-        if (Volatile.Read(ref _residentState) is { } resident)
+        var operationLease = _operations.Acquire(this);
+        LifetimeLease directoryLease = default;
+        try
         {
-            t_pinnedReader = this;
-            t_pinnedState = resident;
-            t_pinDepth = 1;
-            return new SegmentQueryLease(this, default, ownsCacheLease: false);
-        }
+            directoryLease = _directory.AcquireOperationLease();
+            if (Volatile.Read(ref _residentState) is { } resident)
+            {
+                t_pinnedReader = this;
+                t_pinnedState = resident.State;
+                t_pinDepth = 1;
+                return new SegmentQueryLease(
+                    this, default, operationLease, directoryLease, ownsCacheLease: false);
+            }
 
-        var cacheLease = _cache.Acquire(_info.SegmentId, _stateFactory);
-        if (_permanentlyResident)
-            Volatile.Write(ref _residentState, cacheLease.Value);
-        t_pinnedReader = this;
-        t_pinnedState = cacheLease.Value;
-        t_pinDepth = 1;
-        return new SegmentQueryLease(this, cacheLease, ownsCacheLease: true);
+            var cacheLease = _cache.Acquire(_info.SegmentId, _stateFactory);
+            SegmentReaderState state = cacheLease.Value;
+            bool ownsCacheLease = true;
+            if (_permanentlyResident)
+            {
+                var candidate = new ResidentStateHandle(state, cacheLease.Detach());
+                var published = Interlocked.CompareExchange(ref _residentState, candidate, null);
+                if (published is not null)
+                {
+                    candidate.Dispose();
+                    state = published.State;
+                }
+                ownsCacheLease = false;
+            }
+
+            t_pinnedReader = this;
+            t_pinnedState = state;
+            t_pinDepth = 1;
+            return new SegmentQueryLease(
+                this, cacheLease, operationLease, directoryLease, ownsCacheLease);
+        }
+        catch
+        {
+            directoryLease.Dispose();
+            operationLease.Dispose();
+            throw;
+        }
     }
 
     internal void ReleaseQueryLease(
         BoundedLruCache<string, SegmentReaderState>.Lease cacheLease,
+        LifetimeLease operationLease,
+        LifetimeLease directoryLease,
         bool ownsCacheLease)
     {
         if (--t_pinDepth == 0)
@@ -144,16 +196,21 @@ public sealed class SegmentReader : IDisposable
         }
         if (ownsCacheLease)
             cacheLease.Dispose();
+        operationLease.Dispose();
+        directoryLease.Dispose();
     }
 
     internal static string[] SelectSegmentFiles(string segmentId, IReadOnlyCollection<string> inventory)
         => inventory.Where(name => IsSegmentFile(segmentId, name))
             .ToArray();
 
-    private static bool IsSegmentFile(string segmentId, string name)
-        => name.Equals(segmentId + ".seg", StringComparison.Ordinal)
-            || name.StartsWith(segmentId + ".", StringComparison.Ordinal)
-            || name.StartsWith(segmentId + "_", StringComparison.Ordinal);
+    // Atomic writers briefly expose GUID-suffixed temporary files in the directory.
+    // They are publication machinery, not immutable files belonging to the snapshot.
+    internal static bool IsSegmentFile(string segmentId, string name)
+        => !name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)
+            && (name.Equals(segmentId + ".seg", StringComparison.Ordinal)
+                || name.StartsWith(segmentId + ".", StringComparison.Ordinal)
+                || name.StartsWith(segmentId + "_", StringComparison.Ordinal));
 
     internal static void ValidateRequiredFiles(SegmentInfo info, IReadOnlyCollection<string> inventory)
     {
@@ -175,6 +232,8 @@ public sealed class SegmentReader : IDisposable
     public bool IsSoftDeleted(int docId, out long timestamp) { using var lease = AcquireReadLease(); return lease.State.IsSoftDeleted(docId, out timestamp); }
     public bool HasDeletions { get { if (TryGetFastState(out var state)) return state.HasDeletions; using var lease = AcquireReadLease(); return lease.State.HasDeletions; } }
     internal ParentBitSet? GetParentBitSet() { using var lease = AcquireReadLease(); return lease.State.GetParentBitSet(); }
+    internal bool FileExists(string extension) { using var lease = AcquireReadLease(); return lease.State.FileExists(extension); }
+    internal IndexInput OpenInput(string extension) { using var lease = AcquireReadLease(); return lease.State.OpenInput(extension); }
     public float GetNorm(int docId, string field) { if (TryGetFastState(out var state)) return state.GetNorm(docId, field); using var lease = AcquireReadLease(); return lease.State.GetNorm(docId, field); }
     public float GetFieldBoost(int docId, string field) { if (TryGetFastState(out var state)) return state.GetFieldBoost(docId, field); using var lease = AcquireReadLease(); return lease.State.GetFieldBoost(docId, field); }
     internal bool TryGetFieldBoosts(string field, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out float[]? boosts) { if (TryGetFastState(out var state)) return state.TryGetFieldBoosts(field, out boosts); using var lease = AcquireReadLease(); return lease.State.TryGetFieldBoosts(field, out boosts); }
@@ -230,7 +289,8 @@ public sealed class SegmentReader : IDisposable
                 lease.Dispose();
                 return postings;
             }
-            postings.AttachLifetimeLease(lease.DetachLifetimeLease());
+            postings.AttachLifetimeLease(lease.DetachStateLifetimeLease());
+            lease.Dispose();
             return postings;
         }
         catch
@@ -269,11 +329,11 @@ public sealed class SegmentReader : IDisposable
     public bool TryGetNumericValue(string field, int docId, out double value) { if (TryGetFastState(out var state)) return state.TryGetNumericValue(field, docId, out value); using var lease = AcquireReadLease(); return lease.State.TryGetNumericValue(field, docId, out value); }
     internal bool TryGetNumericDocValues(string field, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out double[]? values, out Util.RoaringBitmap? presence) { if (TryGetFastState(out var state)) return state.TryGetNumericDocValues(field, out values, out presence); using var lease = AcquireReadLease(); return lease.State.TryGetNumericDocValues(field, out values, out presence); }
     public bool TryGetInt64Value(string field, int docId, out long value) { if (TryGetFastState(out var state)) return state.TryGetInt64Value(field, docId, out value); using var lease = AcquireReadLease(); return lease.State.TryGetInt64Value(field, docId, out value); }
-    public bool TryGetSortedDocValue(string field, int docId, out string value) { using var lease = AcquireReadLease(); return lease.State.TryGetSortedDocValue(field, docId, out value); }
-    public bool TryGetSortedSetDocValues(string field, int docId, out IReadOnlyList<string> values) { using var lease = AcquireReadLease(); return lease.State.TryGetSortedSetDocValues(field, docId, out values); }
+    public bool TryGetSortedDocValue(string field, int docId, out string value) { if (TryGetFastState(out var state)) return state.TryGetSortedDocValue(field, docId, out value); using var lease = AcquireReadLease(); return lease.State.TryGetSortedDocValue(field, docId, out value); }
+    public bool TryGetSortedSetDocValues(string field, int docId, out IReadOnlyList<string> values) { if (TryGetFastState(out var state)) return state.TryGetSortedSetDocValues(field, docId, out values); using var lease = AcquireReadLease(); return lease.State.TryGetSortedSetDocValues(field, docId, out values); }
     public bool TryGetSortedNumericDocValues(string field, int docId, out IReadOnlyList<double> values) { using var lease = AcquireReadLease(); return lease.State.TryGetSortedNumericDocValues(field, docId, out values); }
     public bool TryGetSortedInt64DocValues(string field, int docId, out IReadOnlyList<long> values) { using var lease = AcquireReadLease(); return lease.State.TryGetSortedInt64DocValues(field, docId, out values); }
-    public bool TryGetBinaryDocValues(string field, int docId, out IReadOnlyList<byte[]> values) { using var lease = AcquireReadLease(); return lease.State.TryGetBinaryDocValues(field, docId, out values); }
+    public bool TryGetBinaryDocValues(string field, int docId, out IReadOnlyList<byte[]> values) { if (TryGetFastState(out var state)) return state.TryGetBinaryDocValues(field, docId, out values); using var lease = AcquireReadLease(); return lease.State.TryGetBinaryDocValues(field, docId, out values); }
     public double[]? GetNumericDocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetNumericDocValues(field); }
     public string[]? GetSortedDocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetSortedDocValues(field); }
     public string[][]? GetSortedSetDocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetSortedSetDocValues(field); }
@@ -302,9 +362,11 @@ public sealed class SegmentReader : IDisposable
     /// <inheritdoc/>
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.CompareExchange(ref _disposeStarted, 1, 0) != 0)
             return;
         _disposed = true;
+        _operations.BeginDisposeAndWait();
+        Interlocked.Exchange(ref _residentState, null)?.Dispose();
         if (_ownsCache)
             _cache.Dispose();
         _snapshot?.Dispose();
@@ -312,49 +374,96 @@ public sealed class SegmentReader : IDisposable
     }
 }
 
+internal sealed class ResidentStateHandle : IDisposable
+{
+    private LifetimeLease _cacheLease;
+
+    internal ResidentStateHandle(SegmentReaderState state, LifetimeLease cacheLease)
+    {
+        State = state;
+        _cacheLease = cacheLease;
+    }
+
+    internal SegmentReaderState State { get; }
+
+    public void Dispose() => _cacheLease.Dispose();
+}
+
 internal struct SegmentReaderLease : IDisposable
 {
     private BoundedLruCache<string, SegmentReaderState>.Lease _lease;
     private readonly SegmentReaderState _state;
+    private LifetimeLease _operationLease;
+    private LifetimeLease _directoryLease;
 
-    internal SegmentReaderLease(BoundedLruCache<string, SegmentReaderState>.Lease lease)
+    internal SegmentReaderLease(
+        BoundedLruCache<string, SegmentReaderState>.Lease lease,
+        LifetimeLease operationLease,
+        LifetimeLease directoryLease)
     {
         _lease = lease;
         _state = lease.Value;
+        _operationLease = operationLease;
+        _directoryLease = directoryLease;
     }
 
     internal SegmentReaderLease(SegmentReaderState state)
     {
         _lease = default;
         _state = state;
+        _operationLease = default;
+        _directoryLease = default;
+    }
+
+    internal SegmentReaderLease(
+        SegmentReaderState state,
+        LifetimeLease operationLease,
+        LifetimeLease directoryLease)
+    {
+        _lease = default;
+        _state = state;
+        _operationLease = operationLease;
+        _directoryLease = directoryLease;
     }
 
     internal SegmentReaderState State => _state;
 
-    internal LifetimeLease DetachLifetimeLease() => _lease.Detach();
+    internal LifetimeLease DetachStateLifetimeLease() => _lease.Detach();
 
-    public void Dispose() => _lease.Dispose();
+    public void Dispose()
+    {
+        _lease.Dispose();
+        _operationLease.Dispose();
+        _directoryLease.Dispose();
+    }
 }
 
 internal struct SegmentQueryLease : IDisposable
 {
     private SegmentReader? _reader;
     private BoundedLruCache<string, SegmentReaderState>.Lease _cacheLease;
+    private LifetimeLease _operationLease;
+    private LifetimeLease _directoryLease;
     private readonly bool _ownsCacheLease;
 
     internal SegmentQueryLease(
         SegmentReader reader,
         BoundedLruCache<string, SegmentReaderState>.Lease cacheLease,
+        LifetimeLease operationLease,
+        LifetimeLease directoryLease,
         bool ownsCacheLease)
     {
         _reader = reader;
         _cacheLease = cacheLease;
+        _operationLease = operationLease;
+        _directoryLease = directoryLease;
         _ownsCacheLease = ownsCacheLease;
     }
 
     public void Dispose()
     {
         var reader = Interlocked.Exchange(ref _reader, null);
-        reader?.ReleaseQueryLease(_cacheLease, _ownsCacheLease);
+        reader?.ReleaseQueryLease(
+            _cacheLease, _operationLease, _directoryLease, _ownsCacheLease);
     }
 }

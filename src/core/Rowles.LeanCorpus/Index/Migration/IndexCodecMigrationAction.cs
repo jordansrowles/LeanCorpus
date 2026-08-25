@@ -11,6 +11,9 @@ public sealed record IndexCodecMigrationAction
     /// <summary>Gets the source file path.</summary>
     public required string SourcePath { get; init; }
 
+    /// <summary>Gets every source file participating in this logical action.</summary>
+    public IReadOnlyList<string> SourcePaths { get; init; } = [];
+
     /// <summary>Gets the target file path, when the action writes to a separate path.</summary>
     public string? TargetPath { get; init; }
 
@@ -28,6 +31,15 @@ public sealed record IndexCodecMigrationAction
 
     /// <summary>Gets the related file name, when known.</summary>
     public string? FileName { get; init; }
+
+    /// <summary>Gets the stable codec format identifier for a file-level action.</summary>
+    public string? FormatId { get; init; }
+
+    /// <summary>Gets the stable codec family identifier.</summary>
+    public string? FamilyId { get; init; }
+
+    /// <summary>Gets the compound container that owns the logical source files, when applicable.</summary>
+    public string? CompoundFileName { get; init; }
 
     /// <summary>Gets the source codec version, when known.</summary>
     public byte? FromVersion { get; init; }

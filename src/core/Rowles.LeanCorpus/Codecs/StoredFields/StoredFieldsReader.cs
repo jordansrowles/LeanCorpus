@@ -17,7 +17,8 @@ internal sealed class StoredFieldsReader : IDisposable
     private readonly int _docCount;
     private readonly long[] _blockOffsets;
     private readonly FieldCompressionPolicy _compression;
-    private readonly byte _version;
+    private readonly long _bodyEnd;
+    private readonly IDisposable _fdtFrame;
 
     // Decompressed block cache (last used block)
     private int _cachedBlockIndex = -1;
@@ -43,7 +44,8 @@ internal sealed class StoredFieldsReader : IDisposable
         int docCount,
         long[] blockOffsets,
         FieldCompressionPolicy compression,
-        byte version)
+        long bodyEnd,
+        IDisposable fdtFrame)
     {
         if (blockSize is < 1 or > MaxBlockSize)
             throw new InvalidDataException($"Stored fields block size {blockSize} is out of range [1, {MaxBlockSize}].");
@@ -54,7 +56,8 @@ internal sealed class StoredFieldsReader : IDisposable
         _docCount = docCount;
         _blockOffsets = blockOffsets;
         _compression = compression;
-        _version = version;
+        _bodyEnd = bodyEnd;
+        _fdtFrame = fdtFrame;
     }
 
     /// <summary>Number of documents indexed in this stored-fields file.</summary>
@@ -64,11 +67,17 @@ internal sealed class StoredFieldsReader : IDisposable
     internal FieldCompressionPolicy Compression => _compression;
 
     public static StoredFieldsReader Open(string fdtPath, string fdxPath)
+        => OpenPaths(fdtPath, fdxPath, requireMatchingVersions: true);
+
+    internal static StoredFieldsReader OpenForMigration(string fdtPath, string fdxPath)
+        => OpenPaths(fdtPath, fdxPath, requireMatchingVersions: false);
+
+    private static StoredFieldsReader OpenPaths(string fdtPath, string fdxPath, bool requireMatchingVersions)
     {
         var fdtInput = new IndexInput(fdtPath);
         try
         {
-            return Open(fdtInput, new IndexInput(fdxPath));
+            return Open(fdtInput, new IndexInput(fdxPath), requireMatchingVersions);
         }
         catch
         {
@@ -78,46 +87,79 @@ internal sealed class StoredFieldsReader : IDisposable
     }
 
     internal static StoredFieldsReader Open(IndexInput fdtInput, IndexInput fdxInput)
+        => Open(fdtInput, fdxInput, requireMatchingVersions: true);
+
+    private static StoredFieldsReader Open(IndexInput fdtInput, IndexInput fdxInput, bool requireMatchingVersions)
     {
+        StoredFieldsReadFrame? fdtFrame = null;
         try
         {
-            using var fdxStream = new IndexInputStream(fdxInput);
-            using var fdxReader = new BinaryReader(fdxStream, System.Text.Encoding.UTF8, leaveOpen: false);
-
-            byte fdxVersion = StoredFieldsFileHeader.ReadVersion(fdxReader);
-            if (fdxVersion > StoredFieldsFileHeader.V3)
+            int fdxVersion;
+            int fdxBlockSize;
+            int docCount;
+            long[] blockOffsets;
+            using (fdxInput)
+            using (var fdxFrame = StoredFieldsCodecFiles.OpenIndex(fdxInput))
             {
-                throw new InvalidDataException(
-                    $"Unsupported stored fields index (.fdx) format version {fdxVersion}. " +
-                    $"This build supports up to version {StoredFieldsFileHeader.V3}.");
+                fdxVersion = fdxFrame.Version;
+                fdxBlockSize = fdxInput.ReadInt32();
+                docCount = fdxInput.ReadInt32();
+                int blockCount = fdxInput.ReadInt32();
+
+                if (docCount < 0)
+                    throw new InvalidDataException($"Stored fields index declares a negative document count {docCount}.");
+                if (blockCount < 0 || blockCount > docCount)
+                    throw new InvalidDataException($"Stored fields index block count {blockCount} is invalid for {docCount} documents.");
+                long offsetsEnd = checked(fdxInput.Position + (long)blockCount * sizeof(long));
+                if (offsetsEnd != fdxFrame.BodyEnd)
+                    throw new InvalidDataException("Stored fields index length does not match its declared block count.");
+
+                blockOffsets = new long[blockCount];
+                for (int i = 0; i < blockCount; i++)
+                    blockOffsets[i] = fdxInput.ReadInt64();
             }
 
-            int fdxBlockSize = fdxReader.ReadInt32();
-            int docCount = fdxReader.ReadInt32();
-            int blockCount = fdxReader.ReadInt32();
+            fdtFrame = StoredFieldsCodecFiles.OpenData(fdtInput);
+            int fdtBlockSize = fdtInput.ReadInt32();
+            ValidateMatchingHeaders(".fdt", ".fdx", fdtFrame.Version, fdxVersion, fdtBlockSize, fdxBlockSize, requireMatchingVersions);
+            if (fdtBlockSize is < 1 or > MaxBlockSize)
+                throw new InvalidDataException($"Stored fields block size {fdtBlockSize} is out of range [1, {MaxBlockSize}].");
+            var compression = (FieldCompressionPolicy)fdtInput.ReadByte();
 
-            var blockOffsets = new long[blockCount];
-            for (int i = 0; i < blockCount; i++)
-                blockOffsets[i] = fdxReader.ReadInt64();
+            if (!Enum.IsDefined(compression))
+                throw new InvalidDataException($"Stored fields compression policy {(byte)compression} is unsupported.");
+            int expectedBlockCount = docCount == 0 ? 0 : checked((docCount + fdtBlockSize - 1) / fdtBlockSize);
+            if (blockOffsets.Length != expectedBlockCount)
+                throw new InvalidDataException($"Stored fields index declares {blockOffsets.Length} blocks, but {expectedBlockCount} are required for {docCount} documents.");
+
+            long firstBlockPosition = fdtInput.Position;
+            long previousOffset = -1;
+            foreach (long offset in blockOffsets)
+            {
+                if (offset < firstBlockPosition || offset >= fdtFrame.BodyEnd)
+                    throw new InvalidDataException($"Stored fields block offset {offset} is outside the data body.");
+                if (offset <= previousOffset)
+                    throw new InvalidDataException("Stored fields block offsets must be strictly increasing.");
+                previousOffset = offset;
+            }
 
             var fs = new IndexInputStream(fdtInput);
             var reader = new BinaryReader(fs, System.Text.Encoding.UTF8, leaveOpen: true);
-            byte fdtVersion = StoredFieldsFileHeader.ReadVersion(reader);
-            if (fdtVersion > StoredFieldsFileHeader.V3)
-            {
-                fs.Dispose();
-                throw new InvalidDataException(
-                    $"Unsupported stored fields data (.fdt) format version {fdtVersion}. " +
-                    $"This build supports up to version {StoredFieldsFileHeader.V3}.");
-            }
-
-            int fdtBlockSize = reader.ReadInt32();
-            ValidateMatchingHeaders(".fdt", ".fdx", fdtVersion, fdxVersion, fdtBlockSize, fdxBlockSize);
-            var compression = (FieldCompressionPolicy)reader.ReadByte();
-            return new StoredFieldsReader(fs, reader, fdtBlockSize, docCount, blockOffsets, compression, fdtVersion);
+            var result = new StoredFieldsReader(
+                fs,
+                reader,
+                fdtBlockSize,
+                docCount,
+                blockOffsets,
+                compression,
+                fdtFrame.BodyEnd,
+                fdtFrame);
+            fdtFrame = null;
+            return result;
         }
         catch
         {
+            fdtFrame?.Dispose();
             fdtInput.Dispose();
             fdxInput.Dispose();
             throw;
@@ -127,12 +169,13 @@ internal sealed class StoredFieldsReader : IDisposable
     private static void ValidateMatchingHeaders(
         string fdtPath,
         string fdxPath,
-        byte fdtVersion,
-        byte fdxVersion,
+        int fdtVersion,
+        int fdxVersion,
         int fdtBlockSize,
-        int fdxBlockSize)
+        int fdxBlockSize,
+        bool requireMatchingVersions)
     {
-        if (fdtVersion != fdxVersion)
+        if (requireMatchingVersions && fdtVersion != fdxVersion)
         {
             throw new InvalidDataException(
                 $"Mismatched stored fields versions between '{fdtPath}' and '{fdxPath}'.");
@@ -290,6 +333,9 @@ internal sealed class StoredFieldsReader : IDisposable
     {
         _stream.Seek(_blockOffsets[blockIndex], SeekOrigin.Begin);
 
+        if (_stream.Position > _bodyEnd - 3L * sizeof(int))
+            throw new InvalidDataException("Stored fields block header extends beyond the data body.");
+
         int docCount = _reader.ReadInt32();
         int rawLength = _reader.ReadInt32();
         int compLength = _reader.ReadInt32();
@@ -304,6 +350,10 @@ internal sealed class StoredFieldsReader : IDisposable
         // Compression should not expand data beyond a 2x ratio; reject obvious bombs.
         if (compLength > rawLength * 2)
             throw new InvalidDataException($"Stored fields block compressed length {compLength} exceeds 2x raw length {rawLength}.");
+
+        long blockEnd = checked(_stream.Position + (long)docCount * sizeof(int) + compLength);
+        if (blockEnd > _bodyEnd)
+            throw new InvalidDataException("Stored fields block extends beyond the data body.");
 
         var intraOffsets = new int[docCount];
         for (int i = 0; i < docCount; i++)
@@ -335,5 +385,6 @@ internal sealed class StoredFieldsReader : IDisposable
         _docStream?.Dispose();
         _reader.Dispose();
         _stream.Dispose();
+        _fdtFrame.Dispose();
     }
 }

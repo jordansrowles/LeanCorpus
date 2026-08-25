@@ -1,4 +1,0 @@
-name: Rowles.Text tokenisation
-summary: Uses the standalone analysis package without an index or searcher.
-packages: Rowles.Text
-run: dotnet run --project src/examples/Rowles.Text.Example.Tokenise

@@ -9,6 +9,8 @@ namespace Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
 public sealed record CodecOptions
 {
     private readonly long _maxFrameBytes = 64 * 1024 * 1024;
+    private readonly long _maxMaterialisedBodyBytes = 64 * 1024 * 1024;
+    private readonly long _maxCodecFileBytes = long.MaxValue;
     private readonly int _maxSequenceElements = 1_000_000;
     private readonly int _maxStringBytes = 16 * 1024 * 1024;
     private readonly int _maxScratchBufferBytes = 64 * 1024 * 1024;
@@ -22,6 +24,33 @@ public sealed record CodecOptions
         {
             if (value <= 0) throw new ArgumentOutOfRangeException(nameof(MaxFrameBytes), value, "Must be positive.");
             _maxFrameBytes = value;
+        }
+    }
+
+    /// <summary>
+    /// Gets the largest codec-file body that an operation may materialise into one managed buffer.
+    /// This limit does not restrict streaming or random-access file sizes.
+    /// </summary>
+    public long MaxMaterialisedBodyBytes
+    {
+        get => _maxMaterialisedBodyBytes;
+        init
+        {
+            if (value <= 0) throw new ArgumentOutOfRangeException(nameof(MaxMaterialisedBodyBytes), value, "Must be positive.");
+            _maxMaterialisedBodyBytes = value;
+        }
+    }
+
+    /// <summary>
+    /// Gets the largest physical codec file accepted by file-level framing operations.
+    /// </summary>
+    public long MaxCodecFileBytes
+    {
+        get => _maxCodecFileBytes;
+        init
+        {
+            if (value <= 0) throw new ArgumentOutOfRangeException(nameof(MaxCodecFileBytes), value, "Must be positive.");
+            _maxCodecFileBytes = value;
         }
     }
 

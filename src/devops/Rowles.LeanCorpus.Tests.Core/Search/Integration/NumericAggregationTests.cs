@@ -1,0 +1,269 @@
+using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Store;
+
+namespace Rowles.LeanCorpus.Tests.Core.Search.Aggregations;
+
+/// <summary>
+/// Contains unit tests for Numeric Aggregation.
+/// </summary>
+[Category(TestCategory.Integration)]
+[Area(TestArea.Search)]
+public class NumericAggregationTests : IDisposable
+{
+    private readonly string _dir;
+
+    public NumericAggregationTests()
+    {
+        _dir = Path.Combine(Path.GetTempPath(), "agg_tests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_dir);
+    }
+
+    public void Dispose()
+    {
+        try { if (Directory.Exists(_dir)) Directory.Delete(_dir, true); }
+        catch { /* mmap handles may linger on Windows */ }
+    }
+
+    private void IndexProducts()
+    {
+        using var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig());
+
+        for (int i = 0; i < 10; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("name", $"product {i}"));
+            doc.Add(new NumericField("price", 10.0 + i * 5.0)); // 10, 15, 20, ..., 55
+            doc.Add(new NumericField("rating", (i % 5) + 1.0));  // 1, 2, 3, 4, 5, 1, 2, 3, 4, 5
+            writer.AddDocument(doc);
+        }
+
+        writer.Commit();
+    }
+
+    /// <summary>
+    /// Verifies the Stats: Computes Correctly scenario.
+    /// </summary>
+    [Fact(DisplayName = "Stats: Computes Correctly")]
+    public void Stats_ComputesCorrectly()
+    {
+        IndexProducts();
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+
+        var (results, aggs) = searcher.SearchWithAggregations(
+            new TermQuery("name", "product"), 100,
+            new AggregationRequest("price_stats", "price"));
+
+        Assert.True(results.TotalHits > 0);
+        Assert.Single(aggs);
+
+        var stats = aggs[0];
+        Assert.Equal("price_stats", stats.Name);
+        Assert.Equal("price", stats.Field);
+        Assert.True(stats.Count > 0);
+        Assert.True(stats.Min >= 10.0);
+        Assert.True(stats.Max <= 55.0);
+        Assert.True(stats.Sum > 0);
+        Assert.True(stats.Avg > 0);
+    }
+
+    /// <summary>
+    /// Verifies the Stats: Multiple Aggregations scenario.
+    /// </summary>
+    [Fact(DisplayName = "Stats: Multiple Aggregations")]
+    public void Stats_MultipleAggregations()
+    {
+        IndexProducts();
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+
+        var (_, aggs) = searcher.SearchWithAggregations(
+            new TermQuery("name", "product"), 100,
+            new AggregationRequest("price_stats", "price"),
+            new AggregationRequest("rating_stats", "rating"));
+
+        Assert.Equal(2, aggs.Length);
+        Assert.Equal("price_stats", aggs[0].Name);
+        Assert.Equal("rating_stats", aggs[1].Name);
+    }
+
+    /// <summary>
+    /// Verifies the Histogram: Creates Buckets scenario.
+    /// </summary>
+    [Fact(DisplayName = "Histogram: Creates Buckets")]
+    public void Histogram_CreatesBuckets()
+    {
+        IndexProducts();
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+
+        var (_, aggs) = searcher.SearchWithAggregations(
+            new TermQuery("name", "product"), 100,
+            new AggregationRequest("price_hist", "price", AggregationType.Histogram)
+            {
+                HistogramInterval = 20.0
+            });
+
+        Assert.Single(aggs);
+        var hist = aggs[0];
+        Assert.NotNull(hist.Buckets);
+        Assert.True(hist.Buckets.Count > 0);
+
+        // All bucket counts should sum to total count
+        long bucketSum = 0;
+        foreach (var b in hist.Buckets)
+            bucketSum += b.Count;
+        Assert.Equal(hist.Count, bucketSum);
+    }
+
+    /// <summary>
+    /// Verifies that histogram bucket count is capped to prevent OOM from
+    /// malicious or misconfigured requests with tiny intervals and wide ranges.
+    /// </summary>
+    [Fact(DisplayName = "Histogram: Bucket Count Capped Against OOM")]
+    public void Histogram_BucketCountCapped()
+    {
+        // Two docs with values spanning 1M range, interval 0.1: raw buckets would be ~10M.
+        using var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig());
+        var doc0 = new LeanDocument();
+        doc0.Add(new TextField("name", "doc 0"));
+        doc0.Add(new NumericField("price", 0.0));
+        writer.AddDocument(doc0);
+
+        var doc1 = new LeanDocument();
+        doc1.Add(new TextField("name", "doc 1"));
+        doc1.Add(new NumericField("price", 1_000_000.0));
+        writer.AddDocument(doc1);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+
+        var (_, aggs) = searcher.SearchWithAggregations(
+            new TermQuery("name", "doc"), 100,
+            new AggregationRequest("price_hist", "price", AggregationType.Histogram)
+            {
+                HistogramInterval = 0.1
+            });
+
+        Assert.Single(aggs);
+        var hist = aggs[0];
+        Assert.NotNull(hist.Buckets);
+        Assert.True(hist.Buckets.Count <= NumericAggregator.MaxBucketCount,
+            $"Expected <= {NumericAggregator.MaxBucketCount} buckets, got {hist.Buckets.Count}");
+
+        // Bucket counts must still sum to total doc count.
+        long bucketSum = 0;
+        foreach (var b in hist.Buckets)
+            bucketSum += b.Count;
+        Assert.Equal(hist.Count, bucketSum);
+    }
+
+    /// <summary>
+    /// Verifies the No Aggregations: Returns Empty Array scenario.
+    /// </summary>
+    [Fact(DisplayName = "No Aggregations: Returns Empty Array")]
+    public void NoAggregations_ReturnsEmptyArray()
+    {
+        IndexProducts();
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+
+        var (results, aggs) = searcher.SearchWithAggregations(
+            new TermQuery("name", "product"), 10);
+
+        Assert.True(results.TotalHits > 0);
+        Assert.Empty(aggs);
+    }
+
+    /// <summary>
+    /// Verifies the No Matches: Returns Empty Aggregations scenario.
+    /// </summary>
+    [Fact(DisplayName = "No Matches: Returns Empty Aggregations")]
+    public void NoMatches_ReturnsEmptyAggregations()
+    {
+        IndexProducts();
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+
+        var (results, aggs) = searcher.SearchWithAggregations(
+            new TermQuery("name", "nonexistent"), 10,
+            new AggregationRequest("price_stats", "price"));
+
+        Assert.Equal(0, results.TotalHits);
+        Assert.Empty(aggs);
+    }
+
+    /// <summary>
+    /// Verifies the Missing Field: Returns Zero Counts scenario.
+    /// </summary>
+    [Fact(DisplayName = "Missing Field: Returns Zero Counts")]
+    public void MissingField_ReturnsZeroCounts()
+    {
+        IndexProducts();
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+
+        var (_, aggs) = searcher.SearchWithAggregations(
+            new TermQuery("name", "product"), 100,
+            new AggregationRequest("missing_stats", "nonexistent_field"));
+
+        Assert.Single(aggs);
+        Assert.Equal(0, aggs[0].Count);
+    }
+
+    /// <summary>
+    /// Verifies the Rating Stats: Avg Is Correct scenario.
+    /// </summary>
+    [Fact(DisplayName = "Rating Stats: Avg Is Correct")]
+    public void RatingStats_AvgIsCorrect()
+    {
+        IndexProducts();
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+
+        var (results, aggs) = searcher.SearchWithAggregations(
+            new TermQuery("name", "product"), 100,
+            new AggregationRequest("r", "rating"));
+
+        if (aggs.Length > 0 && aggs[0].Count > 0)
+        {
+            // Rating values: 1,2,3,4,5,1,2,3,4,5 → avg = 3.0
+            Assert.Equal(aggs[0].Sum / aggs[0].Count, aggs[0].Avg, 4);
+        }
+    }
+
+    /// <summary>
+    /// Verifies that aggregations correctly resolve field type when document 0
+    /// has no value for the field but later documents do. Regression test for
+    /// the bug where ResolveFieldAccessor only probed docId 0.
+    /// </summary>
+    [Fact(DisplayName = "Sparse Field: DocId 0 Missing Value Still Resolves")]
+    public void SparseField_DocId0MissingValue_StillResolves()
+    {
+        using var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig());
+
+        // Doc 0: has name but NO price field.
+        var doc0 = new LeanDocument();
+        doc0.Add(new TextField("name", "product 0"));
+        writer.AddDocument(doc0);
+
+        // Docs 1-9: have both name AND price.
+        for (int i = 1; i < 10; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("name", $"product {i}"));
+            doc.Add(new NumericField("price", 10.0 + i * 5.0));
+            writer.AddDocument(doc);
+        }
+
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+
+        var (_, aggs) = searcher.SearchWithAggregations(
+            new TermQuery("name", "product"), 100,
+            new AggregationRequest("price_stats", "price"));
+
+        Assert.Single(aggs);
+        var stats = aggs[0];
+        // Docs 1-9 have price; doc 0 does not. We should get 9 values.
+        Assert.Equal(9, stats.Count);
+        Assert.True(stats.Min > 0);
+        Assert.True(stats.Max > 0);
+        Assert.True(stats.Sum > 0);
+    }
+}

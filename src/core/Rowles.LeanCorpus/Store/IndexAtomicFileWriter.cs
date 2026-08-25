@@ -30,23 +30,27 @@ internal static class IndexAtomicFileWriter
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(write);
+        if (durable)
+            Diagnostics.FileSystemDiagnostics.RecordImmediateDurableAtomicWrite();
 
         // A unique same-directory name preserves atomic rename semantics while
         // allowing concurrent writers to different generations of the same file.
         var tempPath = string.Concat(path, ".", Guid.NewGuid().ToString("N"), ".tmp");
         try
         {
-            using (var stream = FileOpenRetry.Open(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var stream = FileOpenRetry.CreateTrackedIndexFile(tempPath))
             {
                 write(stream);
                 if (durable)
                     FileOpenRetry.FlushToDisk(stream);
             }
-
-            FileOpenRetry.Move(tempPath, path, overwrite: true);
+            var publishedFile = FileOpenRetry.Move(tempPath, path, overwrite: true);
 
             if (durable && syncDirectory)
                 DirectoryFsync.Sync(Path.GetDirectoryName(path) ?? string.Empty, strict: true);
+
+            if (durable)
+                DirtyFileTracker.MarkSynced(publishedFile);
         }
         catch
         {

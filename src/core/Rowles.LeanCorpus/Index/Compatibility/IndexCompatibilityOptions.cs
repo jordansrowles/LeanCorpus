@@ -1,10 +1,15 @@
-﻿namespace Rowles.LeanCorpus.Index.Compatibility;
+﻿using Rowles.LeanCorpus.Codecs.CodecKit;
+
+namespace Rowles.LeanCorpus.Index.Compatibility;
 
 /// <summary>
 /// Options for compatibility checks.
 /// </summary>
 public sealed class IndexCompatibilityOptions
 {
+    /// <summary>Gets or sets the immutable codec catalogue used for inspection and validation.</summary>
+    public CodecCatalog Catalog { get; set; } = CodecCatalog.Default;
+
     /// <summary>Gets or sets whether deep validation should run before compatibility is decided.</summary>
     public bool DeepValidation { get; set; }
 

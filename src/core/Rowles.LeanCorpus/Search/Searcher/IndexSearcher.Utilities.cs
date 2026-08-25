@@ -377,7 +377,6 @@ public sealed partial class IndexSearcher
         {
             // Fallback: non-TermQuery, use two-pass
             var matches = SearchAllMatches(query, results.TotalHits);
-            var seenDocs = new HashSet<int>();
             foreach (var sd in matches.ScoreDocs)
             {
                 int readerIdx = ResolveReaderIndex(sd.DocId);
@@ -749,7 +748,6 @@ public sealed partial class IndexSearcher
     {
         private readonly string[] _facetFields;
         private readonly FacetsCollector _facetsCollector = new();
-        private readonly HashSet<int> _seenDocs = [];
 
         public FacetsSideCollector(string[] facetFields)
         {
@@ -758,8 +756,6 @@ public sealed partial class IndexSearcher
 
         public void Collect(int globalDocId, float score, Index.Segment.SegmentReader reader, int localDocId)
         {
-            if (!_seenDocs.Add(globalDocId)) return;
-
             foreach (var facetField in _facetFields)
             {
                 if (reader.TryGetSortedSetDocValues(facetField, localDocId, out var setValues))

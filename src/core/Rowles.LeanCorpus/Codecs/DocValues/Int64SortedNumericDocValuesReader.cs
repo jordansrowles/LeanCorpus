@@ -1,6 +1,5 @@
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
 
@@ -23,11 +22,7 @@ internal static class Int64SortedNumericDocValuesReader
     {
         using var inputLifetime = input;
         var values = new Dictionary<string, long[][]>(StringComparer.Ordinal);
-        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.Int64SortedNumericDocValues);
-        if (version > CodecConstants.Int64SortedNumericDocValuesVersion)
-            throw new InvalidDataException(
-                $"Unsupported Int64 sorted-numeric DocValues (.dsnl) format version {version}. " +
-                $"This build supports up to v{CodecConstants.Int64SortedNumericDocValuesVersion}.");
+        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.Int64SortedNumeric);
 
         int fieldCount = input.ReadInt32();
         for (int f = 0; f < fieldCount; f++)
@@ -61,6 +56,7 @@ internal static class Int64SortedNumericDocValuesReader
             values[fieldName] = perDoc;
         }
 
+        frame.ValidateChecksum();
         return values;
     }
 

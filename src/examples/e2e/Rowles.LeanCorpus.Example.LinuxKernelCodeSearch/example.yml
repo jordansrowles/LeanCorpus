@@ -1,4 +1,0 @@
-name: Linux kernel code search
-summary: End-to-end indexing and search over a large source-code corpus.
-packages: LeanCorpus
-run: dotnet run --project src/examples/e2e/Rowles.LeanCorpus.Example.LinuxKernelCodeSearch

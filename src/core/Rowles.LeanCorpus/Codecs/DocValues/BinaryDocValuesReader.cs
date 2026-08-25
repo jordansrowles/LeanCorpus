@@ -1,5 +1,4 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Store;
 using System.Collections.Generic;
 
@@ -24,7 +23,7 @@ internal static class BinaryDocValuesReader
     {
         using var inputLifetime = input;
         var values = new Dictionary<string, byte[][][]>(StringComparer.Ordinal);
-        byte version = CodecFileHeader.ReadVersion(input, CodecFormats.BinaryDocValues);
+        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.Binary);
 
         int fieldCount = input.ReadInt32();
         for (int f = 0; f < fieldCount; f++)
@@ -73,6 +72,7 @@ internal static class BinaryDocValuesReader
             values[fieldName] = perDoc;
         }
 
+        frame.ValidateChecksum();
         return values;
     }
 
@@ -82,7 +82,7 @@ internal static class BinaryDocValuesReader
             return new List<(string Name, IReadOnlyList<byte[]>?[] Values)>(0);
 
         using var input = new IndexInput(filePath);
-        byte version = CodecFileHeader.ReadVersionAndSkipHeader(input);
+        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.Binary);
 
         int fieldCount = input.ReadInt32();
         var results = new List<(string Name, IReadOnlyList<byte[]>?[] Values)>(fieldCount);
@@ -132,6 +132,7 @@ internal static class BinaryDocValuesReader
             results.Add((fieldName, perDoc));
         }
 
+        frame.ValidateChecksum();
         return results;
     }
 

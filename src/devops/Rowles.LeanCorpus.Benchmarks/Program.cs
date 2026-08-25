@@ -79,6 +79,9 @@ internal static class Program
                 BenchmarkSuite.TokenBudget,
                 BenchmarkSuite.Diagnostics,
                 BenchmarkSuite.PackedIntCodec,
+                BenchmarkSuite.CodecFrame,
+                BenchmarkSuite.CodecFrameRead,
+                BenchmarkSuite.CodecMigration,
                 BenchmarkSuite.NumericAggregatorSimd,
                 BenchmarkSuite.IndexWriterContention,
                 BenchmarkSuite.ConcurrentWrite,
@@ -91,6 +94,8 @@ internal static class Program
                 BenchmarkSuite.HnswSearch,
                 BenchmarkSuite.VectorQuantisation,
                 BenchmarkSuite.CompoundFile,
+                BenchmarkSuite.WindowsFileSystem,
+                BenchmarkSuite.WindowsStoragePath,
                 BenchmarkSuite.IncrementalBackup,
                 BenchmarkSuite.ReaderManagerLifecycle,
                 BenchmarkSuite.MultiReader,
@@ -122,18 +127,6 @@ internal static class Program
 
         if (runAll || suites.Contains(BenchmarkSuite.Index))
             RunSuite<IndexingBenchmarks>("index", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Analysis))
-            RunSuite<AnalysisBenchmarks>("analysis", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.AnalysisParity))
-            RunSuite<AnalyserParityBenchmarks>("analysis-parity", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.AnalysisFilters))
-            RunSuite<TokenFilterBenchmarks>("analysis-filters", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.AnalysisFiltersV2))
-            RunSuite<NewTokenFilterBenchmarks>("analysis-filters-v2", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (runAll || suites.Contains(BenchmarkSuite.Boolean))
             RunSuite<BooleanQueryBenchmarks>("boolean", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -185,9 +178,6 @@ internal static class Program
 
         if (runAll || suites.Contains(BenchmarkSuite.BlockJoin) || suites.Contains(BenchmarkSuite.BlockJoinSearch))
             RunSuite<BlockJoinSearchBenchmarks>("blockjoin-search", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.GutenbergAnalysis))
-            RunSuite<GutenbergAnalysisBenchmarks>("gutenberg-analysis", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (runAll || suites.Contains(BenchmarkSuite.GutenbergIndex))
             RunSuite<GutenbergIndexingBenchmarks>("gutenberg-index", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -256,27 +246,6 @@ internal static class Program
             RunSuite<SimilarityBenchmarks>("similarity", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         // Phase 4: analysis
-        if (runAll || suites.Contains(BenchmarkSuite.Stemmer))
-            RunSuite<StemmerParityBenchmarks>("stemmer", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.KStemmer))
-            RunSuite<KStemmerParityBenchmarks>("kstemmer", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.LightEnglish))
-            RunSuite<LightEnglishStemmerBenchmarks>("lightenglish", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Hunspell))
-            RunSuite<HunspellBenchmarks>("hunspell", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.NGram))
-            RunSuite<NGramTokeniserBenchmarks>("ngram", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.PatternTokeniser))
-            RunSuite<PatternTokeniserBenchmarks>("pattern-tokeniser", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Synonym))
-            RunSuite<SynonymBenchmarks>("synonym", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
         if (runAll || suites.Contains(BenchmarkSuite.AsyncIndex))
             RunSuite<AsyncIndexingBenchmarks>("async-index", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
@@ -289,6 +258,15 @@ internal static class Program
         // Microbenchmarks — explicit only, not included in --suite all.
         if (suites.Contains(BenchmarkSuite.PackedIntCodec))
             RunSuite<PackedIntCodecBenchmarks>("packed-int-codec", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.CodecFrame))
+            RunSuite<CodecFrameBenchmarks>("codec-frame", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.CodecFrameRead))
+            RunSuite<CodecFrameReadBenchmarks>("codec-frame-read", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.CodecMigration))
+            RunSuite<CodecMigrationBenchmarks>("codec-migration", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (suites.Contains(BenchmarkSuite.NumericAggregatorSimd))
             RunSuite<NumericAggregatorSimdBenchmarks>("numeric-aggregator", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -320,6 +298,12 @@ internal static class Program
 
         if (suites.Contains(BenchmarkSuite.CompoundFile))
             RunSuite<CompoundFileBenchmarks>("compound-file", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.WindowsFileSystem))
+            RunSuite<WindowsFileSystemBenchmarks>("windows-filesystem", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.WindowsStoragePath))
+            RunSuite<WindowsStoragePathBenchmarks>("windows-storage-path", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (suites.Contains(BenchmarkSuite.IncrementalBackup))
             RunSuite<IncrementalBackupBenchmarks>("incremental-backup", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -656,11 +640,6 @@ internal static class Program
               explicit         Run all explicit-only suites, including subsystem and recent-feature benchmarks
               index            IndexingBenchmarks -- bulk indexing throughput (vs Lucene.NET)
               query            TermQueryBenchmarks -- single-term search (vs Lucene.NET)
-              analysis         AnalysisBenchmarks -- tokenisation pipeline throughput
-              analysis-parity  AnalyserParityBenchmarks -- lightweight analyser parity throughput
-              analysis-filters TokenFilterBenchmarks -- token filter allocation and throughput
-              analysis-filters-v2 NewTokenFilterBenchmarks -- new token filter parity (Classic, PatternReplace, CommonGrams, HyphenatedWords, Caching)
-              pattern-tokeniser  PatternTokeniserBenchmarks -- regex tokenisation vs Lucene.NET PatternTokenizer
               boolean          BooleanQueryBenchmarks -- deterministic clause shapes
               phrase           PhraseQueryBenchmarks -- exact and slop phrase matching
               prefix           PrefixQueryBenchmarks -- prefix matching (vs Lucene.NET)
@@ -676,7 +655,6 @@ internal static class Program
               blockjoin-index  BlockJoinIndexBenchmarks -- block-join indexing
               blockjoin-search BlockJoinSearchBenchmarks -- block-join query hot path
 
-              gutenberg-analysis  GutenbergAnalysisBenchmarks -- analysis on real ebook text
               gutenberg-index     GutenbergIndexingBenchmarks -- indexing real ebook data
               gutenberg-search    GutenbergSearchBenchmarks -- search on real ebook data
               range               RangeQueryBenchmarks -- BKD range queries
@@ -696,18 +674,15 @@ internal static class Program
               geo                 GeoQueryBenchmarks -- geo distance and bounding-box search
               collapse-facet      CollapseAndFacetBenchmarks -- collapse and facet collection
               similarity          SimilarityBenchmarks -- BM25 vs TF-IDF
-              stemmer             StemmerParityBenchmarks -- stemming parity
-              kstemmer            KStemmerParityBenchmarks -- Krovetz stemmer parity (vs Lucene.NET KStemmer)
-              lightenglish        LightEnglishStemmerBenchmarks -- LightEnglish vs Porter throughput
-              hunspell            HunspellBenchmarks -- Hunspell parse and stem throughput
-              ngram               NGramTokeniserBenchmarks -- N-gram tokenisation
-              synonym             SynonymBenchmarks -- synonym indexing overhead
               async-index         AsyncIndexingBenchmarks -- sync vs async indexing
               vq                  VectorQuantisationBenchmarks -- HNSW search with vector quantisation (vs Lucene.NET flat scan)
               hnsw                HnswSearchBenchmarks -- HNSW graph search vs flat scan (vs Lucene.NET baseline)
               tokenbudget         TokenBudgetBenchmarks -- token budget enforcement overhead (explicit only)
               diagnostics         DiagnosticsBenchmarks -- SlowQueryLog + Analytics hook overhead (explicit only)
               packed-int-codec    PackedIntCodecBenchmarks -- Pack/Unpack scalar loop throughput (explicit only)
+              codec-frame         CodecFrameBenchmarks -- frame write and checksum cost (explicit only)
+              codec-frame-read    CodecFrameReadBenchmarks -- frame open and checksum validation costs (explicit only)
+              codec-migration     CodecMigrationBenchmarks -- streamed migration throughput and allocation (explicit only)
               numeric-aggregator  NumericAggregatorSimdBenchmarks -- scalar vs Vector256 aggregation (explicit only)
               index-writer        IndexWriterContentionBenchmarks -- concurrent AddDocument throughput (explicit only)
               concurrent-write    ConcurrentVsSequentialBenchmarks -- DWPT parallel vs sequential indexing (explicit only)
@@ -719,6 +694,8 @@ internal static class Program
               fst-lookup          FstLookupBenchmarks -- FST term dictionary lookup (explicit only)
               mmap-io             MMapDirectoryIOBenchmarks -- raw I/O throughput (explicit only)
               compound-file       CompoundFileBenchmarks -- loose files vs compound segment storage (explicit only)
+              windows-filesystem  WindowsFileSystemBenchmarks -- durability and compound-file matrix (explicit only)
+              windows-storage     WindowsStoragePathBenchmarks -- decoding, mapping and sequential-write paths (explicit only)
               incremental-backup  IncrementalBackupBenchmarks -- full and parent-linked backup operations (explicit only)
               reader-manager      ReaderManagerLifecycleBenchmarks -- generic reader lifecycle overhead (explicit only)
               multi-reader        MultiReaderBenchmarks -- federated search and pagination (explicit only)
@@ -845,12 +822,10 @@ internal static class Program
             "explicit" => BenchmarkSuite.Explicit,
             "index" => BenchmarkSuite.Index,
             "query" => BenchmarkSuite.Query,
-            "analysis" => BenchmarkSuite.Analysis,
-            "analysisparity" or "analysis-parity" => BenchmarkSuite.AnalysisParity,
-            "analysisfilters" or "analysis-filters" => BenchmarkSuite.AnalysisFilters,
-            "analysisfiltersv2" or "analysis-filters-v2" => BenchmarkSuite.AnalysisFiltersV2,
-            "patterntokeniser" or "pattern-tokeniser" => BenchmarkSuite.PatternTokeniser,
             "packedintcodec" or "packed-int-codec" => BenchmarkSuite.PackedIntCodec,
+            "codecframe" or "codec-frame" => BenchmarkSuite.CodecFrame,
+            "codecframeread" or "codec-frame-read" => BenchmarkSuite.CodecFrameRead,
+            "codecmigration" or "codec-migration" => BenchmarkSuite.CodecMigration,
             "numericaggregator" or "numeric-aggregator" => BenchmarkSuite.NumericAggregatorSimd,
             "indexwriter" or "index-writer" => BenchmarkSuite.IndexWriterContention,
             "concurrentwrite" or "concurrent-write" => BenchmarkSuite.ConcurrentWrite,
@@ -861,6 +836,8 @@ internal static class Program
             "fst-lookup" or "fstlookup" => BenchmarkSuite.FstLookup,
             "mmap-io" or "mmapio" => BenchmarkSuite.MMapIO,
             "compound-file" or "compoundfile" => BenchmarkSuite.CompoundFile,
+            "windows-filesystem" or "windowsfilesystem" => BenchmarkSuite.WindowsFileSystem,
+            "windows-storage" or "windowsstorage" => BenchmarkSuite.WindowsStoragePath,
             "incremental-backup" or "incrementalbackup" => BenchmarkSuite.IncrementalBackup,
             "reader-manager" or "readermanager" => BenchmarkSuite.ReaderManagerLifecycle,
             "multi-reader" or "multireader" => BenchmarkSuite.MultiReader,
@@ -886,7 +863,6 @@ internal static class Program
             "blockjoin" => BenchmarkSuite.BlockJoin,
             "blockjoinindex" or "blockjoin-index" => BenchmarkSuite.BlockJoinIndex,
             "blockjoinsearch" or "blockjoin-search" => BenchmarkSuite.BlockJoinSearch,
-            "gutenberganalysis" or "gutenberg-analysis" => BenchmarkSuite.GutenbergAnalysis,
             "gutenbergindex" or "gutenberg-index" => BenchmarkSuite.GutenbergIndex,
             "gutenbergsearch" or "gutenberg-search" => BenchmarkSuite.GutenbergSearch,
             "range" => BenchmarkSuite.Range,
@@ -907,14 +883,8 @@ internal static class Program
             "geo" => BenchmarkSuite.Geo,
             "collapse-facet" or "collapsefacet" => BenchmarkSuite.CollapseAndFacet,
             "similarity" => BenchmarkSuite.Similarity,
-            "stemmer" => BenchmarkSuite.Stemmer,
-            "kstemmer" => BenchmarkSuite.KStemmer,
-            "lightenglish" or "light-english" => BenchmarkSuite.LightEnglish,
-            "hunspell" => BenchmarkSuite.Hunspell,
             "vectorquantisation" or "vq" => BenchmarkSuite.VectorQuantisation,
             "hnsw" or "hnsw-search" => BenchmarkSuite.HnswSearch,
-            "ngram" => BenchmarkSuite.NGram,
-            "synonym" => BenchmarkSuite.Synonym,
             "async-index" or "asyncindex" => BenchmarkSuite.AsyncIndex,
             _ => throw new ArgumentException($"Unknown benchmark suite '{value}'. Use --help to list available suites.")
         };
@@ -945,9 +915,6 @@ internal static class Program
         Explicit,
         Index,
         Query,
-        Analysis,
-        AnalysisParity,
-        AnalysisFilters,
         Boolean,
         Phrase,
         Prefix,
@@ -966,7 +933,6 @@ internal static class Program
         BlockJoin,
         BlockJoinIndex,
         BlockJoinSearch,
-        GutenbergAnalysis,
         GutenbergIndex,
         GutenbergSearch,
         Range,
@@ -987,18 +953,13 @@ internal static class Program
         Geo,
         CollapseAndFacet,
         Similarity,
-        Stemmer,
-        KStemmer,
-        LightEnglish,
-        Hunspell,
-        NGram,
-        Synonym,
         AsyncIndex,
         VectorQuantisation,
         HnswSearch,
-        AnalysisFiltersV2,
-        PatternTokeniser,
         PackedIntCodec,
+        CodecFrame,
+        CodecFrameRead,
+        CodecMigration,
         NumericAggregatorSimd,
         IndexWriterContention,
         ConcurrentWrite,
@@ -1009,6 +970,8 @@ internal static class Program
         FstLookup,
         MMapIO,
         CompoundFile,
+        WindowsFileSystem,
+        WindowsStoragePath,
         IncrementalBackup,
         ReaderManagerLifecycle,
         MultiReader,
