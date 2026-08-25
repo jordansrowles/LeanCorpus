@@ -51,6 +51,45 @@ body:not([data-search]) > main.lc-docs-layout > .toc-offcanvas {
   max-width: none;
 }
 
+html[data-content-size="compact"] {
+  font-size: 93.75%;
+}
+
+html[data-content-size="default"] {
+  font-size: 100%;
+}
+
+html[data-content-size="large"] {
+  font-size: 112.5%;
+}
+
+html[data-content-size="x-large"] {
+  font-size: 125%;
+}
+
+.lc-display-controls {
+  display: flex;
+  gap: .5rem;
+  margin-top: .75rem;
+}
+
+.lc-display-control {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.lc-display-control > span {
+  display: block;
+  color: var(--bs-secondary-color);
+  font-size: .75rem;
+  margin-bottom: .2rem;
+}
+
+.lc-display-control .form-select {
+  min-width: 0;
+  width: 100%;
+}
+
 .lc-docs-layout .offcanvas-body {
   display: flex;
   flex-direction: column;
