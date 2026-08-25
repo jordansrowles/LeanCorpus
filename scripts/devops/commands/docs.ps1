@@ -23,6 +23,9 @@ function Invoke-DevOpsDocs {
     $docfxJson = Join-Path $docsDir 'docfx.json'
     $apiDir   = Join-Path $docsDir 'api'
     $siteDir  = Join-Path $docsDir 'site'
+    $diagnosticsDir = Join-Path $repoRoot 'artifacts/docs'
+    $metadataLog = Join-Path $diagnosticsDir 'docfx-metadata.jsonl'
+    $buildLog = Join-Path $diagnosticsDir 'docfx-build.jsonl'
 
     Assert-DotNetTool 'docfx'
 
@@ -39,8 +42,8 @@ function Invoke-DevOpsDocs {
     function Invoke-MetadataRegeneration {
         Clear-ApiMetadata $docsDir
         Write-Heading 'Generating API metadata...'
-        docfx metadata $docfxJson
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $exitCode = Invoke-DocfxWithDiagnostics -Command metadata -ConfigPath $docfxJson -LogPath $metadataLog
+        if ($exitCode -ne 0) { exit $exitCode }
         Remove-ExternalInheritedMembers $docsDir
     }
 
@@ -61,8 +64,8 @@ function Invoke-DevOpsDocs {
         Copy-Changelog -RepoRoot $repoRoot -DocsDir $docsDir
 
         Write-Heading 'Building documentation site...'
-        docfx build $docfxJson
-        if ($LASTEXITCODE -ne 0) { Write-Error "docfx build failed"; exit $LASTEXITCODE }
+        $exitCode = Invoke-DocfxWithDiagnostics -Command build -ConfigPath $docfxJson -LogPath $buildLog
+        if ($exitCode -ne 0) { exit $exitCode }
 
         Write-Success "Serving on http://0.0.0.0:8080"
         docfx serve $siteDir --hostname 0.0.0.0 -p 8080
@@ -89,8 +92,8 @@ function Invoke-DevOpsDocs {
     Copy-Changelog -RepoRoot $repoRoot -DocsDir $docsDir
 
     Write-Heading 'Building documentation site...'
-    docfx build $docfxJson
-    if ($LASTEXITCODE -ne 0) { Write-Error "docfx build failed"; exit $LASTEXITCODE }
+    $exitCode = Invoke-DocfxWithDiagnostics -Command build -ConfigPath $docfxJson -LogPath $buildLog
+    if ($exitCode -ne 0) { exit $exitCode }
 
     Write-Success "Site written to: $siteDir"
     exit 0

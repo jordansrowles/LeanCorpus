@@ -58,6 +58,8 @@ Build the site without regenerating benchmarks:
 ./devops docs -SkipBenchmarks
 ```
 
+The console groups DocFX warnings by code rather than printing every instance. Full JSON-lines diagnostics are retained under `artifacts/docs`, and long DocFX stages report elapsed time every 30 seconds.
+
 Resolve broken links, duplicate headings, invalid YAML, and Mermaid parse failures before handing off a documentation change. Generated HTML belongs to the build output and should not be committed manually.
 
 The generated repository staging tree is also ignored. A second documentation build should produce the same content without changing Git status.

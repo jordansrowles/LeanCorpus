@@ -90,6 +90,11 @@ html[data-content-size="x-large"] {
   width: 100%;
 }
 
+.lc-api-tree-control {
+  margin-top: .75rem;
+  padding-left: 2.25em;
+}
+
 .lc-docs-layout .offcanvas-body {
   display: flex;
   flex-direction: column;
@@ -120,7 +125,7 @@ html[data-content-size="x-large"] {
   border-top: 1px solid var(--bs-border-color);
 }
 
-body.lc-api-page .lc-main-navigation {
+body.lc-api-tree-visible .lc-main-navigation {
   flex-basis: 45%;
 }
 

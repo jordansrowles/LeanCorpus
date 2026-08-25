@@ -112,6 +112,8 @@ The build sequence can:
 
 `-SkipBenchmarks` avoids an expensive or unrelated benchmark-report refresh. It does not skip conceptual pages or API metadata.
 
+DocFX warnings are grouped by code in the console. Complete metadata and build diagnostics are written as JSON lines to `artifacts/docs/docfx-metadata.jsonl` and `artifacts/docs/docfx-build.jsonl`. A status line is printed every 30 seconds while DocFX is running so a slow API pass does not appear stuck.
+
 Generated repository copies, API, site, benchmark, and coverage output must remain generated. Change their canonical source or generator instead of patching the output.
 
 ## Tool discovery

@@ -116,6 +116,7 @@ function Invoke-DevOpsHelp {
     Write-Host '      serve               Build and serve on http://0.0.0.0:8080'
     Write-Host '      -SkipBenchmarks     Skip regenerating benchmark pages'
     Write-Host '      -SkipCoverage       Skip regenerating coverage report'
+    Write-Host '      DocFX warnings are summarised; full logs are written to artifacts/docs'
     Write-Host ''
     Write-Host '    benchmarks           Benchmark documentation'
     Write-Host '      docs                Generate benchmark result pages'

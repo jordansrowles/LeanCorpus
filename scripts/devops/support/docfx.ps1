@@ -28,6 +28,100 @@ function Set-GeneratedContent {
     }
 }
 
+function Invoke-DocfxWithDiagnostics {
+    param(
+        [ValidateSet('build', 'metadata')]
+        [string]$Command,
+        [string]$ConfigPath,
+        [string]$LogPath
+    )
+
+    $logDirectory = Split-Path $LogPath -Parent
+    if (-not (Test-Path $logDirectory)) {
+        New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+    }
+    if (Test-Path $LogPath) {
+        Remove-Item $LogPath -Force
+    }
+
+    $stdoutPath = "$LogPath.stdout"
+    $stderrPath = "$LogPath.stderr"
+    Remove-Item $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+
+    Write-Info "Detailed DocFX diagnostics: $LogPath"
+    $docfxPath = (Get-Command docfx -ErrorAction Stop).Source
+    $process = Start-Process -FilePath $docfxPath `
+        -ArgumentList @($Command, $ConfigPath, '--log', $LogPath, '--logLevel', 'warning') `
+        -NoNewWindow `
+        -PassThru `
+        -RedirectStandardOutput $stdoutPath `
+        -RedirectStandardError $stderrPath
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    while (-not $process.WaitForExit(30000)) {
+        $minutes = [Math]::Floor($stopwatch.Elapsed.TotalMinutes)
+        Write-Info ("  DocFX {0} still running ({1:00}:{2:00})..." -f $Command, $minutes, $stopwatch.Elapsed.Seconds)
+    }
+    $process.WaitForExit()
+    $stopwatch.Stop()
+    $exitCode = $process.ExitCode
+
+    $consoleOutput = @()
+    if (Test-Path $stdoutPath) { $consoleOutput += @(Get-Content $stdoutPath) }
+    if (Test-Path $stderrPath) { $consoleOutput += @(Get-Content $stderrPath) }
+
+    $records = @()
+    if (Test-Path $LogPath) {
+        $records = @(Get-Content $LogPath | ForEach-Object {
+            try {
+                $_ | ConvertFrom-Json
+            } catch {
+                # Ignore malformed diagnostic lines and retain the original log for inspection.
+            }
+        })
+    }
+
+    if ($exitCode -ne 0) {
+        Write-Failure "DocFX $Command failed with exit code $exitCode."
+        $consoleOutput | Select-Object -Last 40 | ForEach-Object { Write-Host $_ }
+        Write-Info "Captured console output: $stdoutPath and $stderrPath"
+        return $exitCode
+    }
+
+    Remove-Item $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+
+    $warnings = @($records | Where-Object {
+        $severity = $_.PSObject.Properties['severity']
+        $severity -and $severity.Value -eq 'warning'
+    })
+    if ($warnings.Count -gt 0) {
+        Write-Warn "DocFX $Command completed with $($warnings.Count) warning(s); detailed output was suppressed."
+        $warningGroups = $warnings |
+            Group-Object {
+                $code = $_.PSObject.Properties['code']
+                if ($code -and $code.Value) {
+                    $code.Value
+                } else {
+                    $message = $_.PSObject.Properties['message']
+                    if ($message -and $message.Value -match 'Duplicate source file') {
+                        'DuplicateSourceFile'
+                    } elseif ($message -and $message.Value -match '^Duplicate parameter') {
+                        'DuplicateParameter'
+                    } else {
+                        'uncategorised'
+                    }
+                }
+            } |
+            Sort-Object Count -Descending
+        foreach ($group in $warningGroups) {
+            Write-Info ("  {0}: {1}" -f $group.Name, $group.Count)
+        }
+    } else {
+        Write-Success "DocFX $Command completed without warnings."
+    }
+
+    return 0
+}
+
 function Remove-ExternalInheritedMembers {
     param([string]$DocsDir)
 
