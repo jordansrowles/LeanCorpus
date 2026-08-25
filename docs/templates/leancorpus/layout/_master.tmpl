@@ -115,6 +115,9 @@
                 </label>
               </div>
             </div>
+            {{#_enableSearch}}
+            <div class="search-results lc-search-results" id="search-results"></div>
+            {{/_enableSearch}}
             <div class="lc-main-navigation">
               <nav class="toc lc-docs-tree" id="toc"></nav>
             </div>
@@ -142,10 +145,6 @@
           <nav id="breadcrumb"></nav>
           {{/_disableBreadcrumb}}
         </div>
-
-        {{#_enableSearch}}
-        <div class="search-results" id="search-results"></div>
-        {{/_enableSearch}}
 
         <article data-uid="{{uid}}">
           {{!body}}
