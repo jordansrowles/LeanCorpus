@@ -3,6 +3,8 @@ namespace Rowles.LeanCorpus.Server.Abstractions.Contracts.Common;
 /// <summary>Identifies an extension port required by an endpoint.</summary>
 public enum InterceptionPort
 {
+    /// <summary>Caller authentication.</summary>
+    Authentication,
     /// <summary>Operation routing.</summary>
     Routing,
     /// <summary>Caller authorisation.</summary>

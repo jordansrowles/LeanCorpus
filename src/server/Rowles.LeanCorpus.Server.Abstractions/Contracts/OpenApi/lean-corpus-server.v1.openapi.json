@@ -10,6 +10,7 @@
     "/v1/indices/{name}/documents:bulk": { "post": { "operationId": "bulkDocuments" } },
     "/v1/indices/{name}/refresh": { "post": { "operationId": "refreshIndex" } },
     "/v1/indices/{name}/search": { "post": { "operationId": "searchIndex" } },
+    "/v1/indices/{name}/explain": { "post": { "operationId": "explainIndex" } },
     "/v1/indices/{name}/schema": { "get": { "operationId": "getIndexSchema" } },
     "/v1/indices/{name}/stats": { "get": { "operationId": "getIndexStatistics" } },
     "/v1/indices/{name}/inspection/{resource}": { "get": { "operationId": "inspectIndex" } },

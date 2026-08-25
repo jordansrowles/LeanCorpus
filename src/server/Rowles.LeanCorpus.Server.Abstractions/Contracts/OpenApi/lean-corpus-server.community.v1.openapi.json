@@ -1,0 +1,18 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "LeanCorpus Community Server API", "version": "1" },
+  "paths": {
+    "/v1/health": { "get": { "operationId": "getHealth" } },
+    "/v1/ready": { "get": { "operationId": "getReadiness" } },
+    "/v1/indices": { "get": { "operationId": "listIndices" } },
+    "/v1/indices/{name}": { "put": { "operationId": "createIndex" }, "delete": { "operationId": "deleteIndex" } },
+    "/v1/indices/{name}/settings": { "patch": { "operationId": "updateIndexSettings" } },
+    "/v1/indices/{name}/documents:bulk": { "post": { "operationId": "bulkDocuments" } },
+    "/v1/indices/{name}/refresh": { "post": { "operationId": "refreshIndex" } },
+    "/v1/indices/{name}/search": { "post": { "operationId": "searchIndex" } },
+    "/v1/indices/{name}/explain": { "post": { "operationId": "explainIndex" } },
+    "/v1/indices/{name}/schema": { "get": { "operationId": "getIndexSchema" } },
+    "/v1/indices/{name}/stats": { "get": { "operationId": "getIndexStatistics" } },
+    "/v1/indices/{name}/inspection/{resource}": { "get": { "operationId": "inspectIndex" } }
+  }
+}

@@ -1,9 +1,18 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
+    <TargetFramework>net11.0</TargetFramework>
     <PackageId>Rowles.LeanCorpus.Server.Core</PackageId>
+    <Version>0.1.0-alpha</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <Authors>Jordan Rowles</Authors>
     <Description>Local lifecycle and persistence implementation for LeanCorpus Server.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/jordansrowles/LeanCorpus</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsAotCompatible>true</IsAotCompatible>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -13,5 +22,8 @@
   <ItemGroup>
     <ProjectReference Include="../../core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj" />
     <ProjectReference Include="../Rowles.LeanCorpus.Server.Abstractions/Rowles.LeanCorpus.Server.Abstractions.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 </Project>

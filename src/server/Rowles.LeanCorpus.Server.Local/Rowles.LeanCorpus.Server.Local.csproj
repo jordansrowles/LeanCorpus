@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Rowles.LeanCorpus.Server.Local</AssemblyName>
+    <RootNamespace>Rowles.LeanCorpus.Server.Local</RootNamespace>
+    <PackageId>Rowles.LeanCorpus.Server.Local</PackageId>
+    <Version>0.1.0-alpha</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <Description>Reference executable for the local LeanCorpus Community Server.</Description>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Grpc.AspNetCore" />
+    <ProjectReference Include="../Rowles.LeanCorpus.Server.Core/Rowles.LeanCorpus.Server.Core.csproj" />
+    <ProjectReference Include="../Rowles.LeanCorpus.Server.AspNetCore/Rowles.LeanCorpus.Server.AspNetCore.csproj" />
+    <ProjectReference Include="../Rowles.LeanCorpus.Server.Grpc/Rowles.LeanCorpus.Server.Grpc.csproj" />
+    <ProjectReference Include="../Rowles.LeanCorpus.Studio/Rowles.LeanCorpus.Studio.csproj" />
+  </ItemGroup>
+</Project>

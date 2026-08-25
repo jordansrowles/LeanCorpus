@@ -1,9 +1,11 @@
 (() => {
   const root = document.documentElement
-  const themeSelect = document.getElementById('lc-theme-select')
-  const contentSizeSelect = document.getElementById('lc-content-size-select')
+  const themeToggle = document.getElementById('lc-theme-toggle')
+  const contentSizeToggle = document.getElementById('lc-text-size-toggle')
   const themes = new Set(['light', 'dark', 'auto'])
   const contentSizes = new Set(['compact', 'default', 'large', 'x-large'])
+  const themeOrder = ['auto', 'light', 'dark']
+  const contentSizeOrder = ['default', 'large', 'x-large', 'compact']
 
   const readPreference = (key, fallback) => {
     try {
@@ -30,24 +32,39 @@
       theme === 'auto'
         ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
         : theme)
-    if (themeSelect && themeSelect.value !== theme) themeSelect.value = theme
+    if (themeToggle) {
+      const labels = { auto: 'system', light: 'light', dark: 'dark' }
+      const icons = { auto: '🌓', light: '☀️', dark: '🌙' }
+      themeToggle.textContent = icons[theme]
+      themeToggle.title = `Theme: ${labels[theme]}`
+      themeToggle.setAttribute('aria-label', `Change colour theme. Current theme: ${labels[theme]}`)
+    }
   }
 
   const applyContentSize = (value, persist) => {
     const contentSize = contentSizes.has(value) ? value : 'default'
     if (persist) writePreference('content-size', contentSize)
     root.dataset.contentSize = contentSize
-    if (contentSizeSelect && contentSizeSelect.value !== contentSize) contentSizeSelect.value = contentSize
+    if (contentSizeToggle) {
+      const labels = { compact: 'compact', default: 'default', large: 'large', 'x-large': 'extra large' }
+      contentSizeToggle.dataset.size = contentSize
+      contentSizeToggle.title = `Text size: ${labels[contentSize]}`
+      contentSizeToggle.setAttribute('aria-label', `Change text size. Current size: ${labels[contentSize]}`)
+    }
   }
 
-  if (themeSelect) {
-    themeSelect.value = readPreference('theme', 'auto')
-    themeSelect.addEventListener('change', () => applyTheme(themeSelect.value, true))
+  if (themeToggle) {
+    themeToggle.addEventListener('click', () => {
+      const current = readPreference('theme', 'auto')
+      applyTheme(themeOrder[(themeOrder.indexOf(current) + 1) % themeOrder.length], true)
+    })
   }
 
-  if (contentSizeSelect) {
-    contentSizeSelect.value = readPreference('content-size', 'default')
-    contentSizeSelect.addEventListener('change', () => applyContentSize(contentSizeSelect.value, true))
+  if (contentSizeToggle) {
+    contentSizeToggle.addEventListener('click', () => {
+      const current = readPreference('content-size', 'default')
+      applyContentSize(contentSizeOrder[(contentSizeOrder.indexOf(current) + 1) % contentSizeOrder.length], true)
+    })
   }
 
   applyTheme(readPreference('theme', 'auto'), false)
@@ -55,7 +72,7 @@
 
   const colourScheme = window.matchMedia('(prefers-color-scheme: dark)')
   const refreshAutomaticTheme = () => {
-    if (themeSelect?.value === 'auto') applyTheme('auto', false)
+    if (readPreference('theme', 'auto') === 'auto') applyTheme('auto', false)
   }
   if (typeof colourScheme.addEventListener === 'function') {
     colourScheme.addEventListener('change', refreshAutomaticTheme)

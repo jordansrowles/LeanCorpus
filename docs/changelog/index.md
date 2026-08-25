@@ -18,3 +18,9 @@ Per-version change logs. Each file lists changes grouped by type: Added, Changed
 | [1.1.3](1.1.3%20-%202026-05-03.md) | 2026-05-03 |
 | [1.1.2](1.1.2%20-%202026-05-02.md) | 2026-05-02 |
 | [1.1.1](1.1.1%20-%202026-05-01.md) | 2026-05-01 |
+
+## Community Server
+
+| Version | Date |
+|---|---|
+| [0.1.0-alpha](server/0.1.0-alpha%20-%202026-08-25.md) | 2026-08-25 |

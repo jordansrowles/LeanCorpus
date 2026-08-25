@@ -25,6 +25,7 @@ $Script:BenchmarkStrategies = Import-PowerShellDataFile "$PSScriptRoot/config/be
 . "$PSScriptRoot/commands/benchmarks.ps1"
 . "$PSScriptRoot/commands/setup.ps1"
 . "$PSScriptRoot/commands/report.ps1"
+. "$PSScriptRoot/commands/server.ps1"
 
 function Invoke-DevOps {
     param([string]$Command, [string[]]$Arguments)
@@ -40,6 +41,7 @@ function Invoke-DevOps {
         'benchmarks' { Invoke-DevOpsBenchmarks -Arguments $Arguments }
         'setup'      { Invoke-DevOpsSetup -Arguments $Arguments }
         'report'     { Invoke-DevOpsReport -Arguments $Arguments }
+        'server'     { Invoke-DevOpsServer -Arguments $Arguments }
         ''           { Invoke-DevOpsHelp }
         '--help'     { Invoke-DevOpsHelp }
         '-Help'      { Invoke-DevOpsHelp }
@@ -55,12 +57,13 @@ function Invoke-DevOpsHelp {
     Write-Host ''
     Write-Host '  Commands:'
     Write-Host ''
-    Write-Host '    build                Build the solution (Release, net10.0 by default)'
+    Write-Host '    build                Build the solution (Release, net11.0 by default)'
     Write-Host '      -Configuration      Debug or Release (default: Release)'
-    Write-Host '      -Framework          net10.0 or net11.0 (default: net10.0)'
+    Write-Host '      -Framework          net10.0 or net11.0 for -Project builds (default: net11.0)'
     Write-Host ''
     Write-Host '    test                 Run test suites'
-    Write-Host '      -Suite              core, text, sourcegen, architecture, aot, affected,'
+    Write-Host '      -Suite              core, text, sourcegen, architecture, server-abstractions,'
+    Write-Host '                          server-core, server-integration, aot, affected,'
     Write-Host '                          or all (default: all)'
     Write-Host '      -Framework          net10.0 or net11.0 (default: net10.0)'
     Write-Host '      -Configuration      Debug or Release (default: Release)'
@@ -132,6 +135,14 @@ function Invoke-DevOpsHelp {
     Write-Host '      -Json               Emit a single JSON object instead of terminal output'
     Write-Host '      -Strict             Exit non-zero on illegal names, severe god classes, or AOT-hostile patterns'
     Write-Host ''
+    Write-Host '    server               Community Server commands'
+    Write-Host '      start               Start the local host on .NET 11'
+    Write-Host '        -Configuration    Debug or Release (default: Debug)'
+    Write-Host '        -NoBuild          Skip the build performed by dotnet run'
+    Write-Host '        -NoRestore        Skip restore performed by dotnet run'
+    Write-Host '        -External         Listen on all IPv4 interfaces at port 5080'
+    Write-Host '        -- <args>         Pass application arguments to the host'
+    Write-Host ''
     Write-Host '  Examples:'
     Write-Host '    devops build'
     Write-Host '    devops test -Suite core -Category Integration -Framework net11.0'
@@ -146,6 +157,8 @@ function Invoke-DevOpsHelp {
     Write-Host '    devops data gutenberg -BookCount 500'
     Write-Host '    devops report'
     Write-Host '    devops report code -Strict'
+    Write-Host '    devops server start'
+    Write-Host '    devops server start -External'
     Write-Host ''
     exit 0
 }

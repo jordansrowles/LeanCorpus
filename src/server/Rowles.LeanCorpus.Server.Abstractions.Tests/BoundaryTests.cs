@@ -5,6 +5,7 @@ using Rowles.LeanCorpus.Server.Abstractions.Serialisation;
 
 namespace Rowles.LeanCorpus.Server.Abstractions.Tests;
 
+[Trait("Area", "Server")]
 public sealed class BoundaryTests
 {
     [Fact]
@@ -26,6 +27,7 @@ public sealed class BoundaryTests
         Assert.IsAssignableFrom<IAuditPublisher>(new CommunityAuditPublisher());
         Assert.IsAssignableFrom<IConsistencyPolicy>(new CommunityConsistencyPolicy());
         Assert.IsAssignableFrom<IInspectionFilter>(new CommunityInspectionFilter());
+        Assert.IsAssignableFrom<IAuthenticationProvider>(new CommunityAuthenticationProvider());
     }
 
     [Fact]

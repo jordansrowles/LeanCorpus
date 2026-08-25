@@ -1,5 +1,6 @@
 using Rowles.LeanCorpus.Server.Core.Storage;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing;
+using Rowles.LeanCorpus.Server.Core.Configuration;
 
 namespace Rowles.LeanCorpus.Server.Core.Runtime;
 
@@ -8,24 +9,29 @@ internal sealed class LocalIndexRegistry : IDisposable
 {
     private readonly string _indicesPath;
     private readonly RegistryStore _store;
+    private readonly TimeSpan _commitInterval;
+    private readonly TimeSpan _refreshInterval;
     private readonly Dictionary<string, IndexRuntimeEntry> _entries = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    private LocalIndexRegistry(string dataRoot)
+    private LocalIndexRegistry(string dataRoot, TimeSpan commitInterval, TimeSpan refreshInterval)
     {
         _indicesPath = Path.Combine(dataRoot, "indices");
         _store = new RegistryStore(dataRoot);
+        _commitInterval = commitInterval;
+        _refreshInterval = refreshInterval;
     }
 
-    internal static async ValueTask<LocalIndexRegistry> OpenAsync(string dataRoot, CancellationToken cancellationToken)
+    internal static async ValueTask<LocalIndexRegistry> OpenAsync(string dataRoot, ServerCoreOptions options, CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(dataRoot);
-        LocalIndexRegistry registry = new(dataRoot);
+        LocalIndexRegistry registry = new(dataRoot, options.CommitInterval, options.RefreshInterval);
         Directory.CreateDirectory(registry._indicesPath);
 
         ServerRegistry persisted = await registry._store.LoadAsync(cancellationToken).ConfigureAwait(false);
+        ValidatePersistedRegistrations(persisted.Indices, registry._indicesPath);
         foreach (IndexRegistration registration in persisted.Indices)
-            registry._entries.Add(registration.Name, new IndexRuntimeEntry(registration, new IndexRuntime(Path.Combine(registry._indicesPath, registration.Id))));
+            registry._entries.Add(registration.Name, new IndexRuntimeEntry(registration, new IndexRuntime(Path.Combine(registry._indicesPath, registration.Id), CompiledIndexSchema.Create(registration.Schema, registration.Topology, registration.Settings), registration.Settings.CommitInterval ?? options.CommitInterval, registration.Settings.RefreshInterval ?? options.RefreshInterval)));
 
         return registry;
     }
@@ -47,14 +53,18 @@ internal sealed class LocalIndexRegistry : IDisposable
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_entries.ContainsKey(registration.Name))
-                return null;
+            lock (_entries)
+            {
+                if (_entries.ContainsKey(registration.Name))
+                    return null;
+            }
 
             string path = Path.Combine(_indicesPath, registration.Id);
             Directory.CreateDirectory(path);
-            IndexRuntime runtime = new(path);
+            IndexRuntime runtime = new(path, CompiledIndexSchema.Create(registration.Schema, registration.Topology, registration.Settings), registration.Settings.CommitInterval ?? _commitInterval, registration.Settings.RefreshInterval ?? _refreshInterval);
             IndexRuntimeEntry entry = new(registration, runtime);
-            _entries.Add(registration.Name, entry);
+            lock (_entries)
+                _entries.Add(registration.Name, entry);
 
             try
             {
@@ -63,7 +73,8 @@ internal sealed class LocalIndexRegistry : IDisposable
             }
             catch
             {
-                _entries.Remove(registration.Name);
+                lock (_entries)
+                    _entries.Remove(registration.Name);
                 runtime.Dispose();
                 Directory.Delete(path, true);
                 throw;
@@ -80,12 +91,39 @@ internal sealed class LocalIndexRegistry : IDisposable
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!_entries.Remove(name, out IndexRuntimeEntry? entry))
-                return false;
+            IndexRuntimeEntry? entry;
+            lock (_entries)
+            {
+                if (!_entries.TryGetValue(name, out entry))
+                    return false;
 
-            await PersistAsync(cancellationToken).ConfigureAwait(false);
-            entry.Runtime.Dispose();
-            Directory.Delete(Path.Combine(_indicesPath, entry.Registration.Id), true);
+                _entries.Remove(name);
+            }
+
+            // Publish the registry change before disposing the runtime. If persistence
+            // fails, the live entry and its resources remain available to the caller.
+            bool registryPersisted = false;
+            try
+            {
+                await PersistAsync(cancellationToken).ConfigureAwait(false);
+                registryPersisted = true;
+                entry.Runtime.Dispose();
+                Directory.Delete(Path.Combine(_indicesPath, entry.Registration.Id), true);
+            }
+            catch
+            {
+                // A persistence failure happens before runtime disposal and can be
+                // rolled back. A physical deletion failure leaves an unadvertised,
+                // recoverable directory and is reported to the caller.
+                if (!registryPersisted)
+                {
+                    lock (_entries)
+                        _entries[name] = entry;
+                    try { await PersistAsync(cancellationToken).ConfigureAwait(false); }
+                    catch { /* retain the original failure */ }
+                }
+                throw;
+            }
             return true;
         }
         finally
@@ -99,12 +137,27 @@ internal sealed class LocalIndexRegistry : IDisposable
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!_entries.TryGetValue(name, out IndexRuntimeEntry? entry))
-                return null;
+            IndexRuntimeEntry? entry;
+            lock (_entries)
+            {
+                if (!_entries.TryGetValue(name, out entry))
+                    return null;
+            }
 
-            entry.Registration = entry.Registration with { Settings = settings };
-            await PersistAsync(cancellationToken).ConfigureAwait(false);
-            return entry;
+            IndexRegistration previous = entry.Registration;
+            lock (_entries)
+                entry.Registration = previous with { Settings = settings };
+            try
+            {
+                await PersistAsync(cancellationToken).ConfigureAwait(false);
+                return entry;
+            }
+            catch
+            {
+                lock (_entries)
+                    entry.Registration = previous;
+                throw;
+            }
         }
         finally
         {
@@ -114,12 +167,48 @@ internal sealed class LocalIndexRegistry : IDisposable
 
     public void Dispose()
     {
-        foreach (IndexRuntimeEntry entry in _entries.Values)
+        IndexRuntimeEntry[] entries;
+        lock (_entries)
+            entries = _entries.Values.ToArray();
+        foreach (IndexRuntimeEntry entry in entries)
             entry.Runtime.Dispose();
 
         _gate.Dispose();
     }
 
-    private ValueTask PersistAsync(CancellationToken cancellationToken) =>
-        _store.SaveAsync(new ServerRegistry(_entries.Values.Select(entry => entry.Registration).ToArray()), cancellationToken);
+    private ValueTask PersistAsync(CancellationToken cancellationToken)
+    {
+        IndexRegistration[] registrations;
+        lock (_entries)
+            registrations = _entries.Values.Select(entry => entry.Registration).ToArray();
+        return _store.SaveAsync(new ServerRegistry(registrations, RegistryStore.CurrentFormatVersion), cancellationToken);
+    }
+
+    private static void ValidatePersistedRegistrations(IReadOnlyList<IndexRegistration> registrations, string indicesPath)
+    {
+        HashSet<string> names = new(StringComparer.Ordinal);
+        HashSet<string> ids = new(StringComparer.Ordinal);
+        foreach (IndexRegistration registration in registrations)
+        {
+            if (!IndexName.IsValid(registration.Name))
+                throw new InvalidDataException($"The persisted index name '{registration.Name}' is invalid.");
+            if (!names.Add(registration.Name))
+                throw new InvalidDataException($"The server registry contains duplicate index name '{registration.Name}'.");
+            if (string.IsNullOrWhiteSpace(registration.Id) || registration.Id.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || !ids.Add(registration.Id))
+                throw new InvalidDataException($"The server registry contains an invalid or duplicate physical index ID for '{registration.Name}'.");
+            try
+            {
+                IndexSchemaValidator.Validate(registration.Schema, registration.Topology, registration.Settings);
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            {
+                throw new InvalidDataException($"The persisted schema for index '{registration.Name}' is invalid: {exception.Message}", exception);
+            }
+            if (!string.Equals(registration.SchemaHash, SchemaHash.Compute(registration.Schema, registration.Topology), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException($"The persisted schema hash for index '{registration.Name}' does not match its schema.");
+            string path = Path.Combine(indicesPath, registration.Id);
+            if (!Directory.Exists(path))
+                throw new InvalidDataException($"The registered index '{registration.Name}' is missing its storage directory.");
+        }
+    }
 }

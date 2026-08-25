@@ -1,35 +1,31 @@
-# LeanCorpus Server
+# LeanCorpus Community Server
 
-LeanCorpus Server is a pre-alpha proof of concept exploring how LeanCorpus might be exposed through transport-neutral contracts and an ASP.NET Core host.
+The Community Server is a local, single-node HTTP and gRPC host for LeanCorpus. It keeps the transport-neutral contracts in `Server.Abstractions`, the lifecycle and storage implementation in `Server.Core`, and host composition in `Server.Local`.
 
-> [!CAUTION]
-> The server cannot currently be run as a usable product or example. It is not ready for installation, deployment or integration. Its projects, APIs and persistence behaviour may change substantially.
+## Run locally
 
-## Current shape
+From the repository root:
 
-```mermaid
-flowchart LR
-    Contracts["Server.Abstractions\ntransport-neutral contracts"]
-    Core["Server.Core\nlocal lifecycle experiments"]
-    Host["Server.AspNetCore\nprototype endpoint mapping"]
-    Engine["Rowles.LeanCorpus"]
-
-    Host --> Contracts
-    Host --> Core
-    Core --> Contracts
-    Core --> Engine
+```bash
+./devops build
+./devops server start
 ```
+
+The reference host targets .NET 11, runs in the foreground and binds to `127.0.0.1:5080` and `[::1]:5080` by default. Press Ctrl+C to stop it. Set `LeanCorpus:DataRoot` or edit `appsettings.json` for a different data directory. Use `./devops server start -External` for access from another machine on a trusted network. External listeners are intentionally explicit and produce a warning at startup.
+
+REST endpoints are under `/v1`, including health, index lifecycle, bulk writes, refresh, search, explain, statistics and bounded inspection. The same Core services are available through the generated version-one gRPC services.
+
+`Rowles.LeanCorpus.Studio` is an embeddable Razor Class Library served at `/studio` by the reference host. It provides the local index, document, query, explanation, inspection and settings workflows through the public REST contract.
+
+## Package boundaries
 
 | Project | Purpose |
 | --- | --- |
-| `Rowles.LeanCorpus.Server.Abstractions` | Early transport-neutral requests, responses and service contracts |
-| `Rowles.LeanCorpus.Server.Core` | Local lifecycle and persistence experiments |
-| `Rowles.LeanCorpus.Server.AspNetCore` | Prototype mapping of server contracts to HTTP endpoints |
-| `Rowles.LeanCorpus.Server.Abstractions.Tests` | Selected contract and boundary checks |
-| `Rowles.LeanCorpus.Server.Core.Tests` | Selected local-core behaviour checks |
+| `Rowles.LeanCorpus.Server.Abstractions` | BCL-only contracts, interception ports and Community defaults |
+| `Rowles.LeanCorpus.Server.Core` | Local registry, schema mapping, writes, search, explain and inspection |
+| `Rowles.LeanCorpus.Server.AspNetCore` | Reusable REST endpoint and dependency-injection integration |
+| `Rowles.LeanCorpus.Server.Grpc` | gRPC transport adapter over the Core service interfaces |
+| `Rowles.LeanCorpus.Server.Local` | Reference executable and composition root |
+| `Rowles.LeanCorpus.Studio` | Minimal embeddable Community Studio workflows |
 
-The endpoint declarations under `Server.AspNetCore` are design experiments. Their presence does not mean the corresponding HTTP workflow is complete or supported.
-
-## Status
-
-The current work establishes possible project boundaries and validates early ideas. A runnable server, stable configuration, supported endpoint contract, packaging and production guidance will be documented only when those capabilities exist.
+The Community implementation deliberately has no licence, account, cluster or external-service dependency.

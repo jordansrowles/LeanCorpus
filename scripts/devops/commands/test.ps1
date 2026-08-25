@@ -103,7 +103,7 @@ function Invoke-DevOpsTest {
         $filter = if ($filter) { "$filter&$traitFilter" } else { $traitFilter }
     }
 
-    [string[]]$toRun = if ($suite -eq 'all') { @('core', 'text', 'sourcegen', 'architecture', 'aot') } else { @($suite) }
+    [string[]]$toRun = if ($suite -eq 'all') { @('core', 'text', 'sourcegen', 'architecture', 'server-abstractions', 'server-core', 'aot') } else { @($suite) }
     $testArgs = @('--configuration', $configuration, '--framework', $framework, '--no-restore')
     if ($filter) { $testArgs += @('--filter', $filter) }
 
@@ -114,6 +114,13 @@ function Invoke-DevOpsTest {
 
     Write-Heading "Test runner - $($toRun.Count) suite(s)"
     Write-Host "  Framework:     $framework"
+    $fixedFrameworks = @($toRun |
+        Where-Object { $testSuites.ContainsKey($_) -and $testSuites[$_].ContainsKey('Framework') } |
+        ForEach-Object { $testSuites[$_].Framework } |
+        Sort-Object -Unique)
+    if ($fixedFrameworks.Count -gt 0) {
+        Write-Host "  Fixed suites:  $($fixedFrameworks -join ', ')"
+    }
     Write-Host "  Configuration: $configuration"
     if ($area)     { Write-Host "  Area:          $area" }
     if ($category) { Write-Host "  Category:      $category" }
@@ -141,6 +148,12 @@ function Invoke-DevOpsTest {
         } else {
             $projectPath = Join-Path $repoRoot $ts.Project
             $suiteArgs = @($testArgs)
+            $suiteFramework = if ($ts.ContainsKey('Framework')) { $ts.Framework } else { $framework }
+            if ($ts.ContainsKey('Framework')) {
+                $suiteArgs = @('--configuration', $configuration, '--framework', $suiteFramework, '--no-restore')
+                if ($filter) { $suiteArgs += @('--filter', $filter) }
+                if ($verbosity) { $suiteArgs += @('--logger', "console;verbosity=$verbosity") }
+            }
             if ($key -eq 'integration' -and $hangTimeout -ne 'off') {
                 $suiteArgs += @('--blame-hang', '--blame-hang-timeout', $hangTimeout, '--blame-hang-dump-type', 'none')
             }
@@ -252,11 +265,12 @@ function Invoke-AffectedTests {
 
         $ts = $testSuites[$suiteKey]
         $projectPath = Join-Path $repoRoot $ts.Project
-        $suiteArgs = @('--configuration', $Configuration, '--framework', $Framework, '--no-restore', '--filter', $areaFilter)
+        $suiteFramework = if ($ts.ContainsKey('Framework')) { $ts.Framework } else { $Framework }
+        $suiteArgs = @('--configuration', $Configuration, '--framework', $suiteFramework, '--no-restore', '--filter', $areaFilter)
         if ($Verbosity) { $suiteArgs += @('--logger', "console;verbosity=$Verbosity") }
 
         $suiteName = "$($ts.Name) (Area=$($areas -join ','))"
-        $result = Invoke-TestProjectWithProgress -ProjectPath $projectPath -Arguments $suiteArgs `
+        $result = Invoke-TestProcessWithProgress -FileName 'dotnet' -Arguments (@('test', $projectPath) + $suiteArgs) `
             -SuiteName $suiteName -SuiteNumber $suiteNumber -SuiteCount $suiteCount
         $elapsed = $result.Elapsed.ToString('hh\:mm\:ss')
         if ($result.ExitCode -ne 0) {

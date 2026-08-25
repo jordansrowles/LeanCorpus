@@ -1,0 +1,32 @@
+@namespace Rowles.LeanCorpus.Studio
+
+<section class="leancorpus-studio" aria-labelledby="leancorpus-studio-title">
+    <h2 id="leancorpus-studio-title">LeanCorpus Studio</h2>
+    <p>Community Server inspection and query tools.</p>
+    <nav aria-label="LeanCorpus Studio">
+        <a href="@HealthPath">Overview</a>
+        <a href="@IndicesPath">Indices</a>
+        @if (!string.IsNullOrWhiteSpace(IndexName))
+        {
+            <a href="@($"{IndicesPath}/{Uri.EscapeDataString(IndexName)}")">@IndexName</a>
+        }
+    </nav>
+    @if (ChildContent is not null)
+    {
+        @ChildContent
+    }
+</section>
+
+@code {
+    /// <summary>Base path for liveness and overview links.</summary>
+    [Parameter] public string HealthPath { get; set; } = "/v1/health";
+
+    /// <summary>Base path for the index list.</summary>
+    [Parameter] public string IndicesPath { get; set; } = "/v1/indices";
+
+    /// <summary>Optional selected index name.</summary>
+    [Parameter] public string? IndexName { get; set; }
+
+    /// <summary>Optional host-provided page content.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}
