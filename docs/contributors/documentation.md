@@ -6,6 +6,7 @@ The site is built by DocFX from Markdown, YAML navigation, XML API comments, gen
 
 Edit the Markdown source and templates. Do not edit generated output in:
 
+- `docs/.generated`;
 - `docs/site`;
 - `docs/api`;
 - `docs/bench`;
@@ -14,10 +15,9 @@ Edit the Markdown source and templates. Do not edit generated output in:
 
 API reference pages are generated from XML documentation. If a public member is unclear, improve its XML comment as well as any conceptual guide.
 
-The feature-comparison records live in `docs/articles/features/items`. The docs
-build reads their front matter and replaces `docs/articles/features/index.md`
-with the interactive table, so edit the item files rather than the generated
-index.
+The feature comparison lives in the Markdown pages under `docs/articles/features`. User-visible feature additions or removals should update the relevant comparison page where applicable. Keep Lucene.NET 4.8 and current Java Lucene as separate comparisons, and use `◐` only for comparable rather than API-equivalent behaviour.
+
+Repository READMEs and contribution guides remain at their owning repository paths so they work on GitHub. The documentation build copies the selected files into `docs/.generated`, rewrites local links for their site destinations, and adds a source notice. Update the source-to-destination map in `Copy-RepositoryDocumentation` when adding or moving one of these guides.
 
 ## Navigation
 
@@ -59,6 +59,8 @@ Build the site without regenerating benchmarks:
 ```
 
 Resolve broken links, duplicate headings, invalid YAML, and Mermaid parse failures before handing off a documentation change. Generated HTML belongs to the build output and should not be committed manually.
+
+The generated repository staging tree is also ignored. A second documentation build should produce the same content without changing Git status.
 
 ## Style
 

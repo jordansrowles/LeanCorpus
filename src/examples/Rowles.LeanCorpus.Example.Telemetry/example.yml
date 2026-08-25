@@ -1,4 +1,0 @@
-name: Telemetry worker
-summary: Emits LeanCorpus metrics and tracing through OpenTelemetry.
-packages: LeanCorpus and OpenTelemetry
-run: dotnet run --project src/examples/Rowles.LeanCorpus.Example.Telemetry

@@ -6,4 +6,4 @@ Analysis turns input text into indexed terms. The same analyser must be used at 
 
 `Rowles.Text` packages this pipeline without the index or search engine. Install it for tokenisation, filtering and stemming in applications that do not need LeanCorpus indexing. Do not install it alongside LeanCorpus because LeanCorpus already includes the same analysis types.
 
-See also: [Analysis overview](../analysis/index.md), [Rowles.Text](../analysis/08-rowles-text.md), and <xref:Rowles.LeanCorpus.Analysis.Analysers.IAnalyser>.
+See also: [Analysis overview](../analysis/index.md), [Rowles.Text](https://leancorpus.com/analysis/08-rowles-text.html), and <xref:Rowles.LeanCorpus.Analysis.Analysers.IAnalyser>.

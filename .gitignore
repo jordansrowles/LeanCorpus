@@ -73,6 +73,7 @@ dlldata.c
 docs/api/
 !docs/api/index.md
 docs/coverage/
+docs/.generated/
 docs/site/
 
 # Benchmark Results

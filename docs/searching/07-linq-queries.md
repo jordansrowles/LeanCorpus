@@ -77,5 +77,5 @@ Native AOT compatible. Expression-tree resolution uses `Expression.Compile()` wh
 ## See also
 
 - [Query types](01-query-types.md)
-- [Source-generated mapping](../getting-started/04-source-generated-mapping.md)
+- [Source-generated mapping](https://leancorpus.com/getting-started/04-source-generated-mapping.html)
 - <xref:Rowles.LeanCorpus.Linq.LeanQueryable`1>

@@ -27,14 +27,13 @@ function Invoke-DevOpsDocs {
     Assert-DotNetTool 'docfx'
 
     function Invoke-GenerateIndexes {
-        Write-Heading 'Generating feature comparison...'
-        & (Join-Path $scriptsPath 'docs/generate-feature-comparison.ps1')
-
         Write-Heading 'Generating ADR index...'
         & (Join-Path $scriptsPath 'docs/generate-adr-index.ps1')
+    }
 
-        Write-Heading 'Generating examples catalogue...'
-        & (Join-Path $scriptsPath 'docs/generate-example-index.ps1')
+    function Invoke-CopyRepositoryDocumentation {
+        Write-Heading 'Copying repository documentation...'
+        Copy-RepositoryDocumentation -RepoRoot $repoRoot -DocsDir $docsDir
     }
 
     function Invoke-MetadataRegeneration {
@@ -53,6 +52,7 @@ function Invoke-DevOpsDocs {
 
     if ($subCmd -eq 'serve') {
         Invoke-GenerateIndexes
+        Invoke-CopyRepositoryDocumentation
         if (-not (Test-Path (Join-Path $apiDir 'toc.yml'))) {
             Invoke-MetadataRegeneration
         } else {
@@ -71,6 +71,7 @@ function Invoke-DevOpsDocs {
 
     # build (default)
     Invoke-GenerateIndexes
+    Invoke-CopyRepositoryDocumentation
 
     if (-not $skipBenchmarks) {
         Write-Heading 'Generating benchmark pages...'

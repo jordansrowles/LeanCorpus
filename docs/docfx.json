@@ -40,19 +40,18 @@
         "files": [ "*.md", "toc.yml" ]
       },
       {
-        "files": [ "getting-started/**.md" ]
+        "files": [ "getting-started/**.md" ],
+        "exclude": [ "getting-started/04-source-generated-mapping.md" ]
       },
       {
         "files": [ "concepts/**.md" ]
       },
       {
-        "files": [ "examples/**.md" ]
-      },
-      {
         "files": [ "reference/**.md" ]
       },
       {
-        "files": [ "analysis/**.md" ]
+        "files": [ "analysis/**.md" ],
+        "exclude": [ "analysis/06-lexicons.md", "analysis/08-rowles-text.md" ]
       },
       {
         "files": [ "searching/**.md" ]
@@ -73,7 +72,12 @@
         "files": [ "tips/**.md" ]
       },
       {
-        "files": [ "contributors/**.md" ]
+        "files": [ "contributors/**.md" ],
+        "exclude": [ "contributors/index.md" ]
+      },
+      {
+        "files": [ "**.md" ],
+        "src": ".generated"
       },
       {
         "files": [ "articles/**.md" ]

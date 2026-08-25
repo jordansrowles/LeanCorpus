@@ -12,7 +12,7 @@
         - name: Writer configuration
           href: getting-started/03-configuration.md
         - name: Source-generated mapping
-          href: getting-started/04-source-generated-mapping.md
+          href: .generated/getting-started/04-source-generated-mapping.md
         - name: Configuration reference
           href: getting-started/05-configuration-reference.md
     - name: Concepts
@@ -32,6 +32,8 @@
       href: architecture.md
     - name: Why LeanCorpus?
       href: why-leancorpus.md
+    - name: Repository overview
+      href: .generated/repository-overview.md
 - name: Guides
   items:
     - name: Analysis
@@ -48,11 +50,11 @@
         - name: Stop words and token budget
           href: analysis/05-stop-words-and-token-budget.md
         - name: Lexicons
-          href: analysis/06-lexicons.md
+          href: .generated/analysis/06-lexicons.md
         - name: Hunspell
           href: analysis/07-hunspell.md
         - name: Rowles.Text
-          href: analysis/08-rowles-text.md
+          href: .generated/analysis/08-rowles-text.md
     - name: Searching
       href: searching/index.md
       items:
@@ -165,6 +167,13 @@
       items:
         - name: Stored field compression
           href: tips/01-compression.md
+          items:
+            - name: LZ4
+              href: .generated/tips/compression/lz4.md
+            - name: Snappy
+              href: .generated/tips/compression/snappy.md
+            - name: Zstandard
+              href: .generated/tips/compression/zstandard.md
         - name: Query cache
           href: tips/02-query-cache.md
         - name: Benchmarking
@@ -176,12 +185,25 @@
         - name: Troubleshooting
           href: tips/troubleshooting.md
     - name: Examples
-      href: examples/index.md
+      href: .generated/examples/index.md
+      items:
+        - name: Linux kernel code search
+          href: .generated/examples/linux-kernel-code-search.md
     - name: Migration from Lucene.Net
       href: migration.md
 - name: Contributors
-  href: contributors/index.md
+  href: .generated/contributors/index.md
   items:
+    - name: General contribution guide
+      href: .generated/contributors/contributing.md
+    - name: Rowles.Text
+      href: .generated/contributors/rowles-text.md
+    - name: DevOps projects
+      href: .generated/contributors/devops-projects.md
+    - name: DevOps and tests
+      href: .generated/contributors/devops-and-tests.md
+    - name: Server proof of concept
+      href: .generated/contributors/server-proof-of-concept.md
     - name: Architecture internals
       href: contributors/architecture-internals.md
     - name: Storage formats
@@ -228,6 +250,15 @@
           href: reference/upgrades.md
     - name: Feature parity
       href: articles/features/index.md
+      items:
+        - name: Core search and indexing
+          href: articles/features/core.md
+        - name: Analysis and language support
+          href: articles/features/analysis.md
+        - name: Advanced and operational features
+          href: articles/features/advanced.md
+        - name: LeanCorpus-only capabilities
+          href: articles/features/leancorpus-only.md
     - name: Architecture decisions
       href: articles/ADRs/index.md
       items:

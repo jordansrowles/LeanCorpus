@@ -56,7 +56,7 @@ foreach (var hit in hits.ScoreDocs)
 | | Start with this |
 |---|---|
 | **Build your first search** | Create an index, add documents, and run a query in [three short steps](getting-started/01-installation.md). |
-| **Choose a package** | Find the core library, standalone [Rowles.Text](analysis/08-rowles-text.md), source generator and compression packages below. |
+| **Choose a package** | Find the core library, standalone [Rowles.Text](https://leancorpus.com/analysis/08-rowles-text.html), source generator and compression packages below. |
 | **Learn the architecture** | Understand documents, analysis, segments, readers, queries and vectors in [Concepts](concepts/index.md). |
 
 ## Is LeanCorpus right for me?
@@ -133,7 +133,7 @@ Multi-threaded indexing with per-thread DWPT pools. Near-real-time readers via `
 
 ### Extensibility
 CodecKit for custom storage formats. Pluggable compression (LZ4, Snappy, Zstandard). Source-generated document schemas. Index codec migrator for format upgrades.
-[Browse contributor docs](contributors/index.md)
+[Browse contributor docs](https://leancorpus.com/contributors/index.html)
 
 </div>
 </div>
@@ -160,7 +160,7 @@ All packages target `net10.0` and `net11.0`.
 - [Architecture overview](architecture.md)
 - [Why LeanCorpus?](why-leancorpus.md)
 - [Performance](performance.md)
-- [Examples](examples/index.md)
+- [Examples](https://leancorpus.com/examples/index.html)
 - [Feature comparison](articles/features/index.md)
 - [API reference](~/api/index.md)
 - [Benchmarks](benchmarks/index.md)
