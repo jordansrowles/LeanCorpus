@@ -4,12 +4,12 @@ title: Benchmarks - Block-Join (search)
 
 # Block-Join (search)
 
-**.NET** 10.0.3 &nbsp;&middot;&nbsp; **Commit** `6ef0c05` &nbsp;&middot;&nbsp; 9 August 2026 06:18 UTC &nbsp;&middot;&nbsp; 100,000 docs
+**.NET** 10.0.3 &nbsp;&middot;&nbsp; **Commit** `66ba120` &nbsp;&middot;&nbsp; 24 August 2026 21:47 UTC &nbsp;&middot;&nbsp; 100,000 docs
 
 | Method                           | BlockCount | Mean     | Error     | StdDev    | Ratio | Gen0    | Allocated | Alloc Ratio |
 |--------------------------------- |----------- |---------:|----------:|----------:|------:|--------:|----------:|------------:|
-| LeanLucene_BlockJoinQuery        | 100000     | 1.739 ms | 0.0019 ms | 0.0016 ms |  1.00 |       - |   2.08 KB |        1.00 |
-| LuceneNet_ToParentBlockJoinQuery | 100000     | 1.992 ms | 0.0045 ms | 0.0040 ms |  1.15 | 11.7188 |  48.14 KB |       23.16 |
+| LeanLucene_BlockJoinQuery        | 100000     | 1.626 ms | 0.0027 ms | 0.0025 ms |  1.00 |       - |   4.73 KB |        1.00 |
+| LuceneNet_ToParentBlockJoinQuery | 100000     | 1.995 ms | 0.0058 ms | 0.0054 ms |  1.23 | 11.7188 |  48.14 KB |       10.17 |
 
 <div class="benchmark-chart">
 <p style="margin-bottom:4px"><label>Time scale: <select id="chart-scale-blockjoin-search"><option value="log2" selected>Log2</option><option value="log10">Log10</option><option value="linear">Linear</option></select></label> <label>Width: <input type="range" id="chart-width-blockjoin-search" min="400" max="1400" value="960" step="20" style="vertical-align:middle"></label> <label>Height: <input type="range" id="chart-height-blockjoin-search" min="200" max="900" value="500" step="20" style="vertical-align:middle"></label></p>

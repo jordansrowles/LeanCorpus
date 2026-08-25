@@ -4,24 +4,24 @@ title: Benchmarks - Fuzzy queries
 
 # Fuzzy queries
 
-**.NET** 10.0.3 &nbsp;&middot;&nbsp; **Commit** `6ef0c05` &nbsp;&middot;&nbsp; 9 August 2026 06:18 UTC &nbsp;&middot;&nbsp; 100,000 docs
+**.NET** 10.0.3 &nbsp;&middot;&nbsp; **Commit** `66ba120` &nbsp;&middot;&nbsp; 24 August 2026 21:47 UTC &nbsp;&middot;&nbsp; 100,000 docs
 
-| Method                | Scenario            | DocumentCount | Mean          | Error      | StdDev     | Ratio    | RatioSD | Gen0     | Gen1     | Allocated  | Alloc Ratio |
-|---------------------- |-------------------- |-------------- |--------------:|-----------:|-----------:|---------:|--------:|---------:|---------:|-----------:|------------:|
-| **LeanCorpus_FuzzyQuery** | **long-edit1-common**   | **100000**        |     **60.061 μs** |  **0.0824 μs** |  **0.0730 μs** |     **1.00** |    **0.00** |   **0.3662** |        **-** |    **1.55 KB** |        **1.00** |
-| LuceneNet_FuzzyQuery  | long-edit1-common   | 100000        |  1,001.880 μs |  2.0664 μs |  1.9329 μs |    16.68 |    0.04 |  78.1250 |   1.9531 |  326.49 KB |      211.06 |
-|                       |                     |               |               |            |            |          |         |          |          |            |             |
-| **LeanCorpus_FuzzyQuery** | **medium-edit1-common** | **100000**        |    **146.524 μs** |  **0.1555 μs** |  **0.1455 μs** |     **1.00** |    **0.00** |   **0.4883** |        **-** |    **2.17 KB** |        **1.00** |
-| LuceneNet_FuzzyQuery  | medium-edit1-common | 100000        |  1,370.434 μs |  3.0805 μs |  2.7308 μs |     9.35 |    0.02 | 242.1875 |   5.8594 |  991.89 KB |      456.70 |
-|                       |                     |               |               |            |            |          |         |          |          |            |             |
-| **LeanCorpus_FuzzyQuery** | **medium-edit2-common** | **100000**        |    **216.999 μs** |  **0.2144 μs** |  **0.1901 μs** |     **1.00** |    **0.00** |   **0.7324** |        **-** |    **3.27 KB** |        **1.00** |
-| LuceneNet_FuzzyQuery  | medium-edit2-common | 100000        | 10,378.525 μs | 17.8961 μs | 16.7400 μs |    47.83 |    0.08 | 500.0000 | 156.2500 | 2381.52 KB |      729.27 |
-|                       |                     |               |               |            |            |          |         |          |          |            |             |
-| **LeanCorpus_FuzzyQuery** | **nohit-edit2**         | **100000**        |      **1.376 μs** |  **0.0021 μs** |  **0.0017 μs** |     **1.00** |    **0.00** |   **0.2823** |        **-** |    **1.16 KB** |        **1.00** |
-| LuceneNet_FuzzyQuery  | nohit-edit2         | 100000        |  6,469.398 μs | 16.0442 μs | 15.0078 μs | 4,702.15 |   12.00 | 523.4375 | 226.5625 | 2511.04 KB |    2,171.71 |
-|                       |                     |               |               |            |            |          |         |          |          |            |             |
-| **LeanCorpus_FuzzyQuery** | **short-edit1-common**  | **100000**        |    **509.667 μs** |  **0.3959 μs** |  **0.3306 μs** |     **1.00** |    **0.00** |   **0.9766** |        **-** |    **5.63 KB** |        **1.00** |
-| LuceneNet_FuzzyQuery  | short-edit1-common  | 100000        |  2,249.980 μs | 10.0976 μs |  9.4453 μs |     4.41 |    0.02 | 296.8750 |  27.3438 | 1247.27 KB |      221.74 |
+| Method                | Scenario            | DocumentCount | Mean         | Error      | StdDev     | Ratio    | RatioSD | Gen0     | Gen1     | Allocated  | Alloc Ratio |
+|---------------------- |-------------------- |-------------- |-------------:|-----------:|-----------:|---------:|--------:|---------:|---------:|-----------:|------------:|
+| **LeanCorpus_FuzzyQuery** | **long-edit1-common**   | **100000**        |    **63.625 μs** |  **0.0888 μs** |  **0.0830 μs** |     **1.00** |    **0.00** |   **0.6104** |        **-** |    **2.77 KB** |        **1.00** |
+| LuceneNet_FuzzyQuery  | long-edit1-common   | 100000        | 1,002.922 μs |  1.8438 μs |  1.7247 μs |    15.76 |    0.03 |  78.1250 |   1.9531 |  326.49 KB |      118.05 |
+|                       |                     |               |              |            |            |          |         |          |          |            |             |
+| **LeanCorpus_FuzzyQuery** | **medium-edit1-common** | **100000**        |   **151.743 μs** |  **0.1843 μs** |  **0.1724 μs** |     **1.00** |    **0.00** |   **0.9766** |        **-** |    **4.48 KB** |        **1.00** |
+| LuceneNet_FuzzyQuery  | medium-edit1-common | 100000        | 1,370.996 μs |  3.7012 μs |  3.4621 μs |     9.04 |    0.02 | 242.1875 |   5.8594 |  991.89 KB |      221.19 |
+|                       |                     |               |              |            |            |          |         |          |          |            |             |
+| **LeanCorpus_FuzzyQuery** | **medium-edit2-common** | **100000**        |   **229.912 μs** |  **0.2785 μs** |  **0.2606 μs** |     **1.00** |    **0.00** |   **1.7090** |        **-** |    **7.49 KB** |        **1.00** |
+| LuceneNet_FuzzyQuery  | medium-edit2-common | 100000        | 9,685.991 μs | 23.5341 μs | 22.0138 μs |    42.13 |    0.10 | 500.0000 | 156.2500 | 2381.52 KB |      317.87 |
+|                       |                     |               |              |            |            |          |         |          |          |            |             |
+| **LeanCorpus_FuzzyQuery** | **nohit-edit2**         | **100000**        |     **2.148 μs** |  **0.0015 μs** |  **0.0012 μs** |     **1.00** |    **0.00** |   **0.4730** |        **-** |    **1.94 KB** |        **1.00** |
+| LuceneNet_FuzzyQuery  | nohit-edit2         | 100000        | 6,514.180 μs | 17.5678 μs | 16.4329 μs | 3,032.63 |    7.59 | 531.2500 | 210.9375 | 2511.04 KB |    1,296.02 |
+|                       |                     |               |              |            |            |          |         |          |          |            |             |
+| **LeanCorpus_FuzzyQuery** | **short-edit1-common**  | **100000**        |   **533.020 μs** |  **0.7841 μs** |  **0.7335 μs** |     **1.00** |    **0.00** |   **2.9297** |        **-** |   **14.12 KB** |        **1.00** |
+| LuceneNet_FuzzyQuery  | short-edit1-common  | 100000        | 2,271.273 μs |  6.0406 μs |  5.6504 μs |     4.26 |    0.01 | 296.8750 |  19.5313 | 1247.14 KB |       88.34 |
 
 <div class="benchmark-chart">
 <p style="margin-bottom:4px"><label>Time scale: <select id="chart-scale-fuzzy"><option value="log2" selected>Log2</option><option value="log10">Log10</option><option value="linear">Linear</option></select></label> <label>Width: <input type="range" id="chart-width-fuzzy" min="400" max="1400" value="960" step="20" style="vertical-align:middle"></label> <label>Height: <input type="range" id="chart-height-fuzzy" min="200" max="900" value="500" step="20" style="vertical-align:middle"></label></p>

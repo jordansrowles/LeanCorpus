@@ -1,0 +1,304 @@
+{
+  "Title": "Rowles.LeanCorpus.Benchmarks.WindowsStoragePathBenchmarks-20260823-110313",
+  "HostEnvironmentInfo": {
+    "BenchmarkDotNetCaption": "BenchmarkDotNet",
+    "BenchmarkDotNetVersion": "0.16.0-nightly.20260427.506",
+    "OsVersion": "Linux Debian GNU/Linux 13 (trixie)",
+    "ProcessorName": "Intel Xeon CPU E3-1220 V2 3.10GHz",
+    "PhysicalProcessorCount": 1,
+    "PhysicalCoreCount": 4,
+    "LogicalCoreCount": 4,
+    "RuntimeVersion": ".NET 10.0.3 (10.0.3, 10.0.326.7603)",
+    "Architecture": "X64",
+    "HasAttachedDebugger": false,
+    "HasRyuJit": true,
+    "Configuration": "RELEASE",
+    "DotNetCliVersion": "11.0.100-preview.6.26359.118",
+    "ChronometerFrequency": {
+      "Hertz": 1000000000
+    },
+    "HardwareTimerKind": "Unknown"
+  },
+  "Benchmarks": [
+    {
+      "DisplayInfo": "WindowsStoragePathBenchmarks.PrimitiveVarInt_PerReadDrain: Dry(Arguments=-m:1, IterationCount=1, LaunchCount=1, RunStrategy=ColdStart, UnrollFactor=1)",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "WindowsStoragePathBenchmarks",
+      "Method": "PrimitiveVarInt_PerReadDrain",
+      "MethodTitle": "PrimitiveVarInt_PerReadDrain",
+      "Parameters": "",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.WindowsStoragePathBenchmarks.PrimitiveVarInt_PerReadDrain",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          6366733
+        ],
+        "N": 1,
+        "Min": 6366733,
+        "LowerFence": 6366733,
+        "Q1": 6366733,
+        "Median": 6366733,
+        "Mean": 6366733,
+        "Q3": 6366733,
+        "UpperFence": 6366733,
+        "Max": 6366733,
+        "InterquartileRange": 0,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 0,
+        "Variance": 0,
+        "StandardDeviation": 0,
+        "Skewness": "",
+        "Kurtosis": "",
+        "ConfidenceInterval": {
+          "N": 1,
+          "Mean": 6366733,
+          "StandardError": 0,
+          "Level": 12,
+          "Margin": "",
+          "Lower": "",
+          "Upper": ""
+        },
+        "Percentiles": {
+          "P0": 6366733,
+          "P25": 6366733,
+          "P50": 6366733,
+          "P67": 6366733,
+          "P80": 6366733,
+          "P85": 6366733,
+          "P90": 6366733,
+          "P95": 6366733,
+          "P100": 6366733
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 0
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 6366733
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 3583083
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 6366733
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    },
+    {
+      "DisplayInfo": "WindowsStoragePathBenchmarks.PrimitiveVarInt_ScopedDecoderLease: Dry(Arguments=-m:1, IterationCount=1, LaunchCount=1, RunStrategy=ColdStart, UnrollFactor=1)",
+      "Namespace": "Rowles.LeanCorpus.Benchmarks",
+      "Type": "WindowsStoragePathBenchmarks",
+      "Method": "PrimitiveVarInt_ScopedDecoderLease",
+      "MethodTitle": "PrimitiveVarInt_ScopedDecoderLease",
+      "Parameters": "",
+      "FullName": "Rowles.LeanCorpus.Benchmarks.WindowsStoragePathBenchmarks.PrimitiveVarInt_ScopedDecoderLease",
+      "HardwareIntrinsics": "AVX,SSE3+SSSE3+SSE4.1+SSE4.2+POPCNT,X86Base+SSE+SSE2,AES+PCLMUL VectorSize=128",
+      "Statistics": {
+        "OriginalValues": [
+          2805386
+        ],
+        "N": 1,
+        "Min": 2805386,
+        "LowerFence": 2805386,
+        "Q1": 2805386,
+        "Median": 2805386,
+        "Mean": 2805386,
+        "Q3": 2805386,
+        "UpperFence": 2805386,
+        "Max": 2805386,
+        "InterquartileRange": 0,
+        "LowerOutliers": [],
+        "UpperOutliers": [],
+        "AllOutliers": [],
+        "StandardError": 0,
+        "Variance": 0,
+        "StandardDeviation": 0,
+        "Skewness": "",
+        "Kurtosis": "",
+        "ConfidenceInterval": {
+          "N": 1,
+          "Mean": 2805386,
+          "StandardError": 0,
+          "Level": 12,
+          "Margin": "",
+          "Lower": "",
+          "Upper": ""
+        },
+        "Percentiles": {
+          "P0": 2805386,
+          "P25": 2805386,
+          "P50": 2805386,
+          "P67": 2805386,
+          "P80": 2805386,
+          "P85": 2805386,
+          "P90": 2805386,
+          "P95": 2805386,
+          "P100": 2805386
+        }
+      },
+      "Memory": {
+        "Gen0Collections": 0,
+        "Gen1Collections": 0,
+        "Gen2Collections": 0,
+        "TotalOperations": 1,
+        "BytesAllocatedPerOperation": 0
+      },
+      "Measurements": [
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Actual",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 2805386
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Extra",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 347500
+        },
+        {
+          "IterationMode": "Workload",
+          "IterationStage": "Result",
+          "LaunchIndex": 1,
+          "IterationIndex": 1,
+          "Operations": 1,
+          "Nanoseconds": 2805386
+        }
+      ],
+      "Metrics": [
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen0Collects",
+            "DisplayName": "Gen0",
+            "Legend": "GC Generation 0 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 0
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen1Collects",
+            "DisplayName": "Gen1",
+            "Legend": "GC Generation 1 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 1
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Gen2Collects",
+            "DisplayName": "Gen2",
+            "Legend": "GC Generation 2 collects per 1000 operations",
+            "NumberFormat": "#0.0000",
+            "UnitType": 0,
+            "Unit": "Count",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 2
+          }
+        },
+        {
+          "Value": 0,
+          "Descriptor": {
+            "Id": "Allocated Memory",
+            "DisplayName": "Allocated",
+            "Legend": "Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)",
+            "NumberFormat": "0.##",
+            "UnitType": 2,
+            "Unit": "B",
+            "TheGreaterTheBetter": false,
+            "PriorityInCategory": 3
+          }
+        }
+      ]
+    }
+  ]
+}
