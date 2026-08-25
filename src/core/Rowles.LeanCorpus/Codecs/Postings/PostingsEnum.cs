@@ -517,100 +517,94 @@ public unsafe struct PostingsEnum : IDisposable
     {
         if (!TryEnterLease())
             return ReadOnlySpan<int>.Empty;
-        if (_disposed || _index < 0)
-        {
-            ExitLease();
-            return ReadOnlySpan<int>.Empty;
-        }
         try
         {
-            if (_lazyMode ? _blockEnum.IsExhausted : _index >= _count)
-                return ReadOnlySpan<int>.Empty;
-
-            // Eager path (pre-decoded positions)
-            if (_positionData is not null && _positionStarts is not null)
-            {
-                int start = _positionStarts[_index];
-                int end = _positionStarts[_index + 1];
-                return new ReadOnlySpan<int>(_positionData, start, end - start);
-            }
-
-            // Lazy path: decode positions on-demand from mmap'd memory
-            if (_positionByteOffsets is not null && _positionCounts is not null && _posBasePtr != null)
-            {
-            int posCount = _positionCounts[_index];
-            if (posCount == 0)
-                return ReadOnlySpan<int>.Empty;
-
-            // Cache hit: same doc index as last decode — return cached buffer
-            if (_index == _lastDecodedPosIndex && _lazyPosBuffer is not null)
-                return new ReadOnlySpan<int>(_lazyPosBuffer, 0, _lastDecodedPosCount);
-
-            // Ensure position buffer is large enough
-            if (_lazyPosBuffer is null || _lazyPosBuffer.Length < posCount)
-            {
-                if (_lazyPosBuffer is not null)
-                    ReturnLazyPosBuffer(_lazyPosBuffer);
-                _lazyPosBuffer = RentLazyPosBuffer(posCount);
-            }
-
-            // Prepare payload offset/length buffers for v2
-            if (_hasPayloads)
-            {
-                if (_payloadByteOffsets is null || _payloadByteOffsets.Length < posCount)
-                {
-                    if (_payloadByteOffsets is not null)
-                        ArrayPool<long>.Shared.Return(_payloadByteOffsets);
-                    _payloadByteOffsets = ArrayPool<long>.Shared.Rent(posCount);
-                }
-                if (_payloadLengths is null || _payloadLengths.Length < posCount)
-                {
-                    if (_payloadLengths is not null)
-                        ArrayPool<int>.Shared.Return(_payloadLengths);
-                    _payloadLengths = ArrayPool<int>.Shared.Rent(posCount);
-                }
-            }
-
-            // Decode VarInt position deltas (and payload offsets) directly from mmap'd memory.
-            long pos = _positionByteOffsets[_index];
-            // Guard against corrupt offset pointing past the mapped region.
-            if ((ulong)pos >= (ulong)_posDataEnd)
-                return ReadOnlySpan<int>.Empty;
-
-            int prevPos = 0;
-            for (int j = 0; j < posCount; j++)
-            {
-                if (!TryReadVarIntFromPtr(_posBasePtr, ref pos, _posDataEnd, out int delta))
-                    return ReadOnlySpan<int>.Empty;
-                prevPos += delta;
-                _lazyPosBuffer[j] = prevPos;
-
-                if (_hasPayloads)
-                {
-                    if (!TryReadVarIntFromPtr(_posBasePtr, ref pos, _posDataEnd, out int payloadLen))
-                        return ReadOnlySpan<int>.Empty;
-                    _payloadLengths![j] = payloadLen;
-                    _payloadByteOffsets![j] = pos;
-                    long nextPos = pos + (long)(uint)payloadLen;
-                    if (nextPos > _posDataEnd || nextPos < pos)
-                        return ReadOnlySpan<int>.Empty;
-                    pos = nextPos;
-                }
-            }
-
-            // Cache this decode result
-            _lastDecodedPosIndex = _index;
-            _lastDecodedPosCount = posCount;
-
-                return new ReadOnlySpan<int>(_lazyPosBuffer, 0, posCount);
-            }
-
-            return ReadOnlySpan<int>.Empty;
+            return GetCurrentPositionsUnchecked();
         }
         finally
         {
             ExitLease();
         }
+    }
+
+    /// <summary>Returns positions without entering the shared disposal guard.</summary>
+    /// <remarks>
+    /// Internal search loops may use this only while the cursor's containing lifetime
+    /// remains pinned for the complete operation.
+    /// </remarks>
+    internal ReadOnlySpan<int> GetCurrentPositionsUnchecked()
+    {
+        if (_disposed || _index < 0 || (_lazyMode ? _blockEnum.IsExhausted : _index >= _count))
+            return ReadOnlySpan<int>.Empty;
+
+        if (_positionData is not null && _positionStarts is not null)
+        {
+            int start = _positionStarts[_index];
+            int end = _positionStarts[_index + 1];
+            return new ReadOnlySpan<int>(_positionData, start, end - start);
+        }
+
+        if (_positionByteOffsets is null || _positionCounts is null || _posBasePtr == null)
+            return ReadOnlySpan<int>.Empty;
+
+        int posCount = _positionCounts[_index];
+        if (posCount == 0)
+            return ReadOnlySpan<int>.Empty;
+
+        if (_index == _lastDecodedPosIndex && _lazyPosBuffer is not null)
+            return new ReadOnlySpan<int>(_lazyPosBuffer, 0, _lastDecodedPosCount);
+
+        if (_lazyPosBuffer is null || _lazyPosBuffer.Length < posCount)
+        {
+            if (_lazyPosBuffer is not null)
+                ReturnLazyPosBuffer(_lazyPosBuffer);
+            _lazyPosBuffer = RentLazyPosBuffer(posCount);
+        }
+
+        if (_hasPayloads)
+        {
+            if (_payloadByteOffsets is null || _payloadByteOffsets.Length < posCount)
+            {
+                if (_payloadByteOffsets is not null)
+                    ArrayPool<long>.Shared.Return(_payloadByteOffsets);
+                _payloadByteOffsets = ArrayPool<long>.Shared.Rent(posCount);
+            }
+            if (_payloadLengths is null || _payloadLengths.Length < posCount)
+            {
+                if (_payloadLengths is not null)
+                    ArrayPool<int>.Shared.Return(_payloadLengths);
+                _payloadLengths = ArrayPool<int>.Shared.Rent(posCount);
+            }
+        }
+
+        long pos = _positionByteOffsets[_index];
+        if ((ulong)pos >= (ulong)_posDataEnd)
+            return ReadOnlySpan<int>.Empty;
+
+        int previousPosition = 0;
+        for (int i = 0; i < posCount; i++)
+        {
+            if (!TryReadVarIntFromPtr(_posBasePtr, ref pos, _posDataEnd, out int delta))
+                return ReadOnlySpan<int>.Empty;
+            previousPosition += delta;
+            _lazyPosBuffer[i] = previousPosition;
+
+            if (_hasPayloads)
+            {
+                if (!TryReadVarIntFromPtr(_posBasePtr, ref pos, _posDataEnd, out int payloadLength))
+                    return ReadOnlySpan<int>.Empty;
+                _payloadLengths![i] = payloadLength;
+                _payloadByteOffsets![i] = pos;
+                long nextPosition = pos + (long)(uint)payloadLength;
+                if (nextPosition > _posDataEnd || nextPosition < pos)
+                    return ReadOnlySpan<int>.Empty;
+                pos = nextPosition;
+            }
+        }
+
+        _lastDecodedPosIndex = _index;
+        _lastDecodedPosCount = posCount;
+        return new ReadOnlySpan<int>(_lazyPosBuffer, 0, posCount);
     }
 
     /// <summary>Reads a VarInt from a raw byte pointer with bounds checking.</summary>
@@ -789,24 +783,49 @@ public unsafe struct PostingsEnum : IDisposable
             return false;
         try
         {
-            if (_lazyMode)
+            return AdvanceUnchecked(targetDocId, out _, out _);
+        }
+        finally
+        {
+            ExitLease();
+        }
+    }
+
+    /// <summary>Advances without entering the shared disposal guard.</summary>
+    /// <remarks>
+    /// Internal search loops may use this only while the cursor's containing lifetime
+    /// remains pinned for the complete operation.
+    /// </remarks>
+    internal bool AdvanceUnchecked(int targetDocId, out int docId, out int frequency)
+    {
+        if (_lazyMode)
+        {
+            if (_blockEnum.Advance(targetDocId) == BlockPostingsEnum.NoMoreDocs)
             {
-                if (_blockEnum.Advance(targetDocId) == BlockPostingsEnum.NoMoreDocs)
-                    return false;
-                if (_positionByteOffsets is not null)
-                    _index = _blockEnum.CurrentGlobalIndex;
-                return true;
+                docId = -1;
+                frequency = 1;
+                return false;
             }
+            if (_positionByteOffsets is not null)
+                _index = _blockEnum.CurrentGlobalIndex;
+            docId = _blockEnum.DocId;
+            frequency = _blockEnum.Freq;
+            return true;
+        }
 
-            if (_docIds is null || _count == 0) return false;
+        if (_docIds is null || _count == 0)
+        {
+            docId = -1;
+            frequency = 1;
+            return false;
+        }
 
-        int startIndex = Math.Max(0, _index);
-        int lo = startIndex, hi = _count - 1;
-        int best = _count; // sentinel: not found
-
+        int lo = Math.Max(0, _index);
+        int hi = _count - 1;
+        int best = _count;
         while (lo <= hi)
         {
-            int mid = lo + (hi - lo) / 2;
+            int mid = lo + ((hi - lo) / 2);
             if (_docIds[mid] >= targetDocId)
             {
                 best = mid;
@@ -818,19 +837,18 @@ public unsafe struct PostingsEnum : IDisposable
             }
         }
 
-            if (best < _count)
-            {
-                _index = best;
-                return true;
-            }
-
-            _index = _count;
-            return false;
-        }
-        finally
+        if (best < _count)
         {
-            ExitLease();
+            _index = best;
+            docId = _docIds[best];
+            frequency = _freqs is not null ? _freqs[best] : 1;
+            return true;
         }
+
+        _index = _count;
+        docId = -1;
+        frequency = 1;
+        return false;
     }
 
     /// <summary>Returns all rented buffers back to <see cref="System.Buffers.ArrayPool{T}"/>.</summary>

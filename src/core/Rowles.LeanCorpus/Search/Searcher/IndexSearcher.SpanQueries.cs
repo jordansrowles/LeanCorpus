@@ -223,9 +223,8 @@ public sealed partial class IndexSearcher
                 termFactors[i] = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
             }
 
-            while (postings[leaderIdx].MoveNext())
+            while (postings[leaderIdx].MoveNextUnchecked(out int docId, out int leaderTf))
             {
-                int docId = postings[leaderIdx].DocId;
                 if ((hasDeletions && !reader.IsLive(docId)) ||
                     (excludedDocs is not null && excludedDocs[docId]))
                 {
@@ -236,7 +235,8 @@ public sealed partial class IndexSearcher
                 for (int i = 0; i < termCount; i++)
                 {
                     if (i == leaderIdx) continue;
-                    if (!postings[i].Advance(docId) || postings[i].DocId != docId)
+                    if (!postings[i].AdvanceUnchecked(docId, out int followerDocId, out _) ||
+                        followerDocId != docId)
                     {
                         allMatch = false;
                         break;
@@ -250,7 +250,6 @@ public sealed partial class IndexSearcher
                     // Sum scores across all clauses using the leader's term frequency
                     // as an estimate of the span frequency.
                     float score = 0;
-                    int leaderTf = postings[leaderIdx].Freq;
                     for (int i = 0; i < termCount; i++)
                     {
                         var (f1, f2, f3) = termFactors[i];
@@ -303,9 +302,8 @@ public sealed partial class IndexSearcher
                     : 0;
                 var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
 
-                while (postings.MoveNext())
+                while (postings.MoveNextUnchecked(out int docId, out int frequency))
                 {
-                    int docId = postings.DocId;
                     if ((hasDeletions && !reader.IsLive(docId)) || seen[docId])
                         continue;
 
@@ -314,7 +312,7 @@ public sealed partial class IndexSearcher
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
                         ? fieldLengths[docId] : 1;
                     float score = ScoreTerm(
-                        f1, f2, f3, postings.Freq, docLength, query.Field);
+                        f1, f2, f3, frequency, docLength, query.Field);
                     if (Math.Abs(boost - 1.0f) > 1e-6f) score *= boost;
                     collector.Collect(docBase + docId, ApplyFieldBoost(fieldBoosts, docId, score));
                 }
@@ -420,9 +418,8 @@ public sealed partial class IndexSearcher
             string.Concat(query.Field, "\x00", query.Term);
         using var postings = reader.GetPostingsEnum(qualifiedTerm);
         bool hasDeletions = reader.HasDeletions;
-        while (postings.MoveNext())
+        while (postings.MoveNextUnchecked(out int docId, out _))
         {
-            int docId = postings.DocId;
             if ((hasDeletions && !reader.IsLive(docId)) || excluded[docId])
                 continue;
 
@@ -434,9 +431,9 @@ public sealed partial class IndexSearcher
     private static bool HasSpanNearPositions(PostingsEnum[] postings, int termCount, int slop, bool inOrder)
     {
         if (termCount == 1)
-            return !postings[0].GetCurrentPositions().IsEmpty;
+            return !postings[0].GetCurrentPositionsUnchecked().IsEmpty;
 
-        var firstPositions = postings[0].GetCurrentPositions();
+        var firstPositions = postings[0].GetCurrentPositionsUnchecked();
         for (int i = 0; i < firstPositions.Length; i++)
         {
             if (HasSpanNearPositions(postings, termCount, slop, inOrder, clauseIndex: 1, firstPositions[i]))
@@ -449,7 +446,7 @@ public sealed partial class IndexSearcher
     private static bool HasSpanNearPositions(PostingsEnum[] postings, int termCount, int slop, bool inOrder,
         int clauseIndex, int previousPosition)
     {
-        var positions = postings[clauseIndex].GetCurrentPositions();
+        var positions = postings[clauseIndex].GetCurrentPositionsUnchecked();
         for (int i = 0; i < positions.Length; i++)
         {
             int position = positions[i];
