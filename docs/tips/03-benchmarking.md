@@ -98,4 +98,4 @@ There is no universal percentage. Establish repeated baseline variance for the b
 
 Report latency distribution, throughput, allocation, index size, recall, or correctness according to the feature. Avoid reducing every performance change to one mean value.
 
-See the [performance overview](../performance.md) and the published [benchmark reports](../benchmarks/).
+See the [performance overview](../performance.md) and the published [benchmark reports](../benchmarks/index.md).

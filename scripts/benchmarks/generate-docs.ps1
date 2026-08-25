@@ -277,15 +277,21 @@ var canvas = document.querySelector("canvas[id^='chart-bench-']");
 if(!canvas)return;
 var suite = canvas.id.replace("chart-bench-","");
 var jsonUrl = suite + ".json";
+var status = document.createElement("p");
+status.className = "benchmark-chart-status";
+status.textContent = "Loading chart…";
+canvas.before(status);
 
 var chartJs = document.createElement("script");
 chartJs.src = "https://cdn.jsdelivr.net/npm/chart.js@4";
-chartJs.onload = function(){ fetch(jsonUrl).then(function(r){return r.json();}).then(render).catch(function(){}); };
+chartJs.onload = function(){ fetch(jsonUrl).then(function(r){if(!r.ok)throw new Error("Benchmark data request failed");return r.json();}).then(render).catch(showError); };
+chartJs.onerror = showError;
 document.head.appendChild(chartJs);
 
 function render(full){
   var benchmarks = full.Benchmarks;
-  if(!benchmarks||!benchmarks.length)return;
+  if(!benchmarks||!benchmarks.length){showError();return;}
+  status.remove();
 
   var colors=["#4e79a7","#f28e2b","#e15759","#76b7b2","#59a14f","#edc948","#b07aa1","#ff9da7","#9c755f","#bab0ac"];
 
@@ -418,8 +424,12 @@ function render(full){
 
   function fmtBytes(v){if(v>=1e9)return(v/1e9).toFixed(1)+" GB";if(v>=1e6)return(v/1e6).toFixed(1)+" MB";if(v>=1e3)return(v/1e3).toFixed(1)+" KB";return v+" B";}
   function fmtNs(v){if(v>=1e9)return(v/1e9).toFixed(2)+" s";if(v>=1e6)return(v/1e6).toFixed(2)+" ms";if(v>=1e3)return(v/1e3).toFixed(2)+" μs";return v.toFixed(0)+" ns";}
-}})();
+}
 
+function showError(){
+  status.textContent = "The interactive chart could not be loaded. The benchmark table and JSON results are still available."
+}
+})();
 '@
 
 $benchmarkChartsJs | Set-Content (Join-Path $OutputDir 'benchmark-charts.js') -Encoding UTF8

@@ -225,12 +225,12 @@
           href: contributors/codeckit/02-adding-formats.md
         - name: Migrations
           href: contributors/codeckit/03-migrations.md
+- name: API
+  href: api/index.md
 - name: Reference
   items:
     - name: Performance
       href: performance.md
-    - name: API
-      href: api/index.md
     - name: Reference guides
       href: reference/index.md
       items:
@@ -307,6 +307,12 @@
     - name: Changelog
       href: changelog/index.md
       items:
+        - name: 3.0.0
+          href: changelog/3.0.0%20-%202026-08-25.md
+        - name: 2.3.0
+          href: changelog/2.3.0%20-%202026-08-08.md
+        - name: 2.2.0
+          href: changelog/2.2.0%20-%202026-08-08.md
         - name: 2.1.1
           href: changelog/2.1.1%20-%202026-07-26.md
         - name: 2.1.0
@@ -332,106 +338,106 @@
     - name: Benchmarks
       items:
         - name: Aggregation
-          href: benchmarks/debian-aggregation.md
+          href: benchmarks/aggregation.md
         - name: Analysis
-          href: benchmarks/debian-analysis.md
+          href: benchmarks/analysis.md
         - name: Analysis filters
-          href: benchmarks/debian-analysis-filters.md
+          href: benchmarks/analysis-filters.md
         - name: Analysis filters v2
-          href: benchmarks/debian-analysis-filters-v2.md
+          href: benchmarks/analysis-filters-v2.md
         - name: Analysis parity
-          href: benchmarks/debian-analysis-parity.md
+          href: benchmarks/analysis-parity.md
         - name: Async index
-          href: benchmarks/debian-async-index.md
+          href: benchmarks/async-index.md
         - name: Block-Join indexing
-          href: benchmarks/debian-blockjoin-index.md
+          href: benchmarks/blockjoin-index.md
         - name: Block-Join search
-          href: benchmarks/debian-blockjoin-search.md
+          href: benchmarks/blockjoin-search.md
         - name: Boolean queries
-          href: benchmarks/debian-boolean.md
+          href: benchmarks/boolean.md
         - name: Collapse and facet
-          href: benchmarks/debian-collapse-facet.md
+          href: benchmarks/collapse-facet.md
         - name: Combined queries
-          href: benchmarks/debian-combined.md
+          href: benchmarks/combined.md
         - name: Deletion commit
-          href: benchmarks/debian-deletion-commit.md
+          href: benchmarks/deletion-commit.md
         - name: Deletion queue
-          href: benchmarks/debian-deletion-queue.md
+          href: benchmarks/deletion-queue.md
         - name: Disjunction max
-          href: benchmarks/debian-dismax.md
+          href: benchmarks/dismax.md
         - name: Function score
-          href: benchmarks/debian-function-score.md
+          href: benchmarks/function-score.md
         - name: Fuzzy queries
-          href: benchmarks/debian-fuzzy.md
+          href: benchmarks/fuzzy.md
         - name: Geo queries
-          href: benchmarks/debian-geo.md
+          href: benchmarks/geo.md
         - name: Gutenberg analysis
-          href: benchmarks/debian-gutenberg-analysis.md
+          href: benchmarks/gutenberg-analysis.md
         - name: Gutenberg indexing
-          href: benchmarks/debian-gutenberg-index.md
+          href: benchmarks/gutenberg-index.md
         - name: Gutenberg search
-          href: benchmarks/debian-gutenberg-search.md
+          href: benchmarks/gutenberg-search.md
         - name: Highlighter
-          href: benchmarks/debian-highlighter.md
+          href: benchmarks/highlighter.md
         - name: HNSW
-          href: benchmarks/debian-hnsw.md
+          href: benchmarks/hnsw.md
         - name: Hunspell
-          href: benchmarks/debian-hunspell.md
+          href: benchmarks/hunspell.md
         - name: Index-sort indexing
-          href: benchmarks/debian-indexsort-index.md
+          href: benchmarks/indexsort-index.md
         - name: Index-sort search
-          href: benchmarks/debian-indexsort-search.md
+          href: benchmarks/indexsort-search.md
         - name: Indexing
-          href: benchmarks/debian-index.md
+          href: benchmarks/index.md
         - name: KStemmer
-          href: benchmarks/debian-kstemmer.md
+          href: benchmarks/kstemmer.md
         - name: Light English stemmer
-          href: benchmarks/debian-lightenglish.md
+          href: benchmarks/lightenglish.md
         - name: More like this single segment
-          href: benchmarks/debian-mlt-single-segment.md
+          href: benchmarks/mlt-single-segment.md
         - name: More like this
-          href: benchmarks/debian-mlt.md
+          href: benchmarks/mlt.md
         - name: Multi-phrase
-          href: benchmarks/debian-multiphrase.md
+          href: benchmarks/multiphrase.md
         - name: N-gram
-          href: benchmarks/debian-ngram.md
+          href: benchmarks/ngram.md
         - name: Parallel search
-          href: benchmarks/debian-parallel.md
+          href: benchmarks/parallel.md
         - name: Pattern tokeniser
-          href: benchmarks/debian-pattern-tokeniser.md
+          href: benchmarks/pattern-tokeniser.md
         - name: Phrase queries
-          href: benchmarks/debian-phrase.md
+          href: benchmarks/phrase.md
         - name: Prefix queries
-          href: benchmarks/debian-prefix.md
+          href: benchmarks/prefix.md
         - name: Query cache
-          href: benchmarks/debian-query-cache.md
+          href: benchmarks/query-cache.md
         - name: Range queries
-          href: benchmarks/debian-range.md
+          href: benchmarks/range.md
         - name: Regexp queries
-          href: benchmarks/debian-regexp.md
+          href: benchmarks/regexp.md
         - name: Schema and JSON
-          href: benchmarks/debian-schemajson.md
+          href: benchmarks/schemajson.md
         - name: Searcher manager
-          href: benchmarks/debian-searcher-mgr.md
+          href: benchmarks/searcher-mgr.md
         - name: Similarity
-          href: benchmarks/debian-similarity.md
+          href: benchmarks/similarity.md
         - name: Span queries
-          href: benchmarks/debian-span.md
+          href: benchmarks/span.md
         - name: Stemmer
-          href: benchmarks/debian-stemmer.md
+          href: benchmarks/stemmer.md
         - name: Suggester
-          href: benchmarks/debian-suggester.md
+          href: benchmarks/suggester.md
         - name: Synonym
-          href: benchmarks/debian-synonym.md
+          href: benchmarks/synonym.md
         - name: Term in set
-          href: benchmarks/debian-terminset.md
+          href: benchmarks/terminset.md
         - name: Term queries
-          href: benchmarks/debian-query.md
+          href: benchmarks/query.md
         - name: Term-vector highlighter
-          href: benchmarks/debian-tv-highlighter.md
+          href: benchmarks/tv-highlighter.md
         - name: Vector queries
-          href: benchmarks/debian-vq.md
+          href: benchmarks/vq.md
         - name: Wildcard queries
-          href: benchmarks/debian-wildcard.md
+          href: benchmarks/wildcard.md
     - name: Coverage
       href: coverage/index.html

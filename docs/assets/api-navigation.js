@@ -8,37 +8,11 @@
 
   const apiRoot = new URL(body.dataset.apiRoot, window.location.href)
   const currentUrl = new URL(window.location.href)
-  const apiToggle = document.getElementById('lc-api-tree-toggle')
   const isApiPage = currentUrl.pathname.startsWith(apiRoot.pathname)
   let loaded = false
   let loading = false
 
-  const readPreference = () => {
-    try {
-      const value = localStorage.getItem('show-api-tree')
-      return value === 'true' ? true : value === 'false' ? false : null
-    } catch {
-      return null
-    }
-  }
-
-  const writePreference = value => {
-    try {
-      localStorage.setItem('show-api-tree', String(value))
-    } catch {
-      // The switch remains available for the current page when storage is disabled.
-    }
-  }
-
   const tocUrl = new URL(body.dataset.apiToc, window.location.href)
-
-  function setVisible(visible, persist) {
-    if (persist) writePreference(visible)
-    section.hidden = !visible
-    body.classList.toggle('lc-api-tree-visible', visible)
-    if (apiToggle && apiToggle.checked !== visible) apiToggle.checked = visible
-    if (visible) load()
-  }
 
   function load() {
     if (loaded || loading) return
@@ -61,9 +35,10 @@
       })
   }
 
-  const storedVisibility = readPreference()
-  setVisible(storedVisibility ?? isApiPage, false)
-  apiToggle?.addEventListener('change', () => setVisible(apiToggle.checked, true))
+  if (!isApiPage) return
+  section.hidden = false
+  body.classList.add('lc-api-page')
+  load()
 
   function render(items) {
     markCurrentBranch(items)

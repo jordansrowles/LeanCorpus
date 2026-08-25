@@ -90,11 +90,6 @@ html[data-content-size="x-large"] {
   width: 100%;
 }
 
-.lc-api-tree-control {
-  margin-top: .75rem;
-  padding-left: 2.25em;
-}
-
 .lc-docs-layout .offcanvas-body {
   display: flex;
   flex-direction: column;
@@ -125,8 +120,15 @@ html[data-content-size="x-large"] {
   border-top: 1px solid var(--bs-border-color);
 }
 
-body.lc-api-tree-visible .lc-main-navigation {
-  flex-basis: 45%;
+.lc-api-page .lc-main-navigation {
+  display: none;
+}
+
+.lc-api-page .lc-api-navigation {
+  flex-basis: 100%;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .lc-api-navigation-header {
@@ -164,6 +166,60 @@ body.lc-api-tree-visible .lc-main-navigation {
   margin-right: -.5rem;
 }
 
+.benchmark-chart {
+  margin: 1.5rem 0 2rem;
+  padding: 1rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius-lg);
+  background: var(--bs-tertiary-bg);
+  overflow-x: auto;
+}
+
+.benchmark-chart > p:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem 1rem;
+  align-items: center;
+}
+
+.benchmark-chart label {
+  display: inline-flex;
+  gap: .35rem;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.benchmark-chart select,
+.benchmark-chart input[type="range"] {
+  accent-color: var(--bs-primary);
+}
+
+.benchmark-chart canvas {
+  display: block;
+  width: 100%;
+  min-width: 400px;
+  border-radius: var(--bs-border-radius);
+  background: var(--bs-body-bg);
+}
+
+.benchmark-chart-status {
+  color: var(--bs-secondary-color);
+  font-size: .875rem;
+}
+
+body[data-search] > main.lc-docs-layout {
+  display: block;
+}
+
+body[data-search] > main.lc-docs-layout > .content > :not(#search-results) {
+  display: none;
+}
+
+body[data-search] #search-results {
+  display: block;
+  padding: 1.5rem 0 2rem;
+}
+
 /* Landng page: DocFX hides actionbar via :not(article); restore it */
 body[data-layout="landing"] > main > .content > .actionbar {
   display: flex;
@@ -191,6 +247,56 @@ body[data-layout="landing"] .actionbar::before {
     grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(180px, 240px);
     column-gap: 2rem;
     align-items: start;
+  }
+
+  body[data-search] > main.lc-docs-layout {
+    display: grid;
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(180px, 240px);
+    column-gap: 2rem;
+    align-items: start;
+  }
+
+  body[data-search] > main.lc-docs-layout > .toc-offcanvas {
+    display: block;
+    grid-column: 1;
+    grid-row: 1;
+    position: sticky;
+    top: 1rem;
+    width: auto;
+    max-width: none;
+    max-height: calc(100vh - 2rem);
+    overflow: hidden;
+  }
+
+  body[data-search] > main.lc-docs-layout > .toc-offcanvas .offcanvas-lg,
+  body[data-search] > main.lc-docs-layout > .toc-offcanvas .offcanvas-body {
+    height: calc(100vh - 2rem);
+  }
+
+  body[data-search] > main.lc-docs-layout > .toc-offcanvas .offcanvas-lg {
+    position: static;
+    visibility: visible;
+    transform: none;
+    border: 0;
+    background: transparent;
+  }
+
+  body[data-search] > main.lc-docs-layout > .toc-offcanvas .offcanvas-body {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  body[data-search] > main.lc-docs-layout > .content {
+    grid-column: 2;
+    width: auto;
+    margin: 0;
+    padding-top: 1.5rem;
+  }
+
+  body[data-search] > main.lc-docs-layout > .affix {
+    display: none;
   }
 
   body:not([data-search]) > main.lc-docs-layout > .toc-offcanvas {
