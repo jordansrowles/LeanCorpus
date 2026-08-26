@@ -54,14 +54,16 @@ public sealed class SearcherManager : IDisposable
     public SearcherLease AcquireLease()
     {
         var lease = _readerManager.AcquireLease();
-        return new SearcherLease(lease.Reader, GetMetadata(lease.Reader).Generation, lease.Dispose);
+        SearcherMetadata metadata = GetMetadata(lease.Reader);
+        return new SearcherLease(lease.Reader, metadata.Generation, metadata.ContentToken, lease.Dispose);
     }
 
     internal bool TryAcquireLease(int generation, out SearcherLease lease)
     {
         if (_readerManager.TryAcquire(reader => GetMetadata(reader).Generation == generation, out var readerLease))
         {
-            lease = new SearcherLease(readerLease.Reader, GetMetadata(readerLease.Reader).Generation, readerLease.Dispose);
+            SearcherMetadata metadata = GetMetadata(readerLease.Reader);
+            lease = new SearcherLease(readerLease.Reader, metadata.Generation, metadata.ContentToken, readerLease.Dispose);
             return true;
         }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Wrapper: ./devops build|test|aot|coverage|benchmark|data|docs|benchmarks [...]
+# Wrapper: ./devops build|test|aot|coverage|benchmark|data|docs|benchmarks|server [...]
 
 # Non-interactive shells may not source the user's interactive .bashrc PATH.
 # Prefer the user's installed SDK when it is available so restore and test use

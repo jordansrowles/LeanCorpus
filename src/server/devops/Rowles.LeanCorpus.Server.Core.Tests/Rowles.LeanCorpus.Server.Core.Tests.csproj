@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <Features>runtime-async=on</Features>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
@@ -10,6 +12,6 @@
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../Rowles.LeanCorpus.Server.Core/Rowles.LeanCorpus.Server.Core.csproj" />
+    <ProjectReference Include="../../Rowles.LeanCorpus.Server.Core/Rowles.LeanCorpus.Server.Core.csproj" />
   </ItemGroup>
 </Project>

@@ -79,7 +79,7 @@ public sealed class IndexBackupPartialRestoreTests : IClassFixture<TestDirectory
         var targetDir = Path.Combine(root, "target");
 
         Assert.Throws<InvalidDataException>(
-            () => IndexBackup.Restore(backupDir, targetDir, new IndexRestoreOptions { ValidateAfterRestore = false }));
+            () => IndexBackup.Restore(backupDir, targetDir, new IndexRestoreOptions { ValidateAfterRestore = false }, TestContext.Current.CancellationToken));
 
         Assert.False(Directory.Exists(targetDir));
         Assert.Empty(Directory.GetDirectories(root, "*.restore.*.tmp"));
@@ -134,7 +134,7 @@ public sealed class IndexBackupPartialRestoreTests : IClassFixture<TestDirectory
         {
             ValidateAfterRestore = false,
             RestoreCommitStats = false
-        });
+        }, TestContext.Current.CancellationToken);
 
         Assert.True(File.Exists(Path.Combine(targetDir, "data.bin")));
         Assert.False(File.Exists(Path.Combine(targetDir, "stats_1.json")));

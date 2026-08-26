@@ -170,8 +170,23 @@ function Copy-Changelog {
     if (-not (Test-Path $dstDir)) {
         New-Item -ItemType Directory -Path $dstDir | Out-Null
     }
-    Remove-Item (Join-Path $dstDir '*.md') -Force -ErrorAction SilentlyContinue -Exclude 'index.md'
-    Copy-Item (Join-Path $srcDir '*.md') -Destination $dstDir -Force -Exclude '_template.md', '_vnext.md'
+    $existingFiles = @(Get-ChildItem -Path $dstDir -Recurse -File -Filter '*.md' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne 'index.md' })
+    foreach ($file in $existingFiles) {
+        Remove-Item -LiteralPath $file.FullName -Force
+    }
+
+    $sourceFiles = @(Get-ChildItem -Path $srcDir -Recurse -File -Filter '*.md' |
+        Where-Object { $_.Name -notin @('_template.md', '_vnext.md') })
+    foreach ($file in $sourceFiles) {
+        $relativePath = [System.IO.Path]::GetRelativePath($srcDir, $file.FullName)
+        $destinationPath = Join-Path $dstDir $relativePath
+        $destinationParent = Split-Path $destinationPath -Parent
+        if (-not (Test-Path $destinationParent)) {
+            New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
+        }
+        Copy-Item -LiteralPath $file.FullName -Destination $destinationPath -Force
+    }
     Write-Info 'Changelog files copied.'
 }
 

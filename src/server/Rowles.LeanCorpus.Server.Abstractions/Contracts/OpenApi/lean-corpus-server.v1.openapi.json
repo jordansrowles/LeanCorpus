@@ -7,9 +7,10 @@
     "/v1/indices": { "get": { "operationId": "listIndices" } },
     "/v1/indices/{name}": { "put": { "operationId": "createIndex" }, "delete": { "operationId": "deleteIndex" } },
     "/v1/indices/{name}/settings": { "patch": { "operationId": "updateIndexSettings" } },
-    "/v1/indices/{name}/documents:bulk": { "post": { "operationId": "bulkDocuments" } },
+    "/v1/indices/{name}/documents:bulk": { "post": { "operationId": "bulkDocuments", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BulkDocumentsRequest" } } } }, "responses": { "200": { "description": "Bulk write response", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BulkDocumentsResponse" } } } } } } },
     "/v1/indices/{name}/refresh": { "post": { "operationId": "refreshIndex" } },
-    "/v1/indices/{name}/search": { "post": { "operationId": "searchIndex" } },
+    "/v1/indices/{name}/search": { "post": { "operationId": "searchIndex", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchRequest" } } } } } },
+    "/v1/indices/{name}/explain": { "post": { "operationId": "explainIndex" } },
     "/v1/indices/{name}/schema": { "get": { "operationId": "getIndexSchema" } },
     "/v1/indices/{name}/stats": { "get": { "operationId": "getIndexStatistics" } },
     "/v1/indices/{name}/inspection/{resource}": { "get": { "operationId": "inspectIndex" } },
@@ -22,5 +23,62 @@
     "/v1/admin/snapshots": { "post": { "operationId": "createSnapshot" } },
     "/v1/admin/snapshots/{id}:restore": { "post": { "operationId": "restoreSnapshot" } },
     "/v1/admin/diagnostics": { "get": { "operationId": "getDiagnostics" } }
+  },
+  "components": {
+    "schemas": {
+      "WriteToken": {
+        "type": "object",
+        "required": ["version", "indexId", "sequenceNumber"],
+        "properties": {
+          "version": { "type": "integer", "format": "int32" },
+          "indexId": { "type": "string" },
+          "sequenceNumber": { "type": "integer", "format": "int64" },
+          "commitGeneration": { "type": "integer", "format": "int64" },
+          "contentToken": { "type": "integer", "format": "int64" }
+        }
+      },
+      "BulkDocumentsRequest": {
+        "type": "object",
+        "required": ["indexName", "operations"],
+        "properties": {
+          "indexName": { "type": "string" },
+          "operations": { "type": "array", "items": { "type": "object" } },
+          "refresh": { "type": "boolean", "default": false },
+          "idempotencyKey": { "type": "string" },
+          "durability": { "type": "string", "enum": ["Memory", "LocalFsync", "Quorum", "Replicated"], "default": "Memory" }
+        }
+      },
+      "BulkDocumentsResponse": {
+        "type": "object",
+        "required": ["items", "acknowledged"],
+        "properties": {
+          "items": { "type": "array", "items": { "type": "object" } },
+          "acknowledged": { "type": "boolean" },
+          "commitGeneration": { "type": "integer", "format": "int64" },
+          "writeToken": { "$ref": "#/components/schemas/WriteToken" }
+        }
+      },
+      "SearchRequest": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "kind": { "type": "string", "enum": ["queryString", "term", "boolean", "phrase", "prefix", "wildcard", "regexp", "spanNear", "vector"] }
+            }
+          },
+          "size": { "type": "integer", "minimum": 1 },
+          "searchAfter": { "type": "array" },
+          "sort": { "type": "array", "items": { "type": "object" } },
+          "facets": { "type": "array", "items": { "type": "object" } },
+          "consistency": { "type": "string", "enum": ["Local", "Primary", "Replica", "ReadYourWrites"], "default": "Local" },
+          "includeDocuments": { "type": "boolean", "default": true },
+          "includeHighlights": { "type": "boolean", "default": false },
+          "readToken": { "$ref": "#/components/schemas/WriteToken" }
+        }
+      }
+    }
   }
 }

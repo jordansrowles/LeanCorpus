@@ -1,6 +1,5 @@
-- name: Home
-  href: index.md
 - name: About
+  href: about/index.md
   items:
     - name: Getting Started
       href: getting-started/index.md
@@ -35,6 +34,7 @@
     - name: Repository overview
       href: .generated/repository-overview.md
 - name: Guides
+  href: guides/index.md
   items:
     - name: Analysis
       href: analysis/index.md
@@ -162,6 +162,25 @@
           href: observability/05-aspire-dashboard.md
         - name: Index size and statistics
           href: observability/06-index-size-and-statistics.md
+    - name: Community Server
+      href: server/index.md
+      items:
+        - name: Running the server
+          href: server/01-running.md
+        - name: Embedding
+          href: server/02-embedding.md
+        - name: Schemas and writes
+          href: server/03-schemas-and-writes.md
+        - name: Search and explain
+          href: server/04-search-and-explain.md
+        - name: REST and gRPC
+          href: server/05-rest-and-grpc.md
+        - name: Studio
+          href: server/06-studio.md
+        - name: Persistence and security
+          href: server/07-persistence-and-security.md
+        - name: Operational limits and limitations
+          href: server/08-operational-limits.md
     - name: Tips and How-to
       href: tips/index.md
       items:
@@ -191,7 +210,7 @@
           href: .generated/examples/linux-kernel-code-search.md
     - name: Migration from Lucene.Net
       href: migration.md
-- name: Contributors
+- name: Contribute
   href: .generated/contributors/index.md
   items:
     - name: General contribution guide
@@ -228,6 +247,7 @@
 - name: API
   href: api/index.md
 - name: Reference
+  href: reference/index.md
   items:
     - name: Performance
       href: performance.md
@@ -307,6 +327,8 @@
     - name: Changelog
       href: changelog/index.md
       items:
+        - name: Community Server 0.1.0-alpha
+          href: changelog/server/0.1.0-alpha%20-%20unreleased.md
         - name: 3.0.0
           href: changelog/3.0.0%20-%202026-08-25.md
         - name: 2.3.0

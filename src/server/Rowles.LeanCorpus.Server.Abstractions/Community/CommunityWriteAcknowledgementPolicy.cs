@@ -7,5 +7,5 @@ public sealed class CommunityWriteAcknowledgementPolicy : IWriteAcknowledgementP
 {
     /// <inheritdoc />
     public ValueTask<WriteAcknowledgement> AcknowledgeAsync(WriteCommitState state, CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult(new WriteAcknowledgement(true, WriteDurability.LocalFsync));
+        ValueTask.FromResult(new WriteAcknowledgement(true, state.IsDurable ? WriteDurability.LocalFsync : WriteDurability.Memory));
 }

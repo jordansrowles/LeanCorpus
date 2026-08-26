@@ -24,7 +24,7 @@ public sealed class IndexBackupChaosTests : IClassFixture<ChaosDirectoryFixture>
         CopyOnlyFirstDataFile(sourceDirectory.DirectoryPath, backupPath, manifest);
 
         var exception = Assert.Throws<InvalidOperationException>(
-            () => IndexBackup.Backup(sourceDirectory.DirectoryPath, backupPath));
+            () => IndexBackup.Backup(sourceDirectory.DirectoryPath, backupPath, cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.Contains("Backup directory", exception.Message, StringComparison.Ordinal);
         Assert.Contains("is not empty", exception.Message, StringComparison.Ordinal);
@@ -38,10 +38,7 @@ public sealed class IndexBackupChaosTests : IClassFixture<ChaosDirectoryFixture>
         var manifest = IndexBackup.CreateManifest(sourceDirectory.DirectoryPath);
         CopyOnlyFirstDataFile(sourceDirectory.DirectoryPath, backupPath, manifest);
 
-        var result = IndexBackup.Backup(
-            sourceDirectory.DirectoryPath,
-            backupPath,
-            new IndexBackupOptions { OverwriteBackupDirectory = true });
+        var result = IndexBackup.Backup(sourceDirectory.DirectoryPath, backupPath, new IndexBackupOptions { OverwriteBackupDirectory = true }, TestContext.Current.CancellationToken);
 
         var validatedManifest = IndexBackup.ValidateBackup(backupPath);
         Assert.Equal(result.Manifest.Files.Count, result.CopiedFiles.Count);
@@ -54,11 +51,11 @@ public sealed class IndexBackupChaosTests : IClassFixture<ChaosDirectoryFixture>
         using var sourceDirectory = ChaosIndexFactory.CreateSimpleIndex(_fixture.Path, "restore_partial_reject");
         var backupPath = CreatePath("restore_partial_reject_backup");
         var restorePath = CreatePath("restore_partial_reject_target");
-        var backup = IndexBackup.Backup(sourceDirectory.DirectoryPath, backupPath);
+        var backup = IndexBackup.Backup(sourceDirectory.DirectoryPath, backupPath, cancellationToken: TestContext.Current.CancellationToken);
         CopyFirstDataFile(backupPath, restorePath, backup.Manifest);
 
         var exception = Assert.Throws<InvalidOperationException>(
-            () => IndexBackup.Restore(backupPath, restorePath));
+            () => IndexBackup.Restore(backupPath, restorePath, cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.Contains("Restore target directory", exception.Message, StringComparison.Ordinal);
         Assert.Contains("is not empty", exception.Message, StringComparison.Ordinal);
@@ -70,13 +67,10 @@ public sealed class IndexBackupChaosTests : IClassFixture<ChaosDirectoryFixture>
         using var sourceDirectory = ChaosIndexFactory.CreateSimpleIndex(_fixture.Path, "restore_partial_overwrite");
         var backupPath = CreatePath("restore_partial_overwrite_backup");
         var restorePath = CreatePath("restore_partial_overwrite_target");
-        var backup = IndexBackup.Backup(sourceDirectory.DirectoryPath, backupPath);
+        var backup = IndexBackup.Backup(sourceDirectory.DirectoryPath, backupPath, cancellationToken: TestContext.Current.CancellationToken);
         CopyFirstDataFile(backupPath, restorePath, backup.Manifest);
 
-        var result = IndexBackup.Restore(
-            backupPath,
-            restorePath,
-            new IndexRestoreOptions { OverwriteTargetDirectory = true });
+        var result = IndexBackup.Restore(backupPath, restorePath, new IndexRestoreOptions { OverwriteTargetDirectory = true }, TestContext.Current.CancellationToken);
 
         Assert.NotNull(result.ValidationResult);
         Assert.True(result.ValidationResult.IsHealthy);
@@ -89,7 +83,7 @@ public sealed class IndexBackupChaosTests : IClassFixture<ChaosDirectoryFixture>
         using var sourceDirectory = ChaosIndexFactory.CreateSimpleIndex(_fixture.Path, "backup_manifest_only");
         var backupPath = CreatePath("backup_manifest_only_source");
         var restorePath = CreatePath("backup_manifest_only_restore");
-        var backup = IndexBackup.Backup(sourceDirectory.DirectoryPath, backupPath);
+        var backup = IndexBackup.Backup(sourceDirectory.DirectoryPath, backupPath, cancellationToken: TestContext.Current.CancellationToken);
         var firstFileName = backup.Manifest.Files[0].FileName;
         foreach (var entry in backup.Manifest.Files)
             File.Delete(Path.Combine(backupPath, entry.FileName));
@@ -97,7 +91,7 @@ public sealed class IndexBackupChaosTests : IClassFixture<ChaosDirectoryFixture>
         var validateException = Assert.Throws<InvalidDataException>(
             () => IndexBackup.ValidateBackup(backupPath));
         var restoreException = Assert.Throws<InvalidDataException>(
-            () => IndexBackup.Restore(backupPath, restorePath));
+            () => IndexBackup.Restore(backupPath, restorePath, cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.Contains(firstFileName, validateException.Message, StringComparison.Ordinal);
         Assert.Contains("missing", validateException.Message, StringComparison.Ordinal);
@@ -110,7 +104,7 @@ public sealed class IndexBackupChaosTests : IClassFixture<ChaosDirectoryFixture>
     {
         using var sourceDirectory = ChaosIndexFactory.CreateSimpleIndex(_fixture.Path, "backup_truncated_file");
         var backupPath = CreatePath("backup_truncated_file_source");
-        var backup = IndexBackup.Backup(sourceDirectory.DirectoryPath, backupPath);
+        var backup = IndexBackup.Backup(sourceDirectory.DirectoryPath, backupPath, cancellationToken: TestContext.Current.CancellationToken);
         var entry = FirstDataFile(backup.Manifest);
         TruncateFile(Path.Combine(backupPath, entry.FileName), entry.Length - 1);
 
@@ -129,7 +123,7 @@ public sealed class IndexBackupChaosTests : IClassFixture<ChaosDirectoryFixture>
         using var sourceDirectory = ChaosIndexFactory.CreateSimpleIndex(_fixture.Path, "restore_invalid_preserve");
         var backupPath = CreatePath("restore_invalid_preserve_backup");
         var restorePath = CreatePath("restore_invalid_preserve_target");
-        var backup = IndexBackup.Backup(sourceDirectory.DirectoryPath, backupPath);
+        var backup = IndexBackup.Backup(sourceDirectory.DirectoryPath, backupPath, cancellationToken: TestContext.Current.CancellationToken);
         var entry = FirstDataFile(backup.Manifest);
         TruncateFile(Path.Combine(backupPath, entry.FileName), entry.Length - 1);
         Directory.CreateDirectory(restorePath);
@@ -137,10 +131,7 @@ public sealed class IndexBackupChaosTests : IClassFixture<ChaosDirectoryFixture>
         File.WriteAllText(sentinelPath, "keep");
 
         Assert.Throws<InvalidDataException>(
-            () => IndexBackup.Restore(
-                backupPath,
-                restorePath,
-                new IndexRestoreOptions { OverwriteTargetDirectory = true }));
+            () => IndexBackup.Restore(backupPath, restorePath, new IndexRestoreOptions { OverwriteTargetDirectory = true }, TestContext.Current.CancellationToken));
 
         Assert.True(File.Exists(sentinelPath));
         Assert.Equal("keep", File.ReadAllText(sentinelPath));
@@ -152,12 +143,12 @@ public sealed class IndexBackupChaosTests : IClassFixture<ChaosDirectoryFixture>
         using var sourceDirectory = ChaosIndexFactory.CreateSimpleIndex(_fixture.Path, "restore_checksum_mismatch");
         var backupPath = CreatePath("restore_checksum_mismatch_backup");
         var restorePath = CreatePath("restore_checksum_mismatch_target");
-        var backup = IndexBackup.Backup(sourceDirectory.DirectoryPath, backupPath);
+        var backup = IndexBackup.Backup(sourceDirectory.DirectoryPath, backupPath, cancellationToken: TestContext.Current.CancellationToken);
         var entry = FirstDataFile(backup.Manifest);
         FlipByte(Path.Combine(backupPath, entry.FileName));
 
         var exception = Assert.Throws<InvalidDataException>(
-            () => IndexBackup.Restore(backupPath, restorePath));
+            () => IndexBackup.Restore(backupPath, restorePath, cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.Contains(entry.FileName, exception.Message, StringComparison.Ordinal);
         Assert.Contains("CRC-32", exception.Message, StringComparison.Ordinal);

@@ -7,6 +7,10 @@ public enum InspectionResource
     IndexInventory,
     /// <summary>Reader state.</summary>
     ReaderState,
+    /// <summary>Declared field mappings.</summary>
+    Fields,
+    /// <summary>Bounded segment metadata.</summary>
+    Segments,
     /// <summary>Term dictionary.</summary>
     Terms,
     /// <summary>Posting lists.</summary>

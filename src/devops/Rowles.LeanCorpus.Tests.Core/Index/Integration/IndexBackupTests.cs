@@ -57,8 +57,8 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         var backupPath = Path.Combine(_fixture.Path, "restore_round_trip_backup");
         var restorePath = Path.Combine(_fixture.Path, "restore_round_trip_target");
 
-        var backup = IndexBackup.Backup(indexPath, backupPath);
-        var restore = IndexBackup.Restore(backupPath, restorePath);
+        var backup = IndexBackup.Backup(indexPath, backupPath, cancellationToken: TestContext.Current.CancellationToken);
+        var restore = IndexBackup.Restore(backupPath, restorePath, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(backup.Manifest.CommitGeneration, restore.Manifest.CommitGeneration);
         Assert.NotNull(restore.ValidationResult);
@@ -79,10 +79,7 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         Directory.CreateDirectory(rootPath);
         CreateIndexAtPath(indexPath);
 
-        var exception = Assert.Throws<ArgumentException>(() => IndexBackup.Backup(
-            indexPath,
-            backupPath,
-            new IndexBackupOptions { OverwriteBackupDirectory = true }));
+        var exception = Assert.Throws<ArgumentException>(() => IndexBackup.Backup(indexPath, backupPath, new IndexBackupOptions { OverwriteBackupDirectory = true }, TestContext.Current.CancellationToken));
 
         Assert.Contains("must not be", exception.Message, StringComparison.Ordinal);
         Assert.True(File.Exists(Path.Combine(indexPath, "segments_1")));
@@ -100,12 +97,9 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         var backupPath = Path.Combine(rootPath, "backup");
         var targetPath = targetContainsBackup ? rootPath : Path.Combine(backupPath, "restore");
         CreateIndexAtPath(indexPath);
-        IndexBackup.Backup(indexPath, backupPath);
+        IndexBackup.Backup(indexPath, backupPath, cancellationToken: TestContext.Current.CancellationToken);
 
-        var exception = Assert.Throws<ArgumentException>(() => IndexBackup.Restore(
-            backupPath,
-            targetPath,
-            new IndexRestoreOptions { OverwriteTargetDirectory = true }));
+        var exception = Assert.Throws<ArgumentException>(() => IndexBackup.Restore(backupPath, targetPath, new IndexRestoreOptions { OverwriteTargetDirectory = true }, TestContext.Current.CancellationToken));
 
         Assert.Contains("must not be", exception.Message, StringComparison.Ordinal);
         Assert.True(File.Exists(Path.Combine(backupPath, IndexBackup.ManifestFileName)));
@@ -137,10 +131,7 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         }
 
         var backupPath = Path.Combine(indexPath, "backup");
-        Assert.Throws<ArgumentException>(() => IndexBackup.Backup(
-            linkPath,
-            backupPath,
-            new IndexBackupOptions { OverwriteBackupDirectory = true }));
+        Assert.Throws<ArgumentException>(() => IndexBackup.Backup(linkPath, backupPath, new IndexBackupOptions { OverwriteBackupDirectory = true }, TestContext.Current.CancellationToken));
         Assert.True(File.Exists(Path.Combine(indexPath, "segments_1")));
     }
 
@@ -150,13 +141,10 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         var indexPath = CreateIndex("parent_backup_inside_source");
         var backupPath = Path.Combine(_fixture.Path, "parent_backup_inside_source_output");
 
-        Assert.Throws<ArgumentException>(() => IndexBackup.Backup(
-            indexPath,
-            backupPath,
-            new IndexBackupOptions
+        Assert.Throws<ArgumentException>(() => IndexBackup.Backup(indexPath, backupPath, new IndexBackupOptions
             {
                 PreviousBackupDirectoryPath = Path.Combine(indexPath, "previous")
-            }));
+            }, TestContext.Current.CancellationToken));
 
         Assert.False(Directory.Exists(backupPath));
     }
@@ -168,13 +156,10 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         var parentBackupPath = Path.Combine(_fixture.Path, "target_inside_parent_backup");
         var backupPath = Path.Combine(parentBackupPath, "target");
 
-        Assert.Throws<ArgumentException>(() => IndexBackup.Backup(
-            indexPath,
-            backupPath,
-            new IndexBackupOptions
+        Assert.Throws<ArgumentException>(() => IndexBackup.Backup(indexPath, backupPath, new IndexBackupOptions
             {
                 PreviousBackupDirectoryPath = parentBackupPath
-            }));
+            }, TestContext.Current.CancellationToken));
 
         Assert.False(Directory.Exists(backupPath));
     }
@@ -194,11 +179,11 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
             writer.Commit();
         }
 
-        var backup = IndexBackup.Backup(indexPath, backupPath);
+        var backup = IndexBackup.Backup(indexPath, backupPath, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Contains(backup.Manifest.Files, file => file.FileName.EndsWith(".cfs", StringComparison.Ordinal) && file.IsRequired);
         Assert.DoesNotContain(backup.Manifest.Files, file => file.FileName.EndsWith(".dic", StringComparison.Ordinal));
 
-        var restored = IndexBackup.Restore(backupPath, restorePath);
+        var restored = IndexBackup.Restore(backupPath, restorePath, cancellationToken: TestContext.Current.CancellationToken);
         Assert.True(restored.ValidationResult?.IsHealthy);
         using var restoredDirectory = new MMapDirectory(restorePath);
         using var searcher = new IndexSearcher(restoredDirectory);
@@ -213,7 +198,7 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         var deltaPath = Path.Combine(_fixture.Path, "incremental_chain_delta");
         var restorePath = Path.Combine(_fixture.Path, "incremental_chain_restore");
 
-        var full = IndexBackup.Backup(indexPath, fullPath);
+        var full = IndexBackup.Backup(indexPath, fullPath, cancellationToken: TestContext.Current.CancellationToken);
         using (var directory = new MMapDirectory(indexPath))
         using (var writer = new IndexWriter(directory, new IndexWriterConfig { DeletionPolicy = new KeepLastNCommitsPolicy(2) }))
         {
@@ -224,7 +209,7 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         var delta = IndexBackup.Backup(indexPath, deltaPath, new IndexBackupOptions
         {
             PreviousBackupDirectoryPath = fullPath
-        });
+        }, TestContext.Current.CancellationToken);
 
         Assert.Equal(IndexBackupKind.Incremental, delta.Manifest.Kind);
         Assert.Equal(2, delta.Manifest.ChainDepth);
@@ -234,9 +219,9 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         Assert.True(delta.CopiedFiles.Count < full.CopiedFiles.Count);
         Assert.Throws<InvalidDataException>(() => IndexBackup.ValidateBackup(deltaPath));
         Assert.Equal(delta.Manifest.CommitGeneration, IndexBackup.ValidateBackup([fullPath, deltaPath]).CommitGeneration);
-        Assert.Throws<InvalidDataException>(() => IndexBackup.Restore(deltaPath, restorePath));
+        Assert.Throws<InvalidDataException>(() => IndexBackup.Restore(deltaPath, restorePath, cancellationToken: TestContext.Current.CancellationToken));
 
-        var restored = IndexBackup.Restore([fullPath, deltaPath], restorePath);
+        var restored = IndexBackup.Restore([fullPath, deltaPath], restorePath, cancellationToken: TestContext.Current.CancellationToken);
         Assert.True(restored.ValidationResult?.IsHealthy);
         using var restoredDirectory = new MMapDirectory(restorePath);
         using var searcher = new IndexSearcher(restoredDirectory);
@@ -248,7 +233,7 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
     {
         var indexPath = CreateIndex("checksum_mismatch");
         var backupPath = Path.Combine(_fixture.Path, "checksum_mismatch_backup");
-        var backup = IndexBackup.Backup(indexPath, backupPath);
+        var backup = IndexBackup.Backup(indexPath, backupPath, cancellationToken: TestContext.Current.CancellationToken);
         var fileToCorrupt = backup.Manifest.Files.First(file => !file.IsCommitFile);
 
         File.AppendAllText(Path.Combine(backupPath, fileToCorrupt.FileName), "corruption");
@@ -262,7 +247,7 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         var indexPath = CreateIndex("restore_streaming_checksum");
         var backupPath = Path.Combine(_fixture.Path, "restore_streaming_checksum_backup");
         var restorePath = Path.Combine(_fixture.Path, "restore_streaming_checksum_target");
-        var backup = IndexBackup.Backup(indexPath, backupPath);
+        var backup = IndexBackup.Backup(indexPath, backupPath, cancellationToken: TestContext.Current.CancellationToken);
         var fileToCorrupt = backup.Manifest.Files.First(file => !file.IsCommitFile && file.Length > 0);
         var corruptPath = Path.Combine(backupPath, fileToCorrupt.FileName);
 
@@ -273,7 +258,7 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
             stream.WriteByte((byte)(original ^ 0xff));
         }
 
-        Assert.Throws<InvalidDataException>(() => IndexBackup.Restore(backupPath, restorePath));
+        Assert.Throws<InvalidDataException>(() => IndexBackup.Restore(backupPath, restorePath, cancellationToken: TestContext.Current.CancellationToken));
         Assert.Empty(Directory.Exists(restorePath)
             ? Directory.GetFiles(restorePath, "segments_*")
             : []);
@@ -285,14 +270,14 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         var indexPath = CreateIndex("unsafe_manifest");
         var backupPath = Path.Combine(_fixture.Path, "unsafe_manifest_backup");
         var restorePath = Path.Combine(_fixture.Path, "unsafe_manifest_restore");
-        var backup = IndexBackup.Backup(indexPath, backupPath);
+        var backup = IndexBackup.Backup(indexPath, backupPath, cancellationToken: TestContext.Current.CancellationToken);
         var firstFileName = backup.Manifest.Files[0].FileName;
         var manifestPath = Path.Combine(backupPath, IndexBackup.ManifestFileName);
         var json = File.ReadAllText(manifestPath)
             .Replace($"\"FileName\":\"{firstFileName}\"", $"\"FileName\":\"..\\\\{firstFileName}\"", StringComparison.Ordinal);
         File.WriteAllText(manifestPath, json);
 
-        Assert.Throws<InvalidDataException>(() => IndexBackup.Restore(backupPath, restorePath));
+        Assert.Throws<InvalidDataException>(() => IndexBackup.Restore(backupPath, restorePath, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact(DisplayName = "IndexWriter: Backup Snapshot Uses Snapshot Commit")]
@@ -303,7 +288,7 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
 
         try
         {
-            var result = writer.BackupSnapshot(snapshot, backupPath);
+            var result = writer.BackupSnapshot(snapshot, backupPath, cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Equal(snapshot.CommitGeneration, result.Manifest.CommitGeneration);
             Assert.Equal("segments_1", result.Manifest.CommitFileName);

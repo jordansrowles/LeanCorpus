@@ -26,7 +26,7 @@ A test selection combines independent dimensions:
 
 | Dimension | Question | Examples |
 | --- | --- | --- |
-| Suite | Which project should run? | `core`, `text`, `sourcegen`, `architecture`, `aot` |
+| Suite | Which project should run? | `core`, `text`, `sourcegen`, `architecture`, `server-abstractions`, `server-core`, `server-integration`, `aot` |
 | Area | Which production contract changed? | `Index`, `Search`, `Store`, `Filters` |
 | Category | What role does the test have? | `Unit`, `Integration`, `Chaos` |
 | Filter | Which runner-level name or expression matches? | `FullyQualifiedName~Writer` |

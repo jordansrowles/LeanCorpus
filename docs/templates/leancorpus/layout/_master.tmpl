@@ -44,7 +44,7 @@
       <script src="{{_rel}}assets/diagram-renderer.js" defer></script>
       <script type="module" src="./{{_rel}}public/docfx.min.js"></script>
       <script src="{{_rel}}assets/api-icons/api-icons.js" defer></script>
-      <script src="{{_rel}}assets/api-navigation.js" defer></script>
+      <script src="{{_rel}}assets/section-navigation.js" defer></script>
       <script src="{{_rel}}assets/display-settings.js" defer></script>
       <script>
         (() => {
@@ -78,57 +78,43 @@
   </head>
 
   {{^redirect_url}}
-  <body class="tex2jax_ignore" data-layout="{{_layout}}{{layout}}" data-yaml-mime="{{yamlmime}}" data-api-root="{{_rel}}api/" data-api-toc="{{_rel}}api/toc.json">
+  <body class="tex2jax_ignore" data-layout="{{_layout}}{{layout}}" data-yaml-mime="{{yamlmime}}" data-root-toc="{{_rel}}toc.json" data-api-root="{{_rel}}api/" data-api-toc="{{_rel}}api/toc.json">
+    <header class="lc-topbar border-bottom">
+      <nav class="container-xxl lc-topnav" aria-label="Main navigation">
+        <a class="lc-brand" href="{{_appLogoUrl}}{{^_appLogoUrl}}{{_rel}}index.html{{/_appLogoUrl}}">{{_appName}}</a>
+        <div class="lc-topnav-links">
+          <a data-section="About" href="{{_rel}}about/index.html">About</a>
+          <a data-section="Guides" href="{{_rel}}guides/index.html">Guides</a>
+          <a data-section="Contribute" href="{{_rel}}contributors/index.html">Contribute</a>
+          <a data-section="API" href="{{_rel}}api/index.html">API</a>
+          <a data-section="Reference" href="{{_rel}}reference/index.html">Reference</a>
+        </div>
+        <div class="lc-topnav-tools">
+          <button class="lc-icon-button" id="lc-theme-toggle" type="button" title="Theme: system" aria-label="Change colour theme">🌓</button>
+          <button class="lc-icon-button lc-text-size-button" id="lc-text-size-toggle" type="button" title="Text size: default" aria-label="Change text size">A</button>
+          {{#_enableSearch}}
+          <form class="search lc-header-search" role="search" id="search">
+            <i class="bi bi-search" aria-hidden="true"></i>
+            <input class="form-control" id="search-query" type="search" disabled placeholder="{{__global.search}}" autocomplete="off" aria-label="Search documentation">
+          </form>
+          {{/_enableSearch}}
+        </div>
+      </nav>
+    </header>
     <main class="container-xxl lc-docs-layout">
       <div class="toc-offcanvas">
         <div class="offcanvas-lg offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
           <div class="offcanvas-header">
-            <a class="navbar-brand offcanvas-title" id="tocOffcanvasLabel" href="{{_appLogoUrl}}{{^_appLogoUrl}}{{_rel}}index.html{{/_appLogoUrl}}">{{_appName}}</a>
+            <span class="offcanvas-title" id="tocOffcanvasLabel">Section navigation</span>
             <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
           </div>
           <div class="offcanvas-body">
-            <div class="lc-sidebar-header">
-              <a class="navbar-brand" href="{{_appLogoUrl}}{{^_appLogoUrl}}{{_rel}}index.html{{/_appLogoUrl}}">{{_appName}}</a>
-              {{#_enableSearch}}
-              <form class="search lc-header-search" role="search" id="search">
-                <!--<i class="bi bi-search"></i>-->
-                <input class="form-control" id="search-query" type="search" disabled placeholder="{{__global.search}}" autocomplete="off" aria-label="Search">
-              </form>
-              {{/_enableSearch}}
-              <div class="lc-display-controls" aria-label="Display settings">
-                <label class="lc-display-control" for="lc-theme-select">
-                  <span>Theme</span>
-                  <select class="form-select form-select-sm" id="lc-theme-select" autocomplete="off">
-                    <option value="auto">System</option>
-                    <option value="light">Light</option>
-                    <option value="dark">Dark</option>
-                  </select>
-                </label>
-                <label class="lc-display-control" for="lc-content-size-select">
-                  <span>Content size</span>
-                  <select class="form-select form-select-sm" id="lc-content-size-select" autocomplete="off">
-                    <option value="compact">Compact</option>
-                    <option value="default">Default</option>
-                    <option value="large">Large</option>
-                    <option value="x-large">Extra large</option>
-                  </select>
-                </label>
-              </div>
-            </div>
-            {{#_enableSearch}}
-            <div class="search-results lc-search-results" id="search-results"></div>
-            {{/_enableSearch}}
             <div class="lc-main-navigation">
-              <nav class="toc lc-docs-tree" id="toc"></nav>
-            </div>
-            <section class="lc-api-navigation" id="apiNavigation" aria-labelledby="apiNavigationTitle" hidden>
-              <div class="lc-api-navigation-header">
-                <a id="apiNavigationTitle" href="{{_rel}}api/index.html">API reference</a>
-              </div>
-              <nav class="toc lc-api-tree" id="apiToc" aria-label="API documentation">
-                <p class="text-secondary small">Loading API navigation...</p>
+              <div class="lc-section-heading" id="lcSectionHeading"></div>
+              <nav class="toc lc-docs-tree" id="lcToc" aria-label="Section table of contents">
+                <p class="text-secondary small">Loading section navigation...</p>
               </nav>
-            </section>
+            </div>
           </div>
         </div>
       </div>
@@ -145,6 +131,10 @@
           <nav id="breadcrumb"></nav>
           {{/_disableBreadcrumb}}
         </div>
+
+        {{#_enableSearch}}
+        <section class="search-results lc-search-results" id="search-results" aria-live="polite"></section>
+        {{/_enableSearch}}
 
         <article data-uid="{{uid}}">
           {{!body}}

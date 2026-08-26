@@ -1,0 +1,22 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; color: CanvasText; background: Canvas; }
+header { display: flex; gap: 1rem; align-items: baseline; padding: 1rem 1.5rem; border-bottom: 1px solid GrayText; }
+header span { color: GrayText; font-size: .85rem; }
+.shell { display: grid; grid-template-columns: 15rem minmax(0, 1fr); min-height: calc(100vh - 3.75rem); }
+nav { padding: 1rem; border-right: 1px solid GrayText; }
+nav button { display: block; width: 100%; margin: .2rem 0; padding: .55rem .65rem; border: 0; border-radius: .3rem; text-align: left; background: transparent; color: inherit; cursor: pointer; }
+nav button:hover, nav button.active { background: color-mix(in srgb, AccentColor 18%, Canvas); }
+nav strong { display: block; margin: 1.25rem .65rem .5rem; overflow-wrap: anywhere; }
+main { width: min(75rem, 100%); padding: 1.5rem 2rem 4rem; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem; }
+.card, form, #indexList article { padding: 1rem; margin: 0 0 1rem; border: 1px solid GrayText; border-radius: .4rem; }
+label { display: block; margin: 0 0 1rem; font-weight: 600; }
+input, textarea { display: block; width: 100%; margin-top: .35rem; padding: .55rem; font: inherit; color: inherit; background: Canvas; border: 1px solid GrayText; border-radius: .25rem; }
+textarea, pre { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+button { padding: .55rem .8rem; font: inherit; cursor: pointer; }
+button.danger { color: white; background: #a31515; border: 1px solid #a31515; }
+#notice:not(:empty) { padding: .7rem 1rem; margin-bottom: 1rem; border-left: .25rem solid AccentColor; background: color-mix(in srgb, AccentColor 12%, Canvas); }
+#indexList article { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+pre { padding: 1rem; background: color-mix(in srgb, CanvasText 6%, Canvas); border-radius: .35rem; }
+@media (max-width: 760px) { .shell { display: block; } nav { border-right: 0; border-bottom: 1px solid GrayText; } main { padding-inline: 1rem; } }

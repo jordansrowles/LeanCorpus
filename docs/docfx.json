@@ -47,6 +47,9 @@
         "files": [ "concepts/**.md" ]
       },
       {
+        "files": [ "about/**.md", "guides/**.md" ]
+      },
+      {
         "files": [ "reference/**.md" ]
       },
       {
@@ -67,6 +70,9 @@
       },
       {
         "files": [ "observability/**.md" ]
+      },
+      {
+        "files": [ "server/**.md" ]
       },
       {
         "files": [ "tips/**.md" ]

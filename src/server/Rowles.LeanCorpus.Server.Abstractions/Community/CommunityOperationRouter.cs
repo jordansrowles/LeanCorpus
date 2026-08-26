@@ -7,5 +7,5 @@ public sealed class CommunityOperationRouter : IOperationRouter
 {
     /// <inheritdoc />
     public ValueTask<OperationRoute> RouteAsync(OperationRouteRequest request, CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult(new OperationRoute(RouteTargetKind.Local));
+        ValueTask.FromResult<OperationRoute>(new LocalRoute());
 }

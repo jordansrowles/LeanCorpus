@@ -5,6 +5,7 @@ namespace Rowles.LeanCorpus.Server.Core.Storage;
 /// <summary>Provides atomic persistence for the local index registry.</summary>
 internal sealed class RegistryStore
 {
+    internal const int CurrentFormatVersion = 1;
     private const string RegistryFileName = "registry.json";
     private readonly string _registryPath;
 
@@ -16,11 +17,23 @@ internal sealed class RegistryStore
     internal async ValueTask<ServerRegistry> LoadAsync(CancellationToken cancellationToken)
     {
         if (!File.Exists(_registryPath))
-            return new ServerRegistry([]);
+            return new ServerRegistry([], CurrentFormatVersion);
 
-        await using FileStream stream = File.OpenRead(_registryPath);
-        return await JsonSerializer.DeserializeAsync(stream, RegistryJsonSerialiserContext.Default.ServerRegistry, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidDataException("The server registry is empty or invalid.");
+        ServerRegistry registry;
+        try
+        {
+            await using FileStream stream = File.OpenRead(_registryPath);
+            registry = await JsonSerializer.DeserializeAsync(stream, RegistryJsonSerialiserContext.Default.ServerRegistry, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidDataException("The server registry is empty or invalid.");
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("The server registry contains invalid JSON.", exception);
+        }
+
+        if (registry.FormatVersion != CurrentFormatVersion)
+            throw new InvalidDataException($"The server registry format version '{registry.FormatVersion}' is not supported. Expected {CurrentFormatVersion}.");
+        return registry;
     }
 
     internal async ValueTask SaveAsync(ServerRegistry registry, CancellationToken cancellationToken)

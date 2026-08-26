@@ -37,6 +37,7 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | `benchmark` | List or run BenchmarkDotNet suites | `./devops benchmark -List` |
 | `data` | Prepare a named benchmark corpus | `./devops data gutenberg` |
 | `docs` | Generate API metadata and build or serve DocFX | `./devops docs -SkipBenchmarks` |
+| `server start` | Start the Community Server in the foreground on loopback, or use `-External` for trusted-network access | `./devops server start -External` |
 | `benchmarks docs` | Regenerate benchmark documentation pages | `./devops benchmarks docs` |
 
 Use `benchmark` for running measurements and `benchmarks docs` for publishing existing result artefacts. The plural command is intentionally not a second benchmark runner.
@@ -45,7 +46,7 @@ Use `benchmark` for running measurements and `benchmarks docs` for publishing ex
 
 The script combines two styles:
 
-- command or subcommand tokens such as `docs serve` and `data wikipedia`;
+- command or subcommand tokens such as `docs serve`, `server start` and `data wikipedia`;
 - PowerShell-style named options such as `-Suite query`, `-Framework net10.0`, and `-SkipBenchmarks`.
 
 BenchmarkDotNet arguments follow a `--` separator:
@@ -58,7 +59,7 @@ Keep repository arguments before `--`. Everything after it is passed to the benc
 
 ## Test suites
 
-`scripts/devops/config/test-suites.psd1` is the canonical alias map. It maps short names to project paths or, for Native AOT, to the dedicated command route. The current suites are `core`, `text`, `sourcegen`, `architecture`, and `aot`.
+`scripts/devops/config/test-suites.psd1` is the canonical alias map. It maps short names to project paths or, for Native AOT, to the dedicated command route. The current suites are `core`, `text`, `sourcegen`, `architecture`, `server-abstractions`, `server-core`, `server-integration`, and `aot`. The server suites are fixed to their net11.0-only projects even when the general test framework remains net10.0.
 
 When adding a test project:
 

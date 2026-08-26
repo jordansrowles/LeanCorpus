@@ -1,5 +1,105 @@
 /* LeanCorpus documentation shell. Keep the generated DocFX styles as the base. */
 
+.lc-topbar {
+  background: var(--bs-body-bg);
+  min-height: 60px;
+}
+
+.lc-topnav {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  width: 100%;
+  min-width: 0;
+  padding-block: .55rem;
+}
+
+.lc-brand,
+.lc-brand:hover {
+  flex: none;
+  color: var(--bs-emphasis-color);
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.lc-topnav-links {
+  display: flex;
+  align-items: stretch;
+  gap: .15rem;
+}
+
+.lc-topnav-links a {
+  color: var(--bs-body-color);
+  padding: .45rem .6rem;
+  border-radius: var(--bs-border-radius);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.lc-topnav-links a:hover,
+.lc-topnav-links a:focus,
+.lc-topnav-links a[aria-current="page"] {
+  color: var(--bs-emphasis-color);
+  background: var(--bs-tertiary-bg);
+}
+
+.lc-topnav-links a[aria-current="page"] {
+  font-weight: 600;
+}
+
+.lc-topnav-tools {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.lc-icon-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+  color: var(--bs-body-color);
+  background: var(--bs-body-bg);
+}
+
+.lc-icon-button:hover,
+.lc-icon-button:focus {
+  background: var(--bs-tertiary-bg);
+}
+
+.lc-text-size-button {
+  font-weight: 700;
+}
+
+.lc-text-size-button[data-size="compact"] {
+  font-size: .8rem;
+}
+
+.lc-text-size-button[data-size="large"] {
+  font-size: 1.15rem;
+}
+
+.lc-text-size-button[data-size="x-large"] {
+  font-size: 1.3rem;
+}
+
+.lc-header-search {
+  width: clamp(12rem, 18vw, 20rem);
+}
+
+.lc-header-search input {
+  min-width: 0;
+}
+
 .lc-docs-layout {
   max-width: none;
 }
@@ -13,8 +113,32 @@ body > main.lc-docs-layout > .toc-offcanvas {
   display: block;
 }
 
-.lc-docs-tree > ul {
-  padding-top: .25rem;
+.lc-main-navigation {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.lc-section-heading {
+  flex: none;
+  padding: .25rem .75rem .65rem;
+  border-bottom: 1px solid var(--bs-border-color);
+  font-size: .9rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.lc-section-heading a,
+.lc-section-heading a:hover {
+  color: var(--bs-emphasis-color);
+  text-decoration: none;
+}
+
+.lc-docs-tree {
+  min-height: 0;
+  padding: .25rem .75rem 1rem;
+  overflow-y: auto;
 }
 
 .lc-docs-tree li > ul {
@@ -29,26 +153,12 @@ body > main.lc-docs-layout > .toc-offcanvas {
   font-weight: 600;
   background: var(--bs-primary-bg-subtle);
   padding: .25rem .5rem;
-  margin-left: 0.25rem;
+  margin-left: -.5rem;
   margin-right: -.5rem;
 }
 
 .lc-docs-tree li.active > .expand-stub:before {
   color: var(--bs-primary);
-}
-
-.lc-sidebar-header {
-  padding: .25rem .75rem 1rem;
-}
-
-.lc-sidebar-header .navbar-brand {
-  display: block;
-  margin-bottom: .75rem;
-  font-size: 1.15rem;
-}
-
-.lc-header-search {
-  max-width: none;
 }
 
 html[data-content-size="compact"] {
@@ -67,29 +177,6 @@ html[data-content-size="x-large"] {
   font-size: 125%;
 }
 
-.lc-display-controls {
-  display: flex;
-  gap: .5rem;
-  margin-top: .75rem;
-}
-
-.lc-display-control {
-  flex: 1 1 0;
-  min-width: 0;
-}
-
-.lc-display-control > span {
-  display: block;
-  color: var(--bs-secondary-color);
-  font-size: .75rem;
-  margin-bottom: .2rem;
-}
-
-.lc-display-control .form-select {
-  min-width: 0;
-  width: 100%;
-}
-
 .lc-docs-layout .offcanvas-body {
   display: flex;
   flex-direction: column;
@@ -98,72 +185,7 @@ html[data-content-size="x-large"] {
 
 .lc-main-navigation {
   flex: 1 1 auto;
-  min-height: 0;
   overflow: hidden;
-}
-
-.lc-main-navigation > .toc {
-  height: 100%;
-}
-
-.lc-api-navigation[hidden] {
-  display: none;
-}
-
-.lc-api-navigation {
-  display: flex;
-  flex: 1 1 55%;
-  flex-direction: column;
-  min-height: 0;
-  margin-top: .75rem;
-  padding-top: .75rem;
-  border-top: 1px solid var(--bs-border-color);
-}
-
-.lc-api-page .lc-main-navigation {
-  display: none;
-}
-
-.lc-api-page .lc-api-navigation {
-  flex-basis: 100%;
-  margin-top: 0;
-  padding-top: 0;
-  border-top: 0;
-}
-
-.lc-api-navigation-header {
-  flex: none;
-  padding: 0 .75rem .25rem;
-  font-size: .9rem;
-  font-weight: 600;
-}
-
-.lc-api-navigation-header a {
-  color: var(--bs-body-color);
-  text-decoration: none;
-}
-
-.lc-api-tree {
-  display: block;
-  min-height: 0;
-  padding-right: .25rem;
-  overflow-y: auto;
-}
-
-.lc-api-tree ul.nav:not(.level1) {
-  border-left: 1px solid var(--bs-border-color);
-  margin-left: .75rem;
-  padding-left: .75rem;
-}
-
-.lc-api-tree li.active > a,
-.lc-api-tree li.active > a:hover {
-  color: var(--bs-primary);
-  font-weight: 600;
-  background: var(--bs-primary-bg-subtle);
-  padding: .25rem .5rem;
-  margin-left: -.5rem;
-  margin-right: -.5rem;
 }
 
 .benchmark-chart {
@@ -211,17 +233,34 @@ html[data-content-size="x-large"] {
   display: none;
 }
 
-body[data-search] .lc-main-navigation,
-body[data-search] .lc-api-navigation {
-  display: none;
+body[data-search] > main.lc-docs-layout {
+  display: grid;
+  flex: 1;
+}
+
+body[data-search] > main.lc-docs-layout > .toc-offcanvas {
+  display: block;
+}
+
+body[data-search] > main.lc-docs-layout > .content {
+  display: flex;
 }
 
 body[data-search] .lc-search-results {
   display: block;
-  flex: 1 1 auto;
-  min-height: 0;
-  padding: .25rem .75rem 1rem;
-  overflow-y: auto;
+  flex: 1;
+  padding: 1rem 0 3rem;
+}
+
+body[data-search] > main.lc-docs-layout > .content > .actionbar {
+  display: flex;
+}
+
+body[data-search] > main.lc-docs-layout > .content > article,
+body[data-search] > main.lc-docs-layout > .content > .contribution,
+body[data-search] > main.lc-docs-layout > .content > .next-article,
+body[data-search] > main.lc-docs-layout > .affix {
+  display: none;
 }
 
 body[data-search] .lc-search-results > .sr-items {
@@ -229,24 +268,12 @@ body[data-search] .lc-search-results > .sr-items {
 }
 
 body[data-search] .lc-search-results .sr-item {
-  margin-bottom: 1rem;
+  margin-bottom: 1.5rem;
 }
 
-body[data-search] .lc-search-results .sr-item > .item-title {
-  font-size: .95rem;
-  font-weight: 600;
-}
-
-body[data-search] .lc-search-results .sr-item > .item-href,
-body[data-search] .lc-search-results .sr-item > .item-brief {
-  font-size: .75rem;
+body[data-search] .lc-search-results .item-href,
+body[data-search] .lc-search-results .item-brief {
   overflow-wrap: anywhere;
-}
-
-body[data-search] > main.lc-docs-layout > .content > .actionbar,
-body[data-search] > main.lc-docs-layout > .content > .contribution,
-body[data-search] > main.lc-docs-layout > .content > .next-article {
-  display: flex;
 }
 
 /* Landng page: DocFX hides actionbar via :not(article); restore it */
@@ -282,7 +309,7 @@ body[data-layout="landing"] .actionbar::before {
     grid-column: 1;
     grid-row: 1;
     position: sticky;
-    top: 1rem;
+    top: calc(60px + 1rem);
     width: auto;
     max-width: none;
     max-height: calc(100vh - 2rem);
@@ -321,17 +348,34 @@ body[data-layout="landing"] .actionbar::before {
     grid-column: 3;
     grid-row: 1;
     position: sticky;
-    top: 1rem;
+    top: calc(60px + 1rem);
     max-height: calc(100vh - 2rem);
     overflow-y: auto;
   }
 
-  .lc-sidebar-header .navbar-brand {
-    margin-top: .25rem;
-  }
 }
 
 @media (max-width: 991.98px) {
+  .lc-topnav {
+    flex-wrap: wrap;
+    gap: .4rem .75rem;
+  }
+
+  .lc-topnav-links {
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .lc-topnav-tools {
+    flex: 1;
+    justify-content: flex-end;
+  }
+
+  .lc-header-search {
+    width: min(18rem, 100%);
+  }
+
   body > main.lc-docs-layout {
     display: block;
   }
@@ -346,7 +390,16 @@ body[data-layout="landing"] .actionbar::before {
 }
 
 @media (max-width: 575.98px) {
-  .lc-sidebar-header {
-    padding-inline: 0;
+  .lc-brand {
+    width: 100%;
+  }
+
+  .lc-topnav-tools {
+    justify-content: flex-start;
+  }
+
+  .lc-header-search {
+    flex: 1;
+    width: auto;
   }
 }

@@ -9,7 +9,7 @@ public sealed class CommunityInspectionFilter : IInspectionFilter
 {
     /// <inheritdoc />
     public ValueTask<InspectionDecision> EvaluateAsync(OperationContext context, InspectionRequest request, CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult(request.Limit is > 0 and <= 1_000
-            ? new InspectionDecision(true, 1_000)
-            : new InspectionDecision(false, 1_000, "Inspection limits must be between 1 and 1000."));
+        ValueTask.FromResult(request.Limit > 0
+            ? new InspectionDecision(true, int.MaxValue)
+            : new InspectionDecision(false, int.MaxValue, "Inspection limits must be positive."));
 }

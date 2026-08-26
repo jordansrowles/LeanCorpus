@@ -14,7 +14,7 @@ The server needs Native AOT support, but ASP.NET Core, gRPC, Studio and optional
 
 ## Decision
 
-The abstractions package targets `net10.0` and `net11.0`, uses only the BCL, and supplies `System.Text.Json` source-generated metadata. It does not reference ASP.NET Core, gRPC, Blazor, DotNext or private infrastructure.
+The abstractions package targets `net11.0`, uses only the BCL, and supplies `System.Text.Json` source-generated metadata. It does not reference ASP.NET Core, gRPC, Blazor, DotNext or private infrastructure.
 
 Framework compatibility is verified by the owning host or private module before it is claimed. The abstraction boundary itself is the shared AOT gate, not proof that every future host is AOT-compatible.
 

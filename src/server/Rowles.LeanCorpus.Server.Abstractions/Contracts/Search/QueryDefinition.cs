@@ -13,4 +13,4 @@ namespace Rowles.LeanCorpus.Server.Abstractions.Contracts.Search;
 [JsonDerivedType(typeof(RegexpQueryDefinition), "regexp")]
 [JsonDerivedType(typeof(SpanNearQueryDefinition), "spanNear")]
 [JsonDerivedType(typeof(VectorQueryDefinition), "vector")]
-public abstract record QueryDefinition;
+public closed record class QueryDefinition;
