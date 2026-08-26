@@ -16,11 +16,11 @@ internal sealed class LocalIndexRegistry : IDisposable
     private readonly Dictionary<string, IndexRuntimeEntry> _entries = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    private LocalIndexRegistry(string dataRoot, TimeSpan commitInterval, TimeSpan refreshInterval)
+    private LocalIndexRegistry(string dataRoot, TimeSpan commitInterval, TimeSpan refreshInterval, ILocalCommitObserver? observer)
     {
         _indicesPath = Path.Combine(dataRoot, "indices");
         _store = new RegistryStore(dataRoot);
-        _physicalStore = new LocalIndexStore(_indicesPath, commitInterval, refreshInterval);
+        _physicalStore = new LocalIndexStore(_indicesPath, commitInterval, refreshInterval, observer);
         _commitInterval = commitInterval;
         _refreshInterval = refreshInterval;
     }
@@ -28,7 +28,7 @@ internal sealed class LocalIndexRegistry : IDisposable
     internal static async ValueTask<LocalIndexRegistry> OpenAsync(string dataRoot, ServerCoreOptions options, CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(dataRoot);
-        LocalIndexRegistry registry = new(dataRoot, options.CommitInterval, options.RefreshInterval);
+        LocalIndexRegistry registry = new(dataRoot, options.CommitInterval, options.RefreshInterval, options.CommitObserver);
         Directory.CreateDirectory(registry._indicesPath);
 
         ServerRegistry persisted = await registry._store.LoadAsync(cancellationToken).ConfigureAwait(false);

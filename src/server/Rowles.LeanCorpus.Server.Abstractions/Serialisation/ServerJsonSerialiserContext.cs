@@ -24,6 +24,7 @@ namespace Rowles.LeanCorpus.Server.Abstractions.Serialisation;
 [JsonSerializable(typeof(InspectionRequest))]
 [JsonSerializable(typeof(InspectionResponse))]
 [JsonSerializable(typeof(HealthResponse))]
+[JsonSerializable(typeof(IndexHealthSummary))]
 [JsonSerializable(typeof(ReadinessResponse))]
 [JsonSerializable(typeof(ClusterInfoResponse))]
 [JsonSerializable(typeof(ShardPlacementResponse))]

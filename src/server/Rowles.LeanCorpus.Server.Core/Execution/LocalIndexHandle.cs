@@ -1,5 +1,7 @@
 using Rowles.LeanCorpus.Index.Backup;
 using Rowles.LeanCorpus.Index.Segment;
+using Rowles.LeanCorpus.Search.Searcher;
+using Rowles.LeanCorpus.Server.Abstractions.Contracts.Common;
 using Rowles.LeanCorpus.Server.Core.Runtime;
 
 namespace Rowles.LeanCorpus.Server.Core.Execution;
@@ -11,12 +13,23 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
     private readonly TimeSpan _commitInterval;
     private readonly TimeSpan _refreshInterval;
     private readonly ILocalCommitObserver _observer;
+    private readonly ICommitInstallOperations _installOperations;
     private readonly SemaphoreSlim _transition = new(1, 1);
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private IndexRuntime _runtime;
     private int _disposed;
+    private int _installing;
+    private int _unusable;
+    private string? _lastInstallError;
 
-    internal LocalIndexHandle(LocalIndexDescriptor descriptor, string path, TimeSpan commitInterval, TimeSpan refreshInterval, LocalIndexOpenMode mode, ILocalCommitObserver? observer = null)
+    internal LocalIndexHandle(
+        LocalIndexDescriptor descriptor,
+        string path,
+        TimeSpan commitInterval,
+        TimeSpan refreshInterval,
+        LocalIndexOpenMode mode,
+        ILocalCommitObserver? observer = null,
+        ICommitInstallOperations? installOperations = null)
     {
         Descriptor = descriptor;
         _path = path;
@@ -24,6 +37,7 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
         _refreshInterval = refreshInterval;
         observer ??= NullLocalCommitObserver.Instance;
         _observer = observer;
+        _installOperations = installOperations ?? DefaultCommitInstallOperations.Instance;
         _runtime = new IndexRuntime(path, CompiledIndexSchema.Create(descriptor.Schema, descriptor.Topology ?? new(1, 0), descriptor.Settings), commitInterval, refreshInterval, mode,
             receipt => _observer.OnCommittedAsync(descriptor, receipt));
     }
@@ -41,16 +55,41 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
     public ILocalCommitCoordinator CommitCoordinator => _runtime.Commits;
 
     /// <summary>Gets local health and commit state.</summary>
-    public LocalIndexHealth Health => new(
-        Mode,
-        _runtime.Commits.LastReceipt?.CommitGeneration ?? 0,
-        _runtime.Commits.LastReceipt?.CommitGeneration ?? 0,
-        _runtime.PendingOperations,
-        null,
-        _runtime.Commits.LastFailure?.Message,
-        _runtime.Commits.ConsecutiveFailures,
-        0,
-        false);
+    public LocalIndexHealth Health
+    {
+        get
+        {
+            long visibleGeneration = 0;
+            try
+            {
+                using SearcherLease visible = _runtime.Searchers.AcquireLease();
+                visibleGeneration = visible.CommitGeneration;
+            }
+            catch (ObjectDisposedException)
+            {
+                // The unusable state below is the public indication that no
+                // readable runtime remains available.
+            }
+
+            long durableGeneration = Math.Max(_runtime.Commits.LastReceipt?.CommitGeneration ?? 0, visibleGeneration);
+            return new LocalIndexHealth(
+                Mode,
+                visibleGeneration,
+                durableGeneration,
+                _runtime.PendingOperations,
+                _runtime.Commits.LastSuccessfulCommitUtc,
+                _runtime.Commits.LastFailure?.Message,
+                _runtime.Commits.ConsecutiveFailures,
+                0,
+                Volatile.Read(ref _installing) != 0,
+                IsUsable,
+                _runtime.IsDegraded || !IsUsable || Volatile.Read(ref _lastInstallError) is not null,
+                Volatile.Read(ref _lastInstallError));
+        }
+    }
+
+    /// <summary>Gets whether this handle still has a readable local runtime.</summary>
+    internal bool IsUsable => Volatile.Read(ref _unusable) == 0;
 
     /// <summary>Commits pending writes when this handle is writable.</summary>
     public async ValueTask<CommitResult> CommitAsync(bool refresh = false, CancellationToken cancellationToken = default)
@@ -111,65 +150,88 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
         }
         try
         {
+            if (!IsUsable)
+                return new CommitRejected("The local index is unusable after a previous installation failure.");
             if (Mode != LocalIndexOpenMode.ReadOnly)
                 return new CommitRejected("A commit cannot be installed into an active writable local copy.");
             if (lease is not RuntimeCommitSnapshotLease source)
                 return new CommitRejected("The snapshot lease was not created by this Community local store.");
+            if (source is not ICommitSnapshotSource)
+                return new CommitRejected("The commit snapshot cannot be materialised by this local store.");
             if (!string.Equals(source.SchemaHash, Descriptor.SchemaHash, StringComparison.Ordinal))
                 return new CommitRejected("The commit snapshot schema does not match this local physical index.");
             using (var current = _runtime.Searchers.AcquireLease())
             {
+                if (lease.CommitGeneration < current.CommitGeneration)
+                    return new CommitRejected($"The commit generation {lease.CommitGeneration} is older than the visible target generation {current.CommitGeneration}.");
                 if (current.CommitGeneration == lease.CommitGeneration)
                     return current.ContentToken == lease.ContentToken
                         ? new CommitAlreadyPresent(lease.CommitGeneration)
                         : new CommitRejected("The target already contains a different commit with the same generation.");
             }
 
-            string staging = Path.Combine(Path.GetTempPath(), $"leancorpus-server-install-{Guid.NewGuid():N}");
-            string materialised = Path.Combine(Path.GetDirectoryName(_path)!, $".install-{Descriptor.Id.Value}-{Guid.NewGuid():N}");
+            string installRoot = Path.GetDirectoryName(_path)!;
+            string staging = Path.Combine(installRoot, $".install-{Descriptor.Id.Value}-{Guid.NewGuid():N}-backup");
+            string materialised = Path.Combine(installRoot, $".install-{Descriptor.Id.Value}-{Guid.NewGuid():N}-candidate");
             string previous = Path.Combine(Path.GetDirectoryName(_path)!, $".previous-{Descriptor.Id.Value}-{Guid.NewGuid():N}");
-            bool runtimeDisposed = false;
+            IndexRuntime oldRuntime = _runtime;
+            IndexRuntime? candidateRuntime = null;
+            bool publicationStarted = false;
+            bool oldRootMoved = false;
+            bool preserveInstallArtifacts = false;
+            Interlocked.Exchange(ref _installing, 1);
             try
             {
-                source.CreateBackup(staging);
-                IndexBackup.Restore(staging, materialised, new IndexRestoreOptions { OverwriteTargetDirectory = false, ValidateAfterRestore = true });
-                _runtime.Dispose();
-                runtimeDisposed = true;
-                Directory.Move(_path, previous);
-                Directory.Move(materialised, _path);
-                _runtime = CreateRuntime(LocalIndexOpenMode.ReadOnly);
+                cancellationToken.ThrowIfCancellationRequested();
+                _installOperations.Materialise(lease, staging, materialised, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // No cancellation checks occur after this point. The directory
+                // publication sequence must either finish or execute rollback.
+                publicationStarted = true;
+                _runtime = oldRuntime;
+                oldRuntime.Dispose();
+                _installOperations.MoveDirectory(_path, previous);
+                oldRootMoved = true;
+                _installOperations.MoveDirectory(materialised, _path);
+                candidateRuntime = CreateRuntime(LocalIndexOpenMode.ReadOnly);
+                _runtime = candidateRuntime;
+                candidateRuntime = null;
+                Volatile.Write(ref _lastInstallError, null);
                 TryDeleteDirectory(previous);
                 return new CommitInstalled(new LocalCommitReceipt(0, 0, lease.CommitGeneration, lease.ContentToken, true, true));
             }
-            catch (Exception exception) when (exception is IOException or InvalidDataException or ArgumentException or UnauthorizedAccessException or NotSupportedException)
+            catch (OperationCanceledException) when (!publicationStarted)
             {
-                try
+                throw;
+            }
+            catch (Exception exception)
+            {
+                Volatile.Write(ref _lastInstallError, exception.Message);
+                if (!publicationStarted)
                 {
-                    if (Directory.Exists(_path) && Directory.Exists(previous))
-                    {
-                        string failed = Path.Combine(Path.GetDirectoryName(_path)!, $".failed-{Descriptor.Id.Value}-{Guid.NewGuid():N}");
-                        Directory.Move(_path, failed);
-                        Directory.Move(previous, _path);
-                        TryDeleteDirectory(failed);
-                    }
-                    else if (!Directory.Exists(_path) && Directory.Exists(previous))
-                    {
-                        Directory.Move(previous, _path);
-                    }
-                    if (runtimeDisposed && Directory.Exists(_path))
-                        _runtime = CreateRuntime(LocalIndexOpenMode.ReadOnly);
+                    _runtime.MarkDegraded();
+                    return new CommitRejected(exception.Message);
                 }
-                catch
+
+                if (!TryRollbackInstall(oldRuntime, previous, oldRootMoved, candidateRuntime, out Exception? rollbackFailure))
                 {
-                    // Preserve the original install failure. The handle remains unusable if the filesystem cannot restore its prior root.
+                    preserveInstallArtifacts = true;
+                    MarkUnusable(exception, rollbackFailure!);
+                    return new CommitRejected($"Commit installation failed and the local index is unusable: {exception.Message}");
                 }
+
                 return new CommitRejected(exception.Message);
             }
             finally
             {
+                Interlocked.Exchange(ref _installing, 0);
                 TryDeleteDirectory(staging);
-                TryDeleteDirectory(materialised);
-                TryDeleteDirectory(previous);
+                if (!preserveInstallArtifacts)
+                {
+                    TryDeleteDirectory(materialised);
+                    TryDeleteDirectory(previous);
+                }
             }
         }
         finally
@@ -177,6 +239,57 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
             _transition.Release();
             _operationGate.Release();
         }
+    }
+
+    private bool TryRollbackInstall(
+        IndexRuntime oldRuntime,
+        string previous,
+        bool oldRootMoved,
+        IndexRuntime? candidateRuntime,
+        out Exception? rollbackFailure)
+    {
+        try
+        {
+            candidateRuntime?.Dispose();
+
+            if (oldRootMoved)
+            {
+                if (Directory.Exists(_path) && Directory.Exists(previous))
+                {
+                    string failed = Path.Combine(Path.GetDirectoryName(_path)!, $".failed-{Descriptor.Id.Value}-{Guid.NewGuid():N}");
+                    _installOperations.MoveDirectory(_path, failed);
+                    _installOperations.MoveDirectory(previous, _path);
+                    TryDeleteDirectory(failed);
+                }
+                else if (!Directory.Exists(_path) && Directory.Exists(previous))
+                {
+                    _installOperations.MoveDirectory(previous, _path);
+                }
+                else if (!Directory.Exists(_path))
+                {
+                    throw new IOException("The previous local index root is missing and could not be restored.");
+                }
+            }
+
+            // Reopening the old root is part of rollback. A directory that is
+            // present but cannot be reopened is not a healthy readable copy.
+            _runtime = CreateRuntime(LocalIndexOpenMode.ReadOnly);
+            rollbackFailure = null;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            rollbackFailure = exception;
+            try { oldRuntime.MarkDegraded(); } catch { /* the runtime may already be disposed */ }
+            return false;
+        }
+    }
+
+    private void MarkUnusable(Exception installFailure, Exception rollbackFailure)
+    {
+        Volatile.Write(ref _lastInstallError, $"{installFailure.Message} Rollback failed: {rollbackFailure.Message}");
+        Interlocked.Exchange(ref _unusable, 1);
+        _runtime.MarkDegraded();
     }
 
     /// <summary>Reopens the committed local copy with a writer.</summary>
@@ -232,6 +345,11 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
     internal async ValueTask<IDisposable> EnterOperationAsync(CancellationToken cancellationToken)
     {
         await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (!IsUsable)
+        {
+            _operationGate.Release();
+            throw new LocalExecutionException(new ApiFailure("index_unusable", "The local index is unusable after a committed-state installation failure."));
+        }
         return new OperationLease(_operationGate);
     }
 
@@ -270,7 +388,7 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
         }
     }
 
-    private sealed class RuntimeCommitSnapshotLease(IndexRuntime runtime, IndexSnapshot snapshot, IndexBackupManifest manifest, string schemaHash) : CommitSnapshotLease
+    private sealed class RuntimeCommitSnapshotLease(IndexRuntime runtime, IndexSnapshot snapshot, IndexBackupManifest manifest, string schemaHash) : CommitSnapshotLease, ICommitSnapshotSource
     {
         private int _disposed;
         internal string SchemaHash => schemaHash;
@@ -283,7 +401,8 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
                 throw new ArgumentException("The file is not part of this commit snapshot.", nameof(fileName));
             return File.OpenRead(Path.Combine(runtime.Path, fileName));
         }
-        internal void CreateBackup(string path) => runtime.Writer.BackupSnapshot(snapshot, path, new IndexBackupOptions { OverwriteBackupDirectory = true });
+        public void CreateBackup(string path, CancellationToken cancellationToken) =>
+            runtime.Writer.BackupSnapshot(snapshot, path, new IndexBackupOptions { OverwriteBackupDirectory = true }, cancellationToken);
         public override void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) == 0)

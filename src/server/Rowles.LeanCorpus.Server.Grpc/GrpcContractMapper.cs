@@ -211,14 +211,39 @@ internal static class GrpcContractMapper
         return response;
     }
 
-    internal static GrpcContracts.HealthResponse ToGrpc(ServiceResult<ContractHealthResponse> result) => new()
+    internal static GrpcContracts.HealthResponse ToGrpc(ServiceResult<ContractHealthResponse> result)
     {
-        Metadata = ToGrpc(result.Metadata),
-        IsHealthy = result.Value?.IsHealthy ?? false,
-        Status = result.Value?.Status ?? string.Empty,
-        ObservedUtc = result.Value?.ObservedUtc.ToString("O", CultureInfo.InvariantCulture) ?? string.Empty,
-        Failure = ToGrpc(result.Failure)
-    };
+        GrpcContracts.HealthResponse response = new()
+        {
+            Metadata = ToGrpc(result.Metadata),
+            IsHealthy = result.Value?.IsHealthy ?? false,
+            Status = result.Value?.Status ?? string.Empty,
+            ObservedUtc = result.Value?.ObservedUtc.ToString("O", CultureInfo.InvariantCulture) ?? string.Empty,
+            Reason = result.Value?.Reason ?? string.Empty,
+            Failure = ToGrpc(result.Failure)
+        };
+        if (result.Value?.Indices is not null)
+        {
+            response.Indices.AddRange(result.Value.Indices.Select(index => new GrpcContracts.IndexHealthSummary
+            {
+                IndexName = index.IndexName,
+                IndexId = index.IndexId,
+                Mode = index.Mode,
+                VisibleGeneration = index.VisibleGeneration,
+                DurableGeneration = index.DurableGeneration,
+                PendingOperations = index.PendingOperations,
+                LastSuccessfulCommitUtc = index.LastSuccessfulCommitUtc?.ToString("O", CultureInfo.InvariantCulture) ?? string.Empty,
+                LastCommitError = index.LastCommitError ?? string.Empty,
+                ConsecutiveCommitFailures = index.ConsecutiveCommitFailures,
+                ActiveSnapshotLeases = index.ActiveSnapshotLeases,
+                IsInstalling = index.IsInstalling,
+                IsUsable = index.IsUsable,
+                IsDegraded = index.IsDegraded,
+                LastInstallError = index.LastInstallError ?? string.Empty
+            }));
+        }
+        return response;
+    }
 
     internal static GrpcContracts.ReadinessResponse ToGrpc(ServiceResult<ContractReadinessResponse> result) => new()
     {

@@ -14,6 +14,7 @@ public sealed class LocalCommitCoordinator : ILocalCommitCoordinator, IDisposabl
     private LocalCommitReceipt? _lastReceipt;
     private Exception? _lastFailure;
     private int _consecutiveFailures;
+    private long _lastSuccessfulCommitUtcTicks;
 
     internal LocalCommitCoordinator(IndexRuntime runtime, TimeSpan interval, Func<LocalCommitReceipt, ValueTask>? onCommitted = null)
     {
@@ -28,6 +29,14 @@ public sealed class LocalCommitCoordinator : ILocalCommitCoordinator, IDisposabl
     internal LocalCommitReceipt? LastReceipt => Volatile.Read(ref _lastReceipt);
     internal Exception? LastFailure => Volatile.Read(ref _lastFailure);
     internal int ConsecutiveFailures => Volatile.Read(ref _consecutiveFailures);
+    internal DateTimeOffset? LastSuccessfulCommitUtc
+    {
+        get
+        {
+            long ticks = Volatile.Read(ref _lastSuccessfulCommitUtcTicks);
+            return ticks == 0 ? null : new DateTimeOffset(ticks, TimeSpan.Zero);
+        }
+    }
 
     /// <inheritdoc />
     public CommitResult Commit(bool refresh = false)
@@ -41,6 +50,7 @@ public sealed class LocalCommitCoordinator : ILocalCommitCoordinator, IDisposabl
             Volatile.Write(ref _lastReceipt, receipt);
             Volatile.Write(ref _lastFailure, null);
             Interlocked.Exchange(ref _consecutiveFailures, 0);
+            Interlocked.Exchange(ref _lastSuccessfulCommitUtcTicks, DateTimeOffset.UtcNow.Ticks);
             _runtime.ClearDegraded();
             CompleteWaiters(receipt);
             if (_onCommitted is not null)

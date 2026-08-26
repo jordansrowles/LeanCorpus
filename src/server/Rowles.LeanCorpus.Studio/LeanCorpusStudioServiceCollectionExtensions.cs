@@ -40,7 +40,7 @@ public static class LeanCorpusStudioServiceCollectionExtensions
           <script src="/studio/assets/studio.js" defer></script>
         </head>
         <body>
-          <header><strong>LeanCorpus Studio</strong><span>Community Server 0.1.0-alpha</span></header>
+          <header><strong>LeanCorpus Studio</strong><span>Community Server 0.1.0-alpha.1</span></header>
           <div class="shell">
             <nav aria-label="Studio navigation">
               <button data-view="overview">Overview</button>

@@ -10,4 +10,7 @@ public sealed record LocalIndexHealth(
     string? LastCommitError,
     int ConsecutiveCommitFailures,
     int ActiveSnapshotLeases,
-    bool IsInstalling);
+    bool IsInstalling,
+    bool IsUsable = true,
+    bool IsDegraded = false,
+    string? LastInstallError = null);

@@ -30,8 +30,9 @@
       },
       "BulkDocumentsRequest": {
         "type": "object",
-        "required": ["operations"],
+        "required": ["indexName", "operations"],
         "properties": {
+          "indexName": { "type": "string" },
           "operations": { "type": "array", "items": { "type": "object" } },
           "refresh": { "type": "boolean", "default": false },
           "idempotencyKey": { "type": "string" },
@@ -40,14 +41,32 @@
       },
       "BulkDocumentsResponse": {
         "type": "object",
+        "required": ["items", "acknowledged"],
         "properties": {
+          "items": { "type": "array", "items": { "type": "object" } },
+          "acknowledged": { "type": "boolean" },
+          "commitGeneration": { "type": "integer", "format": "int64" },
           "writeToken": { "$ref": "#/components/schemas/WriteToken" }
         }
       },
       "SearchRequest": {
         "type": "object",
+        "required": ["query"],
         "properties": {
+          "query": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "kind": { "type": "string", "enum": ["queryString", "term", "boolean", "phrase", "prefix", "wildcard", "regexp", "spanNear", "vector"] }
+            }
+          },
+          "size": { "type": "integer", "minimum": 1 },
+          "searchAfter": { "type": "array" },
+          "sort": { "type": "array", "items": { "type": "object" } },
+          "facets": { "type": "array", "items": { "type": "object" } },
           "consistency": { "type": "string", "enum": ["Local", "Primary", "Replica", "ReadYourWrites"], "default": "Local" },
+          "includeDocuments": { "type": "boolean", "default": true },
+          "includeHighlights": { "type": "boolean", "default": false },
           "readToken": { "$ref": "#/components/schemas/WriteToken" }
         }
       }

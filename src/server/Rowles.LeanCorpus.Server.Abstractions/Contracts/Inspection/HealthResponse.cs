@@ -1,4 +1,9 @@
 namespace Rowles.LeanCorpus.Server.Abstractions.Contracts.Inspection;
 
 /// <summary>Describes process health without exposing internal implementation details.</summary>
-public sealed record HealthResponse(bool IsHealthy, string Status, DateTimeOffset ObservedUtc);
+public sealed record HealthResponse(
+    bool IsHealthy,
+    string Status,
+    DateTimeOffset ObservedUtc,
+    IReadOnlyList<IndexHealthSummary>? Indices = null,
+    string? Reason = null);

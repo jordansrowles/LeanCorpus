@@ -1,5 +1,7 @@
 namespace Rowles.LeanCorpus.Server.Core.Configuration;
 
+using Rowles.LeanCorpus.Server.Core.Execution;
+
 /// <summary>Configures local Server Core storage and request limits.</summary>
 public sealed class ServerCoreOptions
 {
@@ -50,6 +52,9 @@ public sealed class ServerCoreOptions
 
     /// <summary>Gets or sets how long shutdown waits for active operations to drain.</summary>
     public TimeSpan ShutdownTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>Gets or sets the internal commit observer used by the local registry.</summary>
+    internal ILocalCommitObserver? CommitObserver { get; set; }
 
     /// <summary>Validates the Core-only configuration before opening storage.</summary>
     public void Validate()

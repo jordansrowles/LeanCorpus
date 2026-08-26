@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Queries;
@@ -42,43 +43,57 @@ public sealed class LocalIndexExecutor(ServerCoreOptions options) : ILocalIndexE
         IndexRuntime runtime = index.Runtime;
         lock (runtime.WriteLock)
         {
-            foreach (BulkDocumentOperation operation in request.Operations)
+            if (TryPrepareBulkAdd(runtime, request, out LeanDocument[] bulkDocuments))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (string.IsNullOrWhiteSpace(operation.DocumentId))
+                runtime.Writer.AddDocuments(bulkDocuments);
+                foreach (BulkDocumentOperation operation in request.Operations)
                 {
-                    results.Add(new BulkDocumentResult(operation.DocumentId, false, new ApiFailure("invalid_document_id", "Document IDs are required.")));
-                    continue;
+                    lastSequence = runtime.MarkWrite();
+                    accepted++;
+                    results.Add(new BulkDocumentResult(operation.DocumentId, true));
                 }
-
-                switch (operation.Kind)
+            }
+            else
+            {
+                foreach (BulkDocumentOperation operation in request.Operations)
                 {
-                    case DocumentOperationKind.Index:
-                    case DocumentOperationKind.Update:
-                        if (operation.Document is not { ValueKind: System.Text.Json.JsonValueKind.Object } document)
-                        {
-                            results.Add(new BulkDocumentResult(operation.DocumentId, false, new ApiFailure("invalid_document", "Index and update operations require a JSON object.")));
-                            continue;
-                        }
-                        if (!ServerDocumentMapper.TryMap(operation.DocumentId, document, runtime.Schema, _options.MaximumDocumentBytes, out LeanDocument? mapped, out string code, out string message))
-                        {
-                            results.Add(new BulkDocumentResult(operation.DocumentId, false, new ApiFailure(code, message)));
-                            continue;
-                        }
-                        runtime.Writer.UpdateDocument(ServerDocumentMapper.DocumentIdField, operation.DocumentId, mapped!);
-                        lastSequence = runtime.MarkWrite();
-                        accepted++;
-                        results.Add(new BulkDocumentResult(operation.DocumentId, true));
-                        break;
-                    case DocumentOperationKind.Delete:
-                        runtime.Writer.DeleteDocuments(new TermQuery(ServerDocumentMapper.DocumentIdField, operation.DocumentId));
-                        lastSequence = runtime.MarkWrite();
-                        accepted++;
-                        results.Add(new BulkDocumentResult(operation.DocumentId, true));
-                        break;
-                    default:
-                        results.Add(new BulkDocumentResult(operation.DocumentId, false, new ApiFailure("invalid_operation", "The document operation is not recognised.")));
-                        break;
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (string.IsNullOrWhiteSpace(operation.DocumentId))
+                    {
+                        results.Add(new BulkDocumentResult(operation.DocumentId, false, new ApiFailure("invalid_document_id", "Document IDs are required.")));
+                        continue;
+                    }
+
+                    switch (operation.Kind)
+                    {
+                        case DocumentOperationKind.Index:
+                        case DocumentOperationKind.Update:
+                            if (operation.Document is not { ValueKind: System.Text.Json.JsonValueKind.Object } document)
+                            {
+                                results.Add(new BulkDocumentResult(operation.DocumentId, false, new ApiFailure("invalid_document", "Index and update operations require a JSON object.")));
+                                continue;
+                            }
+                            if (!ServerDocumentMapper.TryMap(operation.DocumentId, document, runtime.Schema, _options.MaximumDocumentBytes, out LeanDocument? mapped, out string code, out string message))
+                            {
+                                results.Add(new BulkDocumentResult(operation.DocumentId, false, new ApiFailure(code, message)));
+                                continue;
+                            }
+                            runtime.Writer.UpdateDocument(ServerDocumentMapper.DocumentIdField, operation.DocumentId, mapped!);
+                            lastSequence = runtime.MarkWrite();
+                            accepted++;
+                            results.Add(new BulkDocumentResult(operation.DocumentId, true));
+                            break;
+                        case DocumentOperationKind.Delete:
+                            runtime.Writer.DeleteDocuments(new TermQuery(ServerDocumentMapper.DocumentIdField, operation.DocumentId));
+                            lastSequence = runtime.MarkWrite();
+                            accepted++;
+                            results.Add(new BulkDocumentResult(operation.DocumentId, true));
+                            break;
+                        default:
+                            results.Add(new BulkDocumentResult(operation.DocumentId, false, new ApiFailure("invalid_operation", "The document operation is not recognised.")));
+                            break;
+                    }
                 }
             }
 
@@ -97,6 +112,34 @@ public sealed class LocalIndexExecutor(ServerCoreOptions options) : ILocalIndexE
 
         using SearcherLease visible = runtime.Searchers.AcquireLease();
         return new LocalWriteResult(results, accepted, committed, receipt, lastSequence, visible.CommitGeneration);
+    }
+
+    private bool TryPrepareBulkAdd(IndexRuntime runtime, BulkDocumentsRequest request, out LeanDocument[] documents)
+    {
+        documents = [];
+        if (request.Operations.Count == 0
+            || runtime.PendingOperations != 0
+            || request.Operations.Any(static operation => operation.Kind is not (DocumentOperationKind.Index or DocumentOperationKind.Update)))
+            return false;
+
+        using SearcherLease visible = runtime.Searchers.AcquireLease();
+        if (visible.CommitGeneration != runtime.Writer.CurrentCommitGeneration || visible.Searcher.Stats.LiveDocCount != 0)
+            return false;
+
+        HashSet<string> ids = new(StringComparer.Ordinal);
+        List<LeanDocument> mappedDocuments = new(request.Operations.Count);
+        foreach (BulkDocumentOperation operation in request.Operations)
+        {
+            if (string.IsNullOrWhiteSpace(operation.DocumentId)
+                || !ids.Add(operation.DocumentId)
+                || operation.Document is not { ValueKind: System.Text.Json.JsonValueKind.Object } document
+                || !ServerDocumentMapper.TryMap(operation.DocumentId, document, runtime.Schema, _options.MaximumDocumentBytes, out LeanDocument? mapped, out _, out _))
+                return false;
+            mappedDocuments.Add(mapped!);
+        }
+
+        documents = mappedDocuments.ToArray();
+        return true;
     }
 
     /// <inheritdoc />
@@ -139,19 +182,19 @@ public sealed class LocalIndexExecutor(ServerCoreOptions options) : ILocalIndexE
 
         if (facetFields.Length > 0)
             (documents, engineFacets) = lease.Searcher.SearchWithFacets(query!, request.Size, facetFields);
-        else if (request.SearchAfter is { Count: > 0 })
+        else if (request.SearchAfter is not null)
         {
-            if (!TryDecodeSearchAfter(request.SearchAfter, out ScoreDoc after))
-                throw new LocalExecutionException(new ApiFailure("invalid_search_after", "Search-after must contain an internal document ID and score."));
-            documents = lease.Searcher.SearchAfter(after, query!, request.Size, sorts.ToArray());
+            if (!TryDecodeSearchAfter(request.SearchAfter, sorts, out SearchAfterValue[] after))
+                throw new LocalExecutionException(new ApiFailure("invalid_search_after", "Search-after is not a valid cursor for the requested sort order."));
+            documents = lease.Searcher.SearchAfter(after, query!, request.Size, sorts);
         }
         else
             documents = lease.Searcher.Search(query!, request.Size, sorts, SearchOptions.Default);
 
         stopwatch.Stop();
-        SearchHit[] hits = documents.ScoreDocs.Select(score => ToSearchHit(lease, score, request.IncludeDocuments)).ToArray();
+        SearchHit[] hits = documents.ScoreDocs.Select(score => ToSearchHit(lease, score, request.IncludeDocuments, sorts)).ToArray();
         IReadOnlyList<ServerFacetResult>? facets = request.Facets is { Count: > 0 } ? MapFacets(request.Facets, engineFacets) : null;
-        IReadOnlyList<object?>? next = hits.Length == 0 ? null : [documents.ScoreDocs[^1].DocId, documents.ScoreDocs[^1].Score];
+        IReadOnlyList<object?>? next = hits.Length == 0 ? null : CreateSearchAfter(lease, documents.ScoreDocs[^1], sorts);
         SearchResponse response = new(hits, documents.TotalHits, TotalHitsRelation.Exact, ScoringModel.ShardLocal,
             new ShardSearchSummary(1, documents.IsPartial ? 0 : 1, documents.IsPartial ? 1 : 0, 0),
             new SearchTiming((long)stopwatch.Elapsed.TotalMilliseconds), next, facets, null, documents.IsPartial);
@@ -187,7 +230,11 @@ public sealed class LocalIndexExecutor(ServerCoreOptions options) : ILocalIndexE
         return ToExplainResponse(explanation);
     }
 
-    private static SearchHit ToSearchHit(SearcherLease lease, ScoreDoc scoreDocument, bool includeDocument)
+    private static SearchHit ToSearchHit(
+        SearcherLease lease,
+        ScoreDoc scoreDocument,
+        bool includeDocument,
+        IReadOnlyList<SortField> sorts)
     {
         IReadOnlyDictionary<string, IReadOnlyList<string>> stored = lease.Searcher.GetStoredFields(scoreDocument.DocId);
         string documentId = stored.TryGetValue(ServerDocumentMapper.DocumentIdField, out IReadOnlyList<string>? identifiers) && identifiers.Count > 0 ? identifiers[0] : scoreDocument.DocId.ToString(CultureInfo.InvariantCulture);
@@ -197,13 +244,19 @@ public sealed class LocalIndexExecutor(ServerCoreOptions options) : ILocalIndexE
             using System.Text.Json.JsonDocument parsed = System.Text.Json.JsonDocument.Parse(rawDocuments[0]);
             document = parsed.RootElement.Clone();
         }
-        return new SearchHit(documentId, scoreDocument.Score, document, null, [scoreDocument.DocId, scoreDocument.Score]);
+        IReadOnlyList<object?> sortValues = lease.Searcher.CaptureSortValues(scoreDocument, sorts).Select(ToPublicSortValue).ToArray();
+        return new SearchHit(documentId, scoreDocument.Score, document, null, sortValues);
     }
 
     private static List<SortField> BuildSorts(IReadOnlyList<SortDefinition>? definitions, CompiledIndexSchema schema)
     {
         List<SortField> sorts = [];
-        if (definitions is null or { Count: 0 }) { sorts.Add(SortField.Score); sorts.Add(SortField.DocId); return sorts; }
+        if (definitions is null or { Count: 0 })
+        {
+            sorts.Add(SortField.Score);
+            sorts.Add(SortField.String(ServerDocumentMapper.DocumentIdField));
+            return sorts;
+        }
         foreach (SortDefinition definition in definitions)
         {
             bool descending = definition.Direction == SortDirection.Descending;
@@ -213,30 +266,170 @@ public sealed class LocalIndexExecutor(ServerCoreOptions options) : ILocalIndexE
             sorts.Add(field.Source.Type switch
             {
                 IndexFieldType.Int64 => SortField.Int64(definition.Field, descending),
-                IndexFieldType.Double or IndexFieldType.DateTime => SortField.Numeric(definition.Field, descending),
+                IndexFieldType.Double => SortField.Numeric(definition.Field, descending),
+                IndexFieldType.DateTime => SortField.Int64(definition.Field, descending),
                 IndexFieldType.Keyword or IndexFieldType.Boolean => SortField.String(definition.Field, descending),
                 _ => throw new ArgumentException($"Field '{definition.Field}' cannot be sorted.")
             });
         }
-        if (!sorts.Any(static sort => sort.Type == SortFieldType.DocId)) sorts.Add(SortField.DocId);
+        if (!sorts.Any(sort => sort.Type == SortFieldType.String && sort.FieldName == ServerDocumentMapper.DocumentIdField))
+            sorts.Add(SortField.String(ServerDocumentMapper.DocumentIdField));
         return sorts;
     }
 
-    private static bool TryDecodeSearchAfter(IReadOnlyList<object?> values, out ScoreDoc scoreDoc)
+    private static IReadOnlyList<object?> CreateSearchAfter(
+        SearcherLease lease,
+        ScoreDoc scoreDocument,
+        IReadOnlyList<SortField> sorts)
     {
-        scoreDoc = default;
-        if (values.Count < 2 || !TryConvertInt(values[0], out int docId) || !TryConvertFloat(values[1], out float score) || docId < 0 || !float.IsFinite(score)) return false;
-        scoreDoc = new ScoreDoc(docId, score); return true;
+        SearchAfterValue[] values = lease.Searcher.CaptureSortValues(scoreDocument, sorts);
+        object?[] cursor = new object?[values.Length + 2];
+        cursor[0] = 1;
+        cursor[1] = SortIdentity(sorts);
+        for (int i = 0; i < values.Length; i++)
+            cursor[i + 2] = ToPublicSortValue(values[i]);
+        return cursor;
     }
+
+    private static bool TryDecodeSearchAfter(
+        IReadOnlyList<object?> values,
+        IReadOnlyList<SortField> sorts,
+        out SearchAfterValue[] afterValues)
+    {
+        afterValues = [];
+        if (values.Count != sorts.Count + 2 || !TryConvertInt(values[0], out int version) || version != 1)
+            return false;
+        if (!TryConvertString(values[1], out string? shape) || !string.Equals(shape, SortIdentity(sorts), StringComparison.Ordinal))
+            return false;
+
+        var decoded = new SearchAfterValue[sorts.Count];
+        for (int i = 0; i < sorts.Count; i++)
+        {
+            object? value = values[i + 2];
+            SortField sort = sorts[i];
+            switch (sort.Type)
+            {
+                case SortFieldType.Score:
+                case SortFieldType.Numeric:
+                    if (!TryConvertDouble(value, out double number)) return false;
+                    decoded[i] = SearchAfterValue.FromNumeric(sort.Type, number);
+                    break;
+                case SortFieldType.DocId:
+                case SortFieldType.Int64:
+                    if (!TryConvertLong(value, out long integer)) return false;
+                    decoded[i] = SearchAfterValue.FromInt64(sort.Type, integer);
+                    break;
+                case SortFieldType.String:
+                    if (!TryConvertString(value, out string? text) || text is null) return false;
+                    decoded[i] = SearchAfterValue.FromString(text);
+                    break;
+                default:
+                    return false;
+            }
+        }
+
+        afterValues = decoded;
+        return true;
+    }
+
+    private static string SortIdentity(IReadOnlyList<SortField> sorts)
+    {
+        var builder = new StringBuilder();
+        foreach (SortField sort in sorts)
+        {
+            builder.Append((int)sort.Type)
+                .Append(':')
+                .Append(sort.Descending ? '1' : '0')
+                .Append(':')
+                .Append((int)sort.Selector)
+                .Append(':')
+                .Append(sort.FieldName.Length)
+                .Append(':')
+                .Append(sort.FieldName)
+                .Append(';');
+        }
+        return builder.ToString();
+    }
+
+    private static object ToPublicSortValue(SearchAfterValue value) => value.Type switch
+    {
+        SortFieldType.Score or SortFieldType.Numeric => value.NumericValue,
+        SortFieldType.DocId or SortFieldType.Int64 => value.Int64Value,
+        SortFieldType.String => value.StringValue!,
+        _ => throw new ArgumentOutOfRangeException(nameof(value), value.Type, "The sort value type is not supported.")
+    };
 
     private static bool TryConvertInt(object? value, out int result)
     {
-        switch (value) { case int integer: result = integer; return true; case long value64 when value64 is >= int.MinValue and <= int.MaxValue: result = (int)value64; return true; case System.Text.Json.JsonElement json when json.TryGetInt32(out result): return true; default: result = 0; return false; }
+        switch (value)
+        {
+            case int integer:
+                result = integer;
+                return true;
+            case long value64 when value64 is >= int.MinValue and <= int.MaxValue:
+                result = (int)value64;
+                return true;
+            case System.Text.Json.JsonElement json when json.TryGetInt32(out result):
+                return true;
+            default:
+                result = 0;
+                return false;
+        }
     }
 
-    private static bool TryConvertFloat(object? value, out float result)
+    private static bool TryConvertLong(object? value, out long result)
     {
-        switch (value) { case float single: result = single; return true; case double number when double.IsFinite(number): result = (float)number; return float.IsFinite(result); case System.Text.Json.JsonElement json when json.TryGetSingle(out result): return true; default: result = 0; return false; }
+        switch (value)
+        {
+            case long integer:
+                result = integer;
+                return true;
+            case int value32:
+                result = value32;
+                return true;
+            case System.Text.Json.JsonElement json when json.TryGetInt64(out result):
+                return true;
+            default:
+                result = 0;
+                return false;
+        }
+    }
+
+    private static bool TryConvertDouble(object? value, out double result)
+    {
+        switch (value)
+        {
+            case double number when double.IsFinite(number):
+                result = number;
+                return true;
+            case float single when float.IsFinite(single):
+                result = single;
+                return true;
+            case decimal decimalValue:
+                result = (double)decimalValue;
+                return double.IsFinite(result);
+            case System.Text.Json.JsonElement json when json.TryGetDouble(out result):
+                return double.IsFinite(result);
+            default:
+                result = 0;
+                return false;
+        }
+    }
+
+    private static bool TryConvertString(object? value, out string? result)
+    {
+        switch (value)
+        {
+            case string text:
+                result = text;
+                return true;
+            case System.Text.Json.JsonElement json when json.ValueKind == System.Text.Json.JsonValueKind.String:
+                result = json.GetString();
+                return true;
+            default:
+                result = null;
+                return false;
+        }
     }
 
     private static IReadOnlyList<ServerFacetResult> MapFacets(IReadOnlyList<FacetDefinition> requested, IReadOnlyList<EngineFacetResult> actual)

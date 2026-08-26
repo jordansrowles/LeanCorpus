@@ -9,15 +9,27 @@ public sealed class LocalIndexStore : ILocalIndexStore
     private readonly TimeSpan _commitInterval;
     private readonly TimeSpan _refreshInterval;
     private readonly ILocalCommitObserver _observer;
+    private readonly ICommitInstallOperations _installOperations;
     private readonly Dictionary<PhysicalIndexId, LocalIndexHandle> _handles = [];
 
     /// <summary>Creates a physical store rooted at a server-owned directory.</summary>
     public LocalIndexStore(string root, TimeSpan commitInterval, TimeSpan refreshInterval, ILocalCommitObserver? observer = null)
+        : this(root, commitInterval, refreshInterval, observer, installOperations: null)
+    {
+    }
+
+    internal LocalIndexStore(
+        string root,
+        TimeSpan commitInterval,
+        TimeSpan refreshInterval,
+        ILocalCommitObserver? observer,
+        ICommitInstallOperations? installOperations)
     {
         _root = Path.GetFullPath(root);
         _commitInterval = commitInterval;
         _refreshInterval = refreshInterval;
         _observer = observer ?? NullLocalCommitObserver.Instance;
+        _installOperations = installOperations ?? DefaultCommitInstallOperations.Instance;
         Directory.CreateDirectory(_root);
         RecoverAbandonedInstallDirectories();
     }
@@ -30,7 +42,7 @@ public sealed class LocalIndexStore : ILocalIndexStore
         if (Exists(descriptor.Id)) throw new InvalidOperationException("The physical index already exists.");
         string path = PathFor(descriptor.Id);
         Directory.CreateDirectory(path);
-        LocalIndexHandle handle = new(descriptor, path, descriptor.Settings.CommitInterval ?? _commitInterval, descriptor.Settings.RefreshInterval ?? _refreshInterval, mode, _observer);
+        LocalIndexHandle handle = new(descriptor, path, descriptor.Settings.CommitInterval ?? _commitInterval, descriptor.Settings.RefreshInterval ?? _refreshInterval, mode, _observer, _installOperations);
         _handles.Add(descriptor.Id, handle);
         return ValueTask.FromResult(handle);
     }
@@ -55,7 +67,7 @@ public sealed class LocalIndexStore : ILocalIndexStore
         }
         string path = PathFor(descriptor.Id);
         if (!Directory.Exists(path)) throw new DirectoryNotFoundException("The physical index does not exist.");
-        LocalIndexHandle handle = new(descriptor, path, descriptor.Settings.CommitInterval ?? _commitInterval, descriptor.Settings.RefreshInterval ?? _refreshInterval, mode, _observer);
+        LocalIndexHandle handle = new(descriptor, path, descriptor.Settings.CommitInterval ?? _commitInterval, descriptor.Settings.RefreshInterval ?? _refreshInterval, mode, _observer, _installOperations);
         _handles.Add(descriptor.Id, handle);
         return handle;
     }

@@ -107,7 +107,31 @@ message InspectionResponse {
   optional int64 metadata_epoch = 5;
   ContractFailure failure = 6;
 }
-message HealthResponse { ResponseMetadata metadata = 1; bool is_healthy = 2; string status = 3; string observed_utc = 4; ContractFailure failure = 5; }
+message IndexHealthSummary {
+  string index_name = 1;
+  string index_id = 2;
+  string mode = 3;
+  int64 visible_generation = 4;
+  int64 durable_generation = 5;
+  int64 pending_operations = 6;
+  string last_successful_commit_utc = 7;
+  string last_commit_error = 8;
+  int32 consecutive_commit_failures = 9;
+  int32 active_snapshot_leases = 10;
+  bool is_installing = 11;
+  bool is_usable = 12;
+  bool is_degraded = 13;
+  string last_install_error = 14;
+}
+message HealthResponse {
+  ResponseMetadata metadata = 1;
+  bool is_healthy = 2;
+  string status = 3;
+  string observed_utc = 4;
+  ContractFailure failure = 5;
+  repeated IndexHealthSummary indices = 6;
+  string reason = 7;
+}
 message ReadinessResponse { ResponseMetadata metadata = 1; bool is_ready = 2; string status = 3; string observed_utc = 4; string reason = 5; ContractFailure failure = 6; }
 
 service SearchService {

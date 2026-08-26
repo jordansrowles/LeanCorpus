@@ -1,6 +1,9 @@
+using System.Text.Json.Serialization;
+
 namespace Rowles.LeanCorpus.Server.Abstractions.Contracts.Search;
 
 /// <summary>Specifies the caller's read-consistency requirement.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<RequestedConsistency>))]
 public enum RequestedConsistency
 {
     /// <summary>Read the local copy.</summary>

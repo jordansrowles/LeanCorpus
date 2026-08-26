@@ -25,17 +25,13 @@ using Rowles.LeanCorpus.Server.Core.Serialisation;
 using Rowles.LeanCorpus.Server.Core.Storage;
 using Rowles.LeanCorpus.Server.Abstractions.Serialisation;
 using Rowles.LeanCorpus.Diagnostics;
-using EngineFacetResult = Rowles.LeanCorpus.Search.Scoring.FacetResult;
-using ServerFacetBucket = Rowles.LeanCorpus.Server.Abstractions.Contracts.Search.FacetBucket;
-using ServerFacetResult = Rowles.LeanCorpus.Server.Abstractions.Contracts.Search.FacetResult;
-
 namespace Rowles.LeanCorpus.Server.Core.Services;
 
 /// <summary>Implements the transport-neutral Community Server operations.</summary>
 public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentService, ISearchService, IInspectionService, IDisposable
 {
     private static readonly ActivitySource ActivitySource = new("Rowles.LeanCorpus.Server");
-    private static readonly Meter ServerMeter = new("Rowles.LeanCorpus.Server", "0.1.0-alpha.2");
+    private static readonly Meter ServerMeter = new("Rowles.LeanCorpus.Server", "0.1.0-alpha.1");
     private static readonly Counter<long> RequestCounter = ServerMeter.CreateCounter<long>("leancorpus.server.requests");
     private static readonly Histogram<double> RequestDuration = ServerMeter.CreateHistogram<double>("leancorpus.server.request.duration", "ms");
     private static readonly Counter<long> BulkOperationCounter = ServerMeter.CreateCounter<long>("leancorpus.server.bulk.operations");
@@ -531,8 +527,20 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
         using OperationStart start = await BeginAsync(OperationKind.ReadHealth, null, null, null, cancellationToken).ConfigureAwait(false);
         if (start.Failure is { } authenticationFailure)
             return Failure<HealthResponse>(start.Context, authenticationFailure);
-        bool healthy = Volatile.Read(ref _disposed) == 0;
-        return Success(start.Context, new HealthResponse(healthy, healthy ? "healthy" : "stopped", DateTimeOffset.UtcNow));
+        DateTimeOffset observedUtc = DateTimeOffset.UtcNow;
+        if (Volatile.Read(ref _disposed) != 0)
+            return Success(start.Context, new HealthResponse(false, "unhealthy", observedUtc, [], "server stopped."));
+        if (Volatile.Read(ref _draining) != 0)
+            return Success(start.Context, new HealthResponse(false, "draining", observedUtc, [], "server is draining."));
+
+        (IReadOnlyList<IndexHealthSummary> indices, bool hasUnusable, bool hasDegraded) = ReadIndexHealth();
+        string status = hasUnusable ? "unhealthy" : hasDegraded ? "degraded" : "healthy";
+        string? reason = hasUnusable
+            ? "One or more indexes are unusable."
+            : hasDegraded
+                ? "One or more indexes are degraded; previously committed reads remain available."
+                : null;
+        return Success(start.Context, new HealthResponse(status == "healthy", status, observedUtc, indices, reason));
     }
 
     /// <inheritdoc />
@@ -541,8 +549,19 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
         using OperationStart start = await BeginAsync(OperationKind.ReadReadiness, null, null, null, cancellationToken).ConfigureAwait(false);
         if (start.Failure is { } authenticationFailure)
             return Failure<ReadinessResponse>(start.Context, authenticationFailure);
-        bool ready = Volatile.Read(ref _disposed) == 0 && Volatile.Read(ref _draining) == 0;
-        return Success(start.Context, new ReadinessResponse(ready, ready ? "ready" : "stopped", DateTimeOffset.UtcNow));
+        if (Volatile.Read(ref _disposed) != 0)
+            return Success(start.Context, new ReadinessResponse(false, "unhealthy", DateTimeOffset.UtcNow, "server stopped."));
+        if (Volatile.Read(ref _draining) != 0)
+            return Success(start.Context, new ReadinessResponse(false, "draining", DateTimeOffset.UtcNow, "server is draining."));
+
+        (IReadOnlyList<IndexHealthSummary> _, bool hasUnusable, bool hasDegraded) = ReadIndexHealth();
+        if (hasUnusable)
+            return Success(start.Context, new ReadinessResponse(false, "unhealthy", DateTimeOffset.UtcNow, "One or more indexes are unusable."));
+
+        // Degraded indexes remain ready because previously committed reads are
+        // still available. An unusable index is the readiness boundary.
+        return Success(start.Context, new ReadinessResponse(true, "ready", DateTimeOffset.UtcNow,
+            hasDegraded ? "One or more indexes are degraded; writes may be unavailable." : null));
     }
 
     /// <summary>Disposes all local index resources.</summary>
@@ -639,20 +658,35 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
         return new IndexSummary(entry.Registration.Name, entry.Registration.Id, entry.Registration.SchemaHash, lease.Searcher.Stats.LiveDocCount, entry.Registration.CreatedUtc);
     }
 
-    private static SearchHit ToSearchHit(SearcherLease lease, ScoreDoc scoreDocument, bool includeDocument, IReadOnlyList<SortField> sorts)
+    private (IReadOnlyList<IndexHealthSummary> Indices, bool HasUnusable, bool HasDegraded) ReadIndexHealth()
     {
-        IReadOnlyDictionary<string, IReadOnlyList<string>> stored = lease.Searcher.GetStoredFields(scoreDocument.DocId);
-        string documentId = stored.TryGetValue(ServerDocumentMapper.DocumentIdField, out IReadOnlyList<string>? identifiers) && identifiers.Count > 0
-            ? identifiers[0]
-            : scoreDocument.DocId.ToString(CultureInfo.InvariantCulture);
-        JsonElement? document = null;
-        if (includeDocument && stored.TryGetValue(ServerDocumentMapper.RawDocumentField, out IReadOnlyList<string>? rawDocuments) && rawDocuments.Count > 0)
+        IndexRuntimeEntry[] entries = _registry.List().ToArray();
+        IndexHealthSummary[] indices = new IndexHealthSummary[entries.Length];
+        bool hasUnusable = false;
+        bool hasDegraded = false;
+        for (int i = 0; i < entries.Length; i++)
         {
-            using JsonDocument parsed = JsonDocument.Parse(rawDocuments[0]);
-            document = parsed.RootElement.Clone();
+            IndexRuntimeEntry entry = entries[i];
+            LocalIndexHealth health = entry.Handle.Health;
+            indices[i] = new IndexHealthSummary(
+                entry.Registration.Name,
+                entry.Registration.Id,
+                health.Mode.ToString(),
+                health.VisibleGeneration,
+                health.DurableGeneration,
+                health.PendingOperations,
+                health.LastSuccessfulCommitUtc,
+                health.LastCommitError,
+                health.ConsecutiveCommitFailures,
+                health.ActiveSnapshotLeases,
+                health.IsInstalling,
+                health.IsUsable,
+                health.IsDegraded,
+                health.LastInstallError);
+            hasUnusable |= !health.IsUsable;
+            hasDegraded |= health.IsDegraded;
         }
-        IReadOnlyList<object?> sortValues = [scoreDocument.DocId, scoreDocument.Score];
-        return new SearchHit(documentId, scoreDocument.Score, document, null, sortValues);
+        return (indices, hasUnusable, hasDegraded);
     }
 
     private static BoundedInspectionDocument ToBoundedInspectionDocument(SearcherLease lease, ScoreDoc scoreDocument, int maximumValueLength)
@@ -666,91 +700,6 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
             : string.Empty;
         bool truncated = raw.Length > maximumValueLength;
         return new BoundedInspectionDocument(documentId, truncated ? raw[..maximumValueLength] : raw, truncated);
-    }
-
-    private static List<SortField> BuildSorts(IReadOnlyList<SortDefinition>? definitions, CompiledIndexSchema schema)
-    {
-        List<SortField> sorts = [];
-        if (definitions is null or { Count: 0 })
-        {
-            sorts.Add(SortField.Score);
-            sorts.Add(SortField.DocId);
-            return sorts;
-        }
-
-        foreach (SortDefinition definition in definitions)
-        {
-            bool descending = definition.Direction == SortDirection.Descending;
-            if (definition.Field is "_id")
-            {
-                sorts.Add(new SortField(SortFieldType.String, ServerDocumentMapper.DocumentIdField, descending));
-                continue;
-            }
-            if (!schema.Fields.TryGetValue(definition.Field, out CompiledFieldDefinition? field) || !field.Source.Indexed)
-                throw new ArgumentException($"Field '{definition.Field}' is not available for sorting.");
-            sorts.Add(field.Source.Type switch
-            {
-                IndexFieldType.Int64 => SortField.Int64(definition.Field, descending),
-                IndexFieldType.Double or IndexFieldType.DateTime => SortField.Numeric(definition.Field, descending),
-                IndexFieldType.Keyword or IndexFieldType.Boolean => SortField.String(definition.Field, descending),
-                _ => throw new ArgumentException($"Field '{definition.Field}' cannot be sorted.")
-            });
-        }
-        if (!sorts.Any(static sort => sort.Type == SortFieldType.DocId))
-            sorts.Add(SortField.DocId);
-        return sorts;
-    }
-
-    private static bool TryDecodeSearchAfter(IReadOnlyList<object?> values, out ScoreDoc scoreDoc)
-    {
-        scoreDoc = default;
-        if (values.Count < 2)
-            return false;
-        if (!TryConvertInt(values[0], out int docId) || !TryConvertFloat(values[1], out float score) || docId < 0 || !float.IsFinite(score))
-            return false;
-        scoreDoc = new ScoreDoc(docId, score);
-        return true;
-    }
-
-    private static bool TryConvertInt(object? value, out int result)
-    {
-        switch (value)
-        {
-            case int integer: result = integer; return true;
-            case long longValue when longValue is >= int.MinValue and <= int.MaxValue: result = (int)longValue; return true;
-            case JsonElement json when json.TryGetInt32(out result): return true;
-            default: result = 0; return false;
-        }
-    }
-
-    private static bool TryConvertFloat(object? value, out float result)
-    {
-        switch (value)
-        {
-            case float single: result = single; return true;
-            case double doubleValue when double.IsFinite(doubleValue): result = (float)doubleValue; return float.IsFinite(result);
-            case JsonElement json when json.TryGetSingle(out result): return true;
-            default: result = 0; return false;
-        }
-    }
-
-    private static IReadOnlyList<ServerFacetResult> MapFacets(IReadOnlyList<FacetDefinition> requested, IReadOnlyList<EngineFacetResult> actual)
-    {
-        Dictionary<string, EngineFacetResult> byField = actual.ToDictionary(item => item.FieldName, StringComparer.Ordinal);
-        List<ServerFacetResult> result = new(requested.Count);
-        foreach (FacetDefinition definition in requested)
-        {
-            if (!byField.TryGetValue(definition.Field, out EngineFacetResult? facet))
-            {
-                result.Add(new ServerFacetResult(definition.Name, FacetCompleteness.Complete, []));
-                continue;
-            }
-            IEnumerable<Rowles.LeanCorpus.Search.Scoring.FacetBucket> buckets = facet.Buckets;
-            if (definition.Size is > 0)
-                buckets = buckets.Take(definition.Size.Value);
-            result.Add(new ServerFacetResult(definition.Name, FacetCompleteness.Complete, buckets.Select(bucket => new ServerFacetBucket(bucket.Value, bucket.Count)).ToArray()));
-        }
-        return result;
     }
 
     private static ExplainResponse ToExplainResponse(Explanation explanation) =>
