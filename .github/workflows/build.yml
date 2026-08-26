@@ -5,13 +5,35 @@ on:
     branches: [main, '[0-9]*']
   pull_request:
     branches: [main, '[0-9]*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     if: |
       github.event_name == 'pull_request' ||
       startsWith(github.event.head_commit.message, '[build]') ||
       startsWith(github.event.head_commit.message, '[deploy]')
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: linux
+            collect_coverage: true
+          - os: windows-2025
+            artifact: windows
+            collect_coverage: false
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      TEST_RESULTS_ROOT: test-results/${{ matrix.artifact }}
+
     steps:
       - uses: actions/checkout@v6
 
@@ -24,191 +46,99 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-quality: preview
 
       - name: Add .NET tools to PATH
-        run: echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+        shell: pwsh
+        run: '"$HOME/.dotnet/tools" | Add-Content $env:GITHUB_PATH'
 
-      - name: Restore tests
-        run: |
-          dotnet restore src/core/Rowles.Text/Rowles.Text.csproj
-          dotnet restore src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj
-          dotnet restore src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj
-          dotnet restore src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj
-          dotnet restore src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj
-          dotnet restore src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj
-          dotnet restore src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj
-          dotnet restore src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj
-
-      - name: Restore architecture tests
-        run: dotnet restore src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj
-
-      - name: Build tests
-        run: |
-          dotnet build src/core/Rowles.Text/Rowles.Text.csproj -c Release --no-restore
-          dotnet build src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj -c Release --no-restore
-          dotnet build src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj -c Release --no-restore
-          dotnet build src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-restore
-          dotnet build src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-restore
-          dotnet build src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj -c Release --no-restore
-          dotnet build src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj -c Release --no-restore
-          dotnet build src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj -c Release --no-restore
+      - name: Build solution
+        shell: pwsh
+        run: ./devops.ps1 build
 
       - name: Pack Rowles.Text
+        shell: pwsh
         run: dotnet pack src/core/Rowles.Text/Rowles.Text.csproj -c Release --no-build
 
       - name: Upload Rowles.Text package
         uses: actions/upload-artifact@v7
         with:
-          name: rowles-text-package
+          name: rowles-text-package-${{ matrix.artifact }}
           path: src/core/Rowles.Text/bin/Release/*.nupkg
+          if-no-files-found: error
 
-      - name: Build architecture tests
-        run: dotnet build src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj -c Release --no-restore
-
-      - name: Test
+      - name: Test target frameworks
+        shell: pwsh
+        env:
+          COLLECT_COVERAGE: ${{ matrix.collect_coverage }}
+          CHAOS_ITERATIONS: 1000
         run: |
-          dotnet test src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj -c Release --no-build --logger "trx;LogFileName=rowles-text-test-results.trx"
-          CHAOS_ITERATIONS=1000 dotnet test src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj -c Release --no-build --logger "trx;LogFileName=core-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
-          dotnet test src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-build --logger "trx;LogFileName=sourcegen-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
-          dotnet test src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj -c Release --no-build --logger "trx;LogFileName=server-abstractions-test-results.trx"
-          dotnet test src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj -c Release --no-build --logger "trx;LogFileName=server-core-test-results.trx"
-          dotnet test src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj -c Release --no-build --logger "trx;LogFileName=server-integration-test-results.trx"
+          $testSuites = @(
+            @{ Name = 'text'; Project = 'src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj'; Coverage = $false }
+            @{ Name = 'core'; Project = 'src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj'; Coverage = $true }
+            @{ Name = 'sourcegen'; Project = 'src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj'; Coverage = $true }
+            @{ Name = 'architecture'; Project = 'src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj'; Coverage = $false }
+            @{ Name = 'server-abstractions'; Project = 'src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj'; Coverage = $false; Frameworks = @('net11.0') }
+            @{ Name = 'server-core'; Project = 'src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj'; Coverage = $false; Frameworks = @('net11.0') }
+            @{ Name = 'server-integration'; Project = 'src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj'; Coverage = $false; Frameworks = @('net11.0') }
+          )
+          $frameworks = @('net10.0', 'net11.0')
+          $isWindows = $env:RUNNER_OS -eq 'Windows'
+          $collectCoverage = $env:COLLECT_COVERAGE -eq 'true'
 
-      - name: Test architecture rules
-        run: |
-          dotnet test src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj -c Release -f net10.0 --no-build --logger "trx;LogFileName=architecture-net10-test-results.trx" --results-directory architecture-test-results/net10.0
-          dotnet test src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj -c Release -f net11.0 --no-build --logger "trx;LogFileName=architecture-net11-test-results.trx" --results-directory architecture-test-results/net11.0
+          foreach ($framework in $frameworks) {
+            foreach ($suite in $testSuites) {
+              if ($suite.ContainsKey('Frameworks') -and $framework -notin $suite.Frameworks) {
+                continue
+              }
+
+              $resultsDirectory = Join-Path $env:TEST_RESULTS_ROOT "$framework/$($suite.Name)"
+              $testArguments = @(
+                'test', $suite.Project, '-c', 'Release', '-f', $framework, '--no-build',
+                '--logger', "trx;LogFileName=$($suite.Name)-$framework.trx",
+                '--results-directory', $resultsDirectory
+              )
+
+              if ($collectCoverage -and $suite.Coverage) {
+                $testArguments += @('--collect', 'XPlat Code Coverage')
+              }
+
+              if ($isWindows -and $suite.Name -eq 'core') {
+                $testArguments += @('--blame-hang', '--blame-hang-timeout', '2m')
+              }
+
+              & dotnet @testArguments
+              if ($LASTEXITCODE -ne 0) {
+                exit $LASTEXITCODE
+              }
+            }
+          }
 
       - name: Run Native AOT smoke tests
-        run: ./devops aot
+        shell: pwsh
+        run: ./devops.ps1 aot
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: test-results
-          path: |
-            src/devops/Rowles.Text.Tests/TestResults/*.trx
-            src/devops/Rowles.LeanCorpus.Tests.Core/TestResults/*.trx
-            src/devops/Rowles.LeanCorpus.Tests.SourceGen/TestResults/*.trx
-            src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/TestResults/*.trx
-            src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/TestResults/*.trx
-            src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/TestResults/*.trx
-            architecture-test-results/**/*.trx
-          if-no-files-found: ignore
+          name: test-results-${{ matrix.artifact }}
+          path: test-results/${{ matrix.artifact }}
+          if-no-files-found: warn
 
       - name: Upload coverage results
-        if: always()
+        if: always() && matrix.collect_coverage
         uses: actions/upload-artifact@v7
         with:
           name: coverage-results
-          path: coverage-results/**/coverage.cobertura.xml
-          if-no-files-found: ignore
-
-  windows-build:
-    if: |
-      github.event_name == 'pull_request' ||
-      startsWith(github.event.head_commit.message, '[build]') ||
-      startsWith(github.event.head_commit.message, '[deploy]')
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup .NET 10
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Setup .NET 11 preview
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
-
-      - name: Add .NET tools to PATH
-        run: echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
-
-      - name: Restore tests
-        run: |
-          dotnet restore src/core/Rowles.Text/Rowles.Text.csproj
-          dotnet restore src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj
-          dotnet restore src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj
-          dotnet restore src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj
-          dotnet restore src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj
-          dotnet restore src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj
-          dotnet restore src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj
-          dotnet restore src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj
-
-      - name: Restore architecture tests
-        run: dotnet restore src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj
-
-      - name: Build tests
-        run: |
-          dotnet build src/core/Rowles.Text/Rowles.Text.csproj -c Release --no-restore
-          dotnet build src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj -c Release --no-restore
-          dotnet build src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj -c Release --no-restore
-          dotnet build src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-restore
-          dotnet build src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-restore
-          dotnet build src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj -c Release --no-restore
-          dotnet build src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj -c Release --no-restore
-          dotnet build src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj -c Release --no-restore
-
-      - name: Build architecture tests
-        run: dotnet build src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj -c Release --no-restore
-
-      - name: Test
-        run: |
-          dotnet test src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj -c Release --no-build --logger "trx;LogFileName=rowles-text-test-results.trx"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $env:CHAOS_ITERATIONS = "1000"; dotnet test src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj -c Release --no-build --logger "trx;LogFileName=core-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet test src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-build --logger "trx;LogFileName=sourcegen-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet test src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj -c Release --no-build --logger "trx;LogFileName=server-abstractions-test-results.trx"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet test src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj -c Release --no-build --logger "trx;LogFileName=server-core-test-results.trx"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet test src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj -c Release --no-build --logger "trx;LogFileName=server-integration-test-results.trx"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Test architecture rules
-        run: |
-          dotnet test src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj -c Release -f net10.0 --no-build --logger "trx;LogFileName=architecture-net10-test-results.trx" --results-directory architecture-test-results/net10.0
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet test src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj -c Release -f net11.0 --no-build --logger "trx;LogFileName=architecture-net11-test-results.trx" --results-directory architecture-test-results/net11.0
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Run Native AOT smoke tests
-        run: .\devops.ps1 aot
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: test-results-windows
-          path: |
-            src/devops/Rowles.Text.Tests/TestResults/*.trx
-            src/devops/Rowles.LeanCorpus.Tests.Core/TestResults/*.trx
-            src/devops/Rowles.LeanCorpus.Tests.SourceGen/TestResults/*.trx
-            src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/TestResults/*.trx
-            src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/TestResults/*.trx
-            src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/TestResults/*.trx
-            architecture-test-results/**/*.trx
-          if-no-files-found: ignore
-
-      - name: Upload coverage results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-results-windows
-          path: coverage-results/**/coverage.cobertura.xml
-          if-no-files-found: ignore
+          path: test-results/${{ matrix.artifact }}/**/coverage.cobertura.xml
+          if-no-files-found: warn
 
   deploy:
     needs: build
     if: startsWith(github.event.head_commit.message, '[deploy]')
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
 
@@ -221,10 +151,11 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-quality: preview
 
       - name: Add .NET tools to PATH
-        run: echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+        shell: pwsh
+        run: '"$HOME/.dotnet/tools" | Add-Content $env:GITHUB_PATH'
 
       - name: Download coverage results
         uses: actions/download-artifact@v7
@@ -241,7 +172,6 @@ jobs:
       - name: Build docs
         shell: pwsh
         run: ./devops docs build -SkipBenchmarks
-
 
       - name: Upload docs artifact
         uses: actions/upload-artifact@v7

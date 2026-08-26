@@ -14,7 +14,7 @@ jobs:
   detect-flaky:
     if: |
       github.event_name == 'workflow_dispatch' ||
-      startsWith(github.event.head_commit.message, '[detect-flakey]')
+      startsWith(github.event.head_commit.message, '[detect-flaky]')
     strategy:
       fail-fast: false
       matrix:
@@ -45,6 +45,9 @@ jobs:
             'src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj'
             'src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj'
             'src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj'
+            'src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj'
+            'src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj'
+            'src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj'
           )
 
           foreach ($project in $projects) {
@@ -63,6 +66,9 @@ jobs:
             'src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj'
             'src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj'
             'src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj'
+            'src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj'
+            'src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj'
+            'src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj'
           )
 
           foreach ($project in $projects) {
@@ -83,6 +89,9 @@ jobs:
             @{ Name = 'core'; Project = 'src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj' }
             @{ Name = 'sourcegen'; Project = 'src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj' }
             @{ Name = 'architecture'; Project = 'src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj' }
+            @{ Name = 'server-abstractions'; Project = 'src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj'; Frameworks = @('net11.0') }
+            @{ Name = 'server-core'; Project = 'src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj'; Frameworks = @('net11.0') }
+            @{ Name = 'server-integration'; Project = 'src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj'; Frameworks = @('net11.0') }
           )
           $frameworks = @('net10.0', 'net11.0')
           $failed = $false
@@ -93,6 +102,10 @@ jobs:
           for ($iteration = 1; $iteration -le [int]$env:REPETITIONS; $iteration++) {
             foreach ($suite in $suites) {
               foreach ($framework in $frameworks) {
+                if ($suite.ContainsKey('Frameworks') -and $framework -notin $suite.Frameworks) {
+                  continue
+                }
+
                 $resultDirectory = "flaky-test-results/$iteration/$($suite.Name)/$framework"
                 dotnet test $suite.Project -c Release -f $framework --no-build `
                   --logger "trx;LogFileName=$($suite.Name).trx" `
