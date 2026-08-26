@@ -1,9 +1,13 @@
-# Operational limits and 0.1 limitations
+# Operational limits and alpha limitations
 
-`ServerCoreOptions` controls bulk-operation count, document bytes, result count, query depth and clauses, wildcard and regular-expression complexity, inspection output, idempotency retention, commit intervals and refresh intervals. The reference host also applies a maximum HTTP request body size.
+ServerCoreOptions bounds bulk-operation count, document bytes, result count, query depth and clauses, wildcard and regular-expression complexity, inspection output, idempotency retention, commit intervals and refresh intervals. The reference host also applies a maximum HTTP request body size. Limits apply after request decompression.
 
-Community Server 0.1 is deliberately single-node: one shard, no replicas, local consistency and local persistence. Highlights, range facets, postings/terms/analysis inspection, cluster administration and distributed durability are typed unsupported operations. Authentication and authorisation defaults are permissive for loopback development; use the ASP.NET adapter or an embedded `IAuthenticationProvider` and authorisation service before external exposure.
+Community Server 0.1.0-alpha.1 is deliberately single-node: one shard, no replicas, local consistency and local persistence. Memory and LocalFsync are the supported write durability requests. Replica, Quorum and Replicated are explicit unsupported capabilities and return typed failures.
 
-In `0.1.0-alpha.2`, bulk writes accept `Memory` or `LocalFsync` durability independently of `Refresh`. Successful writes return a versioned local write token. A search can request `ReadYourWrites` with that token, which waits for the token's local commit and refreshes the readable generation. `Primary` maps to Community's sole local copy; `Replica`, `Quorum` and `Replicated` remain unavailable.
+Terms facets are the supported Community facet subset. Range facets, highlights, postings/terms/analysis inspection and cluster administration are typed unsupported operations. The inspection resources available in this release are index inventory, reader state, fields, segments, storage and bounded documents.
 
-The reference host enables .NET 11 request decompression and response compression, including `zstd` where negotiated. Limits continue to apply after decompression, so compressed requests cannot bypass body, bulk or document limits.
+Health is degraded after a commit or installation failure while the last committed generation remains readable, and unhealthy when an installation rollback leaves the local runtime unusable. Readiness stays true for the former state and becomes false for the latter or while the server is draining.
+
+Successful writes return a versioned local write token. A search can request ReadYourWrites with that token, which waits for the token's local commit and refreshes the readable generation. Primary maps to Community's sole local copy. Refresh remains an independent visibility choice.
+
+The reference host enables .NET 11 request decompression and response compression, including zstd where negotiated. Compression does not bypass body, bulk or document limits.

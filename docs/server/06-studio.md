@@ -1,7 +1,21 @@
 # Studio
 
-`Rowles.LeanCorpus.Studio` is an embeddable Razor Class Library. Register it with `AddLeanCorpusStudio()`, enable static files, then map it with `MapLeanCorpusStudio()`. The reference host serves it at `/studio`.
+Rowles.LeanCorpus.Studio is an embeddable Razor Class Library. Register it with AddLeanCorpusStudio(), enable static files, and map it with MapLeanCorpusStudio(). The reference host serves it at:
 
-The Community surface includes server health and readiness, index listing and creation, index statistics, schema, bounded document and segment inspection, document indexing, a search and explanation test bench, mutable settings, and confirmed index deletion. It calls the public REST contract, never parses index files, and inserts indexed values into the page with text-only DOM APIs.
+~~~text
+http://127.0.0.1:5080/studio
+~~~
 
-The first Community release intentionally contains no cluster or Enterprise pages.
+Studio calls the public Community REST endpoints. It does not parse index files or use a private storage path.
+
+The alpha workflow includes:
+
+- server health and readiness;
+- index listing, creation, selection and confirmed deletion;
+- schema and statistics;
+- bounded document and segment inspection;
+- document indexing;
+- query and explanation test benches;
+- mutable settings.
+
+Indexed and source values are inserted as text, and destructive deletion remains protected by the server-side confirmation token. There are no cluster, replica, shard or licence pages. Read-your-writes is represented by the public write token and consistency controls rather than a Studio-only operation.

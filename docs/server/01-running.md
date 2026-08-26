@@ -1,15 +1,37 @@
 # Running the Community Server
 
-From a checkout, run:
+Community Server 0.1.0-alpha.1 targets .NET 11 and runs the reference host in the foreground:
 
-```bash
+~~~
 ./devops server start
-```
+~~~
 
-The reference host targets .NET 11, runs in the foreground, binds to `127.0.0.1:5080` and `[::1]:5080` by default, and stores indexes below `data/`. Press Ctrl+C to stop it. Set `LeanCorpus:DataRoot` or provide an alternate `appsettings.json` to change the data root.
+The default listeners are http://127.0.0.1:5080 and http://[::1]:5080. Indexes are stored below data/ in the host content root. Press Ctrl+C to stop the process. Set LeanCorpus:DataRoot in configuration, or pass an application argument, to select another data root.
 
-For access from another machine on a trusted network, run `./devops server start -External`. This listens on all IPv4 interfaces at port 5080 and permits remote host headers. It does not add authentication or TLS, so do not expose it directly to the internet. Opening the firewall alone is insufficient while the process is bound only to loopback.
+For a trusted network only:
 
-Use `./devops server start -- --urls http://127.0.0.1:5081` to pass application arguments through to the host.
+~~~
+./devops server start -External
+~~~
 
-Liveness is available at `/v1/health`; readiness is available at `/v1/ready`. Both return the normal response metadata envelope.
+This binds http://0.0.0.0:5080 and permits remote host headers. It does not add authentication or TLS. Put it behind the host's network and authentication controls before allowing untrusted clients.
+
+Arguments after -- are passed to the reference application. For example:
+
+~~~
+./devops server start -- --urls http://127.0.0.1:5081
+~~~
+
+The reference host also accepts LeanCorpus:Listeners and the bounded LeanCorpus:Maximum* settings from appsettings.json.
+
+## Health and readiness
+
+Liveness is GET /v1/health; readiness is GET /v1/ready. Both return the normal metadata envelope and include request ID and API version headers.
+
+Health reports healthy, degraded, unhealthy or draining. It includes each index's mode, visible and durable generations, pending operations, commit failures and installation state. A failed commit or installation that leaves the last committed reader usable is degraded. An unrecoverable rollback is unhealthy.
+
+Readiness means that startup and the registry completed, the process is not stopping, and registered indexes still have usable committed runtimes. A degraded index remains ready because committed reads remain available, although writes may be unavailable. An unusable index or a draining/stopped process is not ready.
+
+## Create an index
+
+Create a logical index with PUT /v1/indices/{name}. The request schema is authoritative and the physical directory uses an opaque ID. The schemas and writes page contains the full example.

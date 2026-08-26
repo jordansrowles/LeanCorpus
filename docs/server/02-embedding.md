@@ -1,9 +1,22 @@
 # Embedding
 
-`Rowles.LeanCorpus.Server.Core` is transport-neutral. Open `LocalServerCore` with `ServerCoreOptions` and keep the returned service alive for the host lifetime. Replace routing, authentication, authorisation, entitlement, acknowledgement, lifecycle, audit, consistency and inspection policies through `ServerPortSet`.
+Rowles.LeanCorpus.Server.Core is transport-neutral. Keep one LocalServerCore lifetime per host and replace routing, authentication, authorisation, entitlement, acknowledgement, lifecycle, audit, consistency and inspection policies through ServerPortSet.
 
-`Rowles.LeanCorpus.Server.AspNetCore` provides `AddLeanCorpusServerCore`, `AddLeanCorpusServerAspNetCore` and `MapLeanCorpusServerEndpoints`. It registers the Core service interfaces rather than requiring endpoint handlers to know the concrete implementation.
+The reusable ASP.NET Core composition is:
 
-`Rowles.LeanCorpus.Server.Grpc` provides `MapLeanCorpusServerGrpc`, mapping the same service interfaces and cancellation token used by REST.
+~~~
+builder.Services
+    .AddLeanCorpusServerCore(options => options.DataRoot = dataRoot)
+    .AddLeanCorpusServerAspNetCore()
+    .AddLeanCorpusStudio();
+builder.Services.AddGrpc();
 
-For Studio, call `AddLeanCorpusStudio()`, `UseStaticFiles()` and `MapLeanCorpusStudio()`. For gRPC, call `AddGrpc()` before mapping the gRPC services.
+app.UseStaticFiles();
+app.MapLeanCorpusServerEndpoints();
+app.MapLeanCorpusServerGrpc();
+app.MapLeanCorpusStudio();
+~~~
+
+AddLeanCorpusServerAspNetCore registers the Core service interfaces used by the REST adapter. MapLeanCorpusServerGrpc maps typed v1 protobuf services over those same interfaces. AddLeanCorpusStudio and MapLeanCorpusStudio expose the embeddable Studio at /studio.
+
+The host owns the Core instance and its physical index handles. Do not pass IndexWriter, SearcherManager, directory or merge objects through the embedding boundary. Configure authentication and authorisation before using an external listener.
