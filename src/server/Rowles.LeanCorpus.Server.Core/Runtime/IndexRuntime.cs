@@ -1,5 +1,6 @@
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Search.Searcher;
+using Rowles.LeanCorpus.Server.Core.Execution;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Server.Core.Runtime;
@@ -9,26 +10,37 @@ internal sealed class IndexRuntime : IDisposable
 {
     private readonly MMapDirectory _directory;
     private readonly object _writeLock = new();
-    private readonly Timer _commitTimer;
+    private readonly IndexWriter? _writer;
     private long _pendingOperations;
+    private long _nextServerSequence;
+    private LocalRuntimeFlags _flags;
     private int _disposed;
 
-    internal IndexRuntime(string path, CompiledIndexSchema schema, TimeSpan commitInterval, TimeSpan refreshInterval)
+    internal IndexRuntime(string path, CompiledIndexSchema schema, TimeSpan commitInterval, TimeSpan refreshInterval, LocalIndexOpenMode mode = LocalIndexOpenMode.ReadWrite, Func<LocalCommitReceipt, ValueTask>? onCommitted = null)
     {
         Schema = schema;
+        Mode = mode;
         _directory = new MMapDirectory(path);
-        Writer = new IndexWriter(_directory, new IndexWriterConfig
+        if (mode == LocalIndexOpenMode.ReadWrite)
         {
-            Schema = schema.EngineSchema,
-            FieldAnalysers = schema.Fields
-                .Where(pair => pair.Value.Analyser is not null)
-                .ToDictionary(pair => pair.Key, pair => pair.Value.Analyser!, StringComparer.Ordinal)
-        });
+            _writer = new IndexWriter(_directory, new IndexWriterConfig
+            {
+                Schema = schema.EngineSchema,
+                TrackSequenceNumbers = true,
+                FieldAnalysers = schema.Fields
+                    .Where(pair => pair.Value.Analyser is not null)
+                    .ToDictionary(pair => pair.Key, pair => pair.Value.Analyser!, StringComparer.Ordinal)
+            });
+        }
         Searchers = new SearcherManager(_directory, new SearcherManagerConfig { RefreshInterval = refreshInterval });
-        _commitTimer = new Timer(static state => ((IndexRuntime)state!).CommitPending(), this, commitInterval, commitInterval);
+        Commits = new LocalCommitCoordinator(this, commitInterval, onCommitted);
     }
 
-    internal IndexWriter Writer { get; }
+    internal IndexWriter Writer => _writer ?? throw new InvalidOperationException("The local index is read-only.");
+
+    internal LocalIndexOpenMode Mode { get; private set; }
+
+    internal LocalCommitCoordinator Commits { get; }
 
     internal SearcherManager Searchers { get; }
 
@@ -38,46 +50,60 @@ internal sealed class IndexRuntime : IDisposable
 
     internal object WriteLock => _writeLock;
 
-    internal long MarkWrite() => Interlocked.Increment(ref _pendingOperations);
+    internal long MarkWrite()
+    {
+        Interlocked.Increment(ref _pendingOperations);
+        return Interlocked.Increment(ref _nextServerSequence);
+    }
 
     internal long PendingOperations => Volatile.Read(ref _pendingOperations);
 
-    internal bool Commit(bool refresh)
+    internal long CurrentServerSequence => Volatile.Read(ref _nextServerSequence);
+
+    internal bool IsDegraded => (Interlocked.CompareExchange(ref _flags, LocalRuntimeFlags.None, LocalRuntimeFlags.None) & LocalRuntimeFlags.Degraded) != 0;
+
+    internal void MarkDegraded() => Interlocked.Or(ref _flags, LocalRuntimeFlags.Degraded);
+
+    internal void ClearDegraded() => Interlocked.And(ref _flags, ~LocalRuntimeFlags.Degraded);
+
+    internal bool Commit(bool refresh) => Commits.Commit(refresh) is CommitPublished;
+
+    internal LocalCommitReceipt? CommitCore(bool refresh)
     {
         lock (_writeLock)
         {
+            if (Mode != LocalIndexOpenMode.ReadWrite)
+                throw new InvalidOperationException("The local index is read-only.");
             if (Volatile.Read(ref _pendingOperations) == 0)
             {
                 if (refresh)
                     Searchers.MaybeRefresh();
-                return false;
+                return null;
             }
+            long last = Volatile.Read(ref _nextServerSequence);
+            long first = last - Volatile.Read(ref _pendingOperations) + 1;
             Writer.Commit();
             Interlocked.Exchange(ref _pendingOperations, 0);
+            long generation = Writer.CurrentCommitGeneration;
+            long contentToken = Writer.CurrentContentToken;
             if (refresh)
                 Searchers.MaybeRefresh();
-            return true;
+            return new LocalCommitReceipt(first, last, generation, contentToken, true, refresh);
         }
     }
 
     internal void Refresh() => Searchers.MaybeRefresh();
 
-    private void CommitPending()
-    {
-        if (Volatile.Read(ref _disposed) != 0)
-            return;
-        try { Commit(refresh: true); }
-        catch (Exception exception) { System.Diagnostics.Debug.WriteLine($"LeanCorpus Server background commit failed: {exception}"); }
-    }
-
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
-        _commitTimer.Dispose();
-        Commit(refresh: false);
+        Interlocked.Or(ref _flags, LocalRuntimeFlags.Draining);
+        if (Mode == LocalIndexOpenMode.ReadWrite)
+            _ = Commit(refresh: false);
+        Commits.Dispose();
         Searchers.Dispose();
-        Writer.Dispose();
+        _writer?.Dispose();
         _directory.Dispose();
     }
 }

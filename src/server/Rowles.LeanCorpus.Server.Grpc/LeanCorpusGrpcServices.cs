@@ -49,7 +49,8 @@ public sealed class LeanCorpusSearchGrpcService(ISearchService service) : GrpcCo
             request.Facets.Select(GrpcContractMapper.ToContract).ToArray(),
             GrpcContractMapper.ParseEnum<RequestedConsistency>(request.Consistency, RequestedConsistency.Local),
             request.HasIncludeDocuments ? request.IncludeDocuments : true,
-            request.IncludeHighlights);
+            request.IncludeHighlights,
+            GrpcContractMapper.ToContract(request.ReadToken));
         ServiceResult<Rowles.LeanCorpus.Server.Abstractions.Contracts.Search.SearchResponse> result =
             await service.SearchAsync(request.IndexName, contract, context.CancellationToken).ConfigureAwait(false);
         return GrpcContractMapper.ToGrpc(result);
@@ -108,7 +109,8 @@ public sealed class LeanCorpusIndexGrpcService(IIndexService indices, IDocumentS
             operation.DocumentId,
             operation.Document is null ? null : GrpcContractMapper.ToJsonElement(operation.Document),
             string.IsNullOrWhiteSpace(operation.IdempotencyKey) ? null : operation.IdempotencyKey)).ToArray();
-        ContractBulkRequest contract = new(request.IndexName, operations, request.Refresh, string.IsNullOrWhiteSpace(request.IdempotencyKey) ? null : request.IdempotencyKey);
+        ContractBulkRequest contract = new(request.IndexName, operations, request.Refresh, string.IsNullOrWhiteSpace(request.IdempotencyKey) ? null : request.IdempotencyKey,
+            GrpcContractMapper.ParseEnum<RequestedWriteDurability>(request.Durability, RequestedWriteDurability.Memory));
         return GrpcContractMapper.ToGrpc(await documents.BulkAsync(contract, context.CancellationToken).ConfigureAwait(false));
     }
 

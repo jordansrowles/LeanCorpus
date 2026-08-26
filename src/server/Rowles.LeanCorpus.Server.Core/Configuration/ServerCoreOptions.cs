@@ -45,6 +45,9 @@ public sealed class ServerCoreOptions
     /// <summary>Gets or sets the maximum number of idempotency records retained per index.</summary>
     public int MaximumIdempotencyEntries { get; set; } = 10_000;
 
+    /// <summary>Gets or sets the maximum time a read-your-writes request waits for a local commit.</summary>
+    public TimeSpan MaximumConsistencyWait { get; set; } = TimeSpan.FromSeconds(5);
+
     /// <summary>Gets or sets how long shutdown waits for active operations to drain.</summary>
     public TimeSpan ShutdownTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
@@ -67,6 +70,8 @@ public sealed class ServerCoreOptions
             throw new ArgumentOutOfRangeException(nameof(CommitInterval));
         if (RefreshInterval <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(RefreshInterval));
+        if (MaximumConsistencyWait <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(MaximumConsistencyWait));
         if (ShutdownTimeout <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(ShutdownTimeout));
     }

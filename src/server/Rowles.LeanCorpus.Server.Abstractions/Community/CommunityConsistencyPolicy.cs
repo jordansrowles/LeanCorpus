@@ -9,7 +9,7 @@ public sealed class CommunityConsistencyPolicy : IConsistencyPolicy
 {
     /// <inheritdoc />
     public ValueTask<ConsistencyDecision> ResolveAsync(OperationContext context, RequestedConsistency requested, CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult(requested is RequestedConsistency.Local
+        ValueTask.FromResult(requested is RequestedConsistency.Local or RequestedConsistency.Primary or RequestedConsistency.ReadYourWrites
             ? new ConsistencyDecision(true, RequestedConsistency.Local)
             : new ConsistencyDecision(false, RequestedConsistency.Local, "Community Server supports local consistency only."));
 }

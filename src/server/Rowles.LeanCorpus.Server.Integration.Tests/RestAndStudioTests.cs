@@ -42,8 +42,17 @@ public sealed class RestAndStudioTests
         };
         using JsonDocument indexed = await SendSuccessAsync(client, HttpMethod.Post, "/v1/indices/books/documents:bulk", bulk);
         Assert.True(indexed.RootElement.GetProperty("value").GetProperty("items")[0].GetProperty("accepted").GetBoolean());
+        JsonElement writeToken = indexed.RootElement.GetProperty("value").GetProperty("writeToken").Clone();
+        Assert.Equal(indexId, writeToken.GetProperty("indexId").GetString());
 
-        object search = new { query = new { kind = "term", field = "isbn", value = "978-1" }, size = 10, includeDocuments = true };
+        object search = new
+        {
+            query = new { kind = "term", field = "isbn", value = "978-1" },
+            size = 10,
+            includeDocuments = true,
+            consistency = 3,
+            readToken = writeToken
+        };
         using JsonDocument searched = await SendSuccessAsync(client, HttpMethod.Post, "/v1/indices/books/search", search);
         Assert.Equal("one", searched.RootElement.GetProperty("value").GetProperty("hits")[0].GetProperty("documentId").GetString());
         Assert.True(searched.RootElement.GetProperty("value").GetProperty("timing").GetProperty("tookMilliseconds").GetInt64() >= 0);
@@ -131,10 +140,11 @@ public sealed class RestAndStudioTests
 
     private static async Task<JsonDocument> ReadSuccessAsync(HttpResponseMessage response)
     {
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        string body = await response.Content.ReadAsStringAsync();
+        Assert.True(response.StatusCode == HttpStatusCode.OK, body);
         Assert.Equal("1", response.Headers.GetValues("X-API-Version").Single());
         Assert.False(string.IsNullOrWhiteSpace(response.Headers.GetValues("X-Request-ID").Single()));
-        JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonDocument document = JsonDocument.Parse(body);
         Assert.True(document.RootElement.GetProperty("isSuccess").GetBoolean());
         return document;
     }

@@ -1,5 +1,7 @@
 using System.Net;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.RequestDecompression;
+using Microsoft.AspNetCore.ResponseCompression;
 using Rowles.LeanCorpus.Server.AspNetCore;
 using Rowles.LeanCorpus.Server.AspNetCore.DependencyInjection;
 using Rowles.LeanCorpus.Server.Grpc;
@@ -35,6 +37,7 @@ builder.Services
         options.MaximumInspectionValueLength = builder.Configuration.GetValue("LeanCorpus:MaximumInspectionValueLength", options.MaximumInspectionValueLength);
         options.MaximumIdempotencyEntries = builder.Configuration.GetValue("LeanCorpus:MaximumIdempotencyEntries", options.MaximumIdempotencyEntries);
         options.MaximumUncommittedOperations = builder.Configuration.GetValue("LeanCorpus:MaximumUncommittedOperations", options.MaximumUncommittedOperations);
+        options.MaximumConsistencyWait = builder.Configuration.GetValue("LeanCorpus:MaximumConsistencyWait", options.MaximumConsistencyWait);
         options.CommitInterval = builder.Configuration.GetValue("LeanCorpus:CommitInterval", options.CommitInterval);
         options.RefreshInterval = builder.Configuration.GetValue("LeanCorpus:RefreshInterval", options.RefreshInterval);
         options.ShutdownTimeout = builder.Configuration.GetValue("LeanCorpus:ShutdownTimeout", options.ShutdownTimeout);
@@ -42,6 +45,9 @@ builder.Services
     .AddLeanCorpusServerAspNetCore()
     .AddLeanCorpusStudio();
 builder.Services.AddGrpc();
+builder.Services.AddRequestDecompression();
+builder.Services.AddResponseCompression(options =>
+    options.Providers.Add<ZstandardCompressionProvider>());
 
 WebApplication application = builder.Build();
 string[] effectiveListeners = builder.Configuration["urls"]?
@@ -60,6 +66,8 @@ foreach (string listener in effectiveListeners)
     }
 }
 application.UseExceptionHandler();
+application.UseRequestDecompression();
+application.UseResponseCompression();
 application.UseStaticFiles();
 application.Use(async (context, next) =>
 {

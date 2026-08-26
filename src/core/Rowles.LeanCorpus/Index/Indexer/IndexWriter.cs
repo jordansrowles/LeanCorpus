@@ -788,6 +788,12 @@ public sealed partial class IndexWriter : IDisposable
                 break;
         }
     }
+    /// <summary>Gets the latest locally published commit generation.</summary>
+    public int CurrentCommitGeneration => Volatile.Read(ref _commitGeneration);
+
+    /// <summary>Gets the content token for the latest locally published commit.</summary>
+    public long CurrentContentToken => Volatile.Read(ref _contentToken);
+
     internal DocumentBufferState Buffer => _buffer;
     internal MMapDirectory Directory => _directory;
     internal IndexWriterConfig Config => _config;

@@ -23,4 +23,4 @@ Per-version change logs. Each file lists changes grouped by type: Added, Changed
 
 | Version | Date |
 |---|---|
-| [0.1.0-alpha](server/0.1.0-alpha%20-%202026-08-25.md) | 2026-08-25 |
+| [0.1.0-alpha](server/0.1.0-alpha%20-%20unreleased.md) | Unreleased |

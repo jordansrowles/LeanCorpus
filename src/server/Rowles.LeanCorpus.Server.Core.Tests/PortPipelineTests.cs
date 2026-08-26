@@ -72,11 +72,11 @@ public sealed class PortPipelineTests
         {
             using LocalServerCore server = await LocalServerCore.OpenAsync(new ServerCoreOptions { DataRoot = root }, ports.CreateSet());
             Assert.True((await server.CreateAsync(CreateRequest())).IsSuccess);
-            ports.Route = new OperationRoute(RouteTargetKind.Rejected);
+            ports.Route = new RejectedRoute("rejected for test");
             using JsonDocument document = JsonDocument.Parse("{\"content\":\"blocked\"}");
             Assert.Equal("route_unavailable", (await server.BulkAsync(new BulkDocumentsRequest("books", [new BulkDocumentOperation(DocumentOperationKind.Index, "one", document.RootElement.Clone())]))).Failure?.Code);
 
-            ports.Route = new OperationRoute(RouteTargetKind.Local);
+            ports.Route = new LocalRoute();
             ports.AllowConsistency = false;
             Assert.Equal("consistency_unavailable", (await server.SearchAsync("books", new SearchRequest(new TermQueryDefinition("content", "blocked")))).Failure?.Code);
         }
@@ -98,7 +98,7 @@ public sealed class PortPipelineTests
     {
         internal bool AllowAuthorisation { get; set; } = true;
         internal bool AllowConsistency { get; set; } = true;
-        internal OperationRoute Route { get; set; } = new(RouteTargetKind.Local);
+        internal OperationRoute Route { get; set; } = new LocalRoute();
         internal int AuthenticationCalls { get; private set; }
         internal int AuthorisationCalls { get; private set; }
         internal int EntitlementCalls { get; private set; }

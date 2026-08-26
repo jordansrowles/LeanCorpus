@@ -2,8 +2,10 @@
 
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <Features>runtime-async=on</Features>
     <PackageId>Rowles.LeanCorpus.Server.AspNetCore</PackageId>
-    <Version>0.1.0-alpha</Version>
+    <Version>0.1.0-alpha.2</Version>
     <AssemblyVersion>0.1.0.0</AssemblyVersion>
     <FileVersion>0.1.0.0</FileVersion>
     <Authors>Jordan Rowles</Authors>

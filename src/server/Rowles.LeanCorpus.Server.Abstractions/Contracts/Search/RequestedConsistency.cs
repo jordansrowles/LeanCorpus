@@ -5,8 +5,10 @@ public enum RequestedConsistency
 {
     /// <summary>Read the local copy.</summary>
     Local,
-    /// <summary>Read after a quorum condition.</summary>
-    Quorum,
-    /// <summary>Read with linearisable semantics.</summary>
-    Linearisable
+    /// <summary>Read from the primary local copy.</summary>
+    Primary,
+    /// <summary>Read from a replica. Unsupported by Community Server.</summary>
+    Replica,
+    /// <summary>Wait until the supplied local write token is readable.</summary>
+    ReadYourWrites
 }

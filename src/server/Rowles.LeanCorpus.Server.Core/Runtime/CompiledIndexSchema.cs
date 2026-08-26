@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Analysis.Analysers;
+using System.Collections.Frozen;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
 using ServerFieldType = Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing.IndexFieldType;
@@ -11,7 +12,7 @@ internal sealed class CompiledIndexSchema
     private CompiledIndexSchema(
         ServerIndexSchema source,
         Rowles.LeanCorpus.Index.Indexer.IndexSchema engineSchema,
-        IReadOnlyDictionary<string, CompiledFieldDefinition> fields)
+        FrozenDictionary<string, CompiledFieldDefinition> fields)
     {
         Source = source;
         EngineSchema = engineSchema;
@@ -22,7 +23,7 @@ internal sealed class CompiledIndexSchema
 
     internal Rowles.LeanCorpus.Index.Indexer.IndexSchema EngineSchema { get; }
 
-    internal IReadOnlyDictionary<string, CompiledFieldDefinition> Fields { get; }
+    internal FrozenDictionary<string, CompiledFieldDefinition> Fields { get; }
 
     internal static CompiledIndexSchema Create(ServerIndexSchema schema, Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing.IndexTopologySettings topology, Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing.MutableIndexSettings settings)
     {
@@ -48,7 +49,7 @@ internal sealed class CompiledIndexSchema
             });
         }
 
-        return new CompiledIndexSchema(schema, engine, fields);
+        return new CompiledIndexSchema(schema, engine, fields.ToFrozenDictionary(StringComparer.Ordinal));
     }
 
     private static FieldType ToEngineType(ServerFieldType type) => type switch

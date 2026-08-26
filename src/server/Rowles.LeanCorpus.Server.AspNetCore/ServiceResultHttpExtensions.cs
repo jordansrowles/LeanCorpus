@@ -23,10 +23,10 @@ internal static class ServiceResultHttpExtensions
         "idempotency_conflict" => StatusCodes.Status409Conflict,
         "unauthenticated" => StatusCodes.Status401Unauthorized,
         "forbidden" => StatusCodes.Status403Forbidden,
-        "route_unavailable" or "consistency_unavailable" or "server_stopping" => StatusCodes.Status503ServiceUnavailable,
+        "route_unavailable" or "consistency_unavailable" or "consistency_wait_timeout" or "consistency_wait_cancelled" or "server_stopping" => StatusCodes.Status503ServiceUnavailable,
         "document_too_large" => StatusCodes.Status413PayloadTooLarge,
-        "unsupported_query" or "unsupported_search" or "unsupported_facet" or "highlights_not_supported" or "explain_not_supported" or "inspection_not_supported" => StatusCodes.Status422UnprocessableEntity,
-        "invalid_index_name" or "invalid_schema" or "invalid_settings" or "invalid_document" or "invalid_document_id" or "invalid_bulk_request" or "invalid_operation" or "unknown_field" or "multi_value_not_allowed" or "schema_validation" or "invalid_search_request" or "invalid_query" or "invalid_query_field" or "invalid_vector" or "query_too_complex" or "invalid_sort" or "invalid_facet_field" or "invalid_search_after" or "invalid_inspection_limit" or "invalid_inspection_resource" or "confirmation_required" => StatusCodes.Status400BadRequest,
+        "unsupported_query" or "unsupported_search" or "unsupported_facet" or "highlights_not_supported" or "explain_not_supported" or "inspection_not_supported" or "durability_not_supported" => StatusCodes.Status422UnprocessableEntity,
+        "invalid_index_name" or "invalid_schema" or "invalid_topology" or "invalid_settings" or "invalid_document" or "invalid_document_id" or "invalid_bulk_request" or "invalid_operation" or "invalid_durability" or "unknown_field" or "multi_value_not_allowed" or "schema_validation" or "invalid_search_request" or "invalid_query" or "invalid_query_field" or "invalid_vector" or "query_too_complex" or "invalid_sort" or "invalid_facet_field" or "invalid_search_after" or "invalid_inspection_limit" or "invalid_inspection_resource" or "confirmation_required" or "write_token_required" or "invalid_write_token" or "invalid_explain_request" => StatusCodes.Status400BadRequest,
         "inspection_denied" or "feature_unavailable" => StatusCodes.Status403Forbidden,
         _ => StatusCodes.Status500InternalServerError
     };

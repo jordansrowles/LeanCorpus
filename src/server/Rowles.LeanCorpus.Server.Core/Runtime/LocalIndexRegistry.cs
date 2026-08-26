@@ -1,6 +1,7 @@
 using Rowles.LeanCorpus.Server.Core.Storage;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing;
 using Rowles.LeanCorpus.Server.Core.Configuration;
+using Rowles.LeanCorpus.Server.Core.Execution;
 
 namespace Rowles.LeanCorpus.Server.Core.Runtime;
 
@@ -9,6 +10,7 @@ internal sealed class LocalIndexRegistry : IDisposable
 {
     private readonly string _indicesPath;
     private readonly RegistryStore _store;
+    private readonly LocalIndexStore _physicalStore;
     private readonly TimeSpan _commitInterval;
     private readonly TimeSpan _refreshInterval;
     private readonly Dictionary<string, IndexRuntimeEntry> _entries = new(StringComparer.Ordinal);
@@ -18,6 +20,7 @@ internal sealed class LocalIndexRegistry : IDisposable
     {
         _indicesPath = Path.Combine(dataRoot, "indices");
         _store = new RegistryStore(dataRoot);
+        _physicalStore = new LocalIndexStore(_indicesPath, commitInterval, refreshInterval);
         _commitInterval = commitInterval;
         _refreshInterval = refreshInterval;
     }
@@ -31,7 +34,11 @@ internal sealed class LocalIndexRegistry : IDisposable
         ServerRegistry persisted = await registry._store.LoadAsync(cancellationToken).ConfigureAwait(false);
         ValidatePersistedRegistrations(persisted.Indices, registry._indicesPath);
         foreach (IndexRegistration registration in persisted.Indices)
-            registry._entries.Add(registration.Name, new IndexRuntimeEntry(registration, new IndexRuntime(Path.Combine(registry._indicesPath, registration.Id), CompiledIndexSchema.Create(registration.Schema, registration.Topology, registration.Settings), registration.Settings.CommitInterval ?? options.CommitInterval, registration.Settings.RefreshInterval ?? options.RefreshInterval)));
+        {
+            LocalIndexDescriptor descriptor = ToDescriptor(registration);
+            LocalIndexHandle handle = await registry._physicalStore.OpenAsync(descriptor, LocalIndexOpenMode.ReadWrite, cancellationToken).ConfigureAwait(false);
+            registry._entries.Add(registration.Name, new IndexRuntimeEntry(registration, handle));
+        }
 
         return registry;
     }
@@ -59,10 +66,8 @@ internal sealed class LocalIndexRegistry : IDisposable
                     return null;
             }
 
-            string path = Path.Combine(_indicesPath, registration.Id);
-            Directory.CreateDirectory(path);
-            IndexRuntime runtime = new(path, CompiledIndexSchema.Create(registration.Schema, registration.Topology, registration.Settings), registration.Settings.CommitInterval ?? _commitInterval, registration.Settings.RefreshInterval ?? _refreshInterval);
-            IndexRuntimeEntry entry = new(registration, runtime);
+            LocalIndexHandle handle = await _physicalStore.CreateAsync(ToDescriptor(registration), LocalIndexOpenMode.ReadWrite, cancellationToken).ConfigureAwait(false);
+            IndexRuntimeEntry entry = new(registration, handle);
             lock (_entries)
                 _entries.Add(registration.Name, entry);
 
@@ -75,8 +80,7 @@ internal sealed class LocalIndexRegistry : IDisposable
             {
                 lock (_entries)
                     _entries.Remove(registration.Name);
-                runtime.Dispose();
-                Directory.Delete(path, true);
+                await _physicalStore.DeleteAsync(new PhysicalIndexId(registration.Id), CancellationToken.None).ConfigureAwait(false);
                 throw;
             }
         }
@@ -107,8 +111,7 @@ internal sealed class LocalIndexRegistry : IDisposable
             {
                 await PersistAsync(cancellationToken).ConfigureAwait(false);
                 registryPersisted = true;
-                entry.Runtime.Dispose();
-                Directory.Delete(Path.Combine(_indicesPath, entry.Registration.Id), true);
+                await _physicalStore.DeleteAsync(new PhysicalIndexId(entry.Registration.Id), cancellationToken).ConfigureAwait(false);
             }
             catch
             {
@@ -171,7 +174,9 @@ internal sealed class LocalIndexRegistry : IDisposable
         lock (_entries)
             entries = _entries.Values.ToArray();
         foreach (IndexRuntimeEntry entry in entries)
-            entry.Runtime.Dispose();
+            entry.Handle.Dispose();
+
+        _physicalStore.DisposeAsync().AsTask().GetAwaiter().GetResult();
 
         _gate.Dispose();
     }
@@ -194,11 +199,15 @@ internal sealed class LocalIndexRegistry : IDisposable
                 throw new InvalidDataException($"The persisted index name '{registration.Name}' is invalid.");
             if (!names.Add(registration.Name))
                 throw new InvalidDataException($"The server registry contains duplicate index name '{registration.Name}'.");
-            if (string.IsNullOrWhiteSpace(registration.Id) || registration.Id.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || !ids.Add(registration.Id))
+            if (string.IsNullOrWhiteSpace(registration.Id)
+                || !Guid.TryParseExact(registration.Id, "N", out _)
+                || registration.Id.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+                || !ids.Add(registration.Id))
                 throw new InvalidDataException($"The server registry contains an invalid or duplicate physical index ID for '{registration.Name}'.");
             try
             {
                 IndexSchemaValidator.Validate(registration.Schema, registration.Topology, registration.Settings);
+                CommunityTopologyValidator.Validate(registration.Topology);
             }
             catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
             {
@@ -211,4 +220,7 @@ internal sealed class LocalIndexRegistry : IDisposable
                 throw new InvalidDataException($"The registered index '{registration.Name}' is missing its storage directory.");
         }
     }
+
+    private static LocalIndexDescriptor ToDescriptor(IndexRegistration registration) =>
+        new(new PhysicalIndexId(registration.Id), registration.Schema, registration.SchemaHash, registration.Settings, registration.Topology);
 }

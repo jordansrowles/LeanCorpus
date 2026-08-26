@@ -12,6 +12,96 @@ namespace Rowles.LeanCorpus.Server.Core.Tests;
 public sealed class LocalServerCoreTests
 {
     [Fact]
+    public async Task LocalFsyncReturnsVersionedWriteTokenAndSupportsReadYourWrites()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-token-{Guid.NewGuid():N}");
+        try
+        {
+            await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root });
+            Assert.True((await scope.Server.CreateAsync(CreateRequest("books"))).IsSuccess);
+            using JsonDocument document = JsonDocument.Parse("{\"content\":\"durable proof\"}");
+            ServiceResult<BulkDocumentsResponse> write = await scope.Server.BulkAsync(new BulkDocumentsRequest(
+                "books",
+                [new BulkDocumentOperation(DocumentOperationKind.Index, "one", document.RootElement.Clone())],
+                Refresh: false,
+                Durability: RequestedWriteDurability.LocalFsync));
+
+            Assert.True(write.IsSuccess);
+            Assert.NotNull(write.Value!.WriteToken);
+            Assert.NotNull(write.Value.CommitGeneration);
+            Assert.True(write.Value.CommitGeneration > 0);
+            ServiceResult<SearchResponse> search = await scope.Server.SearchAsync("books", new SearchRequest(
+                new TermQueryDefinition("content", "durable"),
+                Consistency: RequestedConsistency.ReadYourWrites,
+                ReadToken: write.Value.WriteToken));
+            Assert.True(search.IsSuccess);
+            Assert.Single(search.Value!.Hits);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task CommunityRejectsDurabilityThatRequiresReplication()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-durability-{Guid.NewGuid():N}");
+        try
+        {
+            await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root });
+            Assert.True((await scope.Server.CreateAsync(CreateRequest("books"))).IsSuccess);
+            using JsonDocument document = JsonDocument.Parse("{\"content\":\"quorum\"}");
+            ServiceResult<BulkDocumentsResponse> write = await scope.Server.BulkAsync(new BulkDocumentsRequest(
+                "books", [new BulkDocumentOperation(DocumentOperationKind.Index, "one", document.RootElement.Clone())], Durability: RequestedWriteDurability.Quorum));
+            Assert.False(write.IsSuccess);
+            Assert.Equal("durability_not_supported", write.Failure?.Code);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task CommunityRejectsUnknownDurabilityValues()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-invalid-durability-{Guid.NewGuid():N}");
+        try
+        {
+            await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root });
+            Assert.True((await scope.Server.CreateAsync(CreateRequest("books"))).IsSuccess);
+            ServiceResult<BulkDocumentsResponse> write = await scope.Server.BulkAsync(new BulkDocumentsRequest(
+                "books", [new BulkDocumentOperation(DocumentOperationKind.Delete, "one")], Durability: (RequestedWriteDurability)99));
+            Assert.Equal("invalid_durability", write.Failure?.Code);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task ReadYourWritesRejectsForeignTokensAndBoundsUnreachableWaits()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-token-bounds-{Guid.NewGuid():N}");
+        try
+        {
+            await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root, MaximumConsistencyWait = TimeSpan.FromMilliseconds(25) });
+            Assert.True((await scope.Server.CreateAsync(CreateRequest("books"))).IsSuccess);
+            ServiceResult<SearchResponse> foreign = await scope.Server.SearchAsync("books", new SearchRequest(new TermQueryDefinition("content", "missing"), Consistency: RequestedConsistency.ReadYourWrites, ReadToken: new WriteToken(1, "other-index", 1, null, null)));
+            Assert.Equal("invalid_write_token", foreign.Failure?.Code);
+
+            string physicalId = (await scope.Server.ListAsync()).Value![0].IndexId;
+            ServiceResult<SearchResponse> future = await scope.Server.SearchAsync("books", new SearchRequest(new TermQueryDefinition("content", "missing"), Consistency: RequestedConsistency.ReadYourWrites, ReadToken: new WriteToken(1, physicalId, 999, null, null)));
+            Assert.Equal("consistency_wait_timeout", future.Failure?.Code);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+    [Fact]
     public async Task CreateListAndReopenIndexPreservesRegistration()
     {
         string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-{Guid.NewGuid():N}");
@@ -33,6 +123,27 @@ public sealed class LocalServerCoreTests
         {
             if (Directory.Exists(root))
                 Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task CommunityTopologyPolicyIsSeparateFromGenericSchemaValidation()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-topology-{Guid.NewGuid():N}");
+        try
+        {
+            await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root });
+            ServiceResult<IndexSummary> multipleShards = await scope.Server.CreateAsync(CreateRequest("distributed", new IndexTopologySettings(2, 0)));
+            Assert.False(multipleShards.IsSuccess);
+            Assert.Equal("invalid_topology", multipleShards.Failure?.Code);
+
+            ServiceResult<IndexSummary> zeroShards = await scope.Server.CreateAsync(CreateRequest("zero", new IndexTopologySettings(0, 0)));
+            Assert.False(zeroShards.IsSuccess);
+            Assert.Equal("invalid_schema", zeroShards.Failure?.Code);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
         }
     }
 
@@ -257,5 +368,11 @@ public sealed class LocalServerCoreTests
         name,
         new IndexSchema([new IndexFieldDefinition("content", IndexFieldType.Text, true, true)], new Dictionary<string, AnalysisDefinition>()),
         new IndexTopologySettings(1, 0),
+        new MutableIndexSettings(null, null, "content", null));
+
+    private static CreateIndexRequest CreateRequest(string name, IndexTopologySettings topology) => new(
+        name,
+        new IndexSchema([new IndexFieldDefinition("content", IndexFieldType.Text, true, true)], new Dictionary<string, AnalysisDefinition>()),
+        topology,
         new MutableIndexSettings(null, null, "content", null));
 }

@@ -15,6 +15,10 @@ public sealed class ContractArtefactTests
         Assert.Equal("3.1.0", document.RootElement.GetProperty("openapi").GetString());
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/v1/indices/{name}/search", out _));
         Assert.False(document.RootElement.GetProperty("paths").TryGetProperty("/v1/admin/snapshots/{id}:restore", out _));
+        JsonElement schemas = document.RootElement.GetProperty("components").GetProperty("schemas");
+        Assert.True(schemas.TryGetProperty("WriteToken", out _));
+        Assert.Contains("ReadYourWrites", schemas.GetProperty("SearchRequest").GetProperty("properties").GetProperty("consistency").GetProperty("enum").EnumerateArray().Select(value => value.GetString()));
+        Assert.Contains("LocalFsync", schemas.GetProperty("BulkDocumentsRequest").GetProperty("properties").GetProperty("durability").GetProperty("enum").EnumerateArray().Select(value => value.GetString()));
     }
 
     [Fact]

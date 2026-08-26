@@ -27,7 +27,8 @@ message RefreshIndexRequest { string index_name = 1; }
 message RefreshIndexResponse { ResponseMetadata metadata = 1; string index_name = 2; int64 commit_generation = 3; ContractFailure failure = 4; }
 
 message BulkDocumentOperation { string kind = 1; string document_id = 2; google.protobuf.Struct document = 3; string idempotency_key = 4; }
-message BulkDocumentsRequest { string index_name = 1; repeated BulkDocumentOperation operations = 2; bool refresh = 3; string idempotency_key = 4; }
+message WriteToken { int32 version = 1; string index_id = 2; int64 sequence_number = 3; optional int64 commit_generation = 4; optional int64 content_token = 5; }
+message BulkDocumentsRequest { string index_name = 1; repeated BulkDocumentOperation operations = 2; bool refresh = 3; string idempotency_key = 4; string durability = 5; }
 message BulkDocumentResult { string document_id = 1; bool accepted = 2; ContractFailure failure = 3; }
 message BulkDocumentsResponse {
   ResponseMetadata metadata = 1;
@@ -35,6 +36,7 @@ message BulkDocumentsResponse {
   bool acknowledged = 3;
   optional int64 commit_generation = 4;
   ContractFailure failure = 5;
+  WriteToken write_token = 6;
 }
 
 message SortDefinition { string field = 1; string direction = 2; }
@@ -50,6 +52,7 @@ message SearchRequest {
   string consistency = 7;
   optional bool include_documents = 8;
   bool include_highlights = 9;
+  WriteToken read_token = 10;
 }
 message SearchHit { string document_id = 1; float score = 2; google.protobuf.Struct document = 3; google.protobuf.ListValue sort_values = 4; }
 message FacetBucket { string key = 1; int64 count = 2; }

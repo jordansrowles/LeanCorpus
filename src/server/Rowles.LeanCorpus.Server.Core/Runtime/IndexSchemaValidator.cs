@@ -1,20 +1,21 @@
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing;
+using System.Collections.Frozen;
 
 namespace Rowles.LeanCorpus.Server.Core.Runtime;
 
 internal static class IndexSchemaValidator
 {
-    private static readonly HashSet<string> BuiltInAnalysers = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly FrozenSet<string> BuiltInAnalysers = new[]
     {
         "standard", "keyword", "en", "fr", "de", "es", "it", "pt", "nl", "ru", "ar", "zh", "ja", "ko", "sk"
-    };
+    }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     internal static void Validate(IndexSchema schema, IndexTopologySettings topology, MutableIndexSettings? settings = null)
     {
         ArgumentNullException.ThrowIfNull(schema);
         ArgumentNullException.ThrowIfNull(topology);
-        if (topology.ShardCount != 1 || topology.ReplicaCount != 0)
-            throw new ArgumentException("Community Server requires exactly one shard and zero replicas.", nameof(topology));
+        if (!topology.IsStructurallyValid())
+            throw new ArgumentException("Topology requires at least one shard and no negative replica count.", nameof(topology));
         if (schema.Fields is null || schema.Fields.Count == 0 || schema.Analysis is null)
             throw new ArgumentException("An index schema must contain at least one field.", nameof(schema));
 

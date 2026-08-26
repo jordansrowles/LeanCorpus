@@ -22,7 +22,7 @@ public sealed class LifecycleAndValidationTests
             Assert.Equal("invalid_index_name", (await server.CreateAsync(CreateRequest("../escape"))).Failure?.Code);
 
             CreateIndexRequest invalid = CreateRequest("invalid") with { Topology = new IndexTopologySettings(2, 0) };
-            Assert.Equal("invalid_schema", (await server.CreateAsync(invalid)).Failure?.Code);
+            Assert.Equal("invalid_topology", (await server.CreateAsync(invalid)).Failure?.Code);
             Assert.Single(Directory.EnumerateDirectories(Path.Combine(root, "indices")));
         }
         finally

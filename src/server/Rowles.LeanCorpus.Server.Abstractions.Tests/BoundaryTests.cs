@@ -1,6 +1,7 @@
 using Rowles.LeanCorpus.Server.Abstractions.Community;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Common;
 using Rowles.LeanCorpus.Server.Abstractions.Ports;
+using Rowles.LeanCorpus.Server.Abstractions.Contracts.Search;
 using Rowles.LeanCorpus.Server.Abstractions.Serialisation;
 
 namespace Rowles.LeanCorpus.Server.Abstractions.Tests;
@@ -42,5 +43,14 @@ public sealed class BoundaryTests
     public void SerialiserContextProvidesMetadataForSearchRequests()
     {
         Assert.NotNull(ServerJsonSerialiserContext.Default.SearchRequest);
+    }
+
+    [Fact]
+    public async Task CommunityConsistencyMapsPrimaryAndRejectsReplica()
+    {
+        CommunityConsistencyPolicy policy = new();
+        OperationContext context = new("request", OperationKind.Search, CallerIdentity.Anonymous, DateTimeOffset.UtcNow);
+        Assert.True((await policy.ResolveAsync(context, RequestedConsistency.Primary)).IsAllowed);
+        Assert.False((await policy.ResolveAsync(context, RequestedConsistency.Replica)).IsAllowed);
     }
 }

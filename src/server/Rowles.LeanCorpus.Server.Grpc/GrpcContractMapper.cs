@@ -112,6 +112,8 @@ internal static class GrpcContractMapper
         };
         if (result.Value?.CommitGeneration is long generation)
             response.CommitGeneration = generation;
+        if (result.Value?.WriteToken is { } token)
+            response.WriteToken = ToGrpc(token);
         if (result.Value is not null)
         {
             response.Items.AddRange(result.Value.Items.Select(item => new GrpcContracts.BulkDocumentResult
@@ -234,6 +236,20 @@ internal static class GrpcContractMapper
         ApiVersion = metadata.ApiVersion,
         ObservedUtc = metadata.GeneratedUtc.ToString("O", CultureInfo.InvariantCulture)
     };
+
+    internal static WriteToken? ToContract(GrpcContracts.WriteToken? token) => token is null || string.IsNullOrWhiteSpace(token.IndexId)
+        ? null
+        : new WriteToken(token.Version, token.IndexId, token.SequenceNumber,
+            token.HasCommitGeneration ? token.CommitGeneration : null,
+            token.HasContentToken ? token.ContentToken : null);
+
+    private static GrpcContracts.WriteToken ToGrpc(WriteToken token)
+    {
+        GrpcContracts.WriteToken value = new() { Version = token.Version, IndexId = token.IndexId, SequenceNumber = token.SequenceNumber };
+        if (token.CommitGeneration is long generation) value.CommitGeneration = generation;
+        if (token.ContentToken is long contentToken) value.ContentToken = contentToken;
+        return value;
+    }
 
     private static GrpcContracts.ContractFailure? ToGrpc(ApiFailure? failure) => failure is null ? null : new GrpcContracts.ContractFailure
     {

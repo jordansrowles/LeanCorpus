@@ -18,6 +18,7 @@ using Rowles.LeanCorpus.Server.Abstractions.Contracts.Search;
 using Rowles.LeanCorpus.Server.Abstractions.Ports;
 using Rowles.LeanCorpus.Server.Abstractions.Services;
 using Rowles.LeanCorpus.Server.Core.Configuration;
+using Rowles.LeanCorpus.Server.Core.Execution;
 using Rowles.LeanCorpus.Server.Core.QueryTranslation;
 using Rowles.LeanCorpus.Server.Core.Runtime;
 using Rowles.LeanCorpus.Server.Core.Serialisation;
@@ -34,7 +35,7 @@ namespace Rowles.LeanCorpus.Server.Core.Services;
 public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentService, ISearchService, IInspectionService, IDisposable
 {
     private static readonly ActivitySource ActivitySource = new("Rowles.LeanCorpus.Server");
-    private static readonly Meter ServerMeter = new("Rowles.LeanCorpus.Server", "0.1.0-alpha");
+    private static readonly Meter ServerMeter = new("Rowles.LeanCorpus.Server", "0.1.0-alpha.2");
     private static readonly Counter<long> RequestCounter = ServerMeter.CreateCounter<long>("leancorpus.server.requests");
     private static readonly Histogram<double> RequestDuration = ServerMeter.CreateHistogram<double>("leancorpus.server.request.duration", "ms");
     private static readonly Counter<long> BulkOperationCounter = ServerMeter.CreateCounter<long>("leancorpus.server.bulk.operations");
@@ -43,6 +44,7 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
     private readonly LocalIndexRegistry _registry;
     private readonly ServerCoreOptions _options;
     private readonly ServerPortSet _ports;
+    private readonly ILocalIndexExecutor _executor;
     private readonly DateTimeOffset _startedUtc;
     private readonly ConcurrentDictionary<string, IdempotencyStore> _idempotency = new(StringComparer.Ordinal);
     private readonly object _operationLock = new();
@@ -51,11 +53,12 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
     private int _draining;
     private int _disposed;
 
-    private LocalServerCore(LocalIndexRegistry registry, ServerCoreOptions options, ServerPortSet ports)
+    private LocalServerCore(LocalIndexRegistry registry, ServerCoreOptions options, ServerPortSet ports, ILocalIndexExecutor executor)
     {
         _registry = registry;
         _options = options;
         _ports = ports;
+        _executor = executor;
         _startedUtc = DateTimeOffset.UtcNow;
     }
 
@@ -70,7 +73,7 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
         LocalIndexRegistry registry = await LocalIndexRegistry
             .OpenAsync(Path.GetFullPath(options.DataRoot), options, cancellationToken)
             .ConfigureAwait(false);
-        return new LocalServerCore(registry, options, ports ?? ServerPortSet.Community);
+        return new LocalServerCore(registry, options, ports ?? ServerPortSet.Community, new LocalIndexExecutor(options));
     }
 
     /// <inheritdoc />
@@ -102,6 +105,11 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
         try
         {
             IndexSchemaValidator.Validate(request.Schema, request.Topology, request.Settings);
+            CommunityTopologyValidator.Validate(request.Topology);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Failure<IndexSummary>(start.Context, new ApiFailure("invalid_topology", exception.Message));
         }
         catch (ArgumentException exception)
         {
@@ -286,7 +294,7 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
             return Failure<BulkDocumentsResponse>(start.Context, failure);
 
         OperationRoute route = await _ports.Router.RouteAsync(new OperationRouteRequest(start.Context, true), cancellationToken).ConfigureAwait(false);
-        if (route.TargetKind is RouteTargetKind.Rejected or RouteTargetKind.Remote)
+        if (route is RejectedRoute or RemoteRoute)
             return Failure<BulkDocumentsResponse>(start.Context, new ApiFailure("route_unavailable", "The write cannot execute on this server."));
         if (await RequireLocalFeatureAsync(start.Context, cancellationToken).ConfigureAwait(false) is { } featureFailure)
             return Failure<BulkDocumentsResponse>(start.Context, featureFailure);
@@ -294,6 +302,10 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
             return Failure<BulkDocumentsResponse>(start.Context, new ApiFailure("index_not_found", "The index does not exist."));
         if (request.Operations is null || request.Operations.Count < 1 || request.Operations.Count > _options.MaximumBulkOperations)
             return Failure<BulkDocumentsResponse>(start.Context, new ApiFailure("invalid_bulk_request", "The request contains an invalid number of document operations."));
+        if (!Enum.IsDefined(request.Durability))
+            return Failure<BulkDocumentsResponse>(start.Context, new ApiFailure("invalid_durability", "The requested write durability is not recognised."));
+        if (request.Durability is RequestedWriteDurability.Quorum or RequestedWriteDurability.Replicated)
+            return Failure<BulkDocumentsResponse>(start.Context, new ApiFailure("durability_not_supported", "Community Server supports Memory and LocalFsync write durability only."));
 
         IdempotencyStore? idempotency = null;
         string? fingerprint = null;
@@ -310,65 +322,17 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
             }
         }
 
-        List<BulkDocumentResult> results = new(request.Operations.Count);
-        bool committed = false;
-        int acceptedOperations = 0;
         BulkOperationCounter.Add(request.Operations.Count);
-        lock (entry!.Runtime.WriteLock)
-        {
-            foreach (BulkDocumentOperation operation in request.Operations)
-            {
-                if (string.IsNullOrWhiteSpace(operation.DocumentId))
-                {
-                    results.Add(new BulkDocumentResult(operation.DocumentId, false, new ApiFailure("invalid_document_id", "Document IDs are required.")));
-                    continue;
-                }
-
-                switch (operation.Kind)
-                {
-                    case DocumentOperationKind.Index:
-                    case DocumentOperationKind.Update:
-                        if (operation.Document is not { ValueKind: JsonValueKind.Object } document)
-                        {
-                            BulkFailureCounter.Add(1);
-                            results.Add(new BulkDocumentResult(operation.DocumentId, false, new ApiFailure("invalid_document", "Index and update operations require a JSON object.")));
-                            continue;
-                        }
-                        if (!ServerDocumentMapper.TryMap(operation.DocumentId, document, entry.Runtime.Schema, _options.MaximumDocumentBytes, out LeanDocument? mapped, out string code, out string message))
-                        {
-                            BulkFailureCounter.Add(1);
-                            results.Add(new BulkDocumentResult(operation.DocumentId, false, new ApiFailure(code, message)));
-                            continue;
-                        }
-                        entry.Runtime.Writer.UpdateDocument(ServerDocumentMapper.DocumentIdField, operation.DocumentId, mapped!);
-                        entry.Runtime.MarkWrite();
-                        acceptedOperations++;
-                        results.Add(new BulkDocumentResult(operation.DocumentId, true));
-                        break;
-                    case DocumentOperationKind.Delete:
-                        entry.Runtime.Writer.DeleteDocuments(new TermQuery(ServerDocumentMapper.DocumentIdField, operation.DocumentId));
-                        entry.Runtime.MarkWrite();
-                        acceptedOperations++;
-                        results.Add(new BulkDocumentResult(operation.DocumentId, true));
-                        break;
-                    default:
-                        BulkFailureCounter.Add(1);
-                        results.Add(new BulkDocumentResult(operation.DocumentId, false, new ApiFailure("invalid_operation", "The document operation is not recognised.")));
-                        break;
-                }
-            }
-
-            // Commit only when the caller asks for immediate visibility. The runtime timer
-            // commits ordinary writes in the background and avoids one fsync per request.
-            if (acceptedOperations > 0
-                && (request.Refresh || entry.Runtime.PendingOperations >= _options.MaximumUncommittedOperations))
-                committed = entry.Runtime.Commit(refresh: request.Refresh);
-        }
-
-        using SearcherLease visibleLease = entry.Runtime.Searchers.AcquireLease();
+        LocalWriteResult local = await _executor.WriteAsync(start.Context, entry!.Handle, request, cancellationToken).ConfigureAwait(false);
+        foreach (BulkDocumentResult item in local.Items)
+            if (!item.Accepted)
+                BulkFailureCounter.Add(1);
         WriteAcknowledgement acknowledgement = await _ports.WriteAcknowledgements.AcknowledgeAsync(
-            new WriteCommitState(start.Context, request.IndexName, entry.Runtime.Writer.NextSequenceNumber, committed, committed && acceptedOperations > 0), cancellationToken).ConfigureAwait(false);
-        BulkDocumentsResponse response = new(results, acknowledgement.IsAcknowledged, visibleLease.CommitGeneration);
+            new WriteCommitState(start.Context, request.IndexName, local.SequenceNumber, local.Committed, request.Refresh && local.Committed && local.AcceptedOperations > 0), cancellationToken).ConfigureAwait(false);
+        WriteToken? token = local.AcceptedOperations == 0
+            ? null
+            : new WriteToken(1, entry.Registration.Id, local.SequenceNumber, local.Receipt?.CommitGeneration, local.Receipt?.ContentToken);
+        BulkDocumentsResponse response = new(local.Items, acknowledgement.IsAcknowledged, local.Receipt?.CommitGeneration ?? local.VisibleGeneration, token);
         if (idempotency is not null && fingerprint is not null)
             idempotency.Add(start.Context.Caller.SubjectId + ":" + request.IdempotencyKey, fingerprint, response);
         await PublishAuditAsync(start.Context, acknowledgement.IsAcknowledged, acknowledgement.IsAcknowledged ? null : "write_not_acknowledged", cancellationToken).ConfigureAwait(false);
@@ -385,7 +349,7 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
         if (await AuthoriseAsync(start.Context, EndpointAccess.Public, cancellationToken).ConfigureAwait(false) is { } failure)
             return Failure<SearchResponse>(start.Context, failure);
         OperationRoute route = await _ports.Router.RouteAsync(new OperationRouteRequest(start.Context, false), cancellationToken).ConfigureAwait(false);
-        if (route.TargetKind is RouteTargetKind.Rejected or RouteTargetKind.Remote)
+        if (route is RejectedRoute or RemoteRoute)
             return Failure<SearchResponse>(start.Context, new ApiFailure("route_unavailable", "The search cannot execute on this server."));
         if (await RequireLocalFeatureAsync(start.Context, cancellationToken).ConfigureAwait(false) is { } featureFailure)
             return Failure<SearchResponse>(start.Context, featureFailure);
@@ -394,84 +358,46 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
             return Failure<SearchResponse>(start.Context, new ApiFailure("consistency_unavailable", consistency.Reason ?? "The requested consistency is unavailable."));
         if (!TryGetEntry(indexName, out IndexRuntimeEntry? entry))
             return Failure<SearchResponse>(start.Context, new ApiFailure("index_not_found", "The index does not exist."));
-        if (request.Size < 1 || request.Size > _options.MaximumSearchResults)
-            return Failure<SearchResponse>(start.Context, new ApiFailure("invalid_search_request", "The requested result size is outside the configured limit."));
-        if (request.IncludeHighlights)
-            return Failure<SearchResponse>(start.Context, new ApiFailure("highlights_not_supported", "Highlights are not available in Community Server 0.1."));
-        if (request.Facets is { Count: > 0 } && request.SearchAfter is { Count: > 0 })
-            return Failure<SearchResponse>(start.Context, new ApiFailure("unsupported_search", "Search-after cannot be combined with facets in Community Server 0.1."));
-
-        string? defaultField = entry!.Registration.Settings.DefaultField;
-        if (!ServerQueryTranslator.TryTranslate(request.Query, entry.Runtime.Schema, _options, defaultField, entry.Registration.Settings.MaximumQueryClauses, out Query? query, out ApiFailure? queryFailure))
-            return Failure<SearchResponse>(start.Context, queryFailure!);
-
-        List<SortField> sorts;
+        if (request.Consistency == RequestedConsistency.ReadYourWrites)
+        {
+            if (request.ReadToken is not { } token)
+                return Failure<SearchResponse>(start.Context, new ApiFailure("write_token_required", "ReadYourWrites consistency requires a write token."));
+            if (token.Version != 1 || token.SequenceNumber <= 0 || !string.Equals(token.IndexId, entry!.Registration.Id, StringComparison.Ordinal))
+                return Failure<SearchResponse>(start.Context, new ApiFailure("invalid_write_token", "The write token does not belong to this index."));
+            try
+            {
+                using CancellationTokenSource consistencyWait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                consistencyWait.CancelAfter(_options.MaximumConsistencyWait);
+                await entry.Runtime.Commits.WaitUntilCommittedAsync(token.SequenceNumber, consistencyWait.Token).ConfigureAwait(false);
+                entry.Runtime.Refresh();
+            }
+            catch (OperationCanceledException)
+            {
+                return Failure<SearchResponse>(start.Context, new ApiFailure(cancellationToken.IsCancellationRequested ? "consistency_wait_cancelled" : "consistency_wait_timeout", "Waiting for the requested write did not complete within the configured limit.", true));
+            }
+        }
         try
         {
-            sorts = BuildSorts(request.Sort, entry.Runtime.Schema);
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            SearchResponse response = await _executor.SearchAsync(start.Context, entry!.Handle, request, cancellationToken).ConfigureAwait(false);
+            stopwatch.Stop();
+            RequestDuration.Record(stopwatch.Elapsed.TotalMilliseconds, new KeyValuePair<string, object?>("operation", nameof(OperationKind.Search)));
+            SearchDuration.Record(stopwatch.Elapsed.TotalMilliseconds);
+            await PublishAuditAsync(start.Context, true, null, cancellationToken).ConfigureAwait(false);
+            return Success(start.Context, response);
+        }
+        catch (LocalExecutionException exception)
+        {
+            return Failure<SearchResponse>(start.Context, exception.Failure);
+        }
+        catch (NotSupportedException exception)
+        {
+            return Failure<SearchResponse>(start.Context, new ApiFailure("unsupported_search", exception.Message));
         }
         catch (ArgumentException exception)
         {
             return Failure<SearchResponse>(start.Context, new ApiFailure("invalid_sort", exception.Message));
         }
-
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        using SearcherLease lease = entry.Runtime.Searchers.AcquireLease();
-        TopDocs documents;
-        IReadOnlyList<EngineFacetResult> engineFacets = [];
-        string[] facetFields = [];
-        if (request.Facets is { Count: > 0 })
-        {
-            List<string> fields = [];
-            foreach (FacetDefinition facet in request.Facets)
-            {
-                if (facet.Kind != FacetKind.Terms)
-                    return Failure<SearchResponse>(start.Context, new ApiFailure("unsupported_facet", "Only terms facets are available in Community Server 0.1."));
-                if (!entry.Runtime.Schema.Fields.TryGetValue(facet.Field, out CompiledFieldDefinition? field) || !field.Source.Indexed || field.Source.Type is IndexFieldType.Text or IndexFieldType.Binary or IndexFieldType.Vector)
-                    return Failure<SearchResponse>(start.Context, new ApiFailure("invalid_facet_field", $"Field '{facet.Field}' cannot be faceted."));
-                fields.Add(facet.Field);
-            }
-            facetFields = fields.Distinct(StringComparer.Ordinal).ToArray();
-        }
-
-        if (facetFields.Length > 0)
-        {
-            (documents, engineFacets) = lease.Searcher.SearchWithFacets(query!, request.Size, facetFields);
-        }
-        else if (request.SearchAfter is { Count: > 0 })
-        {
-            if (!TryDecodeSearchAfter(request.SearchAfter, out ScoreDoc after))
-                return Failure<SearchResponse>(start.Context, new ApiFailure("invalid_search_after", "Search-after must contain an internal document ID and score."));
-            documents = lease.Searcher.SearchAfter(after, query!, request.Size, sorts.ToArray());
-        }
-        else
-        {
-            documents = lease.Searcher.Search(query!, request.Size, sorts, SearchOptions.Default);
-        }
-
-        stopwatch.Stop();
-        RequestDuration.Record(stopwatch.Elapsed.TotalMilliseconds, new KeyValuePair<string, object?>("operation", nameof(OperationKind.Search)));
-        SearchDuration.Record(stopwatch.Elapsed.TotalMilliseconds);
-        SearchHit[] hits = documents.ScoreDocs.Select(scoreDocument => ToSearchHit(lease, scoreDocument, request.IncludeDocuments, sorts)).ToArray();
-        IReadOnlyList<ServerFacetResult>? facets = request.Facets is { Count: > 0 }
-            ? MapFacets(request.Facets, engineFacets)
-            : null;
-        IReadOnlyList<object?>? next = hits.Length == 0
-            ? null
-            : [documents.ScoreDocs[^1].DocId, documents.ScoreDocs[^1].Score];
-        SearchResponse response = new(
-            hits,
-            documents.TotalHits,
-            TotalHitsRelation.Exact,
-            ScoringModel.ShardLocal,
-            new ShardSearchSummary(1, documents.IsPartial ? 0 : 1, documents.IsPartial ? 1 : 0, 0),
-            new SearchTiming((long)stopwatch.Elapsed.TotalMilliseconds),
-            next,
-            facets,
-            null,
-            documents.IsPartial);
-        await PublishAuditAsync(start.Context, true, null, cancellationToken).ConfigureAwait(false);
-        return Success(start.Context, response);
     }
 
     /// <inheritdoc />
@@ -484,33 +410,30 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
         if (await AuthoriseAsync(start.Context, EndpointAccess.Public, cancellationToken).ConfigureAwait(false) is { } failure)
             return Failure<ExplainResponse>(start.Context, failure);
         OperationRoute route = await _ports.Router.RouteAsync(new OperationRouteRequest(start.Context, false), cancellationToken).ConfigureAwait(false);
-        if (route.TargetKind is RouteTargetKind.Rejected or RouteTargetKind.Remote)
+        if (route is RejectedRoute or RemoteRoute)
             return Failure<ExplainResponse>(start.Context, new ApiFailure("route_unavailable", "The explanation cannot execute on this server."));
         if (await RequireLocalFeatureAsync(start.Context, cancellationToken).ConfigureAwait(false) is { } featureFailure)
             return Failure<ExplainResponse>(start.Context, featureFailure);
-        if (string.IsNullOrWhiteSpace(request.DocumentId))
-            return Failure<ExplainResponse>(start.Context, new ApiFailure("invalid_document_id", "A document ID is required for explanations."));
         if (!TryGetEntry(indexName, out IndexRuntimeEntry? entry))
             return Failure<ExplainResponse>(start.Context, new ApiFailure("index_not_found", "The index does not exist."));
-        if (!ServerQueryTranslator.TryTranslate(request.Query, entry!.Runtime.Schema, _options, entry.Registration.Settings.DefaultField, entry.Registration.Settings.MaximumQueryClauses, out Query? query, out ApiFailure? queryFailure))
-            return Failure<ExplainResponse>(start.Context, queryFailure!);
-
-        using SearcherLease lease = entry.Runtime.Searchers.AcquireLease();
-        TopDocs matches = lease.Searcher.Search(new TermQuery(ServerDocumentMapper.DocumentIdField, request.DocumentId), _options.MaximumSearchResults);
-        ScoreDoc? document = matches.ScoreDocs.FirstOrDefault();
-        if (document is null)
-            return Success(start.Context, new ExplainResponse(false, null, "The document does not exist."));
-
-        Explanation? explanation = query switch
+        try
         {
-            TermQuery term => lease.Searcher.Explain(term, document.Value.DocId),
-            VectorQuery vector => lease.Searcher.Explain(vector, document.Value.DocId),
-            _ => null
-        };
-        if (explanation is null)
-            return Failure<ExplainResponse>(start.Context, new ApiFailure("explain_not_supported", "Explanations are available for term and vector queries only."));
-        await PublishAuditAsync(start.Context, true, null, cancellationToken).ConfigureAwait(false);
-        return Success(start.Context, ToExplainResponse(explanation));
+            ExplainResponse response = await _executor.ExplainAsync(start.Context, entry!.Handle, request, cancellationToken).ConfigureAwait(false);
+            await PublishAuditAsync(start.Context, true, null, cancellationToken).ConfigureAwait(false);
+            return Success(start.Context, response);
+        }
+        catch (LocalExecutionException exception)
+        {
+            return Failure<ExplainResponse>(start.Context, exception.Failure);
+        }
+        catch (NotSupportedException exception)
+        {
+            return Failure<ExplainResponse>(start.Context, new ApiFailure("explain_not_supported", exception.Message));
+        }
+        catch (ArgumentException exception)
+        {
+            return Failure<ExplainResponse>(start.Context, new ApiFailure("invalid_explain_request", exception.Message));
+        }
     }
 
     /// <inheritdoc />

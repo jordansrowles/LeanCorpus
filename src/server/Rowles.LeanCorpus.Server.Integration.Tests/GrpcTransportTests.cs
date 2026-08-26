@@ -35,7 +35,13 @@ public sealed class GrpcTransportTests
         Assert.Null(created.Failure);
         Assert.Equal("books", created.Index.IndexName);
 
-        GrpcContracts.BulkDocumentsRequest bulk = new() { IndexName = "books", Refresh = true, IdempotencyKey = "grpc-write" };
+        GrpcContracts.BulkDocumentsRequest bulk = new()
+        {
+            IndexName = "books",
+            Refresh = true,
+            IdempotencyKey = "grpc-write",
+            Durability = "LocalFsync"
+        };
         bulk.Operations.Add(new GrpcContracts.BulkDocumentOperation
         {
             Kind = "Index",
@@ -45,13 +51,16 @@ public sealed class GrpcTransportTests
         GrpcContracts.BulkDocumentsResponse indexed = await indices.BulkDocumentsAsync(bulk);
         Assert.Null(indexed.Failure);
         Assert.True(indexed.Items[0].Accepted);
+        Assert.Equal(created.Index.IndexId, indexed.WriteToken.IndexId);
 
         GrpcContracts.SearchRequest request = new()
         {
             IndexName = "books",
             Query = Struct.Parser.ParseJson("""{"kind":"term","field":"isbn","value":"grpc-1"}"""),
             Size = 10,
-            IncludeDocuments = true
+            IncludeDocuments = true,
+            Consistency = "ReadYourWrites",
+            ReadToken = indexed.WriteToken
         };
         GrpcContracts.SearchResponse result = await search.SearchAsync(request);
         Assert.Null(result.Failure);

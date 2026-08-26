@@ -17,12 +17,16 @@ public readonly struct SearcherLease : IDisposable
     /// <summary>The committed generation captured when the lease was acquired.</summary>
     public int CommitGeneration { get; }
 
-    internal SearcherLease(IndexSearcher searcher, int commitGeneration, Action release)
+    internal SearcherLease(IndexSearcher searcher, int commitGeneration, long contentToken, Action release)
     {
         Searcher = searcher;
         CommitGeneration = commitGeneration;
+        ContentToken = contentToken;
         _release = release;
     }
+
+    /// <summary>The commit content token captured when the lease was acquired.</summary>
+    public long ContentToken { get; }
 
     /// <summary>Releases the underlying reference.</summary>
     public void Dispose() => _release?.Invoke();

@@ -328,7 +328,7 @@
       href: changelog/index.md
       items:
         - name: Community Server 0.1.0-alpha
-          href: changelog/server/0.1.0-alpha%20-%202026-08-25.md
+          href: changelog/server/0.1.0-alpha%20-%20unreleased.md
         - name: 3.0.0
           href: changelog/3.0.0%20-%202026-08-25.md
         - name: 2.3.0
