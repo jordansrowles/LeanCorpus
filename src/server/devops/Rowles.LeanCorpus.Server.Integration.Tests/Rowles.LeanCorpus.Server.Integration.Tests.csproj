@@ -7,11 +7,15 @@
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Grpc.Net.Client" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../Rowles.LeanCorpus.Server.Core/Rowles.LeanCorpus.Server.Core.csproj" />
+    <ProjectReference Include="../../Rowles.LeanCorpus.Server.AspNetCore/Rowles.LeanCorpus.Server.AspNetCore.csproj" />
+    <ProjectReference Include="../../Rowles.LeanCorpus.Server.Grpc/Rowles.LeanCorpus.Server.Grpc.csproj" />
+    <ProjectReference Include="../../Rowles.LeanCorpus.Studio/Rowles.LeanCorpus.Studio.csproj" />
   </ItemGroup>
 </Project>

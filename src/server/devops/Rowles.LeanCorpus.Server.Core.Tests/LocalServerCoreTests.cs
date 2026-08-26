@@ -3,7 +3,9 @@ using Rowles.LeanCorpus.Server.Abstractions.Contracts.Documents;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Common;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Inspection;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Search;
+using Rowles.LeanCorpus.Server.Abstractions.Ports;
 using Rowles.LeanCorpus.Server.Core.Configuration;
+using Rowles.LeanCorpus.Server.Core.Execution;
 using Rowles.LeanCorpus.Server.Core.Services;
 
 namespace Rowles.LeanCorpus.Server.Core.Tests;
@@ -11,6 +13,157 @@ namespace Rowles.LeanCorpus.Server.Core.Tests;
 [Trait("Area", "Server")]
 public sealed class LocalServerCoreTests
 {
+    [Fact]
+    public async Task HealthyAfterCleanStartup()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-health-{Guid.NewGuid():N}");
+        try
+        {
+            await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root });
+            Assert.True((await scope.Server.CreateAsync(CreateRequest("books"))).IsSuccess);
+
+            ServiceResult<HealthResponse> health = await scope.Server.GetHealthAsync();
+            Assert.True(health.IsSuccess);
+            Assert.True(health.Value!.IsHealthy);
+            Assert.Equal("healthy", health.Value.Status);
+            IndexHealthSummary index = Assert.Single(health.Value.Indices!);
+            Assert.Equal("books", index.IndexName);
+            Assert.Equal("ReadWrite", index.Mode);
+            Assert.True(index.IsUsable);
+            Assert.False(index.IsDegraded);
+
+            ServiceResult<ReadinessResponse> readiness = await scope.Server.GetReadinessAsync();
+            Assert.True(readiness.IsSuccess);
+            Assert.True(readiness.Value!.IsReady);
+            Assert.Equal("ready", readiness.Value.Status);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task CommitFailureMakesHealthDegraded()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-health-failure-{Guid.NewGuid():N}");
+        ToggleCommitObserver observer = new();
+        try
+        {
+            ServerCoreOptions options = new() { DataRoot = root, CommitObserver = observer };
+            await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(options);
+            Assert.True((await scope.Server.CreateAsync(CreateRequest("books"))).IsSuccess);
+            await WriteDocument(scope.Server, "one", "first", refresh: true);
+
+            observer.ThrowOnCommit = true;
+            await WriteDocument(scope.Server, "two", "second", refresh: true);
+
+            ServiceResult<HealthResponse> health = await scope.Server.GetHealthAsync();
+            Assert.False(health.Value!.IsHealthy);
+            Assert.Equal("degraded", health.Value.Status);
+            IndexHealthSummary index = Assert.Single(health.Value.Indices!);
+            Assert.Equal(1, index.ConsecutiveCommitFailures);
+            Assert.NotNull(index.LastCommitError);
+            Assert.True(index.IsDegraded);
+
+            ServiceResult<ReadinessResponse> readiness = await scope.Server.GetReadinessAsync();
+            Assert.True(readiness.Value!.IsReady);
+            Assert.Equal("ready", readiness.Value.Status);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task RecoveredCommitFailureReturnsHealthyAfterOneSuccessfulCommit()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-health-recovery-{Guid.NewGuid():N}");
+        ToggleCommitObserver observer = new();
+        try
+        {
+            ServerCoreOptions options = new() { DataRoot = root, CommitObserver = observer };
+            await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(options);
+            Assert.True((await scope.Server.CreateAsync(CreateRequest("books"))).IsSuccess);
+            await WriteDocument(scope.Server, "one", "first", refresh: true);
+
+            observer.ThrowOnCommit = true;
+            await WriteDocument(scope.Server, "two", "second", refresh: true);
+            observer.ThrowOnCommit = false;
+            await WriteDocument(scope.Server, "three", "third", refresh: true);
+
+            ServiceResult<HealthResponse> health = await scope.Server.GetHealthAsync();
+            Assert.True(health.Value!.IsHealthy);
+            Assert.Equal("healthy", health.Value.Status);
+            IndexHealthSummary index = Assert.Single(health.Value.Indices!);
+            Assert.Equal(0, index.ConsecutiveCommitFailures);
+            Assert.Null(index.LastCommitError);
+            Assert.NotNull(index.LastSuccessfulCommitUtc);
+            Assert.False(index.IsDegraded);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task ReadinessFalseWhileDraining()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-draining-{Guid.NewGuid():N}");
+        BlockingAuthorisation authorisation = new();
+        LocalServerCore server = await LocalServerCore.OpenAsync(
+            new ServerCoreOptions { DataRoot = root, ShutdownTimeout = TimeSpan.FromSeconds(5) },
+            ServerPortSet.Community with { Authorisation = authorisation });
+        try
+        {
+            authorisation.Block();
+            Task<ServiceResult<SearchResponse>> pending = server.SearchAsync("missing", new SearchRequest(new TermQueryDefinition("content", "value"))).AsTask();
+            await authorisation.Entered.Task;
+            Task stopping = Task.Run(server.Dispose);
+
+            ReadinessResponse? readiness = null;
+            for (int attempt = 0; attempt < 100 && readiness?.Status != "draining"; attempt++)
+            {
+                readiness = (await server.GetReadinessAsync()).Value;
+                if (readiness?.Status != "draining")
+                    await Task.Yield();
+            }
+
+            Assert.NotNull(readiness);
+            Assert.False(readiness!.IsReady);
+            Assert.Equal("draining", readiness.Status);
+            authorisation.Release();
+            await pending;
+            await stopping;
+        }
+        finally
+        {
+            authorisation.Release();
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task DisposedOrStoppedIsNotReady()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-stopped-{Guid.NewGuid():N}");
+        LocalServerCore server = await LocalServerCore.OpenAsync(new ServerCoreOptions { DataRoot = root });
+        try
+        {
+            server.Dispose();
+            ServiceResult<ReadinessResponse> readiness = await server.GetReadinessAsync();
+            Assert.False(readiness.Value!.IsReady);
+            Assert.Equal("unhealthy", readiness.Value.Status);
+        }
+        finally
+        {
+            server.Dispose();
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
     [Fact]
     public async Task LocalFsyncReturnsVersionedWriteTokenAndSupportsReadYourWrites()
     {
@@ -375,4 +528,54 @@ public sealed class LocalServerCoreTests
         new IndexSchema([new IndexFieldDefinition("content", IndexFieldType.Text, true, true)], new Dictionary<string, AnalysisDefinition>()),
         topology,
         new MutableIndexSettings(null, null, "content", null));
+
+    private static async Task WriteDocument(LocalServerCore server, string id, string content, bool refresh)
+    {
+        using JsonDocument document = JsonDocument.Parse(JsonSerializer.Serialize(new { content }));
+        ServiceResult<BulkDocumentsResponse> result = await server.BulkAsync(new BulkDocumentsRequest(
+            "books",
+            [new BulkDocumentOperation(DocumentOperationKind.Index, id, document.RootElement.Clone())],
+            Refresh: refresh));
+        Assert.True(result.IsSuccess, result.Failure?.Code);
+    }
+
+    private sealed class ToggleCommitObserver : ILocalCommitObserver
+    {
+        internal bool ThrowOnCommit { get; set; }
+
+        public ValueTask OnCommittedAsync(LocalIndexDescriptor index, LocalCommitReceipt receipt, CancellationToken cancellationToken = default) =>
+            ThrowOnCommit ? throw new InvalidOperationException("commit observer failure") : ValueTask.CompletedTask;
+    }
+
+    private sealed class BlockingAuthorisation : IAuthorisationService
+    {
+        private TaskCompletionSource _release = NewCompletion();
+        private int _blocked;
+
+        internal TaskCompletionSource Entered { get; } = NewCompletion();
+
+        internal void Block()
+        {
+            _release = NewCompletion();
+            Volatile.Write(ref _blocked, 1);
+        }
+
+        internal void Release()
+        {
+            Volatile.Write(ref _blocked, 0);
+            _release.TrySetResult();
+        }
+
+        public async ValueTask<AuthorisationDecision> AuthoriseAsync(OperationPermission permission, CancellationToken cancellationToken = default)
+        {
+            if (Volatile.Read(ref _blocked) != 0)
+            {
+                Entered.TrySetResult();
+                await _release.Task.WaitAsync(cancellationToken);
+            }
+            return new AuthorisationDecision(true);
+        }
+
+        private static TaskCompletionSource NewCompletion() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
 }

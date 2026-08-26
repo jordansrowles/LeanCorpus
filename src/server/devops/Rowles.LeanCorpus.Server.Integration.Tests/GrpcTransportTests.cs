@@ -53,6 +53,14 @@ public sealed class GrpcTransportTests
         Assert.True(indexed.Items[0].Accepted);
         Assert.Equal(created.Index.IndexId, indexed.WriteToken.IndexId);
 
+        GrpcContracts.HealthResponse indexedHealth = await health.GetHealthAsync(new Empty());
+        Assert.True(indexedHealth.IsHealthy);
+        Assert.Equal("healthy", indexedHealth.Status);
+        GrpcContracts.IndexHealthSummary indexedHealthIndex = Assert.Single(indexedHealth.Indices);
+        Assert.Equal("books", indexedHealthIndex.IndexName);
+        Assert.True(indexedHealthIndex.VisibleGeneration > 0);
+        Assert.Equal(indexedHealthIndex.VisibleGeneration, indexedHealthIndex.DurableGeneration);
+
         GrpcContracts.SearchRequest request = new()
         {
             IndexName = "books",
@@ -74,6 +82,43 @@ public sealed class GrpcTransportTests
         });
         Assert.Null(explanation.Failure);
         Assert.True(explanation.Explanation.IsMatch);
+
+        GrpcContracts.ExplainResponse unsupportedExplanation = await search.ExplainAsync(new GrpcContracts.ExplainRequest
+        {
+            IndexName = "books",
+            DocumentId = "one",
+            Query = Struct.Parser.ParseJson("""{"kind":"phrase","field":"title","terms":["typed","transport"]}""")
+        });
+        Assert.Equal("explain_not_supported", unsupportedExplanation.Failure?.Code);
+
+        GrpcContracts.BulkDocumentsResponse unsupportedDurability = await indices.BulkDocumentsAsync(new GrpcContracts.BulkDocumentsRequest
+        {
+            IndexName = "books",
+            Durability = "Quorum",
+            Operations = { new GrpcContracts.BulkDocumentOperation
+            {
+                Kind = "Index",
+                DocumentId = "two",
+                Document = Struct.Parser.ParseJson("""{"title":"Second","isbn":"grpc-2"}""")
+            }}
+        });
+        Assert.Equal("durability_not_supported", unsupportedDurability.Failure?.Code);
+
+        GrpcContracts.SearchResponse unsupportedConsistency = await search.SearchAsync(new GrpcContracts.SearchRequest
+        {
+            IndexName = "books",
+            Query = request.Query,
+            Consistency = "Replica"
+        });
+        Assert.Equal("consistency_unavailable", unsupportedConsistency.Failure?.Code);
+
+        GrpcContracts.InspectionResponse unsupportedInspection = await inspection.InspectAsync(new GrpcContracts.InspectionRequest
+        {
+            IndexName = "books",
+            Resource = "Terms",
+            Limit = 10
+        });
+        Assert.Equal("inspection_not_supported", unsupportedInspection.Failure?.Code);
 
         Assert.Null((await indices.GetSchemaAsync(new GrpcContracts.GetIndexRequest { IndexName = "books" })).Failure);
         Assert.Null((await indices.GetStatisticsAsync(new GrpcContracts.GetIndexRequest { IndexName = "books" })).Failure);

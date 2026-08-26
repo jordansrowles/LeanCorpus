@@ -12,10 +12,10 @@
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../Rowles.LeanCorpus.Server.Abstractions/Rowles.LeanCorpus.Server.Abstractions.csproj" />
+    <ProjectReference Include="../../Rowles.LeanCorpus.Server.Abstractions/Rowles.LeanCorpus.Server.Abstractions.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="../Rowles.LeanCorpus.Server.Abstractions/Contracts/OpenApi/*.json" Link="Contracts/OpenApi/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="../Rowles.LeanCorpus.Server.Abstractions/Contracts/Grpc/*.proto" Link="Contracts/Grpc/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../Rowles.LeanCorpus.Server.Abstractions/Contracts/OpenApi/*.json" Link="Contracts/OpenApi/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../Rowles.LeanCorpus.Server.Abstractions/Contracts/Grpc/*.proto" Link="Contracts/Grpc/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

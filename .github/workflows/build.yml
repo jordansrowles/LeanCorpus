@@ -36,6 +36,9 @@ jobs:
           dotnet restore src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj
           dotnet restore src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj
           dotnet restore src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj
+          dotnet restore src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj
+          dotnet restore src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj
+          dotnet restore src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj
 
       - name: Restore architecture tests
         run: dotnet restore src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj
@@ -47,6 +50,9 @@ jobs:
           dotnet build src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj -c Release --no-restore
           dotnet build src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-restore
           dotnet build src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-restore
+          dotnet build src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj -c Release --no-restore
+          dotnet build src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj -c Release --no-restore
+          dotnet build src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj -c Release --no-restore
 
       - name: Pack Rowles.Text
         run: dotnet pack src/core/Rowles.Text/Rowles.Text.csproj -c Release --no-build
@@ -65,6 +71,9 @@ jobs:
           dotnet test src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj -c Release --no-build --logger "trx;LogFileName=rowles-text-test-results.trx"
           CHAOS_ITERATIONS=1000 dotnet test src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj -c Release --no-build --logger "trx;LogFileName=core-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
           dotnet test src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-build --logger "trx;LogFileName=sourcegen-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
+          dotnet test src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj -c Release --no-build --logger "trx;LogFileName=server-abstractions-test-results.trx"
+          dotnet test src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj -c Release --no-build --logger "trx;LogFileName=server-core-test-results.trx"
+          dotnet test src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj -c Release --no-build --logger "trx;LogFileName=server-integration-test-results.trx"
 
       - name: Test architecture rules
         run: |
@@ -83,6 +92,9 @@ jobs:
             src/devops/Rowles.Text.Tests/TestResults/*.trx
             src/devops/Rowles.LeanCorpus.Tests.Core/TestResults/*.trx
             src/devops/Rowles.LeanCorpus.Tests.SourceGen/TestResults/*.trx
+            src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/TestResults/*.trx
+            src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/TestResults/*.trx
+            src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/TestResults/*.trx
             architecture-test-results/**/*.trx
           if-no-files-found: ignore
 
@@ -124,6 +136,9 @@ jobs:
           dotnet restore src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj
           dotnet restore src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj
           dotnet restore src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj
+          dotnet restore src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj
+          dotnet restore src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj
+          dotnet restore src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj
 
       - name: Restore architecture tests
         run: dotnet restore src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj
@@ -135,6 +150,9 @@ jobs:
           dotnet build src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj -c Release --no-restore
           dotnet build src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-restore
           dotnet build src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj -c Release --no-restore
+          dotnet build src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj -c Release --no-restore
+          dotnet build src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj -c Release --no-restore
+          dotnet build src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj -c Release --no-restore
 
       - name: Build architecture tests
         run: dotnet build src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj -c Release --no-restore
@@ -146,6 +164,12 @@ jobs:
           $env:CHAOS_ITERATIONS = "1000"; dotnet test src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj -c Release --no-build --logger "trx;LogFileName=core-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet test src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj -c Release --no-build --logger "trx;LogFileName=sourcegen-test-results.trx" --collect "XPlat Code Coverage" --results-directory coverage-results
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj -c Release --no-build --logger "trx;LogFileName=server-abstractions-test-results.trx"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj -c Release --no-build --logger "trx;LogFileName=server-core-test-results.trx"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj -c Release --no-build --logger "trx;LogFileName=server-integration-test-results.trx"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test architecture rules
@@ -167,6 +191,9 @@ jobs:
             src/devops/Rowles.Text.Tests/TestResults/*.trx
             src/devops/Rowles.LeanCorpus.Tests.Core/TestResults/*.trx
             src/devops/Rowles.LeanCorpus.Tests.SourceGen/TestResults/*.trx
+            src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/TestResults/*.trx
+            src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/TestResults/*.trx
+            src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/TestResults/*.trx
             architecture-test-results/**/*.trx
           if-no-files-found: ignore
 

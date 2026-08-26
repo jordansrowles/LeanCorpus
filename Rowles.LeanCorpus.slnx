@@ -18,12 +18,12 @@
   <Project Path="src/examples/Rowles.LeanCorpus.Example.NewsgroupsIndexer/Rowles.LeanCorpus.Example.NewsgroupsIndexer.csproj" />
   <Project Path="src/examples/Rowles.LeanCorpus.Example.Telemetry/Rowles.LeanCorpus.Example.Telemetry.csproj" />
   <Project Path="src/server/Rowles.LeanCorpus.Server.Abstractions/Rowles.LeanCorpus.Server.Abstractions.csproj" />
-  <Project Path="src/server/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj" />
+  <Project Path="src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj" />
   <Project Path="src/server/Rowles.LeanCorpus.Server.Core/Rowles.LeanCorpus.Server.Core.csproj" />
-  <Project Path="src/server/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj" />
+  <Project Path="src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj" />
   <Project Path="src/server/Rowles.LeanCorpus.Server.AspNetCore/Rowles.LeanCorpus.Server.AspNetCore.csproj" />
   <Project Path="src/server/Rowles.LeanCorpus.Server.Grpc/Rowles.LeanCorpus.Server.Grpc.csproj" />
-  <Project Path="src/server/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj" />
+  <Project Path="src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj" />
   <Project Path="src/server/Rowles.LeanCorpus.Server.Local/Rowles.LeanCorpus.Server.Local.csproj" />
   <Project Path="src/server/Rowles.LeanCorpus.Studio/Rowles.LeanCorpus.Studio.csproj" />
 </Solution>

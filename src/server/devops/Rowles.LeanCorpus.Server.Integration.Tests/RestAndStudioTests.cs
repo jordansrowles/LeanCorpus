@@ -50,7 +50,7 @@ public sealed class RestAndStudioTests
             query = new { kind = "term", field = "isbn", value = "978-1" },
             size = 10,
             includeDocuments = true,
-            consistency = 3,
+            consistency = "ReadYourWrites",
             readToken = writeToken
         };
         using JsonDocument searched = await SendSuccessAsync(client, HttpMethod.Post, "/v1/indices/books/search", search);
@@ -59,6 +59,28 @@ public sealed class RestAndStudioTests
 
         using JsonDocument explained = await SendSuccessAsync(client, HttpMethod.Post, "/v1/indices/books/explain", new { documentId = "one", query = new { kind = "term", field = "isbn", value = "978-1" } });
         Assert.True(explained.RootElement.GetProperty("value").GetProperty("isMatch").GetBoolean());
+
+        using JsonDocument unsupportedExplain = await SendFailureAsync(client, HttpMethod.Post, "/v1/indices/books/explain",
+            new { documentId = "one", query = new { kind = "phrase", field = "title", terms = new[] { "practical", "search" } } }, HttpStatusCode.UnprocessableEntity);
+        Assert.Equal("explain_not_supported", unsupportedExplain.RootElement.GetProperty("failure").GetProperty("code").GetString());
+
+        using JsonDocument unsupportedDurability = await SendFailureAsync(client, HttpMethod.Post, "/v1/indices/books/documents:bulk", new
+        {
+            indexName = "books",
+            operations = new[] { new { kind = 0, documentId = "two", document = new { title = "Second", isbn = "978-2" } } },
+            durability = "Quorum"
+        }, HttpStatusCode.UnprocessableEntity);
+        Assert.Equal("durability_not_supported", unsupportedDurability.RootElement.GetProperty("failure").GetProperty("code").GetString());
+
+        using JsonDocument unsupportedConsistency = await SendFailureAsync(client, HttpMethod.Post, "/v1/indices/books/search", new
+        {
+            query = new { kind = "term", field = "isbn", value = "978-1" },
+            consistency = "Replica"
+        }, HttpStatusCode.ServiceUnavailable);
+        Assert.Equal("consistency_unavailable", unsupportedConsistency.RootElement.GetProperty("failure").GetProperty("code").GetString());
+
+        using JsonDocument unsupportedInspection = await SendFailureAsync(client, HttpMethod.Get, "/v1/indices/books/inspection/terms", null, HttpStatusCode.UnprocessableEntity);
+        Assert.Equal("inspection_not_supported", unsupportedInspection.RootElement.GetProperty("failure").GetProperty("code").GetString());
 
         foreach (string endpoint in new[] { "schema", "stats", "inspection/fields", "inspection/segments", "inspection/documents", "inspection/storage" })
             using (await GetSuccessAsync(client, $"/v1/indices/books/{endpoint}")) { }
@@ -136,6 +158,21 @@ public sealed class RestAndStudioTests
         using HttpRequestMessage request = new(method, path) { Content = JsonContent.Create(value) };
         using HttpResponseMessage response = await client.SendAsync(request);
         return await ReadSuccessAsync(response);
+    }
+
+    private static async Task<JsonDocument> SendFailureAsync(HttpClient client, HttpMethod method, string path, object? value, HttpStatusCode expectedStatus)
+    {
+        using HttpRequestMessage request = new(method, path);
+        if (value is not null)
+            request.Content = JsonContent.Create(value);
+        using HttpResponseMessage response = await client.SendAsync(request);
+        string body = await response.Content.ReadAsStringAsync();
+        Assert.Equal(expectedStatus, response.StatusCode);
+        Assert.Equal("1", response.Headers.GetValues("X-API-Version").Single());
+        Assert.False(string.IsNullOrWhiteSpace(response.Headers.GetValues("X-Request-ID").Single()));
+        JsonDocument document = JsonDocument.Parse(body);
+        Assert.False(document.RootElement.GetProperty("isSuccess").GetBoolean());
+        return document;
     }
 
     private static async Task<JsonDocument> ReadSuccessAsync(HttpResponseMessage response)

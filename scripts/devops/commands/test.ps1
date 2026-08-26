@@ -103,7 +103,7 @@ function Invoke-DevOpsTest {
         $filter = if ($filter) { "$filter&$traitFilter" } else { $traitFilter }
     }
 
-    [string[]]$toRun = if ($suite -eq 'all') { @('core', 'text', 'sourcegen', 'architecture', 'server-abstractions', 'server-core', 'aot') } else { @($suite) }
+    [string[]]$toRun = if ($suite -eq 'all') { @('core', 'text', 'sourcegen', 'architecture', 'server-abstractions', 'server-core', 'server-integration', 'aot') } else { @($suite) }
     $testArgs = @('--configuration', $configuration, '--framework', $framework, '--no-restore')
     if ($filter) { $testArgs += @('--filter', $filter) }
 
