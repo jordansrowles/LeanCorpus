@@ -48,7 +48,7 @@ function Invoke-DevOpsServer {
     if ($parsed.Has('NoRestore')) { $dotnetArguments += '--no-restore' }
     if ($parsed.Has('External')) {
         $dotnetArguments += '--'
-        $dotnetArguments += @('--urls', 'http://0.0.0.0:5080', '--AllowedHosts', '*')
+        $dotnetArguments += @('--urls=http://0.0.0.0:5080', '--AllowedHosts=*')
     }
     if ($parsed.PassThrough.Count -gt 0) {
         if (-not $parsed.Has('External')) { $dotnetArguments += '--' }
