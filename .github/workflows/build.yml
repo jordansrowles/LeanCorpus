@@ -26,9 +26,16 @@ jobs:
           - os: ubuntu-latest
             artifact: linux
             collect_coverage: true
+            aot_rid: linux-x64
           - os: windows-2025
             artifact: windows
             collect_coverage: false
+            aot_rid: win-x64
+          - os: ubuntu-24.04-arm
+            artifact: linux-arm64
+            collect_coverage: false
+            aot_rid: linux-arm64
+
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     env:
@@ -82,8 +89,8 @@ jobs:
             @{ Name = 'server-core'; Project = 'src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj'; Coverage = $false; Frameworks = @('net11.0') }
             @{ Name = 'server-integration'; Project = 'src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj'; Coverage = $false; Frameworks = @('net11.0') }
           )
+
           $frameworks = @('net10.0', 'net11.0')
-          $isWindows = $env:RUNNER_OS -eq 'Windows'
           $collectCoverage = $env:COLLECT_COVERAGE -eq 'true'
 
           foreach ($framework in $frameworks) {
@@ -103,7 +110,7 @@ jobs:
                 $testArguments += @('--collect', 'XPlat Code Coverage')
               }
 
-              if ($isWindows -and $suite.Name -eq 'core') {
+              if ($IsWindows -and $suite.Name -eq 'core') {
                 $testArguments += @('--blame-hang', '--blame-hang-timeout', '2m')
               }
 
@@ -116,7 +123,7 @@ jobs:
 
       - name: Run Native AOT smoke tests
         shell: pwsh
-        run: ./devops.ps1 aot
+        run: ./devops.ps1 aot -RuntimeIdentifier '${{ matrix.aot_rid }}'
 
       - name: Upload test results
         if: always()
@@ -139,6 +146,7 @@ jobs:
     if: startsWith(github.event.head_commit.message, '[deploy]')
     runs-on: ubuntu-latest
     timeout-minutes: 45
+
     steps:
       - uses: actions/checkout@v6
 
