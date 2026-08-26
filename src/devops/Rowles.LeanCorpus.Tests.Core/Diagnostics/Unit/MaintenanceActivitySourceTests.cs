@@ -114,7 +114,7 @@ public sealed class MaintenanceActivitySourceTests : IDisposable
         var backupPath = Path.Combine(_root, "backup-copy-target");
 
         using var scope = StartScope();
-        _ = IndexBackup.Backup(indexPath, backupPath);
+        _ = IndexBackup.Backup(indexPath, backupPath, cancellationToken: TestContext.Current.CancellationToken);
 
         var activity = GetActivity(scope, LeanCorpusActivitySource.BackupCopy);
         Assert.Equal(true, activity.GetTagItem("operation.succeeded"));
@@ -144,7 +144,7 @@ public sealed class MaintenanceActivitySourceTests : IDisposable
         var restorePath = Path.Combine(_root, "restore-target");
 
         using var scope = StartScope();
-        _ = IndexBackup.Restore(backupPath, restorePath);
+        _ = IndexBackup.Restore(backupPath, restorePath, cancellationToken: TestContext.Current.CancellationToken);
 
         var activity = GetActivity(scope, LeanCorpusActivitySource.BackupRestore);
         Assert.Equal(true, activity.GetTagItem("operation.succeeded"));

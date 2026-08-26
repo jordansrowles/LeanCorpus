@@ -51,9 +51,9 @@ public sealed class MaintenanceMeterTests : IDisposable
         _ = IndexCodecMigrator.Plan(new MMapDirectory(indexPath));
         _ = IndexCodecMigrator.Migrate(new MMapDirectory(indexPath), new IndexCodecMigrationOptions { DryRun = true });
         _ = IndexBackup.CreateManifest(indexPath);
-        _ = IndexBackup.Backup(indexPath, backupPath);
+        _ = IndexBackup.Backup(indexPath, backupPath, cancellationToken: TestContext.Current.CancellationToken);
         _ = IndexBackup.ValidateBackup(backupPath);
-        _ = IndexBackup.Restore(backupPath, restorePath);
+        _ = IndexBackup.Restore(backupPath, restorePath, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains("leancorpus.index.format.inspect.count", measurements);
         Assert.Contains("leancorpus.index.format.inspect.duration", measurements);

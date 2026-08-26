@@ -81,7 +81,8 @@ internal static class SnapshotManager
         IndexSnapshot snapshot,
         string backupDirectoryPath,
         string directoryPath,
-        IndexBackupOptions? options)
+        IndexBackupOptions? options,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         var effectiveOptions = new IndexBackupOptions
@@ -91,6 +92,6 @@ internal static class SnapshotManager
             IncludeCommitStats = options?.IncludeCommitStats ?? true,
             PreviousBackupDirectoryPath = options?.PreviousBackupDirectoryPath
         };
-        return IndexBackup.Backup(directoryPath, backupDirectoryPath, effectiveOptions);
+        return IndexBackup.Backup(directoryPath, backupDirectoryPath, effectiveOptions, cancellationToken);
     }
 }

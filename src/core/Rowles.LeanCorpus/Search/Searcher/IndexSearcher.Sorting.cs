@@ -78,6 +78,65 @@ public sealed partial class IndexSearcher
     }
 
     /// <summary>
+    /// Returns the next page after explicit typed sort values.
+    /// </summary>
+    /// <remarks>
+    /// This overload allows callers to retain a product-level stable tie-break
+    /// instead of using the internal document ID as the cursor boundary.
+    /// </remarks>
+    public TopDocs SearchAfter(
+        IReadOnlyList<SearchAfterValue> afterValues,
+        Query query,
+        int topN,
+        IReadOnlyList<SortField> sorts)
+    {
+        ArgumentNullException.ThrowIfNull(afterValues);
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(sorts);
+        if (sorts.Count == 0)
+            throw new ArgumentException("At least one sort field is required.", nameof(sorts));
+        if (afterValues.Count != sorts.Count)
+            throw new ArgumentException("The search-after value count must match the sort field count.", nameof(afterValues));
+        if (topN <= 0)
+            return TopDocs.Empty;
+
+        for (int i = 0; i < sorts.Count; i++)
+        {
+            SearchAfterValue value = afterValues[i];
+            SortField sort = sorts[i];
+            if (value.Type != sort.Type)
+                throw new ArgumentException($"Search-after value {i} has type '{value.Type}', expected '{sort.Type}'.", nameof(afterValues));
+            if (value.Type is SortFieldType.Score or SortFieldType.Numeric && !double.IsFinite(value.NumericValue))
+                throw new ArgumentException("Search-after numeric values must be finite.", nameof(afterValues));
+            if (value.Type == SortFieldType.String && value.StringValue is null)
+                throw new ArgumentException("Search-after string values cannot be null.", nameof(afterValues));
+        }
+
+        var strategy = new FieldAfterCollectorStrategy(this, afterValues, topN, sorts);
+        return SearchWithCollectorStrategy(query, strategy);
+    }
+
+    /// <summary>Captures the typed sort values for a result boundary.</summary>
+    public SearchAfterValue[] CaptureSortValues(ScoreDoc document, IReadOnlyList<SortField> sorts)
+    {
+        ArgumentNullException.ThrowIfNull(sorts);
+        CursorSortValue[] values = CaptureCursorSortValues(document, sorts);
+        var result = new SearchAfterValue[values.Length];
+        for (int i = 0; i < values.Length; i++)
+        {
+            result[i] = values[i].Type switch
+            {
+                SortFieldType.Score or SortFieldType.Numeric => SearchAfterValue.FromNumeric(values[i].Type, values[i].Numeric),
+                SortFieldType.DocId or SortFieldType.Int64 => SearchAfterValue.FromInt64(values[i].Type, values[i].Int64),
+                SortFieldType.String => SearchAfterValue.FromString(values[i].String ?? string.Empty),
+                _ => throw new NotSupportedException($"Sort type '{values[i].Type}' is not cursor-compatible.")
+            };
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// Searches with a custom sort order instead of relevance ranking.
     /// Matching documents are collected, then a heap-select picks the top-N
     /// by the requested field without performing a full sort over every match.
@@ -596,6 +655,7 @@ public sealed partial class IndexSearcher
         private readonly SortValue[] _candidateValues;
         private readonly SortValue[] _afterValues;
         private readonly ScoreDoc _after;
+        private readonly SearchAfterValue[]? _explicitAfterValues;
         private int _size;
         private int _totalHits;
 
@@ -613,6 +673,33 @@ public sealed partial class IndexSearcher
             _candidateValues = new SortValue[sorts.Length];
             _afterValues = new SortValue[sorts.Length];
             FillValues(after, _afterValues);
+        }
+
+        internal FieldAfterCollectorStrategy(
+            IndexSearcher searcher,
+            IReadOnlyList<SearchAfterValue> afterValues,
+            int topN,
+            IReadOnlyList<SortField> sorts)
+        {
+            _searcher = searcher;
+            _sorts = sorts.ToArray();
+            _explicitAfterValues = afterValues.ToArray();
+            _after = default;
+            _heap = new ScoreDoc[topN];
+            _heapValues = new SortValue[checked(topN * sorts.Count)];
+            _candidateValues = new SortValue[sorts.Count];
+            _afterValues = new SortValue[sorts.Count];
+            for (int i = 0; i < _sorts.Length; i++)
+            {
+                SearchAfterValue value = _explicitAfterValues[i];
+                _afterValues[i] = value.Type switch
+                {
+                    SortFieldType.Score or SortFieldType.Numeric => SortValue.FromNumeric(value.NumericValue),
+                    SortFieldType.DocId or SortFieldType.Int64 => SortValue.FromInt64(value.Int64Value),
+                    SortFieldType.String => SortValue.FromString(value.StringValue!),
+                    _ => throw new ArgumentException($"Sort type '{value.Type}' is not cursor-compatible.", nameof(afterValues))
+                };
+            }
         }
 
         public int TotalHits => _totalHits;
@@ -633,7 +720,8 @@ public sealed partial class IndexSearcher
                     _candidateValues,
                     candidate.DocId,
                     _afterValues,
-                    _after.DocId) <= 0)
+                    _after.DocId,
+                    includeDocumentIdTieBreak: _explicitAfterValues is null) <= 0)
             {
                 return;
             }
@@ -657,7 +745,9 @@ public sealed partial class IndexSearcher
         }
 
         public ITopNCollectorStrategy CreateWorker()
-            => new FieldAfterCollectorStrategy(_searcher, _after, _heap.Length, _sorts);
+            => _explicitAfterValues is null
+                ? new FieldAfterCollectorStrategy(_searcher, _after, _heap.Length, _sorts)
+                : new FieldAfterCollectorStrategy(_searcher, _explicitAfterValues, _heap.Length, _sorts);
 
         public void MergeWorker(ITopNCollectorStrategy worker)
         {
@@ -744,7 +834,8 @@ public sealed partial class IndexSearcher
             ReadOnlySpan<SortValue> left,
             int leftDocId,
             ReadOnlySpan<SortValue> right,
-            int rightDocId)
+            int rightDocId,
+            bool includeDocumentIdTieBreak = true)
         {
             for (int i = 0; i < _sorts.Length; i++)
             {
@@ -753,7 +844,7 @@ public sealed partial class IndexSearcher
                     continue;
                 return _sorts[i].Descending ? -comparison : comparison;
             }
-            return leftDocId.CompareTo(rightDocId);
+            return includeDocumentIdTieBreak ? leftDocId.CompareTo(rightDocId) : 0;
         }
 
         private void CopyValues(ReadOnlySpan<SortValue> source, int slot)

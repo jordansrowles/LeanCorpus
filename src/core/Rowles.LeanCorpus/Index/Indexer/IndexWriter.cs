@@ -495,11 +495,27 @@ public sealed partial class IndexWriter : IDisposable
         return SnapshotManager.CreateBackupManifest(snapshot, _directory.DirectoryPath);
     }
 
-    public IndexBackupResult BackupSnapshot(IndexSnapshot snapshot, string backupDirectoryPath, IndexBackupOptions? options = null)
+    public IndexBackupResult BackupSnapshot(
+        IndexSnapshot snapshot,
+        string backupDirectoryPath,
+        IndexBackupOptions? options = null)
+        => BackupSnapshot(snapshot, backupDirectoryPath, options, CancellationToken.None);
+
+    public IndexBackupResult BackupSnapshot(
+        IndexSnapshot snapshot,
+        string backupDirectoryPath,
+        CancellationToken cancellationToken)
+        => BackupSnapshot(snapshot, backupDirectoryPath, null, cancellationToken);
+
+    public IndexBackupResult BackupSnapshot(
+        IndexSnapshot snapshot,
+        string backupDirectoryPath,
+        IndexBackupOptions? options,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        return SnapshotManager.BackupSnapshot(snapshot, backupDirectoryPath, _directory.DirectoryPath, options);
+        return SnapshotManager.BackupSnapshot(snapshot, backupDirectoryPath, _directory.DirectoryPath, options, cancellationToken);
     }
 
     public void Dispose()

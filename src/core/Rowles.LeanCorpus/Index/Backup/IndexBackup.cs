@@ -78,8 +78,12 @@ public static class IndexBackup
         }
     }
 
-    private static IndexBackupManifest CreateManifestCore(string indexDirectoryPath, IndexBackupOptions options)
+    private static IndexBackupManifest CreateManifestCore(
+        string indexDirectoryPath,
+        IndexBackupOptions options,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         ArgumentException.ThrowIfNullOrWhiteSpace(indexDirectoryPath);
         var sourceDirectory = CanonicaliseDirectoryPath(indexDirectoryPath, nameof(indexDirectoryPath));
         if (!FileOpenRetry.DirectoryExists(sourceDirectory))
@@ -100,6 +104,7 @@ public static class IndexBackup
 
         foreach (var segmentId in commitData.Segments)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var segmentFileName = segmentId + ".seg";
             var segmentInfo = SegmentInfo.ReadFrom(Path.Combine(sourceDirectory, segmentFileName));
             if (!string.Equals(segmentInfo.SegmentId, segmentId, StringComparison.Ordinal))
@@ -113,6 +118,7 @@ public static class IndexBackup
 
             foreach (var fileName in EnumerateSegmentFileNames(sourceDirectory, segmentId))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (entries.ContainsKey(fileName))
                     continue;
 
@@ -192,8 +198,29 @@ public static class IndexBackup
     /// <exception cref="ArgumentException">Thrown when a directory path is invalid.</exception>
     /// <exception cref="InvalidDataException">Thrown when the selected commit or segment metadata cannot be read.</exception>
     public static IndexBackupResult Backup(string indexDirectoryPath, string backupDirectoryPath, IndexBackupOptions? options = null)
+        => Backup(indexDirectoryPath, backupDirectoryPath, options, CancellationToken.None);
+
+    /// <summary>Creates a validated backup and observes cancellation before publication.</summary>
+    public static IndexBackupResult Backup(
+        string indexDirectoryPath,
+        string backupDirectoryPath,
+        CancellationToken cancellationToken)
+        => Backup(indexDirectoryPath, backupDirectoryPath, null, cancellationToken);
+
+    /// <summary>Creates a validated backup and observes cancellation before publication.</summary>
+    /// <param name="indexDirectoryPath">The source index directory path.</param>
+    /// <param name="backupDirectoryPath">The target backup directory path.</param>
+    /// <param name="options">Backup options. When <c>null</c>, the latest commit is selected.</param>
+    /// <param name="cancellationToken">Cancels copying before publication.</param>
+    /// <returns>The backup result.</returns>
+    public static IndexBackupResult Backup(
+        string indexDirectoryPath,
+        string backupDirectoryPath,
+        IndexBackupOptions? options,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(backupDirectoryPath);
+        cancellationToken.ThrowIfCancellationRequested();
         options ??= new IndexBackupOptions();
         var sw = Stopwatch.StartNew();
         using var activity = LeanCorpusActivitySource.Source.StartActivity(LeanCorpusActivitySource.BackupCopy);
@@ -234,7 +261,7 @@ public static class IndexBackup
             {
                 try
                 {
-                    manifest = CreateManifestCore(sourceDirectory, options);
+                    manifest = CreateManifestCore(sourceDirectory, options, cancellationToken);
                     if (!backupDirectoryPrepared)
                     {
                         PrepareDirectory(backupDirectory, options.OverwriteBackupDirectory, "Backup");
@@ -244,13 +271,15 @@ public static class IndexBackup
                     var copiedFiles = new List<string>(manifest.Files.Count);
                     foreach (var entry in OrderForPublication(manifest.Files.Where(static entry => entry.PresentInBackup)))
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
                         ValidateManifestFileName(entry.FileName);
                         var sourcePath = Path.Combine(sourceDirectory, entry.FileName);
                         var targetPath = Path.Combine(backupDirectory, entry.FileName);
                         CopyFileAtomically(
                             sourcePath, targetPath, entry.Length, entry.Crc32,
                             $"Source file '{entry.FileName}' changed while the backup was being copied.",
-                            syncDirectory: false);
+                            syncDirectory: false,
+                            cancellationToken);
                         copiedFiles.Add(entry.FileName);
                     }
 
@@ -278,7 +307,7 @@ public static class IndexBackup
                     if (attempt >= maxAttempts) throw;
                     if (backupDirectoryPrepared)
                         ClearDirectory(backupDirectory);
-                    Thread.Sleep(20 * attempt);
+                    WaitForRetry(cancellationToken, 20 * attempt);
                 }
                 attempt++;
             }
@@ -362,12 +391,14 @@ public static class IndexBackup
 
     private static IndexBackupManifest ValidateBackupCore(
         string backupDirectoryPath,
-        bool validateChecksums)
+        bool validateChecksums,
+        CancellationToken cancellationToken = default)
     {
         var backupDirectory = CanonicaliseDirectoryPath(backupDirectoryPath, nameof(backupDirectoryPath));
         var manifest = ReadManifest(backupDirectory);
         foreach (var entry in manifest.Files.Where(static entry => entry.PresentInBackup))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             ValidateManifestFileName(entry.FileName);
             var path = Path.Combine(backupDirectory, entry.FileName);
             if (!FileOpenRetry.FileExists(path))
@@ -418,8 +449,29 @@ public static class IndexBackup
     /// <exception cref="ArgumentException">Thrown when a directory path is invalid.</exception>
     /// <exception cref="InvalidDataException">Thrown when the backup is invalid or unsafe.</exception>
     public static IndexRestoreResult Restore(string backupDirectoryPath, string targetIndexDirectoryPath, IndexRestoreOptions? options = null)
+        => Restore(backupDirectoryPath, targetIndexDirectoryPath, options, CancellationToken.None);
+
+    /// <summary>Restores a validated backup and observes cancellation before publication.</summary>
+    public static IndexRestoreResult Restore(
+        string backupDirectoryPath,
+        string targetIndexDirectoryPath,
+        CancellationToken cancellationToken)
+        => Restore(backupDirectoryPath, targetIndexDirectoryPath, null, cancellationToken);
+
+    /// <summary>Restores a validated backup and observes cancellation before publication.</summary>
+    /// <param name="backupDirectoryPath">The source backup directory path.</param>
+    /// <param name="targetIndexDirectoryPath">The target index directory path.</param>
+    /// <param name="options">Restore options. When <c>null</c>, validation is run and non-empty targets are rejected.</param>
+    /// <param name="cancellationToken">Cancels restore before publication.</param>
+    /// <returns>The restore result.</returns>
+    public static IndexRestoreResult Restore(
+        string backupDirectoryPath,
+        string targetIndexDirectoryPath,
+        IndexRestoreOptions? options,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetIndexDirectoryPath);
+        cancellationToken.ThrowIfCancellationRequested();
         options ??= new IndexRestoreOptions();
         var sw = Stopwatch.StartNew();
         using var activity = LeanCorpusActivitySource.Source.StartActivity(LeanCorpusActivitySource.BackupRestore);
@@ -439,13 +491,14 @@ public static class IndexBackup
 
             // Validate structure and lengths before mutating the target. Checksums
             // are verified while streaming each file, before its atomic publication.
-            manifest = ValidateBackupCore(backupDirectory, validateChecksums: false);
+            manifest = ValidateBackupCore(backupDirectory, validateChecksums: false, cancellationToken);
             ValidateDirectoryForRestore(targetDirectory, options.OverwriteTargetDirectory);
             stagingDirectory = CreateRestoreStagingDirectory(targetDirectory);
 
             var restoredFiles = new List<string>(manifest.Files.Count);
             foreach (var entry in OrderForPublication(manifest.Files))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!entry.PresentInBackup)
                     throw new InvalidDataException($"Incremental backup '{backupDirectory}' requires its parent chain for restore.");
                 ValidateManifestFileName(entry.FileName);
@@ -457,12 +510,14 @@ public static class IndexBackup
                 CopyFileAtomically(
                     sourcePath, targetPath, entry.Length, entry.Crc32,
                     $"Backup file '{entry.FileName}' is corrupt and was not published to the restore target.",
-                    syncDirectory: false);
+                    syncDirectory: false,
+                    cancellationToken);
 
                 restoredFiles.Add(entry.FileName);
             }
 
             DirectoryFsync.Sync(stagingDirectory, strict: true);
+            cancellationToken.ThrowIfCancellationRequested();
 
             IndexCheckResult? validation = null;
             if (options.ValidateAfterRestore)
@@ -471,6 +526,8 @@ public static class IndexBackup
                 validation = IndexValidator.Check(directory);
             }
 
+            // Publication is the final cancellation boundary. Once the target
+            // swap begins, cancellation cannot leave a half-published root.
             PublishRestoreDirectory(
                 stagingDirectory, targetDirectory, options.OverwriteTargetDirectory);
             stagingDirectory = null;
@@ -519,11 +576,32 @@ public static class IndexBackup
         IReadOnlyList<string> backupDirectoryPaths,
         string targetIndexDirectoryPath,
         IndexRestoreOptions? options = null)
+        => Restore(backupDirectoryPaths, targetIndexDirectoryPath, options, CancellationToken.None);
+
+    /// <summary>Restores a full incremental chain and observes cancellation before publication.</summary>
+    public static IndexRestoreResult Restore(
+        IReadOnlyList<string> backupDirectoryPaths,
+        string targetIndexDirectoryPath,
+        CancellationToken cancellationToken)
+        => Restore(backupDirectoryPaths, targetIndexDirectoryPath, null, cancellationToken);
+
+    /// <summary>Restores a full incremental chain and observes cancellation before publication.</summary>
+    /// <param name="backupDirectoryPaths">The full, then incremental, backup directories in restore order.</param>
+    /// <param name="targetIndexDirectoryPath">The target index directory path.</param>
+    /// <param name="options">Restore options.</param>
+    /// <param name="cancellationToken">Cancels restore before publication.</param>
+    /// <returns>The result of restoring the newest manifest.</returns>
+    public static IndexRestoreResult Restore(
+        IReadOnlyList<string> backupDirectoryPaths,
+        string targetIndexDirectoryPath,
+        IndexRestoreOptions? options,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(backupDirectoryPaths);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetIndexDirectoryPath);
         if (backupDirectoryPaths.Count == 0)
             throw new ArgumentException("At least one backup directory is required.", nameof(backupDirectoryPaths));
+        cancellationToken.ThrowIfCancellationRequested();
 
         options ??= new IndexRestoreOptions();
         var targetDirectory = CanonicaliseDirectoryPath(targetIndexDirectoryPath, nameof(targetIndexDirectoryPath));
@@ -546,12 +624,14 @@ public static class IndexBackup
             for (int i = 0; i < chain.Count; i++)
                 ValidateManifestFiles(
                     chain[i].Directory, chain[i].Manifest, chain,
-                    validateChecksums: false);
+                    validateChecksums: false,
+                    cancellationToken);
 
             ValidateDirectoryForRestore(targetDirectory, options.OverwriteTargetDirectory);
             stagingDirectory = CreateRestoreStagingDirectory(targetDirectory);
             foreach (var entry in OrderForPublication(newest.Files))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 ValidateManifestFileName(entry.FileName);
                 if (!options.RestoreCommitStats && string.Equals(entry.Role, "commit-stats", StringComparison.Ordinal))
                     continue;
@@ -562,11 +642,13 @@ public static class IndexBackup
                 CopyFileAtomically(
                     sourcePath, targetPath, entry.Length, entry.Crc32,
                     $"Backup file '{entry.FileName}' is corrupt and was not published to the restore target.",
-                    syncDirectory: false);
+                    syncDirectory: false,
+                    cancellationToken);
                 restoredFiles.Add(entry.FileName);
             }
 
             DirectoryFsync.Sync(stagingDirectory, strict: true);
+            cancellationToken.ThrowIfCancellationRequested();
 
             IndexCheckResult? validation = null;
             if (options.ValidateAfterRestore)
@@ -575,6 +657,7 @@ public static class IndexBackup
                 validation = IndexValidator.Check(directory);
             }
 
+            // Cancellation ends before the irreversible publication sequence.
             PublishRestoreDirectory(
                 stagingDirectory, targetDirectory, options.OverwriteTargetDirectory);
             stagingDirectory = null;
@@ -648,10 +731,12 @@ public static class IndexBackup
         string directory,
         IndexBackupManifest manifest,
         IReadOnlyList<(string Directory, IndexBackupManifest Manifest)> chain,
-        bool validateChecksums)
+        bool validateChecksums,
+        CancellationToken cancellationToken = default)
     {
         foreach (var entry in manifest.Files.Where(static entry => entry.PresentInBackup))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             ValidateManifestFileName(entry.FileName);
             var path = Path.Combine(directory, entry.FileName);
             if (!FileOpenRetry.FileExists(path))
@@ -862,8 +947,10 @@ public static class IndexBackup
         long expectedLength,
         uint expectedCrc32,
         string validationError,
-        bool syncDirectory)
+        bool syncDirectory,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         FileOpenRetry.CreateDirectory(Path.GetDirectoryName(targetPath) ?? string.Empty);
         long length = 0;
         uint crc = Crc32.Begin();
@@ -872,15 +959,18 @@ public static class IndexBackup
         {
             IndexAtomicFileWriter.Write(targetPath, durable: true, syncDirectory: syncDirectory, write: stream =>
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 using var source = FileOpenRetry.OpenReadDelete(sourcePath);
                 int read;
                 while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     stream.Write(buffer, 0, read);
                     length += read;
                     crc = Crc32.Update(crc, buffer.AsSpan(0, read));
                 }
 
+                cancellationToken.ThrowIfCancellationRequested();
                 uint actualCrc32 = Crc32.Finish(crc);
                 if (length != expectedLength || actualCrc32 != expectedCrc32)
                 {
@@ -894,6 +984,13 @@ public static class IndexBackup
         {
             ArrayPool<byte>.Shared.Return(buffer);
         }
+    }
+
+    private static void WaitForRetry(CancellationToken cancellationToken, int milliseconds)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (cancellationToken.WaitHandle.WaitOne(milliseconds))
+            throw new OperationCanceledException(cancellationToken);
     }
 
     private static IEnumerable<IndexBackupFileEntry> OrderForPublication(IEnumerable<IndexBackupFileEntry> entries)
