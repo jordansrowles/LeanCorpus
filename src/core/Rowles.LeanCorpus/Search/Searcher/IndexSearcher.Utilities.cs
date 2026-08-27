@@ -370,8 +370,16 @@ public sealed partial class IndexSearcher
     /// <summary>Executes a query and returns both top-N results and facet counts for the specified fields.</summary>
     public (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithFacets(
         Query query, int topN, params string[] facetFields)
+        => SearchWithFacetsCore(query, topN, new FacetsSideCollector(facetFields));
+
+    /// <summary>Executes the shared facet collection path for advanced requests.</summary>
+    internal (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithFacetRequests(
+        Query query, int topN, IReadOnlyList<FacetRequest> facetRequests)
+        => SearchWithFacetsCore(query, topN, new FacetsSideCollector(facetRequests));
+
+    private (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithFacetsCore(
+        Query query, int topN, FacetsSideCollector sideCollector)
     {
-        var sideCollector = new FacetsSideCollector(facetFields);
         var (results, side) = SearchWithSideCollector(query, topN, sideCollector);
         if (side == null)
         {
@@ -747,28 +755,48 @@ public sealed partial class IndexSearcher
     private sealed class FacetsSideCollector : ISideCollector
     {
         private readonly string[] _facetFields;
-        private readonly FacetsCollector _facetsCollector = new();
+        private readonly HashSet<string> _storedFieldsToLoad;
+        private readonly FacetsCollector _facetsCollector;
 
         public FacetsSideCollector(string[] facetFields)
         {
-            _facetFields = facetFields;
+            ArgumentNullException.ThrowIfNull(facetFields);
+            _facetFields = facetFields.Distinct(StringComparer.Ordinal).ToArray();
+            _storedFieldsToLoad = new HashSet<string>(_facetFields, StringComparer.Ordinal);
+            _facetsCollector = new FacetsCollector(
+                _facetFields.Select(field => new FacetRequest(field)).ToArray(),
+                includeEmptyResults: false);
+        }
+
+        public FacetsSideCollector(IReadOnlyList<FacetRequest> facetRequests)
+        {
+            ArgumentNullException.ThrowIfNull(facetRequests);
+            _facetFields = facetRequests.Select(request => request.Field).ToArray();
+            _storedFieldsToLoad = new HashSet<string>(_facetFields, StringComparer.Ordinal);
+            _facetsCollector = new FacetsCollector(facetRequests);
         }
 
         public void Collect(int globalDocId, float score, Index.Segment.SegmentReader reader, int localDocId)
         {
+            IReadOnlyDictionary<string, IReadOnlyList<string>>? storedFields = null;
             foreach (var facetField in _facetFields)
             {
+                bool hasValue = false;
                 if (reader.TryGetSortedSetDocValues(facetField, localDocId, out var setValues))
                 {
                     foreach (var value in setValues)
                     {
                         if (!string.IsNullOrEmpty(value))
-                            _facetsCollector.Collect(facetField, value);
+                        {
+                            _facetsCollector.CollectDocumentValue(facetField, globalDocId, value);
+                            hasValue = true;
+                        }
                     }
                 }
                 else if (reader.TryGetSortedDocValue(facetField, localDocId, out string val) && !string.IsNullOrEmpty(val))
                 {
-                    _facetsCollector.Collect(facetField, val);
+                    _facetsCollector.CollectDocumentValue(facetField, globalDocId, val);
+                    hasValue = true;
                 }
                 else if (reader.TryGetBinaryDocValues(facetField, localDocId, out var binaryValues))
                 {
@@ -776,18 +804,30 @@ public sealed partial class IndexSearcher
                     {
                         var decoded = System.Text.Encoding.UTF8.GetString(value);
                         if (!string.IsNullOrEmpty(decoded))
-                            _facetsCollector.Collect(facetField, decoded);
+                        {
+                            _facetsCollector.CollectDocumentValue(facetField, globalDocId, decoded);
+                            hasValue = true;
+                        }
                     }
                 }
                 else
                 {
-                    var stored = reader.GetStoredFields(localDocId, new HashSet<string> { facetField });
-                    if (stored.TryGetValue(facetField, out var values))
+                    storedFields ??= reader.GetStoredFields(localDocId, _storedFieldsToLoad);
+                    if (storedFields.TryGetValue(facetField, out var values))
                     {
                         foreach (var v in values)
-                            _facetsCollector.Collect(facetField, v);
+                        {
+                            if (string.IsNullOrEmpty(v))
+                                continue;
+
+                            _facetsCollector.CollectDocumentValue(facetField, globalDocId, v);
+                            hasValue = true;
+                        }
                     }
                 }
+
+                if (!hasValue)
+                    _facetsCollector.CollectMissing(facetField, globalDocId);
             }
         }
 
