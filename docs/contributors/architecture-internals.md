@@ -51,6 +51,16 @@ flowchart LR
 
 The backpressure settings on `IndexWriterConfig` constrain queued documents, queued bytes, concurrent flushes, concurrent merges, and pending merge bytes. Changes in this area must preserve bounded memory, document ordering guarantees, and commit visibility.
 
+The writer lock may acquire a DWPT monitor while committing. A path holding a DWPT
+monitor must not acquire the writer lock in return. Backpressure slot accounting is
+atomic so producer auto-flush can return semaphore capacity without creating that
+lock inversion.
+
+Functional test assemblies configure a non-durable `LeanCorpusDefaults` override at
+startup. Tests covering durable publication, recovery, or filesystem synchronisation
+must set `IndexWriterConfig.DurableCommits = true` explicitly; the production default
+remains durable.
+
 ## Commit publication
 
 A commit must not expose a manifest that names incomplete files. The writer flushes pending work, makes file contents durable when configured to do so, and publishes the new `segments_N` file last.

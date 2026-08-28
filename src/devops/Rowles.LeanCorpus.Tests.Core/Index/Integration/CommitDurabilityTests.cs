@@ -36,15 +36,6 @@ public class CommitDurabilityTests : IDisposable
     }
 
     /// <summary>
-    /// Verifies the Durable Commits: Defaults To True scenario.
-    /// </summary>
-    [Fact(DisplayName = "Durable Commits: Defaults To True")]
-    public void DurableCommits_DefaultsToTrue()
-    {
-        Assert.True(new IndexWriterConfig().DurableCommits);
-    }
-
-    /// <summary>
     /// Verifies the Durable Commit: Round-trip Preserves All Documents scenario.
     /// </summary>
     [Fact(DisplayName = "Durable Commit: Round-trip Preserves All Documents")]

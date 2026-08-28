@@ -72,6 +72,26 @@ Term vectors, payloads, vectors, and DocValues increase index size. Enable them 
 
 Changing an on-disk setting affects newly written segments. Existing segments retain their original format until merged or migrated.
 
+## Process-wide defaults
+
+`LeanCorpusDefaults` can supply optional defaults for configurations created later in
+the same process. It does not alter an existing `IndexWriterConfig` or an active
+`IndexWriter`, and an explicit property value on the configuration always wins.
+
+```csharp
+LeanCorpusDefaults.Configure(options =>
+{
+    options.IndexWriter.DurableCommits = false;
+});
+
+var config = new IndexWriterConfig(); // DurableCommits is false
+var durable = new IndexWriterConfig { DurableCommits = true }; // explicit value wins
+```
+
+With no override, including after `LeanCorpusDefaults.Reset()`, the production
+default remains `DurableCommits = true`. Configure process-wide defaults during
+application startup before creating writers.
+
 ### Diagnostics
 
 | Setting | Default | Guidance |

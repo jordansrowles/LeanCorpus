@@ -187,7 +187,7 @@ public sealed class TwoPhaseCommitTests : IClassFixture<TestDirectoryFixture>
     public void Commit_PostPublicationSyncFailure_PreservesPublishedCommitAndPoisonsWriter()
     {
         var path = SubDir("twophase-post-publication-sync-failure");
-        var config = new IndexWriterConfig();
+        var config = new IndexWriterConfig { DurableCommits = true };
         using var directory = new MMapDirectory(path);
         using var writer = new IndexWriter(directory, config);
 

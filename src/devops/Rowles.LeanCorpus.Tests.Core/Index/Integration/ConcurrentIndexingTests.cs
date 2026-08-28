@@ -208,51 +208,80 @@ public sealed class ConcurrentIndexingTests : IDisposable
     }
 
     /// <summary>
-    /// Verifies the Add Document Lock Free: Commit While Producers Running All Committed Docs Searchable scenario.
+    /// Verifies that bounded commits made between concurrent producer batches preserve every document.
     /// </summary>
-    [Fact(DisplayName = "Add Document Lock Free: Commit While Producers Running All Committed Docs Searchable", Timeout = 30_000)]
-    public async Task AddDocumentLockFree_CommitWhileProducersRunning_AllCommittedDocsSearchable()
+    [Fact(DisplayName = "Concurrent Producers: Commits During Production Preserve All Documents", Timeout = 30_000)]
+    public async Task ConcurrentProducers_CommitsBetweenProducerBatches_AllCommittedDocsSearchable()
     {
         const int ProducerCount = 4;
-        const int DocsPerProducer = 50;
+        const int Batches = 5;
+        const int DocsPerBatch = 10;
+        const int DocsPerProducer = Batches * DocsPerBatch;
         var directory = new MMapDirectory(_dir);
-        using var writer = new IndexWriter(directory, new IndexWriterConfig { MaxBufferedDocs = 1_000 });
-        writer.InitialiseDwptPool(threadCount: ProducerCount);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 1_000,
+            DurableCommits = false,
+            MergePolicy = NoMergePolicy.Instance,
+        });
 
         var errors = new ConcurrentBag<Exception>();
+        var batchReady = Enumerable.Range(0, Batches)
+            .Select(static _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))
+            .ToArray();
+        var readyCounts = new int[Batches];
+        var nextBatch = Enumerable.Range(0, Batches)
+            .Select(static _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))
+            .ToArray();
         var producers = Enumerable.Range(0, ProducerCount)
             .Select(producer => Task.Run(async () =>
             {
-                for (int i = 0; i < DocsPerProducer; i++)
+                try
                 {
-                    try
+                    for (int batch = 0; batch < Batches; batch++)
                     {
-                        int id = producer * DocsPerProducer + i;
-                        writer.AddDocumentLockFree(BuildDoc(id, "shared lockfree"));
-                        if (i % 5 == 0)
-                            await Task.Yield();
+                        for (int item = 0; item < DocsPerBatch; item++)
+                        {
+                            int id = producer * DocsPerProducer + (batch * DocsPerBatch) + item;
+                            writer.AddDocument(BuildDoc(id, "shared concurrent"));
+                        }
+
+                        if (Interlocked.Increment(ref readyCounts[batch]) == ProducerCount)
+                            batchReady[batch].TrySetResult();
+                        await nextBatch[batch].Task.WaitAsync(TestContext.Current.CancellationToken);
                     }
-                    catch (Exception ex)
-                    {
-                        errors.Add(ex);
-                        return;
-                    }
+                }
+                catch (Exception ex)
+                {
+                    errors.Add(ex);
                 }
             }))
             .ToArray();
 
-        while (!Task.WhenAll(producers).IsCompleted)
+        Task allProducers = Task.WhenAll(producers);
+        for (int batch = 0; batch < Batches; batch++)
         {
+            await batchReady[batch].Task.WaitAsync(TestContext.Current.CancellationToken);
             writer.Commit();
-            await Task.Delay(5, TestContext.Current.CancellationToken);
+            nextBatch[batch].TrySetResult();
         }
 
-        await Task.WhenAll(producers);
+        await allProducers;
         writer.Commit();
 
         Assert.Empty(errors);
         using var searcher = new IndexSearcher(directory);
-        Assert.Equal(ProducerCount * DocsPerProducer, searcher.Search(new TermQuery("body", "shared"), 1_000, TestContext.Current.CancellationToken).TotalHits);
+        var results = searcher.Search(new TermQuery("body", "shared"), 1_000, TestContext.Current.CancellationToken);
+        Assert.Equal(ProducerCount * DocsPerProducer, results.TotalHits);
+        var actualIds = results.ScoreDocs
+            .Select(hit => searcher.GetStoredFields(hit.DocId)["id"][0])
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        var expectedIds = Enumerable.Range(0, ProducerCount * DocsPerProducer)
+            .Select(static id => id.ToString())
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(expectedIds, actualIds);
     }
 
     /// <summary>

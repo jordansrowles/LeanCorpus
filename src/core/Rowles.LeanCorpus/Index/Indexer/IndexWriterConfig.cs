@@ -11,6 +11,18 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 /// </summary>
 public sealed class IndexWriterConfig
 {
+    /// <summary>The built-in production default for durable commits.</summary>
+    public const bool BuiltInDurableCommits = true;
+
+    /// <summary>
+    /// Initialises a new configuration and snapshots any process-wide default override.
+    /// </summary>
+    public IndexWriterConfig()
+    {
+        DurableCommits = LeanCorpusDefaults.GetSnapshot().IndexWriterDurableCommits
+            ?? BuiltInDurableCommits;
+    }
+
     /// <summary>Gets or sets the immutable codec catalogue used when opening existing segments.</summary>
     public CodecCatalog CodecCatalog { get; set; } = CodecCatalog.Default;
 
@@ -69,7 +81,7 @@ public sealed class IndexWriterConfig
     /// <see cref="IndexWriter.Commit"/> throws and the writer must be disposed and reopened.
     /// Disable only for write-heavy benchmarks where durability is not required.
     /// </summary>
-    public bool DurableCommits { get; set; } = true;
+    public bool DurableCommits { get; set; }
 
     /// <summary>
     /// Test-only replacement for the directory sync performed after a prepared commit has

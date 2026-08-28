@@ -61,15 +61,35 @@ internal static class BackpressureController
             return;
         }
 
-        int toRelease;
-        lock (writer.WriteLock)
-        {
-            toRelease = Math.Min(acquired, Math.Max(0, writer.SemaphoreSlotsHeld));
-            if (toRelease > 0)
-                writer.SemaphoreSlotsHeld -= toRelease;
-        }
+        int toRelease = TakeHeldSlots(writer, acquired);
 
         if (toRelease > 0)
             ReleaseSemaphoreSlots(writer, toRelease);
+    }
+
+    /// <summary>
+    /// Atomically removes up to <paramref name="requested"/> acquired slots. This deliberately
+    /// does not take the writer lock: a producer can release slots while holding a DWPT monitor,
+    /// whereas commit takes the writer lock before entering that monitor.
+    /// </summary>
+    internal static int TakeHeldSlots(IndexWriter writer, int requested)
+    {
+        while (requested > 0)
+        {
+            int current = Volatile.Read(ref writer.SemaphoreSlotsHeld);
+            if (current <= 0)
+                return 0;
+
+            int release = Math.Min(requested, current);
+            if (Interlocked.CompareExchange(
+                ref writer.SemaphoreSlotsHeld,
+                current - release,
+                current) == current)
+            {
+                return release;
+            }
+        }
+
+        return 0;
     }
 }
