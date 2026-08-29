@@ -207,6 +207,73 @@ public class NumericAggregationTests : IDisposable
     }
 
     /// <summary>
+    /// Verifies that a matching document without a numeric value contributes no
+    /// observed value to the metric statistics.
+    /// </summary>
+    [Fact(DisplayName = "Stats: Missing Numeric Values Do Not Increment Count")]
+    public void Stats_MissingNumericValues_DoNotIncrementCount()
+    {
+        using var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig());
+
+        var first = new LeanDocument();
+        first.Add(new TextField("body", "common"));
+        first.Add(new NumericField("price", 10, stored: false));
+        writer.AddDocument(first);
+
+        var missing = new LeanDocument();
+        missing.Add(new TextField("body", "common"));
+        writer.AddDocument(missing);
+
+        var third = new LeanDocument();
+        third.Add(new TextField("body", "common"));
+        third.Add(new NumericField("price", 2, stored: false));
+        writer.AddDocument(third);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+        var (_, aggs) = searcher.SearchWithAggregations(
+            new TermQuery("body", "common"), 1,
+            new AggregationRequest("price_stats", "price"));
+
+        var stats = Assert.Single(aggs);
+        Assert.Equal(2, stats.Count);
+        Assert.Equal(2, stats.Min);
+        Assert.Equal(10, stats.Max);
+        Assert.Equal(12, stats.Sum);
+        Assert.Equal(6, stats.Avg);
+    }
+
+    /// <summary>
+    /// Verifies that non-finite numeric values are counted and retain explicit
+    /// IEEE-754 propagation semantics.
+    /// </summary>
+    [Fact(DisplayName = "Stats: Non-Finite Values Are Counted")]
+    public void Stats_NonFiniteValues_AreCounted()
+    {
+        using var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig());
+        foreach (double value in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "common"));
+            doc.Add(new NumericField("value", value, stored: false));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+        var (_, aggs) = searcher.SearchWithAggregations(
+            new TermQuery("body", "common"), 1,
+            new AggregationRequest("value_stats", "value"));
+
+        var stats = Assert.Single(aggs);
+        Assert.Equal(3, stats.Count);
+        Assert.True(double.IsNaN(stats.Min));
+        Assert.True(double.IsNaN(stats.Max));
+        Assert.True(double.IsNaN(stats.Sum));
+        Assert.True(double.IsNaN(stats.Avg));
+    }
+
+    /// <summary>
     /// Verifies the Rating Stats: Avg Is Correct scenario.
     /// </summary>
     [Fact(DisplayName = "Rating Stats: Avg Is Correct")]

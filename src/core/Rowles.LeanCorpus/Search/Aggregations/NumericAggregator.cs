@@ -180,25 +180,13 @@ public static class NumericAggregator
                     if (reader.TryGetSortedInt64DocValues(req.Field, localDocId, out var values))
                     {
                         foreach (long value in values)
-                        {
-                            count++;
-                            double d = value;
-                            if (d < min) min = d;
-                            if (d > max) max = d;
-                            sum += d;
-                        }
+                            AddStatsValue(value, ref count, ref min, ref max, ref sum);
                     }
                 }
                 else if (accessor.IsSingleNumeric)
                 {
                     if (reader.TryGetInt64Value(req.Field, localDocId, out long value))
-                    {
-                        count++;
-                        double d = value;
-                        if (d < min) min = d;
-                        if (d > max) max = d;
-                        sum += d;
-                    }
+                        AddStatsValue(value, ref count, ref min, ref max, ref sum);
                 }
             }
             else if (accessor.IsSortedNumeric)
@@ -206,23 +194,13 @@ public static class NumericAggregator
                 if (reader.TryGetSortedNumericDocValues(req.Field, localDocId, out var values))
                 {
                     foreach (double value in values)
-                    {
-                        count++;
-                        if (value < min) min = value;
-                        if (value > max) max = value;
-                        sum += value;
-                    }
+                        AddStatsValue(value, ref count, ref min, ref max, ref sum);
                 }
             }
             else if (accessor.IsSingleNumeric)
             {
                 if (reader.TryGetNumericValue(req.Field, localDocId, out double value))
-                {
-                    count++;
-                    if (value < min) min = value;
-                    if (value > max) max = value;
-                    sum += value;
-                }
+                    AddStatsValue(value, ref count, ref min, ref max, ref sum);
             }
         }
 
@@ -235,6 +213,33 @@ public static class NumericAggregator
             Max = count > 0 ? max : 0,
             Sum = sum
         };
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void AddStatsValue(
+        double value,
+        ref long count,
+        ref double min,
+        ref double max,
+        ref double sum)
+    {
+        count++;
+
+        // NumericField accepts all IEEE-754 double values. Count every observed
+        // value, and make NaN propagation explicit instead of silently ignoring
+        // it in the extrema comparisons.
+        if (double.IsNaN(value))
+        {
+            min = double.NaN;
+            max = double.NaN;
+        }
+        else if (!double.IsNaN(min))
+        {
+            if (value < min) min = value;
+            if (value > max) max = value;
+        }
+
+        sum += value;
     }
 
     private static AggregationResult ComputeHistogram(

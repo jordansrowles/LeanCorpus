@@ -3,6 +3,12 @@
 /// <summary>
 /// Result of a numeric aggregation over matching documents.
 /// </summary>
+/// <remarks>
+/// <see cref="Count"/> counts every observed numeric value, including non-finite
+/// IEEE-754 values. For Stats aggregations, a NaN value propagates to the extrema,
+/// sum and average; positive and negative infinity are retained using normal
+/// IEEE-754 arithmetic.
+/// </remarks>
 public sealed class AggregationResult
 {
     /// <summary>Gets the caller-assigned name of this aggregation result.</summary>
@@ -11,22 +17,22 @@ public sealed class AggregationResult
     /// <summary>Gets the numeric field that was aggregated.</summary>
     public required string Field { get; init; }
 
-    /// <summary>Gets the number of documents that had a value for the aggregated field.</summary>
+    /// <summary>Gets the number of observed numeric values included in the aggregation.</summary>
     public long Count { get; init; }
 
-    /// <summary>Gets the minimum value found across matching documents.</summary>
+    /// <summary>Gets the minimum observed numeric value included in the aggregation.</summary>
     public double Min { get; init; } = double.PositiveInfinity;
 
-    /// <summary>Gets the maximum value found across matching documents.</summary>
+    /// <summary>Gets the maximum observed numeric value included in the aggregation.</summary>
     public double Max { get; init; } = double.NegativeInfinity;
 
-    /// <summary>Gets the sum of values across all matching documents.</summary>
+    /// <summary>Gets the sum of all observed numeric values included in the aggregation.</summary>
     public double Sum { get; init; }
 
     /// <summary>
-    /// Gets the average value across all matching documents.
+    /// Gets the average of all observed numeric values included in the aggregation.
     /// </summary>
-    /// <value>The average, or 0.0 if no documents had a value.</value>
+    /// <value>The average, or 0.0 when no numeric values were observed.</value>
     public double Avg => Count > 0 ? Sum / Count : 0.0;
 
     /// <summary>Histogram buckets (non-null only for Histogram aggregations).</summary>
