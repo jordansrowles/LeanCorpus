@@ -64,9 +64,14 @@ internal static class FacetBucketHelpers
     {
         public static readonly ValueDescendingComparer Instance = new();
         public int Compare(FacetBucket x, FacetBucket y)
-            => CompareValueAscending(x, y) is var valueComparison && valueComparison != 0
-                ? -valueComparison
-                : y.Count.CompareTo(x.Count);
+        {
+            int missingComparison = CompareMissing(x, y);
+            if (missingComparison != 0)
+                return missingComparison;
+
+            int valueComparison = StringComparer.Ordinal.Compare(y.Value, x.Value);
+            return valueComparison != 0 ? valueComparison : y.Count.CompareTo(x.Count);
+        }
     }
 
     private static int CompareValueAscending(FacetBucket x, FacetBucket y)

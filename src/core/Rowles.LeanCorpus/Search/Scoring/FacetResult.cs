@@ -6,7 +6,7 @@ public sealed class FacetResult
     /// <summary>Gets the name of the field these facet counts are for.</summary>
     public string FieldName { get; }
 
-    /// <summary>Gets the value-count buckets, sorted by count descending.</summary>
+    /// <summary>Gets the returned value-count buckets in the requested order.</summary>
     public IReadOnlyList<FacetBucket> Buckets { get; }
 
     /// <summary>Gets the number of buckets before offset and limit are applied.</summary>
@@ -17,7 +17,7 @@ public sealed class FacetResult
 
     /// <summary>Initialises a new <see cref="FacetResult"/> with the given field name and buckets.</summary>
     /// <param name="fieldName">The field that was faceted.</param>
-    /// <param name="buckets">The accumulated value-count pairs, sorted by count descending.</param>
+    /// <param name="buckets">The value-count pairs returned in the requested order.</param>
     public FacetResult(string fieldName, IReadOnlyList<FacetBucket> buckets)
         : this(fieldName, buckets, buckets?.Count ?? 0)
     {

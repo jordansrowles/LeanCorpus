@@ -786,14 +786,14 @@ public sealed partial class IndexSearcher
                 {
                     foreach (var value in setValues)
                     {
-                        if (!string.IsNullOrEmpty(value))
+                        if (value is not null)
                         {
                             _facetsCollector.CollectDocumentValue(facetField, globalDocId, value);
                             hasValue = true;
                         }
                     }
                 }
-                else if (reader.TryGetSortedDocValue(facetField, localDocId, out string val) && !string.IsNullOrEmpty(val))
+                else if (reader.TryGetSortedDocValue(facetField, localDocId, out string val))
                 {
                     _facetsCollector.CollectDocumentValue(facetField, globalDocId, val);
                     hasValue = true;
@@ -803,11 +803,8 @@ public sealed partial class IndexSearcher
                     foreach (var value in binaryValues)
                     {
                         var decoded = System.Text.Encoding.UTF8.GetString(value);
-                        if (!string.IsNullOrEmpty(decoded))
-                        {
-                            _facetsCollector.CollectDocumentValue(facetField, globalDocId, decoded);
-                            hasValue = true;
-                        }
+                        _facetsCollector.CollectDocumentValue(facetField, globalDocId, decoded);
+                        hasValue = true;
                     }
                 }
                 else
@@ -817,7 +814,7 @@ public sealed partial class IndexSearcher
                     {
                         foreach (var v in values)
                         {
-                            if (string.IsNullOrEmpty(v))
+                            if (v is null)
                                 continue;
 
                             _facetsCollector.CollectDocumentValue(facetField, globalDocId, v);

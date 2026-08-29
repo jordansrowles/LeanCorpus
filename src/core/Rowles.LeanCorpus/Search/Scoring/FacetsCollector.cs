@@ -21,7 +21,7 @@ public sealed class FacetsCollector
         foreach (var request in requests)
         {
             ArgumentNullException.ThrowIfNull(request);
-            if (!_accumulators.TryAdd(request.Field, new FacetAccumulator(request.IncludeMissing)))
+            if (!_accumulators.TryAdd(request.Field, new FacetAccumulator(request)))
                 throw new ArgumentException($"A facet request for field '{request.Field}' was already supplied.", nameof(requests));
         }
     }
@@ -44,7 +44,7 @@ public sealed class FacetsCollector
         GetOrCreateAccumulator(field).CollectMissing(documentId);
     }
 
-    /// <summary>Returns the accumulated facet results, sorted by count descending.</summary>
+    /// <summary>Returns the accumulated facet results in each request's order, offset and limit.</summary>
     public IReadOnlyList<FacetResult> GetResults()
     {
         var results = new List<FacetResult>(_accumulators.Count);
@@ -53,12 +53,17 @@ public sealed class FacetsCollector
             if (!_includeEmptyResults && accumulator.Counts.Count == 0 && accumulator.MissingCount is null)
                 continue;
 
-            // Manual loop avoids LINQ allocation overhead
-            var buckets = new List<FacetBucket>(accumulator.Counts.Count);
+            // Manual loop avoids LINQ allocation overhead.
+            var buckets = new List<FacetBucket>(
+                accumulator.Counts.Count + (accumulator.MissingCount is > 0 ? 1 : 0));
             foreach (var kvp in accumulator.Counts)
                 buckets.Add(new FacetBucket(kvp.Key, kvp.Value));
-            buckets.Sort((a, b) => b.Count.CompareTo(a.Count));
-            results.Add(new FacetResult(field, buckets, accumulator.Counts.Count, accumulator.MissingCount));
+            if (accumulator.MissingCount is > 0)
+                buckets.Add(FacetBucket.Missing(accumulator.MissingCount.Value));
+
+            buckets.Sort(FacetBucketHelpers.GetComparer(accumulator.Order));
+            var page = FacetBucketHelpers.Page(buckets, accumulator.Offset, accumulator.Limit);
+            results.Add(new FacetResult(field, page, buckets.Count, accumulator.MissingCount));
         }
         return results;
     }
@@ -68,7 +73,7 @@ public sealed class FacetsCollector
         if (_accumulators.TryGetValue(field, out var accumulator))
             return accumulator;
 
-        accumulator = new FacetAccumulator(includeMissing: false);
+        accumulator = new FacetAccumulator();
         _accumulators.Add(field, accumulator);
         return accumulator;
     }
@@ -79,12 +84,29 @@ public sealed class FacetsCollector
         private readonly Dictionary<string, int> _lastDocumentByValue = new(StringComparer.Ordinal);
         private int? _lastMissingDocumentId;
 
-        public FacetAccumulator(bool includeMissing)
+        public FacetAccumulator()
         {
-            _includeMissing = includeMissing;
+            Order = FacetBucketOrder.CountDescending;
+            Offset = 0;
+            Limit = int.MaxValue;
+        }
+
+        public FacetAccumulator(FacetRequest request)
+        {
+            _includeMissing = request.IncludeMissing;
+            Order = request.Order;
+            Offset = request.Offset;
+            Limit = request.Limit;
+            MissingCount = _includeMissing ? 0 : null;
         }
 
         public Dictionary<string, int> Counts { get; } = new(StringComparer.Ordinal);
+
+        public FacetBucketOrder Order { get; }
+
+        public int Offset { get; }
+
+        public int Limit { get; }
 
         public int? MissingCount { get; private set; }
 

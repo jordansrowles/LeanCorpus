@@ -98,7 +98,10 @@ public sealed class FacetRequestTests
         collector.CollectMissing("category", documentId: 3);
 
         var result = Assert.Single(collector.GetResults());
-        Assert.Equal(1, Assert.Single(result.Buckets).Count);
+        Assert.Equal(2, result.Buckets.Count);
+        Assert.Equal(1, result.Buckets.Single(bucket => !bucket.IsMissing).Count);
+        Assert.Equal(2, result.Buckets.Single(bucket => bucket.IsMissing).Count);
+        Assert.Equal(2, result.TotalBucketCount);
         Assert.Equal(2, result.MissingCount);
     }
 }
