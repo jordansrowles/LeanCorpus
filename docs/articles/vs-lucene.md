@@ -375,9 +375,9 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Drill-sideways facets | ❌ | ✔ | ✔ | `DrillSideways` computes sideways counts alongside drill-down results. |
 | Range facets (numeric + date) | ❌ | ✔ | ✔ | Backlog |
 | Hierarchical / taxonomy facets | ◐   `FacetPath` / `HierarchicalFacetRequest` | ✔ | ✔ | Hierarchical prefixes use existing postings and sorted-set DocValues; no separate taxonomy index. |
-| Date histogram with calendar rounding | ❌ | ❌ | ❌ | Backlog; this is not a built-in Lucene aggregation. |
-| Percentile aggregator (HDR / t-digest) | ❌ | ❌ | ❌ | Backlog; this is not a built-in Lucene aggregation. |
-| Cardinality aggregator (HyperLogLog) | ❌ | ❌ | ❌ | Backlog; this is not a built-in Lucene aggregation. |
+| Date histogram with calendar rounding | ✔   `DateHistogramFacetRequest` | ❌ | ❌ | Fixed and UTC calendar intervals over Int64 Unix-millisecond DocValues. |
+| Percentile aggregator (HDR / t-digest) | ✔   `AggregationType.TDigestPercentiles` / `HdrPercentiles` | ❌ | ❌ | t-digest accepts finite doubles; HDR targets bounded non-negative Int64 values. |
+| Cardinality aggregator (HyperLogLog) | ✔   `AggregationType.Cardinality` | ❌ | ❌ | Bounded HyperLogLog++ estimate over numeric DocValues. |
 
 ---
 
