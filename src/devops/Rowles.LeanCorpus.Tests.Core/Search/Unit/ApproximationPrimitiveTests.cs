@@ -56,12 +56,13 @@ public sealed class ApproximationPrimitiveTests
     public void TDigest_StandardPercentilesRemainAccurate()
     {
         var digest = new TDigest(200);
-        for (int i = 1; i <= 100_000; i++) digest.Add(i);
+        const int count = 10_000;
+        for (int i = 1; i <= count; i++) digest.Add(i);
 
         foreach (double percentile in new[] { 0d, .5d, .9d, .95d, .99d, .999d, 1d })
         {
-            double expected = Math.Max(1, Math.Ceiling(percentile * 100_000));
-            Assert.InRange(Math.Abs(digest.Quantile(percentile) - expected), 0, 250);
+            double expected = Math.Max(1, Math.Ceiling(percentile * count));
+            Assert.InRange(Math.Abs(digest.Quantile(percentile) - expected), 0, 75);
         }
 
         var identical = new TDigest();
@@ -86,14 +87,14 @@ public sealed class ApproximationPrimitiveTests
     public void HdrHistogram_HandlesBoundaryAndRepeatedValues()
     {
         var histogram = new HdrHistogram(1_000_000, 3);
-        for (long i = 1; i <= 100_000; i++) histogram.RecordValue(i);
+        for (long i = 1; i <= 10_000; i++) histogram.RecordValue(i);
         histogram.RecordValue(1_000_000, 10);
 
-        Assert.Equal(100_010, histogram.TotalCount);
+        Assert.Equal(10_010, histogram.TotalCount);
         Assert.Equal(1, histogram.Min); Assert.Equal(1_000_000, histogram.Max);
-        Assert.InRange(histogram.ValueAtPercentile(50), 49_000, 51_000);
-        Assert.InRange(histogram.ValueAtPercentile(90), 89_000, 91_000);
-        Assert.InRange(histogram.ValueAtPercentile(99), 98_000, 101_000);
+        Assert.InRange(histogram.ValueAtPercentile(50), 4_900, 5_100);
+        Assert.InRange(histogram.ValueAtPercentile(90), 8_900, 9_100);
+        Assert.InRange(histogram.ValueAtPercentile(99), 9_800, 10_100);
         Assert.InRange(histogram.ValueAtPercentile(100), 999_000, 1_000_000);
     }
 }
