@@ -97,6 +97,40 @@ public sealed class FacetAggregationCollapseCorrectnessTests : IDisposable
     }
 
     /// <summary>
+    /// Verifies that each distinct value contributes once per matching document,
+    /// including when a document repeats one value and another document is missing the field.
+    /// </summary>
+    [Fact(DisplayName = "Facets: Multi Valued Values Count Once Per Document With Missing")]
+    public void Facets_MultiValuedValues_CountOncePerDocumentWithMissing()
+    {
+        using var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig());
+
+        var valued = new LeanDocument();
+        valued.Add(new TextField("body", "common"));
+        valued.Add(new StringField("tag", "red", stored: false));
+        valued.Add(new StringField("tag", "red", stored: false));
+        valued.Add(new StringField("tag", "blue", stored: false));
+        writer.AddDocument(valued);
+
+        var missing = new LeanDocument();
+        missing.Add(new TextField("body", "common"));
+        writer.AddDocument(missing);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+        var (_, facets) = searcher.SearchWithFacetRequests(
+            new TermQuery("body", "common"),
+            1,
+            [new FacetRequest("tag", includeMissing: true)]);
+
+        var facet = Assert.Single(facets);
+        Assert.Equal(3, facet.TotalBucketCount);
+        Assert.Equal(1, facet.Buckets.Single(bucket => bucket.Value == "red").Count);
+        Assert.Equal(1, facet.Buckets.Single(bucket => bucket.Value == "blue").Count);
+        Assert.Equal(1, facet.Buckets.Single(bucket => bucket.IsMissing).Count);
+    }
+
+    /// <summary>
     /// Verifies requested facet fields share one matching-document collection pass and
     /// repeated logical values from a document do not inflate a bucket count.
     /// </summary>

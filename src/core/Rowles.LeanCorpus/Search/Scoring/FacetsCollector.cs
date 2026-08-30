@@ -14,7 +14,7 @@ public sealed class FacetsCollector
     }
 
     /// <summary>Initialises a collector for a fixed set of facet requests.</summary>
-    internal FacetsCollector(IReadOnlyList<FacetRequest> requests, bool includeEmptyResults = true)
+    internal FacetsCollector(IReadOnlyList<IFacetRequest> requests, bool includeEmptyResults = true)
     {
         ArgumentNullException.ThrowIfNull(requests);
         _includeEmptyResults = includeEmptyResults;
@@ -81,7 +81,7 @@ public sealed class FacetsCollector
     private sealed class FacetAccumulator
     {
         private readonly bool _includeMissing;
-        private readonly Dictionary<string, int> _lastDocumentByValue = new(StringComparer.Ordinal);
+        private readonly FacetDocumentValueTracker _valueTracker = new();
         private int? _lastMissingDocumentId;
 
         public FacetAccumulator()
@@ -91,7 +91,7 @@ public sealed class FacetsCollector
             Limit = int.MaxValue;
         }
 
-        public FacetAccumulator(FacetRequest request)
+        public FacetAccumulator(IFacetRequest request)
         {
             _includeMissing = request.IncludeMissing;
             Order = request.Order;
@@ -118,10 +118,9 @@ public sealed class FacetsCollector
 
         public void CollectDocumentValue(int documentId, string value)
         {
-            if (_lastDocumentByValue.TryGetValue(value, out int previousDocumentId) && previousDocumentId == documentId)
+            if (!_valueTracker.MarkSeen(documentId, value))
                 return;
 
-            _lastDocumentByValue[value] = documentId;
             Collect(value);
         }
 

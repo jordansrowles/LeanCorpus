@@ -1,7 +1,12 @@
 namespace Rowles.LeanCorpus.Search.Scoring;
 
-/// <summary>Describes how facet buckets for one field should be returned.</summary>
-public sealed class FacetRequest
+/// <summary>Describes how distinct facet values for one field should be returned.</summary>
+/// <remarks>
+/// Counts are document-per-bucket counts. A matching document contributes at
+/// most once to each distinct value, even when a value occurs repeatedly in
+/// the document.
+/// </remarks>
+public sealed class FacetRequest : IFacetRequest
 {
     /// <summary>
     /// Initialises a new <see cref="FacetRequest"/>.

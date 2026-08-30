@@ -209,6 +209,16 @@ public sealed class QueryCache
                         builder.Append(')');
                     }
                     break;
+                case DrillDownQuery ddq:
+                    builder.Append("|base=(");
+                    Append(ddq.BaseQuery, builder);
+                    builder.Append(')');
+                    foreach (var selection in ddq.Selections)
+                    {
+                        AppendPart(builder, selection.Field);
+                        AppendPart(builder, selection.IndexedValue);
+                    }
+                    break;
                 case ConstantScoreQuery csq:
                     builder.Append("|score=").Append(csq.ConstantScore.ToString("R", CultureInfo.InvariantCulture)).Append("(");
                     Append(csq.Inner, builder);

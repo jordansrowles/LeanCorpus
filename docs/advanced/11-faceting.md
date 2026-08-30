@@ -3,6 +3,9 @@
 Faceting counts values from selected fields across all documents matching a query while returning the normal top-N results.
 
 Facet fields must have DocValues. Use a single-valued or multi-valued DocValues field according to the source data.
+Facet buckets count matching documents, so a document contributes at most once to
+each distinct bucket even when the same value is indexed repeatedly. A document
+with several distinct values contributes once to every one of those buckets.
 
 ## Search and count
 
@@ -36,7 +39,7 @@ document.Add(new StringField(
     docValues: StringDocValues.SortedSet));
 ```
 
-Use the multi-valued DocValues field type when one document belongs to several categories. A document contributes once to each of its distinct values.
+Use the multi-valued DocValues field type when one document belongs to several categories. A document contributes once to each of its distinct values, not once per field occurrence. Missing values are excluded unless an advanced `FacetRequest` opts into the missing bucket.
 
 ## Counting model
 
@@ -72,3 +75,48 @@ currently expose those index structures.
 Faceting differs from [field collapsing](09-field-collapsing.md). Faceting counts groups while preserving the ordinary result list. Collapsing changes the result list so only a representative hit from each group is returned.
 
 Numeric summaries such as minimum, maximum, sum, and average belong to [aggregations](01-aggregations.md).
+
+## Hierarchical paths
+
+Use `FacetPath` for a dimension with levels such as `Technology / Programming / C#`.
+`FacetPathIndexer.AddToDocument` writes every path prefix through existing
+queryable `StringField` postings and sorted-set DocValues:
+
+```csharp
+FacetPathIndexer.AddToDocument(
+    document,
+    "category",
+    new FacetPath("Technology", "Programming", "C#"));
+
+var (_, facets) = searcher.SearchWithFacetRequests(
+    new MatchAllDocsQuery(),
+    topN: 20,
+    [new HierarchicalFacetRequest(
+        "category",
+        parentPath: new FacetPath("Technology"))]);
+```
+
+The request returns immediate children of the root or parent path. Components
+are length-prefixed internally, so `/` and `:` in a component remain data and
+do not change the path identity. A path is indexed with postings as well as
+DocValues, which allows the same representation to be used by drill-down.
+
+## Drill-down
+
+`DrillDownQuery` wraps any base query. Selections in different dimensions are
+ANDed, while multiple selections in one dimension are ORed:
+
+```csharp
+var query = new DrillDownQuery(
+    new TermQuery("body", "phone"),
+    new DrillDownSelection("category", "books"),
+    new DrillDownSelection("category", "magazines"),
+    new DrillDownSelection("language", "en"));
+
+var results = searcher.Search(query, topN: 20);
+```
+
+The example means `body` contains `phone`, category is either `books` or
+`magazines`, and language is `en`. Use a `FacetPath` selection for an exact
+hierarchical path. Drill-down relies on searchable terms, not DocValues alone;
+`StringField` and `FacetPathIndexer` provide both representations.

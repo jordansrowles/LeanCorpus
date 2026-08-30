@@ -6,6 +6,8 @@ namespace Rowles.LeanCorpus.Codecs.DocValues;
 
 /// <summary>
 /// Writes multi-valued string DocValues in a column-stride format (.dss).
+/// Values are explicitly deduplicated per document before ordinals are written,
+/// so the reader exposes sorted distinct values for each document.
 /// </summary>
 internal static class SortedSetDocValuesWriter
 {

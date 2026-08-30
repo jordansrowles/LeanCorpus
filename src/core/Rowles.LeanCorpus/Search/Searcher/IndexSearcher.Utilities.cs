@@ -373,8 +373,8 @@ public sealed partial class IndexSearcher
         => SearchWithFacetsCore(query, topN, new FacetsSideCollector(facetFields));
 
     /// <summary>Executes the shared facet collection path for advanced requests.</summary>
-    internal (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithFacetRequests(
-        Query query, int topN, IReadOnlyList<FacetRequest> facetRequests)
+    public (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithFacetRequests(
+        Query query, int topN, IReadOnlyList<IFacetRequest> facetRequests)
         => SearchWithFacetsCore(query, topN, new FacetsSideCollector(facetRequests));
 
     private (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithFacetsCore(
@@ -754,6 +754,7 @@ public sealed partial class IndexSearcher
 
     private sealed class FacetsSideCollector : ISideCollector
     {
+        private readonly IFacetRequest[] _facetRequests;
         private readonly string[] _facetFields;
         private readonly HashSet<string> _storedFieldsToLoad;
         private readonly FacetsCollector _facetsCollector;
@@ -762,15 +763,17 @@ public sealed partial class IndexSearcher
         {
             ArgumentNullException.ThrowIfNull(facetFields);
             _facetFields = facetFields.Distinct(StringComparer.Ordinal).ToArray();
+            _facetRequests = _facetFields.Select(field => (IFacetRequest)new FacetRequest(field)).ToArray();
             _storedFieldsToLoad = new HashSet<string>(_facetFields, StringComparer.Ordinal);
             _facetsCollector = new FacetsCollector(
-                _facetFields.Select(field => new FacetRequest(field)).ToArray(),
+                _facetRequests,
                 includeEmptyResults: false);
         }
 
-        public FacetsSideCollector(IReadOnlyList<FacetRequest> facetRequests)
+        public FacetsSideCollector(IReadOnlyList<IFacetRequest> facetRequests)
         {
             ArgumentNullException.ThrowIfNull(facetRequests);
+            _facetRequests = facetRequests.ToArray();
             _facetFields = facetRequests.Select(request => request.Field).ToArray();
             _storedFieldsToLoad = new HashSet<string>(_facetFields, StringComparer.Ordinal);
             _facetsCollector = new FacetsCollector(facetRequests);
@@ -779,53 +782,115 @@ public sealed partial class IndexSearcher
         public void Collect(int globalDocId, float score, Index.Segment.SegmentReader reader, int localDocId)
         {
             IReadOnlyDictionary<string, IReadOnlyList<string>>? storedFields = null;
-            foreach (var facetField in _facetFields)
+            for (int i = 0; i < _facetRequests.Length; i++)
             {
-                bool hasValue = false;
-                if (reader.TryGetSortedSetDocValues(facetField, localDocId, out var setValues))
+                var request = _facetRequests[i];
+                bool hasValue = request is HierarchicalFacetRequest hierarchical
+                    ? CollectHierarchy(hierarchical, globalDocId, reader, localDocId)
+                    : CollectFlat(request.Field, globalDocId, reader, localDocId, ref storedFields);
+
+                if (!hasValue)
+                    _facetsCollector.CollectMissing(request.Field, globalDocId);
+            }
+        }
+
+        private bool CollectFlat(
+            string facetField,
+            int globalDocId,
+            Index.Segment.SegmentReader reader,
+            int localDocId,
+            ref IReadOnlyDictionary<string, IReadOnlyList<string>>? storedFields)
+        {
+            bool hasValue = false;
+            if (reader.TryGetSortedSetDocValues(facetField, localDocId, out var setValues))
+            {
+                foreach (var value in setValues)
                 {
-                    foreach (var value in setValues)
+                    if (value is not null)
                     {
-                        if (value is not null)
-                        {
-                            _facetsCollector.CollectDocumentValue(facetField, globalDocId, value);
-                            hasValue = true;
-                        }
-                    }
-                }
-                else if (reader.TryGetSortedDocValue(facetField, localDocId, out string val))
-                {
-                    _facetsCollector.CollectDocumentValue(facetField, globalDocId, val);
-                    hasValue = true;
-                }
-                else if (reader.TryGetBinaryDocValues(facetField, localDocId, out var binaryValues))
-                {
-                    foreach (var value in binaryValues)
-                    {
-                        var decoded = System.Text.Encoding.UTF8.GetString(value);
-                        _facetsCollector.CollectDocumentValue(facetField, globalDocId, decoded);
+                        _facetsCollector.CollectDocumentValue(facetField, globalDocId, value);
                         hasValue = true;
                     }
                 }
-                else
+            }
+            else if (reader.TryGetSortedDocValue(facetField, localDocId, out string val))
+            {
+                _facetsCollector.CollectDocumentValue(facetField, globalDocId, val);
+                hasValue = true;
+            }
+            else if (reader.TryGetBinaryDocValues(facetField, localDocId, out var binaryValues))
+            {
+                foreach (var value in binaryValues)
                 {
-                    storedFields ??= reader.GetStoredFields(localDocId, _storedFieldsToLoad);
-                    if (storedFields.TryGetValue(facetField, out var values))
+                    var decoded = System.Text.Encoding.UTF8.GetString(value);
+                    _facetsCollector.CollectDocumentValue(facetField, globalDocId, decoded);
+                    hasValue = true;
+                }
+            }
+            else
+            {
+                storedFields ??= reader.GetStoredFields(localDocId, _storedFieldsToLoad);
+                if (storedFields.TryGetValue(facetField, out var values))
+                {
+                    foreach (var value in values)
                     {
-                        foreach (var v in values)
-                        {
-                            if (v is null)
-                                continue;
+                        if (value is null)
+                            continue;
 
-                            _facetsCollector.CollectDocumentValue(facetField, globalDocId, v);
-                            hasValue = true;
-                        }
+                        _facetsCollector.CollectDocumentValue(facetField, globalDocId, value);
+                        hasValue = true;
                     }
                 }
-
-                if (!hasValue)
-                    _facetsCollector.CollectMissing(facetField, globalDocId);
             }
+
+            return hasValue;
+        }
+
+        private bool CollectHierarchy(
+            HierarchicalFacetRequest request,
+            int globalDocId,
+            Index.Segment.SegmentReader reader,
+            int localDocId)
+        {
+            bool hasHierarchyValue = false;
+            if (reader.TryGetSortedSetDocValues(request.Field, localDocId, out var setValues))
+            {
+                foreach (var value in setValues)
+                {
+                    if (value is null)
+                        continue;
+
+                    hasHierarchyValue |= CollectHierarchyValue(request, globalDocId, value);
+                }
+            }
+            else if (reader.TryGetSortedDocValue(request.Field, localDocId, out string value))
+            {
+                hasHierarchyValue = CollectHierarchyValue(request, globalDocId, value);
+            }
+            else if (reader.TryGetBinaryDocValues(request.Field, localDocId, out var binaryValues))
+            {
+                foreach (var binaryValue in binaryValues)
+                {
+                    var decoded = System.Text.Encoding.UTF8.GetString(binaryValue);
+                    hasHierarchyValue |= CollectHierarchyValue(request, globalDocId, decoded);
+                }
+            }
+
+            return hasHierarchyValue;
+        }
+
+        private bool CollectHierarchyValue(
+            HierarchicalFacetRequest request,
+            int globalDocId,
+            string encodedValue)
+        {
+            if (!FacetPathEncoder.IsEncodedPath(encodedValue))
+                return false;
+
+            if (FacetPathEncoder.TryGetImmediateChild(encodedValue, request.ParentPath, out string? child))
+                _facetsCollector.CollectDocumentValue(request.Field, globalDocId, child!);
+
+            return true;
         }
 
         public IReadOnlyList<FacetResult> GetResults() => _facetsCollector.GetResults();
