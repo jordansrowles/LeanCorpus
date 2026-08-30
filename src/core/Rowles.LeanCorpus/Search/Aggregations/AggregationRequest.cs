@@ -30,4 +30,19 @@ public sealed class AggregationRequest
 
     /// <summary>Histogram bucket width (only used when <see cref="Type"/> is <see cref="AggregationType.Histogram"/>).</summary>
     public double HistogramInterval { get; init; } = 10.0;
+
+    /// <summary>HyperLogLog++ precision from 4 to 18. Higher precision uses more memory.</summary>
+    public int CardinalityPrecision { get; init; } = HyperLogLogPlusPlus.DefaultPrecision;
+
+    /// <summary>Requested percentiles in the inclusive range 0 to 100.</summary>
+    public IReadOnlyList<double> Percentiles { get; init; } = [50, 90, 95, 99];
+
+    /// <summary>t-digest compression from 20 to 1,000. Higher values retain more centroids.</summary>
+    public int TDigestCompression { get; init; } = TDigest.DefaultCompression;
+
+    /// <summary>HDR highest trackable Int64 value.</summary>
+    public long HdrHighestTrackableValue { get; init; } = 1_000_000;
+
+    /// <summary>HDR significant decimal digits from 1 to 5.</summary>
+    public int HdrSignificantDigits { get; init; } = 3;
 }

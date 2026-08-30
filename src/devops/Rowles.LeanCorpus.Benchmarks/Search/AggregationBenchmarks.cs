@@ -59,6 +59,12 @@ public class AggregationBenchmarks
     private static readonly AggregationRequest HistogramRequest =
         new("price_hist", "price", AggregationType.Histogram) { HistogramInterval = 100.0 };
 
+    private static readonly AggregationRequest CardinalityRequest =
+        new("price_cardinality", "price", AggregationType.Cardinality);
+
+    private static readonly AggregationRequest TDigestRequest =
+        new("price_percentiles", "price", AggregationType.TDigestPercentiles) { Percentiles = [50, 95, 99] };
+
     [GlobalSetup]
     public void Setup()
     {
@@ -118,6 +124,24 @@ public class AggregationBenchmarks
     {
         var (results, _) = _leanSearcher!.SearchWithAggregations(
             new TermQuery("body", "government"), TopN, StatsRequest, HistogramRequest);
+        return results.TotalHits;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_SearchWithCardinality()
+    {
+        var (results, _) = _leanSearcher!.SearchWithAggregations(
+            new TermQuery("body", "government"), TopN, CardinalityRequest);
+        return results.TotalHits;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_SearchWithTDigestPercentiles()
+    {
+        var (results, _) = _leanSearcher!.SearchWithAggregations(
+            new TermQuery("body", "government"), TopN, TDigestRequest);
         return results.TotalHits;
     }
 

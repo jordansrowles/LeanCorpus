@@ -23,6 +23,9 @@ internal static class NumericAggregationStateFactory
         {
             AggregationType.Stats => new StatsAggregationState(request),
             AggregationType.Histogram => new HistogramAggregationState(request),
+            AggregationType.Cardinality => new CardinalityAggregationState(request),
+            AggregationType.TDigestPercentiles => new TDigestPercentilesAggregationState(request),
+            AggregationType.HdrPercentiles => new HdrPercentilesAggregationState(request),
             _ => new EmptyAggregationState(request)
         };
 }
@@ -204,6 +207,69 @@ internal sealed class EmptyAggregationState(AggregationRequest request) : INumer
 {
     public void Collect(in NumericDocumentValues values) { }
     public AggregationResult Finish() => AggregationResult.Empty(request.Name, request.Field);
+}
+
+internal abstract class NumericAggregationStateBase(AggregationRequest request) : INumericAggregationState
+{
+    protected AggregationRequest Request { get; } = request;
+    public void Collect(in NumericDocumentValues values)
+    {
+        if (values.IsInt64)
+        {
+            if (values.Int64Values is not null) foreach (long value in values.Int64Values) Collect(value);
+            else Collect(values.Int64Value);
+        }
+        else if (values.DoubleValues is not null)
+        {
+            foreach (double value in values.DoubleValues) Collect(value);
+        }
+        else Collect(values.DoubleValue);
+    }
+    protected abstract void Collect(long value);
+    protected abstract void Collect(double value);
+    public abstract AggregationResult Finish();
+}
+
+internal sealed class CardinalityAggregationState(AggregationRequest request) : NumericAggregationStateBase(request)
+{
+    private readonly HyperLogLogPlusPlus _sketch = new(request.CardinalityPrecision);
+    protected override void Collect(long value) => _sketch.Add(value);
+    protected override void Collect(double value) => _sketch.Add(value);
+    public override AggregationResult Finish() => new CardinalityAggregationResult
+    {
+        Name = Request.Name, Field = Request.Field, EstimatedCardinality = _sketch.Estimate(), ExpectedRelativeError = _sketch.ExpectedRelativeError
+    };
+}
+
+internal sealed class TDigestPercentilesAggregationState(AggregationRequest request) : NumericAggregationStateBase(request)
+{
+    private readonly TDigest _digest = new(request.TDigestCompression);
+    protected override void Collect(long value) => _digest.Add(value);
+    protected override void Collect(double value) => _digest.Add(value);
+    public override AggregationResult Finish()
+    {
+        var values = ValidatePercentiles(Request.Percentiles).Select(percentile => new PercentileValue(percentile, _digest.Quantile(percentile / 100d))).ToArray();
+        return new PercentileAggregationResult { Name = Request.Name, Field = Request.Field, Count = (long)_digest.Count, Algorithm = "t-digest", Percentiles = values };
+    }
+    internal static IReadOnlyList<double> ValidatePercentiles(IReadOnlyList<double> percentiles)
+    {
+        ArgumentNullException.ThrowIfNull(percentiles);
+        if (percentiles.Count == 0) throw new ArgumentException("At least one percentile is required.", nameof(percentiles));
+        foreach (double percentile in percentiles) if (percentile is < 0 or > 100 || double.IsNaN(percentile)) throw new ArgumentOutOfRangeException(nameof(percentiles));
+        return percentiles;
+    }
+}
+
+internal sealed class HdrPercentilesAggregationState(AggregationRequest request) : NumericAggregationStateBase(request)
+{
+    private readonly HdrHistogram _histogram = new(request.HdrHighestTrackableValue, request.HdrSignificantDigits);
+    protected override void Collect(long value) => _histogram.RecordValue(value);
+    protected override void Collect(double value) => throw new InvalidOperationException("HDR percentile aggregations require an Int64 field; use t-digest for doubles.");
+    public override AggregationResult Finish()
+    {
+        var values = TDigestPercentilesAggregationState.ValidatePercentiles(Request.Percentiles).Select(percentile => new PercentileValue(percentile, _histogram.ValueAtPercentile(percentile))).ToArray();
+        return new PercentileAggregationResult { Name = Request.Name, Field = Request.Field, Count = _histogram.TotalCount, Min = _histogram.Min, Max = _histogram.Max, Algorithm = "hdr-histogram", Percentiles = values };
+    }
 }
 
 /// <summary>Validates configuration before partial aggregation states are merged.</summary>

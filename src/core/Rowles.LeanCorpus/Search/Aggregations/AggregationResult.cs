@@ -9,7 +9,7 @@
 /// sum and average; positive and negative infinity are retained using normal
 /// IEEE-754 arithmetic.
 /// </remarks>
-public sealed class AggregationResult
+public class AggregationResult
 {
     /// <summary>Gets the caller-assigned name of this aggregation result.</summary>
     public required string Name { get; init; }
@@ -41,4 +41,27 @@ public sealed class AggregationResult
     /// <summary>An empty/no-data result.</summary>
     public static AggregationResult Empty(string name, string field)
         => new() { Name = name, Field = field, Count = 0, Min = 0, Max = 0, Sum = 0 };
+}
+
+/// <summary>Approximate distinct-value aggregation result.</summary>
+public sealed class CardinalityAggregationResult : AggregationResult
+{
+    /// <summary>Gets the estimated number of distinct values.</summary>
+    public required double EstimatedCardinality { get; init; }
+
+    /// <summary>Gets the approximate relative standard error for the configured precision.</summary>
+    public required double ExpectedRelativeError { get; init; }
+}
+
+/// <summary>One requested percentile and its estimated value.</summary>
+public sealed record PercentileValue(double Percentile, double Value);
+
+/// <summary>Percentile aggregation result from a named approximation algorithm.</summary>
+public sealed class PercentileAggregationResult : AggregationResult
+{
+    /// <summary>Gets the algorithm used to estimate the requested percentiles.</summary>
+    public required string Algorithm { get; init; }
+
+    /// <summary>Gets percentiles in the exact requested order.</summary>
+    public required IReadOnlyList<PercentileValue> Percentiles { get; init; }
 }
