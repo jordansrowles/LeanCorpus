@@ -76,6 +76,14 @@ Faceting differs from [field collapsing](09-field-collapsing.md). Faceting count
 
 Numeric summaries such as minimum, maximum, sum, and average belong to [aggregations](01-aggregations.md).
 
+## Date histograms
+
+Dates are UTC Unix milliseconds in an `Int64Field`. `DateHistogramFacetRequest`
+supports fixed elapsed intervals such as `DateHistogramInterval.Hour` and UTC
+calendar day, ISO Monday-start week, month, quarter and year intervals. Buckets
+are `[start, end)`, expose typed `DateTimeOffset` boundaries, and count a
+multi-valued document once per logical bucket.
+
 ## Hierarchical paths
 
 Use `FacetPath` for a dimension with levels such as `Technology / Programming / C#`.

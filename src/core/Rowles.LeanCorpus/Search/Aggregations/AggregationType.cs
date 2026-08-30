@@ -7,8 +7,7 @@ public enum AggregationType
     Stats,
 
     /// <summary>Fixed-width histogram buckets.</summary>
-    Histogram
-,
+    Histogram,
     /// <summary>Approximate distinct numeric-value count using HyperLogLog++.</summary>
     Cardinality,
     /// <summary>Approximate double percentiles using t-digest.</summary>

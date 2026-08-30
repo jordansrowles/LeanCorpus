@@ -1,6 +1,6 @@
 namespace Rowles.LeanCorpus.Search.Aggregations;
 
-/// <summary>Mergeable t-digest using the k(q)=compression*asin(2q-1)/pi scale function.</summary>
+/// <summary>Mergeable t-digest with a tail-aware, bounded centroid-weight scale constraint.</summary>
 public sealed class TDigest
 {
     /// <summary>Default compression. Higher values improve tail accuracy at the cost of centroid memory.</summary>
@@ -40,8 +40,7 @@ public sealed class TDigest
         {
             var next = _centroids[i];
             double q = (soFar + current.Weight + next.Weight) / Count;
-            double maxWeight = Math.Max(1, 4 * Count * q * (1 - q) / Compression);
-            if (current.Weight + next.Weight <= maxWeight)
+            if (current.Weight + next.Weight <= MaximumWeight(q))
                 current = current.Merge(next);
             else { output.Add(current); soFar += current.Weight; current = next; }
         }
@@ -83,4 +82,9 @@ public sealed class TDigest
     {
         public Centroid Merge(Centroid other) => new((Mean * Weight + other.Mean * other.Weight) / (Weight + other.Weight), Weight + other.Weight);
     }
+
+    // This is the cluster-size form of the arcsine t-digest scale: it allows
+    // broad centroids near the median and progressively smaller ones in both tails.
+    private double MaximumWeight(double quantile)
+        => Math.Max(1, 4 * Count * quantile * (1 - quantile) / Compression);
 }

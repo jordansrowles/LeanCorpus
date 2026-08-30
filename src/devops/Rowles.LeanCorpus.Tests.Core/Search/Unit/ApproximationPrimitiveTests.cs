@@ -24,6 +24,20 @@ public sealed class ApproximationPrimitiveTests
         Assert.Throws<ArgumentException>(() => left.MergeFrom(new HyperLogLogPlusPlus(13)));
     }
 
+    [Theory(DisplayName = "HLL++: Deterministic Accuracy Across Cardinalities")]
+    [InlineData(10)]
+    [InlineData(100)]
+    [InlineData(1_000)]
+    [InlineData(10_000)]
+    [InlineData(100_000)]
+    public void HyperLogLogPlusPlus_EstimatesKnownCardinalities(int cardinality)
+    {
+        var sketch = new HyperLogLogPlusPlus();
+        for (int i = 0; i < cardinality; i++) sketch.Add((long)i);
+
+        Assert.InRange(Math.Abs(sketch.Estimate() - cardinality) / cardinality, 0, sketch.ExpectedRelativeError * 4);
+    }
+
     [Fact(DisplayName = "t-digest: Quantiles And Merge Are Tail Aware")]
     public void TDigest_CoversCoreContracts()
     {
@@ -38,6 +52,22 @@ public sealed class ApproximationPrimitiveTests
         Assert.Throws<ArgumentException>(() => left.MergeFrom(new TDigest(200)));
     }
 
+    [Fact(DisplayName = "t-digest: Standard Percentiles Match A Deterministic Reference")]
+    public void TDigest_StandardPercentilesRemainAccurate()
+    {
+        var digest = new TDigest(200);
+        for (int i = 1; i <= 100_000; i++) digest.Add(i);
+
+        foreach (double percentile in new[] { 0d, .5d, .9d, .95d, .99d, .999d, 1d })
+        {
+            double expected = Math.Max(1, Math.Ceiling(percentile * 100_000));
+            Assert.InRange(Math.Abs(digest.Quantile(percentile) - expected), 0, 250);
+        }
+
+        var identical = new TDigest();
+        identical.Add(42); identical.Add(42); Assert.Equal(42, identical.Quantile(.5));
+    }
+
     [Fact(DisplayName = "HDR Histogram: Relative Buckets Percentiles And Merge")]
     public void HdrHistogram_CoversCoreContracts()
     {
@@ -50,5 +80,20 @@ public sealed class ApproximationPrimitiveTests
         Assert.NotEmpty(left.EnumerateDistribution());
         Assert.Throws<ArgumentOutOfRangeException>(() => left.RecordValue(1_000_001));
         Assert.Throws<ArgumentException>(() => left.MergeFrom(new HdrHistogram(10_000, 3)));
+    }
+
+    [Fact(DisplayName = "HDR Histogram: Latency Percentiles Stay Within Configured Precision")]
+    public void HdrHistogram_HandlesBoundaryAndRepeatedValues()
+    {
+        var histogram = new HdrHistogram(1_000_000, 3);
+        for (long i = 1; i <= 100_000; i++) histogram.RecordValue(i);
+        histogram.RecordValue(1_000_000, 10);
+
+        Assert.Equal(100_010, histogram.TotalCount);
+        Assert.Equal(1, histogram.Min); Assert.Equal(1_000_000, histogram.Max);
+        Assert.InRange(histogram.ValueAtPercentile(50), 49_000, 51_000);
+        Assert.InRange(histogram.ValueAtPercentile(90), 89_000, 91_000);
+        Assert.InRange(histogram.ValueAtPercentile(99), 98_000, 101_000);
+        Assert.InRange(histogram.ValueAtPercentile(100), 999_000, 1_000_000);
     }
 }

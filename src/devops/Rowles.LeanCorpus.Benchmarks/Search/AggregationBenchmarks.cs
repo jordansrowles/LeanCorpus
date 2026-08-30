@@ -65,6 +65,13 @@ public class AggregationBenchmarks
     private static readonly AggregationRequest TDigestRequest =
         new("price_percentiles", "price", AggregationType.TDigestPercentiles) { Percentiles = [50, 95, 99] };
 
+    private static readonly AggregationRequest HdrRequest =
+        new("latency_percentiles", "latency", AggregationType.HdrPercentiles)
+        {
+            HdrHighestTrackableValue = 1_000_000,
+            Percentiles = [50, 95, 99]
+        };
+
     [GlobalSetup]
     public void Setup()
     {
@@ -147,6 +154,15 @@ public class AggregationBenchmarks
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_SearchWithHdrPercentiles()
+    {
+        var (results, _) = _leanSearcher!.SearchWithAggregations(
+            new TermQuery("body", "government"), TopN, HdrRequest);
+        return results.TotalHits;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_TermQuery()
     {
         var q = new LuceneTermQuery(new LuceneTerm("body", "government"));
@@ -222,6 +238,7 @@ public class AggregationBenchmarks
             doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
             doc.Add(new LeanTextField("body", docs[i].Body));
             doc.Add(new LeanNumericField("price", docs[i].Price));
+            doc.Add(new Rowles.LeanCorpus.Document.Fields.Int64Field("latency", Math.Max(0, (long)Math.Round(docs[i].Price * 100))));
             writer.AddDocument(doc);
         }
         writer.Commit();

@@ -28,10 +28,25 @@ foreach (var r in results)
 |---|---|
 | `AggregationType.Stats` | `Count`, `Min`, `Max`, `Sum`, `Avg` |
 | `AggregationType.Histogram` | Fixed-width buckets controlled by `HistogramInterval` (default `10.0`) |
+| `AggregationType.Cardinality` | Approximate distinct numeric values via HyperLogLog++ |
+| `AggregationType.TDigestPercentiles` | Approximate double percentiles via t-digest |
+| `AggregationType.HdrPercentiles` | Approximate Int64 percentiles via HDR histogram |
 
 Histogram results expose buckets through `AggregationResult.Buckets`.
 
 The field must be a numeric doc-values field (`NumericField`).
+
+`Stats.Count` counts observed values, not documents: a multi-valued document
+contributes each numeric value. `Cardinality` instead counts distinct values.
+HLL++ uses a deterministic 64-bit hash, default precision 14 and an expected
+relative standard error of about 0.81%. Set `CardinalityPrecision` from 4 to 18
+to trade memory for accuracy.
+
+Use `TDigestPercentiles` for finite double distributions and tail percentiles;
+set `Percentiles` as values from 0 to 100 and `TDigestCompression` from 20 to
+1,000. Use `HdrPercentiles` for non-negative Int64 measurements such as latency
+when an explicit `HdrHighestTrackableValue` and 1–5 significant digits are
+known. HDR rejects values above that range rather than silently clamping them.
 
 ## See also
 
