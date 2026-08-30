@@ -106,6 +106,21 @@ public sealed class ReaderManagerAndMultiReaderTests : IDisposable
     }
 
     [Fact]
+    public void MultiReaderMergesFacetCountsWithoutLocalOrdinalLeakage()
+    {
+        var firstPath = CreateIndex("facet-first", ["common first"], tags: ["alpha"]);
+        var secondPath = CreateIndex("facet-second", ["common second", "common third"], tags: ["beta", "alpha"]);
+        using var firstDirectory = new MMapDirectory(firstPath);
+        using var secondDirectory = new MMapDirectory(secondPath);
+        using var reader = new MultiReader([firstDirectory, secondDirectory]);
+
+        var (_, facets) = reader.SearchWithFacets(new TermQuery("body", "common"), 10, ["tag"]);
+        var facet = Assert.Single(facets);
+
+        Assert.Equal([("alpha", 2L), ("beta", 1L)], facet.Buckets.Select(static bucket => (bucket.Value, bucket.Count)).ToArray());
+    }
+
+    [Fact]
     public void MultiReaderKeepsAnOldCompositionStableAcrossLaterCommits()
     {
         var firstPath = CreateIndex("stable", ["before"]);
