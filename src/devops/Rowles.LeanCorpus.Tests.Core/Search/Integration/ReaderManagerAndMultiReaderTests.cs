@@ -117,7 +117,7 @@ public sealed class ReaderManagerAndMultiReaderTests : IDisposable
         var (_, facets) = reader.SearchWithFacets(new TermQuery("body", "common"), 10, ["tag"]);
         var facet = Assert.Single(facets);
 
-        Assert.Equal([("alpha", 2L), ("beta", 1L)], facet.Buckets.Select(static bucket => (bucket.Value, bucket.Count)).ToArray());
+        Assert.Equal([("alpha", 2), ("beta", 1)], facet.Buckets.Select(static bucket => (bucket.Value, bucket.Count)).ToArray());
     }
 
     [Fact]
