@@ -48,6 +48,30 @@ set `Percentiles` as values from 0 to 100 and `TDigestCompression` from 20 to
 when an explicit `HdrHighestTrackableValue` and 1–5 significant digits are
 known. HDR rejects values above that range rather than silently clamping them.
 
+```csharp
+var requests = new[]
+{
+    new AggregationRequest("users", "user_id", AggregationType.Cardinality)
+    {
+        CardinalityPrecision = 14
+    },
+    new AggregationRequest("price", "price", AggregationType.TDigestPercentiles)
+    {
+        Percentiles = [50, 95, 99],
+        TDigestCompression = 100
+    },
+    new AggregationRequest("latency", "latency_ms", AggregationType.HdrPercentiles)
+    {
+        HdrHighestTrackableValue = 60_000,
+        HdrSignificantDigits = 3,
+        Percentiles = [50, 95, 99]
+    }
+};
+
+var (_, results) = searcher.SearchWithAggregations(query, topN: 20, requests);
+var p99 = ((PercentileAggregationResult)results[2]).Percentiles.Single(p => p.Percentile == 99).Value;
+```
+
 ## See also
 
 - <xref:Rowles.LeanCorpus.Search.Aggregations.AggregationRequest>
