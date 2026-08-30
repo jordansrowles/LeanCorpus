@@ -42,18 +42,23 @@ public sealed class ApproximateAggregationIntegrationTests : IClassFixture<TestD
     {
         string single = Path.Combine(_fixture.Path, nameof(SearchWithAggregations_IsStableAcrossSegmentsAndExcludesDeletedDocuments), "single");
         string multi = Path.Combine(_fixture.Path, nameof(SearchWithAggregations_IsStableAcrossSegmentsAndExcludesDeletedDocuments), "multi");
-        Build(single, 100); Build(multi, 1);
+        string merged = Path.Combine(_fixture.Path, nameof(SearchWithAggregations_IsStableAcrossSegmentsAndExcludesDeletedDocuments), "merged");
+        Build(single, 100, merge: false); Build(multi, 1, merge: false); Build(merged, 1, merge: true);
 
         var singleResults = Search(single);
         var multiResults = Search(multi);
+        var mergedResults = Search(merged);
         var singleCardinality = (CardinalityAggregationResult)singleResults[0];
         var multiCardinality = (CardinalityAggregationResult)multiResults[0];
         Assert.InRange(Math.Abs(singleCardinality.EstimatedCardinality - multiCardinality.EstimatedCardinality), 0, .01);
         Assert.Equal(3, ((PercentileAggregationResult)singleResults[1]).Count);
         Assert.Equal(3, ((PercentileAggregationResult)multiResults[1]).Count);
         Assert.Equal(((PercentileAggregationResult)singleResults[1]).Percentiles, ((PercentileAggregationResult)multiResults[1]).Percentiles);
+        Assert.Equal(((PercentileAggregationResult)singleResults[1]).Percentiles, ((PercentileAggregationResult)mergedResults[1]).Percentiles);
+        Assert.Equal(((PercentileAggregationResult)singleResults[2]).Percentiles, ((PercentileAggregationResult)multiResults[2]).Percentiles);
+        Assert.Equal(((PercentileAggregationResult)singleResults[2]).Percentiles, ((PercentileAggregationResult)mergedResults[2]).Percentiles);
 
-        void Build(string path, int maxBufferedDocs)
+        void Build(string path, int maxBufferedDocs, bool merge)
         {
             if (Directory.Exists(path)) Directory.Delete(path, true);
             Directory.CreateDirectory(path);
@@ -61,6 +66,7 @@ public sealed class ApproximateAggregationIntegrationTests : IClassFixture<TestD
             Add(writer, 10); Add(writer, 100); Add(writer, 1_000);
             var deleted = new LeanDocument(); deleted.Add(new TextField("body", "common")); deleted.Add(new TextField("id", "deleted")); deleted.Add(new Int64Field("value", 9_999, stored: false)); deleted.Add(new Int64Field("latency", 9_999, stored: false)); writer.AddDocument(deleted);
             writer.Commit(); writer.DeleteDocuments(new TermQuery("id", "deleted")); writer.Commit();
+            if (merge) writer.ForceMerge(1);
         }
 
         static IReadOnlyList<AggregationResult> Search(string path)
@@ -68,7 +74,8 @@ public sealed class ApproximateAggregationIntegrationTests : IClassFixture<TestD
             using var searcher = new IndexSearcher(new MMapDirectory(path));
             return searcher.SearchWithAggregations(new TermQuery("body", "common"), 10,
                 new AggregationRequest("distinct", "value", AggregationType.Cardinality),
-                new AggregationRequest("hdr", "latency", AggregationType.HdrPercentiles) { HdrHighestTrackableValue = 10_000, Percentiles = [50, 99] }).Aggregations;
+                new AggregationRequest("hdr", "latency", AggregationType.HdrPercentiles) { HdrHighestTrackableValue = 10_000, Percentiles = [50, 99] },
+                new AggregationRequest("digest", "value", AggregationType.TDigestPercentiles) { Percentiles = [50, 99] }).Aggregations;
         }
     }
 
