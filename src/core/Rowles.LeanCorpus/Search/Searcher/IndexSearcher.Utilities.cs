@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using System.Threading;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Search.Aggregations;
+using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Scoring;
 namespace Rowles.LeanCorpus.Search.Searcher;
 
@@ -370,12 +372,115 @@ public sealed partial class IndexSearcher
     /// <summary>Executes a query and returns both top-N results and facet counts for the specified fields.</summary>
     public (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithFacets(
         Query query, int topN, params string[] facetFields)
-        => SearchWithFacetsCore(query, topN, new FacetsSideCollector(facetFields));
+        => SearchWithFacetsCore(query, topN, new FacetsSideCollector(facetFields, _readers));
 
     /// <summary>Executes the shared facet collection path for advanced requests.</summary>
     public (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithFacetRequests(
         Query query, int topN, IReadOnlyList<IFacetRequest> facetRequests)
-        => SearchWithFacetsCore(query, topN, new FacetsSideCollector(facetRequests));
+        => SearchWithFacetsCore(query, topN, new FacetsSideCollector(facetRequests, _readers));
+
+    /// <summary>
+    /// Executes a drill-down search and computes facet counts with the selected
+    /// dimension's own constraint removed from its count scope.
+    /// </summary>
+    /// <param name="query">The drill-down query containing the base query and selections.</param>
+    /// <param name="topN">The maximum number of filtered hits to return.</param>
+    /// <param name="facetRequests">The facet requests to evaluate with sideways scopes.</param>
+    /// <returns>Filtered hits and facet results calculated using their sideways scopes.</returns>
+    public (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithDrillSideways(
+        DrillDownQuery query, int topN, params IFacetRequest[] facetRequests)
+    {
+        ArgumentNullException.ThrowIfNull(facetRequests);
+        return SearchWithDrillSideways(query, topN, (IReadOnlyList<IFacetRequest>)facetRequests);
+    }
+
+    /// <summary>
+    /// Executes a drill-down search and computes facet counts with the selected
+    /// dimension's own constraint removed from its count scope.
+    /// </summary>
+    /// <remarks>
+    /// The filtered hits use all selections. A selected dimension's facet scope
+    /// keeps every other dimension selected, while an unselected dimension uses
+    /// the complete drill-down query. Requests sharing a scope are collected in
+    /// one pass; selected dimensions are evaluated in separate alternative passes.
+    /// </remarks>
+    public (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithDrillSideways(
+        DrillDownQuery query, int topN, IReadOnlyList<IFacetRequest> facetRequests)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(facetRequests);
+        for (int i = 0; i < facetRequests.Count; i++)
+            ArgumentNullException.ThrowIfNull(facetRequests[i]);
+
+        var results = Search(query, topN);
+        if (facetRequests.Count == 0)
+            return (results, []);
+
+        var facets = new FacetResult[facetRequests.Count];
+        var unselected = new List<(int Index, IFacetRequest Request)>();
+        var selected = new Dictionary<string, List<(int Index, IFacetRequest Request)>>(StringComparer.Ordinal);
+
+        for (int i = 0; i < facetRequests.Count; i++)
+        {
+            var request = facetRequests[i];
+            bool isSelected = false;
+            foreach (var selection in query.Selections)
+            {
+                if (string.Equals(selection.Field, request.Field, StringComparison.Ordinal))
+                {
+                    isSelected = true;
+                    break;
+                }
+            }
+
+            if (!isSelected)
+            {
+                unselected.Add((i, request));
+                continue;
+            }
+
+            if (!selected.TryGetValue(request.Field, out var group))
+            {
+                group = [];
+                selected.Add(request.Field, group);
+            }
+            group.Add((i, request));
+        }
+
+        if (unselected.Count > 0)
+            CollectDrillSidewaysGroup(query, unselected, facets);
+
+        foreach (var (field, group) in selected)
+        {
+            var remainingSelections = new List<DrillDownSelection>(query.Selections.Count);
+            foreach (var selection in query.Selections)
+            {
+                if (!string.Equals(selection.Field, field, StringComparison.Ordinal))
+                    remainingSelections.Add(selection);
+            }
+
+            Query scope = remainingSelections.Count == 0
+                ? query.BaseQuery
+                : new DrillDownQuery(query.BaseQuery, remainingSelections);
+            CollectDrillSidewaysGroup(scope, group, facets);
+        }
+
+        return (results, facets);
+    }
+
+    private void CollectDrillSidewaysGroup(
+        Query scope,
+        IReadOnlyList<(int Index, IFacetRequest Request)> group,
+        FacetResult[] destination)
+    {
+        var requests = new IFacetRequest[group.Count];
+        for (int i = 0; i < group.Count; i++)
+            requests[i] = group[i].Request;
+
+        var (_, facetResults) = SearchWithFacetRequests(scope, 1, requests);
+        for (int i = 0; i < group.Count; i++)
+            destination[group[i].Index] = facetResults[i];
+    }
 
     private (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithFacetsCore(
         Query query, int topN, FacetsSideCollector sideCollector)
@@ -758,8 +863,11 @@ public sealed partial class IndexSearcher
         private readonly string[] _facetFields;
         private readonly HashSet<string> _storedFieldsToLoad;
         private readonly FacetsCollector _facetsCollector;
+        private readonly NumericFieldAccessor[] _numericAccessors;
 
-        public FacetsSideCollector(string[] facetFields)
+        public FacetsSideCollector(
+            string[] facetFields,
+            IReadOnlyList<Index.Segment.SegmentReader> readers)
         {
             ArgumentNullException.ThrowIfNull(facetFields);
             _facetFields = facetFields.Distinct(StringComparer.Ordinal).ToArray();
@@ -768,15 +876,60 @@ public sealed partial class IndexSearcher
             _facetsCollector = new FacetsCollector(
                 _facetRequests,
                 includeEmptyResults: false);
+            _numericAccessors = ResolveNumericAccessors(_facetRequests, readers);
         }
 
-        public FacetsSideCollector(IReadOnlyList<IFacetRequest> facetRequests)
+        public FacetsSideCollector(
+            IReadOnlyList<IFacetRequest> facetRequests,
+            IReadOnlyList<Index.Segment.SegmentReader> readers)
         {
             ArgumentNullException.ThrowIfNull(facetRequests);
             _facetRequests = facetRequests.ToArray();
             _facetFields = facetRequests.Select(request => request.Field).ToArray();
             _storedFieldsToLoad = new HashSet<string>(_facetFields, StringComparer.Ordinal);
             _facetsCollector = new FacetsCollector(facetRequests);
+            _numericAccessors = ResolveNumericAccessors(_facetRequests, readers);
+            RegisterRangeBuckets();
+        }
+
+        private static NumericFieldAccessor[] ResolveNumericAccessors(
+            IReadOnlyList<IFacetRequest> requests,
+            IReadOnlyList<Index.Segment.SegmentReader> readers)
+        {
+            var accessors = new NumericFieldAccessor[requests.Count];
+            for (int i = 0; i < requests.Count; i++)
+            {
+                if (requests[i] is NumericRangeFacetRequest
+                    or Int64RangeFacetRequest
+                    or DateRangeFacetRequest)
+                {
+                    accessors[i] = NumericFieldValues.ResolveFieldAccessor(requests[i].Field, readers);
+                }
+            }
+
+            return accessors;
+        }
+
+        private void RegisterRangeBuckets()
+        {
+            foreach (var request in _facetRequests)
+            {
+                switch (request)
+                {
+                    case NumericRangeFacetRequest numeric:
+                        foreach (var range in numeric.Ranges)
+                            _facetsCollector.RegisterBucket(request.Field, range.Label);
+                        break;
+                    case Int64RangeFacetRequest int64:
+                        foreach (var range in int64.Ranges)
+                            _facetsCollector.RegisterBucket(request.Field, range.Label);
+                        break;
+                    case DateRangeFacetRequest date:
+                        foreach (var range in date.Ranges)
+                            _facetsCollector.RegisterBucket(request.Field, range.Label);
+                        break;
+                }
+            }
         }
 
         public void Collect(int globalDocId, float score, Index.Segment.SegmentReader reader, int localDocId)
@@ -785,12 +938,156 @@ public sealed partial class IndexSearcher
             for (int i = 0; i < _facetRequests.Length; i++)
             {
                 var request = _facetRequests[i];
-                bool hasValue = request is HierarchicalFacetRequest hierarchical
-                    ? CollectHierarchy(hierarchical, globalDocId, reader, localDocId)
-                    : CollectFlat(request.Field, globalDocId, reader, localDocId, ref storedFields);
+                bool hasValue = request switch
+                {
+                    HierarchicalFacetRequest hierarchical =>
+                        CollectHierarchy(hierarchical, globalDocId, reader, localDocId),
+                    NumericRangeFacetRequest numeric =>
+                        CollectNumericRange(numeric, _numericAccessors[i], globalDocId, reader, localDocId),
+                    Int64RangeFacetRequest int64 =>
+                        CollectInt64Range(int64, _numericAccessors[i], globalDocId, reader, localDocId),
+                    DateRangeFacetRequest date =>
+                        CollectDateRange(date, _numericAccessors[i], globalDocId, reader, localDocId),
+                    _ => CollectFlat(request.Field, globalDocId, reader, localDocId, ref storedFields)
+                };
 
                 if (!hasValue)
                     _facetsCollector.CollectMissing(request.Field, globalDocId);
+            }
+        }
+
+        private bool CollectNumericRange(
+            NumericRangeFacetRequest request,
+            NumericFieldAccessor accessor,
+            int globalDocId,
+            Index.Segment.SegmentReader reader,
+            int localDocId)
+        {
+            if (!NumericFieldValues.TryRead(reader, request.Field, localDocId, accessor, out var values))
+                return false;
+
+            if (values.IsInt64)
+            {
+                if (values.Int64Values is not null)
+                {
+                    foreach (long value in values.Int64Values)
+                        CollectNumericRangeValue(request, globalDocId, value);
+                }
+                else
+                {
+                    CollectNumericRangeValue(request, globalDocId, values.Int64Value);
+                }
+            }
+            else if (values.DoubleValues is not null)
+            {
+                foreach (double value in values.DoubleValues)
+                    CollectNumericRangeValue(request, globalDocId, value);
+            }
+            else
+            {
+                CollectNumericRangeValue(request, globalDocId, values.DoubleValue);
+            }
+
+            return true;
+        }
+
+        private void CollectNumericRangeValue(
+            NumericRangeFacetRequest request,
+            int globalDocId,
+            long value)
+        {
+            foreach (var range in request.Ranges)
+            {
+                if (range.Contains(value))
+                    _facetsCollector.CollectDocumentValue(request.Field, globalDocId, range.Label);
+            }
+        }
+
+        private void CollectNumericRangeValue(
+            NumericRangeFacetRequest request,
+            int globalDocId,
+            double value)
+        {
+            foreach (var range in request.Ranges)
+            {
+                if (range.Contains(value))
+                    _facetsCollector.CollectDocumentValue(request.Field, globalDocId, range.Label);
+            }
+        }
+
+        private bool CollectInt64Range(
+            Int64RangeFacetRequest request,
+            NumericFieldAccessor accessor,
+            int globalDocId,
+            Index.Segment.SegmentReader reader,
+            int localDocId)
+        {
+            if (!NumericFieldValues.TryRead(reader, request.Field, localDocId, accessor, out var values))
+                return false;
+
+            if (!values.IsInt64)
+                return true;
+
+            if (values.Int64Values is not null)
+            {
+                foreach (long value in values.Int64Values)
+                    CollectInt64RangeValue(request, globalDocId, value);
+            }
+            else
+            {
+                CollectInt64RangeValue(request, globalDocId, values.Int64Value);
+            }
+
+            return true;
+        }
+
+        private void CollectInt64RangeValue(
+            Int64RangeFacetRequest request,
+            int globalDocId,
+            long value)
+        {
+            foreach (var range in request.Ranges)
+            {
+                if (range.Contains(value))
+                    _facetsCollector.CollectDocumentValue(request.Field, globalDocId, range.Label);
+            }
+        }
+
+        private bool CollectDateRange(
+            DateRangeFacetRequest request,
+            NumericFieldAccessor accessor,
+            int globalDocId,
+            Index.Segment.SegmentReader reader,
+            int localDocId)
+        {
+            if (!NumericFieldValues.TryRead(reader, request.Field, localDocId, accessor, out var values))
+                return false;
+
+            if (!values.IsInt64)
+                return true;
+
+            if (values.Int64Values is not null)
+            {
+                foreach (long value in values.Int64Values)
+                    CollectDateRangeValue(request, globalDocId, value);
+            }
+            else
+            {
+                CollectDateRangeValue(request, globalDocId, values.Int64Value);
+            }
+
+            return true;
+        }
+
+        private void CollectDateRangeValue(
+            DateRangeFacetRequest request,
+            int globalDocId,
+            long value)
+        {
+            foreach (var range in request.EncodedRanges)
+            {
+                if (range.Contains(value))
+                    _facetsCollector.CollectDocumentValue(request.Field, globalDocId, range.Label);
             }
         }
 

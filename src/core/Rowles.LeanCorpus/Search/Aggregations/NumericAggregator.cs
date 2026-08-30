@@ -91,9 +91,9 @@ public static class NumericAggregator
         }
 
         // Pre-resolve field access strategy once per request.
-        var fieldAccessors = new FieldAccessor[requests.Length];
+        var fieldAccessors = new NumericFieldAccessor[requests.Length];
         for (int r = 0; r < requests.Length; r++)
-            fieldAccessors[r] = ResolveFieldAccessor(requests[r].Field, readers);
+            fieldAccessors[r] = NumericFieldValues.ResolveFieldAccessor(requests[r].Field, readers);
 
         for (int r = 0; r < requests.Length; r++)
         {
@@ -107,39 +107,6 @@ public static class NumericAggregator
         }
 
         return results;
-    }
-
-
-
-    private readonly record struct FieldAccessor(
-        bool IsInt64,
-        bool IsSortedNumeric,
-        bool IsSingleNumeric);
-
-    private static FieldAccessor ResolveFieldAccessor(
-        string fieldName,
-        IReadOnlyList<Index.Segment.SegmentReader> readers)
-    {
-        // Determine the field type from the first segment that contains the field,
-        // regardless of which documents have values.
-        foreach (var reader in readers)
-        {
-            if (!reader.HasNumericField(fieldName))
-                continue;
-
-            // Sorted-numeric takes priority — it's the multi-value form.
-            if (reader.GetSortedNumericDocValues(fieldName) is not null)
-                return new FieldAccessor(IsInt64: false, IsSortedNumeric: true, IsSingleNumeric: false);
-            if (reader.GetSortedInt64DocValues(fieldName) is not null)
-                return new FieldAccessor(IsInt64: true, IsSortedNumeric: true, IsSingleNumeric: false);
-
-            // Either sparse .num/.numl index or dense .dvn/.dvnl array.
-            if (reader.GetInt64DocValues(fieldName) is not null || reader.GetNumericDocValues(fieldName) is null)
-                return new FieldAccessor(IsInt64: true, IsSortedNumeric: false, IsSingleNumeric: true);
-            return new FieldAccessor(IsInt64: false, IsSortedNumeric: false, IsSingleNumeric: true);
-        }
-
-        return default;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -161,7 +128,7 @@ public static class NumericAggregator
         AggregationRequest req,
         IReadOnlyList<Index.Segment.SegmentReader> readers,
         (int MaxGlobal, int ReaderIdx, int DocBase)[] segments,
-        FieldAccessor accessor)
+        NumericFieldAccessor accessor)
     {
         long count = 0;
         double min = double.PositiveInfinity;
@@ -173,34 +140,29 @@ public static class NumericAggregator
             var (readerIdx, localDocId) = ResolveDoc(globalDocId, segments);
             var reader = readers[readerIdx];
 
-            if (accessor.IsInt64)
+            if (!NumericFieldValues.TryRead(reader, req.Field, localDocId, accessor, out var values))
+                continue;
+
+            if (values.IsInt64)
             {
-                if (accessor.IsSortedNumeric)
+                if (values.Int64Values is not null)
                 {
-                    if (reader.TryGetSortedInt64DocValues(req.Field, localDocId, out var values))
-                    {
-                        foreach (long value in values)
-                            AddStatsValue(value, ref count, ref min, ref max, ref sum);
-                    }
-                }
-                else if (accessor.IsSingleNumeric)
-                {
-                    if (reader.TryGetInt64Value(req.Field, localDocId, out long value))
+                    foreach (long value in values.Int64Values)
                         AddStatsValue(value, ref count, ref min, ref max, ref sum);
                 }
-            }
-            else if (accessor.IsSortedNumeric)
-            {
-                if (reader.TryGetSortedNumericDocValues(req.Field, localDocId, out var values))
+                else
                 {
-                    foreach (double value in values)
-                        AddStatsValue(value, ref count, ref min, ref max, ref sum);
+                    AddStatsValue(values.Int64Value, ref count, ref min, ref max, ref sum);
                 }
             }
-            else if (accessor.IsSingleNumeric)
+            else if (values.DoubleValues is not null)
             {
-                if (reader.TryGetNumericValue(req.Field, localDocId, out double value))
+                foreach (double value in values.DoubleValues)
                     AddStatsValue(value, ref count, ref min, ref max, ref sum);
+            }
+            else
+            {
+                AddStatsValue(values.DoubleValue, ref count, ref min, ref max, ref sum);
             }
         }
 
@@ -247,7 +209,7 @@ public static class NumericAggregator
         AggregationRequest req,
         IReadOnlyList<Index.Segment.SegmentReader> readers,
         (int MaxGlobal, int ReaderIdx, int DocBase)[] segments,
-        FieldAccessor accessor)
+        NumericFieldAccessor accessor)
     {
         double interval = req.HistogramInterval;
         if (interval <= 0) interval = 10.0;
@@ -263,56 +225,29 @@ public static class NumericAggregator
             var (readerIdx, localDocId) = ResolveDoc(globalDocId, segments);
             var reader = readers[readerIdx];
 
-            if (accessor.IsInt64)
+            if (!NumericFieldValues.TryRead(reader, req.Field, localDocId, accessor, out var documentValues))
+                continue;
+
+            if (documentValues.IsInt64)
             {
-                if (accessor.IsSortedNumeric)
+                if (documentValues.Int64Values is not null)
                 {
-                    if (reader.TryGetSortedInt64DocValues(req.Field, localDocId, out var docValues))
-                    {
-                        foreach (long value in docValues)
-                        {
-                            double d = value;
-                            values.Add(d);
-                            if (d < min) min = d;
-                            if (d > max) max = d;
-                            sum += d;
-                        }
-                    }
+                    foreach (long value in documentValues.Int64Values)
+                        AddHistogramValue(value, values, ref min, ref max, ref sum);
                 }
-                else if (accessor.IsSingleNumeric)
+                else
                 {
-                    if (reader.TryGetInt64Value(req.Field, localDocId, out long value))
-                    {
-                        double d = value;
-                        values.Add(d);
-                        if (d < min) min = d;
-                        if (d > max) max = d;
-                        sum += d;
-                    }
+                    AddHistogramValue(documentValues.Int64Value, values, ref min, ref max, ref sum);
                 }
             }
-            else if (accessor.IsSortedNumeric)
+            else if (documentValues.DoubleValues is not null)
             {
-                if (reader.TryGetSortedNumericDocValues(req.Field, localDocId, out var docValues))
-                {
-                    foreach (double value in docValues)
-                    {
-                        values.Add(value);
-                        if (value < min) min = value;
-                        if (value > max) max = value;
-                        sum += value;
-                    }
-                }
+                foreach (double value in documentValues.DoubleValues)
+                    AddHistogramValue(value, values, ref min, ref max, ref sum);
             }
-            else if (accessor.IsSingleNumeric)
+            else
             {
-                if (reader.TryGetNumericValue(req.Field, localDocId, out double value))
-                {
-                    values.Add(value);
-                    if (value < min) min = value;
-                    if (value > max) max = value;
-                    sum += value;
-                }
+                AddHistogramValue(documentValues.DoubleValue, values, ref min, ref max, ref sum);
             }
         }
 
@@ -351,5 +286,19 @@ public static class NumericAggregator
             Sum = sum,
             Buckets = buckets
         };
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void AddHistogramValue(
+        double value,
+        List<double> values,
+        ref double min,
+        ref double max,
+        ref double sum)
+    {
+        values.Add(value);
+        if (value < min) min = value;
+        if (value > max) max = value;
+        sum += value;
     }
 }

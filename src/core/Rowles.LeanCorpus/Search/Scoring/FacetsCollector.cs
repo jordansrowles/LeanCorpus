@@ -38,6 +38,12 @@ public sealed class FacetsCollector
         GetOrCreateAccumulator(field).CollectDocumentValue(documentId, value);
     }
 
+    /// <summary>Registers a declared bucket even when no matching document contributes to it.</summary>
+    internal void RegisterBucket(string field, string value)
+    {
+        GetOrCreateAccumulator(field).RegisterBucket(value);
+    }
+
     /// <summary>Records that a matching document has no value for a requested field.</summary>
     internal void CollectMissing(string field, int documentId)
     {
@@ -114,6 +120,11 @@ public sealed class FacetsCollector
         {
             Counts.TryGetValue(value, out int current);
             Counts[value] = current + 1;
+        }
+
+        public void RegisterBucket(string value)
+        {
+            Counts.TryAdd(value, 0);
         }
 
         public void CollectDocumentValue(int documentId, string value)
