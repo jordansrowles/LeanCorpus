@@ -21,11 +21,6 @@ public sealed class TestDirectoryFixture : IDisposable
     {
         if (System.IO.Directory.Exists(Path))
         {
-            // Force GC to release memory-mapped file handles before deletion
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
-
             Rowles.LeanCorpus.Store.FileOpenRetry.DeleteDirectory(Path, recursive: true);
         }
     }
@@ -43,9 +38,6 @@ public sealed class TestDirectoryFixture : IDisposable
         {
             try
             {
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
-                GC.Collect();
                 Rowles.LeanCorpus.Store.FileOpenRetry.DeleteDirectory(path, recursive: true);
                 return;
             }
