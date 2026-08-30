@@ -404,15 +404,17 @@ public sealed class FacetAggregationCollapseCorrectnessTests : IDisposable
     [Fact(DisplayName = "Facets And Aggregations: Deleted Documents Stay Excluded After Force Merge")]
     public void FacetsAndAggregations_ExcludeDeletedDocumentsAfterForceMerge()
     {
-        using var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig { MaxBufferedDocs = 1, MergePolicy = NoMergePolicy.Instance });
-        writer.AddDocument(MakeDocument("common", "kept", 10));
-        var deleted = MakeDocument("common", "deleted", 1_000);
-        deleted.Add(new StringField("id", "deleted"));
-        writer.AddDocument(deleted);
-        writer.Commit();
-        writer.DeleteDocuments(new TermQuery("id", "deleted"));
-        writer.Commit();
-        writer.ForceMerge(1);
+        using (var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig { MaxBufferedDocs = 1, MergePolicy = NoMergePolicy.Instance }))
+        {
+            writer.AddDocument(MakeDocument("common", "kept", 10));
+            var deleted = MakeDocument("common", "deleted", 1_000);
+            deleted.Add(new StringField("id", "deleted"));
+            writer.AddDocument(deleted);
+            writer.Commit();
+            writer.DeleteDocuments(new TermQuery("id", "deleted"));
+            writer.Commit();
+            writer.ForceMerge(1);
+        }
 
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
         var (_, facets) = searcher.SearchWithFacets(new TermQuery("body", "common"), 10, "group");
