@@ -901,7 +901,8 @@ public sealed partial class IndexSearcher
             {
                 if (requests[i] is NumericRangeFacetRequest
                     or Int64RangeFacetRequest
-                    or DateRangeFacetRequest)
+                    or DateRangeFacetRequest
+                    or DateHistogramFacetRequest)
                 {
                     accessors[i] = NumericFieldValues.ResolveFieldAccessor(requests[i].Field, readers);
                 }
@@ -948,6 +949,8 @@ public sealed partial class IndexSearcher
                         CollectInt64Range(int64, _numericAccessors[i], globalDocId, reader, localDocId),
                     DateRangeFacetRequest date =>
                         CollectDateRange(date, _numericAccessors[i], globalDocId, reader, localDocId),
+                    DateHistogramFacetRequest histogram =>
+                        CollectDateHistogram(histogram, _numericAccessors[i], globalDocId, reader, localDocId),
                     _ => CollectFlat(request.Field, globalDocId, reader, localDocId, ref storedFields)
                 };
 
@@ -1089,6 +1092,38 @@ public sealed partial class IndexSearcher
                 if (range.Contains(value))
                     _facetsCollector.CollectDocumentValue(request.Field, globalDocId, range.Label);
             }
+        }
+
+        private bool CollectDateHistogram(
+            DateHistogramFacetRequest request,
+            NumericFieldAccessor accessor,
+            int globalDocId,
+            Index.Segment.SegmentReader reader,
+            int localDocId)
+        {
+            if (!NumericFieldValues.TryRead(reader, request.Field, localDocId, accessor, out var values))
+                return false;
+
+            if (!values.IsInt64)
+                return true;
+
+            if (values.Int64Values is not null)
+            {
+                foreach (long value in values.Int64Values)
+                    CollectDateHistogramValue(request, globalDocId, value);
+            }
+            else
+            {
+                CollectDateHistogramValue(request, globalDocId, values.Int64Value);
+            }
+
+            return true;
+        }
+
+        private void CollectDateHistogramValue(DateHistogramFacetRequest request, int globalDocId, long value)
+        {
+            var (start, end) = request.Interval.GetBucket(value);
+            _facetsCollector.CollectDateHistogramBucket(request.Field, globalDocId, start, end);
         }
 
         private bool CollectFlat(

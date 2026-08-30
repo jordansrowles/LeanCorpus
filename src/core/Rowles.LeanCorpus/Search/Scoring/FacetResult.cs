@@ -15,6 +15,9 @@ public sealed class FacetResult
     /// <summary>Gets the count of matching documents without a value, when requested.</summary>
     public int? MissingCount { get; }
 
+    /// <summary>Gets typed UTC boundaries for date histogram buckets, when this result is a date histogram.</summary>
+    public IReadOnlyList<DateHistogramBucket>? DateHistogramBuckets { get; }
+
     /// <summary>Initialises a new <see cref="FacetResult"/> with the given field name and buckets.</summary>
     /// <param name="fieldName">The field that was faceted.</param>
     /// <param name="buckets">The value-count pairs returned in the requested order.</param>
@@ -28,11 +31,18 @@ public sealed class FacetResult
     /// <param name="buckets">The returned value-count pairs.</param>
     /// <param name="totalBucketCount">The number of buckets before paging.</param>
     /// <param name="missingCount">The count of documents without a value, when requested.</param>
-    public FacetResult(string fieldName, IReadOnlyList<FacetBucket> buckets, int totalBucketCount, int? missingCount = null)
+    /// <param name="dateHistogramBuckets">Typed UTC boundaries when the result is a date histogram.</param>
+    public FacetResult(
+        string fieldName,
+        IReadOnlyList<FacetBucket> buckets,
+        int totalBucketCount,
+        int? missingCount = null,
+        IReadOnlyList<DateHistogramBucket>? dateHistogramBuckets = null)
     {
         FieldName = fieldName;
         Buckets = buckets;
         TotalBucketCount = totalBucketCount;
         MissingCount = missingCount;
+        DateHistogramBuckets = dateHistogramBuckets;
     }
 }

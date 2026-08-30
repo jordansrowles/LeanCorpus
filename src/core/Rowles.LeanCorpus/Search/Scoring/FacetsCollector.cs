@@ -38,6 +38,12 @@ public sealed class FacetsCollector
         GetOrCreateAccumulator(field).CollectDocumentValue(documentId, value);
     }
 
+    /// <summary>Records a UTC date histogram bucket for a matching document.</summary>
+    internal void CollectDateHistogramBucket(string field, int documentId, long startUnixMilliseconds, long endUnixMilliseconds)
+    {
+        GetOrCreateAccumulator(field).CollectDateHistogramBucket(documentId, startUnixMilliseconds, endUnixMilliseconds);
+    }
+
     /// <summary>Registers a declared bucket even when no matching document contributes to it.</summary>
     internal void RegisterBucket(string field, string value)
     {
@@ -69,7 +75,12 @@ public sealed class FacetsCollector
 
             buckets.Sort(FacetBucketHelpers.GetComparer(accumulator.Order));
             var page = FacetBucketHelpers.Page(buckets, accumulator.Offset, accumulator.Limit);
-            results.Add(new FacetResult(field, page, buckets.Count, accumulator.MissingCount));
+            results.Add(new FacetResult(
+                field,
+                page,
+                buckets.Count,
+                accumulator.MissingCount,
+                accumulator.CreateDateHistogramBuckets(page)));
         }
         return results;
     }
@@ -88,6 +99,7 @@ public sealed class FacetsCollector
     {
         private readonly bool _includeMissing;
         private readonly FacetDocumentValueTracker _valueTracker = new();
+        private readonly Dictionary<string, (long Start, long End)> _dateHistogramBoundaries = new(StringComparer.Ordinal);
         private int? _lastMissingDocumentId;
 
         public FacetAccumulator()
@@ -133,6 +145,32 @@ public sealed class FacetsCollector
                 return;
 
             Collect(value);
+        }
+
+        public void CollectDateHistogramBucket(int documentId, long startUnixMilliseconds, long endUnixMilliseconds)
+        {
+            string value = DateTimeOffset.FromUnixTimeMilliseconds(startUnixMilliseconds).ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+            _dateHistogramBoundaries.TryAdd(value, (startUnixMilliseconds, endUnixMilliseconds));
+            CollectDocumentValue(documentId, value);
+        }
+
+        public IReadOnlyList<DateHistogramBucket>? CreateDateHistogramBuckets(IReadOnlyList<FacetBucket> page)
+        {
+            if (_dateHistogramBoundaries.Count == 0)
+                return null;
+
+            var result = new List<DateHistogramBucket>(page.Count);
+            foreach (var bucket in page)
+            {
+                if (_dateHistogramBoundaries.TryGetValue(bucket.Value, out var boundary))
+                {
+                    result.Add(new DateHistogramBucket(
+                        DateTimeOffset.FromUnixTimeMilliseconds(boundary.Start),
+                        DateTimeOffset.FromUnixTimeMilliseconds(boundary.End),
+                        bucket.Count));
+                }
+            }
+            return result;
         }
 
         public void CollectMissing(int documentId)
