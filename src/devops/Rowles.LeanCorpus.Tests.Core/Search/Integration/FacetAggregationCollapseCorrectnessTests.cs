@@ -401,6 +401,28 @@ public sealed class FacetAggregationCollapseCorrectnessTests : IDisposable
         Assert.Equal(15, aggregations[0].Avg);
     }
 
+    [Fact(DisplayName = "Facets And Aggregations: Deleted Documents Stay Excluded After Force Merge")]
+    public void FacetsAndAggregations_ExcludeDeletedDocumentsAfterForceMerge()
+    {
+        using var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig { MaxBufferedDocs = 1, MergePolicy = NoMergePolicy.Instance });
+        writer.AddDocument(MakeDocument("common", "kept", 10));
+        var deleted = MakeDocument("common", "deleted", 1_000);
+        deleted.Add(new StringField("id", "deleted"));
+        writer.AddDocument(deleted);
+        writer.Commit();
+        writer.DeleteDocuments(new TermQuery("id", "deleted"));
+        writer.Commit();
+        writer.ForceMerge(1);
+
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+        var (_, facets) = searcher.SearchWithFacets(new TermQuery("body", "common"), 10, "group");
+        var (_, aggregations) = searcher.SearchWithAggregations(new TermQuery("body", "common"), 10, new AggregationRequest("price", "price"));
+
+        Assert.Equal([("kept", 1)], Assert.Single(facets).Buckets.Select(static bucket => (bucket.Value, bucket.Count)).ToArray());
+        Assert.Equal(1, aggregations[0].Count);
+        Assert.Equal(10, aggregations[0].Sum);
+    }
+
     /// <summary>
     /// Verifies the Collapse: Sees Groups Outside Original Over Fetch Window scenario.
     /// </summary>
