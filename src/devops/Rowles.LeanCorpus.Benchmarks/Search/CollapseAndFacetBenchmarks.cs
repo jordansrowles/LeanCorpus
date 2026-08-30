@@ -20,13 +20,14 @@ using LuceneDirectoryReader = Lucene.Net.Index.DirectoryReader;
 using LuceneMMapDirectory = Lucene.Net.Store.MMapDirectory;
 using LuceneTermQuery = Lucene.Net.Search.TermQuery;
 using LuceneTerm = Lucene.Net.Index.Term;
+using LeanMatchAllDocsQuery = Rowles.LeanCorpus.Search.Queries.MatchAllDocsQuery;
 using TermQuery = Rowles.LeanCorpus.Search.Queries.TermQuery;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
-/// Measures <see cref="CollapseField"/> and <see cref="FacetsCollector"/> overhead
-/// in a search with a categorical string field.
+/// Measures collapse and matched facet collection against Lucene.NET's sorted-set
+/// DocValues facets, including cardinality, paging, missing-value and multi-value workloads.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -37,8 +38,15 @@ public class CollapseAndFacetBenchmarks
 {
     private const int TopN = 25;
     private const int CategoryCount = 10;
+    private const int HighCardinalityCount = 10_000;
+    private const int FacetPageSize = 10;
+    private const int FacetOffset = 100;
     private const string FieldBody = "body";
     private const string FieldCategory = "category";
+    private const string FieldHighCardinality = "tag";
+    private const string FieldMissingSentinel = "tag_with_missing_sentinel";
+    private const string FieldRegion = "region";
+    private const string FieldTopic = "topic";
     private const string QueryTerm = "government";
 
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
@@ -50,7 +58,13 @@ public class CollapseAndFacetBenchmarks
     private LeanMMapDirectory? _leanDirectory;
     private LeanIndexSearcher? _leanSearcher;
     private TermQuery? _leanQuery;
+    private LeanMatchAllDocsQuery? _leanMatchAllQuery;
     private CollapseField? _leanCollapse;
+    private FacetRequest? _leanLowCardinalityFacet;
+    private FacetRequest? _leanHighCardinalityFacet;
+    private FacetRequest? _leanHighCardinalityOffsetFacet;
+    private FacetRequest? _leanMissingFacet;
+    private IFacetRequest[]? _leanMultiDimensionFacets;
 
     // Lucene.NET index state
     private string _luceneIndexPath = string.Empty;
@@ -58,6 +72,7 @@ public class CollapseAndFacetBenchmarks
     private LuceneDirectoryReader? _luceneReader;
     private LuceneIndexSearcher? _luceneSearcher;
     private LuceneTermQuery? _luceneQuery;
+    private Lucene.Net.Search.MatchAllDocsQuery? _luceneMatchAllQuery;
     private DefaultSortedSetDocValuesReaderState? _luceneFacetState;
     private SortedDocValues? _luceneCollapseValues;
 
@@ -66,8 +81,20 @@ public class CollapseAndFacetBenchmarks
     {
         var documents = BenchmarkData.BuildDocuments(DocumentCount);
         _leanQuery = new TermQuery(FieldBody, QueryTerm);
+        _leanMatchAllQuery = new LeanMatchAllDocsQuery();
         _leanCollapse = new CollapseField(FieldCategory);
+        _leanLowCardinalityFacet = new FacetRequest(FieldCategory, limit: FacetPageSize);
+        _leanHighCardinalityFacet = new FacetRequest(FieldHighCardinality, limit: FacetPageSize);
+        _leanHighCardinalityOffsetFacet = new FacetRequest(FieldHighCardinality, offset: FacetOffset, limit: FacetPageSize);
+        _leanMissingFacet = new FacetRequest(FieldHighCardinality, limit: FacetPageSize, includeMissing: true);
+        _leanMultiDimensionFacets =
+        [
+            _leanLowCardinalityFacet,
+            new FacetRequest(FieldRegion, limit: FacetPageSize),
+            new FacetRequest(FieldTopic, limit: FacetPageSize)
+        ];
         _luceneQuery = new LuceneTermQuery(new LuceneTerm(FieldBody, QueryTerm));
+        _luceneMatchAllQuery = new Lucene.Net.Search.MatchAllDocsQuery();
         BuildLeanIndex(documents);
         BuildLuceneIndex(documents);
     }
@@ -100,6 +127,26 @@ public class CollapseAndFacetBenchmarks
         var (results, facets) = _leanSearcher!.SearchWithFacets(_leanQuery!, TopN, FieldCategory);
         return results.TotalHits + CountFacetBuckets(facets);
     }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_HighCardinalityFacets()
+        => CountFacetResults(_leanSearcher!.SearchWithFacetRequests(_leanMatchAllQuery!, TopN, [_leanHighCardinalityFacet!]));
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_HighCardinalityFacetsWithOffset()
+        => CountFacetResults(_leanSearcher!.SearchWithFacetRequests(_leanMatchAllQuery!, TopN, [_leanHighCardinalityOffsetFacet!]));
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_MissingValueFacets()
+        => CountFacetResults(_leanSearcher!.SearchWithFacetRequests(_leanMatchAllQuery!, TopN, [_leanMissingFacet!]));
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_MultiDimensionMultiValueFacets()
+        => CountFacetResults(_leanSearcher!.SearchWithFacetRequests(_leanMatchAllQuery!, TopN, _leanMultiDimensionFacets!));
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -145,6 +192,35 @@ public class CollapseAndFacetBenchmarks
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_HighCardinalityFacets()
+        => SearchLuceneFacets(FieldHighCardinality, FacetPageSize);
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_HighCardinalityFacetsWithOffset()
+        => SearchLuceneFacets(FieldHighCardinality, FacetOffset + FacetPageSize);
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_MissingValueFacetsWithSentinel()
+        => SearchLuceneFacets(FieldMissingSentinel, FacetPageSize);
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_MultiDimensionMultiValueFacets()
+    {
+        var collector = new Lucene.Net.Facet.FacetsCollector();
+        var hits = Lucene.Net.Facet.FacetsCollector.Search(
+            _luceneSearcher!, _luceneMatchAllQuery!, TopN, collector);
+        var facets = new SortedSetDocValuesFacetCounts(_luceneFacetState!, collector);
+        return hits.TotalHits
+            + GetChildCount(facets.GetTopChildren(FacetPageSize, FieldCategory))
+            + GetChildCount(facets.GetTopChildren(FacetPageSize, FieldRegion))
+            + GetChildCount(facets.GetTopChildren(FacetPageSize, FieldTopic));
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_SearchWithCollapseAndFacets()
     {
         int collapsedCount = LuceneNet_SearchWithCollapse();
@@ -164,6 +240,20 @@ public class CollapseAndFacetBenchmarks
         return count;
     }
 
+    private static int CountFacetResults((Rowles.LeanCorpus.Search.Scoring.TopDocs Results, IReadOnlyList<Rowles.LeanCorpus.Search.Scoring.FacetResult> Facets) result)
+        => result.Results.TotalHits + CountFacetBuckets(result.Facets);
+
+    private int SearchLuceneFacets(string dimension, int topChildren)
+    {
+        var collector = new Lucene.Net.Facet.FacetsCollector();
+        var hits = Lucene.Net.Facet.FacetsCollector.Search(
+            _luceneSearcher!, _luceneMatchAllQuery!, TopN, collector);
+        var facets = new SortedSetDocValuesFacetCounts(_luceneFacetState!, collector);
+        return hits.TotalHits + GetChildCount(facets.GetTopChildren(topChildren, dimension));
+    }
+
+    private static int GetChildCount(Lucene.Net.Facet.FacetResult? result) => result?.ChildCount ?? 0;
+
     private void BuildLuceneIndex(string[] documents)
     {
         _luceneIndexPath = Path.Combine(BenchmarkHelpers.TempRoot, $"lucenenet-bench-collapse-{Guid.NewGuid():N}");
@@ -174,6 +264,7 @@ public class CollapseAndFacetBenchmarks
             _luceneDirectory,
             new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
         var facetsConfig = new FacetsConfig();
+        facetsConfig.SetMultiValued(FieldTopic, true);
         foreach (var (i, id, category, body) in EnumerateDocuments(documents))
         {
             var doc = new LuceneDocument();
@@ -182,6 +273,25 @@ public class CollapseAndFacetBenchmarks
             doc.Add(new LuceneStringField(FieldCategory, category, Lucene.Net.Documents.Field.Store.NO));
             doc.Add(new LuceneSortedDocValuesField(FieldCategory, new BytesRef(category)));
             doc.Add(new SortedSetDocValuesFacetField(FieldCategory, category));
+            if (i % 7 != 0)
+            {
+                string tag = $"tag{i % HighCardinalityCount}";
+                doc.Add(new LuceneSortedDocValuesField(FieldHighCardinality, new BytesRef(tag)));
+                doc.Add(new SortedSetDocValuesFacetField(FieldHighCardinality, tag));
+                doc.Add(new LuceneSortedDocValuesField(FieldMissingSentinel, new BytesRef(tag)));
+                doc.Add(new SortedSetDocValuesFacetField(FieldMissingSentinel, tag));
+            }
+            else
+            {
+                doc.Add(new LuceneSortedDocValuesField(FieldMissingSentinel, new BytesRef("__missing__")));
+                doc.Add(new SortedSetDocValuesFacetField(FieldMissingSentinel, "__missing__"));
+            }
+            string region = $"region{i % 8}";
+            doc.Add(new LuceneSortedDocValuesField(FieldRegion, new BytesRef(region)));
+            doc.Add(new SortedSetDocValuesFacetField(FieldRegion, region));
+            string topic = $"topic{i % 50}";
+            doc.Add(new SortedSetDocValuesFacetField(FieldTopic, topic));
+            doc.Add(new SortedSetDocValuesFacetField(FieldTopic, $"topic{(i + 11) % 50}"));
             writer.AddDocument(facetsConfig.Build(doc));
         }
         writer.Commit();
@@ -206,6 +316,11 @@ public class CollapseAndFacetBenchmarks
             doc.Add(new LeanStringField("id", id));
             doc.Add(new LeanTextField(FieldBody, body));
             doc.Add(new LeanStringField(FieldCategory, category));
+            if (i % 7 != 0)
+                doc.Add(new LeanStringField(FieldHighCardinality, $"tag{i % HighCardinalityCount}"));
+            doc.Add(new LeanStringField(FieldRegion, $"region{i % 8}"));
+            doc.Add(new LeanStringField(FieldTopic, $"topic{i % 50}"));
+            doc.Add(new LeanStringField(FieldTopic, $"topic{(i + 11) % 50}"));
             writer.AddDocument(doc);
         }
         writer.Commit();
