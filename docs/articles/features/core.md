@@ -60,7 +60,7 @@ Return to the [feature comparison overview](index.md) for status definitions and
 
 | Feature | LeanCorpus | Lucene.NET 4.8 | Java Lucene | Notes |
 | --- | :---: | :---: | :---: | --- |
-| Term, Boolean, phrase, prefix, wildcard, fuzzy, and range queries | ✔ | ✔ | ✔ | Includes multi-phrase and term-set forms. |
+| Term, Boolean, phrase, prefix, wildcard, fuzzy, range, and drill-down queries | ✔ | ✔ | ✔ | Includes multi-phrase, term-set, and facet-selection forms. |
 | Span query family | ✔ | ✔ | ✔ | Near, first, not, or, containment, masking, and multi-term wrappers. |
 | Disjunction max and constant score | ✔ | ✔ | ✔ | Native query implementations. |
 | More Like This | ✔ | ✔ | ✔ | Query construction from representative text. |

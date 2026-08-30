@@ -371,10 +371,10 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Numeric aggregations (min, max, sum, avg, count) | ✔   `SearchWithAggregations()` / `NumericAggregator` / `AggregationRequest` | ◐ | ◐ | Lucene exposes value-source and facet aggregation primitives, not the same request API. |
 | Histogram aggregation | ✔   `AggregationType.Histogram` | ❌ | ❌ | Fixed-bucket LeanCorpus aggregation; neither Lucene baseline has a direct histogram aggregation API. |
 | Field collapsing / result grouping | ✔   `SearchWithCollapse()` / `CollapseField` / `CollapseMode` | ◐ | ◐ | Single-field deduplication by top score or first occurrence; Lucene grouping is broader but not the same API. |
-| Drill-down facets | ❌ | ✔ | ✔ | `DrillDownQuery`; LeanCorpus currently has no facet-filter query surface. |
+| Drill-down facets | ✔   `DrillDownQuery` | ✔ | ✔ | AND across dimensions and OR within one dimension; exact values and hierarchical paths. |
 | Drill-sideways facets | ❌ | ✔ | ✔ | `DrillSideways` computes sideways counts alongside drill-down results. |
 | Range facets (numeric + date) | ❌ | ✔ | ✔ | Backlog |
-| Hierarchical / taxonomy facets | ❌ | ✔ | ✔ | Backlog |
+| Hierarchical / taxonomy facets | ◐   `FacetPath` / `HierarchicalFacetRequest` | ✔ | ✔ | Hierarchical prefixes use existing postings and sorted-set DocValues; no separate taxonomy index. |
 | Date histogram with calendar rounding | ❌ | ❌ | ❌ | Backlog; this is not a built-in Lucene aggregation. |
 | Percentile aggregator (HDR / t-digest) | ❌ | ❌ | ❌ | Backlog; this is not a built-in Lucene aggregation. |
 | Cardinality aggregator (HyperLogLog) | ❌ | ❌ | ❌ | Backlog; this is not a built-in Lucene aggregation. |

@@ -30,8 +30,8 @@ Return to the [feature comparison overview](index.md) for status definitions and
 | Numeric min, max, sum, average, and count | ✔ | ◐ | ◐ | First-class numeric aggregation requests. |
 | Fixed-bucket histograms | ✔ | ❌ | ❌ | LeanCorpus-specific aggregation. |
 | Range facets | ❌ | ✔ | ✔ | Numeric and date ranges are not yet available. |
-| Taxonomy and hierarchical facets | ❌ | ✔ | ✔ | No taxonomy index. |
-| Drill-down and drill-sideways | ❌ | ✔ | ✔ | No corresponding facet query surface. |
+| Taxonomy and hierarchical facets | ◐ | ✔ | ✔ | Explicit `FacetPath` prefixes use existing StringField postings and sorted-set DocValues; no taxonomy index. |
+| Drill-down and drill-sideways | ◐ | ✔ | ✔ | `DrillDownQuery` is available; drill-sideways counts are not. |
 | Approximate cardinality aggregation | ❌ | ❌ | ❌ | No built-in HyperLogLog aggregation in these libraries. |
 | Percentile aggregation | ❌ | ❌ | ❌ | No built-in HDR histogram or t-digest aggregation in these libraries. |
 | Spell checking | ✔ | ✔ | ✔ | `DidYouMeanSuggester` backed by a spell index. |
