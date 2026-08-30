@@ -138,6 +138,7 @@ public sealed class Int64Range
 
 internal static class RangeFacetValidation
 {
+    internal const int MaxRangeCount = 1_024;
     public static string ValidateLabel(string label, string parameterName)
     {
         ArgumentNullException.ThrowIfNull(label, parameterName);
@@ -172,6 +173,8 @@ internal static class RangeFacetValidation
         ArgumentNullException.ThrowIfNull(ranges, parameterName);
         if (ranges.Count == 0)
             throw new ArgumentException("At least one range is required.", parameterName);
+        if (ranges.Count > MaxRangeCount)
+            throw new ArgumentOutOfRangeException(parameterName, $"At most {MaxRangeCount} ranges are supported in one facet request.");
 
         var copy = new T[ranges.Count];
         var labels = new HashSet<string>(StringComparer.Ordinal);

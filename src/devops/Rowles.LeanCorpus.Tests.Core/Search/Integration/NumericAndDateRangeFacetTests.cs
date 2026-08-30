@@ -83,6 +83,8 @@ public sealed class NumericAndDateRangeFacetTests : IClassFixture<TestDirectoryF
         Assert.Throws<ArgumentException>(() => new NumericRange(" ", 0, 1));
         Assert.Throws<ArgumentOutOfRangeException>(() => new NumericRange("infinite", double.NegativeInfinity, 1));
         Assert.Throws<ArgumentException>(() => new Int64Range("reversed", 10, 1));
+        var tooMany = Enumerable.Range(0, 1_025).Select(i => new NumericRange(i.ToString(), i, i + 1)).ToArray();
+        Assert.Throws<ArgumentOutOfRangeException>(() => new NumericRangeFacetRequest("value", tooMany));
 
         var directoryPath = SubDir(nameof(NumericRangeFacets_ValidateRangesAndPreserveInt64Precision));
         const long first = 9_007_199_254_740_993L;
