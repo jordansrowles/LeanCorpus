@@ -22,11 +22,7 @@ public sealed class CodecFileFrameTests : IDisposable
         if (!Directory.Exists(_tempDirectory))
             return;
 
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
-        try { Directory.Delete(_tempDirectory, recursive: true); }
-        catch { /* best effort */ }
+        TestDirectoryFixture.TryDeleteDirectory(_tempDirectory);
     }
 
     [Fact(DisplayName = "Frame v1 empty body has exact golden bytes")]

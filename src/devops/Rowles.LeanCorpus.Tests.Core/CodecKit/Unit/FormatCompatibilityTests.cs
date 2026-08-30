@@ -41,19 +41,7 @@ public sealed class FormatCompatibilityTests : IDisposable
     {
         if (Directory.Exists(_tempDirectory))
         {
-            // Force GC to release memory-mapped file handles before deletion
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
-
-            try
-            {
-                Directory.Delete(_tempDirectory, recursive: true);
-            }
-            catch
-            {
-                // Best effort cleanup - test temp directory may be locked
-            }
+            TestDirectoryFixture.TryDeleteDirectory(_tempDirectory);
         }
     }
 
@@ -213,11 +201,6 @@ public sealed class FormatCompatibilityTests : IDisposable
             writer.AddDocument(doc);
             writer.Commit();
         }
-
-        // Allow file handles to be released
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
 
         // Assert - Verify that .dic and .pos files use the canonical CodecKit frame.
         var dicFiles = System.IO.Directory.GetFiles(indexPath, "*.dic");

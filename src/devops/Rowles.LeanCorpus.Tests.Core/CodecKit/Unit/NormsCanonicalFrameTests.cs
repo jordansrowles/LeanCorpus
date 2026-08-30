@@ -70,8 +70,6 @@ public sealed class NormsCanonicalFrameTests : IDisposable
     {
         if (!Directory.Exists(_directory))
             return;
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        Directory.Delete(_directory, recursive: true);
+        TestDirectoryFixture.TryDeleteDirectory(_directory);
     }
 }
