@@ -12,6 +12,8 @@ namespace Rowles.LeanCorpus.Search.Scoring;
 /// </remarks>
 public sealed class FacetPath : IEquatable<FacetPath>
 {
+    /// <summary>Maximum supported hierarchy depth, bounding prefix expansion at index time.</summary>
+    public const int MaximumDepth = 32;
     private readonly string[] _components;
     private readonly IReadOnlyList<string> _readOnlyComponents;
 
@@ -22,6 +24,9 @@ public sealed class FacetPath : IEquatable<FacetPath>
         ArgumentNullException.ThrowIfNull(components);
         if (components.Count == 0)
             throw new ArgumentException("A facet path must contain at least one component.", nameof(components));
+        if (components.Count > MaximumDepth)
+            throw new ArgumentOutOfRangeException(nameof(components), components.Count,
+                $"A facet path cannot contain more than {MaximumDepth} components.");
 
         _components = new string[components.Count];
         for (int i = 0; i < components.Count; i++)
@@ -127,6 +132,9 @@ internal static class FacetPathEncoder
 
     internal static string[] EncodePrefixes(IReadOnlyList<string> components)
     {
+        if (components.Count is < 1 or > FacetPath.MaximumDepth)
+            throw new ArgumentOutOfRangeException(nameof(components),
+                $"A facet path must contain between 1 and {FacetPath.MaximumDepth} components.");
         var values = new string[components.Count];
         for (int count = 1; count <= components.Count; count++)
             values[count - 1] = Encode(components, count);
@@ -135,6 +143,9 @@ internal static class FacetPathEncoder
 
     internal static string Encode(IReadOnlyList<string> components, int count)
     {
+        if (count is < 1 or > FacetPath.MaximumDepth || count > components.Count)
+            throw new ArgumentOutOfRangeException(nameof(count),
+                $"A facet path cannot contain more than {FacetPath.MaximumDepth} components.");
         var builder = new StringBuilder(Prefix.Length + (count * 8));
         builder.Append(Prefix);
         for (int i = 0; i < count; i++)
@@ -159,7 +170,7 @@ internal static class FacetPathEncoder
             componentCount++;
         }
 
-        return componentCount > 0;
+        return componentCount is > 0 and <= FacetPath.MaximumDepth;
     }
 
     internal static bool TryGetImmediateChild(

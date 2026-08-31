@@ -26,14 +26,14 @@ Return to the [feature comparison overview](index.md) for status definitions and
 
 | Feature | LeanCorpus | Lucene.NET 4.8 | Java Lucene | Notes |
 | --- | :---: | :---: | :---: | --- |
-| Term facets | ✔ | ✔ | ✔ | Facet collection over term values. |
+| Term facets | ✔ | ✔ | ✔ | Sorted or sorted-set DocValues with bounded exact bucket collection. |
 | Numeric min, max, sum, average, and count | ✔ | ◐ | ◐ | First-class numeric aggregation requests. |
 | Fixed-bucket histograms | ✔ | ❌ | ❌ | LeanCorpus-specific aggregation. |
-| Range facets | ❌ | ✔ | ✔ | Numeric and date ranges are not yet available. |
+| Range facets | ✔ | ✔ | ✔ | Explicit numeric and UTC date ranges with inclusive/exclusive bounds. |
 | Taxonomy and hierarchical facets | ◐ | ✔ | ✔ | Explicit `FacetPath` prefixes use existing StringField postings and sorted-set DocValues; no taxonomy index. |
-| Drill-down and drill-sideways | ◐ | ✔ | ✔ | `DrillDownQuery` is available; drill-sideways counts are not. |
-| Approximate cardinality aggregation | ✔ | ❌ | ❌ | Bounded HyperLogLog++ numeric cardinality aggregation. |
-| Percentile aggregation | ✔ | ❌ | ❌ | t-digest doubles and HDR non-negative Int64 percentile aggregations. |
+| Drill-down and drill-sideways | ✔ | ✔ | ✔ | AND across dimensions, OR within a dimension, with one base traversal for sideways counts. |
+| Approximate cardinality aggregation | ✔ | ❌ | ❌ | Bounded HLL-style sparse/dense numeric cardinality aggregation. |
+| Percentile aggregation | ✔ | ❌ | ❌ | t-digest doubles and HDR-style logarithmic non-negative Int64 percentile aggregations. |
 | Spell checking | ✔ | ✔ | ✔ | `DidYouMeanSuggester` backed by a spell index. |
 | Prefix suggestions | ✔ | ✔ | ✔ | FST completion ranked by global document frequency. |
 | Analysing suggestions | ✔ | ✔ | ✔ | Applies the selected analyser to completion input. |

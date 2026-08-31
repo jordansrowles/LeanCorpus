@@ -12,16 +12,18 @@ public sealed class DateRangeFacetRequest : IFacetRequest
     /// <param name="limit">The maximum number of buckets to return.</param>
     /// <param name="order">The bucket ordering.</param>
     /// <param name="includeMissing">Whether documents without a date value are counted.</param>
+    /// <param name="name">Optional logical result name. Defaults to <paramref name="field"/>.</param>
     public DateRangeFacetRequest(
         string field,
         IReadOnlyList<DateRange> ranges,
         int offset = 0,
         int limit = int.MaxValue,
         FacetBucketOrder order = FacetBucketOrder.CountDescending,
-        bool includeMissing = false)
+        bool includeMissing = false,
+        string? name = null)
     {
-        RangeFacetValidation.ValidateRequest(field, offset, limit, order);
-        Field = field;
+        Field = RangeFacetValidation.ValidateRequest(field, offset, limit, order);
+        Name = RangeFacetValidation.ValidateName(name ?? Field);
         Ranges = Array.AsReadOnly(RangeFacetValidation.CopyRanges(ranges, nameof(ranges), range => range.Label));
         var encodedRanges = new Int64Range[Ranges.Count];
         for (int i = 0; i < Ranges.Count; i++)
@@ -35,6 +37,9 @@ public sealed class DateRangeFacetRequest : IFacetRequest
 
     /// <inheritdoc/>
     public string Field { get; }
+
+    /// <inheritdoc/>
+    public string Name { get; }
 
     /// <summary>Gets the date ranges expressed as absolute instants.</summary>
     public IReadOnlyList<DateRange> Ranges { get; }

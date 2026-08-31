@@ -288,6 +288,21 @@ internal sealed partial class SegmentReaderState
         return false;
     }
 
+    /// <summary>Tries to get the local ordinal for a sorted DocValues value.</summary>
+    public bool TryGetSortedDocOrdinal(string field, int docId, out int ordinal)
+    {
+        ordinal = -1;
+        if (!TryGetSortedDocValue(field, docId, out var value))
+            return false;
+
+        var terms = EnsureSortedDocValueTerms().GetValueOrDefault(field);
+        if (terms is null)
+            return false;
+
+        ordinal = Array.BinarySearch(terms, value, StringComparer.Ordinal);
+        return ordinal >= 0;
+    }
+
     /// <summary>
     /// Tries to get sorted-set DocValues for a document.
     /// </summary>
@@ -299,6 +314,29 @@ internal sealed partial class SegmentReaderState
             return false;
 
         values = arr[docId];
+        return true;
+    }
+
+    /// <summary>Tries to get the local ordinals for a sorted-set DocValues value.</summary>
+    public bool TryGetSortedSetDocOrdinals(string field, int docId, out IReadOnlyList<int> ordinals)
+    {
+        ordinals = [];
+        if (!TryGetSortedSetDocValues(field, docId, out var values))
+            return false;
+
+        var terms = EnsureSortedSetDocValueTerms().GetValueOrDefault(field);
+        if (terms is null)
+            return false;
+
+        var resolved = new int[values.Count];
+        for (int i = 0; i < values.Count; i++)
+        {
+            int ordinal = Array.BinarySearch(terms, values[i], StringComparer.Ordinal);
+            if (ordinal < 0)
+                return false;
+            resolved[i] = ordinal;
+        }
+        ordinals = resolved;
         return true;
     }
 
@@ -402,6 +440,12 @@ internal sealed partial class SegmentReaderState
             return true;
         return false;
     }
+
+    /// <summary>Returns whether a sparse double numeric index contains a field.</summary>
+    internal bool HasNumericIndex(string field) => EnsureNumericIndex().ContainsKey(field);
+
+    /// <summary>Returns whether a sparse Int64 numeric index contains a field.</summary>
+    internal bool HasInt64Index(string field) => EnsureInt64Index().ContainsKey(field);
 
     /// <summary>
     /// Returns all document IDs that have a numeric value in the given field within the specified range.

@@ -10,16 +10,18 @@ public sealed class NumericRangeFacetRequest : IFacetRequest
     /// <param name="limit">The maximum number of buckets to return.</param>
     /// <param name="order">The bucket ordering.</param>
     /// <param name="includeMissing">Whether documents without a numeric value are counted.</param>
+    /// <param name="name">Optional logical result name. Defaults to <paramref name="field"/>.</param>
     public NumericRangeFacetRequest(
         string field,
         IReadOnlyList<NumericRange> ranges,
         int offset = 0,
         int limit = int.MaxValue,
         FacetBucketOrder order = FacetBucketOrder.CountDescending,
-        bool includeMissing = false)
+        bool includeMissing = false,
+        string? name = null)
     {
-        RangeFacetValidation.ValidateRequest(field, offset, limit, order);
-        Field = field;
+        Field = RangeFacetValidation.ValidateRequest(field, offset, limit, order);
+        Name = RangeFacetValidation.ValidateName(name ?? Field);
         Ranges = Array.AsReadOnly(RangeFacetValidation.CopyRanges(ranges, nameof(ranges), range => range.Label));
         Offset = offset;
         Limit = limit;
@@ -29,6 +31,9 @@ public sealed class NumericRangeFacetRequest : IFacetRequest
 
     /// <inheritdoc/>
     public string Field { get; }
+
+    /// <inheritdoc/>
+    public string Name { get; }
 
     /// <summary>Gets the explicitly defined numeric ranges.</summary>
     public IReadOnlyList<NumericRange> Ranges { get; }
@@ -56,16 +61,18 @@ public sealed class Int64RangeFacetRequest : IFacetRequest
     /// <param name="limit">The maximum number of buckets to return.</param>
     /// <param name="order">The bucket ordering.</param>
     /// <param name="includeMissing">Whether documents without an Int64 value are counted.</param>
+    /// <param name="name">Optional logical result name. Defaults to <paramref name="field"/>.</param>
     public Int64RangeFacetRequest(
         string field,
         IReadOnlyList<Int64Range> ranges,
         int offset = 0,
         int limit = int.MaxValue,
         FacetBucketOrder order = FacetBucketOrder.CountDescending,
-        bool includeMissing = false)
+        bool includeMissing = false,
+        string? name = null)
     {
-        RangeFacetValidation.ValidateRequest(field, offset, limit, order);
-        Field = field;
+        Field = RangeFacetValidation.ValidateRequest(field, offset, limit, order);
+        Name = RangeFacetValidation.ValidateName(name ?? Field);
         Ranges = Array.AsReadOnly(RangeFacetValidation.CopyRanges(ranges, nameof(ranges), range => range.Label));
         Offset = offset;
         Limit = limit;
@@ -75,6 +82,9 @@ public sealed class Int64RangeFacetRequest : IFacetRequest
 
     /// <inheritdoc/>
     public string Field { get; }
+
+    /// <inheritdoc/>
+    public string Name { get; }
 
     /// <summary>Gets the explicitly defined Int64 ranges.</summary>
     public IReadOnlyList<Int64Range> Ranges { get; }

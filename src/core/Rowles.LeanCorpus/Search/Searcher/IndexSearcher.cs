@@ -442,48 +442,48 @@ public sealed partial class IndexSearcher : IDisposable
     private int NormaliseTopN(int topN)
         => _totalDocCount > 0 && topN > _totalDocCount ? _totalDocCount : topN;
 
-    private TopDocs SearchCore(Query query, int topN)
+    private TopDocs SearchCore(Query query, int topN, ISideCollector? sideCollector = null)
     {
         query = RewriteQuery(query);
 
         if (query.CreateWeight(this) is { } weight)
-            return ExecuteWeight(query, weight, topN);
+            return ExecuteWeight(query, weight, topN, sideCollector);
 
         // MoreLikeThis is a cross-segment query: extract terms, build BooleanQuery, delegate
         if (query is MoreLikeThisQuery mlt)
-            return ExecuteMoreLikeThis(mlt, topN);
+            return ExecuteMoreLikeThis(mlt, topN, sideCollector);
 
         // RRF: execute each child query independently, then fuse by rank
         if (query is RrfQuery rrf)
-            return ExecuteRrfQuery(rrf, topN);
+            return ExecuteRrfQuery(rrf, topN, sideCollector);
 
         // Block join: execute child query, map results to parent docs
         if (query is BlockJoinQuery bjq)
-            return ExecuteBlockJoinQuery(bjq, topN);
+            return ExecuteBlockJoinQuery(bjq, topN, sideCollector);
 
         // Fast path for the most common query type — avoids
         // PrecomputeGlobalDocFreqs allocation and does only 1 dictionary
         // lookup per segment instead of 2.
         if (query is TermQuery tq)
-            return SearchTermQuery(tq, topN);
+            return SearchTermQuery(tq, topN, sideCollector);
 
         // Fast path for FunctionScoreQuery wrapping a TermQuery: inline scoring,
         // reuse ThreadStatic postings buffer, skip PrecomputeGlobalDocFreqs.
         if (query is FunctionScoreQuery { IsSimpleNumericField: true } fsq
             && fsq.Inner is TermQuery fsqTq)
-            return SearchFunctionScoreTermQuery(fsqTq, fsq, topN);
+            return SearchFunctionScoreTermQuery(fsqTq, fsq, topN, sideCollector);
 
         // Fast path for BooleanQuery with all-TermQuery clauses — compute
         // global DFs inline without the generic PrecomputeGlobalDocFreqs tree walk
         if (query is BooleanQuery bq && IsAllTermQueryBoolean(bq))
-            return SearchBooleanTermQueryFast(bq, topN);
+            return SearchBooleanTermQueryFast(bq, topN, sideCollector);
 
         // Pattern-based queries (Prefix, Wildcard, Fuzzy) don't have static terms,
         // so PrecomputeGlobalDocFreqs produces an empty dictionary. Skip the tree walk.
         var globalDFs = PrecomputeGlobalDocFreqsForSearch(query);
-        var collector = new TopNCollector(topN);
+        var collector = new TopNCollector(topN, sideCollector);
 
-        if (_readers.Count == 1 || !_config.ParallelSearch)
+        if (sideCollector is not null || _readers.Count == 1 || !_config.ParallelSearch)
         {
             foreach (var reader in _readers)
                 ExecuteQuery(query, reader, globalDFs, ref collector);
@@ -1116,27 +1116,47 @@ public sealed partial class IndexSearcher : IDisposable
         _config.DisposeOwnedDiagnostics();
     }
 
-    private TopDocs ExecuteRrfQuery(RrfQuery rrf, int topN)
+    private TopDocs ExecuteRrfQuery(RrfQuery rrf, int topN, ISideCollector? sideCollector = null)
     {
         if (rrf.Queries.Count == 0) return TopDocs.Empty;
 
         // Execute each child query independently to get ranked result lists
         var childResults = new TopDocs[rrf.Queries.Count];
+        int childTopN = sideCollector is null ? topN : _totalDocCount;
         for (int i = 0; i < rrf.Queries.Count; i++)
-            childResults[i] = SearchCore(rrf.Queries[i], topN);
+            childResults[i] = SearchCore(rrf.Queries[i], childTopN);
 
-        return RrfQuery.Combine(childResults, topN, rrf.K);
+        var combined = RrfQuery.Combine(childResults, childTopN, rrf.K);
+        if (sideCollector is not null)
+        {
+            foreach (var scoreDoc in combined.ScoreDocs)
+            {
+                int readerIndex = ResolveReaderIndex(scoreDoc.DocId);
+                sideCollector.Collect(
+                    scoreDoc.DocId,
+                    scoreDoc.Score,
+                    _readers[readerIndex],
+                    scoreDoc.DocId - _docBases[readerIndex]);
+            }
+        }
+
+        if (combined.ScoreDocs.Length <= topN)
+            return combined;
+        var page = new ScoreDoc[topN];
+        Array.Copy(combined.ScoreDocs, page, topN);
+        return new TopDocs(combined.TotalHits, page, combined.IsPartial);
     }
 
-    private TopDocs ExecuteBlockJoinQuery(BlockJoinQuery bjq, int topN)
+    private TopDocs ExecuteBlockJoinQuery(BlockJoinQuery bjq, int topN, ISideCollector? sideCollector = null)
     {
-        var collector = new TopNCollector(topN);
+        var collector = new TopNCollector(topN, sideCollector);
         float boost = bjq.Boost;
 
         for (int r = 0; r < _readers.Count; r++)
         {
             var reader = _readers[r];
             using var queryLease = reader.AcquireQueryLease();
+            collector.SetSideCollectorContext(reader);
             int docBase = _docBases[r];
             var pbs = reader.GetParentBitSet();
             if (pbs is null) continue;
@@ -1339,22 +1359,44 @@ public sealed partial class IndexSearcher : IDisposable
         }
     }
 
-    private TopDocs ExecuteWeight(Query owner, Weight weight, int topN)
+    private TopDocs ExecuteWeight(Query owner, Weight weight, int topN, ISideCollector? sideCollector = null)
     {
         if (ReferenceEquals(weight.Approximation, owner))
             throw new InvalidOperationException(
                 "A custom query weight cannot use its owning query as its approximation.");
-
-        var candidates = SearchCore(weight.Approximation, _totalDocCount);
-        if (candidates.ScoreDocs.Length == 0)
-            return TopDocs.Empty;
-
         var scorer = weight.CreateScorer(this)
             ?? throw new InvalidOperationException("Weight.CreateScorer() returned null.");
-        var collector = new TopNCollector(topN);
-        foreach (var candidate in candidates.ScoreDocs)
-            collector.Collect(candidate.DocId, scorer.Score(candidate.DocId, candidate.Score));
+
+        // Stream approximation matches directly through a zero-capacity side
+        // collector. This avoids materialising one ScoreDoc for every candidate
+        // when a custom weight is used with exact facets or aggregations.
+        var collector = new WeightedCandidateCollector(scorer, topN, sideCollector);
+        SearchCore(weight.Approximation, 0, collector);
         return collector.ToTopDocs();
+    }
+
+    /// <summary>Scores approximation matches while preserving exhaustive side collection.</summary>
+    private sealed class WeightedCandidateCollector : ISideCollector
+    {
+        private readonly Scorer _scorer;
+        private readonly ISideCollector? _sideCollector;
+        private TopNCollector _collector;
+
+        public WeightedCandidateCollector(Scorer scorer, int topN, ISideCollector? sideCollector)
+        {
+            _scorer = scorer;
+            _sideCollector = sideCollector;
+            _collector = new TopNCollector(topN);
+        }
+
+        public void Collect(int globalDocId, float score, SegmentReader reader, int localDocId)
+        {
+            float weightedScore = _scorer.Score(globalDocId, score);
+            _sideCollector?.Collect(globalDocId, weightedScore, reader, localDocId);
+            _collector.Collect(globalDocId, weightedScore);
+        }
+
+        public TopDocs ToTopDocs() => _collector.ToTopDocs();
     }
 
     private static Query RewriteQuery(Query query)
@@ -1452,7 +1494,7 @@ public sealed partial class IndexSearcher : IDisposable
     /// before the top-N collector. Skipping the generic SearchCore dispatch
     /// avoids PrecomputeGlobalDocFreqs, per-segment ExecuteQuery, and
     /// Parallel.ForEach delegate allocations.</summary>
-    private TopDocs SearchFunctionScoreTermQuery(TermQuery tq, FunctionScoreQuery fsq, int topN)
+    private TopDocs SearchFunctionScoreTermQuery(TermQuery tq, FunctionScoreQuery fsq, int topN, ISideCollector? sideCollector = null)
     {
         // Open postings for the inner term across all segments.
         var qt = tq.CachedQualifiedTerm ??= string.Concat(tq.Field, "\x00", tq.Term);
@@ -1486,7 +1528,7 @@ public sealed partial class IndexSearcher : IDisposable
         // Reuse the ThreadStatic collector heap.
         if (t_collectorHeapCache is null || t_collectorHeapCache.Length < topN)
             t_collectorHeapCache = new ScoreDoc[topN];
-        var collector = new TopNCollector(t_collectorHeapCache, topN);
+        var collector = new TopNCollector(t_collectorHeapCache, topN, sideCollector);
 
         try
         {
@@ -1497,6 +1539,7 @@ public sealed partial class IndexSearcher : IDisposable
 
                 var reader = _readers[i];
                 using var queryLease = reader.AcquireQueryLease();
+                collector.SetSideCollectorContext(reader);
                 int docBase = reader.DocBase;
                 bool hasDeletions = reader.HasDeletions;
                 reader.TryGetFieldLengths(tq.Field, out var fieldLengths);

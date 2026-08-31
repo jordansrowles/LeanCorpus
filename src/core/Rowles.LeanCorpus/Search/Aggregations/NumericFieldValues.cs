@@ -55,29 +55,75 @@ internal static class NumericFieldValues
         string fieldName,
         IReadOnlyList<SegmentReader> readers)
     {
-        // Determine the field type from the first segment that contains the field,
-        // regardless of which documents have values.
+        ArgumentNullException.ThrowIfNull(fieldName);
+        ArgumentNullException.ThrowIfNull(readers);
+        NumericFieldAccessor? resolved = null;
         foreach (var reader in readers)
         {
-            if (!reader.HasNumericField(fieldName))
+            bool fieldIsPresent = reader.Info.FieldNames.Contains(fieldName, StringComparer.Ordinal);
+            bool hasNumeric = reader.HasNumericField(fieldName);
+            if (!fieldIsPresent && !hasNumeric)
                 continue;
 
-            // Sorted-numeric takes priority because it is the multi-value form.
-            if (reader.GetSortedNumericDocValues(fieldName) is not null)
-                return new NumericFieldAccessor(IsInt64: false, IsSortedNumeric: true, IsSingleNumeric: false);
-            if (reader.GetSortedInt64DocValues(fieldName) is not null)
-                return new NumericFieldAccessor(IsInt64: true, IsSortedNumeric: true, IsSingleNumeric: false);
+            if (!hasNumeric)
+                throw new InvalidOperationException(
+                    $"Numeric field '{fieldName}' has an incompatible non-numeric representation in segment '{reader.Info.SegmentId}'.");
 
-            // Either sparse .num/.numl index or dense .dvn/.dvnl array.
-            if (reader.GetInt64DocValues(fieldName) is not null || reader.GetNumericDocValues(fieldName) is null)
-                return new NumericFieldAccessor(IsInt64: true, IsSortedNumeric: false, IsSingleNumeric: true);
-            return new NumericFieldAccessor(IsInt64: false, IsSortedNumeric: false, IsSingleNumeric: true);
+            var current = DetermineSegmentAccessor(reader, fieldName);
+            if (resolved is null)
+                resolved = current;
+            else if (resolved.Value != current)
+                throw new InvalidOperationException(
+                    $"Numeric field '{fieldName}' has incompatible DocValues representations across segments.");
         }
 
-        return default;
+        return resolved ?? default;
+    }
+
+    private static NumericFieldAccessor DetermineSegmentAccessor(SegmentReader reader, string fieldName)
+    {
+        // Sorted-numeric takes priority because it is the multi-value form.
+        if (reader.GetSortedNumericDocValues(fieldName) is not null)
+            return new NumericFieldAccessor(IsInt64: false, IsSortedNumeric: true, IsSingleNumeric: false);
+        if (reader.GetSortedInt64DocValues(fieldName) is not null)
+            return new NumericFieldAccessor(IsInt64: true, IsSortedNumeric: true, IsSingleNumeric: false);
+
+        if (reader.HasInt64Index(fieldName) || reader.GetInt64DocValues(fieldName) is not null)
+            return new NumericFieldAccessor(IsInt64: true, IsSortedNumeric: false, IsSingleNumeric: true);
+        if (reader.HasNumericIndex(fieldName) || reader.GetNumericDocValues(fieldName) is not null)
+            return new NumericFieldAccessor(IsInt64: false, IsSortedNumeric: false, IsSingleNumeric: true);
+
+        throw new InvalidOperationException($"Numeric field '{fieldName}' has no readable numeric representation.");
     }
 
     public static bool TryRead(
+        SegmentReader reader,
+        string fieldName,
+        int localDocId,
+        NumericFieldAccessor accessor,
+        out NumericDocumentValues values)
+    {
+        if (!reader.HasNumericField(fieldName))
+        {
+            values = default;
+            return false;
+        }
+
+        // Segment layouts may legitimately differ when old and new segments coexist.
+        // Do not let the first segment's representation silently discard values from a
+        // later segment with an incompatible numeric shape.
+        var segmentAccessor = ResolveFieldAccessor(fieldName, [reader]);
+        if (segmentAccessor.IsInt64 != accessor.IsInt64
+            || segmentAccessor.IsSortedNumeric != accessor.IsSortedNumeric)
+        {
+            throw new InvalidOperationException(
+                $"Numeric field '{fieldName}' has incompatible DocValues representations across segments.");
+        }
+
+        return TryReadCore(reader, fieldName, localDocId, segmentAccessor, out values);
+    }
+
+    private static bool TryReadCore(
         SegmentReader reader,
         string fieldName,
         int localDocId,

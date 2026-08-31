@@ -189,18 +189,26 @@ internal static class RangeFacetValidation
         return copy;
     }
 
-    public static void ValidateRequest(
+    public static string ValidateRequest(
         string field,
         int offset,
         int limit,
         FacetBucketOrder order)
     {
-        Document.Fields.FieldNameValidator.Validate(field, nameof(field));
+        string validatedField = Document.Fields.FieldNameValidator.Validate(field, nameof(field));
         if (offset < 0)
             throw new ArgumentOutOfRangeException(nameof(offset));
         if (limit < 0)
             throw new ArgumentOutOfRangeException(nameof(limit));
         if (!Enum.IsDefined(order))
             throw new ArgumentOutOfRangeException(nameof(order));
+        return validatedField;
+    }
+
+    public static string ValidateName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("Facet names must not be empty or whitespace.", nameof(name));
+        return name;
     }
 }

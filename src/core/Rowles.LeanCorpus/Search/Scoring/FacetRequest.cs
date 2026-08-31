@@ -16,6 +16,7 @@ public sealed class FacetRequest : IFacetRequest
     /// <param name="limit">The maximum number of buckets to return. Zero returns no buckets.</param>
     /// <param name="order">The bucket ordering.</param>
     /// <param name="includeMissing">Whether matching documents without a value should be counted.</param>
+    /// <param name="name">Optional logical result name. Defaults to <paramref name="field"/>.</param>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="field"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when paging values or <paramref name="order"/> are invalid.</exception>
     public FacetRequest(
@@ -23,9 +24,11 @@ public sealed class FacetRequest : IFacetRequest
         int offset = 0,
         int limit = int.MaxValue,
         FacetBucketOrder order = FacetBucketOrder.CountDescending,
-        bool includeMissing = false)
+        bool includeMissing = false,
+        string? name = null)
     {
-        Field = field ?? throw new ArgumentNullException(nameof(field));
+        Field = Document.Fields.FieldNameValidator.Validate(field, nameof(field));
+        Name = ValidateName(name ?? Field);
         if (offset < 0)
             throw new ArgumentOutOfRangeException(nameof(offset));
         if (limit < 0)
@@ -39,8 +42,18 @@ public sealed class FacetRequest : IFacetRequest
         IncludeMissing = includeMissing;
     }
 
+    private static string ValidateName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("Facet names must not be empty or whitespace.", nameof(name));
+        return name;
+    }
+
     /// <summary>Gets the DocValues field to facet.</summary>
     public string Field { get; }
+
+    /// <summary>Gets the logical result name.</summary>
+    public string Name { get; }
 
     /// <summary>Gets the number of ordered buckets to skip.</summary>
     public int Offset { get; }

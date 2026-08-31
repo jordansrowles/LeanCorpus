@@ -6,7 +6,7 @@ namespace Rowles.LeanCorpus.Search.Scoring;
 /// Optional side-channel invoked during a search pass for every scored document.
 /// Implementations observe (docId, score, reader, localDocId) without affecting
 /// the primary top-N collection. Used by aggregation, collapse, and facets to
-/// avoid a second SearchAllMatches pass.
+/// avoid replaying the query for analytic collection.
 /// </summary>
 internal interface ISideCollector
 {

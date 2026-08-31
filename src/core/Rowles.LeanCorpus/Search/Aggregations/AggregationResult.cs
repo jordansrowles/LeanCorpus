@@ -46,6 +46,9 @@ public class AggregationResult
 /// <summary>Approximate distinct-value aggregation result.</summary>
 public sealed class CardinalityAggregationResult : AggregationResult
 {
+    /// <summary>Gets the bounded register algorithm used by the estimate.</summary>
+    public string Algorithm { get; init; } = "hll-style-sparse-dense";
+
     /// <summary>Gets the estimated number of distinct values.</summary>
     public required double EstimatedCardinality { get; init; }
 

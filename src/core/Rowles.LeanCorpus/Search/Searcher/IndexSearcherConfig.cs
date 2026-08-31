@@ -69,6 +69,9 @@ public sealed class IndexSearcherConfig
         if (EnableQueryCache && QueryCacheMaxEntries < 1)
             throw new ArgumentOutOfRangeException(nameof(QueryCacheMaxEntries), QueryCacheMaxEntries,
                 "QueryCacheMaxEntries must be at least one when query caching is enabled.");
+        if (MaxExactFacetBuckets < 1)
+            throw new ArgumentOutOfRangeException(nameof(MaxExactFacetBuckets), MaxExactFacetBuckets,
+                "MaxExactFacetBuckets must be at least one.");
     }
 
     internal void SetGlobalSlowQueryLog(Diagnostics.SlowQueryLog? value)
@@ -139,6 +142,9 @@ public sealed class IndexSearcherConfig
     /// Active states are protected from eviction. Default: 256.
     /// </summary>
     public int MaxCachedSegmentReaders { get; set; } = 256;
+
+    /// <summary>Maximum distinct buckets permitted for an exact facet request. Default: 100,000.</summary>
+    public int MaxExactFacetBuckets { get; set; } = 100_000;
 
     /// <summary>
     /// Optional shared query cache. When set, <see cref="IndexSearcher"/> uses this

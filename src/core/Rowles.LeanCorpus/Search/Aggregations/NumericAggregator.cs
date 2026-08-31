@@ -12,6 +12,12 @@ public static class NumericAggregator
     /// <summary>Maximum number of histogram buckets. Prevents OOM from malicious or misconfigured requests.</summary>
     internal const int MaxBucketCount = 100_000;
 
+    /// <summary>Creates request-local streaming aggregation state for one exhaustive search traversal.</summary>
+    internal static NumericAggregationCollector CreateCollector(
+        AggregationRequest[] requests,
+        IReadOnlyList<Index.Segment.SegmentReader> readers)
+        => new(requests, readers);
+
     /// <summary>
     /// Computes all requested aggregations over the given matching document IDs.
     /// </summary>
@@ -93,6 +99,8 @@ public static class NumericAggregator
         var fieldAccessors = new NumericFieldAccessor[requests.Length];
         for (int r = 0; r < requests.Length; r++)
         {
+            ArgumentNullException.ThrowIfNull(requests[r]);
+            requests[r].Validate();
             fieldAccessors[r] = NumericFieldValues.ResolveFieldAccessor(requests[r].Field, readers);
             states[r] = NumericAggregationStateFactory.Create(requests[r]);
         }
@@ -129,4 +137,55 @@ public static class NumericAggregator
         return (0, globalDocId);
     }
 
+}
+
+/// <summary>Consumes matching documents directly from search execution without retaining their IDs.</summary>
+internal sealed class NumericAggregationCollector
+{
+    private readonly Dictionary<string, (NumericFieldAccessor Accessor, List<int> RequestIndexes)> _fieldPlans;
+    private readonly INumericAggregationState[] _states;
+
+    public NumericAggregationCollector(
+        AggregationRequest[] requests,
+        IReadOnlyList<Index.Segment.SegmentReader> readers)
+    {
+        ArgumentNullException.ThrowIfNull(requests);
+        _states = new INumericAggregationState[requests.Length];
+        _fieldPlans = new Dictionary<string, (NumericFieldAccessor, List<int>)>(StringComparer.Ordinal);
+        for (int i = 0; i < requests.Length; i++)
+        {
+            ArgumentNullException.ThrowIfNull(requests[i]);
+            requests[i].Validate();
+            _states[i] = NumericAggregationStateFactory.Create(requests[i]);
+            if (!_fieldPlans.TryGetValue(requests[i].Field, out var plan))
+            {
+                plan = (NumericFieldValues.ResolveFieldAccessor(requests[i].Field, readers), []);
+                _fieldPlans.Add(requests[i].Field, plan);
+            }
+            plan.RequestIndexes.Add(i);
+        }
+    }
+
+    public void Collect(Index.Segment.SegmentReader reader, int localDocId)
+    {
+        foreach (var (field, plan) in _fieldPlans)
+        {
+            if (!NumericFieldValues.TryRead(reader, field, localDocId, plan.Accessor, out var values))
+                continue;
+
+            foreach (int requestIndex in plan.RequestIndexes)
+                _states[requestIndex].Collect(values);
+        }
+    }
+
+    public AggregationResult[] Finish(CancellationToken cancellationToken = default)
+    {
+        var results = new AggregationResult[_states.Length];
+        for (int i = 0; i < _states.Length; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            results[i] = _states[i].Finish(cancellationToken);
+        }
+        return results;
+    }
 }

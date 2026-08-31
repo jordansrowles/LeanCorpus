@@ -6,7 +6,8 @@ namespace Rowles.LeanCorpus.Search.Aggregations;
 internal interface INumericAggregationState
 {
     void Collect(in NumericDocumentValues values);
-    AggregationResult Finish();
+    void MergeFrom(INumericAggregationState other);
+    AggregationResult Finish(CancellationToken cancellationToken = default);
 }
 
 /// <summary>Merge hook for future distributed approximate aggregation states.</summary>
@@ -19,7 +20,10 @@ internal interface IMergeableAggregationState<in TState>
 internal static class NumericAggregationStateFactory
 {
     public static INumericAggregationState Create(AggregationRequest request)
-        => request.Type switch
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        request.Validate();
+        return request.Type switch
         {
             AggregationType.Stats => new StatsAggregationState(request),
             AggregationType.Histogram => new HistogramAggregationState(request),
@@ -28,6 +32,7 @@ internal static class NumericAggregationStateFactory
             AggregationType.HdrPercentiles => new HdrPercentilesAggregationState(request),
             _ => new EmptyAggregationState(request)
         };
+    }
 }
 
 internal sealed class StatsAggregationState(AggregationRequest request)
@@ -64,7 +69,7 @@ internal sealed class StatsAggregationState(AggregationRequest request)
         }
     }
 
-    public AggregationResult Finish()
+    public AggregationResult Finish(CancellationToken cancellationToken = default)
         => new()
         {
             Name = _request.Name,
@@ -94,6 +99,10 @@ internal sealed class StatsAggregationState(AggregationRequest request)
         _max = Math.Max(_max, other._max);
     }
 
+    void INumericAggregationState.MergeFrom(INumericAggregationState other)
+        => MergeFrom(other as StatsAggregationState
+            ?? throw new ArgumentException("Aggregation states must have the same concrete type.", nameof(other)));
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void Add(double value)
     {
@@ -116,7 +125,11 @@ internal sealed class HistogramAggregationState(AggregationRequest request)
     : INumericAggregationState, IMergeableAggregationState<HistogramAggregationState>
 {
     private readonly AggregationRequest _request = request;
-    private readonly List<double> _values = [];
+    private readonly double _interval = request.HistogramInterval <= 0 ? 10.0 : request.HistogramInterval;
+    private readonly SortedDictionary<long, long> _bucketCounts = [];
+    private long _count;
+    private long _minimumBucketIndex = long.MaxValue;
+    private long _maximumBucketIndex = long.MinValue;
     private double _min = double.PositiveInfinity;
     private double _max = double.NegativeInfinity;
     private double _sum;
@@ -146,36 +159,27 @@ internal sealed class HistogramAggregationState(AggregationRequest request)
         }
     }
 
-    public AggregationResult Finish()
+    public AggregationResult Finish(CancellationToken cancellationToken = default)
     {
-        if (_values.Count == 0)
+        if (_count == 0)
             return AggregationResult.Empty(_request.Name, _request.Field);
 
-        double interval = _request.HistogramInterval <= 0 ? 10.0 : _request.HistogramInterval;
-        double bucketStart = Math.Floor(_min / interval) * interval;
-        double rawBuckets = (_max - bucketStart) / interval;
-        int bucketCount = double.IsNaN(rawBuckets) || double.IsInfinity(rawBuckets) || rawBuckets > NumericAggregator.MaxBucketCount
-            ? NumericAggregator.MaxBucketCount
-            : Math.Max(1, (int)Math.Ceiling(rawBuckets) + 1);
-        var bucketCounts = new long[bucketCount];
-        foreach (double value in _values)
-        {
-            int index = (int)((value - bucketStart) / interval);
-            bucketCounts[Math.Clamp(index, 0, bucketCount - 1)]++;
-        }
-
+        int bucketCount = checked((int)GetBucketSpan());
         var buckets = new HistogramBucket[bucketCount];
         for (int i = 0; i < bucketCount; i++)
         {
-            double lower = bucketStart + i * interval;
-            buckets[i] = new HistogramBucket(lower, lower + interval, bucketCounts[i]);
+            cancellationToken.ThrowIfCancellationRequested();
+            long index = checked(_minimumBucketIndex + i);
+            double lower = index * _interval;
+            _bucketCounts.TryGetValue(index, out long count);
+            buckets[i] = new HistogramBucket(lower, lower + _interval, count);
         }
 
         return new AggregationResult
         {
             Name = _request.Name,
             Field = _request.Field,
-            Count = _values.Count,
+            Count = _count,
             Min = _min,
             Max = _max,
             Sum = _sum,
@@ -187,26 +191,68 @@ internal sealed class HistogramAggregationState(AggregationRequest request)
     {
         ArgumentNullException.ThrowIfNull(other);
         AggregationMergeCompatibility.EnsureCompatible(_request, other._request);
-        _values.AddRange(other._values);
+        foreach (var (bucketIndex, count) in other._bucketCounts)
+        {
+            _bucketCounts.TryGetValue(bucketIndex, out long existing);
+            _bucketCounts[bucketIndex] = checked(existing + count);
+        }
+        _count = checked(_count + other._count);
+        if (other._count > 0)
+        {
+            _minimumBucketIndex = Math.Min(_minimumBucketIndex, other._minimumBucketIndex);
+            _maximumBucketIndex = Math.Max(_maximumBucketIndex, other._maximumBucketIndex);
+            EnsureBucketSpanWithinLimit();
+        }
         _min = Math.Min(_min, other._min);
         _max = Math.Max(_max, other._max);
         _sum += other._sum;
     }
 
+    void INumericAggregationState.MergeFrom(INumericAggregationState other)
+        => MergeFrom(other as HistogramAggregationState
+            ?? throw new ArgumentException("Aggregation states must have the same concrete type.", nameof(other)));
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void Add(double value)
     {
-        _values.Add(value);
+        if (!double.IsFinite(value))
+            throw new InvalidOperationException($"Histogram aggregation for field '{_request.Field}' does not accept non-finite values.");
+
+        double rawIndex = Math.Floor(value / _interval);
+        if (rawIndex < long.MinValue || rawIndex > long.MaxValue)
+            throw new InvalidOperationException($"Histogram aggregation for field '{_request.Field}' produced an out-of-range bucket index.");
+
+        long bucketIndex = checked((long)rawIndex);
+        _bucketCounts.TryGetValue(bucketIndex, out long existing);
+        _bucketCounts[bucketIndex] = checked(existing + 1);
+        _count = checked(_count + 1);
+        _minimumBucketIndex = Math.Min(_minimumBucketIndex, bucketIndex);
+        _maximumBucketIndex = Math.Max(_maximumBucketIndex, bucketIndex);
+        EnsureBucketSpanWithinLimit();
         if (value < _min) _min = value;
         if (value > _max) _max = value;
         _sum += value;
+    }
+
+    private long GetBucketSpan()
+        => checked(_maximumBucketIndex - _minimumBucketIndex + 1);
+
+    private void EnsureBucketSpanWithinLimit()
+    {
+        long span = GetBucketSpan();
+        if (span > NumericAggregator.MaxBucketCount)
+        {
+            throw new InvalidOperationException(
+                $"Histogram aggregation for field '{_request.Field}' requires {span} buckets, which exceeds the configured maximum of {NumericAggregator.MaxBucketCount}.");
+        }
     }
 }
 
 internal sealed class EmptyAggregationState(AggregationRequest request) : INumericAggregationState
 {
     public void Collect(in NumericDocumentValues values) { }
-    public AggregationResult Finish() => AggregationResult.Empty(request.Name, request.Field);
+    public void MergeFrom(INumericAggregationState other) { }
+    public AggregationResult Finish(CancellationToken cancellationToken = default) => AggregationResult.Empty(request.Name, request.Field);
 }
 
 internal abstract class NumericAggregationStateBase(AggregationRequest request) : INumericAggregationState
@@ -227,7 +273,8 @@ internal abstract class NumericAggregationStateBase(AggregationRequest request) 
     }
     protected abstract void Collect(long value);
     protected abstract void Collect(double value);
-    public abstract AggregationResult Finish();
+    public abstract AggregationResult Finish(CancellationToken cancellationToken = default);
+    public abstract void MergeFrom(INumericAggregationState other);
 }
 
 internal sealed class CardinalityAggregationState(AggregationRequest request) : NumericAggregationStateBase(request)
@@ -235,10 +282,18 @@ internal sealed class CardinalityAggregationState(AggregationRequest request) : 
     private readonly HyperLogLogPlusPlus _sketch = new(request.CardinalityPrecision);
     protected override void Collect(long value) => _sketch.Add(value);
     protected override void Collect(double value) => _sketch.Add(value);
-    public override AggregationResult Finish() => new CardinalityAggregationResult
+    public override AggregationResult Finish(CancellationToken cancellationToken = default) => new CardinalityAggregationResult
     {
-        Name = Request.Name, Field = Request.Field, EstimatedCardinality = _sketch.Estimate(), ExpectedRelativeError = _sketch.ExpectedRelativeError
+        Name = Request.Name, Field = Request.Field, Algorithm = "hll-style-sparse-dense",
+        EstimatedCardinality = _sketch.Estimate(), ExpectedRelativeError = _sketch.ExpectedRelativeError
     };
+    public override void MergeFrom(INumericAggregationState other)
+    {
+        var typed = other as CardinalityAggregationState
+            ?? throw new ArgumentException("Aggregation states must have the same concrete type.", nameof(other));
+        AggregationMergeCompatibility.EnsureCompatible(Request, typed.Request);
+        _sketch.MergeFrom(typed._sketch);
+    }
 }
 
 internal sealed class TDigestPercentilesAggregationState(AggregationRequest request) : NumericAggregationStateBase(request)
@@ -246,10 +301,18 @@ internal sealed class TDigestPercentilesAggregationState(AggregationRequest requ
     private readonly TDigest _digest = new(request.TDigestCompression);
     protected override void Collect(long value) => _digest.Add(value);
     protected override void Collect(double value) => _digest.Add(value);
-    public override AggregationResult Finish()
+    public override AggregationResult Finish(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var values = ValidatePercentiles(Request.Percentiles).Select(percentile => new PercentileValue(percentile, _digest.Quantile(percentile / 100d))).ToArray();
         return new PercentileAggregationResult { Name = Request.Name, Field = Request.Field, Count = (long)_digest.Count, Algorithm = "t-digest", Percentiles = values };
+    }
+    public override void MergeFrom(INumericAggregationState other)
+    {
+        var typed = other as TDigestPercentilesAggregationState
+            ?? throw new ArgumentException("Aggregation states must have the same concrete type.", nameof(other));
+        AggregationMergeCompatibility.EnsureCompatible(Request, typed.Request);
+        _digest.MergeFrom(typed._digest);
     }
     internal static IReadOnlyList<double> ValidatePercentiles(IReadOnlyList<double> percentiles)
     {
@@ -265,10 +328,18 @@ internal sealed class HdrPercentilesAggregationState(AggregationRequest request)
     private readonly HdrHistogram _histogram = new(request.HdrHighestTrackableValue, request.HdrSignificantDigits);
     protected override void Collect(long value) => _histogram.RecordValue(value);
     protected override void Collect(double value) => throw new InvalidOperationException("HDR percentile aggregations require an Int64 field; use t-digest for doubles.");
-    public override AggregationResult Finish()
+    public override AggregationResult Finish(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var values = TDigestPercentilesAggregationState.ValidatePercentiles(Request.Percentiles).Select(percentile => new PercentileValue(percentile, _histogram.ValueAtPercentile(percentile))).ToArray();
-        return new PercentileAggregationResult { Name = Request.Name, Field = Request.Field, Count = _histogram.TotalCount, Min = _histogram.Min, Max = _histogram.Max, Algorithm = "hdr-histogram", Percentiles = values };
+        return new PercentileAggregationResult { Name = Request.Name, Field = Request.Field, Count = _histogram.TotalCount, Min = _histogram.Min, Max = _histogram.Max, Algorithm = "hdr-style-logarithmic", Percentiles = values };
+    }
+    public override void MergeFrom(INumericAggregationState other)
+    {
+        var typed = other as HdrPercentilesAggregationState
+            ?? throw new ArgumentException("Aggregation states must have the same concrete type.", nameof(other));
+        AggregationMergeCompatibility.EnsureCompatible(Request, typed.Request);
+        _histogram.MergeFrom(typed._histogram);
     }
 }
 
@@ -279,7 +350,12 @@ internal static class AggregationMergeCompatibility
     {
         if (left.Type != right.Type
             || !string.Equals(left.Field, right.Field, StringComparison.Ordinal)
-            || left.HistogramInterval != right.HistogramInterval)
+            || left.HistogramInterval != right.HistogramInterval
+            || left.CardinalityPrecision != right.CardinalityPrecision
+            || left.TDigestCompression != right.TDigestCompression
+            || left.HdrHighestTrackableValue != right.HdrHighestTrackableValue
+            || left.HdrSignificantDigits != right.HdrSignificantDigits
+            || !left.Percentiles.SequenceEqual(right.Percentiles))
         {
             throw new ArgumentException("Aggregation states must have the same type, field and configuration to be merged.", nameof(right));
         }

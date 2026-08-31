@@ -37,7 +37,7 @@ public sealed class NumericAggregationExecutionTests
 
         var result = state.Finish();
         Assert.Equal(3, result.Count);
-        Assert.Equal([1L, 2L, 0L], result.Buckets!.Select(bucket => bucket.Count));
+        Assert.Equal([1L, 2L], result.Buckets!.Select(bucket => bucket.Count));
     }
 
     [Fact(DisplayName = "Numeric aggregation states: Merge Rejects Incompatible Configuration")]

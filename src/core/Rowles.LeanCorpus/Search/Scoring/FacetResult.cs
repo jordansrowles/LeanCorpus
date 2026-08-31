@@ -3,6 +3,8 @@
 /// <summary>The facet result for one field: the field name and its value-count buckets.</summary>
 public sealed class FacetResult
 {
+    /// <summary>Gets the logical request name for this result.</summary>
+    public string Name { get; }
     /// <summary>Gets the name of the field these facet counts are for.</summary>
     public string FieldName { get; }
 
@@ -38,7 +40,19 @@ public sealed class FacetResult
         int totalBucketCount,
         int? missingCount = null,
         IReadOnlyList<DateHistogramBucket>? dateHistogramBuckets = null)
+        : this(fieldName, fieldName, buckets, totalBucketCount, missingCount, dateHistogramBuckets)
     {
+    }
+
+    internal FacetResult(
+        string name,
+        string fieldName,
+        IReadOnlyList<FacetBucket> buckets,
+        int totalBucketCount,
+        int? missingCount = null,
+        IReadOnlyList<DateHistogramBucket>? dateHistogramBuckets = null)
+    {
+        Name = name;
         FieldName = fieldName;
         Buckets = buckets;
         TotalBucketCount = totalBucketCount;

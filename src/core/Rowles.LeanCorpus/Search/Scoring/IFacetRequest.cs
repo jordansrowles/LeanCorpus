@@ -3,6 +3,9 @@ namespace Rowles.LeanCorpus.Search.Scoring;
 /// <summary>Describes one facet bucket collection request.</summary>
 public interface IFacetRequest
 {
+    /// <summary>Gets the logical result name. Defaults to the source field.</summary>
+    string Name => Field;
+
     /// <summary>Gets the field or dimension to facet.</summary>
     string Field { get; }
 

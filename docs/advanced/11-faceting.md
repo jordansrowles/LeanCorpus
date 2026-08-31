@@ -24,7 +24,7 @@ foreach (var facet in facets)
 }
 ```
 
-`results` is the usual `TopDocs`. Each `FacetResult` has a `FieldName` and ordered `FacetBucket` values. A bucket contains the stored DocValues value and its matching-document count.
+`results` is the usual `TopDocs`. Each `FacetResult` has a `Name`, `FieldName`, and ordered `FacetBucket` values. `Name` defaults to the field and can distinguish independent requests over the same source field. A bucket contains the stored DocValues value and its matching-document count.
 
 ## Indexing facet values
 
@@ -43,9 +43,9 @@ Use the multi-valued DocValues field type when one document belongs to several c
 
 ## Counting model
 
-Facet counts cover the complete matching set, not just the returned top-N page. The searcher uses a side collector where the query path supports it and a complete matching pass otherwise.
+Facet counts cover the complete matching set, not just the returned top-N page. The searcher exposes every live match to the facet collector during the same query traversal; it does not replay a query merely to populate facet buckets.
 
-This makes faceting proportional to the number of matches and facet values. A broad query over high-cardinality fields can be expensive even when `topN` is small.
+Flat facets require sorted or sorted-set DocValues. Stored fields and binary DocValues are not faceting fallbacks. Exact faceting has a searcher-level `MaxExactFacetBuckets` guard (100,000 by default): a request exceeding it fails rather than returning a truncated or approximate result. Paging retains only the requested count-ordered candidates unless the caller explicitly requests every bucket.
 
 ## Federated facets and global ordinals
 
@@ -70,7 +70,7 @@ currently expose those index structures.
 - avoid raw identifiers and free text;
 - normalise display variants before indexing;
 - cap or post-process the buckets presented by the application;
-- measure broad fallback paths as well as selective term queries.
+- measure broad matching populations as well as selective term queries.
 
 Faceting differs from [field collapsing](09-field-collapsing.md). Faceting counts groups while preserving the ordinary result list. Collapsing changes the result list so only a representative hit from each group is returned.
 
@@ -108,6 +108,7 @@ The request returns immediate children of the root or parent path. Components
 are length-prefixed internally, so `/` and `:` in a component remain data and
 do not change the path identity. A path is indexed with postings as well as
 DocValues, which allows the same representation to be used by drill-down.
+Hierarchy depth is limited to 32 components to bound prefix expansion.
 
 ## Drill-down
 

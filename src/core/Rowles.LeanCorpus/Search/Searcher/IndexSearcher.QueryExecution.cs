@@ -38,7 +38,7 @@ public sealed partial class IndexSearcher
     /// Fast path for BooleanQuery where all clauses are TermQuery.
     /// Computes global DFs inline without the generic PrecomputeGlobalDocFreqs tree walk.
     /// </summary>
-    private TopDocs SearchBooleanTermQueryFast(BooleanQuery bq, int topN)
+    private TopDocs SearchBooleanTermQueryFast(BooleanQuery bq, int topN, ISideCollector? sideCollector = null)
     {
         var clauses = bq.Clauses;
 
@@ -56,9 +56,17 @@ public sealed partial class IndexSearcher
             globalDFs[key] = total;
         }
 
-        var collector = new TopNCollector(topN);
+        var collector = new TopNCollector(topN, sideCollector);
 
-        if (_readers.Count == 1)
+        if (sideCollector is not null)
+        {
+            foreach (var reader in _readers)
+            {
+                collector.SetSideCollectorContext(reader);
+                ExecuteBooleanQuery(bq, reader, globalDFs, ref collector);
+            }
+        }
+        else if (_readers.Count == 1)
         {
             ExecuteBooleanQuery(bq, _readers[0], globalDFs, ref collector);
         }
@@ -100,6 +108,7 @@ public sealed partial class IndexSearcher
         // Pin the heavy state for the complete segment operation. Nested query
         // execution takes additional value-type leases on the same cache entry.
         using var segmentLease = reader.AcquireQueryLease();
+        collector.SetSideCollectorContext(reader);
         switch (query)
         {
             case TermQuery tq:
@@ -457,7 +466,10 @@ public sealed partial class IndexSearcher
                 bool useWand = _config.EnableBlockMaxWand
                     && _config.PerFieldSimilarities is null
                     && mustNotCount == 0
-                    && minimumShouldMatch <= 1;
+                    && minimumShouldMatch <= 1
+                    // WAND may skip non-competitive documents. Exact facet and
+                    // aggregation side collectors must see every live match.
+                    && !collector.HasSideCollector;
                 if (useWand)
                 {
                     for (int i = 0; i < shouldCount; i++)
