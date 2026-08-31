@@ -39,6 +39,56 @@ var config = new IndexWriterConfig
 | `StoreTermVectors` | `false` | Whether to persist term vectors |
 | `Metrics` | `NullMetricsCollector.Instance` | Metrics backend |
 
+## Process-wide defaults
+
+Configure process-wide defaults once during application startup, before creating
+writers, searchers, managers, or query options:
+
+```csharp
+LeanCorpusDefaults.Configure(options =>
+{
+    options.Codecs.Catalog = myCatalog;
+
+    options.IndexWriter.RamBufferSizeMB = 256;
+    options.IndexWriter.MaxBufferedDocs = 5_000;
+    options.IndexWriter.UseCompoundFile = true;
+
+    options.IndexSearcher.ParallelSearch = true;
+    options.IndexSearcher.QueryCache.Enabled = true;
+
+    options.SearcherManager.RefreshInterval =
+        TimeSpan.FromMilliseconds(500);
+});
+```
+
+These are defaults for future configuration objects. The precedence is:
+
+```text
+built-in -> process-wide default -> local configuration -> request option
+```
+
+An explicit value on `IndexWriterConfig`, `IndexSearcherConfig`,
+`SearcherManagerConfig`, or a request options object wins. Existing
+configurations and active components keep the values captured when they were
+created. `LeanCorpusDefaults.Reset()` restores the built-in values for future
+objects.
+
+Writer defaults such as `CompressionPolicy`, `StoredFieldBlockSize`,
+`PostingsSkipInterval`, `VectorQuantisation`, HNSW build parameters,
+`TrackSequenceNumbers`, and `SoftDeletesEnabled` affect newly written segment
+representation or persisted metadata. They do not replace the codec and
+segment metadata used to read an existing index.
+
+Factories create fresh analysis, policy, scoring, or diagnostic instances for
+each receiving configuration. Stop-word lists and factory mappings are copied
+when the defaults are published. A `SearcherManager` keeps its
+factory-created slow-query log and analytics objects across searcher refreshes
+and disposes a factory-created slow-query log when the manager is disposed.
+
+Keep `Schema`, `IndexSort`, migration choices, destructive maintenance flags,
+`CancellationToken`, `TopK`, and request filters local to the operation that
+needs them.
+
 ## Backpressure and merge throttling
 
 `MaxQueuedDocs` (default 20,000) caps the number of documents waiting to be flushed. When the queue is full, `AddDocument` blocks until a flush frees space. Prevents out-of-memory conditions under sustained write load.

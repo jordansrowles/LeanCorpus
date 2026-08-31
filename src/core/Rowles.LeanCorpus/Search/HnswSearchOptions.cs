@@ -8,6 +8,21 @@ namespace Rowles.LeanCorpus.Search;
 /// </summary>
 public sealed class HnswSearchOptions
 {
+    /// <summary>Initialises HNSW options and captures the current process-wide search defaults.</summary>
+    public HnswSearchOptions()
+        : this(LeanCorpusDefaults.GetSnapshot())
+    {
+    }
+
+    internal HnswSearchOptions(LeanCorpusDefaultSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        Ef = snapshot.Search.Hnsw.Ef.IsSet ? snapshot.Search.Hnsw.Ef.Value : 10;
+        MaxPostFilterRetries = snapshot.Search.Hnsw.MaxPostFilterRetries.IsSet
+            ? snapshot.Search.Hnsw.MaxPostFilterRetries.Value
+            : 3;
+    }
+
     /// <summary>Candidate set size (ef) maintained during traversal. Higher gives better recall.</summary>
     public int Ef { get; init; } = 10;
 

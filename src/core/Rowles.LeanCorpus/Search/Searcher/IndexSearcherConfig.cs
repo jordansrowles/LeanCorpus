@@ -8,6 +8,93 @@ namespace Rowles.LeanCorpus.Search.Searcher;
 /// </summary>
 public sealed class IndexSearcherConfig
 {
+    private Diagnostics.SlowQueryLog? _slowQueryLog;
+    private bool _ownsSlowQueryLog;
+    private bool _diagnosticsOwnedByManager;
+    private int _slowQueryLogDisposed;
+
+    /// <summary>Initialises a configuration and captures the current process-wide defaults.</summary>
+    public IndexSearcherConfig()
+        : this(LeanCorpusDefaults.GetSnapshot(), applyFactories: true)
+    {
+    }
+
+    internal IndexSearcherConfig(LeanCorpusDefaultSnapshot snapshot, bool applyFactories)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        CodecCatalog = Effective(snapshot.Codecs.Catalog, CodecCatalog.Default);
+        CompatibilityMode = Effective(snapshot.IndexOpen.CompatibilityMode, IndexOpenCompatibilityMode.Strict);
+
+        var defaults = snapshot.IndexSearcher;
+        ParallelSearch = Effective(defaults.ParallelSearch, ParallelSearch);
+        MaxConcurrency = Effective(defaults.MaxConcurrency, MaxConcurrency);
+        EnableBlockMaxWand = Effective(defaults.EnableBlockMaxWand, EnableBlockMaxWand);
+        MaxCachedSegmentReaders = Effective(defaults.MaxCachedSegmentReaders, MaxCachedSegmentReaders);
+        EnableQueryCache = Effective(defaults.QueryCache.Enabled, EnableQueryCache);
+        QueryCacheMaxEntries = Effective(defaults.QueryCache.MaxEntries, QueryCacheMaxEntries);
+
+        if (!applyFactories)
+            return;
+
+        if (snapshot.Scoring.SimilarityFactory.IsSet)
+            Similarity = Require(snapshot.Scoring.SimilarityFactory.Value(), nameof(snapshot.Scoring.SimilarityFactory));
+        if (snapshot.Scoring.PerFieldSimilarityFactories.Count > 0)
+        {
+            var similarities = new Dictionary<string, ISimilarity>(
+                snapshot.Scoring.PerFieldSimilarityFactories.Count, StringComparer.Ordinal);
+            foreach (var pair in snapshot.Scoring.PerFieldSimilarityFactories)
+                similarities.Add(pair.Key, Require(pair.Value(), $"{nameof(snapshot.Scoring.PerFieldSimilarityFactories)}[{pair.Key}]"));
+            PerFieldSimilarities = similarities;
+        }
+        if (snapshot.Diagnostics.MetricsCollectorFactory.IsSet)
+            Metrics = Require(snapshot.Diagnostics.MetricsCollectorFactory.Value(), nameof(snapshot.Diagnostics.MetricsCollectorFactory));
+        if (snapshot.Diagnostics.SlowQueryLogFactory.IsSet)
+            SetGlobalSlowQueryLog(snapshot.Diagnostics.SlowQueryLogFactory.Value());
+        if (snapshot.Diagnostics.SearchAnalyticsFactory.IsSet)
+            SearchAnalytics = snapshot.Diagnostics.SearchAnalyticsFactory.Value();
+    }
+
+    private static T Effective<T>(DefaultOverride<T> value, T builtIn)
+        => value.IsSet ? value.Value : builtIn;
+
+    private static T Require<T>(T? value, string name) where T : class
+        => value ?? throw new InvalidOperationException($"The global default factory '{name}' returned null.");
+
+    internal void Validate()
+    {
+        if (MaxCachedSegmentReaders < 1)
+            throw new ArgumentOutOfRangeException(nameof(MaxCachedSegmentReaders), MaxCachedSegmentReaders,
+                "MaxCachedSegmentReaders must be at least one.");
+        if (EnableQueryCache && QueryCacheMaxEntries < 1)
+            throw new ArgumentOutOfRangeException(nameof(QueryCacheMaxEntries), QueryCacheMaxEntries,
+                "QueryCacheMaxEntries must be at least one when query caching is enabled.");
+    }
+
+    internal void SetGlobalSlowQueryLog(Diagnostics.SlowQueryLog? value)
+    {
+        _slowQueryLog = value;
+        _ownsSlowQueryLog = value is not null;
+    }
+
+    internal void SetDiagnosticsOwnedByManager() => _diagnosticsOwnedByManager = true;
+
+    internal void DisposeOwnedDiagnostics()
+    {
+        if (_diagnosticsOwnedByManager || !_ownsSlowQueryLog || _slowQueryLog is null)
+            return;
+        if (Interlocked.Exchange(ref _slowQueryLogDisposed, 1) == 0)
+            _slowQueryLog.Dispose();
+    }
+
+    internal void DisposeManagerOwnedDiagnostics()
+    {
+        if (!_diagnosticsOwnedByManager || !_ownsSlowQueryLog || _slowQueryLog is null)
+            return;
+        if (Interlocked.Exchange(ref _slowQueryLogDisposed, 1) == 0)
+            _slowQueryLog.Dispose();
+    }
+
     /// <summary>Gets or sets the immutable codec catalogue used for compatibility inspection.</summary>
     public CodecCatalog CodecCatalog { get; set; } = CodecCatalog.Default;
 
@@ -68,9 +155,19 @@ public sealed class IndexSearcherConfig
 
     /// <summary>
     /// Optional slow query log. When set, queries exceeding the configured threshold
-    /// are written as JSON lines to the log output. Default: null (disabled).
+    /// are written as JSON lines to the log output. Default: null (disabled). The owner
+    /// of this configuration graph is responsible for disposing the log. A manager keeps
+    /// a factory-created log across searcher refreshes and disposes it with the manager.
     /// </summary>
-    public Diagnostics.SlowQueryLog? SlowQueryLog { get; set; }
+    public Diagnostics.SlowQueryLog? SlowQueryLog
+    {
+        get => _slowQueryLog;
+        set
+        {
+            _slowQueryLog = value;
+            _ownsSlowQueryLog = false;
+        }
+    }
 
     /// <summary>
     /// Optional per-search event analytics. When set, each search produces a

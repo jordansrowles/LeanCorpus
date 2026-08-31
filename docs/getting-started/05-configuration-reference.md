@@ -74,23 +74,67 @@ Changing an on-disk setting affects newly written segments. Existing segments re
 
 ## Process-wide defaults
 
-`LeanCorpusDefaults` can supply optional defaults for configurations created later in
-the same process. It does not alter an existing `IndexWriterConfig` or an active
-`IndexWriter`, and an explicit property value on the configuration always wins.
+`LeanCorpusDefaults` publishes optional defaults for configuration objects created
+later in the same process. Configure them during application startup, before
+creating writers, searchers, managers, or query options:
 
 ```csharp
 LeanCorpusDefaults.Configure(options =>
 {
-    options.IndexWriter.DurableCommits = false;
+    options.Codecs.Catalog = myCatalog;
+    options.IndexOpen.CompatibilityMode = IndexOpenCompatibilityMode.Strict;
+
+    options.IndexWriter.RamBufferSizeMB = 256;
+    options.IndexWriter.MaxQueuedBytes = 1024L * 1024 * 1024;
+    options.IndexWriter.DurableCommits = true;
+    options.IndexWriter.Hnsw.M = 24;
+
+    options.IndexSearcher.ParallelSearch = true;
+    options.IndexSearcher.QueryCache.Enabled = true;
+    options.SearcherManager.RefreshInterval = TimeSpan.FromSeconds(1);
+
+    options.JsonMapping.MaxDepth = 32;
+    options.Search.MaxResultBytes = 32 * 1024 * 1024;
+    options.Search.Hnsw.Ef = 128;
 });
 
-var config = new IndexWriterConfig(); // DurableCommits is false
+var config = new IndexWriterConfig(); // Uses the published writer defaults
 var durable = new IndexWriterConfig { DurableCommits = true }; // explicit value wins
 ```
 
-With no override, including after `LeanCorpusDefaults.Reset()`, the production
-default remains `DurableCommits = true`. Configure process-wide defaults during
-application startup before creating writers.
+The precedence is `built-in -> process-wide default -> local configuration ->
+request option`. A local value on `IndexWriterConfig`, `IndexSearcherConfig`,
+`SearcherManagerConfig`, or a request options object always wins. Existing
+configurations and active components retain the snapshot captured at
+construction. `LeanCorpusDefaults.Reset()` restores built-in values for future
+objects; it does not rewrite an existing configuration.
+
+The default groups are deliberately scoped:
+
+| Group | Applies to | Examples |
+|---|---|---|
+| `Codecs` | Writer, searcher, and index-admin configurations | `Catalog` |
+| `IndexOpen` | Writer, searcher, manager, and manager-created searchers | `CompatibilityMode` |
+| `IndexWriter` | New writer configurations | Buffering, storage, durability, merging, vectors, soft deletes, and analysis factories |
+| `IndexSearcher` | New searcher configurations | Parallel search, reader cache, Block-Max WAND, and query-cache settings |
+| `SearcherManager` | New manager configurations | `RefreshInterval` |
+| `JsonMapping` | New JSON mapping options | Field-name separator and mapping limits |
+| `Scoring` | New writer and searcher configurations | Default and per-field similarity factories |
+| `Diagnostics` | New writer and searcher configurations | Metrics, slow-query log, and analytics factories |
+| `Search` | New query options | Result-byte budget, timeout, and HNSW search settings |
+
+`Schema`, `IndexSort`, deletion or migration choices, destructive maintenance
+flags, `CancellationToken`, `TopK`, allow-lists, post-filters, and streamed
+result selection remain local to the operation that needs them. Process-wide
+writer defaults can change how newly written segments are represented, but they
+do not change the codec or metadata required to read existing segments.
+
+Factories create fresh analysis, policy, scoring, or diagnostic instances for
+each receiving configuration. Stop-word lists and factory mappings are copied
+when the snapshot is published. A `SearcherManager` keeps its factory-created
+diagnostic instances across searcher refreshes and disposes factory-created
+slow-query logging when the manager is disposed. Components supplied directly
+by the caller retain caller ownership.
 
 ### Diagnostics
 

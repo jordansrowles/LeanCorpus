@@ -44,6 +44,14 @@ public sealed partial class IndexSearcher : IDisposable
     private readonly record struct MltCacheKey(
         int DocId, int MaxQueryTerms, int MinTermFreq, int MinDocFreq, int MinWordLength);
 
+    private static IndexSearcherConfig CreateConfig(ISimilarity? similarity)
+    {
+        var config = new IndexSearcherConfig();
+        if (similarity is not null)
+            config.Similarity = similarity;
+        return config;
+    }
+
     /// <summary>Corpus-wide statistics computed at construction.</summary>
     public IndexStats Stats
     {
@@ -192,7 +200,7 @@ public sealed partial class IndexSearcher : IDisposable
     /// <param name="directory">The index directory to open.</param>
     /// <param name="similarity">The scoring model to use. Defaults to BM25 if null.</param>
     public IndexSearcher(MMapDirectory directory, ISimilarity? similarity = null)
-        : this(directory, new IndexSearcherConfig { Similarity = similarity ?? Bm25Similarity.Instance })
+        : this(directory, CreateConfig(similarity))
     {
     }
 
@@ -205,9 +213,7 @@ public sealed partial class IndexSearcher : IDisposable
     {
         ArgumentNullException.ThrowIfNull(directory);
         ArgumentNullException.ThrowIfNull(config);
-        if (config.MaxCachedSegmentReaders < 1)
-            throw new ArgumentOutOfRangeException(nameof(config), config.MaxCachedSegmentReaders,
-                "MaxCachedSegmentReaders must be at least one.");
+        config.Validate();
         _directory = directory;
         _config = config;
         _segmentReaderCache = new BoundedLruCache<string, SegmentReaderState>(
@@ -281,6 +287,7 @@ public sealed partial class IndexSearcher : IDisposable
             _segmentReaderCache.Dispose();
             _snapshotLease?.Dispose();
             _snapshotLease = null;
+            config.DisposeOwnedDiagnostics();
             throw;
         }
     }
@@ -292,7 +299,7 @@ public sealed partial class IndexSearcher : IDisposable
     /// <param name="segments">The explicit list of segment infos to search.</param>
     /// <param name="similarity">The scoring model to use. Defaults to BM25 if null.</param>
     public IndexSearcher(MMapDirectory directory, IReadOnlyList<SegmentInfo> segments, ISimilarity? similarity = null)
-        : this(directory, segments, new IndexSearcherConfig { Similarity = similarity ?? Bm25Similarity.Instance })
+        : this(directory, segments, CreateConfig(similarity))
     {
     }
 
@@ -307,9 +314,7 @@ public sealed partial class IndexSearcher : IDisposable
         ArgumentNullException.ThrowIfNull(directory);
         ArgumentNullException.ThrowIfNull(segments);
         ArgumentNullException.ThrowIfNull(config);
-        if (config.MaxCachedSegmentReaders < 1)
-            throw new ArgumentOutOfRangeException(nameof(config), config.MaxCachedSegmentReaders,
-                "MaxCachedSegmentReaders must be at least one.");
+        config.Validate();
         _directory = directory;
         _config = config;
         _segmentReaderCache = new BoundedLruCache<string, SegmentReaderState>(
@@ -351,6 +356,7 @@ public sealed partial class IndexSearcher : IDisposable
             _segmentReaderCache.Dispose();
             _snapshotLease?.Dispose();
             _snapshotLease = null;
+            config.DisposeOwnedDiagnostics();
             throw;
         }
     }
@@ -1107,6 +1113,7 @@ public sealed partial class IndexSearcher : IDisposable
         _segmentReaderCache.Dispose();
         _snapshotLease?.Dispose();
         _snapshotLease = null;
+        _config.DisposeOwnedDiagnostics();
     }
 
     private TopDocs ExecuteRrfQuery(RrfQuery rrf, int topN)

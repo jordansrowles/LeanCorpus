@@ -13,6 +13,21 @@
 /// </remarks>
 public sealed class SearchOptions
 {
+    /// <summary>Initialises query options and captures the current process-wide resource defaults.</summary>
+    public SearchOptions()
+        : this(LeanCorpusDefaults.GetSnapshot())
+    {
+    }
+
+    internal SearchOptions(LeanCorpusDefaultSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        MaxResultBytes = snapshot.Search.MaxResultBytes.IsSet
+            ? snapshot.Search.MaxResultBytes.Value
+            : long.MaxValue;
+        Timeout = snapshot.Search.Timeout.IsSet ? snapshot.Search.Timeout.Value : null;
+    }
+
     /// <summary>
     /// Approximate budget on the bytes the retained result accumulator may hold.
     /// Each retained candidate costs roughly 12 bytes (one <see cref="Scoring.ScoreDoc"/>).
@@ -40,7 +55,7 @@ public sealed class SearchOptions
     public CancellationToken CancellationToken { get; init; } = CancellationToken.None;
 
     /// <summary>Default options with no limits.</summary>
-    public static SearchOptions Default { get; } = new();
+    public static SearchOptions Default => new();
 
     /// <summary>Creates options with a specific approximate result-byte budget.</summary>
     public static SearchOptions WithBudget(long maxBytes) => new() { MaxResultBytes = maxBytes };

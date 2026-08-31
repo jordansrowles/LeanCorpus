@@ -30,6 +30,35 @@ Use one `IndexWriter` per index directory. The write lock prevents competing wri
 
 Keep `DurableCommits = true` when commit acknowledgement must survive host or power loss. If the application chooses non-durable commits, document the accepted recovery-point loss.
 
+## Startup defaults
+
+Set process-wide defaults once during startup, before constructing any index or
+search components. They are construction-time defaults, so existing writers,
+searchers, managers, and query options keep the values they already captured.
+Explicit local configuration and request options take precedence.
+
+```csharp
+LeanCorpusDefaults.Configure(options =>
+{
+    options.IndexWriter.DurableCommits = true;
+    options.IndexWriter.MaxQueuedBytes = 1024L * 1024 * 1024;
+    options.IndexSearcher.MaxCachedSegmentReaders = 512;
+    options.SearcherManager.RefreshInterval = TimeSpan.FromSeconds(1);
+    options.Search.MaxResultBytes = 32 * 1024 * 1024;
+});
+```
+
+Keep deployment-specific choices such as `Schema`, `IndexSort`, migration
+actions, cancellation tokens, result limits, and query filters local. Defaults
+that affect compression, postings, vectors, or other segment metadata apply to
+newly written segments only. They do not rewrite or reinterpret an existing
+index.
+
+Factory defaults create fresh component instances for each configuration.
+Manager-owned factory diagnostics survive searcher refreshes; the manager
+disposes factory-created slow-query logging when it is disposed. Resources
+supplied directly by the application remain application-owned.
+
 ## Refresh and searchers
 
 Use `SearcherManager` for a long-running service:

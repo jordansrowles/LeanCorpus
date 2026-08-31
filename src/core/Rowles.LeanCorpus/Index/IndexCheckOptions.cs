@@ -7,6 +7,18 @@ namespace Rowles.LeanCorpus.Index;
 /// </summary>
 public sealed class IndexCheckOptions
 {
+    /// <summary>Initialises validation options and captures the current codec catalogue default.</summary>
+    public IndexCheckOptions()
+        : this(LeanCorpusDefaults.GetSnapshot())
+    {
+    }
+
+    internal IndexCheckOptions(LeanCorpusDefaultSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        Catalog = snapshot.Codecs.Catalog.IsSet ? snapshot.Codecs.Catalog.Value : CodecCatalog.Default;
+    }
+
     /// <summary>Gets or sets the immutable codec catalogue used for frame and temporary-file validation.</summary>
     public CodecCatalog Catalog { get; set; } = CodecCatalog.Default;
 

@@ -1,5 +1,3 @@
-using System.Threading;
-
 namespace Rowles.LeanCorpus;
 
 /// <summary>
@@ -9,49 +7,99 @@ namespace Rowles.LeanCorpus;
 /// </summary>
 public static class LeanCorpusDefaults
 {
+    private static readonly object s_updateLock = new();
+    [ThreadStatic] private static bool t_updateInProgress;
     private static LeanCorpusDefaultSnapshot s_current = LeanCorpusDefaultSnapshot.BuiltIn;
 
-    /// <summary>Publishes a complete, immutable snapshot of the supplied defaults.</summary>
+    /// <summary>
+    /// Publishes a complete, immutable snapshot of the supplied defaults. The callback runs
+    /// while a process-wide update is serialised, but configured factories are not invoked here.
+    /// </summary>
     /// <param name="configure">Configures a private options builder.</param>
     public static void Configure(Action<LeanCorpusDefaultOptions> configure)
     {
         ArgumentNullException.ThrowIfNull(configure);
 
-        LeanCorpusDefaultSnapshot current = Volatile.Read(ref s_current);
-        var options = new LeanCorpusDefaultOptions(current);
-        configure(options);
-        Interlocked.Exchange(ref s_current, options.ToSnapshot());
+        lock (s_updateLock)
+        {
+            ThrowIfReentrant();
+            t_updateInProgress = true;
+            try
+            {
+                LeanCorpusDefaultSnapshot current = Volatile.Read(ref s_current);
+                var options = new LeanCorpusDefaultOptions(current);
+                configure(options);
+                LeanCorpusDefaultSnapshot candidate = options.ToSnapshot();
+                ValidateCandidate(candidate);
+                Interlocked.Exchange(ref s_current, candidate);
+            }
+            finally
+            {
+                t_updateInProgress = false;
+            }
+        }
     }
 
     /// <summary>Restores the built-in defaults for subsequently created configurations.</summary>
-    public static void Reset() => Interlocked.Exchange(ref s_current, LeanCorpusDefaultSnapshot.BuiltIn);
+    public static void Reset()
+    {
+        lock (s_updateLock)
+        {
+            ThrowIfReentrant();
+            t_updateInProgress = true;
+            try
+            {
+                Interlocked.Exchange(ref s_current, LeanCorpusDefaultSnapshot.BuiltIn);
+            }
+            finally
+            {
+                t_updateInProgress = false;
+            }
+        }
+    }
 
     internal static LeanCorpusDefaultSnapshot GetSnapshot() => Volatile.Read(ref s_current);
-}
 
-/// <summary>Mutable builder used only while publishing a <see cref="LeanCorpusDefaults"/> snapshot.</summary>
-public sealed class LeanCorpusDefaultOptions
-{
-    internal LeanCorpusDefaultOptions(LeanCorpusDefaultSnapshot snapshot) =>
-        IndexWriter = new IndexWriterDefaultOptions { DurableCommits = snapshot.IndexWriterDurableCommits };
+    internal static LeanCorpusDefaultSnapshot CaptureSnapshotForTests() => GetSnapshot();
 
-    /// <summary>Gets the defaults applied to newly created index-writer configurations.</summary>
-    public IndexWriterDefaultOptions IndexWriter { get; }
+    internal static void RestoreSnapshotForTests(LeanCorpusDefaultSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        lock (s_updateLock)
+        {
+            ThrowIfReentrant();
+            t_updateInProgress = true;
+            try
+            {
+                Interlocked.Exchange(ref s_current, snapshot);
+            }
+            finally
+            {
+                t_updateInProgress = false;
+            }
+        }
+    }
 
-    internal LeanCorpusDefaultSnapshot ToSnapshot() => new(IndexWriter.DurableCommits);
-}
+    private static void ThrowIfReentrant()
+    {
+        if (t_updateInProgress)
+            throw new InvalidOperationException("LeanCorpusDefaults cannot be configured recursively on the same thread.");
+    }
 
-/// <summary>Optional defaults applied to newly created <see cref="Index.Indexer.IndexWriterConfig"/> instances.</summary>
-public sealed class IndexWriterDefaultOptions
-{
-    /// <summary>
-    /// Gets or sets the default durable-commit setting. <see langword="null"/> retains the
-    /// built-in production default.
-    /// </summary>
-    public bool? DurableCommits { get; set; }
-}
+    private static void ValidateCandidate(LeanCorpusDefaultSnapshot snapshot)
+    {
+        var writer = new Index.Indexer.IndexWriterConfig(snapshot, applyFactories: false);
+        writer.Validate();
 
-internal sealed record LeanCorpusDefaultSnapshot(bool? IndexWriterDurableCommits)
-{
-    internal static LeanCorpusDefaultSnapshot BuiltIn { get; } = new((bool?)null);
+        var searcher = new Search.Searcher.IndexSearcherConfig(snapshot, applyFactories: false);
+        searcher.Validate();
+
+        var manager = new Search.Searcher.SearcherManagerConfig(snapshot, applyFactories: false);
+        manager.Validate();
+
+        var mapping = new Document.Json.JsonMappingOptions(snapshot);
+        mapping.Validate();
+        _ = new Search.SearchOptions(snapshot);
+        _ = new Search.HnswSearchOptions(snapshot);
+    }
 }

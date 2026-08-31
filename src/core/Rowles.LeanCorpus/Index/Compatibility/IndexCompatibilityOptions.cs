@@ -7,6 +7,18 @@ namespace Rowles.LeanCorpus.Index.Compatibility;
 /// </summary>
 public sealed class IndexCompatibilityOptions
 {
+    /// <summary>Initialises compatibility options and captures the current codec catalogue default.</summary>
+    public IndexCompatibilityOptions()
+        : this(LeanCorpusDefaults.GetSnapshot())
+    {
+    }
+
+    internal IndexCompatibilityOptions(LeanCorpusDefaultSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        Catalog = snapshot.Codecs.Catalog.IsSet ? snapshot.Codecs.Catalog.Value : CodecCatalog.Default;
+    }
+
     /// <summary>Gets or sets the immutable codec catalogue used for inspection and validation.</summary>
     public CodecCatalog Catalog { get; set; } = CodecCatalog.Default;
 

@@ -87,13 +87,14 @@ public sealed class LeanCorpusDefaultsTests
 
     private static void RunWithRestoredTestPolicy(Action action)
     {
+        var snapshot = LeanCorpusDefaults.CaptureSnapshotForTests();
         try
         {
             action();
         }
         finally
         {
-            LeanCorpusDefaults.Configure(static options => options.IndexWriter.DurableCommits = false);
+            LeanCorpusDefaults.RestoreSnapshotForTests(snapshot);
         }
     }
 }

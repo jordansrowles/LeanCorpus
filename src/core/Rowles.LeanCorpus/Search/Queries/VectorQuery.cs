@@ -19,7 +19,8 @@ public sealed class VectorQuery : Query
 
     /// <summary>
     /// HNSW search-time candidate pool size (the <c>ef</c> parameter). Larger values increase recall at
-    /// the cost of latency. Defaults to <c>max(64, 4 * topK)</c>.
+    /// the cost of latency. Uses <see cref="LeanCorpusDefaults"/>'s HNSW search default when one is
+    /// configured; otherwise defaults to <c>max(64, 4 * topK)</c>.
     /// </summary>
     public int EfSearch { get; }
 
@@ -50,9 +51,19 @@ public sealed class VectorQuery : Query
         Field = field;
         QueryVector = queryVector;
         TopK = topK;
-        EfSearch = efSearch > 0 ? efSearch : Math.Max(64, 4 * topK);
+        EfSearch = efSearch > 0
+            ? efSearch
+            : ResolveDefaultEf(topK);
         OversamplingFactor = Math.Max(1, oversamplingFactor);
         Filter = filter;
+    }
+
+    private static int ResolveDefaultEf(int topK)
+    {
+        var configured = LeanCorpusDefaults.GetSnapshot().Search.Hnsw.Ef;
+        return configured.IsSet && configured.Value > 0
+            ? configured.Value
+            : Math.Max(64, 4 * topK);
     }
 
     /// <inheritdoc/>
