@@ -10,26 +10,27 @@ internal static class BackpressureController
     {
         var semaphore = writer.BackpressureSemaphore;
         if (semaphore is null) return;
-        if (semaphore.Wait(0)) return;
-
-        if (Interlocked.CompareExchange(ref writer.FlushElection, 1, 0) == 0)
-        {
-            try
-            {
-                lock (writer.WriteLock)
-                {
-                    DwptManager.FlushDwptPool(writer);
-                    if (writer.Buffer.DocCount > 0)
-                        IndexWriter.FlushSegmentStatic(writer);
-                }
-            }
-            finally
-            {
-                Volatile.Write(ref writer.FlushElection, 0);
-            }
-        }
         try
         {
+            if (semaphore.Wait(0, writer.ShutdownToken)) return;
+
+            if (Interlocked.CompareExchange(ref writer.FlushElection, 1, 0) == 0)
+            {
+                try
+                {
+                    lock (writer.WriteLock)
+                    {
+                        DwptManager.FlushDwptPool(writer);
+                        if (writer.Buffer.DocCount > 0)
+                            IndexWriter.FlushSegmentStatic(writer);
+                    }
+                }
+                finally
+                {
+                    Volatile.Write(ref writer.FlushElection, 0);
+                }
+            }
+
             semaphore.Wait(writer.ShutdownToken);
         }
         catch (OperationCanceledException) when (writer.IsClosing)

@@ -59,6 +59,7 @@ public sealed partial class IndexWriter : IDisposable
     private readonly HashSet<string> _obsoleteMergeSegments = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _mergeCts = new();
     private readonly CancellationTokenSource _shutdownCts = new();
+    private readonly CancellationToken _shutdownToken;
     private readonly Lock _mergeLock = new();
     private readonly Lock _mergeIoLock = new();
 
@@ -110,6 +111,7 @@ public sealed partial class IndexWriter : IDisposable
         _directory = directory;
         _config = config;
         _disposeTimeout = disposeTimeout;
+        _shutdownToken = _shutdownCts.Token;
         _spanPostingSink = new SpanPostingTokenSink(_buffer, _config);
         _buffer.StoreTermVectors = config.StoreTermVectors;
 
@@ -535,10 +537,9 @@ public sealed partial class IndexWriter : IDisposable
         CompleteAsyncWrites();
 
         Exception? failure = null;
-        bool indexingOperationsDrained = false;
         try
         {
-            indexingOperationsDrained = DrainIndexingOperations(_disposeTimeout);
+            DrainIndexingOperations(_disposeTimeout);
 
             // Drain any pending detached flushes and publish their segments.
             lock (_writeLock)
@@ -550,14 +551,14 @@ public sealed partial class IndexWriter : IDisposable
         }
         finally
         {
-            DisposeResources(ref failure, indexingOperationsDrained);
+            DisposeResources(ref failure);
         }
 
         if (failure is not null)
             ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
-    private bool DrainIndexingOperations(TimeSpan timeout)
+    private void DrainIndexingOperations(TimeSpan timeout)
     {
         var spinWait = new SpinWait();
         long drainTimeoutMs = checked((long)timeout.TotalMilliseconds);
@@ -576,15 +577,13 @@ public sealed partial class IndexWriter : IDisposable
                         $"{Volatile.Read(ref _inFlightAdds)} in-flight indexing operation(s) to complete."),
                     "dispose-drain-timeout");
                 MarkIndexingFailed();
-                return false;
+                return;
             }
             Thread.Sleep(1);
         }
-
-        return true;
     }
 
-    private void DisposeResources(ref Exception? failure, bool indexingOperationsDrained)
+    private void DisposeResources(ref Exception? failure)
     {
         CaptureDisposeFailure(ref failure, _mergeCts.Cancel, "dispose-cancel-merges");
         try { _mergeTask?.Wait(); }
@@ -596,8 +595,7 @@ public sealed partial class IndexWriter : IDisposable
         CaptureDisposeFailure(ref failure, WaitForAsyncWriteConsumer, "dispose-async-write-consumer");
 
         CaptureDisposeFailure(ref failure, () => _backpressureSemaphore?.Dispose(), "dispose-backpressure");
-        if (indexingOperationsDrained)
-            CaptureDisposeFailure(ref failure, _shutdownCts.Dispose, "dispose-shutdown-cancellation");
+        CaptureDisposeFailure(ref failure, _shutdownCts.Dispose, "dispose-shutdown-cancellation");
         CaptureDisposeFailure(ref failure, () => _flushSemaphore?.Dispose(), "dispose-flush-semaphore");
         CaptureDisposeFailure(ref failure, _writeLockFile.Dispose, "dispose-write-lock-handle");
 
@@ -612,7 +610,7 @@ public sealed partial class IndexWriter : IDisposable
         lock (_asyncWriteLock)
             consumer = _asyncWriteConsumer;
 
-        if (consumer is not null && !consumer.Wait(_disposeTimeout))
+        if (consumer is not null && !consumer.Wait(_disposeTimeout, CancellationToken.None))
         {
             throw new TimeoutException(
                 $"IndexWriter.Dispose timed out after {_disposeTimeout.TotalSeconds:0.###} seconds " +
@@ -836,7 +834,7 @@ public sealed partial class IndexWriter : IDisposable
             channel = _asyncWriteChannel ?? throw new InvalidOperationException("Async write channel was not initialised.");
 
         var reader = channel.Reader;
-        while (reader.WaitToReadAsync().AsTask().GetAwaiter().GetResult())
+        while (reader.WaitToReadAsync(CancellationToken.None).AsTask().GetAwaiter().GetResult())
         {
             while (reader.TryRead(out var cmd))
             {
@@ -931,7 +929,7 @@ public sealed partial class IndexWriter : IDisposable
     internal DocumentsWriterPerThread[]? DwptPool { get => _dwptPool; set => _dwptPool = value; }
     internal SemaphoreSlim? BackpressureSemaphore => _backpressureSemaphore;
     internal SemaphoreSlim? BackpressureSemaphoreForTests => _backpressureSemaphore;
-    internal CancellationToken ShutdownToken => _shutdownCts.Token;
+    internal CancellationToken ShutdownToken => _shutdownToken;
     internal bool IsClosing => Volatile.Read(ref _closing) != 0;
     internal int InFlightIndexingOperationsForTests => Volatile.Read(ref _inFlightAdds);
     internal bool AsyncWriteConsumerStartedForTests
