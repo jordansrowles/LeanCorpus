@@ -141,7 +141,7 @@ public sealed class DrillDownQuery : Query
     /// <inheritdoc/>
     public override bool Equals(object? obj)
         => obj is DrillDownQuery other
-            && Boost == other.Boost
+            && Boost.Equals(other.Boost)
             && BaseQuery.Equals(other.BaseQuery)
             && _selections.SequenceEqual(other._selections);
 

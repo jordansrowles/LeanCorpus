@@ -350,7 +350,7 @@ internal static class AggregationMergeCompatibility
     {
         if (left.Type != right.Type
             || !string.Equals(left.Field, right.Field, StringComparison.Ordinal)
-            || left.HistogramInterval != right.HistogramInterval
+            || !left.HistogramInterval.Equals(right.HistogramInterval)
             || left.CardinalityPrecision != right.CardinalityPrecision
             || left.TDigestCompression != right.TDigestCompression
             || left.HdrHighestTrackableValue != right.HdrHighestTrackableValue

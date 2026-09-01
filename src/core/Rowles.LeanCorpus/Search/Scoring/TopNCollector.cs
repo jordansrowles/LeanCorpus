@@ -114,7 +114,7 @@ public struct TopNCollector
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Collect(int docId, float score)
     {
-        if (_scoreMultiplier != 1f)
+        if (!_scoreMultiplier.Equals(1f))
             score *= _scoreMultiplier;
         if (_sideCollector is not null)
         {

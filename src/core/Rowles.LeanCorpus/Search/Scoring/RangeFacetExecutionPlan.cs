@@ -34,7 +34,7 @@ internal sealed class NumericRangeExecutionPlan
             var range = _byLowerBound[middle].Range;
             if (range.LowerBound is null
                 || value > range.LowerBound.Value
-                || (value == range.LowerBound.Value && range.IncludeLower))
+                || (value.Equals(range.LowerBound.Value) && range.IncludeLower))
             {
                 candidate = middle;
                 low = middle + 1;

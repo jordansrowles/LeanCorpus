@@ -43,11 +43,11 @@ public sealed class NumericRange
             return false;
 
         if (LowerBound is { } lower
-            && (value < lower || (!IncludeLower && value == lower)))
+            && (value < lower || (!IncludeLower && value.Equals(lower))))
             return false;
 
         if (UpperBound is { } upper
-            && (value > upper || (!IncludeUpper && value == upper)))
+            && (value > upper || (!IncludeUpper && value.Equals(upper))))
             return false;
 
         return true;

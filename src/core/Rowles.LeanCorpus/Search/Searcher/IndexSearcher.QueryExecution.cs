@@ -473,7 +473,7 @@ public sealed partial class IndexSearcher
 
                 // WAND path: check capability, then use block-max scoring.
                 bool useWand = _config.EnableBlockMaxWand
-                    && collector.ScoreMultiplier == 1f
+                    && collector.ScoreMultiplier.Equals(1f)
                     && _config.PerFieldSimilarities is null
                     && mustNotCount == 0
                     && minimumShouldMatch <= 1

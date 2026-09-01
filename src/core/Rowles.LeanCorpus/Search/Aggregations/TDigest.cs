@@ -53,8 +53,8 @@ public sealed class TDigest
         if (quantile is < 0 or > 1 || double.IsNaN(quantile)) throw new ArgumentOutOfRangeException(nameof(quantile));
         if (Count == 0) return 0;
         Compress();
-        if (quantile == 0) return _centroids[0].Mean;
-        if (quantile == 1) return _centroids[^1].Mean;
+        if (quantile.Equals(0d)) return _centroids[0].Mean;
+        if (quantile.Equals(1d)) return _centroids[^1].Mean;
         double target = quantile * Count, cumulative = 0;
         for (int i = 0; i < _centroids.Count; i++)
         {
