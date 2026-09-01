@@ -18,10 +18,10 @@ public sealed class MMapLifetimeTests : IDisposable
         var input = new IndexInput(filePath);
         var lease = input.AcquireLifetimeLease();
 
-        var dispose = Task.Run(input.Dispose, TestContext.Current.CancellationToken);
+        var dispose = StartDedicatedDispose(input.Dispose);
         try
         {
-            await WaitUntilRejectedAsync(() => input.AcquireLifetimeLease());
+            WaitUntilRejected(() => input.AcquireLifetimeLease());
             Assert.False(dispose.IsCompleted);
         }
         finally
@@ -42,10 +42,10 @@ public sealed class MMapLifetimeTests : IDisposable
         var input = directory.OpenInput("input.bin");
         var lease = input.AcquireLifetimeLease();
 
-        var dispose = Task.Run(directory.Dispose, TestContext.Current.CancellationToken);
+        var dispose = StartDedicatedDispose(directory.Dispose);
         try
         {
-            await WaitUntilRejectedAsync(() => directory.AcquireOperationLease());
+            WaitUntilRejected(() => directory.AcquireOperationLease());
             Assert.False(dispose.IsCompleted);
         }
         finally
@@ -71,23 +71,31 @@ public sealed class MMapLifetimeTests : IDisposable
         Assert.Equal([1, 2, 3], bytes.ToArray());
     }
 
-    private static async Task WaitUntilRejectedAsync(Func<IDisposable> acquire)
+    private static Task StartDedicatedDispose(Action dispose) =>
+        Task.Factory.StartNew(
+            dispose,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+
+    private static void WaitUntilRejected(Func<IDisposable> acquire)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
-            timeout.Token, TestContext.Current.CancellationToken);
-        while (true)
-        {
-            try
+        bool rejected = SpinWait.SpinUntil(
+            () =>
             {
-                acquire().Dispose();
-            }
-            catch (ObjectDisposedException)
-            {
-                return;
-            }
-            await Task.Delay(1, cancellation.Token);
-        }
+                try
+                {
+                    acquire().Dispose();
+                    return false;
+                }
+                catch (ObjectDisposedException)
+                {
+                    return true;
+                }
+            },
+            TimeSpan.FromSeconds(5));
+
+        Assert.True(rejected, "Disposal did not reject new mapping leases.");
     }
 
     public void Dispose()
