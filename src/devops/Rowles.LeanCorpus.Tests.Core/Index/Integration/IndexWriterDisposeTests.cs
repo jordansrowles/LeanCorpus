@@ -32,14 +32,14 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
 
     /// <summary>
     /// 32 producers call AddDocumentLockFree in a tight loop while the main thread
-    /// calls Dispose after 100 ms. No ObjectDisposedException must escape to any producer,
-    /// and the writer must be cleanly disposed afterwards.
+    /// calls Dispose after 100 ms. Producers may observe ObjectDisposedException as their
+    /// graceful shutdown signal, and the writer must be cleanly disposed afterwards.
     /// </summary>
-    [Fact(DisplayName = "Dispose: During Concurrent Add Document Lock Free No Object Disposed Race")]
-    public void Dispose_DuringConcurrentAddDocumentLockFree_NoObjectDisposedRace()
+    [Fact(DisplayName = "Dispose: During Concurrent Add Document Lock Free No Object Disposed Race", Timeout = 30_000)]
+    public async Task Dispose_DuringConcurrentAddDocumentLockFree_NoObjectDisposedRace()
     {
         var dir = SubDir("h12_race");
-        var config = new IndexWriterConfig { MaxBufferedDocs = 10_000 };
+        var config = new IndexWriterConfig { MaxBufferedDocs = 10_000, MaxQueuedDocs = 0 };
         var writer = new IndexWriter(new MMapDirectory(dir), config);
         writer.InitialiseDwptPool(threadCount: 8);
 
@@ -84,7 +84,7 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
 
         // Signal producers to stop and wait for all to finish
         cts.Cancel();
-        Task.WaitAll(tasks, TestContext.Current.CancellationToken);
+        await Task.WhenAll(tasks).WaitAsync(TestContext.Current.CancellationToken);
 
         // ObjectDisposedException thrown by our own guard (re-check after increment) is
         // the expected graceful exit signal. Any other exception type indicates a real bug
@@ -94,6 +94,56 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
             .ToList();
 
         Assert.Empty(unexpectedExceptions);
+    }
+
+    /// <summary>
+    /// Verifies that a producer blocked on writer-owned backpressure observes shutdown,
+    /// unwinds its indexing operation, and does not leave disposal waiting indefinitely.
+    /// </summary>
+    [Fact(DisplayName = "Dispose: Unblocks Producers Waiting For Backpressure", Timeout = 30_000)]
+    public async Task Dispose_UnblocksProducerWaitingForBackpressure()
+    {
+        var dir = SubDir("dispose_backpressure_wait");
+        var writer = new IndexWriter(
+            new MMapDirectory(dir),
+            new IndexWriterConfig { MaxQueuedDocs = 1, MaxBufferedDocs = 10_000, DurableCommits = false });
+        var semaphore = writer.BackpressureSemaphoreForTests;
+        Assert.NotNull(semaphore);
+        Assert.True(semaphore!.Wait(0));
+
+        var producer = Task.Run(() =>
+        {
+            try
+            {
+                var doc = new LeanDocument();
+                doc.Add(new TextField("body", "blocked by backpressure"));
+                writer.AddDocument(doc);
+                return (Exception?)null;
+            }
+            catch (Exception exception)
+            {
+                return exception;
+            }
+        }, TestContext.Current.CancellationToken);
+
+        try
+        {
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => writer.InFlightIndexingOperationsForTests == 1 && !producer.IsCompleted,
+                    TimeSpan.FromSeconds(5)),
+                "The producer did not enter the blocked backpressure operation.");
+
+            writer.Dispose();
+
+            var exception = await producer.WaitAsync(TestContext.Current.CancellationToken);
+            Assert.IsType<ObjectDisposedException>(exception);
+            Assert.Equal(0, writer.InFlightIndexingOperationsForTests);
+        }
+        finally
+        {
+            writer.Dispose();
+        }
     }
 
     /// <summary>

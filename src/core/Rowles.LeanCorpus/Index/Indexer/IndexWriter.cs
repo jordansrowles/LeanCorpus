@@ -58,6 +58,7 @@ public sealed partial class IndexWriter : IDisposable
     private readonly HashSet<string> _reservedMergeSegments = new(StringComparer.Ordinal);
     private readonly HashSet<string> _obsoleteMergeSegments = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _mergeCts = new();
+    private readonly CancellationTokenSource _shutdownCts = new();
     private readonly Lock _mergeLock = new();
     private readonly Lock _mergeIoLock = new();
 
@@ -534,11 +535,13 @@ public sealed partial class IndexWriter : IDisposable
 
         // Prevent new callers from entering while we drain in-flight operations.
         Volatile.Write(ref _closing, 1);
+        _shutdownCts.Cancel();
 
         Exception? failure = null;
+        bool indexingOperationsDrained = false;
         try
         {
-            DrainIndexingOperations(_disposeTimeout);
+            indexingOperationsDrained = DrainIndexingOperations(_disposeTimeout);
 
             // Drain any pending detached flushes and publish their segments.
             lock (_writeLock)
@@ -550,14 +553,14 @@ public sealed partial class IndexWriter : IDisposable
         }
         finally
         {
-            DisposeResources(ref failure);
+            DisposeResources(ref failure, indexingOperationsDrained);
         }
 
         if (failure is not null)
             ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
-    private void DrainIndexingOperations(TimeSpan timeout)
+    private bool DrainIndexingOperations(TimeSpan timeout)
     {
         var spinWait = new SpinWait();
         long drainTimeoutMs = checked((long)timeout.TotalMilliseconds);
@@ -576,13 +579,15 @@ public sealed partial class IndexWriter : IDisposable
                         $"{Volatile.Read(ref _inFlightAdds)} in-flight indexing operation(s) to complete."),
                     "dispose-drain-timeout");
                 MarkIndexingFailed();
-                return;
+                return false;
             }
             Thread.Sleep(1);
         }
+
+        return true;
     }
 
-    private void DisposeResources(ref Exception? failure)
+    private void DisposeResources(ref Exception? failure, bool indexingOperationsDrained)
     {
         CaptureDisposeFailure(ref failure, _mergeCts.Cancel, "dispose-cancel-merges");
         try { _mergeTask?.Wait(); }
@@ -595,6 +600,8 @@ public sealed partial class IndexWriter : IDisposable
         CaptureDisposeFailure(ref failure, WaitForAsyncWriteConsumer, "dispose-async-write-consumer");
 
         CaptureDisposeFailure(ref failure, () => _backpressureSemaphore?.Dispose(), "dispose-backpressure");
+        if (indexingOperationsDrained)
+            CaptureDisposeFailure(ref failure, _shutdownCts.Dispose, "dispose-shutdown-cancellation");
         CaptureDisposeFailure(ref failure, () => _flushSemaphore?.Dispose(), "dispose-flush-semaphore");
         CaptureDisposeFailure(ref failure, _writeLockFile.Dispose, "dispose-write-lock-handle");
 
@@ -877,6 +884,9 @@ public sealed partial class IndexWriter : IDisposable
     internal DocumentsWriterPerThread[]? DwptPool { get => _dwptPool; set => _dwptPool = value; }
     internal SemaphoreSlim? BackpressureSemaphore => _backpressureSemaphore;
     internal SemaphoreSlim? BackpressureSemaphoreForTests => _backpressureSemaphore;
+    internal CancellationToken ShutdownToken => _shutdownCts.Token;
+    internal bool IsClosing => Volatile.Read(ref _closing) != 0;
+    internal int InFlightIndexingOperationsForTests => Volatile.Read(ref _inFlightAdds);
     internal List<FlushPendingState> FlushPending => _flushPending;
     internal ref int ActiveFlushCount => ref _activeFlushCount;
     internal SemaphoreSlim? FlushSemaphore => _flushSemaphore;

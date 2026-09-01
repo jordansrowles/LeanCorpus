@@ -8,8 +8,9 @@ internal static class BackpressureController
 {
     public static void AcquireBackpressureSlot(IndexWriter writer)
     {
-        if (writer.BackpressureSemaphore is null) return;
-        if (writer.BackpressureSemaphore.Wait(0)) return;
+        var semaphore = writer.BackpressureSemaphore;
+        if (semaphore is null) return;
+        if (semaphore.Wait(0)) return;
 
         if (Interlocked.CompareExchange(ref writer.FlushElection, 1, 0) == 0)
         {
@@ -27,7 +28,16 @@ internal static class BackpressureController
                 Volatile.Write(ref writer.FlushElection, 0);
             }
         }
-        writer.BackpressureSemaphore.Wait();
+        try
+        {
+            semaphore.Wait(writer.ShutdownToken);
+        }
+        catch (OperationCanceledException) when (writer.IsClosing)
+        {
+            throw new ObjectDisposedException(
+                nameof(IndexWriter),
+                "The writer is shutting down.");
+        }
     }
 
 
