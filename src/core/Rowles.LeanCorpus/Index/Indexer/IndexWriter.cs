@@ -76,8 +76,9 @@ public sealed partial class IndexWriter : IDisposable
     private SemaphoreSlim? _flushSemaphore;
 
     // --- Async write channel ---
-    private readonly Channel<AsyncWriteCommand> _asyncWriteChannel;
-    private readonly Task _asyncWriteConsumer;
+    private readonly Lock _asyncWriteLock = new();
+    private Channel<AsyncWriteCommand>? _asyncWriteChannel;
+    private Task? _asyncWriteConsumer;
 
     private readonly Lock _writeLock = new();
     private int _disposed;      // 0 = alive, 1 = disposed (atomically set via Interlocked)
@@ -144,13 +145,8 @@ public sealed partial class IndexWriter : IDisposable
         CommitManager.LoadLatestCommit(this);
         DwptManager.InitialiseDwptPool(this);
 
-        // Start async write consumer
-        var channelCapacity = config.MaxQueuedDocs > 0 ? config.MaxQueuedDocs : 4096;
-        _asyncWriteChannel = Channel.CreateBounded<AsyncWriteCommand>(new BoundedChannelOptions(channelCapacity)
-        {
-            SingleWriter = false, SingleReader = true, FullMode = BoundedChannelFullMode.Wait
-        });
-        _asyncWriteConsumer = Task.Run(RunAsyncWriteLoop);
+        // The asynchronous write channel is created on first use. Most writers use
+        // the synchronous API and must not depend on a thread-pool worker at disposal.
     }
 
     public long NextSequenceNumber => Volatile.Read(ref _nextSequenceNumber);
@@ -536,6 +532,7 @@ public sealed partial class IndexWriter : IDisposable
         // Prevent new callers from entering while we drain in-flight operations.
         Volatile.Write(ref _closing, 1);
         _shutdownCts.Cancel();
+        CompleteAsyncWrites();
 
         Exception? failure = null;
         bool indexingOperationsDrained = false;
@@ -596,7 +593,6 @@ public sealed partial class IndexWriter : IDisposable
         catch (TaskSchedulerException) { /* Task was rejected by scheduler during shutdown */ }
         CaptureDisposeFailure(ref failure, _mergeCts.Dispose, "dispose-merge-cancellation");
 
-        CaptureDisposeFailure(ref failure, () => { _asyncWriteChannel.Writer.Complete(); }, "dispose-async-writes");
         CaptureDisposeFailure(ref failure, WaitForAsyncWriteConsumer, "dispose-async-write-consumer");
 
         CaptureDisposeFailure(ref failure, () => _backpressureSemaphore?.Dispose(), "dispose-backpressure");
@@ -612,7 +608,11 @@ public sealed partial class IndexWriter : IDisposable
 
     private void WaitForAsyncWriteConsumer()
     {
-        if (!_asyncWriteConsumer.Wait(_disposeTimeout))
+        Task? consumer;
+        lock (_asyncWriteLock)
+            consumer = _asyncWriteConsumer;
+
+        if (consumer is not null && !consumer.Wait(_disposeTimeout))
         {
             throw new TimeoutException(
                 $"IndexWriter.Dispose timed out after {_disposeTimeout.TotalSeconds:0.###} seconds " +
@@ -786,10 +786,57 @@ public sealed partial class IndexWriter : IDisposable
     private readonly record struct AsyncWriteCommand(
         object Payload, AsyncWriteKind Kind, TaskCompletionSource Tcs);
 
-    private async Task RunAsyncWriteLoop()
+    private Channel<AsyncWriteCommand> EnsureAsyncWriteChannel()
     {
-        var reader = _asyncWriteChannel.Reader;
-        while (await reader.WaitToReadAsync().ConfigureAwait(false))
+        lock (_asyncWriteLock)
+        {
+            if (Volatile.Read(ref _disposed) != 0 || Volatile.Read(ref _closing) != 0)
+                throw new ObjectDisposedException(nameof(IndexWriter), "The writer is shutting down.");
+
+            if (_asyncWriteChannel is not null)
+                return _asyncWriteChannel;
+
+            int channelCapacity = _config.MaxQueuedDocs > 0 ? _config.MaxQueuedDocs : 4096;
+            var channel = Channel.CreateBounded<AsyncWriteCommand>(new BoundedChannelOptions(channelCapacity)
+            {
+                SingleWriter = false, SingleReader = true, FullMode = BoundedChannelFullMode.Wait
+            });
+            _asyncWriteChannel = channel;
+            _asyncWriteConsumer = Task.Factory.StartNew(
+                RunAsyncWriteLoop,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+            return channel;
+        }
+    }
+
+    private void CompleteAsyncWrites()
+    {
+        lock (_asyncWriteLock)
+            _asyncWriteChannel?.Writer.TryComplete();
+    }
+
+    private async ValueTask EnqueueAsyncWrite(AsyncWriteCommand command, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await EnsureAsyncWriteChannel().Writer.WriteAsync(command, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ChannelClosedException) when (IsClosing)
+        {
+            throw new ObjectDisposedException(nameof(IndexWriter), "The writer is shutting down.");
+        }
+    }
+
+    private void RunAsyncWriteLoop()
+    {
+        Channel<AsyncWriteCommand> channel;
+        lock (_asyncWriteLock)
+            channel = _asyncWriteChannel ?? throw new InvalidOperationException("Async write channel was not initialised.");
+
+        var reader = channel.Reader;
+        while (reader.WaitToReadAsync().AsTask().GetAwaiter().GetResult())
         {
             while (reader.TryRead(out var cmd))
             {
@@ -887,6 +934,14 @@ public sealed partial class IndexWriter : IDisposable
     internal CancellationToken ShutdownToken => _shutdownCts.Token;
     internal bool IsClosing => Volatile.Read(ref _closing) != 0;
     internal int InFlightIndexingOperationsForTests => Volatile.Read(ref _inFlightAdds);
+    internal bool AsyncWriteConsumerStartedForTests
+    {
+        get
+        {
+            lock (_asyncWriteLock)
+                return _asyncWriteConsumer is not null;
+        }
+    }
     internal List<FlushPendingState> FlushPending => _flushPending;
     internal ref int ActiveFlushCount => ref _activeFlushCount;
     internal SemaphoreSlim? FlushSemaphore => _flushSemaphore;

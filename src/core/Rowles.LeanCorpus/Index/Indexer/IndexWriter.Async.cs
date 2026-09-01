@@ -14,7 +14,7 @@ public sealed partial class IndexWriter
             ValidateDocument(doc);
             var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var cmd = new AsyncWriteCommand(doc, AsyncWriteKind.Single, tcs);
-            await _asyncWriteChannel.Writer.WriteAsync(cmd, cancellationToken).ConfigureAwait(false);
+            await EnqueueAsyncWrite(cmd, cancellationToken).ConfigureAwait(false);
             await tcs.Task.ConfigureAwait(false);
         }
         finally
@@ -46,7 +46,7 @@ public sealed partial class IndexWriter
 
             var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var cmd = new AsyncWriteCommand(documents, AsyncWriteKind.Batch, tcs);
-            await _asyncWriteChannel.Writer.WriteAsync(cmd, cancellationToken).ConfigureAwait(false);
+            await EnqueueAsyncWrite(cmd, cancellationToken).ConfigureAwait(false);
             await tcs.Task.ConfigureAwait(false);
         }
         finally
@@ -117,7 +117,7 @@ public sealed partial class IndexWriter
 
             var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var cmd = new AsyncWriteCommand(block, AsyncWriteKind.Block, tcs);
-            await _asyncWriteChannel.Writer.WriteAsync(cmd, cancellationToken).ConfigureAwait(false);
+            await EnqueueAsyncWrite(cmd, cancellationToken).ConfigureAwait(false);
             await tcs.Task.ConfigureAwait(false);
         }
         finally

@@ -27,6 +27,8 @@ internal sealed class IndexLifecycleMachine : Machine<IndexHarness, IndexModel>
         {
             (25, Constant(new AddOperation(ModelDocument.Create(model.NextId)))),
             (15, Constant(new AddBatchOperation(CreateBatch(model.NextId)))),
+            (15, Constant(new AddAsyncOperation(ModelDocument.Create(model.NextId)))),
+            (10, Constant(new AddBatchAsyncOperation(CreateBatch(model.NextId)))),
             (15, Constant(new CommitOperation())),
             (20, Gen.Elements(SearchOperations.ToArray())),
             (5, Constant(new ReopenOperation()))

@@ -147,6 +147,88 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
     }
 
     /// <summary>
+    /// A writer that uses only synchronous indexing must not create an asynchronous
+    /// consumer or wait for one during disposal.
+    /// </summary>
+    [Fact(DisplayName = "Dispose: Synchronous Writer Does Not Start Async Consumer")]
+    public void Dispose_SynchronousWriter_DoesNotStartAsyncConsumer()
+    {
+        var dir = SubDir("dispose_sync_writer");
+        var writer = new IndexWriter(
+            new MMapDirectory(dir),
+            new IndexWriterConfig { DurableCommits = false });
+
+        try
+        {
+            Assert.False(writer.AsyncWriteConsumerStartedForTests);
+
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "synchronous document"));
+            writer.AddDocument(doc);
+
+            Assert.False(writer.AsyncWriteConsumerStartedForTests);
+            writer.Dispose();
+        }
+        finally
+        {
+            writer.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Disposal closes async input before draining indexing operations. A command
+    /// already queued behind an active command must therefore finish with the writer
+    /// shutdown signal rather than keep disposal waiting for an absent consumer.
+    /// </summary>
+    [Fact(DisplayName = "Dispose: Unblocks Queued Async Writer Commands", Timeout = 30_000)]
+    public async Task Dispose_UnblocksQueuedAsyncWriterCommands()
+    {
+        var dir = SubDir("dispose_async_queue");
+        var writer = new IndexWriter(
+            new MMapDirectory(dir),
+            new IndexWriterConfig { MaxBufferedDocs = 1, DurableCommits = false });
+
+        Task first;
+        Task second;
+        Task dispose;
+        lock (writer.WriteLock)
+        {
+            first = writer.AddDocumentAsync(CreateDocument("first")).AsTask();
+
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => writer.InFlightIndexingOperationsForTests == 2,
+                    TimeSpan.FromSeconds(5)),
+                "The asynchronous consumer did not begin processing the first command.");
+
+            second = writer.AddDocumentAsync(CreateDocument("second")).AsTask();
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => writer.InFlightIndexingOperationsForTests == 3,
+                    TimeSpan.FromSeconds(5)),
+                "The second asynchronous command was not queued.");
+
+            dispose = Task.Run(writer.Dispose, TestContext.Current.CancellationToken);
+            Assert.True(
+                SpinWait.SpinUntil(() => writer.IsClosing, TimeSpan.FromSeconds(5)),
+                "Writer disposal did not begin.");
+        }
+
+        await dispose.WaitAsync(TestContext.Current.CancellationToken);
+        await first.WaitAsync(TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => second);
+        Assert.Equal(0, writer.InFlightIndexingOperationsForTests);
+    }
+
+    private static LeanDocument CreateDocument(string id)
+    {
+        var doc = new LeanDocument();
+        doc.Add(new StringField("id", id));
+        doc.Add(new TextField("body", "async lifecycle document"));
+        return doc;
+    }
+
+    /// <summary>
     /// Verifies the Dispose: Is Idempotent Never Throws scenario.
     /// </summary>
     [Fact(DisplayName = "Dispose: Is Idempotent Never Throws")]
