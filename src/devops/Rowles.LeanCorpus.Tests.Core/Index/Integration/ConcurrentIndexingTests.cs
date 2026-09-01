@@ -302,21 +302,27 @@ public sealed class ConcurrentIndexingTests : IDisposable
         var errors = new ConcurrentBag<Exception>();
         int successfulAdds = 0;
 
-        Task[] producers = Enumerable.Range(0, ProducerCount).Select(producer => Task.Run(() =>
-        {
-            try
-            {
-                started.Signal();
-                for (int item = 0; item < DocumentsPerProducer; item++)
+        Task[] producers = Enumerable.Range(0, ProducerCount).Select(producer =>
+            Task.Factory.StartNew(
+                () =>
                 {
-                    int id = producer * DocumentsPerProducer + item;
-                    writer.AddDocument(BuildDoc(id, "overlap commit"));
-                    Interlocked.Increment(ref successfulAdds);
-                    if ((item & 7) == 0) Thread.Yield();
-                }
-            }
-            catch (Exception exception) { errors.Add(exception); }
-        })).ToArray();
+                    try
+                    {
+                        started.Signal();
+                        for (int item = 0; item < DocumentsPerProducer; item++)
+                        {
+                            int id = producer * DocumentsPerProducer + item;
+                            writer.AddDocument(BuildDoc(id, "overlap commit"));
+                            Interlocked.Increment(ref successfulAdds);
+                            if ((item & 7) == 0) Thread.Yield();
+                        }
+                    }
+                    catch (Exception exception) { errors.Add(exception); }
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default))
+            .ToArray();
 
         Assert.True(started.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken), "Producers did not start.");
         Assert.True(SpinWait.SpinUntil(
