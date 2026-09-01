@@ -37,6 +37,27 @@ public sealed class ApproximateAggregationIntegrationTests : IClassFixture<TestD
         Assert.Equal(6, ((PercentileAggregationResult)results[2]).Count);
     }
 
+    [Fact(DisplayName = "Approximate aggregations: Zero TopN Retains Count And Results")]
+    public void SearchWithAggregations_ZeroTopNRetainsCountAndResults()
+    {
+        string path = Path.Combine(_fixture.Path, nameof(SearchWithAggregations_ZeroTopNRetainsCountAndResults));
+        Directory.CreateDirectory(path);
+        using (var writer = new IndexWriter(new MMapDirectory(path), new IndexWriterConfig()))
+        {
+            Add(writer, 1); Add(writer, 2); Add(writer, 2); writer.Commit();
+        }
+        using var searcher = new IndexSearcher(new MMapDirectory(path));
+        var (hits, results) = searcher.SearchWithAggregations(
+            new TermQuery("body", "common"), 0,
+            [new AggregationRequest("distinct", "value", AggregationType.Cardinality)],
+            TestContext.Current.CancellationToken);
+        Assert.Equal(3, hits.TotalHits);
+        Assert.Empty(hits.ScoreDocs);
+        var cardinality = Assert.IsType<CardinalityAggregationResult>(Assert.Single(results));
+        Assert.Equal("hll++", cardinality.Algorithm);
+        Assert.InRange(cardinality.EstimatedCardinality, 1.9, 2.1);
+    }
+
     [Fact(DisplayName = "Approximate aggregations: Segment Layout And Deletions")]
     public void SearchWithAggregations_IsStableAcrossSegmentsAndExcludesDeletedDocuments()
     {

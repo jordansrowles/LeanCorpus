@@ -1,3 +1,6 @@
+using System.Buffers.Binary;
+using System.Numerics;
+using Rowles.LeanCorpus.Codecs.CodecKit.Checksum.Providers;
 using Rowles.LeanCorpus.Search.Aggregations;
 
 namespace Rowles.LeanCorpus.Tests.Core.Search;
@@ -36,6 +39,113 @@ public sealed class ApproximationPrimitiveTests
         for (int i = 0; i < cardinality; i++) sketch.Add((long)i);
 
         Assert.InRange(Math.Abs(sketch.Estimate() - cardinality) / cardinality, 0, sketch.ExpectedRelativeError * 4);
+    }
+
+    [Fact(DisplayName = "HLL++: Precision Thresholds And Bias Neighbours Match Reference Data")]
+    public void HyperLogLogPlusPlus_ReferenceDataMatchesPublishedValues()
+    {
+        double[] expected = [10, 20, 40, 80, 220, 400, 900, 1_800, 3_100, 6_500, 11_500, 20_000, 50_000, 120_000, 350_000];
+        for (int precision = 4; precision <= 18; precision++)
+            Assert.Equal(expected[precision - 4], HyperLogLogPlusPlusData.Threshold(precision));
+
+        Assert.Equal(17.1612, HyperLogLogPlusPlusData.EstimateBias(5, 27.5), precision: 4);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new HyperLogLogPlusPlus(3));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new HyperLogLogPlusPlus(19));
+        Assert.Equal(4, new HyperLogLogPlusPlus(4).Precision);
+        Assert.Equal(18, new HyperLogLogPlusPlus(18).Precision);
+    }
+
+    [Fact(DisplayName = "HLL++: Sparse Encoding Uses Corrected Dense Index And Rank")]
+    public void HyperLogLogPlusPlus_SparseEncodingReconstructsDenseRegisters()
+    {
+        const int precision = 14;
+        const int index = 7_321;
+        const int rank = 9;
+        ulong hash = ((ulong)index << (64 - precision)) | (1UL << (64 - precision - rank));
+        uint encoded = HyperLogLogPlusPlus.EncodeSparseHash(hash);
+
+        Assert.Equal(index, HyperLogLogPlusPlus.DecodeDenseIndex(encoded, precision));
+        Assert.Equal(rank, HyperLogLogPlusPlus.DecodeDenseRank(encoded, precision));
+    }
+
+    [Fact(DisplayName = "HLL++: Sparse Storage Deduplicates Compresses And Converts Without Register Loss")]
+    public void HyperLogLogPlusPlus_SparseStorageAndDenseTransitionPreserveState()
+    {
+        var sketch = new HyperLogLogPlusPlus(4);
+        var expected = new byte[sketch.RegisterCount];
+        for (ulong i = 0; i < 200; i++)
+        {
+            ulong hash = Mix(i);
+            sketch.AddHash(hash);
+            sketch.AddHash(hash);
+            int index = (int)(hash >> 60);
+            byte rank = (byte)Math.Min(61, BitOperations.LeadingZeroCount(hash << 4) + 1);
+            expected[index] = Math.Max(expected[index], rank);
+        }
+
+        Assert.False(sketch.IsSparse);
+        for (int i = 0; i < expected.Length; i++)
+            Assert.Equal(expected[i], sketch.GetRegisterForTesting(i));
+    }
+
+    [Fact(DisplayName = "HLL++: Numeric Hash Input Is Explicitly Little Endian")]
+    public void HyperLogLogPlusPlus_NumericHashInputIsLittleEndian()
+    {
+        const long value = 0x0102030405060708;
+        Span<byte> bytes = stackalloc byte[8];
+        BinaryPrimitives.WriteInt64LittleEndian(bytes, value);
+        uint expected = HyperLogLogPlusPlus.EncodeSparseHash(XxHash64.Compute(bytes));
+        var sketch = new HyperLogLogPlusPlus();
+        sketch.Add(value);
+        Assert.True(sketch.ContainsSparseValueForTesting(expected));
+    }
+
+    [Fact(DisplayName = "HLL++: All Sparse And Dense Merge Combinations Match Union")]
+    public void HyperLogLogPlusPlus_AllMergeCombinationsMatchUnion()
+    {
+        AssertMergeEquivalent(14, 100, 100);
+        AssertMergeEquivalent(10, 100, 20_000);
+        AssertMergeEquivalent(10, 20_000, 100);
+        AssertMergeEquivalent(10, 20_000, 20_000);
+    }
+
+    [Fact(DisplayName = "HLL++: Bounded Statistical Error Across Precisions")]
+    public void HyperLogLogPlusPlus_StatisticalErrorRemainsBounded()
+    {
+        foreach (int precision in new[] { 8, 12, 16 })
+        {
+            double squaredError = 0;
+            const int cardinality = 50_000;
+            const int trials = 5;
+            for (int trial = 0; trial < trials; trial++)
+            {
+                var sketch = new HyperLogLogPlusPlus(precision);
+                for (ulong i = 0; i < cardinality; i++) sketch.AddHash(Mix(i + (ulong)trial * cardinality));
+                double relative = (sketch.Estimate() - cardinality) / cardinality;
+                squaredError += relative * relative;
+            }
+            double rmse = Math.Sqrt(squaredError / trials);
+            Assert.InRange(rmse, 0, new HyperLogLogPlusPlus(precision).ExpectedRelativeError * 3);
+        }
+    }
+
+    private static void AssertMergeEquivalent(int precision, int leftCount, int rightCount)
+    {
+        var left = new HyperLogLogPlusPlus(precision);
+        var right = new HyperLogLogPlusPlus(precision);
+        var union = new HyperLogLogPlusPlus(precision);
+        for (ulong i = 0; i < (ulong)leftCount; i++) { ulong hash = Mix(i); left.AddHash(hash); union.AddHash(hash); }
+        for (ulong i = 0; i < (ulong)rightCount; i++) { ulong hash = Mix(i + (ulong)leftCount / 2); right.AddHash(hash); union.AddHash(hash); }
+        left.MergeFrom(right);
+        Assert.Equal(union.Estimate(), left.Estimate(), precision: 10);
+    }
+
+    private static ulong Mix(ulong value)
+    {
+        value += 0x9E3779B97F4A7C15UL;
+        value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9UL;
+        value = (value ^ (value >> 27)) * 0x94D049BB133111EBUL;
+        return value ^ (value >> 31);
     }
 
     [Fact(DisplayName = "t-digest: Quantiles And Merge Are Tail Aware")]

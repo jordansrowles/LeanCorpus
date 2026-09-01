@@ -105,9 +105,6 @@ public sealed class DrillDownQuery : Query
     /// <inheritdoc/>
     public override Query Rewrite()
     {
-        if (_selections.Length == 0)
-            return BaseQuery;
-
         var root = new BooleanQuery.Builder()
             .Add(BaseQuery, Occur.Must);
 
@@ -136,7 +133,9 @@ public sealed class DrillDownQuery : Query
             start = end;
         }
 
-        return root.Build();
+        var rewritten = root.Build();
+        rewritten.Boost = Boost;
+        return rewritten;
     }
 
     /// <inheritdoc/>
@@ -180,4 +179,5 @@ public sealed class DrillDownQuery : Query
 
     private static TermQuery ToTermQuery(DrillDownSelection selection)
         => new(selection.Field, selection.IndexedValue);
+
 }

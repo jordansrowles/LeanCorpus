@@ -249,36 +249,45 @@ public sealed partial class IndexSearcher
     private void ExecuteBooleanQuery(BooleanQuery query, SegmentReader reader,
         Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
-        using var segmentLease = reader.AcquireQueryLease();
-        var clauses = query.Clauses;
-        if (clauses.Count == 0) return;
-
-        // Single-pass clause counting + TermQuery check (no List<Query> allocs)
-        int mustCount = 0, shouldCount = 0, mustNotCount = 0;
-        bool allTermQueries = true;
-        foreach (var clause in clauses)
+        float previousMultiplier = collector.ScoreMultiplier;
+        collector.ScoreMultiplier = previousMultiplier * query.Boost;
+        try
         {
-            switch (clause.Occur)
+            using var segmentLease = reader.AcquireQueryLease();
+            var clauses = query.Clauses;
+            if (clauses.Count == 0) return;
+
+            // Single-pass clause counting + TermQuery check (no List<Query> allocs)
+            int mustCount = 0, shouldCount = 0, mustNotCount = 0;
+            bool allTermQueries = true;
+            foreach (var clause in clauses)
             {
-                case Occur.Must: mustCount++; break;
-                case Occur.Should: shouldCount++; break;
-                case Occur.MustNot: mustNotCount++; break;
+                switch (clause.Occur)
+                {
+                    case Occur.Must: mustCount++; break;
+                    case Occur.Should: shouldCount++; break;
+                    case Occur.MustNot: mustNotCount++; break;
+                }
+                if (clause.Query is not TermQuery) allTermQueries = false;
             }
-            if (clause.Query is not TermQuery) allTermQueries = false;
+
+            if (mustCount == 0 && shouldCount == 0) return;
+
+            // Fast path: all clauses are TermQuery → streaming PostingsEnum merge
+            if (allTermQueries)
+            {
+                ExecuteBooleanStreaming(clauses, reader, globalDFs, ref collector,
+                    mustCount, shouldCount, mustNotCount, query.MinimumNumberShouldMatch);
+                return;
+            }
+
+            // Fallback for complex sub-queries (nested BooleanQuery, RangeQuery, etc.)
+            ExecuteBooleanFallback(query, reader, globalDFs, ref collector);
         }
-
-        if (mustCount == 0 && shouldCount == 0) return;
-
-        // Fast path: all clauses are TermQuery → streaming PostingsEnum merge
-        if (allTermQueries)
+        finally
         {
-            ExecuteBooleanStreaming(clauses, reader, globalDFs, ref collector,
-                mustCount, shouldCount, mustNotCount, query.MinimumNumberShouldMatch);
-            return;
+            collector.ScoreMultiplier = previousMultiplier;
         }
-
-        // Fallback for complex sub-queries (nested BooleanQuery, RangeQuery, etc.)
-        ExecuteBooleanFallback(query, reader, globalDFs, ref collector);
     }
 
     /// <summary>
@@ -464,6 +473,7 @@ public sealed partial class IndexSearcher
 
                 // WAND path: check capability, then use block-max scoring.
                 bool useWand = _config.EnableBlockMaxWand
+                    && collector.ScoreMultiplier == 1f
                     && _config.PerFieldSimilarities is null
                     && mustNotCount == 0
                     && minimumShouldMatch <= 1

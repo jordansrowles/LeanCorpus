@@ -16,6 +16,7 @@ public struct TopNCollector
     private SegmentReader? _sideCollectorReader;
     private int _size;
     private float _minScore;
+    private float _scoreMultiplier;
     private int _totalHits;
 
     /// <summary>Gets the total number of documents passed to <see cref="Collect"/>.</summary>
@@ -28,6 +29,7 @@ public struct TopNCollector
 
     /// <summary>Gets whether this collector fans every match into an exhaustive side collector.</summary>
     internal bool HasSideCollector => _sideCollector is not null;
+    internal float ScoreMultiplier { get => _scoreMultiplier; set => _scoreMultiplier = value; }
 
     /// <summary>Gets the score of the lowest-ranked document currently in the top-N, or <see cref="float.NegativeInfinity"/> if fewer than N documents have been collected.</summary>
     public float MinScore => _strategy?.MinScore ?? _minScore;
@@ -48,6 +50,7 @@ public struct TopNCollector
         _sideCollectorReader = null;
         _size = 0;
         _minScore = float.NegativeInfinity;
+        _scoreMultiplier = 1f;
         _totalHits = 0;
     }
 
@@ -66,6 +69,7 @@ public struct TopNCollector
         _sideCollectorReader = null;
         _size = 0;
         _minScore = float.NegativeInfinity;
+        _scoreMultiplier = 1f;
         _totalHits = 0;
     }
 
@@ -78,12 +82,14 @@ public struct TopNCollector
         _maxSize = 0;
         _size = 0;
         _minScore = float.NegativeInfinity;
+        _scoreMultiplier = 1f;
         _totalHits = 0;
     }
 
     /// <summary>Resets state for reuse, keeping the backing array.</summary>
     public void Reset()
     {
+        _scoreMultiplier = 1f;
         if (_strategy is not null)
         {
             _strategy.Reset();
@@ -108,6 +114,8 @@ public struct TopNCollector
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Collect(int docId, float score)
     {
+        if (_scoreMultiplier != 1f)
+            score *= _scoreMultiplier;
         if (_sideCollector is not null)
         {
             var reader = _sideCollectorReader
@@ -153,7 +161,7 @@ public struct TopNCollector
             return _strategy.ToTopDocs();
 
         if (_size == 0)
-            return TopDocs.Empty;
+            return _totalHits == 0 ? TopDocs.Empty : new TopDocs(_totalHits, []);
 
         var results = new ScoreDoc[_size];
         Array.Copy(_heap, results, _size);

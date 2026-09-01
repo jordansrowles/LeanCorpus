@@ -430,11 +430,11 @@ public sealed partial class IndexSearcher
             ArgumentNullException.ThrowIfNull(facetRequests[i]);
 
         if (facetRequests.Count == 0)
-            return (Search(query, topN), []);
+            return (Search(query, topN, cancellationToken), []);
 
-        var collector = new DrillSidewaysSideCollector(query, topN, facetRequests, _readers, _config.MaxExactFacetBuckets, cancellationToken);
+        var collector = new DrillSidewaysSideCollector(query, facetRequests, _readers, _config.MaxExactFacetBuckets, cancellationToken);
         SearchWithSideCollector(query.BaseQuery, topN, collector);
-        return (collector.GetResults(), collector.GetFacets());
+        return (Search(query, topN, cancellationToken), collector.GetFacets());
     }
 
     private (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithFacetsCore(
@@ -803,7 +803,6 @@ public sealed partial class IndexSearcher
 
     private sealed class DrillSidewaysSideCollector : ISideCollector
     {
-        private TopNCollector _hits;
         private readonly IFacetRequest[] _requests;
         private readonly SelectionGroup[] _selectionGroups;
         private readonly FacetsSideCollector? _allMatching;
@@ -811,11 +810,10 @@ public sealed partial class IndexSearcher
         private readonly Dictionary<string, (FacetsSideCollector Collector, List<int> Indexes)> _selected = new(StringComparer.Ordinal);
         private readonly CancellationToken _cancellationToken;
 
-        public DrillSidewaysSideCollector(DrillDownQuery query, int topN, IReadOnlyList<IFacetRequest> requests,
+        public DrillSidewaysSideCollector(DrillDownQuery query, IReadOnlyList<IFacetRequest> requests,
             IReadOnlyList<Index.Segment.SegmentReader> readers, int maxExactFacetBuckets,
             CancellationToken cancellationToken)
         {
-            _hits = new TopNCollector(topN);
             _requests = requests.ToArray();
             _cancellationToken = cancellationToken;
             _selectionGroups = query.Selections
@@ -861,7 +859,6 @@ public sealed partial class IndexSearcher
 
             if (failures == 0)
             {
-                _hits.Collect(globalDocId, score);
                 _allMatching?.Collect(globalDocId, score, reader, localDocId);
             }
 
@@ -894,8 +891,6 @@ public sealed partial class IndexSearcher
                     && _indexedValues.Contains(sortedValue);
             }
         }
-
-        public TopDocs GetResults() => _hits.ToTopDocs();
 
         public IReadOnlyList<FacetResult> GetFacets()
         {

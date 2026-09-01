@@ -284,7 +284,7 @@ internal sealed class CardinalityAggregationState(AggregationRequest request) : 
     protected override void Collect(double value) => _sketch.Add(value);
     public override AggregationResult Finish(CancellationToken cancellationToken = default) => new CardinalityAggregationResult
     {
-        Name = Request.Name, Field = Request.Field, Algorithm = "hll-style-sparse-dense",
+        Name = Request.Name, Field = Request.Field, Algorithm = "hll++",
         EstimatedCardinality = _sketch.Estimate(), ExpectedRelativeError = _sketch.ExpectedRelativeError
     };
     public override void MergeFrom(INumericAggregationState other)

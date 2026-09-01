@@ -30,6 +30,16 @@ public sealed class CollectorTests : IDisposable
         TestDirectoryFixture.TryDeleteDirectory(_dir);
     }
 
+    [Fact(DisplayName = "TopNCollector: Zero Capacity Retains Total Hits")]
+    public void TopNCollector_ZeroCapacityRetainsTotalHits()
+    {
+        var collector = new TopNCollector(0);
+        for (int i = 0; i < 17; i++) collector.Collect(i, i);
+        TopDocs results = collector.ToTopDocs();
+        Assert.Equal(17, results.TotalHits);
+        Assert.Empty(results.ScoreDocs);
+    }
+
     [Fact(DisplayName = "Count: Returns correct count for TermQuery")]
     public void Count_TermQuery_ReturnsCorrectCount()
     {

@@ -403,7 +403,7 @@ public sealed partial class IndexSearcher : IDisposable
         query = RewriteQuery(query);
         int requestedTopN = topN;
         int effectiveTopN = NormaliseTopN(topN);
-        if (effectiveTopN <= 0 || _readers.Count == 0)
+        if (effectiveTopN < 0 || _readers.Count == 0)
             return TopDocs.Empty;
 
         using var activity = Diagnostics.LeanCorpusActivitySource.Source
@@ -741,7 +741,7 @@ public sealed partial class IndexSearcher : IDisposable
         query = RewriteQuery(query);
         int requestedTopN = topN;
         int effectiveTopN = NormaliseTopN(topN);
-        if (effectiveTopN <= 0 || _readers.Count == 0)
+        if (effectiveTopN < 0 || _readers.Count == 0)
             return TopDocs.Empty;
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -832,7 +832,7 @@ public sealed partial class IndexSearcher : IDisposable
     public TopDocs Search(Query query, int topN, SearchOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        if (topN <= 0 || _readers.Count == 0)
+        if (topN < 0 || _readers.Count == 0)
             return TopDocs.Empty;
 
         long topNBytes = checked((long)topN * Scoring.ScoreDoc.EstimatedBytes);

@@ -3,6 +3,7 @@ using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Search;
+using Rowles.LeanCorpus.Search.Scoring;
 using Rowles.LeanCorpus.Search.Simd;
 using Rowles.LeanCorpus.Search.Parsing;
 using Rowles.LeanCorpus.Search.Highlighting;
@@ -282,6 +283,64 @@ public sealed class ConcurrentIndexingTests : IDisposable
             .Order(StringComparer.Ordinal)
             .ToArray();
         Assert.Equal(expectedIds, actualIds);
+    }
+
+    /// <summary>Exercises Commit while AddDocument producers remain active.</summary>
+    [Fact(DisplayName = "AddDocument Lock Free: Commit While Producers Active Completes Without Loss", Timeout = 30_000)]
+    public async Task AddDocumentLockFree_CommitWhileProducersActive_CompletesWithoutLoss()
+    {
+        const int ProducerCount = 4;
+        const int DocumentsPerProducer = 250;
+        var directory = new MMapDirectory(_dir);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 64,
+            DurableCommits = false,
+            MergePolicy = NoMergePolicy.Instance,
+        });
+        using var started = new CountdownEvent(ProducerCount);
+        var errors = new ConcurrentBag<Exception>();
+        int successfulAdds = 0;
+
+        Task[] producers = Enumerable.Range(0, ProducerCount).Select(producer => Task.Run(() =>
+        {
+            try
+            {
+                started.Signal();
+                for (int item = 0; item < DocumentsPerProducer; item++)
+                {
+                    int id = producer * DocumentsPerProducer + item;
+                    writer.AddDocument(BuildDoc(id, "overlap commit"));
+                    Interlocked.Increment(ref successfulAdds);
+                    if ((item & 7) == 0) Thread.Yield();
+                }
+            }
+            catch (Exception exception) { errors.Add(exception); }
+        })).ToArray();
+
+        Assert.True(started.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken), "Producers did not start.");
+        Assert.True(SpinWait.SpinUntil(
+            () => Volatile.Read(ref successfulAdds) >= 32 && producers.Any(static task => !task.IsCompleted),
+            TimeSpan.FromSeconds(5)), "Producers did not remain active long enough to overlap Commit.");
+
+        int overlappingCommits = 0;
+        while (overlappingCommits < 3 && producers.Any(static task => !task.IsCompleted))
+        {
+            writer.Commit();
+            overlappingCommits++;
+        }
+
+        await Task.WhenAll(producers).WaitAsync(TestContext.Current.CancellationToken);
+        writer.Commit();
+        Assert.True(overlappingCommits > 0, "No Commit overlapped active producers.");
+        Assert.Empty(errors);
+        Assert.Equal(ProducerCount * DocumentsPerProducer, successfulAdds);
+
+        using var searcher = new IndexSearcher(directory);
+        TopDocs hits = searcher.Search(new TermQuery("body", "overlap"), successfulAdds, TestContext.Current.CancellationToken);
+        Assert.Equal(successfulAdds, hits.TotalHits);
+        string[] ids = hits.ScoreDocs.Select(hit => searcher.GetStoredFields(hit.DocId)["id"][0]).ToArray();
+        Assert.Equal(successfulAdds, ids.Distinct(StringComparer.Ordinal).Count());
     }
 
     /// <summary>

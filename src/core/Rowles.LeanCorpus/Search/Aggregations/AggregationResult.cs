@@ -47,7 +47,7 @@ public class AggregationResult
 public sealed class CardinalityAggregationResult : AggregationResult
 {
     /// <summary>Gets the bounded register algorithm used by the estimate.</summary>
-    public string Algorithm { get; init; } = "hll-style-sparse-dense";
+    public string Algorithm { get; init; } = "hll++";
 
     /// <summary>Gets the estimated number of distinct values.</summary>
     public required double EstimatedCardinality { get; init; }
