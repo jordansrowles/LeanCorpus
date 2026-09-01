@@ -83,11 +83,16 @@ public sealed class SegmentReaderThreadSafetyTests : IDisposable
                         exceptions.Add(ex);
                     }
                 }
-            }))
+            }) { IsBackground = true })
             .ToList();
 
         foreach (var t in threads) t.Start();
-        foreach (var t in threads) t.Join(TimeSpan.FromSeconds(30));
+        foreach (var thread in threads)
+        {
+            Assert.True(
+                thread.Join(TimeSpan.FromSeconds(30)),
+                $"Thread {thread.ManagedThreadId} did not complete.");
+        }
 
         Assert.Empty(exceptions);
         Assert.Empty(errors);
@@ -133,11 +138,16 @@ public sealed class SegmentReaderThreadSafetyTests : IDisposable
                     if (!actual.SequenceEqual(expectedIds))
                         errors.Add($"Thread {threadIdx}, iter {iter}: expected [{string.Join(",", expectedIds)}], got [{string.Join(",", actual)}]");
                 }
-            }))
+            }) { IsBackground = true })
             .ToList();
 
         foreach (var t in threads) t.Start();
-        foreach (var t in threads) t.Join(TimeSpan.FromSeconds(30));
+        foreach (var thread in threads)
+        {
+            Assert.True(
+                thread.Join(TimeSpan.FromSeconds(30)),
+                $"Thread {thread.ManagedThreadId} did not complete.");
+        }
 
         Assert.Empty(errors);
     }

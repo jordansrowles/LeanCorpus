@@ -4,6 +4,7 @@ using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index;
 
@@ -106,6 +107,33 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
         writer.Dispose();
         // Second dispose must be a no-op
         writer.Dispose();
+    }
+
+    /// <summary>
+    /// Verifies that disposal uses a millisecond timeout when an indexing operation is stranded.
+    /// </summary>
+    [Fact(DisplayName = "Dispose: In-flight indexing drain uses configured timeout")]
+    public void Dispose_InFlightIndexingOperation_UsesConfiguredDrainTimeout()
+    {
+        var dir = SubDir("dispose_drain_timeout");
+        var writer = new IndexWriter(
+            new MMapDirectory(dir),
+            new IndexWriterConfig { DurableCommits = false },
+            TimeSpan.FromMilliseconds(50));
+        writer.EnterIndexingOperation();
+
+        try
+        {
+            var stopwatch = Stopwatch.StartNew();
+            writer.Dispose();
+            stopwatch.Stop();
+
+            Assert.InRange(stopwatch.ElapsedMilliseconds, 25, 2_000);
+        }
+        finally
+        {
+            writer.ExitIndexingOperation();
+        }
     }
 
     /// <summary>

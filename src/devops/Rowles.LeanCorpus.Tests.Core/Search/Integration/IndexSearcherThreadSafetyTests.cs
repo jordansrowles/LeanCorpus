@@ -75,11 +75,16 @@ public sealed class IndexSearcherThreadSafetyTests : IDisposable
                     if (!actual.SequenceEqual(expected))
                         errors.Add($"Thread {threadIdx}, query {q}: term={term}, expected {expected.Length} docs, got {actual.Length}");
                 }
-            }))
+            }) { IsBackground = true })
             .ToList();
 
         foreach (var t in threads) t.Start();
-        foreach (var t in threads) t.Join(TimeSpan.FromSeconds(30));
+        foreach (var thread in threads)
+        {
+            Assert.True(
+                thread.Join(TimeSpan.FromSeconds(30)),
+                $"Thread {thread.ManagedThreadId} did not complete.");
+        }
 
         Assert.Empty(errors);
     }
@@ -125,11 +130,16 @@ public sealed class IndexSearcherThreadSafetyTests : IDisposable
                     if (!actual.SequenceEqual(expectedIds))
                         errors.Add($"Thread {threadIdx}, query {q}: expected {expectedIds.Length}, got {actual.Length}");
                 }
-            }))
+            }) { IsBackground = true })
             .ToList();
 
         foreach (var t in threads) t.Start();
-        foreach (var t in threads) t.Join(TimeSpan.FromSeconds(30));
+        foreach (var thread in threads)
+        {
+            Assert.True(
+                thread.Join(TimeSpan.FromSeconds(30)),
+                $"Thread {thread.ManagedThreadId} did not complete.");
+        }
 
         Assert.Empty(errors);
     }

@@ -19,8 +19,11 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 /// </summary>
 public sealed partial class IndexWriter : IDisposable
 {
+    private static readonly TimeSpan DefaultDisposeTimeout = TimeSpan.FromSeconds(30);
+
     private readonly MMapDirectory _directory;
     private readonly IndexWriterConfig _config;
+    private readonly TimeSpan _disposeTimeout;
     private readonly IAnalyser _defaultAnalyser;
 
     private DocumentBufferState _buffer = new();
@@ -91,13 +94,20 @@ public sealed partial class IndexWriter : IDisposable
     /// <param name="config">Writer configuration including analyser, flush thresholds, and deletion policy.</param>
     /// <exception cref="WriteLockException">Thrown if another <see cref="IndexWriter"/> already holds the write lock for this directory.</exception>
     public IndexWriter(MMapDirectory directory, IndexWriterConfig config)
+        : this(directory, config, DefaultDisposeTimeout)
+    {
+    }
+
+    internal IndexWriter(MMapDirectory directory, IndexWriterConfig config, TimeSpan disposeTimeout)
     {
         ArgumentNullException.ThrowIfNull(directory);
         ArgumentNullException.ThrowIfNull(config);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(disposeTimeout, TimeSpan.Zero);
         config.Validate();
 
         _directory = directory;
         _config = config;
+        _disposeTimeout = disposeTimeout;
         _spanPostingSink = new SpanPostingTokenSink(_buffer, _config);
         _buffer.StoreTermVectors = config.StoreTermVectors;
 
@@ -528,7 +538,7 @@ public sealed partial class IndexWriter : IDisposable
         Exception? failure = null;
         try
         {
-            DrainIndexingOperations();
+            DrainIndexingOperations(_disposeTimeout);
 
             // Drain any pending detached flushes and publish their segments.
             lock (_writeLock)
@@ -547,10 +557,10 @@ public sealed partial class IndexWriter : IDisposable
             ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
-    private void DrainIndexingOperations()
+    private void DrainIndexingOperations(TimeSpan timeout)
     {
         var spinWait = new SpinWait();
-        const long drainTimeoutTicks = 30 * TimeSpan.TicksPerSecond;
+        long drainTimeoutMs = checked((long)timeout.TotalMilliseconds);
         long started = Environment.TickCount64;
         while (Volatile.Read(ref _inFlightAdds) != 0)
         {
@@ -558,11 +568,11 @@ public sealed partial class IndexWriter : IDisposable
             if (!spinWait.NextSpinWillYield)
                 continue;
 
-            if (Environment.TickCount64 - started > drainTimeoutTicks)
+            if (Environment.TickCount64 - started >= drainTimeoutMs)
             {
                 Diagnostics.LeanCorpusActivitySource.TraceSwallowed(
                     new TimeoutException(
-                        $"IndexWriter.Dispose timed out after 30 seconds waiting for " +
+                        $"IndexWriter.Dispose timed out after {timeout.TotalSeconds:0.###} seconds waiting for " +
                         $"{Volatile.Read(ref _inFlightAdds)} in-flight indexing operation(s) to complete."),
                     "dispose-drain-timeout");
                 MarkIndexingFailed();
@@ -581,17 +591,26 @@ public sealed partial class IndexWriter : IDisposable
         catch (TaskSchedulerException) { /* Task was rejected by scheduler during shutdown */ }
         CaptureDisposeFailure(ref failure, _mergeCts.Dispose, "dispose-merge-cancellation");
 
+        CaptureDisposeFailure(ref failure, () => { _asyncWriteChannel.Writer.Complete(); }, "dispose-async-writes");
+        CaptureDisposeFailure(ref failure, WaitForAsyncWriteConsumer, "dispose-async-write-consumer");
+
         CaptureDisposeFailure(ref failure, () => _backpressureSemaphore?.Dispose(), "dispose-backpressure");
         CaptureDisposeFailure(ref failure, () => _flushSemaphore?.Dispose(), "dispose-flush-semaphore");
-
-        CaptureDisposeFailure(ref failure, () => { _asyncWriteChannel.Writer.Complete(); }, "dispose-async-writes");
-        try { _asyncWriteConsumer.Wait(TimeSpan.FromSeconds(30)); }
-        catch (AggregateException) { }
         CaptureDisposeFailure(ref failure, _writeLockFile.Dispose, "dispose-write-lock-handle");
 
         var lockPath = Path.Combine(_directory.DirectoryPath, "write.lock");
         try { FileOpenRetry.Delete(lockPath); }
         catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "write-lock file delete"); }
+    }
+
+    private void WaitForAsyncWriteConsumer()
+    {
+        if (!_asyncWriteConsumer.Wait(_disposeTimeout))
+        {
+            throw new TimeoutException(
+                $"IndexWriter.Dispose timed out after {_disposeTimeout.TotalSeconds:0.###} seconds " +
+                "waiting for the asynchronous write consumer to stop.");
+        }
     }
 
     private static void CaptureDisposeFailure(ref Exception? failure, Action action, string operation)
