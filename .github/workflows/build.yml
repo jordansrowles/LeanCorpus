@@ -5,6 +5,7 @@ on:
     branches: [main, '[0-9]*', 'stabilise/**']
   pull_request:
     branches: [main, '[0-9]*', 'stabilise/**']
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,7 +16,7 @@ concurrency:
 
 jobs:
   linux-tests:
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[build]') || startsWith(github.event.head_commit.message, '[deploy]')
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[deploy]')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -68,7 +69,7 @@ jobs:
 
   windows-tests:
     runs-on: windows-2025
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-dotnet@v5
@@ -80,9 +81,9 @@ jobs:
       - name: Build solution
         shell: pwsh
         run: ./devops.ps1 build
-      - name: Run complete Windows Core test suite
+      - name: Run complete Windows test suite
         shell: pwsh
-        run: ./devops.ps1 test -Suite core -Framework net10.0 -HangTimeout 100s
+        run: ./devops.ps1 test -Suite all -Framework net10.0 -HangTimeout 100s
       - name: Upload failure dumps
         if: failure()
         uses: actions/upload-artifact@v7
@@ -114,7 +115,7 @@ jobs:
 
   deploy:
     needs: [linux-tests, coverage, windows-tests, arm64-smoke]
-    if: startsWith(github.event.head_commit.message, '[deploy]')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '[deploy]')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
