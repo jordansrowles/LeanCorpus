@@ -111,20 +111,24 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
         Assert.NotNull(semaphore);
         Assert.True(semaphore!.Wait(0));
 
-        var producer = Task.Run(() =>
-        {
-            try
+        var producer = Task.Factory.StartNew(
+            () =>
             {
-                var doc = new LeanDocument();
-                doc.Add(new TextField("body", "blocked by backpressure"));
-                writer.AddDocument(doc);
-                return (Exception?)null;
-            }
-            catch (Exception exception)
-            {
-                return exception;
-            }
-        }, TestContext.Current.CancellationToken);
+                try
+                {
+                    var doc = new LeanDocument();
+                    doc.Add(new TextField("body", "blocked by backpressure"));
+                    writer.AddDocument(doc);
+                    return (Exception?)null;
+                }
+                catch (Exception exception)
+                {
+                    return exception;
+                }
+            },
+            TestContext.Current.CancellationToken,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
 
         try
         {
