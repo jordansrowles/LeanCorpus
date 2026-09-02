@@ -154,8 +154,8 @@ function Invoke-DevOpsTest {
                 if ($filter) { $suiteArgs += @('--filter', $filter) }
                 if ($verbosity) { $suiteArgs += @('--logger', "console;verbosity=$verbosity") }
             }
-            if ($key -eq 'integration' -and $hangTimeout -ne 'off') {
-                $suiteArgs += @('--blame-hang', '--blame-hang-timeout', $hangTimeout, '--blame-hang-dump-type', 'none')
+            if ($hangTimeout -ne 'off' -and $key -ne 'architecture') {
+                $suiteArgs += @('--hangdump', '--hangdump-timeout', $hangTimeout)
             }
             $processFileName = 'dotnet'
             $processArguments = @('test', $projectPath) + $suiteArgs

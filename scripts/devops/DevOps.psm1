@@ -79,6 +79,7 @@ function Invoke-DevOpsHelp {
     Write-Host '      -RuntimeIdentifier  linux-x64, osx-x64, win-x64 (auto-detected if omitted)'
     Write-Host ''
     Write-Host '    coverage             Run tests with code coverage collection'
+    Write-Host '      -Suite              core, sourcegen, or all (default: all)'
     Write-Host '      -Framework          net10.0 or net11.0 (default: net10.0)'
     Write-Host '      -Configuration      Debug or Release (default: Release)'
     Write-Host '      -Clean              Remove previous coverage results before running'
