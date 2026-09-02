@@ -257,10 +257,13 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
         try
         {
             var stopwatch = Stopwatch.StartNew();
-            writer.Dispose();
+            var failure = Assert.Throws<TimeoutException>(writer.Dispose);
             stopwatch.Stop();
 
             Assert.InRange(stopwatch.ElapsedMilliseconds, 25, 2_000);
+            Assert.Contains("state=Closing", failure.Message, StringComparison.Ordinal);
+            Assert.Contains("activeOperations=1", failure.Message, StringComparison.Ordinal);
+            Assert.NotNull(writer.BackpressureSemaphoreForTests);
         }
         finally
         {

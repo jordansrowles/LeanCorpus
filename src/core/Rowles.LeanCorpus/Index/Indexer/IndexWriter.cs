@@ -80,11 +80,12 @@ public sealed partial class IndexWriter : IDisposable
     private readonly Lock _asyncWriteLock = new();
     private Channel<AsyncWriteCommand>? _asyncWriteChannel;
     private Task? _asyncWriteConsumer;
+    private int _queuedAsyncWrites;
 
     private readonly Lock _writeLock = new();
+    private readonly OperationDrain _indexingOperations = new();
     private int _disposed;      // 0 = alive, 1 = disposed (atomically set via Interlocked)
     private int _closing;       // 0 = open, 1 = Dispose has started draining (prevents TOCTOU)
-    private int _inFlightAdds;  // count of indexing callers that passed the disposed-check gate
     private int _indexingFailed;
     private Exception? _indexingFailure;
     private readonly Stream _writeLockFile;
@@ -536,11 +537,13 @@ public sealed partial class IndexWriter : IDisposable
         _shutdownCts.Cancel();
         CompleteAsyncWrites();
 
+        // A timed-out drain leaves every owned synchronisation primitive intact.
+        // Live operations can therefore unwind safely after Dispose reports failure.
+        DrainIndexingOperations(_disposeTimeout);
+
         Exception? failure = null;
         try
         {
-            DrainIndexingOperations(_disposeTimeout);
-
             // Drain any pending detached flushes and publish their segments.
             lock (_writeLock)
                 DwptManager.WaitForPendingFlushes(this);
@@ -560,26 +563,12 @@ public sealed partial class IndexWriter : IDisposable
 
     private void DrainIndexingOperations(TimeSpan timeout)
     {
-        var spinWait = new SpinWait();
-        long drainTimeoutMs = checked((long)timeout.TotalMilliseconds);
-        long started = Environment.TickCount64;
-        while (Volatile.Read(ref _inFlightAdds) != 0)
+        if (!_indexingOperations.BeginDisposeAndWait(timeout))
         {
-            spinWait.SpinOnce();
-            if (!spinWait.NextSpinWillYield)
-                continue;
-
-            if (Environment.TickCount64 - started >= drainTimeoutMs)
-            {
-                Diagnostics.LeanCorpusActivitySource.TraceSwallowed(
-                    new TimeoutException(
-                        $"IndexWriter.Dispose timed out after {timeout.TotalSeconds:0.###} seconds waiting for " +
-                        $"{Volatile.Read(ref _inFlightAdds)} in-flight indexing operation(s) to complete."),
-                    "dispose-drain-timeout");
-                MarkIndexingFailed();
-                return;
-            }
-            Thread.Sleep(1);
+            throw new TimeoutException(
+                $"IndexWriter.Dispose timed out after {timeout.TotalSeconds:0.###} seconds; " +
+                $"state=Closing, activeOperations={_indexingOperations.ActiveCount}, " +
+                $"queuedCommands={GetQueuedAsyncWriteCount()}, consumer={GetAsyncConsumerState()}.");
         }
     }
 
@@ -635,22 +624,29 @@ public sealed partial class IndexWriter : IDisposable
 
     internal void EnterIndexingOperation()
     {
-        Interlocked.Increment(ref _inFlightAdds);
-        if (Volatile.Read(ref _disposed) != 0 || Volatile.Read(ref _closing) != 0 || Volatile.Read(ref _indexingFailed) != 0)
+        try
         {
-            Interlocked.Decrement(ref _inFlightAdds);
-            if (Volatile.Read(ref _disposed) != 0)
-                throw new ObjectDisposedException(nameof(IndexWriter));
-            if (Volatile.Read(ref _closing) != 0)
-                throw new ObjectDisposedException(nameof(IndexWriter),
-                    "The writer is shutting down. No new indexing operations are accepted.");
-            throw CreateIndexingFailureException();
+            _indexingOperations.Enter(this);
         }
+        catch (ObjectDisposedException)
+        {
+            throw new ObjectDisposedException(nameof(IndexWriter),
+                "The writer is shutting down. No new indexing operations are accepted.");
+        }
+
+        if (Volatile.Read(ref _closing) == 0 && Volatile.Read(ref _indexingFailed) == 0)
+            return;
+
+        _indexingOperations.ExitOperation();
+        if (Volatile.Read(ref _closing) != 0)
+            throw new ObjectDisposedException(nameof(IndexWriter),
+                "The writer is shutting down. No new indexing operations are accepted.");
+        throw CreateIndexingFailureException();
     }
 
     internal void ExitIndexingOperation()
     {
-        Interlocked.Decrement(ref _inFlightAdds);
+        _indexingOperations.ExitOperation();
     }
 
     internal void MarkIndexingFailed(Exception? failure = null)
@@ -820,6 +816,7 @@ public sealed partial class IndexWriter : IDisposable
         try
         {
             await EnsureAsyncWriteChannel().Writer.WriteAsync(command, cancellationToken).ConfigureAwait(false);
+            Interlocked.Increment(ref _queuedAsyncWrites);
         }
         catch (ChannelClosedException) when (IsClosing)
         {
@@ -838,6 +835,7 @@ public sealed partial class IndexWriter : IDisposable
         {
             while (reader.TryRead(out var cmd))
             {
+                Interlocked.Decrement(ref _queuedAsyncWrites);
                 if (Volatile.Read(ref _disposed) != 0)
                 {
                     cmd.Tcs.TrySetException(new ObjectDisposedException(nameof(IndexWriter)));
@@ -856,6 +854,14 @@ public sealed partial class IndexWriter : IDisposable
                 }
             }
         }
+    }
+
+    private int GetQueuedAsyncWriteCount() => Math.Max(0, Volatile.Read(ref _queuedAsyncWrites));
+
+    private string GetAsyncConsumerState()
+    {
+        lock (_asyncWriteLock)
+            return _asyncWriteConsumer is null ? "not-started" : _asyncWriteConsumer.Status.ToString();
     }
 
     private void ProcessAsyncWriteCommand(AsyncWriteCommand cmd)
@@ -931,7 +937,7 @@ public sealed partial class IndexWriter : IDisposable
     internal SemaphoreSlim? BackpressureSemaphoreForTests => _backpressureSemaphore;
     internal CancellationToken ShutdownToken => _shutdownToken;
     internal bool IsClosing => Volatile.Read(ref _closing) != 0;
-    internal int InFlightIndexingOperationsForTests => Volatile.Read(ref _inFlightAdds);
+    internal int InFlightIndexingOperationsForTests => _indexingOperations.ActiveCount;
     internal bool AsyncWriteConsumerStartedForTests
     {
         get

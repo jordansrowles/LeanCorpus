@@ -13,6 +13,8 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
     private readonly object _waitLock = new();
     private int _state;
 
+    internal int ActiveCount => Volatile.Read(ref _state) & int.MaxValue;
+
     internal Scope Enter(object owner)
     {
         while (true)
@@ -50,6 +52,12 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
 
     internal void BeginDisposeAndWait()
     {
+        _ = BeginDisposeAndWait(Timeout.InfiniteTimeSpan);
+    }
+
+    internal bool BeginDisposeAndWait(TimeSpan timeout)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(timeout, Timeout.InfiniteTimeSpan);
         while (true)
         {
             int state = Volatile.Read(ref _state);
@@ -60,12 +68,25 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
         }
 
         if (Volatile.Read(ref _state) == DisposeRequested)
-            return;
+            return true;
 
         lock (_waitLock)
         {
+            if (timeout == Timeout.InfiniteTimeSpan)
+            {
+                while (Volatile.Read(ref _state) != DisposeRequested)
+                    Monitor.Wait(_waitLock);
+                return true;
+            }
+
+            long deadline = Environment.TickCount64 + checked((long)Math.Ceiling(timeout.TotalMilliseconds));
             while (Volatile.Read(ref _state) != DisposeRequested)
-                Monitor.Wait(_waitLock);
+            {
+                long remaining = deadline - Environment.TickCount64;
+                if (remaining <= 0 || !Monitor.Wait(_waitLock, TimeSpan.FromMilliseconds(remaining)))
+                    return Volatile.Read(ref _state) == DisposeRequested;
+            }
+            return true;
         }
     }
 
@@ -78,6 +99,8 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
         lock (_waitLock)
             Monitor.PulseAll(_waitLock);
     }
+
+    internal void ExitOperation() => Exit();
 
     void ILifetimeLeaseOwner.ReleaseLease(object token)
     {
