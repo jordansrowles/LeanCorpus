@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   linux-tests:
-    if: github.event_name == 'pull_request' || startsWith(github.event.head_commit.message, '[build]') || startsWith(github.event.head_commit.message, '[deploy]')
+    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[build]') || startsWith(github.event.head_commit.message, '[deploy]')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -82,7 +82,7 @@ jobs:
         run: ./devops.ps1 build
       - name: Run Windows lifecycle and filesystem tests
         shell: pwsh
-        run: ./devops.ps1 test -Suite core -Framework net10.0 -Area Index,Store -HangTimeout 100s
+        run: ./devops.ps1 test -Suite core -Framework net10.0 -Area 'Index,Store' -HangTimeout 100s
       - name: Upload failure dumps
         if: failure()
         uses: actions/upload-artifact@v7
@@ -109,7 +109,7 @@ jobs:
         shell: pwsh
         run: |
           ./devops.ps1 test -Suite architecture -Framework net10.0
-          ./devops.ps1 test -Suite core -Framework net10.0 -Area CodecKit,Store,Vector,Index -Category Unit -HangTimeout 100s
+          ./devops.ps1 test -Suite core -Framework net10.0 -Area 'CodecKit,Store,Vector,Index' -Category Unit -HangTimeout 100s
           ./devops.ps1 aot -RuntimeIdentifier linux-arm64
 
   deploy:
