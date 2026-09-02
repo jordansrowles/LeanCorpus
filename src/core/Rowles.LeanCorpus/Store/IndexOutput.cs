@@ -13,14 +13,21 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
     private const int BufferSize = 65536;
 
     private readonly FileStream _stream;
-    private readonly byte[] _buffer;
+    private byte[]? _buffer;
     private readonly bool _durable;
     private readonly bool _dropPageCache;
     private int _bufferPosition;
-    private bool _disposed;
+    private int _disposed;
 
     /// <summary>Current logical write position (buffered + flushed).</summary>
-    public long Position => _stream.Position + _bufferPosition;
+    public long Position
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _stream.Position + _bufferPosition;
+        }
+    }
 
     /// <summary>
     /// Creates a new file at <paramref name="filePath"/> and opens it for buffered sequential writing.
@@ -64,6 +71,7 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
     /// </summary>
     public void Seek(long position)
     {
+        ThrowIfDisposed();
         FlushBuffer();
         _stream.Seek(position, SeekOrigin.Begin);
     }
@@ -72,12 +80,14 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
     /// <param name="data">The bytes to write.</param>
     public void WriteBytes(ReadOnlySpan<byte> data)
     {
+        ThrowIfDisposed();
+        var buffer = _buffer!;
         int offset = 0;
         while (offset < data.Length)
         {
             int remaining = BufferSize - _bufferPosition;
             int toCopy = Math.Min(remaining, data.Length - offset);
-            data.Slice(offset, toCopy).CopyTo(_buffer.AsSpan(_bufferPosition, toCopy));
+            data.Slice(offset, toCopy).CopyTo(buffer.AsSpan(_bufferPosition, toCopy));
             _bufferPosition += toCopy;
             offset += toCopy;
 
@@ -88,12 +98,17 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
 
     /// <summary>Writes all bytes from the given array to the output.</summary>
     /// <param name="data">The byte array to write.</param>
-    public void WriteBytes(byte[] data) => WriteBytes(data.AsSpan());
+    public void WriteBytes(byte[] data)
+    {
+        ThrowIfDisposed();
+        WriteBytes(data.AsSpan());
+    }
 
     /// <summary>Writes a 32-bit signed integer in little-endian byte order.</summary>
     /// <param name="value">The integer to write.</param>
     public void WriteInt32(int value)
     {
+        ThrowIfDisposed();
         Span<byte> tmp = stackalloc byte[sizeof(int)];
         Unsafe.WriteUnaligned(ref tmp[0], value);
         WriteBytes(tmp);
@@ -103,6 +118,7 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
     /// <param name="value">The long integer to write.</param>
     public void WriteInt64(long value)
     {
+        ThrowIfDisposed();
         Span<byte> tmp = stackalloc byte[sizeof(long)];
         Unsafe.WriteUnaligned(ref tmp[0], value);
         WriteBytes(tmp);
@@ -112,6 +128,7 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
     /// <param name="value">The float to write.</param>
     public void WriteSingle(float value)
     {
+        ThrowIfDisposed();
         Span<byte> tmp = stackalloc byte[sizeof(float)];
         Unsafe.WriteUnaligned(ref tmp[0], value);
         WriteBytes(tmp);
@@ -119,16 +136,21 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
 
     /// <summary>Writes a boolean as a single byte (0 or 1).</summary>
     /// <param name="value">The boolean value to write.</param>
-    public void WriteBoolean(bool value) => WriteByte(value ? (byte)1 : (byte)0);
+    public void WriteBoolean(bool value)
+    {
+        ThrowIfDisposed();
+        WriteByte(value ? (byte)1 : (byte)0);
+    }
 
     /// <summary>Writes a single byte to the output, flushing the buffer if it is full.</summary>
     /// <param name="value">The byte to write.</param>
     public void WriteByte(byte value)
     {
+        ThrowIfDisposed();
         if (_bufferPosition == BufferSize)
             FlushBuffer();
 
-        _buffer[_bufferPosition++] = value;
+        _buffer![_bufferPosition++] = value;
     }
 
     /// <summary>
@@ -138,6 +160,7 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
     /// </summary>
     public void Write7BitEncodedInt(int value)
     {
+        ThrowIfDisposed();
         uint v = (uint)value;
         Span<byte> buf = stackalloc byte[5];
         int pos = 0;
@@ -156,6 +179,7 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
     /// </summary>
     public void WriteString(string value)
     {
+        ThrowIfDisposed();
         int byteCount = Encoding.UTF8.GetByteCount(value);
         Write7BitEncodedInt(byteCount);
         if (byteCount <= 256)
@@ -176,6 +200,7 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
     /// </summary>
     public void WriteChars(ReadOnlySpan<char> chars)
     {
+        ThrowIfDisposed();
         int byteCount = Encoding.UTF8.GetByteCount(chars);
         if (byteCount <= 256)
         {
@@ -196,6 +221,7 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
     /// </summary>
     public void WriteVarInt(int value)
     {
+        ThrowIfDisposed();
         uint v = (uint)value;
         // Max 5 bytes for a 32-bit varint
         Span<byte> buf = stackalloc byte[5];
@@ -210,13 +236,17 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
     }
 
     /// <summary>Flushes the internal write buffer to the underlying file stream.</summary>
-    public void Flush() => FlushBuffer();
+    public void Flush()
+    {
+        ThrowIfDisposed();
+        FlushBuffer();
+    }
 
     private void FlushBuffer()
     {
         if (_bufferPosition > 0)
         {
-            _stream.Write(_buffer, 0, _bufferPosition);
+            _stream.Write(_buffer!, 0, _bufferPosition);
             _bufferPosition = 0;
         }
     }
@@ -224,8 +254,9 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
     /// <summary>Flushes remaining buffered data and releases all resources.</summary>
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
         try
         {
             FlushBuffer();
@@ -242,8 +273,14 @@ public sealed class IndexOutput : IDisposable, ISequentialIndexOutput
                 }
                 catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "posix_fadvise during dispose"); }
             }
-            ArrayPool<byte>.Shared.Return(_buffer);
+            var buffer = Interlocked.Exchange(ref _buffer, null);
+            if (buffer is not null)
+                ArrayPool<byte>.Shared.Return(buffer);
             _stream.Dispose();
         }
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void ThrowIfDisposed()
+        => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 }

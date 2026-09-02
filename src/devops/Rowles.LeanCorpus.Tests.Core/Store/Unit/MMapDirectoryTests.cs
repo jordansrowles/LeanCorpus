@@ -1,3 +1,4 @@
+using System.Buffers;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
@@ -106,6 +107,27 @@ public sealed class MMapDirectoryTests : IClassFixture<TestDirectoryFixture>
 
         Assert.Equal(4, new FileInfo(filePath).Length);
         Assert.Equal([1, 2, 3, 4], File.ReadAllBytes(filePath));
+    }
+
+    [Fact(DisplayName = "Index Output: Stale Write After Dispose Throws")]
+    public void IndexOutput_WriteAfterDispose_ThrowsWithoutMutatingRentedBuffer()
+    {
+        string filePath = Path.Combine(_fixture.Path, "disposed-output.bin");
+        var output = new IndexOutput(filePath);
+        output.Dispose();
+
+        var rentedBuffer = ArrayPool<byte>.Shared.Rent(65536);
+        try
+        {
+            Array.Fill(rentedBuffer, (byte)0x5A);
+
+            Assert.Throws<ObjectDisposedException>(() => output.WriteByte(0xFF));
+            Assert.Equal((byte)0x5A, rentedBuffer[0]);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rentedBuffer);
+        }
     }
 
     /// <summary>
