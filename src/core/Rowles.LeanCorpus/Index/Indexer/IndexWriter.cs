@@ -83,8 +83,9 @@ public sealed partial class IndexWriter : IDisposable
     private int _queuedAsyncWrites;
 
     private readonly Lock _writeLock = new();
+    private readonly Lock _disposeLock = new();
     private readonly OperationDrain _indexingOperations = new();
-    private int _disposed;      // 0 = alive, 1 = disposed (atomically set via Interlocked)
+    private int _disposed;      // 0 = resources remain owned, 1 = teardown completed
     private int _closing;       // 0 = open, 1 = Dispose has started draining (prevents TOCTOU)
     private int _indexingFailed;
     private Exception? _indexingFailure;
@@ -229,7 +230,7 @@ public sealed partial class IndexWriter : IDisposable
 
     public void SoftDeleteDocuments(TermQuery query)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ThrowIfClosingOrDisposed();
         ThrowIfIndexingFailed();
         if (!_config.SoftDeletesEnabled)
             throw new InvalidOperationException(
@@ -483,13 +484,13 @@ public sealed partial class IndexWriter : IDisposable
 
     public IReadOnlyList<SegmentInfo> GetNrtSegments()
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ThrowIfClosingOrDisposed();
         return SnapshotManager.GetNrtSegments(this);
     }
 
     public IndexSnapshot CreateSnapshot()
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ThrowIfClosingOrDisposed();
         return SnapshotManager.CreateSnapshot(this);
     }
 
@@ -501,7 +502,7 @@ public sealed partial class IndexWriter : IDisposable
     public IndexBackupManifest CreateBackupManifest(IndexSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ThrowIfClosingOrDisposed();
         return SnapshotManager.CreateBackupManifest(snapshot, _directory.DirectoryPath);
     }
 
@@ -524,42 +525,55 @@ public sealed partial class IndexWriter : IDisposable
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ThrowIfClosingOrDisposed();
         return SnapshotManager.BackupSnapshot(snapshot, backupDirectoryPath, _directory.DirectoryPath, options, cancellationToken);
     }
 
     public void Dispose()
     {
-        if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0) return;
-
-        // Prevent new callers from entering while we drain in-flight operations.
-        Volatile.Write(ref _closing, 1);
-        _shutdownCts.Cancel();
-        CompleteAsyncWrites();
-
-        // A timed-out drain leaves every owned synchronisation primitive intact.
-        // Live operations can therefore unwind safely after Dispose reports failure.
-        DrainIndexingOperations(_disposeTimeout);
-
-        Exception? failure = null;
-        try
+        lock (_disposeLock)
         {
-            // Drain any pending detached flushes and publish their segments.
-            lock (_writeLock)
-                DwptManager.WaitForPendingFlushes(this);
-        }
-        catch (Exception ex)
-        {
-            failure = ex;
-        }
-        finally
-        {
-            DisposeResources(ref failure);
-        }
+            if (Volatile.Read(ref _disposed) != 0)
+                return;
 
-        if (failure is not null)
-            ExceptionDispatchInfo.Capture(failure).Throw();
+            // Closing begins once. A timed-out drain deliberately remains Closing:
+            // a later Dispose can finish teardown after live operations exit.
+            if (Interlocked.Exchange(ref _closing, 1) == 0)
+            {
+                _shutdownCts.Cancel();
+                CompleteAsyncWrites();
+            }
+
+            // A timed-out drain leaves every owned synchronisation primitive intact.
+            // Live operations can therefore unwind safely after Dispose reports failure.
+            DrainIndexingOperations(_disposeTimeout);
+
+            Exception? failure = null;
+            try
+            {
+                // Drain any pending detached flushes and publish their segments.
+                lock (_writeLock)
+                    DwptManager.WaitForPendingFlushes(this);
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+            finally
+            {
+                DisposeResources(ref failure);
+                Volatile.Write(ref _disposed, 1);
+            }
+
+            if (failure is not null)
+                ExceptionDispatchInfo.Capture(failure).Throw();
+        }
     }
+
+    private void ThrowIfClosingOrDisposed()
+        => ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _closing) != 0 || Volatile.Read(ref _disposed) != 0,
+            this);
 
     private void DrainIndexingOperations(TimeSpan timeout)
     {
@@ -836,7 +850,7 @@ public sealed partial class IndexWriter : IDisposable
             while (reader.TryRead(out var cmd))
             {
                 Interlocked.Decrement(ref _queuedAsyncWrites);
-                if (Volatile.Read(ref _disposed) != 0)
+                if (Volatile.Read(ref _closing) != 0 || Volatile.Read(ref _disposed) != 0)
                 {
                     cmd.Tcs.TrySetException(new ObjectDisposedException(nameof(IndexWriter)));
                     continue;
@@ -866,7 +880,7 @@ public sealed partial class IndexWriter : IDisposable
 
     private void ProcessAsyncWriteCommand(AsyncWriteCommand cmd)
     {
-        if (Volatile.Read(ref _disposed) != 0)
+        if (Volatile.Read(ref _closing) != 0 || Volatile.Read(ref _disposed) != 0)
             throw new ObjectDisposedException(nameof(IndexWriter));
         switch (cmd.Kind)
         {

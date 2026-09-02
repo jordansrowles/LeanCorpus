@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
 
@@ -109,7 +109,8 @@ jobs:
                 $resultDirectory = "flaky-test-results/$iteration/$($suite.Name)/$framework"
                 dotnet test $suite.Project -c Release -f $framework --no-build `
                   --logger "trx;LogFileName=$($suite.Name).trx" `
-                  --results-directory $resultDirectory
+                  --results-directory $resultDirectory `
+                  $(if ($suite.Name -ne 'architecture') { @('--hangdump', '--hangdump-timeout', '100s') })
                 $passed = $LASTEXITCODE -eq 0
                 $result = if ($passed) { 'Passed' } else { 'Failed' }
                 $summary.Add("| $iteration | ${{ matrix.os }} | $($suite.Name) | $framework | $result |")
@@ -143,5 +144,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: flaky-test-results-${{ matrix.os }}
-          path: flaky-test-results
+          path: |
+            flaky-test-results
+            TestResults/**
           if-no-files-found: warn
