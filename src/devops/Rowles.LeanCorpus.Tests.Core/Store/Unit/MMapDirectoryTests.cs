@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
@@ -363,6 +364,32 @@ public sealed class MMapDirectoryTests : IClassFixture<TestDirectoryFixture>
         Assert.False(File.Exists(filePath));
     }
 
+    [Fact(DisplayName = "MMap Directory: Finalised Input Releases Deferred Deletion Lease")]
+    public void MMapDirectory_FinalisedInput_ReleasesDeferredDeletionLease()
+    {
+        var sub = Path.Combine(_fixture.Path, "finalised_input_" + Guid.NewGuid().ToString("N")[..6]);
+        Directory.CreateDirectory(sub);
+        const string fileName = "abandoned.bin";
+        var filePath = Path.Combine(sub, fileName);
+        File.WriteAllBytes(filePath, [1]);
+        using var readerDirectory = new MMapDirectory(sub);
+        using var writerDirectory = new MMapDirectory(sub);
+
+        var abandonedInput = OpenAbandonedInput(readerDirectory, fileName);
+        writerDirectory.DeleteFile(fileName);
+        Assert.True(File.Exists(filePath));
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        Assert.False(abandonedInput.IsAlive);
+        Assert.True(SpinWait.SpinUntil(
+            () => !File.Exists(filePath),
+            TimeSpan.FromSeconds(5)),
+            "The finalised input did not release its deferred-deletion lease.");
+    }
+
     [Fact(DisplayName = "MMap Directory: Copied File Lease Releases Only Once")]
     public void FileLease_CopiedLease_ReleasesOnlyOnce()
     {
@@ -436,6 +463,10 @@ public sealed class MMapDirectoryTests : IClassFixture<TestDirectoryFixture>
             Assert.False(File.Exists(path));
         }
     }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference OpenAbandonedInput(MMapDirectory directory, string fileName)
+        => new(directory.OpenInput(fileName));
 
     /// <summary>
     /// Verifies that Dispose closes tracked IndexInput instances.

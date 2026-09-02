@@ -16,17 +16,10 @@ public sealed unsafe class IndexInput : IDisposable
     /// <summary>Full path of the file backing this input. Internal for deferred-deletion tracking.</summary>
     internal string? FilePath => _filePath;
 
-    /// <summary>
-    /// Registers a callback invoked when this input is disposed, after all memory-mapped
-    /// resources are released. Used by <see cref="MMapDirectory"/> for reference-counted
-    /// deferred file deletion.
-    /// </summary>
-    internal void SetOnDisposed(Action<IndexInput> callback) => _onDisposed = callback;
-
     private readonly string? _filePath;
     private readonly long _fileOffset;
     private readonly OperationDrain _operations = new();
-    private Action<IndexInput>? _onDisposed;
+    private readonly FileLease? _fileLease;
     private readonly MemoryMappedFile? _mmf;
     private readonly MemoryMappedViewAccessor? _accessor;
     private readonly IndexInputLifetimeLease? _ownerLease;
@@ -55,13 +48,15 @@ public sealed unsafe class IndexInput : IDisposable
     /// <param name="filePath">The full path of the file to open.</param>
     /// <param name="offset">The first byte in the file included in the input.</param>
     /// <param name="length">The number of bytes included in the input.</param>
-    internal IndexInput(string filePath, long offset, long? length)
+    /// <param name="fileLease">The deferred-deletion lease owned by this mapped input.</param>
+    internal IndexInput(string filePath, long offset, long? length, FileLease? fileLease = null)
     {
         ArgumentNullException.ThrowIfNull(filePath);
         if (offset < 0)
             throw new ArgumentOutOfRangeException(nameof(offset));
 
         _filePath = filePath;
+        _fileLease = fileLease;
         _fileOffset = offset;
         _mappingIdentity = new object();
         Diagnostics.FileSystemDiagnostics.RecordIndexInputOpen();
@@ -731,11 +726,11 @@ public sealed unsafe class IndexInput : IDisposable
 
         _disposed = true;
         _operations.BeginDisposeAndWait();
-        ReleaseResources(notifyDirectory: true);
+        ReleaseResources(fromFinaliser: false);
         GC.SuppressFinalize(this);
     }
 
-    private void ReleaseResources(bool notifyDirectory)
+    private void ReleaseResources(bool fromFinaliser)
     {
         if (_accessor is not null)
         {
@@ -745,13 +740,10 @@ public sealed unsafe class IndexInput : IDisposable
         }
         _mmf?.Dispose();
         _ownerLease?.Dispose();
-
-        if (notifyDirectory)
-        {
-            // Notify the directory that this input's file mapping is released so
-            // any pending-delete file can now be removed.
-            _onDisposed?.Invoke(this);
-        }
+        if (fromFinaliser)
+            _fileLease?.ReleaseFromFinaliser();
+        else
+            _fileLease?.Dispose();
     }
 
     /// <summary>
@@ -764,7 +756,7 @@ public sealed unsafe class IndexInput : IDisposable
             return;
 
         _disposed = true;
-        ReleaseResources(notifyDirectory: false);
+        ReleaseResources(fromFinaliser: true);
     }
 
     private ReadScope EnterReadScope() => new(this);

@@ -146,6 +146,52 @@ internal static class FileLifetimeRegistry
             }
         }
 
+        internal void ReleaseFromFinaliser(string filePath)
+        {
+            bool queueDeferredDelete = false;
+            lock (_lock)
+            {
+                if (!_files.TryGetValue(filePath, out var state))
+                    return;
+
+                if (state.LeaseCount > 0)
+                    state.LeaseCount--;
+
+                if (state.LeaseCount != 0)
+                    return;
+
+                if (!state.DeletePending)
+                {
+                    _files.Remove(filePath);
+                    return;
+                }
+
+                queueDeferredDelete = true;
+            }
+
+            if (queueDeferredDelete)
+            {
+                ThreadPool.UnsafeQueueUserWorkItem(
+                    static state => state.Owner.DeleteDeferredFromFinaliser(state.FilePath),
+                    (Owner: this, FilePath: filePath),
+                    preferLocal: false);
+            }
+        }
+
+        private void DeleteDeferredFromFinaliser(string filePath)
+        {
+            lock (_lock)
+            {
+                if (!_files.TryGetValue(filePath, out var state) ||
+                    state.LeaseCount != 0 ||
+                    !state.DeletePending)
+                    return;
+
+                TryDelete(filePath, "finalised deferred index file delete");
+                _files.Remove(filePath);
+            }
+        }
+
         internal string[] GetPendingDeletionFiles(IReadOnlyList<string> paths)
         {
             lock (_lock)
@@ -182,16 +228,18 @@ internal static class FileLifetimeRegistry
 }
 
 /// <summary>A lease over one concrete index file.</summary>
-internal readonly struct FileLease : IDisposable
+internal sealed class FileLease : IDisposable
 {
-    private readonly ReleaseToken? _token;
+    private readonly ReleaseToken _token;
 
     internal FileLease(FileLifetimeRegistry.DirectoryState owner, string filePath)
     {
         _token = new ReleaseToken(owner, filePath);
     }
 
-    public readonly void Dispose() => _token?.Dispose();
+    public void Dispose() => _token.Dispose();
+
+    internal void ReleaseFromFinaliser() => _token.ReleaseFromFinaliser();
 
     private sealed class ReleaseToken
     {
@@ -209,6 +257,12 @@ internal readonly struct FileLease : IDisposable
         {
             if (Interlocked.Exchange(ref _disposed, 1) == 0)
                 _owner.Release(_filePath);
+        }
+
+        internal void ReleaseFromFinaliser()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                _owner.ReleaseFromFinaliser(_filePath);
         }
     }
 }

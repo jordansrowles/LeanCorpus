@@ -62,8 +62,7 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
         var lease = _fileLifetimes.Acquire(fileName);
         try
         {
-            var input = new IndexInput(Path.Combine(DirectoryPath, fileName), offset, length);
-            input.SetOnDisposed(_ => lease.Dispose());
+            var input = new IndexInput(Path.Combine(DirectoryPath, fileName), offset, length, lease);
             TrackInput(input);
             return input;
         }
