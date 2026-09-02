@@ -115,11 +115,11 @@ public class NumericAggregationTests : IDisposable
     }
 
     /// <summary>
-    /// Verifies that histogram bucket count is capped to prevent OOM from
-    /// malicious or misconfigured requests with tiny intervals and wide ranges.
+    /// Verifies that histogram bucket limits reject an unrepresentable exact result
+    /// rather than changing the meaning of an overflow observation.
     /// </summary>
-    [Fact(DisplayName = "Histogram: Bucket Count Capped Against OOM")]
-    public void Histogram_BucketCountCapped()
+    [Fact(DisplayName = "Histogram: Bucket Span Exceeding Limit Fails Clearly")]
+    public void Histogram_BucketSpanExceedingLimit_FailsClearly()
     {
         // Two docs with values spanning 1M range, interval 0.1: raw buckets would be ~10M.
         using var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig());
@@ -136,24 +136,37 @@ public class NumericAggregationTests : IDisposable
 
         using var searcher = new IndexSearcher(new MMapDirectory(_dir));
 
-        var (_, aggs) = searcher.SearchWithAggregations(
+        var exception = Assert.Throws<InvalidOperationException>(() => searcher.SearchWithAggregations(
             new TermQuery("name", "doc"), 100,
             new AggregationRequest("price_hist", "price", AggregationType.Histogram)
             {
                 HistogramInterval = 0.1
-            });
+            }));
 
-        Assert.Single(aggs);
-        var hist = aggs[0];
-        Assert.NotNull(hist.Buckets);
-        Assert.True(hist.Buckets.Count <= NumericAggregator.MaxBucketCount,
-            $"Expected <= {NumericAggregator.MaxBucketCount} buckets, got {hist.Buckets.Count}");
+        Assert.Contains("price", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(NumericAggregator.MaxBucketCount.ToString(), exception.Message, StringComparison.Ordinal);
+    }
 
-        // Bucket counts must still sum to total doc count.
-        long bucketSum = 0;
-        foreach (var b in hist.Buckets)
-            bucketSum += b.Count;
-        Assert.Equal(hist.Count, bucketSum);
+    [Theory(DisplayName = "Histogram: Non-Finite Values Are Rejected")]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void Histogram_NonFiniteValues_AreRejected(double value)
+    {
+        using var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig());
+        var document = new LeanDocument();
+        document.Add(new TextField("body", "common"));
+        document.Add(new NumericField("value", value, stored: false));
+        writer.AddDocument(document);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+        Assert.Throws<InvalidOperationException>(() => searcher.SearchWithAggregations(
+            new TermQuery("body", "common"), 1,
+            new AggregationRequest("value_hist", "value", AggregationType.Histogram)
+            {
+                HistogramInterval = 1
+            }));
     }
 
     /// <summary>
@@ -204,6 +217,73 @@ public class NumericAggregationTests : IDisposable
 
         Assert.Single(aggs);
         Assert.Equal(0, aggs[0].Count);
+    }
+
+    /// <summary>
+    /// Verifies that a matching document without a numeric value contributes no
+    /// observed value to the metric statistics.
+    /// </summary>
+    [Fact(DisplayName = "Stats: Missing Numeric Values Do Not Increment Count")]
+    public void Stats_MissingNumericValues_DoNotIncrementCount()
+    {
+        using var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig());
+
+        var first = new LeanDocument();
+        first.Add(new TextField("body", "common"));
+        first.Add(new NumericField("price", 10, stored: false));
+        writer.AddDocument(first);
+
+        var missing = new LeanDocument();
+        missing.Add(new TextField("body", "common"));
+        writer.AddDocument(missing);
+
+        var third = new LeanDocument();
+        third.Add(new TextField("body", "common"));
+        third.Add(new NumericField("price", 2, stored: false));
+        writer.AddDocument(third);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+        var (_, aggs) = searcher.SearchWithAggregations(
+            new TermQuery("body", "common"), 1,
+            new AggregationRequest("price_stats", "price"));
+
+        var stats = Assert.Single(aggs);
+        Assert.Equal(2, stats.Count);
+        Assert.Equal(2, stats.Min);
+        Assert.Equal(10, stats.Max);
+        Assert.Equal(12, stats.Sum);
+        Assert.Equal(6, stats.Avg);
+    }
+
+    /// <summary>
+    /// Verifies that non-finite numeric values are counted and retain explicit
+    /// IEEE-754 propagation semantics.
+    /// </summary>
+    [Fact(DisplayName = "Stats: Non-Finite Values Are Counted")]
+    public void Stats_NonFiniteValues_AreCounted()
+    {
+        using var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig());
+        foreach (double value in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "common"));
+            doc.Add(new NumericField("value", value, stored: false));
+            writer.AddDocument(doc);
+        }
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+        var (_, aggs) = searcher.SearchWithAggregations(
+            new TermQuery("body", "common"), 1,
+            new AggregationRequest("value_stats", "value"));
+
+        var stats = Assert.Single(aggs);
+        Assert.Equal(3, stats.Count);
+        Assert.True(double.IsNaN(stats.Min));
+        Assert.True(double.IsNaN(stats.Max));
+        Assert.True(double.IsNaN(stats.Sum));
+        Assert.True(double.IsNaN(stats.Avg));
     }
 
     /// <summary>

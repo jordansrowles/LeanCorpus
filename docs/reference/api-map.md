@@ -4,6 +4,7 @@ Start here when generated API reference is too broad.
 
 | Task | Main API |
 |---|---|
+| Set process-wide construction defaults | <xref:Rowles.LeanCorpus.LeanCorpusDefaults> |
 | Create and change an index | <xref:Rowles.LeanCorpus.Index.Indexer.IndexWriter> |
 | Search a committed index | <xref:Rowles.LeanCorpus.Search.Searcher.IndexSearcher> |
 | Represent a document | <xref:Rowles.LeanCorpus.Document.LeanDocument> |

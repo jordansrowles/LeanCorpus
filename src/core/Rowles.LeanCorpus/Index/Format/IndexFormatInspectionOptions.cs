@@ -7,6 +7,18 @@ namespace Rowles.LeanCorpus.Index.Format;
 /// </summary>
 public sealed class IndexFormatInspectionOptions
 {
+    /// <summary>Initialises inspection options and captures the current codec catalogue default.</summary>
+    public IndexFormatInspectionOptions()
+        : this(LeanCorpusDefaults.GetSnapshot())
+    {
+    }
+
+    internal IndexFormatInspectionOptions(LeanCorpusDefaultSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        Catalog = snapshot.Codecs.Catalog.IsSet ? snapshot.Codecs.Catalog.Value : CodecCatalog.Default;
+    }
+
     /// <summary>Gets or sets the immutable codec catalogue used to identify persistent formats.</summary>
     public CodecCatalog Catalog { get; set; } = CodecCatalog.Default;
 

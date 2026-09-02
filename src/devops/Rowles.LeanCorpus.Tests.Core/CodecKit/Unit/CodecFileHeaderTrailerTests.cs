@@ -23,11 +23,7 @@ public sealed class CodecFileHeaderTrailerTests : IDisposable
     {
         if (Directory.Exists(_tempDirectory))
         {
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
-            try { Directory.Delete(_tempDirectory, recursive: true); }
-            catch { /* best effort */ }
+            TestDirectoryFixture.TryDeleteDirectory(_tempDirectory);
         }
     }
 

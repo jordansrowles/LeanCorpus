@@ -38,6 +38,12 @@ For `TextField`, DocValues are off by default. If you need to sort or facet on a
 
 For `BinaryField`, `StoredField`, and `GeoPointField`, DocValues are always on and cannot be disabled.
 
+For hierarchical facets, use `FacetPathIndexer.AddToDocument`. It writes each
+path prefix as a queryable `StringField` with sorted-set DocValues, so
+`HierarchicalFacetRequest` can count immediate children and `DrillDownQuery`
+can select an exact path. The path encoder is length-prefixed and does not use
+component delimiters as identity.
+
 ## Where DocValues are used
 
 | Operation | DocValues type needed |

@@ -38,7 +38,6 @@ public sealed class QueryFamilyChaosTests : IClassFixture<ChaosDirectoryFixture>
         }
         finally
         {
-            ReleaseFileHandles();
             DeleteDirectoryBestEffort(path);
         }
     }
@@ -64,7 +63,6 @@ public sealed class QueryFamilyChaosTests : IClassFixture<ChaosDirectoryFixture>
         }
         finally
         {
-            ReleaseFileHandles();
             DeleteDirectoryBestEffort(path);
         }
     }
@@ -93,7 +91,6 @@ public sealed class QueryFamilyChaosTests : IClassFixture<ChaosDirectoryFixture>
         }
         finally
         {
-            ReleaseFileHandles();
             DeleteDirectoryBestEffort(path);
         }
     }
@@ -156,13 +153,6 @@ public sealed class QueryFamilyChaosTests : IClassFixture<ChaosDirectoryFixture>
         stream.SetLength(length);
     }
 
-    private static void ReleaseFileHandles()
-    {
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
-    }
-
     private static string CreateIsolatedPath(string name)
     {
         var path = Path.Combine(Path.GetTempPath(), "LeanCorpusQueryChaos", $"{name}_{Guid.NewGuid():N}");
@@ -172,40 +162,6 @@ public sealed class QueryFamilyChaosTests : IClassFixture<ChaosDirectoryFixture>
 
     private static void DeleteDirectoryBestEffort(string path)
     {
-        for (int attempt = 0; attempt < 5; attempt++)
-        {
-            try
-            {
-                if (Directory.Exists(path))
-                    Directory.Delete(path, recursive: true);
-                return;
-            }
-            catch (UnauthorizedAccessException)
-            {
-                if (attempt >= 4)
-                    break;
-                Thread.Sleep(100);
-                ReleaseFileHandles();
-            }
-            catch (IOException)
-            {
-                if (attempt >= 4)
-                    break;
-                Thread.Sleep(100);
-                ReleaseFileHandles();
-            }
-        }
-
-        try
-        {
-            if (Directory.Exists(path))
-                Directory.Delete(path, recursive: true);
-        }
-        catch (UnauthorizedAccessException)
-        {
-        }
-        catch (IOException)
-        {
-        }
+        TestDirectoryFixture.TryDeleteDirectory(path);
     }
 }

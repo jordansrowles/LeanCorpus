@@ -100,9 +100,7 @@ public sealed class CanonicalAuxiliaryFrameTests : IDisposable
     {
         if (!Directory.Exists(_directory))
             return;
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        Directory.Delete(_directory, recursive: true);
+        TestDirectoryFixture.TryDeleteDirectory(_directory);
     }
 
     private static void AssertCurrentFrame(string path, string formatId)

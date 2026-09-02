@@ -4,6 +4,7 @@ using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index;
 
@@ -31,14 +32,14 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
 
     /// <summary>
     /// 32 producers call AddDocumentLockFree in a tight loop while the main thread
-    /// calls Dispose after 100 ms. No ObjectDisposedException must escape to any producer,
-    /// and the writer must be cleanly disposed afterwards.
+    /// calls Dispose after 100 ms. Producers may observe ObjectDisposedException as their
+    /// graceful shutdown signal, and the writer must be cleanly disposed afterwards.
     /// </summary>
-    [Fact(DisplayName = "Dispose: During Concurrent Add Document Lock Free No Object Disposed Race")]
-    public void Dispose_DuringConcurrentAddDocumentLockFree_NoObjectDisposedRace()
+    [Fact(DisplayName = "Dispose: During Concurrent Add Document Lock Free No Object Disposed Race", Timeout = 30_000)]
+    public async Task Dispose_DuringConcurrentAddDocumentLockFree_NoObjectDisposedRace()
     {
         var dir = SubDir("h12_race");
-        var config = new IndexWriterConfig { MaxBufferedDocs = 10_000 };
+        var config = new IndexWriterConfig { MaxBufferedDocs = 10_000, MaxQueuedDocs = 0 };
         var writer = new IndexWriter(new MMapDirectory(dir), config);
         writer.InitialiseDwptPool(threadCount: 8);
 
@@ -83,7 +84,7 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
 
         // Signal producers to stop and wait for all to finish
         cts.Cancel();
-        Task.WaitAll(tasks, TestContext.Current.CancellationToken);
+        await Task.WhenAll(tasks).WaitAsync(TestContext.Current.CancellationToken);
 
         // ObjectDisposedException thrown by our own guard (re-check after increment) is
         // the expected graceful exit signal. Any other exception type indicates a real bug
@@ -93,6 +94,138 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
             .ToList();
 
         Assert.Empty(unexpectedExceptions);
+    }
+
+    /// <summary>
+    /// Verifies that a producer blocked on writer-owned backpressure observes shutdown,
+    /// unwinds its indexing operation, and does not leave disposal waiting indefinitely.
+    /// </summary>
+    [Fact(DisplayName = "Dispose: Unblocks Producers Waiting For Backpressure", Timeout = 30_000)]
+    public async Task Dispose_UnblocksProducerWaitingForBackpressure()
+    {
+        var dir = SubDir("dispose_backpressure_wait");
+        var writer = new IndexWriter(
+            new MMapDirectory(dir),
+            new IndexWriterConfig { MaxQueuedDocs = 1, MaxBufferedDocs = 10_000, DurableCommits = false });
+        var semaphore = writer.BackpressureSemaphoreForTests;
+        Assert.NotNull(semaphore);
+        Assert.True(semaphore!.Wait(0));
+
+        var producer = Task.Run(() =>
+        {
+            try
+            {
+                var doc = new LeanDocument();
+                doc.Add(new TextField("body", "blocked by backpressure"));
+                writer.AddDocument(doc);
+                return (Exception?)null;
+            }
+            catch (Exception exception)
+            {
+                return exception;
+            }
+        }, TestContext.Current.CancellationToken);
+
+        try
+        {
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => writer.InFlightIndexingOperationsForTests == 1 && !producer.IsCompleted,
+                    TimeSpan.FromSeconds(5)),
+                "The producer did not enter the blocked backpressure operation.");
+
+            writer.Dispose();
+
+            var exception = await producer.WaitAsync(TestContext.Current.CancellationToken);
+            Assert.IsType<ObjectDisposedException>(exception);
+            Assert.Equal(0, writer.InFlightIndexingOperationsForTests);
+        }
+        finally
+        {
+            writer.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// A writer that uses only synchronous indexing must not create an asynchronous
+    /// consumer or wait for one during disposal.
+    /// </summary>
+    [Fact(DisplayName = "Dispose: Synchronous Writer Does Not Start Async Consumer")]
+    public void Dispose_SynchronousWriter_DoesNotStartAsyncConsumer()
+    {
+        var dir = SubDir("dispose_sync_writer");
+        var writer = new IndexWriter(
+            new MMapDirectory(dir),
+            new IndexWriterConfig { DurableCommits = false });
+
+        try
+        {
+            Assert.False(writer.AsyncWriteConsumerStartedForTests);
+
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "synchronous document"));
+            writer.AddDocument(doc);
+
+            Assert.False(writer.AsyncWriteConsumerStartedForTests);
+            writer.Dispose();
+        }
+        finally
+        {
+            writer.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Disposal closes async input before draining indexing operations. A command
+    /// already queued behind an active command must therefore finish with the writer
+    /// shutdown signal rather than keep disposal waiting for an absent consumer.
+    /// </summary>
+    [Fact(DisplayName = "Dispose: Unblocks Queued Async Writer Commands", Timeout = 30_000)]
+    public async Task Dispose_UnblocksQueuedAsyncWriterCommands()
+    {
+        var dir = SubDir("dispose_async_queue");
+        var writer = new IndexWriter(
+            new MMapDirectory(dir),
+            new IndexWriterConfig { MaxBufferedDocs = 1, DurableCommits = false });
+
+        Task first;
+        Task second;
+        Task dispose;
+        lock (writer.WriteLock)
+        {
+            first = writer.AddDocumentAsync(CreateDocument("first")).AsTask();
+
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => writer.InFlightIndexingOperationsForTests == 2,
+                    TimeSpan.FromSeconds(5)),
+                "The asynchronous consumer did not begin processing the first command.");
+
+            second = writer.AddDocumentAsync(CreateDocument("second")).AsTask();
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => writer.InFlightIndexingOperationsForTests == 3,
+                    TimeSpan.FromSeconds(5)),
+                "The second asynchronous command was not queued.");
+
+            dispose = Task.Run(writer.Dispose, TestContext.Current.CancellationToken);
+            Assert.True(
+                SpinWait.SpinUntil(() => writer.IsClosing, TimeSpan.FromSeconds(5)),
+                "Writer disposal did not begin.");
+        }
+
+        await dispose.WaitAsync(TestContext.Current.CancellationToken);
+        await first.WaitAsync(TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => second);
+        Assert.Equal(0, writer.InFlightIndexingOperationsForTests);
+    }
+
+    private static LeanDocument CreateDocument(string id)
+    {
+        var doc = new LeanDocument();
+        doc.Add(new StringField("id", id));
+        doc.Add(new TextField("body", "async lifecycle document"));
+        return doc;
     }
 
     /// <summary>
@@ -106,6 +239,33 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
         writer.Dispose();
         // Second dispose must be a no-op
         writer.Dispose();
+    }
+
+    /// <summary>
+    /// Verifies that disposal uses a millisecond timeout when an indexing operation is stranded.
+    /// </summary>
+    [Fact(DisplayName = "Dispose: In-flight indexing drain uses configured timeout")]
+    public void Dispose_InFlightIndexingOperation_UsesConfiguredDrainTimeout()
+    {
+        var dir = SubDir("dispose_drain_timeout");
+        var writer = new IndexWriter(
+            new MMapDirectory(dir),
+            new IndexWriterConfig { DurableCommits = false },
+            TimeSpan.FromMilliseconds(50));
+        writer.EnterIndexingOperation();
+
+        try
+        {
+            var stopwatch = Stopwatch.StartNew();
+            writer.Dispose();
+            stopwatch.Stop();
+
+            Assert.InRange(stopwatch.ElapsedMilliseconds, 25, 2_000);
+        }
+        finally
+        {
+            writer.ExitIndexingOperation();
+        }
     }
 
     /// <summary>

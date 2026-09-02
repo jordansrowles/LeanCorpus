@@ -1,0 +1,69 @@
+namespace Rowles.LeanCorpus.Search.Scoring;
+
+/// <summary>Describes how distinct facet values for one field should be returned.</summary>
+/// <remarks>
+/// Counts are document-per-bucket counts. A matching document contributes at
+/// most once to each distinct value, even when a value occurs repeatedly in
+/// the document.
+/// </remarks>
+public sealed class FacetRequest : IFacetRequest
+{
+    /// <summary>
+    /// Initialises a new <see cref="FacetRequest"/>.
+    /// </summary>
+    /// <param name="field">The DocValues field to facet.</param>
+    /// <param name="offset">The number of ordered buckets to skip.</param>
+    /// <param name="limit">The maximum number of buckets to return. Zero returns no buckets.</param>
+    /// <param name="order">The bucket ordering.</param>
+    /// <param name="includeMissing">Whether matching documents without a value should be counted.</param>
+    /// <param name="name">Optional logical result name. Defaults to <paramref name="field"/>.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="field"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when paging values or <paramref name="order"/> are invalid.</exception>
+    public FacetRequest(
+        string field,
+        int offset = 0,
+        int limit = int.MaxValue,
+        FacetBucketOrder order = FacetBucketOrder.CountDescending,
+        bool includeMissing = false,
+        string? name = null)
+    {
+        Field = Document.Fields.FieldNameValidator.Validate(field, nameof(field));
+        Name = ValidateName(name ?? Field);
+        if (offset < 0)
+            throw new ArgumentOutOfRangeException(nameof(offset));
+        if (limit < 0)
+            throw new ArgumentOutOfRangeException(nameof(limit));
+        if (!Enum.IsDefined(order))
+            throw new ArgumentOutOfRangeException(nameof(order));
+
+        Offset = offset;
+        Limit = limit;
+        Order = order;
+        IncludeMissing = includeMissing;
+    }
+
+    private static string ValidateName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("Facet names must not be empty or whitespace.", nameof(name));
+        return name;
+    }
+
+    /// <summary>Gets the DocValues field to facet.</summary>
+    public string Field { get; }
+
+    /// <summary>Gets the logical result name.</summary>
+    public string Name { get; }
+
+    /// <summary>Gets the number of ordered buckets to skip.</summary>
+    public int Offset { get; }
+
+    /// <summary>Gets the maximum number of buckets to return. Zero means no buckets.</summary>
+    public int Limit { get; }
+
+    /// <summary>Gets the ordering applied before paging.</summary>
+    public FacetBucketOrder Order { get; }
+
+    /// <summary>Gets whether documents without a value should be counted.</summary>
+    public bool IncludeMissing { get; }
+}

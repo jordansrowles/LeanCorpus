@@ -11,6 +11,101 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 /// </summary>
 public sealed class IndexWriterConfig
 {
+    /// <summary>The built-in production default for durable commits.</summary>
+    public const bool BuiltInDurableCommits = true;
+
+    /// <summary>
+    /// Initialises a new configuration and snapshots the current process-wide defaults.
+    /// </summary>
+    public IndexWriterConfig()
+        : this(LeanCorpusDefaults.GetSnapshot(), applyFactories: true)
+    {
+    }
+
+    internal IndexWriterConfig(LeanCorpusDefaultSnapshot snapshot, bool applyFactories)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        CodecCatalog = Effective(snapshot.Codecs.Catalog, CodecCatalog.Default);
+        CompatibilityMode = Effective(snapshot.IndexOpen.CompatibilityMode, IndexOpenCompatibilityMode.Strict);
+
+        var defaults = snapshot.IndexWriter;
+        RamBufferSizeMB = Effective(defaults.RamBufferSizeMB, RamBufferSizeMB);
+        RamPerThreadHardLimitMB = Effective(defaults.RamPerThreadHardLimitMB, RamPerThreadHardLimitMB);
+        MaxConcurrentFlushes = Effective(defaults.MaxConcurrentFlushes, MaxConcurrentFlushes);
+        MaxBufferedDocs = Effective(defaults.MaxBufferedDocs, MaxBufferedDocs);
+        MaxQueuedDocs = Effective(defaults.MaxQueuedDocs, MaxQueuedDocs);
+        MaxQueuedBytes = Effective(defaults.MaxQueuedBytes, MaxQueuedBytes);
+        StorePayloads = Effective(defaults.StorePayloads, StorePayloads);
+        StoreTermVectors = Effective(defaults.StoreTermVectors, StoreTermVectors);
+        UseCompoundFile = Effective(defaults.UseCompoundFile, UseCompoundFile);
+        DurableCommits = Effective(defaults.DurableCommits, BuiltInDurableCommits);
+        CompressionPolicy = Effective(defaults.CompressionPolicy, FieldCompressionPolicy.Deflate);
+        StoredFieldBlockSize = Effective(defaults.StoredFieldBlockSize, StoredFieldBlockSize);
+        PostingsSkipInterval = Effective(defaults.PostingsSkipInterval, PostingsSkipInterval);
+        BKDMaxLeafSize = Effective(defaults.BKDMaxLeafSize, BKDMaxLeafSize);
+        AnalyserInternCacheSize = Effective(defaults.AnalyserInternCacheSize, AnalyserInternCacheSize);
+        MaxTokensPerDocument = Effective(defaults.MaxTokensPerDocument, MaxTokensPerDocument);
+        TokenBudgetPolicy = Effective(defaults.TokenBudgetPolicy, TokenBudgetPolicy.Truncate);
+        MergeThreshold = Effective(defaults.MergeThreshold, MergeThreshold);
+        MergeThrottleSegments = Effective(defaults.MergeThrottleSegments, MergeThrottleSegments);
+        MaxConcurrentMerges = Effective(defaults.MaxConcurrentMerges, MaxConcurrentMerges);
+        MaxPendingMergeBytes = Effective(defaults.MaxPendingMergeBytes, MaxPendingMergeBytes);
+        NormaliseVectors = Effective(defaults.NormaliseVectors, NormaliseVectors);
+        VectorQuantisation = Effective(defaults.VectorQuantisation, VectorQuantisation.None);
+        BuildHnswOnFlush = Effective(defaults.BuildHnswOnFlush, BuildHnswOnFlush);
+        if (defaults.HnswSeed.IsSet)
+            HnswSeed = defaults.HnswSeed.Value;
+        TrackSequenceNumbers = Effective(defaults.TrackSequenceNumbers, TrackSequenceNumbers);
+        SoftDeletesEnabled = Effective(defaults.SoftDeletesEnabled, SoftDeletesEnabled);
+        SoftDeleteRetentionSeconds = Effective(defaults.SoftDeleteRetentionSeconds, SoftDeleteRetentionSeconds);
+
+        var hnsw = defaults.Hnsw;
+        HnswBuildConfig = new Codecs.Hnsw.HnswBuildConfig
+        {
+            M = Effective(hnsw.M, HnswBuildConfig.M),
+            EfConstruction = Effective(hnsw.EfConstruction, HnswBuildConfig.EfConstruction),
+            M0 = Effective(hnsw.M0, HnswBuildConfig.M0),
+        };
+
+        if (!applyFactories)
+            return;
+
+        var analysis = defaults.Analysis;
+        if (analysis.DefaultAnalyserFactory.IsSet)
+            DefaultAnalyser = Require(analysis.DefaultAnalyserFactory.Value(), nameof(analysis.DefaultAnalyserFactory));
+        if (analysis.FieldAnalyserFactories.Count > 0)
+        {
+            FieldAnalysers = new Dictionary<string, IAnalyser>(analysis.FieldAnalyserFactories.Count, StringComparer.Ordinal);
+            foreach (var pair in analysis.FieldAnalyserFactories)
+                FieldAnalysers.Add(pair.Key, Require(pair.Value(), $"{nameof(analysis.FieldAnalyserFactories)}[{pair.Key}]"));
+        }
+        if (analysis.StopWords.IsSet)
+            StopWords = analysis.StopWords.Value.ToArray();
+        if (analysis.CharFilterFactories.Count > 0)
+        {
+            var charFilters = new ICharFilter[analysis.CharFilterFactories.Count];
+            for (int i = 0; i < charFilters.Length; i++)
+                charFilters[i] = Require(analysis.CharFilterFactories[i](), $"{nameof(analysis.CharFilterFactories)}[{i}]");
+            CharFilters = charFilters;
+        }
+
+        if (defaults.DeletionPolicyFactory.IsSet)
+            DeletionPolicy = Require(defaults.DeletionPolicyFactory.Value(), nameof(defaults.DeletionPolicyFactory));
+        if (defaults.MergePolicyFactory.IsSet)
+            MergePolicy = Require(defaults.MergePolicyFactory.Value(), nameof(defaults.MergePolicyFactory));
+        if (snapshot.Scoring.SimilarityFactory.IsSet)
+            Similarity = Require(snapshot.Scoring.SimilarityFactory.Value(), nameof(snapshot.Scoring.SimilarityFactory));
+        if (snapshot.Diagnostics.MetricsCollectorFactory.IsSet)
+            Metrics = Require(snapshot.Diagnostics.MetricsCollectorFactory.Value(), nameof(snapshot.Diagnostics.MetricsCollectorFactory));
+    }
+
+    private static T Effective<T>(DefaultOverride<T> value, T builtIn)
+        => value.IsSet ? value.Value : builtIn;
+
+    private static T Require<T>(T? value, string name) where T : class
+        => value ?? throw new InvalidOperationException($"The global default factory '{name}' returned null.");
+
     /// <summary>Gets or sets the immutable codec catalogue used when opening existing segments.</summary>
     public CodecCatalog CodecCatalog { get; set; } = CodecCatalog.Default;
 
@@ -69,7 +164,7 @@ public sealed class IndexWriterConfig
     /// <see cref="IndexWriter.Commit"/> throws and the writer must be disposed and reopened.
     /// Disable only for write-heavy benchmarks where durability is not required.
     /// </summary>
-    public bool DurableCommits { get; set; } = true;
+    public bool DurableCommits { get; set; }
 
     /// <summary>
     /// Test-only replacement for the directory sync performed after a prepared commit has

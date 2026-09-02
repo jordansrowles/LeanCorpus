@@ -28,7 +28,9 @@ LeanCorpus is a .NET-native full-text search engine designed for applications th
 
 **You need spatial search with shapes and WKT.** LeanCorpus has geo-point fields (lat/lon) with bounding-box and distance queries, but no full spatial module (polygons, WKT parsing, Spatial4n integration).
 
-**You need hierarchical faceted search with drill-down.** LeanCorpus has flat field-level faceting and result collapsing. Taxonomy-based drill-down facets are not implemented.
+**You need a taxonomy index with taxonomy-specific APIs.** LeanCorpus supports
+hierarchical `FacetPath` values and `DrillDownQuery` through existing postings
+and DocValues, but it does not provide a separate taxonomy reader or writer.
 
 **You need completion suggesters or analysing suggesters.** The spell-check and did-you-mean suggesters are built in. Prefix-based autocomplete and analysis-backed suggestions are not.
 

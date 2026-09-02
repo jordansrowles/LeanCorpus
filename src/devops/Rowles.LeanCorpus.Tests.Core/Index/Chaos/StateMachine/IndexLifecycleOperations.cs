@@ -37,6 +37,34 @@ internal sealed class AddBatchOperation(IReadOnlyList<ModelDocument> documents) 
     public override string ToString() => $"AddBatch([{string.Join(",", documents.Select(static document => document.Id))}])";
 }
 
+internal sealed class AddAsyncOperation(ModelDocument document) : IndexLifecycleOperation
+{
+    public override IndexModel Run(IndexModel model) => model.Add(document);
+
+    public override Property Check(IndexHarness actual, IndexModel model)
+    {
+        actual.AddAsync(document);
+        actual.AssertCommitted(model.Committed);
+        return Succeeds();
+    }
+
+    public override string ToString() => $"AddAsync({document.Id})";
+}
+
+internal sealed class AddBatchAsyncOperation(IReadOnlyList<ModelDocument> documents) : IndexLifecycleOperation
+{
+    public override IndexModel Run(IndexModel model) => model.AddBatch(documents);
+
+    public override Property Check(IndexHarness actual, IndexModel model)
+    {
+        actual.AddBatchAsync(documents);
+        actual.AssertCommitted(model.Committed);
+        return Succeeds();
+    }
+
+    public override string ToString() => $"AddBatchAsync([{string.Join(",", documents.Select(static document => document.Id))}])";
+}
+
 internal sealed class DeleteOperation(string id) : IndexLifecycleOperation
 {
     public override bool Pre(IndexModel model) => model.Working.ContainsKey(id);

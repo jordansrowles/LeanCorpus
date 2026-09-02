@@ -371,13 +371,13 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Numeric aggregations (min, max, sum, avg, count) | ✔   `SearchWithAggregations()` / `NumericAggregator` / `AggregationRequest` | ◐ | ◐ | Lucene exposes value-source and facet aggregation primitives, not the same request API. |
 | Histogram aggregation | ✔   `AggregationType.Histogram` | ❌ | ❌ | Fixed-bucket LeanCorpus aggregation; neither Lucene baseline has a direct histogram aggregation API. |
 | Field collapsing / result grouping | ✔   `SearchWithCollapse()` / `CollapseField` / `CollapseMode` | ◐ | ◐ | Single-field deduplication by top score or first occurrence; Lucene grouping is broader but not the same API. |
-| Drill-down facets | ❌ | ✔ | ✔ | `DrillDownQuery`; LeanCorpus currently has no facet-filter query surface. |
-| Drill-sideways facets | ❌ | ✔ | ✔ | `DrillSideways` computes sideways counts alongside drill-down results. |
-| Range facets (numeric + date) | ❌ | ✔ | ✔ | Backlog |
-| Hierarchical / taxonomy facets | ❌ | ✔ | ✔ | Backlog |
-| Date histogram with calendar rounding | ❌ | ❌ | ❌ | Backlog; this is not a built-in Lucene aggregation. |
-| Percentile aggregator (HDR / t-digest) | ❌ | ❌ | ❌ | Backlog; this is not a built-in Lucene aggregation. |
-| Cardinality aggregator (HyperLogLog) | ❌ | ❌ | ❌ | Backlog; this is not a built-in Lucene aggregation. |
+| Drill-down facets | ✔   `DrillDownQuery` | ✔ | ✔ | AND across dimensions and OR within one dimension; exact values and hierarchical paths. |
+| Drill-sideways facets | ✔   `SearchWithDrillSideways()` | ✔ | ✔ | One base-query traversal computes selected-dimension alternatives alongside drill-down results. |
+| Range facets (numeric + date) | ✔   `NumericRangeFacetRequest` / `DateRangeFacetRequest` | ✔ | ✔ | Explicit inclusive/exclusive ranges over numeric and UTC Unix-millisecond fields. |
+| Hierarchical / taxonomy facets | ◐   `FacetPath` / `HierarchicalFacetRequest` | ✔ | ✔ | Hierarchical prefixes use existing postings and sorted-set DocValues; no separate taxonomy index. |
+| Date histogram with calendar rounding | ✔   `DateHistogramFacetRequest` | ❌ | ❌ | Fixed and UTC calendar intervals over Int64 Unix-millisecond DocValues. |
+| Percentile aggregator (HDR / t-digest) | ✔   `AggregationType.TDigestPercentiles` / `HdrPercentiles` | ❌ | ❌ | t-digest accepts finite doubles; HDR targets bounded non-negative Int64 values. |
+| Cardinality aggregator (HyperLogLog) | ✔   `AggregationType.Cardinality` | ❌ | ❌ | Bounded HLL-style sparse/dense estimate over numeric DocValues. |
 
 ---
 

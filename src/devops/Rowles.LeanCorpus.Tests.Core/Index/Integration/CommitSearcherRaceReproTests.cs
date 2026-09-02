@@ -102,76 +102,69 @@ public sealed class CommitSearcherRaceReproTests : IClassFixture<TestDirectoryFi
     }
 
     /// <summary>
-    /// Higher-stress variant with more iterations, explicitly designed to hit the
-    /// Windows-specific race where background merge cleanup runs concurrently with
-    /// a subsequent commit's segment scan.
+    /// Deterministically pins several generations of searchers while background merge
+    /// cleanup runs concurrently with later commits. This directly exercises the
+    /// Windows-specific file-lifetime race without relying on a long iteration count.
     /// </summary>
-    [Fact(DisplayName = "Commit + SearcherManager stress: no crash after extended churn")]
+    [Fact(DisplayName = "Commit + SearcherManager stress: pinned generations survive merge churn", Timeout = 60_000)]
     public void CommitWithSearcherManagerStressLoop_NoCrash()
     {
         var dirPath = SubDir("commit_searcher_stress");
         using var dir = new MMapDirectory(dirPath);
-        using var writer = new IndexWriter(dir, new IndexWriterConfig { DurableCommits = false });
+        using var writer = new IndexWriter(dir, new IndexWriterConfig
+        {
+            DurableCommits = false,
+            MaxBufferedDocs = 1,
+            MergePolicy = new TieredMergePolicy(2)
+        });
         using var manager = new SearcherManager(dir, null);
 
-        int iterations = 600;
-        int errors = 0;
-        var caughtExceptions = new List<Exception>();
+        const int iterations = 120;
+        const int pinnedGenerations = 8;
+        var heldSearchers = new Queue<IndexSearcher>();
 
-        for (int i = 0; i < iterations; i++)
+        try
         {
-            var key = $"item_{i}";
-            var doc = new LeanDocument();
-            doc.Add(new StringField("_key", key, stored: false));
-            doc.Add(new TextField("body", $"content number {i} lorem ipsum dolor sit amet consectetur", stored: true, boost: 1.0f));
-
-            try
+            for (int i = 0; i < iterations; i++)
             {
+                var key = $"item_{i}";
+                var doc = new LeanDocument();
+                doc.Add(new StringField("_key", key, stored: false));
+                doc.Add(new TextField("body", $"content number {i} lorem ipsum dolor sit amet consectetur", stored: true, boost: 1.0f));
+
                 writer.UpdateDocument("_key", key, doc);
                 if (i % 5 == 0 && i > 20)
                     writer.DeleteDocuments(new TermQuery("_key", $"item_{i - 17}"));
-                if (i % 33 == 0 && i > 100) // occasional extra delete to stir the merger
-                    writer.DeleteDocuments(new TermQuery("_key", $"item_{i - 99}"));
                 writer.Commit();
                 manager.MaybeRefresh();
-                if (i % 3 == 0)
-                    manager.UsingSearcher(s => s.Search(new TermQuery("body", "lorem"), 10).ScoreDocs.Length);
-                if (i % 7 == 0)
-                    manager.UsingSearcher(s => s.Search(new TermQuery("body", "ipsum"), 10).ScoreDocs.Length);
-            }
-            catch (FileNotFoundException ex)
-            {
-                errors++;
-                caughtExceptions.Add(ex);
-                _output.WriteLine($"[ERROR] Iteration {i}: {ex.GetType().Name}: {ex.Message}");
-                if (errors >= 3) break;
-            }
-            catch (IOException ex)
-            {
-                errors++;
-                caughtExceptions.Add(ex);
-                _output.WriteLine($"[ERROR] Iteration {i}: {ex.GetType().Name}: {ex.Message}");
-                if (errors >= 3) break;
-            }
-            catch (Exception ex) when (ex is not FileNotFoundException && ex is not IOException)
-            {
-                errors++;
-                caughtExceptions.Add(ex);
-                _output.WriteLine($"[UNEXPECTED ERROR] Iteration {i}: {ex.GetType().Name}: {ex.Message}");
-                if (errors >= 3) break;
+
+                heldSearchers.Enqueue(manager.Acquire());
+                if (heldSearchers.Count > pinnedGenerations)
+                {
+                    var oldest = heldSearchers.Dequeue();
+                    try
+                    {
+                        Assert.True(oldest.Search(
+                            new TermQuery("body", "lorem"),
+                            10,
+                            TestContext.Current.CancellationToken).TotalHits > 0);
+                    }
+                    finally
+                    {
+                        manager.Release(oldest);
+                    }
+                }
             }
         }
-
-        if (errors > 0)
+        finally
         {
-            var messages = string.Join("\n  ", caughtExceptions.Select(e => $"{e.GetType().Name}: {e.Message}"));
-            Assert.Fail($"{errors} error(s) during {iterations}-iteration stress loop:\n  {messages}");
+            while (heldSearchers.TryDequeue(out var searcher))
+                manager.Release(searcher);
         }
 
-        // Final sanity: verify index is healthy after the stress loop.
         manager.MaybeRefresh();
         int finalCount = manager.UsingSearcher(s => s.Search(new TermQuery("body", "lorem"), 1000).ScoreDocs.Length);
-        Assert.True(finalCount > 0, "Expected to find documents after stress loop + force merge.");
-        _output.WriteLine($"Stress loop complete. Final searcher found {finalCount} matching documents.");
+        Assert.True(finalCount > 0, "Expected to find documents after pinned-generation merge churn.");
+        _output.WriteLine($"Pinned-generation stress complete. Final searcher found {finalCount} matching documents.");
     }
 }

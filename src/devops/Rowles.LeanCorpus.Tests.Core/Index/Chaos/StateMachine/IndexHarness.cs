@@ -28,6 +28,19 @@ internal sealed class IndexHarness : IDisposable
         Writer.AddDocuments(documents.Select(static document => document.ToLeanDocument()).ToArray());
     }
 
+    public void AddAsync(ModelDocument document)
+    {
+        Writer.AddDocumentAsync(document.ToLeanDocument()).AsTask().GetAwaiter().GetResult();
+    }
+
+    public void AddBatchAsync(IReadOnlyList<ModelDocument> documents)
+    {
+        Writer.AddDocumentsAsync(documents.Select(static document => document.ToLeanDocument()).ToArray())
+            .AsTask()
+            .GetAwaiter()
+            .GetResult();
+    }
+
     public void Delete(string id)
     {
         Writer.DeleteDocuments(new TermQuery("id", id));

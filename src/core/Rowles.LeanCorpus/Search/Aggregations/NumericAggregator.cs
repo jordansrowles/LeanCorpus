@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Rowles.LeanCorpus.Search.Scoring;
 
 namespace Rowles.LeanCorpus.Search.Aggregations;
@@ -12,6 +11,12 @@ public static class NumericAggregator
 {
     /// <summary>Maximum number of histogram buckets. Prevents OOM from malicious or misconfigured requests.</summary>
     internal const int MaxBucketCount = 100_000;
+
+    /// <summary>Creates request-local streaming aggregation state for one exhaustive search traversal.</summary>
+    internal static NumericAggregationCollector CreateCollector(
+        AggregationRequest[] requests,
+        IReadOnlyList<Index.Segment.SegmentReader> readers)
+        => new(requests, readers);
 
     /// <summary>
     /// Computes all requested aggregations over the given matching document IDs.
@@ -78,7 +83,7 @@ public static class NumericAggregator
         int[] docBases,
         int totalDocCount)
     {
-        var results = new AggregationResult[requests.Length];
+        var states = new INumericAggregationState[requests.Length];
 
         // Pre-compute segment boundaries for O(1) reader resolution.
         // Each entry: (maxGlobalDocId, readerIdx, docBase).
@@ -90,59 +95,35 @@ public static class NumericAggregator
             segments[s] = (maxGlobal, s, docBases[s]);
         }
 
-        // Pre-resolve field access strategy once per request.
-        var fieldAccessors = new FieldAccessor[requests.Length];
-        for (int r = 0; r < requests.Length; r++)
-            fieldAccessors[r] = ResolveFieldAccessor(requests[r].Field, readers);
-
+        // Resolve storage representation and create each aggregation state once.
+        var fieldAccessors = new NumericFieldAccessor[requests.Length];
         for (int r = 0; r < requests.Length; r++)
         {
-            var req = requests[r];
-            results[r] = req.Type switch
-            {
-                AggregationType.Stats => ComputeStats(matchingDocs, req, readers, segments, fieldAccessors[r]),
-                AggregationType.Histogram => ComputeHistogram(matchingDocs, req, readers, segments, fieldAccessors[r]),
-                _ => AggregationResult.Empty(req.Name, req.Field)
-            };
+            ArgumentNullException.ThrowIfNull(requests[r]);
+            requests[r].Validate();
+            fieldAccessors[r] = NumericFieldValues.ResolveFieldAccessor(requests[r].Field, readers);
+            states[r] = NumericAggregationStateFactory.Create(requests[r]);
         }
 
+        // Traverse matching documents once. Every state receives the same
+        // representation-aware values without owning document traversal.
+        foreach (int globalDocId in matchingDocs)
+        {
+            var (readerIdx, localDocId) = ResolveDoc(globalDocId, segments);
+            var reader = readers[readerIdx];
+            for (int r = 0; r < requests.Length; r++)
+            {
+                if (NumericFieldValues.TryRead(reader, requests[r].Field, localDocId, fieldAccessors[r], out var values))
+                    states[r].Collect(values);
+            }
+        }
+
+        var results = new AggregationResult[states.Length];
+        for (int r = 0; r < states.Length; r++)
+            results[r] = states[r].Finish();
         return results;
     }
 
-
-
-    private readonly record struct FieldAccessor(
-        bool IsInt64,
-        bool IsSortedNumeric,
-        bool IsSingleNumeric);
-
-    private static FieldAccessor ResolveFieldAccessor(
-        string fieldName,
-        IReadOnlyList<Index.Segment.SegmentReader> readers)
-    {
-        // Determine the field type from the first segment that contains the field,
-        // regardless of which documents have values.
-        foreach (var reader in readers)
-        {
-            if (!reader.HasNumericField(fieldName))
-                continue;
-
-            // Sorted-numeric takes priority — it's the multi-value form.
-            if (reader.GetSortedNumericDocValues(fieldName) is not null)
-                return new FieldAccessor(IsInt64: false, IsSortedNumeric: true, IsSingleNumeric: false);
-            if (reader.GetSortedInt64DocValues(fieldName) is not null)
-                return new FieldAccessor(IsInt64: true, IsSortedNumeric: true, IsSingleNumeric: false);
-
-            // Either sparse .num/.numl index or dense .dvn/.dvnl array.
-            if (reader.GetInt64DocValues(fieldName) is not null || reader.GetNumericDocValues(fieldName) is null)
-                return new FieldAccessor(IsInt64: true, IsSortedNumeric: false, IsSingleNumeric: true);
-            return new FieldAccessor(IsInt64: false, IsSortedNumeric: false, IsSingleNumeric: true);
-        }
-
-        return default;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static (int ReaderIdx, int LocalDocId) ResolveDoc(
         int globalDocId, (int MaxGlobal, int ReaderIdx, int DocBase)[] segments)
     {
@@ -156,195 +137,55 @@ public static class NumericAggregator
         return (0, globalDocId);
     }
 
-    private static AggregationResult ComputeStats(
-        ReadOnlySpan<int> matchingDocs,
-        AggregationRequest req,
-        IReadOnlyList<Index.Segment.SegmentReader> readers,
-        (int MaxGlobal, int ReaderIdx, int DocBase)[] segments,
-        FieldAccessor accessor)
+}
+
+/// <summary>Consumes matching documents directly from search execution without retaining their IDs.</summary>
+internal sealed class NumericAggregationCollector
+{
+    private readonly Dictionary<string, (NumericFieldAccessor Accessor, List<int> RequestIndexes)> _fieldPlans;
+    private readonly INumericAggregationState[] _states;
+
+    public NumericAggregationCollector(
+        AggregationRequest[] requests,
+        IReadOnlyList<Index.Segment.SegmentReader> readers)
     {
-        long count = 0;
-        double min = double.PositiveInfinity;
-        double max = double.NegativeInfinity;
-        double sum = 0;
-
-        foreach (int globalDocId in matchingDocs)
+        ArgumentNullException.ThrowIfNull(requests);
+        _states = new INumericAggregationState[requests.Length];
+        _fieldPlans = new Dictionary<string, (NumericFieldAccessor, List<int>)>(StringComparer.Ordinal);
+        for (int i = 0; i < requests.Length; i++)
         {
-            var (readerIdx, localDocId) = ResolveDoc(globalDocId, segments);
-            var reader = readers[readerIdx];
-
-            if (accessor.IsInt64)
+            ArgumentNullException.ThrowIfNull(requests[i]);
+            requests[i].Validate();
+            _states[i] = NumericAggregationStateFactory.Create(requests[i]);
+            if (!_fieldPlans.TryGetValue(requests[i].Field, out var plan))
             {
-                if (accessor.IsSortedNumeric)
-                {
-                    if (reader.TryGetSortedInt64DocValues(req.Field, localDocId, out var values))
-                    {
-                        foreach (long value in values)
-                        {
-                            count++;
-                            double d = value;
-                            if (d < min) min = d;
-                            if (d > max) max = d;
-                            sum += d;
-                        }
-                    }
-                }
-                else if (accessor.IsSingleNumeric)
-                {
-                    if (reader.TryGetInt64Value(req.Field, localDocId, out long value))
-                    {
-                        count++;
-                        double d = value;
-                        if (d < min) min = d;
-                        if (d > max) max = d;
-                        sum += d;
-                    }
-                }
+                plan = (NumericFieldValues.ResolveFieldAccessor(requests[i].Field, readers), []);
+                _fieldPlans.Add(requests[i].Field, plan);
             }
-            else if (accessor.IsSortedNumeric)
-            {
-                if (reader.TryGetSortedNumericDocValues(req.Field, localDocId, out var values))
-                {
-                    foreach (double value in values)
-                    {
-                        count++;
-                        if (value < min) min = value;
-                        if (value > max) max = value;
-                        sum += value;
-                    }
-                }
-            }
-            else if (accessor.IsSingleNumeric)
-            {
-                if (reader.TryGetNumericValue(req.Field, localDocId, out double value))
-                {
-                    count++;
-                    if (value < min) min = value;
-                    if (value > max) max = value;
-                    sum += value;
-                }
-            }
+            plan.RequestIndexes.Add(i);
         }
-
-        return new AggregationResult
-        {
-            Name = req.Name,
-            Field = req.Field,
-            Count = count,
-            Min = count > 0 ? min : 0,
-            Max = count > 0 ? max : 0,
-            Sum = sum
-        };
     }
 
-    private static AggregationResult ComputeHistogram(
-        ReadOnlySpan<int> matchingDocs,
-        AggregationRequest req,
-        IReadOnlyList<Index.Segment.SegmentReader> readers,
-        (int MaxGlobal, int ReaderIdx, int DocBase)[] segments,
-        FieldAccessor accessor)
+    public void Collect(Index.Segment.SegmentReader reader, int localDocId)
     {
-        double interval = req.HistogramInterval;
-        if (interval <= 0) interval = 10.0;
-
-        // First pass: collect all values and find range.
-        var values = new List<double>(matchingDocs.Length);
-        double min = double.PositiveInfinity;
-        double max = double.NegativeInfinity;
-        double sum = 0;
-
-        foreach (int globalDocId in matchingDocs)
+        foreach (var (field, plan) in _fieldPlans)
         {
-            var (readerIdx, localDocId) = ResolveDoc(globalDocId, segments);
-            var reader = readers[readerIdx];
+            if (!NumericFieldValues.TryRead(reader, field, localDocId, plan.Accessor, out var values))
+                continue;
 
-            if (accessor.IsInt64)
-            {
-                if (accessor.IsSortedNumeric)
-                {
-                    if (reader.TryGetSortedInt64DocValues(req.Field, localDocId, out var docValues))
-                    {
-                        foreach (long value in docValues)
-                        {
-                            double d = value;
-                            values.Add(d);
-                            if (d < min) min = d;
-                            if (d > max) max = d;
-                            sum += d;
-                        }
-                    }
-                }
-                else if (accessor.IsSingleNumeric)
-                {
-                    if (reader.TryGetInt64Value(req.Field, localDocId, out long value))
-                    {
-                        double d = value;
-                        values.Add(d);
-                        if (d < min) min = d;
-                        if (d > max) max = d;
-                        sum += d;
-                    }
-                }
-            }
-            else if (accessor.IsSortedNumeric)
-            {
-                if (reader.TryGetSortedNumericDocValues(req.Field, localDocId, out var docValues))
-                {
-                    foreach (double value in docValues)
-                    {
-                        values.Add(value);
-                        if (value < min) min = value;
-                        if (value > max) max = value;
-                        sum += value;
-                    }
-                }
-            }
-            else if (accessor.IsSingleNumeric)
-            {
-                if (reader.TryGetNumericValue(req.Field, localDocId, out double value))
-                {
-                    values.Add(value);
-                    if (value < min) min = value;
-                    if (value > max) max = value;
-                    sum += value;
-                }
-            }
+            foreach (int requestIndex in plan.RequestIndexes)
+                _states[requestIndex].Collect(values);
         }
+    }
 
-        if (values.Count == 0)
-            return AggregationResult.Empty(req.Name, req.Field);
-
-        // Build histogram buckets.
-        double bucketStart = Math.Floor(min / interval) * interval;
-        double rawBuckets = (max - bucketStart) / interval;
-        int bucketCount = double.IsNaN(rawBuckets) || double.IsInfinity(rawBuckets) || rawBuckets > MaxBucketCount
-            ? MaxBucketCount
-            : Math.Max(1, (int)Math.Ceiling(rawBuckets) + 1);
-        var bucketCounts = new long[bucketCount];
-
-        foreach (double v in values)
+    public AggregationResult[] Finish(CancellationToken cancellationToken = default)
+    {
+        var results = new AggregationResult[_states.Length];
+        for (int i = 0; i < _states.Length; i++)
         {
-            int idx = (int)((v - bucketStart) / interval);
-            idx = Math.Clamp(idx, 0, bucketCount - 1);
-            bucketCounts[idx]++;
+            cancellationToken.ThrowIfCancellationRequested();
+            results[i] = _states[i].Finish(cancellationToken);
         }
-
-        var buckets = new HistogramBucket[bucketCount];
-        for (int i = 0; i < bucketCount; i++)
-        {
-            double lo = bucketStart + i * interval;
-            buckets[i] = new HistogramBucket(lo, lo + interval, bucketCounts[i]);
-        }
-
-        return new AggregationResult
-        {
-            Name = req.Name,
-            Field = req.Field,
-            Count = values.Count,
-            Min = min,
-            Max = max,
-            Sum = sum,
-            Buckets = buckets
-        };
+        return results;
     }
 }

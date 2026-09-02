@@ -14,10 +14,10 @@ public sealed class OperationDrainTests
         var lease = drain.Acquire(owner);
         var copy = lease;
 
-        var dispose = Task.Run(drain.BeginDisposeAndWait, TestContext.Current.CancellationToken);
+        var dispose = StartDedicatedDispose(drain.BeginDisposeAndWait);
         try
         {
-            await WaitUntilRejectedAsync(() => drain.Acquire(owner));
+            WaitUntilRejected(() => drain.Acquire(owner));
             Assert.False(dispose.IsCompleted);
         }
         finally
@@ -36,10 +36,10 @@ public sealed class OperationDrainTests
         var drain = new OperationDrain();
         var scope = drain.Enter(new object());
 
-        var dispose = Task.Run(drain.BeginDisposeAndWait, TestContext.Current.CancellationToken);
+        var dispose = StartDedicatedDispose(drain.BeginDisposeAndWait);
         try
         {
-            await WaitUntilRejectedAsync(() => drain.Acquire(new object()));
+            WaitUntilRejected(() => drain.Acquire(new object()));
             Assert.False(dispose.IsCompleted);
         }
         finally
@@ -49,22 +49,30 @@ public sealed class OperationDrainTests
         await dispose.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
     }
 
-    private static async Task WaitUntilRejectedAsync(Func<IDisposable> acquire)
+    private static Task StartDedicatedDispose(Action dispose) =>
+        Task.Factory.StartNew(
+            dispose,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+
+    private static void WaitUntilRejected(Func<IDisposable> acquire)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
-            timeout.Token, TestContext.Current.CancellationToken);
-        while (true)
-        {
-            try
+        bool rejected = SpinWait.SpinUntil(
+            () =>
             {
-                acquire().Dispose();
-            }
-            catch (ObjectDisposedException)
-            {
-                return;
-            }
-            await Task.Delay(1, cancellation.Token);
-        }
+                try
+                {
+                    acquire().Dispose();
+                    return false;
+                }
+                catch (ObjectDisposedException)
+                {
+                    return true;
+                }
+            },
+            TimeSpan.FromSeconds(5));
+
+        Assert.True(rejected, "Disposal did not reject new operation leases.");
     }
 }

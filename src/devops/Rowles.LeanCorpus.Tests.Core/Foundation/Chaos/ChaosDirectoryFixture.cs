@@ -20,10 +20,6 @@ public sealed class ChaosDirectoryFixture : IDisposable
         if (!Directory.Exists(Path))
             return;
 
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
-
-        Directory.Delete(Path, recursive: true);
+        TestDirectoryFixture.TryDeleteDirectory(Path);
     }
 }

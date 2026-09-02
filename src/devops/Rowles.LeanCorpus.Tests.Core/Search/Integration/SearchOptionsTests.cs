@@ -112,15 +112,17 @@ public sealed class SearchOptionsTests : IClassFixture<TestDirectoryFixture>
     }
 
     /// <summary>
-    /// Verifies the Default: Is Singleton scenario.
+    /// Verifies that each default access captures a fresh options snapshot.
     /// </summary>
-    [Fact(DisplayName = "Default: Is Singleton")]
-    public void Default_IsSingleton()
+    [Fact(DisplayName = "Default: Captures A Fresh Snapshot")]
+    public void Default_CapturesFreshSnapshot()
     {
         var first = SearchOptions.Default;
         var second = SearchOptions.Default;
 
-        Assert.True(ReferenceEquals(first, second));
+        Assert.NotSame(first, second);
+        Assert.Equal(first.MaxResultBytes, second.MaxResultBytes);
+        Assert.Equal(first.Timeout, second.Timeout);
     }
 
     /// <summary>

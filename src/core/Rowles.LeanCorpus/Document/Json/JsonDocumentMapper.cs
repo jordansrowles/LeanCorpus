@@ -9,14 +9,12 @@ namespace Rowles.LeanCorpus.Document.Json;
 /// </summary>
 public static class JsonDocumentMapper
 {
-    private static readonly JsonMappingOptions DefaultOptions = new();
-
     /// <summary>
     /// Creates a <see cref="LeanDocument"/> from a JSON element tree.
     /// </summary>
     public static LeanDocument FromJson(JsonElement root, JsonMappingOptions? options = null)
     {
-        options ??= DefaultOptions;
+        options ??= new JsonMappingOptions();
         var doc = new LeanDocument();
         MapElement(doc, root, prefix: string.Empty, options, depth: 0);
         return doc;

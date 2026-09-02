@@ -8,26 +8,37 @@ internal static class BackpressureController
 {
     public static void AcquireBackpressureSlot(IndexWriter writer)
     {
-        if (writer.BackpressureSemaphore is null) return;
-        if (writer.BackpressureSemaphore.Wait(0)) return;
-
-        if (Interlocked.CompareExchange(ref writer.FlushElection, 1, 0) == 0)
+        var semaphore = writer.BackpressureSemaphore;
+        if (semaphore is null) return;
+        try
         {
-            try
+            if (semaphore.Wait(0, writer.ShutdownToken)) return;
+
+            if (Interlocked.CompareExchange(ref writer.FlushElection, 1, 0) == 0)
             {
-                lock (writer.WriteLock)
+                try
                 {
-                    DwptManager.FlushDwptPool(writer);
-                    if (writer.Buffer.DocCount > 0)
-                        IndexWriter.FlushSegmentStatic(writer);
+                    lock (writer.WriteLock)
+                    {
+                        DwptManager.FlushDwptPool(writer);
+                        if (writer.Buffer.DocCount > 0)
+                            IndexWriter.FlushSegmentStatic(writer);
+                    }
+                }
+                finally
+                {
+                    Volatile.Write(ref writer.FlushElection, 0);
                 }
             }
-            finally
-            {
-                Volatile.Write(ref writer.FlushElection, 0);
-            }
+
+            semaphore.Wait(writer.ShutdownToken);
         }
-        writer.BackpressureSemaphore.Wait();
+        catch (OperationCanceledException) when (writer.IsClosing)
+        {
+            throw new ObjectDisposedException(
+                nameof(IndexWriter),
+                "The writer is shutting down.");
+        }
     }
 
 
@@ -61,15 +72,35 @@ internal static class BackpressureController
             return;
         }
 
-        int toRelease;
-        lock (writer.WriteLock)
-        {
-            toRelease = Math.Min(acquired, Math.Max(0, writer.SemaphoreSlotsHeld));
-            if (toRelease > 0)
-                writer.SemaphoreSlotsHeld -= toRelease;
-        }
+        int toRelease = TakeHeldSlots(writer, acquired);
 
         if (toRelease > 0)
             ReleaseSemaphoreSlots(writer, toRelease);
+    }
+
+    /// <summary>
+    /// Atomically removes up to <paramref name="requested"/> acquired slots. This deliberately
+    /// does not take the writer lock: a producer can release slots while holding a DWPT monitor,
+    /// whereas commit takes the writer lock before entering that monitor.
+    /// </summary>
+    internal static int TakeHeldSlots(IndexWriter writer, int requested)
+    {
+        while (requested > 0)
+        {
+            int current = Volatile.Read(ref writer.SemaphoreSlotsHeld);
+            if (current <= 0)
+                return 0;
+
+            int release = Math.Min(requested, current);
+            if (Interlocked.CompareExchange(
+                ref writer.SemaphoreSlotsHeld,
+                current - release,
+                current) == current)
+            {
+                return release;
+            }
+        }
+
+        return 0;
     }
 }

@@ -7,6 +7,18 @@ namespace Rowles.LeanCorpus.Index.Migration;
 /// </summary>
 public sealed class IndexCodecMigrationOptions
 {
+    /// <summary>Initialises migration options and captures the current codec catalogue default.</summary>
+    public IndexCodecMigrationOptions()
+        : this(LeanCorpusDefaults.GetSnapshot())
+    {
+    }
+
+    internal IndexCodecMigrationOptions(LeanCorpusDefaultSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        Catalog = snapshot.Codecs.Catalog.IsSet ? snapshot.Codecs.Catalog.Value : CodecCatalog.Default;
+    }
+
     /// <summary>Gets or sets the immutable codec catalogue used to inspect and validate migration input.</summary>
     public CodecCatalog Catalog { get; set; } = CodecCatalog.Default;
 

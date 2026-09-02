@@ -51,6 +51,38 @@ flowchart LR
 
 The backpressure settings on `IndexWriterConfig` constrain queued documents, queued bytes, concurrent flushes, concurrent merges, and pending merge bytes. Changes in this area must preserve bounded memory, document ordering guarantees, and commit visibility.
 
+The writer lock may acquire a DWPT monitor while committing. A path holding a DWPT
+monitor must not acquire the writer lock in return. Backpressure slot accounting is
+atomic so producer auto-flush can return semaphore capacity without creating that
+lock inversion.
+
+Functional test assemblies configure a non-durable `LeanCorpusDefaults` override at
+startup. Tests covering durable publication, recovery, or filesystem synchronisation
+must set `IndexWriterConfig.DurableCommits = true` explicitly; the production default
+remains durable.
+
+`LeanCorpusDefaults` publishes immutable override snapshots. `Configure` serialises
+the complete read-modify-write operation, validates the effective candidate through
+the normal configuration rules, and publishes it atomically. Factory delegates are
+stored but not invoked while the update lock is held. New top-level configuration
+graphs capture one snapshot, while existing configurations and active components
+retain their captured values. Factories create fresh analysis, policy, scoring, or
+diagnostic instances for their receiving configuration. A `SearcherManager` owns
+factory-created slow-query logging for the lifetime of its configuration graph and
+keeps it across refreshes.
+
+The reference-valued defaults follow the implementation lifecycles:
+
+| Value | Current behaviour | Global default ownership |
+|---|---|---|
+| `IAnalyser` | Built-in analysers are stateful and a standard analyser is not thread-safe. | Factories create the configured analyser for each writer; DWPT setup continues to create thread-local built-in analyser instances. |
+| `ICharFilter` | Filters are invoked in configured order and have no common disposal contract. | Factories create a fresh ordered filter collection for each writer. |
+| `IIndexDeletionPolicy` and `IMergePolicy` | Policies are writer-owned strategy objects; tiered merge policy state is configured at construction. | Factories create fresh policy objects per writer. |
+| `ISimilarity` | Built-in similarities are safe to reuse, while custom implementations may carry state. | Root scoring factories materialise separate writer and searcher values; explicit local values remain caller-owned. |
+| `IMetricsCollector` | The interface has no disposal contract and collectors receive calls from the owning component. | Factories create a collector per writer or searcher configuration; directly supplied collectors are not disposed by LeanCorpus. |
+| `SlowQueryLog` | It owns a background writer loop and is disposable. | A standalone searcher owns a factory-created log; a manager keeps one across refresh and disposes it with the manager. |
+| `SearchAnalytics` | It is a thread-safe bounded event buffer without a disposal contract. | Factories create one per searcher graph, and a manager retains it across refresh. |
+
 ## Commit publication
 
 A commit must not expose a manifest that names incomplete files. The writer flushes pending work, makes file contents durable when configured to do so, and publishes the new `segments_N` file last.

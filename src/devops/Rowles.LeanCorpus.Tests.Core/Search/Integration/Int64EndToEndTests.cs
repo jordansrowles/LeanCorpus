@@ -84,6 +84,7 @@ public sealed class Int64EndToEndTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(1_000_000_000_000L, stats.Min);
         Assert.Equal(3_000_000_000_000L, stats.Max);
         Assert.Equal(6_000_000_000_000L, stats.Sum);
+        Assert.Equal(2_000_000_000_000L, stats.Avg);
     }
 
     [Fact(DisplayName = "JsonDocumentMapper: Large Integer Round Trips Through Index")]

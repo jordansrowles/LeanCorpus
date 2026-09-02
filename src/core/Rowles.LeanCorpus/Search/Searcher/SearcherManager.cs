@@ -36,18 +36,28 @@ public sealed class SearcherManager : IDisposable
     {
         _directory = directory ?? throw new ArgumentNullException(nameof(directory));
         _config = config ?? new SearcherManagerConfig();
+        _config.Validate();
+        _config.SearcherConfig.SetDiagnosticsOwnedByManager();
 
-        if (_config.SearcherConfig.EnableQueryCache)
+        try
         {
-            _queryCache = new QueryCache(_config.SearcherConfig.QueryCacheMaxEntries);
-            _config.SearcherConfig.SharedCache = _queryCache;
-        }
+            if (_config.SearcherConfig.EnableQueryCache)
+            {
+                _queryCache = new QueryCache(_config.SearcherConfig.QueryCacheMaxEntries);
+                _config.SearcherConfig.SharedCache = _queryCache;
+            }
 
-        _readerManager = new ReaderManager<IndexSearcher>(
-            OpenInitialSearcher,
-            RefreshSearcher,
-            _config.RefreshInterval);
-        _readerManager.RefreshFailed += OnReaderRefreshFailed;
+            _readerManager = new ReaderManager<IndexSearcher>(
+                OpenInitialSearcher,
+                RefreshSearcher,
+                _config.RefreshInterval);
+            _readerManager.RefreshFailed += OnReaderRefreshFailed;
+        }
+        catch
+        {
+            _config.SearcherConfig.DisposeManagerOwnedDiagnostics();
+            throw;
+        }
     }
 
     /// <summary>Acquires a scoped reference to the current searcher.</summary>
@@ -100,7 +110,17 @@ public sealed class SearcherManager : IDisposable
     public ReaderManagerDiagnostics GetDiagnostics() => _readerManager.GetDiagnostics();
 
     /// <summary>Stops refreshes and disposes retained searchers after their leases end.</summary>
-    public void Dispose() => _readerManager.Dispose();
+    public void Dispose()
+    {
+        try
+        {
+            _readerManager.Dispose();
+        }
+        finally
+        {
+            _config.SearcherConfig.DisposeManagerOwnedDiagnostics();
+        }
+    }
 
     private IndexSearcher OpenInitialSearcher()
     {

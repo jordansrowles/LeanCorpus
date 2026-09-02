@@ -35,10 +35,7 @@ internal static class DwptManager
             BackpressureController.AcquireBackpressureSlot(writer);
             acquired = writer.BackpressureSemaphore is not null;
             if (acquired)
-            {
-                lock (writer.WriteLock)
-                    writer.SemaphoreSlotsHeld++;
-            }
+                Interlocked.Increment(ref writer.SemaphoreSlotsHeld);
 
             var pool = writer.DwptPool ?? throw new InvalidOperationException(
                 "DWPT pool is not initialised.");
@@ -154,10 +151,7 @@ internal static class DwptManager
                     acquired++;
             }
             if (acquired > 0)
-            {
-                lock (writer.WriteLock)
-                    writer.SemaphoreSlotsHeld += acquired;
-            }
+                Interlocked.Add(ref writer.SemaphoreSlotsHeld, acquired);
 
             var pool = writer.DwptPool!;
             int slot = GetProducerSlot(writer, pool.Length);
@@ -344,12 +338,7 @@ internal static class DwptManager
     {
         if (writer.BackpressureSemaphore is null || count <= 0)
             return;
-        int release;
-        lock (writer.WriteLock)
-        {
-            release = Math.Min(count, writer.SemaphoreSlotsHeld);
-            writer.SemaphoreSlotsHeld -= release;
-        }
+        int release = BackpressureController.TakeHeldSlots(writer, count);
         BackpressureController.ReleaseSemaphoreSlots(writer, release);
     }
 
@@ -366,8 +355,7 @@ internal static class DwptManager
                 }
             }
 
-            int release = writer.SemaphoreSlotsHeld;
-            writer.SemaphoreSlotsHeld = 0;
+            int release = Interlocked.Exchange(ref writer.SemaphoreSlotsHeld, 0);
             BackpressureController.ReleaseSemaphoreSlots(writer, release);
         }
     }

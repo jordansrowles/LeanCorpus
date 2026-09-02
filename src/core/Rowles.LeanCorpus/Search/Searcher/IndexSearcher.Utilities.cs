@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using System.Threading;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Search.Aggregations;
+using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Scoring;
 namespace Rowles.LeanCorpus.Search.Searcher;
 
@@ -370,22 +372,75 @@ public sealed partial class IndexSearcher
     /// <summary>Executes a query and returns both top-N results and facet counts for the specified fields.</summary>
     public (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithFacets(
         Query query, int topN, params string[] facetFields)
+        => SearchWithFacetsCore(query, topN, new FacetsSideCollector(facetFields, _readers, _config.MaxExactFacetBuckets));
+
+    /// <summary>Executes the shared facet collection path for advanced requests.</summary>
+    public (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithFacetRequests(
+        Query query, int topN, IReadOnlyList<IFacetRequest> facetRequests)
+        => SearchWithFacetsCore(query, topN, new FacetsSideCollector(facetRequests, _readers, _config.MaxExactFacetBuckets));
+
+    /// <summary>Executes an exhaustive facet request with cooperative cancellation.</summary>
+    public (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithFacetRequests(
+        Query query,
+        int topN,
+        IReadOnlyList<IFacetRequest> facetRequests,
+        CancellationToken cancellationToken)
+        => SearchWithFacetsCore(query, topN, new FacetsSideCollector(
+            facetRequests, _readers, _config.MaxExactFacetBuckets, cancellationToken));
+
+    /// <summary>
+    /// Executes a drill-down search and computes facet counts with the selected
+    /// dimension's own constraint removed from its count scope.
+    /// </summary>
+    /// <param name="query">The drill-down query containing the base query and selections.</param>
+    /// <param name="topN">The maximum number of filtered hits to return.</param>
+    /// <param name="facetRequests">The facet requests to evaluate with sideways scopes.</param>
+    /// <returns>Filtered hits and facet results calculated using their sideways scopes.</returns>
+    public (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithDrillSideways(
+        DrillDownQuery query, int topN, params IFacetRequest[] facetRequests)
     {
-        var sideCollector = new FacetsSideCollector(facetFields);
-        var (results, side) = SearchWithSideCollector(query, topN, sideCollector);
-        if (side == null)
-        {
-            // Fallback: non-TermQuery, use two-pass
-            var matches = SearchAllMatches(query, results.TotalHits);
-            foreach (var sd in matches.ScoreDocs)
-            {
-                int readerIdx = ResolveReaderIndex(sd.DocId);
-                var reader = _readers[readerIdx];
-                int localDocId = sd.DocId - _docBases[readerIdx];
-                sideCollector.Collect(sd.DocId, sd.Score, reader, localDocId);
-            }
-            return (results, sideCollector.GetResults());
-        }
+        ArgumentNullException.ThrowIfNull(facetRequests);
+        return SearchWithDrillSideways(query, topN, (IReadOnlyList<IFacetRequest>)facetRequests);
+    }
+
+    /// <summary>
+    /// Executes a drill-down search and computes facet counts with the selected
+    /// dimension's own constraint removed from its count scope.
+    /// </summary>
+    /// <remarks>
+    /// The filtered hits use all selections. A selected dimension's facet scope
+    /// keeps every other dimension selected, while an unselected dimension uses
+    /// the complete drill-down query. All scopes are derived from one base-query
+    /// match traversal.
+    /// </remarks>
+    public (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithDrillSideways(
+        DrillDownQuery query, int topN, IReadOnlyList<IFacetRequest> facetRequests)
+        => SearchWithDrillSideways(query, topN, facetRequests, CancellationToken.None);
+
+    /// <summary>Executes drill-sideways facet collection with cooperative cancellation.</summary>
+    public (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithDrillSideways(
+        DrillDownQuery query,
+        int topN,
+        IReadOnlyList<IFacetRequest> facetRequests,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(facetRequests);
+        for (int i = 0; i < facetRequests.Count; i++)
+            ArgumentNullException.ThrowIfNull(facetRequests[i]);
+
+        if (facetRequests.Count == 0)
+            return (Search(query, topN, cancellationToken), []);
+
+        var collector = new DrillSidewaysSideCollector(query, facetRequests, _readers, _config.MaxExactFacetBuckets, cancellationToken);
+        SearchWithSideCollector(query.BaseQuery, topN, collector);
+        return (Search(query, topN, cancellationToken), collector.GetFacets());
+    }
+
+    private (TopDocs Results, IReadOnlyList<FacetResult> Facets) SearchWithFacetsCore(
+        Query query, int topN, FacetsSideCollector sideCollector)
+    {
+        var (results, _) = SearchWithSideCollector(query, topN, sideCollector);
         return (results, sideCollector.GetResults());
     }
 
@@ -400,19 +455,26 @@ public sealed partial class IndexSearcher
         if (aggregations.Length == 0)
             return (Search(query, topN), []);
 
-        var sideCollector = new AggregationSideCollector();
-        var (results, side) = SearchWithSideCollector(query, topN, sideCollector);
-        if (side == null)
-        {
-            // Fallback: non-TermQuery — use two-pass
-            if (results.TotalHits == 0) return (results, []);
-            var matches = SearchAllMatches(query, results.TotalHits);
-            return (results, NumericAggregator.Aggregate(
-                matches.ScoreDocs.AsSpan(), aggregations, _readers, _docBases, _totalDocCount));
-        }
+        var sideCollector = new AggregationSideCollector(aggregations, _readers);
+        var (results, _) = SearchWithSideCollector(query, topN, sideCollector);
         if (results.TotalHits == 0) return (results, []);
-        return (results, NumericAggregator.Aggregate(
-            sideCollector.DocIds, aggregations, _readers, _docBases, _totalDocCount));
+        return (results, sideCollector.GetResults());
+    }
+
+    /// <summary>Executes exhaustive numeric aggregations with cooperative cancellation.</summary>
+    public (TopDocs Results, AggregationResult[] Aggregations) SearchWithAggregations(
+        Query query,
+        int topN,
+        AggregationRequest[] aggregations,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(aggregations);
+        if (aggregations.Length == 0)
+            return (Search(query, topN, cancellationToken), []);
+
+        var sideCollector = new AggregationSideCollector(aggregations, _readers, cancellationToken);
+        var (results, _) = SearchWithSideCollector(query, topN, sideCollector);
+        return results.TotalHits == 0 ? (results, []) : (results, sideCollector.GetResults());
     }
 
     // --- Result Collapsing ---
@@ -425,22 +487,7 @@ public sealed partial class IndexSearcher
     {
         int candidateN = Math.Min(_totalDocCount, topN * 10);
         var sideCollector = new CollapseSideCollector(collapse, topN);
-        var (results, side) = SearchWithSideCollector(query, candidateN, sideCollector);
-        if (side == null)
-        {
-            // Fallback: non-TermQuery — use two-pass
-            var topResults = Search(query, topN);
-            var allResults = SearchAllMatches(query, topResults.TotalHits);
-            if (allResults.TotalHits == 0) return allResults;
-            foreach (var sd in allResults.ScoreDocs)
-            {
-                int readerIdx = ResolveReaderIndex(sd.DocId);
-                var reader = _readers[readerIdx];
-                int localDocId = sd.DocId - _docBases[readerIdx];
-                sideCollector.Collect(sd.DocId, sd.Score, reader, localDocId);
-            }
-            return sideCollector.ToTopDocs();
-        }
+        var (results, _) = SearchWithSideCollector(query, candidateN, sideCollector);
         if (results.TotalHits == 0) return TopDocs.Empty;
         return sideCollector.ToTopDocs();
     }
@@ -458,14 +505,6 @@ public sealed partial class IndexSearcher
             return System.Text.Encoding.UTF8.GetString(binaryValues[0]);
 
         return "__null__";
-    }
-
-    private TopDocs SearchAllMatches(Query query, int minimumCapacity)
-    {
-        if (_totalDocCount == 0 || minimumCapacity <= 0)
-            return TopDocs.Empty;
-        int capacity = Math.Min(_totalDocCount, minimumCapacity);
-        return SearchCore(query, capacity);
     }
 
     private int ResolveReaderIndex(int globalDocId)
@@ -490,7 +529,7 @@ public sealed partial class IndexSearcher
         return Search(new MoreLikeThisQuery(docId, fields, parameters), topN);
     }
 
-    internal TopDocs ExecuteMoreLikeThis(MoreLikeThisQuery mlt, int topN)
+    internal TopDocs ExecuteMoreLikeThis(MoreLikeThisQuery mlt, int topN, ISideCollector? sideCollector = null)
     {
         var p = mlt.Parameters;
         int readerIdx = ResolveReaderIndex(mlt.DocId);
@@ -507,7 +546,8 @@ public sealed partial class IndexSearcher
             for (int i = cachedTerms.Length - 1; i >= 0; i--)
                 cachedBuilder.Add(new TermQuery(cachedTerms[i].Field, cachedTerms[i].Term), Occur.Should);
             var cachedBoolQ = cachedBuilder.Build();
-            var cachedResults = SearchCore(cachedBoolQ, topN);
+            var cachedResults = SearchCore(cachedBoolQ, topN,
+                sideCollector is null ? null : new ExcludingSideCollector(sideCollector, mlt.DocId));
             var cachedScoreDocs = cachedResults.ScoreDocs;
             int cachedSrcIdx = -1;
             for (int i = 0; i < cachedScoreDocs.Length; i++)
@@ -633,7 +673,8 @@ public sealed partial class IndexSearcher
         }
 
         var boolQ = boolQBuilder.Build();
-        var results = SearchCore(boolQ, topN);
+        var results = SearchCore(boolQ, topN,
+            sideCollector is null ? null : new ExcludingSideCollector(sideCollector, mlt.DocId));
 
         // Exclude the source document from results.
         var scoreDocs = results.ScoreDocs;
@@ -681,27 +722,43 @@ public sealed partial class IndexSearcher
 
     private sealed class AggregationSideCollector : ISideCollector
     {
-        private readonly List<int> _docIds = new();
+        private readonly NumericAggregationCollector _collector;
+
+        private readonly CancellationToken _cancellationToken;
+
+        public AggregationSideCollector(
+            AggregationRequest[] requests,
+            IReadOnlyList<Index.Segment.SegmentReader> readers,
+            CancellationToken cancellationToken = default)
+        {
+            _collector = NumericAggregator.CreateCollector(requests, readers);
+            _cancellationToken = cancellationToken;
+        }
 
         public void Collect(int globalDocId, float score, Index.Segment.SegmentReader reader, int localDocId)
         {
-            _docIds.Add(globalDocId);
+            _cancellationToken.ThrowIfCancellationRequested();
+            _collector.Collect(reader, localDocId);
         }
 
-        public ReadOnlySpan<int> DocIds => System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_docIds);
+        public AggregationResult[] GetResults() => _collector.Finish(_cancellationToken);
+    }
+
+    private sealed class ExcludingSideCollector(ISideCollector inner, int excludedGlobalDocId) : ISideCollector
+    {
+        public void Collect(int globalDocId, float score, Index.Segment.SegmentReader reader, int localDocId)
+        {
+            if (globalDocId != excludedGlobalDocId)
+                inner.Collect(globalDocId, score, reader, localDocId);
+        }
     }
 
     private (TopDocs Results, ISideCollector? Side) SearchWithSideCollector(
         Query query, int topN, ISideCollector? sideCollector)
     {
-        if (query is TermQuery tq)
-        {
-            var results = SearchTermQuery(tq, topN, sideCollector);
-            return (results, sideCollector);
-        }
-
-        var topResults = Search(query, topN);
-        return (topResults, null);
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(sideCollector);
+        return (SearchCore(query, Math.Max(0, NormaliseTopN(topN)), sideCollector), sideCollector);
     }
 
     private sealed class CollapseSideCollector : ISideCollector
@@ -744,53 +801,624 @@ public sealed partial class IndexSearcher
         }
     }
 
-    private sealed class FacetsSideCollector : ISideCollector
+    private sealed class DrillSidewaysSideCollector : ISideCollector
     {
-        private readonly string[] _facetFields;
-        private readonly FacetsCollector _facetsCollector = new();
+        private readonly IFacetRequest[] _requests;
+        private readonly SelectionGroup[] _selectionGroups;
+        private readonly FacetsSideCollector? _allMatching;
+        private readonly List<int> _unselectedIndexes = [];
+        private readonly Dictionary<string, (FacetsSideCollector Collector, List<int> Indexes)> _selected = new(StringComparer.Ordinal);
+        private readonly CancellationToken _cancellationToken;
 
-        public FacetsSideCollector(string[] facetFields)
+        public DrillSidewaysSideCollector(DrillDownQuery query, IReadOnlyList<IFacetRequest> requests,
+            IReadOnlyList<Index.Segment.SegmentReader> readers, int maxExactFacetBuckets,
+            CancellationToken cancellationToken)
         {
-            _facetFields = facetFields;
+            _requests = requests.ToArray();
+            _cancellationToken = cancellationToken;
+            _selectionGroups = query.Selections
+                .GroupBy(static selection => selection.Field, StringComparer.Ordinal)
+                .Select(static group => new SelectionGroup(
+                    group.Key,
+                    group.Select(static selection => selection.IndexedValue)))
+                .ToArray();
+            var selectedFields = _selectionGroups
+                .Select(static group => group.Field)
+                .ToHashSet(StringComparer.Ordinal);
+            var unselected = new List<IFacetRequest>();
+            for (int i = 0; i < _requests.Length; i++)
+            {
+                if (!selectedFields.Contains(_requests[i].Field))
+                {
+                    unselected.Add(_requests[i]);
+                    _unselectedIndexes.Add(i);
+                }
+            }
+            _allMatching = unselected.Count == 0 ? null : new FacetsSideCollector(unselected, readers, maxExactFacetBuckets, cancellationToken);
+            foreach (var field in selectedFields)
+            {
+                var indexes = new List<int>();
+                var grouped = new List<IFacetRequest>();
+                for (int i = 0; i < _requests.Length; i++)
+                    if (_requests[i].Field == field) { indexes.Add(i); grouped.Add(_requests[i]); }
+                    _selected.Add(field, (new FacetsSideCollector(grouped, readers, maxExactFacetBuckets, cancellationToken), indexes));
+            }
         }
 
         public void Collect(int globalDocId, float score, Index.Segment.SegmentReader reader, int localDocId)
         {
-            foreach (var facetField in _facetFields)
+            _cancellationToken.ThrowIfCancellationRequested();
+            string? failed = null;
+            int failures = 0;
+            foreach (var group in _selectionGroups)
             {
-                if (reader.TryGetSortedSetDocValues(facetField, localDocId, out var setValues))
+                if (group.Matches(reader, localDocId)) continue;
+                failed = group.Field;
+                failures++;
+            }
+
+            if (failures == 0)
+            {
+                _allMatching?.Collect(globalDocId, score, reader, localDocId);
+            }
+
+            foreach (var (field, entry) in _selected)
+            {
+                if (failures == 0 || (failures == 1 && field == failed))
+                    entry.Collector.Collect(globalDocId, score, reader, localDocId);
+            }
+        }
+
+        private sealed class SelectionGroup(string field, IEnumerable<string> indexedValues)
+        {
+            private readonly HashSet<string> _indexedValues = indexedValues.ToHashSet(StringComparer.Ordinal);
+
+            public string Field { get; } = field;
+
+            public bool Matches(Index.Segment.SegmentReader reader, int localDocId)
+            {
+                if (reader.TryGetSortedSetDocValues(Field, localDocId, out var values))
                 {
-                    foreach (var value in setValues)
+                    foreach (var value in values)
                     {
-                        if (!string.IsNullOrEmpty(value))
-                            _facetsCollector.Collect(facetField, value);
+                        if (_indexedValues.Contains(value))
+                            return true;
+                    }
+                    return false;
+                }
+
+                return reader.TryGetSortedDocValue(Field, localDocId, out var sortedValue)
+                    && _indexedValues.Contains(sortedValue);
+            }
+        }
+
+        public IReadOnlyList<FacetResult> GetFacets()
+        {
+            var results = new FacetResult[_requests.Length];
+            if (_allMatching is not null)
+            {
+                var regular = _allMatching.GetResults(_cancellationToken);
+                for (int i = 0; i < _unselectedIndexes.Count; i++)
+                    results[_unselectedIndexes[i]] = regular[i];
+            }
+            foreach (var entry in _selected.Values)
+            {
+                var sideways = entry.Collector.GetResults(_cancellationToken);
+                for (int i = 0; i < entry.Indexes.Count; i++)
+                    results[entry.Indexes[i]] = sideways[i];
+            }
+            return results;
+        }
+    }
+
+    private sealed class FacetsSideCollector : ISideCollector
+    {
+        private readonly IFacetRequest[] _facetRequests;
+        private readonly FacetsCollector _facetsCollector;
+        private readonly NumericFieldAccessor[] _numericAccessors;
+        private readonly NumericRangeExecutionPlan?[] _numericRangePlans;
+        private readonly Int64RangeExecutionPlan?[] _int64RangePlans;
+        private readonly Dictionary<string, FlatFacetOrdinalPlan> _flatOrdinalPlans = new(StringComparer.Ordinal);
+        private readonly Dictionary<Index.Segment.SegmentReader, int> _readerIndexes = new(ReferenceEqualityComparer.Instance);
+        private readonly CancellationToken _cancellationToken;
+
+        public FacetsSideCollector(
+            string[] facetFields,
+            IReadOnlyList<Index.Segment.SegmentReader> readers,
+            int maxExactFacetBuckets,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(facetFields);
+            var distinctFields = facetFields.Distinct(StringComparer.Ordinal).ToArray();
+            _facetRequests = distinctFields.Select(field => (IFacetRequest)new FacetRequest(field)).ToArray();
+            _facetsCollector = new FacetsCollector(
+                _facetRequests,
+                includeEmptyResults: false,
+                maxExactBuckets: maxExactFacetBuckets);
+            _numericAccessors = ResolveNumericAccessors(_facetRequests, readers);
+            (_numericRangePlans, _int64RangePlans) = BuildRangePlans(_facetRequests);
+            _cancellationToken = cancellationToken;
+            InitialiseStringFacetPlans(readers);
+        }
+
+        public FacetsSideCollector(
+            IReadOnlyList<IFacetRequest> facetRequests,
+            IReadOnlyList<Index.Segment.SegmentReader> readers,
+            int maxExactFacetBuckets,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(facetRequests);
+            _facetRequests = facetRequests.ToArray();
+            _facetsCollector = new FacetsCollector(facetRequests, maxExactBuckets: maxExactFacetBuckets);
+            _numericAccessors = ResolveNumericAccessors(_facetRequests, readers);
+            (_numericRangePlans, _int64RangePlans) = BuildRangePlans(_facetRequests);
+            _cancellationToken = cancellationToken;
+            InitialiseStringFacetPlans(readers);
+            RegisterRangeBuckets();
+        }
+
+        private void InitialiseStringFacetPlans(IReadOnlyList<Index.Segment.SegmentReader> readers)
+        {
+            for (int readerIndex = 0; readerIndex < readers.Count; readerIndex++)
+                _readerIndexes[readers[readerIndex]] = readerIndex;
+
+            var fields = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var request in _facetRequests)
+            {
+                if (request is not (NumericRangeFacetRequest or Int64RangeFacetRequest or DateRangeFacetRequest or DateHistogramFacetRequest))
+                    fields.Add(request.Field);
+            }
+
+            foreach (string field in fields)
+            {
+                bool hasSorted = false;
+                bool hasSortedSet = false;
+                bool hasSortedOnly = false;
+                bool hasSortedSetOnly = false;
+                bool fieldPresent = false;
+                string? incompatibleSegment = null;
+                foreach (var reader in readers)
+                {
+                    bool readerHasSorted = reader.GetSortedDocValueTerms(field) is not null;
+                    bool readerHasSortedSet = reader.GetSortedSetDocValueTerms(field) is not null;
+                    hasSorted |= readerHasSorted;
+                    hasSortedSet |= readerHasSortedSet;
+                    hasSortedOnly |= readerHasSorted && !readerHasSortedSet;
+                    hasSortedSetOnly |= readerHasSortedSet && !readerHasSorted;
+                    bool readerHasBinary = reader.GetBinaryDocValues(field) is not null;
+                    bool readerHasField = reader.Info.FieldNames.Contains(field, StringComparer.Ordinal);
+                    fieldPresent |= readerHasField;
+                    if (!readerHasSorted && !readerHasSortedSet && (readerHasBinary || readerHasField))
+                    {
+                        incompatibleSegment ??= reader.Info.SegmentId;
                     }
                 }
-                else if (reader.TryGetSortedDocValue(facetField, localDocId, out string val) && !string.IsNullOrEmpty(val))
+
+                if (hasSortedOnly && hasSortedSetOnly)
+                    throw new InvalidOperationException($"Facet field '{field}' has incompatible Sorted and SortedSet DocValues representations across segments.");
+                if (incompatibleSegment is not null)
+                    throw new InvalidOperationException(
+                        $"Facet field '{field}' requires Sorted or SortedSet DocValues; segment '{incompatibleSegment}' contains an incompatible representation.");
+                if (!hasSorted && !hasSortedSet && fieldPresent)
+                    throw new InvalidOperationException($"Facet field '{field}' requires Sorted or SortedSet DocValues.");
+
+                bool sortedSet = hasSortedSet && !hasSortedOnly;
+                var sourceTerms = new IReadOnlyList<string>[readers.Count];
+                for (int i = 0; i < readers.Count; i++)
                 {
-                    _facetsCollector.Collect(facetField, val);
+                    sourceTerms[i] = (sortedSet
+                        ? readers[i].GetSortedSetDocValueTerms(field)
+                        : readers[i].GetSortedDocValueTerms(field)) ?? Array.Empty<string>();
                 }
-                else if (reader.TryGetBinaryDocValues(facetField, localDocId, out var binaryValues))
+
+                var plan = new FlatFacetOrdinalPlan(field, sortedSet, OrdinalMap.Build(sourceTerms), hasSorted || hasSortedSet);
+                _flatOrdinalPlans.Add(field, plan);
+                for (int i = 0; i < _facetRequests.Length; i++)
                 {
-                    foreach (var value in binaryValues)
-                    {
-                        var decoded = System.Text.Encoding.UTF8.GetString(value);
-                        if (!string.IsNullOrEmpty(decoded))
-                            _facetsCollector.Collect(facetField, decoded);
-                    }
-                }
-                else
-                {
-                    var stored = reader.GetStoredFields(localDocId, new HashSet<string> { facetField });
-                    if (stored.TryGetValue(facetField, out var values))
-                    {
-                        foreach (var v in values)
-                            _facetsCollector.Collect(facetField, v);
-                    }
+                    if (_facetRequests[i] is FacetRequest
+                        && string.Equals(_facetRequests[i].Field, field, StringComparison.Ordinal))
+                        _facetsCollector.ConfigureOrdinalFlat(i, plan.OrdinalMap);
                 }
             }
         }
 
-        public IReadOnlyList<FacetResult> GetResults() => _facetsCollector.GetResults();
+        private static NumericFieldAccessor[] ResolveNumericAccessors(
+            IReadOnlyList<IFacetRequest> requests,
+            IReadOnlyList<Index.Segment.SegmentReader> readers)
+        {
+            var accessors = new NumericFieldAccessor[requests.Count];
+            for (int i = 0; i < requests.Count; i++)
+            {
+                if (requests[i] is NumericRangeFacetRequest
+                    or Int64RangeFacetRequest
+                    or DateRangeFacetRequest
+                    or DateHistogramFacetRequest)
+                {
+                    accessors[i] = NumericFieldValues.ResolveFieldAccessor(requests[i].Field, readers);
+                    bool fieldExists = false;
+                    foreach (var reader in readers)
+                    {
+                        if (reader.HasNumericField(requests[i].Field))
+                        {
+                            fieldExists = true;
+                            break;
+                        }
+                    }
+
+                    if (fieldExists
+                        && requests[i] is Int64RangeFacetRequest or DateRangeFacetRequest or DateHistogramFacetRequest
+                        && !accessors[i].IsInt64)
+                    {
+                        throw new InvalidOperationException(
+                            $"Facet field '{requests[i].Field}' requires Int64 DocValues for {requests[i].GetType().Name}.");
+                    }
+                }
+            }
+
+            return accessors;
+        }
+
+        private static (NumericRangeExecutionPlan?[] Numeric, Int64RangeExecutionPlan?[] Int64) BuildRangePlans(
+            IReadOnlyList<IFacetRequest> requests)
+        {
+            var numeric = new NumericRangeExecutionPlan?[requests.Count];
+            var int64 = new Int64RangeExecutionPlan?[requests.Count];
+            for (int i = 0; i < requests.Count; i++)
+            {
+                switch (requests[i])
+                {
+                    case NumericRangeFacetRequest request:
+                        numeric[i] = new NumericRangeExecutionPlan(request.Ranges);
+                        break;
+                    case Int64RangeFacetRequest request:
+                        int64[i] = new Int64RangeExecutionPlan(request.Ranges);
+                        break;
+                    case DateRangeFacetRequest request:
+                        int64[i] = new Int64RangeExecutionPlan(request.EncodedRanges);
+                        break;
+                }
+            }
+            return (numeric, int64);
+        }
+
+        private void RegisterRangeBuckets()
+        {
+            for (int i = 0; i < _facetRequests.Length; i++)
+            {
+                var request = _facetRequests[i];
+                switch (request)
+                {
+                    case NumericRangeFacetRequest numeric:
+                        foreach (var range in numeric.Ranges)
+                            _facetsCollector.RegisterBucket(i, range.Label);
+                        break;
+                    case Int64RangeFacetRequest int64:
+                        foreach (var range in int64.Ranges)
+                            _facetsCollector.RegisterBucket(i, range.Label);
+                        break;
+                    case DateRangeFacetRequest date:
+                        foreach (var range in date.Ranges)
+                            _facetsCollector.RegisterBucket(i, range.Label);
+                        break;
+                }
+            }
+        }
+
+        public void Collect(int globalDocId, float score, Index.Segment.SegmentReader reader, int localDocId)
+        {
+            _cancellationToken.ThrowIfCancellationRequested();
+            for (int i = 0; i < _facetRequests.Length; i++)
+            {
+                var request = _facetRequests[i];
+                bool hasValue = request switch
+                {
+                    HierarchicalFacetRequest hierarchical =>
+                        CollectHierarchy(i, hierarchical, globalDocId, reader, localDocId),
+                    NumericRangeFacetRequest numeric =>
+                        CollectNumericRange(i, numeric, _numericAccessors[i], globalDocId, reader, localDocId),
+                    Int64RangeFacetRequest int64 =>
+                        CollectInt64Range(i, int64, _numericAccessors[i], globalDocId, reader, localDocId),
+                    DateRangeFacetRequest date =>
+                        CollectDateRange(i, date, _numericAccessors[i], globalDocId, reader, localDocId),
+                    DateHistogramFacetRequest histogram =>
+                        CollectDateHistogram(i, histogram, _numericAccessors[i], globalDocId, reader, localDocId),
+                    _ => CollectFlat(i, request.Field, globalDocId, reader, localDocId)
+                };
+
+                if (!hasValue)
+                    _facetsCollector.CollectMissing(i, globalDocId);
+            }
+        }
+
+        private bool CollectNumericRange(int requestIndex,
+            NumericRangeFacetRequest request,
+            NumericFieldAccessor accessor,
+            int globalDocId,
+            Index.Segment.SegmentReader reader,
+            int localDocId)
+        {
+            if (!NumericFieldValues.TryRead(reader, request.Field, localDocId, accessor, out var values))
+                return false;
+
+            if (values.IsInt64)
+            {
+                if (values.Int64Values is not null)
+                {
+                    foreach (long value in values.Int64Values)
+                        CollectNumericRangeValue(requestIndex, request, globalDocId, value);
+                }
+                else
+                {
+                    CollectNumericRangeValue(requestIndex, request, globalDocId, values.Int64Value);
+                }
+            }
+            else if (values.DoubleValues is not null)
+            {
+                foreach (double value in values.DoubleValues)
+                    CollectNumericRangeValue(requestIndex, request, globalDocId, value);
+            }
+            else
+            {
+                CollectNumericRangeValue(requestIndex, request, globalDocId, values.DoubleValue);
+            }
+
+            return true;
+        }
+
+        private void CollectNumericRangeValue(int requestIndex,
+            NumericRangeFacetRequest request,
+            int globalDocId,
+            long value)
+        {
+            int matched = _numericRangePlans[requestIndex]!.Find(value);
+            if (matched >= 0)
+                _facetsCollector.CollectDocumentValue(requestIndex, globalDocId, request.Ranges[matched].Label);
+            else if (!_numericRangePlans[requestIndex]!.IsNonOverlapping)
+            {
+                int checks = 0;
+                foreach (int index in _numericRangePlans[requestIndex]!.FindOverlapping(value))
+                {
+                    if ((checks++ & 31) == 0)
+                        _cancellationToken.ThrowIfCancellationRequested();
+                    _facetsCollector.CollectDocumentValue(requestIndex, globalDocId, request.Ranges[index].Label);
+                }
+            }
+        }
+
+        private void CollectNumericRangeValue(int requestIndex,
+            NumericRangeFacetRequest request,
+            int globalDocId,
+            double value)
+        {
+            int matched = _numericRangePlans[requestIndex]!.Find(value);
+            if (matched >= 0)
+                _facetsCollector.CollectDocumentValue(requestIndex, globalDocId, request.Ranges[matched].Label);
+            else if (!_numericRangePlans[requestIndex]!.IsNonOverlapping)
+            {
+                int checks = 0;
+                foreach (int index in _numericRangePlans[requestIndex]!.FindOverlapping(value))
+                {
+                    if ((checks++ & 31) == 0)
+                        _cancellationToken.ThrowIfCancellationRequested();
+                    _facetsCollector.CollectDocumentValue(requestIndex, globalDocId, request.Ranges[index].Label);
+                }
+            }
+        }
+
+        private bool CollectInt64Range(int requestIndex,
+            Int64RangeFacetRequest request,
+            NumericFieldAccessor accessor,
+            int globalDocId,
+            Index.Segment.SegmentReader reader,
+            int localDocId)
+        {
+            if (!NumericFieldValues.TryRead(reader, request.Field, localDocId, accessor, out var values))
+                return false;
+
+            if (!values.IsInt64)
+                throw new InvalidOperationException($"Int64 range facet field '{request.Field}' has an incompatible numeric representation.");
+
+            if (values.Int64Values is not null)
+            {
+                foreach (long value in values.Int64Values)
+                    CollectInt64RangeValue(requestIndex, request, globalDocId, value);
+            }
+            else
+            {
+                CollectInt64RangeValue(requestIndex, request, globalDocId, values.Int64Value);
+            }
+
+            return true;
+        }
+
+        private void CollectInt64RangeValue(int requestIndex,
+            Int64RangeFacetRequest request,
+            int globalDocId,
+            long value)
+        {
+            int matched = _int64RangePlans[requestIndex]!.Find(value);
+            if (matched >= 0)
+                _facetsCollector.CollectDocumentValue(requestIndex, globalDocId, request.Ranges[matched].Label);
+            else if (!_int64RangePlans[requestIndex]!.IsNonOverlapping)
+            {
+                int checks = 0;
+                foreach (int index in _int64RangePlans[requestIndex]!.FindOverlapping(value))
+                {
+                    if ((checks++ & 31) == 0)
+                        _cancellationToken.ThrowIfCancellationRequested();
+                    _facetsCollector.CollectDocumentValue(requestIndex, globalDocId, request.Ranges[index].Label);
+                }
+            }
+        }
+
+        private bool CollectDateRange(int requestIndex,
+            DateRangeFacetRequest request,
+            NumericFieldAccessor accessor,
+            int globalDocId,
+            Index.Segment.SegmentReader reader,
+            int localDocId)
+        {
+            if (!NumericFieldValues.TryRead(reader, request.Field, localDocId, accessor, out var values))
+                return false;
+
+            if (!values.IsInt64)
+                throw new InvalidOperationException($"Date range facet field '{request.Field}' has an incompatible numeric representation.");
+
+            if (values.Int64Values is not null)
+            {
+                foreach (long value in values.Int64Values)
+                    CollectDateRangeValue(requestIndex, request, globalDocId, value);
+            }
+            else
+            {
+                CollectDateRangeValue(requestIndex, request, globalDocId, values.Int64Value);
+            }
+
+            return true;
+        }
+
+        private void CollectDateRangeValue(int requestIndex,
+            DateRangeFacetRequest request,
+            int globalDocId,
+            long value)
+        {
+            int matched = _int64RangePlans[requestIndex]!.Find(value);
+            if (matched >= 0)
+                _facetsCollector.CollectDocumentValue(requestIndex, globalDocId, request.Ranges[matched].Label);
+            else if (!_int64RangePlans[requestIndex]!.IsNonOverlapping)
+            {
+                int checks = 0;
+                foreach (int index in _int64RangePlans[requestIndex]!.FindOverlapping(value))
+                {
+                    if ((checks++ & 31) == 0)
+                        _cancellationToken.ThrowIfCancellationRequested();
+                    _facetsCollector.CollectDocumentValue(requestIndex, globalDocId, request.Ranges[index].Label);
+                }
+            }
+        }
+
+        private bool CollectDateHistogram(int requestIndex,
+            DateHistogramFacetRequest request,
+            NumericFieldAccessor accessor,
+            int globalDocId,
+            Index.Segment.SegmentReader reader,
+            int localDocId)
+        {
+            if (!NumericFieldValues.TryRead(reader, request.Field, localDocId, accessor, out var values))
+                return false;
+
+            if (!values.IsInt64)
+                throw new InvalidOperationException($"Date histogram facet field '{request.Field}' has an incompatible numeric representation.");
+
+            if (values.Int64Values is not null)
+            {
+                foreach (long value in values.Int64Values)
+                    CollectDateHistogramValue(requestIndex, request, globalDocId, value);
+            }
+            else
+            {
+                CollectDateHistogramValue(requestIndex, request, globalDocId, values.Int64Value);
+            }
+
+            return true;
+        }
+
+        private void CollectDateHistogramValue(int requestIndex, DateHistogramFacetRequest request, int globalDocId, long value)
+        {
+            var (start, end) = request.Interval.GetBucket(value);
+            _facetsCollector.CollectDateHistogramBucket(requestIndex, globalDocId, start, end);
+        }
+
+        private bool CollectFlat(
+            int requestIndex,
+            string facetField,
+            int globalDocId,
+            Index.Segment.SegmentReader reader,
+            int localDocId)
+        {
+            var plan = _flatOrdinalPlans[facetField];
+            int readerIndex = _readerIndexes[reader];
+            bool hasValue = false;
+            if (plan.SortedSet && reader.TryGetSortedSetDocValues(facetField, localDocId, out var setValues))
+            {
+                int lastOrdinal = -1;
+                foreach (var value in setValues)
+                {
+                    if (plan.OrdinalMap.TryGetGlobalOrdinal(readerIndex, value, out int globalOrdinal)
+                        && globalOrdinal != lastOrdinal)
+                    {
+                        _facetsCollector.CollectFlatDocumentOrdinal(requestIndex, globalOrdinal);
+                        lastOrdinal = globalOrdinal;
+                        hasValue = true;
+                    }
+                }
+            }
+            else if (!plan.SortedSet && reader.TryGetSortedDocValue(facetField, localDocId, out string val))
+            {
+                if (plan.OrdinalMap.TryGetGlobalOrdinal(readerIndex, val, out int globalOrdinal))
+                {
+                    _facetsCollector.CollectFlatDocumentOrdinal(requestIndex, globalOrdinal);
+                    hasValue = true;
+                }
+            }
+            return hasValue;
+        }
+
+        private bool CollectHierarchy(
+            int requestIndex,
+            HierarchicalFacetRequest request,
+            int globalDocId,
+            Index.Segment.SegmentReader reader,
+            int localDocId)
+        {
+            bool hasHierarchyValue = false;
+            if (reader.TryGetSortedSetDocValues(request.Field, localDocId, out var setValues))
+            {
+                foreach (var value in setValues)
+                {
+                    if (value is null)
+                        continue;
+
+                    hasHierarchyValue |= CollectHierarchyValue(requestIndex, request, globalDocId, value);
+                }
+            }
+            else if (reader.TryGetSortedDocValue(request.Field, localDocId, out string value))
+            {
+                hasHierarchyValue = CollectHierarchyValue(requestIndex, request, globalDocId, value);
+            }
+            return hasHierarchyValue;
+        }
+
+        private bool CollectHierarchyValue(
+            int requestIndex,
+            HierarchicalFacetRequest request,
+            int globalDocId,
+            string encodedValue)
+        {
+            if (!FacetPathEncoder.IsEncodedPath(encodedValue))
+                return false;
+
+            if (FacetPathEncoder.TryGetImmediateChild(encodedValue, request.ParentPath, out string? child))
+                _facetsCollector.CollectDocumentValue(requestIndex, globalDocId, child!);
+
+            return true;
+        }
+
+        public IReadOnlyList<FacetResult> GetResults() => GetResults(_cancellationToken);
+
+        public IReadOnlyList<FacetResult> GetResults(CancellationToken cancellationToken)
+            => _facetsCollector.GetResults(cancellationToken);
+
+        private sealed class FlatFacetOrdinalPlan(
+            string field,
+            bool sortedSet,
+            OrdinalMap ordinalMap,
+            bool hasDocValues)
+        {
+            public string Field { get; } = field;
+            public bool SortedSet { get; } = sortedSet;
+            public OrdinalMap OrdinalMap { get; } = ordinalMap;
+            public bool HasDocValues { get; } = hasDocValues;
+        }
     }
 }
