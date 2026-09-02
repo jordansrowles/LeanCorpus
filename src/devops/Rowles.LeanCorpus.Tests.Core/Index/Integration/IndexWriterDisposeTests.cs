@@ -111,20 +111,24 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
         Assert.NotNull(semaphore);
         Assert.True(semaphore!.Wait(0));
 
-        var producer = Task.Run(() =>
-        {
-            try
+        var producer = Task.Factory.StartNew(
+            () =>
             {
-                var doc = new LeanDocument();
-                doc.Add(new TextField("body", "blocked by backpressure"));
-                writer.AddDocument(doc);
-                return (Exception?)null;
-            }
-            catch (Exception exception)
-            {
-                return exception;
-            }
-        }, TestContext.Current.CancellationToken);
+                try
+                {
+                    var doc = new LeanDocument();
+                    doc.Add(new TextField("body", "blocked by backpressure"));
+                    writer.AddDocument(doc);
+                    return (Exception?)null;
+                }
+                catch (Exception exception)
+                {
+                    return exception;
+                }
+            },
+            TestContext.Current.CancellationToken,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
 
         try
         {
@@ -242,12 +246,59 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
     }
 
     /// <summary>
-    /// Verifies that disposal uses a millisecond timeout when an indexing operation is stranded.
+    /// Verifies that a timed-out disposal remains Closing until an active operation exits,
+    /// then a later disposal releases the writer's resources exactly once.
     /// </summary>
     [Fact(DisplayName = "Dispose: In-flight indexing drain uses configured timeout")]
-    public void Dispose_InFlightIndexingOperation_UsesConfiguredDrainTimeout()
+    public void Dispose_InFlightIndexingOperation_TimesOutThenRetriesTeardown()
     {
         var dir = SubDir("dispose_drain_timeout");
+        var writer = new IndexWriter(
+            new MMapDirectory(dir),
+            new IndexWriterConfig { DurableCommits = false },
+            TimeSpan.FromMilliseconds(50));
+        writer.EnterIndexingOperation();
+        bool operationHeld = true;
+
+        try
+        {
+            var stopwatch = Stopwatch.StartNew();
+            var failure = Assert.Throws<TimeoutException>(writer.Dispose);
+            stopwatch.Stop();
+
+            Assert.InRange(stopwatch.ElapsedMilliseconds, 25, 2_000);
+            Assert.Contains("state=Closing", failure.Message, StringComparison.Ordinal);
+            Assert.Contains("activeOperations=1", failure.Message, StringComparison.Ordinal);
+            Assert.NotNull(writer.BackpressureSemaphoreForTests);
+
+            var document = new LeanDocument();
+            document.Add(new TextField("body", "writer must reject new work while closing"));
+            Assert.True(writer.IsClosing);
+            Assert.Throws<ObjectDisposedException>(() => writer.AddDocument(document));
+
+            writer.ExitIndexingOperation();
+            operationHeld = false;
+
+            writer.Dispose();
+            writer.Dispose();
+
+            Assert.False(File.Exists(Path.Combine(dir, "write.lock")));
+            using var reopened = new IndexWriter(
+                new MMapDirectory(dir),
+                new IndexWriterConfig { DurableCommits = false });
+        }
+        finally
+        {
+            if (operationHeld)
+                writer.ExitIndexingOperation();
+            writer.Dispose();
+        }
+    }
+
+    [Fact(DisplayName = "Dispose: Concurrent Retry Finalises Resources Once", Timeout = 30_000)]
+    public async Task Dispose_ConcurrentRetries_FinaliseResourcesOnce()
+    {
+        var dir = SubDir("dispose_concurrent_retry");
         var writer = new IndexWriter(
             new MMapDirectory(dir),
             new IndexWriterConfig { DurableCommits = false },
@@ -256,15 +307,36 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
 
         try
         {
-            var stopwatch = Stopwatch.StartNew();
-            writer.Dispose();
-            stopwatch.Stop();
+            Assert.Throws<TimeoutException>(writer.Dispose);
+            writer.ExitIndexingOperation();
 
-            Assert.InRange(stopwatch.ElapsedMilliseconds, 25, 2_000);
+            using var ready = new CountdownEvent(2);
+            using var start = new ManualResetEventSlim();
+            var first = Task.Factory.StartNew(() =>
+            {
+                ready.Signal();
+                start.Wait(TestContext.Current.CancellationToken);
+                writer.Dispose();
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            var second = Task.Factory.StartNew(() =>
+            {
+                ready.Signal();
+                start.Wait(TestContext.Current.CancellationToken);
+                writer.Dispose();
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+            Assert.True(ready.Wait(TimeSpan.FromSeconds(5)), "Concurrent disposers did not reach the start barrier.");
+            start.Set();
+            await Task.WhenAll(first, second).WaitAsync(TestContext.Current.CancellationToken);
+
+            Assert.False(File.Exists(Path.Combine(dir, "write.lock")));
+            using var reopened = new IndexWriter(
+                new MMapDirectory(dir),
+                new IndexWriterConfig { DurableCommits = false });
         }
         finally
         {
-            writer.ExitIndexingOperation();
+            writer.Dispose();
         }
     }
 

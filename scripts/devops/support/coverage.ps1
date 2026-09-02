@@ -4,25 +4,16 @@ Set-StrictMode -Version Latest
 function Find-CoverageProjects {
     param([string]$RepoRoot)
 
-    $testProjectsRoot = Join-Path $RepoRoot 'src/devops'
     return @(
-        Get-ChildItem $testProjectsRoot -Filter '*.csproj' -Recurse |
-            Where-Object {
-                $dirName = $_.Directory.Name
-                ($dirName -eq 'Rowles.Text.Tests' -or
-                $dirName -like 'Rowles.LeanCorpus.Tests.*') -and
-                $dirName -ne 'Rowles.LeanCorpus.Tests.Shared' -and
-                $dirName -ne 'Rowles.LeanCorpus.Tests.AOTSmoke' -and
-                $dirName -ne 'Rowles.LeanCorpus.Benchmarks'
-            } |
-            Sort-Object FullName | ForEach-Object { $_.FullName }
+        (Join-Path $RepoRoot 'src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj')
+        (Join-Path $RepoRoot 'src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj')
     )
 }
 
 function Find-CoverageResults {
     param([string]$ResultsDir)
 
-    return @(Get-ChildItem $ResultsDir -Filter 'coverage.cobertura.xml' -Recurse -ErrorAction SilentlyContinue)
+    return @(Get-ChildItem $ResultsDir -Filter '*.coverage.cobertura.*.xml' -Recurse -ErrorAction SilentlyContinue)
 }
 
 function New-CoverageReport {

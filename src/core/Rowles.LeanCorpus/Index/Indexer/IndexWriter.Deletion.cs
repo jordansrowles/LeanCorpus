@@ -24,7 +24,7 @@ public sealed partial class IndexWriter
     {
         using var activity = Diagnostics.LeanCorpusActivitySource.Source
             .StartActivity(Diagnostics.LeanCorpusActivitySource.DeleteQueue);
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ThrowIfClosingOrDisposed();
         ThrowIfIndexingFailed();
         lock (_writeLock)
         {

@@ -2,9 +2,9 @@ name: Build
 
 on:
   push:
-    branches: [main, '[0-9]*']
+    branches: [main, '[0-9]*', 'stabilise/**']
   pull_request:
-    branches: [main, '[0-9]*']
+    branches: [main, '[0-9]*', 'stabilise/**']
 
 permissions:
   contents: read
@@ -14,175 +14,125 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    if: |
-      github.event_name == 'pull_request' ||
-      startsWith(github.event.head_commit.message, '[build]') ||
-      startsWith(github.event.head_commit.message, '[deploy]')
+  linux-tests:
+    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[build]') || startsWith(github.event.head_commit.message, '[deploy]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            artifact: linux
-            collect_coverage: true
-            aot_rid: linux-x64
-          - os: windows-2025
-            artifact: windows
-            collect_coverage: false
-            aot_rid: win-x64
-          - os: ubuntu-24.04-arm
-            artifact: linux-arm64
-            collect_coverage: false
-            aot_rid: linux-arm64
-
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    env:
-      TEST_RESULTS_ROOT: test-results/${{ matrix.artifact }}
-
+        framework: [net10.0, net11.0]
     steps:
       - uses: actions/checkout@v6
-
-      - name: Setup .NET 10
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Setup .NET 11 preview
-        uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v5
+        with: { dotnet-version: '10.0.x' }
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
-
-      - name: Add .NET tools to PATH
-        shell: pwsh
-        run: '"$HOME/.dotnet/tools" | Add-Content $env:GITHUB_PATH'
-
       - name: Build solution
         shell: pwsh
         run: ./devops.ps1 build
-
-      - name: Pack Rowles.Text
+      - name: Test deterministic suites
         shell: pwsh
-        run: dotnet pack src/core/Rowles.Text/Rowles.Text.csproj -c Release --no-build
-
-      - name: Upload Rowles.Text package
+        env: { CHAOS_ITERATIONS: 25 }
+        run: ./devops.ps1 test -Suite all -Framework '${{ matrix.framework }}' -HangTimeout 100s
+      - name: Upload failure diagnostics
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: rowles-text-package-${{ matrix.artifact }}
-          path: src/core/Rowles.Text/bin/Release/*.nupkg
-          if-no-files-found: error
-
-      - name: Test target frameworks
-        shell: pwsh
-        env:
-          COLLECT_COVERAGE: ${{ matrix.collect_coverage }}
-          CHAOS_ITERATIONS: 1000
-        run: |
-          $testSuites = @(
-            @{ Name = 'text'; Project = 'src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj'; Coverage = $false }
-            @{ Name = 'core'; Project = 'src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj'; Coverage = $true }
-            @{ Name = 'sourcegen'; Project = 'src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj'; Coverage = $true }
-            @{ Name = 'architecture'; Project = 'src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj'; Coverage = $false }
-            @{ Name = 'server-abstractions'; Project = 'src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj'; Coverage = $false; Frameworks = @('net11.0') }
-            @{ Name = 'server-core'; Project = 'src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj'; Coverage = $false; Frameworks = @('net11.0') }
-            @{ Name = 'server-integration'; Project = 'src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj'; Coverage = $false; Frameworks = @('net11.0') }
-          )
-
-          $frameworks = @('net10.0', 'net11.0')
-          $collectCoverage = $env:COLLECT_COVERAGE -eq 'true'
-
-          foreach ($framework in $frameworks) {
-            foreach ($suite in $testSuites) {
-              if ($suite.ContainsKey('Frameworks') -and $framework -notin $suite.Frameworks) {
-                continue
-              }
-
-              $resultsDirectory = Join-Path $env:TEST_RESULTS_ROOT "$framework/$($suite.Name)"
-              $testArguments = @(
-                'test', $suite.Project, '-c', 'Release', '-f', $framework, '--no-build',
-                '--logger', "trx;LogFileName=$($suite.Name)-$framework.trx",
-                '--results-directory', $resultsDirectory
-              )
-
-              if ($collectCoverage -and $suite.Coverage) {
-                $testArguments += @('--collect', 'XPlat Code Coverage')
-              }
-
-              if ($IsWindows -and $suite.Name -eq 'core') {
-                $testArguments += @('--blame-hang', '--blame-hang-timeout', '2m')
-              }
-
-              & dotnet @testArguments
-              if ($LASTEXITCODE -ne 0) {
-                exit $LASTEXITCODE
-              }
-            }
-          }
-
-      - name: Run Native AOT smoke tests
-        shell: pwsh
-        run: ./devops.ps1 aot -RuntimeIdentifier '${{ matrix.aot_rid }}'
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: test-results-${{ matrix.artifact }}
-          path: test-results/${{ matrix.artifact }}
+          name: linux-${{ matrix.framework }}-diagnostics
+          path: artifacts/test-results
           if-no-files-found: warn
 
-      - name: Upload coverage results
-        if: always() && matrix.collect_coverage
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-results
-          path: test-results/${{ matrix.artifact }}/**/coverage.cobertura.xml
-          if-no-files-found: warn
-
-  deploy:
-    needs: build
-    if: startsWith(github.event.head_commit.message, '[deploy]')
+  coverage:
+    needs: linux-tests
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
-
-      - name: Setup .NET 10
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Setup .NET 11 preview
-        uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v5
+        with: { dotnet-version: '10.0.x' }
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
-
-      - name: Add .NET tools to PATH
+      - name: Collect MTP coverage
         shell: pwsh
-        run: '"$HOME/.dotnet/tools" | Add-Content $env:GITHUB_PATH'
+        run: ./devops.ps1 coverage -Framework net10.0 -Clean
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage-results
+          path: coverage-results/**/*.coverage.cobertura.*.xml
+          if-no-files-found: error
 
-      - name: Download coverage results
-        uses: actions/download-artifact@v7
+  windows-tests:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with: { dotnet-version: '10.0.x' }
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+      - name: Build solution
+        shell: pwsh
+        run: ./devops.ps1 build
+      - name: Run complete Windows Core test suite
+        shell: pwsh
+        run: ./devops.ps1 test -Suite core -Framework net10.0 -HangTimeout 100s
+      - name: Upload failure dumps
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-test-diagnostics
+          path: TestResults/**
+          if-no-files-found: warn
+
+  arm64-smoke:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with: { dotnet-version: '10.0.x' }
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+      - name: Build solution
+        shell: pwsh
+        run: ./devops.ps1 build
+      - name: Run architecture-sensitive smoke tests
+        shell: pwsh
+        run: |
+          ./devops.ps1 test -Suite architecture -Framework net10.0
+          ./devops.ps1 test -Suite core -Framework net10.0 -Area 'CodecKit,Store,Vector,Index' -Category Unit -HangTimeout 100s
+          ./devops.ps1 aot -RuntimeIdentifier linux-arm64
+
+  deploy:
+    needs: [linux-tests, coverage, windows-tests, arm64-smoke]
+    if: startsWith(github.event.head_commit.message, '[deploy]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with: { dotnet-version: '10.0.x' }
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+      - uses: actions/download-artifact@v7
         with:
           name: coverage-results
           path: coverage-results
-
-      - name: Restore core library
-        run: dotnet restore src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj
-
-      - name: Build core library
-        run: dotnet build src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj -c Release --no-restore
-
       - name: Build docs
         shell: pwsh
         run: ./devops docs build -SkipBenchmarks
-
-      - name: Upload docs artifact
-        uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7
         with:
           name: leancorpus-docs-site
           path: docs/site

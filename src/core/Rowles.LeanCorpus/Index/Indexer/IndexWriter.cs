@@ -80,11 +80,13 @@ public sealed partial class IndexWriter : IDisposable
     private readonly Lock _asyncWriteLock = new();
     private Channel<AsyncWriteCommand>? _asyncWriteChannel;
     private Task? _asyncWriteConsumer;
+    private int _queuedAsyncWrites;
 
     private readonly Lock _writeLock = new();
-    private int _disposed;      // 0 = alive, 1 = disposed (atomically set via Interlocked)
+    private readonly Lock _disposeLock = new();
+    private readonly OperationDrain _indexingOperations = new();
+    private int _disposed;      // 0 = resources remain owned, 1 = teardown completed
     private int _closing;       // 0 = open, 1 = Dispose has started draining (prevents TOCTOU)
-    private int _inFlightAdds;  // count of indexing callers that passed the disposed-check gate
     private int _indexingFailed;
     private Exception? _indexingFailure;
     private readonly Stream _writeLockFile;
@@ -228,7 +230,7 @@ public sealed partial class IndexWriter : IDisposable
 
     public void SoftDeleteDocuments(TermQuery query)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ThrowIfClosingOrDisposed();
         ThrowIfIndexingFailed();
         if (!_config.SoftDeletesEnabled)
             throw new InvalidOperationException(
@@ -482,13 +484,13 @@ public sealed partial class IndexWriter : IDisposable
 
     public IReadOnlyList<SegmentInfo> GetNrtSegments()
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ThrowIfClosingOrDisposed();
         return SnapshotManager.GetNrtSegments(this);
     }
 
     public IndexSnapshot CreateSnapshot()
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ThrowIfClosingOrDisposed();
         return SnapshotManager.CreateSnapshot(this);
     }
 
@@ -500,7 +502,7 @@ public sealed partial class IndexWriter : IDisposable
     public IndexBackupManifest CreateBackupManifest(IndexSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ThrowIfClosingOrDisposed();
         return SnapshotManager.CreateBackupManifest(snapshot, _directory.DirectoryPath);
     }
 
@@ -523,63 +525,64 @@ public sealed partial class IndexWriter : IDisposable
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ThrowIfClosingOrDisposed();
         return SnapshotManager.BackupSnapshot(snapshot, backupDirectoryPath, _directory.DirectoryPath, options, cancellationToken);
     }
 
     public void Dispose()
     {
-        if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0) return;
-
-        // Prevent new callers from entering while we drain in-flight operations.
-        Volatile.Write(ref _closing, 1);
-        _shutdownCts.Cancel();
-        CompleteAsyncWrites();
-
-        Exception? failure = null;
-        try
+        lock (_disposeLock)
         {
+            if (Volatile.Read(ref _disposed) != 0)
+                return;
+
+            // Closing begins once. A timed-out drain deliberately remains Closing:
+            // a later Dispose can finish teardown after live operations exit.
+            if (Interlocked.Exchange(ref _closing, 1) == 0)
+            {
+                _shutdownCts.Cancel();
+                CompleteAsyncWrites();
+            }
+
+            // A timed-out drain leaves every owned synchronisation primitive intact.
+            // Live operations can therefore unwind safely after Dispose reports failure.
             DrainIndexingOperations(_disposeTimeout);
 
-            // Drain any pending detached flushes and publish their segments.
-            lock (_writeLock)
-                DwptManager.WaitForPendingFlushes(this);
-        }
-        catch (Exception ex)
-        {
-            failure = ex;
-        }
-        finally
-        {
-            DisposeResources(ref failure);
-        }
+            Exception? failure = null;
+            try
+            {
+                // Drain any pending detached flushes and publish their segments.
+                lock (_writeLock)
+                    DwptManager.WaitForPendingFlushes(this);
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+            finally
+            {
+                DisposeResources(ref failure);
+                Volatile.Write(ref _disposed, 1);
+            }
 
-        if (failure is not null)
-            ExceptionDispatchInfo.Capture(failure).Throw();
+            if (failure is not null)
+                ExceptionDispatchInfo.Capture(failure).Throw();
+        }
     }
+
+    private void ThrowIfClosingOrDisposed()
+        => ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _closing) != 0 || Volatile.Read(ref _disposed) != 0,
+            this);
 
     private void DrainIndexingOperations(TimeSpan timeout)
     {
-        var spinWait = new SpinWait();
-        long drainTimeoutMs = checked((long)timeout.TotalMilliseconds);
-        long started = Environment.TickCount64;
-        while (Volatile.Read(ref _inFlightAdds) != 0)
+        if (!_indexingOperations.BeginDisposeAndWait(timeout))
         {
-            spinWait.SpinOnce();
-            if (!spinWait.NextSpinWillYield)
-                continue;
-
-            if (Environment.TickCount64 - started >= drainTimeoutMs)
-            {
-                Diagnostics.LeanCorpusActivitySource.TraceSwallowed(
-                    new TimeoutException(
-                        $"IndexWriter.Dispose timed out after {timeout.TotalSeconds:0.###} seconds waiting for " +
-                        $"{Volatile.Read(ref _inFlightAdds)} in-flight indexing operation(s) to complete."),
-                    "dispose-drain-timeout");
-                MarkIndexingFailed();
-                return;
-            }
-            Thread.Sleep(1);
+            throw new TimeoutException(
+                $"IndexWriter.Dispose timed out after {timeout.TotalSeconds:0.###} seconds; " +
+                $"state=Closing, activeOperations={_indexingOperations.ActiveCount}, " +
+                $"queuedCommands={GetQueuedAsyncWriteCount()}, consumer={GetAsyncConsumerState()}.");
         }
     }
 
@@ -635,22 +638,29 @@ public sealed partial class IndexWriter : IDisposable
 
     internal void EnterIndexingOperation()
     {
-        Interlocked.Increment(ref _inFlightAdds);
-        if (Volatile.Read(ref _disposed) != 0 || Volatile.Read(ref _closing) != 0 || Volatile.Read(ref _indexingFailed) != 0)
+        try
         {
-            Interlocked.Decrement(ref _inFlightAdds);
-            if (Volatile.Read(ref _disposed) != 0)
-                throw new ObjectDisposedException(nameof(IndexWriter));
-            if (Volatile.Read(ref _closing) != 0)
-                throw new ObjectDisposedException(nameof(IndexWriter),
-                    "The writer is shutting down. No new indexing operations are accepted.");
-            throw CreateIndexingFailureException();
+            _indexingOperations.Enter(this);
         }
+        catch (ObjectDisposedException)
+        {
+            throw new ObjectDisposedException(nameof(IndexWriter),
+                "The writer is shutting down. No new indexing operations are accepted.");
+        }
+
+        if (Volatile.Read(ref _closing) == 0 && Volatile.Read(ref _indexingFailed) == 0)
+            return;
+
+        _indexingOperations.ExitOperation();
+        if (Volatile.Read(ref _closing) != 0)
+            throw new ObjectDisposedException(nameof(IndexWriter),
+                "The writer is shutting down. No new indexing operations are accepted.");
+        throw CreateIndexingFailureException();
     }
 
     internal void ExitIndexingOperation()
     {
-        Interlocked.Decrement(ref _inFlightAdds);
+        _indexingOperations.ExitOperation();
     }
 
     internal void MarkIndexingFailed(Exception? failure = null)
@@ -820,6 +830,7 @@ public sealed partial class IndexWriter : IDisposable
         try
         {
             await EnsureAsyncWriteChannel().Writer.WriteAsync(command, cancellationToken).ConfigureAwait(false);
+            Interlocked.Increment(ref _queuedAsyncWrites);
         }
         catch (ChannelClosedException) when (IsClosing)
         {
@@ -838,7 +849,8 @@ public sealed partial class IndexWriter : IDisposable
         {
             while (reader.TryRead(out var cmd))
             {
-                if (Volatile.Read(ref _disposed) != 0)
+                Interlocked.Decrement(ref _queuedAsyncWrites);
+                if (Volatile.Read(ref _closing) != 0 || Volatile.Read(ref _disposed) != 0)
                 {
                     cmd.Tcs.TrySetException(new ObjectDisposedException(nameof(IndexWriter)));
                     continue;
@@ -858,9 +870,17 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
+    private int GetQueuedAsyncWriteCount() => Math.Max(0, Volatile.Read(ref _queuedAsyncWrites));
+
+    private string GetAsyncConsumerState()
+    {
+        lock (_asyncWriteLock)
+            return _asyncWriteConsumer is null ? "not-started" : _asyncWriteConsumer.Status.ToString();
+    }
+
     private void ProcessAsyncWriteCommand(AsyncWriteCommand cmd)
     {
-        if (Volatile.Read(ref _disposed) != 0)
+        if (Volatile.Read(ref _closing) != 0 || Volatile.Read(ref _disposed) != 0)
             throw new ObjectDisposedException(nameof(IndexWriter));
         switch (cmd.Kind)
         {
@@ -931,7 +951,7 @@ public sealed partial class IndexWriter : IDisposable
     internal SemaphoreSlim? BackpressureSemaphoreForTests => _backpressureSemaphore;
     internal CancellationToken ShutdownToken => _shutdownToken;
     internal bool IsClosing => Volatile.Read(ref _closing) != 0;
-    internal int InFlightIndexingOperationsForTests => Volatile.Read(ref _inFlightAdds);
+    internal int InFlightIndexingOperationsForTests => _indexingOperations.ActiveCount;
     internal bool AsyncWriteConsumerStartedForTests
     {
         get
