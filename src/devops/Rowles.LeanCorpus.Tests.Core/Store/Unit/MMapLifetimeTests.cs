@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Tests.Core.Foundation;
 
 namespace Rowles.LeanCorpus.Tests.Core.Store;
 
@@ -10,7 +11,7 @@ public sealed class MMapLifetimeTests : IDisposable
         Path.GetTempPath(), "ll_mmap_lifetime_" + Guid.NewGuid().ToString("N"));
 
     [Fact(DisplayName = "IndexInput: Dispose Waits For Active Mapping Lease")]
-    public async Task Dispose_ActiveMappingLease_WaitsBeforeUnmapping()
+    public void Dispose_ActiveMappingLease_WaitsBeforeUnmapping()
     {
         Directory.CreateDirectory(_path);
         string filePath = Path.Combine(_path, "input.bin");
@@ -18,7 +19,7 @@ public sealed class MMapLifetimeTests : IDisposable
         var input = new IndexInput(filePath);
         var lease = input.AcquireLifetimeLease();
 
-        var dispose = StartDedicatedDispose(input.Dispose);
+        using var dispose = new DedicatedThreadOperation(input.Dispose, "index-input-dispose");
         try
         {
             WaitUntilRejected(() => input.AcquireLifetimeLease());
@@ -28,12 +29,12 @@ public sealed class MMapLifetimeTests : IDisposable
         {
             lease.Dispose();
         }
-        await dispose.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        dispose.Join();
         Assert.Throws<ObjectDisposedException>(() => input.ReadByte());
     }
 
     [Fact(DisplayName = "MMap Directory: Dispose Waits For Active Input Mapping Lease")]
-    public async Task Dispose_ActiveInputLease_WaitsBeforeClosingTrackedInput()
+    public void Dispose_ActiveInputLease_WaitsBeforeClosingTrackedInput()
     {
         Directory.CreateDirectory(_path);
         using var directory = new MMapDirectory(_path);
@@ -42,7 +43,7 @@ public sealed class MMapLifetimeTests : IDisposable
         var input = directory.OpenInput("input.bin");
         var lease = input.AcquireLifetimeLease();
 
-        var dispose = StartDedicatedDispose(directory.Dispose);
+        using var dispose = new DedicatedThreadOperation(directory.Dispose, "mmap-directory-dispose");
         try
         {
             WaitUntilRejected(() => directory.AcquireOperationLease());
@@ -52,7 +53,7 @@ public sealed class MMapLifetimeTests : IDisposable
         {
             lease.Dispose();
         }
-        await dispose.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        dispose.Join();
         Assert.Throws<ObjectDisposedException>(() => input.ReadByte());
         input.Dispose();
     }
@@ -70,13 +71,6 @@ public sealed class MMapLifetimeTests : IDisposable
 
         Assert.Equal([1, 2, 3], bytes.ToArray());
     }
-
-    private static Task StartDedicatedDispose(Action dispose) =>
-        Task.Factory.StartNew(
-            dispose,
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
 
     private static void WaitUntilRejected(Func<IDisposable> acquire)
     {
