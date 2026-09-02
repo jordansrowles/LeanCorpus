@@ -3,11 +3,19 @@ using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Core.Store;
 
+/// <summary>Serialises tests that temporarily change the process current directory.</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class MMapDirectoryCurrentDirectoryCollection
+{
+    public const string Name = "MMapDirectory current directory";
+}
+
 /// <summary>
 /// Contains unit tests for MMap Directory.
 /// </summary>
 [Category(TestCategory.Unit)]
 [Area(TestArea.Store)]
+[Collection(MMapDirectoryCurrentDirectoryCollection.Name)]
 public sealed class MMapDirectoryTests : IClassFixture<TestDirectoryFixture>
 {
     private readonly TestDirectoryFixture _fixture;
@@ -145,6 +153,38 @@ public sealed class MMapDirectoryTests : IClassFixture<TestDirectoryFixture>
         Assert.False(Directory.Exists(path));
         using var _ = new MMapDirectory(path);
         Assert.True(Directory.Exists(path));
+    }
+
+    [Fact(DisplayName = "MMap Directory: Relative Path Retains Its Construction Directory")]
+    public void MMapDirectory_RelativePath_RetainsConstructionDirectory()
+    {
+        var originalCurrentDirectory = Environment.CurrentDirectory;
+        var root = Path.Combine(Path.GetTempPath(), "LeanCorpus_Tests", Guid.NewGuid().ToString("N"));
+        var constructionDirectory = Path.Combine(root, "construction");
+        var changedDirectory = Path.Combine(root, "changed");
+        Directory.CreateDirectory(constructionDirectory);
+        Directory.CreateDirectory(changedDirectory);
+
+        try
+        {
+            Environment.CurrentDirectory = constructionDirectory;
+            using var directory = new MMapDirectory("index");
+            var expectedDirectoryPath = Path.Combine(constructionDirectory, "index");
+
+            Assert.Equal(expectedDirectoryPath, directory.DirectoryPath);
+
+            Environment.CurrentDirectory = changedDirectory;
+            using (var output = directory.CreateOutput("written-after-change.bin"))
+                output.WriteByte(1);
+
+            Assert.True(File.Exists(Path.Combine(expectedDirectoryPath, "written-after-change.bin")));
+            Assert.False(File.Exists(Path.Combine(changedDirectory, "index", "written-after-change.bin")));
+        }
+        finally
+        {
+            Environment.CurrentDirectory = originalCurrentDirectory;
+            TestDirectoryFixture.TryDeleteDirectory(root);
+        }
     }
 
     /// <summary>

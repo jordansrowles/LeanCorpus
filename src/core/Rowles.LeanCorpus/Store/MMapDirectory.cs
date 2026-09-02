@@ -24,11 +24,11 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
     /// <exception cref="ArgumentNullException">Thrown if <paramref name="path"/> is null.</exception>
     public MMapDirectory(string path)
     {
-        DirectoryPath = path ?? throw new ArgumentNullException(nameof(path));
+        ArgumentNullException.ThrowIfNull(path);
+        DirectoryPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 
-        if (!Directory.Exists(path))
-            Directory.CreateDirectory(path);
-        _fileLifetimes = FileLifetimeRegistry.ForDirectory(path);
+        Directory.CreateDirectory(DirectoryPath);
+        _fileLifetimes = FileLifetimeRegistry.ForDirectory(DirectoryPath);
     }
 
     /// <inheritdoc/>
