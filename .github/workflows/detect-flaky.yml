@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       repetitions:
-        description: Number of times to run each test suite
+        description: Number of times to run each resolved test target
         required: true
         default: 5
         type: number
@@ -36,115 +36,20 @@ jobs:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
 
-      - name: Restore test projects
+      - name: Build prepared test output
         shell: pwsh
-        run: |
-          $projects = @(
-            'src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj'
-            'src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj'
-            'src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj'
-            'src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj'
-            'src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj'
-            'src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj'
-            'src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj'
-            'src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj'
-          )
+        run: ./devops.ps1 build
 
-          foreach ($project in $projects) {
-            dotnet restore $project
-            if ($LASTEXITCODE -ne 0) {
-              exit $LASTEXITCODE
-            }
-          }
-
-      - name: Build test projects
-        shell: pwsh
-        run: |
-          $projects = @(
-            'src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj'
-            'src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj'
-            'src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj'
-            'src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj'
-            'src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj'
-            'src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj'
-            'src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj'
-            'src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj'
-          )
-
-          foreach ($project in $projects) {
-            dotnet build $project -c Release --no-restore
-            if ($LASTEXITCODE -ne 0) {
-              exit $LASTEXITCODE
-            }
-          }
-
-      - name: Repeat tests
+      - name: Run repeated test pipeline
         shell: pwsh
         env:
-          REPETITIONS: ${{ inputs.repetitions || 5 }}
           CHAOS_ITERATIONS: 1000
-        run: |
-          $suites = @(
-            @{ Name = 'text'; Project = 'src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj' }
-            @{ Name = 'core'; Project = 'src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj' }
-            @{ Name = 'sourcegen'; Project = 'src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj' }
-            @{ Name = 'architecture'; Project = 'src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj' }
-            @{ Name = 'server-abstractions'; Project = 'src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj'; Frameworks = @('net11.0') }
-            @{ Name = 'server-core'; Project = 'src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj'; Frameworks = @('net11.0') }
-            @{ Name = 'server-integration'; Project = 'src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj'; Frameworks = @('net11.0') }
-          )
-          $frameworks = @('net10.0', 'net11.0')
-          $failed = $false
-          $summary = [System.Collections.Generic.List[string]]::new()
-          $summary.Add('| Repetition | OS | Suite | Framework | Result |')
-          $summary.Add('| ---: | --- | --- | --- | --- |')
+        run: ./devops.ps1 test all --ci --flaky --count '${{ inputs.repetitions || 5 }}'
 
-          for ($iteration = 1; $iteration -le [int]$env:REPETITIONS; $iteration++) {
-            foreach ($suite in $suites) {
-              foreach ($framework in $frameworks) {
-                if ($suite.ContainsKey('Frameworks') -and $framework -notin $suite.Frameworks) {
-                  continue
-                }
-
-                $resultDirectory = "flaky-test-results/$iteration/$($suite.Name)/$framework"
-                dotnet test $suite.Project -c Release -f $framework --no-build `
-                  --logger "trx;LogFileName=$($suite.Name).trx" `
-                  --results-directory $resultDirectory `
-                  $(if ($suite.Name -ne 'architecture') { @('--hangdump', '--hangdump-timeout', '100s') })
-                $passed = $LASTEXITCODE -eq 0
-                $result = if ($passed) { 'Passed' } else { 'Failed' }
-                $summary.Add("| $iteration | ${{ matrix.os }} | $($suite.Name) | $framework | $result |")
-                if (-not $passed) {
-                  $failed = $true
-                }
-              }
-            }
-
-            $aotDirectory = "flaky-test-results/$iteration/aot-smoke/net10.0"
-            New-Item -ItemType Directory -Force -Path $aotDirectory | Out-Null
-            dotnet run `
-              --project src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj `
-              -c Release --no-build --framework net10.0 *>&1 |
-              Tee-Object -FilePath "$aotDirectory/aot-smoke.log"
-            $aotPassed = $LASTEXITCODE -eq 0
-            $aotResult = if ($aotPassed) { 'Passed' } else { 'Failed' }
-            $summary.Add("| $iteration | ${{ matrix.os }} | aot-smoke | net10.0 | $aotResult |")
-            if (-not $aotPassed) {
-              $failed = $true
-            }
-          }
-
-          $summary | Add-Content $env:GITHUB_STEP_SUMMARY
-          if ($failed) {
-            exit 1
-          }
-
-      - name: Upload test results
+      - name: Upload test run artefacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: flaky-test-results-${{ matrix.os }}
-          path: |
-            flaky-test-results
-            TestResults/**
+          name: flaky-test-runs-${{ matrix.os }}
+          path: artifacts/test/runs
           if-no-files-found: warn

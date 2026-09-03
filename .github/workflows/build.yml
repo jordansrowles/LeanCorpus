@@ -37,13 +37,13 @@ jobs:
       - name: Test deterministic suites
         shell: pwsh
         env: { CHAOS_ITERATIONS: 25 }
-        run: ./devops.ps1 test -Suite all -Framework '${{ matrix.framework }}' -HangTimeout 100s
-      - name: Upload failure diagnostics
-        if: failure()
+        run: ./devops.ps1 test all --ci --framework '${{ matrix.framework }}' --HangTimeout 100s
+      - name: Upload test run artefacts
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.framework }}-diagnostics
-          path: artifacts/test-results
+          path: artifacts/test/runs
           if-no-files-found: warn
 
   coverage:
@@ -83,13 +83,13 @@ jobs:
         run: ./devops.ps1 build
       - name: Run complete Windows test suite
         shell: pwsh
-        run: ./devops.ps1 test -Suite all -Framework net10.0 -HangTimeout 100s
-      - name: Upload failure dumps
-        if: failure()
+        run: ./devops.ps1 test all --ci --HangTimeout 100s
+      - name: Upload test run artefacts
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: windows-test-diagnostics
-          path: TestResults/**
+          path: artifacts/test/runs
           if-no-files-found: warn
 
   arm64-smoke:
@@ -109,9 +109,16 @@ jobs:
       - name: Run architecture-sensitive smoke tests
         shell: pwsh
         run: |
-          ./devops.ps1 test -Suite architecture -Framework net10.0
-          ./devops.ps1 test -Suite core -Framework net10.0 -Area 'CodecKit,Store,Vector,Index' -Category Unit -HangTimeout 100s
-          ./devops.ps1 aot -RuntimeIdentifier linux-arm64
+          ./devops.ps1 test architecture --ci --framework net10.0
+          ./devops.ps1 test core --ci --framework net10.0 --Area 'CodecKit,Store,Vector,Index' --Category Unit --HangTimeout 100s
+          ./devops.ps1 aot --ci --RuntimeIdentifier linux-arm64
+      - name: Upload test run artefacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: arm64-test-diagnostics
+          path: artifacts/test/runs
+          if-no-files-found: warn
 
   deploy:
     needs: [linux-tests, coverage, windows-tests, arm64-smoke]

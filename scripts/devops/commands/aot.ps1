@@ -4,51 +4,67 @@ Set-StrictMode -Version Latest
 function Invoke-DevOpsAot {
     param([string[]]$Arguments = @())
 
-    $parsed = ConvertFrom-DevOpsArguments $Arguments
-    $runtimeIdentifier = $parsed.Get('RuntimeIdentifier', '')
-    $repoRoot = Get-RepoRoot
-
-    if (-not $runtimeIdentifier) {
-        $runtimeIdentifier = if ($IsLinux) { 'linux-x64' } elseif ($IsMacOS) { 'osx-x64' } else { 'win-x64' }
-    }
-
-    # Respect the persistent per-user NuGet cache unless the caller provides an
-    # explicit cache location. Temporary caches can retain incomplete packages
-    # after an interrupted restore and make later AOT publishes fail mysteriously.
-
-    $project = Get-AotProjectPath
-
-    $failed = @()
-    foreach ($tfm in @('net10.0', 'net11.0')) {
-        Write-Heading "Publishing AOT smoke tests for $tfm ($runtimeIdentifier)..."
-        dotnet publish $project -c Release -r $runtimeIdentifier --self-contained true -f $tfm
-        if ($LASTEXITCODE -ne 0) {
-            Write-Failure "dotnet publish failed for $tfm with exit code $LASTEXITCODE."
-            $failed += $tfm
-            continue
-        }
-
-        $publishDir = Join-Path $repoRoot "src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/bin/Release/$tfm/$runtimeIdentifier/publish"
-        $exe = if ($runtimeIdentifier.StartsWith('win-', [StringComparison]::OrdinalIgnoreCase)) {
-            Join-Path $publishDir 'Rowles.LeanCorpus.Tests.AOTSmoke.exe'
+    try {
+        $parsed = ConvertFrom-DevOpsArguments $Arguments
+        $repoRoot = Get-RepoRoot
+        $frameworkWasSpecified = $parsed.Has('Framework')
+        $framework = [string]$parsed.Get('Framework', '')
+        $runtimeIdentifier = [string]$parsed.Get('RuntimeIdentifier', '')
+        $configuration = [string]$parsed.Get('Configuration', 'Release')
+        $flaky = $parsed.Has('Flaky')
+        $countWasSpecified = $parsed.Has('Count')
+        $countValue = if ($countWasSpecified) {
+            $parsed.Get('Count', '')
+        } elseif ($flaky) {
+            30
         } else {
-            Join-Path $publishDir 'Rowles.LeanCorpus.Tests.AOTSmoke'
+            1
         }
-
-        Write-Heading "Running AOT smoke tests for $tfm..."
-        & $exe
-        if ($LASTEXITCODE -ne 0) {
-            Write-Failure "AOT smoke tests FAILED for $tfm (exit code $LASTEXITCODE)."
-            $failed += $tfm
+        $count = ConvertTo-TestCount -Value $countValue
+        $diagnostics = $parsed.Has('Diagnostics')
+        $failFast = $parsed.Has('FailFast')
+        $ci = $parsed.Has('Ci')
+        $timeoutValue = if ($parsed.Has('Timeout')) {
+            [string]$parsed.Get('Timeout', 'off')
         } else {
-            Write-Success "AOT smoke tests passed for $tfm."
+            'off'
         }
-    }
+        $processTimeout = ConvertTo-ProcessTimeout -Value $timeoutValue
+        $resolutionStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+        $targets = @(
+            Resolve-TestTargets -Suite 'aot' -Framework $framework -FrameworkExplicit $frameworkWasSpecified `
+                -Configuration $configuration -RuntimeIdentifier $runtimeIdentifier `
+                -Filter ([string]$parsed.Get('Filter', '')) -Ci $ci `
+                -AdditionalArguments @($parsed.PassThrough) -RepoRoot $repoRoot
+        )
+        $resolutionStopwatch.Stop()
 
-    if ($failed.Count -gt 0) {
-        Write-Error "AOT smoke tests failed for: $($failed -join ', ')"
-        exit 1
+        $options = [pscustomobject]@{
+            Count = $count
+            Flaky = $flaky
+            FailFast = $failFast
+            Diagnostics = $diagnostics
+            Ci = $ci
+            CollectCoverage = $false
+            ArtifactsEnabled = $count -gt 1 -or $flaky -or $diagnostics -or $ci
+            Configuration = $configuration
+            RequestedFramework = if ($frameworkWasSpecified) { $framework } else { '' }
+            RuntimeIdentifier = $runtimeIdentifier
+            Area = [string]$parsed.Get('Area', '')
+            Category = [string]$parsed.Get('Category', '')
+            Filter = [string]$parsed.Get('Filter', '')
+            Verbosity = [string]$parsed.Get('Verbosity', '')
+            HangTimeout = 'off'
+            ProcessTimeout = $processTimeout
+            ResolutionDuration = $resolutionStopwatch.Elapsed
+            PassThrough = @($parsed.PassThrough)
+        }
+
+        $commandLine = ConvertTo-CommandLineText -Command './devops aot' -Arguments $Arguments
+        return Invoke-TestPipeline -Targets $targets -Options $options -CommandLine $commandLine `
+            -DisplayName 'AOT test run' -RepoRoot $repoRoot
+    } catch {
+        Write-Failure "AOT command failed: $($_.Exception.Message)"
+        return 1
     }
-    Write-Success 'All AOT smoke tests passed.'
-    exit 0
 }
