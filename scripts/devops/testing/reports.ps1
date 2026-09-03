@@ -56,6 +56,18 @@ function Get-TestEnvironmentDocument {
     }
 }
 
+function ConvertTo-TestPreparationTimingDocument {
+    param([object]$Timing)
+
+    return [ordered]@{
+        stage = $Timing.Stage
+        operation = $Timing.Operation
+        workItem = $Timing.WorkItem
+        targetKeys = @($Timing.TargetKeys)
+        durationMs = [double]$Timing.DurationMs
+    }
+}
+
 function New-TestReportDocument {
     param(
         [Parameter(Mandatory = $true)]
@@ -84,6 +96,9 @@ function New-TestReportDocument {
         }
         selectedTargets = @($Context.Targets | ForEach-Object { ConvertTo-TestTargetDocument $_ })
         stageTimings = @($Context.StageTimings)
+        preparationTimings = @($Context.PreparationTimings | ForEach-Object {
+            ConvertTo-TestPreparationTimingDocument $_
+        })
         summary = [ordered]@{
             succeeded = [bool]$Summary.Succeeded
             requestedIterations = [int]$Summary.RequestedIterations
@@ -117,9 +132,15 @@ function New-TestReportDocument {
         hungTargets = @($Summary.HungTargets)
         cancelledTargets = @($Summary.CancelledTargets)
         incompleteTargets = @($Summary.IncompleteTargets)
-        infrastructureErrors = @($Summary.InfrastructureErrors)
-        diagnosticArtifactPaths = @($Summary.DiagnosticArtifactPaths)
-        reportErrors = @($Context.ReportErrors)
+        infrastructureErrors = @($Summary.InfrastructureErrors | ForEach-Object {
+            ConvertTo-TestReportText -Context $Context -Value $_
+        })
+        diagnosticArtifactPaths = @($Summary.DiagnosticArtifactPaths | ForEach-Object {
+            Get-TestArtifactRelativePath -Context $Context -Path $_
+        } | Where-Object { $_ })
+        reportErrors = @($Context.ReportErrors | ForEach-Object {
+            ConvertTo-TestReportText -Context $Context -Value $_
+        })
     }
 }
 
@@ -175,6 +196,7 @@ function New-TestMarkdownReport {
     [void]$builder.AppendLine("- Requested iterations: $($Summary.RequestedIterations)")
     [void]$builder.AppendLine("- Completed iterations: $($Summary.CompletedIterations)")
     [void]$builder.AppendLine("- Scheduled target executions: $($Summary.ScheduledTargetExecutions)/$($Summary.RequestedTargetExecutions)")
+    [void]$builder.AppendLine("- Completed target executions: $($Summary.CompletedTargetExecutions)")
     [void]$builder.AppendLine("- Failure rate: {0:P1}" -f $Summary.FailureRate)
     [void]$builder.AppendLine("- Target duration: min $(Format-TestDuration $Summary.MinimumDurationMs), median $(Format-TestDuration $Summary.MedianDurationMs), P95 $(Format-TestDuration $Summary.P95DurationMs), max $(Format-TestDuration $Summary.MaximumDurationMs)")
     [void]$builder.AppendLine("- Total duration: $(Format-TestDuration $Summary.TotalDurationMs)")
@@ -184,6 +206,16 @@ function New-TestMarkdownReport {
         [void]$builder.AppendLine('| --- | ---: |')
         foreach ($stage in @($Context.StageTimings)) {
             [void]$builder.AppendLine("| $(ConvertTo-MarkdownCell $stage.name) | $(Format-TestDuration $stage.durationMs) |")
+        }
+        [void]$builder.AppendLine()
+    }
+    if ($Context.PreparationTimings.Count -gt 0) {
+        [void]$builder.AppendLine('### Preparation details')
+        [void]$builder.AppendLine()
+        [void]$builder.AppendLine('| Stage | Operation | Work item | Targets | Duration |')
+        [void]$builder.AppendLine('| --- | --- | --- | --- | ---: |')
+        foreach ($timing in @($Context.PreparationTimings)) {
+            [void]$builder.AppendLine("| $(ConvertTo-MarkdownCell $timing.Stage) | $(ConvertTo-MarkdownCell $timing.Operation) | $(ConvertTo-MarkdownCell $timing.WorkItem) | $(ConvertTo-MarkdownCell (@($timing.TargetKeys) -join ', ')) | $(Format-TestDuration $timing.DurationMs) |")
         }
         [void]$builder.AppendLine()
     }
@@ -253,20 +285,20 @@ function New-TestMarkdownReport {
     [void]$builder.AppendLine()
     [void]$builder.AppendLine('- Run directory: `artifacts/test/runs/' + (ConvertTo-MarkdownCell $Context.RunId) + '`')
     foreach ($path in @($Summary.DiagnosticArtifactPaths)) {
-        [void]$builder.AppendLine('- `' + (ConvertTo-MarkdownCell $path) + '`')
+        [void]$builder.AppendLine('- `' + (ConvertTo-MarkdownCell (Get-TestArtifactRelativePath -Context $Context -Path $path)) + '`')
     }
     if (@($Summary.InfrastructureErrors).Count -gt 0) {
         [void]$builder.AppendLine()
         [void]$builder.AppendLine('### Infrastructure errors')
         foreach ($errorText in @($Summary.InfrastructureErrors)) {
-            [void]$builder.AppendLine("- $(ConvertTo-MarkdownCell $errorText)")
+            [void]$builder.AppendLine("- $(ConvertTo-MarkdownCell (ConvertTo-TestReportText -Context $Context -Value $errorText))")
         }
     }
     if (@($Context.ReportErrors).Count -gt 0) {
         [void]$builder.AppendLine()
         [void]$builder.AppendLine('### Report errors')
         foreach ($errorText in @($Context.ReportErrors)) {
-            [void]$builder.AppendLine("- $(ConvertTo-MarkdownCell $errorText)")
+            [void]$builder.AppendLine("- $(ConvertTo-MarkdownCell (ConvertTo-TestReportText -Context $Context -Value $errorText))")
         }
     }
 
@@ -279,6 +311,18 @@ function New-TestTimingRows {
     )
 
     $rows = [System.Collections.Generic.List[object]]::new()
+    foreach ($timing in @($Context.PreparationTimings)) {
+        [void]$rows.Add([pscustomobject][ordered]@{
+            recordType = 'Preparation'
+            iteration = ''
+            suite = ''
+            framework = ''
+            target = @($timing.TargetKeys) -join ', '
+            test = $timing.Operation
+            outcome = 'Completed'
+            durationMs = [double]$timing.DurationMs
+        })
+    }
     foreach ($execution in @($Context.ExecutionResults)) {
         $target = $execution.Target
         [void]$rows.Add([pscustomobject][ordered]@{

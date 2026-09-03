@@ -77,6 +77,70 @@ function Stop-ProcessTree {
     }
 }
 
+function Start-ProcessOutputRead {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State
+    )
+
+    if ($State.Completed) {
+        return
+    }
+
+    try {
+        $State.Task = $State.Reader.ReadAsync($State.Buffer, 0, $State.Buffer.Length)
+    } catch {
+        $State.Completed = $true
+        $State.Error = $_.Exception.Message
+    }
+}
+
+function Receive-ProcessOutputChunk {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State
+    )
+
+    if ($State.Completed -or $null -eq $State.Task -or -not $State.Task.IsCompleted) {
+        return $false
+    }
+
+    try {
+        $count = $State.Task.GetAwaiter().GetResult()
+        if ($count -le 0) {
+            $State.Completed = $true
+            return $true
+        }
+
+        $text = [string]::new($State.Buffer, 0, $count)
+        if ($null -ne $State.Writer) {
+            $State.Writer.Write($text)
+            $State.Writer.Flush()
+        }
+        if ($State.Mirror) {
+            if ($State.ForegroundColor) {
+                Write-Host $text -NoNewline -ForegroundColor $State.ForegroundColor
+            } else {
+                Write-Host $text -NoNewline
+            }
+        }
+        Start-ProcessOutputRead -State $State
+        return $true
+    } catch {
+        $State.Completed = $true
+        $State.Error = $_.Exception.Message
+        if ($null -ne $State.Writer) {
+            try {
+                $State.Writer.WriteLine("Output capture failed: $($State.Error)")
+                $State.Writer.Flush()
+            } catch {
+                # Preserve the process result even if the capture stream is unavailable.
+            }
+        }
+        return $true
+    }
+}
+
 function Invoke-ProcessWithLifecycle {
     [CmdletBinding()]
     param(
@@ -129,10 +193,34 @@ function Invoke-ProcessWithLifecycle {
     $wasKilled = $false
     $cancellationRequested = $false
     $exitCode = $null
-    $stdoutTask = $null
-    $stderrTask = $null
-    $stdoutText = ''
-    $stderrText = ''
+    $stdoutWriter = $null
+    $stderrWriter = $null
+    $stdoutState = $null
+    $stderrState = $null
+
+    if ($CaptureOutput) {
+        $utf8 = [System.Text.UTF8Encoding]::new($false)
+        try {
+            if ($StdOutPath) {
+                $stdoutWriter = [System.IO.StreamWriter]::new($StdOutPath, $false, $utf8)
+                $stdoutWriter.AutoFlush = $true
+            }
+            if ($StdErrPath) {
+                $stderrWriter = [System.IO.StreamWriter]::new($StdErrPath, $false, $utf8)
+                $stderrWriter.AutoFlush = $true
+            }
+        } catch {
+            if ($null -ne $stdoutWriter) {
+                $stdoutWriter.Dispose()
+                $stdoutWriter = $null
+            }
+            if ($null -ne $stderrWriter) {
+                $stderrWriter.Dispose()
+                $stderrWriter = $null
+            }
+            throw
+        }
+    }
 
     try {
         try {
@@ -145,8 +233,28 @@ function Invoke-ProcessWithLifecycle {
         }
 
         if ($CaptureOutput) {
-            $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-            $stderrTask = $process.StandardError.ReadToEndAsync()
+            $stdoutState = [pscustomobject]@{
+                Reader = $process.StandardOutput
+                Buffer = [char[]]::new(8192)
+                Task = $null
+                Writer = $stdoutWriter
+                Mirror = $MirrorOutput
+                ForegroundColor = $null
+                Completed = $false
+                Error = ''
+            }
+            $stderrState = [pscustomobject]@{
+                Reader = $process.StandardError
+                Buffer = [char[]]::new(8192)
+                Task = $null
+                Writer = $stderrWriter
+                Mirror = $MirrorOutput
+                ForegroundColor = 'DarkYellow'
+                Completed = $false
+                Error = ''
+            }
+            Start-ProcessOutputRead -State $stdoutState
+            Start-ProcessOutputRead -State $stderrState
         }
 
         if ($null -ne $OnStarted) {
@@ -161,7 +269,14 @@ function Invoke-ProcessWithLifecycle {
         $nextProgress = $stopwatch.Elapsed.Add($progressInterval)
 
         while (-not $process.HasExited) {
-            [void]$process.WaitForExit(250)
+            $outputReceived = $false
+            if ($CaptureOutput) {
+                $outputReceived = (Receive-ProcessOutputChunk -State $stdoutState) -or $outputReceived
+                $outputReceived = (Receive-ProcessOutputChunk -State $stderrState) -or $outputReceived
+            }
+            if (-not $outputReceived) {
+                [void]$process.WaitForExit(50)
+            }
             if (-not $process.HasExited -and $Timeout -gt [TimeSpan]::Zero -and $stopwatch.Elapsed -ge $Timeout) {
                 $timedOut = $true
                 $wasKilled = $true
@@ -201,33 +316,51 @@ function Invoke-ProcessWithLifecycle {
             Stop-ProcessTree -Process $process
         }
 
-        if ($CaptureOutput) {
+        if ($processStarted) {
             try {
-                if ($null -ne $stdoutTask) {
-                    $stdoutText = $stdoutTask.GetAwaiter().GetResult()
-                }
-                if ($null -ne $stderrTask) {
-                    $stderrText = $stderrTask.GetAwaiter().GetResult()
-                }
+                # Wait until the child has closed both redirected streams.
+                $process.WaitForExit()
             } catch {
-                $stderrText = ($stderrText + "`nOutput capture failed: " + $_.Exception.Message).Trim()
+                # The process may have exited between termination and stream draining.
             }
+        }
 
-            if ($StdOutPath) {
-                [System.IO.File]::WriteAllText($StdOutPath, $stdoutText, [System.Text.UTF8Encoding]::new($false))
+        if ($CaptureOutput -and $null -ne $stdoutState -and $null -ne $stderrState) {
+            $drainDeadline = [DateTime]::UtcNow.AddSeconds(5)
+            while ((-not $stdoutState.Completed -or -not $stderrState.Completed) -and
+                [DateTime]::UtcNow -lt $drainDeadline) {
+                $outputReceived = $false
+                if (-not $stdoutState.Completed) {
+                    $outputReceived = (Receive-ProcessOutputChunk -State $stdoutState) -or $outputReceived
+                }
+                if (-not $stderrState.Completed) {
+                    $outputReceived = (Receive-ProcessOutputChunk -State $stderrState) -or $outputReceived
+                }
+                if (-not $outputReceived) {
+                    Start-Sleep -Milliseconds 10
+                }
             }
-            if ($StdErrPath) {
-                [System.IO.File]::WriteAllText($StdErrPath, $stderrText, [System.Text.UTF8Encoding]::new($false))
-            }
+            $stdoutState.Completed = $true
+            $stderrState.Completed = $true
+        }
 
-            if ($MirrorOutput) {
-                if ($stdoutText) {
-                    Write-Host $stdoutText.TrimEnd()
-                }
-                if ($stderrText) {
-                    Write-Host $stderrText.TrimEnd() -ForegroundColor DarkYellow
+        if ($CaptureOutput) {
+            foreach ($writer in @($stdoutWriter, $stderrWriter)) {
+                if ($null -ne $writer) {
+                    try {
+                        $writer.Flush()
+                    } catch {
+                        # Preserve the process result even if a final flush cannot complete.
+                    }
+                    try {
+                        $writer.Dispose()
+                    } catch {
+                        # Preserve the process result even if stream disposal cannot complete.
+                    }
                 }
             }
+            $stdoutWriter = $null
+            $stderrWriter = $null
         }
 
         $stopwatch.Stop()

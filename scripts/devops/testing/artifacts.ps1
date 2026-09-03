@@ -180,8 +180,10 @@ function New-TestRunContext {
         StageTimings = [System.Collections.Generic.List[object]]::new()
         ResultParsingDuration = [TimeSpan]::Zero
         ExecutionResults = [System.Collections.Generic.List[object]]::new()
+        PreparationTimings = [System.Collections.Generic.List[object]]::new()
         InfrastructureErrors = [System.Collections.Generic.List[string]]::new()
         ReportErrors = [System.Collections.Generic.List[string]]::new()
+        CurrentExecution = $null
         EnvironmentPath = ''
         ManifestPath = ''
         StatePath = ''
@@ -262,6 +264,29 @@ function Get-TestArtifactRelativePath {
     return ([System.IO.Path]::GetRelativePath($Context.RunDirectory, $Path)).Replace('\', '/')
 }
 
+function ConvertTo-TestReportText {
+    param(
+        [object]$Context,
+        [string]$Value
+    )
+
+    if (-not $Value) {
+        return ''
+    }
+    if (-not $Context.RunDirectory) {
+        return $Value
+    }
+
+    $text = $Value
+    $runDirectory = ([System.IO.Path]::GetFullPath($Context.RunDirectory)).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    foreach ($prefix in @($runDirectory, $runDirectory.Replace('\', '/'), $runDirectory.Replace('/', '\'))) {
+        if ($prefix) {
+            $text = $text.Replace($prefix, '')
+        }
+    }
+    return $text -replace '^[\\/]+', ''
+}
+
 function Get-TestTargetArtifactDirectory {
     param(
         [object]$Context,
@@ -278,6 +303,63 @@ function Get-TestTargetArtifactDirectory {
     [void][System.IO.Directory]::CreateDirectory($targetDirectory)
     [void][System.IO.Directory]::CreateDirectory((Join-Path $targetDirectory 'diagnostics'))
     return $targetDirectory
+}
+
+function Start-TestTargetCheckpoint {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Context,
+        [Parameter(Mandatory = $true)]
+        [int]$Iteration,
+        [Parameter(Mandatory = $true)]
+        [object]$Target
+    )
+
+    if (-not $Context.ArtifactsEnabled) {
+        return [pscustomobject]@{
+            ArtifactDirectory = ''
+            StdOutPath = ''
+            StdErrPath = ''
+            TrxPath = ''
+        }
+    }
+
+    $artifactDirectory = Get-TestTargetArtifactDirectory -Context $Context -Iteration $Iteration -Target $Target
+    $stdoutPath = Join-Path $artifactDirectory 'stdout.log'
+    $stderrPath = Join-Path $artifactDirectory 'stderr.log'
+    $trxPath = if ($Target.RunnerKind -eq 'Mtp') {
+        Join-Path $artifactDirectory 'results.trx'
+    } else {
+        ''
+    }
+    $startTimeUtc = [DateTime]::UtcNow
+    $Context.CurrentExecution = [pscustomobject]@{
+        Iteration = $Iteration
+        Target = $Target
+        StartTimeUtc = $startTimeUtc
+        ProcessId = $null
+        ArtifactDirectory = $artifactDirectory
+        StdOutPath = $stdoutPath
+        StdErrPath = $stderrPath
+        TrxPath = $trxPath
+    }
+    Write-TestRunCheckpoint -Context $Context -Status 'Running'
+
+    return [pscustomobject]@{
+        ArtifactDirectory = $artifactDirectory
+        StdOutPath = $stdoutPath
+        StdErrPath = $stderrPath
+        TrxPath = $trxPath
+    }
+}
+
+function Clear-TestTargetCheckpoint {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Context
+    )
+
+    $Context.CurrentExecution = $null
 }
 
 function ConvertTo-ExecutionDocument {
@@ -313,7 +395,7 @@ function ConvertTo-ExecutionDocument {
         } | Where-Object { $_ })
         testCount = $tests.Count
         failedTestCount = @($tests | Where-Object { $_.Outcome -in @('Failed', 'Error', 'Timeout') }).Count
-        error = $Execution.Error
+        error = ConvertTo-TestReportText -Context $Context -Value $Execution.Error
     }
 }
 
@@ -325,6 +407,24 @@ function ConvertTo-TestCheckpointDocument {
 
     $requested = [int]($Context.Targets.Count * $Context.Options.Count)
     $executions = @($Context.ExecutionResults)
+    $currentExecution = if ($null -ne $Context.CurrentExecution) {
+        $current = $Context.CurrentExecution
+        [ordered]@{
+            iteration = [int]$current.Iteration
+            target = $current.Target.Key
+            targetKey = $current.Target.Key
+            status = 'Running'
+            startTimeUtc = $current.StartTimeUtc.ToString('O')
+            processId = $current.ProcessId
+            artifactDirectory = Get-TestArtifactRelativePath -Context $Context -Path $current.ArtifactDirectory
+            stdoutPath = Get-TestArtifactRelativePath -Context $Context -Path $current.StdOutPath
+            stderrPath = Get-TestArtifactRelativePath -Context $Context -Path $current.StdErrPath
+            trxPath = Get-TestArtifactRelativePath -Context $Context -Path $current.TrxPath
+        }
+    } else {
+        $null
+    }
+
     return [ordered]@{
         schemaVersion = 1
         runId = $Context.RunId
@@ -333,11 +433,16 @@ function ConvertTo-TestCheckpointDocument {
         requestedTargetExecutions = $requested
         scheduledTargetExecutions = $executions.Count
         completedTargetExecutions = @($executions | Where-Object { $_.Completed }).Count
+        currentExecution = $currentExecution
         targetResults = @($executions | ForEach-Object {
             ConvertTo-ExecutionDocument -Context $Context -Execution $_
         })
-        infrastructureErrors = @($Context.InfrastructureErrors)
-        reportErrors = @($Context.ReportErrors)
+        infrastructureErrors = @($Context.InfrastructureErrors | ForEach-Object {
+            ConvertTo-TestReportText -Context $Context -Value $_
+        })
+        reportErrors = @($Context.ReportErrors | ForEach-Object {
+            ConvertTo-TestReportText -Context $Context -Value $_
+        })
     }
 }
 
@@ -398,6 +503,15 @@ function Update-TestRunManifest {
             timingsCsv = 'timings.csv'
         }
         stageTimings = @($Context.StageTimings)
+        preparationTimings = @($Context.PreparationTimings | ForEach-Object {
+            [ordered]@{
+                stage = $_.Stage
+                operation = $_.Operation
+                workItem = $_.WorkItem
+                targetKeys = @($_.TargetKeys)
+                durationMs = [double]$_.DurationMs
+            }
+        })
     }
 
     if ($null -ne $Summary) {
@@ -405,7 +519,9 @@ function Update-TestRunManifest {
             succeeded = [bool]$Summary.Succeeded
             requestedIterations = [int]$Summary.RequestedIterations
             completedIterations = [int]$Summary.CompletedIterations
+            requestedTargetExecutions = [int]$Summary.RequestedTargetExecutions
             scheduledTargetExecutions = [int]$Summary.ScheduledTargetExecutions
+            completedTargetExecutions = [int]$Summary.CompletedTargetExecutions
             passedTargetExecutions = [int]$Summary.PassedTargetExecutions
             failedTargetExecutions = [int]$Summary.FailedTargetExecutions
             failureRate = [double]$Summary.FailureRate

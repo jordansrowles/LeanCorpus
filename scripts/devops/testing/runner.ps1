@@ -102,6 +102,9 @@ function Invoke-TestPipeline {
         }
 
         $preparation = Prepare-TestTargets -Targets $Targets -Options $Options -RepoRoot $RepoRoot
+        foreach ($preparationTiming in @($preparation.PreparationTimings)) {
+            [void]$context.PreparationTimings.Add($preparationTiming)
+        }
         if ($preparation.RestoreDuration -gt [TimeSpan]::Zero) {
             Add-TestStageTiming -Context $context -Name 'Restore' -Duration $preparation.RestoreDuration
         }
@@ -141,6 +144,8 @@ function Invoke-TestPipeline {
                             [void]$context.ReportErrors.Add("Could not preserve execution error: $($_.Exception.Message)")
                         }
                     }
+                } finally {
+                    Clear-TestTargetCheckpoint -Context $context
                 }
 
                 [void]$context.ExecutionResults.Add($execution)

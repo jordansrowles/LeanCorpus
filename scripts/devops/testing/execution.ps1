@@ -194,14 +194,11 @@ function Invoke-TestTarget {
     )
 
     $target = $PreparedTarget.Target
-    $artifactDirectory = Get-TestTargetArtifactDirectory -Context $Context -Iteration $Iteration -Target $target
-    $stdoutPath = if ($artifactDirectory) { Join-Path $artifactDirectory 'stdout.log' } else { '' }
-    $stderrPath = if ($artifactDirectory) { Join-Path $artifactDirectory 'stderr.log' } else { '' }
-    $trxPath = if ($artifactDirectory -and $target.RunnerKind -eq 'Mtp') {
-        Join-Path $artifactDirectory 'results.trx'
-    } else {
-        ''
-    }
+    $checkpoint = Start-TestTargetCheckpoint -Context $Context -Iteration $Iteration -Target $target
+    $artifactDirectory = $checkpoint.ArtifactDirectory
+    $stdoutPath = $checkpoint.StdOutPath
+    $stderrPath = $checkpoint.StdErrPath
+    $trxPath = $checkpoint.TrxPath
 
     Write-Info "  [$ExecutionNumber/$ExecutionCount] $($target.Key)..."
 

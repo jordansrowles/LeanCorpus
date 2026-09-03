@@ -83,6 +83,8 @@ jobs:
         run: ./devops.ps1 build
       - name: Run complete Windows test suite
         shell: pwsh
+        env:
+          CHAOS_ITERATIONS: 25
         run: ./devops.ps1 test all --ci --HangTimeout 100s
       - name: Upload test run artefacts
         if: always()

@@ -56,6 +56,8 @@ function Prepare-TestTargets {
     $restoreStopwatch = [System.Diagnostics.Stopwatch]::new()
     $buildStopwatch = [System.Diagnostics.Stopwatch]::new()
     $publishStopwatch = [System.Diagnostics.Stopwatch]::new()
+    $preparationTimings = [System.Collections.Generic.List[object]]::new()
+    $preparationTimingByKey = @{}
 
     Write-Heading 'Preparing test targets'
     if ($Options.Ci) {
@@ -66,19 +68,54 @@ function Prepare-TestTargets {
         $projectPath = Resolve-TestProjectPath -Target $target -RepoRoot $RepoRoot
         if ($target.RunnerKind -eq 'Mtp') {
             $targetKey = "$projectPath|$($target.Framework)|$($target.Configuration)"
+            $reportedWorkItem = "$($target.Project)|$($target.Framework)|$($target.Configuration)"
             if (-not $Options.Ci -and $restored.Add($targetKey)) {
                 Write-Info "  Restoring $($target.Key)..."
+                $operationStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
                 $restoreStopwatch.Start()
-                Invoke-DotNet @('restore', $projectPath, '--nologo') | Out-Host
-                $restoreStopwatch.Stop()
+                try {
+                    Invoke-DotNet @('restore', $projectPath, '--nologo') | Out-Host
+                } finally {
+                    $operationStopwatch.Stop()
+                    $restoreStopwatch.Stop()
+                    $timing = [pscustomobject]@{
+                        Stage = 'Restore'
+                        Operation = 'restore'
+                        WorkItem = $reportedWorkItem
+                        TargetKeys = [System.Collections.Generic.List[string]]::new()
+                        DurationMs = [Math]::Round($operationStopwatch.Elapsed.TotalMilliseconds, 3)
+                    }
+                    [void]$timing.TargetKeys.Add($target.Key)
+                    $preparationTimingByKey["restore|$targetKey"] = $timing
+                    [void]$preparationTimings.Add($timing)
+                }
+            } elseif ($preparationTimingByKey.ContainsKey("restore|$targetKey")) {
+                [void]$preparationTimingByKey["restore|$targetKey"].TargetKeys.Add($target.Key)
             }
             if (-not $Options.Ci -and $built.Add($targetKey)) {
                 Write-Info "  Building $($target.Key)..."
+                $operationStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
                 $buildStopwatch.Start()
-                Invoke-DotNet @('build', $projectPath, '--configuration', $target.Configuration,
-                    '--framework', $target.Framework, '--no-restore', '--nologo',
-                    '-p:UseSharedCompilation=false') | Out-Host
-                $buildStopwatch.Stop()
+                try {
+                    Invoke-DotNet @('build', $projectPath, '--configuration', $target.Configuration,
+                        '--framework', $target.Framework, '--no-restore', '--nologo',
+                        '-p:UseSharedCompilation=false') | Out-Host
+                } finally {
+                    $operationStopwatch.Stop()
+                    $buildStopwatch.Stop()
+                    $timing = [pscustomobject]@{
+                        Stage = 'Build'
+                        Operation = 'build'
+                        WorkItem = $reportedWorkItem
+                        TargetKeys = [System.Collections.Generic.List[string]]::new()
+                        DurationMs = [Math]::Round($operationStopwatch.Elapsed.TotalMilliseconds, 3)
+                    }
+                    [void]$timing.TargetKeys.Add($target.Key)
+                    $preparationTimingByKey["build|$targetKey"] = $timing
+                    [void]$preparationTimings.Add($timing)
+                }
+            } elseif ($preparationTimingByKey.ContainsKey("build|$targetKey")) {
+                [void]$preparationTimingByKey["build|$targetKey"].TargetKeys.Add($target.Key)
             }
 
             $executablePath = Get-MtpExecutablePath -Target $target -RepoRoot $RepoRoot
@@ -99,13 +136,29 @@ function Prepare-TestTargets {
         }
 
         $publishKey = "$projectPath|$($target.Framework)|$($target.RuntimeIdentifier)|$($target.Configuration)"
+        $reportedWorkItem = "$($target.Project)|$($target.Framework)|$($target.RuntimeIdentifier)|$($target.Configuration)"
         if ($published.Add($publishKey)) {
             Write-Info "  Publishing $($target.Key)..."
+            $operationStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
             $publishStopwatch.Start()
-            Invoke-DotNet @('publish', $projectPath, '--configuration', $target.Configuration,
-                '--runtime', $target.RuntimeIdentifier, '--self-contained', 'true',
-                '--framework', $target.Framework, '--nologo', '-p:UseSharedCompilation=false') | Out-Host
-            $publishStopwatch.Stop()
+            try {
+                Invoke-DotNet @('publish', $projectPath, '--configuration', $target.Configuration,
+                    '--runtime', $target.RuntimeIdentifier, '--self-contained', 'true',
+                    '--framework', $target.Framework, '--nologo', '-p:UseSharedCompilation=false') | Out-Host
+            } finally {
+                $operationStopwatch.Stop()
+                $publishStopwatch.Stop()
+                $timing = [pscustomobject]@{
+                    Stage = 'AOTPublish'
+                    Operation = 'publish'
+                    WorkItem = $reportedWorkItem
+                    TargetKeys = [System.Collections.Generic.List[string]]::new()
+                    DurationMs = [Math]::Round($operationStopwatch.Elapsed.TotalMilliseconds, 3)
+                }
+                [void]$timing.TargetKeys.Add($target.Key)
+                $preparationTimingByKey["publish|$publishKey"] = $timing
+                [void]$preparationTimings.Add($timing)
+            }
         }
 
         $executablePath = Get-AotExecutablePath -Target $target -RepoRoot $RepoRoot
@@ -125,5 +178,6 @@ function Prepare-TestTargets {
         RestoreDuration = $restoreStopwatch.Elapsed
         BuildDuration = $buildStopwatch.Elapsed
         AotPublishDuration = $publishStopwatch.Elapsed
+        PreparationTimings = @($preparationTimings.ToArray())
     }
 }

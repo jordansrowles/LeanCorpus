@@ -275,11 +275,24 @@ function Get-ExecutionDiagnosticPaths {
         return @()
     }
 
-    return @(
-        Get-ChildItem -LiteralPath $ArtifactDirectory -File -Recurse -ErrorAction SilentlyContinue |
-            Where-Object { $_.Extension -in @('.dmp', '.diag', '.nettrace', '.gcdump', '.log') } |
-            ForEach-Object { $_.FullName }
-    )
+    $diagnosticExtensions = @('.dmp', '.diag', '.nettrace', '.gcdump')
+    $paths = [System.Collections.Generic.List[string]]::new()
+    foreach ($file in @(Get-ChildItem -LiteralPath $ArtifactDirectory -File -Recurse -ErrorAction SilentlyContinue)) {
+        if ($file.Extension.ToLowerInvariant() -in $diagnosticExtensions) {
+            [void]$paths.Add($file.FullName)
+        }
+    }
+
+    # MTP diagnostic logs are scoped to the dedicated diagnostics directory.
+    # Execution stdout/stderr and TRX files live beside it and are not diagnostics.
+    $diagnosticsDirectory = Join-Path $ArtifactDirectory 'diagnostics'
+    if (Test-Path -LiteralPath $diagnosticsDirectory -PathType Container) {
+        foreach ($file in @(Get-ChildItem -LiteralPath $diagnosticsDirectory -File -Recurse -ErrorAction SilentlyContinue)) {
+            [void]$paths.Add($file.FullName)
+        }
+    }
+
+    return @($paths | Sort-Object -Unique)
 }
 
 function Get-NearestRankPercentile {
@@ -322,8 +335,8 @@ function New-TestRunSummary {
     }
 
     $nonPassing = @($executions | Where-Object { $_.Outcome -ne 'Passed' }).Count
-    $failureRate = if ($requestedExecutions -gt 0) {
-        [Math]::Round(($nonPassing / [double]$requestedExecutions), 6)
+    $failureRate = if ($scheduledExecutions -gt 0) {
+        [Math]::Round(($nonPassing / [double]$scheduledExecutions), 6)
     } else {
         0.0
     }
