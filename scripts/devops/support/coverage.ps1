@@ -2,11 +2,19 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 function Find-CoverageProjects {
-    param([string]$RepoRoot)
+    param(
+        [string]$RepoRoot,
+        [hashtable]$TestSuites = (Get-TestSuiteRegistry)
+    )
 
     return @(
-        (Join-Path $RepoRoot 'src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj')
-        (Join-Path $RepoRoot 'src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj')
+        Get-CoverageSuiteKeys -TestSuites $TestSuites | ForEach-Object {
+            $project = [string]$TestSuites[$_].Project
+            if (-not $project) {
+                throw "Coverage-eligible suite '$_' has no project path."
+            }
+            Join-Path $RepoRoot $project
+        }
     )
 }
 

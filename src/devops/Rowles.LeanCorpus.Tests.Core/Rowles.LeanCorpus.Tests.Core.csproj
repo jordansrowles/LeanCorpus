@@ -12,6 +12,7 @@
     <PackageReference Include="coverlet.MTP" />
     <PackageReference Include="FsCheck" />
     <PackageReference Include="FsCheck.Xunit.v3" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CrashDump" />
     <PackageReference Include="Microsoft.Testing.Extensions.HangDump" />
     <PackageReference Include="xunit.v3.mtp-v2" />
   </ItemGroup>

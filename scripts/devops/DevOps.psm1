@@ -11,6 +11,17 @@ $Script:TestSuites = Import-PowerShellDataFile "$PSScriptRoot/config/test-suites
 $Script:BenchmarkSuites = Import-PowerShellDataFile "$PSScriptRoot/config/benchmark-suites.psd1"
 $Script:BenchmarkStrategies = Import-PowerShellDataFile "$PSScriptRoot/config/benchmark-strategies.psd1"
 
+. "$PSScriptRoot/testing/targets.ps1"
+. "$PSScriptRoot/testing/artifacts.ps1"
+. "$PSScriptRoot/testing/results.ps1"
+. "$PSScriptRoot/testing/preparation.ps1"
+. "$PSScriptRoot/testing/execution.ps1"
+. "$PSScriptRoot/testing/reports.ps1"
+. "$PSScriptRoot/testing/runner.ps1"
+
+. "$PSScriptRoot/diagnostics/tools.ps1"
+. "$PSScriptRoot/diagnostics/capture.ps1"
+
 . "$PSScriptRoot/support/coverage.ps1"
 . "$PSScriptRoot/support/benchmark.ps1"
 . "$PSScriptRoot/support/docfx.ps1"
@@ -19,6 +30,7 @@ $Script:BenchmarkStrategies = Import-PowerShellDataFile "$PSScriptRoot/config/be
 . "$PSScriptRoot/commands/test.ps1"
 . "$PSScriptRoot/commands/aot.ps1"
 . "$PSScriptRoot/commands/coverage.ps1"
+. "$PSScriptRoot/commands/diagnostics.ps1"
 . "$PSScriptRoot/commands/benchmark.ps1"
 . "$PSScriptRoot/commands/data.ps1"
 . "$PSScriptRoot/commands/docs.ps1"
@@ -35,6 +47,7 @@ function Invoke-DevOps {
         'test'       { Invoke-DevOpsTest -Arguments $Arguments }
         'aot'        { Invoke-DevOpsAot -Arguments $Arguments }
         'coverage'   { Invoke-DevOpsCoverage -Arguments $Arguments }
+        'diagnostics'{ Invoke-DevOpsDiagnostics -Arguments $Arguments }
         'benchmark'  { Invoke-DevOpsBenchmark -Arguments $Arguments }
         'data'       { Invoke-DevOpsData -Arguments $Arguments }
         'docs'       { Invoke-DevOpsDocs -Arguments $Arguments }
@@ -73,6 +86,13 @@ function Invoke-DevOpsHelp {
     Write-Host '      -HangTimeout        Integration test hang timeout (default: 100s; use off to disable)'
     Write-Host '      -Area               Comma-separated test areas'
     Write-Host '      -Category           Comma-separated test categories'
+    Write-Host '      -Count              Sequential repetitions (default: 1)'
+    Write-Host '      -Flaky              Repeat 30 times with reports and low-overhead diagnostics'
+    Write-Host '      -FailFast            Stop scheduling after the first failed target'
+    Write-Host '      -Diagnostics        Enable MTP diagnostic logging and artefact capture'
+    Write-Host '      -CI                 Use CI-prepared managed output and write run artefacts'
+    Write-Host '      -CollectCoverage    Collect coverage for registry-eligible suites'
+    Write-Host '      -Timeout            Outer process timeout, for example 30s or off'
     Write-Host '      -List               List available suites and exit'
     Write-Host ''
     Write-Host '    aot                  Run NativeAOT smoke tests for both frameworks'
@@ -85,6 +105,16 @@ function Invoke-DevOpsHelp {
     Write-Host '      -Clean              Remove previous coverage results before running'
     Write-Host '      -IncludePerformance  Include tests marked Coverage=Skip'
     Write-Host '      -GenerateReport     Generate HTML coverage report via ReportGenerator'
+    Write-Host ''
+
+    Write-Host '    diagnostics          Attach standard .NET diagnostics to a process'
+    Write-Host '      ps                  List process IDs and names'
+    Write-Host '      counters --pid ID  Monitor counters; use -- for tool arguments'
+    Write-Host '      trace --pid ID     Capture a trace under artifacts/diagnostics'
+    Write-Host '      gcdump --pid ID    Capture a GC dump under artifacts/diagnostics'
+    Write-Host '      dump --pid ID      Capture a dump (default type: Mini)'
+    Write-Host '      symbols ARTIFACT   Download symbols for an explicit artifact'
+    Write-Host '      capture --pid ID   Capture bounded counters and trace data'
     Write-Host ''
     Write-Host '    benchmark            Run BenchmarkDotNet suites'
     Write-Host '      -Suite              Suite name (default: all). Use -List to see all suites'
@@ -148,6 +178,9 @@ function Invoke-DevOpsHelp {
     Write-Host '    devops build'
     Write-Host '    devops test -Suite core -Category Integration -Framework net11.0'
     Write-Host '    devops test -Suite core -Category Unit -Verbosity detailed'
+    Write-Host '    devops test core --count 2 --filter FullyQualifiedName~Writer'
+    Write-Host '    devops test core --flaky --count 5'
+    Write-Host '    devops diagnostics ps'
     Write-Host '    devops aot'
     Write-Host '    devops coverage -Clean -GenerateReport'
     Write-Host '    devops benchmark -List'

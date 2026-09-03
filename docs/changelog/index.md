@@ -4,6 +4,8 @@ Per-version change logs. Each file lists changes grouped by type: Added, Changed
 
 | Version | Date |
 |---|---|
+| [Unreleased](unreleased.md) | Unreleased |
+| [3.1.0](3.1.0%20-%202026-09-03.md) | 2026-09-03 |
 | [3.0.0](3.0.0%20-%202026-08-25.md) | 2026-08-25 |
 | [2.3.0](2.3.0%20-%202026-08-08.md) | 2026-08-08 |
 | [2.2.0](2.2.0%20-%202026-08-08.md) | 2026-08-08 |

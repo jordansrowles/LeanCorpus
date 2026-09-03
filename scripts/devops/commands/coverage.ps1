@@ -4,75 +4,76 @@ Set-StrictMode -Version Latest
 function Invoke-DevOpsCoverage {
     param([string[]]$Arguments = @())
 
-    $parsed = ConvertFrom-DevOpsArguments $Arguments
-    $framework = $parsed.Get('Framework', (Get-DefaultFramework))
-    $configuration = $parsed.Get('Configuration', 'Release')
-    $suite = $parsed.Get('Suite', 'all')
-    $clean = $parsed.Has('Clean')
-    $includePerformance = $parsed.Has('IncludePerformance')
-    $generateReport = $parsed.Has('GenerateReport')
-    $repoRoot = Get-RepoRoot
+    try {
+        $parsed = ConvertFrom-DevOpsArguments $Arguments
+        $frameworkWasSpecified = $parsed.Has('Framework')
+        $framework = [string]$parsed.Get('Framework', (Get-DefaultFramework))
+        $configuration = [string]$parsed.Get('Configuration', 'Release')
+        $suite = ([string]$parsed.Get('Suite', 'all')).ToLowerInvariant()
+        $clean = $parsed.Has('Clean')
+        $includePerformance = $parsed.Has('IncludePerformance')
+        $generateReport = $parsed.Has('GenerateReport')
+        $repoRoot = Get-RepoRoot
+        $testSuites = Get-TestSuiteRegistry
+        $eligibleSuites = @(Get-CoverageSuiteKeys -TestSuites $testSuites)
 
-    $testProjects = Find-CoverageProjects $repoRoot
-    if ($suite -ne 'all') {
-        $suiteProjects = @{
-            core = 'Rowles.LeanCorpus.Tests.Core'
-            sourcegen = 'Rowles.LeanCorpus.Tests.SourceGen'
+        if ($suite -ne 'all' -and $suite -notin $eligibleSuites) {
+            throw "Unknown or ineligible coverage suite '$suite'. Eligible suites: $($eligibleSuites -join ', ')."
         }
-        if (-not $suiteProjects.ContainsKey($suite)) {
-            Write-Error "Unknown coverage suite '$suite'. Expected core, sourcegen, or all."
-            exit 1
+
+        $resultsDir = Join-Path $repoRoot 'coverage-results'
+        if ($clean -and (Test-Path $resultsDir)) {
+            Remove-Item $resultsDir -Recurse -Force
         }
-        $testProjects = @($testProjects | Where-Object {
-            [System.IO.Path]::GetFileNameWithoutExtension($_) -eq $suiteProjects[$suite]
-        })
-    }
+        [void][System.IO.Directory]::CreateDirectory($resultsDir)
 
-    if ($testProjects.Count -eq 0) {
-        Write-Error 'No test projects found.'
-        exit 1
-    }
+        $filter = if ($includePerformance) { '' } else { 'Coverage!=Skip' }
+        $resolutionStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+        $targets = @(
+            Resolve-TestTargets -Suite $suite -Framework $framework -FrameworkExplicit $frameworkWasSpecified `
+                -Configuration $configuration -Filter $filter -Ci $false -CollectCoverage $true `
+                -RepoRoot $repoRoot -TestSuites $testSuites
+        )
+        $resolutionStopwatch.Stop()
 
-    $resultsDir = Join-Path $repoRoot 'coverage-results'
-    if ($clean -and (Test-Path $resultsDir)) {
-        Remove-Item $resultsDir -Recurse -Force
-    }
-    if (-not (Test-Path $resultsDir)) {
-        New-Item -ItemType Directory -Path $resultsDir | Out-Null
-    }
-
-    Write-Heading 'Running tests with coverage collection...'
-    Write-Host "  Framework:     $framework"
-    Write-Host "  Configuration: $configuration"
-    Write-Host "  Suite:         $suite"
-    Write-Host "  Output:        $resultsDir"
-    if (-not $includePerformance) {
-        Write-Host '  Filter:        Coverage!=Skip'
-    }
-    Write-Host ''
-
-    foreach ($tp in $testProjects) {
-        $projName = [System.IO.Path]::GetFileNameWithoutExtension($tp)
-        $projectResultsDir = Join-Path $resultsDir "$framework/$projName"
-        Write-Info "  $projName..."
-        $covArgs = @('test', $tp, '--configuration', $configuration, '--framework', $framework,
-            '--results-directory', $projectResultsDir,
-            '--coverlet', '--coverlet-output-format', 'cobertura',
-            '--coverlet-file-prefix', "$projName-$framework",
-            '--coverlet-exclude-by-file', '**/obj/**/*.cs')
-        if (-not $includePerformance) {
-            $covArgs += @('--filter', 'Coverage!=Skip')
+        $options = [pscustomobject]@{
+            Count = 1
+            Flaky = $false
+            FailFast = $false
+            Diagnostics = $false
+            Ci = $false
+            CollectCoverage = $true
+            ArtifactsEnabled = $true
+            Configuration = $configuration
+            RequestedFramework = if ($frameworkWasSpecified) { $framework } else { '' }
+            RuntimeIdentifier = ''
+            Area = ''
+            Category = ''
+            Filter = $filter
+            Verbosity = ''
+            HangTimeout = 'off'
+            ProcessTimeout = [TimeSpan]::Zero
+            ResolutionDuration = $resolutionStopwatch.Elapsed
+            PassThrough = @()
+            CoverageResultsDirectory = $resultsDir
         }
-        Invoke-DotNet $covArgs
-    }
 
-    $xmlFiles = @(Find-CoverageResults $resultsDir)
-    Write-Host ''
-    Write-Success "Coverage data written to: $resultsDir"
-    Write-Host "  Found $($xmlFiles.Count) coverage file(s)."
+        $commandLine = ConvertTo-CommandLineText -Command './devops coverage' -Arguments $Arguments
+        $exitCode = Invoke-TestPipeline -Targets $targets -Options $options -CommandLine $commandLine `
+            -DisplayName 'Coverage test run' -RepoRoot $repoRoot
 
-    if ($generateReport) {
-        New-CoverageReport -XmlFiles $xmlFiles -OutputDir (Join-Path $repoRoot 'docs/coverage')
+        $xmlFiles = @(Find-CoverageResults $resultsDir)
+        Write-Host ''
+        Write-Success "Coverage data written to: $resultsDir"
+        Write-Host "  Found $($xmlFiles.Count) coverage file(s)."
+
+        if ($generateReport -and $xmlFiles.Count -gt 0) {
+            New-CoverageReport -XmlFiles $xmlFiles -OutputDir (Join-Path $repoRoot 'docs/coverage')
+        }
+
+        return $exitCode
+    } catch {
+        Write-Failure "Coverage command failed: $($_.Exception.Message)"
+        return 1
     }
-    exit 0
 }

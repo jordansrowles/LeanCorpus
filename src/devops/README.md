@@ -10,6 +10,8 @@ Use this directory when you need to run or extend LeanCorpus tests, benchmarks, 
 | Run every configured test route | `./devops test` |
 | Run tests affected by current changes | `./devops test -Suite affected` |
 | Run one production area | `./devops test -Suite core -Area Index` |
+| Repeat a focused target with artefacts | `./devops test core --count 3 --filter 'FullyQualifiedName~Writer'` |
+| Capture managed test diagnostics | `./devops test core --diagnostics` |
 | Validate Native AOT | `./devops aot` |
 | Generate coverage and HTML | `./devops coverage -Clean -GenerateReport` |
 | List benchmark suites | `./devops benchmark -List` |
@@ -41,6 +43,73 @@ Examples:
 ```
 
 `Area` and `Category` become trait filters. `Filter` is passed to the test runner.
+
+## Repeat tests and inspect artefacts
+
+Use `--count` for sequential repetitions. Preparation happens once for each
+distinct project and framework, while every repetition starts a fresh managed
+or Native AOT process:
+
+```bash
+./devops test core --count 3 --filter 'FullyQualifiedName~Writer'
+./devops test core --flaky --count 5
+./devops test core --count 30 --fail-fast
+```
+
+Repeated, flaky, diagnostic and CI runs write one run directory under
+`artifacts/test/runs/<run-id>/`. It contains the selected targets, environment,
+stdout and stderr, MTP TRX files where supported, checkpoint state and the
+`summary.md`, `summary.json` and `timings.csv` reports. A failed test does not
+stop later repetitions unless `--fail-fast` is selected. `--flaky` is a preset
+for 30 repetitions unless `--count` supplies another value.
+
+## Use the GitHub stress workflow
+
+Open **Actions > Test Stress & Diagnostics > Run workflow** for deliberate
+repetition and investigation runs. Linux and Windows can be selected
+independently. `count` controls how many fresh test processes are run, while
+`CHAOS_ITERATIONS` controls the property or chaos cases inside each process.
+
+Useful configurations include:
+
+```text
+Quick repeat:                  count=5, chaos_iterations=25
+Flaky hunt:                    count=30, chaos_iterations=25, flaky=true
+Chaos stress:                  count=5, chaos_iterations=1000
+Windows Store investigation:  windows=true, linux=false, suite=core, area=Store
+```
+
+The workflow accepts suite, framework, area, category and filter inputs, plus
+optional diagnostics, fail-fast, hang-timeout and outer process-timeout
+settings. Download the `test-stress-linux` or `test-stress-windows` artefact;
+the run reports are under `artifacts/test/runs`.
+
+For CI jobs whose managed output has already been built, use `--ci`. It skips
+managed restore and build, but still publishes Native AOT targets when they
+are selected:
+
+```bash
+./devops test all --ci --framework net10.0
+```
+
+## Standalone diagnostics
+
+The test runner uses MTP's diagnostic extensions for its own process. For an
+explicitly selected .NET process, use the standard diagnostic tools:
+
+```bash
+./devops diagnostics ps
+./devops diagnostics counters --pid 1234
+./devops diagnostics trace --pid 1234
+./devops diagnostics gcdump --pid 1234
+./devops diagnostics dump --pid 1234 --type Mini
+./devops diagnostics symbols path/to/core.dmp
+./devops diagnostics capture --pid 1234 --duration 5s
+```
+
+Trace, GC dump, dump and capture output is written under
+`artifacts/diagnostics/<run-id>/`. Dumps can contain sensitive application
+memory. Pass tool-specific options after `--` where the command supports it.
 
 ## Run affected tests
 
