@@ -1,0 +1,267 @@
+name: Test Stress & Diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      linux:
+        description: Run on Linux
+        required: true
+        default: true
+        type: boolean
+      windows:
+        description: Run on Windows
+        required: true
+        default: true
+        type: boolean
+      suite:
+        description: Test suite, e.g. all, core, text, affected, aot
+        required: true
+        default: all
+        type: string
+      count:
+        description: Number of times to execute each resolved test target
+        required: true
+        default: 5
+        type: number
+      chaos_iterations:
+        description: FsCheck/chaos iterations inside each test execution
+        required: true
+        default: 100
+        type: number
+      framework:
+        description: Framework override. Blank = all supported frameworks
+        required: false
+        default: ''
+        type: string
+      area:
+        description: Optional comma-separated test areas
+        required: false
+        default: ''
+        type: string
+      category:
+        description: Optional comma-separated test categories
+        required: false
+        default: ''
+        type: string
+      filter:
+        description: Optional MTP/xUnit test filter
+        required: false
+        default: ''
+        type: string
+      flaky:
+        description: Enable flaky-test diagnostics preset
+        required: true
+        default: true
+        type: boolean
+      diagnostics:
+        description: Enable additional MTP diagnostic logging
+        required: true
+        default: false
+        type: boolean
+      fail_fast:
+        description: Stop after the first failing target execution
+        required: true
+        default: false
+        type: boolean
+      hang_timeout:
+        description: MTP hang timeout, e.g. 100s, 2m, or off
+        required: true
+        default: 100s
+        type: string
+      process_timeout:
+        description: Optional outer target-process timeout, e.g. 10m or off
+        required: false
+        default: 'off'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-stress-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate platform selection
+        shell: pwsh
+        env:
+          RUN_LINUX: ${{ inputs.linux }}
+          RUN_WINDOWS: ${{ inputs.windows }}
+        run: |
+          if ($env:RUN_LINUX -ne 'true' -and $env:RUN_WINDOWS -ne 'true') {
+              throw 'Select at least one platform: Linux or Windows.'
+          }
+
+  linux:
+    needs: validate-inputs
+    if: ${{ inputs.linux && needs.validate-inputs.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup .NET 11 preview
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+
+      - name: Build prepared test output
+        shell: pwsh
+        run: ./devops.ps1 build
+
+      - name: Run Test Stress & Diagnostics
+        shell: pwsh
+        env:
+          CHAOS_ITERATIONS: ${{ inputs.chaos_iterations }}
+          TEST_SUITE: ${{ inputs.suite }}
+          TEST_COUNT: ${{ inputs.count }}
+          TEST_FRAMEWORK: ${{ inputs.framework }}
+          TEST_AREA: ${{ inputs.area }}
+          TEST_CATEGORY: ${{ inputs.category }}
+          TEST_FILTER: ${{ inputs.filter }}
+          TEST_FLAKY: ${{ inputs.flaky }}
+          TEST_DIAGNOSTICS: ${{ inputs.diagnostics }}
+          TEST_FAIL_FAST: ${{ inputs.fail_fast }}
+          TEST_HANG_TIMEOUT: ${{ inputs.hang_timeout }}
+          TEST_PROCESS_TIMEOUT: ${{ inputs.process_timeout }}
+        run: |
+          $testArgs = @(
+              'test',
+              $env:TEST_SUITE,
+              '--ci',
+              '--count',
+              $env:TEST_COUNT,
+              '--HangTimeout',
+              $env:TEST_HANG_TIMEOUT
+          )
+
+          if (-not [string]::IsNullOrWhiteSpace($env:TEST_FRAMEWORK)) {
+              $testArgs += @('--framework', $env:TEST_FRAMEWORK)
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:TEST_AREA)) {
+              $testArgs += @('--area', $env:TEST_AREA)
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:TEST_CATEGORY)) {
+              $testArgs += @('--category', $env:TEST_CATEGORY)
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:TEST_FILTER)) {
+              $testArgs += @('--filter', $env:TEST_FILTER)
+          }
+          if ($env:TEST_FLAKY -eq 'true') {
+              $testArgs += '--flaky'
+          }
+          if ($env:TEST_DIAGNOSTICS -eq 'true') {
+              $testArgs += '--diagnostics'
+          }
+          if ($env:TEST_FAIL_FAST -eq 'true') {
+              $testArgs += '--fail-fast'
+          }
+          if ($env:TEST_PROCESS_TIMEOUT -ine 'off') {
+              $testArgs += @('--timeout', $env:TEST_PROCESS_TIMEOUT)
+          }
+
+          & ./devops.ps1 @testArgs
+          exit $LASTEXITCODE
+
+      - name: Upload test run artefacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-stress-linux
+          path: artifacts/test/runs
+          if-no-files-found: warn
+
+  windows:
+    needs: validate-inputs
+    if: ${{ inputs.windows && needs.validate-inputs.result == 'success' }}
+    runs-on: windows-2025
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup .NET 11 preview
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+
+      - name: Build prepared test output
+        shell: pwsh
+        run: ./devops.ps1 build
+
+      - name: Run Test Stress & Diagnostics
+        shell: pwsh
+        env:
+          CHAOS_ITERATIONS: ${{ inputs.chaos_iterations }}
+          TEST_SUITE: ${{ inputs.suite }}
+          TEST_COUNT: ${{ inputs.count }}
+          TEST_FRAMEWORK: ${{ inputs.framework }}
+          TEST_AREA: ${{ inputs.area }}
+          TEST_CATEGORY: ${{ inputs.category }}
+          TEST_FILTER: ${{ inputs.filter }}
+          TEST_FLAKY: ${{ inputs.flaky }}
+          TEST_DIAGNOSTICS: ${{ inputs.diagnostics }}
+          TEST_FAIL_FAST: ${{ inputs.fail_fast }}
+          TEST_HANG_TIMEOUT: ${{ inputs.hang_timeout }}
+          TEST_PROCESS_TIMEOUT: ${{ inputs.process_timeout }}
+        run: |
+          $testArgs = @(
+              'test',
+              $env:TEST_SUITE,
+              '--ci',
+              '--count',
+              $env:TEST_COUNT,
+              '--HangTimeout',
+              $env:TEST_HANG_TIMEOUT
+          )
+
+          if (-not [string]::IsNullOrWhiteSpace($env:TEST_FRAMEWORK)) {
+              $testArgs += @('--framework', $env:TEST_FRAMEWORK)
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:TEST_AREA)) {
+              $testArgs += @('--area', $env:TEST_AREA)
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:TEST_CATEGORY)) {
+              $testArgs += @('--category', $env:TEST_CATEGORY)
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:TEST_FILTER)) {
+              $testArgs += @('--filter', $env:TEST_FILTER)
+          }
+          if ($env:TEST_FLAKY -eq 'true') {
+              $testArgs += '--flaky'
+          }
+          if ($env:TEST_DIAGNOSTICS -eq 'true') {
+              $testArgs += '--diagnostics'
+          }
+          if ($env:TEST_FAIL_FAST -eq 'true') {
+              $testArgs += '--fail-fast'
+          }
+          if ($env:TEST_PROCESS_TIMEOUT -ine 'off') {
+              $testArgs += @('--timeout', $env:TEST_PROCESS_TIMEOUT)
+          }
+
+          & ./devops.ps1 @testArgs
+          exit $LASTEXITCODE
+
+      - name: Upload test run artefacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-stress-windows
+          path: artifacts/test/runs
+          if-no-files-found: warn
