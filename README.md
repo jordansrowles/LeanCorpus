@@ -118,4 +118,6 @@ The public roadmap is developed in GitHub Discussions:
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=jordansrowles_LeanCorpus&metric=coverage)](https://sonarcloud.io/summary/new_code?id=jordansrowles_LeanCorpus)
 [![Maintainability](https://sonarcloud.io/api/project_badges/measure?project=jordansrowles_LeanCorpus&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=jordansrowles_LeanCorpus)
 
+[![Test Stress & Diagnostics](https://github.com/jordansrowles/LeanCorpus/actions/workflows/test-stress.yml/badge.svg)](https://github.com/jordansrowles/LeanCorpus/actions/workflows/test-stress.yml)
+
 LeanCorpus is licensed under the repository [LICENCE](LICENCE).
