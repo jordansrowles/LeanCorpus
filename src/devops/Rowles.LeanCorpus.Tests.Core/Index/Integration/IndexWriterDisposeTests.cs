@@ -192,36 +192,100 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
             new MMapDirectory(dir),
             new IndexWriterConfig { MaxBufferedDocs = 1, DurableCommits = false });
 
-        Task first;
-        Task second;
-        Task dispose;
-        lock (writer.WriteLock)
+        Task? first = null;
+        Task? second = null;
+        Task? dispose = null;
+        Exception? testFailure = null;
+        try
         {
-            first = writer.AddDocumentAsync(CreateDocument("first")).AsTask();
+            lock (writer.WriteLock)
+            {
+                first = writer.AddDocumentAsync(CreateDocument("first")).AsTask();
 
-            Assert.True(
-                SpinWait.SpinUntil(
-                    () => writer.InFlightIndexingOperationsForTests == 2,
-                    TimeSpan.FromSeconds(5)),
-                "The asynchronous consumer did not begin processing the first command.");
+                Assert.True(
+                    SpinWait.SpinUntil(
+                        () => writer.InFlightIndexingOperationsForTests == 2,
+                        TimeSpan.FromSeconds(5)),
+                    "The asynchronous consumer did not begin processing the first command.");
 
-            second = writer.AddDocumentAsync(CreateDocument("second")).AsTask();
-            Assert.True(
-                SpinWait.SpinUntil(
-                    () => writer.InFlightIndexingOperationsForTests == 3,
-                    TimeSpan.FromSeconds(5)),
-                "The second asynchronous command was not queued.");
+                second = writer.AddDocumentAsync(CreateDocument("second")).AsTask();
+                Assert.True(
+                    SpinWait.SpinUntil(
+                        () => writer.InFlightIndexingOperationsForTests == 3,
+                        TimeSpan.FromSeconds(5)),
+                    "The second asynchronous command was not queued.");
 
-            dispose = Task.Run(writer.Dispose, TestContext.Current.CancellationToken);
-            Assert.True(
-                SpinWait.SpinUntil(() => writer.IsClosing, TimeSpan.FromSeconds(5)),
-                "Writer disposal did not begin.");
+                dispose = Task.Factory.StartNew(
+                    writer.Dispose,
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default);
+                Assert.True(
+                    SpinWait.SpinUntil(() => writer.IsClosing, TimeSpan.FromSeconds(5)),
+                    "Writer disposal did not begin.");
+            }
+
+            await dispose.WaitAsync(TestContext.Current.CancellationToken);
+            await first!.WaitAsync(TestContext.Current.CancellationToken);
+            await Assert.ThrowsAsync<ObjectDisposedException>(() => second!);
+            Assert.Equal(0, writer.InFlightIndexingOperationsForTests);
+        }
+        catch (Exception exception)
+        {
+            testFailure = exception;
+            throw;
+        }
+        finally
+        {
+            const int cleanupTimeoutSeconds = 5;
+            TimeSpan cleanupTimeout = TimeSpan.FromSeconds(cleanupTimeoutSeconds);
+            Exception? cleanupFailure = null;
+
+            try
+            {
+                bool disposalFinished = WaitForTaskCompletion(dispose, cleanupTimeout);
+                if (!disposalFinished || dispose is null || dispose.IsFaulted || dispose.IsCanceled)
+                {
+                    // The lock scope has ended before cleanup. This direct call is the
+                    // final fallback if the scheduled disposal never ran or failed.
+                    writer.Dispose();
+                    if (dispose is not null && !WaitForTaskCompletion(dispose, cleanupTimeout))
+                        cleanupFailure = new TimeoutException("The scheduled writer disposal did not finish during cleanup.");
+                }
+            }
+            catch (Exception exception)
+            {
+                cleanupFailure = exception;
+            }
+            finally
+            {
+                if (!WaitForTaskCompletion(first, cleanupTimeout))
+                    cleanupFailure ??= new TimeoutException("The first asynchronous writer command did not finish during cleanup.");
+                if (!WaitForTaskCompletion(second, cleanupTimeout))
+                    cleanupFailure ??= new TimeoutException("The second asynchronous writer command did not finish during cleanup.");
+            }
+
+            if (cleanupFailure is not null && testFailure is null)
+                throw cleanupFailure;
+        }
+    }
+
+    private static bool WaitForTaskCompletion(Task? task, TimeSpan timeout)
+    {
+        if (task is null)
+            return true;
+
+        try
+        {
+            _ = task.Wait(timeout);
+        }
+        catch (Exception)
+        {
+            // The task is still observed below. Cleanup must continue so the writer
+            // cannot retain its lock after an assertion or cancellation failure.
         }
 
-        await dispose.WaitAsync(TestContext.Current.CancellationToken);
-        await first.WaitAsync(TestContext.Current.CancellationToken);
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => second);
-        Assert.Equal(0, writer.InFlightIndexingOperationsForTests);
+        return task.IsCompleted;
     }
 
     private static LeanDocument CreateDocument(string id)

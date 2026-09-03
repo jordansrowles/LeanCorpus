@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Documents;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Common;
@@ -116,33 +117,101 @@ public sealed class LocalServerCoreTests
         LocalServerCore server = await LocalServerCore.OpenAsync(
             new ServerCoreOptions { DataRoot = root, ShutdownTimeout = TimeSpan.FromSeconds(5) },
             ServerPortSet.Community with { Authorisation = authorisation });
+        Task<ServiceResult<SearchResponse>>? pending = null;
+        Task? stopping = null;
+        Exception? testFailure = null;
         try
         {
             authorisation.Block();
-            Task<ServiceResult<SearchResponse>> pending = server.SearchAsync("missing", new SearchRequest(new TermQueryDefinition("content", "value"))).AsTask();
+            pending = server.SearchAsync("missing", new SearchRequest(new TermQueryDefinition("content", "value"))).AsTask();
             await authorisation.Entered.Task;
-            Task stopping = Task.Run(server.Dispose);
+            stopping = Task.Factory.StartNew(
+                server.Dispose,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
 
             ReadinessResponse? readiness = null;
-            for (int attempt = 0; attempt < 100 && readiness?.Status != "draining"; attempt++)
+            Stopwatch readinessWait = Stopwatch.StartNew();
+            while (readiness?.Status != "draining" && readinessWait.Elapsed < TimeSpan.FromSeconds(5))
             {
-                readiness = (await server.GetReadinessAsync()).Value;
+                readiness = (await server.GetReadinessAsync(TestContext.Current.CancellationToken)).Value;
                 if (readiness?.Status != "draining")
-                    await Task.Yield();
+                    await Task.Delay(TimeSpan.FromMilliseconds(10), TestContext.Current.CancellationToken);
             }
 
             Assert.NotNull(readiness);
             Assert.False(readiness!.IsReady);
             Assert.Equal("draining", readiness.Status);
             authorisation.Release();
-            await pending;
-            await stopping;
+            await pending.WaitAsync(TestContext.Current.CancellationToken);
+            await stopping.WaitAsync(TestContext.Current.CancellationToken);
+        }
+        catch (Exception exception)
+        {
+            testFailure = exception;
+            throw;
         }
         finally
         {
             authorisation.Release();
-            if (Directory.Exists(root)) Directory.Delete(root, true);
+            Exception? cleanupFailure = null;
+            try
+            {
+                const int cleanupTimeoutSeconds = 10;
+                TimeSpan cleanupTimeout = TimeSpan.FromSeconds(cleanupTimeoutSeconds);
+                bool stoppingFinished;
+                if (stopping is null)
+                {
+                    server.Dispose();
+                    stoppingFinished = true;
+                }
+                else
+                {
+                    stoppingFinished = WaitForTaskCompletion(stopping, cleanupTimeout);
+                    if (!stoppingFinished)
+                    {
+                        // Dispose is idempotent and the started task owns the first
+                        // shutdown attempt. Wait again after the direct fallback.
+                        server.Dispose();
+                        stoppingFinished = WaitForTaskCompletion(stopping, cleanupTimeout);
+                    }
+                }
+
+                bool pendingFinished = WaitForTaskCompletion(pending, cleanupTimeout);
+                if (!stoppingFinished)
+                    cleanupFailure = new TimeoutException("The server shutdown task did not finish during cleanup.");
+                else if (!pendingFinished)
+                    cleanupFailure = new TimeoutException("The blocked server operation did not finish during cleanup.");
+                else if (Directory.Exists(root))
+                    Directory.Delete(root, true);
+            }
+            catch (Exception exception)
+            {
+                cleanupFailure = exception;
+            }
+
+            if (cleanupFailure is not null && testFailure is null)
+                throw cleanupFailure;
         }
+    }
+
+    private static bool WaitForTaskCompletion(Task? task, TimeSpan timeout)
+    {
+        if (task is null)
+            return true;
+
+        try
+        {
+            _ = task.Wait(timeout);
+        }
+        catch (Exception)
+        {
+            // Observe task failures while allowing cleanup to continue. The original
+            // test assertion, when present, remains the failure reported by xUnit.
+        }
+
+        return task.IsCompleted;
     }
 
     [Fact]

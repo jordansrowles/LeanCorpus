@@ -50,22 +50,25 @@ function New-TestIdentity {
         [string]$DisplayName
     )
 
-    if ($TestId) {
+    $hasClassName = -not [string]::IsNullOrWhiteSpace($ClassName)
+    $hasMethodName = -not [string]::IsNullOrWhiteSpace($MethodName)
+    $hasDisplayName = -not [string]::IsNullOrWhiteSpace($DisplayName)
+    if ($hasClassName -or $hasMethodName -or $hasDisplayName) {
         return [pscustomobject]@{
-            Value = "id:$TestId"
-            Strength = 'StableReportId'
+            Value = "case:$ClassName|$MethodName|$DisplayName"
+            Strength = if ($hasClassName -and $hasMethodName -and $hasDisplayName) { 'ClassMethodDisplay' } else { 'WeakFallback' }
         }
     }
 
-    if ($ClassName -or $MethodName -or $DisplayName) {
+    if (-not [string]::IsNullOrWhiteSpace($TestId)) {
         return [pscustomobject]@{
-            Value = "case:$ClassName|$MethodName|$DisplayName"
-            Strength = if ($ClassName -and $MethodName -and $DisplayName) { 'ClassMethodDisplay' } else { 'WeakFallback' }
+            Value = "id:$TestId"
+            Strength = 'ReportIdFallback'
         }
     }
 
     return [pscustomobject]@{
-        Value = "display:$DisplayName"
+        Value = 'unknown'
         Strength = 'WeakFallback'
     }
 }
