@@ -71,10 +71,17 @@
   }
 
   function matchesCurrentPage(itemUrl) {
-    if (normalisePath(itemUrl.pathname) === normalisePath(currentUrl.pathname)) return true
+    const itemPath = normalisePath(itemUrl.pathname)
+    if (currentPagePaths(currentUrl.pathname).includes(itemPath)) return true
     if (!itemUrl.pathname.endsWith('.html')) return false
     const typePagePrefix = itemUrl.pathname.slice(0, -5) + '.'
     return currentUrl.pathname.startsWith(typePagePrefix)
+  }
+
+  function currentPagePaths(path) {
+    if (path.endsWith('/')) return [`${path}index.html`]
+    if (path.endsWith('.html')) return [path]
+    return [`${path}.html`, `${path}/index.html`]
   }
 
   function normalisePath(path) {
