@@ -63,6 +63,27 @@ stdout and stderr, MTP TRX files where supported, checkpoint state and the
 stop later repetitions unless `--fail-fast` is selected. `--flaky` is a preset
 for 30 repetitions unless `--count` supplies another value.
 
+## Use the GitHub stress workflow
+
+Open **Actions > Test Stress & Diagnostics > Run workflow** for deliberate
+repetition and investigation runs. Linux and Windows can be selected
+independently. `count` controls how many fresh test processes are run, while
+`CHAOS_ITERATIONS` controls the property or chaos cases inside each process.
+
+Useful configurations include:
+
+```text
+Quick repeat:                  count=5, chaos_iterations=25
+Flaky hunt:                    count=30, chaos_iterations=25, flaky=true
+Chaos stress:                  count=5, chaos_iterations=1000
+Windows Store investigation:  windows=true, linux=false, suite=core, area=Store
+```
+
+The workflow accepts suite, framework, area, category and filter inputs, plus
+optional diagnostics, fail-fast, hang-timeout and outer process-timeout
+settings. Download the `test-stress-linux` or `test-stress-windows` artefact;
+the run reports are under `artifacts/test/runs`.
+
 For CI jobs whose managed output has already been built, use `--ci`. It skips
 managed restore and build, but still publishes Native AOT targets when they
 are selected:

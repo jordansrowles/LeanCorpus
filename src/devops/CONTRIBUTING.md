@@ -204,6 +204,13 @@ Use `--diagnostics` for MTP diagnostic logs and the standalone
 `devops diagnostics` commands for an explicitly selected process. Do not add
 a full trace or memory dump to every repeated test iteration.
 
+The manual GitHub Actions workflow **Test Stress & Diagnostics** is the shared
+web entry point for repeated and platform-specific investigations. Keep it as
+a thin argument builder over `./devops.ps1 test`; add suite resolution,
+preparation or reporting behaviour to the DevOps pipeline and suite registry,
+not to workflow YAML. Keep `count` and `CHAOS_ITERATIONS` independent when
+documenting or reproducing a stress run.
+
 ## Add or change a benchmark
 
 1. Select the suite and area that own the workload.
