@@ -46,11 +46,12 @@ internal static class Program
         var repoRoot = FindRepositoryRoot();
         var now = DateTimeOffset.UtcNow;
 
-        var machineDir = Path.Combine(repoRoot, "bench", Environment.MachineName);
-        var runDir = Path.Combine(
-            machineDir,
-            now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            now.ToString("HH-mm", CultureInfo.InvariantCulture));
+        var suppliedArtifactDirectory = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
+        var runDir = !string.IsNullOrWhiteSpace(suppliedArtifactDirectory)
+            ? Path.GetFullPath(suppliedArtifactDirectory)
+            : Path.Combine(repoRoot, "artifacts", "benchmark", "runs",
+                now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture), "core");
+        var machineDir = Directory.GetParent(runDir)?.FullName ?? runDir;
         Directory.CreateDirectory(runDir);
 
         var gitCommitHash = GetGitShortHash(repoRoot);
@@ -58,7 +59,10 @@ internal static class Program
         var commitHash = !string.IsNullOrWhiteSpace(sourceCommit)
             ? sourceCommit
             : gitCommitHash;
-        var runId = string.IsNullOrEmpty(commitHash)
+        var orchestratedRunId = Environment.GetEnvironmentVariable("LEANCORPUS_RUN_ID");
+        var runId = !string.IsNullOrWhiteSpace(orchestratedRunId)
+            ? orchestratedRunId
+            : string.IsNullOrEmpty(commitHash)
             ? now.ToString("yyyy-MM-dd HH-mm", CultureInfo.InvariantCulture)
             : $"{now.ToString("yyyy-MM-dd HH-mm", CultureInfo.InvariantCulture)} ({commitHash})";
 
@@ -342,7 +346,7 @@ internal static class Program
         VectorQuantisationBenchmarks.CleanupLuceneResources();
         ParallelSearchBenchmarks.CleanupLuceneResources();
 
-        // Nuke the entire bench/tmp tree so subsequent runs start clean.
+        // Remove this run's benchmark temp tree so subsequent runs start clean.
         BenchmarkHelpers.CleanTempRoot();
 
         // Build and write consolidated report + index.json
@@ -705,7 +709,7 @@ internal static class Program
               ranking-pipeline    RankingPipelineBenchmarks -- profiles, rules and bounded reranking (explicit only)
 
             Output:
-              Results are written to bench/{machine-name}/{yyyy-MM-dd}/{HH-mm}/
+              Results are written under artifacts/benchmark/runs/.
               A consolidated JSON report and per-machine index.json are maintained.
 
             Examples:

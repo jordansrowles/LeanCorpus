@@ -3,13 +3,13 @@
     Generates DocFX benchmark pages from BDN output files — one page per suite.
 
 .DESCRIPTION
-    For each machine directory under bench/, scans all completed runs and keeps the
+    Scans completed runs under artifacts/benchmark/runs and keeps the
     newest run per suite and writes one markdown page per suite into docs/benchmarks/.
 
     Run this before docfx build; docs.ps1 calls it automatically.
 
 .PARAMETER BenchDir
-    Path to the bench/ directory. Defaults to ../bench relative to the script.
+    Path to the benchmark run directory. Defaults to artifacts/benchmark/runs.
 
 .PARAMETER OutputDir
     Path to write the generated files. Defaults to ../docs/benchmarks.
@@ -28,11 +28,19 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 
-if ([string]::IsNullOrEmpty($BenchDir))  { $BenchDir  = Join-Path $repoRoot 'bench' }
-if ([string]::IsNullOrEmpty($OutputDir)) { $OutputDir = Join-Path $repoRoot 'docs\benchmarks' }
+if ([string]::IsNullOrEmpty($BenchDir))  { $BenchDir  = Join-Path $repoRoot 'artifacts/benchmark/runs' }
+if ([string]::IsNullOrEmpty($OutputDir)) { $OutputDir = Join-Path $repoRoot 'artifacts\docs\generated\benchmarks' }
 
 $BenchDir  = [System.IO.Path]::GetFullPath($BenchDir)
 $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
+
+# Preserve the last published benchmark documentation until a newer run exists.
+# This keeps a clean checkout buildable while moving generated output out of docs/.
+[void][System.IO.Directory]::CreateDirectory($OutputDir)
+$publishedDirectory = Join-Path $repoRoot 'docs/benchmarks'
+foreach ($publishedFile in @(Get-ChildItem $publishedDirectory -File -ErrorAction SilentlyContinue)) {
+    Copy-Item -LiteralPath $publishedFile.FullName -Destination (Join-Path $OutputDir $publishedFile.Name) -Force
+}
 
 # ── Suite display names ───────────────────────────────────────────────────────
 
@@ -110,28 +118,16 @@ function Get-TableContent([string]$path) {
 
 # ── Collect runs ──────────────────────────────────────────────────────────────
 
-$machines = @(Get-ChildItem $BenchDir -Directory | Where-Object { $_.Name -ne 'data' } | Sort-Object Name)
-
-if ($machines.Count -eq 0) {
-    Write-Warning "No machine directories found in $BenchDir"
+if (-not (Test-Path $BenchDir)) {
+    Write-Warning "No benchmark runs found in $BenchDir"
     exit 0
 }
 
 # Map: suiteName -> { runDir, report, generatedAtUtc }
 $newestPerSuite = @{}
 
-foreach ($machine in $machines) {
-    Write-Host "Scanning: $($machine.Name)" -ForegroundColor Cyan
-
-    # Walk all date/time dirs
-    $dateDirs = Get-ChildItem $machine.FullName -Directory | Sort-Object Name -Descending
-
-    foreach ($dateDir in $dateDirs) {
-        $timeDirs = Get-ChildItem $dateDir.FullName -Directory | Sort-Object Name -Descending
-
-        foreach ($timeDir in $timeDirs) {
-            $reportPath = Join-Path $timeDir.FullName 'report.json'
-            if (-not (Test-Path $reportPath)) { continue }
+foreach ($reportFile in @(Get-ChildItem $BenchDir -Recurse -File -Filter 'report.json' | Sort-Object LastWriteTimeUtc -Descending)) {
+            $reportPath = $reportFile.FullName
 
             try {
                 $report = Get-Content $reportPath -Raw | ConvertFrom-Json
@@ -142,22 +138,28 @@ foreach ($machine in $machines) {
 
             if ($report.totalBenchmarkCount -le 0) { continue }
 
+            $machineName = if ($report.provenance -and $report.provenance.machineName) {
+                $report.provenance.machineName
+            } else {
+                'unknown'
+            }
+
             foreach ($suite in $report.suites) {
                 $name = $suite.suiteName
 
                 # Keep the newest run for this suite
                 if (-not $newestPerSuite.ContainsKey($name)) {
                     $newestPerSuite[$name] = @{
-                        RunDir          = $timeDir.FullName
+                        RunDir          = $reportFile.DirectoryName
                         Report          = $report
                         GeneratedAtUtc  = $report.generatedAtUtc
-                        Machine         = $machine.Name
+                        Machine         = $machineName
                     }
                 }
             }
-        }
-    }
 }
+
+$machines = @($newestPerSuite.Values | ForEach-Object { $_.Machine } | Sort-Object -Unique)
 
 if ($newestPerSuite.Count -eq 0) {
     Write-Warning "No suites found in any run."
@@ -167,8 +169,6 @@ if ($newestPerSuite.Count -eq 0) {
 Write-Host "Found $($newestPerSuite.Count) suites across all runs." -ForegroundColor Green
 
 # ── Generate pages ────────────────────────────────────────────────────────────
-
-New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
 # Remove old generated files (keep any hand-written content, but since these
 # are all auto-generated, safe to clear *.md and *.json that match our suites)
@@ -265,6 +265,41 @@ foreach ($entry in $sortedSuites) {
     Write-Host "  $fileName" -ForegroundColor Green
     $pageCount++
 
+}
+
+# Rowles.Text and compression use their own BenchmarkDotNet executables. Surface
+# their newest output without forcing them through the Core report schema.
+$latestRunDirectories = @(Get-ChildItem $BenchDir -Directory | Sort-Object LastWriteTimeUtc -Descending)
+foreach ($projectKey in @('text', 'compression')) {
+    $projectDirectory = $null
+    foreach ($runDirectory in $latestRunDirectories) {
+        $candidate = Join-Path $runDirectory.FullName $projectKey
+        if ((Test-Path $candidate) -and @(Get-ChildItem $candidate -Recurse -File -Filter '*-report-github.md' -ErrorAction SilentlyContinue).Count -gt 0) {
+            $projectDirectory = $candidate
+            break
+        }
+    }
+    if (-not $projectDirectory) { continue }
+
+    $title = if ($projectKey -eq 'text') { 'Rowles.Text benchmarks' } else { 'Compression benchmarks' }
+    $builder = [System.Text.StringBuilder]::new()
+    [void]$builder.AppendLine('---')
+    [void]$builder.AppendLine("title: $title")
+    [void]$builder.AppendLine('---')
+    [void]$builder.AppendLine()
+    [void]$builder.AppendLine("# $title")
+    [void]$builder.AppendLine()
+    foreach ($markdownFile in @(Get-ChildItem $projectDirectory -Recurse -File -Filter '*-report-github.md' | Sort-Object Name)) {
+        $table = Get-TableContent $markdownFile.FullName
+        if (-not $table) { continue }
+        [void]$builder.AppendLine("## $($markdownFile.BaseName -replace '-report-github$', '')")
+        [void]$builder.AppendLine()
+        [void]$builder.AppendLine($table)
+        [void]$builder.AppendLine()
+    }
+    $builder.ToString() | Set-Content (Join-Path $OutputDir "$projectKey.md") -Encoding UTF8
+    Write-Host "  $projectKey.md" -ForegroundColor Green
+    $pageCount++
 }
 
 # ── benchmark-charts.js ───────────────────────────────────────────────────────

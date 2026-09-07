@@ -232,7 +232,7 @@ function Invoke-TestPipeline {
         Write-Host "  Failed runs:   $($summary.FailingIterations -join ', ')"
     }
     if ($context.ArtifactsEnabled) {
-        Write-Host "  Report:        $(Join-Path $context.RunDirectory 'summary.md')"
+        Write-Host "  Report:        $(Join-Path $context.RunDirectory 'report.md')"
     }
 
     if ($null -ne $pipelineError -or $reportError -or $context.ReportErrors.Count -gt 0 -or -not $summary.Succeeded) {

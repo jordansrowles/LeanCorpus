@@ -7,7 +7,9 @@ function Get-AotExecutablePath {
         [string]$RepoRoot
     )
 
-    $publishDirectory = Join-Path $RepoRoot "src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/bin/$($Target.Configuration)/$($Target.Framework)/$($Target.RuntimeIdentifier)/publish"
+    $configurationName = $Target.Configuration.ToLowerInvariant()
+    $publishDirectory = Join-Path (Get-ArtifactRoot -RepoRoot $RepoRoot) `
+        "publish/Rowles.LeanCorpus.Tests.AOTSmoke/$configurationName`_$($Target.Framework)_$($Target.RuntimeIdentifier)"
     $fileName = if ($Target.RuntimeIdentifier.StartsWith('win-', [StringComparison]::OrdinalIgnoreCase)) {
         'Rowles.LeanCorpus.Tests.AOTSmoke.exe'
     } else {
@@ -25,8 +27,9 @@ function Get-MtpExecutablePath {
 
     $projectPath = Resolve-TestProjectPath -Target $Target -RepoRoot $RepoRoot
     $projectName = [System.IO.Path]::GetFileNameWithoutExtension($projectPath)
-    $projectDirectory = [System.IO.Path]::GetDirectoryName($projectPath)
-    $outputDirectory = Join-Path $projectDirectory "bin/$($Target.Configuration)/$($Target.Framework)"
+    $configurationName = $Target.Configuration.ToLowerInvariant()
+    $outputDirectory = Join-Path (Get-ArtifactRoot -RepoRoot $RepoRoot) `
+        "bin/$projectName/$configurationName`_$($Target.Framework)"
     $candidates = @(
         (Join-Path $outputDirectory $projectName),
         (Join-Path $outputDirectory "$projectName.exe")

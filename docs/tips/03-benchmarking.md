@@ -55,7 +55,8 @@ Use `-CorpusOnly` when a suite should use corpus-backed cases without synthetic 
 
 ## Output
 
-Runs are written beneath `bench/{machine}/...`.
+Normal runs are written beneath `artifacts/benchmark/runs/<run-id>/`, with one
+provenance envelope containing Core, Rowles.Text and compression results.
 
 | Artefact | Contents |
 |---|---|

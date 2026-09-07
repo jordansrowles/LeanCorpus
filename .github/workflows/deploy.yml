@@ -57,4 +57,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy ${{ github.event_name == 'workflow_dispatch' && 'docs/site' || 'docs-site' }} --project-name=leanlucene --branch=${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_branch }} --commit-dirty=true
+          command: pages deploy ${{ github.event_name == 'workflow_dispatch' && 'artifacts/docs/site' || 'docs-site' }} --project-name=leanlucene --branch=${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_branch }} --commit-dirty=true

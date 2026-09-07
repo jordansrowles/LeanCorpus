@@ -10,7 +10,13 @@
   <ItemGroup>
     <PackageReference Include="TngTech.ArchUnitNET" />
     <PackageReference Include="TngTech.ArchUnitNET.xUnitV3" />
+    <PackageReference Include="Microsoft.Testing.Extensions.GitHubActionsReport" />
     <PackageReference Include="xunit.v3.mtp-v2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Diagnostics\LeanCorpusTestDiagnostics.cs" Link="Diagnostics\LeanCorpusTestDiagnostics.cs" />
+    <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Diagnostics\LeanCorpusTestTelemetryFixture.cs" Link="Diagnostics\LeanCorpusTestTelemetryFixture.cs" />
   </ItemGroup>
 
   <ItemGroup>

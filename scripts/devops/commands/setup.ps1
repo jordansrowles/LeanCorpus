@@ -11,18 +11,23 @@ function Invoke-DevOpsSetup {
 
     # Directories expected by devops commands, docfx, and CI
     $dirs = @(
-        'bench',
-        'bench/data',
-        'coverage-results',
-        'docs/api',
-        'docs/coverage',
-        'docs/site',
-        'docs/changelog'
+        (Get-ArtifactRunsRoot -Kind test -RepoRoot $repoRoot),
+        (Get-ArtifactRunsRoot -Kind coverage -RepoRoot $repoRoot),
+        (Get-ArtifactRunsRoot -Kind benchmark -RepoRoot $repoRoot),
+        (Get-BenchmarkDataRoot -RepoRoot $repoRoot),
+        (Get-ArtifactRunsRoot -Kind diagnostics -RepoRoot $repoRoot),
+        (Get-DocsArtifactPath -Name api -RepoRoot $repoRoot),
+        (Get-DocsArtifactPath -Name coverage -RepoRoot $repoRoot),
+        (Get-DocsArtifactPath -Name site -RepoRoot $repoRoot),
+        (Get-DocsArtifactPath -Name diagnostics -RepoRoot $repoRoot),
+        (Get-ArtifactKindRoot -Kind package -RepoRoot $repoRoot),
+        (Get-ArtifactKindRoot -Kind temp -RepoRoot $repoRoot),
+        (Join-Path $repoRoot 'docs/changelog')
     )
 
     Write-Heading 'Directories'
-    foreach ($dir in $dirs) {
-        $path = Join-Path $repoRoot $dir
+    foreach ($path in $dirs) {
+        $dir = [System.IO.Path]::GetRelativePath($repoRoot, $path)
         if (-not (Test-Path $path)) {
             New-Item -ItemType Directory -Path $path | Out-Null
             Write-Success "  created $dir"

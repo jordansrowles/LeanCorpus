@@ -21,10 +21,14 @@ function Invoke-DevOpsCoverage {
             throw "Unknown or ineligible coverage suite '$suite'. Eligible suites: $($eligibleSuites -join ', ')."
         }
 
-        $resultsDir = Join-Path $repoRoot 'coverage-results'
-        if ($clean -and (Test-Path $resultsDir)) {
-            Remove-Item $resultsDir -Recurse -Force
+        $coverageRoot = Get-ArtifactKindRoot -Kind coverage -RepoRoot $repoRoot
+        if ($clean -and (Test-Path $coverageRoot)) {
+            Remove-OwnedArtifactPath -Path $coverageRoot -ArtifactRoot (Get-ArtifactRoot -RepoRoot $repoRoot)
         }
+        $commandLine = ConvertTo-CommandLineText -Command './devops coverage' -Arguments $Arguments
+        $coverageRun = New-ArtifactRun -Kind coverage -Framework $framework -Configuration $configuration `
+            -Target $suite -CommandLine $commandLine -RepoRoot $repoRoot
+        $resultsDir = Join-Path $coverageRun.RunDirectory 'raw'
         [void][System.IO.Directory]::CreateDirectory($resultsDir)
 
         $filter = if ($includePerformance) { '' } else { 'Coverage!=Skip' }
@@ -43,6 +47,9 @@ function Invoke-DevOpsCoverage {
             Diagnostics = $false
             Ci = $false
             CollectCoverage = $true
+            ExplicitMode = 'off'
+            ParallelProfile = 'integration'
+            FailWarnings = $false
             ArtifactsEnabled = $true
             Configuration = $configuration
             RequestedFramework = if ($frameworkWasSpecified) { $framework } else { '' }
@@ -58,18 +65,21 @@ function Invoke-DevOpsCoverage {
             CoverageResultsDirectory = $resultsDir
         }
 
-        $commandLine = ConvertTo-CommandLineText -Command './devops coverage' -Arguments $Arguments
         $exitCode = Invoke-TestPipeline -Targets $targets -Options $options -CommandLine $commandLine `
             -DisplayName 'Coverage test run' -RepoRoot $repoRoot
 
         $xmlFiles = @(Find-CoverageResults $resultsDir)
         Write-Host ''
-        Write-Success "Coverage data written to: $resultsDir"
+        Write-Success "Coverage data written to: $($coverageRun.RunDirectory)"
         Write-Host "  Found $($xmlFiles.Count) coverage file(s)."
 
         if ($generateReport -and $xmlFiles.Count -gt 0) {
-            New-CoverageReport -XmlFiles $xmlFiles -OutputDir (Join-Path $repoRoot 'docs/coverage')
+            New-CoverageReport -XmlFiles $xmlFiles -OutputDir (Join-Path $coverageRun.RunDirectory 'html')
         }
+
+        $coverageStatus = if ($exitCode -eq 0 -and $xmlFiles.Count -gt 0) { 'Passed' } else { 'Failed' }
+        Complete-ArtifactRun -RunDirectory $coverageRun.RunDirectory -Status $coverageStatus `
+            -AdditionalValues @{ coverageFiles = $xmlFiles.Count; raw = 'raw' }
 
         return $exitCode
     } catch {

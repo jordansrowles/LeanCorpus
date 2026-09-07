@@ -162,6 +162,7 @@ Choose the destination by responsibility:
 | Small reusable helper | `scripts/devops/common/` |
 | Declarative suites, mappings or strategies | `scripts/devops/config/` |
 | Larger reusable subsystem | `scripts/devops/support/` |
+| Artefact paths, runs and cleaning | `scripts/devops/artifacts/` |
 
 For a new top-level command:
 
@@ -190,6 +191,13 @@ checkpoint `state.json` after each target under
 `artifacts/test/runs/<run-id>/`. Missing or malformed MTP TRX data must remain
 an incomplete result, never a pass. Keep report generation in the common
 finalisation path so a failed target still leaves usable evidence.
+
+Use `-Profile unit` for test-case parallelisation, `-Profile integration` for
+the collection-parallel default, and `-Profile stress` only for deliberate
+contention. `-Diagnostics` and `-Flaky` stream LeanCorpus activities, meters and
+execution-scoped runtime evidence. Explicit tests remain excluded unless
+`-Explicit` or `-ExplicitOnly` is selected. Do not add retries to core,
+filesystem, concurrency, codec or indexing tests.
 
 Useful local checks include:
 

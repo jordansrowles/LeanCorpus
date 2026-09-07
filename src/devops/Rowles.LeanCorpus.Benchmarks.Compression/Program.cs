@@ -1,4 +1,5 @@
-﻿using BenchmarkDotNet.Running;
+﻿using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Running;
 using Rowles.LeanCorpus.Benchmarks.Compression;
 using Rowles.LeanCorpus.Compression.LZ4;
 using Rowles.LeanCorpus.Compression.Snappy;
@@ -11,4 +12,8 @@ Lz4Compression.Register();
 SnappyCompression.Register();
 ZstandardCompression.Register();
 
-BenchmarkRunner.Run<CompressionBenchmarks>(null, args);
+string artifactsPath = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR")
+    ?? Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "benchmark", "runs", "direct", "compression");
+Directory.CreateDirectory(artifactsPath);
+var config = DefaultConfig.Instance.WithArtifactsPath(Path.Combine(artifactsPath, "_runner"));
+BenchmarkRunner.Run<CompressionBenchmarks>(config, args);

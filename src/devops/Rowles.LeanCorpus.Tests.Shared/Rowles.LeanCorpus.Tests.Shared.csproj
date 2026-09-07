@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Fixtures/Indexes/*.fixture.b64" />
+    <Compile Remove="Diagnostics/*.cs" />
   </ItemGroup>
 
 </Project>

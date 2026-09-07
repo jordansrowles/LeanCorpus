@@ -23,9 +23,9 @@ function New-DiagnosticsContext {
         [string]$Tool = ''
     )
 
-    $runId = Get-TestRunId
-    $runDirectory = Join-Path $RepoRoot "artifacts/diagnostics/$runId"
-    [void][System.IO.Directory]::CreateDirectory($runDirectory)
+    $run = New-ArtifactRun -Kind diagnostics -Target $Tool -CommandLine $CommandLine -RepoRoot $RepoRoot
+    $runId = $run.RunId
+    $runDirectory = $run.RunDirectory
 
     $context = [pscustomobject]@{
         RunId = $runId
@@ -38,7 +38,7 @@ function New-DiagnosticsContext {
         EndTimeUtc = $null
         Outputs = [System.Collections.Generic.List[string]]::new()
         Warnings = [System.Collections.Generic.List[string]]::new()
-        MetadataPath = Join-Path $runDirectory 'metadata.json'
+        MetadataPath = Join-Path $runDirectory 'run.json'
         EnvironmentPath = Join-Path $runDirectory 'environment.json'
     }
 
@@ -63,11 +63,9 @@ function Update-DiagnosticsMetadata {
         ([DateTime]::UtcNow - $Context.StartTimeUtc).TotalMilliseconds
     }
 
-    $document = [ordered]@{
-        schemaVersion = 1
-        runId = $Context.RunId
-        commandLine = $Context.CommandLine
+    $values = @{
         status = $Status
+        completedAtUtc = if ($Context.EndTimeUtc) { $Context.EndTimeUtc.ToString('O') } else { $null }
         startTimeUtc = $Context.StartTimeUtc.ToString('O')
         endTimeUtc = if ($Context.EndTimeUtc) { $Context.EndTimeUtc.ToString('O') } else { $null }
         durationMs = [Math]::Round($durationMs, 3)
@@ -78,7 +76,7 @@ function Update-DiagnosticsMetadata {
         error = $ErrorMessage
         environmentPath = 'environment.json'
     }
-    Write-AtomicJsonFile -Path $Context.MetadataPath -Value $document
+    Update-ArtifactRunManifest -RunDirectory $Context.RunDirectory -Values $values
 }
 
 function Resolve-DiagnosticProcess {

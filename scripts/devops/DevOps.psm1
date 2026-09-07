@@ -6,6 +6,10 @@ Set-StrictMode -Version Latest
 . "$PSScriptRoot/common/arguments.ps1"
 . "$PSScriptRoot/common/processes.ps1"
 . "$PSScriptRoot/common/tools.ps1"
+. "$PSScriptRoot/artifacts/paths.ps1"
+. "$PSScriptRoot/artifacts/manifests.ps1"
+. "$PSScriptRoot/artifacts/runs.ps1"
+. "$PSScriptRoot/artifacts/clean.ps1"
 
 $Script:TestSuites = Import-PowerShellDataFile "$PSScriptRoot/config/test-suites.psd1"
 $Script:BenchmarkSuites = Import-PowerShellDataFile "$PSScriptRoot/config/benchmark-suites.psd1"
@@ -38,6 +42,8 @@ $Script:BenchmarkStrategies = Import-PowerShellDataFile "$PSScriptRoot/config/be
 . "$PSScriptRoot/commands/setup.ps1"
 . "$PSScriptRoot/commands/report.ps1"
 . "$PSScriptRoot/commands/server.ps1"
+. "$PSScriptRoot/commands/clean.ps1"
+. "$PSScriptRoot/commands/pack.ps1"
 
 function Invoke-DevOps {
     param([string]$Command, [string[]]$Arguments)
@@ -55,6 +61,8 @@ function Invoke-DevOps {
         'setup'      { Invoke-DevOpsSetup -Arguments $Arguments }
         'report'     { Invoke-DevOpsReport -Arguments $Arguments }
         'server'     { Invoke-DevOpsServer -Arguments $Arguments }
+        'clean'      { Invoke-DevOpsClean -Arguments $Arguments }
+        'pack'       { Invoke-DevOpsPack -Arguments $Arguments }
         ''           { Invoke-DevOpsHelp }
         '--help'     { Invoke-DevOpsHelp }
         '-Help'      { Invoke-DevOpsHelp }
@@ -92,6 +100,10 @@ function Invoke-DevOpsHelp {
     Write-Host '      -Diagnostics        Enable MTP diagnostic logging and artefact capture'
     Write-Host '      -CI                 Use CI-prepared managed output and write run artefacts'
     Write-Host '      -CollectCoverage    Collect coverage for registry-eligible suites'
+    Write-Host '      -Profile            unit, integration, or stress parallel execution profile'
+    Write-Host '      -Explicit           Include explicit tests'
+    Write-Host '      -ExplicitOnly       Run only explicit tests'
+    Write-Host '      -FailWarnings       Treat xUnit warnings as failures'
     Write-Host '      -Timeout            Outer process timeout, for example 30s or off'
     Write-Host '      -List               List available suites and exit'
     Write-Host ''
@@ -110,8 +122,8 @@ function Invoke-DevOpsHelp {
     Write-Host '    diagnostics          Attach standard .NET diagnostics to a process'
     Write-Host '      ps                  List process IDs and names'
     Write-Host '      counters --pid ID  Monitor counters; use -- for tool arguments'
-    Write-Host '      trace --pid ID     Capture a trace under artifacts/diagnostics'
-    Write-Host '      gcdump --pid ID    Capture a GC dump under artifacts/diagnostics'
+    Write-Host '      trace --pid ID     Capture a trace under artifacts/diagnostics/runs'
+    Write-Host '      gcdump --pid ID    Capture a GC dump under artifacts/diagnostics/runs'
     Write-Host '      dump --pid ID      Capture a dump (default type: Mini)'
     Write-Host '      symbols ARTIFACT   Download symbols for an explicit artifact'
     Write-Host '      capture --pid ID   Capture bounded counters and trace data'
@@ -157,6 +169,8 @@ function Invoke-DevOpsHelp {
     Write-Host ''
 
     Write-Host '    setup                Verify dev environment and directories'
+    Write-Host '    clean [target]       Remove owned artefacts; default preserves packages and benchmark data/runs'
+    Write-Host '    pack                 Build NuGet packages under artifacts/package/release'
     Write-Host '    report               Repository health report'
     Write-Host '      git                 Repository/commit-level stats (default: all groups)'
     Write-Host '      files               Per-file facts and history'

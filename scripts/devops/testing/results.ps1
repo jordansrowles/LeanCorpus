@@ -281,7 +281,12 @@ function Get-ExecutionDiagnosticPaths {
     $diagnosticExtensions = @('.dmp', '.diag', '.nettrace', '.gcdump')
     $paths = [System.Collections.Generic.List[string]]::new()
     foreach ($file in @(Get-ChildItem -LiteralPath $ArtifactDirectory -File -Recurse -ErrorAction SilentlyContinue)) {
-        if ($file.Extension.ToLowerInvariant() -in $diagnosticExtensions) {
+        $relativePath = [System.IO.Path]::GetRelativePath($ArtifactDirectory, $file.FullName).Replace('\', '/')
+        if ($file.Extension.ToLowerInvariant() -in $diagnosticExtensions -or
+            $relativePath -eq 'results.ctrf.json' -or
+            $relativePath.StartsWith('telemetry/', [StringComparison]::OrdinalIgnoreCase) -or
+            $relativePath.StartsWith('runtime/', [StringComparison]::OrdinalIgnoreCase) -or
+            $file.Name.StartsWith('leancorpus-', [StringComparison]::OrdinalIgnoreCase)) {
             [void]$paths.Add($file.FullName)
         }
     }
@@ -446,6 +451,17 @@ function New-TestRunSummary {
     $failingIterations = @($executions | Where-Object { $_.Outcome -ne 'Passed' } |
         ForEach-Object { [int]$_.Iteration } | Sort-Object -Unique)
     $diagnosticPaths = @($executions | ForEach-Object { @($_.DiagnosticPaths) } | Where-Object { $_ })
+    $telemetrySummaryPaths = @($diagnosticPaths | Where-Object {
+        $_.Replace('\', '/') -match '/telemetry/tests/[^/]+/summary\.json$'
+    })
+    $telemetrySummaries = @($telemetrySummaryPaths | ForEach-Object {
+        try { Get-Content -LiteralPath $_ -Raw | ConvertFrom-Json } catch { $null }
+    } | Where-Object { $null -ne $_ })
+    $attachmentPaths = @($diagnosticPaths | Where-Object {
+        $normalised = $_.Replace('\', '/')
+        [System.IO.Path]::GetFileName($_).StartsWith('leancorpus-', [StringComparison]::OrdinalIgnoreCase) -and
+            $normalised -notmatch '/telemetry/tests/'
+    })
     $totalDuration = if ($Context.EndTimeUtc) {
         ($Context.EndTimeUtc - $Context.StartTimeUtc).TotalMilliseconds
     } else {
@@ -486,5 +502,15 @@ function New-TestRunSummary {
         IncompleteTargets = @($targetDocuments | Where-Object { $_.outcome -eq 'Incomplete' })
         InfrastructureErrors = @($Context.InfrastructureErrors)
         DiagnosticArtifactPaths = $diagnosticPaths
+        AttachmentPaths = $attachmentPaths
+        WarningCount = [int](@($telemetrySummaries | Measure-Object -Property swallowedExceptions -Sum).Sum)
+        TelemetrySummary = [ordered]@{
+            tests = $telemetrySummaries.Count
+            activities = [int](@($telemetrySummaries | Measure-Object -Property activityCount -Sum).Sum)
+            metrics = [int](@($telemetrySummaries | Measure-Object -Property metricCount -Sum).Sum)
+            swallowedExceptions = [int](@($telemetrySummaries | Measure-Object -Property swallowedExceptions -Sum).Sum)
+            orphanedActivities = [int](@($telemetrySummaries | Measure-Object -Property orphanedActivities -Sum).Sum)
+            summaryPaths = $telemetrySummaryPaths
+        }
     }
 }

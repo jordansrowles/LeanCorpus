@@ -40,6 +40,7 @@ _description: Recorded LeanCorpus architecture decisions and their status.
 <tr><td><a href="ADR027-memory-mapped-operation-lifetimes.md">027</a></td><td>2026-08-21</td><td>Accepted</td><td></td><td><a href="ADR027-memory-mapped-operation-lifetimes.md">Memory mappings drain active operations before reclamation</a></td><td></td></tr>
 <tr><td><a href="ADR028-token-graph-analysis.md">028</a></td><td>2026-08-21</td><td>Accepted</td><td></td><td><a href="ADR028-token-graph-analysis.md">Token graphs remain an analysis concern and flatten before postings</a></td><td></td></tr>
 <tr><td><a href="ADR029-platform-filesystem-durability.md">029</a></td><td>2026-08-21</td><td>Accepted</td><td></td><td><a href="ADR029-platform-filesystem-durability.md">Platform-specific durability stays behind the Store boundary</a></td><td></td></tr>
+<tr><td><a href="ADR030-unified-devops-artefact-and-test-evidence.md">030</a></td><td>2026-09-07</td><td>Accepted</td><td></td><td><a href="ADR030-unified-devops-artefact-and-test-evidence.md">DevOps owns unified artefact and test evidence</a></td><td></td></tr>
 </tbody>
 </table>
 </div>

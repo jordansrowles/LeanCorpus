@@ -144,7 +144,8 @@ The detailed rules live in the [DevOps and tests guide](src/devops/CONTRIBUTING.
 ## Generated files
 
 > [!WARNING]
-> Do not manually edit `bin`, `obj`, `coverage-results`, BenchmarkDotNet artefacts or generated documentation. Change the source, configuration or generator instead.
+> Do not manually edit generated content under `artifacts/`. Change the source,
+> configuration or generator instead.
 
 ## Before submitting
 

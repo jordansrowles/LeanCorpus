@@ -76,6 +76,14 @@ function Invoke-DevOpsTest {
         $failFast = $parsed.Has('FailFast')
         $ci = $parsed.Has('Ci')
         $collectCoverage = $parsed.Has('CollectCoverage')
+        $explicitMode = if ($parsed.Has('ExplicitOnly')) { 'only' } elseif ($parsed.Has('Explicit')) { 'on' } else { 'off' }
+        $parallelProfile = [string]$parsed.Get('Profile', '')
+        if (-not $parallelProfile) {
+            $parallelProfile = if ($category -eq 'Unit') { 'unit' } elseif ($flaky) { 'stress' } else { 'integration' }
+        }
+        if ($parallelProfile -notin @('unit', 'integration', 'stress')) {
+            throw "Unknown test profile '$parallelProfile'. Valid: unit, integration, stress."
+        }
         $verbosity = [string]$parsed.Get('Verbosity', '')
         $artifactsEnabled = $count -gt 1 -or $flaky -or $diagnostics -or $ci -or $collectCoverage
 
@@ -95,6 +103,9 @@ function Invoke-DevOpsTest {
             Diagnostics = $diagnostics
             Ci = $ci
             CollectCoverage = $collectCoverage
+            ExplicitMode = $explicitMode
+            ParallelProfile = $parallelProfile
+            FailWarnings = $parsed.Has('FailWarnings')
             ArtifactsEnabled = $artifactsEnabled
             Configuration = $configuration
             RequestedFramework = if ($frameworkWasSpecified) { $framework } else { '' }

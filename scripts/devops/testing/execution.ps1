@@ -66,6 +66,32 @@ function Get-MtpTestArguments {
         [void]$arguments.Add('--report-xunit-trx')
         [void]$arguments.Add('--report-xunit-trx-filename')
         [void]$arguments.Add('results.trx')
+        [void]$arguments.Add('--report-xunit-ctrf')
+        [void]$arguments.Add('--report-xunit-ctrf-filename')
+        [void]$arguments.Add('results.ctrf.json')
+    }
+
+    $configPath = Join-Path $Context.RepoRoot 'scripts/devops/testing/testconfig.json'
+    [void]$arguments.Add('--xunit-config-filename')
+    [void]$arguments.Add($configPath)
+
+    if ($Context.Options.PSObject.Properties['ParallelProfile']) {
+        switch ([string]$Context.Options.ParallelProfile) {
+            'unit' { [void]$arguments.Add('--parallel'); [void]$arguments.Add('all') }
+            'stress' { [void]$arguments.Add('--parallel'); [void]$arguments.Add('all') }
+            default { [void]$arguments.Add('--parallel'); [void]$arguments.Add('collections') }
+        }
+    }
+    if ($Context.Options.PSObject.Properties['ExplicitMode']) {
+        $explicitMode = [string]$Context.Options.ExplicitMode
+        if ($explicitMode) { [void]$arguments.Add('--explicit'); [void]$arguments.Add($explicitMode) }
+    }
+    if ($Context.Options.PSObject.Properties['FailWarnings'] -and [bool]$Context.Options.FailWarnings) {
+        [void]$arguments.Add('--fail-warns')
+        [void]$arguments.Add('on')
+    }
+    if ([bool]$Context.Options.Ci) {
+        [void]$arguments.Add('--report-gh')
     }
 
     if ([bool]$Context.Options.CollectCoverage -and [bool]$Target.CoverageEligible) {
@@ -220,10 +246,26 @@ function Invoke-TestTarget {
         Write-Host "  [$ExecutionNumber/$ExecutionCount] $($target.Key) still running ($elapsedText elapsed)..." -ForegroundColor DarkGray
     }.GetNewClosure()
 
-    $processResult = Invoke-ProcessWithLifecycle -FileName $fileName -Arguments $arguments `
-        -WorkingDirectory $Context.RepoRoot -StdOutPath $stdoutPath -StdErrPath $stderrPath `
-        -CaptureOutput $Context.ArtifactsEnabled -MirrorOutput $Context.ArtifactsEnabled `
-        -Timeout $Context.Options.ProcessTimeout -OnProgress $progressCallback
+    if ($Context.ArtifactsEnabled) {
+        Set-ArtifactProcessEnvironment -RunId $Context.RunId -Kind test -ArtifactDirectory $artifactDirectory `
+            -Target $target.Key -Iteration $Iteration -Ci ([bool]$Context.Options.Ci) `
+            -Diagnostics ([bool]$Context.Options.Diagnostics)
+        $env:LEANCORPUS_TELEMETRY = if ([bool]$Context.Options.Diagnostics -or [bool]$Context.Options.Flaky) {
+            'full'
+        } elseif ([bool]$Context.Options.Ci) {
+            'summary'
+        } else {
+            'off'
+        }
+    }
+    try {
+        $processResult = Invoke-ProcessWithLifecycle -FileName $fileName -Arguments $arguments `
+            -WorkingDirectory $Context.RepoRoot -StdOutPath $stdoutPath -StdErrPath $stderrPath `
+            -CaptureOutput $Context.ArtifactsEnabled -MirrorOutput $Context.ArtifactsEnabled `
+            -Timeout $Context.Options.ProcessTimeout -OnProgress $progressCallback
+    } finally {
+        Clear-ArtifactProcessEnvironment
+    }
 
     $resultParsingDuration = [TimeSpan]::Zero
     if ($target.RunnerKind -eq 'Mtp' -and $Context.ArtifactsEnabled) {

@@ -4,20 +4,15 @@ The site is built by DocFX from Markdown, YAML navigation, XML API comments, gen
 
 ## Source and generated content
 
-Edit the Markdown source and templates. Do not edit generated output in:
-
-- `docs/.generated`;
-- `docs/site`;
-- `docs/api`;
-- `docs/bench`;
-- `docs/coverage`;
-- `bin` or `obj`.
+Edit the Markdown source and templates. Do not edit generated output beneath
+`artifacts/`, including `artifacts/docs/api`, `artifacts/docs/site`, generated
+benchmark and coverage pages, or SDK `bin` and `obj` output.
 
 API reference pages are generated from XML documentation. If a public member is unclear, improve its XML comment as well as any conceptual guide.
 
 The feature comparison lives in the Markdown pages under `docs/articles/features`. User-visible feature additions or removals should update the relevant comparison page where applicable. Keep Lucene.NET 4.8 and current Java Lucene as separate comparisons, and use `◐` only for comparable rather than API-equivalent behaviour.
 
-Repository READMEs and contribution guides remain at their owning repository paths so they work on GitHub. The documentation build copies the selected files into `docs/.generated`, rewrites local links for their site destinations, and adds a source notice. Update the source-to-destination map in `Copy-RepositoryDocumentation` when adding or moving one of these guides.
+Repository READMEs and contribution guides remain at their owning repository paths so they work on GitHub. The documentation build stages the selected files under `artifacts/docs/generated/repository`, rewrites local links for their site destinations, and adds a source notice. Update the source-to-destination map in `Copy-RepositoryDocumentation` when adding or moving one of these guides.
 
 ## Navigation
 
@@ -58,7 +53,7 @@ Build the site without regenerating benchmarks:
 ./devops docs -SkipBenchmarks
 ```
 
-The console groups DocFX warnings by code rather than printing every instance. Full JSON-lines diagnostics are retained under `artifacts/docs`, and long DocFX stages report elapsed time every 30 seconds.
+The console groups DocFX warnings by code rather than printing every instance. Full JSON-lines diagnostics are retained under `artifacts/docs/diagnostics`, and long DocFX stages report elapsed time every 30 seconds.
 
 Resolve broken links, duplicate headings, invalid YAML, and Mermaid parse failures before handing off a documentation change. Generated HTML belongs to the build output and should not be committed manually.
 
