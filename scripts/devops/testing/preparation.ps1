@@ -7,7 +7,9 @@ function Get-AotExecutablePath {
         [string]$RepoRoot
     )
 
-    $publishDirectory = Join-Path $RepoRoot "src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/bin/$($Target.Configuration)/$($Target.Framework)/$($Target.RuntimeIdentifier)/publish"
+    $configurationName = $Target.Configuration.ToLowerInvariant()
+    $publishDirectory = Join-Path (Get-ArtifactRoot -RepoRoot $RepoRoot) `
+        "publish/Rowles.LeanCorpus.Tests.AOTSmoke/$configurationName`_$($Target.Framework)_$($Target.RuntimeIdentifier)"
     $fileName = if ($Target.RuntimeIdentifier.StartsWith('win-', [StringComparison]::OrdinalIgnoreCase)) {
         'Rowles.LeanCorpus.Tests.AOTSmoke.exe'
     } else {
@@ -25,8 +27,21 @@ function Get-MtpExecutablePath {
 
     $projectPath = Resolve-TestProjectPath -Target $Target -RepoRoot $RepoRoot
     $projectName = [System.IO.Path]::GetFileNameWithoutExtension($projectPath)
-    $projectDirectory = [System.IO.Path]::GetDirectoryName($projectPath)
-    $outputDirectory = Join-Path $projectDirectory "bin/$($Target.Configuration)/$($Target.Framework)"
+    $propertyOutput = @(Invoke-DotNet @(
+        'msbuild', $projectPath, '--nologo', '-getProperty:TargetPath',
+        "-property:Configuration=$($Target.Configuration)",
+        "-property:TargetFramework=$($Target.Framework)",
+        '-property:UseSharedCompilation=false'
+    ))
+    $targetPaths = @($propertyOutput | ForEach-Object { ([string]$_).Trim() } | Where-Object {
+        $_ -and [System.IO.Path]::IsPathRooted($_) -and
+            [System.IO.Path]::GetExtension($_).Equals('.dll', [StringComparison]::OrdinalIgnoreCase)
+    })
+    if ($targetPaths.Count -ne 1) {
+        throw "MSBuild did not return one TargetPath for '$projectPath' ($($Target.Framework), $($Target.Configuration))."
+    }
+
+    $outputDirectory = [System.IO.Path]::GetDirectoryName($targetPaths[0])
     $candidates = @(
         (Join-Path $outputDirectory $projectName),
         (Join-Path $outputDirectory "$projectName.exe")

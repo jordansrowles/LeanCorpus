@@ -18,7 +18,7 @@ function Prepare-BenchmarkData {
         [int]$BookCount
     )
 
-    $dataDir = Join-Path $RepoRoot 'bench/data'
+    $dataDir = Get-BenchmarkDataRoot -RepoRoot $RepoRoot
     $gutenbergDir = Join-Path $dataDir 'gutenberg-ebooks'
     $newsDir = Join-Path $dataDir '20newsgroups'
     $reutersDir = Join-Path $dataDir 'reuters21578'

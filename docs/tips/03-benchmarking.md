@@ -55,15 +55,17 @@ Use `-CorpusOnly` when a suite should use corpus-backed cases without synthetic 
 
 ## Output
 
-Runs are written beneath `bench/{machine}/...`.
+Normal runs are written beneath `artifacts/benchmark/runs/<run-id>/`, with one
+provenance envelope containing Core, Rowles.Text and compression results.
 
 | Artefact | Contents |
 |---|---|
-| `report.json` | Consolidated suites, statistics, allocation, GC, workload, and provenance |
+| `run-report.json` | Root orchestration status for the requested benchmark projects |
+| `core/report.json` | Core suites, statistics, allocation, GC, workload, and provenance |
 | Suite directories | BenchmarkDotNet Markdown, CSV, and JSON |
 | Machine `index.json` | Run inventory for generated documentation |
 
-Treat the raw BenchmarkDotNet artefacts and `report.json` as the evidence. Generated site pages are a presentation layer.
+Treat the raw BenchmarkDotNet artefacts, `run-report.json`, and `core/report.json` as the evidence. Generated site pages are a presentation layer.
 
 ## Interpret a result
 

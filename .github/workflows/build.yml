@@ -3,8 +3,7 @@ name: Build
 on:
   push:
     branches: [main, '[0-9]*', 'stabilise/**']
-  pull_request:
-    branches: [main, '[0-9]*', 'stabilise/**']
+  pull_request: {}
   workflow_dispatch:
 
 permissions:
@@ -34,6 +33,10 @@ jobs:
       - name: Build solution
         shell: pwsh
         run: ./devops.ps1 build
+      - name: Validate DevOps artefact infrastructure
+        if: matrix.framework == 'net10.0'
+        shell: pwsh
+        run: pwsh ./scripts/devops/validation/artifacts-smoke.ps1
       - name: Test deterministic suites
         shell: pwsh
         env: { CHAOS_ITERATIONS: 25 }
@@ -63,8 +66,8 @@ jobs:
         run: ./devops.ps1 coverage -Framework net10.0 -Clean
       - uses: actions/upload-artifact@v7
         with:
-          name: coverage-results
-          path: coverage-results/**/*.coverage.cobertura.*.xml
+          name: coverage-runs
+          path: artifacts/coverage/runs
           if-no-files-found: error
 
   windows-tests:
@@ -137,12 +140,12 @@ jobs:
           dotnet-quality: preview
       - uses: actions/download-artifact@v7
         with:
-          name: coverage-results
-          path: coverage-results
+          name: coverage-runs
+          path: artifacts/coverage/runs
       - name: Build docs
         shell: pwsh
         run: ./devops docs build -SkipBenchmarks
       - uses: actions/upload-artifact@v7
         with:
           name: leancorpus-docs-site
-          path: docs/site
+          path: artifacts/docs/site

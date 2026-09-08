@@ -23,7 +23,7 @@
           "src": "../src/core/Rowles.LeanCorpus.SourceGen"
         }
       ],
-      "dest": "api",
+      "dest": "../artifacts/docs/api",
       "filter": "filterConfig.yml",
       "namespaceLayout": "nested",
       "memberLayout": "separatePages",
@@ -34,7 +34,14 @@
   "build": {
     "content": [
       {
-        "files": [ "api/**.yml", "api/index.md" ]
+        "files": [ "**.yml" ],
+        "src": "../artifacts/docs/api",
+        "dest": "api"
+      },
+      {
+        "files": [ "index.md" ],
+        "src": "api",
+        "dest": "api"
       },
       {
         "files": [ "*.md", "toc.yml" ]
@@ -83,29 +90,36 @@
       },
       {
         "files": [ "**.md" ],
-        "src": ".generated"
+        "src": "../artifacts/docs/generated/repository",
+        "dest": ".generated"
       },
       {
         "files": [ "articles/**.md" ]
       },
       {
-        "files": [ "benchmarks/*.md" ]
+        "files": [ "*.md" ],
+        "src": "../artifacts/docs/generated/benchmarks",
+        "dest": "benchmarks"
       },
       {
         "files": [ "changelog/**.md" ]
       }
     ],
-    "output": "site",
+    "output": "../artifacts/docs/site",
     "template": [ "default", "modern", "templates/leancorpus" ],
     "resource": [
       {
         "files": [ "assets/**" ]
       },
       {
-        "files": [ "benchmarks/*.json", "benchmarks/benchmark-charts.js" ]
+        "files": [ "*.json", "benchmark-charts.js" ],
+        "src": "../artifacts/docs/generated/benchmarks",
+        "dest": "benchmarks"
       },
       {
-        "files": [ "coverage/**" ]
+        "files": [ "**" ],
+        "src": "../artifacts/docs/coverage",
+        "dest": "coverage"
       }
     ],
     "globalMetadata": {

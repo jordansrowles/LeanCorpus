@@ -32,5 +32,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: benchmark-results
-          path: BenchmarkDotNet.Artifacts/**
+          path: artifacts/benchmark/runs
           if-no-files-found: ignore

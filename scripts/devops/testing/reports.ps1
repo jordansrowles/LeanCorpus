@@ -122,6 +122,19 @@ function New-TestReportDocument {
             totalDurationMs = [double]$Summary.TotalDurationMs
             outcomeCounts = $Summary.OutcomeCounts
         }
+        telemetry = [ordered]@{
+            tests = [int]$Summary.TelemetrySummary.tests
+            activities = [int]$Summary.TelemetrySummary.activities
+            metrics = [int]$Summary.TelemetrySummary.metrics
+            swallowedExceptions = [int]$Summary.TelemetrySummary.swallowedExceptions
+            orphanedActivities = [int]$Summary.TelemetrySummary.orphanedActivities
+            summaryPaths = @($Summary.TelemetrySummary.summaryPaths | ForEach-Object {
+                Get-TestArtifactRelativePath -Context $Context -Path $_
+            })
+        }
+        attachmentPaths = @($Summary.AttachmentPaths | ForEach-Object {
+            Get-TestArtifactRelativePath -Context $Context -Path $_
+        })
         targetResults = @($Summary.TargetResults)
         tests = @($Summary.Tests | ForEach-Object { ConvertTo-TestReportTestDocument $_ })
         intermittentFailures = @($Summary.IntermittentFailures | ForEach-Object { ConvertTo-TestReportTestDocument $_ })
@@ -239,6 +252,15 @@ function New-TestMarkdownReport {
     }
     [void]$builder.AppendLine()
 
+    [void]$builder.AppendLine('## Telemetry')
+    [void]$builder.AppendLine()
+    [void]$builder.AppendLine("- Test summaries: $($Summary.TelemetrySummary.tests)")
+    [void]$builder.AppendLine("- Activities: $($Summary.TelemetrySummary.activities)")
+    [void]$builder.AppendLine("- Measurements: $($Summary.TelemetrySummary.metrics)")
+    [void]$builder.AppendLine("- Swallowed exceptions: $($Summary.TelemetrySummary.swallowedExceptions)")
+    [void]$builder.AppendLine("- Orphaned activity observations: $($Summary.TelemetrySummary.orphanedActivities)")
+    [void]$builder.AppendLine()
+
     foreach ($section in @(
         @{ Title = 'Intermittent failures'; Items = @($Summary.IntermittentFailures); Property = 'Classification' },
         @{ Title = 'Always-failing tests'; Items = @($Summary.AlwaysFailingTests); Property = 'Classification' },
@@ -284,8 +306,18 @@ function New-TestMarkdownReport {
     [void]$builder.AppendLine('## Diagnostics and artefacts')
     [void]$builder.AppendLine()
     [void]$builder.AppendLine('- Run directory: `artifacts/test/runs/' + (ConvertTo-MarkdownCell $Context.RunId) + '`')
-    foreach ($path in @($Summary.DiagnosticArtifactPaths)) {
-        [void]$builder.AppendLine('- `' + (ConvertTo-MarkdownCell (Get-TestArtifactRelativePath -Context $Context -Path $path)) + '`')
+    $evidencePaths = @($Summary.DiagnosticArtifactPaths | ForEach-Object {
+        $relative = Get-TestArtifactRelativePath -Context $Context -Path $_
+        if ($relative -match '^(targets/[^/]+/\d+)/(telemetry|runtime)/') {
+            "$($Matches[1])/$($Matches[2])/"
+        } elseif ($relative -match '^(targets/[^/]+/\d+)/[^/]+/leancorpus-') {
+            "$($Matches[1])/attachments/"
+        } else {
+            $relative
+        }
+    } | Where-Object { $_ } | Sort-Object -Unique)
+    foreach ($path in $evidencePaths) {
+        [void]$builder.AppendLine('- `' + (ConvertTo-MarkdownCell $path) + '`')
     }
     if (@($Summary.InfrastructureErrors).Count -gt 0) {
         [void]$builder.AppendLine()
@@ -368,15 +400,15 @@ function Write-TestRunReports {
     $reportDocument = New-TestReportDocument -Context $Context -Summary $Summary
 
     try {
-        Write-AtomicJsonFile -Path (Join-Path $Context.RunDirectory 'summary.json') -Value $reportDocument
+        Write-AtomicJsonFile -Path (Join-Path $Context.RunDirectory 'report.json') -Value $reportDocument
     } catch {
-        [void]$errors.Add("summary.json: $($_.Exception.Message)")
+        [void]$errors.Add("report.json: $($_.Exception.Message)")
     }
 
     try {
-        Write-AtomicTextFile -Path (Join-Path $Context.RunDirectory 'summary.md') -Content (New-TestMarkdownReport -Context $Context -Summary $Summary)
+        Write-AtomicTextFile -Path (Join-Path $Context.RunDirectory 'report.md') -Content (New-TestMarkdownReport -Context $Context -Summary $Summary)
     } catch {
-        [void]$errors.Add("summary.md: $($_.Exception.Message)")
+        [void]$errors.Add("report.md: $($_.Exception.Message)")
     }
 
     try {
@@ -393,5 +425,5 @@ function Write-TestRunReports {
         throw "One or more test reports could not be written: $($errors -join '; ')"
     }
 
-    Write-Success "Report: $(Join-Path $Context.RunDirectory 'summary.md')"
+    Write-Success "Report: $(Join-Path $Context.RunDirectory 'report.md')"
 }

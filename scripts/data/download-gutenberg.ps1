@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Downloads a curated set of public-domain books from Project Gutenberg
-    into bench/data/gutenberg-ebooks/. Files are named by Gutenberg ID (e.g. 84.txt).
+    into artifacts/benchmark/cache/data/gutenberg-ebooks/. Files are named by Gutenberg ID (e.g. 84.txt).
 
     When BookCount exceeds the curated seed list, the script downloads the
     Gutenberg catalogue CSV, caches it locally, and supplements from the
@@ -19,7 +19,7 @@
     When BookCount > seed list size, the catalogue is consulted for the remainder.
 
 .PARAMETER OutputDir
-    Override the output directory. Defaults to bench/data/gutenberg-ebooks relative
+    Override the output directory. Defaults to artifacts/benchmark/cache/data/gutenberg-ebooks relative
     to the repository root.
 
 .EXAMPLE
@@ -47,12 +47,14 @@ if ($BookCount -lt 1) {
 }
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+. (Join-Path $repoRoot 'scripts/devops/artifacts/paths.ps1')
+$dataRoot = Get-BenchmarkDataRoot -RepoRoot $repoRoot
 
 if ([string]::IsNullOrEmpty($OutputDir)) {
-    $OutputDir = Join-Path $repoRoot "bench\data\gutenberg-ebooks"
+    $OutputDir = Join-Path $dataRoot 'gutenberg-ebooks'
 }
 
-$catalogCacheDir  = Join-Path $repoRoot "bench\data"
+$catalogCacheDir  = $dataRoot
 $catalogCachePath = Join-Path $catalogCacheDir ".gutenberg-catalog.csv"
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null

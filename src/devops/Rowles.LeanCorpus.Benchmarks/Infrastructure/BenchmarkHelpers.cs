@@ -8,7 +8,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 public static class BenchmarkHelpers
 {
     /// <summary>
-    /// Root directory for all benchmark temp files. Uses <c>bench/tmp</c> under the
+    /// Root directory for all benchmark temp files. Uses <c>artifacts/temp/benchmark</c> under the
     /// repository root (half-TB NVMe) instead of the 12 GB tmpfs RAM disk.
     /// </summary>
     public static string TempRoot { get; } = ResolveTempRoot();
@@ -44,7 +44,7 @@ public static class BenchmarkHelpers
     {
         // Walk up from the benchmark assembly location until we find the
         // repository root (marked by Rowles.LeanCorpus.slnx), then anchor
-        // bench/tmp there. Uses the assembly path rather than the current
+        // artifacts/temp/benchmark there. Uses the assembly path rather than the current
         // directory so it works regardless of how BenchmarkDotNet sets the cwd.
         var current = new DirectoryInfo(AppContext.BaseDirectory);
 
@@ -52,7 +52,7 @@ public static class BenchmarkHelpers
         {
             if (File.Exists(Path.Combine(current.FullName, "Rowles.LeanCorpus.slnx")))
             {
-                var root = Path.Combine(current.FullName, "bench", "tmp");
+                var root = Path.Combine(current.FullName, "artifacts", "temp", "benchmark");
                 Directory.CreateDirectory(root);
                 return root;
             }
@@ -61,7 +61,7 @@ public static class BenchmarkHelpers
         }
 
         // Fallback: use the current directory (shouldn't happen in practice).
-        var fallback = Path.Combine(Directory.GetCurrentDirectory(), "bench", "tmp");
+        var fallback = Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "temp", "benchmark");
         Directory.CreateDirectory(fallback);
         return fallback;
     }

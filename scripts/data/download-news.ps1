@@ -19,7 +19,7 @@
     Both datasets are free for research and academic use.
 
 .PARAMETER OutputDir
-    Override the base output directory. Defaults to bench/data relative to the
+    Override the base output directory. Defaults to artifacts/benchmark/cache/data relative to the
     repository root. Datasets are extracted into subdirectories within it.
 
 .PARAMETER Skip20News
@@ -43,9 +43,10 @@ param(
 )
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+. (Join-Path $repoRoot 'scripts/devops/artifacts/paths.ps1')
 
 if ([string]::IsNullOrEmpty($OutputDir)) {
-    $OutputDir = Join-Path $repoRoot "bench\data"
+    $OutputDir = Get-BenchmarkDataRoot -RepoRoot $repoRoot
 }
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null

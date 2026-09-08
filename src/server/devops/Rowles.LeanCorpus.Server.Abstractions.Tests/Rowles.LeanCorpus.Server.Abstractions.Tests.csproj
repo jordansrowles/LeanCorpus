@@ -12,7 +12,12 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Testing.Extensions.CrashDump" />
     <PackageReference Include="Microsoft.Testing.Extensions.HangDump" />
+    <PackageReference Include="Microsoft.Testing.Extensions.GitHubActionsReport" />
     <PackageReference Include="xunit.v3.mtp-v2" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../../devops/Rowles.LeanCorpus.Tests.Shared/Diagnostics/LeanCorpusTestDiagnostics.cs" Link="Diagnostics/LeanCorpusTestDiagnostics.cs" />
+    <Compile Include="../../../devops/Rowles.LeanCorpus.Tests.Shared/Diagnostics/LeanCorpusTestTelemetryFixture.cs" Link="Diagnostics/LeanCorpusTestTelemetryFixture.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../Rowles.LeanCorpus.Server.Abstractions/Rowles.LeanCorpus.Server.Abstractions.csproj" />

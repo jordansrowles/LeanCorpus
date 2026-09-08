@@ -72,11 +72,12 @@ function Invoke-TestPipeline {
         [Parameter(Mandatory = $true)]
         [string]$CommandLine,
         [string]$DisplayName = 'Test run',
+        [string]$RunId = '',
         [string]$RepoRoot = (Get-RepoRoot)
     )
 
     $context = New-TestRunContext -Options $Options -Targets $Targets `
-        -CommandLine $CommandLine -RepoRoot $RepoRoot
+        -CommandLine $CommandLine -RunId $RunId -RepoRoot $RepoRoot
     $summary = $null
     $pipelineError = $null
     $reportError = $false
@@ -202,15 +203,28 @@ function Invoke-TestPipeline {
                 }
             }
             try {
-                if ($null -ne $summary) {
-                    Update-TestRunManifest -Context $context -Summary $summary
-                }
-                $finalStatus = if ($null -eq $pipelineError) { 'Completed' } else { 'Failed' }
+                $finalStatus = if ($null -eq $pipelineError -and
+                    -not $reportError -and
+                    $context.ReportErrors.Count -eq 0 -and
+                    $null -ne $summary -and
+                    [bool]$summary.Succeeded) { 'Passed' } else { 'Failed' }
+                Update-TestRunManifest -Context $context -Summary $summary -Status $finalStatus
                 Write-TestRunCheckpoint -Context $context -Status $finalStatus
             } catch {
                 $reportError = $true
                 [void]$context.ReportErrors.Add("Final artefact update failed: $($_.Exception.Message)")
                 Write-Failure "Final artefact update failed: $($_.Exception.Message)"
+                try {
+                    Complete-ArtifactRun -RunDirectory $context.RunDirectory -Status Failed `
+                        -AdditionalValues @{ error = $_.Exception.Message }
+                } catch {
+                    [void]$context.ReportErrors.Add("Failed run finalisation failed: $($_.Exception.Message)")
+                }
+                try {
+                    Write-TestRunCheckpoint -Context $context -Status 'Failed'
+                } catch {
+                    [void]$context.ReportErrors.Add("Failed checkpoint update failed: $($_.Exception.Message)")
+                }
             }
         }
     }
@@ -232,7 +246,7 @@ function Invoke-TestPipeline {
         Write-Host "  Failed runs:   $($summary.FailingIterations -join ', ')"
     }
     if ($context.ArtifactsEnabled) {
-        Write-Host "  Report:        $(Join-Path $context.RunDirectory 'summary.md')"
+        Write-Host "  Report:        $(Join-Path $context.RunDirectory 'report.md')"
     }
 
     if ($null -ne $pipelineError -or $reportError -or $context.ReportErrors.Count -gt 0 -or -not $summary.Succeeded) {

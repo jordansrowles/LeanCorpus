@@ -75,14 +75,7 @@ function Invoke-DevOpsBenchmark {
         exit $LASTEXITCODE
     }
 
-    $projectPath = Resolve-BenchmarkProjectPath $suite
-
-    # The Rowles.Text and Compression runners do not use the custom --suite
-    # protocol; only the core runner does.
-    $runArgs = @()
-    if ($suite -notin @('text', 'compression')) {
-        $runArgs += @('--suite', $suite)
-    }
+    $projectKeys = if ($suite -eq 'all') { @('core', 'text', 'compression') } elseif ($suite -in @('core', 'text', 'compression')) { @($suite) } else { @('core') }
 
     $stratCfg = Resolve-BenchmarkStrategy $strat
     $stratDocCount = $stratCfg.DocCount
@@ -111,10 +104,8 @@ function Invoke-DevOpsBenchmark {
     }
 
     if ($effectiveDocCount -gt 0) {
-        $runArgs += @('--doccount', $effectiveDocCount.ToString())
         $env:BENCH_DOC_COUNT = $effectiveDocCount.ToString()
     }
-    if ($corpusOnly) { $runArgs += '--corpus-only' }
     if ($sourceCommit)   { $env:BENCH_SOURCE_COMMIT   = $sourceCommit }
     if ($sourceRef)      { $env:BENCH_SOURCE_REF      = $sourceRef }
     if ($sourceManifest) { $env:BENCH_SOURCE_MANIFEST = [System.IO.Path]::GetFullPath($sourceManifest) }
@@ -127,23 +118,107 @@ function Invoke-DevOpsBenchmark {
     if ($effectiveDocCount -gt 0) { Write-Host "Docs:       $effectiveDocCount" }
     if ($stratJobArgs)   { Write-Host "Job:        $($stratJobArgs -join ' ')" }
     if ($passThrough)    { Write-Host "BDN args:   $($passThrough -join ' ')" }
+    Write-Host "Projects:   $($projectKeys -join ', ')"
 
     if ($dry) {
         Write-Host ''
-        Write-Host 'Dry run - command that would execute:'
-        Write-Host "  dotnet run -c Release --framework $framework --project `"$projectPath`" -- $($runArgs -join ' ') $($stratJobArgs -join ' ') $($passThrough -join ' ')"
+        Write-Host 'Dry run - commands that would execute:'
+        foreach ($projectKey in $projectKeys) {
+            $projectPath = Resolve-BenchmarkProjectPath $projectKey
+            $runArgs = if ($projectKey -eq 'core') { @('--suite', $(if ($suite -in @('all', 'core')) { 'all' } else { $suite })) } else { @() }
+            if ($effectiveDocCount -gt 0 -and $projectKey -eq 'core') { $runArgs += @('--doccount', $effectiveDocCount.ToString()) }
+            if ($corpusOnly -and $projectKey -eq 'core') { $runArgs += '--corpus-only' }
+            Write-Host "  dotnet run -c Release --framework $framework --project `"$projectPath`" -- $($runArgs -join ' ') $($stratJobArgs -join ' ') $($passThrough -join ' ')"
+        }
         Write-Host ''
         exit 0
     }
 
     if ($gcDump) {
-        $runArgs += '--gcdump'
         Assert-DotNetTool 'dotnet-gcdump'
     }
 
     Write-Host ''
-    dotnet run -c Release --framework $framework --project $projectPath -- @runArgs @stratJobArgs @passThrough
-    exit $LASTEXITCODE
+    $commandLine = ConvertTo-CommandLineText -Command './devops benchmark' -Arguments $Arguments
+    $benchmarkRun = New-ArtifactRun -Kind benchmark -Framework $framework -Configuration Release `
+        -Target $suite -CommandLine $commandLine -RepoRoot $repoRoot
+    $projectResults = [System.Collections.Generic.List[object]]::new()
+    $runCompleted = $false
+    $runFailure = $null
+    try {
+        foreach ($projectKey in $projectKeys) {
+            $projectPath = Resolve-BenchmarkProjectPath $projectKey
+            $projectDirectory = Join-Path $benchmarkRun.RunDirectory $projectKey
+            [void][System.IO.Directory]::CreateDirectory($projectDirectory)
+            $runArgs = if ($projectKey -eq 'core') { @('--suite', $(if ($suite -in @('all', 'core')) { 'all' } else { $suite })) } else { @() }
+            if ($effectiveDocCount -gt 0 -and $projectKey -eq 'core') { $runArgs += @('--doccount', $effectiveDocCount.ToString()) }
+            if ($corpusOnly -and $projectKey -eq 'core') { $runArgs += '--corpus-only' }
+            if ($gcDump -and $projectKey -eq 'core') { $runArgs += '--gcdump' }
+
+            Set-ArtifactProcessEnvironment -RunId $benchmarkRun.RunId -Kind benchmark `
+                -ArtifactDirectory $projectDirectory -Target $projectKey
+            Write-Info "Running benchmark project: $projectKey"
+            dotnet run -c Release --framework $framework --project $projectPath -- @runArgs @stratJobArgs @passThrough
+            $exitCode = $LASTEXITCODE
+            [void]$projectResults.Add([ordered]@{
+                project = $projectKey
+                status = if ($exitCode -eq 0) { 'Passed' } else { 'Failed' }
+                exitCode = $exitCode
+                path = $projectKey
+            })
+        }
+        $failedProjects = @($projectResults | Where-Object { $_.status -ne 'Passed' })
+        $report = [ordered]@{
+            schemaVersion = 1
+            runId = $benchmarkRun.RunId
+            status = if ($failedProjects.Count -eq 0) { 'Passed' } else { 'Failed' }
+            framework = $framework
+            strategy = $strat
+            comparable = $true
+            projects = @($projectResults)
+        }
+        Write-AtomicJsonFile -Path (Join-Path $benchmarkRun.RunDirectory 'run-report.json') -Value $report
+        $markdown = @(
+            "# Benchmark run $($benchmarkRun.RunId)",
+            '',
+            "Status: $($report.status)",
+            '',
+            '| Project | Status | Path |',
+            '| --- | --- | --- |'
+        ) + @($projectResults | ForEach-Object { "| $($_.project) | $($_.status) | `$($_.path)/` |" })
+        Write-AtomicTextFile -Path (Join-Path $benchmarkRun.RunDirectory 'report.md') -Content ($markdown -join [Environment]::NewLine)
+        Complete-ArtifactRun -RunDirectory $benchmarkRun.RunDirectory -Status $report.status `
+            -AdditionalValues @{ projects = @($projectResults); report = 'run-report.json'; comparable = $true }
+        $runCompleted = $true
+    } catch {
+        $runFailure = $_.Exception
+        try {
+            Complete-ArtifactRun -RunDirectory $benchmarkRun.RunDirectory -Status Failed `
+                -AdditionalValues @{ error = $runFailure.Message }
+            $runCompleted = $true
+        } catch {
+            Write-Warn "Benchmark run could not be finalised as Failed: $($_.Exception.Message)"
+        }
+        Write-Failure "Benchmark command failed: $($runFailure.Message)"
+    } finally {
+        Clear-ArtifactProcessEnvironment
+        if (-not $runCompleted) {
+            try {
+                Complete-ArtifactRun -RunDirectory $benchmarkRun.RunDirectory -Status Incomplete `
+                    -AdditionalValues @{ error = 'Benchmark command did not complete normally.' }
+                $runCompleted = $true
+            } catch {
+                Write-Warn "Benchmark run remained unfinalised: $($_.Exception.Message)"
+            }
+        }
+    }
+
+    if ($null -ne $runFailure) {
+        exit 1
+    }
+
+    Write-Host "Benchmark run: $($benchmarkRun.RunDirectory)"
+    exit $(if ($failedProjects.Count -eq 0) { 0 } else { 1 })
 }
 
 function Resolve-BenchmarkProjectPath {

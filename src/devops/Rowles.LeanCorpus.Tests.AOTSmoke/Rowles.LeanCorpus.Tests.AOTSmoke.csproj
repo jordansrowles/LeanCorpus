@@ -4,20 +4,17 @@
     <OutputType>Exe</OutputType>
     <PublishAot>true</PublishAot>
     <IsAotCompatible>true</IsAotCompatible>
-    <IsTestProject>false</IsTestProject>
-    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <IsTestProject>true</IsTestProject>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="xunit.v3.aot" Version="4.0.0-pre.128" />
-    <PackageReference Include="xunit.v3.assert.aot" Version="4.0.0-pre.128" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0-pre.4">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3.aot" />
+    <PackageReference Include="xunit.v3.aot.mtp-v2" />
+    <PackageReference Include="xunit.v3.assert.aot" />
   </ItemGroup>
 
   <ItemGroup>

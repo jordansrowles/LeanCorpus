@@ -7,8 +7,7 @@
 # Source-generator output
 *.g.cs
 # Benchmark results (ignore output, keep data)
-bench/*
-bench/data/*.tar.gz
+bench/
 coverage-report/
 coverage-results/
 StrykerOutput/
@@ -82,7 +81,7 @@ BenchmarkDotNet.Artifacts/
 # .NET
 project.lock.json
 project.fragment.lock.json
-artifacts/
+/artifacts/
 
 # Tye
 .tye/

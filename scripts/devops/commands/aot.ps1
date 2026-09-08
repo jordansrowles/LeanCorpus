@@ -46,6 +46,9 @@ function Invoke-DevOpsAot {
             Diagnostics = $diagnostics
             Ci = $ci
             CollectCoverage = $false
+            ExplicitMode = 'off'
+            ParallelProfile = 'integration'
+            FailWarnings = $false
             ArtifactsEnabled = $count -gt 1 -or $flaky -or $diagnostics -or $ci
             Configuration = $configuration
             RequestedFramework = if ($frameworkWasSpecified) { $framework } else { '' }

@@ -21,9 +21,9 @@ function Invoke-DevOpsDocs {
 
     $docsDir  = Join-Path $repoRoot 'docs'
     $docfxJson = Join-Path $docsDir 'docfx.json'
-    $apiDir   = Join-Path $docsDir 'api'
-    $siteDir  = Join-Path $docsDir 'site'
-    $diagnosticsDir = Join-Path $repoRoot 'artifacts/docs'
+    $apiDir   = Get-DocsArtifactPath -Name api -RepoRoot $repoRoot
+    $siteDir  = Get-DocsArtifactPath -Name site -RepoRoot $repoRoot
+    $diagnosticsDir = Get-DocsArtifactPath -Name diagnostics -RepoRoot $repoRoot
     $metadataLog = Join-Path $diagnosticsDir 'docfx-metadata.jsonl'
     $buildLog = Join-Path $diagnosticsDir 'docfx-build.jsonl'
 
@@ -40,11 +40,11 @@ function Invoke-DevOpsDocs {
     }
 
     function Invoke-MetadataRegeneration {
-        Clear-ApiMetadata $docsDir
+        Clear-ApiMetadata $apiDir
         Write-Heading 'Generating API metadata...'
         $exitCode = Invoke-DocfxWithDiagnostics -Command metadata -ConfigPath $docfxJson -LogPath $metadataLog
         if ($exitCode -ne 0) { exit $exitCode }
-        Remove-ExternalInheritedMembers $docsDir
+        Remove-ExternalInheritedMembers $apiDir
     }
 
     if ($subCmd -eq 'metadata') {
@@ -78,13 +78,37 @@ function Invoke-DevOpsDocs {
 
     if (-not $skipBenchmarks) {
         Write-Heading 'Generating benchmark pages...'
-        & (Join-Path $scriptsPath 'benchmarks/generate-docs.ps1')
+        & (Join-Path $scriptsPath 'benchmarks/generate-docs.ps1') `
+            -OutputDir (Join-Path (Get-DocsArtifactPath -Name generated -RepoRoot $repoRoot) 'benchmarks')
+    } else {
+        $benchmarkStaging = Join-Path (Get-DocsArtifactPath -Name generated -RepoRoot $repoRoot) 'benchmarks'
+        [void][System.IO.Directory]::CreateDirectory($benchmarkStaging)
+        Get-ChildItem (Join-Path $docsDir 'benchmarks') -File | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $benchmarkStaging $_.Name) -Force
+        }
     }
 
     if (-not $skipCoverage) {
-        $xmlFiles = @(Find-CoverageResults (Join-Path $repoRoot 'coverage-results'))
+        $coverageOutput = Get-DocsArtifactPath -Name coverage -RepoRoot $repoRoot
+        $coverageRun = $null
+        $gitContext = Get-ArtifactGitContext -RepoRoot $repoRoot
+        if ($gitContext.commit -and -not $gitContext.dirty) {
+            $coverageRun = Get-LatestSuccessfulArtifactRun -Kind coverage -RepoRoot $repoRoot `
+                -Commit $gitContext.commit
+        } elseif ($gitContext.dirty) {
+            Write-Info 'Current working tree is dirty; retained coverage evidence will not be reused.'
+        }
+
+        $xmlFiles = @(
+            if ($null -ne $coverageRun) {
+                Find-CoverageResults (Join-Path $coverageRun.RunDirectory 'raw')
+            }
+        )
         if ($xmlFiles.Count -gt 0) {
-            New-CoverageReport -XmlFiles $xmlFiles -OutputDir (Join-Path $docsDir 'coverage')
+            New-CoverageReport -XmlFiles $xmlFiles -OutputDir $coverageOutput
+        } else {
+            Remove-OwnedArtifactPath -Path $coverageOutput -ArtifactRoot (Get-ArtifactRoot -RepoRoot $repoRoot)
+            Write-Info 'Current-commit coverage evidence is unavailable; continuing without a coverage report.'
         }
     }
 

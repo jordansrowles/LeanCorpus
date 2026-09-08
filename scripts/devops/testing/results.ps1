@@ -281,7 +281,12 @@ function Get-ExecutionDiagnosticPaths {
     $diagnosticExtensions = @('.dmp', '.diag', '.nettrace', '.gcdump')
     $paths = [System.Collections.Generic.List[string]]::new()
     foreach ($file in @(Get-ChildItem -LiteralPath $ArtifactDirectory -File -Recurse -ErrorAction SilentlyContinue)) {
-        if ($file.Extension.ToLowerInvariant() -in $diagnosticExtensions) {
+        $relativePath = [System.IO.Path]::GetRelativePath($ArtifactDirectory, $file.FullName).Replace('\', '/')
+        if ($file.Extension.ToLowerInvariant() -in $diagnosticExtensions -or
+            $relativePath -eq 'results.ctrf.json' -or
+            $relativePath.StartsWith('telemetry/', [StringComparison]::OrdinalIgnoreCase) -or
+            $relativePath.StartsWith('runtime/', [StringComparison]::OrdinalIgnoreCase) -or
+            $file.Name.StartsWith('leancorpus-', [StringComparison]::OrdinalIgnoreCase)) {
             [void]$paths.Add($file.FullName)
         }
     }
@@ -313,6 +318,46 @@ function Get-NearestRankPercentile {
     if ($rank -lt 1) { $rank = 1 }
     if ($rank -gt $sorted.Count) { $rank = $sorted.Count }
     return [double]$sorted[$rank - 1]
+}
+
+function Get-TestSummaryPropertySum {
+    param(
+        [object[]]$Items = @(),
+        [Parameter(Mandatory = $true)]
+        [string]$Property
+    )
+
+    if ($Items.Count -eq 0) {
+        return 0L
+    }
+
+    $measurement = $Items | Measure-Object -Property $Property -Sum
+    if ($null -eq $measurement -or $null -eq $measurement.Sum) {
+        return 0L
+    }
+
+    return [long]$measurement.Sum
+}
+
+function Get-TestObservationClassification {
+    param(
+        [object[]]$Observations,
+        [int]$ExpectedObservationCount
+    )
+
+    $observations = @($Observations)
+    $hasNonTerminalOutcome = @($observations | Where-Object {
+        $_.Outcome -notin @('Passed', 'Failed', 'Error', 'Timeout')
+    }).Count -gt 0
+    if ($observations.Count -lt $ExpectedObservationCount -or $hasNonTerminalOutcome) { return 'Incomplete' }
+
+    $failedCount = @($observations | Where-Object { $_.Outcome -in @('Failed', 'Error', 'Timeout') }).Count
+    $passedCount = @($observations | Where-Object { $_.Outcome -eq 'Passed' }).Count
+    if ($observations.Count -eq 1) { return $(if ($passedCount -eq 1) { 'Passed' } else { 'Failed' }) }
+    if ($failedCount -gt 0 -and $passedCount -gt 0) { return 'Intermittent failure' }
+    if ($failedCount -eq $observations.Count) { return 'Always fails' }
+    if ($passedCount -eq $observations.Count) { return 'Always passes' }
+    return 'Incomplete'
 }
 
 function New-TestRunSummary {
@@ -398,23 +443,9 @@ function New-TestRunSummary {
         } else {
             0
         }
-        $hasNonTerminalTestOutcome = @($observations | Where-Object {
-            $_.Outcome -notin @('Passed', 'Failed', 'Error', 'Timeout')
-        }).Count -gt 0
-        $isIncomplete = $observations.Count -lt $expected -or $hasNonTerminalTestOutcome
         $failedObservations = @($observations | Where-Object { $_.Outcome -in @('Failed', 'Error', 'Timeout') })
         $passedObservations = @($observations | Where-Object { $_.Outcome -eq 'Passed' })
-        $classification = if ($isIncomplete) {
-            'Incomplete'
-        } elseif ($failedObservations.Count -gt 0 -and $passedObservations.Count -gt 0) {
-            'Intermittent failure'
-        } elseif ($failedObservations.Count -eq $observations.Count) {
-            'Always fails'
-        } elseif ($passedObservations.Count -eq $observations.Count) {
-            'Always passes'
-        } else {
-            'Incomplete'
-        }
+        $classification = Get-TestObservationClassification -Observations $observations -ExpectedObservationCount $expected
         [void]$perTest.Add([pscustomobject]@{
             TargetKey = $observation.TargetKey
             Suite = $observation.Suite
@@ -446,6 +477,17 @@ function New-TestRunSummary {
     $failingIterations = @($executions | Where-Object { $_.Outcome -ne 'Passed' } |
         ForEach-Object { [int]$_.Iteration } | Sort-Object -Unique)
     $diagnosticPaths = @($executions | ForEach-Object { @($_.DiagnosticPaths) } | Where-Object { $_ })
+    $telemetrySummaryPaths = @($diagnosticPaths | Where-Object {
+        $_.Replace('\', '/') -match '/telemetry/tests/[^/]+/summary\.json$'
+    })
+    $telemetrySummaries = @($telemetrySummaryPaths | ForEach-Object {
+        try { Get-Content -LiteralPath $_ -Raw | ConvertFrom-Json } catch { $null }
+    } | Where-Object { $null -ne $_ })
+    $attachmentPaths = @($diagnosticPaths | Where-Object {
+        $normalised = $_.Replace('\', '/')
+        [System.IO.Path]::GetFileName($_).StartsWith('leancorpus-', [StringComparison]::OrdinalIgnoreCase) -and
+            $normalised -notmatch '/telemetry/tests/'
+    })
     $totalDuration = if ($Context.EndTimeUtc) {
         ($Context.EndTimeUtc - $Context.StartTimeUtc).TotalMilliseconds
     } else {
@@ -486,5 +528,14 @@ function New-TestRunSummary {
         IncompleteTargets = @($targetDocuments | Where-Object { $_.outcome -eq 'Incomplete' })
         InfrastructureErrors = @($Context.InfrastructureErrors)
         DiagnosticArtifactPaths = $diagnosticPaths
+        AttachmentPaths = $attachmentPaths
+        TelemetrySummary = [ordered]@{
+            tests = $telemetrySummaries.Count
+            activities = [int](Get-TestSummaryPropertySum -Items $telemetrySummaries -Property activityCount)
+            metrics = [int](Get-TestSummaryPropertySum -Items $telemetrySummaries -Property metricCount)
+            swallowedExceptions = [int](Get-TestSummaryPropertySum -Items $telemetrySummaries -Property swallowedExceptions)
+            orphanedActivities = [int](Get-TestSummaryPropertySum -Items $telemetrySummaries -Property orphanedActivities)
+            summaryPaths = $telemetrySummaryPaths
+        }
     }
 }

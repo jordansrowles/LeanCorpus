@@ -2,9 +2,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 function Clear-ApiMetadata {
-    param([string]$DocsDir)
-
-    $apiDir = Join-Path $DocsDir 'api'
+    param([string]$ApiDir)
     if (-not (Test-Path $apiDir)) {
         New-Item -ItemType Directory -Path $apiDir | Out-Null
         return
@@ -123,9 +121,7 @@ function Invoke-DocfxWithDiagnostics {
 }
 
 function Remove-ExternalInheritedMembers {
-    param([string]$DocsDir)
-
-    $apiDir = Join-Path $DocsDir 'api'
+    param([string]$ApiDir)
     if (-not (Test-Path $apiDir)) { return }
 
     foreach ($file in Get-ChildItem $apiDir -Filter '*.yml' -File) {
@@ -214,7 +210,7 @@ function Copy-RepositoryDocumentation {
         @{ Source = 'src/server/README.md'; Destination = 'contributors/server-proof-of-concept.md' }
     )
 
-    $stagingDir = Join-Path $DocsDir '.generated'
+    $stagingDir = Join-Path (Get-DocsArtifactPath -Name generated -RepoRoot $RepoRoot) 'repository'
     if (Test-Path $stagingDir) {
         Remove-Item $stagingDir -Recurse -Force
     }

@@ -3,13 +3,13 @@
     Generates DocFX benchmark pages from BDN output files — one page per suite.
 
 .DESCRIPTION
-    For each machine directory under bench/, scans all completed runs and keeps the
+    Scans completed runs under artifacts/benchmark/runs and keeps the
     newest run per suite and writes one markdown page per suite into docs/benchmarks/.
 
     Run this before docfx build; docs.ps1 calls it automatically.
 
 .PARAMETER BenchDir
-    Path to the bench/ directory. Defaults to ../bench relative to the script.
+    Path to the benchmark run directory. Defaults to artifacts/benchmark/runs.
 
 .PARAMETER OutputDir
     Path to write the generated files. Defaults to ../docs/benchmarks.
@@ -20,7 +20,8 @@
 #>
 param(
     [string]$BenchDir  = '',
-    [string]$OutputDir = ''
+    [string]$OutputDir = '',
+    [string]$PublishedDir = ''
 )
 
 Set-StrictMode -Version Latest
@@ -28,11 +29,23 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 
-if ([string]::IsNullOrEmpty($BenchDir))  { $BenchDir  = Join-Path $repoRoot 'bench' }
-if ([string]::IsNullOrEmpty($OutputDir)) { $OutputDir = Join-Path $repoRoot 'docs\benchmarks' }
+if ([string]::IsNullOrEmpty($BenchDir))  { $BenchDir  = Join-Path $repoRoot 'artifacts/benchmark/runs' }
+if ([string]::IsNullOrEmpty($OutputDir)) { $OutputDir = Join-Path $repoRoot 'artifacts\docs\generated\benchmarks' }
+if ([string]::IsNullOrEmpty($PublishedDir)) { $PublishedDir = Join-Path $repoRoot 'docs/benchmarks' }
 
 $BenchDir  = [System.IO.Path]::GetFullPath($BenchDir)
 $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
+$PublishedDir = [System.IO.Path]::GetFullPath($PublishedDir)
+
+# Preserve the last published benchmark documentation until a newer run exists.
+# This keeps a clean checkout buildable while moving generated output out of docs/.
+[void][System.IO.Directory]::CreateDirectory($OutputDir)
+foreach ($stagedItem in @(Get-ChildItem $OutputDir -Force -ErrorAction SilentlyContinue)) {
+    Remove-Item -LiteralPath $stagedItem.FullName -Recurse -Force
+}
+foreach ($publishedFile in @(Get-ChildItem $PublishedDir -File -ErrorAction SilentlyContinue)) {
+    Copy-Item -LiteralPath $publishedFile.FullName -Destination (Join-Path $OutputDir $publishedFile.Name) -Force
+}
 
 # ── Suite display names ───────────────────────────────────────────────────────
 
@@ -108,80 +121,131 @@ function Get-TableContent([string]$path) {
     return $null
 }
 
-# ── Collect runs ──────────────────────────────────────────────────────────────
-
-$machines = @(Get-ChildItem $BenchDir -Directory | Where-Object { $_.Name -ne 'data' } | Sort-Object Name)
-
-if ($machines.Count -eq 0) {
-    Write-Warning "No machine directories found in $BenchDir"
-    exit 0
+# Collect runs.
+function Read-JsonDocument([string]$Path) {
+    try {
+        return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    } catch {
+        Write-Warning "  Failed to parse $Path, skipping."
+        return $null
+    }
 }
 
-# Map: suiteName -> { runDir, report, generatedAtUtc }
+function Get-DocumentProperty($Document, [string]$Name, $Default = $null) {
+    if ($null -eq $Document) { return $Default }
+    $property = $Document.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $Default }
+    return $property.Value
+}
+
+function Test-CoreReportShape($Report) {
+    $names = @($Report.PSObject.Properties.Name)
+    return 'totalBenchmarkCount' -in $names -and 'suites' -in $names -and 'generatedAtUtc' -in $names
+}
+
 $newestPerSuite = @{}
+$newestProjectEvidence = @{}
+$runDirectories = if (Test-Path $BenchDir) { @(Get-ChildItem $BenchDir -Directory) } else { @() }
+if ($runDirectories.Count -eq 0) {
+    Write-Warning "No benchmark runs found in $BenchDir"
+}
 
-foreach ($machine in $machines) {
-    Write-Host "Scanning: $($machine.Name)" -ForegroundColor Cyan
+foreach ($runDirectory in $runDirectories) {
+    $runReportPath = Join-Path $runDirectory.FullName 'run-report.json'
+    if (-not (Test-Path $runReportPath -PathType Leaf)) { continue }
 
-    # Walk all date/time dirs
-    $dateDirs = Get-ChildItem $machine.FullName -Directory | Sort-Object Name -Descending
+    $runManifestPath = Join-Path $runDirectory.FullName 'run.json'
+    if (-not (Test-Path $runManifestPath -PathType Leaf)) { continue }
+    $runManifest = Read-JsonDocument $runManifestPath
+    $runReport = Read-JsonDocument $runReportPath
+    if ($null -eq $runManifest -or $null -eq $runReport) { continue }
 
-    foreach ($dateDir in $dateDirs) {
-        $timeDirs = Get-ChildItem $dateDir.FullName -Directory | Sort-Object Name -Descending
+    try {
+        $completedAtUtc = [DateTimeOffset]::Parse([string](Get-DocumentProperty $runManifest 'completedAtUtc'))
+    } catch {
+        Write-Warning "  Invalid completion timestamp in $runManifestPath, skipping."
+        continue
+    }
 
-        foreach ($timeDir in $timeDirs) {
-            $reportPath = Join-Path $timeDir.FullName 'report.json'
-            if (-not (Test-Path $reportPath)) { continue }
+    $projects = @(Get-DocumentProperty $runReport 'projects' @())
+    foreach ($projectKey in @('core', 'text', 'compression')) {
+        $project = @($projects | Where-Object {
+            (Get-DocumentProperty $_ 'project' '') -ceq $projectKey
+        } | Select-Object -First 1)
+        if ($project.Count -eq 0 -or (Get-DocumentProperty $project[0] 'status' '') -cne 'Passed') { continue }
 
-            try {
-                $report = Get-Content $reportPath -Raw | ConvertFrom-Json
-            } catch {
-                Write-Warning "  Failed to parse $reportPath, skipping."
-                continue
-            }
+        $relativeProjectPath = [string](Get-DocumentProperty $project[0] 'path' $projectKey)
+        $projectDirectory = Join-Path $runDirectory.FullName $relativeProjectPath
+        if (-not (Test-Path $projectDirectory -PathType Container)) { continue }
 
-            if ($report.totalBenchmarkCount -le 0) { continue }
+        if ($projectKey -eq 'core') {
+            $reportPath = Join-Path $projectDirectory 'report.json'
+            if (-not (Test-Path $reportPath -PathType Leaf)) { continue }
+            $report = Read-JsonDocument $reportPath
+            if ($null -eq $report -or -not (Test-CoreReportShape $report) -or [long]$report.totalBenchmarkCount -le 0) { continue }
 
-            foreach ($suite in $report.suites) {
-                $name = $suite.suiteName
-
-                # Keep the newest run for this suite
-                if (-not $newestPerSuite.ContainsKey($name)) {
+            $machineName = [string](Get-DocumentProperty (Get-DocumentProperty $report 'provenance') 'machineName' 'unknown')
+            foreach ($suite in @($report.suites)) {
+                $name = [string](Get-DocumentProperty $suite 'suiteName' '')
+                if (-not $name) { continue }
+                if ([long](Get-DocumentProperty $suite 'failedBenchmarkCount' 0) -gt 0 -or
+                    [long](Get-DocumentProperty $suite 'missingBenchmarkCount' 0) -gt 0) { continue }
+                if (-not $newestPerSuite.ContainsKey($name) -or $completedAtUtc -gt $newestPerSuite[$name].CompletedAtUtc) {
                     $newestPerSuite[$name] = @{
-                        RunDir          = $timeDir.FullName
-                        Report          = $report
-                        GeneratedAtUtc  = $report.generatedAtUtc
-                        Machine         = $machine.Name
+                        RunDir = $projectDirectory
+                        Report = $report
+                        CompletedAtUtc = $completedAtUtc
+                        Machine = $machineName
                     }
+                }
+            }
+            continue
+        }
+
+        $markdownFiles = @(Get-ChildItem $projectDirectory -Recurse -File -Filter '*-report-github.md' -ErrorAction SilentlyContinue |
+            Where-Object { -not [string]::IsNullOrWhiteSpace((Get-TableContent $_.FullName)) })
+        if ($markdownFiles.Count -eq 0) { continue }
+        if (-not $newestProjectEvidence.ContainsKey($projectKey) -or
+            $completedAtUtc -gt $newestProjectEvidence[$projectKey].CompletedAtUtc) {
+            $newestProjectEvidence[$projectKey] = @{
+                Directory = $projectDirectory
+                CompletedAtUtc = $completedAtUtc
+            }
+        }
+    }
+}
+
+# Legacy Core reports remain supported only for runs without run-report.json.
+foreach ($runDirectory in @($runDirectories | Where-Object { -not (Test-Path (Join-Path $_.FullName 'run-report.json')) })) {
+    foreach ($reportFile in @(Get-ChildItem $runDirectory.FullName -Recurse -File -Filter 'report.json' -ErrorAction SilentlyContinue)) {
+        $report = Read-JsonDocument $reportFile.FullName
+        if ($null -eq $report -or -not (Test-CoreReportShape $report) -or [long]$report.totalBenchmarkCount -le 0) { continue }
+        try { $generatedAtUtc = [DateTimeOffset]::Parse([string]$report.generatedAtUtc) } catch { continue }
+        $machineName = [string](Get-DocumentProperty (Get-DocumentProperty $report 'provenance') 'machineName' 'unknown')
+        foreach ($suite in @($report.suites)) {
+            $name = [string](Get-DocumentProperty $suite 'suiteName' '')
+            if (-not $name) { continue }
+            if (-not $newestPerSuite.ContainsKey($name) -or $generatedAtUtc -gt $newestPerSuite[$name].CompletedAtUtc) {
+                $newestPerSuite[$name] = @{
+                    RunDir = $reportFile.DirectoryName
+                    Report = $report
+                    CompletedAtUtc = $generatedAtUtc
+                    Machine = $machineName
                 }
             }
         }
     }
 }
 
+$machines = @($newestPerSuite.Values | ForEach-Object { $_.Machine } | Sort-Object -Unique)
 if ($newestPerSuite.Count -eq 0) {
-    Write-Warning "No suites found in any run."
-    exit 0
+    Write-Warning 'No valid Core benchmark suites found; preserving the published Core pages.'
+} else {
+    Write-Host "Found $($newestPerSuite.Count) Core suites across all runs." -ForegroundColor Green
 }
 
-Write-Host "Found $($newestPerSuite.Count) suites across all runs." -ForegroundColor Green
-
-# ── Generate pages ────────────────────────────────────────────────────────────
-
-New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
-
-# Remove old generated files (keep any hand-written content, but since these
-# are all auto-generated, safe to clear *.md and *.json that match our suites)
-$existingMd = Get-ChildItem $OutputDir -Filter '*.md' -ErrorAction SilentlyContinue
-foreach ($f in $existingMd) {
-    Remove-Item $f.FullName -Force
-}
-$existingJson = Get-ChildItem $OutputDir -Filter '*.json' -ErrorAction SilentlyContinue
-foreach ($f in $existingJson) {
-    Remove-Item $f.FullName -Force
-}
-
-$pageCount   = 0
+# Generate pages.
+$pageCount = 0
 
 # Sort suites by display name for a stable TOC order
 $sortedSuites = $newestPerSuite.GetEnumerator() |
@@ -234,6 +298,8 @@ foreach ($entry in $sortedSuites) {
     if ($jsonFiles.Count -gt 0) {
         Copy-Item $jsonFiles[0].FullName $jsonOutPath -Force
         $hasCharts = $true
+    } elseif (Test-Path $jsonOutPath) {
+        Remove-Item -LiteralPath $jsonOutPath -Force
     }
 
     $chartId = $suiteName -replace '[^a-zA-Z0-9]', '-'
@@ -265,6 +331,32 @@ foreach ($entry in $sortedSuites) {
     Write-Host "  $fileName" -ForegroundColor Green
     $pageCount++
 
+}
+
+# Rowles.Text and compression use their own BenchmarkDotNet executables.
+foreach ($projectKey in @('text', 'compression')) {
+    if (-not $newestProjectEvidence.ContainsKey($projectKey)) { continue }
+    $projectDirectory = $newestProjectEvidence[$projectKey].Directory
+
+    $title = if ($projectKey -eq 'text') { 'Rowles.Text benchmarks' } else { 'Compression benchmarks' }
+    $builder = [System.Text.StringBuilder]::new()
+    [void]$builder.AppendLine('---')
+    [void]$builder.AppendLine("title: $title")
+    [void]$builder.AppendLine('---')
+    [void]$builder.AppendLine()
+    [void]$builder.AppendLine("# $title")
+    [void]$builder.AppendLine()
+    foreach ($markdownFile in @(Get-ChildItem $projectDirectory -Recurse -File -Filter '*-report-github.md' | Sort-Object Name)) {
+        $table = Get-TableContent $markdownFile.FullName
+        if (-not $table) { continue }
+        [void]$builder.AppendLine("## $($markdownFile.BaseName -replace '-report-github$', '')")
+        [void]$builder.AppendLine()
+        [void]$builder.AppendLine($table)
+        [void]$builder.AppendLine()
+    }
+    $builder.ToString() | Set-Content (Join-Path $OutputDir "$projectKey.md") -Encoding UTF8
+    Write-Host "  $projectKey.md" -ForegroundColor Green
+    $pageCount++
 }
 
 # ── benchmark-charts.js ───────────────────────────────────────────────────────

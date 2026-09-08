@@ -58,8 +58,9 @@ or Native AOT process:
 
 Repeated, flaky, diagnostic and CI runs write one run directory under
 `artifacts/test/runs/<run-id>/`. It contains the selected targets, environment,
-stdout and stderr, MTP TRX files where supported, checkpoint state and the
-`summary.md`, `summary.json` and `timings.csv` reports. A failed test does not
+stdout and stderr, MTP TRX and CTRF files where supported, checkpoint state and
+the `report.md`, `report.json` and `timings.csv` reports. Diagnostic runs also
+stream per-test activities and metrics, plus execution-scoped runtime data. A failed test does not
 stop later repetitions unless `--fail-fast` is selected. `--flaky` is a preset
 for 30 repetitions unless `--count` supplies another value.
 
@@ -108,7 +109,7 @@ explicitly selected .NET process, use the standard diagnostic tools:
 ```
 
 Trace, GC dump, dump and capture output is written under
-`artifacts/diagnostics/<run-id>/`. Dumps can contain sensitive application
+`artifacts/diagnostics/runs/<run-id>/`. Dumps can contain sensitive application
 memory. Pass tool-specific options after `--` where the command supports it.
 
 ## Run affected tests
@@ -141,7 +142,8 @@ The AOT route publishes and runs a smoke executable for both supported framework
 ./devops coverage -Clean -GenerateReport
 ```
 
-Raw output is written under `coverage-results/`. Generated HTML is written under `docs/coverage/`.
+Each invocation writes raw data and an optional HTML report under
+`artifacts/coverage/runs/<run-id>/`.
 
 Coverage proves that code executed. It does not prove that the assertions or oracle were useful.
 
@@ -181,7 +183,10 @@ Skip expensive generated inputs when they are outside the documentation change:
 
 Serve the site locally with `./devops docs serve`.
 
-The docs command copies selected repository READMEs and contribution guides into the ignored `docs/.generated` staging tree before DocFX runs. Edit the canonical repository file, not the generated site copy.
+The docs command stages selected repository READMEs and contribution guides under
+`artifacts/docs/generated/repository/` before DocFX runs. Edit the canonical
+repository file, not the generated site copy. API metadata, coverage pages and
+the site are also written beneath `artifacts/docs/`.
 
 ## Project map
 
@@ -202,6 +207,7 @@ The docs command copies selected repository READMEs and contribution guides into
 `Tests.Shared` is infrastructure, not a runnable suite.
 
 > [!WARNING]
-> Do not edit `bin`, `obj`, BenchmarkDotNet artefacts, `coverage-results` or generated documentation manually. Change their source or generator.
+> Do not edit generated content under `artifacts/` manually. Change its source,
+> configuration or generator.
 
 To add tests or tooling, continue with [CONTRIBUTING.md](CONTRIBUTING.md).

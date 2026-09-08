@@ -5,7 +5,7 @@
 .DESCRIPTION
     Uses the Wikipedia MediaWiki API to download the introductory text of randomly
     selected Wikipedia articles as plain-text .txt files in
-    bench/data/wikipedia/{language}/. Each article is written to its own file,
+    artifacts/benchmark/cache/data/wikipedia/{language}/. Each article is written to its own file,
     named with a random GUID (e.g. 7a3b2c1d-...txt).
 
     Specify a BCP 47 language code (e.g. en, fr, de, zh, ja) to target that
@@ -24,7 +24,7 @@
     to download from (e.g. "fr" for fr.wikipedia.org).
 
 .PARAMETER OutputDir
-    Override the output directory. Defaults to bench/data/wikipedia/{language} relative
+    Override the output directory. Defaults to artifacts/benchmark/cache/data/wikipedia/{language} relative
     to the repository root.
 
 .PARAMETER ArticleCount
@@ -49,9 +49,10 @@ param(
 )
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+. (Join-Path $repoRoot 'scripts/devops/artifacts/paths.ps1')
 
 if ([string]::IsNullOrEmpty($OutputDir)) {
-    $OutputDir = Join-Path $repoRoot "bench\data\wikipedia\$Language"
+    $OutputDir = Join-Path (Get-BenchmarkDataRoot -RepoRoot $repoRoot) "wikipedia/$Language"
 }
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null

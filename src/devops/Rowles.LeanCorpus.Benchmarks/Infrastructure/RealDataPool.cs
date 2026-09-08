@@ -6,7 +6,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
 /// Provides a unified pool of real-world document bodies sourced from
-/// bench/data/ (Gutenberg ebooks, 20 Newsgroups, Reuters-21578).
+/// artifacts/benchmark/cache/data/ (Gutenberg ebooks, 20 Newsgroups, Reuters-21578).
 /// Falls back to synthetic content when no real data is present.
 /// </summary>
 /// <remarks>
@@ -57,12 +57,12 @@ internal static class RealDataPool
     private static LoadedDataSet LoadAll()
     {
         var root = GutenbergDataLoader.FindRepositoryRoot();
-        var benchDir = Path.Combine(root, "bench", "data");
+        var benchDir = Path.Combine(root, "artifacts", "benchmark", "cache", "data");
 
         if (!Directory.Exists(benchDir))
         {
             Console.Error.WriteLine(
-                $"[RealDataPool] bench/data not found at '{benchDir}'. " +
+                $"[RealDataPool] benchmark data cache not found at '{benchDir}'. " +
                 "Run the download scripts first. Falling back to synthetic data.");
             return new LoadedDataSet
             {
@@ -89,7 +89,7 @@ internal static class RealDataPool
         if (bodies.Count == 0)
         {
             Console.Error.WriteLine(
-                "[RealDataPool] No documents loaded from bench/data. " +
+                "[RealDataPool] No documents loaded from the benchmark data cache. " +
                 "Run the download scripts first. Falling back to synthetic data.");
             return new LoadedDataSet
             {
@@ -297,7 +297,7 @@ internal static class RealDataPool
         }
     }
 
-    /// <summary>Synthetic fallback used when bench/data is absent or empty.</summary>
+    /// <summary>Synthetic fallback used when the benchmark data cache is absent or empty.</summary>
     private static string[] BuildSynthetic(int count)
     {
         var topics  = new[] { "government", "economics", "politics", "science", "technology" };

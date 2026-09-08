@@ -39,6 +39,8 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | `docs` | Generate API metadata and build or serve DocFX | `./devops docs -SkipBenchmarks` |
 | `server start` | Start the Community Server in the foreground on loopback, or use `-External` for trusted-network access | `./devops server start -External` |
 | `benchmarks docs` | Regenerate benchmark documentation pages | `./devops benchmarks docs` |
+| `clean` | Remove selected DevOps-owned output | `./devops clean test` |
+| `pack` | Pack release artefacts and write a checksum manifest | `./devops pack` |
 
 Use `benchmark` for running measurements and `benchmarks docs` for publishing existing result artefacts. The plural command is intentionally not a second benchmark runner.
 
@@ -86,7 +88,7 @@ flowchart LR
     D --> R
     J --> R
     X --> R
-    R --> O[bench machine and run artefacts]
+    R --> O[one artifacts benchmark run]
 ```
 
 `-Dry` prints the resolved command. Use it when changing routing or investigating a remote invocation.
@@ -103,7 +105,7 @@ The build sequence can:
 
 1. regenerate the feature-comparison index from item front matter;
 2. regenerate the ADR index;
-3. copy canonical repository guides into the ignored `docs/.generated` staging tree;
+3. stage canonical repository guides under `artifacts/docs/generated/repository`;
 4. regenerate benchmark pages unless `-SkipBenchmarks` is set;
 5. regenerate coverage HTML when source data exists unless `-SkipCoverage` is set;
 6. clear and regenerate DocFX API metadata;
@@ -113,7 +115,10 @@ The build sequence can:
 
 `-SkipBenchmarks` avoids an expensive or unrelated benchmark-report refresh. It does not skip conceptual pages or API metadata.
 
-DocFX warnings are grouped by code in the console. Complete metadata and build diagnostics are written as JSON lines to `artifacts/docs/docfx-metadata.jsonl` and `artifacts/docs/docfx-build.jsonl`. A status line is printed every 30 seconds while DocFX is running so a slow API pass does not appear stuck.
+DocFX warnings are grouped by code in the console. Complete metadata and build
+diagnostics are written as JSON lines under `artifacts/docs/diagnostics/`. A
+status line is printed every 30 seconds while DocFX is running so a slow API
+pass does not appear stuck.
 
 Generated repository copies, API, site, benchmark, and coverage output must remain generated. Change their canonical source or generator instead of patching the output.
 

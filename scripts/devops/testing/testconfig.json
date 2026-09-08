@@ -1,0 +1,13 @@
+{
+  "$schema": "https://xunit.net/schema/v4.0/xunit.runner.schema.json",
+  "diagnosticMessages": true,
+  "failSkips": false,
+  "failWarns": false,
+  "longRunningTestSeconds": 30,
+  "maxParallelThreads": "1x",
+  "parallelAlgorithm": "conservative",
+  "parallelMode": "collections",
+  "preEnumerateTheories": true,
+  "showLiveOutput": false,
+  "shutdownForegroundThreadWaitSeconds": 10
+}
