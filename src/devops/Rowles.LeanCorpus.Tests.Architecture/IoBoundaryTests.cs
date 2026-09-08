@@ -1,4 +1,5 @@
 using System.IO.MemoryMappedFiles;
+using Microsoft.Win32.SafeHandles;
 using Rowles.LeanCorpus.Tests.Architecture.Infrastructure;
 
 namespace Rowles.LeanCorpus.Tests.Architecture;
@@ -15,6 +16,9 @@ public sealed class IoBoundaryTests
         typeof(DirectoryInfo),
         typeof(StreamReader),
         typeof(StreamWriter),
+        typeof(RandomAccess),
+        typeof(SafeFileHandle),
+        typeof(FileSystemWatcher),
     ];
 
     [Fact]

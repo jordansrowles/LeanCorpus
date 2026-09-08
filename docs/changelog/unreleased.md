@@ -4,6 +4,7 @@
 
 ### Changed
 
+* Strengthened architecture tests for package isolation, Server layering, filesystem ownership and Native AOT runtime IL-generation boundaries.
 * Bumped the LeanCorpus package to 3.1.1 for the stored-field persistence fix.
 * Consolidated build, test, coverage, benchmark, diagnostic and documentation output under the SDK artefact root; normal benchmark runs now cover Core, Rowles.Text and compression in one provenance-scoped run, and Native AOT smoke tests use the stable xUnit 4 MTP v2 stack.
 
