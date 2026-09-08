@@ -116,20 +116,23 @@ public sealed class MeterMetricsCollectorTests : IDisposable
     [Fact(DisplayName = "Meter Listener: Receives Search Duration Measurement")]
     public void MeterListener_ReceivesSearchDurationMeasurement()
     {
+        using var factory = new TestMeterFactory();
+        using var collector = new MeterMetricsCollector(factory);
         var measurements = new List<double>();
 
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, l) =>
         {
-            if (instrument.Meter.Name == "Rowles.LeanCorpus" &&
+            if (ReferenceEquals(instrument.Meter, factory.Meter) &&
                 instrument.Name == "leancorpus.search.duration")
                 l.EnableMeasurementEvents(instrument);
         };
         listener.SetMeasurementEventCallback<double>((_, value, _, _) => measurements.Add(value));
         listener.Start();
 
-        _collector.RecordSearchLatency(TimeSpan.FromMilliseconds(25));
-        _collector.RecordSearchLatency(TimeSpan.FromMilliseconds(75));
+        _collector.RecordSearchLatency(TimeSpan.FromMilliseconds(999));
+        collector.RecordSearchLatency(TimeSpan.FromMilliseconds(25));
+        collector.RecordSearchLatency(TimeSpan.FromMilliseconds(75));
 
         listener.RecordObservableInstruments();
 
@@ -144,12 +147,14 @@ public sealed class MeterMetricsCollectorTests : IDisposable
     [Fact(DisplayName = "Meter Listener: Receives Counter Increments")]
     public void MeterListener_ReceivesCounterIncrements()
     {
+        using var factory = new TestMeterFactory();
+        using var collector = new MeterMetricsCollector(factory);
         long hitTotal = 0;
 
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, l) =>
         {
-            if (instrument.Meter.Name == "Rowles.LeanCorpus" &&
+            if (ReferenceEquals(instrument.Meter, factory.Meter) &&
                 instrument.Name == "leancorpus.cache.hits")
                 l.EnableMeasurementEvents(instrument);
         };
@@ -157,10 +162,20 @@ public sealed class MeterMetricsCollectorTests : IDisposable
         listener.Start();
 
         _collector.RecordCacheHit();
-        _collector.RecordCacheHit();
-        _collector.RecordCacheHit();
+        collector.RecordCacheHit();
+        collector.RecordCacheHit();
+        collector.RecordCacheHit();
 
         Assert.Equal(3, hitTotal);
+    }
+
+    private sealed class TestMeterFactory : IMeterFactory
+    {
+        public Meter Meter { get; } = new("Rowles.LeanCorpus");
+
+        public Meter Create(MeterOptions options) => Meter;
+
+        public void Dispose() => Meter.Dispose();
     }
 
     /// <summary>

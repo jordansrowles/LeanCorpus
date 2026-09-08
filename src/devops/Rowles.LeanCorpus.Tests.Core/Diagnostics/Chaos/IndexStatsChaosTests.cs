@@ -47,8 +47,8 @@ public sealed class IndexStatsChaosTests : IClassFixture<ChaosDirectoryFixture>
             // The original stats file must still be present (the catch kept it).
             Assert.True(File.Exists(path));
 
-            // No leftover .tmp files should remain (the finally block deleted them).
-            var tmpFiles = Directory.GetFiles(_fixture.Path, "*.tmp");
+            // Other tests share this directory and may have an active stats write.
+            var tmpFiles = Directory.GetFiles(_fixture.Path, Path.GetFileName(path) + ".*.tmp");
             Assert.Empty(tmpFiles);
         }
         finally

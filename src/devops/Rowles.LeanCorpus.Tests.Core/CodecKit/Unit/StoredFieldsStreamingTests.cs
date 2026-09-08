@@ -1,3 +1,4 @@
+using System.Buffers;
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.StoredFields;
@@ -12,6 +13,52 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
     private readonly TestDirectoryFixture _fixture;
 
     public StoredFieldsStreamingTests(TestDirectoryFixture fixture) => _fixture = fixture;
+
+    [Fact(DisplayName = "Stored Fields: flat writer preserves fields with dirty pooled scratch")]
+    public void FlatWriter_PreservesFieldsWithDirtyPooledScratch()
+    {
+        var path = Path.Combine(_fixture.Path, $"sf-pooled-{Guid.NewGuid():N}");
+        List<int> starts = [0, 3, 4];
+        List<int> ids = [0, 1, 0, 1, 0, 1];
+        List<string> names = ["id", "body"];
+        List<StoredFieldValue> values =
+        [
+            StoredFieldValue.FromString("first"),
+            StoredFieldValue.FromString("hello"),
+            StoredFieldValue.FromString("alias"),
+            StoredFieldValue.FromString("body only"),
+            StoredFieldValue.FromString("last"),
+            StoredFieldValue.FromString("goodbye")
+        ];
+
+        // Shared pools retain previous contents. Return on this thread immediately
+        // before writing so the writer reuses scratch with every field marked seen.
+        var scratch = ArrayPool<bool>.Shared.Rent(16);
+        Array.Fill(scratch, true);
+        ArrayPool<bool>.Shared.Return(scratch);
+        try
+        {
+            StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", starts, ids, values, names, blockSize: 2);
+        }
+        finally
+        {
+            var cleanup = ArrayPool<bool>.Shared.Rent(16);
+            ArrayPool<bool>.Shared.Return(cleanup, clearArray: true);
+        }
+
+        using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
+        var first = reader.ReadDocument(0);
+        Assert.Equal(["first", "alias"], first["id"]);
+        Assert.Equal(["hello"], first["body"]);
+        var middle = reader.ReadDocument(1);
+        Assert.Single(middle);
+        Assert.Equal(["body only"], middle["body"]);
+        var last = reader.ReadDocument(2);
+        Assert.Equal(["last"], last["id"]);
+        Assert.Equal(["goodbye"], last["body"]);
+        AssertCanonicalFrame(path + ".fdt", StoredFieldsCodecFiles.Data);
+        AssertCanonicalFrame(path + ".fdx", StoredFieldsCodecFiles.Index);
+    }
 
     [Fact(DisplayName = "Stored Fields v3: writer emits coordinated canonical frames")]
     public void Writer_EmitsVersion3()

@@ -38,6 +38,8 @@ internal static class StoredFieldsWriter
         bool[] seenFieldId = ArrayPool<bool>.Shared.Rent(Math.Max(16, fieldNames.Count));
         try
         {
+            // Rented arrays may retain marks from unrelated search operations.
+            Array.Clear(seenFieldId);
             for (int blockStart = 0; blockStart < docCount; blockStart += blockSize)
             {
                 int blockEnd = Math.Min(blockStart + blockSize, docCount);
