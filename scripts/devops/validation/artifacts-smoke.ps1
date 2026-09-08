@@ -12,7 +12,8 @@ try {
     & $devopsModule {
         param(
             [string]$Root,
-            [string]$Generator
+            [string]$Generator,
+            [string]$RepositoryRoot
         )
 
         function Assert-Smoke {
@@ -68,6 +69,18 @@ try {
             $refused = $true
         }
         Assert-Smoke $refused 'clean accepted a path outside the artefact root.'
+        if (-not $IsWindows) {
+            $caseDifferentPath = Join-Path $Root 'ARTIFACTS-case-test'
+            Write-SmokeMarker (Join-Path $caseDifferentPath 'must-survive.txt')
+            $caseRefused = $false
+            try {
+                Remove-OwnedArtifactPath -Path $caseDifferentPath -ArtifactRoot $artifactRoot
+            } catch {
+                $caseRefused = $true
+            }
+            Assert-Smoke $caseRefused 'Unix clean accepted a case-different sibling.'
+            Assert-Smoke (Test-Path $caseDifferentPath) 'Unix clean removed a case-different sibling.'
+        }
 
         # C. Default clean preservation.
         foreach ($relative in @(
@@ -90,7 +103,7 @@ try {
             Assert-Smoke (Test-Path (Join-Path $artifactRoot $relative)) "default clean removed $relative."
         }
 
-        # D. Benchmark report schema coexistence.
+        # D. Benchmark evidence selection and overlay behaviour.
         $benchmarkRoot = Join-Path $artifactRoot 'benchmark/runs/example'
         $coreRoot = Join-Path $benchmarkRoot 'core'
         $suiteRoot = Join-Path $coreRoot 'query'
@@ -98,7 +111,12 @@ try {
         Write-AtomicJsonFile -Path (Join-Path $benchmarkRoot 'run-report.json') -Value @{
             schemaVersion = 1
             status = 'Passed'
-            projects = @()
+            projects = @(@{ project = 'core'; status = 'Passed'; exitCode = 0; path = 'core' })
+        }
+        Write-AtomicJsonFile -Path (Join-Path $benchmarkRoot 'run.json') -Value @{
+            runId = 'example'
+            status = 'Passed'
+            completedAtUtc = '2026-01-01T00:00:00Z'
         }
         Write-AtomicJsonFile -Path (Join-Path $coreRoot 'report.json') -Value @{
             totalBenchmarkCount = 1
@@ -106,19 +124,82 @@ try {
             commitHash = 'smoke'
             dotnetVersion = 'smoke'
             provenance = @{ machineName = 'smoke'; effectiveDocCount = 1 }
-            suites = @(@{ suiteName = 'query' })
+            suites = @(@{ suiteName = 'query'; failedBenchmarkCount = 0; missingBenchmarkCount = 0 })
         }
         @(
             '| Method | Mean |',
             '| --- | --- |',
             '| Example | 1 ns |'
         ) | Set-Content -LiteralPath (Join-Path $suiteRoot 'example-report-github.md') -Encoding UTF8
+        $olderTextRoot = Join-Path $artifactRoot 'benchmark/runs/text-older'
+        $olderTextResults = Join-Path $olderTextRoot 'text/results'
+        [void][System.IO.Directory]::CreateDirectory($olderTextResults)
+        Write-AtomicJsonFile -Path (Join-Path $olderTextRoot 'run.json') -Value @{
+            runId = 'text-older'; status = 'Passed'; completedAtUtc = '2026-01-02T00:00:00Z'
+        }
+        Write-AtomicJsonFile -Path (Join-Path $olderTextRoot 'run-report.json') -Value @{
+            projects = @(@{ project = 'text'; status = 'Passed'; exitCode = 0; path = 'text' })
+        }
+        @('| Method | Mean |', '| --- | --- |', '| OLDER-PASSED | 1 ns |') |
+            Set-Content -LiteralPath (Join-Path $olderTextResults 'text-report-github.md') -Encoding UTF8
+
+        $newerTextRoot = Join-Path $artifactRoot 'benchmark/runs/text-newer'
+        $newerTextResults = Join-Path $newerTextRoot 'text/results'
+        [void][System.IO.Directory]::CreateDirectory($newerTextResults)
+        Write-AtomicJsonFile -Path (Join-Path $newerTextRoot 'run.json') -Value @{
+            runId = 'text-newer'; status = 'Failed'; completedAtUtc = '2026-01-03T00:00:00Z'
+        }
+        Write-AtomicJsonFile -Path (Join-Path $newerTextRoot 'run-report.json') -Value @{
+            projects = @(@{ project = 'text'; status = 'Failed'; exitCode = 1; path = 'text' })
+        }
+        @('| Method | Mean |', '| --- | --- |', '| NEWER-FAILED | 1 ns |') |
+            Set-Content -LiteralPath (Join-Path $newerTextResults 'text-report-github.md') -Encoding UTF8
+
+        $compressionRoot = Join-Path $artifactRoot 'benchmark/runs/compression-only'
+        $compressionResults = Join-Path $compressionRoot 'compression/results'
+        [void][System.IO.Directory]::CreateDirectory($compressionResults)
+        Write-AtomicJsonFile -Path (Join-Path $compressionRoot 'run.json') -Value @{
+            runId = 'compression-only'; status = 'Passed'; completedAtUtc = '2026-01-02T12:00:00Z'
+        }
+        Write-AtomicJsonFile -Path (Join-Path $compressionRoot 'run-report.json') -Value @{
+            projects = @(@{ project = 'compression'; status = 'Passed'; exitCode = 0; path = 'compression' })
+        }
+        @('| Method | Mean |', '| --- | --- |', '| COMPRESSION-PASSED | 1 ns |') |
+            Set-Content -LiteralPath (Join-Path $compressionResults 'compression-report-github.md') -Encoding UTF8
+
+        $publishedRoot = Join-Path $Root 'published-benchmark-docs'
+        [void][System.IO.Directory]::CreateDirectory($publishedRoot)
+        Set-Content -LiteralPath (Join-Path $publishedRoot 'unrelated.md') -Value 'PUBLISHED-BASELINE' -Encoding UTF8
         $outputRoot = Join-Path $Root 'generated-benchmark-docs'
-        & $Generator -BenchDir (Join-Path $artifactRoot 'benchmark/runs') -OutputDir $outputRoot
+        & $Generator -BenchDir (Join-Path $artifactRoot 'benchmark/runs') -OutputDir $outputRoot -PublishedDir $publishedRoot
         Assert-Smoke (Test-Path (Join-Path $outputRoot 'query.md')) 'Core benchmark page was not generated.'
+        $textPage = Get-Content -LiteralPath (Join-Path $outputRoot 'text.md') -Raw
+        Assert-Smoke ($textPage.Contains('OLDER-PASSED')) 'older passed text evidence was not selected.'
+        Assert-Smoke (-not $textPage.Contains('NEWER-FAILED')) 'newer failed text evidence replaced passed evidence.'
+        Assert-Smoke ((Get-Content -LiteralPath (Join-Path $outputRoot 'compression.md') -Raw).Contains('COMPRESSION-PASSED')) 'compression-only evidence was not generated.'
+        Assert-Smoke (Test-Path (Join-Path $outputRoot 'unrelated.md')) 'published baseline page was erased.'
+
+        # E. One-shot and repeated test classifications.
+        $pass = [pscustomobject]@{ Outcome = 'Passed' }
+        $fail = [pscustomobject]@{ Outcome = 'Failed' }
+        Assert-Smoke ((Get-TestObservationClassification @($pass) 1) -eq 'Passed') 'one pass was not classified Passed.'
+        Assert-Smoke ((Get-TestObservationClassification @($fail) 1) -eq 'Failed') 'one failure was not classified Failed.'
+        Assert-Smoke ((Get-TestObservationClassification @($pass, $pass) 2) -eq 'Always passes') 'repeated passes were misclassified.'
+        Assert-Smoke ((Get-TestObservationClassification @($fail, $fail) 2) -eq 'Always fails') 'repeated failures were misclassified.'
+        Assert-Smoke ((Get-TestObservationClassification @($pass, $fail) 2) -eq 'Intermittent failure') 'mixed repeats were misclassified.'
+
+        # F. Windows stress-test timeout and cleanup evidence contract.
+        $stressTestPath = Join-Path $RepositoryRoot 'src/devops/Rowles.LeanCorpus.Tests.Core/Index/Integration/CommitSearcherRaceReproTests.cs'
+        $stressTest = Get-Content -LiteralPath $stressTestPath -Raw
+        Assert-Smoke ($stressTest.Contains('Timeout = 120_000')) 'stress-test timeout is not 120 seconds.'
+        Assert-Smoke ($stressTest.Contains('const int iterations = 120')) 'stress iterations changed.'
+        Assert-Smoke ($stressTest.Contains('const int pinnedGenerations = 8')) 'pinned generation count changed.'
+        foreach ($cleanupStage in @('held searchers released', 'SearcherManager.Dispose', 'IndexWriter.Dispose', 'MMapDirectory.Dispose')) {
+            Assert-Smoke ($stressTest.Contains($cleanupStage)) "stress cleanup timing is missing for $cleanupStage."
+        }
 
         Write-Host 'Artefact infrastructure smoke validation passed.'
-    } $temporaryRoot $generatorPath
+    } $temporaryRoot $generatorPath (Resolve-Path (Join-Path $PSScriptRoot '../../..'))
     exit 0
 } catch {
     Write-Error "Artefact infrastructure smoke validation failed: $($_.Exception.Message)"

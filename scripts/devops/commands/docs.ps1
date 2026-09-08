@@ -92,9 +92,11 @@ function Invoke-DevOpsDocs {
         $coverageOutput = Get-DocsArtifactPath -Name coverage -RepoRoot $repoRoot
         $coverageRun = $null
         $gitContext = Get-ArtifactGitContext -RepoRoot $repoRoot
-        if ($gitContext.commit) {
+        if ($gitContext.commit -and -not $gitContext.dirty) {
             $coverageRun = Get-LatestSuccessfulArtifactRun -Kind coverage -RepoRoot $repoRoot `
                 -Commit $gitContext.commit
+        } elseif ($gitContext.dirty) {
+            Write-Info 'Current working tree is dirty; retained coverage evidence will not be reused.'
         }
 
         $xmlFiles = @(

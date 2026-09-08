@@ -72,11 +72,12 @@ function Invoke-TestPipeline {
         [Parameter(Mandatory = $true)]
         [string]$CommandLine,
         [string]$DisplayName = 'Test run',
+        [string]$RunId = '',
         [string]$RepoRoot = (Get-RepoRoot)
     )
 
     $context = New-TestRunContext -Options $Options -Targets $Targets `
-        -CommandLine $CommandLine -RepoRoot $RepoRoot
+        -CommandLine $CommandLine -RunId $RunId -RepoRoot $RepoRoot
     $summary = $null
     $pipelineError = $null
     $reportError = $false

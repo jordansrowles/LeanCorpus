@@ -30,6 +30,8 @@ function Invoke-DevOpsCoverage {
         $commandLine = ConvertTo-CommandLineText -Command './devops coverage' -Arguments $Arguments
         $coverageRun = New-ArtifactRun -Kind coverage -Framework $framework -Configuration $configuration `
             -Target $suite -CommandLine $commandLine -RepoRoot $repoRoot
+        Update-ArtifactRunManifest -RunDirectory $coverageRun.RunDirectory `
+            -Values @{ testRunId = $coverageRun.RunId }
         $resultsDir = Join-Path $coverageRun.RunDirectory 'raw'
         [void][System.IO.Directory]::CreateDirectory($resultsDir)
 
@@ -68,7 +70,7 @@ function Invoke-DevOpsCoverage {
         }
 
         $exitCode = Invoke-TestPipeline -Targets $targets -Options $options -CommandLine $commandLine `
-            -DisplayName 'Coverage test run' -RepoRoot $repoRoot
+            -DisplayName 'Coverage test run' -RunId $coverageRun.RunId -RepoRoot $repoRoot
 
         $xmlFiles = @(Find-CoverageResults $resultsDir)
         Write-Host ''
@@ -81,7 +83,7 @@ function Invoke-DevOpsCoverage {
 
         $coverageStatus = if ($exitCode -eq 0 -and $xmlFiles.Count -gt 0) { 'Passed' } else { 'Failed' }
         Complete-ArtifactRun -RunDirectory $coverageRun.RunDirectory -Status $coverageStatus `
-            -AdditionalValues @{ coverageFiles = $xmlFiles.Count; raw = 'raw' }
+            -AdditionalValues @{ coverageFiles = $xmlFiles.Count; raw = 'raw'; testRunId = $coverageRun.RunId }
         $runCompleted = $true
 
         return $(if ($coverageStatus -eq 'Passed') { 0 } else { 1 })

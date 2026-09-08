@@ -88,41 +88,50 @@ public sealed class LeanCorpusTestTelemetryFixture : INotifyTestLifecycle, IDisp
             return;
 
         string testId = test.UniqueID;
-        string testDirectory = Path.Combine(executionDirectory, "telemetry", "tests", SanitisePath(testId));
-        var session = new TestTelemetrySession(testId, test.TestDisplayName, testDirectory, telemetryMode == "full");
-        if (!sessionsByTestId.TryAdd(testId, session))
+        TestTelemetrySession? session = null;
+        Activity? root = null;
+        try
         {
-            session.Dispose();
-            TestContext.Current.AddWarning($"Duplicate telemetry session for test '{testId}'.");
-            return;
-        }
+            string testDirectory = Path.Combine(executionDirectory, "telemetry", "tests", SanitisePath(testId));
+            session = new TestTelemetrySession(testId, test.TestDisplayName, testDirectory, telemetryMode == "full");
+            if (!sessionsByTestId.TryAdd(testId, session))
+            {
+                session.Dispose();
+                TryAddWarning($"Duplicate telemetry session for test '{testId}'.");
+                return;
+            }
 
-        Activity? root = testSource.StartActivity("leancorpus.test", ActivityKind.Internal);
-        if (root is null)
+            root = testSource.StartActivity("leancorpus.test", ActivityKind.Internal);
+            if (root is null)
+                throw new InvalidOperationException("The LeanCorpus test telemetry root activity could not be created.");
+
+            root.SetTag("test.id", testId);
+            root.SetTag("test.name", test.TestDisplayName);
+            root.SetTag("test.label", test.TestLabel);
+            root.SetTag("test.class", test.TestCase.TestClassName);
+            root.SetTag("test.method", test.TestCase.TestMethodName);
+            root.SetTag("test.suite", Environment.GetEnvironmentVariable("LEANCORPUS_SUITE"));
+            root.SetTag("test.category", GetTraitValues(test.TestCase.Traits, "Category"));
+            root.SetTag("test.run_id", Environment.GetEnvironmentVariable("LEANCORPUS_RUN_ID"));
+            root.SetTag("test.target", Environment.GetEnvironmentVariable("LEANCORPUS_TARGET"));
+            root.SetTag("test.iteration", Environment.GetEnvironmentVariable("LEANCORPUS_ITERATION"));
+            root.SetTag("dotnet.framework", AppContext.TargetFrameworkName);
+            root.SetTag("os.type", Environment.OSVersion.Platform.ToString());
+            root.SetTag("os.arch", System.Runtime.InteropServices.RuntimeInformation.OSArchitecture.ToString());
+            root.SetTag("process.id", Environment.ProcessId);
+            root.SetTag("ci", Environment.GetEnvironmentVariable("LEANCORPUS_CI"));
+            session.Root = root;
+            sessionsByTraceId[root.TraceId] = session;
+        }
+        catch (Exception exception)
         {
             sessionsByTestId.TryRemove(testId, out _);
-            session.Dispose();
-            TestContext.Current.AddWarning("The LeanCorpus test telemetry root activity could not be created.");
-            return;
+            if (root is not null)
+                sessionsByTraceId.TryRemove(root.TraceId, out _);
+            try { root?.Dispose(); } catch { }
+            try { session?.Dispose(); } catch { }
+            TryAddWarning($"LeanCorpus test telemetry setup failed: {exception.GetType().Name}: {exception.Message}");
         }
-
-        root.SetTag("test.id", testId);
-        root.SetTag("test.name", test.TestDisplayName);
-        root.SetTag("test.label", test.TestLabel);
-        root.SetTag("test.class", test.TestCase.TestClassName);
-        root.SetTag("test.method", test.TestCase.TestMethodName);
-        root.SetTag("test.suite", Environment.GetEnvironmentVariable("LEANCORPUS_SUITE"));
-        root.SetTag("test.category", GetTraitValues(test.TestCase.Traits, "Category"));
-        root.SetTag("test.run_id", Environment.GetEnvironmentVariable("LEANCORPUS_RUN_ID"));
-        root.SetTag("test.target", Environment.GetEnvironmentVariable("LEANCORPUS_TARGET"));
-        root.SetTag("test.iteration", Environment.GetEnvironmentVariable("LEANCORPUS_ITERATION"));
-        root.SetTag("dotnet.framework", AppContext.TargetFrameworkName);
-        root.SetTag("os.type", Environment.OSVersion.Platform.ToString());
-        root.SetTag("os.arch", System.Runtime.InteropServices.RuntimeInformation.OSArchitecture.ToString());
-        root.SetTag("process.id", Environment.ProcessId);
-        root.SetTag("ci", Environment.GetEnvironmentVariable("LEANCORPUS_CI"));
-        session.Root = root;
-        sessionsByTraceId[root.TraceId] = session;
     }
 
     public void OnTestFinished(IXunitTest test)
@@ -130,21 +139,47 @@ public sealed class LeanCorpusTestTelemetryFixture : INotifyTestLifecycle, IDisp
         if (!sessionsByTestId.TryRemove(test.UniqueID, out TestTelemetrySession? session))
             return;
 
-        session.Root?.Stop();
-        if (session.Root is not null)
-            sessionsByTraceId.TryRemove(session.Root.TraceId, out _);
-        session.Complete();
-
-        if (session.SwallowedExceptions > 0)
-            TestContext.Current.AddWarning($"LeanCorpus recorded {session.SwallowedExceptions} swallowed exception event(s).");
-
-        TestContext.Current.AddAttachment("leancorpus-telemetry-summary.json", File.ReadAllBytes(session.SummaryPath), "application/json");
-        if (session.FullTelemetry)
+        try
         {
-            TestContext.Current.AddAttachment("leancorpus-activities.ndjson", File.ReadAllBytes(session.ActivitiesPath), "application/x-ndjson");
-            TestContext.Current.AddAttachment("leancorpus-metrics.ndjson", File.ReadAllBytes(session.MetricsPath), "application/x-ndjson");
+            try
+            {
+                session.Root?.Stop();
+            }
+            catch (Exception exception)
+            {
+                session.RecordTelemetryError(exception);
+                TryAddWarning($"LeanCorpus test telemetry root shutdown failed: {exception.GetType().Name}: {exception.Message}");
+            }
+            finally
+            {
+                if (session.Root is not null)
+                    sessionsByTraceId.TryRemove(session.Root.TraceId, out _);
+            }
+
+            session.CloseWriters();
+            session.Complete();
+            if (session.SwallowedExceptions > 0)
+                TryAddWarning($"LeanCorpus recorded {session.SwallowedExceptions} swallowed exception event(s).");
+            TestContext.Current.AddAttachment(
+                "leancorpus-telemetry-summary.json",
+                File.ReadAllBytes(session.SummaryPath),
+                "application/json");
         }
-        session.Dispose();
+        catch (Exception exception)
+        {
+            session.RecordTelemetryError(exception);
+            try
+            {
+                session.CloseWriters();
+                session.Complete();
+            }
+            catch { }
+            TryAddWarning($"LeanCorpus test telemetry finalisation failed: {exception.GetType().Name}: {exception.Message}");
+        }
+        finally
+        {
+            session.Dispose();
+        }
     }
 
     public void Dispose()
@@ -169,32 +204,51 @@ public sealed class LeanCorpusTestTelemetryFixture : INotifyTestLifecycle, IDisp
     private void RecordActivity(Activity activity)
     {
         if (sessionsByTraceId.TryGetValue(activity.TraceId, out TestTelemetrySession? session))
-            session.RecordActivity(activity);
+        {
+            try { session.RecordActivity(activity); }
+            catch (Exception exception) { session.RecordTelemetryError(exception); }
+        }
     }
 
     private void RecordMeasurement<T>(Instrument instrument, T measurement,
         ReadOnlySpan<KeyValuePair<string, object?>> tags, object? state) where T : struct
     {
-        if (instrument.Meter.Name == RuntimeMeterName && runtimeWriter is not null)
+        TestTelemetrySession? session = null;
+        try
         {
-            lock (runtimeSync)
-            {
-                WriteLine(runtimeWriter, new
-                {
-                    instrument = instrument.Name,
-                    unit = instrument.Unit,
-                    timestampUtc = DateTimeOffset.UtcNow,
-                    value = Convert.ToString(measurement, CultureInfo.InvariantCulture),
-                    testTraceId = Activity.Current?.TraceId.ToHexString(),
-                    tags = tags.ToArray().ToDictionary(item => item.Key, item => item.Value),
-                });
-            }
-            return;
-        }
+            Activity? current = Activity.Current;
+            if (current is not null)
+                sessionsByTraceId.TryGetValue(current.TraceId, out session);
 
-        Activity? current = Activity.Current;
-        if (current is not null && sessionsByTraceId.TryGetValue(current.TraceId, out TestTelemetrySession? session))
-            session.RecordMeasurement(instrument, measurement, tags);
+            if (instrument.Meter.Name == RuntimeMeterName && runtimeWriter is not null)
+            {
+                lock (runtimeSync)
+                {
+                    WriteLine(runtimeWriter, new
+                    {
+                        instrument = instrument.Name,
+                        unit = instrument.Unit,
+                        timestampUtc = DateTimeOffset.UtcNow,
+                        value = Convert.ToString(measurement, CultureInfo.InvariantCulture),
+                        testTraceId = current?.TraceId.ToHexString(),
+                        tags = tags.ToArray().ToDictionary(item => item.Key, item => item.Value),
+                    });
+                }
+                return;
+            }
+
+            session?.RecordMeasurement(instrument, measurement, tags);
+        }
+        catch (Exception exception)
+        {
+            session?.RecordTelemetryError(exception);
+        }
+    }
+
+    private static void TryAddWarning(string message)
+    {
+        try { TestContext.Current.AddWarning(message); }
+        catch { }
     }
 
     private static string SanitisePath(string value)
@@ -259,7 +313,9 @@ public sealed class LeanCorpusTestTelemetryFixture : INotifyTestLifecycle, IDisp
         private readonly Dictionary<string, OperationSummary> operations = new(StringComparer.Ordinal);
         private readonly StreamWriter? activityWriter;
         private readonly StreamWriter? metricWriter;
+        private readonly List<string> telemetryErrors = [];
         private bool completed;
+        private bool writersClosed;
 
         public TestTelemetrySession(string testId, string testName, string directory, bool fullTelemetry)
         {
@@ -293,6 +349,22 @@ public sealed class LeanCorpusTestTelemetryFixture : INotifyTestLifecycle, IDisp
         public int MetricCount { get; private set; }
         public int SwallowedExceptions { get; private set; }
         public int OrphanedActivities { get; private set; }
+        public int TelemetryErrorCount { get; private set; }
+
+        public void RecordTelemetryError(Exception exception)
+        {
+            try
+            {
+                lock (sync)
+                {
+                    TelemetryErrorCount++;
+                    if (telemetryErrors.Count < 8)
+                        telemetryErrors.Add($"{exception.GetType().Name}: {exception.Message}");
+                    completed = false;
+                }
+            }
+            catch { }
+        }
 
         public void RecordActivity(Activity activity)
         {
@@ -362,9 +434,11 @@ public sealed class LeanCorpusTestTelemetryFixture : INotifyTestLifecycle, IDisp
             {
                 if (completed)
                     return;
-                completed = true;
-                activityWriter?.Flush();
-                metricWriter?.Flush();
+                if (!writersClosed)
+                {
+                    activityWriter?.Flush();
+                    metricWriter?.Flush();
+                }
                 var summary = new
                 {
                     testId = TestId,
@@ -377,16 +451,41 @@ public sealed class LeanCorpusTestTelemetryFixture : INotifyTestLifecycle, IDisp
                         item => new { item.Value.Count, durationMs = item.Value.DurationMs }),
                     swallowedExceptions = SwallowedExceptions,
                     orphanedActivities = OrphanedActivities,
+                    telemetryErrorCount = TelemetryErrorCount,
+                    telemetryErrors = telemetryErrors.ToArray(),
+                    activitiesFile = FullTelemetry ? Path.GetFileName(ActivitiesPath) : null,
+                    metricsFile = FullTelemetry ? Path.GetFileName(MetricsPath) : null,
                 };
                 File.WriteAllText(SummaryPath, JsonSerializer.Serialize(summary, new JsonSerializerOptions(JsonOptions) { WriteIndented = true }));
+                completed = true;
             }
+        }
+
+        public void CloseWriters()
+        {
+            Exception? activityError = null;
+            Exception? metricError = null;
+            lock (sync)
+            {
+                if (writersClosed)
+                    return;
+                writersClosed = true;
+                try { activityWriter?.Dispose(); }
+                catch (Exception exception) { activityError = exception; }
+                try { metricWriter?.Dispose(); }
+                catch (Exception exception) { metricError = exception; }
+            }
+            if (activityError is not null)
+                RecordTelemetryError(activityError);
+            if (metricError is not null)
+                RecordTelemetryError(metricError);
         }
 
         public void Dispose()
         {
-            Complete();
-            activityWriter?.Dispose();
-            metricWriter?.Dispose();
+            CloseWriters();
+            try { Complete(); }
+            catch { }
         }
 
         private sealed class OperationSummary

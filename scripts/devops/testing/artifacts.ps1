@@ -107,14 +107,17 @@ function New-TestRunContext {
         [object[]]$Targets,
         [Parameter(Mandatory = $true)]
         [string]$CommandLine,
+        [string]$RunId = '',
         [string]$RepoRoot = (Get-RepoRoot)
     )
 
     $artifactsEnabled = [bool]$Options.ArtifactsEnabled
-    $runId = ''
+    $runId = $RunId
     $runDirectory = ''
     if ($artifactsEnabled) {
-        $runId = Get-TestRunId -Framework $Options.RequestedFramework
+        if ([string]::IsNullOrWhiteSpace($runId)) {
+            $runId = Get-TestRunId -Framework $Options.RequestedFramework
+        }
         $artifactRun = New-ArtifactRun -Kind test -Framework $Options.RequestedFramework `
             -Configuration $Options.Configuration -CommandLine $CommandLine -RepoRoot $RepoRoot -RunId $runId
         $runDirectory = $artifactRun.RunDirectory

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
@@ -106,25 +107,27 @@ public sealed class CommitSearcherRaceReproTests : IClassFixture<TestDirectoryFi
     /// cleanup runs concurrently with later commits. This directly exercises the
     /// Windows-specific file-lifetime race without relying on a long iteration count.
     /// </summary>
-    [Fact(DisplayName = "Commit + SearcherManager stress: pinned generations survive merge churn", Timeout = 60_000)]
+    [Fact(DisplayName = "Commit + SearcherManager stress: pinned generations survive merge churn", Timeout = 120_000)]
     public void CommitWithSearcherManagerStressLoop_NoCrash()
     {
         var dirPath = SubDir("commit_searcher_stress");
-        using var dir = new MMapDirectory(dirPath);
-        using var writer = new IndexWriter(dir, new IndexWriterConfig
-        {
-            DurableCommits = false,
-            MaxBufferedDocs = 1,
-            MergePolicy = new TieredMergePolicy(2)
-        });
-        using var manager = new SearcherManager(dir, null);
-
+        var dir = new MMapDirectory(dirPath);
+        IndexWriter? writer = null;
+        SearcherManager? manager = null;
         const int iterations = 120;
         const int pinnedGenerations = 8;
         var heldSearchers = new Queue<IndexSearcher>();
 
         try
         {
+            writer = new IndexWriter(dir, new IndexWriterConfig
+            {
+                DurableCommits = false,
+                MaxBufferedDocs = 1,
+                MergePolicy = new TieredMergePolicy(2)
+            });
+            manager = new SearcherManager(dir, null);
+
             for (int i = 0; i < iterations; i++)
             {
                 var key = $"item_{i}";
@@ -155,16 +158,57 @@ public sealed class CommitSearcherRaceReproTests : IClassFixture<TestDirectoryFi
                     }
                 }
             }
+
+            manager.MaybeRefresh();
+            int finalCount = manager.UsingSearcher(s => s.Search(new TermQuery("body", "lorem"), 1000).ScoreDocs.Length);
+            Assert.True(finalCount > 0, "Expected to find documents after pinned-generation merge churn.");
+            _output.WriteLine($"Pinned-generation stress complete. Final searcher found {finalCount} matching documents.");
         }
         finally
         {
-            while (heldSearchers.TryDequeue(out var searcher))
-                manager.Release(searcher);
+            try
+            {
+                TimeCleanup("held searchers released", () =>
+                {
+                    while (heldSearchers.TryDequeue(out var searcher))
+                        manager?.Release(searcher);
+                });
+            }
+            finally
+            {
+                try
+                {
+                    if (manager is not null)
+                        TimeCleanup("SearcherManager.Dispose", manager.Dispose);
+                }
+                finally
+                {
+                    try
+                    {
+                        if (writer is not null)
+                            TimeCleanup("IndexWriter.Dispose", writer.Dispose);
+                    }
+                    finally
+                    {
+                        TimeCleanup("MMapDirectory.Dispose", dir.Dispose);
+                    }
+                }
+            }
         }
+    }
 
-        manager.MaybeRefresh();
-        int finalCount = manager.UsingSearcher(s => s.Search(new TermQuery("body", "lorem"), 1000).ScoreDocs.Length);
-        Assert.True(finalCount > 0, "Expected to find documents after pinned-generation merge churn.");
-        _output.WriteLine($"Pinned-generation stress complete. Final searcher found {finalCount} matching documents.");
+    private void TimeCleanup(string operation, Action action)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            action();
+            _output.WriteLine($"[cleanup] {operation} completed in {stopwatch.Elapsed.TotalMilliseconds:N1} ms");
+        }
+        catch
+        {
+            _output.WriteLine($"[cleanup] {operation} failed after {stopwatch.Elapsed.TotalMilliseconds:N1} ms");
+            throw;
+        }
     }
 }

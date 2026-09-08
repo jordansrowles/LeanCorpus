@@ -339,6 +339,27 @@ function Get-TestSummaryPropertySum {
     return [long]$measurement.Sum
 }
 
+function Get-TestObservationClassification {
+    param(
+        [object[]]$Observations,
+        [int]$ExpectedObservationCount
+    )
+
+    $observations = @($Observations)
+    $hasNonTerminalOutcome = @($observations | Where-Object {
+        $_.Outcome -notin @('Passed', 'Failed', 'Error', 'Timeout')
+    }).Count -gt 0
+    if ($observations.Count -lt $ExpectedObservationCount -or $hasNonTerminalOutcome) { return 'Incomplete' }
+
+    $failedCount = @($observations | Where-Object { $_.Outcome -in @('Failed', 'Error', 'Timeout') }).Count
+    $passedCount = @($observations | Where-Object { $_.Outcome -eq 'Passed' }).Count
+    if ($observations.Count -eq 1) { return $(if ($passedCount -eq 1) { 'Passed' } else { 'Failed' }) }
+    if ($failedCount -gt 0 -and $passedCount -gt 0) { return 'Intermittent failure' }
+    if ($failedCount -eq $observations.Count) { return 'Always fails' }
+    if ($passedCount -eq $observations.Count) { return 'Always passes' }
+    return 'Incomplete'
+}
+
 function New-TestRunSummary {
     param(
         [Parameter(Mandatory = $true)]
@@ -422,23 +443,9 @@ function New-TestRunSummary {
         } else {
             0
         }
-        $hasNonTerminalTestOutcome = @($observations | Where-Object {
-            $_.Outcome -notin @('Passed', 'Failed', 'Error', 'Timeout')
-        }).Count -gt 0
-        $isIncomplete = $observations.Count -lt $expected -or $hasNonTerminalTestOutcome
         $failedObservations = @($observations | Where-Object { $_.Outcome -in @('Failed', 'Error', 'Timeout') })
         $passedObservations = @($observations | Where-Object { $_.Outcome -eq 'Passed' })
-        $classification = if ($isIncomplete) {
-            'Incomplete'
-        } elseif ($failedObservations.Count -gt 0 -and $passedObservations.Count -gt 0) {
-            'Intermittent failure'
-        } elseif ($failedObservations.Count -eq $observations.Count) {
-            'Always fails'
-        } elseif ($passedObservations.Count -eq $observations.Count) {
-            'Always passes'
-        } else {
-            'Incomplete'
-        }
+        $classification = Get-TestObservationClassification -Observations $observations -ExpectedObservationCount $expected
         [void]$perTest.Add([pscustomobject]@{
             TargetKey = $observation.TargetKey
             Suite = $observation.Suite

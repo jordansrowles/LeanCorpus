@@ -10,8 +10,9 @@ function Remove-OwnedArtifactPath {
     )
     $root = [System.IO.Path]::GetFullPath($ArtifactRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
     $resolved = [System.IO.Path]::GetFullPath($Path)
-    if (-not $resolved.StartsWith($root + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -and
-        -not [string]::Equals($resolved, $root, [StringComparison]::OrdinalIgnoreCase)) {
+    $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    if (-not $resolved.StartsWith($root + [System.IO.Path]::DirectorySeparatorChar, $comparison) -and
+        -not [string]::Equals($resolved, $root, $comparison)) {
         throw "Refusing to clean path outside the artefact root: $resolved"
     }
     if (Test-Path $resolved) {
