@@ -10,6 +10,7 @@
 
 * Hardened Windows lifecycle tests and made repeated MTP test diagnostics aggregate by semantic test identity across executions.
 * Fixed CI-prepared test executable discovery, empty-telemetry reporting and central-output metadata tests.
+* Fixed benchmark report schema collisions, result-based benchmark exit codes, coverage status propagation, current-commit documentation coverage, and interrupted artefact-run finalisation.
 
 ### Removed
 

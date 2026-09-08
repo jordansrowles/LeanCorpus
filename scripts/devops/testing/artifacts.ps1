@@ -111,11 +111,13 @@ function New-TestRunContext {
     )
 
     $artifactsEnabled = [bool]$Options.ArtifactsEnabled
-    $runId = if ($artifactsEnabled) { Get-TestRunId -Framework $Options.RequestedFramework } else { '' }
-    $runDirectory = if ($artifactsEnabled) {
-        Join-Path (Get-ArtifactRunsRoot -Kind test -RepoRoot $RepoRoot) $runId
-    } else {
-        ''
+    $runId = ''
+    $runDirectory = ''
+    if ($artifactsEnabled) {
+        $runId = Get-TestRunId -Framework $Options.RequestedFramework
+        $artifactRun = New-ArtifactRun -Kind test -Framework $Options.RequestedFramework `
+            -Configuration $Options.Configuration -CommandLine $CommandLine -RepoRoot $RepoRoot -RunId $runId
+        $runDirectory = $artifactRun.RunDirectory
     }
 
     $context = [pscustomobject]@{
@@ -146,55 +148,48 @@ function New-TestRunContext {
     }
 
     if ($artifactsEnabled) {
-        [void][System.IO.Directory]::CreateDirectory($runDirectory)
-        $context.EnvironmentPath = Join-Path $runDirectory 'environment.json'
-        $context.ManifestPath = Join-Path $runDirectory 'run.json'
-        $context.StatePath = Join-Path $runDirectory 'state.json'
+        try {
+            $context.EnvironmentPath = Join-Path $runDirectory 'environment.json'
+            $context.ManifestPath = Join-Path $runDirectory 'run.json'
+            $context.StatePath = Join-Path $runDirectory 'state.json'
 
-        $environment = Get-TestEnvironmentSnapshot -RepoRoot $RepoRoot -CommandLine $CommandLine
-        Write-AtomicJsonFile -Path $context.EnvironmentPath -Value $environment
+            $environment = Get-TestEnvironmentSnapshot -RepoRoot $RepoRoot -CommandLine $CommandLine
+            Write-AtomicJsonFile -Path $context.EnvironmentPath -Value $environment
 
-        $manifest = [ordered]@{
-            schemaVersion = 1
-            runId = $runId
-            kind = 'test'
-            commandLine = $CommandLine
-            startedAtUtc = $context.StartTimeUtc.ToString('O')
-            completedAtUtc = $null
-            commit = $environment.gitCommit
-            branch = $environment.gitBranch
-            dirty = $environment.gitDirty
-            framework = $Options.RequestedFramework
-            machine = [Environment]::MachineName
-            status = 'Running'
-            startTimeUtc = $context.StartTimeUtc.ToString('O')
-            endTimeUtc = $null
-            durationMs = 0
-            gitCommit = $environment.gitCommit
-            gitBranch = $environment.gitBranch
-            gitDirty = $environment.gitDirty
-            os = $environment.os
-            architecture = $environment.architecture
-            sdkVersion = $environment.sdkVersion
-            configuration = $Options.Configuration
-            requestedFramework = $Options.RequestedFramework
-            runtimeIdentifier = $Options.RuntimeIdentifier
-            count = [int]$Options.Count
-            flaky = [bool]$Options.Flaky
-            diagnostics = [bool]$Options.Diagnostics
-            failFast = [bool]$Options.FailFast
-            ci = [bool]$Options.Ci
-            selectedTargets = @($Targets | ForEach-Object { ConvertTo-TestTargetDocument $_ })
-            artifactPaths = [ordered]@{
-                environment = 'environment.json'
-                state = 'state.json'
-                reportMarkdown = 'report.md'
-                reportJson = 'report.json'
-                timingsCsv = 'timings.csv'
+            $initialValues = @{
+                startTimeUtc = $context.StartTimeUtc.ToString('O')
+                endTimeUtc = $null
+                durationMs = 0
+                gitCommit = $environment.gitCommit
+                gitBranch = $environment.gitBranch
+                gitDirty = $environment.gitDirty
+                sdkVersion = $environment.sdkVersion
+                requestedFramework = $Options.RequestedFramework
+                runtimeIdentifier = $Options.RuntimeIdentifier
+                count = [int]$Options.Count
+                flaky = [bool]$Options.Flaky
+                diagnostics = [bool]$Options.Diagnostics
+                failFast = [bool]$Options.FailFast
+                selectedTargets = @($Targets | ForEach-Object { ConvertTo-TestTargetDocument $_ })
+                artifactPaths = [ordered]@{
+                    environment = 'environment.json'
+                    state = 'state.json'
+                    reportMarkdown = 'report.md'
+                    reportJson = 'report.json'
+                    timingsCsv = 'timings.csv'
+                }
             }
+            Update-ArtifactRunManifest -RunDirectory $runDirectory -Values $initialValues
+            Write-TestRunCheckpoint -Context $context -Status 'Running'
+        } catch {
+            try {
+                Complete-ArtifactRun -RunDirectory $runDirectory -Status Failed `
+                    -AdditionalValues @{ error = $_.Exception.Message }
+            } catch {
+                # Preserve the original setup failure if its evidence cannot be written.
+            }
+            throw
         }
-        Write-AtomicJsonFile -Path $context.ManifestPath -Value $manifest
-        Write-TestRunCheckpoint -Context $context -Status 'Running'
     }
 
     return $context
@@ -429,45 +424,39 @@ function Update-TestRunManifest {
     param(
         [Parameter(Mandatory = $true)]
         [object]$Context,
-        [object]$Summary = $null
+        [object]$Summary = $null,
+        [ValidateSet('Passed', 'Failed', 'Incomplete', 'Cancelled')]
+        [string]$Status = 'Failed'
     )
 
     if (-not $Context.ArtifactsEnabled) {
         return
     }
 
-    $Context.EndTimeUtc = [DateTime]::UtcNow
+    if ($null -eq $Context.EndTimeUtc) {
+        $Context.EndTimeUtc = [DateTime]::UtcNow
+    }
     $durationMs = ($Context.EndTimeUtc - $Context.StartTimeUtc).TotalMilliseconds
-    $manifest = [ordered]@{
-        schemaVersion = 1
-        runId = $Context.RunId
-        kind = 'test'
-        status = if ($null -ne $Summary -and [bool]$Summary.Succeeded) { 'Passed' } else { 'Failed' }
-        startedAtUtc = $Context.StartTimeUtc.ToString('O')
-        completedAtUtc = $Context.EndTimeUtc.ToString('O')
-        commandLine = $Context.CommandLine
+    $environment = $null
+    try {
+        if (Test-Path $Context.EnvironmentPath) {
+            $environment = Get-Content $Context.EnvironmentPath -Raw | ConvertFrom-Json
+        }
+    } catch {
+        [void]$Context.ReportErrors.Add("Manifest environment read failed: $($_.Exception.Message)")
+    }
+
+    $values = @{
         startTimeUtc = $Context.StartTimeUtc.ToString('O')
         endTimeUtc = $Context.EndTimeUtc.ToString('O')
         durationMs = [Math]::Round($durationMs, 3)
-        gitCommit = ''
-        gitBranch = ''
-        gitDirty = $false
-        commit = ''
-        branch = ''
-        dirty = $false
-        os = ''
-        architecture = ''
-        machine = [Environment]::MachineName
-        sdkVersion = ''
-        framework = $Context.Options.RequestedFramework
-        configuration = $Context.Options.Configuration
         requestedFramework = $Context.Options.RequestedFramework
         runtimeIdentifier = $Context.Options.RuntimeIdentifier
+        sdkVersion = if ($null -ne $environment) { $environment.sdkVersion } else { '' }
         count = [int]$Context.Options.Count
         flaky = [bool]$Context.Options.Flaky
         diagnostics = [bool]$Context.Options.Diagnostics
         failFast = [bool]$Context.Options.FailFast
-        ci = [bool]$Context.Options.Ci
         selectedTargets = @($Context.Targets | ForEach-Object { ConvertTo-TestTargetDocument $_ })
         artifactPaths = [ordered]@{
             environment = Get-TestArtifactRelativePath -Context $Context -Path $Context.EnvironmentPath
@@ -489,7 +478,7 @@ function Update-TestRunManifest {
     }
 
     if ($null -ne $Summary) {
-        $manifest.summary = [ordered]@{
+        $values.summary = [ordered]@{
             succeeded = [bool]$Summary.Succeeded
             requestedIterations = [int]$Summary.RequestedIterations
             completedIterations = [int]$Summary.CompletedIterations
@@ -502,24 +491,13 @@ function Update-TestRunManifest {
         }
     }
 
-    try {
-        if (Test-Path $Context.EnvironmentPath) {
-            $environment = Get-Content -LiteralPath $Context.EnvironmentPath -Raw | ConvertFrom-Json
-            $manifest.gitCommit = $environment.gitCommit
-            $manifest.gitBranch = $environment.gitBranch
-            $manifest.gitDirty = [bool]$environment.gitDirty
-            $manifest.commit = $environment.gitCommit
-            $manifest.branch = $environment.gitBranch
-            $manifest.dirty = [bool]$environment.gitDirty
-            $manifest.os = $environment.os
-            $manifest.architecture = $environment.architecture
-            $manifest.sdkVersion = $environment.sdkVersion
-        }
-    } catch {
-        [void]$Context.ReportErrors.Add("Manifest environment update failed: $($_.Exception.Message)")
+    if ($null -ne $environment) {
+        $values.gitCommit = $environment.gitCommit
+        $values.gitBranch = $environment.gitBranch
+        $values.gitDirty = [bool]$environment.gitDirty
     }
 
-    Write-AtomicJsonFile -Path $Context.ManifestPath -Value $manifest
+    Complete-ArtifactRun -RunDirectory $Context.RunDirectory -Status $Status -AdditionalValues $values
 }
 
 function Copy-TestCoverageResults {

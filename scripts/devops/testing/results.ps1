@@ -522,7 +522,6 @@ function New-TestRunSummary {
         InfrastructureErrors = @($Context.InfrastructureErrors)
         DiagnosticArtifactPaths = $diagnosticPaths
         AttachmentPaths = $attachmentPaths
-        WarningCount = [int](Get-TestSummaryPropertySum -Items $telemetrySummaries -Property swallowedExceptions)
         TelemetrySummary = [ordered]@{
             tests = $telemetrySummaries.Count
             activities = [int](Get-TestSummaryPropertySum -Items $telemetrySummaries -Property activityCount)

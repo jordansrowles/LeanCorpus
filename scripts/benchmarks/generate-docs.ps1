@@ -136,6 +136,13 @@ foreach ($reportFile in @(Get-ChildItem $BenchDir -Recurse -File -Filter 'report
                 continue
             }
 
+            $reportProperties = @($report.PSObject.Properties | ForEach-Object { $_.Name })
+            if ('totalBenchmarkCount' -notin $reportProperties -or
+                'suites' -notin $reportProperties -or
+                'generatedAtUtc' -notin $reportProperties) {
+                continue
+            }
+
             if ($report.totalBenchmarkCount -le 0) { continue }
 
             $machineName = if ($report.provenance -and $report.provenance.machineName) {

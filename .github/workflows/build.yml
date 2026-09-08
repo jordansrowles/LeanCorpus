@@ -33,6 +33,9 @@ jobs:
       - name: Build solution
         shell: pwsh
         run: ./devops.ps1 build
+      - name: Validate DevOps artefact infrastructure
+        shell: pwsh
+        run: pwsh ./scripts/devops/validation/artifacts-smoke.ps1
       - name: Test deterministic suites
         shell: pwsh
         env: { CHAOS_ITERATIONS: 25 }

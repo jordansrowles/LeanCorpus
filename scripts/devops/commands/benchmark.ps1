@@ -36,7 +36,6 @@ function Invoke-DevOpsBenchmark {
     $list = $parsed.Has('List')
     $dry = $parsed.Has('Dry')
     $gcDump = $parsed.Has('GcDump')
-    $diagnostics = $parsed.Has('Diagnostics')
     $controlled = $parsed.Has('Controlled')
     $passThrough = $parsed.PassThrough
     $area = $parsed.Get('Area', '')
@@ -120,7 +119,6 @@ function Invoke-DevOpsBenchmark {
     if ($stratJobArgs)   { Write-Host "Job:        $($stratJobArgs -join ' ')" }
     if ($passThrough)    { Write-Host "BDN args:   $($passThrough -join ' ')" }
     Write-Host "Projects:   $($projectKeys -join ', ')"
-    if ($diagnostics)    { Write-Warn 'Diagnostic benchmark telemetry is non-comparable performance data.' }
 
     if ($dry) {
         Write-Host ''
@@ -145,6 +143,8 @@ function Invoke-DevOpsBenchmark {
     $benchmarkRun = New-ArtifactRun -Kind benchmark -Framework $framework -Configuration Release `
         -Target $suite -CommandLine $commandLine -RepoRoot $repoRoot
     $projectResults = [System.Collections.Generic.List[object]]::new()
+    $runCompleted = $false
+    $runFailure = $null
     try {
         foreach ($projectKey in $projectKeys) {
             $projectPath = Resolve-BenchmarkProjectPath $projectKey
@@ -156,8 +156,7 @@ function Invoke-DevOpsBenchmark {
             if ($gcDump -and $projectKey -eq 'core') { $runArgs += '--gcdump' }
 
             Set-ArtifactProcessEnvironment -RunId $benchmarkRun.RunId -Kind benchmark `
-                -ArtifactDirectory $projectDirectory -Target $projectKey -Diagnostics $diagnostics
-            $env:LEANCORPUS_TELEMETRY = if ($diagnostics) { 'full' } else { 'off' }
+                -ArtifactDirectory $projectDirectory -Target $projectKey
             Write-Info "Running benchmark project: $projectKey"
             dotnet run -c Release --framework $framework --project $projectPath -- @runArgs @stratJobArgs @passThrough
             $exitCode = $LASTEXITCODE
@@ -168,33 +167,56 @@ function Invoke-DevOpsBenchmark {
                 path = $projectKey
             })
         }
+        $failedProjects = @($projectResults | Where-Object { $_.status -ne 'Passed' })
+        $report = [ordered]@{
+            schemaVersion = 1
+            runId = $benchmarkRun.RunId
+            status = if ($failedProjects.Count -eq 0) { 'Passed' } else { 'Failed' }
+            framework = $framework
+            strategy = $strat
+            comparable = $true
+            projects = @($projectResults)
+        }
+        Write-AtomicJsonFile -Path (Join-Path $benchmarkRun.RunDirectory 'run-report.json') -Value $report
+        $markdown = @(
+            "# Benchmark run $($benchmarkRun.RunId)",
+            '',
+            "Status: $($report.status)",
+            '',
+            '| Project | Status | Path |',
+            '| --- | --- | --- |'
+        ) + @($projectResults | ForEach-Object { "| $($_.project) | $($_.status) | `$($_.path)/` |" })
+        Write-AtomicTextFile -Path (Join-Path $benchmarkRun.RunDirectory 'report.md') -Content ($markdown -join [Environment]::NewLine)
+        Complete-ArtifactRun -RunDirectory $benchmarkRun.RunDirectory -Status $report.status `
+            -AdditionalValues @{ projects = @($projectResults); report = 'run-report.json'; comparable = $true }
+        $runCompleted = $true
+    } catch {
+        $runFailure = $_.Exception
+        try {
+            Complete-ArtifactRun -RunDirectory $benchmarkRun.RunDirectory -Status Failed `
+                -AdditionalValues @{ error = $runFailure.Message }
+            $runCompleted = $true
+        } catch {
+            Write-Warn "Benchmark run could not be finalised as Failed: $($_.Exception.Message)"
+        }
+        Write-Failure "Benchmark command failed: $($runFailure.Message)"
     } finally {
         Clear-ArtifactProcessEnvironment
+        if (-not $runCompleted) {
+            try {
+                Complete-ArtifactRun -RunDirectory $benchmarkRun.RunDirectory -Status Incomplete `
+                    -AdditionalValues @{ error = 'Benchmark command did not complete normally.' }
+                $runCompleted = $true
+            } catch {
+                Write-Warn "Benchmark run remained unfinalised: $($_.Exception.Message)"
+            }
+        }
     }
 
-    $failedProjects = @($projectResults | Where-Object { $_.status -ne 'Passed' })
-    $report = [ordered]@{
-        schemaVersion = 1
-        runId = $benchmarkRun.RunId
-        status = if ($failedProjects.Count -eq 0) { 'Passed' } else { 'Failed' }
-        framework = $framework
-        strategy = $strat
-        diagnostics = $diagnostics
-        comparable = -not $diagnostics
-        projects = @($projectResults)
+    if ($null -ne $runFailure) {
+        exit 1
     }
-    Write-AtomicJsonFile -Path (Join-Path $benchmarkRun.RunDirectory 'report.json') -Value $report
-    $markdown = @(
-        "# Benchmark run $($benchmarkRun.RunId)",
-        '',
-        "Status: $($report.status)",
-        '',
-        '| Project | Status | Path |',
-        '| --- | --- | --- |'
-    ) + @($projectResults | ForEach-Object { "| $($_.project) | $($_.status) | `$($_.path)/` |" })
-    Write-AtomicTextFile -Path (Join-Path $benchmarkRun.RunDirectory 'report.md') -Content ($markdown -join [Environment]::NewLine)
-    Complete-ArtifactRun -RunDirectory $benchmarkRun.RunDirectory -Status $report.status `
-        -AdditionalValues @{ projects = @($projectResults); report = 'report.json'; comparable = (-not $diagnostics) }
+
     Write-Host "Benchmark run: $($benchmarkRun.RunDirectory)"
     exit $(if ($failedProjects.Count -eq 0) { 0 } else { 1 })
 }

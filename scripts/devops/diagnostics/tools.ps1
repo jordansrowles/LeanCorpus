@@ -42,9 +42,19 @@ function New-DiagnosticsContext {
         EnvironmentPath = Join-Path $runDirectory 'environment.json'
     }
 
-    $environment = Get-TestEnvironmentSnapshot -RepoRoot $RepoRoot -CommandLine $CommandLine
-    Write-AtomicJsonFile -Path $context.EnvironmentPath -Value $environment
-    Update-DiagnosticsMetadata -Context $context -Status 'Running'
+    try {
+        $environment = Get-TestEnvironmentSnapshot -RepoRoot $RepoRoot -CommandLine $CommandLine
+        Write-AtomicJsonFile -Path $context.EnvironmentPath -Value $environment
+        Update-DiagnosticsMetadata -Context $context -Status 'Running'
+    } catch {
+        try {
+            Complete-ArtifactRun -RunDirectory $runDirectory -Status Failed `
+                -AdditionalValues @{ error = $_.Exception.Message }
+        } catch {
+            # Preserve the original setup failure if its evidence cannot be written.
+        }
+        throw
+    }
     return $context
 }
 

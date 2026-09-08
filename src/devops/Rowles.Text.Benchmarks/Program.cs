@@ -1,4 +1,5 @@
 using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
 
 namespace Rowles.Text.Benchmarks;
@@ -11,7 +12,16 @@ internal static class Program
             ?? Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "benchmark", "runs", "direct", "text");
         Directory.CreateDirectory(artifactsPath);
         var config = DefaultConfig.Instance.WithArtifactsPath(Path.Combine(artifactsPath, "_runner"));
-        BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args, config);
-        return 0;
+        var summaries = BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args, config);
+        return HasInvalidResults(summaries) ? 1 : 0;
+    }
+
+    private static bool HasInvalidResults(IEnumerable<Summary> summaries)
+    {
+        var summaryArray = summaries.ToArray();
+        return summaryArray.Length == 0 || summaryArray.Any(summary =>
+            summary.HasCriticalValidationErrors ||
+            !summary.Reports.Any() ||
+            summary.Reports.Any(report => report.ResultStatistics is null));
     }
 }

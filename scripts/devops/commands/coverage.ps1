@@ -4,6 +4,8 @@ Set-StrictMode -Version Latest
 function Invoke-DevOpsCoverage {
     param([string[]]$Arguments = @())
 
+    $coverageRun = $null
+    $runCompleted = $false
     try {
         $parsed = ConvertFrom-DevOpsArguments $Arguments
         $frameworkWasSpecified = $parsed.Has('Framework')
@@ -80,10 +82,30 @@ function Invoke-DevOpsCoverage {
         $coverageStatus = if ($exitCode -eq 0 -and $xmlFiles.Count -gt 0) { 'Passed' } else { 'Failed' }
         Complete-ArtifactRun -RunDirectory $coverageRun.RunDirectory -Status $coverageStatus `
             -AdditionalValues @{ coverageFiles = $xmlFiles.Count; raw = 'raw' }
+        $runCompleted = $true
 
-        return $exitCode
+        return $(if ($coverageStatus -eq 'Passed') { 0 } else { 1 })
     } catch {
         Write-Failure "Coverage command failed: $($_.Exception.Message)"
+        if ($null -ne $coverageRun -and -not $runCompleted) {
+            try {
+                Complete-ArtifactRun -RunDirectory $coverageRun.RunDirectory -Status Failed `
+                    -AdditionalValues @{ error = $_.Exception.Message }
+                $runCompleted = $true
+            } catch {
+                Write-Warn "Coverage run could not be finalised as Failed: $($_.Exception.Message)"
+            }
+        }
         return 1
+    } finally {
+        if ($null -ne $coverageRun -and -not $runCompleted) {
+            try {
+                Complete-ArtifactRun -RunDirectory $coverageRun.RunDirectory -Status Incomplete `
+                    -AdditionalValues @{ error = 'Coverage command did not complete normally.' }
+                $runCompleted = $true
+            } catch {
+                Write-Warn "Coverage run remained unfinalised: $($_.Exception.Message)"
+            }
+        }
     }
 }

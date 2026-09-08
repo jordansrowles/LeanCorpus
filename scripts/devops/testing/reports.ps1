@@ -121,7 +121,6 @@ function New-TestReportDocument {
             maximumDurationMs = [double]$Summary.MaximumDurationMs
             totalDurationMs = [double]$Summary.TotalDurationMs
             outcomeCounts = $Summary.OutcomeCounts
-            warnings = [int]$Summary.WarningCount
         }
         telemetry = [ordered]@{
             tests = [int]$Summary.TelemetrySummary.tests
@@ -258,7 +257,7 @@ function New-TestMarkdownReport {
     [void]$builder.AppendLine("- Test summaries: $($Summary.TelemetrySummary.tests)")
     [void]$builder.AppendLine("- Activities: $($Summary.TelemetrySummary.activities)")
     [void]$builder.AppendLine("- Measurements: $($Summary.TelemetrySummary.metrics)")
-    [void]$builder.AppendLine("- Warnings: $($Summary.WarningCount)")
+    [void]$builder.AppendLine("- Swallowed exceptions: $($Summary.TelemetrySummary.swallowedExceptions)")
     [void]$builder.AppendLine("- Orphaned activity observations: $($Summary.TelemetrySummary.orphanedActivities)")
     [void]$builder.AppendLine()
 

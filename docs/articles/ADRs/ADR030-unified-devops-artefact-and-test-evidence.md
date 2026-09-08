@@ -50,6 +50,9 @@ another's signals. Raw activity and metric records are streamed during the
 test, summaries and warnings are attached through `TestContext`, and runtime
 measurements remain at execution scope. Standard benchmark runs keep listeners
 disabled so diagnostic overhead cannot contaminate normal measurements.
+There is no benchmark `-Diagnostics` mode in this contract; benchmark-process
+telemetry requires a separate BenchmarkDotNet integration before it can be
+claimed as evidence.
 
 `./devops benchmark` owns one run containing the Core, Rowles.Text and
 compression projects. A failure in one project does not remove earlier output.

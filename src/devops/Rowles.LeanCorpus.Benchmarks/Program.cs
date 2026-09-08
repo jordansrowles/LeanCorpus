@@ -372,7 +372,9 @@ internal static class Program
         Console.WriteLine($"Commit: {(string.IsNullOrEmpty(commitHash) ? "(unknown)" : commitHash)}");
         Console.WriteLine($"Output: {runDir}");
         Console.WriteLine($"Suites: {string.Join(", ", suiteSummaries.Select(s => s.Suite))}");
-        return 0;
+        var hasInvalidResults = suiteSummaries.Any(item => item.Summary.HasCriticalValidationErrors) ||
+            report.Suites.Any(suite => suite.FailedBenchmarkCount > 0 || suite.MissingBenchmarkCount > 0);
+        return hasInvalidResults ? 1 : 0;
     }
 
     private static void RunSuite<T>(

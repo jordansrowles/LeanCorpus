@@ -202,15 +202,28 @@ function Invoke-TestPipeline {
                 }
             }
             try {
-                if ($null -ne $summary) {
-                    Update-TestRunManifest -Context $context -Summary $summary
-                }
-                $finalStatus = if ($null -eq $pipelineError) { 'Completed' } else { 'Failed' }
+                $finalStatus = if ($null -eq $pipelineError -and
+                    -not $reportError -and
+                    $context.ReportErrors.Count -eq 0 -and
+                    $null -ne $summary -and
+                    [bool]$summary.Succeeded) { 'Passed' } else { 'Failed' }
+                Update-TestRunManifest -Context $context -Summary $summary -Status $finalStatus
                 Write-TestRunCheckpoint -Context $context -Status $finalStatus
             } catch {
                 $reportError = $true
                 [void]$context.ReportErrors.Add("Final artefact update failed: $($_.Exception.Message)")
                 Write-Failure "Final artefact update failed: $($_.Exception.Message)"
+                try {
+                    Complete-ArtifactRun -RunDirectory $context.RunDirectory -Status Failed `
+                        -AdditionalValues @{ error = $_.Exception.Message }
+                } catch {
+                    [void]$context.ReportErrors.Add("Failed run finalisation failed: $($_.Exception.Message)")
+                }
+                try {
+                    Write-TestRunCheckpoint -Context $context -Status 'Failed'
+                } catch {
+                    [void]$context.ReportErrors.Add("Failed checkpoint update failed: $($_.Exception.Message)")
+                }
             }
         }
     }

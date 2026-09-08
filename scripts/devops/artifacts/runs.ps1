@@ -87,6 +87,64 @@ function Complete-ArtifactRun {
     Update-ArtifactRunManifest -RunDirectory $RunDirectory -Values $values
 }
 
+function Get-LatestSuccessfulArtifactRun {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('test', 'coverage', 'benchmark', 'diagnostics')]
+        [string]$Kind,
+        [string]$RepoRoot = (Get-RepoRoot),
+        [string]$Commit = ''
+    )
+
+    $runsRoot = Get-ArtifactRunsRoot -Kind $Kind -RepoRoot $RepoRoot
+    if (-not (Test-Path $runsRoot -PathType Container)) {
+        return $null
+    }
+
+    $candidates = [System.Collections.Generic.List[object]]::new()
+    foreach ($runDirectory in @(Get-ChildItem -LiteralPath $runsRoot -Directory -ErrorAction SilentlyContinue)) {
+        $manifestPath = Join-Path $runDirectory.FullName 'run.json'
+        if (-not (Test-Path $manifestPath -PathType Leaf)) {
+            continue
+        }
+
+        try {
+            $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+            if ([string]$manifest.status -ne 'Passed') {
+                continue
+            }
+            if ($Commit -and -not [string]::Equals(
+                    [string]$manifest.commit,
+                    $Commit,
+                    [StringComparison]::OrdinalIgnoreCase)) {
+                continue
+            }
+
+            $completedAtUtc = [DateTimeOffset]::MinValue
+            if (-not [DateTimeOffset]::TryParse(
+                    [string]$manifest.completedAtUtc,
+                    [Globalization.CultureInfo]::InvariantCulture,
+                    [Globalization.DateTimeStyles]::RoundtripKind,
+                    [ref]$completedAtUtc)) {
+                continue
+            }
+
+            [void]$candidates.Add([pscustomobject]@{
+                RunDirectory = $runDirectory.FullName
+                RunId = [string]$manifest.runId
+                Manifest = $manifest
+                CompletedAtUtc = $completedAtUtc
+            })
+        } catch {
+            # Retained runs can be incomplete or partially written. Ignore them
+            # during discovery and let the caller continue without evidence.
+            continue
+        }
+    }
+
+    return $candidates | Sort-Object CompletedAtUtc -Descending | Select-Object -First 1
+}
+
 function Set-ArtifactProcessEnvironment {
     param(
         [Parameter(Mandatory = $true)]

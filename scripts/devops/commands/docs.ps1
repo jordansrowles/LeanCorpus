@@ -89,9 +89,24 @@ function Invoke-DevOpsDocs {
     }
 
     if (-not $skipCoverage) {
-        $xmlFiles = @(Find-CoverageResults (Get-ArtifactRunsRoot -Kind coverage -RepoRoot $repoRoot))
+        $coverageOutput = Get-DocsArtifactPath -Name coverage -RepoRoot $repoRoot
+        $coverageRun = $null
+        $gitContext = Get-ArtifactGitContext -RepoRoot $repoRoot
+        if ($gitContext.commit) {
+            $coverageRun = Get-LatestSuccessfulArtifactRun -Kind coverage -RepoRoot $repoRoot `
+                -Commit $gitContext.commit
+        }
+
+        $xmlFiles = @(
+            if ($null -ne $coverageRun) {
+                Find-CoverageResults (Join-Path $coverageRun.RunDirectory 'raw')
+            }
+        )
         if ($xmlFiles.Count -gt 0) {
-            New-CoverageReport -XmlFiles $xmlFiles -OutputDir (Get-DocsArtifactPath -Name coverage -RepoRoot $repoRoot)
+            New-CoverageReport -XmlFiles $xmlFiles -OutputDir $coverageOutput
+        } else {
+            Remove-OwnedArtifactPath -Path $coverageOutput -ArtifactRoot (Get-ArtifactRoot -RepoRoot $repoRoot)
+            Write-Info 'Current-commit coverage evidence is unavailable; continuing without a coverage report.'
         }
     }
 
