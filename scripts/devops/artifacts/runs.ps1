@@ -96,6 +96,7 @@ function Set-ArtifactProcessEnvironment {
         [Parameter(Mandatory = $true)]
         [string]$ArtifactDirectory,
         [string]$Target = '',
+        [string]$Suite = '',
         [int]$Iteration = 1,
         [bool]$Ci = $false,
         [bool]$Diagnostics = $false
@@ -104,6 +105,7 @@ function Set-ArtifactProcessEnvironment {
     $env:LEANCORPUS_RUN_KIND = $Kind
     $env:LEANCORPUS_ARTIFACT_DIR = $ArtifactDirectory
     $env:LEANCORPUS_TARGET = $Target
+    $env:LEANCORPUS_SUITE = $Suite
     $env:LEANCORPUS_ITERATION = $Iteration.ToString([Globalization.CultureInfo]::InvariantCulture)
     $env:LEANCORPUS_CI = $Ci.ToString().ToLowerInvariant()
     $env:LEANCORPUS_DIAGNOSTICS = $Diagnostics.ToString().ToLowerInvariant()
@@ -112,7 +114,7 @@ function Set-ArtifactProcessEnvironment {
 function Clear-ArtifactProcessEnvironment {
     foreach ($name in @(
         'LEANCORPUS_RUN_ID', 'LEANCORPUS_RUN_KIND', 'LEANCORPUS_ARTIFACT_DIR',
-        'LEANCORPUS_TARGET', 'LEANCORPUS_ITERATION', 'LEANCORPUS_CI',
+        'LEANCORPUS_TARGET', 'LEANCORPUS_SUITE', 'LEANCORPUS_ITERATION', 'LEANCORPUS_CI',
         'LEANCORPUS_DIAGNOSTICS', 'LEANCORPUS_TELEMETRY')) {
         [Environment]::SetEnvironmentVariable($name, $null)
     }

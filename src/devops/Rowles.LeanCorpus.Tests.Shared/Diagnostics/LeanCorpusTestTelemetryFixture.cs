@@ -109,6 +109,10 @@ public sealed class LeanCorpusTestTelemetryFixture : INotifyTestLifecycle, IDisp
         root.SetTag("test.id", testId);
         root.SetTag("test.name", test.TestDisplayName);
         root.SetTag("test.label", test.TestLabel);
+        root.SetTag("test.class", test.TestCase.TestClassName);
+        root.SetTag("test.method", test.TestCase.TestMethodName);
+        root.SetTag("test.suite", Environment.GetEnvironmentVariable("LEANCORPUS_SUITE"));
+        root.SetTag("test.category", GetTraitValues(test.TestCase.Traits, "Category"));
         root.SetTag("test.run_id", Environment.GetEnvironmentVariable("LEANCORPUS_RUN_ID"));
         root.SetTag("test.target", Environment.GetEnvironmentVariable("LEANCORPUS_TARGET"));
         root.SetTag("test.iteration", Environment.GetEnvironmentVariable("LEANCORPUS_ITERATION"));
@@ -205,6 +209,9 @@ public sealed class LeanCorpusTestTelemetryFixture : INotifyTestLifecycle, IDisp
         }
         return new string(buffer[..length]);
     }
+
+    private static string GetTraitValues(IReadOnlyDictionary<string, IReadOnlyCollection<string>> traits, string name) =>
+        traits.TryGetValue(name, out IReadOnlyCollection<string>? values) ? string.Join(',', values) : string.Empty;
 
     private static StreamWriter CreateWriter(string path) =>
         new(path, append: false, new System.Text.UTF8Encoding(false)) { AutoFlush = true };
@@ -311,7 +318,12 @@ public sealed class LeanCorpusTestTelemetryFixture : INotifyTestLifecycle, IDisp
                         durationMs = activity.Duration.TotalMilliseconds,
                         status = activity.Status.ToString(),
                         tags = activity.TagObjects.ToDictionary(item => item.Key, item => item.Value),
-                        events = activity.Events.Select(item => new { item.Name, item.Timestamp }).ToArray(),
+                        events = activity.Events.Select(item => new
+                        {
+                            item.Name,
+                            item.Timestamp,
+                            tags = item.Tags.ToDictionary(tag => tag.Key, tag => tag.Value),
+                        }).ToArray(),
                     });
                 }
             }

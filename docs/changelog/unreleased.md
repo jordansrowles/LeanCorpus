@@ -9,6 +9,7 @@
 ### Fixed
 
 * Hardened Windows lifecycle tests and made repeated MTP test diagnostics aggregate by semantic test identity across executions.
+* Fixed CI-prepared test executable discovery, empty-telemetry reporting and central-output metadata tests.
 
 ### Removed
 

@@ -27,9 +27,21 @@ function Get-MtpExecutablePath {
 
     $projectPath = Resolve-TestProjectPath -Target $Target -RepoRoot $RepoRoot
     $projectName = [System.IO.Path]::GetFileNameWithoutExtension($projectPath)
-    $configurationName = $Target.Configuration.ToLowerInvariant()
-    $outputDirectory = Join-Path (Get-ArtifactRoot -RepoRoot $RepoRoot) `
-        "bin/$projectName/$configurationName`_$($Target.Framework)"
+    $propertyOutput = @(Invoke-DotNet @(
+        'msbuild', $projectPath, '--nologo', '-getProperty:TargetPath',
+        "-property:Configuration=$($Target.Configuration)",
+        "-property:TargetFramework=$($Target.Framework)",
+        '-property:UseSharedCompilation=false'
+    ))
+    $targetPaths = @($propertyOutput | ForEach-Object { ([string]$_).Trim() } | Where-Object {
+        $_ -and [System.IO.Path]::IsPathRooted($_) -and
+            [System.IO.Path]::GetExtension($_).Equals('.dll', [StringComparison]::OrdinalIgnoreCase)
+    })
+    if ($targetPaths.Count -ne 1) {
+        throw "MSBuild did not return one TargetPath for '$projectPath' ($($Target.Framework), $($Target.Configuration))."
+    }
+
+    $outputDirectory = [System.IO.Path]::GetDirectoryName($targetPaths[0])
     $candidates = @(
         (Join-Path $outputDirectory $projectName),
         (Join-Path $outputDirectory "$projectName.exe")

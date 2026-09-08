@@ -103,9 +103,11 @@ public sealed class MetadataClassificationTests
     private static string GetProjectDirectory()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && directory.Name != "Rowles.LeanCorpus.Tests.Core")
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Rowles.LeanCorpus.slnx")))
             directory = directory.Parent;
 
-        return directory?.FullName ?? throw new InvalidOperationException("Could not find the Core test project directory.");
+        return directory is null
+            ? throw new InvalidOperationException("Could not find the LeanCorpus repository root.")
+            : Path.Combine(directory.FullName, "src", "devops", "Rowles.LeanCorpus.Tests.Core");
     }
 }

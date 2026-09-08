@@ -320,6 +320,25 @@ function Get-NearestRankPercentile {
     return [double]$sorted[$rank - 1]
 }
 
+function Get-TestSummaryPropertySum {
+    param(
+        [object[]]$Items = @(),
+        [Parameter(Mandatory = $true)]
+        [string]$Property
+    )
+
+    if ($Items.Count -eq 0) {
+        return 0L
+    }
+
+    $measurement = $Items | Measure-Object -Property $Property -Sum
+    if ($null -eq $measurement -or $null -eq $measurement.Sum) {
+        return 0L
+    }
+
+    return [long]$measurement.Sum
+}
+
 function New-TestRunSummary {
     param(
         [Parameter(Mandatory = $true)]
@@ -503,13 +522,13 @@ function New-TestRunSummary {
         InfrastructureErrors = @($Context.InfrastructureErrors)
         DiagnosticArtifactPaths = $diagnosticPaths
         AttachmentPaths = $attachmentPaths
-        WarningCount = [int](@($telemetrySummaries | Measure-Object -Property swallowedExceptions -Sum).Sum)
+        WarningCount = [int](Get-TestSummaryPropertySum -Items $telemetrySummaries -Property swallowedExceptions)
         TelemetrySummary = [ordered]@{
             tests = $telemetrySummaries.Count
-            activities = [int](@($telemetrySummaries | Measure-Object -Property activityCount -Sum).Sum)
-            metrics = [int](@($telemetrySummaries | Measure-Object -Property metricCount -Sum).Sum)
-            swallowedExceptions = [int](@($telemetrySummaries | Measure-Object -Property swallowedExceptions -Sum).Sum)
-            orphanedActivities = [int](@($telemetrySummaries | Measure-Object -Property orphanedActivities -Sum).Sum)
+            activities = [int](Get-TestSummaryPropertySum -Items $telemetrySummaries -Property activityCount)
+            metrics = [int](Get-TestSummaryPropertySum -Items $telemetrySummaries -Property metricCount)
+            swallowedExceptions = [int](Get-TestSummaryPropertySum -Items $telemetrySummaries -Property swallowedExceptions)
+            orphanedActivities = [int](Get-TestSummaryPropertySum -Items $telemetrySummaries -Property orphanedActivities)
             summaryPaths = $telemetrySummaryPaths
         }
     }

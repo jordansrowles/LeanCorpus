@@ -248,7 +248,7 @@ function Invoke-TestTarget {
 
     if ($Context.ArtifactsEnabled) {
         Set-ArtifactProcessEnvironment -RunId $Context.RunId -Kind test -ArtifactDirectory $artifactDirectory `
-            -Target $target.Key -Iteration $Iteration -Ci ([bool]$Context.Options.Ci) `
+            -Target $target.Key -Suite $target.Suite -Iteration $Iteration -Ci ([bool]$Context.Options.Ci) `
             -Diagnostics ([bool]$Context.Options.Diagnostics)
         $env:LEANCORPUS_TELEMETRY = if ([bool]$Context.Options.Diagnostics -or [bool]$Context.Options.Flaky) {
             'full'
