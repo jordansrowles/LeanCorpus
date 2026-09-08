@@ -23,8 +23,8 @@ public sealed class LeanCorpusTestTelemetryFixture : INotifyTestLifecycle, IDisp
     private readonly ActivityListener? activityListener;
     private readonly MeterListener? meterListener;
     private readonly Lock runtimeSync = new();
-    private readonly StreamWriter? runtimeWriter;
-    private readonly Timer? runtimeTimer;
+    private StreamWriter? runtimeWriter;
+    private Timer? runtimeTimer;
     private readonly string telemetryMode;
     private bool disposed;
 
@@ -39,9 +39,16 @@ public sealed class LeanCorpusTestTelemetryFixture : INotifyTestLifecycle, IDisp
             string? executionDirectory = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
             if (!string.IsNullOrWhiteSpace(executionDirectory))
             {
-                string runtimeDirectory = Path.Combine(executionDirectory, "runtime");
-                Directory.CreateDirectory(runtimeDirectory);
-                runtimeWriter = CreateWriter(Path.Combine(runtimeDirectory, "counters.ndjson"));
+                try
+                {
+                    string runtimeDirectory = Path.Combine(executionDirectory, "runtime");
+                    Directory.CreateDirectory(runtimeDirectory);
+                    runtimeWriter = CreateWriter(Path.Combine(runtimeDirectory, "counters.ndjson"));
+                }
+                catch (Exception exception)
+                {
+                    TryAddWarning($"LeanCorpus runtime telemetry startup failed: {exception.GetType().Name}: {exception.Message}");
+                }
             }
         }
 
@@ -74,7 +81,17 @@ public sealed class LeanCorpusTestTelemetryFixture : INotifyTestLifecycle, IDisp
         if (runtimeWriter is not null)
         {
             WriteRuntimeSnapshot();
-            runtimeTimer = new Timer(_ => WriteRuntimeSnapshot(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+            if (runtimeWriter is not null)
+            {
+                try
+                {
+                    runtimeTimer = new Timer(_ => WriteRuntimeSnapshot(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+                }
+                catch (Exception exception)
+                {
+                    DisableRuntimeTelemetry(exception);
+                }
+            }
         }
     }
 
@@ -187,11 +204,10 @@ public sealed class LeanCorpusTestTelemetryFixture : INotifyTestLifecycle, IDisp
         if (disposed)
             return;
         disposed = true;
-        runtimeTimer?.Dispose();
+        DisableRuntimeTelemetry(null);
         meterListener?.Dispose();
         activityListener?.Dispose();
         testSource.Dispose();
-        runtimeWriter?.Dispose();
         foreach (TestTelemetrySession session in sessionsByTestId.Values)
         {
             session.MarkOrphaned();
@@ -220,11 +236,14 @@ public sealed class LeanCorpusTestTelemetryFixture : INotifyTestLifecycle, IDisp
             if (current is not null)
                 sessionsByTraceId.TryGetValue(current.TraceId, out session);
 
-            if (instrument.Meter.Name == RuntimeMeterName && runtimeWriter is not null)
+            if (instrument.Meter.Name == RuntimeMeterName)
             {
                 lock (runtimeSync)
                 {
-                    WriteLine(runtimeWriter, new
+                    StreamWriter? writer = runtimeWriter;
+                    if (writer is null)
+                        return;
+                    WriteLine(writer, new
                     {
                         instrument = instrument.Name,
                         unit = instrument.Unit,
@@ -241,7 +260,10 @@ public sealed class LeanCorpusTestTelemetryFixture : INotifyTestLifecycle, IDisp
         }
         catch (Exception exception)
         {
-            session?.RecordTelemetryError(exception);
+            if (instrument.Meter.Name == RuntimeMeterName)
+                DisableRuntimeTelemetry(exception);
+            else
+                session?.RecordTelemetryError(exception);
         }
     }
 
@@ -300,10 +322,29 @@ public sealed class LeanCorpusTestTelemetryFixture : INotifyTestLifecycle, IDisp
                 });
             }
         }
-        catch (ObjectDisposedException)
+        catch (Exception exception)
         {
-            // Shutdown raced with the periodic sample.
+            if (!disposed)
+                DisableRuntimeTelemetry(exception);
         }
+    }
+
+    private void DisableRuntimeTelemetry(Exception? exception)
+    {
+        Timer? timer;
+        StreamWriter? writer;
+        lock (runtimeSync)
+        {
+            timer = runtimeTimer;
+            writer = runtimeWriter;
+            runtimeTimer = null;
+            runtimeWriter = null;
+        }
+
+        try { timer?.Dispose(); } catch { }
+        try { writer?.Dispose(); } catch { }
+        if (exception is not null && !disposed)
+            TryAddWarning($"LeanCorpus runtime telemetry was disabled: {exception.GetType().Name}: {exception.Message}");
     }
 
     private sealed class TestTelemetrySession : IDisposable
