@@ -3,8 +3,7 @@ name: Build
 on:
   push:
     branches: [main, '[0-9]*', 'stabilise/**']
-  pull_request:
-    branches: [main, '[0-9]*', 'stabilise/**']
+  pull_request: {}
   workflow_dispatch:
 
 permissions:
