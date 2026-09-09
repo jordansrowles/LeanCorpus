@@ -728,22 +728,28 @@ public sealed partial class IndexWriter : IDisposable
 
     internal bool ShouldThrottleForMerge()
     {
-        if (_config.MergeThrottleSegments > 0 &&
-            _committedSegments.Count >= _config.MergeThrottleSegments)
-            return true;
-
         lock (_mergeLock)
         {
-            if (_config.MaxPendingMergeBytes <= 0 || _reservedMergeSegments.Count == 0)
-                return false;
-
-            long pendingBytes = 0;
-            foreach (var segment in _committedSegments)
+            // Background merge publication and DWPT flush publication both mutate
+            // _committedSegments under _writeLock. Keep the merge lock outermost,
+            // matching MergeScheduler's lock order.
+            lock (_writeLock)
             {
-                if (_reservedMergeSegments.Contains(segment.SegmentId))
-                    pendingBytes += segment.TotalBytes;
+                if (_config.MergeThrottleSegments > 0 &&
+                    _committedSegments.Count >= _config.MergeThrottleSegments)
+                    return true;
+
+                if (_config.MaxPendingMergeBytes <= 0 || _reservedMergeSegments.Count == 0)
+                    return false;
+
+                long pendingBytes = 0;
+                foreach (var segment in _committedSegments)
+                {
+                    if (_reservedMergeSegments.Contains(segment.SegmentId))
+                        pendingBytes += segment.TotalBytes;
+                }
+                return pendingBytes >= _config.MaxPendingMergeBytes;
             }
-            return pendingBytes >= _config.MaxPendingMergeBytes;
         }
     }
 
