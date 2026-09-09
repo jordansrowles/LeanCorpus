@@ -728,29 +728,35 @@ public sealed partial class IndexWriter : IDisposable
 
     internal bool ShouldThrottleForMerge()
     {
+        SegmentInfo[] committedSegments;
+        lock (_writeLock)
+        {
+            if (_config.MergeThrottleSegments > 0 &&
+                _committedSegments.Count >= _config.MergeThrottleSegments)
+                return true;
+
+            if (_config.MaxPendingMergeBytes <= 0)
+                return false;
+
+            committedSegments = _committedSegments.ToArray();
+        }
+
+        HashSet<string> reservedMergeSegments;
         lock (_mergeLock)
         {
-            // Background merge publication and DWPT flush publication both mutate
-            // _committedSegments under _writeLock. Keep the merge lock outermost,
-            // matching MergeScheduler's lock order.
-            lock (_writeLock)
-            {
-                if (_config.MergeThrottleSegments > 0 &&
-                    _committedSegments.Count >= _config.MergeThrottleSegments)
-                    return true;
+            if (_reservedMergeSegments.Count == 0)
+                return false;
 
-                if (_config.MaxPendingMergeBytes <= 0 || _reservedMergeSegments.Count == 0)
-                    return false;
-
-                long pendingBytes = 0;
-                foreach (var segment in _committedSegments)
-                {
-                    if (_reservedMergeSegments.Contains(segment.SegmentId))
-                        pendingBytes += segment.TotalBytes;
-                }
-                return pendingBytes >= _config.MaxPendingMergeBytes;
-            }
+            reservedMergeSegments = new HashSet<string>(_reservedMergeSegments, StringComparer.Ordinal);
         }
+
+        long pendingBytes = 0;
+        foreach (var segment in committedSegments)
+        {
+            if (reservedMergeSegments.Contains(segment.SegmentId))
+                pendingBytes += segment.TotalBytes;
+        }
+        return pendingBytes >= _config.MaxPendingMergeBytes;
     }
 
     internal void ThrottleMerge()
