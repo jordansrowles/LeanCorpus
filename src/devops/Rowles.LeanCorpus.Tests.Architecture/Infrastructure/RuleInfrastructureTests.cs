@@ -40,6 +40,24 @@ public sealed class RuleInfrastructureTests
     }
 
     [Fact]
+    public void Dynamic_code_generation_dependencies_are_detected()
+    {
+        var dynamicMethodFailures = DependencyInspector.FindViolations(
+            typeof(DynamicCodeGenerationFixture).Assembly,
+            static type => type == typeof(DynamicCodeGenerationFixture),
+            static dependency => DependencyInspector.IsExactType(dependency, typeof(System.Reflection.Emit.DynamicMethod)));
+
+        var ilGeneratorFailures = DependencyInspector.FindViolations(
+            typeof(DynamicCodeGenerationFixture).Assembly,
+            static type => type == typeof(DynamicCodeGenerationFixture),
+            static dependency => DependencyInspector.IsExactType(dependency, typeof(System.Reflection.Emit.ILGenerator)));
+
+        string fixtureName = typeof(DynamicCodeGenerationFixture).FullName!;
+        Assert.Equal([fixtureName], dynamicMethodFailures);
+        Assert.Equal([fixtureName], ilGeneratorFailures);
+    }
+
+    [Fact]
     public void Failure_messages_are_sorted_and_readable()
     {
         string message = RuleAssert.FormatFailures("Broken rule:", ["Z.Type", "A.Type", "Z.Type"]);
@@ -60,4 +78,14 @@ public sealed class RuleInfrastructureTests
             return File.Exists(path);
         }
     }
+
+    private sealed class DynamicCodeGenerationFixture
+    {
+        internal System.Reflection.Emit.ILGenerator CreateGenerator()
+        {
+            var method = new System.Reflection.Emit.DynamicMethod("Fixture", null, Type.EmptyTypes);
+            return method.GetILGenerator();
+        }
+    }
+
 }

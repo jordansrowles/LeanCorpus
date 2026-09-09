@@ -98,8 +98,11 @@ internal static class DependencyInspector
             {
                 int token = BitConverter.ToInt32(il, position);
                 MemberInfo? member = ResolveMember(method, token);
-                foreach (var dependency in ExpandMember(member))
-                    yield return dependency;
+                if (member is not null)
+                {
+                    foreach (var dependency in ExpandMember(member))
+                        yield return dependency;
+                }
             }
 
             position += GetOperandSize(opCode.OperandType, il, position);
