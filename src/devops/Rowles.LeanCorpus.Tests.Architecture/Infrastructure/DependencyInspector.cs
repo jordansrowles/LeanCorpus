@@ -69,13 +69,6 @@ internal static class DependencyInspector
 
     private static IEnumerable<Type> ReadMethodBodyDependencies(MethodBase method)
     {
-        foreach (MemberInfo member in ReadMethodBodyMembers(method))
-        foreach (var dependency in ExpandMember(member))
-            yield return dependency;
-    }
-
-    private static IEnumerable<MemberInfo> ReadMethodBodyMembers(MethodBase method)
-    {
         MethodBody? body;
         try
         {
@@ -106,7 +99,10 @@ internal static class DependencyInspector
                 int token = BitConverter.ToInt32(il, position);
                 MemberInfo? member = ResolveMember(method, token);
                 if (member is not null)
-                    yield return member;
+                {
+                    foreach (var dependency in ExpandMember(member))
+                        yield return dependency;
+                }
             }
 
             position += GetOperandSize(opCode.OperandType, il, position);
