@@ -130,24 +130,39 @@ public sealed partial class IndexWriter : IDisposable
 
         // Acquire exclusive write lock for this directory
         var lockPath = Path.Combine(directory.DirectoryPath, "write.lock");
+        Stream writeLockFile;
         try
         {
-            _writeLockFile = FileOpenRetry.Open(lockPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
+            writeLockFile = FileOpenRetry.Open(lockPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
         }
         catch (IOException)
         {
             throw new WriteLockException(directory.DirectoryPath);
         }
 
-        // Initialize backpressure semaphore if MaxQueuedDocs > 0
-        if (config.MaxQueuedDocs > 0)
-            _backpressureSemaphore = new SemaphoreSlim(config.MaxQueuedDocs, config.MaxQueuedDocs);
-        if (config.MaxConcurrentFlushes > 1)
-            _flushSemaphore = new SemaphoreSlim(config.MaxConcurrentFlushes, config.MaxConcurrentFlushes);
+        try
+        {
+            _writeLockFile = writeLockFile;
 
-        // Load existing commit state if present
-        CommitManager.LoadLatestCommit(this);
-        DwptManager.InitialiseDwptPool(this);
+            // Initialize backpressure semaphore if MaxQueuedDocs > 0
+            if (config.MaxQueuedDocs > 0)
+                _backpressureSemaphore = new SemaphoreSlim(config.MaxQueuedDocs, config.MaxQueuedDocs);
+            if (config.MaxConcurrentFlushes > 1)
+                _flushSemaphore = new SemaphoreSlim(config.MaxConcurrentFlushes, config.MaxConcurrentFlushes);
+
+            // Load existing commit state if present
+            CommitManager.LoadLatestCommit(this);
+            DwptManager.InitialiseDwptPool(this);
+        }
+        catch
+        {
+            _backpressureSemaphore?.Dispose();
+            _flushSemaphore?.Dispose();
+            writeLockFile.Dispose();
+            try { FileOpenRetry.Delete(lockPath); }
+            catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "constructor write-lock file delete"); }
+            throw;
+        }
 
         // The asynchronous write channel is created on first use. Most writers use
         // the synchronous API and must not depend on a thread-pool worker at disposal.

@@ -197,6 +197,17 @@ public sealed class IndexCompatibilityTests : IClassFixture<TestDirectoryFixture
         WriteCodecKitVersion(directory, "*.dic", 0);
 
         Assert.Throws<InvalidDataException>(() => new IndexWriter(directory, new IndexWriterConfig()));
+
+        string lockPath = Path.Combine(directory.DirectoryPath, "write.lock");
+        Assert.False(File.Exists(lockPath));
+
+        WriteCodecKitVersion(directory, "*.dic", CodecConstants.TermDictionaryVersion);
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig()))
+        {
+            Assert.True(File.Exists(lockPath));
+        }
+
+        Assert.False(File.Exists(lockPath));
     }
 
     [Fact]
