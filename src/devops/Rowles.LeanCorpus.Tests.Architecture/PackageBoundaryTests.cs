@@ -59,6 +59,7 @@ public sealed class PackageBoundaryTests
     {
         XDocument project = LoadProject("src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj");
         var runtimePackages = project.Descendants("PackageReference")
+            .Where(IsRuntimePackageReference)
             .Select(static reference => (string?)reference.Attribute("Include") ?? "unnamed package");
 
         RuleAssert.Empty("LeanCorpus must not gain direct package references:", runtimePackages);
@@ -69,6 +70,7 @@ public sealed class PackageBoundaryTests
     {
         XDocument project = LoadProject("src/core/Rowles.Text/Rowles.Text.csproj");
         var runtimePackages = project.Descendants("PackageReference")
+            .Where(IsRuntimePackageReference)
             .Select(static reference => (string?)reference.Attribute("Include") ?? "unnamed package");
 
         RuleAssert.Empty("Rowles.Text must not gain direct package references:", runtimePackages);
@@ -181,10 +183,34 @@ public sealed class PackageBoundaryTests
     private static bool IsTestOrDevelopmentProject(string projectPath, string reference)
     {
         string target = ToRepositoryRelativePath(projectPath, reference);
-        return target.StartsWith("src/devops/", StringComparison.OrdinalIgnoreCase) &&
-               !string.Equals(target, "src/devops/Rowles.LeanCorpus.Cli/Rowles.LeanCorpus.Cli.csproj", StringComparison.OrdinalIgnoreCase) ||
+        string filename = Path.GetFileNameWithoutExtension(target);
+        return filename.Contains(".Tests", StringComparison.OrdinalIgnoreCase) ||
+               filename.Contains(".Benchmarks", StringComparison.OrdinalIgnoreCase) ||
+               filename.Contains(".Profiling", StringComparison.OrdinalIgnoreCase) ||
                target.StartsWith("src/examples/", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool IsRuntimePackageReference(XElement packageReference) =>
+        !IsBuildOrAnalyserOnlyPackageReference(packageReference);
+
+    private static bool IsBuildOrAnalyserOnlyPackageReference(XElement packageReference)
+    {
+        if (!string.Equals(GetItemMetadata(packageReference, "PrivateAssets"), "all", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        string? includeAssets = GetItemMetadata(packageReference, "IncludeAssets");
+        if (string.IsNullOrWhiteSpace(includeAssets))
+            return false;
+
+        return includeAssets.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .All(static asset => asset.Equals("build", StringComparison.OrdinalIgnoreCase) ||
+                                 asset.Equals("buildMultitargeting", StringComparison.OrdinalIgnoreCase) ||
+                                 asset.Equals("buildTransitive", StringComparison.OrdinalIgnoreCase) ||
+                                 asset.Equals("analyzers", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string? GetItemMetadata(XElement item, string name) =>
+        ((string?)item.Attribute(name) ?? item.Element(name)?.Value)?.Trim();
 
     private static string ToRepositoryRelativePath(string projectPath, string reference)
     {

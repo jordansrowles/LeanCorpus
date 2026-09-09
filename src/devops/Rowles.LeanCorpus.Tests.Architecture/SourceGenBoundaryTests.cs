@@ -22,10 +22,12 @@ public sealed class SourceGenBoundaryTests
         Assert.DoesNotContain(references, static reference => reference.Contains("Rowles.Text", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(references, static reference => reference.Contains("Server", StringComparison.OrdinalIgnoreCase));
 
-        var packages = project.Descendants("PackageReference")
+        string[] packages = project.Descendants("PackageReference")
             .Select(static reference => (string?)reference.Attribute("Include"))
-            .OfType<string>();
-        Assert.DoesNotContain(packages, static package => string.Equals(package, "Rowles.LeanCorpus", StringComparison.Ordinal));
+            .OfType<string>()
+            .ToArray();
+        Assert.Single(packages);
+        Assert.Equal("Microsoft.CodeAnalysis.CSharp", packages[0], ignoreCase: true);
 
         var assemblyReferences = project.Descendants("Reference")
             .Select(static reference => (string?)reference.Attribute("Include"))
@@ -38,7 +40,7 @@ public sealed class SourceGenBoundaryTests
     {
         XDocument project = LoadProject();
         XElement? roslyn = project.Descendants("PackageReference")
-            .SingleOrDefault(static reference => string.Equals((string?)reference.Attribute("Include"), "Microsoft.CodeAnalysis.CSharp", StringComparison.Ordinal));
+            .SingleOrDefault(static reference => string.Equals((string?)reference.Attribute("Include"), "Microsoft.CodeAnalysis.CSharp", StringComparison.OrdinalIgnoreCase));
         Assert.NotNull(roslyn);
         Assert.Equal("all", (string?)roslyn.Attribute("PrivateAssets"), ignoreCase: true);
 
