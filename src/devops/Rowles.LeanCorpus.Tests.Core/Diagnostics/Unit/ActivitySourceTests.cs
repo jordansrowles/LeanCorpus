@@ -60,6 +60,31 @@ public sealed class ActivitySourceTests : IDisposable
     private IEnumerable<Activity> Scoped(Activity scope)
         => _captured.Where(a => a.RootId == scope.RootId && a.Source.Name == SourceName);
 
+    /// <summary>Verifies terminal filesystem failures retain actionable operation details.</summary>
+    [Fact(DisplayName = "Diagnostics: Filesystem Failure Includes Operation Details")]
+    public void FileSystemFailure_IncludesOperationDetails()
+    {
+        using var scope = StartScope();
+        var exception = new IOException("sharing violation", unchecked((int)0x80070020));
+
+        LeanCorpusActivitySource.TraceFileSystemFailure(
+            exception,
+            "file.move",
+            @"C:\index\segments.tmp",
+            @"C:\index\segments_1",
+            retryCount: 3,
+            elapsed: TimeSpan.FromMilliseconds(625));
+
+        var failure = Assert.Single(scope.Events, static item => item.Name == "filesystem.operation.failed");
+        var tags = failure.Tags.ToDictionary(static item => item.Key, static item => item.Value);
+        Assert.Equal("file.move", tags["filesystem.operation"]);
+        Assert.Equal(@"C:\index\segments.tmp", tags["filesystem.path"]);
+        Assert.Equal(@"C:\index\segments_1", tags["filesystem.destination_path"]);
+        Assert.Equal(exception.HResult, tags["exception.hresult"]);
+        Assert.Equal(3, tags["retry.count"]);
+        Assert.Equal(625d, tags["elapsed.ms"]);
+    }
+
     /// <summary>
     /// Verifies the Search: Emits Activity With Query Type Tag scenario.
     /// </summary>

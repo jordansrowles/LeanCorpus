@@ -20,9 +20,6 @@ internal static class IndexAtomicFileWriter
         });
     }
 
-    private const int MoveRetries = 5;
-    private const int MoveRetryDelayMs = 10;
-
     public static void Write(string path, bool durable, Action<Stream> write)
         => Write(path, durable, syncDirectory: true, write);
 

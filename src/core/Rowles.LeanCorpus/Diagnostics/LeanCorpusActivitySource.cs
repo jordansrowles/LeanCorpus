@@ -47,4 +47,35 @@ internal static class LeanCorpusActivitySource
                 }));
         }
     }
+
+    /// <summary>Records a terminal filesystem operation failure without changing its exception.</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    internal static void TraceFileSystemFailure(
+        Exception exception,
+        string operation,
+        string path,
+        string? destinationPath,
+        int retryCount,
+        TimeSpan elapsed)
+    {
+        Debug.WriteLine(
+            $"LeanCorpus filesystem failure: operation={operation}, path={path}, destination={destinationPath}, " +
+            $"hresult=0x{exception.HResult:X8}, retries={retryCount}, elapsed_ms={elapsed.TotalMilliseconds:F3}: {exception.Message}");
+
+        if (Activity.Current is { } activity)
+        {
+            activity.AddEvent(new ActivityEvent(
+                "filesystem.operation.failed",
+                tags: new ActivityTagsCollection
+                {
+                    { "filesystem.operation", operation },
+                    { "filesystem.path", path },
+                    { "filesystem.destination_path", destinationPath },
+                    { "exception.type", exception.GetType().Name },
+                    { "exception.hresult", exception.HResult },
+                    { "retry.count", retryCount },
+                    { "elapsed.ms", elapsed.TotalMilliseconds }
+                }));
+        }
+    }
 }
