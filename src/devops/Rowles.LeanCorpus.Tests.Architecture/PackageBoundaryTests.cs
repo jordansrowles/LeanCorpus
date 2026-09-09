@@ -36,11 +36,11 @@ public sealed class PackageBoundaryTests
         ];
 
         var failures = shippingProjects
-            .SelectMany(project => GetProjectReferences(project).Select(reference => (project, reference)))
-            .Where(static pair => IsTestOrDevelopmentProject(pair.reference))
+            .SelectMany(project => GetProjectReferenceIncludes(project).Select(reference => (project, reference)))
+            .Where(static pair => IsTestOrDevelopmentProject(pair.project, pair.reference))
             .Select(static pair => $"{pair.project} -> {pair.reference}");
 
-        RuleAssert.Empty("Shipping projects must not reference test, benchmark, profiling or example projects:", failures);
+        RuleAssert.Empty("Shipping projects must not reference devops, test, benchmark, profiling or example projects:", failures);
     }
 
     [Fact]
@@ -59,10 +59,9 @@ public sealed class PackageBoundaryTests
     {
         XDocument project = LoadProject("src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj");
         var runtimePackages = project.Descendants("PackageReference")
-            .Where(static reference => !string.Equals((string?)reference.Attribute("PrivateAssets"), "all", StringComparison.OrdinalIgnoreCase))
             .Select(static reference => (string?)reference.Attribute("Include") ?? "unnamed package");
 
-        RuleAssert.Empty("LeanCorpus package references must be build or analyser-only with PrivateAssets=all:", runtimePackages);
+        RuleAssert.Empty("LeanCorpus must not gain direct package references:", runtimePackages);
     }
 
     [Fact]
@@ -70,10 +69,9 @@ public sealed class PackageBoundaryTests
     {
         XDocument project = LoadProject("src/core/Rowles.Text/Rowles.Text.csproj");
         var runtimePackages = project.Descendants("PackageReference")
-            .Where(static reference => !string.Equals((string?)reference.Attribute("PrivateAssets"), "all", StringComparison.OrdinalIgnoreCase))
             .Select(static reference => (string?)reference.Attribute("Include") ?? "unnamed package");
 
-        RuleAssert.Empty("Rowles.Text package references must be build or analyser-only with PrivateAssets=all:", runtimePackages);
+        RuleAssert.Empty("Rowles.Text must not gain direct package references:", runtimePackages);
     }
 
     [Fact]
@@ -89,9 +87,14 @@ public sealed class PackageBoundaryTests
         foreach ((string projectPath, string implementation) in plugins)
         {
             XDocument project = LoadProject(projectPath);
-            Assert.Contains(GetProjectReferences(project), static reference => reference.Contains("Rowles.LeanCorpus", StringComparison.OrdinalIgnoreCase));
-            Assert.Contains(project.Descendants("PackageReference"), reference =>
-                string.Equals((string?)reference.Attribute("Include"), implementation, StringComparison.Ordinal));
+            string[] projectReferences = GetProjectReferences(projectPath);
+            Assert.Equal(["src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj"], projectReferences);
+
+            string[] packageReferences = project.Descendants("PackageReference")
+                .Select(static reference => (string?)reference.Attribute("Include"))
+                .OfType<string>()
+                .ToArray();
+            Assert.Equal([implementation], packageReferences);
         }
     }
 
@@ -162,9 +165,11 @@ public sealed class PackageBoundaryTests
         .Descendants("ProjectReference")
         .Select(static element => (string?)element.Attribute("Include"))
         .OfType<string>()
+        .Select(reference => ToRepositoryRelativePath(relativePath, reference))
         .ToArray();
 
-    private static string[] GetProjectReferences(XDocument project) => project.Descendants("ProjectReference")
+    private static string[] GetProjectReferenceIncludes(string relativePath) => LoadProject(relativePath)
+        .Descendants("ProjectReference")
         .Select(static element => (string?)element.Attribute("Include"))
         .OfType<string>()
         .ToArray();
@@ -173,9 +178,19 @@ public sealed class PackageBoundaryTests
         .Select(static element => element.Value.Trim())
         .SingleOrDefault();
 
-    private static bool IsTestOrDevelopmentProject(string reference) =>
-        reference.Contains(".Tests", StringComparison.OrdinalIgnoreCase) ||
-        reference.Contains(".Benchmarks", StringComparison.OrdinalIgnoreCase) ||
-        reference.Contains(".Profiling", StringComparison.OrdinalIgnoreCase) ||
-        reference.Contains("examples", StringComparison.OrdinalIgnoreCase);
+    private static bool IsTestOrDevelopmentProject(string projectPath, string reference)
+    {
+        string target = ToRepositoryRelativePath(projectPath, reference);
+        return target.StartsWith("src/devops/", StringComparison.OrdinalIgnoreCase) &&
+               !string.Equals(target, "src/devops/Rowles.LeanCorpus.Cli/Rowles.LeanCorpus.Cli.csproj", StringComparison.OrdinalIgnoreCase) ||
+               target.StartsWith("src/examples/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ToRepositoryRelativePath(string projectPath, string reference)
+    {
+        string projectDirectory = Path.GetDirectoryName(Path.Combine(RepositoryPaths.Root, projectPath))!;
+        string normalisedReference = reference.Replace('\\', Path.DirectorySeparatorChar);
+        string target = Path.GetFullPath(Path.Combine(projectDirectory, normalisedReference));
+        return Path.GetRelativePath(RepositoryPaths.Root, target).Replace(Path.DirectorySeparatorChar, '/');
+    }
 }

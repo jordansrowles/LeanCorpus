@@ -22,15 +22,22 @@ public sealed class ServerLayeringTests
         AssertDoesNotReference("Rowles.LeanCorpus.Server.Grpc", "Rowles.LeanCorpus.Studio");
     }
 
-    [Fact]
-    public void Server_Local_remains_the_composition_root()
+    [Theory]
+    [InlineData("Rowles.LeanCorpus.Server.Abstractions")]
+    [InlineData("Rowles.LeanCorpus.Server.Core")]
+    public void Reusable_Server_layers_must_not_declare_transport_dependencies(string project)
     {
-        string[] references = GetProjectReferences("Rowles.LeanCorpus.Server.Local");
+        XDocument document = LoadProject(project);
 
-        Assert.Contains(references, static reference => reference.Contains("Rowles.LeanCorpus.Server.Core", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(references, static reference => reference.Contains("Rowles.LeanCorpus.Server.AspNetCore", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(references, static reference => reference.Contains("Rowles.LeanCorpus.Server.Grpc", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(references, static reference => reference.Contains("Rowles.LeanCorpus.Studio", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(document.Descendants("FrameworkReference"), static reference =>
+            string.Equals((string?)reference.Attribute("Include"), "Microsoft.AspNetCore.App", StringComparison.Ordinal));
+        Assert.DoesNotContain(document.Descendants("PackageReference"), static reference =>
+        {
+            string? package = (string?)reference.Attribute("Include");
+            return package is not null && (package.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal) ||
+                                           package.StartsWith("Grpc.", StringComparison.Ordinal) ||
+                                           package.StartsWith("Google.Protobuf", StringComparison.Ordinal));
+        });
     }
 
     private static void AssertDoesNotReference(string project, params string[] forbiddenProjects)
@@ -40,10 +47,12 @@ public sealed class ServerLayeringTests
             Assert.DoesNotContain(references, reference => reference.Contains(forbidden, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static string[] GetProjectReferences(string project) => XDocument.Load(RepositoryPaths.FromRoot(
-            "src", "server", project, $"{project}.csproj"))
+    private static string[] GetProjectReferences(string project) => LoadProject(project)
         .Descendants("ProjectReference")
         .Select(static reference => (string?)reference.Attribute("Include"))
         .OfType<string>()
         .ToArray();
+
+    private static XDocument LoadProject(string project) => XDocument.Load(RepositoryPaths.FromRoot(
+        "src", "server", project, $"{project}.csproj"));
 }

@@ -21,6 +21,16 @@ public sealed class SourceGenBoundaryTests
         Assert.DoesNotContain(references, static reference => reference.Contains("Rowles.LeanCorpus", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(references, static reference => reference.Contains("Rowles.Text", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(references, static reference => reference.Contains("Server", StringComparison.OrdinalIgnoreCase));
+
+        var packages = project.Descendants("PackageReference")
+            .Select(static reference => (string?)reference.Attribute("Include"))
+            .OfType<string>();
+        Assert.DoesNotContain(packages, static package => string.Equals(package, "Rowles.LeanCorpus", StringComparison.Ordinal));
+
+        var assemblyReferences = project.Descendants("Reference")
+            .Select(static reference => (string?)reference.Attribute("Include"))
+            .OfType<string>();
+        Assert.DoesNotContain(assemblyReferences, static reference => reference.StartsWith("Rowles.LeanCorpus", StringComparison.Ordinal));
     }
 
     [Fact]

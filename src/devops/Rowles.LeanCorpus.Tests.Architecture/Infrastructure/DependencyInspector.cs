@@ -27,6 +27,22 @@ internal static class DependencyInspector
     internal static bool IsExactType(Type candidate, Type expected) =>
         Normalise(candidate) == Normalise(expected);
 
+    internal static IReadOnlyList<string> FindMethodCallViolations(
+        Assembly assembly,
+        Func<Type, bool> sourcePredicate,
+        Func<MethodBase, bool> methodPredicate)
+    {
+        var failures = new SortedSet<string>(StringComparer.Ordinal);
+
+        foreach (var type in assembly.GetTypes().Where(sourcePredicate))
+        {
+            if (GetMethodsCalledBy(type).Any(methodPredicate))
+                failures.Add(GetOwningType(type).FullName ?? GetOwningType(type).Name);
+        }
+
+        return failures.ToArray();
+    }
+
     private static IEnumerable<Type> GetDependencies(Type type)
     {
         foreach (var dependency in Expand(type.BaseType))
@@ -69,6 +85,25 @@ internal static class DependencyInspector
 
     private static IEnumerable<Type> ReadMethodBodyDependencies(MethodBase method)
     {
+        foreach (MemberInfo member in ReadMethodBodyMembers(method))
+        foreach (var dependency in ExpandMember(member))
+            yield return dependency;
+    }
+
+    private static IEnumerable<MethodBase> GetMethodsCalledBy(Type type)
+    {
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Static |
+                                   BindingFlags.Public | BindingFlags.NonPublic |
+                                   BindingFlags.DeclaredOnly;
+
+        foreach (var method in type.GetMethods(flags).Cast<MethodBase>().Concat(type.GetConstructors(flags)))
+        foreach (MemberInfo member in ReadMethodBodyMembers(method))
+        if (member is MethodBase calledMethod)
+            yield return calledMethod;
+    }
+
+    private static IEnumerable<MemberInfo> ReadMethodBodyMembers(MethodBase method)
+    {
         MethodBody? body;
         try
         {
@@ -98,8 +133,8 @@ internal static class DependencyInspector
             {
                 int token = BitConverter.ToInt32(il, position);
                 MemberInfo? member = ResolveMember(method, token);
-                foreach (var dependency in ExpandMember(member))
-                    yield return dependency;
+                if (member is not null)
+                    yield return member;
             }
 
             position += GetOperandSize(opCode.OperandType, il, position);

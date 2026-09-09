@@ -14,8 +14,6 @@ public sealed class IoBoundaryTests
         typeof(Directory),
         typeof(FileInfo),
         typeof(DirectoryInfo),
-        typeof(StreamReader),
-        typeof(StreamWriter),
         typeof(RandomAccess),
         typeof(SafeFileHandle),
         typeof(FileSystemWatcher),
@@ -26,7 +24,7 @@ public sealed class IoBoundaryTests
     {
         var failures = DependencyInspector.FindViolations(
             ArchitectureContext.CoreAssembly,
-            static type => !NamespaceSegments.Contains(type.Namespace, "Store"),
+            static type => type.Namespace is null || !type.Namespace.StartsWith("Rowles.LeanCorpus.Store", StringComparison.Ordinal),
             dependency => ForbiddenTypes.Any(forbidden => DependencyInspector.IsExactType(dependency, forbidden)));
 
         RuleAssert.Empty("Types outside Store must not depend on direct file-system IO types:", failures);

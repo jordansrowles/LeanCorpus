@@ -58,6 +58,17 @@ public sealed class RuleInfrastructureTests
     }
 
     [Fact]
+    public void Method_calls_are_detected()
+    {
+        var failures = DependencyInspector.FindMethodCallViolations(
+            typeof(AssemblyLoadingFixture).Assembly,
+            static type => type == typeof(AssemblyLoadingFixture),
+            static method => method.DeclaringType == typeof(System.Reflection.Assembly) && method.Name.StartsWith("Load", StringComparison.Ordinal));
+
+        Assert.Equal([typeof(AssemblyLoadingFixture).FullName!], failures);
+    }
+
+    [Fact]
     public void Failure_messages_are_sorted_and_readable()
     {
         string message = RuleAssert.FormatFailures("Broken rule:", ["Z.Type", "A.Type", "Z.Type"]);
@@ -86,5 +97,10 @@ public sealed class RuleInfrastructureTests
             var method = new System.Reflection.Emit.DynamicMethod("Fixture", null, Type.EmptyTypes);
             return method.GetILGenerator();
         }
+    }
+
+    private sealed class AssemblyLoadingFixture
+    {
+        internal System.Reflection.Assembly Load(string assemblyName) => System.Reflection.Assembly.Load(assemblyName);
     }
 }
