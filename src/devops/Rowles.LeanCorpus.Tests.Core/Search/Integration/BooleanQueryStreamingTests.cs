@@ -1,6 +1,7 @@
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
+using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Simd;
 using Rowles.LeanCorpus.Search.Parsing;
@@ -100,6 +101,55 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.TotalHits);
+    }
+
+    /// <summary>
+    /// Verifies the fast all-term Boolean path preserves exact total hits while
+    /// merging the bounded candidates from uneven committed segments.
+    /// </summary>
+    [Fact(DisplayName = "Must: Multi-Segment Four Terms Preserve Exact Total Hits Beyond Top N")]
+    public void Must_MultiSegmentFourTerms_PreservesExactTotalHitsBeyondTopN()
+    {
+        var dir = new MMapDirectory(SubDir("bool_stream_multisegment_total_hits"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 1_000,
+            MergePolicy = NoMergePolicy.Instance,
+        });
+
+        AddDocuments(writer, count: 130, matching: true);
+        writer.Commit();
+        AddDocuments(writer, count: 27, matching: true);
+        AddDocuments(writer, count: 10, matching: false);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(dir);
+        var query = BuildBooleanQuery(
+            (new TermQuery("body", "president"), Occur.Must),
+            (new TermQuery("body", "company"), Occur.Must),
+            (new TermQuery("body", "reported"), Occur.Must),
+            (new TermQuery("body", "financial"), Occur.Must));
+
+        var results = searcher.Search(query, topN: 10, TestContext.Current.CancellationToken);
+
+        Assert.Equal(157, searcher.Count(query));
+        Assert.Equal(157, results.TotalHits);
+        Assert.Equal(10, results.ScoreDocs.Length);
+        Assert.Equal(Enumerable.Range(0, 10), results.ScoreDocs.Select(static hit => hit.DocId));
+    }
+
+    private static void AddDocuments(IndexWriter writer, int count, bool matching)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            var document = new LeanDocument();
+            document.Add(new TextField(
+                "body",
+                matching
+                    ? "president company reported financial"
+                    : "president company reported"));
+            writer.AddDocument(document);
+        }
     }
 
     /// <summary>

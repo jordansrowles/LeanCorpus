@@ -54,6 +54,19 @@ internal static class RealDataPool
     public static BenchmarkDataSourceReport[] GetLoadedDataSources()
         => DataSet.IsValueCreated ? DataSet.Value.Sources : [];
 
+    /// <summary>
+    /// Ensures that the real benchmark cache supplied document bodies.
+    /// </summary>
+    public static void EnsureRealData()
+    {
+        var dataSet = DataSet.Value;
+        if (dataSet.Bodies.Length == 0 || dataSet.Sources.Any(static source => source.FallbackUsed))
+        {
+            throw new InvalidOperationException(
+                "OperationDrain final evidence requires real benchmark data; synthetic fallback is not permitted.");
+        }
+    }
+
     private static LoadedDataSet LoadAll()
     {
         var root = GutenbergDataLoader.FindRepositoryRoot();

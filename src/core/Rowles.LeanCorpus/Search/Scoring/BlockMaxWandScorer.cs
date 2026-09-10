@@ -28,8 +28,10 @@ internal sealed class BlockMaxWandScorer
     /// </summary>
     /// <param name="collector">The collector to receive scored documents.</param>
     /// <param name="isLive">Optional predicate that returns <see langword="true"/> for live documents. Deleted documents are skipped.</param>
-    public void ScoreInto(ref TopNCollector collector, Func<int, bool>? isLive = null)
+    /// <param name="docBase">Global document-ID base for the segment being scored.</param>
+    public void ScoreInto(ref TopNCollector collector, Func<int, bool>? isLive = null, int docBase = 0)
     {
+        Span<bool> seenDocs = stackalloc bool[PackedIntCodec.BlockSize];
         foreach (var scorer in _scorers)
             scorer.CurrentDoc = scorer.Postings.NextDoc();
 
@@ -59,10 +61,19 @@ internal sealed class BlockMaxWandScorer
             {
                 _blocksSkipped++;
                 int nextBlockStart = (blockIndex + 1) * PackedIntCodec.BlockSize;
+                seenDocs.Clear();
                 foreach (var scorer in _scorers)
                 {
-                    if (scorer.CurrentDoc < nextBlockStart && scorer.CurrentDoc != BlockPostingsEnum.NoMoreDocs)
-                        scorer.CurrentDoc = scorer.Postings.Advance(nextBlockStart);
+                    while (scorer.CurrentDoc < nextBlockStart)
+                    {
+                        int offset = scorer.CurrentDoc - blockIndex * PackedIntCodec.BlockSize;
+                        if ((isLive is null || isLive(scorer.CurrentDoc)) && !seenDocs[offset])
+                        {
+                            seenDocs[offset] = true;
+                            collector.CountNonCompetitiveHit();
+                        }
+                        scorer.CurrentDoc = scorer.Postings.NextDoc();
+                    }
                 }
                 continue;
             }
@@ -80,7 +91,7 @@ internal sealed class BlockMaxWandScorer
             }
 
             if (isLive is null || isLive(minDoc))
-                collector.Collect(minDoc, totalScore);
+                collector.Collect(docBase + minDoc, totalScore);
         }
     }
 

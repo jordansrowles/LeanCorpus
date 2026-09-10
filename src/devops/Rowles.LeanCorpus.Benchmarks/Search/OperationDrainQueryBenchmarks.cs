@@ -37,6 +37,7 @@ public class OperationDrainQueryBenchmarks
     [GlobalSetup]
     public void Setup()
     {
+        RealDataPool.EnsureRealData();
         SharedStandardIndex.EnsureInitialised(DocumentCount);
         _searcher = SharedStandardIndex.LeanSearcher;
         _query = BuildQuery(Workload);
@@ -44,6 +45,9 @@ public class OperationDrainQueryBenchmarks
         var session = RunValidation(PostingsReadBenchmarkMode.ReadSession);
         var primitive = RunValidation(PostingsReadBenchmarkMode.PerPrimitive);
         AssertEquivalent(session.Results, primitive.Results);
+        int expectedTotalHits = _searcher.Count(_query);
+        AssertTotalHits(expectedTotalHits, session.Results, PostingsReadBenchmarkMode.ReadSession);
+        AssertTotalHits(expectedTotalHits, primitive.Results, PostingsReadBenchmarkMode.PerPrimitive);
 
         if (session.Metrics.DecodedBlockCount < 2 || primitive.Metrics.DecodedBlockCount < 2)
         {
@@ -53,6 +57,7 @@ public class OperationDrainQueryBenchmarks
 
         Console.WriteLine(
             $"OperationDrain validation: workload={Workload}; " +
+            $"query={GetQueryText(Workload)}; " +
             $"read-session enters/query={session.Metrics.OperationDrainEnterCount}; " +
             $"per-primitive enters/query={primitive.Metrics.OperationDrainEnterCount}; " +
             $"decoded-blocks/query={session.Metrics.DecodedBlockCount}; " +
@@ -120,25 +125,45 @@ public class OperationDrainQueryBenchmarks
         }
     }
 
+    private static void AssertTotalHits(int expectedTotalHits, TopDocs actual, PostingsReadBenchmarkMode mode)
+    {
+        if (actual.TotalHits != expectedTotalHits)
+        {
+            throw new InvalidOperationException(
+                $"{mode} Search() returned {actual.TotalHits} hits, but Count() returned {expectedTotalHits}.");
+        }
+    }
+
     private static Query BuildQuery(string workload)
     {
         return workload switch
         {
             "CommonTerm" => new TermQuery("body", "said"),
             "Conjunction4Terms" => BuildConjunction(),
-            "PhraseWithPositions" => new PhraseQuery("body", "president", "company"),
+            "PhraseWithPositions" => new PhraseQuery("body", "he", "said"),
             _ => throw new InvalidOperationException(
                 $"Unknown OperationDrain workload '{workload}'.")
+        };
+    }
+
+    private static string GetQueryText(string workload)
+    {
+        return workload switch
+        {
+            "CommonTerm" => "body:said",
+            "Conjunction4Terms" => "+body:he +body:said +body:one +body:would",
+            "PhraseWithPositions" => "body:\"he said\"",
+            _ => workload,
         };
     }
 
     private static Query BuildConjunction()
     {
         var builder = new BooleanQuery.Builder();
-        builder.Add(new TermQuery("body", "president"), Occur.Must);
-        builder.Add(new TermQuery("body", "company"), Occur.Must);
-        builder.Add(new TermQuery("body", "reported"), Occur.Must);
-        builder.Add(new TermQuery("body", "financial"), Occur.Must);
+        builder.Add(new TermQuery("body", "he"), Occur.Must);
+        builder.Add(new TermQuery("body", "said"), Occur.Must);
+        builder.Add(new TermQuery("body", "one"), Occur.Must);
+        builder.Add(new TermQuery("body", "would"), Occur.Must);
         return builder.Build();
     }
 }
