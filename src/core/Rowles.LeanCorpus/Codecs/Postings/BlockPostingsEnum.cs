@@ -68,6 +68,9 @@ public struct BlockPostingsEnum : IDisposable
     public static BlockPostingsEnum Create(IndexInput docInput, long docStartOffset,
         long skipOffset, int docFreq, bool hasPositions = false)
     {
+        if (PostingsReadBenchmarkControl.UsePerPrimitiveReads)
+            return CreateWithPerPrimitiveReads(docInput, docStartOffset, skipOffset, docFreq, hasPositions);
+
         // Use a local cursor so we do not mutate the shared docInput._position.
         long cursor = skipOffset;
         using var reader = docInput.BeginReadSession();
@@ -94,6 +97,41 @@ public struct BlockPostingsEnum : IDisposable
             cursor += (long)(skipCount - loadCount) * bytesPerEntry;
         }
 
+        PostingsReadBenchmarkControl.RecordOperationDrainEnters(1);
+
+        return new BlockPostingsEnum(docInput, docStartOffset, docFreq,
+            skipEntries, loadCount, hasPositions);
+    }
+
+    private static BlockPostingsEnum CreateWithPerPrimitiveReads(IndexInput docInput,
+        long docStartOffset, long skipOffset, int docFreq, bool hasPositions)
+    {
+        long cursor = skipOffset;
+        int skipCount = docInput.ReadInt32(ref cursor);
+        if (skipCount < 0)
+            throw new InvalidDataException("Postings data is corrupt: negative skip count.");
+        int loadCount = Math.Min(skipCount, MaxPreloadedSkipEntries);
+        var skipEntries = ArrayPool<SkipEntry>.Shared.Rent(Math.Max(loadCount, 1));
+        for (int i = 0; i < loadCount; i++)
+        {
+            skipEntries[i] = new SkipEntry
+            {
+                LastDocId = docInput.ReadInt32(ref cursor),
+                DocByteOffset = docInput.ReadInt64(ref cursor),
+                PosFileOffset = hasPositions ? docInput.ReadInt64(ref cursor) : 0,
+                MaxFreqInBlock = (ushort)(docInput.ReadByte(ref cursor) | (docInput.ReadByte(ref cursor) << 8)),
+                MaxNormInBlock = docInput.ReadByte(ref cursor)
+            };
+        }
+
+        if (skipCount > loadCount)
+        {
+            int bytesPerEntry = hasPositions ? 23 : 15;
+            cursor += (long)(skipCount - loadCount) * bytesPerEntry;
+        }
+
+        PostingsReadBenchmarkControl.RecordOperationDrainEnters(
+            1L + (long)loadCount * (hasPositions ? 6 : 5));
         return new BlockPostingsEnum(docInput, docStartOffset, docFreq,
             skipEntries, loadCount, hasPositions);
     }
@@ -314,6 +352,13 @@ public struct BlockPostingsEnum : IDisposable
 
     private void DecodeFullBlockAtCurrentPosition()
     {
+        PostingsReadBenchmarkControl.RecordDecodedBlock();
+        if (PostingsReadBenchmarkControl.UsePerPrimitiveReads)
+        {
+            DecodeFullBlockWithPerPrimitiveReads();
+            return;
+        }
+
         // On-disk format per block:
         // DocIDs: [numBits:1byte][packed data: numBits*16 bytes]
         // Freqs:  [numBits:1byte][packed data: numBits*16 bytes]
@@ -356,10 +401,53 @@ public struct BlockPostingsEnum : IDisposable
         }
 
         _blockCount = BlockSize;
+        PostingsReadBenchmarkControl.RecordOperationDrainEnters(1);
+    }
+
+    private void DecodeFullBlockWithPerPrimitiveReads()
+    {
+        int docNumBits = _docInput.ReadByte(ref _cursorPosition);
+        if (docNumBits > 32)
+            throw new InvalidDataException(
+                $"Postings data is corrupt: docNumBits={docNumBits} exceeds 32.");
+        int docPackedBytes = docNumBits * 16;
+        int prevDocId = _currentBlockIndex > 0
+            ? _skipEntries[_currentBlockIndex - 1].LastDocId : 0;
+
+        if (docNumBits == 0)
+            Array.Fill(_docIdBlock, prevDocId, 0, BlockSize);
+        else
+            PackedIntCodec.UnpackDelta(
+                _docInput.BorrowSpan(docPackedBytes, ref _cursorPosition),
+                docNumBits,
+                prevDocId,
+                _docIdBlock);
+
+        int freqNumBits = _docInput.ReadByte(ref _cursorPosition);
+        if (freqNumBits > 32)
+            throw new InvalidDataException(
+                $"Postings data is corrupt: freqNumBits={freqNumBits} exceeds 32.");
+        if (freqNumBits == 0)
+            Array.Fill(_freqBlock, 0, 0, BlockSize);
+        else
+            PackedIntCodec.Unpack(
+                _docInput.BorrowSpan(freqNumBits * 16, ref _cursorPosition),
+                freqNumBits,
+                _freqBlock);
+
+        _blockCount = BlockSize;
+        PostingsReadBenchmarkControl.RecordOperationDrainEnters(2);
     }
 
     private void DecodeTailAtCurrentPosition()
     {
+        PostingsReadBenchmarkControl.RecordDecodedBlock();
+        if (PostingsReadBenchmarkControl.UsePerPrimitiveReads)
+        {
+            DecodeTailWithPerPrimitiveReads();
+            return;
+        }
+
         using var reader = _docInput.BeginReadSession();
         int tailCount = reader.ReadVarInt(ref _cursorPosition);
         if (tailCount <= 0)
@@ -387,6 +475,37 @@ public struct BlockPostingsEnum : IDisposable
             _freqBlock[i] = reader.ReadVarIntFast(ref _cursorPosition);
 
         _blockCount = tailCount;
+        PostingsReadBenchmarkControl.RecordOperationDrainEnters(1);
+    }
+
+    private void DecodeTailWithPerPrimitiveReads()
+    {
+        int tailCount = _docInput.ReadVarInt(ref _cursorPosition);
+        if (tailCount <= 0)
+            throw new InvalidDataException(
+                "Postings data is corrupt: tail block has zero or negative count.");
+        if (tailCount > BlockSize)
+            throw new InvalidDataException(
+                $"Postings data is corrupt: tailCount={tailCount} exceeds BlockSize={BlockSize}.");
+        int prevDocId = _currentBlockIndex > 0 && _currentBlockIndex <= _skipCount
+            ? _skipEntries[_currentBlockIndex - 1].LastDocId : 0;
+
+        for (int i = 0; i < tailCount; i++)
+        {
+            int delta = _docInput.ReadVarIntFast(ref _cursorPosition);
+            prevDocId += delta;
+            _docIdBlock[i] = prevDocId;
+        }
+
+        if (_docIdBlock[tailCount - 1] < 0)
+            throw new InvalidDataException(
+                "Postings data is corrupt: doc ID delta overflow in tail block.");
+
+        for (int i = 0; i < tailCount; i++)
+            _freqBlock[i] = _docInput.ReadVarIntFast(ref _cursorPosition);
+
+        _blockCount = tailCount;
+        PostingsReadBenchmarkControl.RecordOperationDrainEnters(1L + 2L * tailCount);
     }
 
     /// <summary>Returns all rented buffers back to <see cref="System.Buffers.ArrayPool{T}"/>.</summary>
