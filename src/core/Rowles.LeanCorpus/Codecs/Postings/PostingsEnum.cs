@@ -433,12 +433,6 @@ public unsafe struct PostingsEnum : IDisposable
     private static (long[] Offsets, int[] Counts) PreloadPositionMetadata(
         IndexInput input, long skipOffset, int docFreq, bool hasPayloads)
     {
-        return PreloadPositionMetadataWithReadSession(input, skipOffset, docFreq, hasPayloads);
-    }
-
-    private static (long[] Offsets, int[] Counts) PreloadPositionMetadataWithReadSession(
-        IndexInput input, long skipOffset, int docFreq, bool hasPayloads)
-    {
         long cursor = skipOffset;
         using var reader = input.BeginReadSession();
         int skipCount = reader.ReadInt32(ref cursor);
