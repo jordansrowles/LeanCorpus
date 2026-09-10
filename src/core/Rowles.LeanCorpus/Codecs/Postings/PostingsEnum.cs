@@ -433,9 +433,7 @@ public unsafe struct PostingsEnum : IDisposable
     private static (long[] Offsets, int[] Counts) PreloadPositionMetadata(
         IndexInput input, long skipOffset, int docFreq, bool hasPayloads)
     {
-        return PostingsReadBenchmarkControl.UsePerPrimitiveReads
-            ? PreloadPositionMetadataWithPerPrimitiveReads(input, skipOffset, docFreq, hasPayloads)
-            : PreloadPositionMetadataWithReadSession(input, skipOffset, docFreq, hasPayloads);
+        return PreloadPositionMetadataWithReadSession(input, skipOffset, docFreq, hasPayloads);
     }
 
     private static (long[] Offsets, int[] Counts) PreloadPositionMetadataWithReadSession(
@@ -465,41 +463,6 @@ public unsafe struct PostingsEnum : IDisposable
             }
         }
 
-        PostingsReadBenchmarkControl.RecordOperationDrainEnters(1);
-        return (offsets, counts);
-    }
-
-    private static (long[] Offsets, int[] Counts) PreloadPositionMetadataWithPerPrimitiveReads(
-        IndexInput input, long skipOffset, int docFreq, bool hasPayloads)
-    {
-        long cursor = skipOffset;
-        long enterCount = 1;
-        int skipCount = input.ReadInt32(ref cursor);
-        cursor += (long)skipCount * 15;
-
-        var offsets = RentPosOffsets(docFreq);
-        var counts = RentPosCounts(docFreq);
-        for (int i = 0; i < docFreq; i++)
-        {
-            int posCount = input.ReadVarInt(ref cursor);
-            enterCount++;
-            counts[i] = posCount;
-            offsets[i] = cursor;
-            for (int j = 0; j < posCount; j++)
-            {
-                input.ReadVarInt(ref cursor);
-                enterCount++;
-                if (hasPayloads)
-                {
-                    int payloadLength = input.ReadVarInt(ref cursor);
-                    enterCount++;
-                    if (payloadLength > 0)
-                        cursor += payloadLength;
-                }
-            }
-        }
-
-        PostingsReadBenchmarkControl.RecordOperationDrainEnters(enterCount);
         return (offsets, counts);
     }
 
@@ -507,13 +470,6 @@ public unsafe struct PostingsEnum : IDisposable
         out int docFreq, out long skipOffset, out bool hasFreqs, out bool hasPositions,
         out bool hasPayloads)
     {
-        if (PostingsReadBenchmarkControl.UsePerPrimitiveReads)
-        {
-            ReadTermMetadataWithPerPrimitiveReads(input, offset, out docStartOffset,
-                out docFreq, out skipOffset, out hasFreqs, out hasPositions, out hasPayloads);
-            return;
-        }
-
         using var reader = input.BeginReadSession();
         long versionCursor = 0;
         byte version = reader.ReadByte(ref versionCursor);
@@ -541,49 +497,6 @@ public unsafe struct PostingsEnum : IDisposable
             }
         }
 
-        PostingsReadBenchmarkControl.RecordOperationDrainEnters(1);
-    }
-
-    private static void ReadTermMetadataWithPerPrimitiveReads(IndexInput input, long offset,
-        out long docStartOffset, out int docFreq, out long skipOffset, out bool hasFreqs,
-        out bool hasPositions, out bool hasPayloads)
-    {
-        long enterCount = 1;
-        long versionCursor = 0;
-        byte version = input.ReadByte(ref versionCursor);
-        long cursor = offset;
-        if (version >= PostingsFileHeader.V4)
-        {
-            docStartOffset = input.ReadInt64(ref cursor);
-            enterCount++;
-        }
-        else
-        {
-            docStartOffset = cursor;
-        }
-        docFreq = input.ReadInt32(ref cursor);
-        skipOffset = input.ReadInt64(ref cursor);
-        hasFreqs = input.ReadByte(ref cursor) != 0;
-        hasPositions = input.ReadByte(ref cursor) != 0;
-        hasPayloads = input.ReadByte(ref cursor) != 0;
-        enterCount += 5;
-        if (version < PostingsFileHeader.V4)
-        {
-            docStartOffset = cursor;
-            if (docFreq <= 0 || skipOffset < docStartOffset || skipOffset >= input.Length)
-            {
-                cursor = offset;
-                docStartOffset = input.ReadInt64(ref cursor);
-                docFreq = input.ReadInt32(ref cursor);
-                skipOffset = input.ReadInt64(ref cursor);
-                hasFreqs = input.ReadByte(ref cursor) != 0;
-                hasPositions = input.ReadByte(ref cursor) != 0;
-                hasPayloads = input.ReadByte(ref cursor) != 0;
-                enterCount += 6;
-            }
-        }
-
-        PostingsReadBenchmarkControl.RecordOperationDrainEnters(enterCount);
     }
 
     /// <summary>

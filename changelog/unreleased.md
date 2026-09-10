@@ -1,12 +1,11 @@
 ### Added
 
-- Added an internal benchmark-only mode to Core postings decoders for comparing `BeginReadSession()` with per-primitive reads across representative query workloads. (c837dbb94, #75)
-
 ### Changed
 
+- Reduced repeated `OperationDrain` entry in postings decoding by grouping multi-read decoder work under `BeginReadSession()`, improving representative real-query throughput on Windows and Linux. (#75)
 ### Fixed
 
-- Corrected exact `BooleanQuery` total-hit aggregation across multiple segments while retaining only the global competitive top-N results. (#75)
+- Corrected multi-segment search result merging so Boolean and generic parallel paths preserve exact total-hit counts and global top-N document IDs, including block-max WAND execution. (#75)
 - Cleared pooled stored-field writer scratch before use so previous search activity cannot silently omit fields from newly written segments. (f58ac6c44)
 - Released the writer lock when incompatible index metadata aborts `IndexWriter` construction, preventing Windows test-directory cleanup failures. (60b6735ea, #86)
 - Synchronised merge-throttling segment inspection with background merge publication without nesting writer and merge locks, and made background-refresh coverage scheduler-friendly under stress execution. (cc3dc2aa5, 34a3c69bd, #86)

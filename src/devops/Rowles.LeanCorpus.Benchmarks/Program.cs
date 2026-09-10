@@ -100,7 +100,6 @@ internal static class Program
                 BenchmarkSuite.CompoundFile,
                 BenchmarkSuite.WindowsFileSystem,
                 BenchmarkSuite.WindowsStoragePath,
-                BenchmarkSuite.OperationDrainQuery,
                 BenchmarkSuite.IncrementalBackup,
                 BenchmarkSuite.ReaderManagerLifecycle,
                 BenchmarkSuite.MultiReader,
@@ -309,9 +308,6 @@ internal static class Program
 
         if (suites.Contains(BenchmarkSuite.WindowsStoragePath))
             RunSuite<WindowsStoragePathBenchmarks>("windows-storage-path", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.OperationDrainQuery))
-            RunSuite<OperationDrainQueryBenchmarks>("operation-drain", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (suites.Contains(BenchmarkSuite.IncrementalBackup))
             RunSuite<IncrementalBackupBenchmarks>("incremental-backup", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -598,7 +594,6 @@ internal static class Program
             BenchmarkSuite.TermInSet,
             BenchmarkSuite.QueryCache,
             BenchmarkSuite.Similarity,
-            BenchmarkSuite.OperationDrainQuery,
         ]);
     }
 
@@ -707,7 +702,6 @@ internal static class Program
               compound-file       CompoundFileBenchmarks -- loose files vs compound segment storage (explicit only)
               windows-filesystem  WindowsFileSystemBenchmarks -- durability and compound-file matrix (explicit only)
               windows-storage     WindowsStoragePathBenchmarks -- decoding, mapping and sequential-write paths (explicit only)
-              operation-drain     OperationDrainQueryBenchmarks -- postings read-session query throughput (explicit only)
               incremental-backup  IncrementalBackupBenchmarks -- full and parent-linked backup operations (explicit only)
               reader-manager      ReaderManagerLifecycleBenchmarks -- generic reader lifecycle overhead (explicit only)
               multi-reader        MultiReaderBenchmarks -- federated search and pagination (explicit only)
@@ -797,7 +791,7 @@ internal static class Program
         // OperationDrain contains only LeanCorpus methods, whose names describe
         // the read mode rather than the implementation. Its supplied type is
         // already sufficient to exclude Lucene.NET benchmarks.
-        if (corpusOnly && !suites.Contains(BenchmarkSuite.OperationDrainQuery) &&
+        if (corpusOnly &&
             !HasBenchmarkDotNetOption(benchmarkArgs, "--filter", "-f"))
             benchmarkArgs.AddRange(["--filter", "*LeanCorpus_*"]);
 
@@ -854,7 +848,6 @@ internal static class Program
             "compound-file" or "compoundfile" => BenchmarkSuite.CompoundFile,
             "windows-filesystem" or "windowsfilesystem" => BenchmarkSuite.WindowsFileSystem,
             "windows-storage" or "windowsstorage" => BenchmarkSuite.WindowsStoragePath,
-            "operation-drain" or "operationdrain" => BenchmarkSuite.OperationDrainQuery,
             "incremental-backup" or "incrementalbackup" => BenchmarkSuite.IncrementalBackup,
             "reader-manager" or "readermanager" => BenchmarkSuite.ReaderManagerLifecycle,
             "multi-reader" or "multireader" => BenchmarkSuite.MultiReader,
@@ -989,7 +982,6 @@ internal static class Program
         CompoundFile,
         WindowsFileSystem,
         WindowsStoragePath,
-        OperationDrainQuery,
         IncrementalBackup,
         ReaderManagerLifecycle,
         MultiReader,
