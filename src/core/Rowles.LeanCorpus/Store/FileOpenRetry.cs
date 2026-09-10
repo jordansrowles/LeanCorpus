@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -151,6 +152,7 @@ internal static class FileOpenRetry
     internal static void Delete(string path)
     {
         int retries = TransientMaxRetries;
+        long startedAt = Stopwatch.GetTimestamp();
         while (true)
         {
             try
@@ -162,6 +164,12 @@ internal static class FileOpenRetry
             catch (Exception ex) when (ShouldRetry(ex, ref retries)) { DelayBeforeRetry(); }
             catch (FileNotFoundException) { return; }
             catch (DirectoryNotFoundException) { return; }
+            catch (Exception ex)
+            {
+                Diagnostics.LeanCorpusActivitySource.TraceFileSystemFailure(
+                    ex, "file.delete", path, null, TransientMaxRetries - retries, Stopwatch.GetElapsedTime(startedAt));
+                throw;
+            }
         }
     }
 
@@ -171,6 +179,7 @@ internal static class FileOpenRetry
     internal static DirtyFileTracker.DirtyFile Move(string sourcePath, string destPath, bool overwrite = false)
     {
         int retries = TransientMaxRetries;
+        long startedAt = Stopwatch.GetTimestamp();
         while (true)
         {
             try
@@ -179,6 +188,12 @@ internal static class FileOpenRetry
                 return DirtyFileTracker.Move(sourcePath, destPath);
             }
             catch (Exception ex) when (ShouldRetry(ex, ref retries)) { DelayBeforeRetry(); }
+            catch (Exception ex)
+            {
+                Diagnostics.LeanCorpusActivitySource.TraceFileSystemFailure(
+                    ex, "file.move", sourcePath, destPath, TransientMaxRetries - retries, Stopwatch.GetElapsedTime(startedAt));
+                throw;
+            }
         }
     }
 

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Document.Fields;
@@ -252,9 +253,11 @@ public sealed class SearcherManagerTests : IDisposable
         writer.AddDocument(Doc("second"));
         writer.Commit();
 
-        Assert.True(SpinWait.SpinUntil(
-            () => mgr.GetDiagnostics().Refreshes > 0,
-            TimeSpan.FromSeconds(5)));
+        var deadline = Stopwatch.GetTimestamp() + Stopwatch.Frequency * 5;
+        while (mgr.GetDiagnostics().Refreshes == 0 && Stopwatch.GetTimestamp() < deadline)
+            await Task.Delay(TimeSpan.FromMilliseconds(10), TestContext.Current.CancellationToken);
+
+        Assert.True(mgr.GetDiagnostics().Refreshes > 0);
         Assert.True(await mgr.MaybeRefreshAsync(TestContext.Current.CancellationToken));
     }
 

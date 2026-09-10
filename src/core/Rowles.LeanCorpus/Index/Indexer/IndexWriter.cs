@@ -130,24 +130,39 @@ public sealed partial class IndexWriter : IDisposable
 
         // Acquire exclusive write lock for this directory
         var lockPath = Path.Combine(directory.DirectoryPath, "write.lock");
+        Stream writeLockFile;
         try
         {
-            _writeLockFile = FileOpenRetry.Open(lockPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
+            writeLockFile = FileOpenRetry.Open(lockPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
         }
         catch (IOException)
         {
             throw new WriteLockException(directory.DirectoryPath);
         }
 
-        // Initialize backpressure semaphore if MaxQueuedDocs > 0
-        if (config.MaxQueuedDocs > 0)
-            _backpressureSemaphore = new SemaphoreSlim(config.MaxQueuedDocs, config.MaxQueuedDocs);
-        if (config.MaxConcurrentFlushes > 1)
-            _flushSemaphore = new SemaphoreSlim(config.MaxConcurrentFlushes, config.MaxConcurrentFlushes);
+        try
+        {
+            _writeLockFile = writeLockFile;
 
-        // Load existing commit state if present
-        CommitManager.LoadLatestCommit(this);
-        DwptManager.InitialiseDwptPool(this);
+            // Initialize backpressure semaphore if MaxQueuedDocs > 0
+            if (config.MaxQueuedDocs > 0)
+                _backpressureSemaphore = new SemaphoreSlim(config.MaxQueuedDocs, config.MaxQueuedDocs);
+            if (config.MaxConcurrentFlushes > 1)
+                _flushSemaphore = new SemaphoreSlim(config.MaxConcurrentFlushes, config.MaxConcurrentFlushes);
+
+            // Load existing commit state if present
+            CommitManager.LoadLatestCommit(this);
+            DwptManager.InitialiseDwptPool(this);
+        }
+        catch
+        {
+            _backpressureSemaphore?.Dispose();
+            _flushSemaphore?.Dispose();
+            writeLockFile.Dispose();
+            try { FileOpenRetry.Delete(lockPath); }
+            catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "constructor write-lock file delete"); }
+            throw;
+        }
 
         // The asynchronous write channel is created on first use. Most writers use
         // the synchronous API and must not depend on a thread-pool worker at disposal.
@@ -713,23 +728,35 @@ public sealed partial class IndexWriter : IDisposable
 
     internal bool ShouldThrottleForMerge()
     {
-        if (_config.MergeThrottleSegments > 0 &&
-            _committedSegments.Count >= _config.MergeThrottleSegments)
-            return true;
-
-        lock (_mergeLock)
+        SegmentInfo[] committedSegments;
+        lock (_writeLock)
         {
-            if (_config.MaxPendingMergeBytes <= 0 || _reservedMergeSegments.Count == 0)
+            if (_config.MergeThrottleSegments > 0 &&
+                _committedSegments.Count >= _config.MergeThrottleSegments)
+                return true;
+
+            if (_config.MaxPendingMergeBytes <= 0)
                 return false;
 
-            long pendingBytes = 0;
-            foreach (var segment in _committedSegments)
-            {
-                if (_reservedMergeSegments.Contains(segment.SegmentId))
-                    pendingBytes += segment.TotalBytes;
-            }
-            return pendingBytes >= _config.MaxPendingMergeBytes;
+            committedSegments = _committedSegments.ToArray();
         }
+
+        HashSet<string> reservedMergeSegments;
+        lock (_mergeLock)
+        {
+            if (_reservedMergeSegments.Count == 0)
+                return false;
+
+            reservedMergeSegments = new HashSet<string>(_reservedMergeSegments, StringComparer.Ordinal);
+        }
+
+        long pendingBytes = 0;
+        foreach (var segment in committedSegments)
+        {
+            if (reservedMergeSegments.Contains(segment.SegmentId))
+                pendingBytes += segment.TotalBytes;
+        }
+        return pendingBytes >= _config.MaxPendingMergeBytes;
     }
 
     internal void ThrottleMerge()

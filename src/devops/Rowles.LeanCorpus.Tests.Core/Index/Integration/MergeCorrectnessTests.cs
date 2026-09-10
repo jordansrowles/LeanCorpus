@@ -90,7 +90,7 @@ public sealed class MergeCorrectnessTests : IClassFixture<TestDirectoryFixture>
     [Fact(DisplayName = "Delete All Docs In One Group: After Merge Only Kept Docs Remain")]
     public void DeleteAllDocsInOneGroup_AfterMerge_OnlyKeptDocsRemain()
     {
-        var dir = new MMapDirectory(SubDir("merge_all_deleted"));
+        using var dir = new MMapDirectory(SubDir("merge_all_deleted"));
         var config = new IndexWriterConfig { MaxBufferedDocs = 1 };
 
         using (var writer = new IndexWriter(dir, config))
