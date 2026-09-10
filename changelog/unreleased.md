@@ -1,5 +1,7 @@
 ### Added
 
+- Added an internal benchmark-only mode to Core postings decoders for comparing `BeginReadSession()` with per-primitive reads across representative query workloads. (c837dbb94, #75)
+
 ### Changed
 
 ### Fixed
