@@ -31,7 +31,6 @@ internal sealed class BlockMaxWandScorer
     /// <param name="docBase">Global document-ID base for the segment being scored.</param>
     public void ScoreInto(ref TopNCollector collector, Func<int, bool>? isLive = null, int docBase = 0)
     {
-        Span<bool> seenDocs = stackalloc bool[PackedIntCodec.BlockSize];
         foreach (var scorer in _scorers)
             scorer.CurrentDoc = scorer.Postings.NextDoc();
 
@@ -61,20 +60,8 @@ internal sealed class BlockMaxWandScorer
             {
                 _blocksSkipped++;
                 int nextBlockStart = (blockIndex + 1) * PackedIntCodec.BlockSize;
-                seenDocs.Clear();
                 foreach (var scorer in _scorers)
-                {
-                    while (scorer.CurrentDoc < nextBlockStart)
-                    {
-                        int offset = scorer.CurrentDoc - blockIndex * PackedIntCodec.BlockSize;
-                        if ((isLive is null || isLive(scorer.CurrentDoc)) && !seenDocs[offset])
-                        {
-                            seenDocs[offset] = true;
-                            collector.CountNonCompetitiveHit();
-                        }
-                        scorer.CurrentDoc = scorer.Postings.NextDoc();
-                    }
-                }
+                    scorer.CurrentDoc = scorer.Postings.Advance(nextBlockStart);
                 continue;
             }
 

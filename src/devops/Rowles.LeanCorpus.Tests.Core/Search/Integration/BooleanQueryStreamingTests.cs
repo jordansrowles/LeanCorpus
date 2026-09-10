@@ -104,8 +104,8 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
     }
 
     /// <summary>
-    /// Verifies the fast all-term Boolean path preserves exact total hits while
-    /// merging the bounded candidates from uneven committed segments.
+    /// Verifies the fast all-term Boolean path honours the parallel-search
+    /// configuration and preserves exact totals while merging bounded candidates.
     /// </summary>
     [Fact(DisplayName = "Must: Multi-Segment Four Terms Preserve Exact Total Hits Beyond Top N")]
     public void Must_MultiSegmentFourTerms_PreservesExactTotalHitsBeyondTopN()
@@ -123,19 +123,60 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
         AddDocuments(writer, count: 10, matching: false);
         writer.Commit();
 
-        using var searcher = new IndexSearcher(dir);
         var query = BuildBooleanQuery(
             (new TermQuery("body", "president"), Occur.Must),
             (new TermQuery("body", "company"), Occur.Must),
             (new TermQuery("body", "reported"), Occur.Must),
             (new TermQuery("body", "financial"), Occur.Must));
 
-        var results = searcher.Search(query, topN: 10, TestContext.Current.CancellationToken);
+        using var serialSearcher = new IndexSearcher(dir, new IndexSearcherConfig { ParallelSearch = false });
+        using var parallelSearcher = new IndexSearcher(dir, new IndexSearcherConfig { ParallelSearch = true });
+        var serial = serialSearcher.Search(query, topN: 10, TestContext.Current.CancellationToken);
+        var parallel = parallelSearcher.Search(query, topN: 10, TestContext.Current.CancellationToken);
 
-        Assert.Equal(157, searcher.Count(query));
-        Assert.Equal(157, results.TotalHits);
-        Assert.Equal(10, results.ScoreDocs.Length);
-        Assert.Equal(Enumerable.Range(0, 10), results.ScoreDocs.Select(static hit => hit.DocId));
+        Assert.Equal(157, serialSearcher.Count(query));
+        Assert.Equal(157, serial.TotalHits);
+        Assert.Equal(serial.TotalHits, parallel.TotalHits);
+        Assert.True(serial.ScoreDocs.Length <= 10);
+        Assert.True(parallel.ScoreDocs.Length <= 10);
+        Assert.Equal(serial.ScoreDocs.Select(static hit => hit.DocId), parallel.ScoreDocs.Select(static hit => hit.DocId));
+        Assert.Equal(serial.ScoreDocs.Select(static hit => hit.Score), parallel.ScoreDocs.Select(static hit => hit.Score));
+        Assert.Equal(Enumerable.Range(0, 10), serial.ScoreDocs.Select(static hit => hit.DocId));
+    }
+
+    /// <summary>
+    /// Verifies the generic parallel merge preserves complete segment totals and
+    /// global top-N candidates for a phrase query that bypasses the Boolean fast path.
+    /// </summary>
+    [Fact(DisplayName = "Phrase: Multi-Segment Parallel Merge Preserves Exact Total Hits")]
+    public void Phrase_MultiSegmentParallelMerge_PreservesExactTotalHits()
+    {
+        var dir = new MMapDirectory(SubDir("phrase_multisegment_parallel_total_hits"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 1_000,
+            MergePolicy = NoMergePolicy.Instance,
+        });
+
+        AddPhraseDocuments(writer, count: 130, matching: true);
+        writer.Commit();
+        AddPhraseDocuments(writer, count: 27, matching: true);
+        AddPhraseDocuments(writer, count: 10, matching: false);
+        writer.Commit();
+
+        var query = new PhraseQuery("body", "parallel", "merge");
+        using var serialSearcher = new IndexSearcher(dir, new IndexSearcherConfig { ParallelSearch = false });
+        using var parallelSearcher = new IndexSearcher(dir, new IndexSearcherConfig { ParallelSearch = true });
+        var serial = serialSearcher.Search(query, topN: 10, TestContext.Current.CancellationToken);
+        var parallel = parallelSearcher.Search(query, topN: 10, TestContext.Current.CancellationToken);
+
+        Assert.Equal(157, serialSearcher.Count(query));
+        Assert.Equal(157, serial.TotalHits);
+        Assert.Equal(serial.TotalHits, parallel.TotalHits);
+        Assert.True(serial.ScoreDocs.Length <= 10);
+        Assert.True(parallel.ScoreDocs.Length <= 10);
+        Assert.Equal(serial.ScoreDocs.Select(static hit => hit.DocId), parallel.ScoreDocs.Select(static hit => hit.DocId));
+        Assert.Equal(serial.ScoreDocs.Select(static hit => hit.Score), parallel.ScoreDocs.Select(static hit => hit.Score));
     }
 
     private static void AddDocuments(IndexWriter writer, int count, bool matching)
@@ -148,6 +189,60 @@ public sealed class BooleanQueryStreamingTests : IClassFixture<TestDirectoryFixt
                 matching
                     ? "president company reported financial"
                     : "president company reported"));
+            writer.AddDocument(document);
+        }
+    }
+
+    private static void AddPhraseDocuments(IndexWriter writer, int count, bool matching)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            var document = new LeanDocument();
+            document.Add(new TextField("body", matching ? "parallel merge candidate" : "parallel candidate merge"));
+            writer.AddDocument(document);
+        }
+    }
+
+    /// <summary>
+    /// Verifies WAND retains global document IDs and exact totals across segments,
+    /// while producing the same bounded results as ordinary Boolean execution.
+    /// </summary>
+    [Fact(DisplayName = "WAND: Multi-Segment Results Preserve Global IDs And Exact Total Hits")]
+    public void Wand_MultiSegment_PreservesGlobalIdsAndExactTotalHits()
+    {
+        var dir = new MMapDirectory(SubDir("wand_multisegment_global_ids"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 1_000,
+            MergePolicy = NoMergePolicy.Instance,
+        });
+
+        AddWandDocuments(writer, count: 130);
+        writer.Commit();
+        AddWandDocuments(writer, count: 27);
+        writer.Commit();
+
+        var query = BuildBooleanQuery(
+            (new TermQuery("body", "wand"), Occur.Should),
+            (new TermQuery("body", "global"), Occur.Should));
+        using var ordinary = new IndexSearcher(dir, new IndexSearcherConfig { EnableBlockMaxWand = false });
+        using var wand = new IndexSearcher(dir, new IndexSearcherConfig { EnableBlockMaxWand = true });
+        var expected = ordinary.Search(query, topN: 10, TestContext.Current.CancellationToken);
+        var actual = wand.Search(query, topN: 10, TestContext.Current.CancellationToken);
+
+        Assert.Equal(157, expected.TotalHits);
+        Assert.Equal(expected.TotalHits, actual.TotalHits);
+        Assert.Equal(expected.ScoreDocs.Select(static hit => hit.DocId), actual.ScoreDocs.Select(static hit => hit.DocId));
+        Assert.Equal(expected.ScoreDocs.Select(static hit => hit.Score), actual.ScoreDocs.Select(static hit => hit.Score));
+        Assert.All(actual.ScoreDocs, static hit => Assert.InRange(hit.DocId, 0, 156));
+    }
+
+    private static void AddWandDocuments(IndexWriter writer, int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            var document = new LeanDocument();
+            document.Add(new TextField("body", "wand global"));
             writer.AddDocument(document);
         }
     }

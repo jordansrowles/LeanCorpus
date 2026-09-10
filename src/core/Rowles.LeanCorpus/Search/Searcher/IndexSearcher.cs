@@ -499,8 +499,7 @@ public sealed partial class IndexSearcher : IDisposable
                 var localDocs = localCollector.ToTopDocs();
                 lock (lockObj)
                 {
-                    foreach (var sd in localDocs.ScoreDocs)
-                        collector.Collect(sd.DocId, sd.Score);
+                    collector.MergeTopDocs(localDocs);
                 }
             });
         }

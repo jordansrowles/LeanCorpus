@@ -171,15 +171,6 @@ public struct TopNCollector
             CollectCandidate(scoreDoc.DocId, scoreDoc.Score);
     }
 
-    /// <summary>Adds an exact match that is known not to be a competitive candidate.</summary>
-    internal void CountNonCompetitiveHit()
-    {
-        if (_strategy is not null || _sideCollector is not null)
-            throw new InvalidOperationException("Only ordinary top-N collectors can count skipped candidates.");
-
-        _totalHits++;
-    }
-
     private void CollectCandidate(int docId, float score)
     {
         // Count-only mode: there are no candidates to merge.

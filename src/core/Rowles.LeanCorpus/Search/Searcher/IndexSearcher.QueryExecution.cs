@@ -66,9 +66,10 @@ public sealed partial class IndexSearcher
                 ExecuteBooleanQuery(bq, reader, globalDFs, ref collector);
             }
         }
-        else if (_readers.Count == 1)
+        else if (_readers.Count == 1 || !_config.ParallelSearch)
         {
-            ExecuteBooleanQuery(bq, _readers[0], globalDFs, ref collector);
+            foreach (var reader in _readers)
+                ExecuteBooleanQuery(bq, reader, globalDFs, ref collector);
         }
         else
         {
