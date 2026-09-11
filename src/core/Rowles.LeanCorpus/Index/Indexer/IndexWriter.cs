@@ -3,6 +3,7 @@ using System.Runtime.ExceptionServices;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Backup;
 using Rowles.LeanCorpus.Index.Compatibility;
 using Rowles.LeanCorpus.Search;
@@ -26,6 +27,8 @@ public sealed partial class IndexWriter : IDisposable
     private readonly TimeSpan _disposeTimeout;
     private readonly IAnalyser _defaultAnalyser;
     private readonly int _resolvedIndexingConcurrency;
+    private readonly Lock _vectorDimensionLock = new();
+    private readonly Dictionary<string, int> _vectorDimensions = new(StringComparer.Ordinal);
 
     private DocumentBufferState _buffer = new();
 
@@ -155,6 +158,11 @@ public sealed partial class IndexWriter : IDisposable
 
             // Load existing commit state if present
             CommitManager.LoadLatestCommit(this);
+            foreach (var segment in _committedSegments)
+            {
+                foreach (var vectorField in segment.VectorFields)
+                    _vectorDimensions.TryAdd(vectorField.FieldName, vectorField.Dimension);
+            }
             DwptManager.InitialiseDwptPool(this);
         }
         catch
@@ -718,6 +726,56 @@ public sealed partial class IndexWriter : IDisposable
         {
             ArgumentNullException.ThrowIfNull(documents[i]);
             schema.Validate(documents[i]);
+        }
+    }
+
+    /// <summary>
+    /// Reserves vector dimensions only after DWPT-local token preflight has succeeded.
+    /// The complete document or block is checked before a new field dimension is recorded.
+    /// </summary>
+    internal void ValidateVectorDimensions(IEnumerable<LeanDocument> documents)
+    {
+        var incoming = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var document in documents)
+        {
+            foreach (var field in document.Fields)
+            {
+                if (field is not VectorField vector)
+                    continue;
+
+                if (incoming.TryGetValue(vector.Name, out int pendingDimension))
+                {
+                    if (pendingDimension != vector.Value.Length)
+                    {
+                        throw new ArgumentException(
+                            $"Vector field '{vector.Name}' has inconsistent dimensions within one admission batch.",
+                            nameof(documents));
+                    }
+                    continue;
+                }
+
+                incoming.Add(vector.Name, vector.Value.Length);
+            }
+        }
+
+        if (incoming.Count == 0)
+            return;
+
+        lock (_vectorDimensionLock)
+        {
+            foreach (var (fieldName, dimension) in incoming)
+            {
+                if (_vectorDimensions.TryGetValue(fieldName, out int existingDimension)
+                    && existingDimension != dimension)
+                {
+                    throw new ArgumentException(
+                        $"Vector field '{fieldName}' has dimension {dimension}, but the index requires {existingDimension}.",
+                        nameof(documents));
+                }
+            }
+
+            foreach (var (fieldName, dimension) in incoming)
+                _vectorDimensions.TryAdd(fieldName, dimension);
         }
     }
 

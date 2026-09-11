@@ -57,6 +57,49 @@ public sealed class SegmentReaderVectorTests: IDisposable
         }
     }
 
+    [Fact(DisplayName = "SegmentReader: Writer Owns Accepted Vector Values")]
+    public void Writer_OwnsAcceptedVectorValues()
+    {
+        var mmap = new MMapDirectory(_dir);
+        var source = new[] { 1f, 2f, 3f };
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig { NormaliseVectors = false }))
+        {
+            var doc = new LeanDocument();
+            doc.Add(new VectorField("embed", source));
+            writer.AddDocument(doc);
+            source[0] = 99f;
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(mmap);
+        float[] vector = Assert.IsType<float[]>(searcher.GetSegmentReaders()[0].GetVector("embed", 0));
+        Assert.Equal(1f, vector[0]);
+    }
+
+    [Fact(DisplayName = "SegmentReader: Vector Dimension Mismatch Rejects Only That Document")]
+    public void Writer_VectorDimensionMismatch_RejectsOnlyThatDocument()
+    {
+        var mmap = new MMapDirectory(_dir);
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig { NormaliseVectors = false }))
+        {
+            var first = new LeanDocument();
+            first.Add(new VectorField("embed", new float[] { 1f, 2f, 3f }));
+            writer.AddDocument(first);
+
+            var mismatch = new LeanDocument();
+            mismatch.Add(new VectorField("embed", new float[] { 1f, 2f }));
+            Assert.Throws<ArgumentException>(() => writer.AddDocument(mismatch));
+
+            var second = new LeanDocument();
+            second.Add(new VectorField("embed", new float[] { 4f, 5f, 6f }));
+            writer.AddDocument(second);
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(mmap);
+        Assert.Equal(2, searcher.GetSegmentReaders().Sum(static reader => reader.MaxDoc));
+    }
+
     [Fact(DisplayName = "SegmentReader: GetVector DocId No Vector Field Returns Null")]
     public void GetVector_DocId_NoVectorField_ReturnsNull()
     {

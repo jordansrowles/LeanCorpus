@@ -172,9 +172,17 @@ internal sealed class DocumentsWriterPerThread
     /// </summary>
     public void AddDocument(LeanDocument doc)
     {
-        ValidateTokenBudget(doc);
-        AddDocumentCore(doc);
+        ValidateDocument(doc);
+        AddPrevalidatedDocument(doc);
     }
+
+    /// <summary>Checks document-local admission constraints without changing buffer state.</summary>
+    internal void ValidateDocument(LeanDocument doc)
+        => ValidateTokenBudget(doc);
+
+    /// <summary>Adds a document after the writer and DWPT admission checks have completed.</summary>
+    internal void AddPrevalidatedDocument(LeanDocument doc)
+        => AddDocumentCore(doc);
 
     private void AddDocumentCore(LeanDocument doc)
     {
@@ -263,11 +271,20 @@ internal sealed class DocumentsWriterPerThread
 
     public void AddDocumentBlock(IReadOnlyList<LeanDocument> block)
     {
-        // Validate the complete block before mutating any of its documents. A
-        // rejected child must not leave a partially indexed parent/child block.
-        for (int i = 0; i < block.Count; i++)
-            ValidateTokenBudget(block[i]);
+        ValidateDocumentBlock(block);
+        AddPrevalidatedDocumentBlock(block);
+    }
 
+    /// <summary>Checks every document in a block without changing buffer state.</summary>
+    internal void ValidateDocumentBlock(IReadOnlyList<LeanDocument> block)
+    {
+        for (int i = 0; i < block.Count; i++)
+            ValidateDocument(block[i]);
+    }
+
+    /// <summary>Adds a block after the writer and DWPT admission checks have completed.</summary>
+    internal void AddPrevalidatedDocumentBlock(IReadOnlyList<LeanDocument> block)
+    {
         for (int i = 0; i < block.Count; i++)
         {
             AddDocumentCore(block[i]);
@@ -547,7 +564,9 @@ internal sealed class DocumentsWriterPerThread
             perField = new Dictionary<int, ReadOnlyMemory<float>>();
             Vectors[fieldName] = perField;
         }
-        perField[docId] = value;
+        // The writer owns accepted vector storage. Callers may reuse or mutate their
+        // array after AddDocument returns without affecting buffered or persisted data.
+        perField[docId] = value.ToArray();
         _estimatedRamBytes += value.Length * sizeof(float) + 32;
     }
 

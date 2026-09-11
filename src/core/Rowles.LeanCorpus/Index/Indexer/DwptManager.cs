@@ -43,9 +43,11 @@ internal static class DwptManager
 
             lock (dwpt)
             {
+                dwpt.ValidateDocument(doc);
+                writer.ValidateVectorDimensions([doc]);
                 enteredDwpt = true;
                 long before = dwpt.EstimatedRamBytes;
-                dwpt.AddDocument(doc);
+                dwpt.AddPrevalidatedDocument(doc);
                 Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes - before);
             }
 
@@ -162,9 +164,11 @@ internal static class DwptManager
             var dwpt = pool[slot];
             lock (dwpt)
             {
+                dwpt.ValidateDocumentBlock(block);
+                writer.ValidateVectorDimensions(block);
                 enteredDwpt = true;
                 long before = dwpt.EstimatedRamBytes;
-                dwpt.AddDocumentBlock(block);
+                dwpt.AddPrevalidatedDocumentBlock(block);
                 Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes - before);
             }
         }
