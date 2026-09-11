@@ -41,6 +41,13 @@ public sealed partial class IndexSearcher : IDisposable
     private int _mltCacheCount;
     private const int MltCacheSoftCap = 64;
 
+    private int ResolvedSearchConcurrency => _config.MaxConcurrency > 0
+        ? _config.MaxConcurrency
+        : Math.Max(1, Environment.ProcessorCount);
+
+    private bool CanSearchSegmentsInParallel()
+        => _readers.Count > 1 && _config.ParallelSearch && ResolvedSearchConcurrency > 1;
+
     private readonly record struct MltCacheKey(
         int DocId, int MaxQueryTerms, int MinTermFreq, int MinDocFreq, int MinWordLength);
 
@@ -483,14 +490,14 @@ public sealed partial class IndexSearcher : IDisposable
         var globalDFs = PrecomputeGlobalDocFreqsForSearch(query);
         var collector = new TopNCollector(topN, sideCollector);
 
-        if (sideCollector is not null || _readers.Count == 1 || !_config.ParallelSearch)
+        if (sideCollector is not null || !CanSearchSegmentsInParallel())
         {
             foreach (var reader in _readers)
                 ExecuteQuery(query, reader, globalDFs, ref collector);
         }
         else
         {
-            int maxDop = _config.MaxConcurrency > 0 ? _config.MaxConcurrency : Environment.ProcessorCount;
+            int maxDop = ResolvedSearchConcurrency;
             var lockObj = new Lock();
             Parallel.ForEach(_readers, new ParallelOptions { MaxDegreeOfParallelism = maxDop }, reader =>
             {
@@ -529,10 +536,10 @@ public sealed partial class IndexSearcher : IDisposable
         }
 
         var globalDFs = PrecomputeGlobalDocFreqsForSearch(query);
-        if (_readers.Count > 1 && _config.ParallelSearch
+        if (CanSearchSegmentsInParallel()
             && strategy is IParallelTopNCollectorStrategy parallelStrategy)
         {
-            int maxDop = _config.MaxConcurrency > 0 ? _config.MaxConcurrency : Environment.ProcessorCount;
+            int maxDop = ResolvedSearchConcurrency;
             var mergeLock = new Lock();
             Parallel.ForEach(_readers, new ParallelOptions { MaxDegreeOfParallelism = maxDop }, reader =>
             {
@@ -697,14 +704,14 @@ public sealed partial class IndexSearcher : IDisposable
         var globalDFs = PrecomputeGlobalDocFreqsForSearch(query);
         var collector = new TopNCollector(maxSize: 0);
 
-        if (_readers.Count == 1 || !_config.ParallelSearch)
+        if (!CanSearchSegmentsInParallel())
         {
             foreach (var reader in _readers)
                 ExecuteQuery(query, reader, globalDFs, ref collector);
         }
         else
         {
-            int maxDop = _config.MaxConcurrency > 0 ? _config.MaxConcurrency : Environment.ProcessorCount;
+            int maxDop = ResolvedSearchConcurrency;
             int total = 0;
             var lockObj = new object();
             Parallel.ForEach(_readers, new ParallelOptions { MaxDegreeOfParallelism = maxDop }, reader =>

@@ -32,6 +32,7 @@ public sealed class LeanCorpusDefaultsExpansionTests
             Assert.Same(CodecCatalog.Default, writer.CodecCatalog);
             Assert.Equal(512, writer.RamBufferSizeMB);
             Assert.Equal(256, writer.RamPerThreadHardLimitMB);
+            Assert.Equal(0, writer.IndexingConcurrency);
             Assert.Equal(1, writer.MaxConcurrentFlushes);
             Assert.Equal(10_000, writer.MaxBufferedDocs);
             Assert.Equal(20_000, writer.MaxQueuedDocs);
@@ -100,6 +101,7 @@ public sealed class LeanCorpusDefaultsExpansionTests
             {
                 options.IndexWriter.RamBufferSizeMB = 128;
                 options.IndexWriter.RamPerThreadHardLimitMB = 64;
+                options.IndexWriter.IndexingConcurrency = 3;
                 options.IndexWriter.MaxConcurrentFlushes = 2;
                 options.IndexWriter.MaxBufferedDocs = 100;
                 options.IndexWriter.MaxQueuedDocs = 250;
@@ -135,6 +137,7 @@ public sealed class LeanCorpusDefaultsExpansionTests
 
             Assert.Equal(128, config.RamBufferSizeMB);
             Assert.Equal(64, config.RamPerThreadHardLimitMB);
+            Assert.Equal(3, config.IndexingConcurrency);
             Assert.Equal(2, config.MaxConcurrentFlushes);
             Assert.Equal(100, config.MaxBufferedDocs);
             Assert.Equal(250, config.MaxQueuedDocs);
@@ -527,10 +530,15 @@ public sealed class LeanCorpusDefaultsExpansionTests
             Assert.Throws<ArgumentException>(() => LeanCorpusDefaults.Configure(static options =>
             {
                 options.IndexWriter.RamBufferSizeMB = 0;
+                options.IndexWriter.RamPerThreadHardLimitMB = 0;
                 options.IndexWriter.MaxBufferedDocs = 0;
             }));
             Assert.Equal(0, new IndexWriterConfig().RamBufferSizeMB);
             Assert.Equal(10_000, new IndexWriterConfig().MaxBufferedDocs);
+
+            Assert.Throws<ArgumentException>(() =>
+                LeanCorpusDefaults.Configure(static options => options.IndexWriter.IndexingConcurrency = -1));
+            Assert.Equal(0, new IndexWriterConfig().IndexingConcurrency);
 
             Assert.Throws<ArgumentException>(() => LeanCorpusDefaults.Configure(static options =>
             {

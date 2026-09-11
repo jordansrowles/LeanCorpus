@@ -32,6 +32,7 @@ public sealed class IndexWriterConfig
         var defaults = snapshot.IndexWriter;
         RamBufferSizeMB = Effective(defaults.RamBufferSizeMB, RamBufferSizeMB);
         RamPerThreadHardLimitMB = Effective(defaults.RamPerThreadHardLimitMB, RamPerThreadHardLimitMB);
+        IndexingConcurrency = Effective(defaults.IndexingConcurrency, IndexingConcurrency);
         MaxConcurrentFlushes = Effective(defaults.MaxConcurrentFlushes, MaxConcurrentFlushes);
         MaxBufferedDocs = Effective(defaults.MaxBufferedDocs, MaxBufferedDocs);
         MaxQueuedDocs = Effective(defaults.MaxQueuedDocs, MaxQueuedDocs);
@@ -114,6 +115,12 @@ public sealed class IndexWriterConfig
 
     /// <summary>Hard memory limit for one DWPT before it must be flushed.</summary>
     public double RamPerThreadHardLimitMB { get; set; } = 256.0;
+
+    /// <summary>
+    /// Maximum number of producer workers and DWPTs. Zero selects the available processor
+    /// count; positive values are used exactly as specified.
+    /// </summary>
+    public int IndexingConcurrency { get; set; }
 
     /// <summary>Maximum number of segment flushes allowed to execute concurrently.</summary>
     public int MaxConcurrentFlushes { get; set; } = 1;
@@ -361,8 +368,11 @@ public sealed class IndexWriterConfig
         if (RamBufferSizeMB < 0)
             throw new ArgumentException("RamBufferSizeMB must not be negative.", nameof(RamBufferSizeMB));
 
-        if (RamPerThreadHardLimitMB <= 0)
-            throw new ArgumentException("RamPerThreadHardLimitMB must be positive.", nameof(RamPerThreadHardLimitMB));
+        if (RamPerThreadHardLimitMB < 0)
+            throw new ArgumentException("RamPerThreadHardLimitMB must not be negative.", nameof(RamPerThreadHardLimitMB));
+
+        if (IndexingConcurrency < 0)
+            throw new ArgumentException("IndexingConcurrency must not be negative.", nameof(IndexingConcurrency));
 
         if (MaxConcurrentFlushes < 1)
             throw new ArgumentException("MaxConcurrentFlushes must be at least 1.", nameof(MaxConcurrentFlushes));
@@ -370,9 +380,9 @@ public sealed class IndexWriterConfig
         if (MaxBufferedDocs < 0)
             throw new ArgumentException("MaxBufferedDocs must not be negative.", nameof(MaxBufferedDocs));
 
-        if (RamBufferSizeMB <= 0.0 && MaxBufferedDocs == 0)
+        if (RamBufferSizeMB <= 0.0 && RamPerThreadHardLimitMB <= 0.0 && MaxBufferedDocs == 0)
             throw new ArgumentException(
-                "At least one flush trigger must be configured. Set RamBufferSizeMB > 0 or MaxBufferedDocs > 0.");
+                "At least one flush trigger must be configured.");
 
         if (MaxQueuedDocs < 0)
             throw new ArgumentException("MaxQueuedDocs must not be negative.", nameof(MaxQueuedDocs));

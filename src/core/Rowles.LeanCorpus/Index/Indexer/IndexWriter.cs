@@ -25,6 +25,7 @@ public sealed partial class IndexWriter : IDisposable
     private readonly IndexWriterConfig _config;
     private readonly TimeSpan _disposeTimeout;
     private readonly IAnalyser _defaultAnalyser;
+    private readonly int _resolvedIndexingConcurrency;
 
     private DocumentBufferState _buffer = new();
 
@@ -51,6 +52,7 @@ public sealed partial class IndexWriter : IDisposable
     private SemaphoreSlim? _backpressureSemaphore;
     private int _flushElection;
     private int _semaphoreSlotsHeld;
+    private long _activeDwptBytes;
 
     // --- Merge state ---
     private Task? _mergeTask;
@@ -68,8 +70,6 @@ public sealed partial class IndexWriter : IDisposable
 
     // --- DWPT state ---
     private DocumentsWriterPerThread[]? _dwptPool;
-    private int _dwptCounter;
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, int> _dwptThreadSlots = new();
 
     // --- Detached flush state ---
     private readonly List<FlushPendingState> _flushPending = [];
@@ -112,6 +112,9 @@ public sealed partial class IndexWriter : IDisposable
 
         _directory = directory;
         _config = config;
+        _resolvedIndexingConcurrency = config.IndexingConcurrency == 0
+            ? Math.Max(1, Environment.ProcessorCount)
+            : config.IndexingConcurrency;
         _disposeTimeout = disposeTimeout;
         _shutdownToken = _shutdownCts.Token;
         _spanPostingSink = new SpanPostingTokenSink(_buffer, _config);
@@ -817,7 +820,7 @@ public sealed partial class IndexWriter : IDisposable
 
 
     // --- Async write channel types and consumer ---
-    private enum AsyncWriteKind { Single, Batch, Block }
+    private enum AsyncWriteKind { Single, Batch, ConcurrentBatch, Block }
     private readonly record struct AsyncWriteCommand(
         object Payload, AsyncWriteKind Kind, TaskCompletionSource Tcs);
 
@@ -917,6 +920,9 @@ public sealed partial class IndexWriter : IDisposable
             case AsyncWriteKind.Batch:
                 AddDocuments((IReadOnlyList<LeanDocument>)cmd.Payload);
                 break;
+            case AsyncWriteKind.ConcurrentBatch:
+                AddDocumentsConcurrent((IReadOnlyList<LeanDocument>)cmd.Payload);
+                break;
             case AsyncWriteKind.Block:
                 AddDocumentBlock((IReadOnlyList<LeanDocument>)cmd.Payload);
                 break;
@@ -950,12 +956,12 @@ public sealed partial class IndexWriter : IDisposable
     internal ref List<SegmentInfo>? PreparedSegments => ref _preparedSegments;
     internal ref int FlushElection => ref _flushElection;
     internal ref int SemaphoreSlotsHeld => ref _semaphoreSlotsHeld;
+    internal ref long ActiveDwptBytes => ref _activeDwptBytes;
     internal ref Task? MergeTask => ref _mergeTask;
     internal List<Task> MergeTasks => _mergeTasks;
     internal HashSet<string> ReservedMergeSegments => _reservedMergeSegments;
     internal HashSet<string> ObsoleteMergeSegments => _obsoleteMergeSegments;
-    internal ref int DwptCounter => ref _dwptCounter;
-    internal System.Collections.Concurrent.ConcurrentDictionary<int, int> DwptThreadSlots => _dwptThreadSlots;
+    internal int ResolvedIndexingConcurrency => _resolvedIndexingConcurrency;
 
     internal List<SegmentInfo> CommittedSegments => _committedSegments;
 

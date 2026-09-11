@@ -42,6 +42,7 @@ internal sealed record IndexWriterDefaultsSnapshot
 {
     internal DefaultOverride<double> RamBufferSizeMB { get; init; } = DefaultOverride<double>.Unset;
     internal DefaultOverride<double> RamPerThreadHardLimitMB { get; init; } = DefaultOverride<double>.Unset;
+    internal DefaultOverride<int> IndexingConcurrency { get; init; } = DefaultOverride<int>.Unset;
     internal DefaultOverride<int> MaxConcurrentFlushes { get; init; } = DefaultOverride<int>.Unset;
     internal DefaultOverride<int> MaxBufferedDocs { get; init; } = DefaultOverride<int>.Unset;
     internal DefaultOverride<int> MaxQueuedDocs { get; init; } = DefaultOverride<int>.Unset;

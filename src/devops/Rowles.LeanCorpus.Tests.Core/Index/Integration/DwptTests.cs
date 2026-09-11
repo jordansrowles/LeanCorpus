@@ -33,6 +33,29 @@ public sealed class DwptTests
         return doc;
     }
 
+    [Fact(DisplayName = "DWPT Pool: Construction Uses Configured Indexing Concurrency")]
+    public void DwptPool_Construction_UsesConfiguredIndexingConcurrency()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(dir);
+
+        try
+        {
+            using var writer = new IndexWriter(new MMapDirectory(dir), new IndexWriterConfig
+            {
+                IndexingConcurrency = 3,
+                MaxBufferedDocs = 100,
+            });
+
+            Assert.Equal(3, writer.ResolvedIndexingConcurrency);
+            Assert.Equal(3, writer.DwptPool!.Length);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     /// <summary>
     /// Verifies the DWPT Pool: Lock Free Single Thread Indexes Correctly scenario.
     /// </summary>

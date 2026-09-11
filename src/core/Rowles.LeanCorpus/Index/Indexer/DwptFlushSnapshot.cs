@@ -9,6 +9,7 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 /// </summary>
 internal sealed class DwptFlushSnapshot
 {
+    internal required long EstimatedBytes { get; init; }
     internal required int DocCount { get; init; }
     internal required HashSet<string> FieldNames { get; init; }
     internal required Dictionary<string, int[]> DocTokenCounts { get; init; }
@@ -41,6 +42,7 @@ internal sealed class DwptFlushSnapshot
     {
         var snapshot = new DwptFlushSnapshot
         {
+            EstimatedBytes = dwpt.EstimatedRamBytes,
             DocCount = dwpt.DocCount,
             FieldNames = dwpt.FieldNames,
             DocTokenCounts = dwpt.DocTokenCounts,

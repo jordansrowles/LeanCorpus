@@ -66,7 +66,7 @@ public sealed partial class IndexSearcher
                 ExecuteBooleanQuery(bq, reader, globalDFs, ref collector);
             }
         }
-        else if (_readers.Count == 1 || !_config.ParallelSearch)
+        else if (!CanSearchSegmentsInParallel())
         {
             foreach (var reader in _readers)
                 ExecuteBooleanQuery(bq, reader, globalDFs, ref collector);
@@ -74,7 +74,7 @@ public sealed partial class IndexSearcher
         else
         {
             var lockObj = new Lock();
-            int maxDop = _config.MaxConcurrency > 0 ? _config.MaxConcurrency : Environment.ProcessorCount;
+            int maxDop = ResolvedSearchConcurrency;
             Parallel.ForEach(_readers, new ParallelOptions { MaxDegreeOfParallelism = maxDop }, reader =>
             {
                 var localCollector = new TopNCollector(topN);

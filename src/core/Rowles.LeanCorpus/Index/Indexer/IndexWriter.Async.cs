@@ -55,6 +55,35 @@ public sealed partial class IndexWriter
         }
     }
 
+    /// <summary>Adds a batch through bounded concurrent producer execution.</summary>
+    /// <remarks>
+    /// This is a throughput-oriented API. It preserves FIFO ordering with other async
+    /// commands, but does not preserve input document-ID order within the batch.
+    /// Cancellation stops admission before the batch command is accepted; accepted work
+    /// remains owned by the writer.
+    /// </remarks>
+    public async ValueTask AddDocumentsConcurrentAsync(
+        IReadOnlyList<LeanDocument> documents,
+        CancellationToken cancellationToken = default)
+    {
+        EnterIndexingOperation();
+        try
+        {
+            ArgumentNullException.ThrowIfNull(documents);
+            if (documents.Count == 0) return;
+            ValidateDocuments(documents);
+
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var cmd = new AsyncWriteCommand(documents, AsyncWriteKind.ConcurrentBatch, tcs);
+            await EnqueueAsyncWrite(cmd, cancellationToken).ConfigureAwait(false);
+            await tcs.Task.ConfigureAwait(false);
+        }
+        finally
+        {
+            ExitIndexingOperation();
+        }
+    }
+
     /// <summary>Adds documents from an asynchronous sequence in bounded batches.</summary>
     /// <remarks>
     /// The sequence is consumed in order. If a document is rejected, documents accepted
@@ -85,6 +114,43 @@ public sealed partial class IndexWriter
 
             if (batch.Count > 0)
                 await AddDocumentsAsync(batch, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            ExitIndexingOperation();
+        }
+    }
+
+    /// <summary>Adds an asynchronous sequence through bounded concurrent batches.</summary>
+    /// <remarks>
+    /// Input consumption stops when cancellation is requested. Each accepted batch is
+    /// writer-owned and may assign document IDs in an order different from the input.
+    /// </remarks>
+    public async ValueTask AddDocumentsConcurrentAsync(
+        IAsyncEnumerable<LeanDocument> documents,
+        int batchSize = 256,
+        CancellationToken cancellationToken = default)
+    {
+        EnterIndexingOperation();
+        try
+        {
+            ArgumentNullException.ThrowIfNull(documents);
+
+            int effectiveBatchSize = GetEffectiveAsyncBatchSize(batchSize);
+            var batch = new List<LeanDocument>(effectiveBatchSize);
+
+            await foreach (var document in documents.WithCancellation(cancellationToken).ConfigureAwait(false))
+            {
+                batch.Add(document);
+                if (batch.Count < effectiveBatchSize)
+                    continue;
+
+                await AddDocumentsConcurrentAsync(batch, cancellationToken).ConfigureAwait(false);
+                batch.Clear();
+            }
+
+            if (batch.Count > 0)
+                await AddDocumentsConcurrentAsync(batch, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
