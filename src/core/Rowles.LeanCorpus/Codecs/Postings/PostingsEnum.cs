@@ -403,31 +403,8 @@ public unsafe struct PostingsEnum : IDisposable
         if (docFreq > MaxPositionPreloadDocs && hasPositions)
         {
             var blockEnumLazy = BlockPostingsEnum.Create(input, docStartOffset, skipOffset, docFreq);
-
-            long posCursor = skipOffset;
-            using var reader = input.BeginReadSession();
-            int posSkipCount = reader.ReadInt32(ref posCursor);
-            posCursor += (long)posSkipCount * 15;
-
-            var posOffsets = RentPosOffsets(docFreq);
-            var posCounts = RentPosCounts(docFreq);
-
-            for (int i = 0; i < docFreq; i++)
-            {
-                int posCount = reader.ReadVarInt(ref posCursor);
-                posCounts[i] = posCount;
-                posOffsets[i] = posCursor;
-                for (int j = 0; j < posCount; j++)
-                {
-                    reader.ReadVarInt(ref posCursor);
-                    if (hasPayloads)
-                    {
-                        int payloadLen = reader.ReadVarInt(ref posCursor);
-                        if (payloadLen > 0)
-                            posCursor += payloadLen;
-                    }
-                }
-            }
+            var (posOffsets, posCounts) = PreloadPositionMetadata(
+                input, skipOffset, docFreq, hasPayloads);
 
             return new PostingsEnum(blockEnumLazy, posOffsets, posCounts,
                 input.BasePointer, input, hasPayloads);
@@ -447,32 +424,40 @@ public unsafe struct PostingsEnum : IDisposable
         if (!hasPositions)
             return new PostingsEnum(docIds, freqs, docFreq);
 
-        long posSkipCursor = skipOffset;
-        using var positionReader = input.BeginReadSession();
-        int skipCount = positionReader.ReadInt32(ref posSkipCursor);
-        posSkipCursor += (long)skipCount * 15;
+        var (positionByteOffsets, positionCounts) = PreloadPositionMetadata(
+            input, skipOffset, docFreq, hasPayloads);
 
-        var positionByteOffsets = RentPosOffsets(docFreq);
-        var positionCounts = RentPosCounts(docFreq);
+        return new PostingsEnum(docIds, freqs, docFreq, positionByteOffsets, positionCounts, input.BasePointer, input, hasPayloads);
+    }
 
+    private static (long[] Offsets, int[] Counts) PreloadPositionMetadata(
+        IndexInput input, long skipOffset, int docFreq, bool hasPayloads)
+    {
+        long cursor = skipOffset;
+        using var reader = input.BeginReadSession();
+        int skipCount = reader.ReadInt32(ref cursor);
+        cursor += (long)skipCount * 15;
+
+        var offsets = RentPosOffsets(docFreq);
+        var counts = RentPosCounts(docFreq);
         for (int i = 0; i < docFreq; i++)
         {
-            int posCount = positionReader.ReadVarInt(ref posSkipCursor);
-            positionCounts[i] = posCount;
-            positionByteOffsets[i] = posSkipCursor;
+            int posCount = reader.ReadVarInt(ref cursor);
+            counts[i] = posCount;
+            offsets[i] = cursor;
             for (int j = 0; j < posCount; j++)
             {
-                positionReader.ReadVarInt(ref posSkipCursor);
+                reader.ReadVarInt(ref cursor);
                 if (hasPayloads)
                 {
-                    int payloadLen = positionReader.ReadVarInt(ref posSkipCursor);
-                    if (payloadLen > 0)
-                        posSkipCursor += payloadLen;
+                    int payloadLength = reader.ReadVarInt(ref cursor);
+                    if (payloadLength > 0)
+                        cursor += payloadLength;
                 }
             }
         }
 
-        return new PostingsEnum(docIds, freqs, docFreq, positionByteOffsets, positionCounts, input.BasePointer, input, hasPayloads);
+        return (offsets, counts);
     }
 
     internal static void ReadTermMetadata(IndexInput input, long offset, out long docStartOffset,
@@ -505,6 +490,7 @@ public unsafe struct PostingsEnum : IDisposable
                 hasPayloads = reader.ReadByte(ref cursor) != 0;
             }
         }
+
     }
 
     /// <summary>

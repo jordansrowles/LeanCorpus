@@ -153,6 +153,48 @@ public struct TopNCollector
         }
     }
 
+    /// <summary>
+    /// Merges a segment's complete hit count and its bounded competitive candidates.
+    /// </summary>
+    /// <remarks>
+    /// The candidates must not be passed through <see cref="Collect"/>, because that
+    /// would count only the retained candidates instead of all matches from the segment.
+    /// </remarks>
+    internal void MergeTopDocs(TopDocs results)
+    {
+        ArgumentNullException.ThrowIfNull(results);
+        if (_strategy is not null || _sideCollector is not null)
+            throw new InvalidOperationException("Only ordinary top-N collectors can merge segment results.");
+
+        _totalHits += results.TotalHits;
+        foreach (var scoreDoc in results.ScoreDocs)
+            CollectCandidate(scoreDoc.DocId, scoreDoc.Score);
+    }
+
+    private void CollectCandidate(int docId, float score)
+    {
+        // Count-only mode: there are no candidates to merge.
+        if (_maxSize == 0) return;
+
+        if (_size < _maxSize)
+        {
+            _heap[_size++] = new ScoreDoc(docId, score);
+            if (_size == _maxSize)
+            {
+                BuildMinHeap();
+                _minScore = _heap[0].Score;
+            }
+            return;
+        }
+
+        if (score > _minScore || (score == _minScore && docId < _heap[0].DocId))
+        {
+            _heap[0] = new ScoreDoc(docId, score);
+            SiftDown(0);
+            _minScore = _heap[0].Score;
+        }
+    }
+
     /// <summary>Materialises the collected results as a <see cref="TopDocs"/> sorted by score descending.</summary>
     /// <returns>A <see cref="TopDocs"/> containing the top-N scored documents.</returns>
     public TopDocs ToTopDocs()

@@ -28,7 +28,8 @@ internal sealed class BlockMaxWandScorer
     /// </summary>
     /// <param name="collector">The collector to receive scored documents.</param>
     /// <param name="isLive">Optional predicate that returns <see langword="true"/> for live documents. Deleted documents are skipped.</param>
-    public void ScoreInto(ref TopNCollector collector, Func<int, bool>? isLive = null)
+    /// <param name="docBase">Global document-ID base for the segment being scored.</param>
+    public void ScoreInto(ref TopNCollector collector, Func<int, bool>? isLive = null, int docBase = 0)
     {
         foreach (var scorer in _scorers)
             scorer.CurrentDoc = scorer.Postings.NextDoc();
@@ -60,10 +61,7 @@ internal sealed class BlockMaxWandScorer
                 _blocksSkipped++;
                 int nextBlockStart = (blockIndex + 1) * PackedIntCodec.BlockSize;
                 foreach (var scorer in _scorers)
-                {
-                    if (scorer.CurrentDoc < nextBlockStart && scorer.CurrentDoc != BlockPostingsEnum.NoMoreDocs)
-                        scorer.CurrentDoc = scorer.Postings.Advance(nextBlockStart);
-                }
+                    scorer.CurrentDoc = scorer.Postings.Advance(nextBlockStart);
                 continue;
             }
 
@@ -80,7 +78,7 @@ internal sealed class BlockMaxWandScorer
             }
 
             if (isLive is null || isLive(minDoc))
-                collector.Collect(minDoc, totalScore);
+                collector.Collect(docBase + minDoc, totalScore);
         }
     }
 

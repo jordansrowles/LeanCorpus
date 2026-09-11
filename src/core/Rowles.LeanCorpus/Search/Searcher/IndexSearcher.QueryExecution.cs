@@ -66,9 +66,10 @@ public sealed partial class IndexSearcher
                 ExecuteBooleanQuery(bq, reader, globalDFs, ref collector);
             }
         }
-        else if (_readers.Count == 1)
+        else if (_readers.Count == 1 || !_config.ParallelSearch)
         {
-            ExecuteBooleanQuery(bq, _readers[0], globalDFs, ref collector);
+            foreach (var reader in _readers)
+                ExecuteBooleanQuery(bq, reader, globalDFs, ref collector);
         }
         else
         {
@@ -81,13 +82,33 @@ public sealed partial class IndexSearcher
                 var localDocs = localCollector.ToTopDocs();
                 lock (lockObj)
                 {
-                    foreach (var sd in localDocs.ScoreDocs)
-                        collector.Collect(sd.DocId, sd.Score);
+                    collector.MergeTopDocs(localDocs);
                 }
             });
         }
 
-        return collector.ToTopDocs();
+        var results = collector.ToTopDocs();
+        if (UsesBlockMaxWand(bq))
+            return new TopDocs(CountCore(bq), results.ScoreDocs);
+
+        return results;
+    }
+
+    private bool UsesBlockMaxWand(BooleanQuery query)
+    {
+        if (!_config.EnableBlockMaxWand || _config.PerFieldSimilarities is not null ||
+            query.MinimumNumberShouldMatch > 1)
+        {
+            return false;
+        }
+
+        foreach (var clause in query.Clauses)
+        {
+            if (clause.Occur != Occur.Should)
+                return false;
+        }
+
+        return true;
     }
 
     private void ExecuteQuery(Query query, SegmentReader reader,
@@ -1124,7 +1145,7 @@ public sealed partial class IndexSearcher
         }
 
         var wand = new BlockMaxWandScorer(scorers);
-        wand.ScoreInto(ref collector, hasDeletions ? reader.IsLive : null);
+        wand.ScoreInto(ref collector, hasDeletions ? reader.IsLive : null, reader.DocBase);
     }
 
     // --- Should-only heap merge for large clause counts (MoreLikeThis, etc.) ---
