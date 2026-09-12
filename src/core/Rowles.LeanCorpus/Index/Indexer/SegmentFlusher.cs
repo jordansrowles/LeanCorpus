@@ -488,13 +488,13 @@ internal static class SegmentFlusher
     }
 
     /// <summary>
-    /// Writes a segment directly from a <see cref="DwptFlushSnapshot"/> captured earlier.
+    /// Writes a segment directly from a <see cref="DwptFlushBatch"/> captured earlier.
     /// This is the detached-flush entry point: flush I/O runs without holding
     /// <see cref="IndexWriter.WriteLock"/>, and the caller briefly acquires the lock
     /// afterwards to publish the returned <see cref="SegmentInfo"/>.
     /// </summary>
-    public static SegmentInfo FlushFromSnapshot(
-        DwptFlushSnapshot snapshot,
+    public static SegmentInfo FlushFromBatch(
+        DwptFlushBatch snapshot,
         IndexWriterConfig config,
         string directoryPath,
         int ordinal,
@@ -503,7 +503,7 @@ internal static class SegmentFlusher
         long seqEnd)
     {
         var segId = $"seg_{ordinal}";
-        var segInfo = FlushCore(new SnapshotFlushSource(snapshot), config, directoryPath, segId,
+        var segInfo = FlushCore(new DwptFlushBatchSource(snapshot), config, directoryPath, segId,
             commitGeneration, seqStart, seqEnd, minDocsForHnsw: 0);
 
         var basePath = Path.Combine(directoryPath, segId);

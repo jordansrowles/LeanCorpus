@@ -42,7 +42,9 @@ internal sealed class DocumentsWriterPerThread
             : (rented = ArrayPool<byte>.Shared.Rent(maxBytes));
         prefix.CopyTo(bytes);
         int termBytes = Encoding.UTF8.GetBytes(term, bytes[prefix.Length..]);
+        long termHashBytesBefore = TermHash.AllocatedBytes;
         int id = TermHash.Add(bytes[..(prefix.Length + termBytes)]);
+        _estimatedRamBytes += TermHash.AllocatedBytes - termHashBytesBefore;
         if (rented is not null)
             ArrayPool<byte>.Shared.Return(rented, clearArray: false);
 
@@ -51,7 +53,6 @@ internal sealed class DocumentsWriterPerThread
 
         var acc = new PostingAccumulator();
         PostingAccumulators.Add(acc);
-        _estimatedRamBytes += acc.EstimatedBytes;
         return acc;
     }
 
@@ -89,6 +90,7 @@ internal sealed class DocumentsWriterPerThread
     private readonly SpanPostingTokenSink _spanPostingSink;
     private readonly CountingTokenSink _countingTokenSink = new();
     private long _estimatedRamBytes;
+    private long _postingAccumulatorBytes;
 
     /// <summary>Estimated RAM usage in bytes for this DWPT's buffers.</summary>
     public long EstimatedRamBytes => Volatile.Read(ref _estimatedRamBytes);
@@ -99,6 +101,7 @@ internal sealed class DocumentsWriterPerThread
         _fieldAnalysers = fieldAnalysers;
         _config = config;
         _spanPostingSink = new SpanPostingTokenSink(this);
+        _estimatedRamBytes = TermHash.AllocatedBytes;
     }
 
     /// <summary>Resets all buffers to empty state for reuse.</summary>
@@ -130,12 +133,13 @@ internal sealed class DocumentsWriterPerThread
         _fieldPrefixUtf8Cache.Clear();
         _termPool.Clear();
         DocCount = 0;
-        _estimatedRamBytes = 0;
+        _postingAccumulatorBytes = 0;
+        _estimatedRamBytes = TermHash.AllocatedBytes;
     }
 
     /// <summary>
     /// Resets all mutable collections to fresh instances. Caller must have already
-    /// taken ownership of the previous collections via <see cref="DwptFlushSnapshot.CaptureFrom"/>.
+    /// taken ownership of the previous collections via <see cref="DwptFlushBatch.CaptureFrom"/>.
     /// </summary>
     internal void ResetAfterSnapshot()
     {
@@ -163,7 +167,8 @@ internal sealed class DocumentsWriterPerThread
         _fieldPrefixUtf8Cache.Clear();
         _termPool.Clear();
         DocCount = 0;
-        _estimatedRamBytes = 0;
+        _postingAccumulatorBytes = 0;
+        _estimatedRamBytes = TermHash.AllocatedBytes;
     }
 
     /// <summary>
@@ -267,6 +272,7 @@ internal sealed class DocumentsWriterPerThread
 
         DocCount++;
         _estimatedRamBytes += 32; // per-doc overhead
+        RefreshPostingAccumulatorCapacity();
     }
 
     public void AddDocumentBlock(IReadOnlyList<LeanDocument> block)
@@ -324,6 +330,20 @@ internal sealed class DocumentsWriterPerThread
             if (_countingTokenSink.Exceeded)
                 throw new TokenBudgetExceededException(_countingTokenSink.Count, budget);
         }
+    }
+
+    /// <summary>
+    /// Posting buffers can grow while an analyser emits tokens. Reconcile that retained
+    /// capacity once per accepted document and expose only the resulting delta to the
+    /// writer-level O(1) counter.
+    /// </summary>
+    private void RefreshPostingAccumulatorCapacity()
+    {
+        long retainedBytes = 0;
+        foreach (var accumulator in PostingAccumulators)
+            retainedBytes += accumulator.EstimatedBytes;
+        _estimatedRamBytes += retainedBytes - _postingAccumulatorBytes;
+        _postingAccumulatorBytes = retainedBytes;
     }
 
     private void AppendStored(string name, StoredFieldValue value, bool mirrorStringToBinaryDocValues = true, bool storeDocValues = true)

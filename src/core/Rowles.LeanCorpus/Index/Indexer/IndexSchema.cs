@@ -52,6 +52,12 @@ public sealed class IndexSchema
                 if (field.FieldType != mapping.FieldType)
                     throw new SchemaValidationException(
                         $"Field '{field.Name}' has type {field.FieldType} but schema expects {mapping.FieldType}.");
+                if (mapping.VectorDimension is { } dimension && field is Rowles.LeanCorpus.Document.Fields.VectorField vector
+                    && vector.Value.Length != dimension)
+                {
+                    throw new SchemaValidationException(
+                        $"Vector field '{field.Name}' has dimension {vector.Value.Length} but schema requires {dimension}.");
+                }
             }
             else if (StrictMode)
             {

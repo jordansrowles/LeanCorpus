@@ -56,6 +56,7 @@ public sealed partial class IndexWriter : IDisposable
     private int _flushElection;
     private int _semaphoreSlotsHeld;
     private long _activeDwptBytes;
+    private long _pendingFlushBytes;
 
     // --- Merge state ---
     private Task? _mergeTask;
@@ -153,8 +154,7 @@ public sealed partial class IndexWriter : IDisposable
             // Initialize backpressure semaphore if MaxQueuedDocs > 0
             if (config.MaxQueuedDocs > 0)
                 _backpressureSemaphore = new SemaphoreSlim(config.MaxQueuedDocs, config.MaxQueuedDocs);
-            if (config.MaxConcurrentFlushes > 1)
-                _flushSemaphore = new SemaphoreSlim(config.MaxConcurrentFlushes, config.MaxConcurrentFlushes);
+            _flushSemaphore = new SemaphoreSlim(config.MaxConcurrentFlushes, config.MaxConcurrentFlushes);
 
             // Load existing commit state if present
             CommitManager.LoadLatestCommit(this);
@@ -733,47 +733,60 @@ public sealed partial class IndexWriter : IDisposable
     /// Reserves vector dimensions only after DWPT-local token preflight has succeeded.
     /// The complete document or block is checked before a new field dimension is recorded.
     /// </summary>
+    internal void ValidateVectorDimensions(LeanDocument document)
+    {
+        string? fieldName = null;
+        int dimension = 0;
+        Dictionary<string, int>? incoming = null;
+        foreach (var field in document.Fields)
+        {
+            if (field is not VectorField vector)
+                continue;
+            if (fieldName is null)
+            {
+                fieldName = vector.Name;
+                dimension = vector.Value.Length;
+                continue;
+            }
+
+            incoming ??= new Dictionary<string, int>(StringComparer.Ordinal) { [fieldName] = dimension };
+            if (incoming.TryGetValue(vector.Name, out int existing) && existing != vector.Value.Length)
+                throw new ArgumentException($"Vector field '{vector.Name}' has inconsistent dimensions within one document.", nameof(document));
+            incoming[vector.Name] = vector.Value.Length;
+        }
+        if (fieldName is null)
+            return;
+        ValidateIncomingVectorDimensions(incoming ?? new Dictionary<string, int>(1, StringComparer.Ordinal) { [fieldName] = dimension });
+    }
+
     internal void ValidateVectorDimensions(IEnumerable<LeanDocument> documents)
     {
-        var incoming = new Dictionary<string, int>(StringComparer.Ordinal);
+        Dictionary<string, int>? incoming = null;
         foreach (var document in documents)
         {
             foreach (var field in document.Fields)
             {
                 if (field is not VectorField vector)
                     continue;
-
-                if (incoming.TryGetValue(vector.Name, out int pendingDimension))
-                {
-                    if (pendingDimension != vector.Value.Length)
-                    {
-                        throw new ArgumentException(
-                            $"Vector field '{vector.Name}' has inconsistent dimensions within one admission batch.",
-                            nameof(documents));
-                    }
-                    continue;
-                }
-
-                incoming.Add(vector.Name, vector.Value.Length);
+                incoming ??= new Dictionary<string, int>(StringComparer.Ordinal);
+                if (incoming.TryGetValue(vector.Name, out int existing) && existing != vector.Value.Length)
+                    throw new ArgumentException($"Vector field '{vector.Name}' has inconsistent dimensions within one admission batch.", nameof(documents));
+                incoming[vector.Name] = vector.Value.Length;
             }
         }
+        if (incoming is not null)
+            ValidateIncomingVectorDimensions(incoming);
+    }
 
-        if (incoming.Count == 0)
-            return;
-
+    private void ValidateIncomingVectorDimensions(Dictionary<string, int> incoming)
+    {
         lock (_vectorDimensionLock)
         {
             foreach (var (fieldName, dimension) in incoming)
             {
-                if (_vectorDimensions.TryGetValue(fieldName, out int existingDimension)
-                    && existingDimension != dimension)
-                {
-                    throw new ArgumentException(
-                        $"Vector field '{fieldName}' has dimension {dimension}, but the index requires {existingDimension}.",
-                        nameof(documents));
-                }
+                if (_vectorDimensions.TryGetValue(fieldName, out int existingDimension) && existingDimension != dimension)
+                    throw new ArgumentException($"Vector field '{fieldName}' has dimension {dimension}, but the index requires {existingDimension}.");
             }
-
             foreach (var (fieldName, dimension) in incoming)
                 _vectorDimensions.TryAdd(fieldName, dimension);
         }
@@ -834,7 +847,7 @@ public sealed partial class IndexWriter : IDisposable
     private long ComputeEstimatedRamBytes()
     {
         long bytes = _buffer.AccountedRamBytes;
-        _config.Metrics.RecordWriterMemory(bytes, 0, _deleteQueue.Count * 96L);
+        _config.Metrics.RecordWriterMemory(bytes, Volatile.Read(ref _pendingFlushBytes), _deleteQueue.Count * 96L);
         return bytes;
     }
 
@@ -1015,6 +1028,7 @@ public sealed partial class IndexWriter : IDisposable
     internal ref int FlushElection => ref _flushElection;
     internal ref int SemaphoreSlotsHeld => ref _semaphoreSlotsHeld;
     internal ref long ActiveDwptBytes => ref _activeDwptBytes;
+    internal ref long PendingFlushBytes => ref _pendingFlushBytes;
     internal ref Task? MergeTask => ref _mergeTask;
     internal List<Task> MergeTasks => _mergeTasks;
     internal HashSet<string> ReservedMergeSegments => _reservedMergeSegments;

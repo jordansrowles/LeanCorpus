@@ -3,15 +3,15 @@ using Rowles.LeanCorpus.Codecs.StoredFields;
 namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
-/// Implements <see cref="IFlushSource"/> over a <see cref="DwptFlushSnapshot"/>,
+/// Implements <see cref="IFlushSource"/> over a <see cref="DwptFlushBatch"/>,
 /// allowing the shared flush path (<see cref="SegmentFlusher.FlushCore"/>) to read
 /// from an immutable snapshot rather than a live <see cref="DocumentsWriterPerThread"/>.
 /// </summary>
-internal sealed class SnapshotFlushSource : IFlushSource
+internal sealed class DwptFlushBatchSource : IFlushSource
 {
-    private readonly DwptFlushSnapshot _s;
+    private readonly DwptFlushBatch _s;
 
-    public SnapshotFlushSource(DwptFlushSnapshot snapshot) => _s = snapshot;
+    public DwptFlushBatchSource(DwptFlushBatch batch) => _s = batch;
 
     public int DocCount => _s.DocCount;
     public HashSet<string> FieldNames => _s.FieldNames;

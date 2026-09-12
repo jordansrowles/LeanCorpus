@@ -3,11 +3,12 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// <summary>
 /// Analyser that splits text only on whitespace and applies no token filters.
 /// </summary>
-public sealed class WhitespaceAnalyser : IAnalyser
+public sealed class WhitespaceAnalyser : IThreadLocalAnalyser
 {
     private readonly WhitespaceTokeniser _tokeniser = new();
     private readonly List<(int Start, int End)> _offsetBuf = new();
     private readonly TokenTextCache _internCache;
+    private readonly int _internCacheSize;
 
     /// <summary>
     /// Initialises a new <see cref="WhitespaceAnalyser"/>.
@@ -15,8 +16,12 @@ public sealed class WhitespaceAnalyser : IAnalyser
     /// <param name="internCacheSize">Maximum number of token strings retained for reuse. Defaults to 4096.</param>
     public WhitespaceAnalyser(int internCacheSize = 4096)
     {
+        _internCacheSize = internCacheSize;
         _internCache = new TokenTextCache(internCacheSize);
     }
+
+    /// <inheritdoc/>
+    public IAnalyser CreateThreadLocalAnalyser() => new WhitespaceAnalyser(_internCacheSize);
 
     /// <inheritdoc/>
     public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)

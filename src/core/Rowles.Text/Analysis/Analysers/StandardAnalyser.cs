@@ -9,10 +9,11 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// for performance. Each instance should be used by a single thread, or callers should create
 /// separate instances per thread (as IndexWriter does in AddDocumentsConcurrent).
 /// </summary>
-public sealed class StandardAnalyser : IAnalyser
+public sealed class StandardAnalyser : IThreadLocalAnalyser
 {
     private readonly Tokeniser _tokeniser = new();
     private readonly StopWordFilter _stopWordFilter;
+    private readonly string[]? _configuredStopWords;
     private char[] _lowerBuf = new char[64];
     private readonly List<(int Start, int End)> _offsetBuf = new();
 
@@ -24,8 +25,12 @@ public sealed class StandardAnalyser : IAnalyser
     public StandardAnalyser(int internCacheSize = 4096, IEnumerable<string>? stopWords = null)
     {
         _ = internCacheSize; // retained for source compatibility, no longer used
-        _stopWordFilter = new StopWordFilter(stopWords);
+        _configuredStopWords = stopWords?.ToArray();
+        _stopWordFilter = new StopWordFilter(_configuredStopWords);
     }
+
+    /// <inheritdoc/>
+    public IAnalyser CreateThreadLocalAnalyser() => new StandardAnalyser(stopWords: _configuredStopWords);
 
     /// <inheritdoc/>
     public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)

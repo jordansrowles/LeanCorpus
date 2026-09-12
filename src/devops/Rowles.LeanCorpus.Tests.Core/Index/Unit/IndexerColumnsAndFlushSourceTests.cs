@@ -164,18 +164,18 @@ public sealed class IndexerColumnsAndFlushSourceTests
             static posting => System.Text.Encoding.UTF8.GetString(posting.TermUtf8) == "body\0alpha");
     }
 
-    [Fact(DisplayName = "SnapshotFlushSource: exposes captured state after DWPT reset")]
-    public void SnapshotFlushSource_ExposesCapturedStateAfterDwptReset()
+    [Fact(DisplayName = "DwptFlushBatchSource: exposes captured state after DWPT reset")]
+    public void DwptFlushBatchSource_ExposesCapturedStateAfterDwptReset()
     {
         var dwpt = CreateDwpt();
         dwpt.AddDocument(CreateFullDocument());
         dwpt.ParentDocIds = [0];
 
-        DwptFlushSnapshot snapshot;
+        DwptFlushBatch snapshot;
         lock (dwpt)
-            snapshot = DwptFlushSnapshot.CaptureFrom(dwpt);
+            snapshot = DwptFlushBatch.CaptureFrom(dwpt);
 
-        IFlushSource source = new SnapshotFlushSource(snapshot);
+        IFlushSource source = new DwptFlushBatchSource(snapshot);
 
         Assert.Equal(1, snapshot.DocCount);
         Assert.Equal(0, dwpt.DocCount);

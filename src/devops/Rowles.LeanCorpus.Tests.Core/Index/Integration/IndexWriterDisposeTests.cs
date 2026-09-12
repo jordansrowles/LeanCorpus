@@ -428,7 +428,7 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
             dwpt.AddDocument(document);
             writer.FlushPending.Add(new FlushPendingState
             {
-                Snapshot = DwptFlushSnapshot.CaptureFrom(dwpt),
+                Batch = DwptFlushBatch.CaptureFrom(dwpt),
                 SegmentOrdinal = 0,
                 SeqStart = 0,
                 SeqEnd = 0,

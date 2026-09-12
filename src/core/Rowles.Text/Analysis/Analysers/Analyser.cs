@@ -5,7 +5,7 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// <summary>
 /// Composable analyser that runs a tokeniser followed by a chain of span filters.
 /// </summary>
-public sealed class Analyser : IAnalyser
+public sealed class Analyser : IThreadLocalAnalyser
 {
     private readonly ISpanTokeniser _tokeniser;
     private readonly ISpanTokenFilter[] _filters;
@@ -35,6 +35,9 @@ public sealed class Analyser : IAnalyser
             filters[i] = _filters[i].Clone();
         return new Analyser(_tokeniser, filters);
     }
+
+    /// <inheritdoc/>
+    public IAnalyser CreateThreadLocalAnalyser() => Clone();
 
     /// <inheritdoc/>
     public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
