@@ -33,6 +33,7 @@ internal sealed class DwptFlushBatch : IDisposable
     internal HashSet<int>? ParentDocIds { get; init; }
     internal bool PendingBytesAccounted { get; set; }
     private int _disposed;
+    internal int CleanupCountForTests { get; private set; }
 
     /// <summary>
     /// Captures an immutable snapshot of <paramref name="dwpt"/> by swapping its mutable
@@ -79,6 +80,7 @@ internal sealed class DwptFlushBatch : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
+        CleanupCountForTests++;
         foreach (var accumulator in PostingAccumulators)
             accumulator.ReturnBuffers();
         PostingAccumulators.Clear();

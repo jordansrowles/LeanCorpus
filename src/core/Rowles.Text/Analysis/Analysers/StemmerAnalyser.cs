@@ -18,7 +18,7 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// Convenience factory methods are provided for common stemmer configurations.
 /// </para>
 /// </remarks>
-public sealed class StemmerAnalyser : IAnalyser
+public sealed class StemmerAnalyser : IThreadLocalAnalyser
 {
     private readonly Analyser _inner;
 
@@ -36,11 +36,16 @@ public sealed class StemmerAnalyser : IAnalyser
             new StemTokenFilter(stemmer));
     }
 
+    private StemmerAnalyser(Analyser inner) => _inner = inner;
+
     /// <inheritdoc/>
     public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
         _inner.Analyse(input, sink);
     }
+
+    /// <inheritdoc/>
+    public IAnalyser CreateThreadLocalAnalyser() => new StemmerAnalyser(_inner.Clone());
 
     /// <summary>
     /// Creates a <see cref="StemmerAnalyser"/> using the Porter stemmer.

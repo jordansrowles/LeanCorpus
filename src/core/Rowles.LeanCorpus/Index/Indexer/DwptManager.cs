@@ -75,12 +75,12 @@ internal static class DwptManager
                 ReleaseBackpressure(writer, 1);
             throw;
         }
-        catch
+        catch (Exception ex)
         {
             if (enteredDwpt && abortOnFatalFailure)
             {
+                writer.MarkIndexingFailed(ex);
                 AbortUncommittedWriterState(writer);
-                writer.MarkIndexingFailed();
             }
             else if (acquired)
                 ReleaseBackpressure(writer, 1);
@@ -136,12 +136,12 @@ internal static class DwptManager
             ReleaseBackpressure(writer, acquired);
             throw;
         }
-        catch
+        catch (Exception ex)
         {
             if (enteredDwpt)
             {
+                writer.MarkIndexingFailed(ex);
                 AbortUncommittedWriterState(writer);
-                writer.MarkIndexingFailed();
             }
             else
             {
@@ -158,64 +158,57 @@ internal static class DwptManager
     public static void AddDocumentsConcurrent(IndexWriter writer, IReadOnlyList<LeanDocument> documents)
     {
         writer.EnterIndexingOperation();
-        try
-        {
-            ArgumentNullException.ThrowIfNull(documents);
-            if (documents.Count == 0) return;
+        try { AddDocumentsConcurrentOperationOwned(writer, documents); }
+        finally { writer.ExitIndexingOperation(); }
+    }
 
-            Exception? primaryFailure = null;
-            using var cancellation = new CancellationTokenSource();
-            try
+    internal static void AddDocumentsConcurrentOperationOwned(IndexWriter writer, IReadOnlyList<LeanDocument> documents)
+    {
+        ArgumentNullException.ThrowIfNull(documents);
+        if (documents.Count == 0) return;
+
+        var failureLock = new Lock();
+        (int Index, Exception Error)? fatalFailure = null;
+        (int Index, TokenBudgetExceededException Error)? rejection = null;
+        Parallel.For(0, documents.Count,
+            new ParallelOptions { MaxDegreeOfParallelism = writer.ResolvedIndexingConcurrency },
+            (i, loopState) =>
             {
-                Parallel.ForEach(
-                System.Collections.Concurrent.Partitioner.Create(0, documents.Count),
-                new ParallelOptions
+                if (loopState.LowestBreakIteration is long lowestFailure && i > lowestFailure)
+                    return;
+                try
                 {
-                    MaxDegreeOfParallelism = writer.ResolvedIndexingConcurrency,
-                    CancellationToken = cancellation.Token
-                },
-                range =>
+                    AddDocumentCore(writer, documents[i], abortOnFatalFailure: false);
+                }
+                catch (TokenBudgetExceededException ex)
                 {
-                    for (int i = range.Item1; i < range.Item2; i++)
+                    lock (failureLock)
                     {
-                        cancellation.Token.ThrowIfCancellationRequested();
-                        try
-                        {
-                            AddDocumentCore(writer, documents[i], abortOnFatalFailure: false);
-                        }
-                        catch (TokenBudgetExceededException)
-                        {
-                            throw;
-                        }
-                        catch (Exception ex)
-                        {
-                            Interlocked.CompareExchange(ref primaryFailure, ex, null);
-                            cancellation.Cancel();
-                            throw;
-                        }
+                        if (rejection is null || i < rejection.Value.Index)
+                            rejection = (i, ex);
                     }
-                });
-            }
-            catch (OperationCanceledException) when (primaryFailure is not null)
-            {
-                // The first fatal worker failure is rethrown below.
-            }
-            catch when (primaryFailure is null)
-            {
-                throw;
-            }
+                }
+                catch (Exception ex)
+                {
+                    lock (failureLock)
+                    {
+                        if (fatalFailure is null || i < fatalFailure.Value.Index)
+                            fatalFailure = (i, ex);
+                    }
+                    // Break preserves completion of every lower document index, allowing
+                    // the public primary failure to be selected deterministically.
+                    loopState.Break();
+                }
+            });
 
-            if (primaryFailure is not null)
-            {
-                AbortUncommittedWriterState(writer);
-                writer.MarkIndexingFailed(primaryFailure);
-                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(primaryFailure).Throw();
-            }
-        }
-        finally
+        if (fatalFailure is { } fatal)
         {
-            writer.ExitIndexingOperation();
+            writer.MarkIndexingFailed(fatal.Error);
+            AbortUncommittedWriterState(writer);
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(fatal.Error).Throw();
         }
+        if (rejection is { } rejected)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(rejected.Error).Throw();
     }
 
     /// <summary>
@@ -355,20 +348,36 @@ internal static class DwptManager
         IndexWriter writer, DwptFlushBatch batch, int ordinal, int commitGeneration, long seqStart, long seqEnd)
     {
         var semaphore = writer.FlushSemaphore ?? throw new InvalidOperationException("Flush admission is not initialised.");
-        semaphore.Wait(writer.ShutdownToken);
-        Interlocked.Increment(ref writer.ActiveFlushCount);
+        bool acquired = false;
         try
         {
+            // Once detached, a batch remains writer-owned through shutdown and must
+            // reach a terminal flush or failure state before indexing operations drain.
+            semaphore.Wait();
+            acquired = true;
+            Interlocked.Increment(ref writer.ActiveFlushCount);
+            writer.Config.PhysicalFlushStarted?.Invoke();
             return SegmentFlusher.FlushFromBatch(batch, writer.Config, writer.Directory.DirectoryPath,
                 ordinal, commitGeneration, seqStart, seqEnd);
         }
         finally
         {
-            batch.Dispose();
-            if (batch.PendingBytesAccounted)
-                Interlocked.Add(ref writer.PendingFlushBytes, -batch.EstimatedBytes);
-            Interlocked.Decrement(ref writer.ActiveFlushCount);
-            semaphore.Release();
+            try
+            {
+                if (acquired)
+                    writer.Config.PhysicalFlushCompleted?.Invoke();
+            }
+            finally
+            {
+                batch.Dispose();
+                if (batch.PendingBytesAccounted)
+                    Interlocked.Add(ref writer.PendingFlushBytes, -batch.EstimatedBytes);
+                if (acquired)
+                {
+                    Interlocked.Decrement(ref writer.ActiveFlushCount);
+                    semaphore.Release();
+                }
+            }
         }
     }
 
@@ -376,16 +385,20 @@ internal static class DwptManager
     {
         lock (writer.WriteLock)
         {
+            long retainedBytes = 0;
             if (writer.DwptPool is not null)
             {
                 foreach (var dwpt in writer.DwptPool)
                 {
                     lock (dwpt)
+                    {
                         dwpt.ClearAll();
+                        retainedBytes += dwpt.EstimatedRamBytes;
+                    }
                 }
             }
 
-            Interlocked.Exchange(ref writer.ActiveDwptBytes, 0);
+            Interlocked.Exchange(ref writer.ActiveDwptBytes, retainedBytes);
             int release = Interlocked.Exchange(ref writer.SemaphoreSlotsHeld, 0);
             BackpressureController.ReleaseSemaphoreSlots(writer, release);
         }

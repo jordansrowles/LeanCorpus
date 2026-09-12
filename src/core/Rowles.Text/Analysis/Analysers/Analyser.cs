@@ -22,18 +22,24 @@ public sealed class Analyser : IThreadLocalAnalyser
         _filters = filters;
     }
 
-    /// <summary>Creates a new <see cref="Analyser"/> with cloned filter instances.</summary>
+    /// <summary>Creates a new <see cref="Analyser"/> with independently owned mutable components.</summary>
     /// <remarks>
-    /// Each filter's <see cref="ISpanTokenFilter.Clone"/> is called to produce
-    /// independent state. Stateless filters return themselves; stateful filters
-    /// return fresh instances. The tokeniser is shared (must be thread-safe).
+    /// Each filter's <see cref="ISpanTokenFilter.Clone"/> is called. A tokeniser must
+    /// explicitly declare itself shareable or provide an independent instance.
     /// </remarks>
     internal Analyser Clone()
     {
         var filters = new ISpanTokenFilter[_filters.Length];
         for (int i = 0; i < _filters.Length; i++)
             filters[i] = _filters[i].Clone();
-        return new Analyser(_tokeniser, filters);
+        ISpanTokeniser tokeniser = _tokeniser switch
+        {
+            IThreadLocalSpanTokeniser owned => owned.CreateThreadLocalTokeniser(),
+            IShareableSpanTokeniser => _tokeniser,
+            _ => throw new InvalidOperationException(
+                $"Tokeniser '{_tokeniser.GetType().FullName}' has no explicit concurrent ownership contract.")
+        };
+        return new Analyser(tokeniser, filters);
     }
 
     /// <inheritdoc/>

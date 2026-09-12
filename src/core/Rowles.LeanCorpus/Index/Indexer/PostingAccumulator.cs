@@ -71,8 +71,35 @@ internal sealed class PostingAccumulator
             + _posBuf.Length;
         if (_absoluteCache is not null)
             bufferBytes += _absoluteCache.Length * sizeof(int);
+        if (_payloads is not null)
+        {
+            bufferBytes += (long)_payloads.Length * IntPtr.Size;
+            for (int i = 0; i < _payloads.Length; i++)
+            {
+                var payloads = _payloads[i];
+                if (payloads is null) continue;
+                bufferBytes += (long)payloads.Length * IntPtr.Size;
+                for (int j = 0; j < payloads.Length; j++)
+                    bufferBytes += payloads[j]?.LongLength ?? 0;
+            }
+        }
+        if (_startOffsets is not null)
+        {
+            bufferBytes += (long)_startOffsets.Length * IntPtr.Size;
+            for (int i = 0; i < _startOffsets.Length; i++)
+                bufferBytes += (long)(_startOffsets[i]?.Length ?? 0) * sizeof(int);
+        }
+        if (_endOffsets is not null)
+        {
+            bufferBytes += (long)_endOffsets.Length * IntPtr.Size;
+            for (int i = 0; i < _endOffsets.Length; i++)
+                bufferBytes += (long)(_endOffsets[i]?.Length ?? 0) * sizeof(int);
+        }
         return ObjectOverhead + bufferBytes;
     }
+
+    /// <summary>Refreshes retained-capacity accounting after a mutation.</summary>
+    internal void RefreshEstimatedBytes() => _cachedEstimatedBytes = RecomputeEstimatedBytes();
 
     // ─────── Absolute doc ID expansion ───────
 

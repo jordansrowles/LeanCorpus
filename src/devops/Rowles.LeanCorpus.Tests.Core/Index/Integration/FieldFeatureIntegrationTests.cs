@@ -192,7 +192,7 @@ public sealed class FieldFeatureIntegrationTests : IClassFixture<TestDirectoryFi
         }
     }
 
-    private sealed class PayloadAnnotatingAnalyser : IAnalyser
+    private sealed class PayloadAnnotatingAnalyser : IThreadLocalAnalyser
     {
         public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
         {
@@ -210,5 +210,7 @@ public sealed class FieldFeatureIntegrationTests : IClassFixture<TestDirectoryFi
                 offset = end;
             }
         }
+
+        public IAnalyser CreateThreadLocalAnalyser() => new PayloadAnnotatingAnalyser();
     }
 }

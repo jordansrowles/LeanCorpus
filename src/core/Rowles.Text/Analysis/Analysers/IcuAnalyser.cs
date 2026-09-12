@@ -4,7 +4,7 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// Default Unicode-aware analyser built on <see cref="Tokenisers.IcuTokeniser"/>, lowercase
 /// normalisation, and stop-word removal.
 /// </summary>
-public sealed class IcuAnalyser : IAnalyser
+public sealed class IcuAnalyser : IThreadLocalAnalyser
 {
     private readonly Analyser _inner;
 
@@ -36,4 +36,7 @@ public sealed class IcuAnalyser : IAnalyser
     {
         _inner.Analyse(input, sink);
     }
+
+    /// <inheritdoc/>
+    public IAnalyser CreateThreadLocalAnalyser() => _inner.CreateThreadLocalAnalyser();
 }

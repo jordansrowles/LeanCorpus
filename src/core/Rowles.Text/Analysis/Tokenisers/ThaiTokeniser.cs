@@ -16,7 +16,7 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// <see cref="FromStream"/>. A starter lexicon is available in the repository
 /// under <c>lexicons/thai-dict.txt</c>.
 /// </remarks>
-public sealed class ThaiTokeniser : ISpanTokeniser
+public sealed class ThaiTokeniser : IShareableSpanTokeniser
 {
     /// <summary>Token type emitted for Thai segments.</summary>
     public const string ThaiType = "thai";

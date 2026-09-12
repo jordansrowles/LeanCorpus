@@ -11,7 +11,7 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// spans are forwarded to the sink; the sink may choose to copy them.</para>
 /// <para>Matches of zero length are skipped.</para>
 /// </remarks>
-public sealed class PatternTokeniser : ISpanTokeniser
+public sealed class PatternTokeniser : IShareableSpanTokeniser
 {
     private readonly Regex _regex;
 

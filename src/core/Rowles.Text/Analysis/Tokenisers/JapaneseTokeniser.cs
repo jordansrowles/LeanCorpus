@@ -15,7 +15,7 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// default dictionary is shared for the process lifetime. Instances created
 /// with a custom dictionary path own that mapping and should be disposed.
 /// </remarks>
-public sealed class JapaneseTokeniser : ISpanTokeniser, IDisposable
+public sealed class JapaneseTokeniser : IThreadLocalSpanTokeniser, IDisposable
 {
     /// <summary>Token type emitted for Japanese dictionary tokens.</summary>
     public const string JapaneseType = "japanese";
@@ -26,6 +26,7 @@ public sealed class JapaneseTokeniser : ISpanTokeniser, IDisposable
 
     private readonly Lazy<JapaneseDictionary> _dictionary;
     private readonly bool _ownsDictionary;
+    private readonly string? _dictionaryPath;
     private bool _disposed;
 
     /// <summary>Default path for the Japanese language codec.</summary>
@@ -58,7 +59,12 @@ public sealed class JapaneseTokeniser : ISpanTokeniser, IDisposable
             () => new JapaneseDictionary(fullPath),
             LazyThreadSafetyMode.ExecutionAndPublication);
         _ownsDictionary = true;
+        _dictionaryPath = fullPath;
     }
+
+    /// <inheritdoc/>
+    public ISpanTokeniser CreateThreadLocalTokeniser()
+        => _dictionaryPath is null ? new JapaneseTokeniser() : new JapaneseTokeniser(_dictionaryPath);
 
     /// <inheritdoc/>
     public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)

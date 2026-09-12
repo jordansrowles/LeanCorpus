@@ -100,6 +100,31 @@ public sealed class SegmentReaderVectorTests: IDisposable
         Assert.Equal(2, searcher.GetSegmentReaders().Sum(static reader => reader.MaxDoc));
     }
 
+    [Fact]
+    public void Writer_ReopenedIndex_EnforcesCommittedVectorDimension()
+    {
+        var mmap = new MMapDirectory(_dir);
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig { NormaliseVectors = false }))
+        {
+            var document = new LeanDocument();
+            document.Add(new VectorField("embed", new float[] { 1f, 2f, 3f }));
+            writer.AddDocument(document);
+            writer.Commit();
+        }
+
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig { NormaliseVectors = false }))
+        {
+            var mismatch = new LeanDocument();
+            mismatch.Add(new VectorField("embed", new float[] { 1f, 2f }));
+            Assert.Throws<ArgumentException>(() => writer.AddDocument(mismatch));
+
+            var accepted = new LeanDocument();
+            accepted.Add(new VectorField("embed", new float[] { 4f, 5f, 6f }));
+            writer.AddDocument(accepted);
+            writer.Commit();
+        }
+    }
+
     [Fact(DisplayName = "SegmentReader: GetVector DocId No Vector Field Returns Null")]
     public void GetVector_DocId_NoVectorField_ReturnsNull()
     {

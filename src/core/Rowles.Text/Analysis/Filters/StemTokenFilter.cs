@@ -97,6 +97,17 @@ public sealed class StemTokenFilter : ISpanTokenFilter
     }
 
     /// <inheritdoc/>
-    public ISpanTokenFilter Clone() => new StemTokenFilter(_stemmer, _keywordMarker);
+    public ISpanTokenFilter Clone()
+    {
+        ISpanStemmer stemmer = _stemmer switch
+        {
+            IThreadLocalSpanStemmer owned => owned.CreateThreadLocalStemmer()
+                ?? throw new InvalidOperationException("The stemmer ownership factory returned null."),
+            IShareableSpanStemmer => _stemmer,
+            _ => throw new InvalidOperationException(
+                $"Stemmer '{_stemmer.GetType().FullName}' has no explicit concurrent ownership contract.")
+        };
+        return new StemTokenFilter(stemmer, _keywordMarker);
+    }
 
 }

@@ -22,7 +22,7 @@
 /// step before passing tokens here.
 /// </para>
 /// </remarks>
-public sealed class ChineseStemmer : ISpanStemmer
+public sealed class ChineseStemmer : IShareableSpanStemmer
 {
     /// <inheritdoc/>
     /// <remarks>Returns <paramref name="word"/> unchanged.</remarks>

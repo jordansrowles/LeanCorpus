@@ -10,7 +10,7 @@ using Rowles.LeanCorpus.Analysis;
 /// Thread-safety: the span path and enumerator are thread-safe for concurrent use on the same instance.
 /// No per-instance mutable state is retained across calls.
 /// </summary>
-public sealed class EdgeNGramTokeniser : ISpanTokeniser
+public sealed class EdgeNGramTokeniser : IShareableSpanTokeniser
 {
     /// <summary>
     /// Gets the minimum n-gram length (inclusive).

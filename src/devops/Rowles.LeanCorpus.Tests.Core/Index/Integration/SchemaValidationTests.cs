@@ -95,6 +95,19 @@ public sealed class SchemaValidationTests
         schema.Validate(doc); // no exception
     }
 
+    [Fact]
+    public void Validate_VectorDimension_IsAuthoritative()
+    {
+        var schema = new IndexSchema()
+            .Add(new FieldMapping("embedding", FieldType.Vector) { VectorDimension = 3 });
+        var document = new LeanDocument();
+        document.Add(new VectorField("embedding", new float[] { 1, 2 }));
+
+        var exception = Assert.Throws<SchemaValidationException>(() => schema.Validate(document));
+        Assert.Contains("dimension 2", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("requires 3", exception.Message, StringComparison.Ordinal);
+    }
+
     [Fact(DisplayName = "IndexWriter: Batch Paths Validate Schema Before Indexing")]
     public async Task IndexWriter_BatchPaths_ValidateSchemaBeforeIndexing()
     {

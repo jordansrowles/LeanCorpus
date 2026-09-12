@@ -69,14 +69,7 @@ public sealed partial class IndexWriter
         EnterIndexingOperation();
         try
         {
-            ArgumentNullException.ThrowIfNull(documents);
-            if (documents.Count == 0) return;
-            ValidateDocuments(documents);
-
-            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var cmd = new AsyncWriteCommand(documents, AsyncWriteKind.ConcurrentBatch, tcs);
-            await EnqueueAsyncWrite(cmd, cancellationToken).ConfigureAwait(false);
-            await tcs.Task.ConfigureAwait(false);
+            await AddDocumentsConcurrentAsyncOperationOwned(documents, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -145,17 +138,31 @@ public sealed partial class IndexWriter
                 if (batch.Count < effectiveBatchSize)
                     continue;
 
-                await AddDocumentsConcurrentAsync(batch, cancellationToken).ConfigureAwait(false);
+                await AddDocumentsConcurrentAsyncOperationOwned(batch, cancellationToken).ConfigureAwait(false);
                 batch.Clear();
             }
 
             if (batch.Count > 0)
-                await AddDocumentsConcurrentAsync(batch, cancellationToken).ConfigureAwait(false);
+                await AddDocumentsConcurrentAsyncOperationOwned(batch, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             ExitIndexingOperation();
         }
+    }
+
+    private async ValueTask AddDocumentsConcurrentAsyncOperationOwned(
+        IReadOnlyList<LeanDocument> documents,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(documents);
+        if (documents.Count == 0) return;
+        ValidateDocuments(documents);
+
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cmd = new AsyncWriteCommand(documents, AsyncWriteKind.ConcurrentBatch, tcs);
+        await EnqueueAsyncWrite(cmd, cancellationToken).ConfigureAwait(false);
+        await tcs.Task.ConfigureAwait(false);
     }
 
     /// <summary>Adds an adjacent child-parent document block asynchronously.</summary>

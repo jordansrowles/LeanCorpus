@@ -179,6 +179,12 @@ public sealed class IndexWriterConfig
     /// </summary>
     internal Action<string>? PreparedCommitPublicationSync { get; set; }
 
+    /// <summary>Test-only callback invoked after physical-flush admission.</summary>
+    internal Action? PhysicalFlushStarted { get; set; }
+
+    /// <summary>Test-only callback invoked before physical-flush admission is released.</summary>
+    internal Action? PhysicalFlushCompleted { get; set; }
+
     /// <summary>
     /// Compatibility guardrail applied when opening an existing index. Defaults to strict mode.
     /// </summary>

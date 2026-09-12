@@ -148,7 +148,12 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         // With RamBufferSizeMB = 1 MB and accurate tracking via PostingAccumulator.EstimatedBytes,
         // the flush should happen close to 1 MB (not 5× overshoot from old heuristic).
         var dir = new MMapDirectory(SubDir("accurate_flush"));
-        var config = new IndexWriterConfig { RamBufferSizeMB = 1.0, MaxBufferedDocs = 100_000 };
+        var config = new IndexWriterConfig
+        {
+            IndexingConcurrency = 1,
+            RamBufferSizeMB = 1.0,
+            MaxBufferedDocs = 100_000
+        };
         using var writer = new IndexWriter(dir, config);
 
         for (int i = 0; i < 5000; i++)
@@ -173,7 +178,8 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         var dir = new MMapDirectory(SubDir("hard_ceiling"));
         var config = new IndexWriterConfig
         {
-            RamBufferSizeMB = 0.1, // 100 KB — tight threshold to trigger RAM-based flush
+            IndexingConcurrency = 1,
+            RamBufferSizeMB = 0.5, // Above the fresh DWPT baseline, but tight enough to force RAM flushing.
             MaxBufferedDocs = 100_000
         };
         using var writer = new IndexWriter(dir, config);
@@ -609,8 +615,9 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         var dir = new MMapDirectory(SubDir("detached_flush_many"));
         var config = new IndexWriterConfig
         {
-            RamBufferSizeMB = 0.5,         // Forces frequent threshold flushes
-            RamPerThreadHardLimitMB = 0.25
+            IndexingConcurrency = 2,
+            RamBufferSizeMB = 2.0,         // Forces frequent threshold flushes above retained baselines.
+            RamPerThreadHardLimitMB = 1.0
         };
         using var writer = new IndexWriter(dir, config);
 
@@ -651,8 +658,9 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         var dir = new MMapDirectory(SubDir("detached_concurrent"));
         var config = new IndexWriterConfig
         {
-            RamBufferSizeMB = 0.5,
-            RamPerThreadHardLimitMB = 0.25,
+            IndexingConcurrency = 2,
+            RamBufferSizeMB = 2.0,
+            RamPerThreadHardLimitMB = 1.0,
             DurableCommits = false
         };
         using var writer = new IndexWriter(dir, config);
@@ -695,8 +703,9 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         var dir = new MMapDirectory(SubDir("detached_snapshot"));
         var config = new IndexWriterConfig
         {
-            RamBufferSizeMB = 0.5,
-            RamPerThreadHardLimitMB = 0.25,
+            IndexingConcurrency = 2,
+            RamBufferSizeMB = 2.0,
+            RamPerThreadHardLimitMB = 1.0,
             DurableCommits = false
         };
         using var writer = new IndexWriter(dir, config);
@@ -746,8 +755,9 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         var dir = new MMapDirectory(SubDir("detached_update"));
         var config = new IndexWriterConfig
         {
-            RamBufferSizeMB = 0.5,
-            RamPerThreadHardLimitMB = 0.25,
+            IndexingConcurrency = 2,
+            RamBufferSizeMB = 2.0,
+            RamPerThreadHardLimitMB = 1.0,
             DurableCommits = false
         };
         using var writer = new IndexWriter(dir, config);
@@ -795,8 +805,9 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         var dir = new MMapDirectory(SubDir("detached_rollback"));
         var config = new IndexWriterConfig
         {
-            RamBufferSizeMB = 0.5,
-            RamPerThreadHardLimitMB = 0.25,
+            IndexingConcurrency = 2,
+            RamBufferSizeMB = 2.0,
+            RamPerThreadHardLimitMB = 1.0,
             DurableCommits = false
         };
         using var writer = new IndexWriter(dir, config);
@@ -836,8 +847,9 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         var dir = new MMapDirectory(subDirPath);
         var config = new IndexWriterConfig
         {
-            RamBufferSizeMB = 0.5,
-            RamPerThreadHardLimitMB = 0.25,
+            IndexingConcurrency = 2,
+            RamBufferSizeMB = 2.0,
+            RamPerThreadHardLimitMB = 1.0,
             DurableCommits = false
         };
         using (var writer = new IndexWriter(dir, config))

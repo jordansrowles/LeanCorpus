@@ -53,6 +53,7 @@ internal sealed class DocumentsWriterPerThread
 
         var acc = new PostingAccumulator();
         PostingAccumulators.Add(acc);
+        _estimatedRamBytes += acc.EstimatedBytes;
         return acc;
     }
 
@@ -90,7 +91,6 @@ internal sealed class DocumentsWriterPerThread
     private readonly SpanPostingTokenSink _spanPostingSink;
     private readonly CountingTokenSink _countingTokenSink = new();
     private long _estimatedRamBytes;
-    private long _postingAccumulatorBytes;
 
     /// <summary>Estimated RAM usage in bytes for this DWPT's buffers.</summary>
     public long EstimatedRamBytes => Volatile.Read(ref _estimatedRamBytes);
@@ -133,7 +133,6 @@ internal sealed class DocumentsWriterPerThread
         _fieldPrefixUtf8Cache.Clear();
         _termPool.Clear();
         DocCount = 0;
-        _postingAccumulatorBytes = 0;
         _estimatedRamBytes = TermHash.AllocatedBytes;
     }
 
@@ -167,7 +166,6 @@ internal sealed class DocumentsWriterPerThread
         _fieldPrefixUtf8Cache.Clear();
         _termPool.Clear();
         DocCount = 0;
-        _postingAccumulatorBytes = 0;
         _estimatedRamBytes = TermHash.AllocatedBytes;
     }
 
@@ -272,7 +270,6 @@ internal sealed class DocumentsWriterPerThread
 
         DocCount++;
         _estimatedRamBytes += 32; // per-doc overhead
-        RefreshPostingAccumulatorCapacity();
     }
 
     public void AddDocumentBlock(IReadOnlyList<LeanDocument> block)
@@ -330,20 +327,6 @@ internal sealed class DocumentsWriterPerThread
             if (_countingTokenSink.Exceeded)
                 throw new TokenBudgetExceededException(_countingTokenSink.Count, budget);
         }
-    }
-
-    /// <summary>
-    /// Posting buffers can grow while an analyser emits tokens. Reconcile that retained
-    /// capacity once per accepted document and expose only the resulting delta to the
-    /// writer-level O(1) counter.
-    /// </summary>
-    private void RefreshPostingAccumulatorCapacity()
-    {
-        long retainedBytes = 0;
-        foreach (var accumulator in PostingAccumulators)
-            retainedBytes += accumulator.EstimatedBytes;
-        _estimatedRamBytes += retainedBytes - _postingAccumulatorBytes;
-        _postingAccumulatorBytes = retainedBytes;
     }
 
     private void AppendStored(string name, StoredFieldValue value, bool mirrorStringToBinaryDocValues = true, bool storeDocValues = true)
@@ -407,7 +390,10 @@ internal sealed class DocumentsWriterPerThread
         FieldNames.Add(fieldName);
         var term = CanonicaliseTerm(value);
         var acc = GetOrCreateAccumulator(fieldName, term.AsSpan());
+        long retainedBytesBefore = acc.EstimatedBytes;
         acc.AddDocOnly(docId);
+        acc.RefreshEstimatedBytes();
+        _estimatedRamBytes += acc.EstimatedBytes - retainedBytesBefore;
 
         if ((docValues & StringDocValues.Sorted) != 0)
         {
@@ -656,13 +642,13 @@ internal sealed class DocumentsWriterPerThread
             _position += increment;
 
             var acc = _owner.GetOrCreateAccumulator(_fieldName, text);
+            long retainedBytesBefore = acc.EstimatedBytes;
             if (_owner._config.StorePayloads && (acc.HasPayloads || payload is { Length: > 0 }))
             {
                 if (_owner._config.StoreTermVectors)
                     acc.AddWithPayload(_docId, _position, payload, _fieldIndexOptions, startOffset, endOffset);
                 else
                     acc.AddWithPayload(_docId, _position, payload, _fieldIndexOptions);
-                _owner._estimatedRamBytes += 12 + (payload?.Length ?? 0);
             }
             else
             {
@@ -670,8 +656,9 @@ internal sealed class DocumentsWriterPerThread
                     acc.Add(_docId, _position, _fieldIndexOptions, startOffset, endOffset);
                 else
                     acc.Add(_docId, _position, _fieldIndexOptions);
-                _owner._estimatedRamBytes += 12;
             }
+            acc.RefreshEstimatedBytes();
+            _owner._estimatedRamBytes += acc.EstimatedBytes - retainedBytesBefore;
             AcceptedCount++;
         }
     }

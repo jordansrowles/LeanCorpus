@@ -3,7 +3,7 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// <summary>
 /// Treats the complete input as a single token.
 /// </summary>
-public sealed class KeywordTokeniser : ISpanTokeniser
+public sealed class KeywordTokeniser : IShareableSpanTokeniser
 {
     /// <inheritdoc/>
     public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)

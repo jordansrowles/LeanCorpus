@@ -194,7 +194,7 @@ public sealed class IndexerColumnsAndFlushSourceTests
 
         var pending = new FlushPendingState
         {
-            Snapshot = snapshot,
+            Batch = snapshot,
             SegmentOrdinal = 4,
             SeqStart = 10,
             SeqEnd = 10,
@@ -208,6 +208,7 @@ public sealed class IndexerColumnsAndFlushSourceTests
         Assert.Equal(10, pending.SeqEnd);
         Assert.Equal("seg_4", pending.Result!.SegmentId);
         Assert.Same(Task.CompletedTask, pending.Task);
+        snapshot.Dispose();
     }
 
     private static void AssertSourceContainsAllFields(IFlushSource source)

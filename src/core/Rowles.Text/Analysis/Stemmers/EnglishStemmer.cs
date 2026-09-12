@@ -3,7 +3,7 @@
 /// <summary>
 /// English stemmer wrapping the existing Porter stemmer implementation.
 /// </summary>
-public sealed class EnglishStemmer : ISpanStemmer
+public sealed class EnglishStemmer : IShareableSpanStemmer
 {
     /// <inheritdoc/>
     public int Stem(ReadOnlySpan<char> word, Span<char> output)

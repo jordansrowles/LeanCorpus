@@ -286,8 +286,8 @@ public sealed class ConcurrentIndexingTests : IDisposable
     }
 
     /// <summary>Exercises Commit while AddDocument producers remain active.</summary>
-    [Fact(DisplayName = "AddDocument Lock Free: Commit While Producers Active Completes Without Loss", Timeout = 30_000)]
-    public async Task AddDocumentLockFree_CommitWhileProducersActive_CompletesWithoutLoss()
+    [Fact(DisplayName = "AddDocument: Commit While Producers Active Completes Without Loss", Timeout = 30_000)]
+    public async Task AddDocument_CommitWhileProducersActive_CompletesWithoutLoss()
     {
         const int ProducerCount = 4;
         const int DocumentsPerProducer = 250;

@@ -57,23 +57,21 @@ public sealed class ConcurrentFieldCoverageTests : IDisposable
     }
 
     /// <summary>
-    /// Verifies the Add Document Lock Free: Preserves Vectors scenario.
+    /// Verifies ordinary AddDocument preserves vectors through the configured DWPT pool.
     /// </summary>
-    [Fact(DisplayName = "Add Document Lock Free: Preserves Vectors")]
-    public void AddDocumentLockFree_PreservesVectors()
+    [Fact(DisplayName = "Add Document: Preserves Vectors Through DWPT Pool")]
+    public void AddDocument_PreservesVectorsThroughDwptPool()
     {
         var directory = new MMapDirectory(_dir);
-        using (var writer = new IndexWriter(directory, new IndexWriterConfig { MaxBufferedDocs = 100 }))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig { IndexingConcurrency = 4, MaxBufferedDocs = 100 }))
         {
-            writer.InitialiseDwptPool(threadCount: 4);
-
             for (int i = 0; i < 64; i++)
             {
                 var doc = new LeanDocument();
                 doc.Add(new StringField("id", i.ToString()));
                 var v = new float[] { i / 64f, 1f - i / 64f, 0.5f, 0.25f };
                 doc.Add(new VectorField("emb", new ReadOnlyMemory<float>(v)));
-                writer.AddDocumentLockFree(doc);
+                writer.AddDocument(doc);
             }
 
             writer.Commit();

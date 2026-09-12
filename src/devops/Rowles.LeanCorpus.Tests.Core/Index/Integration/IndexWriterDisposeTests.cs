@@ -10,7 +10,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index;
 
 /// <summary>
 /// Regression tests for H12: IndexWriter.Dispose must drain in-flight
-/// AddDocumentLockFree callers before tearing down the semaphore.
+/// concurrent AddDocument callers before tearing down the semaphore.
 /// </summary>
 [Category(TestCategory.Integration)]
 [Area(TestArea.Index)]
@@ -31,17 +31,16 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
     }
 
     /// <summary>
-    /// 32 producers call AddDocumentLockFree in a tight loop while the main thread
+    /// 32 producers call AddDocument in a tight loop while the main thread
     /// calls Dispose after 100 ms. Producers may observe ObjectDisposedException as their
     /// graceful shutdown signal, and the writer must be cleanly disposed afterwards.
     /// </summary>
-    [Fact(DisplayName = "Dispose: During Concurrent Add Document Lock Free No Object Disposed Race", Timeout = 30_000)]
-    public async Task Dispose_DuringConcurrentAddDocumentLockFree_NoObjectDisposedRace()
+    [Fact(DisplayName = "Dispose: During Concurrent Add Document No Object Disposed Race", Timeout = 30_000)]
+    public async Task Dispose_DuringConcurrentAddDocument_NoObjectDisposedRace()
     {
         var dir = SubDir("h12_race");
-        var config = new IndexWriterConfig { MaxBufferedDocs = 10_000, MaxQueuedDocs = 0 };
+        var config = new IndexWriterConfig { IndexingConcurrency = 8, MaxBufferedDocs = 10_000, MaxQueuedDocs = 0 };
         var writer = new IndexWriter(new MMapDirectory(dir), config);
-        writer.InitialiseDwptPool(threadCount: 8);
 
         const int producerCount = 32;
         using var cts = new CancellationTokenSource();
@@ -59,7 +58,7 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
                         {
                             var doc = new LeanDocument();
                             doc.Add(new TextField("body", "concurrent stress test document"));
-                            writer.AddDocumentLockFree(doc);
+                            writer.AddDocument(doc);
                         }
                         catch (ObjectDisposedException ode)
                         {
@@ -453,20 +452,19 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
     }
 
     /// <summary>
-    /// Verifies the Add Document Lock Free: After Dispose Throws Object Disposed Exception scenario.
+    /// Verifies AddDocument rejects work after disposal.
     /// </summary>
-    [Fact(DisplayName = "Add Document Lock Free: After Dispose Throws Object Disposed Exception")]
-    public void AddDocumentLockFree_AfterDispose_ThrowsObjectDisposedException()
+    [Fact(DisplayName = "Add Document: After Dispose Throws Object Disposed Exception")]
+    public void AddDocument_AfterDispose_ThrowsObjectDisposedException()
     {
         var dir = SubDir("h12_after_dispose");
-        var writer = new IndexWriter(new MMapDirectory(dir), new IndexWriterConfig());
-        writer.InitialiseDwptPool(threadCount: 2);
+        var writer = new IndexWriter(new MMapDirectory(dir), new IndexWriterConfig { IndexingConcurrency = 2 });
         writer.Dispose();
 
         var doc = new LeanDocument();
         doc.Add(new TextField("body", "should not index"));
 
-        Assert.Throws<ObjectDisposedException>(() => writer.AddDocumentLockFree(doc));
+        Assert.Throws<ObjectDisposedException>(() => writer.AddDocument(doc));
     }
 
     /// <summary>

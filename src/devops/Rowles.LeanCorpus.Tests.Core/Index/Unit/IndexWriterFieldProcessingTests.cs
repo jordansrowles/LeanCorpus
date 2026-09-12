@@ -339,7 +339,7 @@ public sealed class IndexWriterFieldProcessingTests : IClassFixture<TestDirector
         }
     }
 
-    private sealed class PayloadWhitespaceAnalyser : IAnalyser
+    private sealed class PayloadWhitespaceAnalyser : IThreadLocalAnalyser
     {
         public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
         {
@@ -363,20 +363,26 @@ public sealed class IndexWriterFieldProcessingTests : IClassFixture<TestDirector
                     payload: [(byte)input[start]]);
             }
         }
+
+        public IAnalyser CreateThreadLocalAnalyser() => new PayloadWhitespaceAnalyser();
     }
 
-    private sealed class ZeroPositionIncrementAnalyser : IAnalyser
+    private sealed class ZeroPositionIncrementAnalyser : IThreadLocalAnalyser
     {
         public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
         {
             sink.Add(input.Slice(0, 3), 0, 3, positionIncrement: 0);
             sink.Add(input.Slice(4, 3), 4, 7, positionIncrement: 0);
         }
+
+        public IAnalyser CreateThreadLocalAnalyser() => new ZeroPositionIncrementAnalyser();
     }
 
-    private sealed class GraphAnalyser : IAnalyser
+    private sealed class GraphAnalyser : IThreadLocalAnalyser
     {
         public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink) =>
             sink.Add(input, 0, input.Length, Token.DefaultType, 1, 2, null);
+
+        public IAnalyser CreateThreadLocalAnalyser() => new GraphAnalyser();
     }
 }

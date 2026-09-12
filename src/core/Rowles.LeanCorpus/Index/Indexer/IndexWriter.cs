@@ -992,7 +992,7 @@ public sealed partial class IndexWriter : IDisposable
                 AddDocuments((IReadOnlyList<LeanDocument>)cmd.Payload);
                 break;
             case AsyncWriteKind.ConcurrentBatch:
-                AddDocumentsConcurrent((IReadOnlyList<LeanDocument>)cmd.Payload);
+                DwptManager.AddDocumentsConcurrentOperationOwned(this, (IReadOnlyList<LeanDocument>)cmd.Payload);
                 break;
             case AsyncWriteKind.Block:
                 AddDocumentBlock((IReadOnlyList<LeanDocument>)cmd.Payload);

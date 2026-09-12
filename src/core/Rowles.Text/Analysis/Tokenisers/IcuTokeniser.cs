@@ -5,7 +5,7 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// Thai segmentation is opt-in: pass a <see cref="ThaiTokeniser"/> to the constructor to
 /// enable dictionary-based Thai word splitting.
 /// </summary>
-public sealed class IcuTokeniser : ISpanTokeniser
+public sealed class IcuTokeniser : IThreadLocalSpanTokeniser
 {
     private readonly ISpanTokeniser? _thaiTokeniser;
 
@@ -57,4 +57,17 @@ public sealed class IcuTokeniser : ISpanTokeniser
             sink.Add(input[start..i], start, i, UnicodeTokenisation.ClassifyTokenType(input[start..i]));
         }
     }
+
+    /// <inheritdoc/>
+    public ISpanTokeniser CreateThreadLocalTokeniser()
+        => new IcuTokeniser(CloneNestedTokeniser(_thaiTokeniser));
+
+    private static ISpanTokeniser? CloneNestedTokeniser(ISpanTokeniser? tokeniser) => tokeniser switch
+    {
+        null => null,
+        IThreadLocalSpanTokeniser owned => owned.CreateThreadLocalTokeniser(),
+        IShareableSpanTokeniser => tokeniser,
+        _ => throw new InvalidOperationException(
+            $"Nested tokeniser '{tokeniser.GetType().FullName}' has no explicit concurrent ownership contract.")
+    };
 }
