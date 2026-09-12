@@ -19,7 +19,11 @@ internal static class DwptManager
 
         writer.DwptPool = new DocumentsWriterPerThread[writer.ResolvedIndexingConcurrency];
         for (int i = 0; i < writer.ResolvedIndexingConcurrency; i++)
-            writer.DwptPool[i] = CreateThreadLocalDocumentWriter(writer.DefaultAnalyser, writer.Config);
+        {
+            var dwpt = CreateThreadLocalDocumentWriter(writer.DefaultAnalyser, writer.Config);
+            writer.DwptPool[i] = dwpt;
+            Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes);
+        }
     }
 
     public static void AddDocument(IndexWriter writer, LeanDocument doc)
@@ -336,7 +340,7 @@ internal static class DwptManager
     private static DwptFlushBatch DetachFlushBatch(IndexWriter writer, DocumentsWriterPerThread dwpt)
     {
         var batch = DwptFlushBatch.CaptureFrom(dwpt);
-        Interlocked.Add(ref writer.ActiveDwptBytes, -batch.EstimatedBytes);
+        Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes - batch.EstimatedBytes);
         Interlocked.Add(ref writer.PendingFlushBytes, batch.EstimatedBytes);
         batch.PendingBytesAccounted = true;
         ReleaseBackpressure(writer, batch.DocCount);

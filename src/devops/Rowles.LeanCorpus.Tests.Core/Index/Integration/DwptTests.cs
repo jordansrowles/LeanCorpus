@@ -244,7 +244,8 @@ public sealed class DwptTests
         var analyser = new StandardAnalyser();
         var dwpt = new DocumentsWriterPerThread(analyser, new Dictionary<string, IAnalyser>(), new IndexWriterConfig());
 
-        Assert.True(dwpt.EstimatedRamBytes > 0);
+        long baselineBytes = dwpt.EstimatedRamBytes;
+        Assert.True(baselineBytes > 0);
 
         // Act — add 10 documents to the DWPT
         for (int i = 0; i < 10; i++)
@@ -253,8 +254,8 @@ public sealed class DwptTests
         }
 
         // Assert — RAM tracking should reflect buffered data
-        Assert.True(dwpt.EstimatedRamBytes > 0,
-            $"Expected EstimatedRamBytes > 0 after adding documents, but was {dwpt.EstimatedRamBytes}.");
+        Assert.True(dwpt.EstimatedRamBytes > baselineBytes,
+            $"Expected retained RAM to grow beyond {baselineBytes}, but was {dwpt.EstimatedRamBytes}.");
         Assert.Equal(10, dwpt.DocCount);
     }
 
