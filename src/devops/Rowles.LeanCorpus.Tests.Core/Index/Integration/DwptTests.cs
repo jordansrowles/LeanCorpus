@@ -9,9 +9,9 @@ using Rowles.LeanCorpus.Tests.Shared.Infrastructure;
 namespace Rowles.LeanCorpus.Tests.Core.Index;
 
 /// <summary>
-/// Tests for DocumentsWriterPerThread (DWPT) pool and lock-free concurrent indexing.
+/// Tests for construction-time DWPT configuration and normal concurrent indexing.
 /// Verifies that the DWPT pool correctly partitions work across threads,
-/// that lock-free document addition preserves correctness, and that
+/// that ordinary document addition preserves correctness, and that
 /// commit flushes all per-thread buffers to disk.
 /// </summary>
 [Category(TestCategory.Integration)]
@@ -57,10 +57,10 @@ public sealed class DwptTests
     }
 
     /// <summary>
-    /// Verifies the DWPT Pool: Lock Free Single Thread Indexes Correctly scenario.
+    /// Verifies ordinary document indexing uses the constructed DWPT pool.
     /// </summary>
-    [Fact(DisplayName = "DWPT Pool: Lock Free Single Thread Indexes Correctly")]
-    public void DwptPool_LockFree_SingleThread_IndexesCorrectly()
+    [Fact(DisplayName = "DWPT Pool: Ordinary Single Thread Indexes Correctly")]
+    public void DwptPool_OrdinarySingleThread_IndexesCorrectly()
     {
         // Arrange
         var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
@@ -69,15 +69,13 @@ public sealed class DwptTests
         try
         {
             var mmap = new MMapDirectory(dir);
-            var config = new IndexWriterConfig { MaxBufferedDocs = 500 };
+            var config = new IndexWriterConfig { IndexingConcurrency = 1, MaxBufferedDocs = 500 };
             using var writer = new IndexWriter(mmap, config);
-
-            writer.InitialiseDwptPool(1);
 
             // Act
             for (int i = 0; i < 100; i++)
             {
-                writer.AddDocumentLockFree(CreateDocument(i));
+                writer.AddDocument(CreateDocument(i));
             }
 
             writer.Commit();
@@ -107,16 +105,10 @@ public sealed class DwptTests
         try
         {
             var mmap = new MMapDirectory(dir);
-            var config = new IndexWriterConfig { MaxBufferedDocs = 5000 };
+            var config = new IndexWriterConfig { IndexingConcurrency = 4, MaxBufferedDocs = 5000 };
             using var writer = new IndexWriter(mmap, config);
 
-            writer.InitialiseDwptPool(4);
-
-            // Act — add 1,000 documents across multiple threads via lock-free path
-            Parallel.For(0, 1000, i =>
-            {
-                writer.AddDocumentLockFree(CreateDocument(i));
-            });
+            writer.AddDocumentsConcurrent(Enumerable.Range(0, 1000).Select(CreateDocument).ToArray());
 
             writer.Commit();
 
@@ -252,7 +244,7 @@ public sealed class DwptTests
         var analyser = new StandardAnalyser();
         var dwpt = new DocumentsWriterPerThread(analyser, new Dictionary<string, IAnalyser>(), new IndexWriterConfig());
 
-        Assert.Equal(0, dwpt.EstimatedRamBytes);
+        Assert.True(dwpt.EstimatedRamBytes > 0);
 
         // Act — add 10 documents to the DWPT
         for (int i = 0; i < 10; i++)
@@ -279,15 +271,13 @@ public sealed class DwptTests
         try
         {
             var mmap = new MMapDirectory(dir);
-            var config = new IndexWriterConfig { MaxBufferedDocs = 5000 };
+            var config = new IndexWriterConfig { IndexingConcurrency = 2, MaxBufferedDocs = 5000 };
             using var writer = new IndexWriter(mmap, config);
 
-            writer.InitialiseDwptPool(2);
-
-            // Act — add documents via lock-free path, distributed across 2 DWPT slots
+            // Act — ordinary documents use the configured pool.
             for (int i = 0; i < 200; i++)
             {
-                writer.AddDocumentLockFree(CreateDocument(i));
+                writer.AddDocument(CreateDocument(i));
             }
 
             // Commit should flush all DWPT buffers to disk
@@ -325,8 +315,7 @@ public sealed class DwptTests
             };
             var mmap = new MMapDirectory(dir);
             using var writer = new IndexWriter(mmap, config);
-            writer.InitialiseDwptPool(threadCount: 1);
-            writer.AddDocumentLockFree(CreateDocument(1));
+            writer.AddDocument(CreateDocument(1));
             writer.Commit();
 
             // .tvd and .tvx should exist for segments written via DWPT flush.
