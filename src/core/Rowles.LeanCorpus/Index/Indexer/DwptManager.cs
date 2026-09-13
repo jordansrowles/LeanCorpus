@@ -29,14 +29,15 @@ internal static class DwptManager
     public static void AddDocument(IndexWriter writer, LeanDocument doc)
     {
         writer.EnterIndexingOperation();
-        try { AddDocumentCore(writer, doc, abortOnFatalFailure: true); }
+        try { AddDocumentCore(writer, doc, abortOnFatalFailure: true, out _); }
         finally { writer.ExitIndexingOperation(); }
     }
 
-    private static void AddDocumentCore(IndexWriter writer, LeanDocument doc, bool abortOnFatalFailure)
+    private static void AddDocumentCore(IndexWriter writer, LeanDocument doc, bool abortOnFatalFailure, out bool mutated)
     {
         bool acquired = false;
         bool enteredDwpt = false;
+        mutated = false;
         try
         {
             writer.ValidateDocument(doc);
@@ -53,9 +54,11 @@ internal static class DwptManager
 
             lock (dwpt)
             {
+                writer.ThrowIfIndexingFailed();
                 dwpt.ValidateDocument(doc);
                 writer.ValidateVectorDimensions(doc);
                 enteredDwpt = true;
+                mutated = true;
                 long before = dwpt.EstimatedRamBytes;
                 dwpt.AddPrevalidatedDocument(doc);
                 Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes - before);
@@ -93,6 +96,7 @@ internal static class DwptManager
         writer.EnterIndexingOperation();
         int acquired = 0;
         bool enteredDwpt = false;
+        bool addedToHeldSlots = false;
         try
         {
             ArgumentNullException.ThrowIfNull(block);
@@ -108,18 +112,22 @@ internal static class DwptManager
 
             for (int i = 0; i < block.Count; i++)
             {
-                BackpressureController.AcquireBackpressureSlot(writer);
+            BackpressureController.AcquireBackpressureSlot(writer);
                 if (writer.BackpressureSemaphore is not null)
                     acquired++;
             }
             if (acquired > 0)
+            {
                 Interlocked.Add(ref writer.SemaphoreSlotsHeld, acquired);
+                addedToHeldSlots = true;
+            }
 
             var pool = writer.DwptPool!;
             int slot = GetProducerSlot(writer, pool.Length);
             var dwpt = pool[slot];
             lock (dwpt)
             {
+                writer.ThrowIfIndexingFailed();
                 dwpt.ValidateDocumentBlock(block);
                 writer.ValidateVectorDimensions(block);
                 enteredDwpt = true;
@@ -133,7 +141,7 @@ internal static class DwptManager
         {
             // The whole block is preflighted before its first document is
             // added, so a rejected block leaves the DWPT unchanged.
-            ReleaseBackpressure(writer, acquired);
+            BackpressureController.ReleaseFailedBackpressureSlots(writer, acquired, addedToHeldSlots);
             throw;
         }
         catch (Exception ex)
@@ -145,7 +153,7 @@ internal static class DwptManager
             }
             else
             {
-                ReleaseBackpressure(writer, acquired);
+                BackpressureController.ReleaseFailedBackpressureSlots(writer, acquired, addedToHeldSlots);
             }
             throw;
         }
@@ -169,7 +177,7 @@ internal static class DwptManager
 
         var failureLock = new Lock();
         (int Index, Exception Error)? fatalFailure = null;
-        (int Index, TokenBudgetExceededException Error)? rejection = null;
+        (int Index, Exception Error)? rejection = null;
         Parallel.For(0, documents.Count,
             new ParallelOptions { MaxDegreeOfParallelism = writer.ResolvedIndexingConcurrency },
             (i, loopState) =>
@@ -178,7 +186,7 @@ internal static class DwptManager
                     return;
                 try
                 {
-                    AddDocumentCore(writer, documents[i], abortOnFatalFailure: false);
+                    AddDocumentCore(writer, documents[i], abortOnFatalFailure: false, out bool mutated);
                 }
                 catch (TokenBudgetExceededException ex)
                 {
@@ -187,6 +195,15 @@ internal static class DwptManager
                         if (rejection is null || i < rejection.Value.Index)
                             rejection = (i, ex);
                     }
+                }
+                catch (Exception ex) when (!mutated)
+                {
+                    lock (failureLock)
+                    {
+                        if (rejection is null || i < rejection.Value.Index)
+                            rejection = (i, ex);
+                    }
+                    loopState.Break();
                 }
                 catch (Exception ex)
                 {
@@ -364,6 +381,11 @@ internal static class DwptManager
             return SegmentFlusher.FlushFromBatch(batch, writer.Config, writer.Directory.DirectoryPath,
                 ordinal, commitGeneration, seqStart, seqEnd);
         }
+        catch (Exception ex)
+        {
+            writer.MarkIndexingFailed(ex);
+            throw;
+        }
         finally
         {
             try
@@ -413,9 +435,8 @@ internal static class DwptManager
         if (!writer.TryOwnFailureReconciliation())
             return;
 
-        // Admission is already closed. The owner waits for independently
-        // admitted peers, while other fatal callers unwind and release theirs.
-        writer.WaitForPeerIndexingOperations();
+        // Each DWPT monitor serialises mutation with this clear. Producers which
+        // reach a selected DWPT after poisoning re-check the writer state first.
         AbortUncommittedWriterState(writer);
     }
 

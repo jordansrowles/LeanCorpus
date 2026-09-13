@@ -370,6 +370,38 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
         Assert.Throws<InvalidOperationException>(() => writer.AddDocument(Document("after", "failure")));
     }
 
+    [Fact]
+    public void CommitPhysicalFlushFailure_PoisonsWriter()
+    {
+        using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(CommitPhysicalFlushFailure_PoisonsWriter))),
+            new IndexWriterConfig
+            {
+                MaxBufferedDocs = 100,
+                PhysicalFlushStarted = () => throw new IOException("injected commit flush failure")
+            });
+
+        writer.AddDocument(Document("one", "buffered"));
+        Assert.Throws<IOException>(writer.Commit);
+        Assert.Throws<InvalidOperationException>(() => writer.AddDocument(Document("after", "failure")));
+    }
+
+    [Fact]
+    public void ConcurrentVectorDimensionRejection_RemainsRecoverable()
+    {
+        using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(ConcurrentVectorDimensionRejection_RemainsRecoverable))),
+            new IndexWriterConfig { IndexingConcurrency = 2, MaxBufferedDocs = 100 });
+        var accepted = Document("accepted", "vector");
+        accepted.Add(new VectorField("embedding", new float[] { 1, 2, 3 }));
+        writer.AddDocumentsConcurrent([accepted]);
+
+        var rejected = Document("rejected", "vector");
+        rejected.Add(new VectorField("embedding", new float[] { 1, 2 }));
+        Assert.Throws<ArgumentException>(() => writer.AddDocumentsConcurrent([rejected]));
+
+        writer.AddDocument(Document("after", "usable"));
+        writer.Commit();
+    }
+
     private string SubDir(string name)
     {
         string path = Path.Combine(_fixture.Path, name);

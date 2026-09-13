@@ -8,8 +8,9 @@
 
 ### Fixed
 
-- Return detached DWPT pooled buffers after both successful and failed physical flushes, enforce the configured physical-flush limit, and reconcile every fatal writer path through one owner after workers and independently admitted producers have unwound.
+- Return detached DWPT pooled buffers after both successful and failed physical flushes, poison physical flush failures at their shared boundary, and reconcile fatal writer state without waiting on admitted-operation leases.
 - Poison concurrent indexing admission as soon as a fatal worker failure is observed, while preserving the deterministic lowest-index failure as the reported cause.
+- Keep concurrent schema and vector preflight rejection recoverable, account retained token-count capacity, reset retained DWPT maps honestly, and release partially acquired document-block backpressure permits locally.
 - Preflight vector dimensions before DWPT mutation and copy accepted vector storage so caller-side array mutation cannot alter buffered or persisted vectors.
 - Corrected multi-segment search result merging so Boolean and generic parallel paths preserve exact total-hit counts and global top-N document IDs, including block-max WAND execution. (6925d748d, 2cc3b4fa5, #75)
 - Cleared pooled stored-field writer scratch before use so previous search activity cannot silently omit fields from newly written segments. (f58ac6c44)

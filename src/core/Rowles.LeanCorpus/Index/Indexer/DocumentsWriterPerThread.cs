@@ -69,7 +69,7 @@ internal sealed class DocumentsWriterPerThread
     internal List<int> StoredFieldIds = [];
     internal List<StoredFieldValue> StoredValues = [];
     internal List<string> StoredFieldIdToName = [];
-    private readonly Dictionary<string, int> _storedFieldNameToId = new(StringComparer.Ordinal);
+    private Dictionary<string, int> _storedFieldNameToId = new(StringComparer.Ordinal);
 
     internal Dictionary<string, Dictionary<int, double>> NumericIndex = new();
     internal Dictionary<string, Dictionary<int, long>> Int64Index = new();
@@ -86,8 +86,8 @@ internal sealed class DocumentsWriterPerThread
     internal Dictionary<string, int[]> DocTokenCounts = new(StringComparer.Ordinal);
     internal Dictionary<string, Dictionary<int, float>> FieldBoosts = new(StringComparer.Ordinal);
     internal int DocCount;
-    private readonly Dictionary<string, byte[]> _fieldPrefixUtf8Cache = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _termPool = new(StringComparer.Ordinal);
+    private Dictionary<string, byte[]> _fieldPrefixUtf8Cache = new(StringComparer.Ordinal);
+    private HashSet<string> _termPool = new(StringComparer.Ordinal);
     private readonly SpanPostingTokenSink _spanPostingSink;
     private readonly CountingTokenSink _countingTokenSink = new();
     private long _estimatedRamBytes;
@@ -109,31 +109,7 @@ internal sealed class DocumentsWriterPerThread
     {
         foreach (var accumulator in PostingAccumulators)
             accumulator.ReturnBuffers();
-        PostingAccumulators.Clear();
-        TermHash.Clear();
-        StoredDocStarts.Clear();
-        StoredFieldIds.Clear();
-        StoredValues.Clear();
-        StoredFieldIdToName.Clear();
-        _storedFieldNameToId.Clear();
-        NumericIndex.Clear();
-        Int64Index.Clear();
-        NumericDocValues.Clear();
-        Int64DocValues.Clear();
-        SortedDocValues.Clear();
-        SortedSetDocValues.Clear();
-        SortedNumericDocValues.Clear();
-        Int64SortedDocValues.Clear();
-        BinaryDocValues.Clear();
-        Vectors.Clear();
-        FieldNames.Clear();
-        DocTokenCounts.Clear();
-        FieldBoosts.Clear();
-        ParentDocIds?.Clear();
-        _fieldPrefixUtf8Cache.Clear();
-        _termPool.Clear();
-        DocCount = 0;
-        _estimatedRamBytes = TermHash.AllocatedBytes;
+        ResetAfterSnapshot();
     }
 
     /// <summary>
@@ -148,7 +124,7 @@ internal sealed class DocumentsWriterPerThread
         StoredFieldIds = [];
         StoredValues = [];
         StoredFieldIdToName = [];
-        _storedFieldNameToId.Clear();
+        _storedFieldNameToId = new(StringComparer.Ordinal);
         NumericIndex = new();
         Int64Index = new();
         NumericDocValues = new(StringComparer.Ordinal);
@@ -163,8 +139,8 @@ internal sealed class DocumentsWriterPerThread
         DocTokenCounts = new(StringComparer.Ordinal);
         FieldBoosts = new(StringComparer.Ordinal);
         ParentDocIds = null;
-        _fieldPrefixUtf8Cache.Clear();
-        _termPool.Clear();
+        _fieldPrefixUtf8Cache = new(StringComparer.Ordinal);
+        _termPool = new(StringComparer.Ordinal);
         DocCount = 0;
         _estimatedRamBytes = TermHash.AllocatedBytes;
     }
@@ -378,9 +354,14 @@ internal sealed class DocumentsWriterPerThread
         {
             counts = new int[16];
             DocTokenCounts[fieldName] = counts;
+            _estimatedRamBytes += counts.Length * sizeof(int);
         }
         if (docId >= counts.Length)
+        {
+            int previousLength = counts.Length;
             Array.Resize(ref counts, Math.Max(counts.Length * 2, docId + 1));
+            _estimatedRamBytes += (counts.Length - previousLength) * sizeof(int);
+        }
         counts[docId] += tokenCount;
         DocTokenCounts[fieldName] = counts; // Update reference in case of resize
     }

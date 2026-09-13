@@ -690,12 +690,6 @@ public sealed partial class IndexWriter : IDisposable
         _indexingOperations.ExitOperation();
     }
 
-    internal void WaitForPeerIndexingOperations()
-    {
-        // The caller retains its own indexing-operation lease.
-        _indexingOperations.WaitForActiveCountAtMost(1);
-    }
-
     internal bool TryOwnFailureReconciliation()
         => Interlocked.CompareExchange(ref _failureReconciliationOwner, 1, 0) == 0;
 
@@ -973,8 +967,6 @@ public sealed partial class IndexWriter : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    if (ex is not ObjectDisposedException and not Analysis.TokenBudgetExceededException)
-                        MarkIndexingFailed();
                     cmd.Tcs.TrySetException(ex);
                 }
             }
