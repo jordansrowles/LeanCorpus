@@ -329,8 +329,10 @@
       items:
         - name: Unreleased
           href: changelog/unreleased.md
-        - name: Community Server 0.1.0-alpha
-          href: changelog/server/0.1.0-alpha%20-%20unreleased.md
+        - name: Community Server 0.1.0-alpha.1
+          href: changelog/server/0.1.0-alpha.1%20-%20unreleased.md
+        - name: 3.1.1
+          href: changelog/3.1.1%20-%202026-09-13.md
         - name: 3.1.0
           href: changelog/3.1.0%20-%202026-09-03.md
         - name: 3.0.0
@@ -345,6 +347,8 @@
           href: changelog/2.1.0%20-%202026-07-25.md
         - name: 2.0.0
           href: changelog/2.0.0%20-%202026-07-14.md
+        - name: 1.4.2
+          href: changelog/1.4.2%20-%202026-06-14.md
         - name: 1.4.1
           href: changelog/1.4.1%20-%202026-06-13.md
         - name: 1.4.0

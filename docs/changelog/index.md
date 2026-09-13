@@ -5,6 +5,7 @@ Per-version change logs. Each file lists changes grouped by type: Added, Changed
 | Version | Date |
 |---|---|
 | [Unreleased](unreleased.md) | Unreleased |
+| [3.1.1](3.1.1%20-%202026-09-13.md) | 2026-09-13 |
 | [3.1.0](3.1.0%20-%202026-09-03.md) | 2026-09-03 |
 | [3.0.0](3.0.0%20-%202026-08-25.md) | 2026-08-25 |
 | [2.3.0](2.3.0%20-%202026-08-08.md) | 2026-08-08 |
@@ -12,6 +13,7 @@ Per-version change logs. Each file lists changes grouped by type: Added, Changed
 | [2.1.1](2.1.1%20-%202026-07-26.md) | 2026-07-26 |
 | [2.1.0](2.1.0%20-%202026-07-25.md) | 2026-07-25 |
 | [2.0.0](2.0.0%20-%202026-07-14.md) | 2026-07-14 |
+| [1.4.2](1.4.2%20-%202026-06-14.md) | 2026-06-14 |
 | [1.4.1](1.4.1%20-%202026-06-13.md) | 2026-06-13 |
 | [1.4.0](1.4.0%20-%202026-05-29.md) | 2026-05-29 |
 | [1.3.0](1.3.0%20-%202026-05-11.md) | 2026-05-11 |
@@ -25,4 +27,4 @@ Per-version change logs. Each file lists changes grouped by type: Added, Changed
 
 | Version | Date |
 |---|---|
-| [0.1.0-alpha](server/0.1.0-alpha%20-%20unreleased.md) | Unreleased |
+| [0.1.0-alpha.1](server/0.1.0-alpha.1%20-%20unreleased.md) | Unreleased |
