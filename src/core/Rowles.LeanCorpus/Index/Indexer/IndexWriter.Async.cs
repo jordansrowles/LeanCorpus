@@ -214,6 +214,7 @@ public sealed partial class IndexWriter
 
     public Task CommitAsync(CancellationToken cancellationToken = default)
     {
+        ThrowIfIndexingFailedWithCause();
         EnterIndexingOperation();
         try
         {

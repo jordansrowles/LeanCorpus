@@ -441,6 +441,7 @@ public sealed partial class IndexWriter : IDisposable
 
     public void Commit()
     {
+        ThrowIfIndexingFailedWithCause();
         EnterIndexingOperation();
         try
         {
@@ -454,6 +455,7 @@ public sealed partial class IndexWriter : IDisposable
 
     public void PrepareCommit()
     {
+        ThrowIfIndexingFailedWithCause();
         EnterIndexingOperation();
         try
         {
@@ -703,6 +705,21 @@ public sealed partial class IndexWriter : IDisposable
     {
         if (Volatile.Read(ref _indexingFailed) != 0)
             throw CreateIndexingFailureException();
+    }
+
+    /// <summary>
+    /// Commit-like barriers surface the causal asynchronous flush failure rather
+    /// than replacing it with the generic poisoned-writer admission exception.
+    /// </summary>
+    internal void ThrowIfIndexingFailedWithCause()
+    {
+        if (Volatile.Read(ref _indexingFailed) == 0)
+            return;
+
+        var failure = Volatile.Read(ref _indexingFailure);
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        throw CreateIndexingFailureException();
     }
 
     private InvalidOperationException CreateIndexingFailureException()
