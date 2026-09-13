@@ -386,6 +386,31 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
     }
 
     [Fact]
+    public void DocumentBlock_PartialBackpressureAcquisitionFailure_ReleasesLocalPermits()
+    {
+        using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(DocumentBlock_PartialBackpressureAcquisitionFailure_ReleasesLocalPermits))),
+            new IndexWriterConfig
+            {
+                MaxQueuedDocs = 2,
+                MaxBufferedDocs = 100,
+                PhysicalFlushStarted = () => throw new IOException("injected flush failure")
+            });
+        var semaphore = writer.BackpressureSemaphoreForTests;
+        Assert.NotNull(semaphore);
+
+        writer.AddDocument(Document("buffered", "first slot"));
+        Assert.Equal(1, semaphore!.CurrentCount);
+
+        Assert.Throws<IOException>(() => writer.AddDocumentBlock([
+            Document("child", "second slot"),
+            Document("parent", "acquisition fails")
+        ]));
+
+        Assert.Equal(2, semaphore.CurrentCount);
+        Assert.Equal(0, Volatile.Read(ref writer.SemaphoreSlotsHeld));
+    }
+
+    [Fact]
     public void ConcurrentVectorDimensionRejection_RemainsRecoverable()
     {
         using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(ConcurrentVectorDimensionRejection_RemainsRecoverable))),

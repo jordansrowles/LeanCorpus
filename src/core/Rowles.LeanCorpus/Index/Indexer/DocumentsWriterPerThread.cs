@@ -109,6 +109,7 @@ internal sealed class DocumentsWriterPerThread
     {
         foreach (var accumulator in PostingAccumulators)
             accumulator.ReturnBuffers();
+        TermHash.ReturnBuffers();
         ResetAfterSnapshot();
     }
 

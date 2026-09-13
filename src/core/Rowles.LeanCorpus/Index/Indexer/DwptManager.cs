@@ -184,9 +184,10 @@ internal static class DwptManager
             {
                 if (loopState.LowestBreakIteration is long lowestFailure && i > lowestFailure)
                     return;
+                bool mutated = false;
                 try
                 {
-                    AddDocumentCore(writer, documents[i], abortOnFatalFailure: false, out bool mutated);
+                    AddDocumentCore(writer, documents[i], abortOnFatalFailure: false, out mutated);
                 }
                 catch (TokenBudgetExceededException ex)
                 {
