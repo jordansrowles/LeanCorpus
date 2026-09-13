@@ -343,8 +343,9 @@ public sealed class IndexWriterConfig
     public long? HnswSeed { get; set; }
 
     /// <summary>
-    /// When <c>true</c>, each document is assigned a monotonically-increasing sequence number
-    /// and the per-segment sequence number range is persisted in segment metadata.
+    /// When <c>true</c>, detached flushes reserve monotonically-increasing sequence ranges
+    /// and persist those ranges in segment metadata. These are flush-generation ranges,
+    /// not a guarantee of strict concurrent document-admission order.
     /// Default: <c>false</c> (off for backward compatibility).
     /// </summary>
     public bool TrackSequenceNumbers { get; set; }

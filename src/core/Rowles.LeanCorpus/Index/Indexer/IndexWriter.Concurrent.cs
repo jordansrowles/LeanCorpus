@@ -16,6 +16,12 @@ public sealed partial class IndexWriter
         AddDocument(doc);
     }
 
+    /// <summary>Adds a batch through bounded concurrent DWPT producers.</summary>
+    /// <remarks>
+    /// This throughput-oriented API does not preserve input document-ID order.
+    /// Use <see cref="AddDocuments(IReadOnlyList{LeanDocument})"/> when insertion
+    /// order is required.
+    /// </remarks>
     public void AddDocumentsConcurrent(IReadOnlyList<LeanDocument> documents)
     {
         DwptManager.AddDocumentsConcurrent(this, documents);
