@@ -689,6 +689,12 @@ public sealed partial class IndexWriter : IDisposable
         _indexingOperations.ExitOperation();
     }
 
+    internal void WaitForPeerIndexingOperations()
+    {
+        // The caller retains its own indexing-operation lease.
+        _indexingOperations.WaitForActiveCountAtMost(1);
+    }
+
     internal void MarkIndexingFailed(Exception? failure = null)
     {
         if (failure is not null)

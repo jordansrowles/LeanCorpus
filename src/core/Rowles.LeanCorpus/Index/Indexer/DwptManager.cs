@@ -207,6 +207,9 @@ internal static class DwptManager
 
         if (fatalFailure is { } fatal)
         {
+            // Admission was closed by the worker catch. Do not clear shared DWPT
+            // state until every independently admitted producer has completed.
+            writer.WaitForPeerIndexingOperations();
             writer.MarkIndexingFailed(fatal.Error);
             AbortUncommittedWriterState(writer);
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(fatal.Error).Throw();

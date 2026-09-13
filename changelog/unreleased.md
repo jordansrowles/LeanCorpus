@@ -8,7 +8,7 @@
 
 ### Fixed
 
-- Return detached DWPT pooled buffers after both successful and failed physical flushes, enforce the configured physical-flush limit, and defer concurrent-batch abort until producers have unwound.
+- Return detached DWPT pooled buffers after both successful and failed physical flushes, enforce the configured physical-flush limit, and defer concurrent-batch abort until workers and independently admitted producers have unwound.
 - Poison concurrent indexing admission as soon as a fatal worker failure is observed, while preserving the deterministic lowest-index failure as the reported cause.
 - Preflight vector dimensions before DWPT mutation and copy accepted vector storage so caller-side array mutation cannot alter buffered or persisted vectors.
 - Corrected multi-segment search result merging so Boolean and generic parallel paths preserve exact total-hit counts and global top-N document IDs, including block-max WAND execution. (6925d748d, 2cc3b4fa5, #75)

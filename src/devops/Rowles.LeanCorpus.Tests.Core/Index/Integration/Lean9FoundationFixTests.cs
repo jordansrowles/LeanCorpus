@@ -101,6 +101,52 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
         Assert.Same(failure, poisoned.InnerException);
     }
 
+    [Fact(Timeout = 30_000)]
+    public async Task ConcurrentFatalFailure_WaitsForAlreadyAdmittedProducerBeforeAbort()
+    {
+        using var ordinaryEntered = new ManualResetEventSlim();
+        using var releaseOrdinary = new ManualResetEventSlim();
+        using var fatalEntered = new ManualResetEventSlim();
+        var analyser = new BlockingFailureAnalyser(ordinaryEntered, releaseOrdinary, fatalEntered);
+        using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(ConcurrentFatalFailure_WaitsForAlreadyAdmittedProducerBeforeAbort))),
+            new IndexWriterConfig
+            {
+                IndexingConcurrency = 2,
+                DefaultAnalyser = analyser,
+                MaxBufferedDocs = 100
+            });
+
+        Task ordinary = Task.Run(() => writer.AddDocument(Document("ordinary", "ordinary")), TestContext.Current.CancellationToken);
+        Assert.True(ordinaryEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+
+        Task fatal = Task.Run(() => writer.AddDocumentsConcurrent([Document("fatal", "fatal")]), TestContext.Current.CancellationToken);
+        Assert.True(fatalEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+
+        bool admissionClosed = SpinWait.SpinUntil(
+            () =>
+            {
+                try
+                {
+                    writer.Commit();
+                    return false;
+                }
+                catch (InvalidOperationException)
+                {
+                    return true;
+                }
+            },
+            TimeSpan.FromSeconds(10));
+        Assert.True(admissionClosed, "Fatal concurrent failure did not close new indexing admission.");
+        Task completed = await Task.WhenAny(fatal, Task.Delay(TimeSpan.FromMilliseconds(100), TestContext.Current.CancellationToken));
+        Assert.NotSame(fatal, completed);
+
+        releaseOrdinary.Set();
+        await ordinary.WaitAsync(TestContext.Current.CancellationToken);
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await fatal.WaitAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("fatal", failure.Message);
+    }
+
     [Fact]
     public void MaintainedBuiltInAnalysers_SatisfyConcurrentOwnershipContract()
     {
@@ -292,6 +338,45 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
         }
 
         public IAnalyser CreateThreadLocalAnalyser() => new ThrowingAnalyser();
+    }
+
+    private sealed class BlockingFailureAnalyser : IThreadLocalAnalyser
+    {
+        private readonly ManualResetEventSlim _ordinaryEntered;
+        private readonly ManualResetEventSlim _releaseOrdinary;
+        private readonly ManualResetEventSlim _fatalEntered;
+
+        public BlockingFailureAnalyser(
+            ManualResetEventSlim ordinaryEntered,
+            ManualResetEventSlim releaseOrdinary,
+            ManualResetEventSlim fatalEntered)
+        {
+            _ordinaryEntered = ordinaryEntered;
+            _releaseOrdinary = releaseOrdinary;
+            _fatalEntered = fatalEntered;
+        }
+
+        public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
+        {
+            if (input.SequenceEqual("ordinary".AsSpan()))
+            {
+                _ordinaryEntered.Set();
+                if (!_releaseOrdinary.Wait(TimeSpan.FromSeconds(10)))
+                    throw new TimeoutException("The test did not release the admitted producer.");
+            }
+            else if (input.SequenceEqual("fatal".AsSpan()))
+            {
+                _fatalEntered.Set();
+                throw new InvalidOperationException("fatal");
+            }
+
+            sink.Add(input, 0, input.Length);
+        }
+
+        public IAnalyser CreateThreadLocalAnalyser() => new BlockingFailureAnalyser(
+            _ordinaryEntered,
+            _releaseOrdinary,
+            _fatalEntered);
     }
 
     private sealed class UnsupportedAnalyser : IAnalyser
