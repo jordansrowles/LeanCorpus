@@ -92,6 +92,7 @@ public sealed partial class IndexWriter : IDisposable
     private int _disposed;      // 0 = resources remain owned, 1 = teardown completed
     private int _closing;       // 0 = open, 1 = Dispose has started draining (prevents TOCTOU)
     private int _indexingFailed;
+    private int _failureReconciliationOwner;
     private Exception? _indexingFailure;
     private readonly Stream _writeLockFile;
 
@@ -694,6 +695,9 @@ public sealed partial class IndexWriter : IDisposable
         // The caller retains its own indexing-operation lease.
         _indexingOperations.WaitForActiveCountAtMost(1);
     }
+
+    internal bool TryOwnFailureReconciliation()
+        => Interlocked.CompareExchange(ref _failureReconciliationOwner, 1, 0) == 0;
 
     internal void MarkIndexingFailed(Exception? failure = null)
     {

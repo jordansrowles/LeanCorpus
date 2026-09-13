@@ -80,7 +80,7 @@ internal static class DwptManager
             if (enteredDwpt && abortOnFatalFailure)
             {
                 writer.MarkIndexingFailed(ex);
-                AbortUncommittedWriterState(writer);
+                ReconcileFatalFailure(writer);
             }
             else if (acquired)
                 ReleaseBackpressure(writer, 1);
@@ -141,7 +141,7 @@ internal static class DwptManager
             if (enteredDwpt)
             {
                 writer.MarkIndexingFailed(ex);
-                AbortUncommittedWriterState(writer);
+                ReconcileFatalFailure(writer);
             }
             else
             {
@@ -207,11 +207,8 @@ internal static class DwptManager
 
         if (fatalFailure is { } fatal)
         {
-            // Admission was closed by the worker catch. Do not clear shared DWPT
-            // state until every independently admitted producer has completed.
-            writer.WaitForPeerIndexingOperations();
             writer.MarkIndexingFailed(fatal.Error);
-            AbortUncommittedWriterState(writer);
+            ReconcileFatalFailure(writer);
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(fatal.Error).Throw();
         }
         if (rejection is { } rejected)
@@ -409,6 +406,17 @@ internal static class DwptManager
             int release = Interlocked.Exchange(ref writer.SemaphoreSlotsHeld, 0);
             BackpressureController.ReleaseSemaphoreSlots(writer, release);
         }
+    }
+
+    private static void ReconcileFatalFailure(IndexWriter writer)
+    {
+        if (!writer.TryOwnFailureReconciliation())
+            return;
+
+        // Admission is already closed. The owner waits for independently
+        // admitted peers, while other fatal callers unwind and release theirs.
+        writer.WaitForPeerIndexingOperations();
+        AbortUncommittedWriterState(writer);
     }
 
     private static int GetProducerSlot(IndexWriter writer, int poolLength)

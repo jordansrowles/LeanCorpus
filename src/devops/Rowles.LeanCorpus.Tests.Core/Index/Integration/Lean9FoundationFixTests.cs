@@ -147,6 +147,75 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
         Assert.Equal("fatal", failure.Message);
     }
 
+    [Fact(Timeout = 30_000)]
+    public async Task OrdinaryFatalFailure_WaitsForAlreadyAdmittedProducerBeforeAbort()
+    {
+        using var ordinaryEntered = new ManualResetEventSlim();
+        using var releaseOrdinary = new ManualResetEventSlim();
+        using var fatalEntered = new ManualResetEventSlim();
+        var analyser = new BlockingFailureAnalyser(ordinaryEntered, releaseOrdinary, fatalEntered);
+        using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(OrdinaryFatalFailure_WaitsForAlreadyAdmittedProducerBeforeAbort))),
+            new IndexWriterConfig
+            {
+                IndexingConcurrency = 2,
+                DefaultAnalyser = analyser,
+                MaxBufferedDocs = 100
+            });
+
+        Task ordinary = Task.Run(() => writer.AddDocument(Document("ordinary", "ordinary")), TestContext.Current.CancellationToken);
+        Assert.True(ordinaryEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+
+        Task fatal = Task.Run(() => writer.AddDocument(Document("fatal", "fatal")), TestContext.Current.CancellationToken);
+        Assert.True(fatalEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+
+        bool admissionClosed = SpinWait.SpinUntil(
+            () =>
+            {
+                try
+                {
+                    writer.Commit();
+                    return false;
+                }
+                catch (InvalidOperationException)
+                {
+                    return true;
+                }
+            },
+            TimeSpan.FromSeconds(10));
+        Assert.True(admissionClosed, "Fatal ordinary failure did not close new indexing admission.");
+        Task completed = await Task.WhenAny(fatal, Task.Delay(TimeSpan.FromMilliseconds(100), TestContext.Current.CancellationToken));
+        Assert.NotSame(fatal, completed);
+
+        releaseOrdinary.Set();
+        await ordinary.WaitAsync(TestContext.Current.CancellationToken);
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await fatal.WaitAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("fatal", failure.Message);
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task SimultaneousFatalOperations_DoNotDeadlockAndAbortOnce()
+    {
+        using var barrier = new Barrier(2);
+        using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(SimultaneousFatalOperations_DoNotDeadlockAndAbortOnce))),
+            new IndexWriterConfig
+            {
+                IndexingConcurrency = 2,
+                DefaultAnalyser = new SimultaneousFatalAnalyser(barrier),
+                MaxBufferedDocs = 100
+            });
+
+        Task first = Task.Run(() => writer.AddDocumentsConcurrent([Document("first", "fatal-one")]), TestContext.Current.CancellationToken);
+        Task second = Task.Run(() => writer.AddDocumentsConcurrent([Document("second", "fatal-two")]), TestContext.Current.CancellationToken);
+        Task both = Task.WhenAll(first, second);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await both.WaitAsync(TestContext.Current.CancellationToken));
+        Assert.True(first.IsFaulted);
+        Assert.True(second.IsFaulted);
+        Assert.Throws<InvalidOperationException>(() => writer.AddDocument(Document("after", "ordinary")));
+    }
+
     [Fact]
     public void MaintainedBuiltInAnalysers_SatisfyConcurrentOwnershipContract()
     {
@@ -377,6 +446,27 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
             _ordinaryEntered,
             _releaseOrdinary,
             _fatalEntered);
+    }
+
+    private sealed class SimultaneousFatalAnalyser : IThreadLocalAnalyser
+    {
+        private readonly Barrier _barrier;
+
+        public SimultaneousFatalAnalyser(Barrier barrier) => _barrier = barrier;
+
+        public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
+        {
+            if (input.StartsWith("fatal"))
+            {
+                if (!_barrier.SignalAndWait(TimeSpan.FromSeconds(10)))
+                    throw new TimeoutException("The simultaneous fatal operations did not both reach analysis.");
+                throw new InvalidOperationException(input.ToString());
+            }
+
+            sink.Add(input, 0, input.Length);
+        }
+
+        public IAnalyser CreateThreadLocalAnalyser() => new SimultaneousFatalAnalyser(_barrier);
     }
 
     private sealed class UnsupportedAnalyser : IAnalyser
