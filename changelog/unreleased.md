@@ -4,7 +4,7 @@
 
 - Added construction-time `IndexingConcurrency` configuration and explicit concurrent async bulk ingestion for the Core writer, and made concurrent bulk ingestion use bounded producers through the normal DWPT pipeline.
 - Made concurrent indexing ownership explicit for analyser components across maintained built-ins, consolidated automatic DWPT flushing, and now account for active and detached flush-buffer retention separately.
-- Detached DWPT flushing now uses bounded background physical execution with ordered writer-owned publication, so indexing producers no longer wait for segment I/O after admission.
+- Detached DWPT flushing now uses bounded background physical execution with ordered writer-owned publication, so indexing producers no longer wait for segment I/O after admission and async ingestion reuses its owning operation lifetime.
 - Reduced repeated `OperationDrain` entry in postings decoding by grouping multi-read decoder work under `BeginReadSession()`, improving representative real-query throughput on Windows and Linux. (c837dbb94, #75)
 
 ### Fixed

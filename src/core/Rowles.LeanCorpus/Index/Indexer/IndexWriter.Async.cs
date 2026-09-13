@@ -11,11 +11,7 @@ public sealed partial class IndexWriter
         EnterIndexingOperation();
         try
         {
-            ValidateDocument(doc);
-            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var cmd = new AsyncWriteCommand(doc, AsyncWriteKind.Single, tcs);
-            await EnqueueAsyncWrite(cmd, cancellationToken).ConfigureAwait(false);
-            await tcs.Task.ConfigureAwait(false);
+            await AddDocumentAsyncOperationOwned(doc, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -33,21 +29,7 @@ public sealed partial class IndexWriter
         EnterIndexingOperation();
         try
         {
-            ArgumentNullException.ThrowIfNull(documents);
-            if (documents.Count == 0) return;
-            ValidateDocuments(documents);
-
-            if (_backpressureSemaphore is not null && documents.Count > _config.MaxQueuedDocs)
-            {
-                for (int i = 0; i < documents.Count; i++)
-                    await AddDocumentAsync(documents[i], cancellationToken).ConfigureAwait(false);
-                return;
-            }
-
-            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var cmd = new AsyncWriteCommand(documents, AsyncWriteKind.Batch, tcs);
-            await EnqueueAsyncWrite(cmd, cancellationToken).ConfigureAwait(false);
-            await tcs.Task.ConfigureAwait(false);
+            await AddDocumentsAsyncOperationOwned(documents, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -101,12 +83,12 @@ public sealed partial class IndexWriter
                 if (batch.Count < effectiveBatchSize)
                     continue;
 
-                await AddDocumentsAsync(batch, cancellationToken).ConfigureAwait(false);
+                await AddDocumentsAsyncOperationOwned(batch, cancellationToken).ConfigureAwait(false);
                 batch.Clear();
             }
 
             if (batch.Count > 0)
-                await AddDocumentsAsync(batch, cancellationToken).ConfigureAwait(false);
+                await AddDocumentsAsyncOperationOwned(batch, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -161,6 +143,37 @@ public sealed partial class IndexWriter
 
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var cmd = new AsyncWriteCommand(documents, AsyncWriteKind.ConcurrentBatch, tcs);
+        await EnqueueAsyncWrite(cmd, cancellationToken).ConfigureAwait(false);
+        await tcs.Task.ConfigureAwait(false);
+    }
+
+    private async ValueTask AddDocumentAsyncOperationOwned(LeanDocument doc, CancellationToken cancellationToken)
+    {
+        ValidateDocument(doc);
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cmd = new AsyncWriteCommand(doc, AsyncWriteKind.Single, tcs);
+        await EnqueueAsyncWrite(cmd, cancellationToken).ConfigureAwait(false);
+        await tcs.Task.ConfigureAwait(false);
+    }
+
+    private async ValueTask AddDocumentsAsyncOperationOwned(
+        IReadOnlyList<LeanDocument> documents,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(documents);
+        if (documents.Count == 0)
+            return;
+        ValidateDocuments(documents);
+
+        if (_backpressureSemaphore is not null && documents.Count > _config.MaxQueuedDocs)
+        {
+            for (int i = 0; i < documents.Count; i++)
+                await AddDocumentAsyncOperationOwned(documents[i], cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cmd = new AsyncWriteCommand(documents, AsyncWriteKind.Batch, tcs);
         await EnqueueAsyncWrite(cmd, cancellationToken).ConfigureAwait(false);
         await tcs.Task.ConfigureAwait(false);
     }
