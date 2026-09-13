@@ -321,9 +321,37 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
             .Select(i => Document(i.ToString(System.Globalization.CultureInfo.InvariantCulture), "flush"))
             .ToArray());
 
+        // Admission is detached. Commit supplies the barrier which waits for
+        // all physical work and verifies the observed limit.
+        writer.Commit();
+
         Assert.InRange(observedMaximum, 1, limit);
         if (limit > 1)
             Assert.Equal(limit, observedMaximum);
+    }
+
+    [Fact(Timeout = 30_000)]
+    public void AutomaticFlush_SubmitsDetachedWorkWithoutBlockingTheProducer()
+    {
+        using var flushEntered = new ManualResetEventSlim();
+        using var releaseFlush = new ManualResetEventSlim();
+        using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(AutomaticFlush_SubmitsDetachedWorkWithoutBlockingTheProducer))),
+            new IndexWriterConfig
+            {
+                MaxBufferedDocs = 1,
+                PhysicalFlushStarted = () =>
+                {
+                    flushEntered.Set();
+                    releaseFlush.Wait(TestContext.Current.CancellationToken);
+                }
+            });
+
+        writer.AddDocument(Document("one", "detached"));
+
+        Assert.True(flushEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        Assert.True(Volatile.Read(ref writer.PendingFlushBytes) > 0);
+        releaseFlush.Set();
+        writer.Commit();
     }
 
     [Fact]
@@ -365,7 +393,8 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
                 PhysicalFlushStarted = () => throw new IOException("injected flush failure")
             });
 
-        Assert.Throws<IOException>(() => writer.AddDocument(Document("one", "failure")));
+        writer.AddDocument(Document("one", "failure"));
+        Assert.Throws<IOException>(writer.Commit);
         Assert.Equal(0, Volatile.Read(ref writer.PendingFlushBytes));
         Assert.Throws<InvalidOperationException>(() => writer.AddDocument(Document("after", "failure")));
     }
@@ -401,11 +430,13 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
         writer.AddDocument(Document("buffered", "first slot"));
         Assert.Equal(1, semaphore!.CurrentCount);
 
-        Assert.Throws<IOException>(() => writer.AddDocumentBlock([
+        writer.AddDocumentBlock([
             Document("child", "second slot"),
             Document("parent", "acquisition fails")
-        ]));
+        ]);
 
+        Assert.Equal(0, semaphore.CurrentCount);
+        Assert.Throws<IOException>(writer.Commit);
         Assert.Equal(2, semaphore.CurrentCount);
         Assert.Equal(0, Volatile.Read(ref writer.SemaphoreSlotsHeld));
     }

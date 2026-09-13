@@ -239,24 +239,8 @@ internal static class DwptManager
     /// </summary>
     internal static void WaitForPendingFlushes(IndexWriter writer)
     {
-        var pending = writer.FlushPending;
-        if (pending.Count == 0) return;
-
-        foreach (var state in pending)
-        {
-            if (state.Result is null)
-            {
-                // Flush I/O not done yet — run it now
-                state.Result = ExecutePhysicalFlush(writer, state.Batch,
-                    state.SegmentOrdinal, writer.CommitGeneration,
-                    state.SeqStart, state.SeqEnd);
-            }
-
-            writer.CommittedSegments.Add(state.Result);
-            writer.ContentChangedSinceCommit = true;
-        }
-
-        pending.Clear();
+        Debug.Assert(writer.WriteLock.IsHeldByCurrentThread, "WaitForPendingFlushes requires the caller to hold writer.WriteLock.");
+        writer.FlushCoordinator.DrainAndPublish();
     }
 
     /// <summary>
@@ -283,15 +267,8 @@ internal static class DwptManager
                     seqStart = seqEnd - dwpt.DocCount;
                 }
 
-                var snapshot = DetachFlushBatch(writer, dwpt);
-
-                // Flush from snapshot - I/O still under _writeLock for Step 1 simplicity
-                var segInfo = ExecutePhysicalFlush(writer, snapshot,
-                    ordinal, writer.CommitGeneration,
-                    seqStart, seqEnd);
-
-                writer.CommittedSegments.Add(segInfo);
-                writer.ContentChangedSinceCommit = true;
+                var batch = DetachFlushBatch(writer, dwpt);
+                writer.FlushCoordinator.Submit(batch, ordinal, writer.CommitGeneration, seqStart, seqEnd);
             }
         }
     }
@@ -344,12 +321,7 @@ internal static class DwptManager
             batch = DetachFlushBatch(writer, dwpt);
         }
 
-        var segment = ExecutePhysicalFlush(writer, batch, ordinal, writer.CommitGeneration, seqStart, seqEnd);
-        lock (writer.WriteLock)
-        {
-            writer.CommittedSegments.Add(segment);
-            writer.ContentChangedSinceCommit = true;
-        }
+        writer.FlushCoordinator.Submit(batch, ordinal, writer.CommitGeneration, seqStart, seqEnd);
     }
 
     private static DwptFlushBatch DetachFlushBatch(IndexWriter writer, DocumentsWriterPerThread dwpt)
@@ -362,51 +334,6 @@ internal static class DwptManager
         return batch;
     }
 
-    /// <summary>
-    /// Centralises physical flush admission. It is deliberately synchronous until the
-    /// detached-flush coordinator supplies ordered asynchronous publication.
-    /// </summary>
-    private static SegmentInfo ExecutePhysicalFlush(
-        IndexWriter writer, DwptFlushBatch batch, int ordinal, int commitGeneration, long seqStart, long seqEnd)
-    {
-        var semaphore = writer.FlushSemaphore ?? throw new InvalidOperationException("Flush admission is not initialised.");
-        bool acquired = false;
-        try
-        {
-            // Once detached, a batch remains writer-owned through shutdown and must
-            // reach a terminal flush or failure state before indexing operations drain.
-            semaphore.Wait();
-            acquired = true;
-            Interlocked.Increment(ref writer.ActiveFlushCount);
-            writer.Config.PhysicalFlushStarted?.Invoke();
-            return SegmentFlusher.FlushFromBatch(batch, writer.Config, writer.Directory.DirectoryPath,
-                ordinal, commitGeneration, seqStart, seqEnd);
-        }
-        catch (Exception ex)
-        {
-            writer.MarkIndexingFailed(ex);
-            throw;
-        }
-        finally
-        {
-            try
-            {
-                if (acquired)
-                    writer.Config.PhysicalFlushCompleted?.Invoke();
-            }
-            finally
-            {
-                batch.Dispose();
-                if (batch.PendingBytesAccounted)
-                    Interlocked.Add(ref writer.PendingFlushBytes, -batch.EstimatedBytes);
-                if (acquired)
-                {
-                    Interlocked.Decrement(ref writer.ActiveFlushCount);
-                    semaphore.Release();
-                }
-            }
-        }
-    }
 
     private static void AbortUncommittedWriterState(IndexWriter writer)
     {

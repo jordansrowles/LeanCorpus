@@ -420,22 +420,17 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
         });
 
         var dwpt = writer.DwptPool![0];
+        string conflictingPath = Path.Combine(path, "seg_0.seg");
+        Directory.CreateDirectory(conflictingPath);
         lock (dwpt)
         {
             var document = new LeanDocument();
             document.Add(new TextField("body", "dispose failure"));
             dwpt.AddDocument(document);
-            writer.FlushPending.Add(new FlushPendingState
-            {
-                Batch = DwptFlushBatch.CaptureFrom(dwpt),
-                SegmentOrdinal = 0,
-                SeqStart = 0,
-                SeqEnd = 0,
-            });
+            writer.FlushCoordinator.Submit(DwptFlushBatch.CaptureFrom(dwpt),
+                segmentOrdinal: 0, commitGeneration: 0, seqStart: 0, seqEnd: 0);
         }
 
-        string conflictingPath = Path.Combine(path, "seg_0.seg");
-        Directory.CreateDirectory(conflictingPath);
         try
         {
             var failure = Record.Exception(() => writer.Dispose());

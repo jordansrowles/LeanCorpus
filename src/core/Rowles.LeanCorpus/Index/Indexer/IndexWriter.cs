@@ -76,9 +76,8 @@ public sealed partial class IndexWriter : IDisposable
     private DocumentsWriterPerThread[]? _dwptPool;
 
     // --- Detached flush state ---
-    private readonly List<FlushPendingState> _flushPending = [];
+    private readonly FlushCoordinator _flushCoordinator;
     private int _activeFlushCount;
-    private SemaphoreSlim? _flushSemaphore;
 
     // --- Async write channel ---
     private readonly Lock _asyncWriteLock = new();
@@ -123,6 +122,7 @@ public sealed partial class IndexWriter : IDisposable
         _disposeTimeout = disposeTimeout;
         _shutdownToken = _shutdownCts.Token;
         _spanPostingSink = new SpanPostingTokenSink(_buffer, _config);
+        _flushCoordinator = new FlushCoordinator(this);
         _buffer.StoreTermVectors = config.StoreTermVectors;
 
         // If using default StandardAnalyser and config has custom stop words or cache size, rebuild it
@@ -155,8 +155,6 @@ public sealed partial class IndexWriter : IDisposable
             // Initialize backpressure semaphore if MaxQueuedDocs > 0
             if (config.MaxQueuedDocs > 0)
                 _backpressureSemaphore = new SemaphoreSlim(config.MaxQueuedDocs, config.MaxQueuedDocs);
-            _flushSemaphore = new SemaphoreSlim(config.MaxConcurrentFlushes, config.MaxConcurrentFlushes);
-
             // Load existing commit state if present
             CommitManager.LoadLatestCommit(this);
             foreach (var segment in _committedSegments)
@@ -169,7 +167,6 @@ public sealed partial class IndexWriter : IDisposable
         catch
         {
             _backpressureSemaphore?.Dispose();
-            _flushSemaphore?.Dispose();
             writeLockFile.Dispose();
             try { FileOpenRetry.Delete(lockPath); }
             catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "constructor write-lock file delete"); }
@@ -227,6 +224,7 @@ public sealed partial class IndexWriter : IDisposable
                 {
                     DwptManager.WaitForPendingFlushes(this);
                     DwptManager.FlushDwptPool(this);
+                    DwptManager.WaitForPendingFlushes(this);
                     if (_buffer.DocCount > 0)
                         FlushSegment();
 
@@ -284,6 +282,7 @@ public sealed partial class IndexWriter : IDisposable
 
                     DwptManager.WaitForPendingFlushes(this);
                     DwptManager.FlushDwptPool(this);
+                    DwptManager.WaitForPendingFlushes(this);
                     if (_buffer.DocCount > 0)
                         FlushSegment();
 
@@ -414,6 +413,7 @@ public sealed partial class IndexWriter : IDisposable
             lock (_writeLock)
             {
                 DwptManager.FlushDwptPool(this);
+                DwptManager.WaitForPendingFlushes(this);
                 if (_buffer.DocCount > 0)
                     FlushSegment();
 
@@ -626,7 +626,6 @@ public sealed partial class IndexWriter : IDisposable
 
         CaptureDisposeFailure(ref failure, () => _backpressureSemaphore?.Dispose(), "dispose-backpressure");
         CaptureDisposeFailure(ref failure, _shutdownCts.Dispose, "dispose-shutdown-cancellation");
-        CaptureDisposeFailure(ref failure, () => _flushSemaphore?.Dispose(), "dispose-flush-semaphore");
         CaptureDisposeFailure(ref failure, _writeLockFile.Dispose, "dispose-write-lock-handle");
 
         var lockPath = Path.Combine(_directory.DirectoryPath, "write.lock");
@@ -1067,7 +1066,6 @@ public sealed partial class IndexWriter : IDisposable
                 return _asyncWriteConsumer is not null;
         }
     }
-    internal List<FlushPendingState> FlushPending => _flushPending;
+    internal FlushCoordinator FlushCoordinator => _flushCoordinator;
     internal ref int ActiveFlushCount => ref _activeFlushCount;
-    internal SemaphoreSlim? FlushSemaphore => _flushSemaphore;
 }

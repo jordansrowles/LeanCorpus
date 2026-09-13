@@ -196,18 +196,17 @@ public sealed class IndexerColumnsAndFlushSourceTests
         {
             Batch = snapshot,
             SegmentOrdinal = 4,
+            CommitGeneration = 0,
             SeqStart = 10,
             SeqEnd = 10,
-            Result = new SegmentInfo { SegmentId = "seg_4", DocCount = 1 },
-            Task = Task.CompletedTask
+            ExecutionTask = Task.FromResult(new SegmentInfo { SegmentId = "seg_4", DocCount = 1 })
         };
 
         Assert.Equal(1, pending.DocCount);
         Assert.Equal(4, pending.SegmentOrdinal);
         Assert.Equal(10, pending.SeqStart);
         Assert.Equal(10, pending.SeqEnd);
-        Assert.Equal("seg_4", pending.Result!.SegmentId);
-        Assert.Same(Task.CompletedTask, pending.Task);
+        Assert.Equal("seg_4", pending.ExecutionTask!.Result.SegmentId);
         snapshot.Dispose();
     }
 

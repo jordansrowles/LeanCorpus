@@ -88,6 +88,7 @@ internal static class CommitManager
     {
         DwptManager.WaitForPendingFlushes(writer);
         DwptManager.FlushDwptPool(writer);
+        DwptManager.WaitForPendingFlushes(writer);
 
         IndexWriter.FlushSegmentStatic(writer);
 
@@ -412,6 +413,7 @@ internal static class CommitManager
             var dirPath = writer.Directory.DirectoryPath;
 
             DwptManager.FlushDwptPool(writer);
+            DwptManager.WaitForPendingFlushes(writer);
             if (writer.Buffer.DocCount > 0)
                 IndexWriter.FlushSegmentStatic(writer);
 
@@ -489,6 +491,7 @@ internal static class CommitManager
             var dirPath = writer.Directory.DirectoryPath;
 
             DwptManager.FlushDwptPool(writer);
+            DwptManager.WaitForPendingFlushes(writer);
             if (writer.Buffer.DocCount > 0)
                 IndexWriter.FlushSegmentStatic(writer);
 
@@ -575,6 +578,7 @@ internal static class CommitManager
 
             DwptManager.WaitForPendingFlushes(writer);
             DwptManager.FlushDwptPool(writer);
+            DwptManager.WaitForPendingFlushes(writer);
 
             IndexWriter.FlushSegmentStatic(writer);
 

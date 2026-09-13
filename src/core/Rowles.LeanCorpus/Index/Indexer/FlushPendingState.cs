@@ -2,8 +2,8 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
 /// Tracks a DWPT flush that was detached from the publication lock.
-/// Holds the owned detached batch, the flush I/O result (once completed),
-/// and metadata needed to publish the segment after the flush finishes.
+/// Holds the owned detached batch, its asynchronous physical execution, and
+/// metadata needed for ordered publication.
 /// </summary>
 internal sealed class FlushPendingState
 {
@@ -13,6 +13,9 @@ internal sealed class FlushPendingState
     /// <summary>Segment ordinal assigned to this flush.</summary>
     internal required int SegmentOrdinal { get; init; }
 
+    /// <summary>Commit generation captured at detachment.</summary>
+    internal required int CommitGeneration { get; init; }
+
     /// <summary>First sequence number in this flush (0 if tracking disabled).</summary>
     internal required long SeqStart { get; init; }
 
@@ -20,16 +23,13 @@ internal sealed class FlushPendingState
     internal required long SeqEnd { get; init; }
 
     /// <summary>
-    /// The flush result, set once <see cref="SegmentFlusher.FlushFromBatch"/>
-    /// completes. Null until the flush I/O finishes.
+    /// The physical flush task. It is assigned exactly once by
+    /// <see cref="FlushCoordinator"/> when this state enters active execution.
     /// </summary>
-    internal SegmentInfo? Result { get; set; }
+    internal Task<SegmentInfo>? ExecutionTask { get; set; }
 
-    /// <summary>
-    /// The task performing the flush I/O, or null for synchronous flushes.
-    /// Only used when <see cref="IndexWriterConfig.MaxConcurrentFlushes"/> > 1.
-    /// </summary>
-    internal Task? Task { get; set; }
+    /// <summary>Whether the result has been published into writer state.</summary>
+    internal bool Published { get; set; }
 
     /// <summary>
     /// Number of documents in this flush, for backpressure accounting.
