@@ -194,6 +194,10 @@ internal static class DwptManager
                     {
                         if (fatalFailure is null || i < fatalFailure.Value.Index)
                             fatalFailure = (i, ex);
+
+                        // Close admission before the parallel loop unwinds. The lowest-index
+                        // failure remains selected below once every lower iteration has settled.
+                        writer.MarkIndexingFailed();
                     }
                     // Break preserves completion of every lower document index, allowing
                     // the public primary failure to be selected deterministically.
