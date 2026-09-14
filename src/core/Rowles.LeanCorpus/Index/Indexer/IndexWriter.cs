@@ -795,14 +795,6 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
-    private bool ShouldFlush()
-    {
-        if (_buffer.DocCount >= _config.MaxBufferedDocs)
-            return true;
-        long ram = ComputeEstimatedRamBytes();
-        return ram >= (long)(_config.RamBufferSizeMB * 1024 * 1024);
-    }
-
     internal bool ShouldThrottleForMerge()
     {
         SegmentInfo[] committedSegments;
