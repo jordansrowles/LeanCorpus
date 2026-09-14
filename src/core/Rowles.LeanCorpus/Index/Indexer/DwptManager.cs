@@ -307,7 +307,7 @@ internal static class DwptManager
 
         writer.FlushCoordinator.Submit(batch, writer.CommitGeneration);
 
-        if (IsRetainedMemoryOverBudget(writer))
+        while (IsRetainedMemoryOverBudget(writer))
         {
             writer.FlushCoordinator.WaitForPhysicalProgress();
             lock (writer.WriteLock)

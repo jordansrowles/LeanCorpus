@@ -11,7 +11,6 @@ internal sealed class FlushCoordinator
     private readonly IndexWriter _writer;
     private readonly Lock _gate = new();
     private readonly List<FlushPendingState> _pending = [];
-    private TaskCompletionSource _physicalProgress = NewPhysicalProgressSource();
     private int _activeExecutions;
 
     internal FlushCoordinator(IndexWriter writer) => _writer = writer;
@@ -149,16 +148,22 @@ internal sealed class FlushCoordinator
     /// <summary>Waits until an accepted physical flush reaches a terminal state.</summary>
     internal void WaitForPhysicalProgress()
     {
-        Task progress;
+        Task[] active;
         lock (_gate)
         {
             StartEligibleExecutions();
-            if (_pending.Count == 0)
+            active = _pending
+                .Select(static state => state.ExecutionTask)
+                .Where(static task => task is { IsCompleted: false })
+                .Cast<Task>()
+                .ToArray();
+            if (active.Length == 0)
                 return;
-            progress = _physicalProgress.Task;
         }
 
-        progress.GetAwaiter().GetResult();
+        // Waiting on a snapshot of incomplete work cannot miss a completion
+        // that occurred before this method acquired the coordinator gate.
+        Task.WhenAny(active).GetAwaiter().GetResult();
     }
 
     internal int PendingCount
@@ -222,17 +227,10 @@ internal sealed class FlushCoordinator
 
     private void ExecutionFinished()
     {
-        TaskCompletionSource completedProgress;
         lock (_gate)
         {
             _activeExecutions--;
-            completedProgress = _physicalProgress;
-            _physicalProgress = NewPhysicalProgressSource();
             StartEligibleExecutions();
         }
-        completedProgress.TrySetResult();
     }
-
-    private static TaskCompletionSource NewPhysicalProgressSource()
-        => new(TaskCreationOptions.RunContinuationsAsynchronously);
 }

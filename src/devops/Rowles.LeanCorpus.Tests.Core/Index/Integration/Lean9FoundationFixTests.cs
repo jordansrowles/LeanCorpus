@@ -402,28 +402,65 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
     [Fact(Timeout = 30_000)]
     public async Task RetainedMemoryPressure_WaitsForPhysicalFlushProgress()
     {
-        using var flushEntered = new ManualResetEventSlim();
-        using var releaseFlush = new ManualResetEventSlim();
-        using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(RetainedMemoryPressure_WaitsForPhysicalFlushProgress))),
-            new IndexWriterConfig
+        using var firstFlushEntered = new ManualResetEventSlim();
+        using var releaseFlush = new SemaphoreSlim(0);
+        int started = 0;
+        int completed = 0;
+        var config = new IndexWriterConfig
+        {
+            MaxBufferedDocs = 1,
+            MaxConcurrentFlushes = 1,
+            MaxQueuedBytes = long.MaxValue,
+            PhysicalFlushStarted = () =>
             {
-                MaxBufferedDocs = 1,
-                MaxConcurrentFlushes = 1,
-                MaxQueuedBytes = 1,
-                PhysicalFlushStarted = () =>
-                {
-                    flushEntered.Set();
-                    releaseFlush.Wait(TestContext.Current.CancellationToken);
-                }
-            });
+                if (Interlocked.Increment(ref started) == 1)
+                    firstFlushEntered.Set();
+                releaseFlush.Wait(TestContext.Current.CancellationToken);
+            },
+            PhysicalFlushCompleted = () => Interlocked.Increment(ref completed)
+        };
+        using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(RetainedMemoryPressure_WaitsForPhysicalFlushProgress))), config);
 
-        Task add = Task.Run(() => writer.AddDocument(Document("one", "retained")), TestContext.Current.CancellationToken);
-        Assert.True(flushEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        writer.AddDocument(Document("one", "retained"));
+        Assert.True(firstFlushEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        writer.AddDocument(Document("two", "retained"));
+        writer.AddDocument(Document("three", "retained"));
+
+        long activeBytes = Volatile.Read(ref writer.ActiveDwptBytes);
+        long pendingBytes = Volatile.Read(ref writer.PendingFlushBytes);
+        config.MaxQueuedBytes = activeBytes + (pendingBytes / 4);
+
+        Task add = Task.Run(() => writer.AddDocument(Document("four", "retained")), TestContext.Current.CancellationToken);
         Assert.False(add.Wait(TimeSpan.FromMilliseconds(100)), "Producer advanced despite retained flush memory exceeding its budget.");
 
-        releaseFlush.Set();
+        for (int i = 0; i < 3; i++)
+        {
+            releaseFlush.Release();
+            Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref completed) == i + 1, TimeSpan.FromSeconds(10)));
+            Assert.False(add.Wait(TimeSpan.FromMilliseconds(100)), "Producer resumed before retained memory fell below its budget.");
+        }
+
+        releaseFlush.Release();
         await add.WaitAsync(TestContext.Current.CancellationToken);
         Assert.Equal(0, Volatile.Read(ref writer.PendingFlushBytes));
+    }
+
+    [Fact(Timeout = 30_000)]
+    public void RetainedMemoryPressure_DoesNotWaitForAlreadyCompletedFlush()
+    {
+        var config = new IndexWriterConfig
+        {
+            MaxBufferedDocs = 1,
+            MaxConcurrentFlushes = 1,
+            MaxQueuedBytes = long.MaxValue
+        };
+        using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(RetainedMemoryPressure_DoesNotWaitForAlreadyCompletedFlush))), config);
+        config.MaxQueuedBytes = Volatile.Read(ref writer.ActiveDwptBytes) + 1;
+
+        for (int i = 0; i < 32; i++)
+            writer.AddDocument(Document(i.ToString(System.Globalization.CultureInfo.InvariantCulture), "fast flush"));
+
+        writer.Commit();
     }
 
     [Fact(Timeout = 30_000)]
