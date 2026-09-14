@@ -142,20 +142,16 @@ internal static class SegmentFlusher
         source.CopySortedPostingsUtf8(byteTerms);
         Array.Sort(byteTerms, static (a, b) => a.TermUtf8.AsSpan().SequenceCompareTo(b.TermUtf8));
 
-        // Convert to string once for WritePostingsBody (needs strings for field name extraction).
-        var stringTerms = new (string Term, PostingAccumulator Acc)[postingsCount];
         var utf8Terms = new (byte[] KeyUtf8, long Output)[postingsCount];
         for (int i = 0; i < postingsCount; i++)
-        {
-            stringTerms[i] = (System.Text.Encoding.UTF8.GetString(byteTerms[i].TermUtf8), byteTerms[i].Acc);
             utf8Terms[i] = (byteTerms[i].TermUtf8, 0);
-        }
 
-        var (postingsOffsets, sortedTermsList) = WritePostingsBody(stringTerms, basePath, quantisedNorms);
+        var postingsOffsets = WritePostingsBody(byteTerms, basePath, quantisedNorms);
 
-        // Map offsets back to byte-sorted order for FST construction.
+        // The byte-sorted terms are the FST input order, so offsets can be copied
+        // directly without materialising a second string representation per term.
         for (int i = 0; i < postingsCount; i++)
-            utf8Terms[i].Output = postingsOffsets[sortedTermsList[i]];
+            utf8Terms[i].Output = postingsOffsets[i];
         var fstBlob = TermDictionaryWriter.BuildFstUtf8(utf8Terms);
         TermDictionaryWriter.WriteBlob(basePath + ".dic", fstBlob);
 
@@ -565,18 +561,19 @@ internal static class SegmentFlusher
     }
 
     /// <summary>
-    /// Writes the .pos postings body for a sorted array of (term, accumulator) pairs.
-    /// Returns postings offsets (keyed by qualified term) and the sorted term list
-    /// for the term dictionary. Uses the v4 sequential body-then-metadata layout.
+    /// Writes the .pos postings body for byte-sorted qualified UTF-8 terms and
+    /// returns metadata offsets in the same order for the term dictionary.
+    /// Uses the v4 sequential body-then-metadata layout.
     /// </summary>
-    private static (Dictionary<string, long> PostingsOffsets, List<string> SortedTerms) WritePostingsBody(
-        (string Term, PostingAccumulator Acc)[] accumulatorTerms,
+    private static long[] WritePostingsBody(
+        (byte[] TermUtf8, PostingAccumulator Acc)[] accumulatorTerms,
         string basePath,
         IReadOnlyDictionary<string, byte[]> quantisedNorms)
     {
         int postingsCount = accumulatorTerms.Length;
-        var postingsOffsets = new Dictionary<string, long>(postingsCount, StringComparer.Ordinal);
-        var sortedTerms = new List<string>(postingsCount);
+        var postingsOffsets = new long[postingsCount];
+        byte[]? currentFieldUtf8 = null;
+        byte[]? currentFieldNormBytes = null;
 
         string posPath = basePath + ".pos";
         using (var posOutput = new IndexOutput(posPath))
@@ -587,13 +584,21 @@ internal static class SegmentFlusher
 
             using var blockWriter = new BlockPostingsWriter(bodyOutput);
 
-            foreach (var (qt, acc) in accumulatorTerms)
+            for (int termIndex = 0; termIndex < accumulatorTerms.Length; termIndex++)
             {
-                sortedTerms.Add(qt);
+                var (qualifiedTermUtf8, acc) = accumulatorTerms[termIndex];
                 var ids = acc.DocIds;
 
-                string fieldName = QualifiedTermHelpers.GetFieldName(qt).ToString();
-                quantisedNorms.TryGetValue(fieldName, out var fieldNormBytes);
+                int separator = Array.IndexOf(qualifiedTermUtf8, (byte)0);
+                ReadOnlySpan<byte> fieldUtf8 = separator < 0
+                    ? qualifiedTermUtf8
+                    : qualifiedTermUtf8.AsSpan(0, separator);
+                if (currentFieldUtf8 is null || !fieldUtf8.SequenceEqual(currentFieldUtf8))
+                {
+                    currentFieldUtf8 = fieldUtf8.ToArray();
+                    string fieldName = System.Text.Encoding.UTF8.GetString(currentFieldUtf8);
+                    quantisedNorms.TryGetValue(fieldName, out currentFieldNormBytes);
+                }
 
                 bool hasFreqs = acc.HasFreqs;
                 bool hasPositions = acc.HasPositions;
@@ -604,8 +609,8 @@ internal static class SegmentFlusher
                 for (int i = 0; i < ids.Length; i++)
                 {
                     int docId = ids[i];
-                    byte norm = fieldNormBytes is not null && (uint)docId < (uint)fieldNormBytes.Length
-                        ? fieldNormBytes[docId]
+                    byte norm = currentFieldNormBytes is not null && (uint)docId < (uint)currentFieldNormBytes.Length
+                        ? currentFieldNormBytes[docId]
                         : (byte)0;
                     blockWriter.AddPosting(docId, hasFreqs ? acc.GetFreq(i) : 1, norm);
                 }
@@ -663,7 +668,7 @@ internal static class SegmentFlusher
                 }
 
                 long metadataOffset = bodyOutput.Position;
-                postingsOffsets[qt] = metadataOffset;
+                postingsOffsets[termIndex] = metadataOffset;
                 bodyOutput.WriteInt64(bodyOffset);
                 bodyOutput.WriteInt32(meta.DocFreq);
                 bodyOutput.WriteInt64(meta.SkipOffset);
@@ -675,8 +680,8 @@ internal static class SegmentFlusher
             frame.Complete();
         }
 
-        // Metadata offsets are absolute file positions.
-        return (postingsOffsets, sortedTerms);
+        // Metadata offsets are absolute file positions in byte-sorted term order.
+        return postingsOffsets;
     }
 
 
