@@ -35,13 +35,6 @@ internal sealed class DwptFlushBatchSource : IFlushSource
     public List<PostingAccumulator> PostingAccumulators => _s.PostingAccumulators;
     public int PostingsCount => _s.TermHash.Count;
 
-    public void CopySortedPostings((string Term, PostingAccumulator Acc)[] target)
-    {
-        int idx = 0;
-        for (int i = 0; i < _s.TermHash.Count; i++)
-            target[idx++] = (_s.TermHash.GetTermString(i), _s.PostingAccumulators[i]);
-    }
-
     public void CopySortedPostingsUtf8((byte[] TermUtf8, PostingAccumulator Acc)[] target)
     {
         int idx = 0;

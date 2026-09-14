@@ -491,7 +491,7 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
     /// <summary>
     /// 8 producers index large documents with MaxBufferedDocs=1 (forcing a flush on every
     /// document) while the main thread calls Dispose after 50 ms. Verifies that the
-    /// backpressure semaphore release in FlushSegmentStatic does not throw
+    /// backpressure semaphore release during detached flush completion does not throw
     /// ObjectDisposedException after Dispose has torn down the semaphore.
     /// </summary>
     [Fact(DisplayName = "Dispose: During slow segment flush no semaphore disposed race")]

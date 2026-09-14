@@ -12,46 +12,11 @@ using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
-/// Pure function: takes <see cref="DocumentBufferState"/> and writes a segment to disk.
-/// All helpers are static, operating only on the buffer, config, and path state passed in.
+/// Writes a segment from an owned detached DWPT batch. All helpers are static,
+/// operating only on the batch, configuration, and path state passed in.
 /// </summary>
 internal static class SegmentFlusher
 {
-    public static SegmentInfo Flush(
-        DocumentBufferState buffer,
-        IndexWriterConfig config,
-        string directoryPath,
-        ref int nextSegmentOrdinal,
-        int commitGeneration,
-        long flushSeqNoStart,
-        long nextSequenceNumber)
-    {
-        var segId = $"seg_{nextSegmentOrdinal++}";
-        var segInfo = FlushCore(new BufferFlushSource(buffer), config, directoryPath, segId,
-            commitGeneration, flushSeqNoStart, nextSequenceNumber, minDocsForHnsw: 0);
-
-        var basePath = Path.Combine(directoryPath, segId);
-
-        // Term vectors
-        if (config.StoreTermVectors)
-        {
-            WriteTermVectors(basePath, buffer.DocCount, buffer.EnumeratePostings());
-        }
-
-        // Parent bitset
-        if (buffer.ParentDocIds is { Count: > 0 })
-        {
-            var pbs = new ParentBitSet(buffer.DocCount);
-            foreach (var pid in buffer.ParentDocIds)
-                pbs.Set(pid);
-            pbs.WriteTo(basePath + ".pbs");
-        }
-
-        CompleteSegment(segInfo, config, directoryPath);
-
-        return segInfo;
-    }
-
     private static SegmentInfo FlushCore(
         IFlushSource source,
         IndexWriterConfig config,
@@ -63,8 +28,8 @@ internal static class SegmentFlusher
         int minDocsForHnsw)
     {
         // Apply index-time sorting for every flush source. DWPT and detached
-        // snapshot flushes use this path as well as the original buffer flush,
-        // so sorted metadata cannot get out of sync with physical doc order.
+        // batches use this path, so sorted metadata cannot get out of sync with
+        // physical document order.
         if (config.IndexSort is not null)
         {
             var sortPerm = ComputeSortPermutation(source, config.IndexSort);
@@ -437,50 +402,6 @@ internal static class SegmentFlusher
             }
         }
         TermVectorsWriter.Write(basePath + ".tvd", basePath + ".tvx", tvDocs);
-    }
-
-    /// <summary>
-    /// Writes a segment directly from a <see cref="DocumentsWriterPerThread"/> buffer
-    /// without merging into the main <see cref="DocumentBufferState"/>. Each DWPT
-    /// partition becomes its own segment; the <see cref="IMergePolicy"/> consolidates
-    /// them later.
-    /// </summary>
-    public static SegmentInfo FlushFromDwpt(
-        DocumentsWriterPerThread dwpt,
-        IndexWriterConfig config,
-        string directoryPath,
-        int nextSegmentOrdinal,
-        int commitGeneration,
-        long flushSeqNoStart,
-        long nextSequenceNumber,
-        out int nextOrdinal)
-    {
-        var segId = $"seg_{nextSegmentOrdinal}";
-        nextOrdinal = nextSegmentOrdinal + 1;
-        var segInfo = FlushCore(new DwptFlushSource(dwpt), config, directoryPath, segId,
-            commitGeneration, flushSeqNoStart, nextSequenceNumber, minDocsForHnsw: 0);
-
-        var basePath = Path.Combine(directoryPath, segId);
-
-        // Term vectors
-        if (config.StoreTermVectors)
-        {
-            WriteTermVectors(basePath, dwpt.DocCount,
-                dwpt.EnumeratePostings());
-        }
-
-        // Parent bitset: DWPT always has null ParentDocIds (not supported on concurrent path).
-        if (dwpt.ParentDocIds is { Count: > 0 })
-        {
-            var pbs = new ParentBitSet(dwpt.DocCount);
-            foreach (var pid in dwpt.ParentDocIds)
-                pbs.Set(pid);
-            pbs.WriteTo(basePath + ".pbs");
-        }
-
-        CompleteSegment(segInfo, config, directoryPath);
-
-        return segInfo;
     }
 
     /// <summary>

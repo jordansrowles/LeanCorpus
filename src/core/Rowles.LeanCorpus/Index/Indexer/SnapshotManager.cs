@@ -25,8 +25,6 @@ internal static class SnapshotManager
         {
             DwptManager.FlushDwptPool(writer);
             DwptManager.WaitForPendingFlushes(writer);
-            if (writer.Buffer.DocCount > 0)
-                IndexWriter.FlushSegmentStatic(writer);
             return writer.CommittedSegments.ToList().AsReadOnly();
         }
     }
@@ -37,8 +35,6 @@ internal static class SnapshotManager
         {
             DwptManager.FlushDwptPool(writer);
             DwptManager.WaitForPendingFlushes(writer);
-            if (writer.Buffer.DocCount > 0)
-                IndexWriter.FlushSegmentStatic(writer);
 
             var snapshot = new IndexSnapshot(
                 writer.CommitGeneration,

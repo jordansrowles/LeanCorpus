@@ -30,15 +30,8 @@ public sealed partial class IndexWriter : IDisposable
     private readonly Lock _vectorDimensionLock = new();
     private readonly Dictionary<string, int> _vectorDimensions = new(StringComparer.Ordinal);
 
-    private DocumentBufferState _buffer = new();
-
-    private readonly Dictionary<string, IAnalyser> _analyserCache = new(StringComparer.Ordinal);
-    private readonly SpanCountingTokenSink _spanCountingSink = new();
-    private readonly SpanPostingTokenSink _spanPostingSink;
-
     // --- Commit state ---
     private long _nextSequenceNumber;
-    private long _flushSeqNoStart;
     private int _nextSegmentOrdinal;
     private int _commitGeneration;
     private long _contentToken;
@@ -121,9 +114,7 @@ public sealed partial class IndexWriter : IDisposable
             : config.IndexingConcurrency;
         _disposeTimeout = disposeTimeout;
         _shutdownToken = _shutdownCts.Token;
-        _spanPostingSink = new SpanPostingTokenSink(_buffer, _config);
         _flushCoordinator = new FlushCoordinator(this);
-        _buffer.StoreTermVectors = config.StoreTermVectors;
 
         // If using default StandardAnalyser and config has custom stop words or cache size, rebuild it
         if (config.DefaultAnalyser is StandardAnalyser &&
@@ -225,9 +216,6 @@ public sealed partial class IndexWriter : IDisposable
                     DwptManager.WaitForPendingFlushes(this);
                     DwptManager.FlushDwptPool(this);
                     DwptManager.WaitForPendingFlushes(this);
-                    if (_buffer.DocCount > 0)
-                        FlushSegment();
-
                     QueueDelete(field, term, isSoftDelete: false);
                     // Flushes can materialise documents targeted by earlier deletes.
                     // Apply the complete queue to every committed segment so those
@@ -283,9 +271,6 @@ public sealed partial class IndexWriter : IDisposable
                     DwptManager.WaitForPendingFlushes(this);
                     DwptManager.FlushDwptPool(this);
                     DwptManager.WaitForPendingFlushes(this);
-                    if (_buffer.DocCount > 0)
-                        FlushSegment();
-
                     var terms = ResolveQueryToTerms(query, _committedSegments.GetRange(0, preFlushSegmentCount));
                     foreach (var (f, t) in terms)
                         QueueDelete(f, t, isSoftDelete: false);
@@ -414,8 +399,6 @@ public sealed partial class IndexWriter : IDisposable
             {
                 DwptManager.FlushDwptPool(this);
                 DwptManager.WaitForPendingFlushes(this);
-                if (_buffer.DocCount > 0)
-                    FlushSegment();
 
                 var merger = new SegmentMerger(_directory, _config.MergePolicy, _config.PostingsSkipInterval,
                     _config.SoftDeleteRetentionSeconds, _config.HnswBuildConfig,
@@ -866,49 +849,10 @@ public sealed partial class IndexWriter : IDisposable
 
     private long ComputeEstimatedRamBytes()
     {
-        long bytes = _buffer.AccountedRamBytes;
+        long bytes = Volatile.Read(ref _activeDwptBytes);
         _config.Metrics.RecordWriterMemory(bytes, Volatile.Read(ref _pendingFlushBytes), _deleteQueue.Count * 96L);
         return bytes;
     }
-
-    // --- Internal static helpers called by extracted manager classes ---
-
-    internal static void FlushSegmentStatic(IndexWriter writer)
-    {
-        if (writer._buffer.DocCount == 0) return;
-
-        int docCountToFlush = writer._buffer.DocCount;
-
-        var segInfo = SegmentFlusher.Flush(
-            writer._buffer, writer._config, writer._directory.DirectoryPath,
-            ref writer._nextSegmentOrdinal, writer._commitGeneration,
-            writer._flushSeqNoStart, writer._nextSequenceNumber);
-
-        writer._committedSegments.Add(segInfo);
-        ResetBufferStatic(writer);
-
-        if (writer._backpressureSemaphore is not null && docCountToFlush > 0)
-        {
-            int toRelease = Math.Min(docCountToFlush, writer._semaphoreSlotsHeld);
-            if (toRelease > 0)
-            {
-                BackpressureController.ReleaseSemaphoreSlots(writer, toRelease);
-                writer._semaphoreSlotsHeld -= toRelease;
-            }
-        }
-    }
-
-    internal static void ResetBufferStatic(IndexWriter writer)
-    {
-        writer._buffer.Reset();
-        writer._flushSeqNoStart = writer._nextSequenceNumber;
-    }
-
-    private void FlushSegment()
-    {
-        FlushSegmentStatic(this);
-    }
-
 
     // --- Async write channel types and consumer ---
     private enum AsyncWriteKind { Single, Batch, ConcurrentBatch, Block }
@@ -1023,7 +967,6 @@ public sealed partial class IndexWriter : IDisposable
     /// <summary>Gets the content token for the latest locally published commit.</summary>
     public long CurrentContentToken => Volatile.Read(ref _contentToken);
 
-    internal DocumentBufferState Buffer => _buffer;
     internal MMapDirectory Directory => _directory;
     internal IndexWriterConfig Config => _config;
     internal IAnalyser DefaultAnalyser => _defaultAnalyser;
@@ -1034,7 +977,6 @@ public sealed partial class IndexWriter : IDisposable
 
     // --- Internal accessors for mutable scalars (managers need ref access) ---
     internal ref long NextSequenceNumberMut => ref _nextSequenceNumber;
-    internal ref long FlushSeqNoStart => ref _flushSeqNoStart;
     internal ref int NextSegmentOrdinal => ref _nextSegmentOrdinal;
     internal ref int CommitGeneration => ref _commitGeneration;
     internal ref long ContentToken => ref _contentToken;

@@ -90,8 +90,6 @@ internal static class CommitManager
         DwptManager.FlushDwptPool(writer);
         DwptManager.WaitForPendingFlushes(writer);
 
-        IndexWriter.FlushSegmentStatic(writer);
-
         // Apply pending deletes to all committed segments after flush.
         // This covers both: queued deletes targeting previously committed
         // docs, and deletes queued before any segment existed (preFlushCount
@@ -366,7 +364,6 @@ internal static class CommitManager
                     maxSeq = seg.MaxSequenceNumber.Value;
             }
             writer.NextSequenceNumberMut = maxSeq + 1;
-            writer.FlushSeqNoStart = writer.NextSequenceNumber;
         }
     }
 
@@ -414,9 +411,6 @@ internal static class CommitManager
 
             DwptManager.FlushDwptPool(writer);
             DwptManager.WaitForPendingFlushes(writer);
-            if (writer.Buffer.DocCount > 0)
-                IndexWriter.FlushSegmentStatic(writer);
-
             if (writer.PendingDeletes.Count > 0)
                 DeletionApplier.ApplyPendingDeletions(
                     writer.DeleteQueue, writer.CommittedSegments,
@@ -492,9 +486,6 @@ internal static class CommitManager
 
             DwptManager.FlushDwptPool(writer);
             DwptManager.WaitForPendingFlushes(writer);
-            if (writer.Buffer.DocCount > 0)
-                IndexWriter.FlushSegmentStatic(writer);
-
             if (writer.PendingDeletes.Count > 0)
                 DeletionApplier.ApplyPendingDeletions(
                     writer.DeleteQueue, writer.CommittedSegments,
@@ -579,8 +570,6 @@ internal static class CommitManager
             DwptManager.WaitForPendingFlushes(writer);
             DwptManager.FlushDwptPool(writer);
             DwptManager.WaitForPendingFlushes(writer);
-
-            IndexWriter.FlushSegmentStatic(writer);
 
             if (writer.PendingDeletes.Count > 0)
                 DeletionApplier.ApplyPendingDeletions(

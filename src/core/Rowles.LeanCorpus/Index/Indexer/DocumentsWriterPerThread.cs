@@ -20,7 +20,7 @@ internal sealed class DocumentsWriterPerThread
     internal BytesRefHash TermHash = new();
     internal List<PostingAccumulator> PostingAccumulators = [];
 
-    /// <summary>Stored-field name-to-ID mapping exposed for <see cref="SegmentFlusher.FlushFromDwpt"/>.</summary>
+    /// <summary>Stored-field name-to-ID mapping transferred to a detached flush batch.</summary>
     internal Dictionary<string, int> StoredFieldNameToId => _storedFieldNameToId;
 
     internal HashSet<int>? ParentDocIds;
