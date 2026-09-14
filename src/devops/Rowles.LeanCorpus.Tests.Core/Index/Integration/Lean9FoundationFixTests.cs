@@ -354,6 +354,119 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
         writer.Commit();
     }
 
+    [Fact(Timeout = 30_000)]
+    public async Task CoordinatorSubmission_ReservesOrderAtomicallyWithPendingQueueInsertion()
+    {
+        using var firstSubmissionEntered = new ManualResetEventSlim();
+        using var releaseFirstSubmission = new ManualResetEventSlim();
+        int submissions = 0;
+        using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(CoordinatorSubmission_ReservesOrderAtomicallyWithPendingQueueInsertion))),
+            new IndexWriterConfig
+            {
+                MaxConcurrentFlushes = 1,
+                FlushSubmissionReserved = () =>
+                {
+                    if (Interlocked.Increment(ref submissions) == 1)
+                    {
+                        firstSubmissionEntered.Set();
+                        releaseFirstSubmission.Wait(TestContext.Current.CancellationToken);
+                    }
+                }
+            });
+
+        DwptFlushBatch CreateBatch(string id)
+        {
+            var dwpt = new DocumentsWriterPerThread(writer.DefaultAnalyser, new Dictionary<string, IAnalyser>(), writer.Config);
+            dwpt.AddDocument(Document(id, "ordered"));
+            lock (dwpt)
+                return DwptFlushBatch.CaptureFrom(dwpt);
+        }
+
+        int firstOrdinal = -1;
+        int secondOrdinal = -1;
+        Task first = Task.Run(() => firstOrdinal = writer.FlushCoordinator.Submit(CreateBatch("first"), writer.CommitGeneration),
+            TestContext.Current.CancellationToken);
+        Assert.True(firstSubmissionEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+
+        Task second = Task.Run(() => secondOrdinal = writer.FlushCoordinator.Submit(CreateBatch("second"), writer.CommitGeneration),
+            TestContext.Current.CancellationToken);
+        Assert.False(second.Wait(TimeSpan.FromMilliseconds(100)), "A later submitter passed the reserved-order boundary.");
+
+        releaseFirstSubmission.Set();
+        await Task.WhenAll(first, second).WaitAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(0, firstOrdinal);
+        Assert.Equal(1, secondOrdinal);
+        writer.Commit();
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task RetainedMemoryPressure_WaitsForPhysicalFlushProgress()
+    {
+        using var flushEntered = new ManualResetEventSlim();
+        using var releaseFlush = new ManualResetEventSlim();
+        using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(RetainedMemoryPressure_WaitsForPhysicalFlushProgress))),
+            new IndexWriterConfig
+            {
+                MaxBufferedDocs = 1,
+                MaxConcurrentFlushes = 1,
+                MaxQueuedBytes = 1,
+                PhysicalFlushStarted = () =>
+                {
+                    flushEntered.Set();
+                    releaseFlush.Wait(TestContext.Current.CancellationToken);
+                }
+            });
+
+        Task add = Task.Run(() => writer.AddDocument(Document("one", "retained")), TestContext.Current.CancellationToken);
+        Assert.True(flushEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        Assert.False(add.Wait(TimeSpan.FromMilliseconds(100)), "Producer advanced despite retained flush memory exceeding its budget.");
+
+        releaseFlush.Set();
+        await add.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(0, Volatile.Read(ref writer.PendingFlushBytes));
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task Dispose_WaitsForEveryAcceptedFlushAfterAnEarlierFailure()
+    {
+        using var firstFlushEntered = new ManualResetEventSlim();
+        using var releaseFirstFlush = new ManualResetEventSlim();
+        using var secondFlushEntered = new ManualResetEventSlim();
+        using var releaseSecondFlush = new ManualResetEventSlim();
+        int executions = 0;
+        var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(Dispose_WaitsForEveryAcceptedFlushAfterAnEarlierFailure))),
+            new IndexWriterConfig
+            {
+                MaxBufferedDocs = 1,
+                MaxConcurrentFlushes = 2,
+                PhysicalFlushStarted = () =>
+                {
+                    if (Interlocked.Increment(ref executions) == 1)
+                    {
+                        firstFlushEntered.Set();
+                        releaseFirstFlush.Wait(TestContext.Current.CancellationToken);
+                        throw new IOException("first detached flush failed");
+                    }
+                    secondFlushEntered.Set();
+                    releaseSecondFlush.Wait(TestContext.Current.CancellationToken);
+                }
+            });
+
+        writer.AddDocument(Document("first", "failure"));
+        Assert.True(firstFlushEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        writer.AddDocument(Document("second", "still accepted"));
+        Assert.True(secondFlushEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        releaseFirstFlush.Set();
+
+        Task dispose = Task.Run(writer.Dispose, TestContext.Current.CancellationToken);
+        Assert.False(dispose.Wait(TimeSpan.FromMilliseconds(100)), "Dispose released writer resources while accepted flush work remained active.");
+
+        releaseSecondFlush.Set();
+        var failure = await Assert.ThrowsAsync<IOException>(async () => await dispose.WaitAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("first detached flush failed", failure.Message);
+        Assert.Equal(2, Volatile.Read(ref executions));
+    }
+
     [Fact]
     public void UnknownAnalyserOwnership_FailsAtWriterConstruction()
     {

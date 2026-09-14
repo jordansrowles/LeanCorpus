@@ -182,6 +182,9 @@ public sealed class IndexWriterConfig
     /// <summary>Test-only callback invoked after physical-flush admission.</summary>
     internal Action? PhysicalFlushStarted { get; set; }
 
+    /// <summary>Test-only callback invoked while coordinator submission owns its ordering gate.</summary>
+    internal Action? FlushSubmissionReserved { get; set; }
+
     /// <summary>Test-only callback invoked before physical-flush admission is released.</summary>
     internal Action? PhysicalFlushCompleted { get; set; }
 

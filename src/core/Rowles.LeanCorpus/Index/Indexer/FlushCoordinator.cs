@@ -1,3 +1,5 @@
+using System.Runtime.ExceptionServices;
+
 namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
@@ -9,15 +11,29 @@ internal sealed class FlushCoordinator
     private readonly IndexWriter _writer;
     private readonly Lock _gate = new();
     private readonly List<FlushPendingState> _pending = [];
+    private TaskCompletionSource _physicalProgress = NewPhysicalProgressSource();
     private int _activeExecutions;
 
     internal FlushCoordinator(IndexWriter writer) => _writer = writer;
 
-    internal void Submit(DwptFlushBatch batch, int segmentOrdinal, int commitGeneration, long seqStart, long seqEnd)
+    /// <summary>
+    /// Transfers a detached batch to the coordinator. Ordinal and sequence
+    /// reservation happen under the same gate as pending-queue insertion, so
+    /// physical publication cannot be reordered by a submitter race.
+    /// </summary>
+    internal int Submit(DwptFlushBatch batch, int commitGeneration)
     {
         ArgumentNullException.ThrowIfNull(batch);
         lock (_gate)
         {
+            int segmentOrdinal = Interlocked.Increment(ref _writer.NextSegmentOrdinal) - 1;
+            long seqStart = 0;
+            long seqEnd = 0;
+            if (_writer.Config.TrackSequenceNumbers)
+            {
+                seqEnd = Interlocked.Add(ref _writer.NextSequenceNumberMut, batch.DocCount);
+                seqStart = seqEnd - batch.DocCount;
+            }
             _pending.Add(new FlushPendingState
             {
                 Batch = batch,
@@ -26,7 +42,9 @@ internal sealed class FlushCoordinator
                 SeqStart = seqStart,
                 SeqEnd = seqEnd
             });
+            _writer.Config.FlushSubmissionReserved?.Invoke();
             StartEligibleExecutions();
+            return segmentOrdinal;
         }
     }
 
@@ -84,11 +102,63 @@ internal sealed class FlushCoordinator
 
             // This happens with WriteLock held by the caller. Execution never
             // acquires WriteLock, so waiting cannot invert the lock order.
+            // Do not let one fault skip the remaining accepted physical work:
+            // disposal must retain every resource until all of it is terminal.
             foreach (var execution in active)
-                execution.GetAwaiter().GetResult();
+            {
+                try { execution.GetAwaiter().GetResult(); }
+                catch { /* Selected after every accepted task is terminal. */ }
+            }
 
-            PublishCompletedPrefix();
+            ExceptionDispatchInfo? failure = null;
+            lock (_gate)
+            {
+                StartEligibleExecutions();
+                if (_pending.Any(static state => state.ExecutionTask is null || !state.ExecutionTask.IsCompleted))
+                    continue;
+
+                int published = 0;
+                while (published < _pending.Count)
+                {
+                    var state = _pending[published];
+                    try
+                    {
+                        var segment = state.ExecutionTask!.GetAwaiter().GetResult();
+                        _writer.CommittedSegments.Add(segment);
+                        _writer.ContentChangedSinceCommit = true;
+                        state.Published = true;
+                        published++;
+                    }
+                    catch (Exception ex)
+                    {
+                        failure = ExceptionDispatchInfo.Capture(ex);
+                        break;
+                    }
+                }
+
+                // All batches are terminal and have released their owned memory.
+                // A failed reserved state prevents later work from becoming writer-visible.
+                _pending.Clear();
+            }
+
+            failure?.Throw();
+            return;
         }
+    }
+
+    /// <summary>Waits until an accepted physical flush reaches a terminal state.</summary>
+    internal void WaitForPhysicalProgress()
+    {
+        Task progress;
+        lock (_gate)
+        {
+            StartEligibleExecutions();
+            if (_pending.Count == 0)
+                return;
+            progress = _physicalProgress.Task;
+        }
+
+        progress.GetAwaiter().GetResult();
     }
 
     internal int PendingCount
@@ -152,10 +222,17 @@ internal sealed class FlushCoordinator
 
     private void ExecutionFinished()
     {
+        TaskCompletionSource completedProgress;
         lock (_gate)
         {
             _activeExecutions--;
+            completedProgress = _physicalProgress;
+            _physicalProgress = NewPhysicalProgressSource();
             StartEligibleExecutions();
         }
+        completedProgress.TrySetResult();
     }
+
+    private static TaskCompletionSource NewPhysicalProgressSource()
+        => new(TaskCreationOptions.RunContinuationsAsynchronously);
 }

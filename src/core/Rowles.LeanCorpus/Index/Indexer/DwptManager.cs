@@ -259,16 +259,8 @@ internal static class DwptManager
             {
                 if (dwpt.DocCount == 0) continue;
 
-                int ordinal = writer.NextSegmentOrdinal++;
-                long seqEnd = 0, seqStart = 0;
-                if (writer.Config.TrackSequenceNumbers)
-                {
-                    seqEnd = Interlocked.Add(ref writer.NextSequenceNumberMut, dwpt.DocCount);
-                    seqStart = seqEnd - dwpt.DocCount;
-                }
-
                 var batch = DetachFlushBatch(writer, dwpt);
-                writer.FlushCoordinator.Submit(batch, ordinal, writer.CommitGeneration, seqStart, seqEnd);
+                writer.FlushCoordinator.Submit(batch, writer.CommitGeneration);
             }
         }
     }
@@ -305,23 +297,32 @@ internal static class DwptManager
             return;
 
         DwptFlushBatch? batch = null;
-        int ordinal = 0;
-        long seqStart = 0, seqEnd = 0;
         lock (dwpt)
         {
             if (dwpt.DocCount == 0)
                 return;
 
-            ordinal = Interlocked.Increment(ref writer.NextSegmentOrdinal) - 1;
-            if (writer.Config.TrackSequenceNumbers)
-            {
-                seqEnd = Interlocked.Add(ref writer.NextSequenceNumberMut, dwpt.DocCount);
-                seqStart = seqEnd - dwpt.DocCount;
-            }
             batch = DetachFlushBatch(writer, dwpt);
         }
 
-        writer.FlushCoordinator.Submit(batch, ordinal, writer.CommitGeneration, seqStart, seqEnd);
+        writer.FlushCoordinator.Submit(batch, writer.CommitGeneration);
+
+        if (IsRetainedMemoryOverBudget(writer))
+        {
+            writer.FlushCoordinator.WaitForPhysicalProgress();
+            lock (writer.WriteLock)
+                writer.FlushCoordinator.PublishCompletedPrefix();
+        }
+    }
+
+    private static bool IsRetainedMemoryOverBudget(IndexWriter writer)
+    {
+        long sharedLimit = writer.Config.RamBufferSizeMB > 0
+            ? (long)(writer.Config.RamBufferSizeMB * 1024 * 1024)
+            : long.MaxValue;
+        long queuedLimit = writer.Config.MaxQueuedBytes > 0 ? writer.Config.MaxQueuedBytes : long.MaxValue;
+        long effectiveLimit = Math.Min(sharedLimit, queuedLimit);
+        return Volatile.Read(ref writer.ActiveDwptBytes) + Volatile.Read(ref writer.PendingFlushBytes) >= effectiveLimit;
     }
 
     private static DwptFlushBatch DetachFlushBatch(IndexWriter writer, DocumentsWriterPerThread dwpt)
