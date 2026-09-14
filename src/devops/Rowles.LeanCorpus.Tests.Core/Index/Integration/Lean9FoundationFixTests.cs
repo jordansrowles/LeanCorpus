@@ -452,15 +452,66 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
         {
             MaxBufferedDocs = 1,
             MaxConcurrentFlushes = 1,
-            MaxQueuedBytes = long.MaxValue
+            MaxQueuedBytes = 1
         };
         using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(RetainedMemoryPressure_DoesNotWaitForAlreadyCompletedFlush))), config);
-        config.MaxQueuedBytes = Volatile.Read(ref writer.ActiveDwptBytes) + 1;
 
         for (int i = 0; i < 32; i++)
             writer.AddDocument(Document(i.ToString(System.Globalization.CultureInfo.InvariantCulture), "fast flush"));
 
         writer.Commit();
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task PublishCompletedPrefix_RemovesSuccessfulStateBeforeLaterFailure()
+    {
+        using var firstFlushEntered = new ManualResetEventSlim();
+        using var secondFlushEntered = new ManualResetEventSlim();
+        using var releaseFirstFlush = new ManualResetEventSlim();
+        using var releaseSecondFlush = new ManualResetEventSlim();
+        int executions = 0;
+        int completed = 0;
+        using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(PublishCompletedPrefix_RemovesSuccessfulStateBeforeLaterFailure))),
+            new IndexWriterConfig
+            {
+                MaxBufferedDocs = 1,
+                MaxConcurrentFlushes = 2,
+                PhysicalFlushStarted = () =>
+                {
+                    if (Interlocked.Increment(ref executions) == 1)
+                    {
+                        firstFlushEntered.Set();
+                        releaseFirstFlush.Wait(TestContext.Current.CancellationToken);
+                        return;
+                    }
+
+                    secondFlushEntered.Set();
+                    releaseSecondFlush.Wait(TestContext.Current.CancellationToken);
+                    throw new IOException("second detached flush failed");
+                },
+                PhysicalFlushCompleted = () => Interlocked.Increment(ref completed)
+            });
+
+        writer.AddDocument(Document("first", "success"));
+        Assert.True(firstFlushEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        writer.AddDocument(Document("second", "failure"));
+        Assert.True(secondFlushEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+
+        releaseFirstFlush.Set();
+        Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref completed) == 1, TimeSpan.FromSeconds(10)));
+        releaseSecondFlush.Set();
+        Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref completed) == 2, TimeSpan.FromSeconds(10)));
+        while (writer.FlushCoordinator.WaitForPhysicalProgress())
+        {
+        }
+
+        lock (writer.WriteLock)
+            Assert.Throws<IOException>(writer.FlushCoordinator.PublishCompletedPrefix);
+
+        lock (writer.WriteLock)
+            Assert.Throws<IOException>(writer.FlushCoordinator.DrainAndPublish);
+
+        Assert.Single(writer.CommittedSegments);
     }
 
     [Fact(Timeout = 30_000)]

@@ -10,6 +10,7 @@
 
 ### Fixed
 
+- Prevented detached-flush retained-memory backpressure from spinning when only empty DWPT baseline memory remains, and made ordered publication remove its successful prefix before surfacing a later flush failure.
 - Preserve the original detached-flush failure at commit barriers instead of masking it with a generic poisoned-writer exception.
 - Return detached DWPT pooled buffers after both successful and failed physical flushes or abort resets, poison physical flush failures at their shared boundary, and reconcile fatal writer state without waiting on admitted-operation leases.
 - Poison concurrent indexing admission as soon as a fatal worker failure is observed, while preserving the deterministic lowest-index failure as the reported cause.

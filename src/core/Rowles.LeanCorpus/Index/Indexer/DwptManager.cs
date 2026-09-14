@@ -309,7 +309,8 @@ internal static class DwptManager
 
         while (IsRetainedMemoryOverBudget(writer))
         {
-            writer.FlushCoordinator.WaitForPhysicalProgress();
+            if (!writer.FlushCoordinator.WaitForPhysicalProgress())
+                break;
             lock (writer.WriteLock)
                 writer.FlushCoordinator.PublishCompletedPrefix();
         }

@@ -57,27 +57,32 @@ internal sealed class FlushCoordinator
         {
             StartEligibleExecutions();
             int published = 0;
-            while (published < _pending.Count)
+            try
             {
-                var state = _pending[published];
-                var execution = state.ExecutionTask;
-                if (execution is null || !execution.IsCompleted)
-                    break;
-
-                // GetAwaiter preserves the physical-flush exception rather than
-                // exposing an AggregateException from implementation details.
-                var segment = execution.GetAwaiter().GetResult();
-                if (!state.Published)
+                while (published < _pending.Count)
                 {
-                    _writer.CommittedSegments.Add(segment);
-                    _writer.ContentChangedSinceCommit = true;
-                    state.Published = true;
-                }
-                published++;
-            }
+                    var state = _pending[published];
+                    var execution = state.ExecutionTask;
+                    if (execution is null || !execution.IsCompleted)
+                        break;
 
-            if (published > 0)
-                _pending.RemoveRange(0, published);
+                    // GetAwaiter preserves the physical-flush exception rather than
+                    // exposing an AggregateException from implementation details.
+                    var segment = execution.GetAwaiter().GetResult();
+                    if (!state.Published)
+                    {
+                        _writer.CommittedSegments.Add(segment);
+                        _writer.ContentChangedSinceCommit = true;
+                        state.Published = true;
+                    }
+                    published++;
+                }
+            }
+            finally
+            {
+                if (published > 0)
+                    _pending.RemoveRange(0, published);
+            }
         }
     }
 
@@ -123,9 +128,12 @@ internal sealed class FlushCoordinator
                     try
                     {
                         var segment = state.ExecutionTask!.GetAwaiter().GetResult();
-                        _writer.CommittedSegments.Add(segment);
-                        _writer.ContentChangedSinceCommit = true;
-                        state.Published = true;
+                        if (!state.Published)
+                        {
+                            _writer.CommittedSegments.Add(segment);
+                            _writer.ContentChangedSinceCommit = true;
+                            state.Published = true;
+                        }
                         published++;
                     }
                     catch (Exception ex)
@@ -146,7 +154,7 @@ internal sealed class FlushCoordinator
     }
 
     /// <summary>Waits until an accepted physical flush reaches a terminal state.</summary>
-    internal void WaitForPhysicalProgress()
+    internal bool WaitForPhysicalProgress()
     {
         Task[] active;
         lock (_gate)
@@ -158,12 +166,13 @@ internal sealed class FlushCoordinator
                 .Cast<Task>()
                 .ToArray();
             if (active.Length == 0)
-                return;
+                return false;
         }
 
         // Waiting on a snapshot of incomplete work cannot miss a completion
         // that occurred before this method acquired the coordinator gate.
         Task.WhenAny(active).GetAwaiter().GetResult();
+        return true;
     }
 
     internal int PendingCount
