@@ -291,7 +291,7 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
         ValueTask indexing = writer!.AddDocumentsConcurrentAsync(
             [Document("one", "alpha"), Document("two", "beta")],
             TestContext.Current.CancellationToken);
-        Assert.True(flushEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        await WaitForSignalAsync(flushEntered, TestContext.Current.CancellationToken);
         Assert.Equal(1, observedOperations);
         releaseFlush.Set();
         await indexing;
