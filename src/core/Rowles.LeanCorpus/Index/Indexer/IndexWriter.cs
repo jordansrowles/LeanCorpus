@@ -403,8 +403,7 @@ public sealed partial class IndexWriter : IDisposable
                 var merger = new SegmentMerger(_directory, _config.MergePolicy, _config.PostingsSkipInterval,
                     _config.SoftDeleteRetentionSeconds, _config.HnswBuildConfig,
                     useCompoundFile: _config.UseCompoundFile);
-                int localOrdinal = _nextSegmentOrdinal;
-                _nextSegmentOrdinal += sourceSegments.Count + 8;
+                int localOrdinal = ReserveSegmentOrdinalRange(sourceSegments.Count + 8);
 
                 var merged = merger.MergeSegmentsFromDirectory(
                     sourceDirectory, sourceSegments, ref localOrdinal, _config, _commitGeneration);
@@ -412,7 +411,6 @@ public sealed partial class IndexWriter : IDisposable
                 {
                     _committedSegments.Add(merged);
                     _contentChangedSinceCommit = true;
-                    _nextSegmentOrdinal = Math.Max(_nextSegmentOrdinal, localOrdinal);
                 }
             }
         }
@@ -969,7 +967,25 @@ public sealed partial class IndexWriter : IDisposable
 
     // --- Internal accessors for mutable scalars (managers need ref access) ---
     internal ref long NextSequenceNumberMut => ref _nextSequenceNumber;
-    internal ref int NextSegmentOrdinal => ref _nextSegmentOrdinal;
+    /// <summary>
+    /// Reserves one globally unique segment ordinal. Every segment-producing
+    /// path uses this allocator so detached flushes cannot collide with merges.
+    /// </summary>
+    internal int ReserveSegmentOrdinal()
+        => Interlocked.Increment(ref _nextSegmentOrdinal) - 1;
+
+    /// <summary>
+    /// Reserves a contiguous globally unique ordinal range and returns its start.
+    /// </summary>
+    internal int ReserveSegmentOrdinalRange(int count)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(count);
+        return Interlocked.Add(ref _nextSegmentOrdinal, count) - count;
+    }
+
+    /// <summary>Initialises ordinal allocation while reopening an index.</summary>
+    internal void InitialiseNextSegmentOrdinal(int nextOrdinal)
+        => Volatile.Write(ref _nextSegmentOrdinal, nextOrdinal);
     internal ref int CommitGeneration => ref _commitGeneration;
     internal ref long ContentToken => ref _contentToken;
     internal ref bool ContentChangedSinceCommit => ref _contentChangedSinceCommit;

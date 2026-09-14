@@ -85,33 +85,28 @@ public sealed class IndexerColumnsAndFlushSourceTests
         Assert.Equal(0, cleared.MaxDocId);
     }
 
-    [Fact(DisplayName = "DwptFlushBatchSource: exposes captured state after DWPT reset")]
-    public void DwptFlushBatchSource_ExposesCapturedStateAfterDwptReset()
+    [Fact(DisplayName = "DwptFlushBatch: owns detached state after DWPT reset")]
+    public void DwptFlushBatch_OwnsDetachedStateAfterDwptReset()
     {
         var dwpt = CreateDwpt();
         dwpt.AddDocument(CreateFullDocument());
         dwpt.ParentDocIds = [0];
 
-        DwptFlushBatch snapshot;
+        DwptFlushBatch batch;
         lock (dwpt)
-            snapshot = DwptFlushBatch.CaptureFrom(dwpt);
+            batch = DwptFlushBatch.CaptureFrom(dwpt);
 
-        IFlushSource source = new DwptFlushBatchSource(snapshot);
-
-        Assert.Equal(1, snapshot.DocCount);
+        Assert.Equal(1, batch.DocCount);
         Assert.Equal(0, dwpt.DocCount);
-        AssertSourceContainsAllFields(source);
-        Assert.Contains(snapshot.EnumeratePostings(), static posting => posting.Term == "body\0alpha");
+        AssertBatchContainsAllFields(batch);
+        Assert.Contains(batch.EnumeratePostings(), static posting => posting.Term == "body\0alpha");
 
-        var utf8Postings = new (byte[] TermUtf8, PostingAccumulator Acc)[source.PostingsCount];
-        source.CopySortedPostingsUtf8(utf8Postings);
-        Assert.Contains(
-            utf8Postings,
-            static posting => System.Text.Encoding.UTF8.GetString(posting.TermUtf8) == "body\0alpha");
+        Assert.Contains(Enumerable.Range(0, batch.TermHash.Count),
+            termId => batch.TermHash.GetTermString(termId) == "body\0alpha");
 
         var pending = new FlushPendingState
         {
-            Batch = snapshot,
+            Batch = batch,
             SegmentOrdinal = 4,
             CommitGeneration = 0,
             SeqStart = 10,
@@ -124,32 +119,32 @@ public sealed class IndexerColumnsAndFlushSourceTests
         Assert.Equal(10, pending.SeqStart);
         Assert.Equal(10, pending.SeqEnd);
         Assert.Equal("seg_4", pending.ExecutionTask!.Result.SegmentId);
-        snapshot.Dispose();
+        batch.Dispose();
     }
 
-    private static void AssertSourceContainsAllFields(IFlushSource source)
+    private static void AssertBatchContainsAllFields(DwptFlushBatch batch)
     {
-        Assert.Equal(1, source.DocCount);
-        Assert.Contains("body", source.FieldNames);
-        Assert.NotEmpty(source.DocTokenCounts);
-        Assert.NotEmpty(source.FieldBoosts);
-        Assert.NotEmpty(source.StoredDocStarts);
-        Assert.NotEmpty(source.StoredFieldIds);
-        Assert.NotEmpty(source.StoredFieldValues);
-        Assert.NotEmpty(source.StoredFieldIdToName);
-        Assert.NotEmpty(source.NumericIndex);
-        Assert.NotEmpty(source.Int64Index);
-        Assert.NotEmpty(source.Vectors);
-        Assert.NotEmpty(source.NumericDocValues);
-        Assert.NotEmpty(source.Int64DocValues);
-        Assert.NotEmpty(source.SortedDocValues);
-        Assert.NotEmpty(source.SortedSetDocValues);
-        Assert.NotEmpty(source.SortedNumericDocValues);
-        Assert.NotEmpty(source.Int64SortedDocValues);
-        Assert.NotEmpty(source.BinaryDocValues);
-        Assert.NotNull(source.ParentDocIds);
-        Assert.NotEmpty(source.PostingAccumulators);
-        Assert.True(source.PostingsCount > 0);
+        Assert.Equal(1, batch.DocCount);
+        Assert.Contains("body", batch.FieldNames);
+        Assert.NotEmpty(batch.DocTokenCounts);
+        Assert.NotEmpty(batch.FieldBoosts);
+        Assert.NotEmpty(batch.StoredDocStarts);
+        Assert.NotEmpty(batch.StoredFieldIds);
+        Assert.NotEmpty(batch.StoredValues);
+        Assert.NotEmpty(batch.StoredFieldIdToName);
+        Assert.NotEmpty(batch.NumericIndex);
+        Assert.NotEmpty(batch.Int64Index);
+        Assert.NotEmpty(batch.Vectors);
+        Assert.NotEmpty(batch.NumericDocValues);
+        Assert.NotEmpty(batch.Int64DocValues);
+        Assert.NotEmpty(batch.SortedDocValues);
+        Assert.NotEmpty(batch.SortedSetDocValues);
+        Assert.NotEmpty(batch.SortedNumericDocValues);
+        Assert.NotEmpty(batch.Int64SortedDocValues);
+        Assert.NotEmpty(batch.BinaryDocValues);
+        Assert.NotNull(batch.ParentDocIds);
+        Assert.NotEmpty(batch.PostingAccumulators);
+        Assert.True(batch.TermHash.Count > 0);
     }
 
     private static DocumentsWriterPerThread CreateDwpt()

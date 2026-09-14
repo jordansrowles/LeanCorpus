@@ -39,7 +39,9 @@ public class ConcurrentVsSequentialBenchmarks
     [Params(100, 1000, 10_000)]
     public int BatchSize { get; set; }
 
-    private const int ConcurrentIndexingConcurrency = 4;
+    /// <summary>DWPT pool sizes used to measure bounded producer scaling.</summary>
+    [Params(1, 2, 4)]
+    public int IndexingConcurrency { get; set; }
 
     private LeanDocument[] _documents = [];
     private readonly List<string> _iterationPaths = [];
@@ -105,7 +107,7 @@ public class ConcurrentVsSequentialBenchmarks
         using var dir = new MMapDirectory(path);
         using var writer = new IndexWriter(dir, new IndexWriterConfig
         {
-            IndexingConcurrency = ConcurrentIndexingConcurrency,
+            IndexingConcurrency = IndexingConcurrency,
             MaxBufferedDocs = 10_000,
             RamBufferSizeMB = 256
         });

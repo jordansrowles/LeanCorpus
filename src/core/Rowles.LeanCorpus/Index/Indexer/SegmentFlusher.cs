@@ -3,6 +3,7 @@ using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.DocValues;
+using Rowles.LeanCorpus.Codecs.Fst;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Codecs.Bkd;
 using Rowles.LeanCorpus.Codecs.TermVectors;
@@ -18,7 +19,7 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 internal static class SegmentFlusher
 {
     private static SegmentInfo FlushCore(
-        IFlushSource source,
+        DwptFlushBatch source,
         IndexWriterConfig config,
         string directoryPath,
         string segId,
@@ -27,9 +28,8 @@ internal static class SegmentFlusher
         long nextSequenceNumber,
         int minDocsForHnsw)
     {
-        // Apply index-time sorting for every flush source. DWPT and detached
-        // batches use this path, so sorted metadata cannot get out of sync with
-        // physical document order.
+        // The detached batch is exclusively owned here, so sorting can safely
+        // reorder its metadata before physical publication.
         if (config.IndexSort is not null)
         {
             var sortPerm = ComputeSortPermutation(source, config.IndexSort);
@@ -102,22 +102,21 @@ internal static class SegmentFlusher
         }
 
         // Sort by UTF-8 byte order and build the dictionary without re-encoding.
-        int postingsCount = source.PostingsCount;
-        var byteTerms = new (byte[] TermUtf8, PostingAccumulator Acc)[postingsCount];
-        source.CopySortedPostingsUtf8(byteTerms);
-        Array.Sort(byteTerms, static (a, b) => a.TermUtf8.AsSpan().SequenceCompareTo(b.TermUtf8));
+        int postingsCount = source.TermHash.Count;
+        var termIds = new int[postingsCount];
+        for (int i = 0; i < termIds.Length; i++)
+            termIds[i] = i;
+        Array.Sort(termIds, Comparer<int>.Create(source.TermHash.CompareTerms));
 
-        var utf8Terms = new (byte[] KeyUtf8, long Output)[postingsCount];
+        var postingsOffsets = WritePostingsBody(termIds, source, basePath, quantisedNorms);
+
+        // The FST reads the owned UTF-8 term pool directly. No per-term byte
+        // arrays are needed while the detached batch remains alive.
+        var fstBuilder = new FstBuilder();
+        fstBuilder.EnsureNodeCapacity(postingsCount);
         for (int i = 0; i < postingsCount; i++)
-            utf8Terms[i] = (byteTerms[i].TermUtf8, 0);
-
-        var postingsOffsets = WritePostingsBody(byteTerms, basePath, quantisedNorms);
-
-        // The byte-sorted terms are the FST input order, so offsets can be copied
-        // directly without materialising a second string representation per term.
-        for (int i = 0; i < postingsCount; i++)
-            utf8Terms[i].Output = postingsOffsets[i];
-        var fstBlob = TermDictionaryWriter.BuildFstUtf8(utf8Terms);
+            fstBuilder.Add(source.TermHash.GetTerm(termIds[i]), postingsOffsets[i]);
+        var fstBlob = fstBuilder.Finish();
         TermDictionaryWriter.WriteBlob(basePath + ".dic", fstBlob);
 
         NormsWriter.Write(basePath + ".nrm", fieldNorms, docCount: docCount, sparseFieldBoosts: source.FieldBoosts);
@@ -130,7 +129,7 @@ internal static class SegmentFlusher
 
         // Stored fields
         StoredFieldsWriter.Write(basePath + ".fdt", basePath + ".fdx",
-            source.StoredDocStarts, source.StoredFieldIds, source.StoredFieldValues, source.StoredFieldIdToName,
+            source.StoredDocStarts, source.StoredFieldIds, source.StoredValues, source.StoredFieldIdToName,
             config.StoredFieldBlockSize, config.CompressionPolicy);
 
         // Numeric field index
@@ -411,7 +410,7 @@ internal static class SegmentFlusher
     /// afterwards to publish the returned <see cref="SegmentInfo"/>.
     /// </summary>
     public static SegmentInfo FlushFromBatch(
-        DwptFlushBatch snapshot,
+        DwptFlushBatch batch,
         IndexWriterConfig config,
         string directoryPath,
         int ordinal,
@@ -420,7 +419,7 @@ internal static class SegmentFlusher
         long seqEnd)
     {
         var segId = $"seg_{ordinal}";
-        var segInfo = FlushCore(new DwptFlushBatchSource(snapshot), config, directoryPath, segId,
+        var segInfo = FlushCore(batch, config, directoryPath, segId,
             commitGeneration, seqStart, seqEnd, minDocsForHnsw: 0);
 
         var basePath = Path.Combine(directoryPath, segId);
@@ -428,15 +427,15 @@ internal static class SegmentFlusher
         // Term vectors
         if (config.StoreTermVectors)
         {
-            WriteTermVectors(basePath, snapshot.DocCount,
-                snapshot.EnumeratePostings());
+            WriteTermVectors(basePath, batch.DocCount,
+                batch.EnumeratePostings());
         }
 
         // Parent bitset
-        if (snapshot.ParentDocIds is { Count: > 0 })
+        if (batch.ParentDocIds is { Count: > 0 })
         {
-            var pbs = new ParentBitSet(snapshot.DocCount);
-            foreach (var pid in snapshot.ParentDocIds)
+            var pbs = new ParentBitSet(batch.DocCount);
+            foreach (var pid in batch.ParentDocIds)
                 pbs.Set(pid);
             pbs.WriteTo(basePath + ".pbs");
         }
@@ -487,11 +486,12 @@ internal static class SegmentFlusher
     /// Uses the v4 sequential body-then-metadata layout.
     /// </summary>
     private static long[] WritePostingsBody(
-        (byte[] TermUtf8, PostingAccumulator Acc)[] accumulatorTerms,
+        int[] termIds,
+        DwptFlushBatch batch,
         string basePath,
         IReadOnlyDictionary<string, byte[]> quantisedNorms)
     {
-        int postingsCount = accumulatorTerms.Length;
+        int postingsCount = termIds.Length;
         var postingsOffsets = new long[postingsCount];
         byte[]? currentFieldUtf8 = null;
         byte[]? currentFieldNormBytes = null;
@@ -505,15 +505,16 @@ internal static class SegmentFlusher
 
             using var blockWriter = new BlockPostingsWriter(bodyOutput);
 
-            for (int termIndex = 0; termIndex < accumulatorTerms.Length; termIndex++)
+            for (int termIndex = 0; termIndex < termIds.Length; termIndex++)
             {
-                var (qualifiedTermUtf8, acc) = accumulatorTerms[termIndex];
+                ReadOnlySpan<byte> qualifiedTermUtf8 = batch.TermHash.GetTerm(termIds[termIndex]);
+                var acc = batch.PostingAccumulators[termIds[termIndex]];
                 var ids = acc.DocIds;
 
-                int separator = Array.IndexOf(qualifiedTermUtf8, (byte)0);
+                int separator = qualifiedTermUtf8.IndexOf((byte)0);
                 ReadOnlySpan<byte> fieldUtf8 = separator < 0
                     ? qualifiedTermUtf8
-                    : qualifiedTermUtf8.AsSpan(0, separator);
+                    : qualifiedTermUtf8[..separator];
                 if (currentFieldUtf8 is null || !fieldUtf8.SequenceEqual(currentFieldUtf8))
                 {
                     currentFieldUtf8 = fieldUtf8.ToArray();
@@ -607,7 +608,7 @@ internal static class SegmentFlusher
 
 
 
-    internal static int[] ComputeSortPermutation(IFlushSource buffer, IndexSort sort)
+    internal static int[] ComputeSortPermutation(DwptFlushBatch buffer, IndexSort sort)
     {
         int n = buffer.DocCount;
         var perm = new int[n];
@@ -679,7 +680,7 @@ internal static class SegmentFlusher
         return perm;
     }
 
-    private static double ResolveNumericSortValue(IFlushSource source, SortField field, int docId)
+    private static double ResolveNumericSortValue(DwptFlushBatch source, SortField field, int docId)
     {
         if (source.SortedNumericDocValues.TryGetValue(field.FieldName, out var sortedValues)
             && sortedValues.TryGetValue(docId, out var multiValues)
@@ -699,7 +700,7 @@ internal static class SegmentFlusher
         return ResolveStoredDouble(source, field.FieldName, docId);
     }
 
-    private static long ResolveInt64SortValue(IFlushSource source, SortField field, int docId)
+    private static long ResolveInt64SortValue(DwptFlushBatch source, SortField field, int docId)
     {
         if (source.Int64SortedDocValues.TryGetValue(field.FieldName, out var sortedValues)
             && sortedValues.TryGetValue(docId, out var multiValues)
@@ -719,7 +720,7 @@ internal static class SegmentFlusher
         return ResolveStoredInt64(source, field.FieldName, docId);
     }
 
-    private static string? ResolveStringSortValue(IFlushSource source, SortField field, int docId)
+    private static string? ResolveStringSortValue(DwptFlushBatch source, SortField field, int docId)
     {
         if (source.SortedDocValues.TryGetValue(field.FieldName, out var values)
             && docId < values.Count)
@@ -764,7 +765,7 @@ internal static class SegmentFlusher
         return selected;
     }
 
-    private static double ResolveStoredDouble(IFlushSource source, string fieldName, int docId)
+    private static double ResolveStoredDouble(DwptFlushBatch source, string fieldName, int docId)
     {
         if (!TryGetStoredValue(source, fieldName, docId, out var value))
             return 0;
@@ -777,7 +778,7 @@ internal static class SegmentFlusher
             : 0;
     }
 
-    private static long ResolveStoredInt64(IFlushSource source, string fieldName, int docId)
+    private static long ResolveStoredInt64(DwptFlushBatch source, string fieldName, int docId)
     {
         if (!TryGetStoredValue(source, fieldName, docId, out var value))
             return 0;
@@ -790,7 +791,7 @@ internal static class SegmentFlusher
             : 0;
     }
 
-    private static string? ResolveStoredString(IFlushSource source, string fieldName, int docId)
+    private static string? ResolveStoredString(DwptFlushBatch source, string fieldName, int docId)
     {
         return TryGetStoredValue(source, fieldName, docId, out var value)
             ? value.StringValue
@@ -798,7 +799,7 @@ internal static class SegmentFlusher
     }
 
     private static bool TryGetStoredValue(
-        IFlushSource source,
+        DwptFlushBatch source,
         string fieldName,
         int docId,
         out Codecs.StoredFields.StoredFieldValue value)
@@ -817,7 +818,7 @@ internal static class SegmentFlusher
             if ((uint)fieldId < (uint)source.StoredFieldIdToName.Count
                 && string.Equals(source.StoredFieldIdToName[fieldId], fieldName, StringComparison.Ordinal))
             {
-                value = source.StoredFieldValues[i];
+                value = source.StoredValues[i];
                 return true;
             }
         }
@@ -825,7 +826,7 @@ internal static class SegmentFlusher
         return false;
     }
 
-    internal static void ApplySortPermutation(IFlushSource buffer, int[] sortPerm, int[] inversePerm)
+    internal static void ApplySortPermutation(DwptFlushBatch buffer, int[] sortPerm, int[] inversePerm)
     {
         int n = buffer.DocCount;
 
@@ -943,13 +944,13 @@ internal static class SegmentFlusher
         }
     }
 
-    private static void RemapPostings(IFlushSource buffer, int[] inversePerm)
+    private static void RemapPostings(DwptFlushBatch buffer, int[] inversePerm)
     {
         foreach (var acc in buffer.PostingAccumulators)
             acc.RemapDocIds(inversePerm);
     }
 
-    private static void RemapStoredFields(IFlushSource buffer, int[] sortPerm, int n)
+    private static void RemapStoredFields(DwptFlushBatch buffer, int[] sortPerm, int n)
     {
         int totalEntries = buffer.StoredFieldIds.Count;
         var newFieldIds = new List<int>(totalEntries);
@@ -967,19 +968,19 @@ internal static class SegmentFlusher
             for (int j = start; j < end; j++)
             {
                 newFieldIds.Add(buffer.StoredFieldIds[j]);
-                newValues.Add(buffer.StoredFieldValues[j]);
+                newValues.Add(buffer.StoredValues[j]);
             }
         }
 
         buffer.StoredFieldIds.Clear();
         buffer.StoredFieldIds.AddRange(newFieldIds);
-        buffer.StoredFieldValues.Clear();
-        buffer.StoredFieldValues.AddRange(newValues);
+        buffer.StoredValues.Clear();
+        buffer.StoredValues.AddRange(newValues);
         buffer.StoredDocStarts.Clear();
         buffer.StoredDocStarts.AddRange(newDocStarts);
     }
 
-    private static void RemapDocTokenCounts(IFlushSource buffer, int[] sortPerm, int n)
+    private static void RemapDocTokenCounts(DwptFlushBatch buffer, int[] sortPerm, int n)
     {
         if (buffer.DocTokenCounts.Count == 0) return;
         var keysBuf = ArrayPool<string>.Shared.Rent(buffer.DocTokenCounts.Count);

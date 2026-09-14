@@ -25,7 +25,7 @@ internal sealed class FlushCoordinator
         ArgumentNullException.ThrowIfNull(batch);
         lock (_gate)
         {
-            int segmentOrdinal = Interlocked.Increment(ref _writer.NextSegmentOrdinal) - 1;
+            int segmentOrdinal = _writer.ReserveSegmentOrdinal();
             long seqStart = 0;
             long seqEnd = 0;
             if (_writer.Config.TrackSequenceNumbers)

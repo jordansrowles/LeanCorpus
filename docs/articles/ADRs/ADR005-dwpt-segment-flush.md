@@ -42,8 +42,9 @@ publishes completed `SegmentInfo` instances in submission order. The existing
 - `_writeLock` is not held during analysis or physical segment construction. The
   coordinator owns detached batches until terminal success or failure, then takes the
   writer lock only to publish the completed ordered prefix.
-- The sequential `AddDocument` path is unchanged. `SegmentFlusher.Flush` still operates on
-  `DocumentBufferState`. A shared `WritePostingsBody` helper serves both paths.
+- Ordinary and concurrent ingestion use the same DWPT pool. `SegmentFlusher.FlushFromBatch`
+  consumes the exclusively owned detached batch directly; there is no shared
+  `DocumentBufferState`, snapshot view, or secondary flush source.
 - Segment count increases proportional to partition count. `TieredMergePolicy` groups
   segments by size tier and merges the smallest when a tier exceeds the threshold.
 
@@ -53,8 +54,8 @@ publishes completed `SegmentInfo` instances in submission order. The existing
   `AppendMergedStoredField` (13 lines) are deleted. `ResetDwpt` is deleted.
 - `DwptFlushBatch` owns all detached resources, including rented term and posting buffers,
   until one-shot cleanup. `SegmentFlusher.FlushFromBatch` is the only production flush
-  entry point. The postings writer consumes UTF-8-qualified terms without allocating a
-  second managed term string per unique term.
+  entry point. The postings writer and FST sort compact term IDs against the batch's UTF-8
+  term pool, without allocating per-term byte arrays or managed term strings.
 - `AddDocumentsConcurrent`, ordinary `AddDocument`, and concurrent async ingestion use the
   same DWPT and coordinator pipeline. `FlushDwptPool` submits remaining owned batches and
   commit, mutation, merge, snapshot, and dispose boundaries drain the required work.

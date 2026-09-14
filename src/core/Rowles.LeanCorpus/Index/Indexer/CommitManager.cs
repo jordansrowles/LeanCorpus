@@ -315,7 +315,7 @@ internal static class CommitManager
 
         writer.CommitGeneration = recovery.Generation;
         writer.ContentToken = recovery.ContentToken;
-        writer.NextSegmentOrdinal = GetNextSegmentOrdinal(recovery.SegmentIds);
+        writer.InitialiseNextSegmentOrdinal(GetNextSegmentOrdinal(recovery.SegmentIds));
 
         var dirPath = directory.DirectoryPath;
         foreach (var segId in recovery.SegmentIds)
@@ -435,7 +435,7 @@ internal static class CommitManager
             var merger = new SegmentMerger(writer.Directory, writer.Config.MergePolicy, writer.Config.PostingsSkipInterval,
                 writer.Config.SoftDeleteRetentionSeconds, writer.Config.HnswBuildConfig,
                 useCompoundFile: writer.Config.UseCompoundFile);
-            int localOrdinal = writer.NextSegmentOrdinal;
+            int localOrdinal = writer.ReserveSegmentOrdinal();
             var merged = merger.MergeAll(mergeable, ref localOrdinal, writer.CommitGeneration);
 
             if (merged is null)
@@ -451,7 +451,6 @@ internal static class CommitManager
 
             writer.ContentToken++;
             writer.CommitGeneration++;
-            writer.NextSegmentOrdinal = Math.Max(writer.NextSegmentOrdinal, localOrdinal);
             WriteCommitStats(writer);
             WriteCommitFile(writer);
             writer.Config.DeletionPolicy.OnCommit(dirPath, writer.CommitGeneration, protectedSegments);
@@ -514,9 +513,8 @@ internal static class CommitManager
                     writer.Config.SoftDeleteRetentionSeconds, writer.Config.HnswBuildConfig,
                     useCompoundFile: writer.Config.UseCompoundFile);
                 lastMerger = merger;
-                int localOrdinal = writer.NextSegmentOrdinal;
+                int localOrdinal = writer.ReserveSegmentOrdinal();
                 var merged = merger.MergeAll(toMerge, ref localOrdinal, writer.CommitGeneration);
-                writer.NextSegmentOrdinal = Math.Max(writer.NextSegmentOrdinal, localOrdinal);
 
                 if (merged is null)
                 {

@@ -1,8 +1,10 @@
+using System.Collections.Concurrent;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
@@ -400,6 +402,69 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
     }
 
     [Fact(Timeout = 30_000)]
+    public async Task SegmentOrdinalReservations_AreUniqueAcrossFlushAndMergePaths()
+    {
+        using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(SegmentOrdinalReservations_AreUniqueAcrossFlushAndMergePaths))),
+            new IndexWriterConfig { MaxConcurrentFlushes = 1 });
+        var reservations = new ConcurrentBag<int>();
+
+        DwptFlushBatch CreateBatch(int id)
+        {
+            var dwpt = new DocumentsWriterPerThread(writer.DefaultAnalyser, new Dictionary<string, IAnalyser>(), writer.Config);
+            dwpt.AddDocument(Document($"flush-{id}", "value"));
+            lock (dwpt)
+                return DwptFlushBatch.CaptureFrom(dwpt);
+        }
+
+        Task flushes = Task.Run(() =>
+        {
+            for (int i = 0; i < 32; i++)
+                reservations.Add(writer.FlushCoordinator.Submit(CreateBatch(i), writer.CommitGeneration));
+        }, TestContext.Current.CancellationToken);
+        Task merges = Task.Run(() =>
+        {
+            for (int i = 0; i < 32; i++)
+            {
+                int start = writer.ReserveSegmentOrdinalRange(8);
+                for (int ordinal = start; ordinal < start + 8; ordinal++)
+                    reservations.Add(ordinal);
+            }
+        }, TestContext.Current.CancellationToken);
+
+        await Task.WhenAll(flushes, merges).WaitAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(reservations.Count, reservations.Distinct().Count());
+        writer.Commit();
+    }
+
+    [Fact(Timeout = 30_000)]
+    public void SequenceNumberRanges_AreUniqueNonOverlappingAndPersistedOnReopen()
+    {
+        string path = SubDir(nameof(SequenceNumberRanges_AreUniqueNonOverlappingAndPersistedOnReopen));
+        var config = new IndexWriterConfig
+        {
+            IndexingConcurrency = 2,
+            MaxBufferedDocs = 1,
+            MaxConcurrentFlushes = 2,
+            MergePolicy = NoMergePolicy.Instance,
+            TrackSequenceNumbers = true
+        };
+
+        using (var writer = new IndexWriter(new MMapDirectory(path), config))
+        {
+            writer.AddDocumentsConcurrent(Enumerable.Range(0, 20)
+                .Select(i => Document(i.ToString(System.Globalization.CultureInfo.InvariantCulture), "sequence"))
+                .ToArray());
+            writer.Commit();
+            AssertSequenceRanges(writer.CommittedSegments, expectedDocumentCount: 20);
+            Assert.Equal(20, writer.NextSequenceNumber);
+        }
+
+        using var reopened = new IndexWriter(new MMapDirectory(path), config);
+        AssertSequenceRanges(reopened.CommittedSegments, expectedDocumentCount: 20);
+        Assert.Equal(20, reopened.NextSequenceNumber);
+    }
+
+    [Fact(Timeout = 30_000)]
     public async Task RetainedMemoryPressure_WaitsForPhysicalFlushProgress()
     {
         using var firstFlushEntered = new ManualResetEventSlim();
@@ -672,6 +737,30 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
         document.Add(new StringField("id", id));
         document.Add(new TextField("body", body));
         return document;
+    }
+
+    private static void AssertSequenceRanges(IEnumerable<SegmentInfo> segments, int expectedDocumentCount)
+    {
+        var ranges = segments
+            .Select(segment => (segment.MinSequenceNumber, segment.MaxSequenceNumber))
+            .OrderBy(range => range.MinSequenceNumber)
+            .ToArray();
+
+        Assert.NotEmpty(ranges);
+        Assert.All(ranges, range =>
+        {
+            Assert.NotNull(range.MinSequenceNumber);
+            Assert.NotNull(range.MaxSequenceNumber);
+        });
+
+        long expectedStart = 0;
+        foreach (var (start, end) in ranges)
+        {
+            Assert.Equal(expectedStart, start!.Value);
+            Assert.True(end!.Value >= start.Value);
+            expectedStart = end.Value + 1;
+        }
+        Assert.Equal(expectedDocumentCount, expectedStart);
     }
 
     private static void UpdateMaximum(ref int target, int candidate)

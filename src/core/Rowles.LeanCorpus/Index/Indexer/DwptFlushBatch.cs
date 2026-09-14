@@ -36,14 +36,14 @@ internal sealed class DwptFlushBatch : IDisposable
     internal int CleanupCountForTests { get; private set; }
 
     /// <summary>
-    /// Captures an immutable snapshot of <paramref name="dwpt"/> by swapping its mutable
+    /// Detaches the owned mutable state from <paramref name="dwpt"/> by swapping its
     /// collections with fresh empty instances. The caller must hold <c>lock(dwpt)</c>.
     /// After this returns, the DWPT is ready for new documents and <see cref="DocumentsWriterPerThread.ClearAll"/>
     /// has been called on its replaced state.
     /// </summary>
     internal static DwptFlushBatch CaptureFrom(DocumentsWriterPerThread dwpt)
     {
-        var snapshot = new DwptFlushBatch
+        var batch = new DwptFlushBatch
         {
             EstimatedBytes = dwpt.EstimatedRamBytes,
             DocCount = dwpt.DocCount,
@@ -71,7 +71,7 @@ internal sealed class DwptFlushBatch : IDisposable
 
         dwpt.ResetAfterSnapshot();
 
-        return snapshot;
+        return batch;
     }
 
     /// <summary>Returns transferred pooled buffers exactly once.</summary>
