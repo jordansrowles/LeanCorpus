@@ -117,12 +117,13 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
                 DefaultAnalyser = analyser,
                 MaxBufferedDocs = 100
             });
+        Assert.Equal(2, writer.DwptPool!.Length);
 
-        Task ordinary = Task.Run(() => writer.AddDocument(Document("ordinary", "ordinary")), TestContext.Current.CancellationToken);
-        Assert.True(ordinaryEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        Task ordinary = StartBlockingProducer(() => writer.AddDocument(Document("ordinary", "ordinary")));
+        await WaitForSignalAsync(ordinaryEntered, TestContext.Current.CancellationToken);
 
-        Task fatal = Task.Run(() => writer.AddDocumentsConcurrent([Document("fatal", "fatal")]), TestContext.Current.CancellationToken);
-        Assert.True(fatalEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        Task fatal = StartBlockingProducer(() => writer.AddDocumentsConcurrent([Document("fatal", "fatal")]));
+        await WaitForSignalAsync(fatalEntered, TestContext.Current.CancellationToken);
 
         bool admissionClosed = SpinWait.SpinUntil(
             () =>
@@ -163,12 +164,13 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
                 DefaultAnalyser = analyser,
                 MaxBufferedDocs = 100
             });
+        Assert.Equal(2, writer.DwptPool!.Length);
 
-        Task ordinary = Task.Run(() => writer.AddDocument(Document("ordinary", "ordinary")), TestContext.Current.CancellationToken);
-        Assert.True(ordinaryEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        Task ordinary = StartBlockingProducer(() => writer.AddDocument(Document("ordinary", "ordinary")));
+        await WaitForSignalAsync(ordinaryEntered, TestContext.Current.CancellationToken);
 
-        Task fatal = Task.Run(() => writer.AddDocument(Document("fatal", "fatal")), TestContext.Current.CancellationToken);
-        Assert.True(fatalEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        Task fatal = StartBlockingProducer(() => writer.AddDocument(Document("fatal", "fatal")));
+        await WaitForSignalAsync(fatalEntered, TestContext.Current.CancellationToken);
 
         bool admissionClosed = SpinWait.SpinUntil(
             () =>
@@ -729,6 +731,37 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
         string path = Path.Combine(_fixture.Path, name);
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private static Task StartBlockingProducer(Action action)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                action();
+                completion.SetResult();
+            }
+            catch (Exception ex)
+            {
+                completion.SetException(ex);
+            }
+        })
+        {
+            IsBackground = true
+        };
+        thread.Start();
+        return completion.Task;
+    }
+
+    private static async Task WaitForSignalAsync(ManualResetEventSlim signal, CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!signal.IsSet && DateTime.UtcNow < deadline)
+            await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
+
+        Assert.True(signal.IsSet, "The expected producer did not reach its synchronisation point.");
     }
 
     private static LeanDocument Document(string id, string body)

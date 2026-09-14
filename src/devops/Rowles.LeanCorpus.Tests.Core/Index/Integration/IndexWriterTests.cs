@@ -203,12 +203,14 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
     [Fact(DisplayName = "High Ram Pressure: Does Not Force Full GC")]
     public void HighRamPressure_DoesNotForceFullGC()
     {
-        var shouldFlush = typeof(IndexWriter).GetMethod("ShouldFlush", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(shouldFlush);
+        var automaticFlush = typeof(IndexWriter).Assembly
+            .GetType("Rowles.LeanCorpus.Index.Indexer.DwptManager")?
+            .GetMethod("EvaluateAutomaticFlush", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(automaticFlush);
 
         Assert.False(
-            CallsMethod(shouldFlush!, typeof(GC), nameof(GC.Collect)),
-            "ShouldFlush must not induce a full GC; natural gen-2 collections make runtime counter assertions flaky.");
+            CallsMethod(automaticFlush!, typeof(GC), nameof(GC.Collect)),
+            "The automatic flush policy must not induce a full GC; natural gen-2 collections make runtime counter assertions flaky.");
     }
 
     private static bool CallsMethod(MethodInfo source, Type declaringType, string methodName)
@@ -305,7 +307,7 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
     /// Verifies that merge throttling reduces segment count when the threshold is exceeded.
     /// </summary>
     [Fact(DisplayName = "Merge Throttle: Reduces Segment Count After Threshold")]
-    public void MergeThrottle_ReducesSegmentCount_AfterThreshold()
+    public async Task MergeThrottle_ReducesSegmentCount_AfterThreshold()
     {
         var dir = new MMapDirectory(SubDir("merge_throttle_count"));
         // TieredMergePolicy(2): merge when 2+ segments exist in the same tier.
@@ -327,6 +329,10 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         }
 
         writer.Commit();
+
+        var merge = writer.MergeTask;
+        if (merge is not null)
+            await merge.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
 
         int segmentCount = System.IO.Directory.GetFiles(SubDir("merge_throttle_count"), "*.seg").Length;
         // With throttle+merge, should be fewer than the 6 unmerged segments.

@@ -29,15 +29,13 @@ internal static class DwptManager
     public static void AddDocument(IndexWriter writer, LeanDocument doc)
     {
         writer.EnterIndexingOperation();
-        try { AddDocumentCore(writer, doc, abortOnFatalFailure: true, out _); }
+        try { AddDocumentCore(writer, doc, abortOnFatalFailure: true); }
         finally { writer.ExitIndexingOperation(); }
     }
 
-    private static void AddDocumentCore(IndexWriter writer, LeanDocument doc, bool abortOnFatalFailure, out bool mutated)
+    private static void AddDocumentCore(IndexWriter writer, LeanDocument doc, bool abortOnFatalFailure)
     {
         bool acquired = false;
-        bool enteredDwpt = false;
-        mutated = false;
         try
         {
             writer.ValidateDocument(doc);
@@ -49,19 +47,19 @@ internal static class DwptManager
             var pool = writer.DwptPool ?? throw new InvalidOperationException(
                 "DWPT pool is not initialised.");
 
-            int slot = GetProducerSlot(writer, pool.Length);
-            var dwpt = pool[slot];
-
-            lock (dwpt)
+            var dwpt = EnterDwpt(writer, pool);
+            try
             {
                 writer.ThrowIfIndexingFailed();
                 dwpt.ValidateDocument(doc);
                 writer.ValidateVectorDimensions(doc);
-                enteredDwpt = true;
-                mutated = true;
                 long before = dwpt.EstimatedRamBytes;
                 dwpt.AddPrevalidatedDocument(doc);
                 Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes - before);
+            }
+            finally
+            {
+                Monitor.Exit(dwpt);
             }
 
             EvaluateAutomaticFlush(writer, dwpt);
@@ -80,7 +78,7 @@ internal static class DwptManager
         }
         catch (Exception ex)
         {
-            if (enteredDwpt && abortOnFatalFailure)
+            if (abortOnFatalFailure && !IsRecoverableDocumentRejection(ex))
             {
                 writer.MarkIndexingFailed(ex);
                 ReconcileFatalFailure(writer);
@@ -95,7 +93,6 @@ internal static class DwptManager
     {
         writer.EnterIndexingOperation();
         int acquired = 0;
-        bool enteredDwpt = false;
         bool addedToHeldSlots = false;
         try
         {
@@ -123,17 +120,19 @@ internal static class DwptManager
             }
 
             var pool = writer.DwptPool!;
-            int slot = GetProducerSlot(writer, pool.Length);
-            var dwpt = pool[slot];
-            lock (dwpt)
+            var dwpt = EnterDwpt(writer, pool);
+            try
             {
                 writer.ThrowIfIndexingFailed();
                 dwpt.ValidateDocumentBlock(block);
                 writer.ValidateVectorDimensions(block);
-                enteredDwpt = true;
                 long before = dwpt.EstimatedRamBytes;
                 dwpt.AddPrevalidatedDocumentBlock(block);
                 Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes - before);
+            }
+            finally
+            {
+                Monitor.Exit(dwpt);
             }
             EvaluateAutomaticFlush(writer, dwpt);
         }
@@ -146,7 +145,7 @@ internal static class DwptManager
         }
         catch (Exception ex)
         {
-            if (enteredDwpt)
+            if (!IsRecoverableDocumentRejection(ex))
             {
                 writer.MarkIndexingFailed(ex);
                 ReconcileFatalFailure(writer);
@@ -184,10 +183,9 @@ internal static class DwptManager
             {
                 if (loopState.LowestBreakIteration is long lowestFailure && i > lowestFailure)
                     return;
-                bool mutated = false;
                 try
                 {
-                    AddDocumentCore(writer, documents[i], abortOnFatalFailure: false, out mutated);
+                    AddDocumentCore(writer, documents[i], abortOnFatalFailure: false);
                 }
                 catch (TokenBudgetExceededException ex)
                 {
@@ -197,7 +195,7 @@ internal static class DwptManager
                             rejection = (i, ex);
                     }
                 }
-                catch (Exception ex) when (!mutated)
+                catch (Exception ex) when (IsRecoverableDocumentRejection(ex))
                 {
                     lock (failureLock)
                     {
@@ -360,18 +358,41 @@ internal static class DwptManager
         }
     }
 
-    private static void ReconcileFatalFailure(IndexWriter writer)
+    internal static void ReconcileFatalFailure(IndexWriter writer, int allowedActiveOperations = 1)
     {
         if (!writer.TryOwnFailureReconciliation())
             return;
-
-        // Each DWPT monitor serialises mutation with this clear. Producers which
-        // reach a selected DWPT after poisoning re-check the writer state first.
+        // Admission is closed before this point. Let already-admitted producers
+        // finish unwinding before clearing their DWPTs, so they cannot mutate a
+        // freshly cleared buffer after reconciliation.
+        writer.WaitForIndexingOperationsAtMost(allowedActiveOperations);
         AbortUncommittedWriterState(writer);
     }
 
-    private static int GetProducerSlot(IndexWriter writer, int poolLength)
-        => (int)((uint)Environment.CurrentManagedThreadId % (uint)poolLength);
+    private static bool IsRecoverableDocumentRejection(Exception exception)
+        => exception is TokenBudgetExceededException or ArgumentException or SchemaValidationException;
+
+    /// <summary>
+    /// Acquires an available DWPT before falling back to the producer's stable
+    /// slot. Thread IDs are not a concurrency partition: two live thread-pool
+    /// workers can share the same modulo slot while another DWPT is idle.
+    /// </summary>
+    private static DocumentsWriterPerThread EnterDwpt(
+        IndexWriter writer,
+        DocumentsWriterPerThread[] pool)
+    {
+        int preferred = (int)((uint)Environment.CurrentManagedThreadId % (uint)pool.Length);
+        for (int offset = 0; offset < pool.Length; offset++)
+        {
+            var candidate = pool[(preferred + offset) % pool.Length];
+            if (Monitor.TryEnter(candidate))
+                return candidate;
+        }
+
+        var fallback = pool[preferred];
+        Monitor.Enter(fallback);
+        return fallback;
+    }
 
     private static DocumentsWriterPerThread CreateThreadLocalDocumentWriter(
         IAnalyser defaultAnalyser, IndexWriterConfig config)

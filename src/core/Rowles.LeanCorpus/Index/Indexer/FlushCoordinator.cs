@@ -180,6 +180,11 @@ internal sealed class FlushCoordinator
         get { lock (_gate) return _pending.Count; }
     }
 
+    internal bool HasPendingFlush
+    {
+        get { lock (_gate) return _pending.Count != 0; }
+    }
+
     private void StartEligibleExecutions()
     {
         while (_activeExecutions < _writer.Config.MaxConcurrentFlushes)

@@ -422,11 +422,32 @@ public sealed partial class IndexWriter : IDisposable
 
     public void Commit()
     {
+        if (Volatile.Read(ref _indexingFailed) != 0)
+        {
+            // A background physical flush may have failed before this barrier
+            // entered. Terminalise its coordinator state first, so Dispose does
+            // not encounter the same already-observed failure a second time.
+            if (_flushCoordinator.HasPendingFlush)
+            {
+                DwptManager.ReconcileFatalFailure(this, allowedActiveOperations: 0);
+                lock (_writeLock)
+                    DwptManager.WaitForPendingFlushes(this);
+            }
+        }
         ThrowIfIndexingFailedWithCause();
         EnterIndexingOperation();
         try
         {
             CommitManager.CommitWithLocks(this);
+        }
+        catch
+        {
+            // A detached physical flush can fail after the pre-entry check but
+            // while this commit is draining it. This operation remains active,
+            // so retain its lease while reconciling the poisoned DWPT state.
+            if (Volatile.Read(ref _indexingFailed) != 0)
+                DwptManager.ReconcileFatalFailure(this, allowedActiveOperations: 1);
+            throw;
         }
         finally
         {
@@ -672,6 +693,9 @@ public sealed partial class IndexWriter : IDisposable
         _indexingOperations.ExitOperation();
     }
 
+    internal void WaitForIndexingOperationsAtMost(int maximum)
+        => _indexingOperations.WaitForActiveCountAtMost(maximum);
+
     internal bool TryOwnFailureReconciliation()
         => Interlocked.CompareExchange(ref _failureReconciliationOwner, 1, 0) == 0;
 
@@ -799,7 +823,7 @@ public sealed partial class IndexWriter : IDisposable
         lock (_writeLock)
         {
             if (_config.MergeThrottleSegments > 0 &&
-                _committedSegments.Count >= _config.MergeThrottleSegments)
+                _committedSegments.Count + _flushCoordinator.PendingCount >= _config.MergeThrottleSegments)
                 return true;
 
             if (_config.MaxPendingMergeBytes <= 0)
@@ -828,6 +852,13 @@ public sealed partial class IndexWriter : IDisposable
 
     internal void ThrottleMerge()
     {
+        // Detached batches are not visible to the merge policy until their
+        // physical work has completed and ordered publication has run. This
+        // throttle is intentionally the producer-side barrier which makes the
+        // configured segment ceiling effective rather than merely advisory.
+        lock (_writeLock)
+            DwptManager.WaitForPendingFlushes(this);
+
         MergeScheduler.ScheduleBackgroundMerge(this);
         var task = _mergeTask;
         if (task is not null)

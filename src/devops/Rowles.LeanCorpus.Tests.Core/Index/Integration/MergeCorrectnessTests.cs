@@ -224,8 +224,8 @@ public sealed class MergeCorrectnessTests : IClassFixture<TestDirectoryFixture>
             Assert.True(File.Exists(seg0Dic), "Expected seg_0.dic to exist before corruption.");
             File.Delete(seg0Dic);
 
-            // Second doc triggers throttle merge, which blocks via Wait().
-            // The merge fails because seg_0.dic is missing, but the failure is caught.
+            // The configured throttle terminalises detached work and waits for
+            // its merge before returning from the second admission.
             writer.AddDocument(MakeDoc("doc-1", "hello world second"));
 
             // Writer should now be marked as failed. The next indexing operation must throw.
