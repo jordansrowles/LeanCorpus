@@ -53,6 +53,14 @@ try {
         $latestRun = Get-LatestSuccessfulArtifactRun -Kind test -RepoRoot $Root
         Assert-Smoke ($null -ne $latestRun -and $latestRun.RunDirectory -eq $run.RunDirectory) 'latest successful run discovery failed.'
 
+        $buildRun = New-ArtifactRun -Kind build -Configuration Release `
+            -CommandLine 'artifacts-smoke build' -RepoRoot $Root -RunId 'build-lifecycle'
+        Complete-ArtifactRun -RunDirectory $buildRun.RunDirectory -Status Failed `
+            -AdditionalValues @{ binaryLog = 'build.binlog'; textLog = 'build.log' }
+        $buildManifest = Get-Content -LiteralPath (Join-Path $buildRun.RunDirectory 'run.json') -Raw | ConvertFrom-Json
+        Assert-Smoke ($buildManifest.status -eq 'Failed') 'build run was not marked Failed.'
+        Assert-Smoke ($buildManifest.binaryLog -eq 'build.binlog') 'build binary log metadata is missing.'
+
         # B. Clean containment.
         $artifactRoot = Get-ArtifactRoot -RepoRoot $Root
         $ownedFile = Join-Path $artifactRoot 'test/delete-me.txt'
@@ -84,6 +92,7 @@ try {
 
         # C. Default clean preservation.
         foreach ($relative in @(
+            'build/marker.txt',
             'test/marker.txt',
             'coverage/marker.txt',
             'docs/marker.txt',
@@ -96,7 +105,7 @@ try {
             Write-SmokeMarker (Join-Path $artifactRoot $relative)
         }
         Invoke-ArtifactClean -Target default -RepoRoot $Root
-        foreach ($relative in @('test', 'coverage', 'docs', 'diagnostics', 'temp')) {
+        foreach ($relative in @('build', 'test', 'coverage', 'docs', 'diagnostics', 'temp')) {
             Assert-Smoke (-not (Test-Path (Join-Path $artifactRoot $relative))) "default clean retained $relative."
         }
         foreach ($relative in @('benchmark/runs', 'benchmark/cache', 'package')) {

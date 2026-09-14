@@ -29,18 +29,19 @@ function Invoke-ArtifactClean {
     $root = Get-ArtifactRoot -RepoRoot $RepoRoot
     $map = @{
         test = @('test')
+        build = @('build')
         coverage = @('coverage')
         docs = @('docs')
         diagnostics = @('diagnostics')
         benchmark = @('benchmark/runs')
         package = @('package')
         cache = @('benchmark/cache')
-        default = @('bin', 'obj', 'publish', 'test', 'coverage', 'diagnostics', 'docs', 'temp')
+        default = @('bin', 'obj', 'publish', 'build', 'test', 'coverage', 'diagnostics', 'docs', 'temp')
         all = @('')
     }
     $key = $Target.ToLowerInvariant()
     if (-not $map.ContainsKey($key)) {
-        throw "Unknown clean target '$Target'. Valid: default, test, coverage, docs, diagnostics, benchmark, package, cache, all."
+        throw "Unknown clean target '$Target'. Valid: default, build, test, coverage, docs, diagnostics, benchmark, package, cache, all."
     }
     foreach ($relative in @($map[$key])) {
         $path = if ($relative) { Join-Path $root $relative } else { $root }

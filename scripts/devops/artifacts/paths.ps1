@@ -9,7 +9,7 @@ function Get-ArtifactRoot {
 function Get-ArtifactKindRoot {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet('test', 'coverage', 'benchmark', 'diagnostics', 'docs', 'package', 'temp')]
+        [ValidateSet('build', 'test', 'coverage', 'benchmark', 'diagnostics', 'docs', 'package', 'temp')]
         [string]$Kind,
         [string]$RepoRoot = (Get-RepoRoot)
     )
@@ -19,7 +19,7 @@ function Get-ArtifactKindRoot {
 function Get-ArtifactRunsRoot {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet('test', 'coverage', 'benchmark', 'diagnostics')]
+        [ValidateSet('build', 'test', 'coverage', 'benchmark', 'diagnostics')]
         [string]$Kind,
         [string]$RepoRoot = (Get-RepoRoot)
     )
