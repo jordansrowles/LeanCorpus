@@ -20,7 +20,7 @@ internal sealed class DocumentsWriterPerThread
     internal BytesRefHash TermHash = new();
     internal List<PostingAccumulator> PostingAccumulators = [];
 
-    /// <summary>Stored-field name-to-ID mapping exposed for <see cref="SegmentFlusher.FlushFromDwpt"/>.</summary>
+    /// <summary>Stored-field name-to-ID mapping transferred to a detached flush batch.</summary>
     internal Dictionary<string, int> StoredFieldNameToId => _storedFieldNameToId;
 
     internal HashSet<int>? ParentDocIds;
@@ -42,7 +42,9 @@ internal sealed class DocumentsWriterPerThread
             : (rented = ArrayPool<byte>.Shared.Rent(maxBytes));
         prefix.CopyTo(bytes);
         int termBytes = Encoding.UTF8.GetBytes(term, bytes[prefix.Length..]);
+        long termHashBytesBefore = TermHash.AllocatedBytes;
         int id = TermHash.Add(bytes[..(prefix.Length + termBytes)]);
+        _estimatedRamBytes += TermHash.AllocatedBytes - termHashBytesBefore;
         if (rented is not null)
             ArrayPool<byte>.Shared.Return(rented, clearArray: false);
 
@@ -67,7 +69,7 @@ internal sealed class DocumentsWriterPerThread
     internal List<int> StoredFieldIds = [];
     internal List<StoredFieldValue> StoredValues = [];
     internal List<string> StoredFieldIdToName = [];
-    private readonly Dictionary<string, int> _storedFieldNameToId = new(StringComparer.Ordinal);
+    private Dictionary<string, int> _storedFieldNameToId = new(StringComparer.Ordinal);
 
     internal Dictionary<string, Dictionary<int, double>> NumericIndex = new();
     internal Dictionary<string, Dictionary<int, long>> Int64Index = new();
@@ -84,8 +86,8 @@ internal sealed class DocumentsWriterPerThread
     internal Dictionary<string, int[]> DocTokenCounts = new(StringComparer.Ordinal);
     internal Dictionary<string, Dictionary<int, float>> FieldBoosts = new(StringComparer.Ordinal);
     internal int DocCount;
-    private readonly Dictionary<string, byte[]> _fieldPrefixUtf8Cache = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _termPool = new(StringComparer.Ordinal);
+    private Dictionary<string, byte[]> _fieldPrefixUtf8Cache = new(StringComparer.Ordinal);
+    private HashSet<string> _termPool = new(StringComparer.Ordinal);
     private readonly SpanPostingTokenSink _spanPostingSink;
     private readonly CountingTokenSink _countingTokenSink = new();
     private long _estimatedRamBytes;
@@ -99,6 +101,7 @@ internal sealed class DocumentsWriterPerThread
         _fieldAnalysers = fieldAnalysers;
         _config = config;
         _spanPostingSink = new SpanPostingTokenSink(this);
+        _estimatedRamBytes = TermHash.AllocatedBytes;
     }
 
     /// <summary>Resets all buffers to empty state for reuse.</summary>
@@ -106,36 +109,13 @@ internal sealed class DocumentsWriterPerThread
     {
         foreach (var accumulator in PostingAccumulators)
             accumulator.ReturnBuffers();
-        PostingAccumulators.Clear();
-        TermHash.Clear();
-        StoredDocStarts.Clear();
-        StoredFieldIds.Clear();
-        StoredValues.Clear();
-        StoredFieldIdToName.Clear();
-        _storedFieldNameToId.Clear();
-        NumericIndex.Clear();
-        Int64Index.Clear();
-        NumericDocValues.Clear();
-        Int64DocValues.Clear();
-        SortedDocValues.Clear();
-        SortedSetDocValues.Clear();
-        SortedNumericDocValues.Clear();
-        Int64SortedDocValues.Clear();
-        BinaryDocValues.Clear();
-        Vectors.Clear();
-        FieldNames.Clear();
-        DocTokenCounts.Clear();
-        FieldBoosts.Clear();
-        ParentDocIds?.Clear();
-        _fieldPrefixUtf8Cache.Clear();
-        _termPool.Clear();
-        DocCount = 0;
-        _estimatedRamBytes = 0;
+        TermHash.ReturnBuffers();
+        ResetAfterSnapshot();
     }
 
     /// <summary>
     /// Resets all mutable collections to fresh instances. Caller must have already
-    /// taken ownership of the previous collections via <see cref="DwptFlushSnapshot.CaptureFrom"/>.
+    /// taken ownership of the previous collections via <see cref="DwptFlushBatch.CaptureFrom"/>.
     /// </summary>
     internal void ResetAfterSnapshot()
     {
@@ -145,7 +125,7 @@ internal sealed class DocumentsWriterPerThread
         StoredFieldIds = [];
         StoredValues = [];
         StoredFieldIdToName = [];
-        _storedFieldNameToId.Clear();
+        _storedFieldNameToId = new(StringComparer.Ordinal);
         NumericIndex = new();
         Int64Index = new();
         NumericDocValues = new(StringComparer.Ordinal);
@@ -160,10 +140,10 @@ internal sealed class DocumentsWriterPerThread
         DocTokenCounts = new(StringComparer.Ordinal);
         FieldBoosts = new(StringComparer.Ordinal);
         ParentDocIds = null;
-        _fieldPrefixUtf8Cache.Clear();
-        _termPool.Clear();
+        _fieldPrefixUtf8Cache = new(StringComparer.Ordinal);
+        _termPool = new(StringComparer.Ordinal);
         DocCount = 0;
-        _estimatedRamBytes = 0;
+        _estimatedRamBytes = TermHash.AllocatedBytes;
     }
 
     /// <summary>
@@ -172,9 +152,17 @@ internal sealed class DocumentsWriterPerThread
     /// </summary>
     public void AddDocument(LeanDocument doc)
     {
-        ValidateTokenBudget(doc);
-        AddDocumentCore(doc);
+        ValidateDocument(doc);
+        AddPrevalidatedDocument(doc);
     }
+
+    /// <summary>Checks document-local admission constraints without changing buffer state.</summary>
+    internal void ValidateDocument(LeanDocument doc)
+        => ValidateTokenBudget(doc);
+
+    /// <summary>Adds a document after the writer and DWPT admission checks have completed.</summary>
+    internal void AddPrevalidatedDocument(LeanDocument doc)
+        => AddDocumentCore(doc);
 
     private void AddDocumentCore(LeanDocument doc)
     {
@@ -263,11 +251,20 @@ internal sealed class DocumentsWriterPerThread
 
     public void AddDocumentBlock(IReadOnlyList<LeanDocument> block)
     {
-        // Validate the complete block before mutating any of its documents. A
-        // rejected child must not leave a partially indexed parent/child block.
-        for (int i = 0; i < block.Count; i++)
-            ValidateTokenBudget(block[i]);
+        ValidateDocumentBlock(block);
+        AddPrevalidatedDocumentBlock(block);
+    }
 
+    /// <summary>Checks every document in a block without changing buffer state.</summary>
+    internal void ValidateDocumentBlock(IReadOnlyList<LeanDocument> block)
+    {
+        for (int i = 0; i < block.Count; i++)
+            ValidateDocument(block[i]);
+    }
+
+    /// <summary>Adds a block after the writer and DWPT admission checks have completed.</summary>
+    internal void AddPrevalidatedDocumentBlock(IReadOnlyList<LeanDocument> block)
+    {
         for (int i = 0; i < block.Count; i++)
         {
             AddDocumentCore(block[i]);
@@ -358,9 +355,14 @@ internal sealed class DocumentsWriterPerThread
         {
             counts = new int[16];
             DocTokenCounts[fieldName] = counts;
+            _estimatedRamBytes += counts.Length * sizeof(int);
         }
         if (docId >= counts.Length)
+        {
+            int previousLength = counts.Length;
             Array.Resize(ref counts, Math.Max(counts.Length * 2, docId + 1));
+            _estimatedRamBytes += (counts.Length - previousLength) * sizeof(int);
+        }
         counts[docId] += tokenCount;
         DocTokenCounts[fieldName] = counts; // Update reference in case of resize
     }
@@ -370,7 +372,10 @@ internal sealed class DocumentsWriterPerThread
         FieldNames.Add(fieldName);
         var term = CanonicaliseTerm(value);
         var acc = GetOrCreateAccumulator(fieldName, term.AsSpan());
+        long retainedBytesBefore = acc.EstimatedBytes;
         acc.AddDocOnly(docId);
+        acc.RefreshEstimatedBytes();
+        _estimatedRamBytes += acc.EstimatedBytes - retainedBytesBefore;
 
         if ((docValues & StringDocValues.Sorted) != 0)
         {
@@ -547,7 +552,9 @@ internal sealed class DocumentsWriterPerThread
             perField = new Dictionary<int, ReadOnlyMemory<float>>();
             Vectors[fieldName] = perField;
         }
-        perField[docId] = value;
+        // The writer owns accepted vector storage. Callers may reuse or mutate their
+        // array after AddDocument returns without affecting buffered or persisted data.
+        perField[docId] = value.ToArray();
         _estimatedRamBytes += value.Length * sizeof(float) + 32;
     }
 
@@ -617,13 +624,13 @@ internal sealed class DocumentsWriterPerThread
             _position += increment;
 
             var acc = _owner.GetOrCreateAccumulator(_fieldName, text);
+            long retainedBytesBefore = acc.EstimatedBytes;
             if (_owner._config.StorePayloads && (acc.HasPayloads || payload is { Length: > 0 }))
             {
                 if (_owner._config.StoreTermVectors)
                     acc.AddWithPayload(_docId, _position, payload, _fieldIndexOptions, startOffset, endOffset);
                 else
                     acc.AddWithPayload(_docId, _position, payload, _fieldIndexOptions);
-                _owner._estimatedRamBytes += 12 + (payload?.Length ?? 0);
             }
             else
             {
@@ -631,8 +638,9 @@ internal sealed class DocumentsWriterPerThread
                     acc.Add(_docId, _position, _fieldIndexOptions, startOffset, endOffset);
                 else
                     acc.Add(_docId, _position, _fieldIndexOptions);
-                _owner._estimatedRamBytes += 12;
             }
+            acc.RefreshEstimatedBytes();
+            _owner._estimatedRamBytes += acc.EstimatedBytes - retainedBytesBefore;
             AcceptedCount++;
         }
     }

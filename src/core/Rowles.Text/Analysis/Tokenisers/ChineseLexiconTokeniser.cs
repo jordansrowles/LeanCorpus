@@ -17,7 +17,7 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// <see cref="FromStream"/>. A lexicon file is available as an optional download.
 /// The format is one word per line, UTF-8, with <c>#</c> comments.
 /// </remarks>
-public sealed class ChineseLexiconTokeniser : ISpanTokeniser
+public sealed class ChineseLexiconTokeniser : IShareableSpanTokeniser
 {
     /// <summary>Token type emitted for CJK ideograph tokens.</summary>
     public const string CjkType = CJKBigramTokeniser.CjkType;

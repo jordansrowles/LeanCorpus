@@ -12,7 +12,6 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
 
     private readonly object _waitLock = new();
     private int _state;
-
     internal int ActiveCount => Volatile.Read(ref _state) & int.MaxValue;
 
     internal Scope Enter(object owner)

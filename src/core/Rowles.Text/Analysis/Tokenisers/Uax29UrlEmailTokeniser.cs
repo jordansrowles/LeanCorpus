@@ -4,7 +4,7 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// Unicode-aware tokeniser that preserves URLs, email addresses, hashtags, and mentions
 /// as single tokens. Thai segmentation is opt-in via the constructor.
 /// </summary>
-public sealed class Uax29UrlEmailTokeniser : ISpanTokeniser
+public sealed class Uax29UrlEmailTokeniser : IThreadLocalSpanTokeniser
 {
     /// <summary>Token type emitted for URLs.</summary>
     public const string UrlType = "url";
@@ -90,5 +90,16 @@ public sealed class Uax29UrlEmailTokeniser : ISpanTokeniser
             sink.Add(input[wordStart..i], wordStart, i, UnicodeTokenisation.ClassifyTokenType(input[wordStart..i]));
         }
     }
+
+    /// <inheritdoc/>
+    public ISpanTokeniser CreateThreadLocalTokeniser()
+        => new Uax29UrlEmailTokeniser(_thaiTokeniser switch
+        {
+            null => null,
+            IThreadLocalSpanTokeniser owned => owned.CreateThreadLocalTokeniser(),
+            IShareableSpanTokeniser => _thaiTokeniser,
+            _ => throw new InvalidOperationException(
+                $"Nested tokeniser '{_thaiTokeniser.GetType().FullName}' has no explicit concurrent ownership contract.")
+        });
 
 }

@@ -4,7 +4,7 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// Path hierarchy tokeniser. Emits compound tokens from root to leaf
 /// (or leaf to root in suffix mode).
 /// </summary>
-public sealed class PathTreeTokeniser : ISpanTokeniser
+public sealed class PathTreeTokeniser : IShareableSpanTokeniser
 {
     public const string PathType = "path";
     public bool Lowercase { get; init; } = true;

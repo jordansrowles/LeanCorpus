@@ -3,11 +3,12 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// <summary>
 /// Analyser that splits text into letter-only tokens and lowercases them without stop-word removal.
 /// </summary>
-public sealed class SimpleAnalyser : IAnalyser
+public sealed class SimpleAnalyser : IThreadLocalAnalyser
 {
     private readonly LetterTokeniser _tokeniser = new();
     private readonly List<(int Start, int End)> _offsetBuf = new();
     private readonly TokenTextCache _internCache;
+    private readonly int _internCacheSize;
     private char[] _lowerBuf = new char[64];
 
     /// <summary>
@@ -16,8 +17,12 @@ public sealed class SimpleAnalyser : IAnalyser
     /// <param name="internCacheSize">Maximum number of token strings retained for reuse. Defaults to 4096.</param>
     public SimpleAnalyser(int internCacheSize = 4096)
     {
+        _internCacheSize = internCacheSize;
         _internCache = new TokenTextCache(internCacheSize);
     }
+
+    /// <inheritdoc/>
+    public IAnalyser CreateThreadLocalAnalyser() => new SimpleAnalyser(_internCacheSize);
 
     /// <inheritdoc/>
     public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)

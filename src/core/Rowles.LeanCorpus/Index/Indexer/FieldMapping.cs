@@ -26,6 +26,12 @@ public sealed class FieldMapping
     public bool IsRequired { get; init; }
 
     /// <summary>
+    /// Required dimension for a vector field. Null leaves dimension ownership to the
+    /// writer and any committed segment metadata.
+    /// </summary>
+    public int? VectorDimension { get; init; }
+
+    /// <summary>
     /// Initialises a new <see cref="FieldMapping"/> for the specified field name and type.
     /// </summary>
     /// <param name="name">The field name this mapping applies to. Must not be null or empty.</param>

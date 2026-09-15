@@ -9,11 +9,10 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// for language-specific analysis pipelines.
 /// </summary>
 /// <remarks>
-/// Each call to <see cref="Analyse"/> clones the inner analyser so filter state
-/// is independent per call, making instances safe for concurrent use provided
-/// the tokeniser and stemmer are thread-safe.
+/// Concurrent owners obtain independent instances through
+/// <see cref="IThreadLocalAnalyser.CreateThreadLocalAnalyser"/>.
 /// </remarks>
-public sealed class LanguageAnalyser : IAnalyser
+public sealed class LanguageAnalyser : IThreadLocalAnalyser
 {
     private readonly Analyser _inner;
 
@@ -50,6 +49,9 @@ public sealed class LanguageAnalyser : IAnalyser
     /// <inheritdoc/>
     public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
-        _inner.Clone().Analyse(input, sink);
+        _inner.Analyse(input, sink);
     }
+
+    /// <inheritdoc/>
+    public IAnalyser CreateThreadLocalAnalyser() => _inner.CreateThreadLocalAnalyser();
 }

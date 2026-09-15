@@ -33,6 +33,13 @@ jobs:
       - name: Build solution
         shell: pwsh
         run: ./devops.ps1 build
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-${{ matrix.framework }}-build-diagnostics
+          path: artifacts/build/runs
+          if-no-files-found: error
       - name: Validate DevOps artefact infrastructure
         if: matrix.framework == 'net10.0'
         shell: pwsh
@@ -84,6 +91,13 @@ jobs:
       - name: Build solution
         shell: pwsh
         run: ./devops.ps1 build
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-build-diagnostics
+          path: artifacts/build/runs
+          if-no-files-found: error
       - name: Run complete Windows test suite
         shell: pwsh
         env:
@@ -111,6 +125,13 @@ jobs:
       - name: Build solution
         shell: pwsh
         run: ./devops.ps1 build
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: arm64-build-diagnostics
+          path: artifacts/build/runs
+          if-no-files-found: error
       - name: Run architecture-sensitive smoke tests
         shell: pwsh
         run: |

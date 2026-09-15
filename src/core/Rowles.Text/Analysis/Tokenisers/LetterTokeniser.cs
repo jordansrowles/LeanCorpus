@@ -3,7 +3,7 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// <summary>
 /// Splits input text into letter-only tokens, discarding digits and punctuation.
 /// </summary>
-public sealed class LetterTokeniser : ISpanTokeniser
+public sealed class LetterTokeniser : IShareableSpanTokeniser
 {
     /// <inheritdoc/>
     public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)

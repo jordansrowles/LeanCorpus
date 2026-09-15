@@ -10,7 +10,7 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// Slices input text into tokens at word boundaries, splitting on
 /// whitespace and punctuation whilst tracking character offsets.
 /// </summary>
-public sealed class Tokeniser : ISpanTokeniser
+public sealed class Tokeniser : IShareableSpanTokeniser
 {
     /// <inheritdoc/>
     public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)

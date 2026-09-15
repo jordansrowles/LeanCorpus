@@ -21,7 +21,7 @@
 /// across all supported languages.
 /// </para>
 /// </remarks>
-public sealed class JapaneseStemmer : ISpanStemmer
+public sealed class JapaneseStemmer : IShareableSpanStemmer
 {
     /// <inheritdoc/>
     /// <remarks>Returns <paramref name="word"/> unchanged.</remarks>

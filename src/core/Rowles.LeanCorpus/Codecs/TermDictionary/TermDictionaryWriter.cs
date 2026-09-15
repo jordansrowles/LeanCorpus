@@ -21,8 +21,7 @@ internal static class TermDictionaryWriter
     }
 
     /// <summary>
-    /// Writes a pre-built FST blob to a dictionary file. Used with <see cref="BuildFstUtf8"/>
-    /// when the caller manages sort and encoding.
+    /// Writes a pre-built FST blob to a dictionary file.
     /// </summary>
     internal static void WriteBlob(string filePath, byte[] fstBlob, bool durable = false, bool dropPageCache = false)
     {
@@ -55,25 +54,6 @@ internal static class TermDictionaryWriter
         builder.EnsureNodeCapacity(n);
         for (int i = 0; i < n; i++)
             builder.Add(encoded[i].KeyUtf8, encoded[i].Output);
-
-        return builder.Finish();
-    }
-
-    /// <summary>
-    /// Builds an FST from pre-sorted (UTF-8 bytes ascending) term/offset pairs.
-    /// Unlike <see cref="BuildFst"/>, this avoids the decode-to-string/re-encode round-trip.
-    /// The caller is responsible for sorting by UTF-8 byte order.
-    /// </summary>
-    internal static byte[] BuildFstUtf8((byte[] KeyUtf8, long Output)[] sortedPairs)
-    {
-        int n = sortedPairs.Length;
-        if (n == 0)
-            return new FstBuilder().Finish();
-
-        var builder = new FstBuilder();
-        builder.EnsureNodeCapacity(n);
-        for (int i = 0; i < n; i++)
-            builder.Add(sortedPairs[i].KeyUtf8, sortedPairs[i].Output);
 
         return builder.Finish();
     }

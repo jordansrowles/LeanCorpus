@@ -30,14 +30,17 @@ public sealed class MergeFailureTests : IClassFixture<TestDirectoryFixture>
 
         using (var writer = new IndexWriter(dir, config))
         {
-            // Create 2 segments: MaxBufferedDocs=1 flushes after each doc.
+            // Detachment is asynchronous, so commit the first physical segment
+            // before deliberately corrupting it.
             writer.AddDocument(MakeDoc("doc-0", "hello world first"));
-            writer.AddDocument(MakeDoc("doc-1", "hello world second"));
+            writer.Commit();
 
-            // Corrupt the first segment before commit triggers the merge.
+            // Corrupt the first segment before the next commit schedules a merge.
             var seg0Dic = Path.Combine(dirPath, "seg_0.dic");
             Assert.True(File.Exists(seg0Dic), "Expected seg_0.dic to exist before corruption.");
             File.Delete(seg0Dic);
+
+            writer.AddDocument(MakeDoc("doc-1", "hello world second"));
 
             // Commit triggers ScheduleBackgroundMerge. The merge runs on a thread-pool
             // thread, fails because seg_0.dic is missing, and marks the writer failed.

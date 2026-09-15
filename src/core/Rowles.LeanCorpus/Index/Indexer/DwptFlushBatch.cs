@@ -3,12 +3,13 @@ using Rowles.LeanCorpus.Codecs.StoredFields;
 namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
-/// Immutable snapshot of a <see cref="DocumentsWriterPerThread"/> taken under its lock.
-/// Owns all captured mutable collections (swapped out of the DWPT), so the DWPT can be
-/// reused for new documents while the snapshot is flushed independently.
+/// Detached, owned batch taken from a <see cref="DocumentsWriterPerThread"/> under its lock.
+/// The batch owns every transferred buffer until <see cref="Dispose"/> is called, allowing
+/// the DWPT to accept new documents while physical flush work is in progress.
 /// </summary>
-internal sealed class DwptFlushSnapshot
+internal sealed class DwptFlushBatch : IDisposable
 {
+    internal required long EstimatedBytes { get; init; }
     internal required int DocCount { get; init; }
     internal required HashSet<string> FieldNames { get; init; }
     internal required Dictionary<string, int[]> DocTokenCounts { get; init; }
@@ -30,17 +31,21 @@ internal sealed class DwptFlushSnapshot
     internal required BytesRefHash TermHash { get; init; }
     internal required List<PostingAccumulator> PostingAccumulators { get; init; }
     internal HashSet<int>? ParentDocIds { get; init; }
+    internal bool PendingBytesAccounted { get; set; }
+    private int _disposed;
+    internal int CleanupCountForTests { get; private set; }
 
     /// <summary>
-    /// Captures an immutable snapshot of <paramref name="dwpt"/> by swapping its mutable
+    /// Detaches the owned mutable state from <paramref name="dwpt"/> by swapping its
     /// collections with fresh empty instances. The caller must hold <c>lock(dwpt)</c>.
     /// After this returns, the DWPT is ready for new documents and <see cref="DocumentsWriterPerThread.ClearAll"/>
     /// has been called on its replaced state.
     /// </summary>
-    internal static DwptFlushSnapshot CaptureFrom(DocumentsWriterPerThread dwpt)
+    internal static DwptFlushBatch CaptureFrom(DocumentsWriterPerThread dwpt)
     {
-        var snapshot = new DwptFlushSnapshot
+        var batch = new DwptFlushBatch
         {
+            EstimatedBytes = dwpt.EstimatedRamBytes,
             DocCount = dwpt.DocCount,
             FieldNames = dwpt.FieldNames,
             DocTokenCounts = dwpt.DocTokenCounts,
@@ -66,7 +71,20 @@ internal sealed class DwptFlushSnapshot
 
         dwpt.ResetAfterSnapshot();
 
-        return snapshot;
+        return batch;
+    }
+
+    /// <summary>Returns transferred pooled buffers exactly once.</summary>
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
+        CleanupCountForTests++;
+        foreach (var accumulator in PostingAccumulators)
+            accumulator.ReturnBuffers();
+        PostingAccumulators.Clear();
+        TermHash.ReturnBuffers();
     }
 
     /// <summary>

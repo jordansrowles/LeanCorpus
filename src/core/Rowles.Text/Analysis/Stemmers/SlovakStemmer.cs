@@ -6,7 +6,7 @@ namespace Rowles.LeanCorpus.Analysis.Stemmers;
 /// Slovak stemmer.
 /// Expects UTF-8 normalized input with diacritics.
 /// </summary>
-public sealed class SlovakStemmer : ISpanStemmer
+public sealed class SlovakStemmer : IShareableSpanStemmer
 {
     private static readonly List<string[]> suffixesGroups =
     [

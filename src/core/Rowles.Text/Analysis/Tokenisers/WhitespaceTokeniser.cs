@@ -3,7 +3,7 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// <summary>
 /// Splits input text into tokens separated only by whitespace.
 /// </summary>
-public sealed class WhitespaceTokeniser : ISpanTokeniser
+public sealed class WhitespaceTokeniser : IShareableSpanTokeniser
 {
     /// <inheritdoc/>
     public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)

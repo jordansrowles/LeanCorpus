@@ -12,23 +12,35 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 /// </summary>
 internal static class DwptManager
 {
-    public static void InitialiseDwptPool(IndexWriter writer, int threadCount = 0)
+    public static void InitialiseDwptPool(IndexWriter writer)
     {
         if (writer.DwptPool is not null)
             return;
-        if (threadCount <= 0)
-            threadCount = Math.Max(1, Environment.ProcessorCount);
 
-        writer.DwptPool = new DocumentsWriterPerThread[threadCount];
-        for (int i = 0; i < threadCount; i++)
-            writer.DwptPool[i] = CreateThreadLocalDocumentWriter(writer.DefaultAnalyser, writer.Config);
+        writer.DwptPool = new DocumentsWriterPerThread[writer.ResolvedIndexingConcurrency];
+        for (int i = 0; i < writer.ResolvedIndexingConcurrency; i++)
+        {
+            var dwpt = CreateThreadLocalDocumentWriter(writer.DefaultAnalyser, writer.Config);
+            writer.DwptPool[i] = dwpt;
+            Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes);
+        }
     }
 
     public static void AddDocument(IndexWriter writer, LeanDocument doc)
     {
         writer.EnterIndexingOperation();
+        try { AddDocumentCore(writer, doc, abortOnFatalFailure: true, out _); }
+        finally { writer.ExitIndexingOperation(); }
+    }
+
+    private static void AddDocumentCore(
+        IndexWriter writer,
+        LeanDocument doc,
+        bool abortOnFatalFailure,
+        out bool mutationStarted)
+    {
         bool acquired = false;
-        bool enteredDwpt = false;
+        mutationStarted = false;
         try
         {
             writer.ValidateDocument(doc);
@@ -40,89 +52,37 @@ internal static class DwptManager
             var pool = writer.DwptPool ?? throw new InvalidOperationException(
                 "DWPT pool is not initialised.");
 
-            int slot = GetProducerSlot(writer, pool.Length);
-            var dwpt = pool[slot];
-
-            lock (dwpt)
+            var dwpt = EnterDwpt(writer, pool);
+            try
             {
-                enteredDwpt = true;
-                dwpt.AddDocument(doc);
+                writer.ThrowIfIndexingFailed();
+                dwpt.ValidateDocument(doc);
+                writer.ValidateVectorDimensions(doc);
+                long before = dwpt.EstimatedRamBytes;
+                mutationStarted = true;
+                dwpt.AddPrevalidatedDocument(doc);
+                Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes - before);
+            }
+            finally
+            {
+                Monitor.Exit(dwpt);
             }
 
-            long hardThreshold = (long)(writer.Config.RamPerThreadHardLimitMB * 1024 * 1024);
-            long activeBytes = 0;
-            foreach (var activeDwpt in pool)
-                activeBytes += activeDwpt.EstimatedRamBytes;
-            writer.Config.Metrics.RecordWriterMemory(activeBytes, 0, writer.PendingDeletes.Count * 96L);
-            long sharedLimit = (long)(writer.Config.RamBufferSizeMB * 1024 * 1024);
-            long queuedLimit = writer.Config.MaxQueuedBytes > 0 ? writer.Config.MaxQueuedBytes : long.MaxValue;
-            bool sharedLimitReached = activeBytes >= Math.Min(sharedLimit, queuedLimit);
-            if (dwpt.EstimatedRamBytes >= hardThreshold || sharedLimitReached ||
-                dwpt.DocCount >= writer.Config.MaxBufferedDocs)
-            {
-                DwptFlushSnapshot? snapshot = null;
-                int ordinal = 0;
-                long seqEnd = 0, seqStart = 0;
-
-                lock (dwpt)
-                {
-                    if (dwpt.DocCount > 0)
-                    {
-                        ordinal = Interlocked.Increment(ref writer.NextSegmentOrdinal) - 1;
-                        if (writer.Config.TrackSequenceNumbers)
-                        {
-                            seqEnd = Interlocked.Add(ref writer.NextSequenceNumberMut, dwpt.DocCount);
-                            seqStart = seqEnd - dwpt.DocCount;
-                        }
-
-                        snapshot = DwptFlushSnapshot.CaptureFrom(dwpt);
-                        ReleaseBackpressure(writer, snapshot.DocCount);
-                    }
-                }
-
-                if (snapshot != null)
-                {
-                    // Flush synchronously outside _writeLock
-                    var segInfo = SegmentFlusher.FlushFromSnapshot(
-                        snapshot, writer.Config, writer.Directory.DirectoryPath,
-                        ordinal, writer.CommitGeneration,
-                        seqStart, seqEnd);
-
-                    // Publish briefly under _writeLock
-                    lock (writer.WriteLock)
-                    {
-                        writer.CommittedSegments.Add(segInfo);
-                        writer.ContentChangedSinceCommit = true;
-                    }
-                }
-            }
+            EvaluateAutomaticFlush(writer, dwpt);
 
             if (writer.ShouldThrottleForMerge())
                 writer.ThrottleMerge();
         }
-        catch (TokenBudgetExceededException)
+        catch (Exception ex)
         {
-            // DocumentsWriterPerThread validates the document before mutating
-            // its buffers. Reject therefore skips only this document and must
-            // not poison the writer or discard earlier accepted documents.
-            if (acquired)
-                ReleaseBackpressure(writer, 1);
-            throw;
-        }
-        catch
-        {
-            if (enteredDwpt)
+            if (abortOnFatalFailure && mutationStarted)
             {
-                AbortUncommittedWriterState(writer);
-                writer.MarkIndexingFailed();
+                writer.MarkIndexingFailed(ex);
+                ReconcileFatalFailure(writer);
             }
             else if (acquired)
                 ReleaseBackpressure(writer, 1);
             throw;
-        }
-        finally
-        {
-            writer.ExitIndexingOperation();
         }
     }
 
@@ -130,7 +90,8 @@ internal static class DwptManager
     {
         writer.EnterIndexingOperation();
         int acquired = 0;
-        bool enteredDwpt = false;
+        bool addedToHeldSlots = false;
+        bool mutationStarted = false;
         try
         {
             ArgumentNullException.ThrowIfNull(block);
@@ -146,39 +107,44 @@ internal static class DwptManager
 
             for (int i = 0; i < block.Count; i++)
             {
-                BackpressureController.AcquireBackpressureSlot(writer);
+            BackpressureController.AcquireBackpressureSlot(writer);
                 if (writer.BackpressureSemaphore is not null)
                     acquired++;
             }
             if (acquired > 0)
+            {
                 Interlocked.Add(ref writer.SemaphoreSlotsHeld, acquired);
+                addedToHeldSlots = true;
+            }
 
             var pool = writer.DwptPool!;
-            int slot = GetProducerSlot(writer, pool.Length);
-            var dwpt = pool[slot];
-            lock (dwpt)
+            var dwpt = EnterDwpt(writer, pool);
+            try
             {
-                enteredDwpt = true;
-                dwpt.AddDocumentBlock(block);
+                writer.ThrowIfIndexingFailed();
+                dwpt.ValidateDocumentBlock(block);
+                writer.ValidateVectorDimensions(block);
+                long before = dwpt.EstimatedRamBytes;
+                mutationStarted = true;
+                dwpt.AddPrevalidatedDocumentBlock(block);
+                Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes - before);
             }
-        }
-        catch (TokenBudgetExceededException)
-        {
-            // The whole block is preflighted before its first document is
-            // added, so a rejected block leaves the DWPT unchanged.
-            ReleaseBackpressure(writer, acquired);
-            throw;
-        }
-        catch
-        {
-            if (enteredDwpt)
+            finally
             {
-                AbortUncommittedWriterState(writer);
-                writer.MarkIndexingFailed();
+                Monitor.Exit(dwpt);
+            }
+            EvaluateAutomaticFlush(writer, dwpt);
+        }
+        catch (Exception ex)
+        {
+            if (mutationStarted)
+            {
+                writer.MarkIndexingFailed(ex);
+                ReconcileFatalFailure(writer);
             }
             else
             {
-                ReleaseBackpressure(writer, acquired);
+                BackpressureController.ReleaseFailedBackpressureSlots(writer, acquired, addedToHeldSlots);
             }
             throw;
         }
@@ -191,81 +157,63 @@ internal static class DwptManager
     public static void AddDocumentsConcurrent(IndexWriter writer, IReadOnlyList<LeanDocument> documents)
     {
         writer.EnterIndexingOperation();
-        try
-        {
-            ArgumentNullException.ThrowIfNull(documents);
-            if (documents.Count == 0) return;
+        try { AddDocumentsConcurrentOperationOwned(writer, documents); }
+        finally { writer.ExitIndexingOperation(); }
+    }
 
-            writer.ValidateDocuments(documents);
+    internal static void AddDocumentsConcurrentOperationOwned(IndexWriter writer, IReadOnlyList<LeanDocument> documents)
+    {
+        ArgumentNullException.ThrowIfNull(documents);
+        if (documents.Count == 0) return;
 
-            // Phase 1: analyse documents in parallel. Each thread gets its own
-            // DWPT and accumulates documents from its assigned partitions.
-            // No I/O or shared mutable state is touched here.
-            var threadDwpts = new System.Collections.Concurrent.ConcurrentBag<DocumentsWriterPerThread>();
-
-            Parallel.ForEach(
-                System.Collections.Concurrent.Partitioner.Create(0, documents.Count),
-                () => CreateThreadLocalDocumentWriter(writer.DefaultAnalyser, writer.Config),
-                (range, _, dwpt) =>
-                {
-                    for (int i = range.Item1; i < range.Item2; i++)
-                        dwpt.AddDocument(documents[i]);
-                    return dwpt;
-                },
-                dwpt =>
-                {
-                    if (dwpt.DocCount > 0)
-                        threadDwpts.Add(dwpt);
-                });
-
-            // Verify that every document was accounted for.
-            int totalAnalysed = 0;
-            foreach (var dwpt in threadDwpts)
-                totalAnalysed += dwpt.DocCount;
-            if (totalAnalysed != documents.Count)
+        var failureLock = new Lock();
+        (int Index, Exception Error)? fatalFailure = null;
+        (int Index, Exception Error)? rejection = null;
+        Parallel.For(0, documents.Count,
+            new ParallelOptions { MaxDegreeOfParallelism = writer.ResolvedIndexingConcurrency },
+            (i, loopState) =>
             {
-                throw new InvalidOperationException(
-                    $"AddDocumentsConcurrent document count mismatch: " +
-                    $"input={documents.Count}, analysed={totalAnalysed}. " +
-                    $"Some partitions did not index all of their assigned documents.");
-            }
-
-            // Phase 2: flush segments and publish under WriteLock so that
-            // concurrent deletes and commits cannot interleave between
-            // segment creation and visibility.
-            lock (writer.WriteLock)
-            {
-                foreach (var dwpt in threadDwpts)
+                if (loopState.LowestBreakIteration is long lowestFailure && i > lowestFailure)
+                    return;
+                bool mutationStarted = false;
+                try
                 {
-                    int ordinal = writer.NextSegmentOrdinal++;
-                    long seqEnd = 0, seqStart = 0;
-                    if (writer.Config.TrackSequenceNumbers)
-                    {
-                        seqEnd = Interlocked.Add(ref writer.NextSequenceNumberMut, dwpt.DocCount);
-                        seqStart = seqEnd - dwpt.DocCount;
-                    }
-
-                    var segInfo = SegmentFlusher.FlushFromDwpt(
-                        dwpt, writer.Config, writer.Directory.DirectoryPath,
-                        ordinal, writer.CommitGeneration,
-                        seqStart, seqEnd,
-                        out _);
-
-                    writer.CommittedSegments.Add(segInfo);
-                    dwpt.ClearAll();
+                    AddDocumentCore(writer, documents[i], abortOnFatalFailure: false, out mutationStarted);
                 }
+                catch (Exception ex) when (!mutationStarted)
+                {
+                    lock (failureLock)
+                    {
+                        if (rejection is null || i < rejection.Value.Index)
+                            rejection = (i, ex);
+                    }
+                    loopState.Break();
+                }
+                catch (Exception ex)
+                {
+                    lock (failureLock)
+                    {
+                        if (fatalFailure is null || i < fatalFailure.Value.Index)
+                            fatalFailure = (i, ex);
 
-                writer.ContentChangedSinceCommit = true;
-            }
+                        // Close admission before the parallel loop unwinds. The lowest-index
+                        // failure remains selected below once every lower iteration has settled.
+                        writer.MarkIndexingFailed();
+                    }
+                    // Break preserves completion of every lower document index, allowing
+                    // the public primary failure to be selected deterministically.
+                    loopState.Break();
+                }
+            });
 
-            // Flush directory metadata so all new segment files are visible
-            // in the directory listing.
-            Store.DirectoryFsync.Sync(writer.Directory.DirectoryPath, strict: false);
-        }
-        finally
+        if (fatalFailure is { } fatal)
         {
-            writer.ExitIndexingOperation();
+            writer.MarkIndexingFailed(fatal.Error);
+            ReconcileFatalFailure(writer);
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(fatal.Error).Throw();
         }
+        if (rejection is { } rejected)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(rejected.Error).Throw();
     }
 
     /// <summary>
@@ -274,25 +222,8 @@ internal static class DwptManager
     /// </summary>
     internal static void WaitForPendingFlushes(IndexWriter writer)
     {
-        var pending = writer.FlushPending;
-        if (pending.Count == 0) return;
-
-        foreach (var state in pending)
-        {
-            if (state.Result is null)
-            {
-                // Flush I/O not done yet — run it now
-                state.Result = SegmentFlusher.FlushFromSnapshot(
-                    state.Snapshot, writer.Config, writer.Directory.DirectoryPath,
-                    state.SegmentOrdinal, writer.CommitGeneration,
-                    state.SeqStart, state.SeqEnd);
-            }
-
-            writer.CommittedSegments.Add(state.Result);
-            writer.ContentChangedSinceCommit = true;
-        }
-
-        pending.Clear();
+        Debug.Assert(writer.WriteLock.IsHeldByCurrentThread, "WaitForPendingFlushes requires the caller to hold writer.WriteLock.");
+        writer.FlushCoordinator.DrainAndPublish();
     }
 
     /// <summary>
@@ -311,25 +242,8 @@ internal static class DwptManager
             {
                 if (dwpt.DocCount == 0) continue;
 
-                int ordinal = writer.NextSegmentOrdinal++;
-                long seqEnd = 0, seqStart = 0;
-                if (writer.Config.TrackSequenceNumbers)
-                {
-                    seqEnd = Interlocked.Add(ref writer.NextSequenceNumberMut, dwpt.DocCount);
-                    seqStart = seqEnd - dwpt.DocCount;
-                }
-
-                var snapshot = DwptFlushSnapshot.CaptureFrom(dwpt);
-                ReleaseBackpressure(writer, snapshot.DocCount);
-
-                // Flush from snapshot - I/O still under _writeLock for Step 1 simplicity
-                var segInfo = SegmentFlusher.FlushFromSnapshot(
-                    snapshot, writer.Config, writer.Directory.DirectoryPath,
-                    ordinal, writer.CommitGeneration,
-                    seqStart, seqEnd);
-
-                writer.CommittedSegments.Add(segInfo);
-                writer.ContentChangedSinceCommit = true;
+                var batch = DetachFlushBatch(writer, dwpt);
+                writer.FlushCoordinator.Submit(batch, writer.CommitGeneration);
             }
         }
     }
@@ -342,60 +256,144 @@ internal static class DwptManager
         BackpressureController.ReleaseSemaphoreSlots(writer, release);
     }
 
+    /// <summary>
+    /// The sole automatic-flush policy. Blocks invoke it only after the entire block has
+    /// been accepted, preserving parent-child adjacency in the detached batch.
+    /// </summary>
+    private static void EvaluateAutomaticFlush(IndexWriter writer, DocumentsWriterPerThread dwpt)
+    {
+        long activeBytes = Volatile.Read(ref writer.ActiveDwptBytes);
+        long pendingBytes = Volatile.Read(ref writer.PendingFlushBytes);
+        writer.Config.Metrics.RecordWriterMemory(activeBytes, pendingBytes, writer.PendingDeletes.Count * 96L);
+
+        long hardLimit = writer.Config.RamPerThreadHardLimitMB > 0
+            ? (long)(writer.Config.RamPerThreadHardLimitMB * 1024 * 1024)
+            : long.MaxValue;
+        long sharedLimit = writer.Config.RamBufferSizeMB > 0
+            ? (long)(writer.Config.RamBufferSizeMB * 1024 * 1024)
+            : long.MaxValue;
+        long queuedLimit = writer.Config.MaxQueuedBytes > 0 ? writer.Config.MaxQueuedBytes : long.MaxValue;
+        bool flush = dwpt.EstimatedRamBytes >= hardLimit
+            || activeBytes + pendingBytes >= Math.Min(sharedLimit, queuedLimit)
+            || (writer.Config.MaxBufferedDocs > 0 && dwpt.DocCount >= writer.Config.MaxBufferedDocs);
+        if (!flush)
+            return;
+
+        DwptFlushBatch? batch = null;
+        lock (dwpt)
+        {
+            if (dwpt.DocCount == 0)
+                return;
+
+            batch = DetachFlushBatch(writer, dwpt);
+        }
+
+        writer.FlushCoordinator.Submit(batch, writer.CommitGeneration);
+
+        while (IsRetainedMemoryOverBudget(writer))
+        {
+            if (!writer.FlushCoordinator.WaitForPhysicalProgress())
+                break;
+            lock (writer.WriteLock)
+                writer.FlushCoordinator.PublishCompletedPrefix();
+        }
+    }
+
+    private static bool IsRetainedMemoryOverBudget(IndexWriter writer)
+    {
+        long sharedLimit = writer.Config.RamBufferSizeMB > 0
+            ? (long)(writer.Config.RamBufferSizeMB * 1024 * 1024)
+            : long.MaxValue;
+        long queuedLimit = writer.Config.MaxQueuedBytes > 0 ? writer.Config.MaxQueuedBytes : long.MaxValue;
+        long effectiveLimit = Math.Min(sharedLimit, queuedLimit);
+        return Volatile.Read(ref writer.ActiveDwptBytes) + Volatile.Read(ref writer.PendingFlushBytes) >= effectiveLimit;
+    }
+
+    private static DwptFlushBatch DetachFlushBatch(IndexWriter writer, DocumentsWriterPerThread dwpt)
+    {
+        var batch = DwptFlushBatch.CaptureFrom(dwpt);
+        Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes - batch.EstimatedBytes);
+        Interlocked.Add(ref writer.PendingFlushBytes, batch.EstimatedBytes);
+        batch.PendingBytesAccounted = true;
+        ReleaseBackpressure(writer, batch.DocCount);
+        return batch;
+    }
+
+
     private static void AbortUncommittedWriterState(IndexWriter writer)
     {
         lock (writer.WriteLock)
         {
+            long retainedBytes = 0;
             if (writer.DwptPool is not null)
             {
                 foreach (var dwpt in writer.DwptPool)
                 {
                     lock (dwpt)
+                    {
                         dwpt.ClearAll();
+                        retainedBytes += dwpt.EstimatedRamBytes;
+                    }
                 }
             }
 
+            Interlocked.Exchange(ref writer.ActiveDwptBytes, retainedBytes);
             int release = Interlocked.Exchange(ref writer.SemaphoreSlotsHeld, 0);
             BackpressureController.ReleaseSemaphoreSlots(writer, release);
         }
     }
 
-    private static int GetProducerSlot(IndexWriter writer, int poolLength)
+    internal static void ReconcileFatalFailure(IndexWriter writer)
     {
-        int threadId = Environment.CurrentManagedThreadId;
-        return writer.DwptThreadSlots.GetOrAdd(threadId, _ =>
-            (int)((uint)(Interlocked.Increment(ref writer.DwptCounter) - 1) % (uint)poolLength));
+        if (!writer.TryOwnFailureReconciliation())
+            return;
+        AbortUncommittedWriterState(writer);
+    }
+
+    /// <summary>
+    /// Acquires an available DWPT before falling back to the producer's stable
+    /// slot. Thread IDs are not a concurrency partition: two live thread-pool
+    /// workers can share the same modulo slot while another DWPT is idle.
+    /// </summary>
+    private static DocumentsWriterPerThread EnterDwpt(
+        IndexWriter writer,
+        DocumentsWriterPerThread[] pool)
+    {
+        int preferred = (int)((uint)Environment.CurrentManagedThreadId % (uint)pool.Length);
+        for (int offset = 0; offset < pool.Length; offset++)
+        {
+            var candidate = pool[(preferred + offset) % pool.Length];
+            if (Monitor.TryEnter(candidate))
+                return candidate;
+        }
+
+        var fallback = pool[preferred];
+        Monitor.Enter(fallback);
+        return fallback;
     }
 
     private static DocumentsWriterPerThread CreateThreadLocalDocumentWriter(
         IAnalyser defaultAnalyser, IndexWriterConfig config)
     {
-        IAnalyser threadLocalDefaultAnalyser = defaultAnalyser switch
-        {
-            StandardAnalyser => new StandardAnalyser(config.AnalyserInternCacheSize, config.StopWords),
-            WhitespaceAnalyser => new WhitespaceAnalyser(config.AnalyserInternCacheSize),
-            KeywordAnalyser => new KeywordAnalyser(config.AnalyserInternCacheSize),
-            SimpleAnalyser => new SimpleAnalyser(config.AnalyserInternCacheSize),
-            StemmedAnalyser => new StemmedAnalyser(),
-            Analyser a => a.Clone(),
-            _ => defaultAnalyser
-        };
+        IAnalyser threadLocalDefaultAnalyser = CreateOwnedAnalyser(defaultAnalyser, "DefaultAnalyser");
 
         var threadLocalFieldAnalysers = new Dictionary<string, IAnalyser>(config.FieldAnalysers.Count);
         foreach (var kvp in config.FieldAnalysers)
-        {
-            threadLocalFieldAnalysers[kvp.Key] = kvp.Value switch
-            {
-                StandardAnalyser => new StandardAnalyser(),
-                WhitespaceAnalyser => new WhitespaceAnalyser(),
-                KeywordAnalyser => new KeywordAnalyser(),
-                SimpleAnalyser => new SimpleAnalyser(),
-                StemmedAnalyser => new StemmedAnalyser(),
-                Analyser a => a.Clone(),
-                _ => kvp.Value
-            };
-        }
+            threadLocalFieldAnalysers[kvp.Key] = CreateOwnedAnalyser(kvp.Value, $"FieldAnalysers['{kvp.Key}']");
 
         return new DocumentsWriterPerThread(threadLocalDefaultAnalyser, threadLocalFieldAnalysers, config);
+    }
+
+    private static IAnalyser CreateOwnedAnalyser(IAnalyser analyser, string configurationName)
+    {
+        if (analyser is not IThreadLocalAnalyser owned)
+        {
+            throw new InvalidOperationException(
+                $"{configurationName} ({analyser.GetType().FullName}) does not implement {nameof(IThreadLocalAnalyser)}. " +
+                "Concurrent indexing requires an explicit independent analyser ownership contract.");
+        }
+
+        return owned.CreateThreadLocalAnalyser()
+            ?? throw new InvalidOperationException($"{configurationName} returned a null thread-local analyser.");
     }
 }

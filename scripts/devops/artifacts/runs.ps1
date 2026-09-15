@@ -4,7 +4,7 @@ Set-StrictMode -Version Latest
 function New-ArtifactRunId {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet('test', 'coverage', 'benchmark', 'diagnostics')]
+        [ValidateSet('build', 'test', 'coverage', 'benchmark', 'diagnostics')]
         [string]$Kind,
         [string]$Framework = ''
     )
@@ -31,7 +31,7 @@ function Get-ArtifactGitContext {
 function New-ArtifactRun {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet('test', 'coverage', 'benchmark', 'diagnostics')]
+        [ValidateSet('build', 'test', 'coverage', 'benchmark', 'diagnostics')]
         [string]$Kind,
         [string]$Framework = '',
         [string]$Configuration = 'Release',
@@ -90,7 +90,7 @@ function Complete-ArtifactRun {
 function Get-LatestSuccessfulArtifactRun {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet('test', 'coverage', 'benchmark', 'diagnostics')]
+        [ValidateSet('build', 'test', 'coverage', 'benchmark', 'diagnostics')]
         [string]$Kind,
         [string]$RepoRoot = (Get-RepoRoot),
         [string]$Commit = ''

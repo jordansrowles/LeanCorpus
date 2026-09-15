@@ -3,6 +3,7 @@ using System.Runtime.ExceptionServices;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Backup;
 using Rowles.LeanCorpus.Index.Compatibility;
 using Rowles.LeanCorpus.Search;
@@ -25,16 +26,12 @@ public sealed partial class IndexWriter : IDisposable
     private readonly IndexWriterConfig _config;
     private readonly TimeSpan _disposeTimeout;
     private readonly IAnalyser _defaultAnalyser;
-
-    private DocumentBufferState _buffer = new();
-
-    private readonly Dictionary<string, IAnalyser> _analyserCache = new(StringComparer.Ordinal);
-    private readonly SpanCountingTokenSink _spanCountingSink = new();
-    private readonly SpanPostingTokenSink _spanPostingSink;
+    private readonly int _resolvedIndexingConcurrency;
+    private readonly Lock _vectorDimensionLock = new();
+    private readonly Dictionary<string, int> _vectorDimensions = new(StringComparer.Ordinal);
 
     // --- Commit state ---
     private long _nextSequenceNumber;
-    private long _flushSeqNoStart;
     private int _nextSegmentOrdinal;
     private int _commitGeneration;
     private long _contentToken;
@@ -51,6 +48,8 @@ public sealed partial class IndexWriter : IDisposable
     private SemaphoreSlim? _backpressureSemaphore;
     private int _flushElection;
     private int _semaphoreSlotsHeld;
+    private long _activeDwptBytes;
+    private long _pendingFlushBytes;
 
     // --- Merge state ---
     private Task? _mergeTask;
@@ -68,13 +67,10 @@ public sealed partial class IndexWriter : IDisposable
 
     // --- DWPT state ---
     private DocumentsWriterPerThread[]? _dwptPool;
-    private int _dwptCounter;
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, int> _dwptThreadSlots = new();
 
     // --- Detached flush state ---
-    private readonly List<FlushPendingState> _flushPending = [];
+    private readonly FlushCoordinator _flushCoordinator;
     private int _activeFlushCount;
-    private SemaphoreSlim? _flushSemaphore;
 
     // --- Async write channel ---
     private readonly Lock _asyncWriteLock = new();
@@ -88,6 +84,7 @@ public sealed partial class IndexWriter : IDisposable
     private int _disposed;      // 0 = resources remain owned, 1 = teardown completed
     private int _closing;       // 0 = open, 1 = Dispose has started draining (prevents TOCTOU)
     private int _indexingFailed;
+    private int _failureReconciliationOwner;
     private Exception? _indexingFailure;
     private readonly Stream _writeLockFile;
 
@@ -112,10 +109,12 @@ public sealed partial class IndexWriter : IDisposable
 
         _directory = directory;
         _config = config;
+        _resolvedIndexingConcurrency = config.IndexingConcurrency == 0
+            ? Math.Max(1, Environment.ProcessorCount)
+            : config.IndexingConcurrency;
         _disposeTimeout = disposeTimeout;
         _shutdownToken = _shutdownCts.Token;
-        _spanPostingSink = new SpanPostingTokenSink(_buffer, _config);
-        _buffer.StoreTermVectors = config.StoreTermVectors;
+        _flushCoordinator = new FlushCoordinator(this);
 
         // If using default StandardAnalyser and config has custom stop words or cache size, rebuild it
         if (config.DefaultAnalyser is StandardAnalyser &&
@@ -147,17 +146,18 @@ public sealed partial class IndexWriter : IDisposable
             // Initialize backpressure semaphore if MaxQueuedDocs > 0
             if (config.MaxQueuedDocs > 0)
                 _backpressureSemaphore = new SemaphoreSlim(config.MaxQueuedDocs, config.MaxQueuedDocs);
-            if (config.MaxConcurrentFlushes > 1)
-                _flushSemaphore = new SemaphoreSlim(config.MaxConcurrentFlushes, config.MaxConcurrentFlushes);
-
             // Load existing commit state if present
             CommitManager.LoadLatestCommit(this);
+            foreach (var segment in _committedSegments)
+            {
+                foreach (var vectorField in segment.VectorFields)
+                    _vectorDimensions.TryAdd(vectorField.FieldName, vectorField.Dimension);
+            }
             DwptManager.InitialiseDwptPool(this);
         }
         catch
         {
             _backpressureSemaphore?.Dispose();
-            _flushSemaphore?.Dispose();
             writeLockFile.Dispose();
             try { FileOpenRetry.Delete(lockPath); }
             catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "constructor write-lock file delete"); }
@@ -215,9 +215,7 @@ public sealed partial class IndexWriter : IDisposable
                 {
                     DwptManager.WaitForPendingFlushes(this);
                     DwptManager.FlushDwptPool(this);
-                    if (_buffer.DocCount > 0)
-                        FlushSegment();
-
+                    DwptManager.WaitForPendingFlushes(this);
                     QueueDelete(field, term, isSoftDelete: false);
                     // Flushes can materialise documents targeted by earlier deletes.
                     // Apply the complete queue to every committed segment so those
@@ -272,9 +270,7 @@ public sealed partial class IndexWriter : IDisposable
 
                     DwptManager.WaitForPendingFlushes(this);
                     DwptManager.FlushDwptPool(this);
-                    if (_buffer.DocCount > 0)
-                        FlushSegment();
-
+                    DwptManager.WaitForPendingFlushes(this);
                     var terms = ResolveQueryToTerms(query, _committedSegments.GetRange(0, preFlushSegmentCount));
                     foreach (var (f, t) in terms)
                         QueueDelete(f, t, isSoftDelete: false);
@@ -402,14 +398,12 @@ public sealed partial class IndexWriter : IDisposable
             lock (_writeLock)
             {
                 DwptManager.FlushDwptPool(this);
-                if (_buffer.DocCount > 0)
-                    FlushSegment();
+                DwptManager.WaitForPendingFlushes(this);
 
                 var merger = new SegmentMerger(_directory, _config.MergePolicy, _config.PostingsSkipInterval,
                     _config.SoftDeleteRetentionSeconds, _config.HnswBuildConfig,
                     useCompoundFile: _config.UseCompoundFile);
-                int localOrdinal = _nextSegmentOrdinal;
-                _nextSegmentOrdinal += sourceSegments.Count + 8;
+                int localOrdinal = ReserveSegmentOrdinalRange(sourceSegments.Count + 8);
 
                 var merged = merger.MergeSegmentsFromDirectory(
                     sourceDirectory, sourceSegments, ref localOrdinal, _config, _commitGeneration);
@@ -417,7 +411,6 @@ public sealed partial class IndexWriter : IDisposable
                 {
                     _committedSegments.Add(merged);
                     _contentChangedSinceCommit = true;
-                    _nextSegmentOrdinal = Math.Max(_nextSegmentOrdinal, localOrdinal);
                 }
             }
         }
@@ -429,10 +422,32 @@ public sealed partial class IndexWriter : IDisposable
 
     public void Commit()
     {
+        if (Volatile.Read(ref _indexingFailed) != 0)
+        {
+            // A background physical flush may have failed before this barrier
+            // entered. Terminalise its coordinator state first, so Dispose does
+            // not encounter the same already-observed failure a second time.
+            if (_flushCoordinator.HasPendingFlush)
+            {
+                DwptManager.ReconcileFatalFailure(this);
+                lock (_writeLock)
+                    DwptManager.WaitForPendingFlushes(this);
+            }
+        }
+        ThrowIfIndexingFailedWithCause();
         EnterIndexingOperation();
         try
         {
             CommitManager.CommitWithLocks(this);
+        }
+        catch
+        {
+            // A detached physical flush can fail after the pre-entry check but
+            // while this commit is draining it. This operation remains active,
+            // so retain its lease while reconciling the poisoned DWPT state.
+            if (Volatile.Read(ref _indexingFailed) != 0)
+                DwptManager.ReconcileFatalFailure(this);
+            throw;
         }
         finally
         {
@@ -442,6 +457,7 @@ public sealed partial class IndexWriter : IDisposable
 
     public void PrepareCommit()
     {
+        ThrowIfIndexingFailedWithCause();
         EnterIndexingOperation();
         try
         {
@@ -614,7 +630,6 @@ public sealed partial class IndexWriter : IDisposable
 
         CaptureDisposeFailure(ref failure, () => _backpressureSemaphore?.Dispose(), "dispose-backpressure");
         CaptureDisposeFailure(ref failure, _shutdownCts.Dispose, "dispose-shutdown-cancellation");
-        CaptureDisposeFailure(ref failure, () => _flushSemaphore?.Dispose(), "dispose-flush-semaphore");
         CaptureDisposeFailure(ref failure, _writeLockFile.Dispose, "dispose-write-lock-handle");
 
         var lockPath = Path.Combine(_directory.DirectoryPath, "write.lock");
@@ -678,6 +693,9 @@ public sealed partial class IndexWriter : IDisposable
         _indexingOperations.ExitOperation();
     }
 
+    internal bool TryOwnFailureReconciliation()
+        => Interlocked.CompareExchange(ref _failureReconciliationOwner, 1, 0) == 0;
+
     internal void MarkIndexingFailed(Exception? failure = null)
     {
         if (failure is not null)
@@ -689,6 +707,21 @@ public sealed partial class IndexWriter : IDisposable
     {
         if (Volatile.Read(ref _indexingFailed) != 0)
             throw CreateIndexingFailureException();
+    }
+
+    /// <summary>
+    /// Commit-like barriers surface the causal asynchronous flush failure rather
+    /// than replacing it with the generic poisoned-writer admission exception.
+    /// </summary>
+    internal void ThrowIfIndexingFailedWithCause()
+    {
+        if (Volatile.Read(ref _indexingFailed) == 0)
+            return;
+
+        var failure = Volatile.Read(ref _indexingFailure);
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        throw CreateIndexingFailureException();
     }
 
     private InvalidOperationException CreateIndexingFailureException()
@@ -718,12 +751,67 @@ public sealed partial class IndexWriter : IDisposable
         }
     }
 
-    private bool ShouldFlush()
+    /// <summary>
+    /// Reserves vector dimensions only after DWPT-local token preflight has succeeded.
+    /// The complete document or block is checked before a new field dimension is recorded.
+    /// </summary>
+    internal void ValidateVectorDimensions(LeanDocument document)
     {
-        if (_buffer.DocCount >= _config.MaxBufferedDocs)
-            return true;
-        long ram = ComputeEstimatedRamBytes();
-        return ram >= (long)(_config.RamBufferSizeMB * 1024 * 1024);
+        string? fieldName = null;
+        int dimension = 0;
+        Dictionary<string, int>? incoming = null;
+        foreach (var field in document.Fields)
+        {
+            if (field is not VectorField vector)
+                continue;
+            if (fieldName is null)
+            {
+                fieldName = vector.Name;
+                dimension = vector.Value.Length;
+                continue;
+            }
+
+            incoming ??= new Dictionary<string, int>(StringComparer.Ordinal) { [fieldName] = dimension };
+            if (incoming.TryGetValue(vector.Name, out int existing) && existing != vector.Value.Length)
+                throw new ArgumentException($"Vector field '{vector.Name}' has inconsistent dimensions within one document.", nameof(document));
+            incoming[vector.Name] = vector.Value.Length;
+        }
+        if (fieldName is null)
+            return;
+        ValidateIncomingVectorDimensions(incoming ?? new Dictionary<string, int>(1, StringComparer.Ordinal) { [fieldName] = dimension });
+    }
+
+    internal void ValidateVectorDimensions(IEnumerable<LeanDocument> documents)
+    {
+        Dictionary<string, int>? incoming = null;
+        foreach (var document in documents)
+        {
+            foreach (var field in document.Fields)
+            {
+                if (field is not VectorField vector)
+                    continue;
+                incoming ??= new Dictionary<string, int>(StringComparer.Ordinal);
+                if (incoming.TryGetValue(vector.Name, out int existing) && existing != vector.Value.Length)
+                    throw new ArgumentException($"Vector field '{vector.Name}' has inconsistent dimensions within one admission batch.", nameof(documents));
+                incoming[vector.Name] = vector.Value.Length;
+            }
+        }
+        if (incoming is not null)
+            ValidateIncomingVectorDimensions(incoming);
+    }
+
+    private void ValidateIncomingVectorDimensions(Dictionary<string, int> incoming)
+    {
+        lock (_vectorDimensionLock)
+        {
+            foreach (var (fieldName, dimension) in incoming)
+            {
+                if (_vectorDimensions.TryGetValue(fieldName, out int existingDimension) && existingDimension != dimension)
+                    throw new ArgumentException($"Vector field '{fieldName}' has dimension {dimension}, but the index requires {existingDimension}.");
+            }
+            foreach (var (fieldName, dimension) in incoming)
+                _vectorDimensions.TryAdd(fieldName, dimension);
+        }
     }
 
     internal bool ShouldThrottleForMerge()
@@ -732,7 +820,7 @@ public sealed partial class IndexWriter : IDisposable
         lock (_writeLock)
         {
             if (_config.MergeThrottleSegments > 0 &&
-                _committedSegments.Count >= _config.MergeThrottleSegments)
+                _committedSegments.Count + _flushCoordinator.PendingCount >= _config.MergeThrottleSegments)
                 return true;
 
             if (_config.MaxPendingMergeBytes <= 0)
@@ -761,6 +849,13 @@ public sealed partial class IndexWriter : IDisposable
 
     internal void ThrottleMerge()
     {
+        // Detached batches are not visible to the merge policy until their
+        // physical work has completed and ordered publication has run. This
+        // throttle is intentionally the producer-side barrier which makes the
+        // configured segment ceiling effective rather than merely advisory.
+        lock (_writeLock)
+            DwptManager.WaitForPendingFlushes(this);
+
         MergeScheduler.ScheduleBackgroundMerge(this);
         var task = _mergeTask;
         if (task is not null)
@@ -772,52 +867,13 @@ public sealed partial class IndexWriter : IDisposable
 
     private long ComputeEstimatedRamBytes()
     {
-        long bytes = _buffer.AccountedRamBytes;
-        _config.Metrics.RecordWriterMemory(bytes, 0, _deleteQueue.Count * 96L);
+        long bytes = Volatile.Read(ref _activeDwptBytes);
+        _config.Metrics.RecordWriterMemory(bytes, Volatile.Read(ref _pendingFlushBytes), _deleteQueue.Count * 96L);
         return bytes;
     }
 
-    // --- Internal static helpers called by extracted manager classes ---
-
-    internal static void FlushSegmentStatic(IndexWriter writer)
-    {
-        if (writer._buffer.DocCount == 0) return;
-
-        int docCountToFlush = writer._buffer.DocCount;
-
-        var segInfo = SegmentFlusher.Flush(
-            writer._buffer, writer._config, writer._directory.DirectoryPath,
-            ref writer._nextSegmentOrdinal, writer._commitGeneration,
-            writer._flushSeqNoStart, writer._nextSequenceNumber);
-
-        writer._committedSegments.Add(segInfo);
-        ResetBufferStatic(writer);
-
-        if (writer._backpressureSemaphore is not null && docCountToFlush > 0)
-        {
-            int toRelease = Math.Min(docCountToFlush, writer._semaphoreSlotsHeld);
-            if (toRelease > 0)
-            {
-                BackpressureController.ReleaseSemaphoreSlots(writer, toRelease);
-                writer._semaphoreSlotsHeld -= toRelease;
-            }
-        }
-    }
-
-    internal static void ResetBufferStatic(IndexWriter writer)
-    {
-        writer._buffer.Reset();
-        writer._flushSeqNoStart = writer._nextSequenceNumber;
-    }
-
-    private void FlushSegment()
-    {
-        FlushSegmentStatic(this);
-    }
-
-
     // --- Async write channel types and consumer ---
-    private enum AsyncWriteKind { Single, Batch, Block }
+    private enum AsyncWriteKind { Single, Batch, ConcurrentBatch, Block }
     private readonly record struct AsyncWriteCommand(
         object Payload, AsyncWriteKind Kind, TaskCompletionSource Tcs);
 
@@ -889,8 +945,6 @@ public sealed partial class IndexWriter : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    if (ex is not ObjectDisposedException and not Analysis.TokenBudgetExceededException)
-                        MarkIndexingFailed();
                     cmd.Tcs.TrySetException(ex);
                 }
             }
@@ -917,6 +971,9 @@ public sealed partial class IndexWriter : IDisposable
             case AsyncWriteKind.Batch:
                 AddDocuments((IReadOnlyList<LeanDocument>)cmd.Payload);
                 break;
+            case AsyncWriteKind.ConcurrentBatch:
+                DwptManager.AddDocumentsConcurrentOperationOwned(this, (IReadOnlyList<LeanDocument>)cmd.Payload);
+                break;
             case AsyncWriteKind.Block:
                 AddDocumentBlock((IReadOnlyList<LeanDocument>)cmd.Payload);
                 break;
@@ -928,7 +985,6 @@ public sealed partial class IndexWriter : IDisposable
     /// <summary>Gets the content token for the latest locally published commit.</summary>
     public long CurrentContentToken => Volatile.Read(ref _contentToken);
 
-    internal DocumentBufferState Buffer => _buffer;
     internal MMapDirectory Directory => _directory;
     internal IndexWriterConfig Config => _config;
     internal IAnalyser DefaultAnalyser => _defaultAnalyser;
@@ -939,8 +995,25 @@ public sealed partial class IndexWriter : IDisposable
 
     // --- Internal accessors for mutable scalars (managers need ref access) ---
     internal ref long NextSequenceNumberMut => ref _nextSequenceNumber;
-    internal ref long FlushSeqNoStart => ref _flushSeqNoStart;
-    internal ref int NextSegmentOrdinal => ref _nextSegmentOrdinal;
+    /// <summary>
+    /// Reserves one globally unique segment ordinal. Every segment-producing
+    /// path uses this allocator so detached flushes cannot collide with merges.
+    /// </summary>
+    internal int ReserveSegmentOrdinal()
+        => Interlocked.Increment(ref _nextSegmentOrdinal) - 1;
+
+    /// <summary>
+    /// Reserves a contiguous globally unique ordinal range and returns its start.
+    /// </summary>
+    internal int ReserveSegmentOrdinalRange(int count)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(count);
+        return Interlocked.Add(ref _nextSegmentOrdinal, count) - count;
+    }
+
+    /// <summary>Initialises ordinal allocation while reopening an index.</summary>
+    internal void InitialiseNextSegmentOrdinal(int nextOrdinal)
+        => Volatile.Write(ref _nextSegmentOrdinal, nextOrdinal);
     internal ref int CommitGeneration => ref _commitGeneration;
     internal ref long ContentToken => ref _contentToken;
     internal ref bool ContentChangedSinceCommit => ref _contentChangedSinceCommit;
@@ -950,12 +1023,13 @@ public sealed partial class IndexWriter : IDisposable
     internal ref List<SegmentInfo>? PreparedSegments => ref _preparedSegments;
     internal ref int FlushElection => ref _flushElection;
     internal ref int SemaphoreSlotsHeld => ref _semaphoreSlotsHeld;
+    internal ref long ActiveDwptBytes => ref _activeDwptBytes;
+    internal ref long PendingFlushBytes => ref _pendingFlushBytes;
     internal ref Task? MergeTask => ref _mergeTask;
     internal List<Task> MergeTasks => _mergeTasks;
     internal HashSet<string> ReservedMergeSegments => _reservedMergeSegments;
     internal HashSet<string> ObsoleteMergeSegments => _obsoleteMergeSegments;
-    internal ref int DwptCounter => ref _dwptCounter;
-    internal System.Collections.Concurrent.ConcurrentDictionary<int, int> DwptThreadSlots => _dwptThreadSlots;
+    internal int ResolvedIndexingConcurrency => _resolvedIndexingConcurrency;
 
     internal List<SegmentInfo> CommittedSegments => _committedSegments;
 
@@ -987,7 +1061,6 @@ public sealed partial class IndexWriter : IDisposable
                 return _asyncWriteConsumer is not null;
         }
     }
-    internal List<FlushPendingState> FlushPending => _flushPending;
+    internal FlushCoordinator FlushCoordinator => _flushCoordinator;
     internal ref int ActiveFlushCount => ref _activeFlushCount;
-    internal SemaphoreSlim? FlushSemaphore => _flushSemaphore;
 }

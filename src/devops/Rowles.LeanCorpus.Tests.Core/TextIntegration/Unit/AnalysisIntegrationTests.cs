@@ -273,7 +273,7 @@ public sealed class AnalysisIntegrationTests : IClassFixture<TestDirectoryFixtur
         Assert.Equal(1, results.TotalHits);
     }
 
-    private sealed class SpanOnlyNGramAnalyser : IAnalyser
+    private sealed class SpanOnlyNGramAnalyser : IThreadLocalAnalyser
     {
         private readonly NGramTokeniser _tokeniser = new(2, 2);
 
@@ -281,9 +281,11 @@ public sealed class AnalysisIntegrationTests : IClassFixture<TestDirectoryFixtur
         {
             _tokeniser.Tokenise(input, sink);
         }
+
+        public IAnalyser CreateThreadLocalAnalyser() => new SpanOnlyNGramAnalyser();
     }
 
-    private sealed class SpanOnlyUpperTokeniser : ISpanTokeniser
+    private sealed class SpanOnlyUpperTokeniser : IShareableSpanTokeniser
     {
         public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)
             => sink.Add("AB".AsSpan(), 0, 2);

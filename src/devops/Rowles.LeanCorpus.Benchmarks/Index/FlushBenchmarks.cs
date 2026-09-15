@@ -11,8 +11,9 @@ namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
 /// Measures <see cref="SegmentFlusher"/> flush latency via <see cref="IndexWriter.Commit"/>
-/// across different field configurations and batch sizes.
-/// Each iteration builds a fresh index and measures the cumulative flush cost.
+/// across different field configurations and batch sizes. Each iteration builds
+/// a fresh index through four DWPT producers so the flush-limit sweep admits
+/// genuinely concurrent physical work.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -26,6 +27,10 @@ public class FlushBenchmarks
 {
     [Params(100, 1_000, 10_000)]
     public int DocsPerFlush { get; set; }
+
+    /// <summary>Physical detached-flush concurrency limits to compare.</summary>
+    [Params(1, 2, 4)]
+    public int MaxConcurrentFlushes { get; set; }
 
     private string[] _documents = [];
     private readonly List<string> _createdPaths = [];
@@ -56,17 +61,21 @@ public class FlushBenchmarks
         using (var writer = new IndexWriter(dir, new IndexWriterConfig
                {
                    MaxBufferedDocs = DocsPerFlush,
+                   MaxConcurrentFlushes = MaxConcurrentFlushes,
+                   IndexingConcurrency = 4,
                    RamBufferSizeMB = 64
                }))
         {
+            var documents = new LeanDocument[_documents.Length];
             for (int i = 0; i < _documents.Length; i++)
             {
                 var doc = new LeanDocument();
                 doc.Add(new LeanStringField("id",
                     i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
                 doc.Add(new LeanTextField("body", _documents[i]));
-                writer.AddDocument(doc);
+                documents[i] = doc;
             }
+            writer.AddDocumentsConcurrent(documents);
             writer.Commit(); // triggers flush
             return _documents.Length;
         }
@@ -84,9 +93,12 @@ public class FlushBenchmarks
         using (var writer = new IndexWriter(dir, new IndexWriterConfig
                {
                    MaxBufferedDocs = DocsPerFlush,
+                   MaxConcurrentFlushes = MaxConcurrentFlushes,
+                   IndexingConcurrency = 4,
                    RamBufferSizeMB = 64
                }))
         {
+            var documents = new LeanDocument[_documents.Length];
             for (int i = 0; i < _documents.Length; i++)
             {
                 var doc = new LeanDocument();
@@ -95,8 +107,9 @@ public class FlushBenchmarks
                 doc.Add(new LeanTextField("body", _documents[i]));
                 doc.Add(new LeanNumericField("price", i * 1.5));
                 doc.Add(new LeanStringField("tag", $"cat{i % 10}"));
-                writer.AddDocument(doc);
+                documents[i] = doc;
             }
+            writer.AddDocumentsConcurrent(documents);
             writer.Commit();
             return _documents.Length;
         }
@@ -114,6 +127,8 @@ public class FlushBenchmarks
         using (var writer = new IndexWriter(dir, new IndexWriterConfig
                {
                    MaxBufferedDocs = DocsPerFlush,
+                   MaxConcurrentFlushes = MaxConcurrentFlushes,
+                   IndexingConcurrency = 4,
                    RamBufferSizeMB = 64,
                    BuildHnswOnFlush = true,
                    HnswBuildConfig = new Rowles.LeanCorpus.Codecs.Hnsw.HnswBuildConfig
@@ -122,6 +137,7 @@ public class FlushBenchmarks
                }))
         {
             var rnd = new Random(7);
+            var documents = new LeanDocument[_documents.Length];
             for (int i = 0; i < _documents.Length; i++)
             {
                 var doc = new LeanDocument();
@@ -133,8 +149,9 @@ public class FlushBenchmarks
                     vec[d] = (float)(rnd.NextDouble() * 2 - 1);
                 doc.Add(new Rowles.LeanCorpus.Document.Fields.VectorField("emb",
                     new ReadOnlyMemory<float>(vec)));
-                writer.AddDocument(doc);
+                documents[i] = doc;
             }
+            writer.AddDocumentsConcurrent(documents);
             writer.Commit();
             return _documents.Length;
         }
@@ -152,18 +169,22 @@ public class FlushBenchmarks
         using (var writer = new IndexWriter(dir, new IndexWriterConfig
                {
                    MaxBufferedDocs = DocsPerFlush,
+                   MaxConcurrentFlushes = MaxConcurrentFlushes,
+                   IndexingConcurrency = 4,
                    RamBufferSizeMB = 64,
                    StoreTermVectors = true,
                }))
         {
+            var documents = new LeanDocument[_documents.Length];
             for (int i = 0; i < _documents.Length; i++)
             {
                 var doc = new LeanDocument();
                 doc.Add(new LeanStringField("id",
                     i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
                 doc.Add(new LeanTextField("body", _documents[i]));
-                writer.AddDocument(doc);
+                documents[i] = doc;
             }
+            writer.AddDocumentsConcurrent(documents);
             writer.Commit();
             return _documents.Length;
         }

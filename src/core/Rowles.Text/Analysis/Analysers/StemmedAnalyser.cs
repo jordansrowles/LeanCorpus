@@ -8,7 +8,7 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// Pipeline: tokenise → lowercase → stop-word removal → Porter stem.
 /// Uses the composable <see cref="Analyser"/> pipeline for zero-allocation streaming.
 /// </summary>
-public sealed class StemmedAnalyser : IAnalyser
+public sealed class StemmedAnalyser : IThreadLocalAnalyser
 {
     private readonly Analyser _pipeline;
 
@@ -40,4 +40,7 @@ public sealed class StemmedAnalyser : IAnalyser
     /// <inheritdoc/>
     public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
         => _pipeline.Analyse(input, sink);
+
+    /// <inheritdoc/>
+    public IAnalyser CreateThreadLocalAnalyser() => _pipeline.CreateThreadLocalAnalyser();
 }

@@ -40,8 +40,7 @@ internal static class MergeScheduler
                     foreach (var source in sources)
                         writer.ReservedMergeSegments.Add(source.SegmentId);
 
-                    outputOrdinal = writer.NextSegmentOrdinal;
-                    writer.NextSegmentOrdinal += Math.Max(8, sources.Length);
+                    outputOrdinal = writer.ReserveSegmentOrdinalRange(Math.Max(8, sources.Length));
                 }
 
                 long pendingBytes = sources.Sum(static segment => segment.TotalBytes);
@@ -104,7 +103,6 @@ internal static class MergeScheduler
                 foreach (string sourceId in sourceIds)
                     writer.ObsoleteMergeSegments.Add(sourceId);
                 writer.ContentChangedSinceCommit = true;
-                writer.NextSegmentOrdinal = Math.Max(writer.NextSegmentOrdinal, nextOrdinal);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

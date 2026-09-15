@@ -5,7 +5,7 @@ namespace Rowles.LeanCorpus.Analysis.Stemmers;
 /// steps. Each language stemmer supplies its own suffix lists and may override
 /// pre-processing, post-processing, and minimum-length thresholds.
 /// </summary>
-public abstract class SnowballStemmer : ISpanStemmer
+public abstract class SnowballStemmer : IShareableSpanStemmer
 {
     /// <summary>Minimum word length required to attempt stemming.</summary>
     protected virtual int MinWordLength => 3;

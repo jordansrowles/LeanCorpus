@@ -5,7 +5,7 @@ namespace Rowles.LeanCorpus.Analysis.Stemmers;
 /// <summary>
 /// Lexicon-validated English stemmer inspired by Krovetz stemming.
 /// </summary>
-public sealed class KStemmer : ISpanStemmer
+public sealed class KStemmer : IShareableSpanStemmer
 {
     private sealed record MorphRule(
         string Suffix,

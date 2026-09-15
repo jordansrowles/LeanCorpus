@@ -7,7 +7,7 @@ namespace Rowles.LeanCorpus.Analysis.Stemmers;
 /// Adapter that wraps <see cref="HunspellStemFilter"/>'s behaviour behind <see cref="ISpanStemmer"/>.
 /// Used to plug Hunspell into the <see cref="StemmerAnalyser"/> pipeline.
 /// </summary>
-internal sealed class HunspellStemmerAdapter : ISpanStemmer
+internal sealed class HunspellStemmerAdapter : IShareableSpanStemmer
 {
     private readonly HunspellDictionary _dictionary;
 

@@ -13,3 +13,15 @@ public interface ISpanStemmer
     /// </summary>
     int Stem(ReadOnlySpan<char> word, Span<char> output);
 }
+
+/// <summary>Marks a stemmer whose state is immutable and safe to share between analyser instances.</summary>
+public interface IShareableSpanStemmer : ISpanStemmer
+{
+}
+
+/// <summary>Creates independently owned stemmer state for a concurrent analyser instance.</summary>
+public interface IThreadLocalSpanStemmer : ISpanStemmer
+{
+    /// <summary>Creates an independent stemmer instance.</summary>
+    ISpanStemmer CreateThreadLocalStemmer();
+}

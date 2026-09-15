@@ -88,8 +88,7 @@ internal static class CommitManager
     {
         DwptManager.WaitForPendingFlushes(writer);
         DwptManager.FlushDwptPool(writer);
-
-        IndexWriter.FlushSegmentStatic(writer);
+        DwptManager.WaitForPendingFlushes(writer);
 
         // Apply pending deletes to all committed segments after flush.
         // This covers both: queued deletes targeting previously committed
@@ -316,7 +315,7 @@ internal static class CommitManager
 
         writer.CommitGeneration = recovery.Generation;
         writer.ContentToken = recovery.ContentToken;
-        writer.NextSegmentOrdinal = GetNextSegmentOrdinal(recovery.SegmentIds);
+        writer.InitialiseNextSegmentOrdinal(GetNextSegmentOrdinal(recovery.SegmentIds));
 
         var dirPath = directory.DirectoryPath;
         foreach (var segId in recovery.SegmentIds)
@@ -358,14 +357,13 @@ internal static class CommitManager
 
         if (config.TrackSequenceNumbers)
         {
-            long maxSeq = 0;
+            long nextSequenceNumber = 0;
             foreach (var seg in writer.CommittedSegments)
             {
-                if (seg.MaxSequenceNumber.HasValue && seg.MaxSequenceNumber.Value > maxSeq)
-                    maxSeq = seg.MaxSequenceNumber.Value;
+                if (seg.MaxSequenceNumber is long maxSequenceNumber)
+                    nextSequenceNumber = Math.Max(nextSequenceNumber, maxSequenceNumber + 1);
             }
-            writer.NextSequenceNumberMut = maxSeq + 1;
-            writer.FlushSeqNoStart = writer.NextSequenceNumber;
+            writer.NextSequenceNumberMut = nextSequenceNumber;
         }
     }
 
@@ -412,9 +410,7 @@ internal static class CommitManager
             var dirPath = writer.Directory.DirectoryPath;
 
             DwptManager.FlushDwptPool(writer);
-            if (writer.Buffer.DocCount > 0)
-                IndexWriter.FlushSegmentStatic(writer);
-
+            DwptManager.WaitForPendingFlushes(writer);
             if (writer.PendingDeletes.Count > 0)
                 DeletionApplier.ApplyPendingDeletions(
                     writer.DeleteQueue, writer.CommittedSegments,
@@ -439,7 +435,7 @@ internal static class CommitManager
             var merger = new SegmentMerger(writer.Directory, writer.Config.MergePolicy, writer.Config.PostingsSkipInterval,
                 writer.Config.SoftDeleteRetentionSeconds, writer.Config.HnswBuildConfig,
                 useCompoundFile: writer.Config.UseCompoundFile);
-            int localOrdinal = writer.NextSegmentOrdinal;
+            int localOrdinal = writer.ReserveSegmentOrdinal();
             var merged = merger.MergeAll(mergeable, ref localOrdinal, writer.CommitGeneration);
 
             if (merged is null)
@@ -455,7 +451,6 @@ internal static class CommitManager
 
             writer.ContentToken++;
             writer.CommitGeneration++;
-            writer.NextSegmentOrdinal = Math.Max(writer.NextSegmentOrdinal, localOrdinal);
             WriteCommitStats(writer);
             WriteCommitFile(writer);
             writer.Config.DeletionPolicy.OnCommit(dirPath, writer.CommitGeneration, protectedSegments);
@@ -489,9 +484,7 @@ internal static class CommitManager
             var dirPath = writer.Directory.DirectoryPath;
 
             DwptManager.FlushDwptPool(writer);
-            if (writer.Buffer.DocCount > 0)
-                IndexWriter.FlushSegmentStatic(writer);
-
+            DwptManager.WaitForPendingFlushes(writer);
             if (writer.PendingDeletes.Count > 0)
                 DeletionApplier.ApplyPendingDeletions(
                     writer.DeleteQueue, writer.CommittedSegments,
@@ -520,9 +513,8 @@ internal static class CommitManager
                     writer.Config.SoftDeleteRetentionSeconds, writer.Config.HnswBuildConfig,
                     useCompoundFile: writer.Config.UseCompoundFile);
                 lastMerger = merger;
-                int localOrdinal = writer.NextSegmentOrdinal;
+                int localOrdinal = writer.ReserveSegmentOrdinal();
                 var merged = merger.MergeAll(toMerge, ref localOrdinal, writer.CommitGeneration);
-                writer.NextSegmentOrdinal = Math.Max(writer.NextSegmentOrdinal, localOrdinal);
 
                 if (merged is null)
                 {
@@ -575,8 +567,7 @@ internal static class CommitManager
 
             DwptManager.WaitForPendingFlushes(writer);
             DwptManager.FlushDwptPool(writer);
-
-            IndexWriter.FlushSegmentStatic(writer);
+            DwptManager.WaitForPendingFlushes(writer);
 
             if (writer.PendingDeletes.Count > 0)
                 DeletionApplier.ApplyPendingDeletions(

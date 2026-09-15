@@ -4,7 +4,7 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// Tokeniser for common MediaWiki markup including headings, links, categories,
 /// emphasis markup, citations, URLs, and plain body text.
 /// </summary>
-public sealed class MediaWikiTokeniser : ISpanTokeniser
+public sealed class MediaWikiTokeniser : IShareableSpanTokeniser
 {
     /// <summary>Token type emitted for MediaWiki categories.</summary>
     public const string CategoryType = "mediawiki.category";
@@ -214,4 +214,3 @@ public sealed class MediaWikiTokeniser : ISpanTokeniser
         return next;
     }
 }
-

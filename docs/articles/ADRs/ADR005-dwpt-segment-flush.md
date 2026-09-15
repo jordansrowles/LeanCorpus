@@ -29,20 +29,22 @@ parallelism benefit from the analysis phase.
 
 ## Decision
 
-Each DWPT partition flushes its own segment to disk via `SegmentFlusher.FlushFromDwpt`.
-No data is merged into `_buffer`. `MergeDwpt`, `MergeMultiValuedDocValues`, and
-`AppendMergedStoredField` are deleted. The existing `TieredMergePolicy` consolidates the
-resulting segments.
+Each DWPT detaches an owned `DwptFlushBatch` that becomes one segment through the
+writer-owned bounded `FlushCoordinator`. No data is merged into a shared document
+buffer. Physical segment construction is independent bounded work and the coordinator
+publishes completed `SegmentInfo` instances in submission order. The existing
+`TieredMergePolicy` consolidates the resulting segments.
 
 ## Rationale
 
 - Doc IDs need no remapping. Each DWPT uses local IDs (0, 1, 2, ...) that become the segment's
   final IDs. The `docBase + localId` arithmetic is eliminated.
-- `_writeLock` is not held during the parallel phase. Each DWPT writes to disk independently.
-  Only a brief `lock (_writeLock)` protects `_committedSegments.Add` after all segments
-  are written.
-- The sequential `AddDocument` path is unchanged. `SegmentFlusher.Flush` still operates on
-  `DocumentBufferState`. A shared `WritePostingsBody` helper serves both paths.
+- `_writeLock` is not held during analysis or physical segment construction. The
+  coordinator owns detached batches until terminal success or failure, then takes the
+  writer lock only to publish the completed ordered prefix.
+- Ordinary and concurrent ingestion use the same DWPT pool. `SegmentFlusher.FlushFromBatch`
+  consumes the exclusively owned detached batch directly; there is no shared
+  `DocumentBufferState`, snapshot view, or secondary flush source.
 - Segment count increases proportional to partition count. `TieredMergePolicy` groups
   segments by size tier and merges the smallest when a tier exceeds the threshold.
 
@@ -50,14 +52,16 @@ resulting segments.
 
 - `MergeDwpt` (134 lines), `MergeMultiValuedDocValues` (14 lines), and
   `AppendMergedStoredField` (13 lines) are deleted. `ResetDwpt` is deleted.
-- `SegmentFlusher.FlushFromDwpt` added. `WritePostingsBody` extracted as a shared helper
-  consuming `(string Term, PostingAccumulator Acc)[]` sorted arrays. `WriteNumericIndexDwpt`
-  added.
-- `AddDocumentsConcurrent` rewritten: each partition calls `SegmentFlusher.FlushFromDwpt`
-  directly. `AddDocumentLockFree` rewritten: per-DWPT segment flush on RAM threshold.
-  `FlushDwptPool` rewritten: drains remaining DWPT contents as segments during commit.
+- `DwptFlushBatch` owns all detached resources, including rented term and posting buffers,
+  until one-shot cleanup. `SegmentFlusher.FlushFromBatch` is the only production flush
+  entry point. The postings writer and FST sort compact term IDs against the batch's UTF-8
+  term pool, without allocating per-term byte arrays or managed term strings.
+- `AddDocumentsConcurrent`, ordinary `AddDocument`, and concurrent async ingestion use the
+  same DWPT and coordinator pipeline. `FlushDwptPool` submits remaining owned batches and
+  commit, mutation, merge, snapshot, and dispose boundaries drain the required work.
 - `DocumentsWriterPerThread.StoredFieldNameToId` exposed. `ParentDocIds` added (null).
-- All 36 DWPT and concurrent integration tests pass on `net10.0` and `net11.0`.
+- Flush execution is bounded by `MaxConcurrentFlushes`; accepted detached work reaches a
+  terminal success or writer-poisoning failure even when shutdown begins.
 - Throughput is equivalent to the old path. The sequential `AddDocument` remains baseline.
   The primary benefit is maintainability: no double-buffering, no merge phase, no remapping.
 - A minimum-document threshold of 128 skips HNSW graph construction on segments where

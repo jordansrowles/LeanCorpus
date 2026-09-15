@@ -5,7 +5,7 @@ namespace Rowles.LeanCorpus.Analysis.Stemmers;
 /// <summary>
 /// Lightweight English suffix stemmer for common inflections.
 /// </summary>
-public sealed class LightEnglishStemmer : ISpanStemmer
+public sealed class LightEnglishStemmer : IShareableSpanStemmer
 {
     private static readonly FrozenDictionary<string, string> Exceptions =
         new Dictionary<string, string>(StringComparer.Ordinal)

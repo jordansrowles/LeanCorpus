@@ -111,6 +111,7 @@ public sealed class IndexWriterDefaultOptions
     {
         RamBufferSizeMB = Get(snapshot.RamBufferSizeMB);
         RamPerThreadHardLimitMB = Get(snapshot.RamPerThreadHardLimitMB);
+        IndexingConcurrency = Get(snapshot.IndexingConcurrency);
         MaxConcurrentFlushes = Get(snapshot.MaxConcurrentFlushes);
         MaxBufferedDocs = Get(snapshot.MaxBufferedDocs);
         MaxQueuedDocs = Get(snapshot.MaxQueuedDocs);
@@ -147,6 +148,8 @@ public sealed class IndexWriterDefaultOptions
     public double? RamBufferSizeMB { get; set; }
     /// <summary>Gets or sets the hard per-thread RAM limit in megabytes.</summary>
     public double? RamPerThreadHardLimitMB { get; set; }
+    /// <summary>Gets or sets the configured indexing concurrency.</summary>
+    public int? IndexingConcurrency { get; set; }
     /// <summary>Gets or sets the maximum number of concurrent flushes.</summary>
     public int? MaxConcurrentFlushes { get; set; }
     /// <summary>Gets or sets the maximum buffered document count.</summary>
@@ -213,6 +216,7 @@ public sealed class IndexWriterDefaultOptions
         {
             RamBufferSizeMB = ToOverride(RamBufferSizeMB),
             RamPerThreadHardLimitMB = ToOverride(RamPerThreadHardLimitMB),
+            IndexingConcurrency = ToOverride(IndexingConcurrency),
             MaxConcurrentFlushes = ToOverride(MaxConcurrentFlushes),
             MaxBufferedDocs = ToOverride(MaxBufferedDocs),
             MaxQueuedDocs = ToOverride(MaxQueuedDocs),

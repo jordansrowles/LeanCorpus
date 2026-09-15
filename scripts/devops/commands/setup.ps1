@@ -11,6 +11,7 @@ function Invoke-DevOpsSetup {
 
     # Directories expected by devops commands, docfx, and CI
     $dirs = @(
+        (Get-ArtifactRunsRoot -Kind build -RepoRoot $repoRoot),
         (Get-ArtifactRunsRoot -Kind test -RepoRoot $repoRoot),
         (Get-ArtifactRunsRoot -Kind coverage -RepoRoot $repoRoot),
         (Get-ArtifactRunsRoot -Kind benchmark -RepoRoot $repoRoot),

@@ -3,7 +3,7 @@ using Rowles.LeanCorpus.Analysis.Filters;
 namespace Rowles.LeanCorpus.Analysis.Stemmers;
 
 /// <summary>Adapter that exposes Porter stemming through <see cref="ISpanStemmer"/>.</summary>
-public sealed class PorterStemmer : ISpanStemmer
+public sealed class PorterStemmer : IShareableSpanStemmer
 {
     /// <inheritdoc/>
     public int Stem(ReadOnlySpan<char> word, Span<char> output) =>

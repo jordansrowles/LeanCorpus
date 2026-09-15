@@ -13,7 +13,7 @@ using Rowles.LeanCorpus.Analysis;
 /// or composed syllables and are word-tokenised instead. Supplementary-plane
 /// CJK ideographs (Extension B+) are supported via surrogate pair decoding.
 /// </remarks>
-public sealed class CJKBigramTokeniser : ISpanTokeniser
+public sealed class CJKBigramTokeniser : IShareableSpanTokeniser
 {
     /// <summary>Token type emitted for CJK ideograph tokens.</summary>
     public const string CjkType = "cjk";

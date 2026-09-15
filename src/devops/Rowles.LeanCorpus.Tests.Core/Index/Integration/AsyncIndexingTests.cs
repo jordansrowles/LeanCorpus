@@ -66,6 +66,26 @@ public sealed class AsyncIndexingTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(1, searcher.Search(new TermQuery("id", "2"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
+    [Fact(DisplayName = "Async Indexing: Concurrent Batch Indexes Through The DWPT Pipeline")]
+    public async Task AddDocumentsConcurrentAsync_IndexesBatchedDocuments()
+    {
+        var dir = new MMapDirectory(SubDir(nameof(AddDocumentsConcurrentAsync_IndexesBatchedDocuments)));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig
+        {
+            IndexingConcurrency = 2,
+            MaxBufferedDocs = 100,
+        });
+        var batch = Enumerable.Range(0, 32)
+            .Select(i => MakeDoc(i.ToString(CultureInfo.InvariantCulture), "concurrent async"))
+            .ToArray();
+
+        await writer.AddDocumentsConcurrentAsync(batch, TestContext.Current.CancellationToken);
+        await writer.CommitAsync(TestContext.Current.CancellationToken);
+
+        using var searcher = new IndexSearcher(dir);
+        Assert.Equal(32, searcher.Search(new TermQuery("body", "concurrent"), 32, TestContext.Current.CancellationToken).TotalHits);
+    }
+
     [Fact(DisplayName = "Async Indexing: Token Rejection Preserves Earlier Documents And Writer")]
     public async Task AddDocumentsAsync_TokenRejection_PreservesEarlierDocumentsAndWriter()
     {

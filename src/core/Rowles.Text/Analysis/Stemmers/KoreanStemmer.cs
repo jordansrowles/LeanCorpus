@@ -23,7 +23,7 @@
 /// across all supported languages.
 /// </para>
 /// </remarks>
-public sealed class KoreanStemmer : ISpanStemmer
+public sealed class KoreanStemmer : IShareableSpanStemmer
 {
     /// <inheritdoc/>
     /// <remarks>Returns <paramref name="word"/> unchanged.</remarks>
