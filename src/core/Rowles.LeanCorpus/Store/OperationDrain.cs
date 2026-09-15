@@ -12,8 +12,6 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
 
     private readonly object _waitLock = new();
     private int _state;
-    private int _activeCountWaiters;
-
     internal int ActiveCount => Volatile.Read(ref _state) & int.MaxValue;
 
     internal Scope Enter(object owner)
@@ -91,39 +89,9 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
         }
     }
 
-    /// <summary>
-    /// Waits for active operations to fall to <paramref name="maximum"/> without
-    /// rejecting new operations. Intended for exceptional reconciliation paths
-    /// which have already closed admission through another mechanism.
-    /// </summary>
-    internal void WaitForActiveCountAtMost(int maximum)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(maximum);
-
-        Interlocked.Increment(ref _activeCountWaiters);
-        try
-        {
-            lock (_waitLock)
-            {
-                while (ActiveCount > maximum)
-                    Monitor.Wait(_waitLock);
-            }
-        }
-        finally
-        {
-            Interlocked.Decrement(ref _activeCountWaiters);
-        }
-    }
-
     private void Exit()
     {
         int state = Interlocked.Decrement(ref _state);
-        if (Volatile.Read(ref _activeCountWaiters) != 0)
-        {
-            lock (_waitLock)
-                Monitor.PulseAll(_waitLock);
-        }
-
         if (state != DisposeRequested)
             return;
 

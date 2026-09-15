@@ -429,7 +429,7 @@ public sealed partial class IndexWriter : IDisposable
             // not encounter the same already-observed failure a second time.
             if (_flushCoordinator.HasPendingFlush)
             {
-                DwptManager.ReconcileFatalFailure(this, allowedActiveOperations: 0);
+                DwptManager.ReconcileFatalFailure(this);
                 lock (_writeLock)
                     DwptManager.WaitForPendingFlushes(this);
             }
@@ -446,7 +446,7 @@ public sealed partial class IndexWriter : IDisposable
             // while this commit is draining it. This operation remains active,
             // so retain its lease while reconciling the poisoned DWPT state.
             if (Volatile.Read(ref _indexingFailed) != 0)
-                DwptManager.ReconcileFatalFailure(this, allowedActiveOperations: 1);
+                DwptManager.ReconcileFatalFailure(this);
             throw;
         }
         finally
@@ -692,9 +692,6 @@ public sealed partial class IndexWriter : IDisposable
     {
         _indexingOperations.ExitOperation();
     }
-
-    internal void WaitForIndexingOperationsAtMost(int maximum)
-        => _indexingOperations.WaitForActiveCountAtMost(maximum);
 
     internal bool TryOwnFailureReconciliation()
         => Interlocked.CompareExchange(ref _failureReconciliationOwner, 1, 0) == 0;

@@ -466,6 +466,50 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
         Assert.Equal(20, reopened.NextSequenceNumber);
     }
 
+    [Fact]
+    public void EmptyCommittedIndex_RestoresSequenceNumberZero()
+    {
+        string path = SubDir(nameof(EmptyCommittedIndex_RestoresSequenceNumberZero));
+        var config = new IndexWriterConfig { TrackSequenceNumbers = true };
+
+        using (var writer = new IndexWriter(new MMapDirectory(path), config))
+            writer.Commit();
+
+        using var reopened = new IndexWriter(new MMapDirectory(path), config);
+        Assert.Equal(0, reopened.NextSequenceNumber);
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task FatalReconciliation_ReleasesBackpressureForAlreadyAdmittedProducer()
+    {
+        using var fatalEntered = new ManualResetEventSlim();
+        using var releaseFatal = new ManualResetEventSlim();
+        using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(FatalReconciliation_ReleasesBackpressureForAlreadyAdmittedProducer))),
+            new IndexWriterConfig
+            {
+                IndexingConcurrency = 2,
+                MaxQueuedDocs = 1,
+                MaxBufferedDocs = 100,
+                DefaultAnalyser = new BackpressureFailureAnalyser(fatalEntered, releaseFatal)
+            });
+
+        Task fatal = StartBlockingProducer(() => writer.AddDocument(Document("fatal", "fatal")));
+        await WaitForSignalAsync(fatalEntered, TestContext.Current.CancellationToken);
+
+        Task blocked = StartBlockingProducer(() => writer.AddDocument(Document("blocked", "ordinary")));
+        Assert.True(SpinWait.SpinUntil(
+            () => writer.InFlightIndexingOperationsForTests == 2,
+            TimeSpan.FromSeconds(10)), "The second producer did not enter before fatal reconciliation.");
+
+        releaseFatal.Set();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await fatal.WaitAsync(TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await blocked.WaitAsync(TestContext.Current.CancellationToken));
+        Assert.Throws<InvalidOperationException>(() => writer.AddDocument(Document("after", "ordinary")));
+    }
+
     [Fact(Timeout = 30_000)]
     public async Task RetainedMemoryPressure_WaitsForPhysicalFlushProgress()
     {
@@ -857,6 +901,33 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
             _ordinaryEntered,
             _releaseOrdinary,
             _fatalEntered);
+    }
+
+    private sealed class BackpressureFailureAnalyser : IThreadLocalAnalyser
+    {
+        private readonly ManualResetEventSlim _fatalEntered;
+        private readonly ManualResetEventSlim _releaseFatal;
+
+        public BackpressureFailureAnalyser(ManualResetEventSlim fatalEntered, ManualResetEventSlim releaseFatal)
+        {
+            _fatalEntered = fatalEntered;
+            _releaseFatal = releaseFatal;
+        }
+
+        public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
+        {
+            if (input.SequenceEqual("fatal".AsSpan()))
+            {
+                _fatalEntered.Set();
+                if (!_releaseFatal.Wait(TimeSpan.FromSeconds(10)))
+                    throw new TimeoutException("The test did not release the fatal producer.");
+                throw new InvalidOperationException("fatal");
+            }
+
+            sink.Add(input, 0, input.Length);
+        }
+
+        public IAnalyser CreateThreadLocalAnalyser() => new BackpressureFailureAnalyser(_fatalEntered, _releaseFatal);
     }
 
     private sealed class SimultaneousFatalAnalyser : IThreadLocalAnalyser

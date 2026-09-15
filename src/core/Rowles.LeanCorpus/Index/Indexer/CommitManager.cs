@@ -357,13 +357,13 @@ internal static class CommitManager
 
         if (config.TrackSequenceNumbers)
         {
-            long maxSeq = 0;
+            long nextSequenceNumber = 0;
             foreach (var seg in writer.CommittedSegments)
             {
-                if (seg.MaxSequenceNumber.HasValue && seg.MaxSequenceNumber.Value > maxSeq)
-                    maxSeq = seg.MaxSequenceNumber.Value;
+                if (seg.MaxSequenceNumber is long maxSequenceNumber)
+                    nextSequenceNumber = Math.Max(nextSequenceNumber, maxSequenceNumber + 1);
             }
-            writer.NextSequenceNumberMut = maxSeq + 1;
+            writer.NextSequenceNumberMut = nextSequenceNumber;
         }
     }
 

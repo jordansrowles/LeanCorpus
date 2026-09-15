@@ -29,13 +29,18 @@ internal static class DwptManager
     public static void AddDocument(IndexWriter writer, LeanDocument doc)
     {
         writer.EnterIndexingOperation();
-        try { AddDocumentCore(writer, doc, abortOnFatalFailure: true); }
+        try { AddDocumentCore(writer, doc, abortOnFatalFailure: true, out _); }
         finally { writer.ExitIndexingOperation(); }
     }
 
-    private static void AddDocumentCore(IndexWriter writer, LeanDocument doc, bool abortOnFatalFailure)
+    private static void AddDocumentCore(
+        IndexWriter writer,
+        LeanDocument doc,
+        bool abortOnFatalFailure,
+        out bool mutationStarted)
     {
         bool acquired = false;
+        mutationStarted = false;
         try
         {
             writer.ValidateDocument(doc);
@@ -54,6 +59,7 @@ internal static class DwptManager
                 dwpt.ValidateDocument(doc);
                 writer.ValidateVectorDimensions(doc);
                 long before = dwpt.EstimatedRamBytes;
+                mutationStarted = true;
                 dwpt.AddPrevalidatedDocument(doc);
                 Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes - before);
             }
@@ -67,18 +73,10 @@ internal static class DwptManager
             if (writer.ShouldThrottleForMerge())
                 writer.ThrottleMerge();
         }
-        catch (TokenBudgetExceededException)
-        {
-            // DocumentsWriterPerThread validates the document before mutating
-            // its buffers. Reject therefore skips only this document and must
-            // not poison the writer or discard earlier accepted documents.
-            if (acquired)
-                ReleaseBackpressure(writer, 1);
-            throw;
-        }
         catch (Exception ex)
         {
-            if (abortOnFatalFailure && !IsRecoverableDocumentRejection(ex))
+            if (abortOnFatalFailure &&
+                (mutationStarted || !IsRecoverablePreMutationRejection(ex)))
             {
                 writer.MarkIndexingFailed(ex);
                 ReconcileFatalFailure(writer);
@@ -94,6 +92,7 @@ internal static class DwptManager
         writer.EnterIndexingOperation();
         int acquired = 0;
         bool addedToHeldSlots = false;
+        bool mutationStarted = false;
         try
         {
             ArgumentNullException.ThrowIfNull(block);
@@ -127,6 +126,7 @@ internal static class DwptManager
                 dwpt.ValidateDocumentBlock(block);
                 writer.ValidateVectorDimensions(block);
                 long before = dwpt.EstimatedRamBytes;
+                mutationStarted = true;
                 dwpt.AddPrevalidatedDocumentBlock(block);
                 Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes - before);
             }
@@ -136,16 +136,9 @@ internal static class DwptManager
             }
             EvaluateAutomaticFlush(writer, dwpt);
         }
-        catch (TokenBudgetExceededException)
-        {
-            // The whole block is preflighted before its first document is
-            // added, so a rejected block leaves the DWPT unchanged.
-            BackpressureController.ReleaseFailedBackpressureSlots(writer, acquired, addedToHeldSlots);
-            throw;
-        }
         catch (Exception ex)
         {
-            if (!IsRecoverableDocumentRejection(ex))
+            if (mutationStarted || !IsRecoverablePreMutationRejection(ex))
             {
                 writer.MarkIndexingFailed(ex);
                 ReconcileFatalFailure(writer);
@@ -183,19 +176,12 @@ internal static class DwptManager
             {
                 if (loopState.LowestBreakIteration is long lowestFailure && i > lowestFailure)
                     return;
+                bool mutationStarted = false;
                 try
                 {
-                    AddDocumentCore(writer, documents[i], abortOnFatalFailure: false);
+                    AddDocumentCore(writer, documents[i], abortOnFatalFailure: false, out mutationStarted);
                 }
-                catch (TokenBudgetExceededException ex)
-                {
-                    lock (failureLock)
-                    {
-                        if (rejection is null || i < rejection.Value.Index)
-                            rejection = (i, ex);
-                    }
-                }
-                catch (Exception ex) when (IsRecoverableDocumentRejection(ex))
+                catch (Exception ex) when (!mutationStarted && IsRecoverablePreMutationRejection(ex))
                 {
                     lock (failureLock)
                     {
@@ -358,18 +344,14 @@ internal static class DwptManager
         }
     }
 
-    internal static void ReconcileFatalFailure(IndexWriter writer, int allowedActiveOperations = 1)
+    internal static void ReconcileFatalFailure(IndexWriter writer)
     {
         if (!writer.TryOwnFailureReconciliation())
             return;
-        // Admission is closed before this point. Let already-admitted producers
-        // finish unwinding before clearing their DWPTs, so they cannot mutate a
-        // freshly cleared buffer after reconciliation.
-        writer.WaitForIndexingOperationsAtMost(allowedActiveOperations);
         AbortUncommittedWriterState(writer);
     }
 
-    private static bool IsRecoverableDocumentRejection(Exception exception)
+    private static bool IsRecoverablePreMutationRejection(Exception exception)
         => exception is TokenBudgetExceededException or ArgumentException or SchemaValidationException;
 
     /// <summary>

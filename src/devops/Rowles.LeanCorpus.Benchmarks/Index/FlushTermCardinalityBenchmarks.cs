@@ -3,7 +3,7 @@ using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Store;
 using IODirectory = System.IO.Directory;
 using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
-using LeanStringField = Rowles.LeanCorpus.Document.Fields.StringField;
+using LeanStoredField = Rowles.LeanCorpus.Document.Fields.StoredField;
 using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
 
 namespace Rowles.LeanCorpus.Benchmarks;
@@ -67,7 +67,7 @@ public class FlushTermCardinalityBenchmarks
         for (int i = 0; i < _documents.Length; i++)
         {
             var document = new LeanDocument();
-            document.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            document.Add(new LeanStoredField("id", i));
             document.Add(new LeanTextField("body", _documents[i]));
             documents[i] = document;
         }
