@@ -11,6 +11,7 @@ function Invoke-DevOpsBuild {
     # remain explicitly selectable with -Framework net10.0 when needed.
     $framework = $parsed.Get('Framework', 'net11.0')
     $project = $parsed.Get('Project', '')
+    $runtimeAsync = $parsed.Has('RuntimeAsync')
     $repoRoot = Get-RepoRoot
     $commandLine = ConvertTo-CommandLineText -Command './devops build' -Arguments $Arguments
     $buildRun = New-ArtifactRun -Kind build -Framework $(if ($project) { $framework } else { '' }) `
@@ -41,22 +42,23 @@ function Invoke-DevOpsBuild {
         Write-Host '  Framework:     each project target (net11.0 server)'
     }
     if ($project) { Write-Host "  Project:       $project" }
+    Write-Host "  Runtime Async: $(if ($runtimeAsync) { 'on' } else { 'off' })"
     Write-Host ''
 
     try {
-        Invoke-DotNet (@($buildArgs) + $frameworkArgs + @(
+        Invoke-DotNet (@($buildArgs) + $frameworkArgs + (Get-LeanCorpusRuntimeAsyncArguments -Enabled $runtimeAsync) + @(
             '-p:UseSharedCompilation=false',
             '--tl:off',
             "-bl:$binaryLogPath",
             '-fl',
             "-flp:logfile=$textLogPath;verbosity=normal"))
         Complete-ArtifactRun -RunDirectory $buildRun.RunDirectory -Status Passed `
-            -AdditionalValues @{ binaryLog = 'build.binlog'; textLog = 'build.log' }
+            -AdditionalValues @{ binaryLog = 'build.binlog'; textLog = 'build.log'; runtimeAsync = $runtimeAsync }
         Write-Success 'Build succeeded.'
         exit 0
     } catch {
         Complete-ArtifactRun -RunDirectory $buildRun.RunDirectory -Status Failed `
-            -AdditionalValues @{ binaryLog = 'build.binlog'; textLog = 'build.log'; error = $_.Exception.Message }
+            -AdditionalValues @{ binaryLog = 'build.binlog'; textLog = 'build.log'; runtimeAsync = $runtimeAsync; error = $_.Exception.Message }
         throw
     }
 }

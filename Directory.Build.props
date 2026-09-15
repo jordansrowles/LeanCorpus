@@ -5,6 +5,12 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- Runtime Async is an experiment. Keep the default build identical to the
+       supported baseline; DevOps opts in explicitly with LeanCorpusRuntimeAsync. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0' And '$(LeanCorpusRuntimeAsync)' == 'true'">
+    <Features>$(Features);runtime-async=on</Features>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Rowles.Text' Or '$(MSBuildProjectName)' == 'Rowles.Text.Tests' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Compression.LZ4' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Compression.Snappy' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Compression.Zstandard' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Cli' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.Shared' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.Core' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.SourceGen' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.Architecture' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.AOTSmoke' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.Cli' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Tests.Server'">
     <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
     <TieredPGO>true</TieredPGO>

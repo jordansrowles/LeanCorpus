@@ -64,3 +64,13 @@ function ConvertFrom-DevOpsArguments {
 
     return $obj
 }
+
+function Get-LeanCorpusRuntimeAsyncArguments {
+    param([bool]$Enabled = $false)
+
+    if ($Enabled) {
+        return @('-p:LeanCorpusRuntimeAsync=true')
+    }
+
+    return @()
+}

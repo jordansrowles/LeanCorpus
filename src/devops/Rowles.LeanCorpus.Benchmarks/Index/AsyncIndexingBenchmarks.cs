@@ -108,4 +108,40 @@ public class AsyncIndexingBenchmarks
         writer.Commit();
         return _documents.Length;
     }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public async Task<int> LeanCorpus_AddDocumentsConcurrentAsync_Batch()
+    {
+        var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-async-concurrent-{Guid.NewGuid():N}");
+        IODirectory.CreateDirectory(path);
+        _iterationPaths.Add(path);
+        using var dir = new LeanMMapDirectory(path);
+        using var writer = new IndexWriter(
+            dir,
+            new IndexWriterConfig { IndexingConcurrency = 2, MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 });
+        await writer.AddDocumentsConcurrentAsync(_documents);
+        writer.Commit();
+        return _documents.Length;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public async Task<int> LeanCorpus_AddDocumentAsync_ConcurrentCallers()
+    {
+        var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-async-callers-{Guid.NewGuid():N}");
+        IODirectory.CreateDirectory(path);
+        _iterationPaths.Add(path);
+        using var dir = new LeanMMapDirectory(path);
+        using var writer = new IndexWriter(
+            dir,
+            new IndexWriterConfig { MaxQueuedDocs = 1, MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 });
+        var writes = new Task[_documents.Length];
+        for (int i = 0; i < _documents.Length; i++)
+            writes[i] = writer.AddDocumentAsync(_documents[i]).AsTask();
+
+        await Task.WhenAll(writes);
+        writer.Commit();
+        return _documents.Length;
+    }
 }

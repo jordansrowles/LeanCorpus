@@ -22,17 +22,20 @@ function Get-AotExecutablePath {
 function Get-MtpExecutablePath {
     param(
         [object]$Target,
+        [object]$Options,
         [string]$RepoRoot
     )
 
     $projectPath = Resolve-TestProjectPath -Target $Target -RepoRoot $RepoRoot
     $projectName = [System.IO.Path]::GetFileNameWithoutExtension($projectPath)
+    $runtimeAsyncEnabled = $null -ne $Options.PSObject.Properties['RuntimeAsync'] -and [bool]$Options.RuntimeAsync
+    $runtimeAsyncArguments = Get-LeanCorpusRuntimeAsyncArguments -Enabled $runtimeAsyncEnabled
     $propertyOutput = @(Invoke-DotNet @(
         'msbuild', $projectPath, '--nologo', '-getProperty:TargetPath',
         "-property:Configuration=$($Target.Configuration)",
         "-property:TargetFramework=$($Target.Framework)",
         '-property:UseSharedCompilation=false'
-    ))
+    ) + $runtimeAsyncArguments)
     $targetPaths = @($propertyOutput | ForEach-Object { ([string]$_).Trim() } | Where-Object {
         $_ -and [System.IO.Path]::IsPathRooted($_) -and
             [System.IO.Path]::GetExtension($_).Equals('.dll', [StringComparison]::OrdinalIgnoreCase)
@@ -75,6 +78,8 @@ function Prepare-TestTargets {
     $preparationTimingByKey = @{}
 
     Write-Heading 'Preparing test targets'
+    $runtimeAsyncEnabled = $null -ne $Options.PSObject.Properties['RuntimeAsync'] -and [bool]$Options.RuntimeAsync
+    $runtimeAsyncArguments = Get-LeanCorpusRuntimeAsyncArguments -Enabled $runtimeAsyncEnabled
     if ($Options.Ci) {
         Write-Info '  Managed targets: using CI-prepared build output.'
     }
@@ -89,7 +94,7 @@ function Prepare-TestTargets {
                 $operationStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
                 $restoreStopwatch.Start()
                 try {
-                    Invoke-DotNet @('restore', $projectPath, '--nologo') | Out-Host
+                    Invoke-DotNet (@('restore', $projectPath, '--nologo') + $runtimeAsyncArguments) | Out-Host
                 } finally {
                     $operationStopwatch.Stop()
                     $restoreStopwatch.Stop()
@@ -112,9 +117,9 @@ function Prepare-TestTargets {
                 $operationStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
                 $buildStopwatch.Start()
                 try {
-                    Invoke-DotNet @('build', $projectPath, '--configuration', $target.Configuration,
+                    Invoke-DotNet (@('build', $projectPath, '--configuration', $target.Configuration,
                         '--framework', $target.Framework, '--no-restore', '--nologo',
-                        '-p:UseSharedCompilation=false') | Out-Host
+                        '-p:UseSharedCompilation=false') + $runtimeAsyncArguments) | Out-Host
                 } finally {
                     $operationStopwatch.Stop()
                     $buildStopwatch.Stop()
@@ -133,7 +138,7 @@ function Prepare-TestTargets {
                 [void]$preparationTimingByKey["build|$targetKey"].TargetKeys.Add($target.Key)
             }
 
-            $executablePath = Get-MtpExecutablePath -Target $target -RepoRoot $RepoRoot
+            $executablePath = Get-MtpExecutablePath -Target $target -RepoRoot $RepoRoot -Options $Options
             if (-not (Test-Path -LiteralPath $executablePath -PathType Leaf)) {
                 throw "Managed test build completed but executable was not found: $executablePath"
             }
@@ -157,9 +162,9 @@ function Prepare-TestTargets {
             $operationStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
             $publishStopwatch.Start()
             try {
-                Invoke-DotNet @('publish', $projectPath, '--configuration', $target.Configuration,
+                Invoke-DotNet (@('publish', $projectPath, '--configuration', $target.Configuration,
                     '--runtime', $target.RuntimeIdentifier, '--self-contained', 'true',
-                    '--framework', $target.Framework, '--nologo', '-p:UseSharedCompilation=false') | Out-Host
+                    '--framework', $target.Framework, '--nologo', '-p:UseSharedCompilation=false') + $runtimeAsyncArguments) | Out-Host
             } finally {
                 $operationStopwatch.Stop()
                 $publishStopwatch.Stop()

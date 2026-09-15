@@ -2,7 +2,6 @@
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
     <LangVersion>preview</LangVersion>
-    <Features>runtime-async=on</Features>
     <OutputType>Exe</OutputType>
     <AssemblyName>Rowles.LeanCorpus.Server.Local</AssemblyName>
     <RootNamespace>Rowles.LeanCorpus.Server.Local</RootNamespace>

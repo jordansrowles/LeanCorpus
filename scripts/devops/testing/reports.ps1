@@ -91,6 +91,7 @@ function New-TestReportDocument {
             flaky = [bool]$Context.Options.Flaky
             diagnostics = [bool]$Context.Options.Diagnostics
             failFast = [bool]$Context.Options.FailFast
+            runtimeAsync = $null -ne $Context.Options.PSObject.Properties['RuntimeAsync'] -and [bool]$Context.Options.RuntimeAsync
             ci = [bool]$Context.Options.Ci
             collectCoverage = [bool]$Context.Options.CollectCoverage
         }

@@ -11,6 +11,7 @@ function Invoke-DevOpsAot {
         $framework = [string]$parsed.Get('Framework', '')
         $runtimeIdentifier = [string]$parsed.Get('RuntimeIdentifier', '')
         $configuration = [string]$parsed.Get('Configuration', 'Release')
+        $runtimeAsync = $parsed.Has('RuntimeAsync')
         $flaky = $parsed.Has('Flaky')
         $countWasSpecified = $parsed.Has('Count')
         $countValue = if ($countWasSpecified) {
@@ -51,6 +52,7 @@ function Invoke-DevOpsAot {
             FailWarnings = $false
             ArtifactsEnabled = $count -gt 1 -or $flaky -or $diagnostics -or $ci
             Configuration = $configuration
+            RuntimeAsync = $runtimeAsync
             RequestedFramework = if ($frameworkWasSpecified) { $framework } else { '' }
             RuntimeIdentifier = $runtimeIdentifier
             Area = [string]$parsed.Get('Area', '')

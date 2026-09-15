@@ -2,6 +2,7 @@
 
 ### Changed
 
+- Added an opt-in net11.0 Runtime Async build switch for the Core and Community Server packages. Default builds remain Runtime Async off while the LEAN-16 compatibility and performance spike records comparable artefacts.
 - Added construction-time `IndexingConcurrency` configuration and explicit concurrent async bulk ingestion for the Core writer, and made concurrent bulk ingestion use bounded producers through the normal DWPT pipeline.
 - Made concurrent indexing ownership explicit for analyser components across maintained built-ins, consolidated automatic DWPT flushing, and now account for active and detached flush-buffer retention separately.
 - Detached DWPT flushing now uses bounded background physical execution with ordered writer-owned publication, so indexing producers no longer wait for segment I/O after admission and async ingestion reuses its owning operation lifetime.

@@ -877,6 +877,10 @@ public sealed partial class IndexWriter : IDisposable
     private readonly record struct AsyncWriteCommand(
         object Payload, AsyncWriteKind Kind, TaskCompletionSource Tcs);
 
+    /// <summary>Returns bounded-channel state for benchmark and diagnostic consumers.</summary>
+    internal AsyncWriteDiagnostics GetAsyncWriteDiagnostics()
+        => new(GetQueuedAsyncWriteCount(), _asyncWriteConsumer is not null && !_asyncWriteConsumer.IsCompleted);
+
     private Channel<AsyncWriteCommand> EnsureAsyncWriteChannel()
     {
         lock (_asyncWriteLock)
@@ -958,6 +962,8 @@ public sealed partial class IndexWriter : IDisposable
         lock (_asyncWriteLock)
             return _asyncWriteConsumer is null ? "not-started" : _asyncWriteConsumer.Status.ToString();
     }
+
+    internal readonly record struct AsyncWriteDiagnostics(int QueuedCommands, bool ConsumerActive);
 
     private void ProcessAsyncWriteCommand(AsyncWriteCommand cmd)
     {

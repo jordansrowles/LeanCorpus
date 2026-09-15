@@ -3,7 +3,6 @@
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
     <LangVersion>preview</LangVersion>
-    <Features>runtime-async=on</Features>
     <PackageId>Rowles.LeanCorpus.Server.Abstractions</PackageId>
     <Version>0.1.0-alpha.1</Version>
     <AssemblyVersion>0.1.0.0</AssemblyVersion>

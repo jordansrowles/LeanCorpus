@@ -26,6 +26,7 @@ function Invoke-DevOpsBenchmark {
     if (-not $parsed.Get('Suite', '') -and $parsed.Positionals.Count -gt 0) { $suite = $parsed.Positionals[0] }
     $strat = $parsed.Get('Strat', 'default')
     $framework = $parsed.Get('Framework', (Get-DefaultFramework))
+    $runtimeAsync = $parsed.Has('RuntimeAsync')
     $docCount = [int]($parsed.Get('DocCount', '0'))
     $bookCount = [int]($parsed.Get('BookCount', '200'))
     $sourceCommit = $parsed.Get('SourceCommit', '')
@@ -71,7 +72,7 @@ function Invoke-DevOpsBenchmark {
             exit 1
         }
 
-        Invoke-SelectedBenchmarks -Suite $suite -Area $area -Group $group -Framework $framework -Dry $dry
+        Invoke-SelectedBenchmarks -Suite $suite -Area $area -Group $group -Framework $framework -RuntimeAsync $runtimeAsync -Dry $dry
         exit $LASTEXITCODE
     }
 
@@ -113,6 +114,7 @@ function Invoke-DevOpsBenchmark {
     Write-Host "Suite:      $suite"
     Write-Host "Strat:      $strat"
     Write-Host "Framework:  $framework"
+    Write-Host "Runtime Async: $(if ($runtimeAsync) { 'on' } else { 'off' })"
     if ($controlled)     { Write-Host 'Mode:       controlled' }
     if ($corpusOnly)     { Write-Host 'CorpusOnly: enabled' }
     if ($effectiveDocCount -gt 0) { Write-Host "Docs:       $effectiveDocCount" }
@@ -128,7 +130,8 @@ function Invoke-DevOpsBenchmark {
             $runArgs = if ($projectKey -eq 'core') { @('--suite', $(if ($suite -in @('all', 'core')) { 'all' } else { $suite })) } else { @() }
             if ($effectiveDocCount -gt 0 -and $projectKey -eq 'core') { $runArgs += @('--doccount', $effectiveDocCount.ToString()) }
             if ($corpusOnly -and $projectKey -eq 'core') { $runArgs += '--corpus-only' }
-            Write-Host "  dotnet run -c Release --framework $framework --project `"$projectPath`" -- $($runArgs -join ' ') $($stratJobArgs -join ' ') $($passThrough -join ' ')"
+            $runtimeAsyncText = if ($runtimeAsync) { ' -p:LeanCorpusRuntimeAsync=true' } else { '' }
+            Write-Host "  dotnet run -c Release --framework $framework$runtimeAsyncText --project `"$projectPath`" -- $($runArgs -join ' ') $($stratJobArgs -join ' ') $($passThrough -join ' ')"
         }
         Write-Host ''
         exit 0
@@ -158,7 +161,8 @@ function Invoke-DevOpsBenchmark {
             Set-ArtifactProcessEnvironment -RunId $benchmarkRun.RunId -Kind benchmark `
                 -ArtifactDirectory $projectDirectory -Target $projectKey
             Write-Info "Running benchmark project: $projectKey"
-            dotnet run -c Release --framework $framework --project $projectPath -- @runArgs @stratJobArgs @passThrough
+            $runtimeAsyncArguments = Get-LeanCorpusRuntimeAsyncArguments -Enabled $runtimeAsync
+            dotnet run -c Release --framework $framework @runtimeAsyncArguments --project $projectPath -- @runArgs @stratJobArgs @passThrough
             $exitCode = $LASTEXITCODE
             [void]$projectResults.Add([ordered]@{
                 project = $projectKey
@@ -170,6 +174,7 @@ function Invoke-DevOpsBenchmark {
         $failedProjects = @($projectResults | Where-Object { $_.status -ne 'Passed' })
         $report = [ordered]@{
             schemaVersion = 1
+            runtimeAsync = $runtimeAsync
             runId = $benchmarkRun.RunId
             status = if ($failedProjects.Count -eq 0) { 'Passed' } else { 'Failed' }
             framework = $framework
@@ -236,6 +241,7 @@ function Invoke-AffectedBenchmarks {
 
     $parsed = ConvertFrom-DevOpsArguments $Arguments
     $framework = $parsed.Get('Framework', (Get-DefaultFramework))
+    $runtimeAsync = $parsed.Has('RuntimeAsync')
     $area = $parsed.Get('Area', '')
     $group = $parsed.Get('Group', '')
     $dry = $parsed.Has('Dry')
@@ -274,7 +280,7 @@ function Invoke-AffectedBenchmarks {
         exit 1
     }
 
-    Invoke-BenchmarkTargets -Targets $targets -Framework $framework -Dry $dry
+    Invoke-BenchmarkTargets -Targets $targets -Framework $framework -RuntimeAsync $runtimeAsync -Dry $dry
 }
 
 function Invoke-SelectedBenchmarks {
@@ -283,6 +289,7 @@ function Invoke-SelectedBenchmarks {
         [string]$Area,
         [string]$Group,
         [string]$Framework,
+        [bool]$RuntimeAsync,
         [bool]$Dry
     )
 
@@ -311,7 +318,7 @@ function Invoke-SelectedBenchmarks {
     if ($Area) { Write-Host "  Area:          $Area" }
     if ($Group) { Write-Host "  Group:         $Group" }
     Write-Host ''
-    Invoke-BenchmarkTargets -Targets $targets -Framework $Framework -Dry $Dry
+    Invoke-BenchmarkTargets -Targets $targets -Framework $Framework -RuntimeAsync $RuntimeAsync -Dry $Dry
 }
 
 function Test-BenchmarkGroupSelection {
@@ -333,6 +340,7 @@ function Invoke-BenchmarkTargets {
     param(
         [hashtable]$Targets,
         [string]$Framework,
+        [bool]$RuntimeAsync,
         [bool]$Dry
     )
 
@@ -353,9 +361,11 @@ function Invoke-BenchmarkTargets {
                 continue
             }
             if ($project -eq 'core') {
-                dotnet run -c Release --framework $framework --project $projectPath -- @projectArgs -- --filter "*$class*"
+                $runtimeAsyncArguments = Get-LeanCorpusRuntimeAsyncArguments -Enabled $RuntimeAsync
+                dotnet run -c Release --framework $framework @runtimeAsyncArguments --project $projectPath -- @projectArgs -- --filter "*$class*"
             } else {
-                dotnet run -c Release --framework $framework --project $projectPath -- --filter "*$class*"
+                $runtimeAsyncArguments = Get-LeanCorpusRuntimeAsyncArguments -Enabled $RuntimeAsync
+                dotnet run -c Release --framework $framework @runtimeAsyncArguments --project $projectPath -- --filter "*$class*"
             }
             if ($LASTEXITCODE -ne 0) {
                 Write-Failure "  $project/$class - FAILED"

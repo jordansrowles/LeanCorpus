@@ -173,6 +173,7 @@ function New-TestRunContext {
                 flaky = [bool]$Options.Flaky
                 diagnostics = [bool]$Options.Diagnostics
                 failFast = [bool]$Options.FailFast
+                runtimeAsync = $null -ne $Options.PSObject.Properties['RuntimeAsync'] -and [bool]$Options.RuntimeAsync
                 selectedTargets = @($Targets | ForEach-Object { ConvertTo-TestTargetDocument $_ })
                 artifactPaths = [ordered]@{
                     environment = 'environment.json'
@@ -460,6 +461,7 @@ function Update-TestRunManifest {
         flaky = [bool]$Context.Options.Flaky
         diagnostics = [bool]$Context.Options.Diagnostics
         failFast = [bool]$Context.Options.FailFast
+        runtimeAsync = $null -ne $Context.Options.PSObject.Properties['RuntimeAsync'] -and [bool]$Context.Options.RuntimeAsync
         selectedTargets = @($Context.Targets | ForEach-Object { ConvertTo-TestTargetDocument $_ })
         artifactPaths = [ordered]@{
             environment = Get-TestArtifactRelativePath -Context $Context -Path $Context.EnvironmentPath
