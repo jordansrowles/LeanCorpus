@@ -92,6 +92,7 @@ function New-TestReportDocument {
             diagnostics = [bool]$Context.Options.Diagnostics
             failFast = [bool]$Context.Options.FailFast
             runtimeAsync = $null -ne $Context.Options.PSObject.Properties['RuntimeAsync'] -and [bool]$Context.Options.RuntimeAsync
+            noRestore = $null -ne $Context.Options.PSObject.Properties['NoRestore'] -and [bool]$Context.Options.NoRestore
             ci = [bool]$Context.Options.Ci
             collectCoverage = [bool]$Context.Options.CollectCoverage
         }

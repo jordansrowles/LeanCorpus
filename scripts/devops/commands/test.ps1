@@ -55,6 +55,7 @@ function Invoke-DevOpsTest {
         $framework = [string]$parsed.Get('Framework', (Get-DefaultFramework))
         $configuration = [string]$parsed.Get('Configuration', 'Release')
         $runtimeAsync = $parsed.Has('RuntimeAsync')
+        $noRestore = $parsed.Has('NoRestore')
         $runtimeIdentifier = [string]$parsed.Get('RuntimeIdentifier', '')
         $area = [string]$parsed.Get('Area', '')
         $category = [string]$parsed.Get('Category', '')
@@ -110,6 +111,7 @@ function Invoke-DevOpsTest {
             ArtifactsEnabled = $artifactsEnabled
             Configuration = $configuration
             RuntimeAsync = $runtimeAsync
+            NoRestore = $noRestore
             RequestedFramework = if ($frameworkWasSpecified) { $framework } else { '' }
             RuntimeIdentifier = $runtimeIdentifier
             Area = $area

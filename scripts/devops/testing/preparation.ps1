@@ -30,12 +30,13 @@ function Get-MtpExecutablePath {
     $projectName = [System.IO.Path]::GetFileNameWithoutExtension($projectPath)
     $runtimeAsyncEnabled = $null -ne $Options.PSObject.Properties['RuntimeAsync'] -and [bool]$Options.RuntimeAsync
     $runtimeAsyncArguments = Get-LeanCorpusRuntimeAsyncArguments -Enabled $runtimeAsyncEnabled
-    $propertyOutput = @(Invoke-DotNet @(
+    $targetPathArguments = @(
         'msbuild', $projectPath, '--nologo', '-getProperty:TargetPath',
         "-property:Configuration=$($Target.Configuration)",
         "-property:TargetFramework=$($Target.Framework)",
         '-property:UseSharedCompilation=false'
-    ) + $runtimeAsyncArguments)
+    ) + $runtimeAsyncArguments
+    $propertyOutput = @(Invoke-DotNet $targetPathArguments)
     $targetPaths = @($propertyOutput | ForEach-Object { ([string]$_).Trim() } | Where-Object {
         $_ -and [System.IO.Path]::IsPathRooted($_) -and
             [System.IO.Path]::GetExtension($_).Equals('.dll', [StringComparison]::OrdinalIgnoreCase)
@@ -80,6 +81,7 @@ function Prepare-TestTargets {
     Write-Heading 'Preparing test targets'
     $runtimeAsyncEnabled = $null -ne $Options.PSObject.Properties['RuntimeAsync'] -and [bool]$Options.RuntimeAsync
     $runtimeAsyncArguments = Get-LeanCorpusRuntimeAsyncArguments -Enabled $runtimeAsyncEnabled
+    $noRestore = $null -ne $Options.PSObject.Properties['NoRestore'] -and [bool]$Options.NoRestore
     if ($Options.Ci) {
         Write-Info '  Managed targets: using CI-prepared build output.'
     }
@@ -89,7 +91,7 @@ function Prepare-TestTargets {
         if ($target.RunnerKind -eq 'Mtp') {
             $targetKey = "$projectPath|$($target.Framework)|$($target.Configuration)"
             $reportedWorkItem = "$($target.Project)|$($target.Framework)|$($target.Configuration)"
-            if (-not $Options.Ci -and $restored.Add($targetKey)) {
+            if (-not $Options.Ci -and -not $noRestore -and $restored.Add($targetKey)) {
                 Write-Info "  Restoring $($target.Key)..."
                 $operationStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
                 $restoreStopwatch.Start()
@@ -162,9 +164,13 @@ function Prepare-TestTargets {
             $operationStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
             $publishStopwatch.Start()
             try {
-                Invoke-DotNet (@('publish', $projectPath, '--configuration', $target.Configuration,
+                $publishArguments = @('publish', $projectPath, '--configuration', $target.Configuration,
                     '--runtime', $target.RuntimeIdentifier, '--self-contained', 'true',
-                    '--framework', $target.Framework, '--nologo', '-p:UseSharedCompilation=false') + $runtimeAsyncArguments) | Out-Host
+                    '--framework', $target.Framework, '--nologo', '-p:UseSharedCompilation=false')
+                if ($noRestore) {
+                    $publishArguments += '--no-restore'
+                }
+                Invoke-DotNet ($publishArguments + $runtimeAsyncArguments) | Out-Host
             } finally {
                 $operationStopwatch.Stop()
                 $publishStopwatch.Stop()
