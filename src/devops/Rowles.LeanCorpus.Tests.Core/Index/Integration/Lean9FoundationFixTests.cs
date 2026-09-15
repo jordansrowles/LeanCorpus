@@ -507,7 +507,46 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
             await fatal.WaitAsync(TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await blocked.WaitAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, Volatile.Read(ref writer.SemaphoreSlotsHeld));
+        Assert.Equal(1, writer.BackpressureSemaphoreForTests!.CurrentCount);
         Assert.Throws<InvalidOperationException>(() => writer.AddDocument(Document("after", "ordinary")));
+    }
+
+    [Fact]
+    public void BlockIndexSortRejectionBeforeMutation_DoesNotPoisonWriter()
+    {
+        using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(BlockIndexSortRejectionBeforeMutation_DoesNotPoisonWriter))),
+            new IndexWriterConfig
+            {
+                IndexSort = new IndexSort(Rowles.LeanCorpus.Search.Scoring.SortField.Numeric("rank"))
+            });
+
+        Assert.Throws<NotSupportedException>(() => writer.AddDocumentBlock(
+        [
+            Document("child", "child"),
+            Document("parent", "parent")
+        ]));
+
+        var accepted = Document("after", "ordinary");
+        accepted.Add(new NumericField("rank", 1));
+        writer.AddDocument(accepted);
+        writer.Commit();
+    }
+
+    [Fact]
+    public void OversizedBlockRejectionBeforeMutation_DoesNotPoisonWriter()
+    {
+        using var writer = new IndexWriter(new MMapDirectory(SubDir(nameof(OversizedBlockRejectionBeforeMutation_DoesNotPoisonWriter))),
+            new IndexWriterConfig { MaxQueuedDocs = 1 });
+
+        Assert.Throws<InvalidOperationException>(() => writer.AddDocumentBlock(
+        [
+            Document("child", "child"),
+            Document("parent", "parent")
+        ]));
+
+        writer.AddDocument(Document("after", "ordinary"));
+        writer.Commit();
     }
 
     [Fact(Timeout = 30_000)]

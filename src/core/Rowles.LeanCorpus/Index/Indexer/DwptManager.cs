@@ -75,8 +75,7 @@ internal static class DwptManager
         }
         catch (Exception ex)
         {
-            if (abortOnFatalFailure &&
-                (mutationStarted || !IsRecoverablePreMutationRejection(ex)))
+            if (abortOnFatalFailure && mutationStarted)
             {
                 writer.MarkIndexingFailed(ex);
                 ReconcileFatalFailure(writer);
@@ -138,7 +137,7 @@ internal static class DwptManager
         }
         catch (Exception ex)
         {
-            if (mutationStarted || !IsRecoverablePreMutationRejection(ex))
+            if (mutationStarted)
             {
                 writer.MarkIndexingFailed(ex);
                 ReconcileFatalFailure(writer);
@@ -181,7 +180,7 @@ internal static class DwptManager
                 {
                     AddDocumentCore(writer, documents[i], abortOnFatalFailure: false, out mutationStarted);
                 }
-                catch (Exception ex) when (!mutationStarted && IsRecoverablePreMutationRejection(ex))
+                catch (Exception ex) when (!mutationStarted)
                 {
                     lock (failureLock)
                     {
@@ -350,9 +349,6 @@ internal static class DwptManager
             return;
         AbortUncommittedWriterState(writer);
     }
-
-    private static bool IsRecoverablePreMutationRejection(Exception exception)
-        => exception is TokenBudgetExceededException or ArgumentException or SchemaValidationException;
 
     /// <summary>
     /// Acquires an available DWPT before falling back to the producer's stable
