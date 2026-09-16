@@ -324,6 +324,26 @@
           href: articles/ADRs/ADR020-stop-hybrid-retrieval-2-research.md
         - name: ADR021 Rowles.Text analysis package
           href: articles/ADRs/ADR021-rowles-text-analysis-package.md
+        - name: ADR022 Parent-linked incremental backups
+          href: articles/ADRs/ADR022-parent-linked-incremental-backups.md
+        - name: ADR023 Immutable reader composition and ordinals
+          href: articles/ADRs/ADR023-immutable-reader-composition-and-ordinals.md
+        - name: ADR024 Memory-mapped compound segment files
+          href: articles/ADRs/ADR024-memory-mapped-compound-segment-files.md
+        - name: ADR025 Unified codec catalogue
+          href: articles/ADRs/ADR025-unified-codec-catalogue.md
+        - name: ADR026 Canonical binary file frame
+          href: articles/ADRs/ADR026-canonical-binary-file-frame.md
+        - name: ADR027 Memory-mapped operation lifetimes
+          href: articles/ADRs/ADR027-memory-mapped-operation-lifetimes.md
+        - name: ADR028 Token graph analysis
+          href: articles/ADRs/ADR028-token-graph-analysis.md
+        - name: ADR029 Platform filesystem durability
+          href: articles/ADRs/ADR029-platform-filesystem-durability.md
+        - name: ADR030 Unified DevOps artefact and test evidence
+          href: articles/ADRs/ADR030-unified-devops-artefact-and-test-evidence.md
+        - name: ADR031 Async execution, Runtime Async and storage I/O
+          href: articles/ADRs/ADR031-async-execution-runtime-async-and-storage-io.md
     - name: Changelog
       href: changelog/index.md
       items:
