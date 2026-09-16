@@ -270,7 +270,7 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
     [Fact(Timeout = 30_000)]
     public async Task ConcurrentAsyncBatch_OwnsOneIndexingOperation()
     {
-        using var flushEntered = new ManualResetEventSlim();
+        var flushEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseFlush = new ManualResetEventSlim();
         IndexWriter? writer = null;
         int observedOperations = 0;
@@ -282,19 +282,28 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
                 PhysicalFlushStarted = () =>
                 {
                     observedOperations = writer!.InFlightIndexingOperationsForTests;
-                    flushEntered.Set();
+                    flushEntered.TrySetResult(true);
                     releaseFlush.Wait(TestContext.Current.CancellationToken);
                 }
             });
 
         using var ownedWriter = writer;
-        ValueTask indexing = writer!.AddDocumentsConcurrentAsync(
-            [Document("one", "alpha"), Document("two", "beta")],
-            TestContext.Current.CancellationToken);
-        await WaitForSignalAsync(flushEntered, TestContext.Current.CancellationToken);
-        Assert.Equal(1, observedOperations);
-        releaseFlush.Set();
-        await indexing;
+        try
+        {
+            ValueTask indexing = writer!.AddDocumentsConcurrentAsync(
+                [Document("one", "alpha"), Document("two", "beta")],
+                TestContext.Current.CancellationToken);
+            await flushEntered.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            Assert.Equal(1, observedOperations);
+            releaseFlush.Set();
+            await indexing;
+        }
+        finally
+        {
+            // Do not leave Dispose waiting on a deliberately blocked physical flush
+            // when an assertion or timeout ends the test early.
+            releaseFlush.Set();
+        }
     }
 
     [Theory(Timeout = 30_000)]
