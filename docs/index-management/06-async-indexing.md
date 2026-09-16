@@ -2,6 +2,8 @@
 
 `IndexWriter` provides asynchronous ingestion for applications that must avoid blocking while waiting for the writer queue and backpressure. Indexing semantics, validation, flushes, merges, and commits are shared with the synchronous path.
 
+Async admission is distinct from asynchronous engine execution. The writer uses a bounded FIFO command channel and one ordered consumer; after admission, the consumer runs the normal synchronous indexing pipeline. `AddDocumentsConcurrentAsync` is the separate throughput-oriented API and uses bounded DWPT producer concurrency inside that ordered command.
+
 ## One document
 
 ```csharp
@@ -54,7 +56,7 @@ await writer.CommitAsync(cancellationToken);
 
 ## Cancellation and failures
 
-Cancellation can stop waiting to enqueue, stream enumeration, or a commit before its work begins. Work already accepted by the writer may have changed in-memory or flushed segment state even when a later operation throws.
+Cancellation can stop waiting to enqueue, stream enumeration, or a commit before its work begins. Once a command has been accepted by the writer, its detached work remains writer-owned: it completes successfully or causes the writer to enter its normal failed state. Caller cancellation never silently abandons accepted documents or a detached flush batch.
 
 An indexing call does not imply a commit. On exception:
 
@@ -80,4 +82,4 @@ Use an application `Channel<LeanDocument>` when source acquisition itself needs 
 | `IAsyncEnumerable` source | `AddDocumentsAsync` |
 | Atomic child and parent adjacency | `AddDocumentBlock` or `AddDocumentBlockAsync` |
 
-Async improves caller scheduling, not codec or storage throughput by itself. Measure end-to-end indexing rate and allocation before increasing concurrency.
+Async improves caller scheduling, not codec or storage throughput by itself. `SearchAsync` likewise yields between synchronous per-segment query executions; it is a streaming and fairness API, not asynchronous scoring. Measure end-to-end indexing rate and allocation before increasing concurrency.
