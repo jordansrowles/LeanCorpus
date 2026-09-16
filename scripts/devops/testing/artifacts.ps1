@@ -173,6 +173,7 @@ function New-TestRunContext {
                 flaky = [bool]$Options.Flaky
                 diagnostics = [bool]$Options.Diagnostics
                 failFast = [bool]$Options.FailFast
+                noRestore = $null -ne $Options.PSObject.Properties['NoRestore'] -and [bool]$Options.NoRestore
                 selectedTargets = @($Targets | ForEach-Object { ConvertTo-TestTargetDocument $_ })
                 artifactPaths = [ordered]@{
                     environment = 'environment.json'
@@ -460,6 +461,7 @@ function Update-TestRunManifest {
         flaky = [bool]$Context.Options.Flaky
         diagnostics = [bool]$Context.Options.Diagnostics
         failFast = [bool]$Context.Options.FailFast
+        noRestore = $null -ne $Context.Options.PSObject.Properties['NoRestore'] -and [bool]$Context.Options.NoRestore
         selectedTargets = @($Context.Targets | ForEach-Object { ConvertTo-TestTargetDocument $_ })
         artifactPaths = [ordered]@{
             environment = Get-TestArtifactRelativePath -Context $Context -Path $Context.EnvironmentPath

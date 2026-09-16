@@ -73,6 +73,7 @@ function Invoke-DevOpsTest {
         $processTimeout = ConvertTo-ProcessTimeout -Value $timeoutValue
 
         $diagnostics = $parsed.Has('Diagnostics')
+        $noRestore = $parsed.Has('NoRestore')
         $failFast = $parsed.Has('FailFast')
         $ci = $parsed.Has('Ci')
         $collectCoverage = $parsed.Has('CollectCoverage')
@@ -108,6 +109,7 @@ function Invoke-DevOpsTest {
             FailWarnings = $parsed.Has('FailWarnings')
             ArtifactsEnabled = $artifactsEnabled
             Configuration = $configuration
+            NoRestore = $noRestore
             RequestedFramework = if ($frameworkWasSpecified) { $framework } else { '' }
             RuntimeIdentifier = $runtimeIdentifier
             Area = $area

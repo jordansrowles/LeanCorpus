@@ -19,6 +19,14 @@ function New-ArtifactRunId {
 function Get-ArtifactGitContext {
     param([string]$RepoRoot = (Get-RepoRoot))
 
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        return [ordered]@{
+            commit = ''
+            branch = ''
+            dirty = $false
+        }
+    }
+
     $commit = (& git -C $RepoRoot rev-parse HEAD 2>$null | Select-Object -First 1) -as [string]
     $branch = (& git -C $RepoRoot rev-parse --abbrev-ref HEAD 2>$null | Select-Object -First 1) -as [string]
     return [ordered]@{

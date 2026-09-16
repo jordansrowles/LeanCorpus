@@ -75,6 +75,7 @@ function Prepare-TestTargets {
     $preparationTimingByKey = @{}
 
     Write-Heading 'Preparing test targets'
+    $noRestore = $null -ne $Options.PSObject.Properties['NoRestore'] -and [bool]$Options.NoRestore
     if ($Options.Ci) {
         Write-Info '  Managed targets: using CI-prepared build output.'
     }
@@ -84,7 +85,7 @@ function Prepare-TestTargets {
         if ($target.RunnerKind -eq 'Mtp') {
             $targetKey = "$projectPath|$($target.Framework)|$($target.Configuration)"
             $reportedWorkItem = "$($target.Project)|$($target.Framework)|$($target.Configuration)"
-            if (-not $Options.Ci -and $restored.Add($targetKey)) {
+            if (-not $Options.Ci -and -not $noRestore -and $restored.Add($targetKey)) {
                 Write-Info "  Restoring $($target.Key)..."
                 $operationStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
                 $restoreStopwatch.Start()
@@ -157,9 +158,13 @@ function Prepare-TestTargets {
             $operationStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
             $publishStopwatch.Start()
             try {
-                Invoke-DotNet @('publish', $projectPath, '--configuration', $target.Configuration,
+                $publishArguments = @('publish', $projectPath, '--configuration', $target.Configuration,
                     '--runtime', $target.RuntimeIdentifier, '--self-contained', 'true',
-                    '--framework', $target.Framework, '--nologo', '-p:UseSharedCompilation=false') | Out-Host
+                    '--framework', $target.Framework, '--nologo', '-p:UseSharedCompilation=false')
+                if ($noRestore) {
+                    $publishArguments += '--no-restore'
+                }
+                Invoke-DotNet $publishArguments | Out-Host
             } finally {
                 $operationStopwatch.Stop()
                 $publishStopwatch.Stop()
