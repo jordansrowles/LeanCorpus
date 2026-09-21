@@ -29,7 +29,7 @@ parallelism benefit from the analysis phase.
 
 ## Decision
 
-Each DWPT detaches an owned `DwptFlushBatch` that becomes one segment through the
+Each DWPT detaches an owned `DwptFlushSnapshot` that becomes one segment through the
 writer-owned bounded `FlushCoordinator`. No data is merged into a shared document
 buffer. Physical segment construction is independent bounded work and the coordinator
 publishes completed `SegmentInfo` instances in submission order. The existing
@@ -40,11 +40,11 @@ publishes completed `SegmentInfo` instances in submission order. The existing
 - Doc IDs need no remapping. Each DWPT uses local IDs (0, 1, 2, ...) that become the segment's
   final IDs. The `docBase + localId` arithmetic is eliminated.
 - `_writeLock` is not held during analysis or physical segment construction. The
-  coordinator owns detached batches until terminal success or failure, then takes the
+  coordinator owns detached snapshots until terminal success or failure, then takes the
   writer lock only to publish the completed ordered prefix.
-- Ordinary and concurrent ingestion use the same DWPT pool. `SegmentFlusher.FlushFromBatch`
-  consumes the exclusively owned detached batch directly; there is no shared
-  `DocumentBufferState`, snapshot view, or secondary flush source.
+- Ordinary and concurrent ingestion use the same DWPT pool. `SegmentFlusher.FlushFromSnapshot`
+  consumes the exclusively owned detached snapshot directly; there is no shared document
+  buffer or secondary flush source.
 - Segment count increases proportional to partition count. `TieredMergePolicy` groups
   segments by size tier and merges the smallest when a tier exceeds the threshold.
 
@@ -52,10 +52,11 @@ publishes completed `SegmentInfo` instances in submission order. The existing
 
 - `MergeDwpt` (134 lines), `MergeMultiValuedDocValues` (14 lines), and
   `AppendMergedStoredField` (13 lines) are deleted. `ResetDwpt` is deleted.
-- `DwptFlushBatch` owns all detached resources, including rented term and posting buffers,
-  until one-shot cleanup. `SegmentFlusher.FlushFromBatch` is the only production flush
-  entry point. The postings writer and FST sort compact term IDs against the batch's UTF-8
-  term pool, without allocating per-term byte arrays or managed term strings.
+- `DwptFlushSnapshot` owns all detached resources, including the pooled `PostingsStore`,
+  term arena and posting readers, until one-shot cleanup. `SegmentFlusher.FlushFromSnapshot`
+  is the only production flush entry point. The postings writer and FST sort compact term
+  IDs against the snapshot's UTF-8 term pool, without allocating per-term byte arrays or
+  managed term strings.
 - `AddDocumentsConcurrent`, ordinary `AddDocument`, and concurrent async ingestion use the
   same DWPT and coordinator pipeline. `FlushDwptPool` submits remaining owned batches and
   commit, mutation, merge, snapshot, and dispose boundaries drain the required work.

@@ -428,39 +428,6 @@ public sealed class Stage2IndexTests : IClassFixture<TestDirectoryFixture>
         stream.Flush(flushToDisk: true);
     }
 
-    // ── S2-9: Payload Support (data model) ──────────────────────────────────
-
-    /// <summary>
-    /// Verifies the Posting Accumulator: Add With Payload Stores Payloads scenario.
-    /// </summary>
-    [Fact(DisplayName = "Posting Accumulator: Add With Payload Stores Payloads")]
-    public void PostingAccumulator_AddWithPayload_StoresPayloads()
-    {
-        var acc = new PostingAccumulator();
-        acc.AddWithPayload(0, 0, [0xCA, 0xFE]);
-        acc.AddWithPayload(0, 1, [0xBA, 0xBE]);
-        acc.AddWithPayload(1, 0, null);
-
-        Assert.True(acc.HasPayloads);
-        Assert.Equal(new byte[] { 0xCA, 0xFE }, acc.GetPayload(0, 0));
-        Assert.Equal(new byte[] { 0xBA, 0xBE }, acc.GetPayload(0, 1));
-        Assert.Null(acc.GetPayload(1, 0));
-    }
-
-    /// <summary>
-    /// Verifies the Posting Accumulator: Without Payloads Has Payloads Is False scenario.
-    /// </summary>
-    [Fact(DisplayName = "Posting Accumulator: Without Payloads Has Payloads Is False")]
-    public void PostingAccumulator_WithoutPayloads_HasPayloadsIsFalse()
-    {
-        var acc = new PostingAccumulator();
-        acc.Add(0, 0);
-        acc.Add(0, 1);
-
-        Assert.False(acc.HasPayloads);
-        Assert.Null(acc.GetPayload(0, 0));
-    }
-
     /// <summary>
     /// Verifies the Postings Enum: Get Payload Returns Empty For Now scenario.
     /// </summary>

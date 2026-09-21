@@ -32,7 +32,13 @@ architecture-beta
 
 ## Indexing path
 
-Each indexing thread writes through a documents-writer-per-thread buffer. A buffer becomes eligible for flushing when document or RAM limits are reached. Flushed segments are immutable, then merge policy decisions may schedule background consolidation.
+Each indexing thread writes through a documents-writer-per-thread buffer. Each
+DWPT owns one `PostingsStore` containing its qualified UTF-8 term pool, pooled
+term state and sliced byte arena. A buffer becomes eligible for flushing when
+document or RAM limits are reached. Capture freezes the store, transfers it to
+an owned `DwptFlushSnapshot`, and installs fresh DWPT state before physical
+segment construction begins. Flushed segments are immutable, then merge policy
+decisions may schedule background consolidation.
 
 ```mermaid-latest
 flowchart LR

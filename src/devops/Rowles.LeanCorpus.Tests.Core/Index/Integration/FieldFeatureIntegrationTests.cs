@@ -8,6 +8,7 @@ using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Queries;
+using Rowles.LeanCorpus.Search.Scoring;
 using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
@@ -96,6 +97,62 @@ public sealed class FieldFeatureIntegrationTests : IClassFixture<TestDirectoryFi
         Assert.Equal(2, hits.TotalHits);
         Assert.Equal("boosted", searcher.GetStoredFields(hits.ScoreDocs[0].DocId)["id"][0]);
         Assert.True(hits.ScoreDocs[0].Score > hits.ScoreDocs[1].Score);
+    }
+
+    [Fact(DisplayName = "Index Sort: Positions Payloads And Term Vectors Follow Remapped Documents")]
+    public void IndexSort_PositionsPayloadsAndTermVectorsFollowRemappedDocuments()
+    {
+        var dir = new MMapDirectory(SubDir(nameof(IndexSort_PositionsPayloadsAndTermVectorsFollowRemappedDocuments)));
+        var config = new IndexWriterConfig
+        {
+            DefaultAnalyser = new PayloadAnnotatingAnalyser(),
+            StorePayloads = true,
+            StoreTermVectors = true,
+            IndexSort = new IndexSort(SortField.Numeric("rank"))
+        };
+
+        using (var writer = new IndexWriter(dir, config))
+        {
+            var high = new LeanDocument();
+            high.Add(new NumericField("rank", 20));
+            high.Add(new StringField("id", "high"));
+            high.Add(new TextField("body", "high blue", stored: true, boost: 1.0f,
+                indexOptions: FieldIndexOptions.DocsAndFreqsAndPositionsAndOffsets));
+            writer.AddDocument(high);
+
+            var low = new LeanDocument();
+            low.Add(new NumericField("rank", 10));
+            low.Add(new StringField("id", "low"));
+            low.Add(new TextField("body", "low blue", stored: true, boost: 1.0f,
+                indexOptions: FieldIndexOptions.DocsAndFreqsAndPositionsAndOffsets));
+            writer.AddDocument(low);
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+        var reader = Assert.Single(searcher.GetSegmentReaders());
+        Assert.Equal("low", reader.GetStoredFields(0)["id"][0]);
+        Assert.Equal("high", reader.GetStoredFields(1)["id"][0]);
+
+        var lowVectors = reader.GetTermVectors(0);
+        var highVectors = reader.GetTermVectors(1);
+        Assert.NotNull(lowVectors);
+        Assert.NotNull(highVectors);
+        Assert.Contains(lowVectors!["body"], static entry => entry.Term == "low");
+        Assert.Contains(highVectors!["body"], static entry => entry.Term == "high");
+
+        var lowBlue = Assert.Single(lowVectors["body"], static entry => entry.Term == "blue");
+        Assert.Equal(new byte[] { (byte)'B', (byte)'L', (byte)'U', (byte)'E' }, lowBlue.Payloads![0]);
+        Assert.Equal([1], lowBlue.Positions);
+        Assert.Equal([4], lowBlue.StartOffsets!);
+        Assert.Equal([8], lowBlue.EndOffsets!);
+
+        using var postings = reader.GetPostingsEnumWithPositions("body\0blue");
+        Assert.True(postings.Advance(0));
+        Assert.Equal([1], postings.GetCurrentPositions());
+        Assert.Equal(new byte[] { (byte)'B', (byte)'L', (byte)'U', (byte)'E' }, postings.GetPayload(0).ToArray());
+        Assert.True(postings.Advance(1));
+        Assert.Equal([1], postings.GetCurrentPositions());
     }
 
     [Fact(DisplayName = "Payload Term Vectors: Survive Merge And Postings Round-Trip")]

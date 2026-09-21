@@ -1,9 +1,11 @@
+using System.Buffers;
 using System.Collections.Concurrent;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Index.Indexer.Postings;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
@@ -387,12 +389,12 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
                 }
             });
 
-        DwptFlushBatch CreateBatch(string id)
+        DwptFlushSnapshot CreateBatch(string id)
         {
             var dwpt = new DocumentsWriterPerThread(writer.DefaultAnalyser, new Dictionary<string, IAnalyser>(), writer.Config);
             dwpt.AddDocument(Document(id, "ordered"));
             lock (dwpt)
-                return DwptFlushBatch.CaptureFrom(dwpt);
+                return DwptFlushSnapshot.CaptureFrom(dwpt);
         }
 
         int firstOrdinal = -1;
@@ -419,12 +421,12 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
             new IndexWriterConfig { MaxConcurrentFlushes = 1 });
         var reservations = new ConcurrentBag<int>();
 
-        DwptFlushBatch CreateBatch(int id)
+        DwptFlushSnapshot CreateBatch(int id)
         {
             var dwpt = new DocumentsWriterPerThread(writer.DefaultAnalyser, new Dictionary<string, IAnalyser>(), writer.Config);
             dwpt.AddDocument(Document($"flush-{id}", "value"));
             lock (dwpt)
-                return DwptFlushBatch.CaptureFrom(dwpt);
+                return DwptFlushSnapshot.CaptureFrom(dwpt);
         }
 
         Task flushes = Task.Run(() =>
@@ -732,15 +734,57 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
             new IndexWriterConfig { DefaultAnalyser = analyser });
         dwpt.AddDocument(Document("one", "alpha beta gamma"));
 
-        DwptFlushBatch batch;
+        DwptFlushSnapshot batch;
         lock (dwpt)
-            batch = DwptFlushBatch.CaptureFrom(dwpt);
+            batch = DwptFlushSnapshot.CaptureFrom(dwpt);
 
         batch.Dispose();
         batch.Dispose();
 
         Assert.Equal(1, batch.CleanupCountForTests);
-        Assert.Empty(batch.PostingAccumulators);
+        Assert.Equal(0, batch.Postings.AllocatedBytes);
+    }
+
+    [Fact]
+    public void DetachedFlushFailure_ReturnsInjectedPostingPools()
+    {
+        var bytePool = new TrackingPool<byte>();
+        var statePool = new TrackingPool<PostingTermState>();
+        var writer = new IndexWriter(
+            new MMapDirectory(SubDir(nameof(DetachedFlushFailure_ReturnsInjectedPostingPools))),
+            new IndexWriterConfig
+            {
+                PhysicalFlushStarted = () => throw new IOException("injected posting flush failure")
+            });
+        var dwpt = new DocumentsWriterPerThread(
+            writer.DefaultAnalyser,
+            new Dictionary<string, IAnalyser>(),
+            writer.Config,
+            statePool,
+            bytePool);
+
+        try
+        {
+            dwpt.AddDocument(Document("one", "alpha beta gamma"));
+            DwptFlushSnapshot snapshot;
+            lock (dwpt)
+                snapshot = DwptFlushSnapshot.CaptureFrom(dwpt);
+
+            writer.FlushCoordinator.Submit(snapshot, commitGeneration: 0);
+            lock (writer.WriteLock)
+                Assert.Throws<IOException>(writer.FlushCoordinator.DrainAndPublish);
+
+            dwpt.Dispose();
+            Assert.Equal(0, bytePool.ActiveCount);
+            Assert.Equal(0, statePool.ActiveCount);
+            Assert.Equal(0, bytePool.DoubleReturnCount);
+            Assert.Equal(0, statePool.DoubleReturnCount);
+        }
+        finally
+        {
+            dwpt.Dispose();
+            writer.Dispose();
+        }
     }
 
     [Fact]
@@ -1034,6 +1078,29 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
     private sealed class UnsupportedAnalyser : IAnalyser
     {
         public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink) => sink.Add(input, 0, input.Length);
+    }
+
+    private sealed class TrackingPool<T> : ArrayPool<T>
+    {
+        private readonly HashSet<T[]> _active = [];
+
+        internal int ActiveCount => _active.Count;
+        internal int DoubleReturnCount { get; private set; }
+
+        public override T[] Rent(int minimumLength)
+        {
+            var array = new T[Math.Max(minimumLength, 256)];
+            _active.Add(array);
+            return array;
+        }
+
+        public override void Return(T[] array, bool clearArray = false)
+        {
+            if (!_active.Remove(array))
+                DoubleReturnCount++;
+            if (clearArray)
+                Array.Clear(array);
+        }
     }
 
     private sealed class RecordingConfiguredAnalyser : IThreadLocalAnalyser

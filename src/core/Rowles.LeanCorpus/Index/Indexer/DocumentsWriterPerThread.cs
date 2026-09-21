@@ -1,10 +1,9 @@
 using System.Buffers;
-using System.Runtime.CompilerServices;
-using System.Text;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Index.Indexer.Postings;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
 
@@ -17,51 +16,14 @@ internal sealed class DocumentsWriterPerThread
     private readonly IAnalyser _analyser;
     private readonly Dictionary<string, IAnalyser> _fieldAnalysers;
     private readonly IndexWriterConfig _config;
-    internal BytesRefHash TermHash = new();
-    internal List<PostingAccumulator> PostingAccumulators = [];
+    private readonly ArrayPool<PostingTermState> _postingsStatePool;
+    private readonly ArrayPool<byte> _postingsBytePool;
+    internal PostingsStore Postings { get; private set; }
 
-    /// <summary>Stored-field name-to-ID mapping transferred to a detached flush batch.</summary>
+    /// <summary>Stored-field name-to-ID mapping transferred to a detached flush snapshot.</summary>
     internal Dictionary<string, int> StoredFieldNameToId => _storedFieldNameToId;
 
     internal HashSet<int>? ParentDocIds;
-
-    /// <summary>Looks up or creates a posting accumulator by UTF-8 field and term bytes.</summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal PostingAccumulator GetOrCreateAccumulator(string fieldName, ReadOnlySpan<char> term)
-    {
-        if (!_fieldPrefixUtf8Cache.TryGetValue(fieldName, out var prefix))
-        {
-            prefix = Encoding.UTF8.GetBytes(string.Concat(fieldName, "\x00"));
-            _fieldPrefixUtf8Cache[fieldName] = prefix;
-        }
-
-        int maxBytes = prefix.Length + Encoding.UTF8.GetMaxByteCount(term.Length);
-        byte[]? rented = null;
-        Span<byte> bytes = maxBytes <= 256
-            ? stackalloc byte[maxBytes]
-            : (rented = ArrayPool<byte>.Shared.Rent(maxBytes));
-        prefix.CopyTo(bytes);
-        int termBytes = Encoding.UTF8.GetBytes(term, bytes[prefix.Length..]);
-        long termHashBytesBefore = TermHash.AllocatedBytes;
-        int id = TermHash.Add(bytes[..(prefix.Length + termBytes)]);
-        _estimatedRamBytes += TermHash.AllocatedBytes - termHashBytesBefore;
-        if (rented is not null)
-            ArrayPool<byte>.Shared.Return(rented, clearArray: false);
-
-        if (id < 0)
-            return PostingAccumulators[-(id + 1)];
-
-        var acc = new PostingAccumulator();
-        PostingAccumulators.Add(acc);
-        _estimatedRamBytes += acc.EstimatedBytes;
-        return acc;
-    }
-
-    internal IEnumerable<(string Term, PostingAccumulator Acc)> EnumeratePostings()
-    {
-        for (int i = 0; i < TermHash.Count; i++)
-            yield return (TermHash.GetTermString(i), PostingAccumulators[i]);
-    }
 
     // Stored fields as a flat struct-of-arrays buffer (mirrors the main writer).
     // StoredDocStarts[d] = start index into StoredFieldIds/StoredValues for doc d.
@@ -86,41 +48,63 @@ internal sealed class DocumentsWriterPerThread
     internal Dictionary<string, int[]> DocTokenCounts = new(StringComparer.Ordinal);
     internal Dictionary<string, Dictionary<int, float>> FieldBoosts = new(StringComparer.Ordinal);
     internal int DocCount;
-    private Dictionary<string, byte[]> _fieldPrefixUtf8Cache = new(StringComparer.Ordinal);
-    private HashSet<string> _termPool = new(StringComparer.Ordinal);
     private readonly SpanPostingTokenSink _spanPostingSink;
     private readonly CountingTokenSink _countingTokenSink = new();
     private long _estimatedRamBytes;
 
     /// <summary>Estimated RAM usage in bytes for this DWPT's buffers.</summary>
-    public long EstimatedRamBytes => Volatile.Read(ref _estimatedRamBytes);
+    public long EstimatedRamBytes => Volatile.Read(ref _estimatedRamBytes) + Postings.AllocatedBytes;
 
     public DocumentsWriterPerThread(IAnalyser defaultAnalyser, Dictionary<string, IAnalyser> fieldAnalysers, IndexWriterConfig config)
+        : this(defaultAnalyser, fieldAnalysers, config,
+            ArrayPool<PostingTermState>.Shared, ArrayPool<byte>.Shared)
     {
+    }
+
+    internal DocumentsWriterPerThread(
+        IAnalyser defaultAnalyser,
+        Dictionary<string, IAnalyser> fieldAnalysers,
+        IndexWriterConfig config,
+        ArrayPool<PostingTermState> postingsStatePool,
+        ArrayPool<byte> postingsBytePool)
+    {
+        ArgumentNullException.ThrowIfNull(defaultAnalyser);
+        ArgumentNullException.ThrowIfNull(fieldAnalysers);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(postingsStatePool);
+        ArgumentNullException.ThrowIfNull(postingsBytePool);
         _analyser = defaultAnalyser;
         _fieldAnalysers = fieldAnalysers;
         _config = config;
+        _postingsStatePool = postingsStatePool;
+        _postingsBytePool = postingsBytePool;
+        Postings = new PostingsStore(
+            config.StorePayloads,
+            config.StoreTermVectors,
+            _postingsStatePool,
+            _postingsBytePool);
         _spanPostingSink = new SpanPostingTokenSink(this);
-        _estimatedRamBytes = TermHash.AllocatedBytes;
+        _estimatedRamBytes = 0;
     }
 
     /// <summary>Resets all buffers to empty state for reuse.</summary>
     internal void ClearAll()
     {
-        foreach (var accumulator in PostingAccumulators)
-            accumulator.ReturnBuffers();
-        TermHash.ReturnBuffers();
+        Postings.Dispose();
         ResetAfterSnapshot();
     }
 
     /// <summary>
     /// Resets all mutable collections to fresh instances. Caller must have already
-    /// taken ownership of the previous collections via <see cref="DwptFlushBatch.CaptureFrom"/>.
+    /// taken ownership of the previous collections via <see cref="DwptFlushSnapshot.CaptureFrom"/>.
     /// </summary>
     internal void ResetAfterSnapshot()
     {
-        TermHash = new BytesRefHash();
-        PostingAccumulators = [];
+        Postings = new PostingsStore(
+            _config.StorePayloads,
+            _config.StoreTermVectors,
+            _postingsStatePool,
+            _postingsBytePool);
         StoredDocStarts = [];
         StoredFieldIds = [];
         StoredValues = [];
@@ -140,10 +124,13 @@ internal sealed class DocumentsWriterPerThread
         DocTokenCounts = new(StringComparer.Ordinal);
         FieldBoosts = new(StringComparer.Ordinal);
         ParentDocIds = null;
-        _fieldPrefixUtf8Cache = new(StringComparer.Ordinal);
-        _termPool = new(StringComparer.Ordinal);
         DocCount = 0;
-        _estimatedRamBytes = TermHash.AllocatedBytes;
+        _estimatedRamBytes = 0;
+    }
+
+    internal void Dispose()
+    {
+        Postings.Dispose();
     }
 
     /// <summary>
@@ -370,12 +357,7 @@ internal sealed class DocumentsWriterPerThread
     private void IndexStringField(string fieldName, string value, int docId, StringDocValues docValues)
     {
         FieldNames.Add(fieldName);
-        var term = CanonicaliseTerm(value);
-        var acc = GetOrCreateAccumulator(fieldName, term.AsSpan());
-        long retainedBytesBefore = acc.EstimatedBytes;
-        acc.AddDocOnly(docId);
-        acc.RefreshEstimatedBytes();
-        _estimatedRamBytes += acc.EstimatedBytes - retainedBytesBefore;
+        Postings.AddDocOnly(fieldName, value.AsSpan(), docId);
 
         if ((docValues & StringDocValues.Sorted) != 0)
         {
@@ -558,14 +540,6 @@ internal sealed class DocumentsWriterPerThread
         _estimatedRamBytes += value.Length * sizeof(float) + 32;
     }
 
-    private string CanonicaliseTerm(string term)
-    {
-        if (_termPool.TryGetValue(term, out var canonical))
-            return canonical;
-        _termPool.Add(term);
-        return term;
-    }
-
     private sealed class SpanPostingTokenSink : ISpanTokenSink
     {
         private readonly DocumentsWriterPerThread _owner;
@@ -623,24 +597,8 @@ internal sealed class DocumentsWriterPerThread
                 increment = 1;
             _position += increment;
 
-            var acc = _owner.GetOrCreateAccumulator(_fieldName, text);
-            long retainedBytesBefore = acc.EstimatedBytes;
-            if (_owner._config.StorePayloads && (acc.HasPayloads || payload is { Length: > 0 }))
-            {
-                if (_owner._config.StoreTermVectors)
-                    acc.AddWithPayload(_docId, _position, payload, _fieldIndexOptions, startOffset, endOffset);
-                else
-                    acc.AddWithPayload(_docId, _position, payload, _fieldIndexOptions);
-            }
-            else
-            {
-                if (_owner._config.StoreTermVectors)
-                    acc.Add(_docId, _position, _fieldIndexOptions, startOffset, endOffset);
-                else
-                    acc.Add(_docId, _position, _fieldIndexOptions);
-            }
-            acc.RefreshEstimatedBytes();
-            _owner._estimatedRamBytes += acc.EstimatedBytes - retainedBytesBefore;
+            _owner.Postings.Add(_fieldName, text, _docId, _position, _fieldIndexOptions,
+                payload, startOffset, endOffset);
             AcceptedCount++;
         }
     }

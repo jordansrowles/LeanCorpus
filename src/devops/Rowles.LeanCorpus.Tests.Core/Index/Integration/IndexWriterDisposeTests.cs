@@ -427,7 +427,7 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
             var document = new LeanDocument();
             document.Add(new TextField("body", "dispose failure"));
             dwpt.AddDocument(document);
-            writer.FlushCoordinator.Submit(DwptFlushBatch.CaptureFrom(dwpt), commitGeneration: 0);
+            writer.FlushCoordinator.Submit(DwptFlushSnapshot.CaptureFrom(dwpt), commitGeneration: 0);
         }
 
         try

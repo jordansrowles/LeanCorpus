@@ -21,6 +21,12 @@ Start with defaults and change a setting only for a measured workload or an expl
 
 The first reached flush trigger wins. Queue limits are backpressure controls, not extra buffers guaranteed to be filled.
 
+Each DWPT owns one pooled `PostingsStore`. Its rented term-state arrays and
+32 KiB postings-arena blocks are included in the writer's retained-memory
+accounting. A flush transfers that store to an owned snapshot and replaces it
+before segment I/O starts. Lowering the RAM or document thresholds therefore
+changes segment frequency and arena lifetime, but not the postings file format.
+
 ### Analysis and schema
 
 | Setting | Default | Guidance |
@@ -51,6 +57,11 @@ Index-time and query-time analysis must agree for exact term matching. A schema 
 | `HnswSeed` | `null` | Optional deterministic graph-construction seed. |
 
 Term vectors, payloads, vectors, and DocValues increase index size. Enable them only for features that consume them.
+
+When `IndexSort` is enabled, physical document IDs are remapped during flush.
+The captured postings store is not modified; one term at a time is copied into
+bounded pooled scratch so positional, payload and term-vector data follow the
+same permutation.
 
 ### Commits, merging, and compatibility
 

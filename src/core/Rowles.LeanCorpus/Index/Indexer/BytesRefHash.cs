@@ -20,6 +20,7 @@ internal sealed class BytesRefHash
     private const float LoadFactor = 0.5f;
 
     private byte[] _pool;
+    private readonly ArrayPool<byte> _bytePool;
     private int _poolUsed;
     private int _poolCapacity;
 
@@ -32,22 +33,39 @@ internal sealed class BytesRefHash
 
     private int _count;
     private int _capacity;        // _termStarts.Length
+    private int _disposed;
 
     public int Count => _count;
 
     /// <summary>Gets the bytes reserved by the term pool and hash metadata arrays.</summary>
-    public long AllocatedBytes => _pool.LongLength +
-        ((long)_ids.Length + _termStarts.Length + _termLengths.Length + _termHashes.Length) * sizeof(int);
+    public long AllocatedBytes
+    {
+        get
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+                return 0;
+            return _pool.LongLength +
+                ((long)_ids.Length + _termStarts.Length + _termLengths.Length + _termHashes.Length) * sizeof(int);
+        }
+    }
 
     public BytesRefHash(int initialCapacity = DefaultCapacity)
+        : this(initialCapacity, ArrayPool<byte>.Shared)
     {
+    }
+
+    internal BytesRefHash(int initialCapacity, ArrayPool<byte> bytePool)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(initialCapacity);
+        ArgumentNullException.ThrowIfNull(bytePool);
+        _bytePool = bytePool;
         _capacity = Math.Max(16, initialCapacity);
         _ids = new int[NextPowerOfTwo((int)(_capacity / LoadFactor))];
         _mask = _ids.Length - 1;
         Array.Fill(_ids, -1);
 
         _poolCapacity = _capacity * 32; // rough estimate: 32 bytes per term average
-        _pool = ArrayPool<byte>.Shared.Rent(_poolCapacity);
+        _pool = _bytePool.Rent(_poolCapacity);
         _poolUsed = 0;
 
         _termStarts = new int[_capacity];
@@ -62,6 +80,7 @@ internal sealed class BytesRefHash
     /// </summary>
     public int Add(ReadOnlySpan<byte> term)
     {
+        ThrowIfDisposed();
         int hash = ComputeHash(term);
         int slot = hash & _mask;
 
@@ -100,6 +119,7 @@ internal sealed class BytesRefHash
     /// </summary>
     public int Find(ReadOnlySpan<byte> term)
     {
+        ThrowIfDisposed();
         int hash = ComputeHash(term);
         int slot = hash & _mask;
 
@@ -121,6 +141,7 @@ internal sealed class BytesRefHash
     /// </summary>
     public ReadOnlySpan<byte> GetTerm(int id)
     {
+        ThrowIfDisposed();
         if ((uint)id >= (uint)_count)
             throw new ArgumentOutOfRangeException(nameof(id));
         return _pool.AsSpan(_termStarts[id], _termLengths[id]);
@@ -137,13 +158,20 @@ internal sealed class BytesRefHash
     /// <summary>
     /// Returns the cached hash code for a compact ID.
     /// </summary>
-    public int GetHashCode(int id) => _termHashes[id];
+    public int GetHashCode(int id)
+    {
+        ThrowIfDisposed();
+        if ((uint)id >= (uint)_count)
+            throw new ArgumentOutOfRangeException(nameof(id));
+        return _termHashes[id];
+    }
 
     /// <summary>
     /// Clears all entries, retaining buffers for reuse.
     /// </summary>
     public void Clear()
     {
+        ThrowIfDisposed();
         Array.Fill(_ids, -1);
         _poolUsed = 0;
         _count = 0;
@@ -155,6 +183,7 @@ internal sealed class BytesRefHash
     /// </summary>
     public int CompareTerms(int a, int b)
     {
+        ThrowIfDisposed();
         var spanA = GetTerm(a);
         var spanB = GetTerm(b);
         return spanA.SequenceCompareTo(spanB);
@@ -211,21 +240,34 @@ internal sealed class BytesRefHash
     {
         if (required <= _poolCapacity) return;
         int newCapacity = Math.Max(_poolCapacity * 2, required);
-        var newPool = ArrayPool<byte>.Shared.Rent(newCapacity);
+        var newPool = _bytePool.Rent(newCapacity);
         if (_poolUsed > 0)
             Array.Copy(_pool, newPool, _poolUsed);
-        ArrayPool<byte>.Shared.Return(_pool, clearArray: false);
+        _bytePool.Return(_pool, clearArray: false);
         _pool = newPool;
         _poolCapacity = newCapacity;
     }
 
-    public void ReturnBuffers()
+    public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
         if (_pool.Length > 0)
-            ArrayPool<byte>.Shared.Return(_pool, clearArray: false);
+            _bytePool.Return(_pool, clearArray: false);
         _pool = [];
         _poolCapacity = 0;
         _poolUsed = 0;
+        _count = 0;
+        _ids = [];
+        _termStarts = [];
+        _termLengths = [];
+        _termHashes = [];
+    }
+
+    private void ThrowIfDisposed()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
     }
 
     private static int NextPowerOfTwo(int v)

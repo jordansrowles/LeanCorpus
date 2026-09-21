@@ -8,32 +8,36 @@ using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Codecs.Bkd;
 using Rowles.LeanCorpus.Codecs.TermVectors;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
+using Rowles.LeanCorpus.Index.Indexer.Postings;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
-/// Writes a segment from an owned detached DWPT batch. All helpers are static,
-/// operating only on the batch, configuration, and path state passed in.
+/// Writes a segment from an owned detached DWPT snapshot. All helpers are static,
+/// operating only on the snapshot, configuration, and path state passed in.
 /// </summary>
 internal static class SegmentFlusher
 {
     private static SegmentInfo FlushCore(
-        DwptFlushBatch source,
+        DwptFlushSnapshot source,
         IndexWriterConfig config,
         string directoryPath,
         string segId,
         int commitGeneration,
         long flushSeqNoStart,
         long nextSequenceNumber,
-        int minDocsForHnsw)
+        int minDocsForHnsw,
+        out int[]? inversePerm)
     {
+        inversePerm = null;
+
         // The detached batch is exclusively owned here, so sorting can safely
         // reorder its metadata before physical publication.
         if (config.IndexSort is not null)
         {
             var sortPerm = ComputeSortPermutation(source, config.IndexSort);
-            var inversePerm = new int[source.DocCount];
+            inversePerm = new int[source.DocCount];
             for (int i = 0; i < source.DocCount; i++)
                 inversePerm[sortPerm[i]] = i;
             ApplySortPermutation(source, sortPerm, inversePerm);
@@ -102,20 +106,20 @@ internal static class SegmentFlusher
         }
 
         // Sort by UTF-8 byte order and build the dictionary without re-encoding.
-        int postingsCount = source.TermHash.Count;
+        int postingsCount = source.Postings.TermCount;
         var termIds = new int[postingsCount];
         for (int i = 0; i < termIds.Length; i++)
             termIds[i] = i;
-        Array.Sort(termIds, Comparer<int>.Create(source.TermHash.CompareTerms));
+        Array.Sort(termIds, Comparer<int>.Create(source.Postings.TermHash.CompareTerms));
 
-        var postingsOffsets = WritePostingsBody(termIds, source, basePath, quantisedNorms);
+        var postingsOffsets = WritePostingsBody(termIds, source.Postings, basePath, quantisedNorms, inversePerm);
 
         // The FST reads the owned UTF-8 term pool directly. No per-term byte
         // arrays are needed while the detached batch remains alive.
         var fstBuilder = new FstBuilder();
         fstBuilder.EnsureNodeCapacity(postingsCount);
         for (int i = 0; i < postingsCount; i++)
-            fstBuilder.Add(source.TermHash.GetTerm(termIds[i]), postingsOffsets[i]);
+            fstBuilder.Add(source.Postings.TermHash.GetTerm(termIds[i]), postingsOffsets[i]);
         var fstBlob = fstBuilder.Finish();
         TermDictionaryWriter.WriteBlob(basePath + ".dic", fstBlob);
 
@@ -363,22 +367,41 @@ internal static class SegmentFlusher
     }
 
     private static void WriteTermVectors(
-        string basePath, int docCount, IEnumerable<(string Term, PostingAccumulator Acc)> terms)
+        string basePath,
+        int docCount,
+        PostingsStore store,
+        int[]? inversePerm)
+    {
+        if (inversePerm is not null)
+        {
+            WriteSortedTermVectors(basePath, docCount, store, inversePerm);
+            return;
+        }
+
+        WriteTermVectorsInOriginalOrder(basePath, docCount, store);
+    }
+
+    private static void WriteTermVectorsInOriginalOrder(string basePath, int docCount, PostingsStore store)
     {
         var tvDocs = new Dictionary<string, List<TermVectorEntry>>?[docCount];
 
-        foreach (var (qt, acc) in terms)
+        for (int termId = 0; termId < store.TermCount; termId++)
         {
-            if (!acc.HasPositions) continue;
-            int sep = qt.IndexOf('\x00');
-            if (sep < 0) continue;
-            string fld = qt[..sep];
-            string trm = qt[(sep + 1)..];
+            ref readonly var state = ref store.GetTermState(termId);
+            if (!state.Flags.HasFlag(PostingFlags.HasPositions))
+                continue;
 
-            var ids = acc.DocIds;
-            for (int i = 0; i < ids.Length; i++)
+            ReadOnlySpan<byte> qualifiedTerm = store.TermHash.GetTerm(termId);
+            int sep = qualifiedTerm.IndexOf((byte)0);
+            if (sep < 0) continue;
+            string fld = store.GetFieldName(state.FieldOrdinal);
+            string trm = System.Text.Encoding.UTF8.GetString(qualifiedTerm[(sep + 1)..]);
+
+            var docReader = store.OpenDocReader(termId);
+            var proxReader = store.OpenProxReader(termId);
+            while (docReader.MoveNext(out var posting))
             {
-                int docId = ids[i];
+                int docId = posting.DocId;
                 if (docId >= docCount) continue;
                 var perDoc = tvDocs[docId] ??= new Dictionary<string, List<TermVectorEntry>>(StringComparer.Ordinal);
                 if (!perDoc.TryGetValue(fld, out var termsList))
@@ -386,31 +409,122 @@ internal static class SegmentFlusher
                     termsList = [];
                     perDoc[fld] = termsList;
                 }
-                int freq = acc.GetFreq(i);
-                var posSpan = acc.GetPositions(i);
-                var positions = posSpan.IsEmpty ? [] : posSpan.ToArray();
-                byte[]?[]? payloads = null;
-                if (acc.HasPayloads && positions.Length > 0)
+                proxReader.StartDocument();
+                var positions = new int[posting.PositionCount];
+                byte[]?[]? payloads = state.Flags.HasFlag(PostingFlags.HasPayloads)
+                    ? new byte[]?[positions.Length]
+                    : null;
+                int[]? starts = state.Flags.HasFlag(PostingFlags.HasOffsets) && positions.Length > 0
+                    ? new int[positions.Length]
+                    : null;
+                int[]? ends = starts is not null ? new int[positions.Length] : null;
+                for (int p = 0; p < positions.Length; p++)
                 {
-                    payloads = new byte[]?[positions.Length];
-                    for (int p = 0; p < positions.Length; p++)
-                        payloads[p] = acc.GetPayload(i, p);
+                    if (!proxReader.ReadNext(out var header))
+                        throw new InvalidDataException("The postings position stream ended before the document position count.");
+                    positions[p] = header.Position;
+                    if (payloads is not null)
+                    {
+                        payloads[p] = new byte[header.PayloadLength];
+                        proxReader.CopyPayloadTo(payloads[p]);
+                    }
+                    else
+                    {
+                        proxReader.SkipPayload();
+                    }
+                    if (starts is not null)
+                    {
+                        starts[p] = header.StartOffset;
+                        ends![p] = header.EndOffset;
+                    }
                 }
-                var (starts, ends) = acc.GetOffsets(i);
-                termsList.Add(new TermVectorEntry(trm, freq, positions, payloads, starts, ends));
+                termsList.Add(new TermVectorEntry(trm, posting.Freq, positions, payloads, starts, ends));
             }
+
+            if (proxReader.ReadNext(out _))
+                throw new InvalidDataException("The postings position stream contained more entries than its document records.");
         }
         TermVectorsWriter.Write(basePath + ".tvd", basePath + ".tvx", tvDocs);
     }
 
+    private static void WriteSortedTermVectors(
+        string basePath,
+        int docCount,
+        PostingsStore store,
+        int[] inversePerm)
+    {
+        var tvDocs = new Dictionary<string, List<TermVectorEntry>>?[docCount];
+        using var scratch = new IndexSortPostingScratch();
+
+        for (int termId = 0; termId < store.TermCount; termId++)
+        {
+            ref readonly var state = ref store.GetTermState(termId);
+            if (!state.Flags.HasFlag(PostingFlags.HasPositions))
+                continue;
+
+            ReadOnlySpan<byte> qualifiedTerm = store.TermHash.GetTerm(termId);
+            int sep = qualifiedTerm.IndexOf((byte)0);
+            if (sep < 0) continue;
+            string fieldName = store.GetFieldName(state.FieldOrdinal);
+            string term = System.Text.Encoding.UTF8.GetString(qualifiedTerm[(sep + 1)..]);
+
+            MaterialiseSortedTerm(store, termId, inversePerm, scratch);
+            for (int docIndex = 0; docIndex < scratch.DocCount; docIndex++)
+            {
+                ref readonly var sortedDoc = ref scratch.Docs[docIndex];
+                int docId = sortedDoc.NewDocId;
+                if ((uint)docId >= (uint)docCount)
+                    throw new InvalidDataException("A sorted postings document ID is outside the segment.");
+
+                var perDoc = tvDocs[docId] ??= new Dictionary<string, List<TermVectorEntry>>(StringComparer.Ordinal);
+                if (!perDoc.TryGetValue(fieldName, out var termsList))
+                {
+                    termsList = [];
+                    perDoc[fieldName] = termsList;
+                }
+
+                int positionCount = sortedDoc.PositionCount;
+                var positions = new int[positionCount];
+                byte[]?[]? payloads = state.Flags.HasFlag(PostingFlags.HasPayloads)
+                    ? new byte[]?[positionCount]
+                    : null;
+                int[]? starts = state.Flags.HasFlag(PostingFlags.HasOffsets) && positionCount > 0
+                    ? new int[positionCount]
+                    : null;
+                int[]? ends = starts is not null ? new int[positionCount] : null;
+
+                for (int positionIndex = 0; positionIndex < positionCount; positionIndex++)
+                {
+                    ref readonly var sortedPosition = ref scratch.Positions[sortedDoc.PositionStart + positionIndex];
+                    positions[positionIndex] = sortedPosition.Position;
+                    if (payloads is not null)
+                    {
+                        payloads[positionIndex] = scratch.PayloadBytes
+                            .AsSpan(sortedPosition.PayloadOffset, sortedPosition.PayloadLength)
+                            .ToArray();
+                    }
+                    if (starts is not null)
+                    {
+                        starts[positionIndex] = sortedPosition.StartOffset;
+                        ends![positionIndex] = sortedPosition.EndOffset;
+                    }
+                }
+
+                termsList.Add(new TermVectorEntry(term, sortedDoc.Freq, positions, payloads, starts, ends));
+            }
+        }
+
+        TermVectorsWriter.Write(basePath + ".tvd", basePath + ".tvx", tvDocs);
+    }
+
     /// <summary>
-    /// Writes a segment directly from a <see cref="DwptFlushBatch"/> captured earlier.
+    /// Writes a segment directly from a <see cref="DwptFlushSnapshot"/> captured earlier.
     /// This is the detached-flush entry point: flush I/O runs without holding
     /// <see cref="IndexWriter.WriteLock"/>, and the caller briefly acquires the lock
     /// afterwards to publish the returned <see cref="SegmentInfo"/>.
     /// </summary>
-    public static SegmentInfo FlushFromBatch(
-        DwptFlushBatch batch,
+    public static SegmentInfo FlushFromSnapshot(
+        DwptFlushSnapshot snapshot,
         IndexWriterConfig config,
         string directoryPath,
         int ordinal,
@@ -419,23 +533,22 @@ internal static class SegmentFlusher
         long seqEnd)
     {
         var segId = $"seg_{ordinal}";
-        var segInfo = FlushCore(batch, config, directoryPath, segId,
-            commitGeneration, seqStart, seqEnd, minDocsForHnsw: 0);
+        var segInfo = FlushCore(snapshot, config, directoryPath, segId,
+            commitGeneration, seqStart, seqEnd, minDocsForHnsw: 0, out var inversePerm);
 
         var basePath = Path.Combine(directoryPath, segId);
 
         // Term vectors
         if (config.StoreTermVectors)
         {
-            WriteTermVectors(basePath, batch.DocCount,
-                batch.EnumeratePostings());
+            WriteTermVectors(basePath, snapshot.DocCount, snapshot.Postings, inversePerm);
         }
 
         // Parent bitset
-        if (batch.ParentDocIds is { Count: > 0 })
+        if (snapshot.ParentDocIds is { Count: > 0 })
         {
-            var pbs = new ParentBitSet(batch.DocCount);
-            foreach (var pid in batch.ParentDocIds)
+            var pbs = new ParentBitSet(snapshot.DocCount);
+            foreach (var pid in snapshot.ParentDocIds)
                 pbs.Set(pid);
             pbs.WriteTo(basePath + ".pbs");
         }
@@ -487,128 +600,223 @@ internal static class SegmentFlusher
     /// </summary>
     private static long[] WritePostingsBody(
         int[] termIds,
-        DwptFlushBatch batch,
+        PostingsStore store,
         string basePath,
-        IReadOnlyDictionary<string, byte[]> quantisedNorms)
+        IReadOnlyDictionary<string, byte[]> quantisedNorms,
+        int[]? inversePerm)
     {
         int postingsCount = termIds.Length;
         var postingsOffsets = new long[postingsCount];
-        byte[]? currentFieldUtf8 = null;
+        int currentFieldOrdinal = -1;
         byte[]? currentFieldNormBytes = null;
+        IndexSortPostingScratch? scratch = inversePerm is null ? null : new IndexSortPostingScratch();
 
-        string posPath = basePath + ".pos";
-        using (var posOutput = new IndexOutput(posPath))
+        try
         {
-            var descriptor = CodecCatalog.Default.GetFile("leancorpus.postings.data");
-            using var frame = CodecFileWriter.Begin(posOutput, descriptor);
-            var bodyOutput = frame.Output;
-
-            using var blockWriter = new BlockPostingsWriter(bodyOutput);
-
-            for (int termIndex = 0; termIndex < termIds.Length; termIndex++)
+            string posPath = basePath + ".pos";
+            using (var posOutput = new IndexOutput(posPath))
             {
-                ReadOnlySpan<byte> qualifiedTermUtf8 = batch.TermHash.GetTerm(termIds[termIndex]);
-                var acc = batch.PostingAccumulators[termIds[termIndex]];
-                var ids = acc.DocIds;
+                var descriptor = CodecCatalog.Default.GetFile("leancorpus.postings.data");
+                using var frame = CodecFileWriter.Begin(posOutput, descriptor);
+                var bodyOutput = frame.Output;
 
-                int separator = qualifiedTermUtf8.IndexOf((byte)0);
-                ReadOnlySpan<byte> fieldUtf8 = separator < 0
-                    ? qualifiedTermUtf8
-                    : qualifiedTermUtf8[..separator];
-                if (currentFieldUtf8 is null || !fieldUtf8.SequenceEqual(currentFieldUtf8))
+                using var blockWriter = new BlockPostingsWriter(bodyOutput);
+
+                for (int termIndex = 0; termIndex < termIds.Length; termIndex++)
                 {
-                    currentFieldUtf8 = fieldUtf8.ToArray();
-                    string fieldName = System.Text.Encoding.UTF8.GetString(currentFieldUtf8);
-                    quantisedNorms.TryGetValue(fieldName, out currentFieldNormBytes);
-                }
+                    int termId = termIds[termIndex];
+                    ref readonly var state = ref store.GetTermState(termId);
 
-                bool hasFreqs = acc.HasFreqs;
-                bool hasPositions = acc.HasPositions;
-                bool hasPayloads = acc.HasPayloads;
-
-                long bodyOffset = bodyOutput.Position;
-                blockWriter.StartTerm();
-                for (int i = 0; i < ids.Length; i++)
-                {
-                    int docId = ids[i];
-                    byte norm = currentFieldNormBytes is not null && (uint)docId < (uint)currentFieldNormBytes.Length
-                        ? currentFieldNormBytes[docId]
-                        : (byte)0;
-                    blockWriter.AddPosting(docId, hasFreqs ? acc.GetFreq(i) : 1, norm);
-                }
-                var meta = blockWriter.FinishTerm();
-
-                if (hasPositions)
-                {
-                    for (int i = 0; i < ids.Length; i++)
+                    string fieldName = store.GetFieldName(state.FieldOrdinal);
+                    if (currentFieldOrdinal != state.FieldOrdinal)
                     {
-                        acc.GetEncodedPositionDeltas(i, out var deltaBytes, out int firstPos, out int freq);
-                        bodyOutput.WriteVarInt(freq);
-                        if (freq == 0) continue;
+                        currentFieldOrdinal = state.FieldOrdinal;
+                        quantisedNorms.TryGetValue(fieldName, out currentFieldNormBytes);
+                    }
 
-                        bodyOutput.WriteVarInt(firstPos);
-                        int prevPos = firstPos;
+                    bool hasFreqs = state.Flags.HasFlag(PostingFlags.HasFreqs);
+                    bool hasPositions = state.Flags.HasFlag(PostingFlags.HasPositions);
+                    bool hasPayloads = state.Flags.HasFlag(PostingFlags.HasPayloads);
 
-                        if (hasPayloads)
+                    if (scratch is not null)
+                        MaterialiseSortedTerm(store, termId, inversePerm!, scratch);
+
+                    long bodyOffset = bodyOutput.Position;
+                    blockWriter.StartTerm();
+                    if (scratch is not null)
+                    {
+                        for (int docIndex = 0; docIndex < scratch.DocCount; docIndex++)
                         {
-                            var payload0 = acc.GetPayload(i, 0);
-                            if (payload0 is { Length: > 0 })
-                            {
-                                bodyOutput.WriteVarInt(payload0.Length);
-                                bodyOutput.WriteBytes(payload0);
-                            }
-                            else
-                            {
-                                bodyOutput.WriteVarInt(0);
-                            }
-                        }
-
-                        int deltaOffset = 0;
-                        for (int pi = 1; pi < freq; pi++)
-                        {
-                            deltaOffset += PostingAccumulator.ReadVarInt(
-                                deltaBytes.Slice(deltaOffset), out int delta);
-                            int abs = firstPos + delta;
-                            bodyOutput.WriteVarInt(abs - prevPos);
-                            prevPos = abs;
-
-                            if (hasPayloads)
-                            {
-                                var payload = acc.GetPayload(i, pi);
-                                if (payload is { Length: > 0 })
-                                {
-                                    bodyOutput.WriteVarInt(payload.Length);
-                                    bodyOutput.WriteBytes(payload);
-                                }
-                                else
-                                {
-                                    bodyOutput.WriteVarInt(0);
-                                }
-                            }
+                            ref readonly var posting = ref scratch.Docs[docIndex];
+                            byte norm = currentFieldNormBytes is not null &&
+                                (uint)posting.NewDocId < (uint)currentFieldNormBytes.Length
+                                ? currentFieldNormBytes[posting.NewDocId]
+                                : (byte)0;
+                            int frequency = hasFreqs ? Math.Max(1, posting.Freq) : 1;
+                            blockWriter.AddPosting(posting.NewDocId, frequency, norm);
                         }
                     }
+                    else
+                    {
+                        var docReader = store.OpenDocReader(termId);
+                        while (docReader.MoveNext(out var posting))
+                        {
+                            byte norm = currentFieldNormBytes is not null &&
+                                (uint)posting.DocId < (uint)currentFieldNormBytes.Length
+                                ? currentFieldNormBytes[posting.DocId]
+                                : (byte)0;
+                            int frequency = hasFreqs ? Math.Max(1, posting.Freq) : 1;
+                            blockWriter.AddPosting(posting.DocId, frequency, norm);
+                        }
+                    }
+                    var meta = blockWriter.FinishTerm();
+
+                    if (hasPositions)
+                    {
+                        if (scratch is not null)
+                        {
+                            for (int docIndex = 0; docIndex < scratch.DocCount; docIndex++)
+                            {
+                                ref readonly var posting = ref scratch.Docs[docIndex];
+                                bodyOutput.WriteVarInt(posting.PositionCount);
+                                int previousPosition = 0;
+                                for (int positionIndex = 0; positionIndex < posting.PositionCount; positionIndex++)
+                                {
+                                    ref readonly var position = ref scratch.Positions[posting.PositionStart + positionIndex];
+                                    bodyOutput.WriteVarInt(position.Position - previousPosition);
+                                    previousPosition = position.Position;
+                                    if (hasPayloads)
+                                    {
+                                        bodyOutput.WriteVarInt(position.PayloadLength);
+                                        if (position.PayloadLength > 0)
+                                        {
+                                            bodyOutput.WriteBytes(scratch.PayloadBytes.AsSpan(
+                                                position.PayloadOffset, position.PayloadLength));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        else
+                        {
+                            var positionDocReader = store.OpenDocReader(termId);
+                            var proxReader = store.OpenProxReader(termId);
+                            while (positionDocReader.MoveNext(out var posting))
+                            {
+                                bodyOutput.WriteVarInt(posting.PositionCount);
+                                proxReader.StartDocument();
+                                int previousPosition = 0;
+                                for (int positionIndex = 0; positionIndex < posting.PositionCount; positionIndex++)
+                                {
+                                    if (!proxReader.ReadNext(out var position))
+                                        throw new InvalidDataException("The postings position stream ended before the document position count.");
+                                    bodyOutput.WriteVarInt(position.Position - previousPosition);
+                                    previousPosition = position.Position;
+                                    if (hasPayloads)
+                                    {
+                                        bodyOutput.WriteVarInt(position.PayloadLength);
+                                        proxReader.CopyPayloadTo(bodyOutput);
+                                    }
+                                    else
+                                        proxReader.SkipPayload();
+                                }
+                            }
+
+                            if (proxReader.ReadNext(out _))
+                                throw new InvalidDataException("The postings position stream contained more entries than its document records.");
+                        }
+                    }
+
+                    long metadataOffset = bodyOutput.Position;
+                    postingsOffsets[termIndex] = metadataOffset;
+                    bodyOutput.WriteInt64(bodyOffset);
+                    bodyOutput.WriteInt32(meta.DocFreq);
+                    bodyOutput.WriteInt64(meta.SkipOffset);
+                    bodyOutput.WriteBoolean(hasFreqs);
+                    bodyOutput.WriteBoolean(hasPositions);
+                    bodyOutput.WriteBoolean(hasPayloads);
                 }
 
-                long metadataOffset = bodyOutput.Position;
-                postingsOffsets[termIndex] = metadataOffset;
-                bodyOutput.WriteInt64(bodyOffset);
-                bodyOutput.WriteInt32(meta.DocFreq);
-                bodyOutput.WriteInt64(meta.SkipOffset);
-                bodyOutput.WriteBoolean(hasFreqs);
-                bodyOutput.WriteBoolean(hasPositions);
-                bodyOutput.WriteBoolean(hasPayloads);
+                frame.Complete();
             }
-
-            frame.Complete();
+        }
+        finally
+        {
+            scratch?.Dispose();
         }
 
         // Metadata offsets are absolute file positions in byte-sorted term order.
         return postingsOffsets;
     }
 
+    private static void MaterialiseSortedTerm(
+        PostingsStore store,
+        int termId,
+        int[] inversePerm,
+        IndexSortPostingScratch scratch)
+    {
+        scratch.Reset();
+        ref readonly var state = ref store.GetTermState(termId);
+        bool hasPositions = state.Flags.HasFlag(PostingFlags.HasPositions);
+        var docReader = store.OpenDocReader(termId);
+        var proxReader = store.OpenProxReader(termId);
+
+        while (docReader.MoveNext(out var posting))
+        {
+            if ((uint)posting.DocId >= (uint)inversePerm.Length)
+                throw new InvalidDataException("A postings document ID is outside the index-sort permutation.");
+
+            ref var sortedDoc = ref scratch.AppendDoc();
+            sortedDoc.NewDocId = inversePerm[posting.DocId];
+            sortedDoc.Freq = posting.Freq;
+            sortedDoc.PositionStart = scratch.PositionCount;
+            sortedDoc.PositionCount = posting.PositionCount;
+
+            if (!hasPositions)
+                continue;
+
+            proxReader.StartDocument();
+            for (int positionIndex = 0; positionIndex < posting.PositionCount; positionIndex++)
+            {
+                if (!proxReader.ReadNext(out var position))
+                    throw new InvalidDataException("The postings position stream ended before the document position count.");
+
+                ref var sortedPosition = ref scratch.AppendPosition();
+                sortedPosition.Position = position.Position;
+                sortedPosition.HasOffsets = position.HasOffsets;
+                sortedPosition.StartOffset = position.StartOffset;
+                sortedPosition.EndOffset = position.EndOffset;
+                sortedPosition.PayloadOffset = scratch.PayloadCount;
+                sortedPosition.PayloadLength = position.PayloadLength;
+                if (position.PayloadLength > 0)
+                {
+                    proxReader.CopyPayloadTo(scratch.GetPayloadDestination(position.PayloadLength));
+                    scratch.AdvancePayload(position.PayloadLength);
+                }
+                else
+                {
+                    proxReader.SkipPayload();
+                }
+            }
+        }
+
+        if (hasPositions && proxReader.ReadNext(out _))
+            throw new InvalidDataException("The postings position stream contained more entries than its document records.");
+
+        Array.Sort(scratch.Docs, 0, scratch.DocCount, PostingSortDocComparer.Instance);
+    }
+
+    private sealed class PostingSortDocComparer : Comparer<PostingSortDoc>
+    {
+        internal static readonly PostingSortDocComparer Instance = new();
+
+        public override int Compare(PostingSortDoc x, PostingSortDoc y)
+            => x.NewDocId.CompareTo(y.NewDocId);
+    }
 
 
-    internal static int[] ComputeSortPermutation(DwptFlushBatch buffer, IndexSort sort)
+
+    internal static int[] ComputeSortPermutation(DwptFlushSnapshot buffer, IndexSort sort)
     {
         int n = buffer.DocCount;
         var perm = new int[n];
@@ -680,7 +888,7 @@ internal static class SegmentFlusher
         return perm;
     }
 
-    private static double ResolveNumericSortValue(DwptFlushBatch source, SortField field, int docId)
+    private static double ResolveNumericSortValue(DwptFlushSnapshot source, SortField field, int docId)
     {
         if (source.SortedNumericDocValues.TryGetValue(field.FieldName, out var sortedValues)
             && sortedValues.TryGetValue(docId, out var multiValues)
@@ -700,7 +908,7 @@ internal static class SegmentFlusher
         return ResolveStoredDouble(source, field.FieldName, docId);
     }
 
-    private static long ResolveInt64SortValue(DwptFlushBatch source, SortField field, int docId)
+    private static long ResolveInt64SortValue(DwptFlushSnapshot source, SortField field, int docId)
     {
         if (source.Int64SortedDocValues.TryGetValue(field.FieldName, out var sortedValues)
             && sortedValues.TryGetValue(docId, out var multiValues)
@@ -720,7 +928,7 @@ internal static class SegmentFlusher
         return ResolveStoredInt64(source, field.FieldName, docId);
     }
 
-    private static string? ResolveStringSortValue(DwptFlushBatch source, SortField field, int docId)
+    private static string? ResolveStringSortValue(DwptFlushSnapshot source, SortField field, int docId)
     {
         if (source.SortedDocValues.TryGetValue(field.FieldName, out var values)
             && docId < values.Count)
@@ -765,7 +973,7 @@ internal static class SegmentFlusher
         return selected;
     }
 
-    private static double ResolveStoredDouble(DwptFlushBatch source, string fieldName, int docId)
+    private static double ResolveStoredDouble(DwptFlushSnapshot source, string fieldName, int docId)
     {
         if (!TryGetStoredValue(source, fieldName, docId, out var value))
             return 0;
@@ -778,7 +986,7 @@ internal static class SegmentFlusher
             : 0;
     }
 
-    private static long ResolveStoredInt64(DwptFlushBatch source, string fieldName, int docId)
+    private static long ResolveStoredInt64(DwptFlushSnapshot source, string fieldName, int docId)
     {
         if (!TryGetStoredValue(source, fieldName, docId, out var value))
             return 0;
@@ -791,7 +999,7 @@ internal static class SegmentFlusher
             : 0;
     }
 
-    private static string? ResolveStoredString(DwptFlushBatch source, string fieldName, int docId)
+    private static string? ResolveStoredString(DwptFlushSnapshot source, string fieldName, int docId)
     {
         return TryGetStoredValue(source, fieldName, docId, out var value)
             ? value.StringValue
@@ -799,7 +1007,7 @@ internal static class SegmentFlusher
     }
 
     private static bool TryGetStoredValue(
-        DwptFlushBatch source,
+        DwptFlushSnapshot source,
         string fieldName,
         int docId,
         out Codecs.StoredFields.StoredFieldValue value)
@@ -826,11 +1034,12 @@ internal static class SegmentFlusher
         return false;
     }
 
-    internal static void ApplySortPermutation(DwptFlushBatch buffer, int[] sortPerm, int[] inversePerm)
+    internal static void ApplySortPermutation(DwptFlushSnapshot buffer, int[] sortPerm, int[] inversePerm)
     {
         int n = buffer.DocCount;
 
-        RemapPostings(buffer, inversePerm);
+        // The postings store is immutable after snapshot capture. Its document
+        // IDs are remapped while each term is materialised for output.
         RemapStoredFields(buffer, sortPerm, n);
         RemapDocTokenCounts(buffer, sortPerm, n);
 
@@ -944,13 +1153,7 @@ internal static class SegmentFlusher
         }
     }
 
-    private static void RemapPostings(DwptFlushBatch buffer, int[] inversePerm)
-    {
-        foreach (var acc in buffer.PostingAccumulators)
-            acc.RemapDocIds(inversePerm);
-    }
-
-    private static void RemapStoredFields(DwptFlushBatch buffer, int[] sortPerm, int n)
+    private static void RemapStoredFields(DwptFlushSnapshot buffer, int[] sortPerm, int n)
     {
         int totalEntries = buffer.StoredFieldIds.Count;
         var newFieldIds = new List<int>(totalEntries);
@@ -980,7 +1183,7 @@ internal static class SegmentFlusher
         buffer.StoredDocStarts.AddRange(newDocStarts);
     }
 
-    private static void RemapDocTokenCounts(DwptFlushBatch buffer, int[] sortPerm, int n)
+    private static void RemapDocTokenCounts(DwptFlushSnapshot buffer, int[] sortPerm, int n)
     {
         if (buffer.DocTokenCounts.Count == 0) return;
         var keysBuf = ArrayPool<string>.Shared.Rent(buffer.DocTokenCounts.Count);

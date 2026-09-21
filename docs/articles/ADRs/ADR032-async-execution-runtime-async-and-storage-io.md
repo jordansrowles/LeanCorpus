@@ -1,5 +1,5 @@
 ---
-adr: ADR031
+adr: ADR032
 title: "Async execution, Runtime Async and storage I/O"
 date: 2026-09-16
 status: Accepted
@@ -8,29 +8,29 @@ summary: "Keep Runtime Async off by default and reject a general async segment-s
 areas: [indexing, storage, performance]
 ---
 
-# ADR031: Async execution, Runtime Async and storage I/O
+# ADR032: Async execution, Runtime Async and storage I/O
 
 - **Date:** 2026-09-16
 - **Status:** Accepted
 
 ## Context
 
-LEAN-9 established bounded DWPT producers, writer-owned detached flush batches,
-bounded `FlushCoordinator` execution, ordered publication, background merges and
-separate search parallelism. LEAN-16 investigated the separate question of
-genuine asynchronous execution.
+LEAN-9 established bounded DWPT producers, writer-owned detached flush
+snapshots, bounded `FlushCoordinator` execution, ordered publication,
+background merges and separate search parallelism. LEAN-16 investigated the
+separate question of genuine asynchronous execution.
 
-Asynchronous admission, asynchronous waiting, background synchronous execution,
-CPU parallelism and true asynchronous I/O are different properties. LeanCorpus
-already uses asynchronous admission and waiting where callers need backpressure
-without blocking. They do not imply asynchronous codecs, scoring or durable
-storage.
+Asynchronous admission, asynchronous waiting, background synchronous
+execution, CPU parallelism and true asynchronous I/O are different properties.
+LeanCorpus already uses asynchronous admission and waiting where callers need
+backpressure without blocking. They do not imply asynchronous codecs, scoring
+or durable storage.
 
 ## Decision
 
 Runtime Async remains off by default. Repeated .NET 11 Linux real-corpus
-OFF/ON comparisons did not show a consistent material benefit across the async
-workload set: individual operations improved, while others were flat or
+OFF/ON comparisons did not show a consistent material benefit across the
+async workload set: individual operations improved, while others were flat or
 regressed. The evidence does not establish that Runtime Async is universally
 slower or unsuitable; it does not justify making it the LeanCorpus default.
 
@@ -40,7 +40,7 @@ not a broad asynchronous-friendly segment-write phase. `Task.Run` around a
 synchronous durability barrier is not true asynchronous storage.
 
 LEAN-9 remains authoritative. This decision does not change DWPT or
-`DwptFlushBatch` ownership, `FlushCoordinator`, ordered publication,
+`DwptFlushSnapshot` ownership, `FlushCoordinator`, ordered publication,
 accepted-write ownership, durability semantics, search execution, codecs or
 on-disk formats. In particular, `IndexOutput`, `SegmentFlusher`, codec and
 postings construction, stored fields, search, HNSW and FST construction do not

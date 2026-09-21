@@ -242,8 +242,8 @@ internal static class DwptManager
             {
                 if (dwpt.DocCount == 0) continue;
 
-                var batch = DetachFlushBatch(writer, dwpt);
-                writer.FlushCoordinator.Submit(batch, writer.CommitGeneration);
+                var snapshot = DetachFlushSnapshot(writer, dwpt);
+                writer.FlushCoordinator.Submit(snapshot, writer.CommitGeneration);
             }
         }
     }
@@ -258,7 +258,7 @@ internal static class DwptManager
 
     /// <summary>
     /// The sole automatic-flush policy. Blocks invoke it only after the entire block has
-    /// been accepted, preserving parent-child adjacency in the detached batch.
+    /// been accepted, preserving parent-child adjacency in the detached snapshot.
     /// </summary>
     private static void EvaluateAutomaticFlush(IndexWriter writer, DocumentsWriterPerThread dwpt)
     {
@@ -279,16 +279,16 @@ internal static class DwptManager
         if (!flush)
             return;
 
-        DwptFlushBatch? batch = null;
+        DwptFlushSnapshot? snapshot = null;
         lock (dwpt)
         {
             if (dwpt.DocCount == 0)
                 return;
 
-            batch = DetachFlushBatch(writer, dwpt);
+            snapshot = DetachFlushSnapshot(writer, dwpt);
         }
 
-        writer.FlushCoordinator.Submit(batch, writer.CommitGeneration);
+        writer.FlushCoordinator.Submit(snapshot, writer.CommitGeneration);
 
         while (IsRetainedMemoryOverBudget(writer))
         {
@@ -309,14 +309,14 @@ internal static class DwptManager
         return Volatile.Read(ref writer.ActiveDwptBytes) + Volatile.Read(ref writer.PendingFlushBytes) >= effectiveLimit;
     }
 
-    private static DwptFlushBatch DetachFlushBatch(IndexWriter writer, DocumentsWriterPerThread dwpt)
+    private static DwptFlushSnapshot DetachFlushSnapshot(IndexWriter writer, DocumentsWriterPerThread dwpt)
     {
-        var batch = DwptFlushBatch.CaptureFrom(dwpt);
-        Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes - batch.EstimatedBytes);
-        Interlocked.Add(ref writer.PendingFlushBytes, batch.EstimatedBytes);
-        batch.PendingBytesAccounted = true;
-        ReleaseBackpressure(writer, batch.DocCount);
-        return batch;
+        var snapshot = DwptFlushSnapshot.CaptureFrom(dwpt);
+        Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes - snapshot.EstimatedBytes);
+        Interlocked.Add(ref writer.PendingFlushBytes, snapshot.EstimatedBytes);
+        snapshot.PendingBytesAccounted = true;
+        ReleaseBackpressure(writer, snapshot.DocCount);
+        return snapshot;
     }
 
 
@@ -348,6 +348,22 @@ internal static class DwptManager
         if (!writer.TryOwnFailureReconciliation())
             return;
         AbortUncommittedWriterState(writer);
+    }
+
+    internal static void DisposeDwptPool(IndexWriter writer)
+    {
+        var pool = writer.DwptPool;
+        if (pool is null)
+            return;
+
+        foreach (var dwpt in pool)
+        {
+            lock (dwpt)
+                dwpt.Dispose();
+        }
+
+        writer.DwptPool = null;
+        Interlocked.Exchange(ref writer.ActiveDwptBytes, 0);
     }
 
     /// <summary>

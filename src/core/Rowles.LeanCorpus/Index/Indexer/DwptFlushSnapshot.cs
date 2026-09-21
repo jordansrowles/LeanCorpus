@@ -1,13 +1,14 @@
 using Rowles.LeanCorpus.Codecs.StoredFields;
+using Rowles.LeanCorpus.Index.Indexer.Postings;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
-/// Detached, owned batch taken from a <see cref="DocumentsWriterPerThread"/> under its lock.
-/// The batch owns every transferred buffer until <see cref="Dispose"/> is called, allowing
+/// Detached, owned snapshot taken from a <see cref="DocumentsWriterPerThread"/> under its lock.
+/// The snapshot owns every transferred buffer until <see cref="Dispose"/> is called, allowing
 /// the DWPT to accept new documents while physical flush work is in progress.
 /// </summary>
-internal sealed class DwptFlushBatch : IDisposable
+internal sealed class DwptFlushSnapshot : IDisposable
 {
     internal required long EstimatedBytes { get; init; }
     internal required int DocCount { get; init; }
@@ -28,8 +29,7 @@ internal sealed class DwptFlushBatch : IDisposable
     internal required Dictionary<string, Dictionary<int, List<double>>> SortedNumericDocValues { get; init; }
     internal required Dictionary<string, Dictionary<int, List<long>>> Int64SortedDocValues { get; init; }
     internal required Dictionary<string, Dictionary<int, List<byte[]>>> BinaryDocValues { get; init; }
-    internal required BytesRefHash TermHash { get; init; }
-    internal required List<PostingAccumulator> PostingAccumulators { get; init; }
+    internal required PostingsStore Postings { get; init; }
     internal HashSet<int>? ParentDocIds { get; init; }
     internal bool PendingBytesAccounted { get; set; }
     private int _disposed;
@@ -38,12 +38,13 @@ internal sealed class DwptFlushBatch : IDisposable
     /// <summary>
     /// Detaches the owned mutable state from <paramref name="dwpt"/> by swapping its
     /// collections with fresh empty instances. The caller must hold <c>lock(dwpt)</c>.
-    /// After this returns, the DWPT is ready for new documents and <see cref="DocumentsWriterPerThread.ClearAll"/>
+    /// After this returns, the DWPT is ready for new documents and <see cref="DocumentsWriterPerThread.ResetAfterSnapshot"/>
     /// has been called on its replaced state.
     /// </summary>
-    internal static DwptFlushBatch CaptureFrom(DocumentsWriterPerThread dwpt)
+    internal static DwptFlushSnapshot CaptureFrom(DocumentsWriterPerThread dwpt)
     {
-        var batch = new DwptFlushBatch
+        dwpt.Postings.Freeze();
+        var snapshot = new DwptFlushSnapshot
         {
             EstimatedBytes = dwpt.EstimatedRamBytes,
             DocCount = dwpt.DocCount,
@@ -64,14 +65,13 @@ internal sealed class DwptFlushBatch : IDisposable
             SortedNumericDocValues = dwpt.SortedNumericDocValues,
             Int64SortedDocValues = dwpt.Int64SortedDocValues,
             BinaryDocValues = dwpt.BinaryDocValues,
-            TermHash = dwpt.TermHash,
-            PostingAccumulators = dwpt.PostingAccumulators,
+            Postings = dwpt.Postings,
             ParentDocIds = dwpt.ParentDocIds,
         };
 
         dwpt.ResetAfterSnapshot();
 
-        return batch;
+        return snapshot;
     }
 
     /// <summary>Returns transferred pooled buffers exactly once.</summary>
@@ -81,18 +81,6 @@ internal sealed class DwptFlushBatch : IDisposable
             return;
 
         CleanupCountForTests++;
-        foreach (var accumulator in PostingAccumulators)
-            accumulator.ReturnBuffers();
-        PostingAccumulators.Clear();
-        TermHash.ReturnBuffers();
-    }
-
-    /// <summary>
-    /// Enumerates (qualified term string, posting accumulator) pairs for term vector writing.
-    /// </summary>
-    internal IEnumerable<(string Term, PostingAccumulator Acc)> EnumeratePostings()
-    {
-        for (int i = 0; i < TermHash.Count; i++)
-            yield return (TermHash.GetTermString(i), PostingAccumulators[i]);
+        Postings.Dispose();
     }
 }

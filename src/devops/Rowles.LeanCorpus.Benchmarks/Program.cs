@@ -91,6 +91,7 @@ internal static class Program
                 BenchmarkSuite.ConcurrentWrite,
                 BenchmarkSuite.Merge,
                 BenchmarkSuite.Flush,
+                BenchmarkSuite.PostingsArena,
                 BenchmarkSuite.DocValuesRead,
                 BenchmarkSuite.BKDTree,
                 BenchmarkSuite.FstLookup,
@@ -287,6 +288,9 @@ internal static class Program
 
         if (suites.Contains(BenchmarkSuite.Flush))
             RunSuite<FlushBenchmarks>("flush", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.PostingsArena))
+            RunSuite<PostingsArenaBenchmarks>("postings-arena", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (suites.Contains(BenchmarkSuite.DocValuesRead))
             RunSuite<DocValuesReadBenchmarks>("docvalues-read", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -695,6 +699,7 @@ internal static class Program
 
               merge               MergeBenchmarks -- segment merge throughput (explicit only)
               flush               FlushBenchmarks -- segment flush latency per doc count (explicit only)
+              postings-arena       PostingsArenaBenchmarks -- DWPT postings arena workload matrix (explicit only)
               docvalues-read      DocValuesReadBenchmarks -- DocValues read throughput (explicit only)
               bkd                 BKDTreeBenchmarks -- BKD range search throughput (explicit only)
               fst-lookup          FstLookupBenchmarks -- FST term dictionary lookup (explicit only)
@@ -838,6 +843,7 @@ internal static class Program
             "concurrentwrite" or "concurrent-write" => BenchmarkSuite.ConcurrentWrite,
             "merge" => BenchmarkSuite.Merge,
             "flush" => BenchmarkSuite.Flush,
+            "postings-arena" or "postingsarena" => BenchmarkSuite.PostingsArena,
             "docvalues-read" or "docvaluesread" => BenchmarkSuite.DocValuesRead,
             "bkd" or "bkd-tree" => BenchmarkSuite.BKDTree,
             "fst-lookup" or "fstlookup" => BenchmarkSuite.FstLookup,
@@ -972,6 +978,7 @@ internal static class Program
         ConcurrentWrite,
         Merge,
         Flush,
+        PostingsArena,
         DocValuesRead,
         BKDTree,
         FstLookup,

@@ -2,6 +2,8 @@ using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer.Columns;
+using Rowles.LeanCorpus.Index.Indexer.Postings;
+using System.Text;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index.Indexer;
 
@@ -85,28 +87,26 @@ public sealed class IndexerColumnsAndFlushSourceTests
         Assert.Equal(0, cleared.MaxDocId);
     }
 
-    [Fact(DisplayName = "DwptFlushBatch: owns detached state after DWPT reset")]
-    public void DwptFlushBatch_OwnsDetachedStateAfterDwptReset()
+    [Fact(DisplayName = "DwptFlushSnapshot: owns detached state after DWPT reset")]
+    public void DwptFlushSnapshot_OwnsDetachedStateAfterDwptReset()
     {
         var dwpt = CreateDwpt();
         dwpt.AddDocument(CreateFullDocument());
         dwpt.ParentDocIds = [0];
 
-        DwptFlushBatch batch;
+        DwptFlushSnapshot batch;
         lock (dwpt)
-            batch = DwptFlushBatch.CaptureFrom(dwpt);
+            batch = DwptFlushSnapshot.CaptureFrom(dwpt);
 
         Assert.Equal(1, batch.DocCount);
         Assert.Equal(0, dwpt.DocCount);
         AssertBatchContainsAllFields(batch);
-        Assert.Contains(batch.EnumeratePostings(), static posting => posting.Term == "body\0alpha");
-
-        Assert.Contains(Enumerable.Range(0, batch.TermHash.Count),
-            termId => batch.TermHash.GetTermString(termId) == "body\0alpha");
+        Assert.Contains(Enumerable.Range(0, batch.Postings.TermCount),
+            termId => Encoding.UTF8.GetString(batch.Postings.GetTerm(termId)) == "body\0alpha");
 
         var pending = new FlushPendingState
         {
-            Batch = batch,
+            Snapshot = batch,
             SegmentOrdinal = 4,
             CommitGeneration = 0,
             SeqStart = 10,
@@ -122,7 +122,7 @@ public sealed class IndexerColumnsAndFlushSourceTests
         batch.Dispose();
     }
 
-    private static void AssertBatchContainsAllFields(DwptFlushBatch batch)
+    private static void AssertBatchContainsAllFields(DwptFlushSnapshot batch)
     {
         Assert.Equal(1, batch.DocCount);
         Assert.Contains("body", batch.FieldNames);
@@ -143,8 +143,7 @@ public sealed class IndexerColumnsAndFlushSourceTests
         Assert.NotEmpty(batch.Int64SortedDocValues);
         Assert.NotEmpty(batch.BinaryDocValues);
         Assert.NotNull(batch.ParentDocIds);
-        Assert.NotEmpty(batch.PostingAccumulators);
-        Assert.True(batch.TermHash.Count > 0);
+        Assert.True(batch.Postings.TermCount > 0);
     }
 
     private static DocumentsWriterPerThread CreateDwpt()

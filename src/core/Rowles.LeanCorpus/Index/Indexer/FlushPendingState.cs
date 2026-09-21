@@ -2,13 +2,13 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
 /// Tracks a DWPT flush that was detached from the publication lock.
-/// Holds the owned detached batch, its asynchronous physical execution, and
+/// Holds the owned detached snapshot, its asynchronous physical execution, and
 /// metadata needed for ordered publication.
 /// </summary>
 internal sealed class FlushPendingState
 {
-    /// <summary>The owned batch detached from the DWPT.</summary>
-    internal required DwptFlushBatch Batch { get; init; }
+    /// <summary>The owned snapshot detached from the DWPT.</summary>
+    internal required DwptFlushSnapshot Snapshot { get; init; }
 
     /// <summary>Segment ordinal assigned to this flush.</summary>
     internal required int SegmentOrdinal { get; init; }
@@ -34,5 +34,5 @@ internal sealed class FlushPendingState
     /// <summary>
     /// Number of documents in this flush, for backpressure accounting.
     /// </summary>
-    internal int DocCount => Batch.DocCount;
+    internal int DocCount => Snapshot.DocCount;
 }
