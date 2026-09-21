@@ -53,10 +53,12 @@ publishes completed `SegmentInfo` instances in submission order. The existing
 - `MergeDwpt` (134 lines), `MergeMultiValuedDocValues` (14 lines), and
   `AppendMergedStoredField` (13 lines) are deleted. `ResetDwpt` is deleted.
 - `DwptFlushSnapshot` owns all detached resources, including the pooled `PostingsStore`,
-  term arena and posting readers, until one-shot cleanup. `SegmentFlusher.FlushFromSnapshot`
-  is the only production flush entry point. The postings writer and FST sort compact term
-  IDs against the snapshot's UTF-8 term pool, without allocating per-term byte arrays or
-  managed term strings.
+  term arena and posting readers, until one-shot cleanup. `FlushPendingState` retains that
+  snapshot only until physical execution takes ownership through an atomic transfer. The
+  execution task then disposes it; ordered publication retains only scalar and completed-task
+  metadata. `SegmentFlusher.FlushFromSnapshot` is the only production flush entry point. The
+  postings writer and FST sort compact term IDs against the snapshot's UTF-8 term pool,
+  without allocating per-term byte arrays or managed term strings.
 - `AddDocumentsConcurrent`, ordinary `AddDocument`, and concurrent async ingestion use the
   same DWPT and coordinator pipeline. `FlushDwptPool` submits remaining owned batches and
   commit, mutation, merge, snapshot, and dispose boundaries drain the required work.

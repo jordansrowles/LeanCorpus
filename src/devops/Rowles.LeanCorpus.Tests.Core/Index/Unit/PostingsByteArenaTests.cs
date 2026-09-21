@@ -79,7 +79,41 @@ public sealed class PostingsByteArenaTests
         var cursor = arena.StartStream();
         var reader = arena.OpenReader(cursor);
         Assert.True(reader.EndOfStream);
+        AssertInvalidCopy(ref reader, 1);
         AssertInvalidVarUInt(ref reader);
+    }
+
+    [Fact]
+    public void OversizedLogicalCopyAndSkip_AreRejectedBeforeReading()
+    {
+        using var arena = new PostingsByteArena();
+        var cursor = arena.StartStream();
+        arena.WriteBytes(ref cursor, new byte[29]);
+
+        var copyReader = arena.OpenReader(cursor);
+        AssertInvalidCopy(ref copyReader, 30);
+
+        var skipReader = arena.OpenReader(cursor);
+        AssertInvalidSkip(ref skipReader, 30);
+    }
+
+    [Fact]
+    public void ExactLogicalLength_SucceedsAcrossSlices()
+    {
+        using var arena = new PostingsByteArena();
+        var cursor = arena.StartStream();
+        byte[] expected = Enumerable.Range(0, (2 * PostingsByteArena.BlockSize) + 17)
+            .Select(static i => (byte)i)
+            .ToArray();
+        arena.WriteBytes(ref cursor, expected);
+
+        var reader = arena.OpenReader(cursor);
+        byte[] actual = new byte[expected.Length];
+        reader.CopyBytes(actual);
+
+        Assert.Equal(expected, actual);
+        Assert.True(reader.EndOfStream);
+        AssertInvalidSkip(ref reader, 1);
     }
 
     [Fact]
@@ -100,6 +134,20 @@ public sealed class PostingsByteArenaTests
         var cursor = arena.StartStream();
         arena.WriteBytes(ref cursor, new byte[29]);
         BinaryPrimitives.WriteInt32LittleEndian(pool.AllRented[0].AsSpan(), int.MaxValue);
+
+        var reader = arena.OpenReader(cursor);
+        AssertInvalidSkip(ref reader, 29);
+    }
+
+    [Fact]
+    public void ForwardAddressOutsideLogicalBlock_IsRejected()
+    {
+        var pool = new TrackingBytePool();
+        using var arena = new PostingsByteArena(pool);
+        var cursor = arena.StartStream();
+        arena.WriteBytes(ref cursor, new byte[29]);
+        int invalidNext = PostingsByteArena.ComposeAddress(0, PostingsByteArena.BlockSize - 1);
+        BinaryPrimitives.WriteInt32LittleEndian(pool.AllRented[0].AsSpan(), invalidNext);
 
         var reader = arena.OpenReader(cursor);
         AssertInvalidSkip(ref reader, 29);
@@ -149,6 +197,18 @@ public sealed class PostingsByteArenaTests
         {
             reader.ReadVarUInt();
             Assert.Fail("Expected a malformed VarUInt exception.");
+        }
+        catch (InvalidDataException)
+        {
+        }
+    }
+
+    private static void AssertInvalidCopy(ref PostingsByteArena.Reader reader, int length)
+    {
+        try
+        {
+            reader.CopyBytes(new byte[length]);
+            Assert.Fail("Expected a malformed stream exception.");
         }
         catch (InvalidDataException)
         {

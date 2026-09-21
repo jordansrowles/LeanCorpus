@@ -25,6 +25,9 @@ internal sealed class PostingsStore : IDisposable
     private PostingTermState[] _states;
     private readonly BytesRefHash _termHash;
     private readonly PostingsByteArena _arena;
+    private long _allocatedBytes;
+    private long _fieldPrefixBytes;
+    private int _accountingDirty;
     private int _frozen;
     private int _disposed;
 
@@ -48,6 +51,7 @@ internal sealed class PostingsStore : IDisposable
         _termHash = new BytesRefHash(InitialTermCapacity, bytePool);
         _states = _statePool.Rent(InitialTermCapacity);
         _arena = new PostingsByteArena(bytePool);
+        RefreshAllocatedBytes();
     }
 
     internal int TermCount => _termHash.Count;
@@ -55,26 +59,20 @@ internal sealed class PostingsStore : IDisposable
     internal BytesRefHash TermHash => _termHash;
     internal PostingsByteArena Arena => _arena;
 
-    internal long AllocatedBytes
-    {
-        get
-        {
-            if (Volatile.Read(ref _disposed) != 0)
-                return 0;
-
-            long bytes = _termHash.AllocatedBytes + _arena.AllocatedBytes;
-            bytes += (long)_states.LongLength * Unsafe.SizeOf<PostingTermState>();
-            bytes += (long)_fieldNames.Capacity * IntPtr.Size;
-            bytes += (long)_fieldPrefixesUtf8.Capacity * IntPtr.Size;
-            foreach (var prefix in _fieldPrefixesUtf8)
-                bytes += prefix.LongLength;
-            return bytes;
-        }
-    }
+    internal long AllocatedBytes => Volatile.Read(ref _allocatedBytes);
 
     internal void AddDocOnly(string fieldName, ReadOnlySpan<char> term, int docId)
     {
-        AddCore(fieldName, term, docId, 0, FieldIndexOptions.DocsOnly, payload: null, 0, 0);
+        int termHashVersion = _termHash.AllocationVersion;
+        int arenaVersion = _arena.AllocationVersion;
+        try
+        {
+            AddCore(fieldName, term, docId, 0, FieldIndexOptions.DocsOnly, payload: null, 0, 0);
+        }
+        finally
+        {
+            RefreshAllocatedBytesIfCapacityChanged(termHashVersion, arenaVersion);
+        }
     }
 
     internal void Add(
@@ -87,7 +85,16 @@ internal sealed class PostingsStore : IDisposable
         int startOffset,
         int endOffset)
     {
-        AddCore(fieldName, term, docId, position, indexOptions, payload, startOffset, endOffset);
+        int termHashVersion = _termHash.AllocationVersion;
+        int arenaVersion = _arena.AllocationVersion;
+        try
+        {
+            AddCore(fieldName, term, docId, position, indexOptions, payload, startOffset, endOffset);
+        }
+        finally
+        {
+            RefreshAllocatedBytesIfCapacityChanged(termHashVersion, arenaVersion);
+        }
     }
 
     internal void Freeze()
@@ -150,6 +157,8 @@ internal sealed class PostingsStore : IDisposable
         _fieldOrdinals.Clear();
         _fieldNames.Clear();
         _fieldPrefixesUtf8.Clear();
+        _fieldPrefixBytes = 0;
+        Volatile.Write(ref _allocatedBytes, 0);
         Interlocked.Exchange(ref _frozen, 1);
     }
 
@@ -332,6 +341,8 @@ internal sealed class PostingsStore : IDisposable
         _fieldOrdinals.Add(fieldName, ordinal);
         _fieldNames.Add(fieldName);
         _fieldPrefixesUtf8.Add(prefix);
+        _fieldPrefixBytes = checked(_fieldPrefixBytes + prefix.LongLength);
+        Volatile.Write(ref _accountingDirty, 1);
         return ordinal;
     }
 
@@ -345,6 +356,7 @@ internal sealed class PostingsStore : IDisposable
         _states.AsSpan(0, _termHash.Count - 1).CopyTo(replacement);
         _statePool.Return(_states, clearArray: false);
         _states = replacement;
+        Volatile.Write(ref _accountingDirty, 1);
     }
 
     private void ThrowIfMutable()
@@ -358,5 +370,34 @@ internal sealed class PostingsStore : IDisposable
     private void ThrowIfDisposed()
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+    }
+
+    private void RefreshAllocatedBytes()
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            Volatile.Write(ref _allocatedBytes, 0);
+            Volatile.Write(ref _accountingDirty, 0);
+            return;
+        }
+
+        long bytes = _termHash.AllocatedBytes;
+        bytes = checked(bytes + _arena.AllocatedBytes);
+        bytes = checked(bytes + (long)_states.LongLength * Unsafe.SizeOf<PostingTermState>());
+        bytes = checked(bytes + (long)_fieldNames.Capacity * IntPtr.Size);
+        bytes = checked(bytes + (long)_fieldPrefixesUtf8.Capacity * IntPtr.Size);
+        bytes = checked(bytes + Volatile.Read(ref _fieldPrefixBytes));
+        Volatile.Write(ref _allocatedBytes, bytes);
+        Volatile.Write(ref _accountingDirty, 0);
+    }
+
+    private void RefreshAllocatedBytesIfCapacityChanged(int termHashVersion, int arenaVersion)
+    {
+        if (termHashVersion != _termHash.AllocationVersion
+            || arenaVersion != _arena.AllocationVersion
+            || Volatile.Read(ref _accountingDirty) != 0)
+        {
+            RefreshAllocatedBytes();
+        }
     }
 }

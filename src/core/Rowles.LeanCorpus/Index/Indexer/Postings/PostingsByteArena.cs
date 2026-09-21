@@ -18,11 +18,11 @@ internal sealed class PostingsByteArena : IDisposable
 
     private readonly ArrayPool<byte> _bytePool;
     private readonly List<byte[]> _blocks = [];
-    private readonly HashSet<int> _sliceHeaders = [];
-    private readonly Dictionary<int, int> _sliceEnds = [];
     private int _currentBlockIndex = -1;
     private int _currentBlockOffset;
     private long _rentedBytes;
+    private long _allocatedBytes;
+    private int _allocationVersion;
     private int _disposed;
 
     internal PostingsByteArena()
@@ -36,16 +36,10 @@ internal sealed class PostingsByteArena : IDisposable
         _bytePool = bytePool;
     }
 
-    /// <summary>Gets the owned rented-array and block-reference capacity estimate.</summary>
-    internal long AllocatedBytes
-    {
-        get
-        {
-            if (Volatile.Read(ref _disposed) != 0)
-                return 0;
-            return _rentedBytes + (long)_blocks.Capacity * IntPtr.Size;
-        }
-    }
+    /// <summary>Gets the published owned rented-array and block-reference capacity estimate.</summary>
+    internal long AllocatedBytes => Volatile.Read(ref _allocatedBytes);
+
+    internal int AllocationVersion => Volatile.Read(ref _allocationVersion);
 
     internal int BlockCount => _blocks.Count;
 
@@ -57,6 +51,7 @@ internal sealed class PostingsByteArena : IDisposable
         internal int CurrentPositionAddress;
         internal int CurrentDataEndAddress;
         internal int Level;
+        internal int WrittenLength;
     }
 
     internal StreamCursor StartStream()
@@ -69,14 +64,25 @@ internal sealed class PostingsByteArena : IDisposable
 
     internal void WriteByte(ref StreamCursor cursor, byte value)
     {
+        EnsureLogicalWriteLength(cursor, 1);
         EnsureWritable(ref cursor);
         GetBlockAndOffset(cursor.CurrentPositionAddress, out var block, out int offset);
         block[offset] = value;
         cursor.CurrentPositionAddress++;
+        cursor.WrittenLength++;
     }
 
     internal void WriteVarUInt(ref StreamCursor cursor, uint value)
     {
+        int byteCount = 1;
+        uint remaining = value;
+        while (remaining >= 0x80)
+        {
+            byteCount++;
+            remaining >>= 7;
+        }
+        EnsureLogicalWriteLength(cursor, byteCount);
+
         do
         {
             byte next = (byte)(value & 0x7F);
@@ -91,6 +97,7 @@ internal sealed class PostingsByteArena : IDisposable
     internal void WriteBytes(ref StreamCursor cursor, ReadOnlySpan<byte> source)
     {
         ThrowIfDisposed();
+        EnsureLogicalWriteLength(cursor, source.Length);
         while (!source.IsEmpty)
         {
             EnsureWritable(ref cursor);
@@ -99,20 +106,27 @@ internal sealed class PostingsByteArena : IDisposable
             int count = Math.Min(available, source.Length);
             source[..count].CopyTo(block.AsSpan(offset, count));
             cursor.CurrentPositionAddress += count;
+            cursor.WrittenLength += count;
             source = source[count..];
         }
+    }
+
+    private static void EnsureLogicalWriteLength(StreamCursor cursor, int additionalLength)
+    {
+        if (additionalLength < 0 || additionalLength > int.MaxValue - cursor.WrittenLength)
+            throw new InvalidOperationException("The postings stream exceeds the maximum logical length.");
     }
 
     internal Reader OpenReader(StreamCursor cursor)
     {
         ThrowIfDisposed();
-        return OpenReader(cursor.StartAddress, cursor.CurrentPositionAddress);
+        return OpenReader(cursor.StartAddress, cursor.WrittenLength);
     }
 
-    internal Reader OpenReader(int startAddress, int endAddress)
+    internal Reader OpenReader(int startAddress, int writtenLength)
     {
         ThrowIfDisposed();
-        return new Reader(this, startAddress, endAddress);
+        return new Reader(this, startAddress, writtenLength);
     }
 
     public void Dispose()
@@ -124,11 +138,10 @@ internal sealed class PostingsByteArena : IDisposable
             _bytePool.Return(block, clearArray: false);
 
         _blocks.Clear();
-        _sliceHeaders.Clear();
-        _sliceEnds.Clear();
         _currentBlockIndex = -1;
         _currentBlockOffset = 0;
         _rentedBytes = 0;
+        Volatile.Write(ref _allocatedBytes, 0);
     }
 
     private void EnsureWritable(ref StreamCursor cursor)
@@ -154,8 +167,6 @@ internal sealed class PostingsByteArena : IDisposable
         if (cursor.CurrentSliceHeaderAddress != 0)
             WriteInt32At(cursor.CurrentSliceHeaderAddress, headerAddress);
 
-        _sliceHeaders.Add(headerAddress);
-        _sliceEnds.Add(headerAddress, (int)dataEndLong);
         if (cursor.StartAddress == 0)
             cursor.StartAddress = headerAddress;
         cursor.CurrentSliceHeaderAddress = headerAddress;
@@ -184,7 +195,9 @@ internal sealed class PostingsByteArena : IDisposable
         }
 
         _blocks.Add(block);
-        _rentedBytes += block.LongLength;
+        _rentedBytes = checked(_rentedBytes + block.LongLength);
+        Volatile.Write(ref _allocatedBytes, checked(_rentedBytes + (long)_blocks.Capacity * IntPtr.Size));
+        Interlocked.Increment(ref _allocationVersion);
         _currentBlockIndex = newBlockIndex;
         _currentBlockOffset = sliceSize;
         blockOffset = 0;
@@ -192,8 +205,12 @@ internal sealed class PostingsByteArena : IDisposable
 
     private void ValidateCursor(StreamCursor cursor)
     {
-        if (cursor.StartAddress == 0 || !_sliceHeaders.Contains(cursor.CurrentSliceHeaderAddress))
+        if (cursor.StartAddress == 0)
             throw new InvalidOperationException("The postings stream cursor is not owned by this arena.");
+        ValidateSliceAddress(cursor.CurrentSliceHeaderAddress, cursor.Level);
+        int expectedDataEnd = checked(cursor.CurrentSliceHeaderAddress + SliceSize(cursor.Level));
+        if (cursor.CurrentDataEndAddress != expectedDataEnd)
+            throw new InvalidOperationException("The postings stream cursor has an invalid slice boundary.");
         if (cursor.CurrentPositionAddress < cursor.CurrentSliceHeaderAddress + SliceHeaderSize ||
             cursor.CurrentPositionAddress > cursor.CurrentDataEndAddress)
             throw new InvalidOperationException("The postings stream cursor is invalid.");
@@ -229,13 +246,14 @@ internal sealed class PostingsByteArena : IDisposable
         block = _blocks[blockIndex];
     }
 
-    private bool IsSliceHeader(int address) => _sliceHeaders.Contains(address);
-
-    private int GetSliceEnd(int headerAddress)
+    private void ValidateSliceAddress(int address, int level)
     {
-        if (!_sliceEnds.TryGetValue(headerAddress, out int end))
-            throw new InvalidDataException("A postings slice header is not owned by the arena.");
-        return end;
+        DecodeAddress(address, out int blockIndex, out int offset);
+        if ((uint)blockIndex >= (uint)_blocks.Count)
+            throw new InvalidDataException("A postings slice points outside the arena.");
+        if ((long)offset + SliceSize(level) > BlockSize)
+            throw new InvalidDataException("A postings slice does not fit inside its block.");
+        _ = checked(address + SliceSize(level));
     }
 
     private int ReadInt32At(int address)
@@ -263,39 +281,39 @@ internal sealed class PostingsByteArena : IDisposable
     internal ref struct Reader
     {
         private readonly PostingsByteArena _arena;
-        private readonly int _endAddress;
+        private int _remaining;
         private int _sliceHeaderAddress;
         private int _positionAddress;
         private int _dataEndAddress;
-        private int _forwardHops;
+        private int _level;
 
-        internal Reader(PostingsByteArena arena, int startAddress, int endAddress)
+        internal Reader(PostingsByteArena arena, int startAddress, int writtenLength)
         {
             _arena = arena;
-            _endAddress = endAddress;
+            _remaining = writtenLength;
             _sliceHeaderAddress = 0;
             _positionAddress = 0;
             _dataEndAddress = 0;
-            _forwardHops = 0;
+            _level = 0;
+
+            if (writtenLength < 0)
+                throw new ArgumentOutOfRangeException(nameof(writtenLength));
 
             if (startAddress == 0)
             {
-                if (endAddress != 0)
-                    throw new InvalidDataException("An absent postings stream has a non-zero end address.");
+                if (writtenLength != 0)
+                    throw new InvalidDataException("An absent postings stream has a non-zero logical length.");
                 return;
             }
 
-            if (endAddress < startAddress + SliceHeaderSize || !arena.IsSliceHeader(startAddress))
-                throw new InvalidDataException("The postings stream bounds are invalid.");
+            arena.ValidateSliceAddress(startAddress, 0);
 
             _sliceHeaderAddress = startAddress;
             _positionAddress = checked(startAddress + SliceHeaderSize);
-            _dataEndAddress = arena.GetSliceEnd(startAddress);
-            if (_endAddress < _positionAddress)
-                throw new InvalidDataException("The postings stream ends before its first payload byte.");
+            _dataEndAddress = checked(startAddress + SliceSize(0));
         }
 
-        internal bool EndOfStream => _positionAddress >= _endAddress;
+        internal bool EndOfStream => _remaining == 0;
 
         internal byte ReadByte()
         {
@@ -304,6 +322,7 @@ internal sealed class PostingsByteArena : IDisposable
             _arena.GetBlockAndOffset(_positionAddress, out var block, out int offset);
             byte value = block[offset];
             _positionAddress++;
+            _remaining--;
             return value;
         }
 
@@ -330,10 +349,12 @@ internal sealed class PostingsByteArena : IDisposable
             {
                 MoveToNextSliceIfNeeded();
                 _arena.GetBlockAndOffset(_positionAddress, out var block, out int offset);
-                int available = Math.Min(_dataEndAddress, _endAddress) - _positionAddress;
+                int available = Math.Min(_dataEndAddress - _positionAddress, _remaining);
+                EnsureProgress(available);
                 int count = Math.Min(available, destination.Length);
                 block.AsSpan(offset, count).CopyTo(destination[..count]);
                 _positionAddress += count;
+                _remaining -= count;
                 destination = destination[count..];
             }
         }
@@ -348,10 +369,12 @@ internal sealed class PostingsByteArena : IDisposable
             {
                 MoveToNextSliceIfNeeded();
                 _arena.GetBlockAndOffset(_positionAddress, out var block, out int offset);
-                int available = Math.Min(_dataEndAddress, _endAddress) - _positionAddress;
+                int available = Math.Min(_dataEndAddress - _positionAddress, _remaining);
+                EnsureProgress(available);
                 int count = Math.Min(available, length);
                 destination.WriteBytes(block.AsSpan(offset, count));
                 _positionAddress += count;
+                _remaining -= count;
                 length -= count;
             }
         }
@@ -366,10 +389,12 @@ internal sealed class PostingsByteArena : IDisposable
             {
                 MoveToNextSliceIfNeeded();
                 _arena.GetBlockAndOffset(_positionAddress, out var block, out int offset);
-                int available = Math.Min(_dataEndAddress, _endAddress) - _positionAddress;
+                int available = Math.Min(_dataEndAddress - _positionAddress, _remaining);
+                EnsureProgress(available);
                 int count = Math.Min(available, length);
                 destination.WriteBytes(block.AsSpan(offset, count));
                 _positionAddress += count;
+                _remaining -= count;
                 length -= count;
             }
         }
@@ -382,8 +407,10 @@ internal sealed class PostingsByteArena : IDisposable
             while (length > 0)
             {
                 MoveToNextSliceIfNeeded();
-                int count = Math.Min(Math.Min(_dataEndAddress, _endAddress) - _positionAddress, length);
+                int count = Math.Min(Math.Min(_dataEndAddress - _positionAddress, _remaining), length);
+                EnsureProgress(count);
                 _positionAddress += count;
+                _remaining -= count;
                 length -= count;
             }
         }
@@ -392,30 +419,38 @@ internal sealed class PostingsByteArena : IDisposable
         {
             if (length < 0)
                 throw new ArgumentOutOfRangeException(nameof(length));
-            if ((long)_positionAddress + length > _endAddress)
+            if (length > _remaining)
                 throw new InvalidDataException("A postings stream read passed its logical end.");
+        }
+
+        private static void EnsureProgress(int available)
+        {
+            if (available <= 0)
+                throw new InvalidDataException("A postings stream reader made no progress.");
         }
 
         private void MoveToNextSliceIfNeeded()
         {
-            if (_positionAddress != _dataEndAddress)
+            if (_remaining == 0)
                 return;
-            if (_positionAddress >= _endAddress)
+            if (_positionAddress < _dataEndAddress)
                 return;
+            if (_positionAddress > _dataEndAddress)
+                throw new InvalidDataException("A postings stream cursor passed its slice boundary.");
 
             int next = _arena.ReadInt32At(_sliceHeaderAddress);
             if (next == 0)
                 throw new InvalidDataException("A postings stream is missing its forwarding address.");
-            if (next <= _sliceHeaderAddress || !_arena.IsSliceHeader(next))
+            if (next <= _sliceHeaderAddress)
                 throw new InvalidDataException("A postings stream has an invalid forwarding address.");
-            if (++_forwardHops > _arena._sliceHeaders.Count)
-                throw new InvalidDataException("A postings stream forwarding chain contains a cycle.");
+
+            int nextLevel = Math.Min(_level + 1, LargestSliceLevel);
+            _arena.ValidateSliceAddress(next, nextLevel);
 
             _sliceHeaderAddress = next;
+            _level = nextLevel;
             _positionAddress = checked(next + SliceHeaderSize);
-            _dataEndAddress = _arena.GetSliceEnd(next);
-            if (_endAddress < _positionAddress)
-                throw new InvalidDataException("A forwarding address passes the logical stream end.");
+            _dataEndAddress = checked(next + SliceSize(_level));
         }
     }
 }

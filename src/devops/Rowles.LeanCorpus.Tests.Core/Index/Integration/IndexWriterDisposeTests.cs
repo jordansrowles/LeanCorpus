@@ -3,7 +3,6 @@ using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
-using System.Collections.Concurrent;
 using System.Diagnostics;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index;
@@ -30,69 +29,77 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
         return path;
     }
 
-    /// <summary>
-    /// 32 producers call AddDocument in a tight loop while the main thread
-    /// calls Dispose after 100 ms. Producers may observe ObjectDisposedException as their
-    /// graceful shutdown signal, and the writer must be cleanly disposed afterwards.
-    /// </summary>
     [Fact(DisplayName = "Dispose: During Concurrent Add Document No Object Disposed Race", Timeout = 30_000)]
     public async Task Dispose_DuringConcurrentAddDocument_NoObjectDisposedRace()
     {
-        var dir = SubDir("h12_race");
-        var config = new IndexWriterConfig { IndexingConcurrency = 8, MaxBufferedDocs = 10_000, MaxQueuedDocs = 0 };
+        var dir = SubDir("dispose_concurrent_add_barrier");
+        const int producerCount = 4;
+        using var entered = new CountdownEvent(producerCount);
+        using var release = new ManualResetEventSlim();
+        var analyser = new BlockingDisposeAnalyser(entered, release);
+        var config = new IndexWriterConfig
+        {
+            IndexingConcurrency = producerCount,
+            MaxBufferedDocs = 10_000,
+            MaxQueuedDocs = 0,
+            DefaultAnalyser = analyser
+        };
         var writer = new IndexWriter(new MMapDirectory(dir), config);
-
-        const int producerCount = 32;
-        using var cts = new CancellationTokenSource();
-        var exceptions = new System.Collections.Concurrent.ConcurrentBag<Exception>();
+        var exceptions = new List<Exception>();
         var tasks = new Task[producerCount];
 
         for (int t = 0; t < producerCount; t++)
         {
-            tasks[t] = Task.Factory.StartNew(
+            tasks[t] = Task.Run(
                 () =>
                 {
-                    while (!cts.Token.IsCancellationRequested)
+                    try
                     {
-                        try
-                        {
-                            var doc = new LeanDocument();
-                            doc.Add(new TextField("body", "concurrent stress test document"));
-                            writer.AddDocument(doc);
-                        }
-                        catch (ObjectDisposedException ode)
-                        {
-                            exceptions.Add(ode);
-                            return; // expected after Dispose: exit cleanly
-                        }
-                        catch (Exception ex)
-                        {
+                        var doc = new LeanDocument();
+                        doc.Add(new TextField("body", $"producer-{t}"));
+                        writer.AddDocument(doc);
+                    }
+                    catch (Exception ex)
+                    {
+                        lock (exceptions)
                             exceptions.Add(ex);
-                            return;
-                        }
                     }
                 },
-                CancellationToken.None,
-                TaskCreationOptions.LongRunning,
-                TaskScheduler.Default);
+                TestContext.Current.CancellationToken);
         }
 
-        // Let producers run for 100 ms, then dispose the writer
-        Thread.Sleep(100);
-        writer.Dispose();
+        Task? disposeTask = null;
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(10)), "All admitted producers did not reach analysis.");
 
-        // Signal producers to stop and wait for all to finish
-        cts.Cancel();
-        await Task.WhenAll(tasks).WaitAsync(TestContext.Current.CancellationToken);
+            disposeTask = Task.Run(writer.Dispose, TestContext.Current.CancellationToken);
+            Assert.True(
+                SpinWait.SpinUntil(() => writer.IsClosing, TimeSpan.FromSeconds(5)),
+                "Writer disposal did not begin.");
+            Assert.False(disposeTask.IsCompleted, "Dispose completed while admitted analysers were blocked.");
 
-        // ObjectDisposedException thrown by our own guard (re-check after increment) is
-        // the expected graceful exit signal. Any other exception type indicates a real bug
-        // (e.g. the runtime throwing ODE from inside a disposed SemaphoreSlim).
-        var unexpectedExceptions = exceptions
-            .Where(ex => ex is not ObjectDisposedException)
-            .ToList();
+            var rejectedDocument = new LeanDocument();
+            rejectedDocument.Add(new TextField("body", "rejected"));
+            Assert.Throws<ObjectDisposedException>(() => writer.AddDocument(rejectedDocument));
 
-        Assert.Empty(unexpectedExceptions);
+            release.Set();
+            await Task.WhenAll(tasks).WaitAsync(TestContext.Current.CancellationToken);
+            await disposeTask.WaitAsync(TestContext.Current.CancellationToken);
+
+            lock (exceptions)
+                Assert.Empty(exceptions);
+            Assert.False(File.Exists(Path.Combine(dir, "write.lock")));
+        }
+        finally
+        {
+            release.Set();
+            await Task.WhenAll(tasks).WaitAsync(TestContext.Current.CancellationToken);
+            if (disposeTask is not null)
+                await disposeTask.WaitAsync(TestContext.Current.CancellationToken);
+            else
+                writer.Dispose();
+        }
     }
 
     /// <summary>
@@ -488,57 +495,25 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
             writer.DeleteDocuments(new TermQuery("body", "anything")));
     }
 
-    /// <summary>
-    /// 8 producers index large documents with MaxBufferedDocs=1 (forcing a flush on every
-    /// document) while the main thread calls Dispose after 50 ms. Verifies that the
-    /// backpressure semaphore release during detached flush completion does not throw
-    /// ObjectDisposedException after Dispose has torn down the semaphore.
-    /// </summary>
-    [Fact(DisplayName = "Dispose: During slow segment flush no semaphore disposed race")]
-    public async Task Dispose_DuringSlowSegmentFlush_NoSemaphoreDisposedRace()
+    private sealed class BlockingDisposeAnalyser : IThreadLocalAnalyser
     {
-        var dir = SubDir("h12_slow_flush");
-        var config = new IndexWriterConfig { MaxBufferedDocs = 1, RamBufferSizeMB = 1024 };
-        var writer = new IndexWriter(new MMapDirectory(dir), config);
+        private readonly CountdownEvent _entered;
+        private readonly ManualResetEventSlim _release;
 
-        const int producerCount = 8;
-        var exceptions = new ConcurrentBag<Exception>();
-        var started = new ManualResetEventSlim();
-        var tasks = new Task[producerCount];
-
-        for (int t = 0; t < producerCount; t++)
+        internal BlockingDisposeAnalyser(CountdownEvent entered, ManualResetEventSlim release)
         {
-            tasks[t] = Task.Run(() =>
-            {
-                started.Wait();
-                try
-                {
-                    // Each doc triggers a flush because MaxBufferedDocs=1
-                    for (int i = 0; i < 10_000; i++)
-                    {
-                        var doc = new LeanDocument();
-                        doc.Add(new TextField("body", new string('x', 10_000)));
-                        writer.AddDocument(doc);
-                    }
-                }
-                catch (ObjectDisposedException)
-                {
-                    // Expected: EnterIndexingOperation rejects after Dispose
-                }
-                catch (Exception ex)
-                {
-                    exceptions.Add(ex);
-                }
-            }, TestContext.Current.CancellationToken);
+            _entered = entered;
+            _release = release;
         }
 
-        // Start all producers, wait briefly, then dispose
-        started.Set();
-        await Task.Delay(50, TestContext.Current.CancellationToken);
-        writer.Dispose();
-        await Task.WhenAll(tasks);
+        public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
+        {
+            _entered.Signal();
+            if (!_release.Wait(TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("The test did not release the admitted analyser.");
+            sink.Add(input, 0, input.Length);
+        }
 
-        var unexpected = exceptions.Where(ex => ex is not ObjectDisposedException).ToList();
-        Assert.Empty(unexpected);
+        public IAnalyser CreateThreadLocalAnalyser() => new BlockingDisposeAnalyser(_entered, _release);
     }
 }

@@ -53,6 +53,8 @@ internal static class DwptManager
                 "DWPT pool is not initialised.");
 
             var dwpt = EnterDwpt(writer, pool);
+            long observedDwptBytes;
+            int observedDocCount;
             try
             {
                 writer.ThrowIfIndexingFailed();
@@ -61,14 +63,16 @@ internal static class DwptManager
                 long before = dwpt.EstimatedRamBytes;
                 mutationStarted = true;
                 dwpt.AddPrevalidatedDocument(doc);
-                Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes - before);
+                observedDwptBytes = dwpt.EstimatedRamBytes;
+                observedDocCount = dwpt.DocCount;
+                Interlocked.Add(ref writer.ActiveDwptBytes, observedDwptBytes - before);
             }
             finally
             {
                 Monitor.Exit(dwpt);
             }
 
-            EvaluateAutomaticFlush(writer, dwpt);
+            EvaluateAutomaticFlush(writer, dwpt, observedDwptBytes, observedDocCount);
 
             if (writer.ShouldThrottleForMerge())
                 writer.ThrottleMerge();
@@ -119,6 +123,8 @@ internal static class DwptManager
 
             var pool = writer.DwptPool!;
             var dwpt = EnterDwpt(writer, pool);
+            long observedDwptBytes;
+            int observedDocCount;
             try
             {
                 writer.ThrowIfIndexingFailed();
@@ -127,13 +133,15 @@ internal static class DwptManager
                 long before = dwpt.EstimatedRamBytes;
                 mutationStarted = true;
                 dwpt.AddPrevalidatedDocumentBlock(block);
-                Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes - before);
+                observedDwptBytes = dwpt.EstimatedRamBytes;
+                observedDocCount = dwpt.DocCount;
+                Interlocked.Add(ref writer.ActiveDwptBytes, observedDwptBytes - before);
             }
             finally
             {
                 Monitor.Exit(dwpt);
             }
-            EvaluateAutomaticFlush(writer, dwpt);
+            EvaluateAutomaticFlush(writer, dwpt, observedDwptBytes, observedDocCount);
         }
         catch (Exception ex)
         {
@@ -260,7 +268,11 @@ internal static class DwptManager
     /// The sole automatic-flush policy. Blocks invoke it only after the entire block has
     /// been accepted, preserving parent-child adjacency in the detached snapshot.
     /// </summary>
-    private static void EvaluateAutomaticFlush(IndexWriter writer, DocumentsWriterPerThread dwpt)
+    private static void EvaluateAutomaticFlush(
+        IndexWriter writer,
+        DocumentsWriterPerThread dwpt,
+        long observedDwptBytes,
+        int observedDocCount)
     {
         long activeBytes = Volatile.Read(ref writer.ActiveDwptBytes);
         long pendingBytes = Volatile.Read(ref writer.PendingFlushBytes);
@@ -273,9 +285,9 @@ internal static class DwptManager
             ? (long)(writer.Config.RamBufferSizeMB * 1024 * 1024)
             : long.MaxValue;
         long queuedLimit = writer.Config.MaxQueuedBytes > 0 ? writer.Config.MaxQueuedBytes : long.MaxValue;
-        bool flush = dwpt.EstimatedRamBytes >= hardLimit
+        bool flush = observedDwptBytes >= hardLimit
             || activeBytes + pendingBytes >= Math.Min(sharedLimit, queuedLimit)
-            || (writer.Config.MaxBufferedDocs > 0 && dwpt.DocCount >= writer.Config.MaxBufferedDocs);
+            || (writer.Config.MaxBufferedDocs > 0 && observedDocCount >= writer.Config.MaxBufferedDocs);
         if (!flush)
             return;
 

@@ -60,6 +60,85 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
         Assert.Equal(2, Volatile.Read(ref entered));
     }
 
+    [Fact(Timeout = 30_000)]
+    public void CompletedPhysicalFlush_ReleasesSnapshotBeforePublication()
+    {
+        using var physicalCompleted = new ManualResetEventSlim();
+        using var writer = new IndexWriter(
+            new MMapDirectory(SubDir(nameof(CompletedPhysicalFlush_ReleasesSnapshotBeforePublication))),
+            new IndexWriterConfig
+            {
+                IndexingConcurrency = 1,
+                MaxBufferedDocs = 1,
+                RamBufferSizeMB = 1024,
+                PhysicalFlushCompleted = physicalCompleted.Set
+            });
+
+        writer.AddDocument(Document("completed", "retained"));
+        Assert.True(physicalCompleted.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        Assert.True(SpinWait.SpinUntil(
+            () => writer.FlushCoordinator.PendingCount == 1
+                && writer.FlushCoordinator.RetainedSnapshotCountForTests == 0
+                && Volatile.Read(ref writer.PendingFlushBytes) == 0,
+            TimeSpan.FromSeconds(10)));
+        while (writer.FlushCoordinator.WaitForPhysicalProgress())
+        {
+        }
+
+        lock (writer.WriteLock)
+            writer.FlushCoordinator.PublishCompletedPrefix();
+
+        Assert.Equal(0, writer.FlushCoordinator.PendingCount);
+        Assert.Equal(0, writer.FlushCoordinator.RetainedSnapshotCountForTests);
+        Assert.Single(writer.CommittedSegments);
+    }
+
+    [Fact(Timeout = 30_000)]
+    public void FailedPhysicalFlush_ReleasesSnapshotBeforeFailedPublication()
+    {
+        using var physicalCompleted = new ManualResetEventSlim();
+        var writer = new IndexWriter(
+            new MMapDirectory(SubDir(nameof(FailedPhysicalFlush_ReleasesSnapshotBeforeFailedPublication))),
+            new IndexWriterConfig
+            {
+                IndexingConcurrency = 1,
+                MaxBufferedDocs = 1,
+                RamBufferSizeMB = 1024,
+                PhysicalFlushStarted = () => throw new IOException("injected snapshot ownership failure"),
+                PhysicalFlushCompleted = physicalCompleted.Set
+            });
+
+        try
+        {
+            writer.AddDocument(Document("failed", "retained"));
+            Assert.True(physicalCompleted.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            Assert.True(SpinWait.SpinUntil(
+                () => writer.FlushCoordinator.PendingCount == 1
+                    && writer.FlushCoordinator.RetainedSnapshotCountForTests == 0
+                    && Volatile.Read(ref writer.PendingFlushBytes) == 0,
+                TimeSpan.FromSeconds(10)));
+            while (writer.FlushCoordinator.WaitForPhysicalProgress())
+            {
+            }
+
+            lock (writer.WriteLock)
+                Assert.Throws<IOException>(writer.FlushCoordinator.PublishCompletedPrefix);
+
+            Assert.Equal(0, writer.FlushCoordinator.RetainedSnapshotCountForTests);
+        }
+        finally
+        {
+            try
+            {
+                writer.Dispose();
+            }
+            catch (IOException exception)
+            {
+                Assert.Equal("injected snapshot ownership failure", exception.Message);
+            }
+        }
+    }
+
     [Fact]
     public async Task ConcurrentAsyncTokenRejection_RemainsRecoverableAndUnwrapped()
     {
@@ -272,8 +351,7 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
     [Fact(Timeout = 30_000)]
     public async Task ConcurrentAsyncBatch_OwnsOneIndexingOperation()
     {
-        var flushEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var releaseFlush = new ManualResetEventSlim();
+        var submissionReserved = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         IndexWriter? writer = null;
         int observedOperations = 0;
         writer = new IndexWriter(new MMapDirectory(SubDir(nameof(ConcurrentAsyncBatch_OwnsOneIndexingOperation))),
@@ -281,31 +359,20 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
             {
                 IndexingConcurrency = 2,
                 MaxBufferedDocs = 1,
-                PhysicalFlushStarted = () =>
+                FlushSubmissionReserved = () =>
                 {
                     observedOperations = writer!.InFlightIndexingOperationsForTests;
-                    flushEntered.TrySetResult(true);
-                    releaseFlush.Wait(TestContext.Current.CancellationToken);
+                    submissionReserved.TrySetResult(true);
                 }
             });
 
         using var ownedWriter = writer;
-        try
-        {
-            ValueTask indexing = writer!.AddDocumentsConcurrentAsync(
-                [Document("one", "alpha"), Document("two", "beta")],
-                TestContext.Current.CancellationToken);
-            await flushEntered.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-            Assert.Equal(1, observedOperations);
-            releaseFlush.Set();
-            await indexing;
-        }
-        finally
-        {
-            // Do not leave Dispose waiting on a deliberately blocked physical flush
-            // when an assertion or timeout ends the test early.
-            releaseFlush.Set();
-        }
+        ValueTask indexing = writer!.AddDocumentsConcurrentAsync(
+            [Document("one", "alpha"), Document("two", "beta")],
+            TestContext.Current.CancellationToken);
+        await submissionReserved.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Assert.Equal(1, observedOperations);
+        await indexing;
     }
 
     [Theory(Timeout = 30_000)]

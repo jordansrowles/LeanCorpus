@@ -34,6 +34,7 @@ internal sealed class BytesRefHash
     private int _count;
     private int _capacity;        // _termStarts.Length
     private int _disposed;
+    private int _allocationVersion;
 
     public int Count => _count;
 
@@ -48,6 +49,8 @@ internal sealed class BytesRefHash
                 ((long)_ids.Length + _termStarts.Length + _termLengths.Length + _termHashes.Length) * sizeof(int);
         }
     }
+
+    internal int AllocationVersion => Volatile.Read(ref _allocationVersion);
 
     public BytesRefHash(int initialCapacity = DefaultCapacity)
         : this(initialCapacity, ArrayPool<byte>.Shared)
@@ -225,6 +228,7 @@ internal sealed class BytesRefHash
 
         _ids = newIds;
         _mask = newMask;
+        Interlocked.Increment(ref _allocationVersion);
     }
 
     private void GrowTermArrays()
@@ -234,6 +238,7 @@ internal sealed class BytesRefHash
         Array.Resize(ref _termLengths, newCapacity);
         Array.Resize(ref _termHashes, newCapacity);
         _capacity = newCapacity;
+        Interlocked.Increment(ref _allocationVersion);
     }
 
     private void EnsurePoolCapacity(int required)
@@ -246,6 +251,7 @@ internal sealed class BytesRefHash
         _bytePool.Return(_pool, clearArray: false);
         _pool = newPool;
         _poolCapacity = newCapacity;
+        Interlocked.Increment(ref _allocationVersion);
     }
 
     public void Dispose()

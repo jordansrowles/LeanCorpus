@@ -3,13 +3,17 @@ using BenchmarkDotNet.Attributes;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Index.Indexer.Postings;
+using Rowles.LeanCorpus.Store;
+using IODirectory = System.IO.Directory;
+using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
-/// Exercises the DWPT postings store without directory or segment-output work, so
-/// the arena, term hash, and compact term-state costs remain visible.
+/// Exercises the DWPT postings store without directory or segment-output work for
+/// most workloads, while also measuring one full high-cardinality IndexWriter flush.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -33,12 +37,14 @@ public class PostingsArenaBenchmarks
 
     private string[] _normalDocuments = [];
     private string[] _highCardinalityTerms = [];
+    private string[] _highCardinalityDocuments = [];
     private string[] _lowVocabulary = [];
     private EnglishAnalyser _normalAnalyser = null!;
     private PayloadAnalyser _payloadAnalyser = null!;
     private readonly StoreTokenSink _sink = new();
     private Diagnostics _lastDiagnostics;
     private Workload _lastWorkload;
+    private string? _fullFlushPath;
 
     [GlobalSetup]
     public void Setup()
@@ -54,6 +60,14 @@ public class PostingsArenaBenchmarks
                 int ordinal = document * HighCardinalityTermsPerDocument + slot;
                 _highCardinalityTerms[ordinal] = $"high_{document:D5}_{slot:D2}";
             }
+        }
+
+        _highCardinalityDocuments = new string[HighCardinalityDocumentCount];
+        for (int document = 0; document < HighCardinalityDocumentCount; document++)
+        {
+            int firstTerm = document * HighCardinalityTermsPerDocument;
+            _highCardinalityDocuments[document] = string.Join(
+                ' ', _highCardinalityTerms, firstTerm, HighCardinalityTermsPerDocument);
         }
 
         _lowVocabulary = new string[LowVocabularyTermCount];
@@ -104,6 +118,50 @@ public class PostingsArenaBenchmarks
     [Benchmark(Description = "Positions with deterministic payloads")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_Payloads() => RunPayloads();
+
+    [IterationSetup(Target = nameof(LeanCorpus_HighCardinality_FullFlush))]
+    public void SetupHighCardinalityFullFlush()
+    {
+        _fullFlushPath = Path.Combine(BenchmarkHelpers.TempRoot, $"lc-full-flush-{Guid.NewGuid():N}");
+        IODirectory.CreateDirectory(_fullFlushPath);
+    }
+
+    [IterationCleanup(Target = nameof(LeanCorpus_HighCardinality_FullFlush))]
+    public void CleanupHighCardinalityFullFlush()
+    {
+        if (_fullFlushPath is not null)
+            BenchmarkHelpers.DeleteDirectory(_fullFlushPath);
+        _fullFlushPath = null;
+    }
+
+    [Benchmark(Description = "High cardinality full IndexWriter flush")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_HighCardinality_FullFlush()
+    {
+        string path = _fullFlushPath ?? throw new InvalidOperationException("The full-flush benchmark directory was not prepared.");
+        using var directory = new MMapDirectory(path);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            IndexingConcurrency = 1,
+            MaxBufferedDocs = HighCardinalityDocumentCount,
+            RamBufferSizeMB = 1024,
+            RamPerThreadHardLimitMB = 1024,
+            DurableCommits = false,
+            UseCompoundFile = false,
+            StorePayloads = false,
+            StoreTermVectors = false,
+            MergePolicy = NoMergePolicy.Instance
+        });
+
+        for (int documentId = 0; documentId < _highCardinalityDocuments.Length; documentId++)
+        {
+            var document = new LeanDocument();
+            document.Add(new TextField("body", _highCardinalityDocuments[documentId]));
+            writer.AddDocument(document);
+        }
+        writer.Commit();
+        return _highCardinalityDocuments.Length;
+    }
 
     private int RunNormalText()
     {

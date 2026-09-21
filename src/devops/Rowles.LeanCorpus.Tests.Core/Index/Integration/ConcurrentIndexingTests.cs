@@ -56,6 +56,47 @@ public sealed class ConcurrentIndexingTests : IDisposable
         Assert.Equal(100, results.TotalHits);
     }
 
+    [Fact(DisplayName = "Concurrent Producers: Single DWPT Unique Field Accounting Is Safe", Timeout = 30_000)]
+    public async Task ConcurrentProducers_SingleDwptWithUniqueFieldsRemainSearchable()
+    {
+        const int producerCount = 4;
+        const int documentsPerProducer = 250;
+        int expectedDocuments = producerCount * documentsPerProducer;
+        var directory = new MMapDirectory(_dir);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            IndexingConcurrency = 1,
+            MaxBufferedDocs = expectedDocuments + 1,
+            RamBufferSizeMB = 1024,
+            RamPerThreadHardLimitMB = 1024,
+            DurableCommits = false,
+            MergePolicy = NoMergePolicy.Instance,
+        });
+
+        Task[] producers = Enumerable.Range(0, producerCount)
+            .Select(producer => Task.Run(() =>
+            {
+                for (int i = 0; i < documentsPerProducer; i++)
+                {
+                    int id = producer * documentsPerProducer + i;
+                    var document = new LeanDocument();
+                    document.Add(new TextField($"field-{producer}-{i}", $"term-{producer}-{i}"));
+                    document.Add(new TextField("body", $"shared unique-{id}"));
+                    writer.AddDocument(document);
+                }
+            }, TestContext.Current.CancellationToken))
+            .ToArray();
+
+        await Task.WhenAll(producers).WaitAsync(TestContext.Current.CancellationToken);
+        writer.Commit();
+
+        using var searcher = new IndexSearcher(directory);
+        Assert.Equal(expectedDocuments, searcher.Stats.LiveDocCount);
+        var results = searcher.Search(new TermQuery("body", "shared"), expectedDocuments,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(expectedDocuments, results.TotalHits);
+    }
+
     /// <summary>
     /// Verifies the Add Documents Concurrent: Preserves Stored Fields scenario.
     /// </summary>

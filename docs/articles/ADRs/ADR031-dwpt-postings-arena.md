@@ -44,6 +44,13 @@ opens the frozen snapshot. The effective term flags are the union of all field
 index options seen for that term; a richer later occurrence does not discard
 earlier documents.
 
+Each stream cursor records its logical written length. Readers validate against
+logical remaining bytes rather than absolute arena addresses, so slice headers,
+gaps and forwarding jumps cannot make a truncated stream appear readable. Slice
+geometry is derived from the cursor's slice level. Forwarding addresses are
+validated structurally against the monotonic 32 KiB block layout; no managed
+`HashSet` or `Dictionary` entry is retained per slice.
+
 Snapshot capture freezes and transfers the store to `DwptFlushSnapshot`, then
 installs a fresh store in the live DWPT. Ordinary flush sorts compact term IDs
 against the owned UTF-8 pool and streams document and proximity data directly
@@ -56,9 +63,13 @@ permutation and materialises at most one term into pooled
 and offsets, before writing the sorted postings and term vectors.
 
 All stores, arenas, term pools and scratch arrays have idempotent disposal.
-RAM accounting reports the owned rented capacities rather than a heuristic per
-term estimate. The old accumulator and production block-pool types are not
-retained as compatibility layers.
+`PostingsStore` and `PostingsByteArena` expose O(1) retained-memory counters
+covering their owned capacities and field-prefix bytes rather than enumerating
+mutable DWPT metadata or using a fixed per-token estimate. Flush term IDs and
+posting offsets are rented from shared pools. Term vectors reuse the ordinary
+positional decode/materialisation pass, including the one-term
+`IndexSortPostingScratch` path. The old accumulator and production block-pool
+types are not retained as compatibility layers.
 
 ## Rationale
 

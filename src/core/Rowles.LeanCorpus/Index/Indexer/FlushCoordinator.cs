@@ -33,14 +33,12 @@ internal sealed class FlushCoordinator
                 seqEnd = Interlocked.Add(ref _writer.NextSequenceNumberMut, snapshot.DocCount);
                 seqStart = seqEnd - snapshot.DocCount;
             }
-            _pending.Add(new FlushPendingState
-            {
-                Snapshot = snapshot,
-                SegmentOrdinal = segmentOrdinal,
-                CommitGeneration = commitGeneration,
-                SeqStart = seqStart,
-                SeqEnd = seqEnd
-            });
+            _pending.Add(new FlushPendingState(
+                snapshot,
+                segmentOrdinal,
+                commitGeneration,
+                seqStart,
+                seqEnd));
             _writer.Config.FlushSubmissionReserved?.Invoke();
             StartEligibleExecutions();
             return segmentOrdinal;
@@ -185,6 +183,19 @@ internal sealed class FlushCoordinator
         get { lock (_gate) return _pending.Count != 0; }
     }
 
+    /// <summary>
+    /// Counts pending states which still retain a detached snapshot. This is
+    /// internal diagnostic state used by deterministic ownership tests.
+    /// </summary>
+    internal int RetainedSnapshotCountForTests
+    {
+        get
+        {
+            lock (_gate)
+                return _pending.Count(static state => state.SnapshotRetainedForTests);
+        }
+    }
+
     private void StartEligibleExecutions()
     {
         while (_activeExecutions < _writer.Config.MaxConcurrentFlushes)
@@ -206,11 +217,12 @@ internal sealed class FlushCoordinator
 
     private SegmentInfo Execute(FlushPendingState state)
     {
+        var snapshot = state.TakeSnapshotForExecution();
         try
         {
             Interlocked.Increment(ref _writer.ActiveFlushCount);
             _writer.Config.PhysicalFlushStarted?.Invoke();
-            return SegmentFlusher.FlushFromSnapshot(state.Snapshot, _writer.Config,
+            return SegmentFlusher.FlushFromSnapshot(snapshot, _writer.Config,
                 _writer.Directory.DirectoryPath, state.SegmentOrdinal,
                 state.CommitGeneration, state.SeqStart, state.SeqEnd);
         }
@@ -231,9 +243,9 @@ internal sealed class FlushCoordinator
             }
             finally
             {
-                state.Snapshot.Dispose();
-                if (state.Snapshot.PendingBytesAccounted)
-                    Interlocked.Add(ref _writer.PendingFlushBytes, -state.Snapshot.EstimatedBytes);
+                snapshot.Dispose();
+                if (state.PendingBytesAccounted)
+                    Interlocked.Add(ref _writer.PendingFlushBytes, -state.EstimatedBytes);
                 Interlocked.Decrement(ref _writer.ActiveFlushCount);
             }
         }

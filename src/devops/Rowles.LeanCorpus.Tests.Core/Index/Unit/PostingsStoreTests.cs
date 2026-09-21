@@ -121,6 +121,28 @@ public sealed class PostingsStoreTests
     }
 
     [Fact]
+    public void AllocatedBytes_TracksTermStateHashArenaAndFieldPrefixCapacity()
+    {
+        using var store = new PostingsStore(storePayloads: true);
+        long initial = store.AllocatedBytes;
+
+        for (int i = 0; i < 300; i++)
+            store.AddDocOnly("body", $"term-{i}", i);
+
+        long afterTerms = store.AllocatedBytes;
+        Assert.True(afterTerms > initial);
+
+        store.AddDocOnly(new string('f', 512), "field-term", 300);
+        long afterFieldPrefix = store.AllocatedBytes;
+        Assert.True(afterFieldPrefix > afterTerms);
+
+        byte[] payload = new byte[(2 * PostingsByteArena.BlockSize) + 17];
+        store.Add("body", "large-payload", 301, 0,
+            FieldIndexOptions.DocsAndFreqsAndPositions, payload, 0, 0);
+        Assert.True(store.AllocatedBytes > afterFieldPrefix);
+    }
+
+    [Fact]
     public void StoreDispose_ReturnsArenaTermAndStatePoolsExactlyOnce()
     {
         var bytePool = new TrackingArrayPool<byte>(fill: 0xC1);

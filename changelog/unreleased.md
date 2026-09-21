@@ -9,6 +9,9 @@
 - Term flushing now retains qualified terms in UTF-8 through postings metadata and FST construction, avoiding one duplicate managed string per unique term.
 - Replaced per-term posting accumulators and production block pools with one pooled `PostingsStore` and sliced byte arena per DWPT, with owned-capacity RAM accounting and deterministic snapshot disposal.
 - Streamed postings and FST term bytes directly from detached snapshots, and moved index-sort remapping to one-term pooled scratch while preserving positions, payloads, offsets and term vectors.
+- Hardened postings-arena logical read bounds, removed managed metadata per slice, and maintained O(1) owned-capacity posting memory accounting.
+- Pooled high-cardinality flush term-ID and posting-offset scratch, and reused the normal positional decode/materialisation pass for term vectors, including index-sorted flushes.
+- Completed physical flush execution now releases its detached snapshot graph before ordered publication, while deterministic writer lifecycle coverage removes throughput-sensitive shutdown coordination tests.
 - Segment ordinals now use one atomic allocator across detached flush, merge, force-merge, and imported-index paths. Detached flushing also sorts compact term IDs directly against its owned UTF-8 pool rather than allocating per-term byte arrays.
 - Reduced repeated `OperationDrain` entry in postings decoding by grouping multi-read decoder work under `BeginReadSession()`, improving representative real-query throughput on Windows and Linux. (c837dbb94, #75)
 

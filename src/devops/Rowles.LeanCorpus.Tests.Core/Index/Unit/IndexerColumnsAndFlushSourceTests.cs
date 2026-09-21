@@ -104,13 +104,8 @@ public sealed class IndexerColumnsAndFlushSourceTests
         Assert.Contains(Enumerable.Range(0, batch.Postings.TermCount),
             termId => Encoding.UTF8.GetString(batch.Postings.GetTerm(termId)) == "body\0alpha");
 
-        var pending = new FlushPendingState
+        var pending = new FlushPendingState(batch, 4, 0, 10, 10)
         {
-            Snapshot = batch,
-            SegmentOrdinal = 4,
-            CommitGeneration = 0,
-            SeqStart = 10,
-            SeqEnd = 10,
             ExecutionTask = Task.FromResult(new SegmentInfo { SegmentId = "seg_4", DocCount = 1 })
         };
 
