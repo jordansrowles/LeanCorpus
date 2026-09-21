@@ -16,13 +16,13 @@ internal sealed class FlushCoordinator
     internal FlushCoordinator(IndexWriter writer) => _writer = writer;
 
     /// <summary>
-    /// Transfers a detached batch to the coordinator. Ordinal and sequence
+    /// Transfers a detached snapshot to the coordinator. Ordinal and sequence
     /// reservation happen under the same gate as pending-queue insertion, so
     /// physical publication cannot be reordered by a submitter race.
     /// </summary>
-    internal int Submit(DwptFlushBatch batch, int commitGeneration)
+    internal int Submit(DwptFlushSnapshot snapshot, int commitGeneration)
     {
-        ArgumentNullException.ThrowIfNull(batch);
+        ArgumentNullException.ThrowIfNull(snapshot);
         lock (_gate)
         {
             int segmentOrdinal = _writer.ReserveSegmentOrdinal();
@@ -30,17 +30,15 @@ internal sealed class FlushCoordinator
             long seqEnd = 0;
             if (_writer.Config.TrackSequenceNumbers)
             {
-                seqEnd = Interlocked.Add(ref _writer.NextSequenceNumberMut, batch.DocCount);
-                seqStart = seqEnd - batch.DocCount;
+                seqEnd = Interlocked.Add(ref _writer.NextSequenceNumberMut, snapshot.DocCount);
+                seqStart = seqEnd - snapshot.DocCount;
             }
-            _pending.Add(new FlushPendingState
-            {
-                Batch = batch,
-                SegmentOrdinal = segmentOrdinal,
-                CommitGeneration = commitGeneration,
-                SeqStart = seqStart,
-                SeqEnd = seqEnd
-            });
+            _pending.Add(new FlushPendingState(
+                snapshot,
+                segmentOrdinal,
+                commitGeneration,
+                seqStart,
+                seqEnd));
             _writer.Config.FlushSubmissionReserved?.Invoke();
             StartEligibleExecutions();
             return segmentOrdinal;
@@ -143,7 +141,7 @@ internal sealed class FlushCoordinator
                     }
                 }
 
-                // All batches are terminal and have released their owned memory.
+                // All snapshots are terminal and have released their owned memory.
                 // A failed reserved state prevents later work from becoming writer-visible.
                 _pending.Clear();
             }
@@ -185,6 +183,19 @@ internal sealed class FlushCoordinator
         get { lock (_gate) return _pending.Count != 0; }
     }
 
+    /// <summary>
+    /// Counts pending states which still retain a detached snapshot. This is
+    /// internal diagnostic state used by deterministic ownership tests.
+    /// </summary>
+    internal int RetainedSnapshotCountForTests
+    {
+        get
+        {
+            lock (_gate)
+                return _pending.Count(static state => state.SnapshotRetainedForTests);
+        }
+    }
+
     private void StartEligibleExecutions()
     {
         while (_activeExecutions < _writer.Config.MaxConcurrentFlushes)
@@ -206,11 +217,12 @@ internal sealed class FlushCoordinator
 
     private SegmentInfo Execute(FlushPendingState state)
     {
+        var snapshot = state.TakeSnapshotForExecution();
         try
         {
             Interlocked.Increment(ref _writer.ActiveFlushCount);
             _writer.Config.PhysicalFlushStarted?.Invoke();
-            return SegmentFlusher.FlushFromBatch(state.Batch, _writer.Config,
+            return SegmentFlusher.FlushFromSnapshot(snapshot, _writer.Config,
                 _writer.Directory.DirectoryPath, state.SegmentOrdinal,
                 state.CommitGeneration, state.SeqStart, state.SeqEnd);
         }
@@ -231,9 +243,9 @@ internal sealed class FlushCoordinator
             }
             finally
             {
-                state.Batch.Dispose();
-                if (state.Batch.PendingBytesAccounted)
-                    Interlocked.Add(ref _writer.PendingFlushBytes, -state.Batch.EstimatedBytes);
+                snapshot.Dispose();
+                if (state.PendingBytesAccounted)
+                    Interlocked.Add(ref _writer.PendingFlushBytes, -state.EstimatedBytes);
                 Interlocked.Decrement(ref _writer.ActiveFlushCount);
             }
         }

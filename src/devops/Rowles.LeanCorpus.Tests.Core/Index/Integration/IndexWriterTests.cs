@@ -145,7 +145,7 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
     [Fact(DisplayName = "Flush Triggers At Accurate Ram Threshold")]
     public void FlushTriggersAtAccurateRamThreshold()
     {
-        // With RamBufferSizeMB = 1 MB and accurate tracking via PostingAccumulator.EstimatedBytes,
+        // With RamBufferSizeMB = 1 MB and accurate tracking via PostingsStore.AllocatedBytes,
         // the flush should happen close to 1 MB (not 5× overshoot from old heuristic).
         var dir = new MMapDirectory(SubDir("accurate_flush"));
         var config = new IndexWriterConfig

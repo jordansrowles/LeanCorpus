@@ -342,8 +342,10 @@
           href: articles/ADRs/ADR029-platform-filesystem-durability.md
         - name: ADR030 Unified DevOps artefact and test evidence
           href: articles/ADRs/ADR030-unified-devops-artefact-and-test-evidence.md
-        - name: ADR031 Async execution, Runtime Async and storage I/O
-          href: articles/ADRs/ADR031-async-execution-runtime-async-and-storage-io.md
+        - name: ADR031 DWPT postings use a pooled block arena
+          href: articles/ADRs/ADR031-dwpt-postings-arena.md
+        - name: ADR032 Async execution, Runtime Async and storage I/O
+          href: articles/ADRs/ADR032-async-execution-runtime-async-and-storage-io.md
     - name: Changelog
       href: changelog/index.md
       items:

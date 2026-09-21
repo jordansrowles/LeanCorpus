@@ -50,6 +50,7 @@
     'concurrent-write'   = 'ConcurrentVsSequentialBenchmarks'
     merge                = 'MergeBenchmarks'
     flush                = 'FlushBenchmarks'
+    'postings-arena'     = 'PostingsArenaBenchmarks'
     'docvalues-read'     = 'DocValuesReadBenchmarks'
     bkd                  = 'BKDTreeBenchmarks'
     'fst-lookup'         = 'FstLookupBenchmarks'

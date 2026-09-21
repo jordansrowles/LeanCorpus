@@ -41,7 +41,8 @@ _description: Recorded LeanCorpus architecture decisions and their status.
 <tr><td><a href="ADR028-token-graph-analysis.md">028</a></td><td>2026-08-21</td><td>Accepted</td><td></td><td><a href="ADR028-token-graph-analysis.md">Token graphs remain an analysis concern and flatten before postings</a></td><td></td></tr>
 <tr><td><a href="ADR029-platform-filesystem-durability.md">029</a></td><td>2026-08-21</td><td>Accepted</td><td></td><td><a href="ADR029-platform-filesystem-durability.md">Platform-specific durability stays behind the Store boundary</a></td><td></td></tr>
 <tr><td><a href="ADR030-unified-devops-artefact-and-test-evidence.md">030</a></td><td>2026-09-07</td><td>Accepted</td><td></td><td><a href="ADR030-unified-devops-artefact-and-test-evidence.md">DevOps owns unified artefact and test evidence</a></td><td></td></tr>
-<tr><td><a href="ADR031-async-execution-runtime-async-and-storage-io.md">031</a></td><td>2026-09-16</td><td>Accepted</td><td></td><td><a href="ADR031-async-execution-runtime-async-and-storage-io.md">Async execution, Runtime Async and storage I/O</a></td><td></td></tr>
+<tr><td><a href="ADR031-dwpt-postings-arena.md">031</a></td><td>2026-09-21</td><td>Accepted</td><td></td><td><a href="ADR031-dwpt-postings-arena.md">DWPT postings use a pooled block arena</a></td><td></td></tr>
+<tr><td><a href="ADR032-async-execution-runtime-async-and-storage-io.md">032</a></td><td>2026-09-16</td><td>Accepted</td><td></td><td><a href="ADR032-async-execution-runtime-async-and-storage-io.md">Async execution, Runtime Async and storage I/O</a></td><td></td></tr>
 </tbody>
 </table>
 </div>

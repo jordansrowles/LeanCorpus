@@ -628,6 +628,8 @@ public sealed partial class IndexWriter : IDisposable
 
         CaptureDisposeFailure(ref failure, WaitForAsyncWriteConsumer, "dispose-async-write-consumer");
 
+        CaptureDisposeFailure(ref failure, () => DwptManager.DisposeDwptPool(this), "dispose-dwpt-pool");
+
         CaptureDisposeFailure(ref failure, () => _backpressureSemaphore?.Dispose(), "dispose-backpressure");
         CaptureDisposeFailure(ref failure, _shutdownCts.Dispose, "dispose-shutdown-cancellation");
         CaptureDisposeFailure(ref failure, _writeLockFile.Dispose, "dispose-write-lock-handle");

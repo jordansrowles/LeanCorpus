@@ -40,7 +40,11 @@ flowchart TD
 
 ## Indexing pipeline
 
-Each producer acquires a documents-writer-per-thread buffer. Analysis, postings accumulation, stored fields, DocValues, numeric points, and vectors are collected in private state. This reduces lock contention between indexing threads.
+Each producer acquires a documents-writer-per-thread buffer. Analysis, stored
+fields, DocValues, numeric points, vectors and one pooled `PostingsStore` are
+collected in private state. A DWPT transfers an immutable
+`DwptFlushSnapshot` to the flush coordinator and immediately receives fresh
+state, so physical segment construction does not hold the indexing lock.
 
 A buffer flushes when a RAM, per-thread, or document threshold is reached. Flush writes a complete segment. Concurrent flush and merge limits keep memory and storage pressure bounded.
 
@@ -143,6 +147,8 @@ BM25 uses collection-wide statistics so scores remain comparable across segments
 | Structure | Role |
 |---|---|
 | FST | Compact term dictionary and automaton traversal |
+| PostingsStore | DWPT-owned UTF-8 term hash, pooled term state and sliced postings arena |
+| Index-sort scratch | One-term pooled document, position, payload and offset remapping buffers |
 | Packed integers | Block encoding for postings and related integer streams |
 | BKD tree | Recursive numeric-space partitioning |
 | HNSW | Approximate nearest-neighbour candidate graph |
@@ -195,7 +201,7 @@ Soft deletion adds retention metadata. Soft-deleted documents are not searchable
 
 `IndexSort` physically orders documents within newly flushed and merged segments. Matching sorts can terminate early after enough competitive documents. Grouping similar values can also improve DocValues compression.
 
-Index sorting changes document-ID assignment and write cost. Configure it before building the corpus when applications rely on consistent behaviour across every segment.
+Index sorting changes document-ID assignment and write cost. Configure it before building the corpus when applications rely on consistent behaviour across every segment. The captured postings store remains immutable; flush materialises one term at a time into bounded pooled scratch while applying the inverse document permutation.
 
 ## Learn more
 
