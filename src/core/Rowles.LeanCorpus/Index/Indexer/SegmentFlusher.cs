@@ -386,7 +386,7 @@ internal static class SegmentFlusher
             PackedBkdWriter.Write(
                 basePath + ".pbkd",
                 source.PackedBkdFields,
-                new PackedBkdBuildOptions(config.PackedBkdBuildMemoryBudgetBytes, directoryPath));
+                new PackedBkdBuildOptions(SpillDirectory: directoryPath));
         }
 
         flushSw.Stop();

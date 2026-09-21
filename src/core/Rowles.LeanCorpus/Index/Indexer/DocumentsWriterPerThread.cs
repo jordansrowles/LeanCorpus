@@ -131,7 +131,7 @@ internal sealed class DocumentsWriterPerThread
         ParentDocIds = null;
         DocCount = 0;
         _estimatedRamBytes = 0;
-        _packedBkdAllocatedBytes = 0;
+        Volatile.Write(ref _packedBkdAllocatedBytes, 0);
     }
 
     internal void Dispose()
@@ -149,14 +149,18 @@ internal sealed class DocumentsWriterPerThread
             buffer = new PackedBkdFieldBuffer(config);
             PackedBkdFields.Add(fieldName, buffer);
             FieldNames.Add(fieldName);
+            Interlocked.Add(ref _packedBkdAllocatedBytes, buffer.AllocatedBytes);
         }
         else if (buffer.Config != config)
         {
             throw new InvalidOperationException($"Packed BKD field '{fieldName}' was indexed with inconsistent dimensions or encoding.");
         }
 
+        long before = buffer.AllocatedBytes;
         buffer.Append(packedValue, docId);
-        RefreshPackedBkdMemory();
+        long after = buffer.AllocatedBytes;
+        if (after != before)
+            Interlocked.Add(ref _packedBkdAllocatedBytes, after - before);
     }
 
     private void DisposePackedBkdFields()
@@ -164,15 +168,7 @@ internal sealed class DocumentsWriterPerThread
         foreach (var buffer in PackedBkdFields.Values)
             buffer.Dispose();
         PackedBkdFields.Clear();
-        _packedBkdAllocatedBytes = 0;
-    }
-
-    private void RefreshPackedBkdMemory()
-    {
-        long bytes = 0;
-        foreach (var buffer in PackedBkdFields.Values)
-            bytes += buffer.AllocatedBytes;
-        Volatile.Write(ref _packedBkdAllocatedBytes, bytes);
+        Volatile.Write(ref _packedBkdAllocatedBytes, 0);
     }
 
     /// <summary>

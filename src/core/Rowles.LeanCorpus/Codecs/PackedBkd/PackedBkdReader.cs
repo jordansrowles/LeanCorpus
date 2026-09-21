@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
 
@@ -29,6 +30,7 @@ internal sealed class PackedBkdReader : IDisposable
     private const byte RawValues = 0;
     private const byte PrefixValues = 1;
     private const int MaximumTreeDepth = 64;
+    private const int MaximumFieldNameBytes = 1 << 20;
 
     private readonly CodecReadSession _session;
     private readonly IndexInput _body;
@@ -144,7 +146,7 @@ internal sealed class PackedBkdReader : IDisposable
             throw new InvalidDataException("Packed BKD footer metadata is outside the body.");
 
         body.Seek(directoryOffset);
-        int fieldCount = body.ReadInt32();
+        int fieldCount = ReadInt32(body, body.Length - FooterLength);
         if (fieldCount != footerFieldCount || fieldCount < 0 || fieldCount > (body.Length - body.Position) / 17)
             throw new InvalidDataException("Packed BKD directory field count is invalid.");
 
@@ -152,11 +154,11 @@ internal sealed class PackedBkdReader : IDisposable
         string? previous = null;
         for (int i = 0; i < fieldCount; i++)
         {
-            string name = body.ReadLengthPrefixedString();
+            string name = ReadDirectoryString(body, body.Length - FooterLength);
             if (name.Length == 0 || (previous is not null && PackedBkdFieldNameComparer.Instance.Compare(previous, name) >= 0))
                 throw new InvalidDataException("Packed BKD directory field names must be non-empty and strictly sorted.");
-            long offset = body.ReadInt64();
-            long length = body.ReadInt64();
+            long offset = ReadInt64(body, body.Length - FooterLength);
+            long length = ReadInt64(body, body.Length - FooterLength);
             if (offset < 0 || length <= 0 || offset > directoryOffset || length > directoryOffset - offset)
                 throw new InvalidDataException($"Packed BKD field '{name}' points outside its section area.");
             result.Add(name, new FieldDirectoryEntry(offset, length));
@@ -181,20 +183,20 @@ internal sealed class PackedBkdReader : IDisposable
         {
             long sectionEnd = checked(entry.Offset + entry.Length);
             _body.Seek(entry.Offset);
-            if (unchecked((uint)_body.ReadInt32()) != FieldMagic)
+            if (unchecked((uint)ReadInt32(_body, sectionEnd)) != FieldMagic)
                 throw new InvalidDataException($"Packed BKD field '{fieldName}' has invalid section magic.");
-            int dimensions = _body.ReadByte();
-            int indexedDimensions = _body.ReadByte();
-            int bytesPerDimension = _body.ReadByte();
-            if (_body.ReadByte() != 0)
+            int dimensions = ReadByte(_body, sectionEnd);
+            int indexedDimensions = ReadByte(_body, sectionEnd);
+            int bytesPerDimension = ReadByte(_body, sectionEnd);
+            if (ReadByte(_body, sectionEnd) != 0)
                 throw new InvalidDataException($"Packed BKD field '{fieldName}' has unknown section flags.");
-            int maxPointsPerLeaf = ReadUInt16(_body);
-            if (ReadUInt16(_body) != 0)
+            int maxPointsPerLeaf = ReadUInt16(_body, sectionEnd);
+            if (ReadUInt16(_body, sectionEnd) != 0)
                 throw new InvalidDataException($"Packed BKD field '{fieldName}' has non-zero reserved metadata.");
-            int leafCount = _body.ReadInt32();
-            long pointCount = _body.ReadInt64();
-            int documentCount = _body.ReadInt32();
-            int splitCount = _body.ReadInt32();
+            int leafCount = ReadInt32(_body, sectionEnd);
+            long pointCount = ReadInt64(_body, sectionEnd);
+            int documentCount = ReadInt32(_body, sectionEnd);
+            int splitCount = ReadInt32(_body, sectionEnd);
 
             var config = new PackedBkdConfig(dimensions, indexedDimensions, bytesPerDimension, maxPointsPerLeaf);
             long maximumPointCount = checked((long)leafCount * maxPointsPerLeaf);
@@ -212,12 +214,19 @@ internal sealed class PackedBkdReader : IDisposable
             var rootMaximum = ReadBytes(_body, sectionEnd, config.IndexedBytesLength);
             if (ComparePacked(rootMinimum, rootMaximum) > 0)
                 throw new InvalidDataException($"Packed BKD field '{fieldName}' has inverted root bounds.");
+
+            long splitBytes = checked((long)splitCount + (long)splitCount * config.BytesPerDimension);
+            EnsureAvailable(_body, sectionEnd, splitBytes);
             var splitDimensions = ReadBytes(_body, sectionEnd, splitCount);
             var splitValues = ReadBytes(_body, sectionEnd, checked(splitCount * config.BytesPerDimension));
+
+            long offsetBytesAvailable = sectionEnd - _body.Position;
+            if (offsetBytesAvailable < 0 || offsetBytesAvailable / sizeof(long) < (long)leafCount + 1)
+                throw new InvalidDataException($"Packed BKD field '{fieldName}' has too many leaves for its section.");
             var leafOffsets = new long[checked(leafCount + 1)];
             for (int i = 0; i < leafOffsets.Length; i++)
             {
-                leafOffsets[i] = _body.ReadInt64();
+                leafOffsets[i] = ReadInt64(_body, sectionEnd);
                 if (leafOffsets[i] < 0 || leafOffsets[i] > entry.Length)
                     throw new InvalidDataException($"Packed BKD field '{fieldName}' has an out-of-range leaf offset.");
                 if (i > 0 && leafOffsets[i] < leafOffsets[i - 1])
@@ -330,10 +339,10 @@ internal sealed class PackedBkdReader : IDisposable
         long start = checked(metadata.SectionOffset + metadata.LeafDataOffset + metadata.LeafOffsets[leafIndex]);
         long end = checked(metadata.SectionOffset + metadata.LeafDataOffset + metadata.LeafOffsets[leafIndex + 1]);
         _body.Seek(start);
-        int count = ReadUInt16(_body);
-        int docWidth = _body.ReadByte();
-        byte encoding = _body.ReadByte();
-        int minimumDocument = _body.ReadInt32();
+        int count = ReadUInt16(_body, end);
+        int docWidth = ReadByte(_body, end);
+        byte encoding = checked((byte)ReadByte(_body, end));
+        int minimumDocument = ReadInt32(_body, end);
         if (count <= 0 || docWidth is < 0 or > sizeof(int) || minimumDocument < 0 || encoding > PrefixValues)
             throw new InvalidDataException($"Packed BKD field '{fieldName}' has invalid leaf metadata.");
         var actualMinimum = ReadBytes(_body, end, metadata.Config.IndexedBytesLength);
@@ -347,27 +356,95 @@ internal sealed class PackedBkdReader : IDisposable
             throw new InvalidDataException($"Packed BKD field '{fieldName}' has too many points in one leaf.");
 
         Span<byte> prefixes = stackalloc byte[PackedBkdConfig.MaxDimensions];
-        int prefixBytes = 0;
+        Span<byte> commonPrefixes = stackalloc byte[PackedBkdConfig.MaxDimensions * PackedBkdConfig.FixedBytesPerDimension];
         if (encoding == PrefixValues)
         {
             for (int dimension = 0; dimension < metadata.Config.Dimensions; dimension++)
             {
-                prefixes[dimension] = _body.ReadByte();
+                prefixes[dimension] = checked((byte)ReadByte(_body, end));
                 if (prefixes[dimension] > metadata.Config.BytesPerDimension)
                     throw new InvalidDataException($"Packed BKD field '{fieldName}' has an invalid value prefix.");
-                prefixBytes += prefixes[dimension];
             }
-            _ = ReadBytes(_body, end, prefixBytes);
+            for (int dimension = 0; dimension < metadata.Config.Dimensions; dimension++)
+            {
+                int length = prefixes[dimension];
+                ReadBytes(_body, end, commonPrefixes.Slice(dimension * metadata.Config.BytesPerDimension, length));
+            }
         }
 
-        long docBytes = checked((long)count * docWidth);
-        long valueBytes = encoding == RawValues
-            ? checked((long)count * metadata.Config.PackedBytesLength)
-            : checked((long)count * (metadata.Config.PackedBytesLength - prefixBytes));
-        long dataEnd = checked(_body.Position + docBytes + valueBytes);
-        if (dataEnd != end)
-            throw new InvalidDataException($"Packed BKD field '{fieldName}' has an invalid leaf payload length.");
-        _body.Seek(dataEnd);
+        int[] documentIds = ArrayPool<int>.Shared.Rent(count);
+        try
+        {
+            int actualMinimumDocument = int.MaxValue;
+            int actualMaximumDocument = int.MinValue;
+            for (int i = 0; i < count; i++)
+            {
+                uint delta = 0;
+                for (int b = 0; b < docWidth; b++)
+                    delta |= (uint)ReadByte(_body, end) << (8 * b);
+                long document = (long)minimumDocument + delta;
+                if (document > int.MaxValue)
+                    throw new InvalidDataException($"Packed BKD field '{fieldName}' has an overflowing document ID.");
+                documentIds[i] = (int)document;
+                actualMinimumDocument = Math.Min(actualMinimumDocument, documentIds[i]);
+                actualMaximumDocument = Math.Max(actualMaximumDocument, documentIds[i]);
+            }
+            if (minimumDocument != actualMinimumDocument || docWidth != DocumentWidth(actualMinimumDocument, actualMaximumDocument))
+                throw new InvalidDataException($"Packed BKD field '{fieldName}' has a non-minimal document encoding.");
+
+            Span<byte> packed = stackalloc byte[PackedBkdConfig.MaxDimensions * PackedBkdConfig.FixedBytesPerDimension];
+            Span<byte> previous = stackalloc byte[PackedBkdConfig.MaxDimensions * PackedBkdConfig.FixedBytesPerDimension];
+            Span<byte> observedMinimum = stackalloc byte[PackedBkdConfig.MaxIndexedDimensions * PackedBkdConfig.FixedBytesPerDimension];
+            Span<byte> observedMaximum = stackalloc byte[PackedBkdConfig.MaxIndexedDimensions * PackedBkdConfig.FixedBytesPerDimension];
+            bool first = true;
+            int previousDocument = 0;
+            for (int i = 0; i < count; i++)
+            {
+                if (encoding == RawValues)
+                {
+                    ReadBytes(_body, end, packed[..metadata.Config.PackedBytesLength]);
+                }
+                else
+                {
+                    for (int dimension = 0; dimension < metadata.Config.Dimensions; dimension++)
+                    {
+                        int offset = dimension * metadata.Config.BytesPerDimension;
+                        int prefixLength = prefixes[dimension];
+                        commonPrefixes.Slice(offset, prefixLength).CopyTo(packed.Slice(offset, prefixLength));
+                        ReadBytes(_body, end, packed.Slice(offset + prefixLength, metadata.Config.BytesPerDimension - prefixLength));
+                    }
+                }
+
+                if (!first)
+                {
+                    int comparison = packed[..metadata.Config.PackedBytesLength].SequenceCompareTo(previous[..metadata.Config.PackedBytesLength]);
+                    if (comparison < 0 || (comparison == 0 && documentIds[i] < previousDocument))
+                        throw new InvalidDataException($"Packed BKD field '{fieldName}' has an unordered leaf.");
+                }
+                packed[..metadata.Config.PackedBytesLength].CopyTo(previous);
+                for (int dimension = 0; dimension < metadata.Config.IndexedDimensions; dimension++)
+                {
+                    int offset = dimension * metadata.Config.BytesPerDimension;
+                    var value = packed.Slice(offset, metadata.Config.BytesPerDimension);
+                    if (first || value.SequenceCompareTo(observedMinimum.Slice(offset, metadata.Config.BytesPerDimension)) < 0)
+                        value.CopyTo(observedMinimum.Slice(offset, metadata.Config.BytesPerDimension));
+                    if (first || value.SequenceCompareTo(observedMaximum.Slice(offset, metadata.Config.BytesPerDimension)) > 0)
+                        value.CopyTo(observedMaximum.Slice(offset, metadata.Config.BytesPerDimension));
+                }
+                previousDocument = documentIds[i];
+                first = false;
+            }
+
+            if (_body.Position != end)
+                throw new InvalidDataException($"Packed BKD field '{fieldName}' has an invalid leaf payload length.");
+            if (!observedMinimum[..metadata.Config.IndexedBytesLength].SequenceEqual(actualMinimum)
+                || !observedMaximum[..metadata.Config.IndexedBytesLength].SequenceEqual(actualMaximum))
+                throw new InvalidDataException($"Packed BKD field '{fieldName}' has bounds inconsistent with its leaf values.");
+        }
+        finally
+        {
+            ArrayPool<int>.Shared.Return(documentIds, clearArray: false);
+        }
         return count;
     }
 
@@ -417,10 +494,10 @@ internal sealed class PackedBkdReader : IDisposable
         long start = checked(metadata.SectionOffset + metadata.LeafDataOffset + metadata.LeafOffsets[leafIndex]);
         long end = checked(metadata.SectionOffset + metadata.LeafDataOffset + metadata.LeafOffsets[leafIndex + 1]);
         input.Seek(start);
-        int count = ReadUInt16(input);
-        int docWidth = input.ReadByte();
-        byte encoding = input.ReadByte();
-        int minimumDocument = input.ReadInt32();
+        int count = ReadUInt16(input, end);
+        int docWidth = ReadByte(input, end);
+        byte encoding = checked((byte)ReadByte(input, end));
+        int minimumDocument = ReadInt32(input, end);
         Span<byte> actualMinimum = stackalloc byte[PackedBkdConfig.MaxIndexedDimensions * PackedBkdConfig.FixedBytesPerDimension];
         Span<byte> actualMaximum = stackalloc byte[PackedBkdConfig.MaxIndexedDimensions * PackedBkdConfig.FixedBytesPerDimension];
         ReadBytes(input, end, actualMinimum[..metadata.Config.IndexedBytesLength]);
@@ -435,13 +512,13 @@ internal sealed class PackedBkdReader : IDisposable
         {
             for (int dimension = 0; dimension < metadata.Config.Dimensions; dimension++)
             {
-                prefixes[dimension] = input.ReadByte();
+                prefixes[dimension] = checked((byte)ReadByte(input, end));
                 prefixBytes += prefixes[dimension];
             }
             for (int dimension = 0; dimension < metadata.Config.Dimensions; dimension++)
             {
                 int length = prefixes[dimension];
-                input.ReadBytes(commonPrefixes.Slice(dimension * metadata.Config.BytesPerDimension, length));
+                ReadBytes(input, end, commonPrefixes.Slice(dimension * metadata.Config.BytesPerDimension, length));
             }
         }
 
@@ -452,7 +529,7 @@ internal sealed class PackedBkdReader : IDisposable
             {
                 uint delta = 0;
                 for (int b = 0; b < docWidth; b++)
-                    delta |= (uint)input.ReadByte() << (8 * b);
+                    delta |= (uint)ReadByte(input, end) << (8 * b);
                 long document = (long)minimumDocument + delta;
                 if (document > int.MaxValue)
                     throw new InvalidDataException("Packed BKD leaf document ID overflows Int32.");
@@ -477,7 +554,7 @@ internal sealed class PackedBkdReader : IDisposable
                 for (int i = 0; i < count; i++)
                 {
                     if (encoding == RawValues)
-                        input.ReadBytes(packed.AsSpan(0, metadata.Config.PackedBytesLength));
+                        ReadBytes(input, end, packed.AsSpan(0, metadata.Config.PackedBytesLength));
                     else
                     {
                         for (int dimension = 0; dimension < metadata.Config.Dimensions; dimension++)
@@ -485,7 +562,7 @@ internal sealed class PackedBkdReader : IDisposable
                             int offset = dimension * metadata.Config.BytesPerDimension;
                             int prefixLength = prefixes[dimension];
                             commonPrefixes.Slice(offset, prefixLength).CopyTo(packed.AsSpan(offset, prefixLength));
-                            input.ReadBytes(packed.AsSpan(offset + prefixLength, metadata.Config.BytesPerDimension - prefixLength));
+                            ReadBytes(input, end, packed.AsSpan(offset + prefixLength, metadata.Config.BytesPerDimension - prefixLength));
                         }
                     }
                     visitor.Visit(documentIds[i], packed.AsSpan(0, metadata.Config.PackedBytesLength));
@@ -514,8 +591,58 @@ internal sealed class PackedBkdReader : IDisposable
     private static int ComparePacked(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right)
         => left.SequenceCompareTo(right);
 
-    private static int ReadUInt16(IndexInput input)
-        => input.ReadByte() | (input.ReadByte() << 8);
+    private static int ReadByte(IndexInput input, long end)
+    {
+        if (input.Position >= end)
+            throw new InvalidDataException("Packed BKD metadata exceeds its bounded section.");
+        return input.ReadByte();
+    }
+
+    private static int ReadUInt16(IndexInput input, long end)
+        => ReadByte(input, end) | (ReadByte(input, end) << 8);
+
+    private static int ReadInt32(IndexInput input, long end)
+    {
+        EnsureAvailable(input, end, sizeof(int));
+        return input.ReadInt32();
+    }
+
+    private static long ReadInt64(IndexInput input, long end)
+    {
+        EnsureAvailable(input, end, sizeof(long));
+        return input.ReadInt64();
+    }
+
+    private static void EnsureAvailable(IndexInput input, long end, long count)
+    {
+        if (count < 0 || input.Position > end || count > end - input.Position)
+            throw new InvalidDataException("Packed BKD metadata exceeds its bounded section.");
+    }
+
+    private static string ReadDirectoryString(IndexInput input, long end)
+    {
+        uint length = ReadVarUInt(input, end);
+        if (length > MaximumFieldNameBytes || length > (ulong)Math.Max(0, end - input.Position))
+            throw new InvalidDataException("Packed BKD directory field name is too long or truncated.");
+        var bytes = new byte[(int)length];
+        ReadBytes(input, end, bytes);
+        return Encoding.UTF8.GetString(bytes);
+    }
+
+    private static uint ReadVarUInt(IndexInput input, long end)
+    {
+        uint value = 0;
+        for (int shift = 0; shift < 35; shift += 7)
+        {
+            int next = ReadByte(input, end);
+            if (shift == 28 && (next & 0xF0) != 0)
+                throw new InvalidDataException("Packed BKD directory field name length overflows UInt32.");
+            value |= (uint)(next & 0x7F) << shift;
+            if ((next & 0x80) == 0)
+                return value;
+        }
+        throw new InvalidDataException("Packed BKD directory field name length has an invalid varint.");
+    }
 
     private static int PackedBkdWriterLeftLeafCount(int leafCount)
     {
@@ -525,6 +652,16 @@ internal sealed class PackedBkdReader : IDisposable
         int baseLeft = highestPower >> 1;
         int extra = leafCount - highestPower;
         return extra < baseLeft ? baseLeft + extra : highestPower;
+    }
+
+    private static int DocumentWidth(int minimumDocument, int maximumDocument)
+    {
+        long range = (long)maximumDocument - minimumDocument;
+        if (range == 0) return 0;
+        if (range <= byte.MaxValue) return 1;
+        if (range <= ushort.MaxValue) return 2;
+        if (range <= 0x00ff_ffff) return 3;
+        return sizeof(int);
     }
 
     private readonly record struct FieldDirectoryEntry(long Offset, long Length);

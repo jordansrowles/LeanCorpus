@@ -481,27 +481,26 @@ internal static class GeoGeometryValidation
 
     private static void ValidateEncodedRing(IReadOnlyList<GeoPoint> points, string parameterName)
     {
-        bool containsDatelineSeam = false;
-        for (int i = 1; i < points.Count; i++)
-        {
-            if (Math.Abs(points[i - 1].Longitude - points[i].Longitude) == 360)
-            {
-                containsDatelineSeam = true;
-                break;
-            }
-        }
-
-        // A seam pair is intentionally represented by both legal endpoints. The
-        // later packed geometry stages split that pair into separate components.
-        // Validate the logical unwrapped ring above without treating the seam as a
-        // 360-degree encoded edge here.
-        if (containsDatelineSeam)
-            return;
-
-        var encoded = new List<(int Latitude, int Longitude)>(points.Count - 1);
+        const long encodedWorld = 1L << 32;
+        const long encodedHalfWorld = 1L << 31;
+        var encoded = new List<(long Latitude, long Longitude)>(points.Count - 1);
+        long previousLongitude = 0;
+        bool hasPreviousLongitude = false;
         for (int i = 0; i < points.Count - 1; i++)
         {
-            var value = (GeoEncodingUtils.EncodeLat(points[i].Latitude), GeoEncodingUtils.EncodeLon(points[i].Longitude));
+            int latitude = GeoEncodingUtils.EncodeLat(points[i].Latitude);
+            uint sortableLongitude = unchecked((uint)(GeoEncodingUtils.EncodeLon(points[i].Longitude) ^ int.MinValue));
+            long longitude = sortableLongitude;
+            if (hasPreviousLongitude)
+            {
+                while (longitude - previousLongitude > encodedHalfWorld)
+                    longitude -= encodedWorld;
+                while (longitude - previousLongitude < -encodedHalfWorld)
+                    longitude += encodedWorld;
+            }
+            previousLongitude = longitude;
+            hasPreviousLongitude = true;
+            var value = ((long)latitude, longitude);
             if (encoded.Count == 0 || encoded[^1] != value)
                 encoded.Add(value);
         }
@@ -534,10 +533,10 @@ internal static class GeoGeometryValidation
     }
 
     private static bool EncodedSegmentsIntersect(
-        (int Latitude, int Longitude) first,
-        (int Latitude, int Longitude) second,
-        (int Latitude, int Longitude) third,
-        (int Latitude, int Longitude) fourth)
+        (long Latitude, long Longitude) first,
+        (long Latitude, long Longitude) second,
+        (long Latitude, long Longitude) third,
+        (long Latitude, long Longitude) fourth)
     {
         double firstThird = EncodedOrientation(first, second, third);
         double firstFourth = EncodedOrientation(first, second, fourth);
@@ -551,16 +550,16 @@ internal static class GeoGeometryValidation
     }
 
     private static double EncodedOrientation(
-        (int Latitude, int Longitude) first,
-        (int Latitude, int Longitude) second,
-        (int Latitude, int Longitude) third)
+        (long Latitude, long Longitude) first,
+        (long Latitude, long Longitude) second,
+        (long Latitude, long Longitude) third)
         => ((double)second.Longitude - first.Longitude) * (third.Latitude - first.Latitude)
            - ((double)second.Latitude - first.Latitude) * (third.Longitude - first.Longitude);
 
     private static bool EncodedOnSegment(
-        (int Latitude, int Longitude) first,
-        (int Latitude, int Longitude) second,
-        (int Latitude, int Longitude) point)
+        (long Latitude, long Longitude) first,
+        (long Latitude, long Longitude) second,
+        (long Latitude, long Longitude) point)
         => point.Longitude >= Math.Min(first.Longitude, second.Longitude)
            && point.Longitude <= Math.Max(first.Longitude, second.Longitude)
            && point.Latitude >= Math.Min(first.Latitude, second.Latitude)

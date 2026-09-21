@@ -850,7 +850,10 @@ public sealed class SegmentMerger
     private static void WritePackedBkdTree(MergeContext ctx, string basePath)
     {
         if (ctx.PackedBkdFields.Count > 0)
-            PackedBkdWriter.Write(basePath + ".pbkd", ctx.PackedBkdFields);
+            PackedBkdWriter.Write(
+                basePath + ".pbkd",
+                ctx.PackedBkdFields,
+                new PackedBkdBuildOptions(SpillDirectory: Path.GetDirectoryName(basePath)));
     }
 
     private sealed class PackedBkdMergeVisitor(int[] docIdMap, PackedBkdFieldBuffer destination) : IPackedBkdIntersectVisitor

@@ -57,8 +57,15 @@ internal static class PackedBkdWriter
                     var field = fields[names[i]];
                     long fieldOffset = checked(output.Position - bodyStart);
                     var built = BuildField(field, options);
-                    WriteField(output, built);
-                    directory[i] = new DirectoryEntry(names[i], fieldOffset, checked(output.Position - bodyStart - fieldOffset));
+                    try
+                    {
+                        WriteField(output, built);
+                        directory[i] = new DirectoryEntry(names[i], fieldOffset, checked(output.Position - bodyStart - fieldOffset));
+                    }
+                    finally
+                    {
+                        built.Dispose();
+                    }
                 }
 
                 long directoryOffset = checked(output.Position - bodyStart);
@@ -95,17 +102,29 @@ internal static class PackedBkdWriter
         {
             int pointCount = checked(source.Count);
             int leafCount = checked((pointCount + config.MaxPointsPerLeaf - 1) / config.MaxPointsPerLeaf);
-            var built = new BuiltField(config, pointCount, leafCount);
-            ComputeBounds(records, pointCount, config, built.RootMin, built.RootMax);
-
-            var order = new int[pointCount];
-            for (int i = 0; i < order.Length; i++) order[i] = i;
-            BuildNode(built, records, order, 0, pointCount, 0, leafCount,
-                new int[config.IndexedDimensions], options.CancellationToken);
-            built.DocumentCount = source.UniqueDocumentCount >= 0
-                ? source.UniqueDocumentCount
-                : CountDistinctDocuments(records, pointCount, config);
-            return built;
+            BuiltField? built = null;
+            int[] order = ArrayPool<int>.Shared.Rent(pointCount);
+            try
+            {
+                built = new BuiltField(config, pointCount, leafCount);
+                ComputeBounds(records, pointCount, config, built.RootMin, built.RootMax);
+                for (int i = 0; i < pointCount; i++) order[i] = i;
+                BuildNode(built, records, order, 0, pointCount, 0, leafCount,
+                    new int[config.IndexedDimensions], options.CancellationToken);
+                built.DocumentCount = source.UniqueDocumentCount >= 0
+                    ? source.UniqueDocumentCount
+                    : CountDistinctDocuments(records, pointCount, config);
+                return built;
+            }
+            catch
+            {
+                built?.Dispose();
+                throw;
+            }
+            finally
+            {
+                ArrayPool<int>.Shared.Return(order, clearArray: false);
+            }
         }
         finally
         {
@@ -121,7 +140,11 @@ internal static class PackedBkdWriter
         long order = checked((long)pointCount * sizeof(int));
         long bounds = checked((long)config.IndexedBytesLength * 4);
         long splits = checked((long)Math.Max(0, leafCount - 1) * (sizeof(byte) + config.BytesPerDimension));
-        return checked(records + order + bounds + splits + 256);
+        long leafHeader = checked(2L + 1 + 1 + sizeof(int) + (long)config.IndexedBytesLength * 2
+            + config.Dimensions + config.PackedBytesLength);
+        long leafPayload = checked((long)pointCount * (config.PackedBytesLength + sizeof(int))
+            + leafCount * leafHeader);
+        return checked(records + order + bounds + splits + leafPayload + 256);
     }
 
     private static BuiltField BuildFieldFromSpill(PackedBkdFieldBuffer source, PackedBkdBuildOptions options)
@@ -148,21 +171,30 @@ internal static class PackedBkdWriter
             var config = source.Config;
             int pointCount = source.Count;
             int leafCount = checked((pointCount + config.MaxPointsPerLeaf - 1) / config.MaxPointsPerLeaf);
-            var built = new BuiltField(config, pointCount, leafCount);
-            ScanBounds(records, 0, pointCount, config, built.RootMin, built.RootMax, options.CancellationToken);
-            BuildSpillNode(
-                built,
-                records,
-                0,
-                pointCount,
-                0,
-                leafCount,
-                new int[config.IndexedDimensions],
-                options.CancellationToken);
-            built.DocumentCount = source.UniqueDocumentCount >= 0
-                ? source.UniqueDocumentCount
-                : CountDistinctDocuments(records, pointCount, config, options.CancellationToken);
-            return built;
+            BuiltField? built = null;
+            try
+            {
+                built = new BuiltField(config, pointCount, leafCount, directory);
+                ScanBounds(records, 0, pointCount, config, built.RootMin, built.RootMax, options.CancellationToken);
+                BuildSpillNode(
+                    built,
+                    records,
+                    0,
+                    pointCount,
+                    0,
+                    leafCount,
+                    new int[config.IndexedDimensions],
+                    options.CancellationToken);
+                built.DocumentCount = source.UniqueDocumentCount >= 0
+                    ? source.UniqueDocumentCount
+                    : CountDistinctDocuments(records, pointCount, config, options.CancellationToken);
+                return built;
+            }
+            catch
+            {
+                built?.Dispose();
+                throw;
+            }
         }
         finally
         {
@@ -191,7 +223,7 @@ internal static class PackedBkdWriter
         if (leafCount == 1)
         {
             records.SortRange(start, count, built.Config, splitDimension: -1, cancellationToken);
-            built.Leaves[leavesOffset] = EncodeLeaf(records, start, count, built.Config, cancellationToken);
+            built.SetLeaf(leavesOffset, EncodeLeaf(records, start, count, built.Config, cancellationToken));
             return;
         }
 
@@ -258,8 +290,8 @@ internal static class PackedBkdWriter
         cancellationToken.ThrowIfCancellationRequested();
         if (leafCount == 1)
         {
-            SortRange(order, records, start, count, built.Config, splitDimension: -1);
-            built.Leaves[leavesOffset] = EncodeLeaf(records, order, start, count, built.Config);
+            RadixSortRange(order, records, start, count, built.Config, splitDimension: -1);
+            built.SetLeaf(leavesOffset, EncodeLeaf(records, order, start, count, built.Config));
             return;
         }
 
@@ -268,7 +300,7 @@ internal static class PackedBkdWriter
         int leftLeaves = LeftLeafCount(leafCount);
         int leftCount = checked(leftLeaves * built.Config.MaxPointsPerLeaf);
         leftCount = Math.Clamp(leftCount, 1, count - 1);
-        SortRange(order, records, start, count, built.Config, splitDimension);
+        RadixSortRange(order, records, start, count, built.Config, splitDimension);
 
         int rightLeavesOffset = checked(leavesOffset + leftLeaves);
         int splitIndex = checked(rightLeavesOffset - 1);
@@ -335,9 +367,105 @@ internal static class PackedBkdWriter
         return right - left;
     }
 
-    private static void SortRange(int[] order, byte[] records, int start, int count, PackedBkdConfig config, int splitDimension)
+    private static void RadixSortRange(
+        int[] order,
+        byte[] records,
+        int start,
+        int count,
+        PackedBkdConfig config,
+        int splitDimension,
+        int keyByte = 0)
     {
-        Array.Sort(order, start, count, new RecordComparer(records, config, splitDimension));
+        int keyLength = checked(config.PackedBytesLength + sizeof(int));
+        if (count < 2 || keyByte >= keyLength)
+            return;
+
+        Span<int> counts = stackalloc int[256];
+        Span<int> starts = stackalloc int[256];
+        Span<int> next = stackalloc int[256];
+        counts.Clear();
+        for (int i = start; i < start + count; i++)
+        {
+            int bucket = GetKeyByte(records, order[i], config, splitDimension, keyByte);
+            counts[bucket]++;
+        }
+
+        int offset = start;
+        for (int bucket = 0; bucket < counts.Length; bucket++)
+        {
+            starts[bucket] = offset;
+            next[bucket] = offset;
+            offset += counts[bucket];
+        }
+
+        for (int bucket = 0; bucket < counts.Length; bucket++)
+        {
+            int end = starts[bucket] + counts[bucket];
+            while (next[bucket] < end)
+            {
+                int position = next[bucket];
+                int recordIndex = order[position];
+                int recordBucket = GetKeyByte(records, recordIndex, config, splitDimension, keyByte);
+                if (recordBucket == bucket)
+                {
+                    next[bucket]++;
+                    continue;
+                }
+
+                int target = next[recordBucket]++;
+                (order[position], order[target]) = (order[target], order[position]);
+            }
+        }
+
+        for (int bucket = 0; bucket < counts.Length; bucket++)
+        {
+            if (counts[bucket] > 1)
+                RadixSortRange(order, records, starts[bucket], counts[bucket], config, splitDimension, keyByte + 1);
+        }
+    }
+
+    private static int GetKeyByte(
+        byte[] records,
+        int recordIndex,
+        PackedBkdConfig config,
+        int splitDimension,
+        int keyByte)
+    {
+        int packedByteIndex = keyByte;
+        if (splitDimension >= 0 && keyByte < config.PackedBytesLength)
+        {
+            if (keyByte < config.BytesPerDimension)
+            {
+                packedByteIndex = splitDimension * config.BytesPerDimension + keyByte;
+            }
+            else
+            {
+                int remaining = keyByte - config.BytesPerDimension;
+                packedByteIndex = -1;
+                for (int dimension = 0; dimension < config.Dimensions; dimension++)
+                {
+                    if (dimension == splitDimension)
+                        continue;
+                    if (remaining < config.BytesPerDimension)
+                    {
+                        packedByteIndex = dimension * config.BytesPerDimension + remaining;
+                        break;
+                    }
+                    remaining -= config.BytesPerDimension;
+                }
+                if (packedByteIndex < 0)
+                    throw new InvalidOperationException("Packed BKD radix key exceeded its packed dimensions.");
+            }
+        }
+
+        int recordOffset = checked(recordIndex * config.RecordBytes);
+        if (keyByte < config.PackedBytesLength)
+            return records[recordOffset + packedByteIndex];
+
+        uint document = unchecked((uint)BinaryPrimitives.ReadInt32LittleEndian(
+            records.AsSpan(recordOffset + config.PackedBytesLength, sizeof(int))));
+        int documentByte = keyByte - config.PackedBytesLength;
+        return (int)(document >> (24 - (documentByte * 8)) & 0xff);
     }
 
     private static void ComputeBounds(byte[] records, int pointCount, PackedBkdConfig config, byte[] min, byte[] max)
@@ -436,7 +564,8 @@ internal static class PackedBkdWriter
 
         int rawValueBytes = checked(count * config.PackedBytesLength);
         int suffixValueBytes = checked(count * (config.PackedBytesLength - prefixBytes));
-        bool usePrefixes = checked(config.Dimensions + prefixBytes + suffixValueBytes) < checked(config.Dimensions + rawValueBytes);
+        bool usePrefixes = prefixBytes > 0
+            && checked(config.Dimensions + prefixBytes + suffixValueBytes) <= checked(config.Dimensions + rawValueBytes);
         byte encoding = usePrefixes ? PrefixValues : RawValues;
         int headerBytes = checked(2 + 1 + 1 + sizeof(int) + config.IndexedBytesLength * 2 + (usePrefixes ? config.Dimensions + prefixBytes : 0));
         int valueBytes = usePrefixes ? suffixValueBytes : rawValueBytes;
@@ -559,7 +688,8 @@ internal static class PackedBkdWriter
 
         int rawValueBytes = checked(count * config.PackedBytesLength);
         int suffixValueBytes = checked(count * (config.PackedBytesLength - prefixBytes));
-        bool usePrefixes = checked(config.Dimensions + prefixBytes + suffixValueBytes) < checked(config.Dimensions + rawValueBytes);
+        bool usePrefixes = prefixBytes > 0
+            && checked(config.Dimensions + prefixBytes + suffixValueBytes) <= checked(config.Dimensions + rawValueBytes);
         byte encoding = usePrefixes ? PrefixValues : RawValues;
         int headerBytes = checked(2 + 1 + 1 + sizeof(int) + config.IndexedBytesLength * 2 + (usePrefixes ? config.Dimensions + prefixBytes : 0));
         int valueBytes = usePrefixes ? suffixValueBytes : rawValueBytes;
@@ -665,7 +795,10 @@ internal static class PackedBkdWriter
         output.WriteByte(checked((byte)field.Config.IndexedDimensions));
         output.WriteByte(checked((byte)field.Config.BytesPerDimension));
         output.WriteByte(0);
-        output.WriteInt32(field.Config.MaxPointsPerLeaf);
+        output.WriteByte((byte)field.Config.MaxPointsPerLeaf);
+        output.WriteByte(checked((byte)(field.Config.MaxPointsPerLeaf >> 8)));
+        output.WriteByte(0);
+        output.WriteByte(0);
         output.WriteInt32(field.LeafCount);
         output.WriteInt64(field.PointCount);
         output.WriteInt32(field.DocumentCount);
@@ -675,15 +808,10 @@ internal static class PackedBkdWriter
         output.WriteBytes(field.SplitDimensions);
         output.WriteBytes(field.SplitValues);
 
-        long leafOffset = 0;
-        output.WriteInt64(leafOffset);
-        foreach (var leaf in field.Leaves)
-        {
-            leafOffset = checked(leafOffset + leaf.Length);
+        long[] leafOffsets = field.GetLeafOffsets();
+        foreach (long leafOffset in leafOffsets)
             output.WriteInt64(leafOffset);
-        }
-        foreach (var leaf in field.Leaves)
-            output.WriteBytes(leaf);
+        field.WriteLeafData(output);
     }
 
     private static void WriteString(CodecBodyOutput output, string value)
@@ -742,95 +870,107 @@ internal static class PackedBkdWriter
             int splitDimension,
             CancellationToken cancellationToken)
         {
-            if (count < 2)
-                return;
-
-            // Heapsort keeps the spill path deterministic without allocating an
-            // index array proportional to the number of records.
-            for (int root = count / 2 - 1; root >= 0; root--)
-                SiftDown(root, count, start, config, splitDimension, cancellationToken);
-            for (int end = count - 1; end > 0; end--)
-            {
-                if ((end & 0x3ff) == 0)
-                    cancellationToken.ThrowIfCancellationRequested();
-                Swap(start, start + end);
-                SiftDown(0, end, start, config, splitDimension, cancellationToken);
-            }
+            RadixSortRange(start, count, config, splitDimension, keyByte: 0, cancellationToken);
         }
 
-        private void SiftDown(
-            int root,
-            int count,
+        private void RadixSortRange(
             int start,
+            int count,
             PackedBkdConfig config,
             int splitDimension,
+            int keyByte,
             CancellationToken cancellationToken)
         {
-            while (true)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                int child = checked(root * 2 + 1);
-                if (child >= count)
-                    return;
-                if (child + 1 < count && Compare(start + child, start + child + 1, config, splitDimension) < 0)
-                    child++;
-                if (Compare(start + root, start + child, config, splitDimension) >= 0)
-                    return;
-                Swap(start + root, start + child);
-                root = child;
-            }
-        }
+            int keyLength = checked(config.PackedBytesLength + sizeof(int));
+            if (count < 2 || keyByte >= keyLength)
+                return;
 
-        private int Compare(int leftIndex, int rightIndex, PackedBkdConfig config, int splitDimension)
-        {
-            Read(leftIndex, _left);
-            Read(rightIndex, _right);
-            int leftOffset = 0;
-            int rightOffset = 0;
-            if (splitDimension >= 0)
+            cancellationToken.ThrowIfCancellationRequested();
+            Span<int> counts = stackalloc int[256];
+            Span<int> starts = stackalloc int[256];
+            Span<int> next = stackalloc int[256];
+            counts.Clear();
+            for (int i = 0; i < count; i++)
             {
-                int comparison = CompareDimension(_left, _right, splitDimension, config);
-                if (comparison != 0)
-                    return comparison;
-                for (int dimension = 0; dimension < config.Dimensions; dimension++)
+                if ((i & 0x3ff) == 0)
+                    cancellationToken.ThrowIfCancellationRequested();
+                Read(start + i, _left);
+                counts[GetKeyByte(_left, config, splitDimension, keyByte)]++;
+            }
+
+            int offset = start;
+            for (int bucket = 0; bucket < counts.Length; bucket++)
+            {
+                starts[bucket] = offset;
+                next[bucket] = offset;
+                offset += counts[bucket];
+            }
+
+            for (int bucket = 0; bucket < counts.Length; bucket++)
+            {
+                int end = starts[bucket] + counts[bucket];
+                while (next[bucket] < end)
                 {
-                    if (dimension == splitDimension)
+                    int position = next[bucket];
+                    Read(position, _left);
+                    int recordBucket = GetKeyByte(_left, config, splitDimension, keyByte);
+                    if (recordBucket == bucket)
+                    {
+                        next[bucket]++;
                         continue;
-                    comparison = CompareDimension(_left, _right, dimension, config);
-                    if (comparison != 0)
-                        return comparison;
+                    }
+
+                    int target = next[recordBucket]++;
+                    Read(target, _right);
+                    _left.CopyTo(_swap, 0);
+                    Write(target, _swap);
+                    Write(position, _right);
                 }
             }
-            else
+
+            for (int bucket = 0; bucket < counts.Length; bucket++)
             {
-                int comparison = _left.AsSpan(0, config.PackedBytesLength)
-                    .SequenceCompareTo(_right.AsSpan(0, config.PackedBytesLength));
-                if (comparison != 0)
-                    return comparison;
+                if (counts[bucket] > 1)
+                    RadixSortRange(starts[bucket], counts[bucket], config, splitDimension, keyByte + 1, cancellationToken);
+            }
+        }
+
+        private static int GetKeyByte(ReadOnlySpan<byte> record, PackedBkdConfig config, int splitDimension, int keyByte)
+        {
+            int packedByteIndex = keyByte;
+            if (splitDimension >= 0 && keyByte < config.PackedBytesLength)
+            {
+                if (keyByte < config.BytesPerDimension)
+                {
+                    packedByteIndex = splitDimension * config.BytesPerDimension + keyByte;
+                }
+                else
+                {
+                    int remaining = keyByte - config.BytesPerDimension;
+                    packedByteIndex = -1;
+                    for (int dimension = 0; dimension < config.Dimensions; dimension++)
+                    {
+                        if (dimension == splitDimension)
+                            continue;
+                        if (remaining < config.BytesPerDimension)
+                        {
+                            packedByteIndex = dimension * config.BytesPerDimension + remaining;
+                            break;
+                        }
+                        remaining -= config.BytesPerDimension;
+                    }
+                    if (packedByteIndex < 0)
+                        throw new InvalidOperationException("Packed BKD radix key exceeded its packed dimensions.");
+                }
             }
 
-            leftOffset = config.PackedBytesLength;
-            rightOffset = config.PackedBytesLength;
-            return BinaryPrimitives.ReadInt32LittleEndian(_left.AsSpan(leftOffset, sizeof(int)))
-                .CompareTo(BinaryPrimitives.ReadInt32LittleEndian(_right.AsSpan(rightOffset, sizeof(int))));
-        }
+            if (keyByte < config.PackedBytesLength)
+                return record[packedByteIndex];
 
-        private static int CompareDimension(byte[] left, byte[] right, int dimension, PackedBkdConfig config)
-        {
-            int offset = checked(dimension * config.BytesPerDimension);
-            return left.AsSpan(offset, config.BytesPerDimension)
-                .SequenceCompareTo(right.AsSpan(offset, config.BytesPerDimension));
-        }
-
-        private void Swap(int leftIndex, int rightIndex)
-        {
-            if (leftIndex == rightIndex)
-                return;
-            Read(leftIndex, _left);
-            Read(rightIndex, _right);
-            _left.CopyTo(_swap, 0);
-            Write(leftIndex, _right);
-            Write(rightIndex, _swap);
+            uint document = unchecked((uint)BinaryPrimitives.ReadInt32LittleEndian(
+                record.Slice(config.PackedBytesLength, sizeof(int))));
+            int documentByte = keyByte - config.PackedBytesLength;
+            return (int)(document >> (24 - (documentByte * 8)) & 0xff);
         }
 
         private void Write(int index, ReadOnlySpan<byte> source)
@@ -848,9 +988,13 @@ internal static class PackedBkdWriter
         }
     }
 
-    private sealed class BuiltField
+    private sealed class BuiltField : IDisposable
     {
-        internal BuiltField(PackedBkdConfig config, int pointCount, int leafCount)
+        private readonly LeafDataStore? _leafDataStore;
+        private long[]? _leafOffsets;
+        private int _disposed;
+
+        internal BuiltField(PackedBkdConfig config, int pointCount, int leafCount, string? leafDirectory = null)
         {
             Config = config;
             PointCount = pointCount;
@@ -861,7 +1005,13 @@ internal static class PackedBkdWriter
             SplitValues = new byte[Math.Max(0, leafCount - 1) * config.BytesPerDimension];
             WorkMin = new byte[config.IndexedBytesLength];
             WorkMax = new byte[config.IndexedBytesLength];
-            Leaves = new byte[leafCount][];
+            if (leafDirectory is null)
+                Leaves = new byte[leafCount][];
+            else
+            {
+                Leaves = Array.Empty<byte[]>();
+                _leafDataStore = new LeafDataStore(leafDirectory, leafCount);
+            }
         }
 
         internal PackedBkdConfig Config { get; }
@@ -875,52 +1025,133 @@ internal static class PackedBkdWriter
         internal byte[] WorkMin { get; }
         internal byte[] WorkMax { get; }
         internal byte[][] Leaves { get; }
+
+        internal void SetLeaf(int index, byte[] leaf)
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            if ((uint)index >= (uint)LeafCount)
+                throw new ArgumentOutOfRangeException(nameof(index));
+            if (_leafDataStore is not null)
+                _leafDataStore.Write(index, leaf);
+            else
+                Leaves[index] = leaf;
+        }
+
+        internal long[] GetLeafOffsets()
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            if (_leafDataStore is not null)
+                return _leafDataStore.Offsets;
+            if (_leafOffsets is not null)
+                return _leafOffsets;
+
+            var offsets = new long[checked(LeafCount + 1)];
+            for (int i = 0; i < LeafCount; i++)
+            {
+                if (Leaves[i] is null)
+                    throw new InvalidOperationException("Packed BKD build did not produce every leaf.");
+                offsets[i + 1] = checked(offsets[i] + Leaves[i].Length);
+            }
+            _leafOffsets = offsets;
+            return offsets;
+        }
+
+        internal void WriteLeafData(CodecBodyOutput output)
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            if (_leafDataStore is not null)
+            {
+                _leafDataStore.WriteTo(output);
+                return;
+            }
+
+            foreach (var leaf in Leaves)
+            {
+                if (leaf is null)
+                    throw new InvalidOperationException("Packed BKD build did not produce every leaf.");
+                output.WriteBytes(leaf);
+            }
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+            _leafDataStore?.Dispose();
+            if (Leaves.Length > 0)
+                Array.Clear(Leaves, 0, Leaves.Length);
+        }
+    }
+
+    private sealed class LeafDataStore : IDisposable
+    {
+        private readonly string _path;
+        private readonly Stream _stream;
+        private readonly long[] _offsets;
+        private int _nextLeaf;
+        private bool _disposed;
+
+        internal LeafDataStore(string directory, int leafCount)
+        {
+            FileOpenRetry.CreateDirectory(directory);
+            _path = Path.Combine(directory, $"packed-bkd-{Guid.NewGuid():N}.leaf");
+            _stream = FileOpenRetry.Open(
+                _path,
+                FileMode.CreateNew,
+                FileAccess.ReadWrite,
+                FileShare.None,
+                64 * 1024,
+                FileOptions.SequentialScan);
+            _offsets = new long[checked(leafCount + 1)];
+        }
+
+        internal long[] Offsets
+        {
+            get
+            {
+                if (_nextLeaf != _offsets.Length - 1)
+                    throw new InvalidOperationException("Packed BKD leaf data is incomplete.");
+                return _offsets;
+            }
+        }
+
+        internal void Write(int index, ReadOnlySpan<byte> leaf)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (index != _nextLeaf)
+                throw new InvalidOperationException("Packed BKD leaves must be produced in leaf order.");
+            _offsets[index] = _stream.Position;
+            _stream.Write(leaf);
+            _nextLeaf++;
+            _offsets[_nextLeaf] = _stream.Position;
+        }
+
+        internal void WriteTo(CodecBodyOutput output)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_nextLeaf != _offsets.Length - 1)
+                throw new InvalidOperationException("Packed BKD leaf data is incomplete.");
+            _stream.Position = 0;
+            using Stream destination = output.AsStream();
+            _stream.CopyTo(destination);
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            _stream.Dispose();
+            try
+            {
+                FileOpenRetry.Delete(_path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "packed BKD leaf cleanup");
+            }
+        }
     }
 
     private readonly record struct DirectoryEntry(string Name, long Offset, long Length);
-
-    private sealed class RecordComparer : Comparer<int>
-    {
-        private readonly byte[] _records;
-        private readonly PackedBkdConfig _config;
-        private readonly int _splitDimension;
-
-        internal RecordComparer(byte[] records, PackedBkdConfig config, int splitDimension)
-        {
-            _records = records;
-            _config = config;
-            _splitDimension = splitDimension;
-        }
-
-        public override int Compare(int left, int right)
-        {
-            if (left == right) return 0;
-            int leftOffset = left * _config.RecordBytes;
-            int rightOffset = right * _config.RecordBytes;
-            if (_splitDimension >= 0)
-            {
-                int comparison = CompareDimension(leftOffset, rightOffset, _splitDimension);
-                if (comparison != 0) return comparison;
-                for (int dimension = 0; dimension < _config.Dimensions; dimension++)
-                {
-                    if (dimension == _splitDimension) continue;
-                    comparison = CompareDimension(leftOffset, rightOffset, dimension);
-                    if (comparison != 0) return comparison;
-                }
-            }
-            else
-            {
-                int comparison = _records.AsSpan(leftOffset, _config.PackedBytesLength)
-                    .SequenceCompareTo(_records.AsSpan(rightOffset, _config.PackedBytesLength));
-                if (comparison != 0) return comparison;
-            }
-
-            return BinaryPrimitives.ReadInt32LittleEndian(_records.AsSpan(leftOffset + _config.PackedBytesLength, sizeof(int)))
-                .CompareTo(BinaryPrimitives.ReadInt32LittleEndian(_records.AsSpan(rightOffset + _config.PackedBytesLength, sizeof(int))));
-        }
-
-        private int CompareDimension(int leftOffset, int rightOffset, int dimension)
-            => _records.AsSpan(leftOffset + dimension * _config.BytesPerDimension, _config.BytesPerDimension)
-                .SequenceCompareTo(_records.AsSpan(rightOffset + dimension * _config.BytesPerDimension, _config.BytesPerDimension));
-    }
 }

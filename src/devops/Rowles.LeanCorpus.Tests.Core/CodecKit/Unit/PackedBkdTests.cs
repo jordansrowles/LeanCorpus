@@ -6,6 +6,137 @@ namespace Rowles.LeanCorpus.Tests.Core.Codecs;
 [Area(TestArea.CodecKit)]
 public sealed class PackedBkdTests
 {
+    [Fact(DisplayName = "Packed BKD v1 body has locked golden bytes")]
+    public void Writer_UsesLockedV1GoldenBytes()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = Path.Combine(directory, "golden.pbkd");
+            using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(maxPointsPerLeaf: 2));
+            Span<byte> first = stackalloc byte[8];
+            Span<byte> second = stackalloc byte[8];
+            XYEncodingUtils.Encode(0, first[..4]);
+            XYEncodingUtils.Encode(0, first[4..]);
+            XYEncodingUtils.Encode(1, second[..4]);
+            XYEncodingUtils.Encode(1, second[4..]);
+            buffer.Append(first, 0);
+            buffer.Append(second, 1);
+            PackedBkdWriter.Write(path, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer });
+            Assert.Equal(
+                "50424631020204000200000001000000020000000000000002000000000000008000000080000000BF800000BF80000000000000000000002A0000000000000002000100000000008000000080000000BF800000BF80000000018000000080000000BF800000BF80000001000000086C6F636174696F6E00000000000000006A0000000000000050424B44010000006A00000000000000",
+                Convert.ToHexString(ReadBody(path)));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory(DisplayName = "Packed BKD document IDs use the smallest delta width")]
+    [InlineData(0, 0)]
+    [InlineData(255, 1)]
+    [InlineData(256, 2)]
+    [InlineData(65_536, 3)]
+    [InlineData(16_777_216, 4)]
+    public void Writer_UsesSmallestDocumentWidth(int secondDocument, int expectedWidth)
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = Path.Combine(directory, "doc-width.pbkd");
+            using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(maxPointsPerLeaf: 2));
+            AppendPoint(buffer, 0, 0, 0);
+            AppendPoint(buffer, 1, 1, secondDocument);
+            PackedBkdWriter.Write(path, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer });
+
+            var header = ReadFirstLeafHeader(path);
+            Assert.Equal(expectedWidth, header.DocumentWidth);
+            Assert.Equal(0, header.MinimumDocument);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Packed BKD selects raw and prefix leaf encodings deterministically")]
+    public void Writer_SelectsRawAndPrefixLeafEncodings()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string rawPath = Path.Combine(directory, "raw.pbkd");
+            using (var raw = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(maxPointsPerLeaf: 2)))
+            {
+                AppendPoint(raw, -1, -1, 0);
+                AppendPoint(raw, 1, 1, 1);
+                PackedBkdWriter.Write(rawPath, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = raw });
+            }
+
+            string prefixPath = Path.Combine(directory, "prefix.pbkd");
+            using (var prefix = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(maxPointsPerLeaf: 2)))
+            {
+                AppendPoint(prefix, 0, 0, 0);
+                AppendPoint(prefix, float.BitIncrement(0), float.BitIncrement(0), 1);
+                PackedBkdWriter.Write(prefixPath, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = prefix });
+            }
+
+            Assert.Equal(0, ReadFirstLeafHeader(rawPath).Encoding);
+            Assert.Equal(1, ReadFirstLeafHeader(prefixPath).Encoding);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Packed BKD supports the legal leaf size extremes")]
+    public void Writer_SupportsLeafSizeExtremes()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            foreach (int leafSize in new[] { 1, 4096 })
+            {
+                string path = Path.Combine(directory, $"leaf-{leafSize}.pbkd");
+                using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(maxPointsPerLeaf: leafSize));
+                for (int document = 0; document < 3; document++)
+                    AppendPoint(buffer, document, document, document);
+                PackedBkdWriter.Write(path, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer });
+                using var reader = PackedBkdReader.Open(path);
+                Assert.Equal(leafSize == 1 ? 3 : 1, reader.GetFieldMetadata("location").LeafCount);
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "DWPT packed BKD capacity is tracked without metadata enumeration")]
+    public void DocumentsWriterTracksPackedBkdCapacity()
+    {
+        var dwpt = new DocumentsWriterPerThread(
+            new WhitespaceAnalyser(),
+            new Dictionary<string, IAnalyser>(),
+            new IndexWriterConfig { DurableCommits = false });
+        try
+        {
+            long before = dwpt.EstimatedRamBytes;
+            Span<byte> packed = stackalloc byte[8];
+            XYEncodingUtils.Encode(12, packed[..4]);
+            XYEncodingUtils.Encode(34, packed[4..]);
+            dwpt.AddPackedBkdValue("location", PackedBkdConfig.Geo2D(), packed, 0);
+            Assert.True(dwpt.EstimatedRamBytes > before);
+        }
+        finally
+        {
+            dwpt.Dispose();
+        }
+        Assert.Equal(0, dwpt.EstimatedRamBytes);
+    }
+
     [Fact(DisplayName = "Packed BKD writes deterministic multidimensional fields")]
     public void WriterReader_RoundTripsAndIsDeterministic()
     {
@@ -57,6 +188,7 @@ public sealed class PackedBkdTests
                 new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer },
                 new PackedBkdBuildOptions(1024, directory, ForceSpill: true));
             Assert.Empty(Directory.EnumerateFiles(directory, "*.spill"));
+            Assert.Empty(Directory.EnumerateFiles(directory, "*.leaf"));
             Assert.True(File.Exists(path));
         }
         finally
@@ -86,6 +218,7 @@ public sealed class PackedBkdTests
 
             Assert.Equal(File.ReadAllBytes(memoryPath), File.ReadAllBytes(spillPath));
             Assert.Empty(Directory.EnumerateFiles(directory, "*.spill"));
+            Assert.Empty(Directory.EnumerateFiles(directory, "*.leaf"));
         }
         finally
         {
@@ -109,6 +242,75 @@ public sealed class PackedBkdTests
             File.WriteAllBytes(path, bytes);
 
             Assert.Throws<CodecFileException>(() => PackedBkdReader.Open(path));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Packed BKD rejects semantically corrupt bounds after checksum validation")]
+    public void Reader_RejectsInvertedRootBounds()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = Path.Combine(directory, "corrupt-bounds.pbkd");
+            using (var buffer = CreateBuffer(reverse: false))
+                PackedBkdWriter.Write(path, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer });
+
+            byte[] body = ReadBody(path);
+            body.AsSpan(32, 8).Fill(0xff);
+            RewriteBody(path, body);
+
+            using var reader = PackedBkdReader.Open(path);
+            Assert.Throws<InvalidDataException>(() => reader.GetFieldMetadata("location"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Packed BKD rejects hostile directory counts before allocation")]
+    public void Reader_RejectsHostileDirectoryCount()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = Path.Combine(directory, "hostile-directory.pbkd");
+            using (var buffer = CreateBuffer(reverse: false))
+                PackedBkdWriter.Write(path, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer });
+
+            byte[] body = ReadBody(path);
+            long directoryOffset = BinaryPrimitives.ReadInt64LittleEndian(body.AsSpan(body.Length - sizeof(long), sizeof(long)));
+            BinaryPrimitives.WriteInt32LittleEndian(body.AsSpan(checked((int)directoryOffset), sizeof(int)), int.MaxValue);
+            RewriteBody(path, body);
+
+            Assert.Throws<InvalidDataException>(() => PackedBkdReader.Open(path));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Packed BKD rejects an impossible build budget without leaving spill files")]
+    public void Writer_RejectsInsufficientBuildBudgetWithoutSpill()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = Path.Combine(directory, "insufficient-budget.pbkd");
+            using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(maxPointsPerLeaf: 4096));
+            AppendPoint(buffer, 0, 0, 0);
+            Assert.Throws<ArgumentOutOfRangeException>(() => PackedBkdWriter.Write(
+                path,
+                new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer },
+                new PackedBkdBuildOptions(1024, directory, ForceSpill: true)));
+            Assert.False(File.Exists(path));
+            Assert.Empty(Directory.EnumerateFiles(directory, "*.spill"));
+            Assert.Empty(Directory.EnumerateFiles(directory, "*.leaf"));
         }
         finally
         {
@@ -155,7 +357,9 @@ public sealed class PackedBkdTests
             Assert.Equal(2, indexedDimensions);
             Assert.Equal(4, bytesPerDimension);
             Assert.Equal(0, body.ReadByte());
-            int maxPointsPerLeaf = body.ReadInt32();
+            int maxPointsPerLeaf = body.ReadByte() | (body.ReadByte() << 8);
+            Assert.Equal(0, body.ReadByte());
+            Assert.Equal(0, body.ReadByte());
             int leafCount = body.ReadInt32();
             _ = body.ReadInt64();
             _ = body.ReadInt32();
@@ -186,11 +390,11 @@ public sealed class PackedBkdTests
         {
             string path = Path.Combine(directory, "seven.pbkd");
             using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.SevenDimensional(maxPointsPerLeaf: 2));
+            byte[] packed = new byte[28];
             for (int docId = 0; docId < 3; docId++)
             {
-                Span<byte> packed = stackalloc byte[28];
                 for (int dimension = 0; dimension < 7; dimension++)
-                    XYEncodingUtils.Encode(docId + dimension, packed.Slice(dimension * 4, 4));
+                    XYEncodingUtils.Encode(docId + dimension, packed.AsSpan(dimension * 4, 4));
                 buffer.Append(packed, docId);
             }
 
@@ -225,12 +429,12 @@ public sealed class PackedBkdTests
             config);
         var packedConfig = PackedBkdConfig.Geo2D(maxPointsPerLeaf: 2);
         const int documentCount = 5;
+        byte[] packed = new byte[8];
         for (int documentId = 0; documentId < documentCount; documentId++)
         {
             dwpt.AddDocument(new LeanDocument());
-            Span<byte> packed = stackalloc byte[8];
-            XYEncodingUtils.Encode(documentId, packed[..4]);
-            XYEncodingUtils.Encode(documentId, packed[4..]);
+            XYEncodingUtils.Encode(documentId, packed.AsSpan(0, 4));
+            XYEncodingUtils.Encode(documentId, packed.AsSpan(4, 4));
             dwpt.AddPackedBkdValue("location", packedConfig, packed, documentId);
         }
 
@@ -271,15 +475,23 @@ public sealed class PackedBkdTests
     private static PackedBkdFieldBuffer CreateBuffer(bool reverse)
     {
         var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(maxPointsPerLeaf: 2));
+        byte[] packed = new byte[8];
         IEnumerable<int> ids = reverse ? Enumerable.Range(0, 10).Reverse() : Enumerable.Range(0, 10);
         foreach (int id in ids)
         {
-            Span<byte> packed = stackalloc byte[8];
-            XYEncodingUtils.Encode(id, packed[..4]);
-            XYEncodingUtils.Encode(id, packed[4..]);
+            XYEncodingUtils.Encode(id, packed.AsSpan(0, 4));
+            XYEncodingUtils.Encode(id, packed.AsSpan(4, 4));
             buffer.Append(packed, id);
         }
         return buffer;
+    }
+
+    private static void AppendPoint(PackedBkdFieldBuffer buffer, float x, float y, int document)
+    {
+        byte[] packed = new byte[8];
+        XYEncodingUtils.Encode(x, packed.AsSpan(0, 4));
+        XYEncodingUtils.Encode(y, packed.AsSpan(4, 4));
+        buffer.Append(packed, document);
     }
 
     private static string CreateDirectory()
@@ -288,6 +500,44 @@ public sealed class PackedBkdTests
         Directory.CreateDirectory(directory);
         return directory;
     }
+
+    private static byte[] ReadBody(string path)
+    {
+        using var input = new IndexInput(path);
+        using var session = CodecFileReader.Open(input, PackedBkdCodecFiles.Descriptor, ownsInput: true);
+        session.ValidateChecksum();
+        using var body = session.OpenBodyInput();
+        byte[] bytes = new byte[checked((int)body.Length)];
+        body.ReadBytes(bytes);
+        return bytes;
+    }
+
+    private static void RewriteBody(string path, byte[] body)
+    {
+        string replacement = path + ".rewrite";
+        CodecFileWriter.WriteAtomically(
+            replacement,
+            PackedBkdCodecFiles.Descriptor,
+            durable: false,
+            output => output.WriteBytes(body));
+        File.Move(replacement, path, overwrite: true);
+    }
+
+    private static LeafHeader ReadFirstLeafHeader(string path)
+    {
+        byte[] body = ReadBody(path);
+        int indexedDimensions = body[5];
+        int leafCount = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(12, sizeof(int)));
+        int splitCount = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(28, sizeof(int)));
+        int offsetsStart = checked(32 + indexedDimensions * 4 * 2 + splitCount * 5);
+        int leafDataStart = checked(offsetsStart + (leafCount + 1) * sizeof(long));
+        return new LeafHeader(
+            body[leafDataStart + 2],
+            body[leafDataStart + 3],
+            BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(leafDataStart + 4, sizeof(int))));
+    }
+
+    private readonly record struct LeafHeader(int DocumentWidth, byte Encoding, int MinimumDocument);
 
     private sealed class RangeVisitor(XYPoint minimum, XYPoint maximum) : IPackedBkdIntersectVisitor
     {
