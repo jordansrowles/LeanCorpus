@@ -1,6 +1,11 @@
 # Geo search
 
-`GeoPointField` stores latitude/longitude pairs as a 64-bit encoded value. Geo queries use the BKD tree for fast range and distance filtering.
+`GeoPointField` stores latitude/longitude pairs using the existing numeric BKD-backed point representation. Geo queries use the BKD tree for fast range and distance filtering.
+
+The 3.2 spatial foundation also provides immutable `Geo*` and `XY*` geometry
+values, canonical coordinate validation, and sortable four-byte coordinate
+encoding for later shape indexing. These foundation types do not add new point
+query behaviour in Sprint 1.
 
 ## Index a geo point
 
@@ -54,14 +59,26 @@ Use `Occur.Filter` for geo clauses that should restrict results without affectin
 
 ## Encoding
 
-`GeoEncodingUtils` encodes and decodes lat/lon pairs into the 64-bit Morton-like interleaved representation used internally:
+`GeoEncodingUtils` encodes latitude and longitude independently into sortable
+32-bit values and provides outward floor/ceil helpers for query bounds:
 
 ```csharp
-long encoded = GeoEncodingUtils.Encode(51.5074, -0.1278);
-(double lat, double lon) = GeoEncodingUtils.Decode(encoded);
+int latitude = GeoEncodingUtils.EncodeLat(51.5074);
+int longitude = GeoEncodingUtils.EncodeLon(-0.1278);
+int lower = GeoEncodingUtils.EncodeLatFloor(51.0);
+int upper = GeoEncodingUtils.EncodeLatCeil(52.0);
 ```
 
-You don't normally need these directly — `GeoPointField` and the geo queries call them automatically.
+You do not normally need these directly. `GeoPointField` and the geo queries
+call them automatically.
+
+## Spatial foundation types
+
+`GeoPoint`, `GeoRectangle`, `GeoCircle`, `GeoLineString`, `GeoPolygon`, and
+their `XY` counterparts are immutable validated values. Polygon rings are
+closed and canonicalised, invalid topology is rejected, and geographic rings
+crossing the dateline receive deterministic seam points. Packed multidimensional
+BKD persistence is internal groundwork and is not yet a public spatial query API.
 
 ## What is not supported
 

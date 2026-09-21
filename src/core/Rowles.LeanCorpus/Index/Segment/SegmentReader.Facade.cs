@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Codecs.Hnsw;
+using Rowles.LeanCorpus.Codecs.PackedBkd;
 using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Codecs.TermVectors;
@@ -234,6 +235,7 @@ public sealed class SegmentReader : IDisposable
     internal ParentBitSet? GetParentBitSet() { using var lease = AcquireReadLease(); return lease.State.GetParentBitSet(); }
     internal bool FileExists(string extension) { using var lease = AcquireReadLease(); return lease.State.FileExists(extension); }
     internal IndexInput OpenInput(string extension) { using var lease = AcquireReadLease(); return lease.State.OpenInput(extension); }
+    internal PackedBkdReader? PackedBkd { get { using var lease = AcquireReadLease(); return lease.State.PackedBkd; } }
     public float GetNorm(int docId, string field) { if (TryGetFastState(out var state)) return state.GetNorm(docId, field); using var lease = AcquireReadLease(); return lease.State.GetNorm(docId, field); }
     public float GetFieldBoost(int docId, string field) { if (TryGetFastState(out var state)) return state.GetFieldBoost(docId, field); using var lease = AcquireReadLease(); return lease.State.GetFieldBoost(docId, field); }
     internal bool TryGetFieldBoosts(string field, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out float[]? boosts) { if (TryGetFastState(out var state)) return state.TryGetFieldBoosts(field, out boosts); using var lease = AcquireReadLease(); return lease.State.TryGetFieldBoosts(field, out boosts); }

@@ -6,6 +6,7 @@ using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Fst;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Codecs.Bkd;
+using Rowles.LeanCorpus.Codecs.PackedBkd;
 using Rowles.LeanCorpus.Codecs.TermVectors;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
 using Rowles.LeanCorpus.Index.Indexer.Postings;
@@ -378,6 +379,14 @@ internal static class SegmentFlusher
             }
             if (int64BkdData.Count > 0)
                 Int64BKDWriter.Write(basePath + ".bkdl", int64BkdData, config.BKDMaxLeafSize);
+        }
+
+        if (source.PackedBkdFields.Count > 0)
+        {
+            PackedBkdWriter.Write(
+                basePath + ".pbkd",
+                source.PackedBkdFields,
+                new PackedBkdBuildOptions(config.PackedBkdBuildMemoryBudgetBytes, directoryPath));
         }
 
         flushSw.Stop();
@@ -1131,6 +1140,9 @@ internal static class SegmentFlusher
             }
             buffer.Int64Index[field] = remapped;
         }
+
+        foreach (var packedField in buffer.PackedBkdFields.Values)
+            packedField.RemapDocumentIds(inversePerm);
 
         if (buffer.Vectors.Count > 0)
         {

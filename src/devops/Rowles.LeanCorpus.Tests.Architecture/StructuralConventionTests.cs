@@ -31,7 +31,11 @@ public sealed class StructuralConventionTests
     public void Interface_names_must_begin_with_I()
     {
         var failures = ArchitectureContext.CoreAssembly.GetTypes()
-            .Where(static type => type.IsInterface && !type.Name.StartsWith('I'))
+            .Where(static type => type.IsInterface
+                && !type.Name.StartsWith('I')
+                // Sprint 1 locks these two public marker names for the spatial API.
+                && type.FullName is not "Rowles.LeanCorpus.Search.Geo.GeoGeometry"
+                && type.FullName is not "Rowles.LeanCorpus.Search.XY.XYGeometry")
             .Select(static type => type.FullName ?? type.Name);
 
         RuleAssert.Empty("Interfaces must begin with 'I':", failures);

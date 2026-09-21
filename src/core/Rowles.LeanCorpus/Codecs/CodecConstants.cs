@@ -28,6 +28,7 @@ internal static class CodecConstants
     public const byte Int64DocValuesVersion = 2;
     public const byte Int64SortedNumericDocValuesVersion = 2;
     public const byte Int64BKDVersion = 1;
+    public const byte PackedBkdVersion = 1;
     public const byte FieldLengthVersion = 2;
     public const byte RoaringBitmapVersion = 1;
 }

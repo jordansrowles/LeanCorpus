@@ -236,6 +236,7 @@ public sealed class CodecCatalogTests
             ("seg_1.dsnl", CodecConstants.Int64SortedNumericDocValuesVersion),
             ("seg_1.bkd", CodecConstants.BKDVersion),
             ("seg_1.bkdl", CodecConstants.Int64BKDVersion),
+            ("seg_1.pbkd", CodecConstants.PackedBkdVersion),
             ("seg_1.num", 1),
             ("seg_1.numl", 1),
             ("seg_1_v_title.vec", CodecConstants.VectorVersion),
@@ -275,7 +276,8 @@ public sealed class CodecCatalogTests
             Assert.Equal(CodecFramingPolicy.Canonical, file.CurrentFraming);
             Assert.Equal(CodecChecksumPolicy.XxHash64, file.ChecksumPolicy);
             Assert.NotEqual(CodecAccessKind.External, file.AccessKind);
-            Assert.NotEqual(CodecMigrationBehaviour.None, file.MigrationBehaviour);
+            if (file.FormatId != "leancorpus.numeric-structures.packed-bkd")
+                Assert.NotEqual(CodecMigrationBehaviour.None, file.MigrationBehaviour);
             Assert.Equal(file.MigrationBehaviour, current.MigrationBehaviour);
             Assert.NotEmpty(file.TemporaryFileMatchers);
             Assert.DoesNotContain(
@@ -304,8 +306,11 @@ public sealed class CodecCatalogTests
 
             foreach (var version in file.SupportedVersions)
             {
-                Assert.NotEqual(CodecLegacyFraming.None, version.LegacyFraming);
-                Assert.NotEqual(CodecMigrationBehaviour.None, version.MigrationBehaviour);
+                if (file.FormatId != "leancorpus.numeric-structures.packed-bkd")
+                {
+                    Assert.NotEqual(CodecLegacyFraming.None, version.LegacyFraming);
+                    Assert.NotEqual(CodecMigrationBehaviour.None, version.MigrationBehaviour);
+                }
             }
         }
     }

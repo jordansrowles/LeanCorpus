@@ -1,5 +1,7 @@
 ### Added
 
+- Added immutable Geo and XY geometry values, shared canonical coordinate validation, and a deterministic multidimensional Packed BKD v1 format using new `.pbkd` files.
+
 ### Changed
 
 - Added construction-time `IndexingConcurrency` configuration and explicit concurrent async bulk ingestion for the Core writer, and made concurrent bulk ingestion use bounded producers through the normal DWPT pipeline.

@@ -1,6 +1,7 @@
 using System.Buffers;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Codecs.PackedBkd;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Index.Indexer.Postings;
@@ -43,6 +44,7 @@ internal sealed class DocumentsWriterPerThread
     internal Dictionary<string, Dictionary<int, List<long>>> Int64SortedDocValues = new(StringComparer.Ordinal);
     internal Dictionary<string, Dictionary<int, List<byte[]>>> BinaryDocValues = new(StringComparer.Ordinal);
     internal Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> Vectors = new(StringComparer.Ordinal);
+    internal Dictionary<string, PackedBkdFieldBuffer> PackedBkdFields = new(StringComparer.Ordinal);
     internal HashSet<string> FieldNames = new(StringComparer.Ordinal);
     // Per-field token counts: field → docId → count
     internal Dictionary<string, int[]> DocTokenCounts = new(StringComparer.Ordinal);
@@ -51,9 +53,10 @@ internal sealed class DocumentsWriterPerThread
     private readonly SpanPostingTokenSink _spanPostingSink;
     private readonly CountingTokenSink _countingTokenSink = new();
     private long _estimatedRamBytes;
+    private long _packedBkdAllocatedBytes;
 
     /// <summary>Estimated RAM usage in bytes for this DWPT's buffers.</summary>
-    public long EstimatedRamBytes => Volatile.Read(ref _estimatedRamBytes) + Postings.AllocatedBytes;
+    public long EstimatedRamBytes => Volatile.Read(ref _estimatedRamBytes) + Postings.AllocatedBytes + Volatile.Read(ref _packedBkdAllocatedBytes);
 
     public DocumentsWriterPerThread(IAnalyser defaultAnalyser, Dictionary<string, IAnalyser> fieldAnalysers, IndexWriterConfig config)
         : this(defaultAnalyser, fieldAnalysers, config,
@@ -91,6 +94,7 @@ internal sealed class DocumentsWriterPerThread
     internal void ClearAll()
     {
         Postings.Dispose();
+        DisposePackedBkdFields();
         ResetAfterSnapshot();
     }
 
@@ -120,17 +124,55 @@ internal sealed class DocumentsWriterPerThread
         Int64SortedDocValues = new(StringComparer.Ordinal);
         BinaryDocValues = new(StringComparer.Ordinal);
         Vectors = new(StringComparer.Ordinal);
+        PackedBkdFields = new(StringComparer.Ordinal);
         FieldNames = new(StringComparer.Ordinal);
         DocTokenCounts = new(StringComparer.Ordinal);
         FieldBoosts = new(StringComparer.Ordinal);
         ParentDocIds = null;
         DocCount = 0;
         _estimatedRamBytes = 0;
+        _packedBkdAllocatedBytes = 0;
     }
 
     internal void Dispose()
     {
         Postings.Dispose();
+        DisposePackedBkdFields();
+    }
+
+    /// <summary>Adds one already encoded packed BKD value to a DWPT-owned field buffer.</summary>
+    internal void AddPackedBkdValue(string fieldName, PackedBkdConfig config, ReadOnlySpan<byte> packedValue, int docId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fieldName);
+        if (!PackedBkdFields.TryGetValue(fieldName, out var buffer))
+        {
+            buffer = new PackedBkdFieldBuffer(config);
+            PackedBkdFields.Add(fieldName, buffer);
+            FieldNames.Add(fieldName);
+        }
+        else if (buffer.Config != config)
+        {
+            throw new InvalidOperationException($"Packed BKD field '{fieldName}' was indexed with inconsistent dimensions or encoding.");
+        }
+
+        buffer.Append(packedValue, docId);
+        RefreshPackedBkdMemory();
+    }
+
+    private void DisposePackedBkdFields()
+    {
+        foreach (var buffer in PackedBkdFields.Values)
+            buffer.Dispose();
+        PackedBkdFields.Clear();
+        _packedBkdAllocatedBytes = 0;
+    }
+
+    private void RefreshPackedBkdMemory()
+    {
+        long bytes = 0;
+        foreach (var buffer in PackedBkdFields.Values)
+            bytes += buffer.AllocatedBytes;
+        Volatile.Write(ref _packedBkdAllocatedBytes, bytes);
     }
 
     /// <summary>

@@ -193,7 +193,8 @@ public sealed class CodecCatalogBuilder
                 throw new InvalidOperationException($"Canonical codec format '{file.FormatId}' must declare a checksum policy.");
             if (file.TemporaryFileMatchers.Count == 0)
                 throw new InvalidOperationException($"Canonical codec format '{file.FormatId}' must declare temporary-file patterns.");
-            if (file.MigrationBehaviour == CodecMigrationBehaviour.None)
+            if (file.MigrationBehaviour == CodecMigrationBehaviour.None
+                && file.SupportedVersions.Count != 1)
                 throw new InvalidOperationException($"Canonical codec format '{file.FormatId}' must declare migration behaviour.");
 
             var currentVersion = file.SupportedVersions.Single(

@@ -252,6 +252,9 @@ public sealed class IndexWriterConfig
     /// </summary>
     public int BKDMaxLeafSize { get; set; } = 512;
 
+    /// <summary>Maximum extra build memory allowed before packed BKD values spill to a temporary file.</summary>
+    public long PackedBkdBuildMemoryBudgetBytes { get; set; } = 16L * 1024 * 1024;
+
     /// <summary>
     /// Maximum number of entries in the StandardAnalyser token intern cache.
     /// Larger caches reduce per-token string allocation for repeated terms. Default: 4096.
@@ -408,6 +411,9 @@ public sealed class IndexWriterConfig
 
         if (BKDMaxLeafSize < 2)
             throw new ArgumentException("BKDMaxLeafSize must be at least 2.", nameof(BKDMaxLeafSize));
+
+        if (PackedBkdBuildMemoryBudgetBytes < 1024)
+            throw new ArgumentException("PackedBkdBuildMemoryBudgetBytes must be at least 1024.", nameof(PackedBkdBuildMemoryBudgetBytes));
 
         if (AnalyserInternCacheSize < 0)
             throw new ArgumentException("AnalyserInternCacheSize must not be negative.", nameof(AnalyserInternCacheSize));

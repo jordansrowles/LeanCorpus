@@ -2,6 +2,7 @@ using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.Bkd;
+using Rowles.LeanCorpus.Codecs.PackedBkd;
 using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Codecs.Vectors;
@@ -227,7 +228,7 @@ public sealed class SegmentMerger
 
         // Phase 3: per-doc payloads. Stored fields and term vectors are streamed to
         // disk doc-by-doc; doc-values columns still buffer (codec format requires it).
-        var ctx = new MergeContext(totalDocs, fieldNames);
+        using var ctx = new MergeContext(totalDocs, fieldNames);
         bool anyTermVectors = readers.Values.Any(r => r.HasTermVectors);
         using (var storedWriter = new StoredFieldsStreamWriter(basePath + ".fdt", basePath + ".fdx"))
         using (var tvWriter = anyTermVectors ? new TermVectorsStreamWriter(basePath + ".tvd", basePath + ".tvx") : null)
@@ -244,6 +245,7 @@ public sealed class SegmentMerger
         WriteFieldLengthsAndStats(ctx, fieldNames, basePath, newSegId, totalDocs);
         WriteDocValueColumns(ctx, basePath);
         WriteBkdTree(ctx, basePath);
+        WritePackedBkdTree(ctx, basePath);
         WriteParentBitSet(ctx, basePath);
 
         LiveDocs? mergedLiveDocs = null;
@@ -278,7 +280,7 @@ public sealed class SegmentMerger
     /// Accumulator for per-doc data structures threaded through the merge phases.
     /// Owns nothing; lifetime is the merge call.
     /// </summary>
-    private sealed class MergeContext
+    private sealed class MergeContext : IDisposable
     {
         internal int TotalDocs { get; }
         internal HashSet<string> FieldNames { get; }
@@ -297,6 +299,7 @@ public sealed class SegmentMerger
         internal Dictionary<string, IReadOnlyList<byte[]>?[]> BinaryDocValues { get; } = new(StringComparer.Ordinal);
         internal ParentBitSet? ParentBitSet { get; set; }
         internal Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> Vectors { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, PackedBkdFieldBuffer> PackedBkdFields { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, int> VectorFieldDims { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, bool> VectorFieldNormalised { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, bool> VectorFieldHadHnsw { get; } = new(StringComparer.Ordinal);
@@ -307,6 +310,13 @@ public sealed class SegmentMerger
         {
             TotalDocs = totalDocs;
             FieldNames = fieldNames;
+        }
+
+        public void Dispose()
+        {
+            foreach (var buffer in PackedBkdFields.Values)
+                buffer.Dispose();
+            PackedBkdFields.Clear();
         }
     }
 
@@ -349,6 +359,22 @@ public sealed class SegmentMerger
             var segInt64Index = ReadInt64Index(reader);
             var segInt64Dvs = ReadInt64DocValues(reader);
             var segInt64SortedDvs = ReadInt64SortedDocValues(reader);
+            var packedBkd = reader.PackedBkd;
+            if (packedBkd is not null)
+            {
+                foreach (var packedFieldName in packedBkd.FieldNames)
+                {
+                    var metadata = packedBkd.GetFieldMetadata(packedFieldName);
+                    if (!ctx.PackedBkdFields.TryGetValue(packedFieldName, out var packedBuffer))
+                    {
+                        packedBuffer = new PackedBkdFieldBuffer(metadata.Config);
+                        ctx.PackedBkdFields.Add(packedFieldName, packedBuffer);
+                    }
+
+                    var collector = new PackedBkdMergeVisitor(docIdMap, packedBuffer);
+                    packedBkd.Intersect(packedFieldName, collector);
+                }
+            }
 
             // Pre-build a name->VectorFieldInfo dictionary so the per-doc/per-field
             // loop body avoids an O(N) LINQ scan for each posting.
@@ -818,6 +844,30 @@ public sealed class SegmentMerger
                 int64BkdData[field] = points;
             }
             Int64BKDWriter.Write(basePath + ".bkdl", int64BkdData);
+        }
+    }
+
+    private static void WritePackedBkdTree(MergeContext ctx, string basePath)
+    {
+        if (ctx.PackedBkdFields.Count > 0)
+            PackedBkdWriter.Write(basePath + ".pbkd", ctx.PackedBkdFields);
+    }
+
+    private sealed class PackedBkdMergeVisitor(int[] docIdMap, PackedBkdFieldBuffer destination) : IPackedBkdIntersectVisitor
+    {
+        public PackedBkdCellRelation Compare(ReadOnlySpan<byte> minimum, ReadOnlySpan<byte> maximum)
+            => PackedBkdCellRelation.Crosses;
+
+        public void Visit(int docId)
+            => throw new InvalidDataException("Packed BKD merge expected value payloads for every point.");
+
+        public void Visit(int docId, ReadOnlySpan<byte> packedValue)
+        {
+            if ((uint)docId >= (uint)docIdMap.Length)
+                throw new InvalidDataException("Packed BKD merge encountered an out-of-range document ID.");
+            int remapped = docIdMap[docId];
+            if (remapped >= 0)
+                destination.Append(packedValue, remapped);
         }
     }
 

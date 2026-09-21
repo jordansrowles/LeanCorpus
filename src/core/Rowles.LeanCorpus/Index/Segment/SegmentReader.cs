@@ -58,6 +58,8 @@ internal sealed partial class SegmentReaderState : IDisposable
     private bool _bkdReaderLoaded;
     private Codecs.Bkd.Int64BKDReader? _int64BkdReader;
     private bool _int64BkdReaderLoaded;
+    private Codecs.PackedBkd.PackedBkdReader? _packedBkdReader;
+    private bool _packedBkdReaderLoaded;
     private object? _lazyInitLock;
     private readonly string _basePath;
     private ParentBitSet? _parentBitSet;
@@ -77,6 +79,9 @@ internal sealed partial class SegmentReaderState : IDisposable
 
     /// <summary>Opens a separately owned input for a logical segment file.</summary>
     internal IndexInput OpenInput(string extension) => _files.OpenInput(extension);
+
+    /// <summary>Gets the packed BKD reader when this segment contains a .pbkd file.</summary>
+    internal Codecs.PackedBkd.PackedBkdReader? PackedBkd => EnsurePackedBkdReader();
 
     /// <summary>Gets the total number of documents in this segment, including deleted documents.</summary>
     public int MaxDoc => _info.DocCount;
@@ -503,6 +508,7 @@ internal sealed partial class SegmentReaderState : IDisposable
         _termVectorsReader?.Dispose();
         _bkdReader?.Dispose();
         _int64BkdReader?.Dispose();
+        _packedBkdReader?.Dispose();
         _files.Dispose();
     }
 
