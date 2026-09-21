@@ -101,6 +101,74 @@ public sealed class PackedBkdTests
         }
     }
 
+    [Fact(DisplayName = "Packed BKD uses common prefixes for identical values")]
+    public void Writer_UsesPrefixEncodingForIdenticalValues()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = Path.Combine(directory, "identical.pbkd");
+            using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(maxPointsPerLeaf: 2));
+            buffer.Append([0, 1, 2, 3, 4, 5, 6, 7], 0);
+            buffer.Append([0, 1, 2, 3, 4, 5, 6, 7], 1);
+            PackedBkdWriter.Write(path, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer });
+            Assert.Equal(1, ReadFirstLeafHeader(path).Encoding);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Packed BKD metadata exposes exact indexed root bounds")]
+    public void Reader_ReportsExactRootBounds()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = Path.Combine(directory, "bounds.pbkd");
+            using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(maxPointsPerLeaf: 2));
+            buffer.Append([0, 0, 0, 10, 0, 0, 0, 20], 0);
+            buffer.Append([0, 0, 0, 5, 0, 0, 0, 25], 1);
+            PackedBkdWriter.Write(path, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer });
+
+            using var reader = PackedBkdReader.Open(path);
+            var metadata = reader.GetFieldMetadata("location");
+            Assert.Equal([0, 0, 0, 5, 0, 0, 0, 20], metadata.RootMinimum);
+            Assert.Equal([0, 0, 0, 10, 0, 0, 0, 25], metadata.RootMaximum);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Packed BKD legal leaf sizes preserve intersection results")]
+    public void Reader_LegalLeafSizesPreserveQueryResults()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            var expected = new HashSet<int> { 2, 3, 4, 5 };
+            foreach (int leafSize in new[] { 1, 3, 4096 })
+            {
+                string path = Path.Combine(directory, $"leaf-results-{leafSize}.pbkd");
+                using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(leafSize));
+                for (int document = 0; document < 8; document++)
+                    AppendPoint(buffer, document, document, document);
+                PackedBkdWriter.Write(path, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer });
+                using var reader = PackedBkdReader.Open(path);
+                var visitor = new RangeVisitor(new XYPoint(2, 2), new XYPoint(5, 5));
+                Assert.True(reader.Intersect("location", visitor));
+                Assert.Equal(expected.Order(), visitor.Documents.ToHashSet().Order());
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact(DisplayName = "Packed BKD supports the legal leaf size extremes")]
     public void Writer_SupportsLeafSizeExtremes()
     {

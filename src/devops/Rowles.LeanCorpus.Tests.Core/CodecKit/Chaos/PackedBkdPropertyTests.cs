@@ -73,6 +73,97 @@ public sealed class PackedBkdPropertyTests
         }
     }
 
+    [Property(DisplayName = "Packed BKD bytes are invariant under input permutation", MaxTest = 200, StartSize = 1, EndSize = 96)]
+    public void Writer_IsDeterministicAcrossPermutations(NonEmptyArray<byte> input)
+    {
+        byte[] seed = input.Get;
+        int count = Math.Min(48, seed.Length + 4);
+        var values = new List<ModelPoint>(count);
+        for (int i = 0; i < count; i++)
+        {
+            float x = (seed[(i * 2) % seed.Length] - 128) / 8f;
+            float y = (seed[(i * 2 + 1) % seed.Length] - 128) / 8f;
+            byte[] packed = new byte[8];
+            XYEncodingUtils.Encode(x, packed.AsSpan(0, 4));
+            XYEncodingUtils.Encode(y, packed.AsSpan(4, 4));
+            values.Add(new ModelPoint(i % 13, packed));
+        }
+
+        string directory = Path.Combine(Path.GetTempPath(), "leancorpus-packed-bkd-permutation", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            foreach (int leafSize in new[] { 1, 3, 7 })
+            {
+                string firstPath = Path.Combine(directory, $"first-{leafSize}.pbkd");
+                string secondPath = Path.Combine(directory, $"second-{leafSize}.pbkd");
+                using var first = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(leafSize));
+                using var second = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(leafSize));
+                foreach (var value in values)
+                    first.Append(value.Packed, value.DocId);
+
+                var permutation = values.ToArray();
+                for (int i = permutation.Length - 1; i > 0; i--)
+                {
+                    int swap = seed[i % seed.Length] % (i + 1);
+                    (permutation[i], permutation[swap]) = (permutation[swap], permutation[i]);
+                }
+                foreach (var value in permutation)
+                    second.Append(value.Packed, value.DocId);
+
+                PackedBkdWriter.Write(firstPath, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = first });
+                PackedBkdWriter.Write(secondPath, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = second });
+                Assert.Equal(File.ReadAllBytes(firstPath), File.ReadAllBytes(secondPath));
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Property(DisplayName = "Seven-dimensional Packed BKD spill preserves the reference points", MaxTest = 200, StartSize = 1, EndSize = 96)]
+    public void SevenDimensional_SpillMatchesMemory(NonEmptyArray<byte> input)
+    {
+        byte[] seed = input.Get;
+        int count = Math.Min(24, seed.Length + 3);
+        string directory = Path.Combine(Path.GetTempPath(), "leancorpus-packed-bkd-seven", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            using var memory = new PackedBkdFieldBuffer(PackedBkdConfig.SevenDimensional(3));
+            using var spill = new PackedBkdFieldBuffer(PackedBkdConfig.SevenDimensional(3));
+            for (int point = 0; point < count; point++)
+            {
+                byte[] packed = new byte[28];
+                for (int dimension = 0; dimension < 7; dimension++)
+                {
+                    float value = (seed[(point + dimension) % seed.Length] - 128) / 4f + dimension;
+                    XYEncodingUtils.Encode(value, packed.AsSpan(dimension * 4, 4));
+                }
+                int docId = point % 7;
+                memory.Append(packed, docId);
+                spill.Append(packed, docId);
+            }
+
+            string memoryPath = Path.Combine(directory, "memory.pbkd");
+            string spillPath = Path.Combine(directory, "spill.pbkd");
+            PackedBkdWriter.Write(memoryPath, new Dictionary<string, PackedBkdFieldBuffer> { ["shape"] = memory });
+            PackedBkdWriter.Write(spillPath, new Dictionary<string, PackedBkdFieldBuffer> { ["shape"] = spill },
+                new PackedBkdBuildOptions(1024, directory, ForceSpill: true));
+            Assert.Equal(File.ReadAllBytes(memoryPath), File.ReadAllBytes(spillPath));
+
+            using var reader = PackedBkdReader.Open(spillPath);
+            var visitor = new VisitAllVisitor();
+            Assert.True(reader.Intersect("shape", visitor));
+            Assert.Equal(Enumerable.Range(0, 7).Where(doc => Enumerable.Range(0, count).Any(point => point % 7 == doc)), visitor.Documents.Distinct().Order());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static bool IsInRange(ReadOnlySpan<byte> value, ReadOnlySpan<byte> minimum, ReadOnlySpan<byte> maximum)
         => value.Slice(0, 4).SequenceCompareTo(minimum.Slice(0, 4)) >= 0
             && value.Slice(0, 4).SequenceCompareTo(maximum.Slice(0, 4)) <= 0
@@ -108,5 +199,18 @@ public sealed class PackedBkdPropertyTests
             if (IsInRange(packedValue, minimum, maximum))
                 Documents.Add(docId);
         }
+    }
+
+    private sealed class VisitAllVisitor : IPackedBkdIntersectVisitor
+    {
+        internal List<int> Documents { get; } = [];
+
+        public PackedBkdCellRelation Compare(ReadOnlySpan<byte> minimum, ReadOnlySpan<byte> maximum)
+            => PackedBkdCellRelation.Inside;
+
+        public void Visit(int docId) => Documents.Add(docId);
+
+        public void Visit(int docId, ReadOnlySpan<byte> packedValue)
+            => Documents.Add(docId);
     }
 }
