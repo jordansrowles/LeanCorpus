@@ -7,7 +7,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Codecs;
 [Area(TestArea.CodecKit)]
 public sealed class PackedBkdPropertyTests
 {
-    [Property(DisplayName = "Packed BKD intersections match a brute-force model", MaxTest = 80, StartSize = 1, EndSize = 96)]
+    [Property(DisplayName = "Packed BKD intersections match a brute-force model", MaxTest = 200, StartSize = 1, EndSize = 96)]
     public void Intersect_MatchesReferenceModel(NonEmptyArray<byte> input)
     {
         byte[] seed = input.Get;

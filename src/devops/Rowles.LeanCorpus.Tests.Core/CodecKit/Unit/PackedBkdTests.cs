@@ -84,6 +84,16 @@ public sealed class PackedBkdTests
 
             Assert.Equal(0, ReadFirstLeafHeader(rawPath).Encoding);
             Assert.Equal(1, ReadFirstLeafHeader(prefixPath).Encoding);
+
+            string tiePath = Path.Combine(directory, "tie.pbkd");
+            using (var tie = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(maxPointsPerLeaf: 2)))
+            {
+                tie.Append([0, 0, 0, 0, 0, 0, 0, 0], 0);
+                tie.Append([0, 1, 0, 0, 0, 1, 0, 0], 1);
+                PackedBkdWriter.Write(tiePath, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = tie });
+            }
+
+            Assert.Equal(0, ReadFirstLeafHeader(tiePath).Encoding);
         }
         finally
         {
@@ -226,8 +236,68 @@ public sealed class PackedBkdTests
         }
     }
 
-    [Fact(DisplayName = "Packed BKD validates malformed field metadata")]
-    public void Reader_RejectsCorruptFieldData()
+    [Fact(DisplayName = "Packed BKD writes multiple fields in UTF-8 ordinal order")]
+    public void Writer_OrdersMultipleFieldsDeterministically()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = Path.Combine(directory, "multiple-fields.pbkd");
+            using var zeta = CreateBuffer(reverse: false);
+            using var alpha = CreateBuffer(reverse: true);
+            PackedBkdWriter.Write(path, new Dictionary<string, PackedBkdFieldBuffer>
+            {
+                ["zeta"] = zeta,
+                ["alpha"] = alpha
+            });
+
+            using var input = new IndexInput(path);
+            using var session = CodecFileReader.Open(input, PackedBkdCodecFiles.Descriptor, ownsInput: true);
+            using var body = session.OpenBodyInput();
+            body.Seek(body.Length - 16);
+            _ = body.ReadInt32();
+            Assert.Equal(2, body.ReadInt32());
+            long directoryOffset = body.ReadInt64();
+            body.Seek(directoryOffset);
+            Assert.Equal(2, body.ReadInt32());
+            Assert.Equal("alpha", body.ReadLengthPrefixedString());
+            _ = body.ReadInt64();
+            _ = body.ReadInt64();
+            Assert.Equal("zeta", body.ReadLengthPrefixedString());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Packed BKD cancellation removes spill artefacts")]
+    public void Writer_CancellationCleansSpillArtifacts()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = Path.Combine(directory, "cancelled.pbkd");
+            using var buffer = CreateBuffer(reverse: false);
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            Assert.Throws<OperationCanceledException>(() => PackedBkdWriter.Write(
+                path,
+                new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer },
+                new PackedBkdBuildOptions(1024, directory, ForceSpill: true, CancellationToken: cancellation.Token)));
+            Assert.False(File.Exists(path));
+            Assert.Empty(Directory.EnumerateFiles(directory, "*.spill"));
+            Assert.Empty(Directory.EnumerateFiles(directory, "*.leaf"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Packed BKD defers checksum validation until field access")]
+    public void Reader_RejectsChecksumMismatchOnFieldAccess()
     {
         string directory = CreateDirectory();
         try
@@ -237,11 +307,15 @@ public sealed class PackedBkdTests
                 PackedBkdWriter.Write(path, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer });
 
             byte[] bytes = File.ReadAllBytes(path);
-            int footerOffset = bytes.Length - 16;
-            BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(footerOffset + 8, sizeof(long)), long.MaxValue);
+            int bodyOffset;
+            using (var input = new IndexInput(path))
+            using (var session = CodecFileReader.Open(input, PackedBkdCodecFiles.Descriptor, ownsInput: true))
+                bodyOffset = checked((int)session.Metadata.BodyStart);
+            bytes[bodyOffset + 32] ^= 1;
             File.WriteAllBytes(path, bytes);
 
-            Assert.Throws<CodecFileException>(() => PackedBkdReader.Open(path));
+            using var reader = PackedBkdReader.Open(path);
+            Assert.Throws<CodecFileException>(() => reader.GetFieldMetadata("location"));
         }
         finally
         {

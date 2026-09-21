@@ -25,6 +25,8 @@ internal static class LeanCorpusActivitySource
     internal const string Analyse = "leancorpus.index.analyse";
     internal const string DeleteQueue = "leancorpus.index.delete_queue";
     internal const string DeleteApply = "leancorpus.index.delete_apply";
+    internal const string PackedBkdBuild = "leancorpus.index.packed_bkd.build";
+    internal const string PackedBkdIntersect = "leancorpus.index.packed_bkd.intersect";
 
     /// <summary>
     /// Records an exception that is being intentionally swallowed so it surfaces in

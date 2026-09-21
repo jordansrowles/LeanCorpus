@@ -43,108 +43,142 @@ internal static class PackedBkdWriter
                 throw new ArgumentException($"Packed BKD field name '{names[i]}' occurs more than once.", nameof(fields));
         }
 
-        CodecFileWriter.WriteAtomically(
-            filePath,
-            PackedBkdCodecFiles.Descriptor,
-            durable: false,
-            output =>
-            {
-                long bodyStart = output.Position;
-                var directory = new DirectoryEntry[names.Length];
-                for (int i = 0; i < names.Length; i++)
-                {
-                    options.CancellationToken.ThrowIfCancellationRequested();
-                    var field = fields[names[i]];
-                    long fieldOffset = checked(output.Position - bodyStart);
-                    var built = BuildField(field, options);
-                    try
-                    {
-                        WriteField(output, built);
-                        directory[i] = new DirectoryEntry(names[i], fieldOffset, checked(output.Position - bodyStart - fieldOffset));
-                    }
-                    finally
-                    {
-                        built.Dispose();
-                    }
-                }
+        using var activity = Diagnostics.LeanCorpusActivitySource.Source.StartActivity(
+            Diagnostics.LeanCorpusActivitySource.PackedBkdBuild);
+        activity?.SetTag("packed_bkd.fields", names.Length);
+        activity?.SetTag("packed_bkd.points", names.Sum(name => (long)fields[name].Count));
+        activity?.SetTag("packed_bkd.memory_budget_bytes", options.MemoryBudgetBytes);
+        activity?.SetTag("packed_bkd.force_spill", options.ForceSpill);
 
-                long directoryOffset = checked(output.Position - bodyStart);
-                output.WriteInt32(names.Length);
-                foreach (var entry in directory)
+        try
+        {
+            CodecFileWriter.WriteAtomically(
+                filePath,
+                PackedBkdCodecFiles.Descriptor,
+                durable: false,
+                output =>
                 {
-                    WriteString(output, entry.Name);
-                    output.WriteInt64(entry.Offset);
-                    output.WriteInt64(entry.Length);
-                }
+                    long bodyStart = output.Position;
+                    var directory = new DirectoryEntry[names.Length];
+                    int leafCount = 0;
+                    bool usedSpill = false;
+                    for (int i = 0; i < names.Length; i++)
+                    {
+                        options.CancellationToken.ThrowIfCancellationRequested();
+                        var field = fields[names[i]];
+                        long fieldOffset = checked(output.Position - bodyStart);
+                        var built = BuildField(field, options);
+                        try
+                        {
+                            leafCount += built.LeafCount;
+                            usedSpill |= built.UsedSpill;
+                            WriteField(output, built);
+                            directory[i] = new DirectoryEntry(names[i], fieldOffset, checked(output.Position - bodyStart - fieldOffset));
+                        }
+                        finally
+                        {
+                            built.Dispose();
+                        }
+                    }
 
-                output.WriteInt32(unchecked((int)FooterMagic));
-                output.WriteInt32(names.Length);
-                output.WriteInt64(directoryOffset);
-            });
+                    long directoryOffset = checked(output.Position - bodyStart);
+                    output.WriteInt32(names.Length);
+                    foreach (var entry in directory)
+                    {
+                        WriteString(output, entry.Name);
+                        output.WriteInt64(entry.Offset);
+                        output.WriteInt64(entry.Length);
+                    }
+
+                    output.WriteInt32(unchecked((int)FooterMagic));
+                    output.WriteInt32(names.Length);
+                    output.WriteInt64(directoryOffset);
+                    activity?.SetTag("packed_bkd.leaves", leafCount);
+                    activity?.SetTag("packed_bkd.build_path", usedSpill ? "spill" : "memory");
+                    activity?.SetTag("packed_bkd.output_bytes", output.Position - bodyStart);
+                });
+            activity?.SetTag("packed_bkd.outcome", "success");
+        }
+        catch
+        {
+            activity?.SetTag("packed_bkd.outcome", "failure");
+            throw;
+        }
     }
 
     private static BuiltField BuildField(PackedBkdFieldBuffer source, PackedBkdBuildOptions options)
     {
         var config = source.Config;
         long minimumBudget = checked((long)config.MaxPointsPerLeaf * config.RecordBytes
-            + (long)config.MaxPointsPerLeaf * sizeof(int) + 256);
+            + (long)config.MaxPointsPerLeaf * sizeof(int)
+            + 3L * config.RecordBytes
+            + 256);
         if (options.MemoryBudgetBytes < minimumBudget)
             throw new ArgumentOutOfRangeException(
                 nameof(options), options.MemoryBudgetBytes,
                 $"The packed BKD build budget must accommodate one maximum leaf and its ordering scratch ({minimumBudget} bytes).");
 
-        long estimatedInMemoryBuildBytes = EstimateInMemoryBuildBytes(source.Count, config);
-        if (options.ForceSpill || estimatedInMemoryBuildBytes > options.MemoryBudgetBytes)
+        if (options.ForceSpill)
             return BuildFieldFromSpill(source, options);
 
-        byte[] records = source.CopyRecords();
+        int[] order = ArrayPool<int>.Shared.Rent(source.Count);
         try
         {
-            int pointCount = checked(source.Count);
-            int leafCount = checked((pointCount + config.MaxPointsPerLeaf - 1) / config.MaxPointsPerLeaf);
-            BuiltField? built = null;
-            int[] order = ArrayPool<int>.Shared.Rent(pointCount);
+            long estimatedInMemoryBuildBytes = EstimateInMemoryBuildBytes(source.Count, config, order.Length);
+            if (estimatedInMemoryBuildBytes > options.MemoryBudgetBytes)
+                return BuildFieldFromSpill(source, options);
+
+            byte[] records = source.CopyRecords();
             try
             {
-                built = new BuiltField(config, pointCount, leafCount);
-                ComputeBounds(records, pointCount, config, built.RootMin, built.RootMax);
-                for (int i = 0; i < pointCount; i++) order[i] = i;
-                BuildNode(built, records, order, 0, pointCount, 0, leafCount,
-                    new int[config.IndexedDimensions], options.CancellationToken);
-                built.DocumentCount = source.UniqueDocumentCount >= 0
-                    ? source.UniqueDocumentCount
-                    : CountDistinctDocuments(records, pointCount, config);
-                return built;
-            }
-            catch
-            {
-                built?.Dispose();
-                throw;
+                int pointCount = checked(source.Count);
+                int leafCount = checked((pointCount + config.MaxPointsPerLeaf - 1) / config.MaxPointsPerLeaf);
+                BuiltField? built = null;
+                try
+                {
+                    built = new BuiltField(config, pointCount, leafCount);
+                    ComputeBounds(records, pointCount, config, built.RootMin, built.RootMax);
+                    for (int i = 0; i < pointCount; i++) order[i] = i;
+                    BuildNode(built, records, order, 0, pointCount, 0, leafCount,
+                        new int[config.IndexedDimensions], options.CancellationToken);
+                    built.DocumentCount = source.UniqueDocumentCount >= 0
+                        ? source.UniqueDocumentCount
+                        : CountDistinctDocuments(records, pointCount, config);
+                    return built;
+                }
+                catch
+                {
+                    built?.Dispose();
+                    throw;
+                }
             }
             finally
             {
-                ArrayPool<int>.Shared.Return(order, clearArray: false);
+                // The build owns this copy, not the DWPT buffer.
+                Array.Clear(records, 0, records.Length);
             }
         }
         finally
         {
-            // The build owns this copy, not the DWPT buffer.
-            Array.Clear(records, 0, records.Length);
+            ArrayPool<int>.Shared.Return(order, clearArray: false);
         }
     }
 
-    private static long EstimateInMemoryBuildBytes(int pointCount, PackedBkdConfig config)
+    private static long EstimateInMemoryBuildBytes(int pointCount, PackedBkdConfig config, int orderCapacity)
     {
         int leafCount = checked((pointCount + config.MaxPointsPerLeaf - 1) / config.MaxPointsPerLeaf);
         long records = checked((long)pointCount * config.RecordBytes);
-        long order = checked((long)pointCount * sizeof(int));
+        long order = checked((long)orderCapacity * sizeof(int));
         long bounds = checked((long)config.IndexedBytesLength * 4);
         long splits = checked((long)Math.Max(0, leafCount - 1) * (sizeof(byte) + config.BytesPerDimension));
+        long leafReferences = checked((long)leafCount * IntPtr.Size);
+        long leafOffsets = checked((long)(leafCount + 1) * sizeof(long));
         long leafHeader = checked(2L + 1 + 1 + sizeof(int) + (long)config.IndexedBytesLength * 2
             + config.Dimensions + config.PackedBytesLength);
         long leafPayload = checked((long)pointCount * (config.PackedBytesLength + sizeof(int))
             + leafCount * leafHeader);
-        return checked(records + order + bounds + splits + leafPayload + 256);
+        long parentSplits = checked((long)config.IndexedDimensions * sizeof(int));
+        return checked(records + order + bounds + splits + leafReferences + leafOffsets + leafPayload + parentSplits + 256);
     }
 
     private static BuiltField BuildFieldFromSpill(PackedBkdFieldBuffer source, PackedBkdBuildOptions options)
@@ -565,7 +599,7 @@ internal static class PackedBkdWriter
         int rawValueBytes = checked(count * config.PackedBytesLength);
         int suffixValueBytes = checked(count * (config.PackedBytesLength - prefixBytes));
         bool usePrefixes = prefixBytes > 0
-            && checked(config.Dimensions + prefixBytes + suffixValueBytes) <= checked(config.Dimensions + rawValueBytes);
+            && checked(config.Dimensions + prefixBytes + suffixValueBytes) < rawValueBytes;
         byte encoding = usePrefixes ? PrefixValues : RawValues;
         int headerBytes = checked(2 + 1 + 1 + sizeof(int) + config.IndexedBytesLength * 2 + (usePrefixes ? config.Dimensions + prefixBytes : 0));
         int valueBytes = usePrefixes ? suffixValueBytes : rawValueBytes;
@@ -689,7 +723,7 @@ internal static class PackedBkdWriter
         int rawValueBytes = checked(count * config.PackedBytesLength);
         int suffixValueBytes = checked(count * (config.PackedBytesLength - prefixBytes));
         bool usePrefixes = prefixBytes > 0
-            && checked(config.Dimensions + prefixBytes + suffixValueBytes) <= checked(config.Dimensions + rawValueBytes);
+            && checked(config.Dimensions + prefixBytes + suffixValueBytes) < rawValueBytes;
         byte encoding = usePrefixes ? PrefixValues : RawValues;
         int headerBytes = checked(2 + 1 + 1 + sizeof(int) + config.IndexedBytesLength * 2 + (usePrefixes ? config.Dimensions + prefixBytes : 0));
         int valueBytes = usePrefixes ? suffixValueBytes : rawValueBytes;
@@ -1017,6 +1051,7 @@ internal static class PackedBkdWriter
         internal PackedBkdConfig Config { get; }
         internal int PointCount { get; }
         internal int LeafCount { get; }
+        internal bool UsedSpill => _leafDataStore is not null;
         internal int DocumentCount { get; set; }
         internal byte[] RootMin { get; }
         internal byte[] RootMax { get; }

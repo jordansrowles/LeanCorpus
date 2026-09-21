@@ -37,6 +37,7 @@ internal sealed class PackedBkdReader : IDisposable
     private readonly Dictionary<string, FieldDirectoryEntry> _directory;
     private readonly Dictionary<string, PackedBkdFieldMetadata> _metadata = new(StringComparer.Ordinal);
     private readonly object _gate = new();
+    private bool _checksumValidated;
     private bool _disposed;
 
     private PackedBkdReader(CodecReadSession session, IndexInput body, Dictionary<string, FieldDirectoryEntry> directory)
@@ -70,6 +71,7 @@ internal sealed class PackedBkdReader : IDisposable
         {
             if (!_directory.ContainsKey(fieldName))
                 throw new KeyNotFoundException($"Packed BKD field '{fieldName}' is not present.");
+            EnsureChecksumValidated();
             return _metadata.TryGetValue(fieldName, out var metadata)
                 ? metadata
                 : (_metadata[fieldName] = ParseField(fieldName, _directory[fieldName]));
@@ -82,12 +84,18 @@ internal sealed class PackedBkdReader : IDisposable
         ArgumentNullException.ThrowIfNull(fieldName);
         ArgumentNullException.ThrowIfNull(visitor);
         ObjectDisposedException.ThrowIf(_disposed, this);
+        using var activity = Diagnostics.LeanCorpusActivitySource.Source.StartActivity(
+            Diagnostics.LeanCorpusActivitySource.PackedBkdIntersect);
         PackedBkdFieldMetadata metadata;
         lock (_gate)
         {
             if (!_directory.TryGetValue(fieldName, out var entry))
+            {
+                activity?.SetTag("packed_bkd.field_present", false);
                 return false;
+            }
 
+            EnsureChecksumValidated();
             metadata = _metadata.TryGetValue(fieldName, out var cached)
                 ? cached
                 : (_metadata[fieldName] = ParseField(fieldName, entry));
@@ -96,7 +104,14 @@ internal sealed class PackedBkdReader : IDisposable
         using var queryBody = _body.OpenSharedSlice(0, _body.Length);
         byte[] minimum = metadata.RootMinimum.ToArray();
         byte[] maximum = metadata.RootMaximum.ToArray();
-        Traverse(queryBody, metadata, visitor, minimum, maximum, leavesOffset: 0, metadata.LeafCount, depth: 0);
+        TraversalStats stats = default;
+        Traverse(queryBody, metadata, visitor, minimum, maximum, leavesOffset: 0, metadata.LeafCount, depth: 0, ref stats);
+        activity?.SetTag("packed_bkd.field_present", true);
+        activity?.SetTag("packed_bkd.cells_visited", stats.CellsVisited);
+        activity?.SetTag("packed_bkd.cells_pruned", stats.CellsPruned);
+        activity?.SetTag("packed_bkd.leaves_visited", stats.LeavesVisited);
+        activity?.SetTag("packed_bkd.packed_values_decoded", stats.PackedValuesDecoded);
+        activity?.SetTag("packed_bkd.documents_visited", stats.DocumentsVisited);
         return true;
     }
 
@@ -116,7 +131,6 @@ internal sealed class PackedBkdReader : IDisposable
         try
         {
             session = CodecFileReader.Open(input, PackedBkdCodecFiles.Descriptor, ownsInput: true);
-            session.ValidateChecksum();
             body = session.OpenBodyInput();
             var directory = ReadDirectory(body);
             return new PackedBkdReader(session, body, directory);
@@ -129,6 +143,15 @@ internal sealed class PackedBkdReader : IDisposable
                 input.Dispose();
             throw;
         }
+    }
+
+    private void EnsureChecksumValidated()
+    {
+        if (_checksumValidated)
+            return;
+
+        _session.ValidateChecksum();
+        _checksumValidated = true;
     }
 
     private static Dictionary<string, FieldDirectoryEntry> ReadDirectory(IndexInput body)
@@ -456,17 +479,23 @@ internal sealed class PackedBkdReader : IDisposable
         byte[] maximum,
         int leavesOffset,
         int leafCount,
-        int depth)
+        int depth,
+        ref TraversalStats stats)
     {
+        stats.CellsVisited++;
         if (depth > MaximumTreeDepth)
             throw new InvalidDataException("Packed BKD traversal exceeded the maximum tree depth.");
         PackedBkdCellRelation relation = visitor.Compare(minimum, maximum);
         if (relation == PackedBkdCellRelation.Outside)
+        {
+            stats.CellsPruned++;
             return;
+        }
 
         if (leafCount == 1)
         {
-            VisitLeaf(input, metadata, visitor, leavesOffset, relation);
+            stats.LeavesVisited++;
+            VisitLeaf(input, metadata, visitor, leavesOffset, relation, ref stats);
             return;
         }
 
@@ -479,17 +508,23 @@ internal sealed class PackedBkdReader : IDisposable
         Span<byte> oldMaximum = stackalloc byte[PackedBkdConfig.FixedBytesPerDimension];
         maximum.AsSpan(offset, metadata.Config.BytesPerDimension).CopyTo(oldMaximum);
         splitValue.CopyTo(maximum.AsSpan(offset, metadata.Config.BytesPerDimension));
-        Traverse(input, metadata, visitor, minimum, maximum, leavesOffset, leftLeaves, depth + 1);
+        Traverse(input, metadata, visitor, minimum, maximum, leavesOffset, leftLeaves, depth + 1, ref stats);
         oldMaximum[..metadata.Config.BytesPerDimension].CopyTo(maximum.AsSpan(offset, metadata.Config.BytesPerDimension));
 
         Span<byte> oldMinimum = stackalloc byte[PackedBkdConfig.FixedBytesPerDimension];
         minimum.AsSpan(offset, metadata.Config.BytesPerDimension).CopyTo(oldMinimum);
         splitValue.CopyTo(minimum.AsSpan(offset, metadata.Config.BytesPerDimension));
-        Traverse(input, metadata, visitor, minimum, maximum, rightLeavesOffset, leafCount - leftLeaves, depth + 1);
+        Traverse(input, metadata, visitor, minimum, maximum, rightLeavesOffset, leafCount - leftLeaves, depth + 1, ref stats);
         oldMinimum[..metadata.Config.BytesPerDimension].CopyTo(minimum.AsSpan(offset, metadata.Config.BytesPerDimension));
     }
 
-    private void VisitLeaf(IndexInput input, PackedBkdFieldMetadata metadata, IPackedBkdIntersectVisitor visitor, int leafIndex, PackedBkdCellRelation cellRelation)
+    private void VisitLeaf(
+        IndexInput input,
+        PackedBkdFieldMetadata metadata,
+        IPackedBkdIntersectVisitor visitor,
+        int leafIndex,
+        PackedBkdCellRelation cellRelation,
+        ref TraversalStats stats)
     {
         long start = checked(metadata.SectionOffset + metadata.LeafDataOffset + metadata.LeafOffsets[leafIndex]);
         long end = checked(metadata.SectionOffset + metadata.LeafDataOffset + metadata.LeafOffsets[leafIndex + 1]);
@@ -543,7 +578,11 @@ internal sealed class PackedBkdReader : IDisposable
             }
             if (relation == PackedBkdCellRelation.Inside)
             {
-                for (int i = 0; i < count; i++) visitor.Visit(documentIds[i]);
+                for (int i = 0; i < count; i++)
+                {
+                    visitor.Visit(documentIds[i]);
+                    stats.DocumentsVisited++;
+                }
                 input.Seek(end);
                 return;
             }
@@ -566,6 +605,8 @@ internal sealed class PackedBkdReader : IDisposable
                         }
                     }
                     visitor.Visit(documentIds[i], packed.AsSpan(0, metadata.Config.PackedBytesLength));
+                    stats.PackedValuesDecoded++;
+                    stats.DocumentsVisited++;
                 }
             }
             finally
@@ -665,10 +706,19 @@ internal sealed class PackedBkdReader : IDisposable
     }
 
     private readonly record struct FieldDirectoryEntry(long Offset, long Length);
+
+    private struct TraversalStats
+    {
+        internal long CellsVisited;
+        internal long CellsPruned;
+        internal long LeavesVisited;
+        internal long PackedValuesDecoded;
+        internal long DocumentsVisited;
+    }
 }
 
 /// <summary>Validated metadata for one packed BKD field section.</summary>
-internal sealed class PackedBkdFieldMetadata
+internal readonly struct PackedBkdFieldMetadata
 {
     internal PackedBkdFieldMetadata(
         PackedBkdConfig config,

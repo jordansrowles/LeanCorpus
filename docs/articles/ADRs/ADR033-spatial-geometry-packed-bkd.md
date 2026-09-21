@@ -56,8 +56,9 @@ remaining packed dimensions and document ID as deterministic tie-breakers.
 
 Build input uses fixed-width records in pooled contiguous buffers. The default
 additional build budget is 16 MiB and includes rented capacity and scratch
-state. The in-memory and offline spill builders share the same tree shape and
-ordering, and identical logical input produces byte-identical output. Spill
+state, including the actual pooled ordering capacity and leaf metadata arrays.
+The in-memory and offline spill builders share the same tree shape and ordering,
+and identical logical input produces byte-identical output. Spill
 files are operation-scoped build artefacts and are deleted on success, failure
 and cancellation.
 
@@ -70,11 +71,16 @@ bounded leaf offsets, minimum-plus-delta document IDs and either raw or strictly
 smaller per-dimension common-prefix values. There is no migration from `.bkd`
 or `.bkdl` to `.pbkd`.
 
-Readers retain a bounded logical body input and create no managed node graph.
-Traversal uses bounded per-query state and validates all counts, dimensions,
-offsets, bounds, split metadata and leaf encodings before deriving slices or
-allocating. Existing mmap, compound-file, deletion and operation-drain
+Readers retain a bounded logical body input and create no managed node graph. Open
+reads only the bounded tail footer and field directory. The first field metadata
+access or traversal verifies the full LCCF checksum and validates all counts,
+dimensions, offsets, bounds, split metadata and leaf encodings before deriving
+slices or allocating. Existing mmap, compound-file, deletion and operation-drain
 lifetimes remain authoritative.
+
+Packed BKD build and traversal activities reuse the existing LeanCorpus activity
+source. They record useful build, spill, output, pruning and decode counters only
+when an observer is active.
 
 ## Rationale
 
