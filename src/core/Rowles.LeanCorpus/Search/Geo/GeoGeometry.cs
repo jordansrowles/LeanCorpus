@@ -222,6 +222,7 @@ internal static class GeoGeometryValidation
         var points = CollapseConsecutive(source);
         if (closeRing && points.Count > 1 && points[0].Equals(points[^1]))
             points.RemoveAt(points.Count - 1);
+        CollapseDatelineSeamPairs(points);
         if (points.Count < (closeRing ? 3 : 2))
             throw new ArgumentException(closeRing ? "A ring needs at least three effective vertices." : "A line string needs at least two effective points.", nameof(source));
 
@@ -255,6 +256,7 @@ internal static class GeoGeometryValidation
         var points = CollapseConsecutive(source);
         if (points.Count > 1 && points[0].Equals(points[^1]))
             points.RemoveAt(points.Count - 1);
+        CollapseDatelineSeamPairs(points);
         if (points.Count < 3)
             throw new ArgumentException("A ring needs at least three effective vertices.", nameof(source));
 
@@ -307,6 +309,27 @@ internal static class GeoGeometryValidation
                 result.Add(point);
         }
         return result;
+    }
+
+    private static void CollapseDatelineSeamPairs(List<GeoPoint> points)
+    {
+        for (int i = 0; i + 1 < points.Count;)
+        {
+            GeoPoint first = points[i];
+            GeoPoint second = points[i + 1];
+            bool isSeamPair = first.Latitude == second.Latitude &&
+                ((first.Longitude == 180 && second.Longitude == -180) ||
+                 (first.Longitude == -180 && second.Longitude == 180));
+            if (!isSeamPair)
+            {
+                i++;
+                continue;
+            }
+
+            points.RemoveRange(i, 2);
+            if (i > 0)
+                i--;
+        }
     }
 
     private static List<GeoCoordinate> ToCoordinates(IReadOnlyList<GeoPoint> points)

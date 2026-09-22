@@ -51,6 +51,7 @@
     merge                = 'MergeBenchmarks'
     flush                = 'FlushBenchmarks'
     'postings-arena'     = 'PostingsArenaBenchmarks'
+    'packed-bkd'         = 'PackedBkdBenchmarks'
     'docvalues-read'     = 'DocValuesReadBenchmarks'
     bkd                  = 'BKDTreeBenchmarks'
     'fst-lookup'         = 'FstLookupBenchmarks'

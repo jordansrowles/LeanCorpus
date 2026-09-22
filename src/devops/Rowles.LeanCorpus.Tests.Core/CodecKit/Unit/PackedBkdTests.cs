@@ -364,6 +364,33 @@ public sealed class PackedBkdTests
         }
     }
 
+    [Fact(DisplayName = "Packed BKD failed spill setup removes the output and preserves the source buffer")]
+    public void Writer_FailedSpillSetupCleansOutput()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string blockedPath = Path.Combine(directory, "spill-blocker");
+            File.WriteAllBytes(blockedPath, [1]);
+            string path = Path.Combine(directory, "failed.pbkd");
+            using var buffer = CreateBuffer(reverse: false);
+
+            Assert.ThrowsAny<IOException>(() => PackedBkdWriter.Write(
+                path,
+                new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer },
+                new PackedBkdBuildOptions(1024, blockedPath, ForceSpill: true)));
+
+            Assert.False(File.Exists(path));
+            Assert.Equal(10, buffer.Count);
+            buffer.Append(buffer.Records[..8], 10);
+            Assert.Equal(11, buffer.Count);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact(DisplayName = "Packed BKD defers checksum validation until field access")]
     public void Reader_RejectsChecksumMismatchOnFieldAccess()
     {
@@ -689,9 +716,9 @@ public sealed class PackedBkdTests
 
         public PackedBkdCellRelation Compare(ReadOnlySpan<byte> minimum, ReadOnlySpan<byte> maximum)
         {
-            if (maximum.SequenceCompareTo(_minimum) < 0 || minimum.SequenceCompareTo(_maximum) > 0)
+            if (IsOutside(minimum, maximum))
                 return PackedBkdCellRelation.Outside;
-            return minimum.SequenceCompareTo(_minimum) >= 0 && maximum.SequenceCompareTo(_maximum) <= 0
+            return IsInside(minimum, maximum)
                 ? PackedBkdCellRelation.Inside
                 : PackedBkdCellRelation.Crosses;
         }
@@ -700,9 +727,27 @@ public sealed class PackedBkdTests
 
         public void Visit(int docId, ReadOnlySpan<byte> packedValue)
         {
-            if (packedValue.SequenceCompareTo(_minimum) >= 0 && packedValue.SequenceCompareTo(_maximum) <= 0)
+            if (IsValueInRange(packedValue))
                 Documents.Add(docId);
         }
+
+        private bool IsOutside(ReadOnlySpan<byte> minimum, ReadOnlySpan<byte> maximum)
+            => maximum[..4].SequenceCompareTo(_minimum.AsSpan(0, 4)) < 0
+                || minimum[..4].SequenceCompareTo(_maximum.AsSpan(0, 4)) > 0
+                || maximum[4..8].SequenceCompareTo(_minimum.AsSpan(4, 4)) < 0
+                || minimum[4..8].SequenceCompareTo(_maximum.AsSpan(4, 4)) > 0;
+
+        private bool IsInside(ReadOnlySpan<byte> minimum, ReadOnlySpan<byte> maximum)
+            => minimum[..4].SequenceCompareTo(_minimum.AsSpan(0, 4)) >= 0
+                && maximum[..4].SequenceCompareTo(_maximum.AsSpan(0, 4)) <= 0
+                && minimum[4..8].SequenceCompareTo(_minimum.AsSpan(4, 4)) >= 0
+                && maximum[4..8].SequenceCompareTo(_maximum.AsSpan(4, 4)) <= 0;
+
+        private bool IsValueInRange(ReadOnlySpan<byte> packedValue)
+            => packedValue[..4].SequenceCompareTo(_minimum.AsSpan(0, 4)) >= 0
+                && packedValue[..4].SequenceCompareTo(_maximum.AsSpan(0, 4)) <= 0
+                && packedValue[4..8].SequenceCompareTo(_minimum.AsSpan(4, 4)) >= 0
+                && packedValue[4..8].SequenceCompareTo(_maximum.AsSpan(4, 4)) <= 0;
 
         private static byte[] Pack(XYPoint point)
         {

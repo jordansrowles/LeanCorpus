@@ -35,6 +35,11 @@ public sealed class SpatialGeometryTests
         Assert.Equal(shell.Shell[0], shell.Shell[^1]);
         Assert.Equal(4, shell.Shell.Count - 1);
         Assert.True(SignedArea(shell.Shell) > 0);
+        Assert.Equal(shell, new GeoPolygon([
+            new GeoPoint(0, 0),
+            new GeoPoint(0, 10),
+            new GeoPoint(10, 10),
+            new GeoPoint(10, 0)]));
     }
 
     [Fact(DisplayName = "Geo and XY rectangles preserve dateline, pole and boundary semantics")]
@@ -69,6 +74,9 @@ public sealed class SpatialGeometryTests
 
         var xyLine = new XYLineString([new XYPoint(0, 0), new XYPoint(0, 0), new XYPoint(1, 1)]);
         Assert.Equal(2, xyLine.Points.Count);
+
+        var crossing = new GeoLineString([new GeoPoint(0, 179), new GeoPoint(1, -179)]);
+        Assert.Equal(crossing, new GeoLineString(crossing.Points));
     }
 
     [Fact(DisplayName = "Geo geometry inserts dateline seam points")]
@@ -83,6 +91,7 @@ public sealed class SpatialGeometryTests
         Assert.Contains(polygon.Shell, point => point.Longitude == 180);
         Assert.Contains(polygon.Shell, point => point.Longitude == -180);
         Assert.Equal(polygon.Shell[0], polygon.Shell[^1]);
+        Assert.Equal(polygon, new GeoPolygon(polygon.Shell));
     }
 
     [Fact(DisplayName = "Geo polygon rejects self intersection and invalid holes")]
@@ -204,6 +213,7 @@ public sealed class SpatialGeometryTests
         Assert.Equal(0, GeoEncodingUtils.HaversineDistance(0, 0, 0, 0));
         Assert.InRange(GeoEncodingUtils.HaversineDistance(0, 179, 0, -179), 220_000, 225_000);
         Assert.InRange(GeoEncodingUtils.HaversineDistance(0, 0, 0, 180), 20_000_000, 20_020_000);
+        Assert.InRange(GeoEncodingUtils.HaversineDistance(0, 0, 0.0001, 179.9999), 20_000_000, 20_020_000);
     }
 
     [Fact(DisplayName = "XY geometry provides validated Cartesian primitives")]

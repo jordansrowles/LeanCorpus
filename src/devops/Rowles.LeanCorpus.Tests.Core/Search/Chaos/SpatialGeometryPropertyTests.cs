@@ -95,7 +95,7 @@ public sealed class SpatialGeometryPropertyTests
         };
 
         var first = new GeoPolygon(points);
-        var second = new GeoPolygon(points);
+        var second = new GeoPolygon(first.Shell);
         Assert.Equal(first, second);
         Assert.Contains(first.Shell, point => point.Longitude == 180);
         Assert.Contains(first.Shell, point => point.Longitude == -180);
