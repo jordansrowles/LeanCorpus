@@ -464,6 +464,132 @@ public sealed class PackedBkdTests
         }
     }
 
+    [Fact(DisplayName = "Packed BKD rejects a corrupt footer before field allocation")]
+    public void Reader_RejectsCorruptFooter()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = Path.Combine(directory, "corrupt-footer.pbkd");
+            using (var buffer = CreateBuffer(reverse: false))
+                PackedBkdWriter.Write(path, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer });
+
+            byte[] body = ReadBody(path);
+            BinaryPrimitives.WriteInt32LittleEndian(body.AsSpan(body.Length - 16, sizeof(int)), 0);
+            RewriteBody(path, body);
+
+            Assert.Throws<InvalidDataException>(() => PackedBkdReader.Open(path));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Packed BKD rejects an invalid split dimension")]
+    public void Reader_RejectsInvalidSplitDimension()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = Path.Combine(directory, "corrupt-split.pbkd");
+            using (var buffer = CreateBuffer(reverse: false))
+                PackedBkdWriter.Write(path, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer });
+
+            byte[] body = ReadBody(path);
+            int splitCount = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(28, sizeof(int)));
+            Assert.True(splitCount > 0);
+            int splitDimensionsOffset = 32 + 2 * 4 * 2;
+            body[splitDimensionsOffset] = byte.MaxValue;
+            RewriteBody(path, body);
+
+            using var reader = PackedBkdReader.Open(path);
+            Assert.Throws<InvalidDataException>(() => reader.GetFieldMetadata("location"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Packed BKD rejects an invalid leaf offset")]
+    public void Reader_RejectsInvalidLeafOffset()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = Path.Combine(directory, "corrupt-offset.pbkd");
+            using (var buffer = CreateBuffer(reverse: false))
+                PackedBkdWriter.Write(path, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer });
+
+            byte[] body = ReadBody(path);
+            int splitCount = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(28, sizeof(int)));
+            int offsetsStart = 32 + 2 * 4 * 2 + splitCount * (1 + 4);
+            BinaryPrimitives.WriteInt64LittleEndian(body.AsSpan(offsetsStart, sizeof(long)), 1);
+            RewriteBody(path, body);
+
+            using var reader = PackedBkdReader.Open(path);
+            Assert.Throws<InvalidDataException>(() => reader.GetFieldMetadata("location"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Packed BKD rejects an invalid leaf encoding")]
+    public void Reader_RejectsInvalidLeafEncoding()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = Path.Combine(directory, "corrupt-leaf.pbkd");
+            using (var buffer = CreateBuffer(reverse: false))
+                PackedBkdWriter.Write(path, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer });
+
+            byte[] body = ReadBody(path);
+            int leafCount = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(12, sizeof(int)));
+            int splitCount = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(28, sizeof(int)));
+            int leafDataStart = 32 + 2 * 4 * 2 + splitCount * (1 + 4) + (leafCount + 1) * sizeof(long);
+            body[leafDataStart + 3] = byte.MaxValue;
+            RewriteBody(path, body);
+
+            using var reader = PackedBkdReader.Open(path);
+            Assert.Throws<InvalidDataException>(() => reader.GetFieldMetadata("location"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Packed BKD keeps a valid earlier file readable after another file fails")]
+    public void Reader_ValidEarlierFileRemainsReadableAfterOtherFailure()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string validPath = Path.Combine(directory, "valid.pbkd");
+            string invalidPath = Path.Combine(directory, "invalid.pbkd");
+            using (var valid = CreateBuffer(reverse: false))
+                PackedBkdWriter.Write(validPath, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = valid });
+            using (var invalid = CreateBuffer(reverse: true))
+                PackedBkdWriter.Write(invalidPath, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = invalid });
+
+            byte[] invalidBody = ReadBody(invalidPath);
+            BinaryPrimitives.WriteInt32LittleEndian(invalidBody.AsSpan(invalidBody.Length - 16, sizeof(int)), 0);
+            RewriteBody(invalidPath, invalidBody);
+            Assert.Throws<InvalidDataException>(() => PackedBkdReader.Open(invalidPath));
+
+            using var reader = PackedBkdReader.Open(validPath);
+            Assert.Equal(10, reader.GetFieldMetadata("location").PointCount);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact(DisplayName = "Packed BKD rejects an impossible build budget without leaving spill files")]
     public void Writer_RejectsInsufficientBuildBudgetWithoutSpill()
     {

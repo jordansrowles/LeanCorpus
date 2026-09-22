@@ -171,14 +171,13 @@ internal static class PackedBkdWriter
         long order = checked((long)orderCapacity * sizeof(int));
         long bounds = checked((long)config.IndexedBytesLength * 4);
         long splits = checked((long)Math.Max(0, leafCount - 1) * (sizeof(byte) + config.BytesPerDimension));
-        long leafReferences = checked((long)leafCount * IntPtr.Size);
         long leafOffsets = checked((long)(leafCount + 1) * sizeof(long));
         long leafHeader = checked(2L + 1 + 1 + sizeof(int) + (long)config.IndexedBytesLength * 2
             + config.Dimensions + config.PackedBytesLength);
         long leafPayload = checked((long)pointCount * (config.PackedBytesLength + sizeof(int))
             + leafCount * leafHeader);
         long parentSplits = checked((long)config.IndexedDimensions * sizeof(int));
-        return checked(records + order + bounds + splits + leafReferences + leafOffsets + leafPayload + parentSplits + 256);
+        return checked(records + order + bounds + splits + leafOffsets + leafPayload + parentSplits + 256);
     }
 
     private static BuiltField BuildFieldFromSpill(PackedBkdFieldBuffer source, PackedBkdBuildOptions options)
@@ -1025,7 +1024,9 @@ internal static class PackedBkdWriter
     private sealed class BuiltField : IDisposable
     {
         private readonly LeafDataStore? _leafDataStore;
-        private long[]? _leafOffsets;
+        private readonly MemoryStream? _leafData;
+        private readonly long[]? _leafOffsets;
+        private int _nextLeaf;
         private int _disposed;
 
         internal BuiltField(PackedBkdConfig config, int pointCount, int leafCount, string? leafDirectory = null)
@@ -1040,12 +1041,12 @@ internal static class PackedBkdWriter
             WorkMin = new byte[config.IndexedBytesLength];
             WorkMax = new byte[config.IndexedBytesLength];
             if (leafDirectory is null)
-                Leaves = new byte[leafCount][];
-            else
             {
-                Leaves = Array.Empty<byte[]>();
-                _leafDataStore = new LeafDataStore(leafDirectory, leafCount);
+                _leafData = new MemoryStream();
+                _leafOffsets = new long[checked(leafCount + 1)];
             }
+            else
+                _leafDataStore = new LeafDataStore(leafDirectory, leafCount);
         }
 
         internal PackedBkdConfig Config { get; }
@@ -1059,7 +1060,6 @@ internal static class PackedBkdWriter
         internal byte[] SplitValues { get; }
         internal byte[] WorkMin { get; }
         internal byte[] WorkMax { get; }
-        internal byte[][] Leaves { get; }
 
         internal void SetLeaf(int index, byte[] leaf)
         {
@@ -1069,7 +1069,14 @@ internal static class PackedBkdWriter
             if (_leafDataStore is not null)
                 _leafDataStore.Write(index, leaf);
             else
-                Leaves[index] = leaf;
+            {
+                if (index != _nextLeaf)
+                    throw new InvalidOperationException("Packed BKD leaves must be produced in leaf order.");
+                _leafOffsets![index] = _leafData!.Position;
+                _leafData.Write(leaf);
+                _nextLeaf++;
+                _leafOffsets[_nextLeaf] = _leafData.Position;
+            }
         }
 
         internal long[] GetLeafOffsets()
@@ -1077,18 +1084,9 @@ internal static class PackedBkdWriter
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             if (_leafDataStore is not null)
                 return _leafDataStore.Offsets;
-            if (_leafOffsets is not null)
-                return _leafOffsets;
-
-            var offsets = new long[checked(LeafCount + 1)];
-            for (int i = 0; i < LeafCount; i++)
-            {
-                if (Leaves[i] is null)
-                    throw new InvalidOperationException("Packed BKD build did not produce every leaf.");
-                offsets[i + 1] = checked(offsets[i] + Leaves[i].Length);
-            }
-            _leafOffsets = offsets;
-            return offsets;
+            if (_nextLeaf != LeafCount)
+                throw new InvalidOperationException("Packed BKD leaf data is incomplete.");
+            return _leafOffsets!;
         }
 
         internal void WriteLeafData(CodecBodyOutput output)
@@ -1099,13 +1097,11 @@ internal static class PackedBkdWriter
                 _leafDataStore.WriteTo(output);
                 return;
             }
-
-            foreach (var leaf in Leaves)
-            {
-                if (leaf is null)
-                    throw new InvalidOperationException("Packed BKD build did not produce every leaf.");
-                output.WriteBytes(leaf);
-            }
+            if (_nextLeaf != LeafCount)
+                throw new InvalidOperationException("Packed BKD leaf data is incomplete.");
+            _leafData!.Position = 0;
+            using Stream destination = output.AsStream();
+            _leafData.CopyTo(destination);
         }
 
         public void Dispose()
@@ -1113,8 +1109,7 @@ internal static class PackedBkdWriter
             if (Interlocked.Exchange(ref _disposed, 1) != 0)
                 return;
             _leafDataStore?.Dispose();
-            if (Leaves.Length > 0)
-                Array.Clear(Leaves, 0, Leaves.Length);
+            _leafData?.Dispose();
         }
     }
 

@@ -122,6 +122,94 @@ public sealed class PackedBkdPropertyTests
         }
     }
 
+    [Property(DisplayName = "Packed BKD flush and reopen sequences match a live model", MaxTest = 100, StartSize = 1, EndSize = 96)]
+    public void Lifecycle_FlushReopenSequenceMatchesModel(NonEmptyArray<byte> input)
+    {
+        byte[] seed = input.Get;
+        var model = new List<ModelPoint>();
+        string directory = Path.Combine(Path.GetTempPath(), "leancorpus-packed-bkd-lifecycle-property", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string? currentPath = null;
+        ModelPoint[] persistedModel = [];
+        int nextDocument = 0;
+        int flushOrdinal = 0;
+        try
+        {
+            for (int operation = 0; operation < Math.Min(24, seed.Length + 4); operation++)
+            {
+                switch (seed[operation % seed.Length] & 3)
+                {
+                    case 0:
+                        AddPoint(nextDocument++);
+                        break;
+                    case 1:
+                        int document = nextDocument++;
+                        AddPoint(document);
+                        AddPoint(document);
+                        break;
+                    case 2:
+                        if (model.Count > 0)
+                            FlushAndAssert();
+                        break;
+                    default:
+                        if (currentPath is not null)
+                            ReopenAndAssert();
+                        break;
+                }
+            }
+
+            if (model.Count > 0)
+                FlushAndAssert();
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+
+        void AddPoint(int document)
+        {
+            int valueIndex = model.Count;
+            float x = (seed[(valueIndex * 2) % seed.Length] - 128) / 8f;
+            float y = (seed[(valueIndex * 2 + 1) % seed.Length] - 128) / 8f;
+            byte[] packed = new byte[8];
+            XYEncodingUtils.Encode(x, packed.AsSpan(0, 4));
+            XYEncodingUtils.Encode(y, packed.AsSpan(4, 4));
+            model.Add(new ModelPoint(document, packed));
+        }
+
+        void FlushAndAssert()
+        {
+            currentPath = Path.Combine(directory, $"state-{flushOrdinal++}.pbkd");
+            persistedModel = model.ToArray();
+            using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(maxPointsPerLeaf: 3));
+            foreach (var value in persistedModel)
+                buffer.Append(value.Packed, value.DocId);
+            PackedBkdWriter.Write(currentPath!, new Dictionary<string, PackedBkdFieldBuffer>
+            {
+                ["location"] = buffer
+            });
+            ReopenAndAssert();
+        }
+
+        void ReopenAndAssert()
+        {
+            using var reader = PackedBkdReader.Open(currentPath!);
+            byte[] queryMinimum = new byte[8];
+            byte[] queryMaximum = new byte[8];
+            XYEncodingUtils.Encode(-8, queryMinimum.AsSpan(0, 4));
+            XYEncodingUtils.Encode(-8, queryMinimum.AsSpan(4, 4));
+            XYEncodingUtils.Encode(8, queryMaximum.AsSpan(0, 4));
+            XYEncodingUtils.Encode(8, queryMaximum.AsSpan(4, 4));
+            var visitor = new ReferenceVisitor(queryMinimum, queryMaximum);
+            Assert.True(reader.Intersect("location", visitor));
+            var expected = persistedModel
+                .Where(value => IsInRange(value.Packed, queryMinimum, queryMaximum))
+                .Select(static value => value.DocId)
+                .ToHashSet();
+            Assert.Equal(expected.Order(), visitor.Documents.Order());
+        }
+    }
+
     [Property(DisplayName = "Seven-dimensional Packed BKD spill preserves the reference points", MaxTest = 200, StartSize = 1, EndSize = 96)]
     public void SevenDimensional_SpillMatchesMemory(NonEmptyArray<byte> input)
     {

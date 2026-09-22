@@ -23,6 +23,9 @@
 
 - Made canonical geographic dateline seam normalisation idempotent when a
   canonical polygon or line is used as input again.
+- Reduced retained Packed BKD build metadata to one contiguous leaf-data stream
+  and stack-based recursive validation scratch, while expanding generated
+  lifecycle and corruption coverage.
 - Restored merge-throttle backpressure for detached DWPT batches, selected an available DWPT before blocking a concurrent producer, and reconcile active buffered state after a physical-flush failure.
 - Prevented detached-flush retained-memory backpressure from spinning when only empty DWPT baseline memory remains, and made ordered publication remove its successful prefix before surfacing a later flush failure.
 - Preserve the original detached-flush failure at commit barriers instead of masking it with a generic poisoned-writer exception.

@@ -344,14 +344,16 @@ internal sealed class PackedBkdReader : IDisposable
             || splitValue.SequenceCompareTo(maximum.AsSpan(offset, metadata.Config.BytesPerDimension)) > 0)
             throw new InvalidDataException($"Packed BKD field '{fieldName}' has a split outside its cell bounds.");
 
-        byte[] oldMaximumBytes = maximum.AsSpan(offset, metadata.Config.BytesPerDimension).ToArray();
+        Span<byte> oldMaximumBytes = stackalloc byte[PackedBkdConfig.FixedBytesPerDimension];
+        maximum.AsSpan(offset, metadata.Config.BytesPerDimension).CopyTo(oldMaximumBytes);
         splitValue.CopyTo(maximum.AsSpan(offset, metadata.Config.BytesPerDimension));
         long points = ValidateNode(fieldName, metadata, minimum, maximum, leavesOffset, leftLeaves, depth + 1);
-        oldMaximumBytes.CopyTo(maximum, offset);
-        byte[] oldMinimumBytes = minimum.AsSpan(offset, metadata.Config.BytesPerDimension).ToArray();
+        oldMaximumBytes[..metadata.Config.BytesPerDimension].CopyTo(maximum.AsSpan(offset, metadata.Config.BytesPerDimension));
+        Span<byte> oldMinimumBytes = stackalloc byte[PackedBkdConfig.FixedBytesPerDimension];
+        minimum.AsSpan(offset, metadata.Config.BytesPerDimension).CopyTo(oldMinimumBytes);
         splitValue.CopyTo(minimum.AsSpan(offset, metadata.Config.BytesPerDimension));
         points += ValidateNode(fieldName, metadata, minimum, maximum, rightLeavesOffset, leafCount - leftLeaves, depth + 1);
-        oldMinimumBytes.CopyTo(minimum, offset);
+        oldMinimumBytes[..metadata.Config.BytesPerDimension].CopyTo(minimum.AsSpan(offset, metadata.Config.BytesPerDimension));
         return points;
     }
 
