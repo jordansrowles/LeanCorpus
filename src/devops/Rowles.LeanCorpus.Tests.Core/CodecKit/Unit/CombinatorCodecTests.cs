@@ -315,6 +315,26 @@ public sealed class CombinatorCodecTests
     //  ChoiceCodec
     // ═══════════════════════════════════════════════════
 
+    [Fact(DisplayName = "Choice case definitions retain their historical public type identity")]
+    public void Choice_CaseDefinition_RetainsHistoricalPublicTypeIdentity()
+    {
+        Type expectedType = typeof(global::Rowles.LeanCorpus.Codecs.CodecKit.Internal.CaseDefinition<>);
+        var caseMethod = typeof(Codec).GetMethods().Single(static method => method.Name == nameof(Codec.Case));
+        var choiceMethod = typeof(Codec).GetMethods().Single(static method => method.Name == nameof(Codec.Choice));
+
+        Assert.Equal(expectedType, caseMethod.ReturnType.GetGenericTypeDefinition());
+        Assert.Equal(expectedType,
+            choiceMethod.GetParameters()[1].ParameterType.GetElementType()!.GetGenericTypeDefinition());
+
+        global::Rowles.LeanCorpus.Codecs.CodecKit.Internal.CaseDefinition<int> caseDefinition =
+            Codec.Case<int, int>(1, "integer", Codec.Int32LE);
+        var codec = Codec.Choice<int, int>(Codec.Int32LE, caseDefinition);
+        byte[] encoded = Codec.EncodeToArray(codec, 42);
+
+        Assert.Equal(expectedType, caseDefinition.GetType().GetGenericTypeDefinition());
+        Assert.Equal(42, Codec.Decode(codec, encoded));
+    }
+
     [Fact(DisplayName = "ChoiceCodec correct discriminator round-trip")]
     public void Choice_CorrectDiscriminator_RoundTrip()
     {

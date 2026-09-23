@@ -1,7 +1,31 @@
 ﻿using Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
+using System;
 using System.Buffers;
 
 namespace Rowles.LeanCorpus.Codecs.CodecKit.Internal;
+
+/// <summary>
+/// A single case in a Choice codec. Created via <see cref="Codec.Case{TBase,TCase}"/>.
+/// </summary>
+public sealed class CaseDefinition<TBase>
+{
+    internal CaseDefinition(object tag, string label, Type caseType,
+        ICaseHandler<TBase> handler)
+    {
+        Tag = tag;
+        Label = label;
+        CaseType = caseType;
+        Handler = handler;
+    }
+
+    internal object Tag { get; }
+
+    /// <summary>Label for diagnostic path segments.</summary>
+    public string Label { get; }
+
+    internal Type CaseType { get; }
+    internal ICaseHandler<TBase> Handler { get; }
+}
 
 /// <summary>
 /// Internal handler that type-erases the TCase generic parameter.

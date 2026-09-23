@@ -23,11 +23,21 @@ public sealed class NamespaceContractTests
     [Fact]
     public void Public_types_must_not_reside_in_internal_namespaces()
     {
+        // CaseDefinition<TBase> is public for historical compatibility. Keep its namespace in 3.x;
+        // moving it belongs in the next major release.
+        const string legacyCaseDefinition = "Rowles.LeanCorpus.Codecs.CodecKit.Internal.CaseDefinition`1";
+
         var failures = ArchitectureContext.CoreAssembly.GetExportedTypes()
-            .Where(static type => type.Namespace?.Contains(".Internal", StringComparison.Ordinal) == true)
+            .Where(type => type.Namespace?.Contains(".Internal", StringComparison.Ordinal) == true
+                && type.FullName != legacyCaseDefinition)
             .Select(static type => type.FullName ?? type.Name);
 
         RuleAssert.Empty("Public types must not reside in namespaces containing '.Internal':", failures);
+
+        var compatibilityType = ArchitectureContext.CoreAssembly.GetType(legacyCaseDefinition);
+        Assert.NotNull(compatibilityType);
+        Assert.True(compatibilityType.IsPublic);
+        Assert.Equal("Rowles.LeanCorpus.Codecs.CodecKit.Internal", compatibilityType.Namespace);
     }
 
     [Fact]
