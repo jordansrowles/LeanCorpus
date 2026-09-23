@@ -1,4 +1,4 @@
-namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd;
 
 /// <summary>Receives packed BKD hits without allocating a point object for each value.</summary>
 internal interface IPackedBkdIntersectVisitor

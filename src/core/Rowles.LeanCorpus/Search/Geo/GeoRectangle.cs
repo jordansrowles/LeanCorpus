@@ -1,3 +1,5 @@
+using Rowles.LeanCorpus.Search.Geo.Internal;
+
 namespace Rowles.LeanCorpus.Search.Geo;
 
 /// <summary>An immutable geographic rectangle. West greater than east crosses the International Date Line.</summary>

@@ -1,4 +1,4 @@
-namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd;
 
 /// <summary>Immutable dimensions and encoding limits for one packed BKD field.</summary>
 internal readonly record struct PackedBkdConfig

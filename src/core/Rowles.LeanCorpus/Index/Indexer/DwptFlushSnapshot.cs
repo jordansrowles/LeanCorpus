@@ -1,5 +1,4 @@
 using Rowles.LeanCorpus.Codecs.StoredFields;
-using Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 using Rowles.LeanCorpus.Index.Indexer.Postings;
 
 namespace Rowles.LeanCorpus.Index.Indexer;

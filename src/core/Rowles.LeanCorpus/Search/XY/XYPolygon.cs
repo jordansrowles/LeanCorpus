@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Rowles.LeanCorpus.Search.XY.Internal;
 
 namespace Rowles.LeanCorpus.Search.XY;
 

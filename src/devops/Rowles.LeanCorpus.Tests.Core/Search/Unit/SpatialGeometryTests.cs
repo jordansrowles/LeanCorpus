@@ -192,6 +192,21 @@ public sealed class SpatialGeometryTests
             new XYGeometryCollection([new XYPoint(1, 2)])]));
     }
 
+    [Fact(DisplayName = "Geometry collections reject custom marker implementations")]
+    public void Collections_RejectCustomGeometryImplementations()
+    {
+        ArgumentException geoError = Assert.Throws<ArgumentException>(
+            () => new GeoGeometryCollection([new CustomGeoGeometry()]));
+        Assert.Contains("only built-in", geoError.Message);
+
+        ArgumentException xyError = Assert.Throws<ArgumentException>(
+            () => new XYGeometryCollection([new CustomXyGeometry()]));
+        Assert.Contains("only built-in", xyError.Message);
+
+        Assert.Throws<ArgumentException>(() => new GeoGeometryCollection([null!]));
+        Assert.Throws<ArgumentException>(() => new XYGeometryCollection([null!]));
+    }
+
     [Fact(DisplayName = "Geometry equality and hashes are value based")]
     public void Geometry_EqualityAndHashAreValueBased()
     {
@@ -285,6 +300,10 @@ public sealed class SpatialGeometryTests
             area += ring[i].Longitude * ring[i + 1].Latitude - ring[i + 1].Longitude * ring[i].Latitude;
         return area / 2;
     }
+
+    private sealed class CustomGeoGeometry : IGeoGeometry { }
+
+    private sealed class CustomXyGeometry : IXYGeometry { }
 
     private static float SignedArea(IReadOnlyList<XYPoint> ring)
     {

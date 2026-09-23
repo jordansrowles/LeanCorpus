@@ -1,5 +1,4 @@
 using Rowles.LeanCorpus.Codecs.Hnsw;
-using Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Codecs.TermVectors;

@@ -1,4 +1,4 @@
-namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd;
 
 /// <summary>Compact immutable offsets and header metadata for one Packed BKD field.</summary>
 internal readonly struct PackedBkdFieldMetadata

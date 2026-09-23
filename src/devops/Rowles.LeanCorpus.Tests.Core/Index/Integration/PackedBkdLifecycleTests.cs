@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Store;

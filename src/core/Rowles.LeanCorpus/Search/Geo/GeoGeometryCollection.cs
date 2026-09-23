@@ -1,8 +1,9 @@
 using System.Collections.ObjectModel;
+using Rowles.LeanCorpus.Search.Geo.Internal;
 
 namespace Rowles.LeanCorpus.Search.Geo;
 
-/// <summary>An immutable flat collection of non-collection geographic geometries.</summary>
+/// <summary>An immutable flat collection of supported built-in geographic geometries.</summary>
 public sealed class GeoGeometryCollection : IGeoGeometry, IEquatable<GeoGeometryCollection>
 {
     private readonly IGeoGeometry[] _geometries;
@@ -15,8 +16,9 @@ public sealed class GeoGeometryCollection : IGeoGeometry, IEquatable<GeoGeometry
         _geometries = geometries.ToArray();
         if (_geometries.Length == 0)
             throw new ArgumentException("A geometry collection must not be empty.", nameof(geometries));
-        if (_geometries.Any(static geometry => geometry is null or GeoGeometryCollection))
-            throw new ArgumentException("Geometry collections must contain non-null non-collection geometries.", nameof(geometries));
+        if (_geometries.Any(static geometry =>
+            geometry is not (GeoPoint or GeoRectangle or GeoCircle or GeoLineString or GeoPolygon)))
+            throw new ArgumentException("Geometry collections support only built-in non-collection geometries.", nameof(geometries));
         _readOnlyGeometries = Array.AsReadOnly(_geometries);
     }
 

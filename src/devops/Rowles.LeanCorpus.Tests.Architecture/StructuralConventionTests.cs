@@ -36,4 +36,17 @@ public sealed class StructuralConventionTests
 
         RuleAssert.Empty("Interfaces must begin with 'I':", failures);
     }
+
+    [Fact]
+    public void Core_global_usings_must_not_import_internal_namespaces()
+    {
+        string path = RepositoryPaths.FromRoot("src", "core", "Rowles.LeanCorpus", "GlobalUsings.cs");
+        var failures = File.ReadLines(path)
+            .Select(static line => line.Trim())
+            .Where(static line => line.StartsWith("global using ", StringComparison.Ordinal)
+                && line.TrimEnd(';').EndsWith(".Internal", StringComparison.Ordinal))
+            .Select(line => $"{path}: {line}");
+
+        RuleAssert.Empty("Core global usings must not import implementation namespaces:", failures);
+    }
 }

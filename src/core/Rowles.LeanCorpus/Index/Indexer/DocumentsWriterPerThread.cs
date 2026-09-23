@@ -1,7 +1,6 @@
 using System.Buffers;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
-using Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Index.Indexer.Postings;

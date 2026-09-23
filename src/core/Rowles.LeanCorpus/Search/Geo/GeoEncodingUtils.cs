@@ -1,4 +1,6 @@
-﻿namespace Rowles.LeanCorpus.Search.Geo;
+﻿using Rowles.LeanCorpus.Search.Internal;
+
+namespace Rowles.LeanCorpus.Search.Geo;
 
 
 /// <summary>

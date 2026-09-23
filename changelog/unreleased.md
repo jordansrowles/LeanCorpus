@@ -35,6 +35,9 @@
 - Kept Packed BKD root metadata read-only, documented the separate public 1D
   leaf-size limit, and moved spatial and Packed BKD implementation helpers into
   internal namespaces without changing persisted formats.
+- Closed Geo and XY geometry collections to built-in types, clarified the
+  Packed BKD namespace boundary and moved the public CodecKit choice descriptor
+  out of the implementation namespace.
 - Restored merge-throttle backpressure for detached DWPT batches, selected an available DWPT before blocking a concurrent producer, and reconcile active buffered state after a physical-flush failure.
 - Prevented detached-flush retained-memory backpressure from spinning when only empty DWPT baseline memory remains, and made ordered publication remove its successful prefix before surfacing a later flush failure.
 - Preserve the original detached-flush failure at commit barriers instead of masking it with a generic poisoned-writer exception.

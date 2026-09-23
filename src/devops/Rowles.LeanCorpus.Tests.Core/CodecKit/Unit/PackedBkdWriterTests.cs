@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Collections.Concurrent;
+using Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 namespace Rowles.LeanCorpus.Tests.Core.Codecs;
 

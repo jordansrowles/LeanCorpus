@@ -1,7 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 
-namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd;
 
 /// <summary>DWPT-owned fixed-width packed values for one multidimensional field.</summary>
 internal sealed class PackedBkdFieldBuffer : IDisposable

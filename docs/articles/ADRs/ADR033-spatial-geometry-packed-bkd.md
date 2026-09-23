@@ -30,9 +30,11 @@ collections are sealed immutable reference types which copy caller-owned arrays
 once. Geo APIs use `double` latitude/longitude and metre radii. XY APIs use
 finite `float` coordinates and coordinate-unit radii. Public geometry contains no
 indexing or tessellation state. The marker interfaces are `IGeoGeometry` and
-`IXYGeometry`; `GeoEncodingUtils` exposes `NormaliseLongitude`. The two proof
-The internal Packed BKD proof configurations are `PackedBkdConfig.Point2D()`
-and `PackedBkdConfig.Shape7D4Indexed()`.
+`IXYGeometry`; they describe the built-in geometry models but do not register
+custom indexable geometries. LeanCorpus indexing supports the documented
+built-in Geo and XY geometry types in 3.2. `GeoEncodingUtils` exposes
+`NormaliseLongitude`. The internal proof configurations are
+`PackedBkdConfig.Point2D()` and `PackedBkdConfig.Shape7D4Indexed()`.
 
 All constructors use shared validation and canonicalisation rules. Coordinates
 reject non-finite values. Rings become explicitly closed, consecutive duplicate
@@ -124,12 +126,14 @@ than point count.
 - New geometry APIs are public, immutable and independent of query execution.
 - `GeoEncodingUtils` retains its existing public outputs while exposing the
   shared sortable-coordinate primitives needed by Packed BKD.
-- `PackedBkdFieldBuffer`, writer, reader and traversal remain internal until a
-  later sprint attaches public point fields and queries.
+- Packed BKD remains internal to the LeanCorpus assembly. Its subsystem
+  contracts live in `Codecs.PackedBkd`, while low-level implementation helpers
+  live in `Codecs.PackedBkd.Internal`.
 - Implementation-only geometry helpers live under `Search.Geo.Internal` and
   `Search.XY.Internal`; shared coordinate encoding lives under
-  `Search.Internal`, and Packed BKD implementation lives under
-  `Codecs.PackedBkd.Internal`.
+  `Search.Internal`.
+- Public geometry marker interfaces are closed in supported behaviour for 3.2
+  and do not register custom geometries for indexing.
 - `.bkd` and `.bkdl` constants, bytes and migration behaviour do not change.
 - Flush and merge may carry packed field buffers through the existing detached
   snapshot boundary; failed work must dispose pooled state and remove spill

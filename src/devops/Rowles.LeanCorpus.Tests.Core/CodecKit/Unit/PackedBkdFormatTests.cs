@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 namespace Rowles.LeanCorpus.Tests.Core.Codecs;
 

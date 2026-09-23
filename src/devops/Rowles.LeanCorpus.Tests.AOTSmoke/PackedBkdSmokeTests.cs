@@ -1,4 +1,4 @@
-using Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
+using Rowles.LeanCorpus.Codecs.PackedBkd;
 using Rowles.LeanCorpus.Search.XY;
 using Xunit;
 

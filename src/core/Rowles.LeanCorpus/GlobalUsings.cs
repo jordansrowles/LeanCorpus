@@ -1,5 +1,6 @@
 ﻿global using Rowles.LeanCorpus.Analysis.Filters;
 global using Rowles.LeanCorpus.Codecs.CodecKit.Enums;
+global using Rowles.LeanCorpus.Codecs.PackedBkd;
 global using Rowles.LeanCorpus.Analysis.Stemmers;
 global using Rowles.LeanCorpus.Analysis.Tokenisers;
 global using Rowles.LeanCorpus.Codecs.DocValues;
@@ -9,10 +10,7 @@ global using Rowles.LeanCorpus.Document.Fields;
 global using Rowles.LeanCorpus.Index.Segment;
 global using Rowles.LeanCorpus.Search.Aggregations;
 global using Rowles.LeanCorpus.Search.Geo;
-global using Rowles.LeanCorpus.Search.Geo.Internal;
-global using Rowles.LeanCorpus.Search.Internal;
 global using Rowles.LeanCorpus.Search.XY;
-global using Rowles.LeanCorpus.Search.XY.Internal;
 global using Rowles.LeanCorpus.Search.Queries;
 global using Rowles.LeanCorpus.Search.Scoring;
 global using Rowles.LeanCorpus.Search.Searcher;

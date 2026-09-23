@@ -1,7 +1,9 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
 
-namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
+using Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
+
+namespace Rowles.LeanCorpus.Codecs.PackedBkd;
 
 /// <summary>Reads the bounded tail directory and field sections of a packed BKD file.</summary>
 internal sealed class PackedBkdReader : IDisposable

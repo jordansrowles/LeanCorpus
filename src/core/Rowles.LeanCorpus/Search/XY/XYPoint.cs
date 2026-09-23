@@ -1,3 +1,5 @@
+using Rowles.LeanCorpus.Search.XY.Internal;
+
 namespace Rowles.LeanCorpus.Search.XY;
 
 /// <summary>An immutable Cartesian point.</summary>

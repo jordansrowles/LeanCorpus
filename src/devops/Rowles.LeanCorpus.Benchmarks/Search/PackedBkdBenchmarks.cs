@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using BenchmarkDotNet.Attributes;
-using Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
+using Rowles.LeanCorpus.Codecs.PackedBkd;
 using Rowles.LeanCorpus.Search.XY;
 
 namespace Rowles.LeanCorpus.Benchmarks;

@@ -1,5 +1,5 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
-namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd;
 
 internal static class PackedBkdCodecFiles
 {

@@ -1,3 +1,5 @@
+using Rowles.LeanCorpus.Search.Internal;
+
 namespace Rowles.LeanCorpus.Search.XY;
 
 /// <summary>Encodes finite Cartesian floats into unsigned lexicographically sortable bytes.</summary>

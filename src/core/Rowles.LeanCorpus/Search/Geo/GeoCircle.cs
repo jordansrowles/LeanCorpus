@@ -1,3 +1,5 @@
+using Rowles.LeanCorpus.Search.Geo.Internal;
+
 namespace Rowles.LeanCorpus.Search.Geo;
 
 /// <summary>An immutable geographic circle with a radius in metres.</summary>

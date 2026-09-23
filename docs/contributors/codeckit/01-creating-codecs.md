@@ -89,7 +89,8 @@ var codec = new RecordBuilder<MyType>()
 ## Optional fields
 
 ```csharp
-using Rowles.LeanCorpus.Codecs.CodecKit.Internal;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.CodecKit.Primitives;
 
 var optionalString = Utf8StringCodec.Instance.Optional(BoolCodec.Instance);
 // Wire format: [bool hasValue][value?]

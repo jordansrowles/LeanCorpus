@@ -1,4 +1,4 @@
-namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd;
 
 internal struct PackedBkdTraversalStats
 {

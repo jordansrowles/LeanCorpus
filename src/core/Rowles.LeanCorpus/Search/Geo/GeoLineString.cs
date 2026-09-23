@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Rowles.LeanCorpus.Search.Geo.Internal;
 
 namespace Rowles.LeanCorpus.Search.Geo;
 
