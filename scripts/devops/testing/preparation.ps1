@@ -28,7 +28,8 @@ function Get-MtpExecutablePath {
     $projectPath = Resolve-TestProjectPath -Target $Target -RepoRoot $RepoRoot
     $projectName = [System.IO.Path]::GetFileNameWithoutExtension($projectPath)
     $propertyOutput = @(Invoke-DotNet @(
-        'msbuild', $projectPath, '--nologo', '-getProperty:TargetPath',
+        'msbuild', $projectPath, '--nologo', '--disable-build-servers', '-m:1',
+        '-getProperty:TargetPath',
         "-property:Configuration=$($Target.Configuration)",
         "-property:TargetFramework=$($Target.Framework)",
         '-property:UseSharedCompilation=false'

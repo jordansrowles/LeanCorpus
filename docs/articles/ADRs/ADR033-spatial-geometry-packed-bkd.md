@@ -29,15 +29,23 @@ circles are immutable value types. Line strings, polygons and geometry
 collections are sealed immutable reference types which copy caller-owned arrays
 once. Geo APIs use `double` latitude/longitude and metre radii. XY APIs use
 finite `float` coordinates and coordinate-unit radii. Public geometry contains no
-indexing or tessellation state.
+indexing or tessellation state. The marker interfaces are `IGeoGeometry` and
+`IXYGeometry`; `GeoEncodingUtils` exposes `NormaliseLongitude`. The two proof
+Packed BKD configurations are exposed as `PackedBkdConfig.Point2D()` and
+`PackedBkdConfig.Shape7D4Indexed()`.
 
 All constructors use shared validation and canonicalisation rules. Coordinates
 reject non-finite values. Rings become explicitly closed, consecutive duplicate
 vertices are removed, winding is normalised, and invalid or ambiguous topology
-is rejected rather than repaired. Geo rectangles use `west > east` for a
+is rejected rather than repaired. Geo polygon shells and holes are validated in
+one common unwrapped world before seam expansion, including complete shell,
+hole and cross-ring relationships. Complete or multiple world wraps are
+rejected. The complete polygon is then quantised onto the encoded grid and the
+same topology is validated again. Geo rectangles use `west > east` for a
 dateline crossing. Lines and rings unwrap successive longitudes, split genuine
 anti-meridian crossings and wrap canonical components back into the legal
-longitude range. Poles are never wrapped.
+longitude range. Poles are never wrapped. XY topology calculations use
+`double`, and signed zero has one canonical encoded representation.
 
 Geo indexed coordinates use the existing 32-bit encoded latitude and longitude
 ordering. XY coordinates use the IEEE `float` bits transformed to sortable
@@ -50,17 +58,24 @@ Lucene BKD algorithmic shape, not from Lucene's historical file format. It
 supports one to sixteen total dimensions, one to eight indexed dimensions,
 exactly four bytes per dimension in v1, and one to 4096 points per leaf. The
 required proof configurations are 2D/2-indexed and 7D/4-indexed. Split choice
-uses under-used indexed dimensions, then the largest unsigned encoded span;
-MSD/radix partitioning and final leaf ordering use the selected dimension, the
-remaining packed dimensions and document ID as deterministic tie-breakers.
+uses under-used indexed dimensions, then the largest unsigned encoded span.
+Internal nodes use deterministic MSD/radix selection and partitioning at the
+required rank, not recursive full subtree sorting. Full deterministic ordering
+is performed only for final leaves, using the selected dimension, the remaining
+packed dimensions and document ID as tie-breakers. Root bounds are exact, child
+bounds inherit from their parent, and fields with more than two indexed
+dimensions refresh exact slice bounds at every fourth split depth.
 
 Build input uses fixed-width records in pooled contiguous buffers. The default
-additional build budget is 16 MiB and includes rented capacity and scratch
-state, including the actual pooled ordering capacity and leaf metadata arrays.
-The in-memory and offline spill builders share the same tree shape and ordering,
-and identical logical input produces byte-identical output. Spill
-files are operation-scoped build artefacts and are deleted on success, failure
-and cancellation.
+additional build budget is 16 MiB and is a hard limit for all additional
+Packed BKD-owned managed build state. It includes actual rented capacity and
+scratch state, including the ordering vector, histograms, bounds, leaf metadata,
+leaf scratch, document counting and retained leaf data. The complete source
+buffer is not cloned. The in-memory and offline spill builders share the same
+tree shape, selection key and ordering, and identical logical input produces
+byte-identical output. Spill files are operation-scoped build artefacts and are
+deleted on success, failure and cancellation. Cancellation is checked during
+active selection, partitioning, bound refresh and encoding.
 
 The new `leancorpus.numeric-structures.packed-bkd` format is version 1, uses
 the `.pbkd` extension, is random access, and is framed by the canonical LCCF
@@ -71,12 +86,17 @@ bounded leaf offsets, minimum-plus-delta document IDs and either raw or strictly
 smaller per-dimension common-prefix values. There is no migration from `.bkd`
 or `.bkdl` to `.pbkd`.
 
-Readers retain a bounded logical body input and create no managed node graph. Open
-reads only the bounded tail footer and field directory. The first field metadata
-access or traversal verifies the full LCCF checksum and validates all counts,
-dimensions, offsets, bounds, split metadata and leaf encodings before deriving
-slices or allocating. Existing mmap, compound-file, deletion and operation-drain
-lifetimes remain authoritative.
+Readers retain a bounded logical body input and create no managed node graph.
+Normal open validates the LCCF frame and Packed BKD tail directory only. Field
+metadata is compact and stores offsets without allocating split or leaf arrays,
+walking every node or decoding every payload. Each query opens its own bounded
+field cursor, validates only the splits and leaves it touches, compares exact
+leaf bounds before renting reusable DocID scratch, and keeps the complete
+operation under the segment read lease. Full checksum and whole-tree semantic
+validation is an explicit `DeepValidate()` operation. Bounds are compared
+independently for every indexed dimension. A present corrupt `.pbkd` propagates
+an error rather than becoming an absent field. Existing mmap, compound-file,
+deletion and operation-drain lifetimes remain authoritative.
 
 Packed BKD build and traversal activities reuse the existing LeanCorpus activity
 source. They record useful build, spill, output, pruning and decode counters only

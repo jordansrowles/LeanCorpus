@@ -1,6 +1,6 @@
 ### Added
 
-- Added immutable Geo and XY geometry values, shared canonical coordinate validation, and a deterministic multidimensional Packed BKD v1 format using new `.pbkd` files.
+- Added immutable Geo and XY geometry values with `IGeoGeometry` and `IXYGeometry` markers, shared canonical coordinate validation, and a deterministic multidimensional Packed BKD v1 format using new `.pbkd` files.
 
 ### Changed
 
@@ -16,13 +16,17 @@
 - Completed physical flush execution now releases its detached snapshot graph before ordered publication, while deterministic writer lifecycle coverage removes throughput-sensitive shutdown coordination tests.
 - Hardened Packed BKD v1 reader bounds, semantic validation, deterministic spill cleanup and DWPT capacity accounting without changing the on-disk format.
 - Made Packed BKD open read only its tail directory, selected raw leaves on exact prefix-size ties, accounted actual rented build capacity, and added observer-only build and traversal telemetry.
+- Renamed spatial configuration and longitude-normalisation APIs to `Point2D()`, `Shape7D4Indexed()` and `NormaliseLongitude()` while preserving the Packed BKD v1 file format.
+- Made DevOps managed test target resolution disable MSBuild servers and use single-node evaluation, while pinning the selected SDK host for task-host reliability.
 - Segment ordinals now use one atomic allocator across detached flush, merge, force-merge, and imported-index paths. Detached flushing also sorts compact term IDs directly against its owned UTF-8 pool rather than allocating per-term byte arrays.
 - Reduced repeated `OperationDrain` entry in postings decoding by grouping multi-read decoder work under `BeginReadSession()`, improving representative real-query throughput on Windows and Linux. (c837dbb94, #75)
 
 ### Fixed
 
 - Made canonical geographic dateline seam normalisation idempotent when a
-  canonical polygon or line is used as input again.
+  canonical polygon or line is used as input again, validated polygon shell and
+  hole relationships in one unwrapped world and on the quantised grid, promoted
+  XY topology calculations to `double`, and canonicalised signed zero encoding.
 - Reduced retained Packed BKD build metadata to one contiguous leaf-data stream
   and stack-based recursive validation scratch, while expanding generated
   lifecycle and corruption coverage.

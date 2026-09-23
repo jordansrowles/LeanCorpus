@@ -44,7 +44,7 @@ public static class GeoEncodingUtils
         => SortableCoordinateEncoding.WriteSortableInt32(EncodeLon(longitude), destination);
 
     /// <summary>Normalises a longitude to the inclusive [-180, 180] interval.</summary>
-    public static double NormalizeLongitude(double longitude)
+    public static double NormaliseLongitude(double longitude)
     {
         if (double.IsNaN(longitude) || double.IsInfinity(longitude))
             throw new ArgumentOutOfRangeException(nameof(longitude));

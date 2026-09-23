@@ -13,7 +13,7 @@ namespace Rowles.LeanCorpus.Index.Segment;
 /// Metadata-first facade for one immutable segment. Heavy codec state is loaded on
 /// first use and retained privately or through a searcher's bounded reader cache.
 /// </summary>
-public sealed class SegmentReader : IDisposable
+public sealed partial class SegmentReader : IDisposable
 {
     [ThreadStatic] private static SegmentReader? t_pinnedReader;
     [ThreadStatic] private static SegmentReaderState? t_pinnedState;
@@ -235,7 +235,6 @@ public sealed class SegmentReader : IDisposable
     internal ParentBitSet? GetParentBitSet() { using var lease = AcquireReadLease(); return lease.State.GetParentBitSet(); }
     internal bool FileExists(string extension) { using var lease = AcquireReadLease(); return lease.State.FileExists(extension); }
     internal IndexInput OpenInput(string extension) { using var lease = AcquireReadLease(); return lease.State.OpenInput(extension); }
-    internal PackedBkdReader? PackedBkd { get { using var lease = AcquireReadLease(); return lease.State.PackedBkd; } }
     public float GetNorm(int docId, string field) { if (TryGetFastState(out var state)) return state.GetNorm(docId, field); using var lease = AcquireReadLease(); return lease.State.GetNorm(docId, field); }
     public float GetFieldBoost(int docId, string field) { if (TryGetFastState(out var state)) return state.GetFieldBoost(docId, field); using var lease = AcquireReadLease(); return lease.State.GetFieldBoost(docId, field); }
     internal bool TryGetFieldBoosts(string field, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out float[]? boosts) { if (TryGetFastState(out var state)) return state.TryGetFieldBoosts(field, out boosts); using var lease = AcquireReadLease(); return lease.State.TryGetFieldBoosts(field, out boosts); }

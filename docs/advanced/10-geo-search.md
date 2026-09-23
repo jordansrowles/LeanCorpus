@@ -29,7 +29,7 @@ var query = new GeoBoundingBoxQuery(
 var hits = searcher.Search(query, topN: 20);
 ```
 
-Matches documents whose geo point falls inside the rectangle. The query is backed by a BKD range intersection — no full-table scan.
+Matches documents whose geo point falls inside the rectangle. The query is backed by a BKD range intersection, with no full-table scan.
 
 ## Distance
 
@@ -67,18 +67,23 @@ int latitude = GeoEncodingUtils.EncodeLat(51.5074);
 int longitude = GeoEncodingUtils.EncodeLon(-0.1278);
 int lower = GeoEncodingUtils.EncodeLatFloor(51.0);
 int upper = GeoEncodingUtils.EncodeLatCeil(52.0);
+double normalised = GeoEncodingUtils.NormaliseLongitude(181.0);
 ```
 
 You do not normally need these directly. `GeoPointField` and the geo queries
-call them automatically.
+call them automatically. `NormaliseLongitude` returns the equivalent longitude
+in the inclusive `[-180, 180]` interval.
 
 ## Spatial foundation types
 
 `GeoPoint`, `GeoRectangle`, `GeoCircle`, `GeoLineString`, `GeoPolygon`, and
-their `XY` counterparts are immutable validated values. Polygon rings are
-closed and canonicalised, invalid topology is rejected, and geographic rings
-crossing the dateline receive deterministic seam points. Packed multidimensional
-BKD persistence is internal groundwork and is not yet a public spatial query API.
+their `XY` counterparts are immutable validated values implementing
+`IGeoGeometry` or `IXYGeometry`. Polygon rings are closed and canonicalised,
+Geo shell and hole relationships are checked in one unwrapped world and again
+after coordinate quantisation, invalid topology is rejected, and geographic
+rings crossing the International Date Line receive deterministic seam points.
+Packed multidimensional BKD persistence is internal groundwork and is not yet
+a public spatial query API.
 
 ## What is not supported
 

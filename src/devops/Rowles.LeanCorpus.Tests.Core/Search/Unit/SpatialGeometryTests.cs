@@ -128,6 +128,31 @@ public sealed class SpatialGeometryTests
         Assert.True(SignedArea(polygon.Holes[1]) < 0);
     }
 
+    [Fact(DisplayName = "Geo polygon validates dateline holes in one common world")]
+    public void GeoPolygon_UsesCommonUnwrappedFrameForHoles()
+    {
+        var polygon = new GeoPolygon(
+            [new GeoPoint(0, 170), new GeoPoint(0, -170), new GeoPoint(20, -170), new GeoPoint(20, 170)],
+            [[new GeoPoint(5, -175), new GeoPoint(5, 175), new GeoPoint(15, 175), new GeoPoint(15, -175)]]);
+
+        Assert.Single(polygon.Holes);
+        Assert.Throws<ArgumentException>(() => new GeoPolygon(
+            [new GeoPoint(0, 170), new GeoPoint(0, -170), new GeoPoint(20, -170), new GeoPoint(20, 170)],
+            [[new GeoPoint(5, -165), new GeoPoint(5, -155), new GeoPoint(15, -155), new GeoPoint(15, -165)]]));
+    }
+
+    [Fact(DisplayName = "Geo polygon rejects world winding and quantised topology changes")]
+    public void GeoPolygon_RejectsWorldWrapsAndQuantisedInvalidTopology()
+    {
+        Assert.Throws<ArgumentException>(() => new GeoPolygon([
+            new GeoPoint(0, 0), new GeoPoint(10, 120), new GeoPoint(0, -120)]));
+
+        const double tiny = 1e-12;
+        Assert.Throws<ArgumentException>(() => new GeoPolygon(
+            [new GeoPoint(0, 0), new GeoPoint(0, 1), new GeoPoint(1, 1), new GeoPoint(1, 0)],
+            [[new GeoPoint(tiny, tiny), new GeoPoint(tiny, 0.25), new GeoPoint(0.25, 0.25), new GeoPoint(0.25, tiny)]]));
+    }
+
     [Fact(DisplayName = "XY geometry validates, closes rings and copies input")]
     public void XYGeometry_ValidatesAndCopies()
     {
@@ -149,13 +174,13 @@ public sealed class SpatialGeometryTests
     [Fact(DisplayName = "Geometry collections are copied, flat and immutable")]
     public void Collections_CopyAndRejectInvalidNesting()
     {
-        var geometries = new List<GeoGeometry> { new GeoPoint(1, 2), new GeoCircle(3, 4, 5) };
+        var geometries = new List<IGeoGeometry> { new GeoPoint(1, 2), new GeoCircle(3, 4, 5) };
         var collection = new GeoGeometryCollection(geometries);
         geometries.Clear();
         Assert.Equal(2, collection.Geometries.Count);
         Assert.Equal(collection, new GeoGeometryCollection([
             new GeoPoint(1, 2), new GeoCircle(3, 4, 5)]));
-        Assert.Throws<NotSupportedException>(() => ((IList<GeoGeometry>)collection.Geometries)[0] = new GeoPoint(0, 0));
+        Assert.Throws<NotSupportedException>(() => ((IList<IGeoGeometry>)collection.Geometries)[0] = new GeoPoint(0, 0));
         Assert.Throws<ArgumentException>(() => new GeoGeometryCollection([]));
         Assert.Throws<ArgumentException>(() => new GeoGeometryCollection([
             new GeoGeometryCollection([new GeoPoint(1, 2)])]));
@@ -195,6 +220,7 @@ public sealed class SpatialGeometryTests
     [Fact(DisplayName = "Geo encoding covers endpoints and rounds query bounds outwards")]
     public void GeoEncoding_CoversEndpointsAndOutwardRounding()
     {
+        Assert.Equal(-179, GeoEncodingUtils.NormaliseLongitude(181));
         Assert.Equal(int.MinValue, GeoEncodingUtils.EncodeLat(-90));
         Assert.Equal(int.MaxValue, GeoEncodingUtils.EncodeLat(90));
         Assert.Equal(int.MinValue, GeoEncodingUtils.EncodeLon(-180));
@@ -224,6 +250,32 @@ public sealed class SpatialGeometryTests
         Assert.Throws<ArgumentException>(() => new XYLineString([new XYPoint(0, 0)]));
         Assert.Throws<ArgumentException>(() => new XYPolygon([
             new XYPoint(0, 0), new XYPoint(1, 1), new XYPoint(2, 2)]));
+    }
+
+    [Fact(DisplayName = "XY topology remains finite at the float range")]
+    public void XYGeometry_UsesDoubleTopologyMaths()
+    {
+        const float maximum = float.MaxValue;
+        var polygon = new XYPolygon([
+            new XYPoint(-maximum, -maximum),
+            new XYPoint(maximum, -maximum),
+            new XYPoint(maximum, maximum),
+            new XYPoint(-maximum, maximum)]);
+
+        Assert.Equal(5, polygon.Shell.Count);
+    }
+
+    [Fact(DisplayName = "XY sortable encoding canonicalises signed zero")]
+    public void XYEncoding_CanonicalisesSignedZero()
+    {
+        Span<byte> negative = stackalloc byte[4];
+        Span<byte> positive = stackalloc byte[4];
+        XYEncodingUtils.Encode(-0f, negative);
+        XYEncodingUtils.Encode(+0f, positive);
+
+        Assert.Equal(positive.ToArray(), negative.ToArray());
+        Assert.Equal(0f, XYEncodingUtils.Decode(negative));
+        Assert.Equal(0, BitConverter.SingleToInt32Bits(XYEncodingUtils.Decode(negative)));
     }
 
     private static double SignedArea(IReadOnlyList<GeoPoint> ring)

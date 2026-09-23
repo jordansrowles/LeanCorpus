@@ -53,6 +53,13 @@ internal static class Program
                 now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture), "core");
         var machineDir = Directory.GetParent(runDir)?.FullName ?? runDir;
         Directory.CreateDirectory(runDir);
+        string packedBkdEvidenceDirectory = Path.Combine(
+            runDir,
+            "packed-bkd",
+            "observer-counters");
+        Environment.SetEnvironmentVariable(
+            "LEANCORPUS_PACKED_BKD_EVIDENCE_DIR",
+            packedBkdEvidenceDirectory);
 
         var gitCommitHash = GetGitShortHash(repoRoot);
         var sourceCommit = Environment.GetEnvironmentVariable("BENCH_SOURCE_COMMIT");
@@ -261,7 +268,7 @@ internal static class Program
         if (runAll || suites.Contains(BenchmarkSuite.HnswSearch))
             RunSuite<HnswSearchBenchmarks>("hnsw", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
-        // Microbenchmarks — explicit only, not included in --suite all.
+        // Microbenchmarks: explicit only, not included in --suite all.
         if (suites.Contains(BenchmarkSuite.PackedIntCodec))
             RunSuite<PackedIntCodecBenchmarks>("packed-int-codec", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
@@ -283,7 +290,7 @@ internal static class Program
         if (suites.Contains(BenchmarkSuite.ConcurrentWrite))
             RunSuite<ConcurrentVsSequentialBenchmarks>("concurrent-write", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
-        // Subsystem benchmarks — explicit only, not included in --suite all.
+        // Subsystem benchmarks: explicit only, not included in --suite all.
         if (suites.Contains(BenchmarkSuite.Merge))
             RunSuite<MergeBenchmarks>("merge", runDir, benchmarkArgs, suiteSummaries, gcDump);
 

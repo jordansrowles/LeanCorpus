@@ -1,6 +1,9 @@
+using System.Buffers.Binary;
+using Rowles.LeanCorpus.Codecs.PackedBkd;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Tests.Core.Codecs;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index;
 
@@ -34,12 +37,147 @@ public sealed class PackedBkdLifecycleTests
             Assert.True(File.Exists(Path.Combine(directoryPath, merged!.SegmentId + ".pbkd")));
 
             using var reader = new SegmentReader(directory, merged);
-            var packed = reader.PackedBkd;
-            Assert.NotNull(packed);
             var visitor = new VisitAllVisitor();
-            Assert.True(packed!.Intersect("location", visitor));
+            Assert.True(reader.IntersectPackedBkd("location", ref visitor));
             Assert.Equal(3, merged.DocCount);
             Assert.Equal([0, 1, 2], visitor.Documents.Order());
+        }
+        finally
+        {
+            if (Directory.Exists(directoryPath))
+                Directory.Delete(directoryPath, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Packed BKD survives detached flush and compound reopen")]
+    public void FlushAndCompoundReader_RoundTripPackedField()
+    {
+        string directoryPath = PackedBkdTestSupport.CreateDirectory();
+        var config = new IndexWriterConfig
+        {
+            DurableCommits = false,
+            UseCompoundFile = true,
+            MergePolicy = NoMergePolicy.Instance
+        };
+        var dwpt = new DocumentsWriterPerThread(
+            new WhitespaceAnalyser(),
+            new Dictionary<string, IAnalyser>(),
+            config);
+        var packedConfig = PackedBkdConfig.Point2D(maxPointsPerLeaf: 2);
+        const int documentCount = 5;
+        byte[] packed = new byte[8];
+        for (int documentId = 0; documentId < documentCount; documentId++)
+        {
+            dwpt.AddDocument(new LeanDocument());
+            XYEncodingUtils.Encode(documentId, packed.AsSpan(0, 4));
+            XYEncodingUtils.Encode(documentId, packed.AsSpan(4, 4));
+            dwpt.AddPackedBkdValue("location", packedConfig, packed, documentId);
+        }
+
+        DwptFlushSnapshot snapshot;
+        lock (dwpt)
+            snapshot = DwptFlushSnapshot.CaptureFrom(dwpt);
+
+        try
+        {
+            SegmentInfo info = SegmentFlusher.FlushFromSnapshot(
+                snapshot,
+                config,
+                directoryPath,
+                ordinal: 0,
+                commitGeneration: 0,
+                seqStart: 0,
+                seqEnd: documentCount);
+
+            Assert.True(info.IsCompoundFile);
+            Assert.False(File.Exists(Path.Combine(directoryPath, "seg_0.pbkd")));
+
+            using var directory = new MMapDirectory(directoryPath);
+            using var reader = new SegmentReader(directory, info);
+            var visitor = new PackedBkdTestSupport.RangeVisitor(new XYPoint(1, 1), new XYPoint(3, 3));
+            Assert.True(reader.IntersectPackedBkd("location", ref visitor));
+            Assert.Equal([1, 2, 3], visitor.Documents.Distinct().Order());
+        }
+        finally
+        {
+            snapshot.Dispose();
+            dwpt.Dispose();
+            Directory.Delete(directoryPath, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Packed BKD corruption aborts merge without dropping an earlier segment")]
+    public void CorruptPackedBkd_AbortsMergeAndPreservesEarlierSegment()
+    {
+        string directoryPath = PackedBkdTestSupport.CreateDirectory();
+        try
+        {
+            SegmentInfo first = FlushSegment(directoryPath, 0);
+            SegmentInfo second = FlushSegment(directoryPath, 1);
+            string corruptPath = Path.Combine(directoryPath, second.SegmentId + ".pbkd");
+            byte[] body = PackedBkdTestSupport.ReadBody(corruptPath);
+            int leafCount = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(12, sizeof(int)));
+            int splitCount = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(28, sizeof(int)));
+            int leafDataStart = checked(32 + 2 * 4 * 2 + splitCount * (1 + 4) + (leafCount + 1) * sizeof(long));
+            body[leafDataStart + 3] = byte.MaxValue;
+            PackedBkdTestSupport.RewriteBody(corruptPath, body);
+
+            using var directory = new MMapDirectory(directoryPath);
+            var merger = new SegmentMerger(directory, mergeThreshold: 2);
+            int nextOrdinal = 2;
+            Assert.Throws<InvalidDataException>(() => merger.MergeAll([first, second], ref nextOrdinal));
+
+            Assert.True(File.Exists(Path.Combine(directoryPath, first.SegmentId + ".pbkd")));
+            using var reader = new SegmentReader(directory, first);
+            var visitor = new PackedBkdTestSupport.VisitAllVisitor();
+            Assert.True(reader.IntersectPackedBkd("location", ref visitor));
+            Assert.Equal([0, 1], visitor.Documents.Order());
+        }
+        finally
+        {
+            if (Directory.Exists(directoryPath))
+                Directory.Delete(directoryPath, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Packed BKD reader disposal waits for an active traversal")]
+    public async Task ReaderDispose_WaitsForActivePackedBkdTraversal()
+    {
+        string directoryPath = PackedBkdTestSupport.CreateDirectory();
+        try
+        {
+            SegmentInfo info = FlushSegment(directoryPath, 0);
+            using (var directory = new MMapDirectory(directoryPath))
+            {
+                var reader = new SegmentReader(directory, info);
+                var gate = new TraversalGate();
+                Task? traversal = null;
+                Task? dispose = null;
+                try
+                {
+                    var visitor = new BlockingVisitor(gate);
+                    traversal = Task.Run(
+                        () => RunTraversal(reader, visitor),
+                        TestContext.Current.CancellationToken);
+
+                    await gate.Entered.Task.WaitAsync(
+                        TimeSpan.FromSeconds(5),
+                        TestContext.Current.CancellationToken);
+                    dispose = Task.Run(reader.Dispose, TestContext.Current.CancellationToken);
+                    await Task.Delay(25, TestContext.Current.CancellationToken);
+                    Assert.False(dispose.IsCompleted);
+                }
+                finally
+                {
+                    gate.Release.TrySetResult(true);
+                    if (traversal is not null)
+                        await traversal.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+                    if (dispose is not null)
+                        await dispose.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+                    else
+                        reader.Dispose();
+                }
+            }
         }
         finally
         {
@@ -67,7 +205,7 @@ public sealed class PackedBkdLifecycleTests
                 byte[] packed = new byte[8];
                 XYEncodingUtils.Encode(document, packed.AsSpan(0, 4));
                 XYEncodingUtils.Encode(document, packed.AsSpan(4, 4));
-                dwpt.AddPackedBkdValue("location", PackedBkdConfig.Geo2D(maxPointsPerLeaf: 2), packed, document);
+                dwpt.AddPackedBkdValue("location", PackedBkdConfig.Point2D(maxPointsPerLeaf: 2), packed, document);
             }
 
             DwptFlushSnapshot snapshot;
@@ -95,9 +233,48 @@ public sealed class PackedBkdLifecycleTests
         }
     }
 
-    private sealed class VisitAllVisitor : IPackedBkdIntersectVisitor
+    private static bool RunTraversal(SegmentReader reader, BlockingVisitor visitor)
+        => reader.IntersectPackedBkd("location", ref visitor);
+
+    private sealed class TraversalGate
     {
-        internal List<int> Documents { get; } = [];
+        internal TaskCompletionSource<bool> Entered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal TaskCompletionSource<bool> Release { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private struct BlockingVisitor : IPackedBkdIntersectVisitor
+    {
+        private readonly TraversalGate _gate;
+
+        internal BlockingVisitor(TraversalGate gate) => _gate = gate;
+
+        public PackedBkdCellRelation Compare(ReadOnlySpan<byte> minimum, ReadOnlySpan<byte> maximum)
+        {
+            _gate.Entered.TrySetResult(true);
+            _gate.Release.Task.GetAwaiter().GetResult();
+            return PackedBkdCellRelation.Crosses;
+        }
+
+        public void Visit(int docId)
+        {
+        }
+
+        public void Visit(int docId, ReadOnlySpan<byte> packedValue)
+        {
+        }
+    }
+
+    private struct VisitAllVisitor : IPackedBkdIntersectVisitor
+    {
+        internal List<int> Documents { get; }
+
+        public VisitAllVisitor()
+        {
+            Documents = [];
+        }
 
         public PackedBkdCellRelation Compare(ReadOnlySpan<byte> minimum, ReadOnlySpan<byte> maximum)
             => PackedBkdCellRelation.Crosses;

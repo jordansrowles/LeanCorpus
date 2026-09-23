@@ -22,6 +22,8 @@ internal static class SortableCoordinateEncoding
 
     internal static uint SortableFloatBits(float value)
     {
+        if (value == 0f)
+            value = 0f;
         int bits = BitConverter.SingleToInt32Bits(value);
         uint raw = unchecked((uint)bits);
         return (raw & 0x8000_0000u) != 0 ? ~raw : raw ^ 0x8000_0000u;

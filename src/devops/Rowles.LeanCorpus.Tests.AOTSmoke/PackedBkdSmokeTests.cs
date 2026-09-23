@@ -14,14 +14,14 @@ public sealed class PackedBkdSmokeTests
         try
         {
             string path = Path.Combine(directory, "points.pbkd");
-            using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(maxPointsPerLeaf: 2));
+            using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Point2D(maxPointsPerLeaf: 2));
             Append(buffer, 0, 0, 0);
             Append(buffer, 1, 1, 1);
             PackedBkdWriter.Write(path, new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer });
 
             using var reader = PackedBkdReader.Open(path);
             var visitor = new VisitAllVisitor();
-            Assert.True(reader.Intersect("location", visitor));
+            Assert.True(reader.Intersect("location", ref visitor));
             Assert.Equal([0, 1], visitor.Documents.Order());
         }
         finally
@@ -39,9 +39,14 @@ public sealed class PackedBkdSmokeTests
         buffer.Append(packed, document);
     }
 
-    private sealed class VisitAllVisitor : IPackedBkdIntersectVisitor
+    private struct VisitAllVisitor : IPackedBkdIntersectVisitor
     {
-        internal List<int> Documents { get; } = [];
+        internal List<int> Documents { get; }
+
+        public VisitAllVisitor()
+        {
+            Documents = [];
+        }
 
         public PackedBkdCellRelation Compare(ReadOnlySpan<byte> minimum, ReadOnlySpan<byte> maximum)
             => PackedBkdCellRelation.Inside;

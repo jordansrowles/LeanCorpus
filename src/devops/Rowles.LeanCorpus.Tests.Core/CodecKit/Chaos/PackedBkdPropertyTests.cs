@@ -39,12 +39,12 @@ public sealed class PackedBkdPropertyTests
         try
         {
             string path = Path.Combine(directory, "points.pbkd");
-            using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(maxPointsPerLeaf: 3));
+            using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Point2D(maxPointsPerLeaf: 3));
             for (int i = values.Count - 1; i >= 0; i--)
                 buffer.Append(values[i].Packed, values[i].DocId);
 
             string memoryPath = Path.Combine(directory, "memory.pbkd");
-            using var memoryBuffer = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(maxPointsPerLeaf: 3));
+            using var memoryBuffer = new PackedBkdFieldBuffer(PackedBkdConfig.Point2D(maxPointsPerLeaf: 3));
             for (int i = values.Count - 1; i >= 0; i--)
                 memoryBuffer.Append(values[i].Packed, values[i].DocId);
             PackedBkdWriter.Write(memoryPath, new Dictionary<string, PackedBkdFieldBuffer>
@@ -59,7 +59,7 @@ public sealed class PackedBkdPropertyTests
 
             using var reader = PackedBkdReader.Open(path);
             var visitor = new ReferenceVisitor(queryMinimum, queryMaximum);
-            Assert.True(reader.Intersect("location", visitor));
+            Assert.True(reader.Intersect("location", ref visitor));
 
             var expected = values
                 .Where(value => IsInRange(value.Packed, queryMinimum, queryMaximum))
@@ -97,8 +97,8 @@ public sealed class PackedBkdPropertyTests
             {
                 string firstPath = Path.Combine(directory, $"first-{leafSize}.pbkd");
                 string secondPath = Path.Combine(directory, $"second-{leafSize}.pbkd");
-                using var first = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(leafSize));
-                using var second = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(leafSize));
+                using var first = new PackedBkdFieldBuffer(PackedBkdConfig.Point2D(leafSize));
+                using var second = new PackedBkdFieldBuffer(PackedBkdConfig.Point2D(leafSize));
                 foreach (var value in values)
                     first.Append(value.Packed, value.DocId);
 
@@ -181,7 +181,7 @@ public sealed class PackedBkdPropertyTests
         {
             currentPath = Path.Combine(directory, $"state-{flushOrdinal++}.pbkd");
             persistedModel = model.ToArray();
-            using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(maxPointsPerLeaf: 3));
+            using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Point2D(maxPointsPerLeaf: 3));
             foreach (var value in persistedModel)
                 buffer.Append(value.Packed, value.DocId);
             PackedBkdWriter.Write(currentPath!, new Dictionary<string, PackedBkdFieldBuffer>
@@ -201,7 +201,7 @@ public sealed class PackedBkdPropertyTests
             XYEncodingUtils.Encode(8, queryMaximum.AsSpan(0, 4));
             XYEncodingUtils.Encode(8, queryMaximum.AsSpan(4, 4));
             var visitor = new ReferenceVisitor(queryMinimum, queryMaximum);
-            Assert.True(reader.Intersect("location", visitor));
+            Assert.True(reader.Intersect("location", ref visitor));
             var expected = persistedModel
                 .Where(value => IsInRange(value.Packed, queryMinimum, queryMaximum))
                 .Select(static value => value.DocId)
@@ -219,8 +219,8 @@ public sealed class PackedBkdPropertyTests
         Directory.CreateDirectory(directory);
         try
         {
-            using var memory = new PackedBkdFieldBuffer(PackedBkdConfig.SevenDimensional(3));
-            using var spill = new PackedBkdFieldBuffer(PackedBkdConfig.SevenDimensional(3));
+            using var memory = new PackedBkdFieldBuffer(PackedBkdConfig.Shape7D4Indexed(3));
+            using var spill = new PackedBkdFieldBuffer(PackedBkdConfig.Shape7D4Indexed(3));
             for (int point = 0; point < count; point++)
             {
                 byte[] packed = new byte[28];
@@ -243,7 +243,7 @@ public sealed class PackedBkdPropertyTests
 
             using var reader = PackedBkdReader.Open(spillPath);
             var visitor = new VisitAllVisitor();
-            Assert.True(reader.Intersect("shape", visitor));
+            Assert.True(reader.Intersect("shape", ref visitor));
             Assert.Equal(Enumerable.Range(0, 7).Where(doc => Enumerable.Range(0, count).Any(point => point % 7 == doc)), visitor.Documents.Distinct().Order());
         }
         finally
@@ -260,7 +260,7 @@ public sealed class PackedBkdPropertyTests
 
     private readonly record struct ModelPoint(int DocId, byte[] Packed);
 
-    private sealed class ReferenceVisitor(byte[] minimum, byte[] maximum) : IPackedBkdIntersectVisitor
+    private struct ReferenceVisitor(byte[] minimum, byte[] maximum) : IPackedBkdIntersectVisitor
     {
         internal HashSet<int> Documents { get; } = [];
 
@@ -289,9 +289,14 @@ public sealed class PackedBkdPropertyTests
         }
     }
 
-    private sealed class VisitAllVisitor : IPackedBkdIntersectVisitor
+    private struct VisitAllVisitor : IPackedBkdIntersectVisitor
     {
-        internal List<int> Documents { get; } = [];
+        internal List<int> Documents { get; }
+
+        public VisitAllVisitor()
+        {
+            Documents = [];
+        }
 
         public PackedBkdCellRelation Compare(ReadOnlySpan<byte> minimum, ReadOnlySpan<byte> maximum)
             => PackedBkdCellRelation.Inside;

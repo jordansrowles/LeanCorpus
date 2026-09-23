@@ -32,9 +32,9 @@ internal readonly record struct PackedBkdConfig
     internal int IndexedBytesLength => checked(IndexedDimensions * BytesPerDimension);
     internal int RecordBytes => checked(PackedBytesLength + sizeof(int));
 
-    internal static PackedBkdConfig Geo2D(int maxPointsPerLeaf = 512)
+    internal static PackedBkdConfig Point2D(int maxPointsPerLeaf = 512)
         => new(2, 2, FixedBytesPerDimension, maxPointsPerLeaf);
 
-    internal static PackedBkdConfig SevenDimensional(int maxPointsPerLeaf = 512)
+    internal static PackedBkdConfig Shape7D4Indexed(int maxPointsPerLeaf = 512)
         => new(7, 4, FixedBytesPerDimension, maxPointsPerLeaf);
 }

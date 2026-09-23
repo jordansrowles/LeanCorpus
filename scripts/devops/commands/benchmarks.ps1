@@ -14,5 +14,11 @@ function Invoke-DevOpsBenchmarks {
     }
 
     & (Join-Path (Get-ScriptsPath) 'benchmarks/generate-docs.ps1')
-    exit $LASTEXITCODE
+    $exitCode = 0
+    $lastExitCode = Get-Variable -Name LASTEXITCODE -ErrorAction SilentlyContinue
+    if ($null -ne $lastExitCode)
+    {
+        $exitCode = [int]$lastExitCode.Value
+    }
+    exit $exitCode
 }

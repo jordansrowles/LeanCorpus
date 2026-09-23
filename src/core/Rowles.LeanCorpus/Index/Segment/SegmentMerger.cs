@@ -359,21 +359,18 @@ public sealed class SegmentMerger
             var segInt64Index = ReadInt64Index(reader);
             var segInt64Dvs = ReadInt64DocValues(reader);
             var segInt64SortedDvs = ReadInt64SortedDocValues(reader);
-            var packedBkd = reader.PackedBkd;
-            if (packedBkd is not null)
+            foreach (var packedFieldName in reader.GetPackedBkdFieldNames())
             {
-                foreach (var packedFieldName in packedBkd.FieldNames)
+                if (!reader.TryGetPackedBkdFieldMetadata(packedFieldName, out var metadata))
+                    throw new InvalidDataException($"Packed BKD field '{packedFieldName}' disappeared during merge.");
+                if (!ctx.PackedBkdFields.TryGetValue(packedFieldName, out var packedBuffer))
                 {
-                    var metadata = packedBkd.GetFieldMetadata(packedFieldName);
-                    if (!ctx.PackedBkdFields.TryGetValue(packedFieldName, out var packedBuffer))
-                    {
-                        packedBuffer = new PackedBkdFieldBuffer(metadata.Config);
-                        ctx.PackedBkdFields.Add(packedFieldName, packedBuffer);
-                    }
-
-                    var collector = new PackedBkdMergeVisitor(docIdMap, packedBuffer);
-                    packedBkd.Intersect(packedFieldName, collector);
+                    packedBuffer = new PackedBkdFieldBuffer(metadata.Config);
+                    ctx.PackedBkdFields.Add(packedFieldName, packedBuffer);
                 }
+
+                var collector = new PackedBkdMergeVisitor(docIdMap, packedBuffer);
+                reader.IntersectPackedBkd(packedFieldName, ref collector);
             }
 
             // Pre-build a name->VectorFieldInfo dictionary so the per-doc/per-field
@@ -640,7 +637,7 @@ public sealed class SegmentMerger
                             catch (Exception ex) when (ex is IOException or InvalidDataException)
                             {
                                 Diagnostics.LeanCorpusActivitySource.TraceSwallowed(
-                                    ex, $"HNSW seed read failed for '{fieldName}' — rebuilding graph from scratch");
+                                    ex, $"HNSW seed read failed for '{fieldName}'; rebuilding graph from scratch");
                                 graph = null;
                             }
                         }
@@ -853,10 +850,10 @@ public sealed class SegmentMerger
             PackedBkdWriter.Write(
                 basePath + ".pbkd",
                 ctx.PackedBkdFields,
-                new PackedBkdBuildOptions(SpillDirectory: Path.GetDirectoryName(basePath)));
+                PackedBkdBuildOptions.Default with { SpillDirectory = Path.GetDirectoryName(basePath) });
     }
 
-    private sealed class PackedBkdMergeVisitor(int[] docIdMap, PackedBkdFieldBuffer destination) : IPackedBkdIntersectVisitor
+    private readonly struct PackedBkdMergeVisitor(int[] docIdMap, PackedBkdFieldBuffer destination) : IPackedBkdIntersectVisitor
     {
         public PackedBkdCellRelation Compare(ReadOnlySpan<byte> minimum, ReadOnlySpan<byte> maximum)
             => PackedBkdCellRelation.Crosses;

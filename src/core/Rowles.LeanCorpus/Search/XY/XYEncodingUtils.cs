@@ -5,7 +5,7 @@ namespace Rowles.LeanCorpus.Search.XY;
 /// <summary>Encodes finite Cartesian floats into unsigned lexicographically sortable bytes.</summary>
 public static class XYEncodingUtils
 {
-    /// <summary>Writes one sortable four-byte x coordinate.</summary>
+    /// <summary>Writes one finite coordinate as four lexicographically sortable bytes.</summary>
     public static void Encode(float value, Span<byte> destination)
     {
         SortableCoordinateEncoding.WriteSortableFloat(value, destination);

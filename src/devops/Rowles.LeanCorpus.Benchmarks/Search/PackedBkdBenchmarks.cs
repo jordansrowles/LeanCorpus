@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using BenchmarkDotNet.Attributes;
 using Rowles.LeanCorpus.Codecs.PackedBkd;
 using Rowles.LeanCorpus.Search.XY;
@@ -38,7 +39,7 @@ public class PackedBkdBenchmarks
     private PackedBkdReader? _reader;
     private string? _buildPath;
     private string? _buildDirectory;
-    private QueryVisitor _visitor = null!;
+    private QueryVisitor _visitor;
 
     [GlobalSetup]
     public void Setup()
@@ -69,7 +70,8 @@ public class PackedBkdBenchmarks
         }
 
         _reader = PackedBkdReader.Open(_queryPath);
-        _visitor = new QueryVisitor(-1_000, 1_000);
+        _visitor = new QueryVisitor(-100, 100);
+        RecordObserverEvidence();
     }
 
     [GlobalCleanup]
@@ -90,6 +92,13 @@ public class PackedBkdBenchmarks
     [IterationSetup(Target = nameof(LeanCorpus_PackedBkd_SpillBuild))]
     public void SetupSpillBuild()
         => PrepareBuildDirectory();
+
+    [IterationSetup(Target = nameof(LeanCorpus_PackedBkd_WarmSelectiveIntersect))]
+    public void SetupWarmSelectiveIntersect()
+    {
+        _visitor.Reset();
+        _reader!.Intersect("location", ref _visitor);
+    }
 
     private void PrepareBuildDirectory()
     {
@@ -123,12 +132,22 @@ public class PackedBkdBenchmarks
     public int LeanCorpus_PackedBkd_SpillBuild()
         => Build(forceSpill: true);
 
-    [Benchmark(Description = "Packed BKD bounded range traversal")]
+    [Benchmark(Description = "Packed BKD warm selective range traversal")]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_PackedBkd_Intersect()
+    public int LeanCorpus_PackedBkd_WarmSelectiveIntersect()
     {
         _visitor.Reset();
-        _reader!.Intersect("location", _visitor);
+        _reader!.Intersect("location", ref _visitor);
+        return _visitor.Count;
+    }
+
+    [Benchmark(Description = "Packed BKD cold open and first selective traversal")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_PackedBkd_ColdOpenSelectiveIntersect()
+    {
+        using var reader = PackedBkdReader.Open(_queryPath);
+        _visitor.Reset();
+        reader.Intersect("location", ref _visitor);
         return _visitor.Count;
     }
 
@@ -139,6 +158,11 @@ public class PackedBkdBenchmarks
         using var reader = PackedBkdReader.Open(_queryPath);
         return reader.FieldNames.Count;
     }
+
+    [Benchmark(Description = "Packed BKD output bytes per point")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public double LeanCorpus_PackedBkd_OutputBytesPerPoint()
+        => new FileInfo(_queryPath).Length / (double)PointCount;
 
     private int Build(bool forceSpill)
     {
@@ -156,10 +180,59 @@ public class PackedBkdBenchmarks
 
     private PackedBkdFieldBuffer CreateBuffer()
     {
-        var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Geo2D(maxPointsPerLeaf: 512));
+        var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Point2D(maxPointsPerLeaf: 512));
         for (int point = 0; point < PointCount; point++)
             buffer.Append(_packedValues.AsSpan(point * 8, 8), _documentIds[point]);
         return buffer;
+    }
+
+    private void RecordObserverEvidence()
+    {
+        var metadata = _reader!.GetFieldMetadata("location");
+
+        _visitor.Reset();
+        _reader.Intersect("location", ref _visitor, out var warmStats);
+        WriteObserverEvidence("warm-selective-intersect", metadata, warmStats, _visitor.Count);
+
+        using var coldReader = PackedBkdReader.Open(_queryPath);
+        _visitor.Reset();
+        coldReader.Intersect("location", ref _visitor, out var coldStats);
+        WriteObserverEvidence("cold-open-first-selective-intersect", metadata, coldStats, _visitor.Count);
+    }
+
+    private void WriteObserverEvidence(
+        string operation,
+        PackedBkdFieldMetadata metadata,
+        PackedBkdTraversalStats stats,
+        int matches)
+    {
+        string? evidenceDirectory = Environment.GetEnvironmentVariable(
+            "LEANCORPUS_PACKED_BKD_EVIDENCE_DIR");
+        if (string.IsNullOrWhiteSpace(evidenceDirectory))
+            return;
+
+        Directory.CreateDirectory(evidenceDirectory);
+        long outputBytes = new FileInfo(_queryPath).Length;
+        var evidence = new ObserverEvidence(
+            PointCount,
+            Distribution.ToString(),
+            operation,
+            metadata.LeafCount,
+            metadata.PointCount,
+            outputBytes,
+            outputBytes / (double)PointCount,
+            matches,
+            stats.CellsVisited,
+            stats.CellsPruned,
+            stats.LeavesVisited,
+            stats.LeavesSemanticallyValidated,
+            stats.PackedValuesDecoded,
+            stats.DocumentsVisited,
+            stats.PeakLeafScratch);
+        string fileName = $"{PointCount}-{Distribution}-{operation}-{Environment.ProcessId}-{Guid.NewGuid():N}.json";
+        File.WriteAllText(
+            Path.Combine(evidenceDirectory, fileName),
+            JsonSerializer.Serialize(evidence, JsonOptions));
     }
 
     private (float X, float Y) CreatePoint(int point, Random random)
@@ -188,7 +261,7 @@ public class PackedBkdBenchmarks
         LineLike,
     }
 
-    private sealed class QueryVisitor(float minimum, float maximum) : IPackedBkdIntersectVisitor
+    private struct QueryVisitor(float minimum, float maximum) : IPackedBkdIntersectVisitor
     {
         private readonly byte[] _minimum = Pack(minimum, minimum);
         private readonly byte[] _maximum = Pack(maximum, maximum);
@@ -240,4 +313,27 @@ public class PackedBkdBenchmarks
             return packed;
         }
     }
+
+    private sealed record ObserverEvidence(
+        int PointCount,
+        string Distribution,
+        string Operation,
+        int LeafCount,
+        long PointTotal,
+        long OutputBytes,
+        double OutputBytesPerPoint,
+        int Matches,
+        long CellsVisited,
+        long CellsPruned,
+        long LeavesVisited,
+        long LeavesSemanticallyValidated,
+        long PackedValuesDecoded,
+        long DocumentsVisited,
+        int PeakLeafScratch);
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
 }

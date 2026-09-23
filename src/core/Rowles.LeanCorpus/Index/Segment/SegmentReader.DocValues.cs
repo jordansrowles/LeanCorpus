@@ -537,7 +537,7 @@ internal sealed partial class SegmentReaderState
             }
             catch (EndOfStreamException)
             {
-                // BKD file is corrupt or truncated — fall back to numeric index.
+                // BKD file is corrupt or truncated; fall back to numeric index.
             }
         }
 
@@ -643,7 +643,7 @@ internal sealed partial class SegmentReaderState
             }
             catch (EndOfStreamException)
             {
-                // BKD file is corrupt or truncated — fall back to the numeric index.
+                // BKD file is corrupt or truncated; fall back to the numeric index.
             }
         }
 
@@ -745,32 +745,6 @@ internal sealed partial class SegmentReaderState
             Volatile.Write(ref _int64BkdReaderLoaded, true);
         }
         return _int64BkdReader;
-    }
-
-    /// <summary>Lazily opens the multidimensional packed BKD reader for this segment.</summary>
-    private Codecs.PackedBkd.PackedBkdReader? EnsurePackedBkdReader()
-    {
-        if (Volatile.Read(ref _packedBkdReaderLoaded)) return _packedBkdReader;
-
-        var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
-        lock (lockObj)
-        {
-            if (_packedBkdReaderLoaded) return _packedBkdReader;
-
-            if (_files.Exists(".pbkd"))
-            {
-                try
-                {
-                    _packedBkdReader = Codecs.PackedBkd.PackedBkdReader.Open(_files.OpenInput(".pbkd"));
-                }
-                catch (Exception ex) when (ex is IOException or InvalidDataException or CodecFileException)
-                {
-                    _packedBkdReader = null;
-                }
-            }
-            Volatile.Write(ref _packedBkdReaderLoaded, true);
-        }
-        return _packedBkdReader;
     }
 
     /// <summary>Returns whether this segment has vector data.</summary>

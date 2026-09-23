@@ -386,7 +386,7 @@ internal static class SegmentFlusher
             PackedBkdWriter.Write(
                 basePath + ".pbkd",
                 source.PackedBkdFields,
-                new PackedBkdBuildOptions(SpillDirectory: directoryPath));
+                PackedBkdBuildOptions.Default with { SpillDirectory = directoryPath });
         }
 
         flushSw.Stop();
@@ -882,7 +882,7 @@ internal static class SegmentFlusher
         }
 
 
-        // Fast path: single numeric ascending sort — use keyed sort to avoid delegate per compare.
+        // Fast path: single numeric ascending sort; use keyed sort to avoid delegate per compare.
         if (fieldCount == 1 && sortTypes[0] == SortFieldType.Numeric && !descFlags[0])
         {
             Array.Sort(numericKeys[0], perm);

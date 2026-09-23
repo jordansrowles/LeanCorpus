@@ -29,7 +29,7 @@ internal sealed class PackedBkdFieldBuffer : IDisposable
 
     internal bool DocumentIdsAreOrdered => _docIdsAreOrdered;
 
-    internal int UniqueDocumentCount => _docIdsAreOrdered ? _uniqueDocumentCount : -1;
+    internal int UniqueDocumentCount => _uniqueDocumentCount;
 
     internal void Append(ReadOnlySpan<byte> packedValue, int docId)
     {
@@ -43,10 +43,13 @@ internal sealed class PackedBkdFieldBuffer : IDisposable
         packedValue.CopyTo(_records.AsSpan(offset, Config.PackedBytesLength));
         BinaryPrimitives.WriteInt32LittleEndian(_records.AsSpan(offset + Config.PackedBytesLength, sizeof(int)), docId);
         if (_count > 0 && docId < _lastDocId)
+        {
             _docIdsAreOrdered = false;
+            _uniqueDocumentCount = -1;
+        }
         if (_count == 0 || docId != _lastDocId)
         {
-            if (_docIdsAreOrdered)
+            if (_uniqueDocumentCount >= 0 && _docIdsAreOrdered)
                 _uniqueDocumentCount++;
         }
         _lastDocId = docId;
@@ -65,15 +68,6 @@ internal sealed class PackedBkdFieldBuffer : IDisposable
             BinaryPrimitives.WriteInt32LittleEndian(_records.AsSpan(offset, sizeof(int)), inversePermutation[oldDocId]);
         }
         _docIdsAreOrdered = false;
-        _uniqueDocumentCount = 0;
-    }
-
-    internal byte[] CopyRecords()
-    {
-        ObjectDisposedException.ThrowIf(_records is null, this);
-        var copy = new byte[checked(_count * Config.RecordBytes)];
-        _records.AsSpan(0, copy.Length).CopyTo(copy);
-        return copy;
     }
 
     internal ReadOnlySpan<byte> Records
@@ -82,6 +76,15 @@ internal sealed class PackedBkdFieldBuffer : IDisposable
         {
             ObjectDisposedException.ThrowIf(_records is null, this);
             return _records.AsSpan(0, checked(_count * Config.RecordBytes));
+        }
+    }
+
+    internal ReadOnlyMemory<byte> RecordsMemory
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_records is null, this);
+            return _records.AsMemory(0, checked(_count * Config.RecordBytes));
         }
     }
 

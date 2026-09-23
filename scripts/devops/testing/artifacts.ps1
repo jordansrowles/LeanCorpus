@@ -18,6 +18,8 @@ function Get-TestEnvironmentSnapshot {
         'GITHUB_ACTIONS',
         'CHAOS_ITERATIONS',
         'DOTNET_ROOT',
+        'DOTNET_ROOT_X64',
+        'DOTNET_HOST_PATH',
         'DOTNET_CLI_TELEMETRY_OPTOUT',
         'DOTNET_NOLOGO',
         'COMPlus_ReadyToRun',
