@@ -1,4 +1,4 @@
-namespace Rowles.LeanCorpus.Codecs.PackedBkd;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 /// <summary>Accounts for managed memory owned by one Packed BKD build.</summary>
 internal sealed class PackedBkdBuildMemoryTracker

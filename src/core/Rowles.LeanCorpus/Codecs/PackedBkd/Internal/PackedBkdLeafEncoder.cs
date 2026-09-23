@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 
-namespace Rowles.LeanCorpus.Codecs.PackedBkd;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 /// <summary>Encodes the single Packed BKD v1 leaf representation.</summary>
 internal static class PackedBkdLeafEncoder

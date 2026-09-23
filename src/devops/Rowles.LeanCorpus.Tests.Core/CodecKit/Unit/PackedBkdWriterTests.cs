@@ -7,6 +7,26 @@ namespace Rowles.LeanCorpus.Tests.Core.Codecs;
 [Area(TestArea.CodecKit)]
 public sealed class PackedBkdWriterTests
 {
+    [Theory(DisplayName = "Packed BKD field names use strict ordinal UTF-8 prefix ordering")]
+    [InlineData("a", "aa")]
+    [InlineData("a", "ab")]
+    [InlineData("é", "ê")]
+    [InlineData("é", "😀")]
+    [InlineData("😀", "😀a")]
+    public void FieldNameComparer_OrdersPrefixesAndUnicode(string lower, string higher)
+    {
+        Assert.True(PackedBkdFieldNameComparer.Instance.Compare(lower, higher) < 0);
+        Assert.True(PackedBkdFieldNameComparer.Instance.Compare(higher, lower) > 0);
+    }
+
+    [Fact(DisplayName = "Packed BKD comparer validates identical invalid names")]
+    public void FieldNameComparer_RejectsInvalidUtf16EvenForSameReference()
+    {
+        // A lone high surrogate cannot be encoded by the strict UTF-8 field-name codec.
+        string invalid = "\uD800";
+        Assert.Throws<ArgumentException>(() => PackedBkdFieldNameComparer.Instance.Compare(invalid, invalid));
+    }
+
     [Fact(DisplayName = "DWPT packed BKD capacity is tracked without metadata enumeration")]
     public void DocumentsWriterTracksPackedBkdCapacity()
     {
@@ -155,6 +175,49 @@ public sealed class PackedBkdWriterTests
         }
     }
 
+    [Fact(DisplayName = "Packed BKD preflight selects spill before renting the full order vector")]
+    public void Writer_PreflightSelectsSpillAtMemoryBoundary()
+    {
+        string directory = PackedBkdTestSupport.CreateDirectory();
+        var captured = new ConcurrentBag<Activity>();
+        using var testSource = new ActivitySource("Rowles.LeanCorpus.Tests.PackedBkd.Preflight");
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = static source => source.Name is "Rowles.LeanCorpus" or "Rowles.LeanCorpus.Tests.PackedBkd.Preflight",
+            Sample = static (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity => captured.Add(activity)
+        };
+        ActivitySource.AddActivityListener(listener);
+        try
+        {
+            const long budget = 8L * 1024;
+            using var scope = testSource.StartActivity("packed-bkd-preflight-test")
+                ?? throw new InvalidOperationException("The Packed BKD test scope activity could not be started.");
+            using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Point2D(maxPointsPerLeaf: 2));
+            for (int document = 0; document < 256; document++)
+                PackedBkdTestSupport.AppendPoint(buffer, document, document, document);
+
+            string spillPath = Path.Combine(directory, "preflight-spill.pbkd");
+            string memoryPath = Path.Combine(directory, "preflight-memory.pbkd");
+            var fields = new Dictionary<string, PackedBkdFieldBuffer> { ["location"] = buffer };
+            PackedBkdWriter.Write(spillPath, fields, new PackedBkdBuildOptions(budget, directory));
+            PackedBkdWriter.Write(memoryPath, fields, new PackedBkdBuildOptions(1024 * 1024, directory));
+
+            Activity activity = Assert.Single(captured,
+                candidate => candidate.RootId == scope.RootId
+                    && candidate.OperationName == LeanCorpusActivitySource.PackedBkdBuild
+                    && candidate.GetTagItem("packed_bkd.memory_budget_bytes") is long requested
+                    && requested == budget);
+            Assert.Equal("spill", activity.GetTagItem("packed_bkd.build_path"));
+            Assert.InRange(Assert.IsType<long>(activity.GetTagItem("packed_bkd.build_peak_bytes")), 0, budget);
+            Assert.Equal(File.ReadAllBytes(memoryPath), File.ReadAllBytes(spillPath));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact(DisplayName = "Packed BKD writes multiple fields in UTF-8 ordinal order")]
     public void Writer_OrdersMultipleFieldsDeterministically()
     {
@@ -162,27 +225,35 @@ public sealed class PackedBkdWriterTests
         try
         {
             string path = Path.Combine(directory, "multiple-fields.pbkd");
-            using var zeta = PackedBkdTestSupport.CreateBuffer(reverse: false);
-            using var alpha = PackedBkdTestSupport.CreateBuffer(reverse: true);
-            PackedBkdWriter.Write(path, new Dictionary<string, PackedBkdFieldBuffer>
+            string[] expected = ["a", "aa", "ab", "zeta", "é", "ê", "😀", "😀a"];
+            var buffers = new Dictionary<string, PackedBkdFieldBuffer>(StringComparer.Ordinal);
+            try
             {
-                ["zeta"] = zeta,
-                ["alpha"] = alpha
-            });
+                foreach (string name in expected.Reverse())
+                    buffers.Add(name, PackedBkdTestSupport.CreateBuffer(reverse: false));
+                PackedBkdWriter.Write(path, buffers);
+            }
+            finally
+            {
+                foreach (var buffer in buffers.Values)
+                    buffer.Dispose();
+            }
 
             using var input = new IndexInput(path);
             using var session = CodecFileReader.Open(input, PackedBkdCodecFiles.Descriptor, ownsInput: true);
             using var body = session.OpenBodyInput();
             body.Seek(body.Length - 16);
             _ = body.ReadInt32();
-            Assert.Equal(2, body.ReadInt32());
+            Assert.Equal(expected.Length, body.ReadInt32());
             long directoryOffset = body.ReadInt64();
             body.Seek(directoryOffset);
-            Assert.Equal(2, body.ReadInt32());
-            Assert.Equal("alpha", body.ReadLengthPrefixedString());
-            _ = body.ReadInt64();
-            _ = body.ReadInt64();
-            Assert.Equal("zeta", body.ReadLengthPrefixedString());
+            Assert.Equal(expected.Length, body.ReadInt32());
+            foreach (string name in expected)
+            {
+                Assert.Equal(name, body.ReadLengthPrefixedString());
+                _ = body.ReadInt64();
+                _ = body.ReadInt64();
+            }
         }
         finally
         {

@@ -1,6 +1,6 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
 
-namespace Rowles.LeanCorpus.Codecs.PackedBkd;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 /// <summary>Orders Packed BKD fields and emits their deterministic v1 sections.</summary>
 internal static class PackedBkdWriter

@@ -1,4 +1,4 @@
-namespace Rowles.LeanCorpus.Codecs.PackedBkd;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 /// <summary>Shared overflow-safe tree and leaf encoding calculations.</summary>
 internal static class PackedBkdTreeMath

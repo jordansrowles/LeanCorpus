@@ -3,7 +3,7 @@ using System.Buffers.Binary;
 using System.Numerics;
 using Rowles.LeanCorpus.Store;
 
-namespace Rowles.LeanCorpus.Codecs.PackedBkd;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 /// <summary>Counts document IDs with bounded bitset or temporary-file storage.</summary>
 internal static class PackedBkdDocumentCounter

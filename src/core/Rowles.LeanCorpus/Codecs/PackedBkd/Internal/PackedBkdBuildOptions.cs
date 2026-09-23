@@ -1,4 +1,4 @@
-namespace Rowles.LeanCorpus.Codecs.PackedBkd;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 /// <summary>Build limits and cancellation options for a packed BKD flush.</summary>
 internal readonly record struct PackedBkdBuildOptions(

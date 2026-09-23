@@ -1,5 +1,5 @@
 using System.Buffers.Binary;
-using Rowles.LeanCorpus.Codecs.PackedBkd;
+using Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Store;
@@ -140,6 +140,75 @@ public sealed class PackedBkdLifecycleTests
         }
     }
 
+    [Fact(DisplayName = "Packed BKD merge rejects incompatible indexed dimensions without losing sources")]
+    public void Merge_RejectsIncompatibleIndexedDimensions()
+    {
+        string directoryPath = PackedBkdTestSupport.CreateDirectory();
+        try
+        {
+            SegmentInfo first = FlushSegment(directoryPath, 0);
+            SegmentInfo second = FlushSegment(directoryPath, 1, new PackedBkdConfig(2, 1, 4, 2));
+            using var directory = new MMapDirectory(directoryPath);
+            var merger = new SegmentMerger(directory, mergeThreshold: 2);
+            int nextOrdinal = 2;
+            Assert.Throws<InvalidDataException>(() => merger.MergeAll([first, second], ref nextOrdinal));
+
+            foreach (SegmentInfo source in new[] { first, second })
+            {
+                Assert.True(File.Exists(Path.Combine(directoryPath, source.SegmentId + ".pbkd")));
+                using var reader = new SegmentReader(directory, source);
+                var visitor = new PackedBkdTestSupport.VisitAllVisitor();
+                Assert.True(reader.IntersectPackedBkd("location", ref visitor));
+                Assert.Equal([0, 1], visitor.Documents.Order());
+            }
+        }
+        finally
+        {
+            Directory.Delete(directoryPath, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Packed BKD merge rejects plausible values with a stale source checksum")]
+    public void Merge_RejectsStaleChecksumWithoutReplacingSources()
+    {
+        string directoryPath = PackedBkdTestSupport.CreateDirectory();
+        try
+        {
+            var config = new PackedBkdConfig(2, 1, 4, 2);
+            SegmentInfo first = FlushSegment(directoryPath, 0, config);
+            SegmentInfo second = FlushSegment(directoryPath, 1, config);
+            string path = Path.Combine(directoryPath, second.SegmentId + ".pbkd");
+            byte[] bytes = File.ReadAllBytes(path);
+            int bodyStart = 16 + bytes[5];
+            int bodyLength = bytes.Length - bodyStart - 16;
+            long directoryOffset = BinaryPrimitives.ReadInt64LittleEndian(
+                bytes.AsSpan(bodyStart + bodyLength - sizeof(long), sizeof(long)));
+            bytes[checked(bodyStart + (int)directoryOffset - 1)] ^= 1;
+            File.WriteAllBytes(path, bytes);
+
+            using var directory = new MMapDirectory(directoryPath);
+            using (var sourceReader = new SegmentReader(directory, second))
+            {
+                var visitor = new PackedBkdTestSupport.VisitAllVisitor();
+                Assert.True(sourceReader.IntersectPackedBkd("location", ref visitor));
+                Assert.Equal([0, 1], visitor.Documents.Order());
+            }
+
+            var merger = new SegmentMerger(directory, mergeThreshold: 2);
+            int nextOrdinal = 2;
+            Assert.Throws<InvalidDataException>(() => merger.MergeAll([first, second], ref nextOrdinal));
+            Assert.Equal(bytes, File.ReadAllBytes(path));
+            using var firstReader = new SegmentReader(directory, first);
+            var firstVisitor = new PackedBkdTestSupport.VisitAllVisitor();
+            Assert.True(firstReader.IntersectPackedBkd("location", ref firstVisitor));
+            Assert.Equal([0, 1], firstVisitor.Documents.Order());
+        }
+        finally
+        {
+            Directory.Delete(directoryPath, recursive: true);
+        }
+    }
+
     [Fact(DisplayName = "Packed BKD reader disposal waits for an active traversal")]
     public async Task ReaderDispose_WaitsForActivePackedBkdTraversal()
     {
@@ -186,7 +255,7 @@ public sealed class PackedBkdLifecycleTests
         }
     }
 
-    private static SegmentInfo FlushSegment(string directoryPath, int ordinal)
+    private static SegmentInfo FlushSegment(string directoryPath, int ordinal, PackedBkdConfig? packedConfig = null)
     {
         var config = new IndexWriterConfig
         {
@@ -205,7 +274,7 @@ public sealed class PackedBkdLifecycleTests
                 byte[] packed = new byte[8];
                 XYEncodingUtils.Encode(document, packed.AsSpan(0, 4));
                 XYEncodingUtils.Encode(document, packed.AsSpan(4, 4));
-                dwpt.AddPackedBkdValue("location", PackedBkdConfig.Point2D(maxPointsPerLeaf: 2), packed, document);
+                dwpt.AddPackedBkdValue("location", packedConfig ?? PackedBkdConfig.Point2D(maxPointsPerLeaf: 2), packed, document);
             }
 
             DwptFlushSnapshot snapshot;

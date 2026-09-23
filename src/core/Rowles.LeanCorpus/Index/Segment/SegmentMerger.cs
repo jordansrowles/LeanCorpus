@@ -2,7 +2,7 @@ using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.Bkd;
-using Rowles.LeanCorpus.Codecs.PackedBkd;
+using Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Codecs.Vectors;
@@ -359,7 +359,10 @@ public sealed class SegmentMerger
             var segInt64Index = ReadInt64Index(reader);
             var segInt64Dvs = ReadInt64DocValues(reader);
             var segInt64SortedDvs = ReadInt64SortedDocValues(reader);
-            foreach (var packedFieldName in reader.GetPackedBkdFieldNames())
+            var packedFieldNames = reader.GetPackedBkdFieldNames();
+            if (packedFieldNames.Count > 0)
+                reader.ValidatePackedBkdChecksum();
+            foreach (var packedFieldName in packedFieldNames)
             {
                 if (!reader.TryGetPackedBkdFieldMetadata(packedFieldName, out var metadata))
                     throw new InvalidDataException($"Packed BKD field '{packedFieldName}' disappeared during merge.");
@@ -367,6 +370,12 @@ public sealed class SegmentMerger
                 {
                     packedBuffer = new PackedBkdFieldBuffer(metadata.Config);
                     ctx.PackedBkdFields.Add(packedFieldName, packedBuffer);
+                }
+                else if (packedBuffer.Config.Dimensions != metadata.Config.Dimensions
+                    || packedBuffer.Config.IndexedDimensions != metadata.Config.IndexedDimensions
+                    || packedBuffer.Config.BytesPerDimension != metadata.Config.BytesPerDimension)
+                {
+                    throw new InvalidDataException($"Packed BKD field '{packedFieldName}' has incompatible source dimensions during merge.");
                 }
 
                 var collector = new PackedBkdMergeVisitor(docIdMap, packedBuffer);

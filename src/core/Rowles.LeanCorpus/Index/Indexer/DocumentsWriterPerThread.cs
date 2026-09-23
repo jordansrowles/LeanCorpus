@@ -1,7 +1,7 @@
 using System.Buffers;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
-using Rowles.LeanCorpus.Codecs.PackedBkd;
+using Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Index.Indexer.Postings;
@@ -173,7 +173,7 @@ internal sealed class DocumentsWriterPerThread
 
     /// <summary>
     /// Indexes a single document into this thread's local buffer.
-    /// Not thread-safe — each thread owns its own DWPT instance.
+    /// Not thread-safe; each thread owns its own DWPT instance.
     /// </summary>
     public void AddDocument(LeanDocument doc)
     {

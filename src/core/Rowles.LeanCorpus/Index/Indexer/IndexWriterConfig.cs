@@ -248,7 +248,9 @@ public sealed class IndexWriterConfig
 
     /// <summary>
     /// Maximum number of point values in a BKD tree leaf node. Smaller leaves give faster
-    /// range queries at the cost of larger index files. Default: 512.
+    /// range queries at the cost of larger index files. The shared setting requires at least
+    /// two points for the established 1D writer; internal Packed BKD v1 can represent one.
+    /// Default: 512.
     /// </summary>
     public int BKDMaxLeafSize { get; set; } = 512;
 

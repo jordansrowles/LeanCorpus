@@ -2,7 +2,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using Rowles.LeanCorpus.Store;
 
-namespace Rowles.LeanCorpus.Codecs.PackedBkd;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 /// <summary>Builds deterministic Packed BKD trees using bounded selection state.</summary>
 internal static class PackedBkdBuilder

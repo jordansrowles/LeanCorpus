@@ -1,7 +1,7 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
 
-namespace Rowles.LeanCorpus.Codecs.PackedBkd;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 /// <summary>Retains encoded leaf data in memory or in a temporary file.</summary>
 internal sealed class PackedBkdLeafDataStore : IDisposable

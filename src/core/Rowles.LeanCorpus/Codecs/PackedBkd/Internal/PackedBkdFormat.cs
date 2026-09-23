@@ -2,7 +2,7 @@ using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
 
-namespace Rowles.LeanCorpus.Codecs.PackedBkd;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 /// <summary>Shared Packed BKD v1 constants and field-name encoding rules.</summary>
 internal static class PackedBkdFormat

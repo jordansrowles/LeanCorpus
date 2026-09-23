@@ -1,4 +1,4 @@
-namespace Rowles.LeanCorpus.Search.XY;
+namespace Rowles.LeanCorpus.Search.XY.Internal;
 
 internal static class XYGeometryValidation
 {

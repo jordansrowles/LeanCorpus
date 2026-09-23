@@ -1,6 +1,5 @@
 ﻿namespace Rowles.LeanCorpus.Search.Geo;
 
-using Rowles.LeanCorpus.Search;
 
 /// <summary>
 /// Utilities for encoding/decoding geographic coordinates to/from numeric values

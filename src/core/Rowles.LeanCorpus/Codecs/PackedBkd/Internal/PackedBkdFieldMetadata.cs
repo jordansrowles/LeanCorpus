@@ -1,4 +1,4 @@
-namespace Rowles.LeanCorpus.Codecs.PackedBkd;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 /// <summary>Compact immutable offsets and header metadata for one Packed BKD field.</summary>
 internal readonly struct PackedBkdFieldMetadata
@@ -43,8 +43,8 @@ internal readonly struct PackedBkdFieldMetadata
     internal long LeafOffsetsOffset { get; }
     internal long LeafDataOffset { get; }
     internal long LeafDataLength { get; }
-    internal byte[] RootMinimum { get; }
-    internal byte[] RootMaximum { get; }
+    internal ReadOnlyMemory<byte> RootMinimum { get; }
+    internal ReadOnlyMemory<byte> RootMaximum { get; }
     internal long SectionOffset { get; }
     internal long SectionLength { get; }
 }

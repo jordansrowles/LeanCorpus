@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 
 namespace Rowles.LeanCorpus.Search.Geo;
 
-/// <summary>An immutable geographic line string with canonical dateline seam points.</summary>
+/// <summary>An immutable geographic line string with canonical International Date Line seam points.</summary>
 public sealed class GeoLineString : IGeoGeometry, IEquatable<GeoLineString>
 {
     private readonly GeoPoint[] _points;

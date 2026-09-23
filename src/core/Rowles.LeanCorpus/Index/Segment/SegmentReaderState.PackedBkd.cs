@@ -1,4 +1,4 @@
-using Rowles.LeanCorpus.Codecs.PackedBkd;
+using Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 namespace Rowles.LeanCorpus.Index.Segment;
 
@@ -37,6 +37,9 @@ internal sealed partial class SegmentReaderState
 
     internal void DeepValidatePackedBkd()
         => EnsurePackedBkdReader()?.DeepValidate();
+
+    internal void ValidatePackedBkdChecksum()
+        => EnsurePackedBkdReader()?.ValidateChecksum();
 
     private PackedBkdReader? EnsurePackedBkdReader()
     {

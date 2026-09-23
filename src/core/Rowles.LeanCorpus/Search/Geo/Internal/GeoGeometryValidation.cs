@@ -1,4 +1,4 @@
-namespace Rowles.LeanCorpus.Search.Geo;
+namespace Rowles.LeanCorpus.Search.Geo.Internal;
 
 internal static class GeoGeometryValidation
 {

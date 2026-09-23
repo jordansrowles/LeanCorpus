@@ -1,7 +1,7 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
 
-namespace Rowles.LeanCorpus.Codecs.PackedBkd;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 /// <summary>Reads the bounded tail directory and field sections of a packed BKD file.</summary>
 internal sealed class PackedBkdReader : IDisposable
@@ -43,6 +43,23 @@ internal sealed class PackedBkdReader : IDisposable
     internal IReadOnlyCollection<string> FieldNames => _directory.Keys;
 
     internal bool HasField(string fieldName) => _directory.ContainsKey(fieldName);
+
+    /// <summary>Verifies the source body once before a merge rewrites its values.</summary>
+    internal void ValidateChecksum()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        lock (_gate)
+        {
+            try
+            {
+                _session.ValidateChecksum();
+            }
+            catch (CodecFileException exception)
+            {
+                throw new InvalidDataException("Packed BKD source checksum validation failed during merge.", exception);
+            }
+        }
+    }
 
     internal PackedBkdFieldMetadata GetFieldMetadata(string fieldName)
     {

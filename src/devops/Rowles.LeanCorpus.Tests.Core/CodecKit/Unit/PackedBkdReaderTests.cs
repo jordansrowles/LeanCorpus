@@ -6,6 +6,14 @@ namespace Rowles.LeanCorpus.Tests.Core.Codecs;
 [Area(TestArea.CodecKit)]
 public sealed class PackedBkdReaderTests
 {
+    [Fact(DisplayName = "Packed BKD v1 accepts one-point leaves while shared writer configuration retains the 1D minimum")]
+    public void LeafSizeContracts_RemainDistinct()
+    {
+        Assert.Equal(1, PackedBkdConfig.Point2D(maxPointsPerLeaf: 1).MaxPointsPerLeaf);
+        var writerConfig = new IndexWriterConfig { BKDMaxLeafSize = 1 };
+        Assert.Throws<ArgumentException>(writerConfig.Validate);
+    }
+
     [Fact(DisplayName = "Packed BKD metadata exposes exact indexed root bounds")]
     public void Reader_ReportsExactRootBounds()
     {
@@ -20,8 +28,8 @@ public sealed class PackedBkdReaderTests
 
             using var reader = PackedBkdReader.Open(path);
             var metadata = reader.GetFieldMetadata("location");
-            Assert.Equal([0, 0, 0, 5, 0, 0, 0, 20], metadata.RootMinimum);
-            Assert.Equal([0, 0, 0, 10, 0, 0, 0, 25], metadata.RootMaximum);
+            Assert.Equal([0, 0, 0, 5, 0, 0, 0, 20], metadata.RootMinimum.ToArray());
+            Assert.Equal([0, 0, 0, 10, 0, 0, 0, 25], metadata.RootMaximum.ToArray());
         }
         finally
         {

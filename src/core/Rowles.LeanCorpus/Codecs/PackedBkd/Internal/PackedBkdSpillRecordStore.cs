@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using Rowles.LeanCorpus.Store;
 
-namespace Rowles.LeanCorpus.Codecs.PackedBkd;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 /// <summary>Provides bounded fixed-record temporary storage for spill construction.</summary>
 internal sealed class PackedBkdSpillRecordStore : IDisposable, IPackedBkdRecordSource

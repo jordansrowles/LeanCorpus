@@ -31,8 +31,8 @@ once. Geo APIs use `double` latitude/longitude and metre radii. XY APIs use
 finite `float` coordinates and coordinate-unit radii. Public geometry contains no
 indexing or tessellation state. The marker interfaces are `IGeoGeometry` and
 `IXYGeometry`; `GeoEncodingUtils` exposes `NormaliseLongitude`. The two proof
-Packed BKD configurations are exposed as `PackedBkdConfig.Point2D()` and
-`PackedBkdConfig.Shape7D4Indexed()`.
+The internal Packed BKD proof configurations are `PackedBkdConfig.Point2D()`
+and `PackedBkdConfig.Shape7D4Indexed()`.
 
 All constructors use shared validation and canonicalisation rules. Coordinates
 reject non-finite values. Rings become explicitly closed, consecutive duplicate
@@ -57,6 +57,10 @@ Packed BKD is a native LeanCorpus block KD implementation derived from the
 Lucene BKD algorithmic shape, not from Lucene's historical file format. It
 supports one to sixteen total dimensions, one to eight indexed dimensions,
 exactly four bytes per dimension in v1, and one to 4096 points per leaf. The
+existing public `IndexWriterConfig.BKDMaxLeafSize` remains at least two because
+it also controls the established 1D BKD writer. Internal Packed BKD
+configuration and the `.pbkd` v1 reader may use a leaf size of one; Sprint 1
+adds no separate public Packed BKD leaf-size setting. The
 required proof configurations are 2D/2-indexed and 7D/4-indexed. Split choice
 uses under-used indexed dimensions, then the largest unsigned encoded span.
 Internal nodes use deterministic MSD/radix selection and partitioning at the
@@ -122,6 +126,10 @@ than point count.
   shared sortable-coordinate primitives needed by Packed BKD.
 - `PackedBkdFieldBuffer`, writer, reader and traversal remain internal until a
   later sprint attaches public point fields and queries.
+- Implementation-only geometry helpers live under `Search.Geo.Internal` and
+  `Search.XY.Internal`; shared coordinate encoding lives under
+  `Search.Internal`, and Packed BKD implementation lives under
+  `Codecs.PackedBkd.Internal`.
 - `.bkd` and `.bkdl` constants, bytes and migration behaviour do not change.
 - Flush and merge may carry packed field buffers through the existing detached
   snapshot boundary; failed work must dispose pooled state and remove spill

@@ -1,4 +1,4 @@
-using Rowles.LeanCorpus.Codecs.PackedBkd;
+using Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 namespace Rowles.LeanCorpus.Index.Segment;
 
@@ -27,5 +27,11 @@ public sealed partial class SegmentReader
     {
         using var lease = AcquireReadLease();
         lease.State.DeepValidatePackedBkd();
+    }
+
+    internal void ValidatePackedBkdChecksum()
+    {
+        using var lease = AcquireReadLease();
+        lease.State.ValidatePackedBkdChecksum();
     }
 }

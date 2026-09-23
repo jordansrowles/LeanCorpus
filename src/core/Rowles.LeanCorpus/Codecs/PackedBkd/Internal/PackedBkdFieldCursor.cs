@@ -2,7 +2,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using Rowles.LeanCorpus.Store;
 
-namespace Rowles.LeanCorpus.Codecs.PackedBkd;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 /// <summary>Owns one bounded, query-local Packed BKD traversal.</summary>
 internal sealed class PackedBkdFieldCursor : IDisposable
@@ -47,6 +47,7 @@ internal sealed class PackedBkdFieldCursor : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         byte[] minimum = _metadata.RootMinimum.ToArray();
         byte[] maximum = _metadata.RootMaximum.ToArray();
+        // Explicit offline validation tracks all document IDs; normal queries do not allocate this set.
         var documents = new HashSet<int>();
         long pointCount = ValidateNode(
             minimum,

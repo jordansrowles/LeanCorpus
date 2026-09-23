@@ -19,7 +19,7 @@ global using Rowles.LeanCorpus.Codecs.CodecKit.Recovery;
 global using Rowles.LeanCorpus.Codecs.DocValues;
 global using Rowles.LeanCorpus.Codecs.Fst;
 global using Rowles.LeanCorpus.Codecs.Hnsw;
-global using Rowles.LeanCorpus.Codecs.PackedBkd;
+global using Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 global using Rowles.LeanCorpus.Codecs.Postings;
 global using Rowles.LeanCorpus.Codecs.StoredFields;
 global using Rowles.LeanCorpus.Codecs.TermDictionary;

@@ -1,6 +1,6 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
 
-namespace Rowles.LeanCorpus.Codecs.PackedBkd;
+namespace Rowles.LeanCorpus.Codecs.PackedBkd.Internal;
 
 /// <summary>Owns one completed Packed BKD field before physical emission.</summary>
 internal sealed class PackedBkdBuiltField : IDisposable

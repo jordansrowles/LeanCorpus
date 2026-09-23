@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 
-namespace Rowles.LeanCorpus.Search;
+namespace Rowles.LeanCorpus.Search.Internal;
 
 /// <summary>Shared endian-independent sortable coordinate primitives.</summary>
 internal static class SortableCoordinateEncoding
