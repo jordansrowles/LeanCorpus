@@ -1,5 +1,11 @@
 using System.Buffers;
+using Rowles.LeanCorpus.Codecs.PackedBkd;
+using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Index.Segment;
+using Rowles.LeanCorpus.Search.Geo;
 using Rowles.LeanCorpus.Search.Scoring;
+using Rowles.LeanCorpus.Search.Searcher.Internal;
+using Rowles.LeanCorpus.Search.XY;
 
 namespace Rowles.LeanCorpus.Search.Searcher;
 
@@ -106,7 +112,11 @@ public sealed partial class IndexSearcher
             SortField sort = sorts[i];
             if (value.Type != sort.Type)
                 throw new ArgumentException($"Search-after value {i} has type '{value.Type}', expected '{sort.Type}'.", nameof(afterValues));
-            if (value.Type is SortFieldType.Score or SortFieldType.Numeric && !double.IsFinite(value.NumericValue))
+            bool spatialType = value.Type is SortFieldType.GeoDistance or SortFieldType.XYDistance;
+            if (value.IsMissing && !spatialType)
+                throw new ArgumentException("Only spatial distance boundaries can be missing.", nameof(afterValues));
+            if ((value.Type is SortFieldType.Score or SortFieldType.Numeric && !double.IsFinite(value.NumericValue))
+                || (spatialType && !value.IsMissing && !double.IsFinite(value.NumericValue)))
                 throw new ArgumentException("Search-after numeric values must be finite.", nameof(afterValues));
             if (value.Type == SortFieldType.String && value.StringValue is null)
                 throw new ArgumentException("Search-after string values cannot be null.", nameof(afterValues));
@@ -127,6 +137,9 @@ public sealed partial class IndexSearcher
             result[i] = values[i].Type switch
             {
                 SortFieldType.Score or SortFieldType.Numeric => SearchAfterValue.FromNumeric(values[i].Type, values[i].Numeric),
+                SortFieldType.GeoDistance or SortFieldType.XYDistance => values[i].IsMissing
+                    ? SearchAfterValue.FromMissingNumeric(values[i].Type)
+                    : SearchAfterValue.FromNumeric(values[i].Type, values[i].Numeric),
                 SortFieldType.DocId or SortFieldType.Int64 => SearchAfterValue.FromInt64(values[i].Type, values[i].Int64),
                 SortFieldType.String => SearchAfterValue.FromString(values[i].String ?? string.Empty),
                 _ => throw new NotSupportedException($"Sort type '{values[i].Type}' is not cursor-compatible.")
@@ -174,6 +187,12 @@ public sealed partial class IndexSearcher
         if (deadlineTicks.HasValue && sw.ElapsedTicks > deadlineTicks.Value)
             return TopDocs.Empty;
 
+        Query rewrittenQuery = RewriteQuery(query);
+        if (!sort.Descending
+            && (sort.Type is SortFieldType.GeoDistance or SortFieldType.XYDistance)
+            && TrySearchBestFirstSpatial(rewrittenQuery, topN, sort, options, sw, deadlineTicks, out TopDocs nearest))
+            return nearest;
+
         // Fast path: if the sort matches the index sort, iterate postings in doc-ID
         // order (which is sort-key order) and stop after collecting topN live docs.
         if (_readers.Count > 0 && query is TermQuery tq
@@ -198,22 +217,122 @@ public sealed partial class IndexSearcher
         var docs = allDocs.ScoreDocs;
         int effectiveN = Math.Min(topN, docs.Length);
 
-        var sorted = sort.Type switch
-        {
-            SortFieldType.DocId => SelectTopByDocId(docs, effectiveN, sort.Descending),
-            SortFieldType.Numeric => SelectTopByNumericField(
-                docs, effectiveN, sort.FieldName, sort.Descending, sort.Selector),
-            SortFieldType.Int64 => SelectTopByInt64Field(
-                docs, effectiveN, sort.FieldName, sort.Descending, sort.Selector),
-            SortFieldType.String => SelectTopByStringField(
-                docs, effectiveN, sort.FieldName, sort.Descending, sort.Selector),
-            _ => docs.Length > effectiveN ? docs[..effectiveN] : docs
-        };
+        var sorted = sort.Type is SortFieldType.GeoDistance or SortFieldType.XYDistance
+            ? SortCandidates(docs, [sort], effectiveN)
+            : sort.Type switch
+            {
+                SortFieldType.DocId => SelectTopByDocId(docs, effectiveN, sort.Descending),
+                SortFieldType.Numeric => SelectTopByNumericField(
+                    docs, effectiveN, sort.FieldName, sort.Descending, sort.Selector),
+                SortFieldType.Int64 => SelectTopByInt64Field(
+                    docs, effectiveN, sort.FieldName, sort.Descending, sort.Selector),
+                SortFieldType.String => SelectTopByStringField(
+                    docs, effectiveN, sort.FieldName, sort.Descending, sort.Selector),
+                _ => docs.Length > effectiveN ? docs[..effectiveN] : docs
+            };
 
         sw.Stop();
         return partial
             ? new TopDocs(allDocs.TotalHits, sorted, isPartial: true)
             : new TopDocs(allDocs.TotalHits, sorted);
+    }
+
+    private bool TrySearchBestFirstSpatial(
+        Query query,
+        int topN,
+        SortField sort,
+        SearchOptions options,
+        System.Diagnostics.Stopwatch stopwatch,
+        long? deadlineTicks,
+        out TopDocs result)
+    {
+        result = TopDocs.Empty;
+        if (query is not (MatchAllDocsQuery or ConstantScoreQuery)
+            || sort.Type is not (SortFieldType.GeoDistance or SortFieldType.XYDistance)
+            || (sort.Type == SortFieldType.GeoDistance && sort.GeoOrigin is null)
+            || (sort.Type == SortFieldType.XYDistance && sort.XYOrigin is null))
+            return false;
+
+        int totalHits = Count(query);
+        if (totalHits == 0)
+        {
+            result = TopDocs.Empty;
+            return true;
+        }
+
+        int perSegmentTopN = Math.Min(topN, totalHits);
+        var globalTopN = new SortedSet<SpatialDistanceCandidate>(SpatialDistanceCandidateComparer.Instance);
+        ConstantScoreQuery? constantScoreQuery = query as ConstantScoreQuery;
+        Dictionary<(string Field, string Term), int> globalDFs = constantScoreQuery is null
+            ? new Dictionary<(string Field, string Term), int>()
+            : PrecomputeGlobalDocFreqsForSearch(constantScoreQuery.Inner);
+        bool partial = false;
+        foreach (SegmentReader reader in _readers)
+        {
+            if (options.CancellationToken.IsCancellationRequested
+                || (deadlineTicks.HasValue && stopwatch.ElapsedTicks > deadlineTicks.Value))
+            {
+                partial = true;
+                break;
+            }
+
+            int capacity = Math.Min(perSegmentTopN, reader.MaxDoc);
+            if (capacity == 0)
+                continue;
+
+            Util.RoaringBitmap? filterBitmap = constantScoreQuery is null
+                ? null
+                : ExecuteFilterToBitmap(constantScoreQuery.Inner, reader, globalDFs);
+            if (filterBitmap is { Cardinality: 0 })
+                continue;
+
+            float score = constantScoreQuery is null
+                ? ((MatchAllDocsQuery)query).Boost
+                : constantScoreQuery.ConstantScore * constantScoreQuery.Boost;
+
+            var collector = new SpatialNearestCollector(
+                this,
+                reader,
+                sort,
+                capacity,
+                score,
+                constantScoreQuery?.Field,
+                filterBitmap,
+                options.CancellationToken,
+                stopwatch,
+                deadlineTicks);
+            bool compatiblePackedField = reader.TryGetPackedBkdFieldMetadata(sort.FieldName, out PackedBkdFieldMetadata metadata)
+                && metadata.Config.Dimensions == 2
+                && metadata.Config.IndexedDimensions == 2
+                && metadata.Config.BytesPerDimension == sizeof(uint);
+
+            if (compatiblePackedField)
+            {
+                reader.TraversePackedBkdBestFirst(sort.FieldName, ref collector, out _);
+                if (!collector.ShouldStop && collector.Count < capacity)
+                    collector.CollectAllDocuments(includeMissing: true);
+            }
+            else
+            {
+                collector.CollectAllDocuments(includeMissing: true);
+            }
+
+            collector.MergeInto(globalTopN, topN);
+            if (collector.ShouldStop)
+            {
+                partial = true;
+                break;
+            }
+        }
+
+        var sorted = new ScoreDoc[globalTopN.Count];
+        int resultIndex = 0;
+        foreach (SpatialDistanceCandidate candidate in globalTopN)
+            sorted[resultIndex++] = new ScoreDoc(candidate.GlobalDocId, candidate.Score);
+        partial |= options.CancellationToken.IsCancellationRequested
+            || (deadlineTicks.HasValue && stopwatch.ElapsedTicks > deadlineTicks.Value);
+        result = new TopDocs(totalHits, sorted, isPartial: partial);
+        return true;
     }
 
     private TopDocs SearchTermQueryUnscored(TermQuery query)
@@ -468,6 +587,7 @@ public sealed partial class IndexSearcher
         var parts = metadata.Split(':');
         if (parts.Length is < 3 or > 4) return false;
         if (!Enum.TryParse<SortFieldType>(parts[0], out var type)) return false;
+        if (type is SortFieldType.GeoDistance or SortFieldType.XYDistance) return false;
         if (!bool.TryParse(parts[2], out bool descending)) return false;
         var selector = SortValueSelector.Min;
         if (parts.Length == 4 && !Enum.TryParse(parts[3], out selector)) return false;
@@ -477,7 +597,8 @@ public sealed partial class IndexSearcher
 
     private static bool MatchesSort(SortField a, SortField b)
         => a.Type == b.Type && a.FieldName == b.FieldName
-            && a.Descending == b.Descending && a.Selector == b.Selector;
+            && a.Descending == b.Descending && a.Selector == b.Selector
+            && a.GeoOrigin == b.GeoOrigin && a.XYOrigin == b.XYOrigin;
 
     private SortColumn BuildSortColumn(ScoreDoc[] docs, SortField field)
     {
@@ -504,6 +625,12 @@ public sealed partial class IndexSearcher
                     column.StringValues![i] = ResolveString(
                         docs[i].DocId, field.FieldName, field.Selector);
                     break;
+                case SortFieldType.GeoDistance:
+                case SortFieldType.XYDistance:
+                    bool hasDistance = TryResolveSpatialDistance(docs[i].DocId, field, out double distance);
+                    column.NumericValues![i] = hasDistance ? distance : 0;
+                    column.MissingValues![i] = !hasDistance;
+                    break;
             }
         }
         return column;
@@ -522,6 +649,7 @@ public sealed partial class IndexSearcher
                 SortFieldType.Numeric => CursorSortValue.FromNumeric(sort.Type, ResolveNumeric(document.DocId, sort.FieldName, sort.Selector)),
                 SortFieldType.Int64 => CursorSortValue.FromInt64(sort.Type, ResolveInt64(document.DocId, sort.FieldName, sort.Selector)),
                 SortFieldType.String => CursorSortValue.FromString(ResolveString(document.DocId, sort.FieldName, sort.Selector)),
+                SortFieldType.GeoDistance or SortFieldType.XYDistance => ResolveSpatialDistance(document.DocId, sort),
                 _ => throw new NotSupportedException($"Sort type '{sort.Type}' is not cursor-compatible.")
             };
         }
@@ -549,6 +677,300 @@ public sealed partial class IndexSearcher
         return sorted;
     }
 
+    private CursorSortValue ResolveSpatialDistance(int globalDocId, SortField sort)
+        => TryResolveSpatialDistance(globalDocId, sort, out double distance)
+            ? CursorSortValue.FromNumeric(sort.Type, distance)
+            : CursorSortValue.FromNumeric(sort.Type, 0, isMissing: true);
+
+    private SortValue ResolveSpatialSortValue(int globalDocId, SortField sort)
+        => TryResolveSpatialDistance(globalDocId, sort, out double distance)
+            ? SortValue.FromNumeric(distance)
+            : SortValue.FromNumeric(0, isMissing: true);
+
+    private bool TryResolveSpatialDistance(int globalDocId, SortField sort, out double distance)
+    {
+        distance = 0;
+        int readerOrdinal = FindReaderOrdinal(globalDocId);
+        if (readerOrdinal < 0)
+            return false;
+
+        SegmentReader reader = _readers[readerOrdinal];
+        int localDocId = globalDocId - _docBases[readerOrdinal];
+        if (sort.Type == SortFieldType.GeoDistance)
+        {
+            Rowles.LeanCorpus.Search.Geo.GeoPoint origin = sort.GeoOrigin
+                ?? throw new InvalidOperationException("A geographic distance sort has no origin.");
+            string pointValuesField = GeoPointDocValues.GetFieldName(sort.FieldName);
+            if (reader.TryGetBinaryDocValues(pointValuesField, localDocId, out var values))
+            {
+                double minimumDistance = double.PositiveInfinity;
+                foreach (byte[] value in values)
+                {
+                    if (!GeoPointDocValues.TryDecode(value, out double latitude, out double longitude))
+                        throw new InvalidDataException($"Geo point DocValues for field '{sort.FieldName}' are malformed.");
+                    double candidate = GeoEncodingUtils.HaversineDistance(
+                        origin.Latitude, origin.Longitude, latitude, longitude);
+                    if (candidate < minimumDistance)
+                        minimumDistance = candidate;
+                }
+
+                if (double.IsFinite(minimumDistance))
+                {
+                    distance = minimumDistance;
+                    return true;
+                }
+            }
+
+            if (reader.TryGetNumericValue(sort.FieldName + "_lat", localDocId, out double legacyLatitude)
+                && reader.TryGetNumericValue(sort.FieldName + "_lon", localDocId, out double legacyLongitude))
+            {
+                distance = GeoEncodingUtils.HaversineDistance(
+                    origin.Latitude, origin.Longitude, legacyLatitude, legacyLongitude);
+                return true;
+            }
+
+            return false;
+        }
+
+        if (sort.Type == SortFieldType.XYDistance)
+        {
+            Rowles.LeanCorpus.Search.XY.XYPoint origin = sort.XYOrigin
+                ?? throw new InvalidOperationException("A Cartesian distance sort has no origin.");
+            if (!reader.TryGetBinaryDocValues(sort.FieldName, localDocId, out var values))
+                return false;
+
+            double minimumSquared = double.PositiveInfinity;
+            foreach (byte[] value in values)
+            {
+                if (value.Length != 2 * PackedBkdConfig.FixedBytesPerDimension)
+                    throw new InvalidDataException($"XY point DocValues for field '{sort.FieldName}' are malformed.");
+                double x = XYEncodingUtils.Decode(value);
+                double y = XYEncodingUtils.Decode(value.AsSpan(PackedBkdConfig.FixedBytesPerDimension));
+                double dx = x - origin.X;
+                double dy = y - origin.Y;
+                double squared = dx * dx + dy * dy;
+                if (squared < minimumSquared)
+                    minimumSquared = squared;
+            }
+
+            if (double.IsFinite(minimumSquared))
+            {
+                distance = Math.Sqrt(minimumSquared);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private sealed class SpatialNearestCollector : IPackedBkdBestFirstVisitor
+    {
+        private readonly IndexSearcher _searcher;
+        private readonly SegmentReader _reader;
+        private readonly SortField _sort;
+        private readonly int _capacity;
+        private readonly float _score;
+        private readonly string? _scoreField;
+        private readonly Util.RoaringBitmap? _filterBitmap;
+        private readonly CancellationToken _cancellationToken;
+        private readonly System.Diagnostics.Stopwatch _stopwatch;
+        private readonly long? _deadlineTicks;
+        private readonly SortedSet<SpatialDistanceCandidate> _ordered = new(SpatialDistanceCandidateComparer.Instance);
+        private readonly Dictionary<int, SpatialDistanceCandidate> _byGlobalDoc = new();
+        private int _peakCandidateCount;
+        private long _exactDistanceCalculations;
+        private long _filterCandidatesRejected;
+        private long _candidateUpdates;
+
+        internal SpatialNearestCollector(
+            IndexSearcher searcher,
+            SegmentReader reader,
+            SortField sort,
+            int capacity,
+            float score,
+            string? scoreField,
+            Util.RoaringBitmap? filterBitmap,
+            CancellationToken cancellationToken,
+            System.Diagnostics.Stopwatch stopwatch,
+            long? deadlineTicks)
+        {
+            _searcher = searcher;
+            _reader = reader;
+            _sort = sort;
+            _capacity = capacity;
+            _score = score;
+            _scoreField = scoreField;
+            _filterBitmap = filterBitmap;
+            _cancellationToken = cancellationToken;
+            _stopwatch = stopwatch;
+            _deadlineTicks = deadlineTicks;
+        }
+
+        internal int Count => _ordered.Count;
+
+        public int CurrentCandidateCount => _ordered.Count;
+
+        public int PeakCandidateCount => _peakCandidateCount;
+
+        public long ExactDistanceCalculations => _exactDistanceCalculations;
+
+        public long FilterCandidatesRejected => _filterCandidatesRejected;
+
+        public long CandidateUpdates => _candidateUpdates;
+
+        public bool ShouldStop => _cancellationToken.IsCancellationRequested
+            || (_deadlineTicks.HasValue && _stopwatch.ElapsedTicks > _deadlineTicks.Value);
+
+        public bool HasFullCandidateSet => _ordered.Count >= _capacity;
+
+        public double WorstCandidateDistance
+        {
+            get
+            {
+                SpatialDistanceCandidate worst = _ordered.Max!;
+                return _sort.Type == SortFieldType.XYDistance
+                    ? worst.Distance * worst.Distance
+                    : worst.Distance;
+            }
+        }
+
+        public double GetLowerBoundDistance(
+            uint minimumX,
+            uint maximumX,
+            uint minimumY,
+            uint maximumY)
+        {
+            if (_sort.Type == SortFieldType.GeoDistance)
+            {
+                GeoPoint origin = _sort.GeoOrigin!.Value;
+                return SpatialDistanceLowerBound.GeoMetres(
+                    origin.Latitude,
+                    origin.Longitude,
+                    minimumX,
+                    maximumX,
+                    minimumY,
+                    maximumY);
+            }
+
+            XYPoint xyOrigin = _sort.XYOrigin!.Value;
+            return SpatialDistanceLowerBound.XYSquared(
+                xyOrigin.X,
+                xyOrigin.Y,
+                minimumX,
+                maximumX,
+                minimumY,
+                maximumY);
+        }
+
+        public void Visit(int documentId, ReadOnlySpan<byte> packedValue)
+        {
+            if (ShouldStop || !_reader.IsLive(documentId))
+                return;
+            if (_filterBitmap is not null && !_filterBitmap.Contains(documentId))
+            {
+                _filterCandidatesRejected++;
+                return;
+            }
+            AddDocument(_reader.DocBase + documentId, includeMissing: false);
+        }
+
+        internal void CollectAllDocuments(bool includeMissing)
+        {
+            for (int localDocId = 0; localDocId < _reader.MaxDoc && !ShouldStop; localDocId++)
+            {
+                if (!_reader.IsLive(localDocId)
+                    || (_filterBitmap is not null && !_filterBitmap.Contains(localDocId)))
+                    continue;
+                AddDocument(_reader.DocBase + localDocId, includeMissing);
+            }
+        }
+
+        internal void MergeInto(SortedSet<SpatialDistanceCandidate> globalTopN, int topN)
+        {
+            foreach (SpatialDistanceCandidate candidate in _ordered)
+            {
+                if (globalTopN.Count < topN)
+                {
+                    globalTopN.Add(candidate);
+                    continue;
+                }
+
+                SpatialDistanceCandidate worst = globalTopN.Max!;
+                if (SpatialDistanceCandidateComparer.Instance.Compare(candidate, worst) >= 0)
+                    continue;
+                globalTopN.Remove(worst);
+                globalTopN.Add(candidate);
+            }
+        }
+
+        private void AddDocument(int globalDocId, bool includeMissing)
+        {
+            if (_searcher.TryResolveSpatialDistance(globalDocId, _sort, out double distance))
+            {
+                _exactDistanceCalculations++;
+                float score = _scoreField is null
+                    ? _score
+                    : ApplyFieldBoost(_reader, globalDocId - _reader.DocBase, _scoreField, _score);
+                AddCandidate(new SpatialDistanceCandidate(globalDocId, distance, score, IsMissing: false));
+            }
+            else if (includeMissing)
+            {
+                float score = _scoreField is null
+                    ? _score
+                    : ApplyFieldBoost(_reader, globalDocId - _reader.DocBase, _scoreField, _score);
+                AddCandidate(new SpatialDistanceCandidate(globalDocId, 0, score, IsMissing: true));
+            }
+        }
+
+        private void AddCandidate(SpatialDistanceCandidate candidate)
+        {
+            if (_byGlobalDoc.TryGetValue(candidate.GlobalDocId, out SpatialDistanceCandidate existing))
+            {
+                if (SpatialDistanceCandidateComparer.Instance.Compare(candidate, existing) >= 0)
+                    return;
+                _ordered.Remove(existing);
+                _byGlobalDoc.Remove(existing.GlobalDocId);
+            }
+
+            if (_ordered.Count >= _capacity)
+            {
+                SpatialDistanceCandidate worst = _ordered.Max!;
+                if (SpatialDistanceCandidateComparer.Instance.Compare(candidate, worst) >= 0)
+                    return;
+                _ordered.Remove(worst);
+                _byGlobalDoc.Remove(worst.GlobalDocId);
+            }
+
+            _ordered.Add(candidate);
+            _byGlobalDoc[candidate.GlobalDocId] = candidate;
+            _candidateUpdates++;
+            _peakCandidateCount = Math.Max(_peakCandidateCount, _ordered.Count);
+        }
+    }
+
+    private readonly record struct SpatialDistanceCandidate(int GlobalDocId, double Distance, float Score, bool IsMissing);
+
+    private sealed class SpatialDistanceCandidateComparer : IComparer<SpatialDistanceCandidate>
+    {
+        internal static readonly SpatialDistanceCandidateComparer Instance = new();
+
+        public int Compare(SpatialDistanceCandidate left, SpatialDistanceCandidate right)
+        {
+            if (left.GlobalDocId == right.GlobalDocId)
+                return 0;
+            int missing = left.IsMissing.CompareTo(right.IsMissing);
+            if (missing != 0)
+                return missing;
+            if (!left.IsMissing)
+            {
+                int distance = left.Distance.CompareTo(right.Distance);
+                if (distance != 0)
+                    return distance;
+            }
+            return left.GlobalDocId.CompareTo(right.GlobalDocId);
+        }
+    }
+
     private static int CompareSortRows(
         SortColumn[] columns,
         ScoreDoc[] docs,
@@ -570,23 +992,36 @@ public sealed partial class IndexSearcher
         internal double[]? NumericValues { get; }
         internal long[]? Int64Values { get; }
         internal string[]? StringValues { get; }
+        internal bool[]? MissingValues { get; }
 
         internal SortColumn(SortField field, int count)
         {
             _field = field;
-            if (field.Type is SortFieldType.Score or SortFieldType.Numeric)
+            if (field.Type is SortFieldType.Score or SortFieldType.Numeric or SortFieldType.GeoDistance or SortFieldType.XYDistance)
                 NumericValues = new double[count];
             else if (field.Type is SortFieldType.DocId or SortFieldType.Int64)
                 Int64Values = new long[count];
             else
                 StringValues = new string[count];
+            if (field.Type is SortFieldType.GeoDistance or SortFieldType.XYDistance)
+                MissingValues = new bool[count];
         }
 
         internal int Compare(int left, int right)
         {
+            if (_field.Type is SortFieldType.GeoDistance or SortFieldType.XYDistance)
+            {
+                bool leftMissing = MissingValues![left];
+                bool rightMissing = MissingValues[right];
+                if (leftMissing != rightMissing)
+                    return leftMissing ? 1 : -1;
+                if (leftMissing)
+                    return 0;
+            }
+
             int comparison = _field.Type switch
             {
-                SortFieldType.Score or SortFieldType.Numeric =>
+                SortFieldType.Score or SortFieldType.Numeric or SortFieldType.GeoDistance or SortFieldType.XYDistance =>
                     NumericValues![left].CompareTo(NumericValues[right]),
                 SortFieldType.DocId or SortFieldType.Int64 =>
                     Int64Values![left].CompareTo(Int64Values[right]),
@@ -695,6 +1130,7 @@ public sealed partial class IndexSearcher
                 _afterValues[i] = value.Type switch
                 {
                     SortFieldType.Score or SortFieldType.Numeric => SortValue.FromNumeric(value.NumericValue),
+                    SortFieldType.GeoDistance or SortFieldType.XYDistance => SortValue.FromNumeric(value.NumericValue, value.IsMissing),
                     SortFieldType.DocId or SortFieldType.Int64 => SortValue.FromInt64(value.Int64Value),
                     SortFieldType.String => SortValue.FromString(value.StringValue!),
                     _ => throw new ArgumentException($"Sort type '{value.Type}' is not cursor-compatible.", nameof(afterValues))
@@ -804,6 +1240,8 @@ public sealed partial class IndexSearcher
                         _searcher.ResolveInt64(scoreDoc.DocId, sort.FieldName, sort.Selector)),
                     SortFieldType.String => SortValue.FromString(
                         _searcher.ResolveString(scoreDoc.DocId, sort.FieldName, sort.Selector)),
+                    SortFieldType.GeoDistance or SortFieldType.XYDistance =>
+                        _searcher.ResolveSpatialSortValue(scoreDoc.DocId, sort),
                     _ => default
                 };
             }
@@ -839,6 +1277,10 @@ public sealed partial class IndexSearcher
         {
             for (int i = 0; i < _sorts.Length; i++)
             {
+                if (_sorts[i].Type is SortFieldType.GeoDistance or SortFieldType.XYDistance
+                    && left[i].Missing != right[i].Missing)
+                    return left[i].Missing ? 1 : -1;
+
                 int comparison = left[i].CompareTo(right[i], _sorts[i].Type);
                 if (comparison == 0)
                     continue;
@@ -897,15 +1339,16 @@ public sealed partial class IndexSearcher
         }
     }
 
-    private readonly record struct SortValue(double Numeric, long Int64, string? String)
+    private readonly record struct SortValue(double Numeric, long Int64, string? String, bool Missing = false)
     {
-        internal static SortValue FromNumeric(double value) => new(value, 0, null);
+        internal static SortValue FromNumeric(double value, bool isMissing = false) => new(value, 0, null, isMissing);
         internal static SortValue FromInt64(long value) => new(0, value, null);
         internal static SortValue FromString(string value) => new(0, 0, value);
 
         internal int CompareTo(SortValue other, SortFieldType type) => type switch
         {
-            SortFieldType.Score or SortFieldType.Numeric => Numeric.CompareTo(other.Numeric),
+            SortFieldType.Score or SortFieldType.Numeric or SortFieldType.GeoDistance or SortFieldType.XYDistance
+                => Numeric.CompareTo(other.Numeric),
             SortFieldType.DocId or SortFieldType.Int64 => Int64.CompareTo(other.Int64),
             SortFieldType.String => string.CompareOrdinal(String, other.String),
             _ => 0

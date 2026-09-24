@@ -231,6 +231,12 @@ public sealed partial class IndexSearcher
             case GeoDistanceQuery gdq:
                 ExecuteGeoDistanceQuery(gdq, reader, ref collector);
                 break;
+            case XYBoundingBoxQuery xybbq:
+                ExecuteXYBoundingBoxQuery(xybbq, reader, ref collector);
+                break;
+            case XYDistanceQuery xydq:
+                ExecuteXYDistanceQuery(xydq, reader, ref collector);
+                break;
         }
     }
 

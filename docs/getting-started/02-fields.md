@@ -1,6 +1,6 @@
 # Field types
 
-Seven built-in field types. All implement `IField`.
+Eight built-in field types. All implement `IField`.
 
 | Type | Indexed | Stored | Use |
 |---|---|---|---|
@@ -10,7 +10,8 @@ Seven built-in field types. All implement `IField`.
 | `VectorField` | indexed via `.vec` | flat `.vec` file | Dense float vectors for ANN |
 | `BinaryField` | doc-values backed | yes | Raw byte arrays |
 | `StoredField` | values-only | yes | String, int, long, double — retrieval only |
-| `GeoPointField` | yes (two numeric) | yes | Latitude/longitude — geo queries |
+| `GeoPointField` | yes (Packed BKD and compatibility fields) | yes | Latitude/longitude filters and distance sorts |
+| `XYPointField` | yes (Packed BKD) | no | Cartesian point filters and distance sorts; point DocValues are always written |
 
 
 ## StoreDocValues
@@ -36,6 +37,7 @@ doc.Add(new VectorField("embedding", new float[] { 0.1f, 0.2f, 0.3f }));
 doc.Add(new BinaryField("raw", new byte[] { 0x01, 0x02, 0x03 }));
 doc.Add(new StoredField("source", "import"));
 doc.Add(new GeoPointField("location", 51.5074, -0.1278));
+doc.Add(new XYPointField("position", 12.5f, -4f));
 writer.AddDocument(doc);
 ```
 
@@ -48,7 +50,14 @@ A field can be both. Vectors and stored-only fields live in `.vec` and `.fdt`, n
 
 ## Geo points
 
-`GeoPointField` writes two numeric sub-fields: `name_lat` and `name_lon`. Query them directly with `GeoBoundingBoxQuery` or `GeoDistanceQuery`.
+`GeoPointField` keeps the `name_lat` and `name_lon` numeric compatibility
+sub-fields and also writes a packed two-dimensional point on new segments.
+Use `GeoBoundingBoxQuery`, `GeoDistanceQuery` or `SortField.GeoDistance`.
+
+`XYPointField` writes packed Cartesian points and the point DocValues needed
+for exact filters and distance sorting. Add repeated fields with the same name
+to index multiple points for one document. Use `XYBoundingBoxQuery`,
+`XYDistanceQuery` or `SortField.XYDistance`.
 
 ## See also
 

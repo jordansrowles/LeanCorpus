@@ -273,9 +273,14 @@ public sealed class MultiReader : IDisposable
     {
         for (int i = 0; i < sorts.Count; i++)
         {
+            bool spatialDistance = sorts[i].Type is SortFieldType.GeoDistance or SortFieldType.XYDistance;
+            if (spatialDistance && left[i].IsMissing != right[i].IsMissing)
+                return left[i].IsMissing ? 1 : -1;
+
             int comparison = sorts[i].Type switch
             {
-                SortFieldType.Score or SortFieldType.Numeric => left[i].Numeric.CompareTo(right[i].Numeric),
+                SortFieldType.Score or SortFieldType.Numeric or SortFieldType.GeoDistance or SortFieldType.XYDistance
+                    => left[i].Numeric.CompareTo(right[i].Numeric),
                 SortFieldType.DocId or SortFieldType.Int64 => left[i].Int64.CompareTo(right[i].Int64),
                 SortFieldType.String => string.CompareOrdinal(left[i].String, right[i].String),
                 _ => throw new NotSupportedException($"Sort type '{sorts[i].Type}' is not supported by MultiReader.")

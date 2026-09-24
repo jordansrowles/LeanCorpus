@@ -42,6 +42,73 @@ internal sealed class PackedBkdFieldCursor : IDisposable
             ref stats);
     }
 
+    internal void TraverseBestFirst<TVisitor>(ref TVisitor visitor, ref PackedBkdTraversalStats stats)
+        where TVisitor : IPackedBkdBestFirstVisitor
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_metadata.Config.Dimensions != 2
+            || _metadata.Config.IndexedDimensions != 2
+            || _metadata.Config.BytesPerDimension != sizeof(uint))
+            throw new InvalidDataException($"Packed BKD field '{_fieldName}' is not a compatible 2D field.");
+
+        ReadOnlySpan<byte> rootMinimum = _metadata.RootMinimum.Span;
+        ReadOnlySpan<byte> rootMaximum = _metadata.RootMaximum.Span;
+        var root = new PackedBkdCell(
+            0,
+            _metadata.LeafCount,
+            0,
+            BinaryPrimitives.ReadUInt32BigEndian(rootMinimum),
+            BinaryPrimitives.ReadUInt32BigEndian(rootMaximum),
+            BinaryPrimitives.ReadUInt32BigEndian(rootMinimum[sizeof(uint)..]),
+            BinaryPrimitives.ReadUInt32BigEndian(rootMaximum[sizeof(uint)..]));
+
+        var frontier = new PriorityQueue<PackedBkdCell, double>();
+        frontier.Enqueue(root, GetLowerBound(ref visitor, root));
+        stats.PeakFrontierSize = 1;
+        Span<byte> splitValue = stackalloc byte[PackedBkdConfig.FixedBytesPerDimension];
+        while (frontier.TryDequeue(out PackedBkdCell cell, out double lowerBound))
+        {
+            if (visitor.ShouldStop)
+                break;
+            if (visitor.HasFullCandidateSet && lowerBound > visitor.WorstCandidateDistance)
+            {
+                stats.CellsPruned += frontier.Count + 1L;
+                break;
+            }
+
+            stats.CellsVisited++;
+            if (cell.Depth > _maximumTreeDepth)
+                throw new InvalidDataException($"Packed BKD field '{_fieldName}' exceeds the maximum tree depth.");
+            if (cell.LeafCount == 1)
+            {
+                stats.LeavesVisited++;
+                VisitLeafBestFirst(cell, ref visitor, ref stats);
+                continue;
+            }
+
+            int leftLeaves = PackedBkdTreeMath.GetLeftLeafCount(cell.LeafCount);
+            int rightLeavesOffset = checked(cell.LeavesOffset + leftLeaves);
+            int splitIndex = checked(rightLeavesOffset - 1);
+            splitValue.Clear();
+            ReadSplit(splitIndex, out int dimension, splitValue);
+            uint split = BinaryPrimitives.ReadUInt32BigEndian(splitValue);
+            uint minimum = dimension == 0 ? cell.MinimumX : cell.MinimumY;
+            uint maximum = dimension == 0 ? cell.MaximumX : cell.MaximumY;
+            if (split < minimum || split > maximum)
+                throw new InvalidDataException($"Packed BKD field '{_fieldName}' has a split outside its cell bounds in dimension {dimension}.");
+
+            PackedBkdCell left = dimension == 0
+                ? cell with { LeafCount = leftLeaves, Depth = cell.Depth + 1, MaximumX = split }
+                : cell with { LeafCount = leftLeaves, Depth = cell.Depth + 1, MaximumY = split };
+            PackedBkdCell right = dimension == 0
+                ? cell with { LeavesOffset = rightLeavesOffset, LeafCount = cell.LeafCount - leftLeaves, Depth = cell.Depth + 1, MinimumX = split }
+                : cell with { LeavesOffset = rightLeavesOffset, LeafCount = cell.LeafCount - leftLeaves, Depth = cell.Depth + 1, MinimumY = split };
+            EnqueueIfCompetitive(ref visitor, frontier, left, ref stats);
+            EnqueueIfCompetitive(ref visitor, frontier, right, ref stats);
+            stats.PeakFrontierSize = Math.Max(stats.PeakFrontierSize, frontier.Count);
+        }
+    }
+
     internal void DeepValidate()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -279,6 +346,90 @@ internal sealed class PackedBkdFieldCursor : IDisposable
             throw new InvalidDataException($"Packed BKD field '{_fieldName}' decoding did not consume its payload.");
     }
 
+    private void VisitLeafBestFirst<TVisitor>(
+        PackedBkdCell cell,
+        ref TVisitor visitor,
+        ref PackedBkdTraversalStats stats)
+        where TVisitor : IPackedBkdBestFirstVisitor
+    {
+        LeafLocation location = OpenLeaf(cell.LeavesOffset);
+        Span<byte> actualMinimum = stackalloc byte[PackedBkdConfig.MaxIndexedDimensions * PackedBkdConfig.FixedBytesPerDimension];
+        Span<byte> actualMaximum = stackalloc byte[PackedBkdConfig.MaxIndexedDimensions * PackedBkdConfig.FixedBytesPerDimension];
+        LeafHeader header = ReadLeafHeader(location, actualMinimum, actualMaximum);
+        Span<byte> cellMinimum = stackalloc byte[2 * sizeof(uint)];
+        Span<byte> cellMaximum = stackalloc byte[2 * sizeof(uint)];
+        BinaryPrimitives.WriteUInt32BigEndian(cellMinimum, cell.MinimumX);
+        BinaryPrimitives.WriteUInt32BigEndian(cellMaximum, cell.MaximumX);
+        BinaryPrimitives.WriteUInt32BigEndian(cellMinimum[sizeof(uint)..], cell.MinimumY);
+        BinaryPrimitives.WriteUInt32BigEndian(cellMaximum[sizeof(uint)..], cell.MaximumY);
+        ValidateLeafBounds(cellMinimum, cellMaximum, actualMinimum, actualMaximum);
+        stats.LeavesSemanticallyValidated++;
+
+        uint actualMinimumX = BinaryPrimitives.ReadUInt32BigEndian(actualMinimum);
+        uint actualMaximumX = BinaryPrimitives.ReadUInt32BigEndian(actualMaximum);
+        uint actualMinimumY = BinaryPrimitives.ReadUInt32BigEndian(actualMinimum[sizeof(uint)..]);
+        uint actualMaximumY = BinaryPrimitives.ReadUInt32BigEndian(actualMaximum[sizeof(uint)..]);
+        double leafLowerBound = GetLowerBound(ref visitor, new PackedBkdCell(
+            cell.LeavesOffset,
+            1,
+            cell.Depth,
+            actualMinimumX,
+            actualMaximumX,
+            actualMinimumY,
+            actualMaximumY));
+        if (visitor.HasFullCandidateSet && leafLowerBound > visitor.WorstCandidateDistance)
+        {
+            stats.CellsPruned++;
+            return;
+        }
+
+        Span<byte> prefixes = stackalloc byte[PackedBkdConfig.MaxDimensions];
+        Span<byte> commonPrefixes = stackalloc byte[PackedBkdConfig.MaxDimensions * PackedBkdConfig.FixedBytesPerDimension];
+        ReadPrefixData(location.End, header.Encoding, prefixes, commonPrefixes);
+        EnsureDocumentScratch();
+        stats.PeakLeafScratch = Math.Max(stats.PeakLeafScratch, _documentScratch!.Length);
+        for (int i = 0; i < header.Count; i++)
+            _documentScratch[i] = ReadDocument(location.End, header.MinimumDocument, header.DocumentWidth);
+
+        Span<byte> packed = stackalloc byte[PackedBkdConfig.MaxDimensions * PackedBkdConfig.FixedBytesPerDimension];
+        for (int i = 0; i < header.Count; i++)
+        {
+            ReadPackedValue(location.End, header.Encoding, prefixes, commonPrefixes, packed);
+            visitor.Visit(_documentScratch[i], packed[.._metadata.Config.PackedBytesLength]);
+            stats.PackedValuesDecoded++;
+            stats.DocumentsVisited++;
+        }
+
+        if (_field.Position != location.End)
+            throw new InvalidDataException($"Packed BKD field '{_fieldName}' decoding did not consume its payload.");
+    }
+
+    private double GetLowerBound<TVisitor>(ref TVisitor visitor, PackedBkdCell cell)
+        where TVisitor : IPackedBkdBestFirstVisitor
+    {
+        double distance = visitor.GetLowerBoundDistance(
+            cell.MinimumX, cell.MaximumX, cell.MinimumY, cell.MaximumY);
+        if (!double.IsFinite(distance) || distance < 0)
+            throw new InvalidDataException($"Packed BKD field '{_fieldName}' produced an invalid cell lower bound.");
+        return distance;
+    }
+
+    private void EnqueueIfCompetitive<TVisitor>(
+        ref TVisitor visitor,
+        PriorityQueue<PackedBkdCell, double> frontier,
+        PackedBkdCell cell,
+        ref PackedBkdTraversalStats stats)
+        where TVisitor : IPackedBkdBestFirstVisitor
+    {
+        double lowerBound = GetLowerBound(ref visitor, cell);
+        if (visitor.HasFullCandidateSet && lowerBound > visitor.WorstCandidateDistance)
+        {
+            stats.CellsPruned++;
+            return;
+        }
+        frontier.Enqueue(cell, lowerBound);
+    }
+
     private LeafLocation OpenLeaf(int leafIndex)
     {
         if ((uint)leafIndex >= (uint)_metadata.LeafCount)
@@ -357,8 +508,8 @@ internal sealed class PackedBkdFieldCursor : IDisposable
         => PackedBkdReader.ValidateBounds(_fieldName, name, minimum, maximum, _metadata.Config);
 
     private void ValidateLeafBounds(
-        byte[] cellMinimum,
-        byte[] cellMaximum,
+        ReadOnlySpan<byte> cellMinimum,
+        ReadOnlySpan<byte> cellMaximum,
         ReadOnlySpan<byte> actualMinimum,
         ReadOnlySpan<byte> actualMaximum)
     {
@@ -477,6 +628,15 @@ internal sealed class PackedBkdFieldCursor : IDisposable
     }
 
     private readonly record struct LeafLocation(long Start, long End);
+
+    private readonly record struct PackedBkdCell(
+        int LeavesOffset,
+        int LeafCount,
+        int Depth,
+        uint MinimumX,
+        uint MaximumX,
+        uint MinimumY,
+        uint MaximumY);
 
     private readonly record struct LeafHeader(
         int Count,

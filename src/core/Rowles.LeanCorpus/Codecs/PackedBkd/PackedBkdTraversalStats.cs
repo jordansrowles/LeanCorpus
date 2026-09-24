@@ -9,4 +9,5 @@ internal struct PackedBkdTraversalStats
     internal long PackedValuesDecoded;
     internal long DocumentsVisited;
     internal int PeakLeafScratch;
+    internal int PeakFrontierSize;
 }

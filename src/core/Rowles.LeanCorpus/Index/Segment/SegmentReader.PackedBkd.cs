@@ -22,6 +22,16 @@ public sealed partial class SegmentReader
         return lease.State.IntersectPackedBkd(field, ref visitor);
     }
 
+    internal bool TraversePackedBkdBestFirst<TVisitor>(
+        string field,
+        ref TVisitor visitor,
+        out PackedBkdTraversalStats stats)
+        where TVisitor : IPackedBkdBestFirstVisitor
+    {
+        using var lease = AcquireReadLease();
+        return lease.State.TraversePackedBkdBestFirst(field, ref visitor, out stats);
+    }
+
     internal void DeepValidatePackedBkd()
     {
         using var lease = AcquireReadLease();

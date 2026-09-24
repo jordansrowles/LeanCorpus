@@ -1,3 +1,4 @@
+using Rowles.LeanCorpus.Codecs.PackedBkd;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
@@ -28,10 +29,10 @@ public sealed class GeoQueryTests : IDisposable
     /// <summary>
     /// Builds an index with well-known cities at known coordinates.
     /// </summary>
-    private void IndexCities()
+    private void IndexCities(int maxLeafSize = 512)
     {
         var dir = new MMapDirectory(_dir);
-        using var writer = new IndexWriter(dir, new IndexWriterConfig());
+        using var writer = new IndexWriter(dir, new IndexWriterConfig { BKDMaxLeafSize = maxLeafSize });
 
         AddCity(writer, "London", 51.5074, -0.1278);
         AddCity(writer, "Paris", 48.8566, 2.3522);
@@ -42,12 +43,72 @@ public sealed class GeoQueryTests : IDisposable
         writer.Commit();
     }
 
+    [Fact(DisplayName = "Geo point field writes packed longitude and latitude beside legacy data")]
+    public void GeoPointField_WritesPackedCompanionAndPreservesLegacyRepresentations()
+    {
+        IndexCities();
+
+        string packedPath = Assert.Single(System.IO.Directory.GetFiles(_dir, "*.pbkd"));
+        Assert.NotEmpty(System.IO.Directory.GetFiles(_dir, "*.bkd"));
+        using var reader = PackedBkdReader.Open(packedPath);
+
+        Assert.True(reader.HasField("location"));
+        PackedBkdFieldMetadata metadata = reader.GetFieldMetadata("location");
+        Assert.Equal(PackedBkdConfig.Point2D(), metadata.Config);
+        Assert.Equal(5, metadata.PointCount);
+        Assert.Equal(5, metadata.DocumentCount);
+
+        var visitor = new CapturePackedValuesVisitor();
+        Assert.True(reader.Intersect("location", ref visitor));
+        Assert.Equal(5, visitor.Values.Count);
+
+        byte[] expectedLondon = new byte[8];
+        GeoEncodingUtils.WriteLonSortable(-0.1278, expectedLondon);
+        GeoEncodingUtils.WriteLatSortable(51.5074, expectedLondon.AsSpan(4));
+        Assert.Contains(visitor.Values, value => value.AsSpan().SequenceEqual(expectedLondon));
+
+        // The additive packed field does not replace the legacy numeric-backed query path.
+        using var directory = new MMapDirectory(_dir);
+        using var searcher = new IndexSearcher(directory);
+        Assert.Equal(2, searcher.Search(
+            new GeoBoundingBoxQuery("location", 47.0, 53.0, -2.0, 4.0),
+            10,
+            TestContext.Current.CancellationToken).TotalHits);
+    }
+
+    [Fact(DisplayName = "Geo packed point leaves use the configured BKD leaf size")]
+    public void GeoPointField_UsesConfiguredPackedBkdLeafSize()
+    {
+        IndexCities(maxLeafSize: 2);
+
+        using var reader = PackedBkdReader.Open(Assert.Single(System.IO.Directory.GetFiles(_dir, "*.pbkd")));
+        PackedBkdFieldMetadata metadata = reader.GetFieldMetadata("location");
+
+        Assert.Equal(2, metadata.Config.MaxPointsPerLeaf);
+        Assert.Equal(3, metadata.LeafCount);
+    }
+
     private static void AddCity(IndexWriter writer, string name, double lat, double lon)
     {
         var doc = new LeanDocument();
         doc.Add(new StringField("city", name));
         doc.Add(new GeoPointField("location", lat, lon));
         writer.AddDocument(doc);
+    }
+
+    private static void AddGeoPoint(IndexWriter writer, double latitude, double longitude)
+    {
+        var document = new LeanDocument();
+        document.Add(new GeoPointField("location", latitude, longitude));
+        writer.AddDocument(document);
+    }
+
+    private static void AddLegacyGeoPoint(IndexWriter writer, double latitude, double longitude)
+    {
+        var document = new LeanDocument();
+        document.Add(new NumericField("location_lat", latitude, stored: false));
+        document.Add(new NumericField("location_lon", longitude, stored: false));
+        writer.AddDocument(document);
     }
 
     /// <summary>
@@ -82,6 +143,106 @@ public sealed class GeoQueryTests : IDisposable
         var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, results.TotalHits);
+    }
+
+    [Fact(DisplayName = "Geo bounding box splits dateline ranges and deduplicates multi-valued documents")]
+    public void BoundingBox_DatelineCrossingIsInclusiveAndDeduplicates()
+    {
+        using (var directory = new MMapDirectory(_dir))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig { BKDMaxLeafSize = 2 }))
+        {
+            var multiValued = new LeanDocument();
+            multiValued.Add(new GeoPointField("location", 0, 180));
+            multiValued.Add(new GeoPointField("location", 0, -180));
+            writer.AddDocument(multiValued);
+
+            AddGeoPoint(writer, 1, 170);
+            AddGeoPoint(writer, -1, -170);
+            AddGeoPoint(writer, 0, 0);
+            writer.Commit();
+        }
+
+        using var searchDirectory = new MMapDirectory(_dir);
+        using var searcher = new IndexSearcher(searchDirectory);
+        var results = searcher.Search(
+            new GeoBoundingBoxQuery("location", -1, 1, 170, -170),
+            10,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, results.TotalHits);
+    }
+
+    [Fact(DisplayName = "Geo queries dispatch across legacy and packed data merged into one segment")]
+    public void GeoQueries_MixedLegacyAndPackedSegmentsReturnBothPointSets()
+    {
+        using (var directory = new MMapDirectory(_dir))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig()))
+        {
+            AddLegacyGeoPoint(writer, 51.5074, -0.1278);
+            writer.Commit();
+        }
+
+        Assert.Empty(System.IO.Directory.GetFiles(_dir, "*.pbkd"));
+
+        foreach (string packedFile in System.IO.Directory.GetFiles(_dir, "*.pbkd"))
+            File.Delete(packedFile);
+
+        using (var directory = new MMapDirectory(_dir))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig()))
+        {
+            AddGeoPoint(writer, 35.6762, 139.6503);
+            writer.ForceMerge(1);
+            writer.Commit();
+        }
+
+        Assert.Single(System.IO.Directory.GetFiles(_dir, "*.pbkd"));
+
+        using var searchDirectory = new MMapDirectory(_dir);
+        using var searcher = new IndexSearcher(searchDirectory);
+        var world = searcher.Search(
+            new GeoBoundingBoxQuery("location", -90, 90, -180, 180),
+            10,
+            TestContext.Current.CancellationToken);
+        var legacyDistance = searcher.Search(
+            new GeoDistanceQuery("location", 51.5074, -0.1278, 1),
+            10,
+            TestContext.Current.CancellationToken);
+        var packedDistance = searcher.Search(
+            new GeoDistanceQuery("location", 35.6762, 139.6503, 0),
+            10,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, world.TotalHits);
+        Assert.Equal(1, legacyDistance.TotalHits);
+        Assert.Equal(1, packedDistance.TotalHits);
+    }
+
+    [Fact(DisplayName = "Geo distance uses exact radius checks across the dateline and near a pole")]
+    public void GeoDistance_ZeroRadiusAndPolarDatelineBoundsAreExact()
+    {
+        using (var directory = new MMapDirectory(_dir))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig { BKDMaxLeafSize = 2 }))
+        {
+            AddGeoPoint(writer, 89.9, 179.9);
+            AddGeoPoint(writer, 89.9, -179.9);
+            AddGeoPoint(writer, 89.9, -0.1);
+            AddGeoPoint(writer, -89.9, 0);
+            writer.Commit();
+        }
+
+        using var searchDirectory = new MMapDirectory(_dir);
+        using var searcher = new IndexSearcher(searchDirectory);
+        var exact = searcher.Search(
+            new GeoDistanceQuery("location", 89.9, 179.9, 0),
+            10,
+            TestContext.Current.CancellationToken);
+        var polar = searcher.Search(
+            new GeoDistanceQuery("location", 89.9, 179.9, 25_000),
+            10,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, exact.TotalHits);
+        Assert.Equal(3, polar.TotalHits);
     }
 
     /// <summary>
@@ -188,5 +349,22 @@ public sealed class GeoQueryTests : IDisposable
         int encoded = GeoEncodingUtils.EncodeLon(lon);
         double decoded = GeoEncodingUtils.DecodeLon(encoded);
         Assert.InRange(decoded, lon - 0.001, lon + 0.001);
+    }
+
+    private struct CapturePackedValuesVisitor : IPackedBkdIntersectVisitor
+    {
+        internal List<byte[]> Values { get; }
+
+        public CapturePackedValuesVisitor()
+            => Values = [];
+
+        public PackedBkdCellRelation Compare(ReadOnlySpan<byte> minimum, ReadOnlySpan<byte> maximum)
+            => PackedBkdCellRelation.Crosses;
+
+        public void Visit(int docId)
+            => throw new InvalidOperationException("A crossing query must receive packed values.");
+
+        public void Visit(int docId, ReadOnlySpan<byte> packedValue)
+            => Values.Add(packedValue.ToArray());
     }
 }

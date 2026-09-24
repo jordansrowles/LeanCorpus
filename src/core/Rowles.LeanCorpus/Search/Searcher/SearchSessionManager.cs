@@ -110,8 +110,8 @@ public sealed class SearchSessionManager : IDisposable
         {
             var last = results.ScoreDocs[^1];
             var values = operation.State.Searcher.CaptureCursorSortValues(last, effectiveSorts);
-            if (values.Any(static value => value.Type is SortFieldType.Score or SortFieldType.Numeric && !double.IsFinite(value.Numeric)))
-                throw new SearchSessionException(SearchSessionFailureReason.UnsupportedPagination, "Non-finite score and numeric sort boundaries cannot be paginated.");
+            if (values.Any(static value => value.Type is SortFieldType.Score or SortFieldType.Numeric or SortFieldType.GeoDistance or SortFieldType.XYDistance && !double.IsFinite(value.Numeric)))
+                throw new SearchSessionException(SearchSessionFailureReason.UnsupportedPagination, "Non-finite numeric sort boundaries cannot be paginated.");
             next = _codec.Encode(new SearchCursorData(id, _indexIdentity, operation.State.Generation,
                 queryIdentity, sortIdentity, effectiveRankingIdentity, last, values));
         }
@@ -209,9 +209,31 @@ public sealed class SearchSessionManager : IDisposable
         while (_tombstoneOrder.Count > maximum) _tombstones.Remove(_tombstoneOrder.Dequeue());
     }
     private static string CreateId() => Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
-    private static string CreateSortIdentity(IReadOnlyList<SortField> sorts) => RankingProfile.FingerprintOf(string.Join("\n", sorts.Select(static sort => $"{sort.Type}:{sort.FieldName}:{sort.Descending}:{sort.Selector}")));
+    internal static string CreateSortIdentity(IReadOnlyList<SortField> sorts)
+        => RankingProfile.FingerprintOf(string.Join("\n", sorts.Select(static sort =>
+        {
+            string definition = $"{sort.Type}:{sort.FieldName}:{sort.Descending}:{sort.Selector}";
+            return sort.Type switch
+            {
+                SortFieldType.GeoDistance => string.Concat(definition, ":", FormatGeoOrigin(sort.GeoOrigin)),
+                SortFieldType.XYDistance => string.Concat(definition, ":", FormatXYOrigin(sort.XYOrigin)),
+                _ => definition
+            };
+        })));
+
+    private static string FormatGeoOrigin(Rowles.LeanCorpus.Search.Geo.GeoPoint? origin)
+    {
+        var value = origin ?? throw new InvalidOperationException("A geographic distance sort has no origin.");
+        return FormattableString.Invariant($"{value.Latitude:R},{value.Longitude:R}");
+    }
+
+    private static string FormatXYOrigin(Rowles.LeanCorpus.Search.XY.XYPoint? origin)
+    {
+        var value = origin ?? throw new InvalidOperationException("A Cartesian distance sort has no origin.");
+        return FormattableString.Invariant($"{value.X:R},{value.Y:R}");
+    }
     private static void ValidateSorts(IReadOnlyList<SortField> sorts)
-    { if (sorts.Count is < 1 or > 32) throw new ArgumentException("Cursor pagination supports between one and 32 sort fields.", nameof(sorts)); foreach (var sort in sorts) if (sort.Type is SortFieldType.Numeric or SortFieldType.Int64 or SortFieldType.String && string.IsNullOrWhiteSpace(sort.FieldName)) throw new ArgumentException("Field sorts require a field name.", nameof(sorts)); }
+    { if (sorts.Count is < 1 or > 32) throw new ArgumentException("Cursor pagination supports between one and 32 sort fields.", nameof(sorts)); foreach (var sort in sorts) if (sort.Type is SortFieldType.Numeric or SortFieldType.Int64 or SortFieldType.String or SortFieldType.GeoDistance or SortFieldType.XYDistance && string.IsNullOrWhiteSpace(sort.FieldName)) throw new ArgumentException("Field sorts require a field name.", nameof(sorts)); }
     private static void ValidateOptions(SearchSessionOptions options)
     {
         if (options.MaximumLifetime <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(options.MaximumLifetime));

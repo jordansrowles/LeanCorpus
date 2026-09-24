@@ -60,6 +60,9 @@ internal static class Program
         Environment.SetEnvironmentVariable(
             "LEANCORPUS_PACKED_BKD_EVIDENCE_DIR",
             packedBkdEvidenceDirectory);
+        Environment.SetEnvironmentVariable(
+            "LEANCORPUS_SPATIAL_NEAREST_EVIDENCE_DIR",
+            Path.Combine(runDir, "nearest", "observer-counters"));
 
         var gitCommitHash = GetGitShortHash(repoRoot);
         var sourceCommit = Environment.GetEnvironmentVariable("BENCH_SOURCE_COMMIT");
@@ -100,6 +103,7 @@ internal static class Program
                 BenchmarkSuite.Flush,
                 BenchmarkSuite.PostingsArena,
                 BenchmarkSuite.PackedBkd,
+                BenchmarkSuite.SpatialNearest,
                 BenchmarkSuite.DocValuesRead,
                 BenchmarkSuite.BKDTree,
                 BenchmarkSuite.FstLookup,
@@ -302,6 +306,12 @@ internal static class Program
 
         if (suites.Contains(BenchmarkSuite.PackedBkd))
             RunSuite<PackedBkdBenchmarks>("packed-bkd", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.SpatialNearest))
+        {
+            RunSuite<SpatialNearestBenchmarks>("nearest", runDir, benchmarkArgs, suiteSummaries, gcDump);
+            RunSuite<SpatialNearestCompatibilityBenchmarks>("nearest-compatibility", runDir, benchmarkArgs, suiteSummaries, gcDump);
+        }
 
         if (suites.Contains(BenchmarkSuite.DocValuesRead))
             RunSuite<DocValuesReadBenchmarks>("docvalues-read", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -712,6 +722,7 @@ internal static class Program
               flush               FlushBenchmarks -- segment flush latency per doc count (explicit only)
               postings-arena       PostingsArenaBenchmarks -- DWPT postings arena workload matrix (explicit only)
               packed-bkd           PackedBkdBenchmarks -- full Packed BKD build, spill and traversal matrix (explicit only)
+              nearest              SpatialNearestBenchmarks and compatibility suite -- exact sort vs best-first Geo/XY Top-N, with legacy/packed comparison (explicit only)
               docvalues-read      DocValuesReadBenchmarks -- DocValues read throughput (explicit only)
               bkd                 BKDTreeBenchmarks -- BKD range search throughput (explicit only)
               fst-lookup          FstLookupBenchmarks -- FST term dictionary lookup (explicit only)
@@ -857,6 +868,7 @@ internal static class Program
             "flush" => BenchmarkSuite.Flush,
             "postings-arena" or "postingsarena" => BenchmarkSuite.PostingsArena,
             "packed-bkd" or "packedbkd" => BenchmarkSuite.PackedBkd,
+            "nearest" or "spatial-nearest" => BenchmarkSuite.SpatialNearest,
             "docvalues-read" or "docvaluesread" => BenchmarkSuite.DocValuesRead,
             "bkd" or "bkd-tree" => BenchmarkSuite.BKDTree,
             "fst-lookup" or "fstlookup" => BenchmarkSuite.FstLookup,
@@ -993,6 +1005,7 @@ internal static class Program
         Flush,
         PostingsArena,
         PackedBkd,
+        SpatialNearest,
         DocValuesRead,
         BKDTree,
         FstLookup,

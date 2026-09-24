@@ -1,11 +1,10 @@
 # Geo search
 
-`GeoPointField` stores latitude/longitude pairs using the existing numeric BKD-backed point representation. Geo queries use the BKD tree for fast range and distance filtering.
-
-The 3.2 spatial foundation also provides immutable `Geo*` and `XY*` geometry
-values, canonical coordinate validation, and sortable four-byte coordinate
-encoding for later shape indexing. These foundation types do not add new point
-query behaviour in Sprint 1.
+`GeoPointField` indexes latitude/longitude pairs for bounding-box filters,
+radius filters and distance sorting. New segments keep the `_lat` and `_lon`
+numeric representations for compatibility and also write a two-dimensional
+Packed BKD companion. Search chooses the packed or legacy representation for
+each segment, so existing indexes remain searchable without reindexing.
 
 ## Index a geo point
 
@@ -16,7 +15,12 @@ doc.Add(new GeoPointField("location", 51.5074, -0.1278));
 writer.AddDocument(doc);
 ```
 
-`GeoPointField` writes two numeric sub-fields internally: `location_lat` and `location_lon`. It populates `NumericDocValues` for sorting and emits a BKD point for spatial queries.
+`GeoPointField` preserves the `location_lat` and `location_lon` numeric
+sub-fields, their DocValues and the stored latitude/longitude string. New
+segments also write longitude and latitude into a two-dimensional Packed BKD
+field. Repeated `GeoPointField` values with the same name are supported; a
+document matches a filter if any of its points matches, and distance sorting
+uses the nearest point in that document.
 
 ## Bounding box
 
@@ -29,7 +33,10 @@ var query = new GeoBoundingBoxQuery(
 var hits = searcher.Search(query, topN: 20);
 ```
 
-Matches documents whose geo point falls inside the rectangle. The query is backed by a BKD range intersection, with no full-table scan.
+Matches documents with at least one point inside the inclusive rectangle. A
+dateline-crossing rectangle is split into two longitude ranges and deduplicated.
+New segments use Packed BKD cell pruning; older segments use their numeric BKD
+representation.
 
 ## Distance
 
@@ -42,7 +49,48 @@ var query = new GeoDistanceQuery(
 var hits = searcher.Search(query, topN: 50);
 ```
 
-Filters to documents within `radiusMetres` of the centre point. Uses a BKD bounding-box approximation followed by an exact Haversine distance check on the shortlist.
+Filters to documents with a point within `radiusMetres` of the centre. Packed
+BKD or legacy numeric bounds prune candidates, followed by an exact Haversine
+distance check. Radius zero is supported.
+
+## Distance sorting and nearest results
+
+Use the normal sorted search API to return the nearest points. The first page
+uses an ascending Geo distance sort; later pages can use `SearchAfter` with the
+last hit from the previous page.
+
+```csharp
+var query = new MatchAllDocsQuery();
+var nearestFirst = SortField.GeoDistance("location", new GeoPoint(51.5074, -0.1278));
+var firstPage = searcher.Search(query, topN: 20, nearestFirst);
+var nextPage = searcher.SearchAfter(firstPage.ScoreDocs[^1], query, topN: 20, nearestFirst);
+```
+
+Eligible ascending single-field Geo and XY sorts use a best-first Packed BKD
+Top-N traversal. Other sort directions and compound sorts use exact DocValues
+sorting. Missing point fields sort after documents with points, and equal
+distances use global document ID order.
+
+## XY points
+
+`XYPointField` indexes finite Cartesian coordinates and writes the point values
+needed for exact filtering, sorting and legacy fallback execution. Repeated
+fields support multiple points per document.
+
+```csharp
+var document = new LeanDocument();
+document.Add(new XYPointField("position", 12.5f, -4f));
+writer.AddDocument(document);
+
+var bounds = new XYBoundingBoxQuery("position", new XYRectangle(0, -10, 20, 10));
+var withinRadius = new XYDistanceQuery("position", new XYPoint(0, 0), radius: 15);
+var xyNearest = SortField.XYDistance("position", new XYPoint(0, 0));
+var results = searcher.Search(withinRadius, topN: 10, xyNearest);
+```
+
+XY rectangles include their edges and distance uses Euclidean coordinate
+units. A zero radius is valid. `XYPointField` does not create scalar numeric
+sub-fields.
 
 ## Combining with text
 
@@ -82,15 +130,16 @@ their `XY` counterparts are immutable validated values implementing
 Geo shell and hole relationships are checked in one unwrapped world and again
 after coordinate quantisation, invalid topology is rejected, and geographic
 rings crossing the International Date Line receive deterministic seam points.
-Packed multidimensional BKD persistence is internal groundwork and is not yet
-a public spatial query API.
+Geo and XY point fields, bounding queries, distance queries and distance sorts
+are public APIs. Other geometry values are available for validated application
+data, but arbitrary line and polygon indexing and shape relations are not
+implemented here.
 
 ## What is not supported
 
 - Polygon, line string, or shape queries (no WKT parsing)
 - Recursive prefix tree or Spatial4n strategies
 - Cartesian (XY) shapes
-- Multi-geo fields per document
 
 If you need full spatial support, consider pre-filtering with bounding box or distance queries and post-processing with a spatial library.
 

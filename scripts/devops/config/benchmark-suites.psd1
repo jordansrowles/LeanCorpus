@@ -52,6 +52,7 @@
     flush                = 'FlushBenchmarks'
     'postings-arena'     = 'PostingsArenaBenchmarks'
     'packed-bkd'         = 'PackedBkdBenchmarks'
+    nearest              = 'SpatialNearestBenchmarks'
     'docvalues-read'     = 'DocValuesReadBenchmarks'
     bkd                  = 'BKDTreeBenchmarks'
     'fst-lookup'         = 'FstLookupBenchmarks'

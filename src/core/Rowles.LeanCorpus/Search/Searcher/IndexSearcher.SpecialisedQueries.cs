@@ -1,6 +1,12 @@
 
 using System.Numerics;
+using Rowles.LeanCorpus.Codecs.PackedBkd;
 using Rowles.LeanCorpus.Codecs.Postings;
+using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Search.Geo;
+using Rowles.LeanCorpus.Search.Searcher.Internal;
+using Rowles.LeanCorpus.Search.XY;
+using Rowles.LeanCorpus.Util;
 
 namespace Rowles.LeanCorpus.Search.Searcher;
 
@@ -1453,53 +1459,450 @@ public sealed partial class IndexSearcher
 
     private void ExecuteGeoBoundingBoxQuery(GeoBoundingBoxQuery query, SegmentReader reader, ref TopNCollector collector)
     {
-        int docBase = reader.DocBase;
-        float score = query.Boost;
-        string latField = query.Field + "_lat";
-        string lonField = query.Field + "_lon";
+        if (!TryCreateGeoBounds(query.MinLat, query.MaxLat, query.MinLon, query.MaxLon, out GeoQueryBounds bounds))
+            return;
 
-        // Use numeric range index on lat to get candidates
-        var latCandidates = reader.GetNumericRange(latField, query.MinLat, query.MaxLat);
-        if (latCandidates.Count == 0) return;
+        bool hasPackedField = HasCompatiblePackedPointField(reader, query.Field);
+        var matched = new RoaringBitmap();
+        var documentIds = new List<int>();
 
-        foreach (var (docId, lat) in latCandidates)
-        {
-            if (!reader.IsLive(docId)) continue;
-            if (!reader.TryGetNumericValue(lonField, docId, out double lon)) continue;
-            if (lon >= query.MinLon && lon <= query.MaxLon)
-                collector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, query.Field, score));
-        }
+        if (hasPackedField)
+            CollectPackedGeoBounds(reader, query.Field, bounds, matched, documentIds);
+
+        // A merge may place pre-packed and packed documents in one segment. Scan the
+        // legacy fields only when the exact point DocValues do not cover every document.
+        if (!hasPackedField
+            || !reader.HasBinaryDocValuesForEveryDocument(GeoPointDocValues.GetFieldName(query.Field)))
+            CollectLegacyGeoBounds(reader, query.Field, bounds, matched, documentIds, hasPackedField);
+        CollectGeoMatches(reader, query.Field, bounds, documentIds, query.Boost, ref collector);
     }
 
     private void ExecuteGeoDistanceQuery(GeoDistanceQuery query, SegmentReader reader, ref TopNCollector collector)
     {
-        int docBase = reader.DocBase;
-        float score = query.Boost;
+        if (!TryCreateGeoDistanceBounds(query, out GeoQueryBounds bounds))
+            return;
+
         string latField = query.Field + "_lat";
         string lonField = query.Field + "_lon";
-
-        // Compute a conservative bounding box for the distance to narrow candidates
-        double latDelta = query.RadiusMetres / 111_320.0; // ~111km per degree lat
-        double lonDelta = query.RadiusMetres / (111_320.0 * Math.Cos(query.CentreLat * Math.PI / 180.0));
-        double minLat = query.CentreLat - latDelta;
-        double maxLat = query.CentreLat + latDelta;
-
-        var latCandidates = reader.GetNumericRange(latField, minLat, maxLat);
-        if (latCandidates.Count == 0) return;
-
-        double minLon = query.CentreLon - lonDelta;
-        double maxLon = query.CentreLon + lonDelta;
-
-        foreach (var (docId, lat) in latCandidates)
+        if (HasSingleValuedPackedGeoField(reader, query.Field)
+            && reader.HasNumericField(latField)
+            && reader.HasNumericField(lonField))
         {
-            if (!reader.IsLive(docId)) continue;
-            if (!reader.TryGetNumericValue(lonField, docId, out double lon)) continue;
-            if (lon < minLon || lon > maxLon) continue;
+            int fastDocBase = reader.DocBase;
+            float fastScore = query.Boost;
+            foreach (var (docId, latitude) in reader.GetNumericRange(
+                         latField, bounds.MinimumLatitude, bounds.MaximumLatitude))
+            {
+                if (!reader.IsLive(docId)
+                    || !reader.TryGetNumericValue(lonField, docId, out double longitude)
+                    || !bounds.ContainsLongitude(longitude)
+                    || GeoEncodingUtils.HaversineDistance(
+                        query.CentreLat, query.CentreLon, latitude, longitude) > query.RadiusMetres)
+                    continue;
 
-            // Precise Haversine check
-            double dist = GeoEncodingUtils.HaversineDistance(query.CentreLat, query.CentreLon, lat, lon);
-            if (dist <= query.RadiusMetres)
+                collector.Collect(
+                    fastDocBase + docId,
+                    ApplyFieldBoost(reader, docId, query.Field, fastScore));
+            }
+
+            return;
+        }
+
+        bool hasPackedField = HasCompatiblePackedPointField(reader, query.Field);
+        var matched = new RoaringBitmap();
+        var documentIds = new List<int>();
+
+        if (hasPackedField)
+            CollectPackedGeoBounds(reader, query.Field, bounds, matched, documentIds);
+
+        bool hasLegacyGeoDocuments = !hasPackedField
+            || !reader.HasBinaryDocValuesForEveryDocument(GeoPointDocValues.GetFieldName(query.Field));
+        if (hasLegacyGeoDocuments)
+            CollectLegacyGeoBounds(reader, query.Field, bounds, matched, documentIds, hasPackedField);
+
+        int docBase = reader.DocBase;
+        float score = query.Boost;
+        string exactField = GeoPointDocValues.GetFieldName(query.Field);
+        bool singleValuedPackedField = hasPackedField
+            && reader.TryGetPackedBkdFieldMetadata(query.Field, out PackedBkdFieldMetadata metadata)
+            && metadata.PointCount == metadata.DocumentCount;
+        bool useNumericDocValues = singleValuedPackedField && !hasLegacyGeoDocuments;
+        foreach (int docId in documentIds)
+        {
+            if (!reader.IsLive(docId))
+                continue;
+
+            double minimumDistance = double.PositiveInfinity;
+            if (useNumericDocValues
+                && reader.TryGetNumericValue(latField, docId, out double numericLatitude)
+                && reader.TryGetNumericValue(lonField, docId, out double numericLongitude))
+            {
+                minimumDistance = GeoEncodingUtils.HaversineDistance(
+                    query.CentreLat, query.CentreLon, numericLatitude, numericLongitude);
+            }
+            else if (reader.TryGetBinaryDocValues(exactField, docId, out var exactValues))
+            {
+                foreach (byte[] value in exactValues)
+                {
+                    if (!GeoPointDocValues.TryDecode(value, out double latitude, out double longitude))
+                        throw new InvalidDataException($"Geo point DocValues for field '{query.Field}' are malformed.");
+
+                    double distance = GeoEncodingUtils.HaversineDistance(
+                        query.CentreLat, query.CentreLon, latitude, longitude);
+                    if (distance < minimumDistance)
+                        minimumDistance = distance;
+                }
+            }
+            else if (reader.TryGetNumericValue(latField, docId, out double latitude)
+                && reader.TryGetNumericValue(lonField, docId, out double longitude))
+            {
+                minimumDistance = GeoEncodingUtils.HaversineDistance(
+                    query.CentreLat, query.CentreLon, latitude, longitude);
+            }
+
+            if (minimumDistance <= query.RadiusMetres)
                 collector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, query.Field, score));
+        }
+    }
+
+    private void ExecuteXYBoundingBoxQuery(XYBoundingBoxQuery query, SegmentReader reader, ref TopNCollector collector)
+    {
+        if (!HasCompatiblePackedPointField(reader, query.Field))
+            return;
+
+        XYRectangle bounds = query.Bounds;
+        Span<byte> minimum = stackalloc byte[2 * PackedBkdConfig.FixedBytesPerDimension];
+        Span<byte> maximum = stackalloc byte[2 * PackedBkdConfig.FixedBytesPerDimension];
+        XYEncodingUtils.Encode(bounds.MinX, minimum);
+        XYEncodingUtils.Encode(bounds.MinY, minimum[PackedBkdConfig.FixedBytesPerDimension..]);
+        XYEncodingUtils.Encode(bounds.MaxX, maximum);
+        XYEncodingUtils.Encode(bounds.MaxY, maximum[PackedBkdConfig.FixedBytesPerDimension..]);
+
+        var matched = new RoaringBitmap();
+        var documentIds = new List<int>();
+        var visitor = new PackedBkdBoundsVisitor(minimum, maximum, matched, documentIds);
+        if (!reader.IntersectPackedBkd(query.Field, ref visitor))
+            return;
+
+        CollectXYMatches(reader, query.Field, documentIds, query.Boost, ref collector);
+    }
+
+    private void ExecuteXYDistanceQuery(XYDistanceQuery query, SegmentReader reader, ref TopNCollector collector)
+    {
+        if (!HasCompatiblePackedPointField(reader, query.Field))
+            return;
+
+        double rawMinimumX = (double)query.Centre.X - query.Radius;
+        double rawMinimumY = (double)query.Centre.Y - query.Radius;
+        double rawMaximumX = (double)query.Centre.X + query.Radius;
+        double rawMaximumY = (double)query.Centre.Y + query.Radius;
+        var bounds = new XYRectangle(
+            RoundMinimumCoordinate(rawMinimumX),
+            RoundMinimumCoordinate(rawMinimumY),
+            RoundMaximumCoordinate(rawMaximumX),
+            RoundMaximumCoordinate(rawMaximumY));
+
+        Span<byte> minimum = stackalloc byte[2 * PackedBkdConfig.FixedBytesPerDimension];
+        Span<byte> maximum = stackalloc byte[2 * PackedBkdConfig.FixedBytesPerDimension];
+        XYEncodingUtils.Encode(bounds.MinX, minimum);
+        XYEncodingUtils.Encode(bounds.MinY, minimum[PackedBkdConfig.FixedBytesPerDimension..]);
+        XYEncodingUtils.Encode(bounds.MaxX, maximum);
+        XYEncodingUtils.Encode(bounds.MaxY, maximum[PackedBkdConfig.FixedBytesPerDimension..]);
+
+        var matched = new RoaringBitmap();
+        var documentIds = new List<int>();
+        var visitor = new PackedBkdBoundsVisitor(minimum, maximum, matched, documentIds);
+        if (!reader.IntersectPackedBkd(query.Field, ref visitor))
+            return;
+
+        double radiusSquared = (double)query.Radius * query.Radius;
+        int docBase = reader.DocBase;
+        float score = query.Boost;
+        foreach (int docId in documentIds)
+        {
+            if (!reader.IsLive(docId)
+                || !reader.TryGetBinaryDocValues(query.Field, docId, out var pointValues))
+                continue;
+
+            bool withinRadius = false;
+            foreach (byte[] packedPoint in pointValues)
+            {
+                if (packedPoint.Length != 2 * PackedBkdConfig.FixedBytesPerDimension)
+                    throw new InvalidDataException($"XY point DocValues for field '{query.Field}' are malformed.");
+
+                double x = XYEncodingUtils.Decode(packedPoint);
+                double y = XYEncodingUtils.Decode(packedPoint.AsSpan(PackedBkdConfig.FixedBytesPerDimension));
+                double dx = x - query.Centre.X;
+                double dy = y - query.Centre.Y;
+                if (dx * dx + dy * dy <= radiusSquared)
+                {
+                    withinRadius = true;
+                    break;
+                }
+            }
+
+            if (withinRadius)
+                collector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, query.Field, score));
+        }
+    }
+
+    private static void CollectXYMatches(
+        SegmentReader reader,
+        string field,
+        List<int> documentIds,
+        float boost,
+        ref TopNCollector collector)
+    {
+        int docBase = reader.DocBase;
+        foreach (int docId in documentIds)
+        {
+            if (reader.IsLive(docId))
+                collector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, field, boost));
+        }
+    }
+
+    private static float RoundMinimumCoordinate(double value)
+    {
+        if (value <= -float.MaxValue)
+            return -float.MaxValue;
+        if (value >= float.MaxValue)
+            return float.MaxValue;
+
+        float rounded = (float)value;
+        return rounded > value ? MathF.BitDecrement(rounded) : rounded;
+    }
+
+    private static float RoundMaximumCoordinate(double value)
+    {
+        if (value >= float.MaxValue)
+            return float.MaxValue;
+        if (value <= -float.MaxValue)
+            return -float.MaxValue;
+
+        float rounded = (float)value;
+        return rounded < value ? MathF.BitIncrement(rounded) : rounded;
+    }
+
+    private static bool HasCompatiblePackedPointField(SegmentReader reader, string field)
+        => reader.TryGetPackedBkdFieldMetadata(field, out PackedBkdFieldMetadata metadata)
+            && metadata.Config.Dimensions == 2
+            && metadata.Config.IndexedDimensions == 2
+            && metadata.Config.BytesPerDimension == PackedBkdConfig.FixedBytesPerDimension;
+
+    private static bool HasSingleValuedPackedGeoField(SegmentReader reader, string field)
+        => HasCompatiblePackedPointField(reader, field)
+            && reader.TryGetPackedBkdFieldMetadata(field, out PackedBkdFieldMetadata metadata)
+            && metadata.PointCount == metadata.DocumentCount
+            && reader.HasBinaryDocValuesForEveryDocument(GeoPointDocValues.GetFieldName(field));
+
+    private static void CollectPackedGeoBounds(
+        SegmentReader reader,
+        string field,
+        GeoQueryBounds bounds,
+        RoaringBitmap matched,
+        List<int> documentIds)
+    {
+        Span<byte> minimum = stackalloc byte[2 * PackedBkdConfig.FixedBytesPerDimension];
+        Span<byte> maximum = stackalloc byte[2 * PackedBkdConfig.FixedBytesPerDimension];
+        for (int rangeIndex = 0; rangeIndex < bounds.LongitudeRangeCount; rangeIndex++)
+        {
+            GeoLongitudeRange longitude = bounds.GetLongitudeRange(rangeIndex);
+            GeoEncodingUtils.WriteLonSortable(longitude.Minimum, minimum);
+            GeoEncodingUtils.WriteLatSortable(bounds.MinimumLatitude, minimum[PackedBkdConfig.FixedBytesPerDimension..]);
+            GeoEncodingUtils.WriteLonSortable(longitude.Maximum, maximum);
+            GeoEncodingUtils.WriteLatSortable(bounds.MaximumLatitude, maximum[PackedBkdConfig.FixedBytesPerDimension..]);
+
+            var visitor = new PackedBkdBoundsVisitor(minimum, maximum, matched, documentIds);
+            reader.IntersectPackedBkd(field, ref visitor);
+        }
+    }
+
+    private static void CollectLegacyGeoBounds(
+        SegmentReader reader,
+        string field,
+        GeoQueryBounds bounds,
+        RoaringBitmap matched,
+        List<int> documentIds,
+        bool packedFieldPresent)
+    {
+        string latField = field + "_lat";
+        string lonField = field + "_lon";
+        var latitudeCandidates = reader.GetNumericRange(latField, bounds.MinimumLatitude, bounds.MaximumLatitude);
+        if (latitudeCandidates.Count == 0)
+            return;
+
+        string exactField = GeoPointDocValues.GetFieldName(field);
+        foreach (var (docId, _) in latitudeCandidates)
+        {
+            if (!reader.IsLive(docId))
+                continue;
+            if (packedFieldPresent && reader.TryGetBinaryDocValues(exactField, docId, out _))
+                continue;
+            if (!reader.TryGetNumericValue(lonField, docId, out double longitude)
+                || !bounds.ContainsLongitude(longitude)
+                || matched.Contains(docId))
+                continue;
+
+            matched.Add(docId);
+            documentIds.Add(docId);
+        }
+    }
+
+    private static void CollectGeoMatches(
+        SegmentReader reader,
+        string field,
+        GeoQueryBounds bounds,
+        List<int> documentIds,
+        float boost,
+        ref TopNCollector collector)
+    {
+        int docBase = reader.DocBase;
+        string exactField = GeoPointDocValues.GetFieldName(field);
+        foreach (int docId in documentIds)
+        {
+            if (!reader.IsLive(docId))
+                continue;
+
+            bool matches = false;
+            if (reader.TryGetBinaryDocValues(exactField, docId, out var exactValues))
+            {
+                foreach (byte[] value in exactValues)
+                {
+                    if (!GeoPointDocValues.TryDecode(value, out double latitude, out double longitude))
+                        throw new InvalidDataException($"Geo point DocValues for field '{field}' are malformed.");
+                    if (latitude >= bounds.MinimumLatitude && latitude <= bounds.MaximumLatitude
+                        && bounds.ContainsLongitude(longitude))
+                    {
+                        matches = true;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                matches = true;
+            }
+
+            if (matches)
+                collector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, field, boost));
+        }
+    }
+
+    private static bool TryCreateGeoBounds(
+        double minimumLatitude,
+        double maximumLatitude,
+        double minimumLongitude,
+        double maximumLongitude,
+        out GeoQueryBounds bounds)
+    {
+        bounds = default;
+        if (!double.IsFinite(minimumLatitude) || !double.IsFinite(maximumLatitude)
+            || !double.IsFinite(minimumLongitude) || !double.IsFinite(maximumLongitude)
+            || minimumLatitude < -90 || maximumLatitude > 90 || minimumLatitude > maximumLatitude
+            || minimumLongitude < -180 || minimumLongitude > 180
+            || maximumLongitude < -180 || maximumLongitude > 180)
+            return false;
+
+        if (minimumLongitude <= maximumLongitude)
+        {
+            bounds = new GeoQueryBounds(minimumLatitude, maximumLatitude,
+                new GeoLongitudeRange(minimumLongitude, maximumLongitude), default, 1);
+        }
+        else
+        {
+            bounds = new GeoQueryBounds(minimumLatitude, maximumLatitude,
+                new GeoLongitudeRange(minimumLongitude, 180),
+                new GeoLongitudeRange(-180, maximumLongitude), 2);
+        }
+
+        return true;
+    }
+
+    private static bool TryCreateGeoDistanceBounds(GeoDistanceQuery query, out GeoQueryBounds bounds)
+    {
+        bounds = default;
+        if (!double.IsFinite(query.RadiusMetres) && !double.IsPositiveInfinity(query.RadiusMetres)
+            || query.RadiusMetres < 0 || double.IsNaN(query.CentreLat) || double.IsNaN(query.CentreLon)
+            || double.IsInfinity(query.CentreLat) || double.IsInfinity(query.CentreLon))
+            return false;
+
+        const double earthRadiusMetres = 6_371_000.0;
+        double angularRadius = Math.Min(query.RadiusMetres / earthRadiusMetres, Math.PI);
+        if (angularRadius >= Math.PI || query.CentreLat < -90 || query.CentreLat > 90
+            || query.CentreLon < -180 || query.CentreLon > 180)
+        {
+            bounds = new GeoQueryBounds(-90, 90,
+                new GeoLongitudeRange(-180, 180), default, 1);
+            return true;
+        }
+
+        double centreLatitudeRadians = DegreesToRadians(query.CentreLat);
+        double minimumLatitude = Math.Max(-90, query.CentreLat - RadiansToDegrees(angularRadius));
+        double maximumLatitude = Math.Min(90, query.CentreLat + RadiansToDegrees(angularRadius));
+        bool reachesPole = query.CentreLat + RadiansToDegrees(angularRadius) >= 90
+            || query.CentreLat - RadiansToDegrees(angularRadius) <= -90;
+        if (reachesPole)
+        {
+            bounds = new GeoQueryBounds(minimumLatitude, maximumLatitude,
+                new GeoLongitudeRange(-180, 180), default, 1);
+            return true;
+        }
+
+        double longitudeRatio = Math.Sin(angularRadius) / Math.Cos(centreLatitudeRadians);
+        double longitudeDelta = RadiansToDegrees(Math.Asin(Math.Clamp(longitudeRatio, -1, 1)));
+        double west = query.CentreLon - longitudeDelta;
+        double east = query.CentreLon + longitudeDelta;
+        if (west < -180)
+        {
+            bounds = new GeoQueryBounds(minimumLatitude, maximumLatitude,
+                new GeoLongitudeRange(-180, east),
+                new GeoLongitudeRange(west + 360, 180), 2);
+        }
+        else if (east > 180)
+        {
+            bounds = new GeoQueryBounds(minimumLatitude, maximumLatitude,
+                new GeoLongitudeRange(west, 180),
+                new GeoLongitudeRange(-180, east - 360), 2);
+        }
+        else
+        {
+            bounds = new GeoQueryBounds(minimumLatitude, maximumLatitude,
+                new GeoLongitudeRange(west, east), default, 1);
+        }
+
+        return true;
+    }
+
+    private static double DegreesToRadians(double degrees) => degrees * (Math.PI / 180.0);
+    private static double RadiansToDegrees(double radians) => radians * (180.0 / Math.PI);
+
+    private readonly record struct GeoLongitudeRange(double Minimum, double Maximum);
+
+    private readonly record struct GeoQueryBounds(
+        double MinimumLatitude,
+        double MaximumLatitude,
+        GeoLongitudeRange FirstLongitudeRange,
+        GeoLongitudeRange SecondLongitudeRange,
+        int LongitudeRangeCount)
+    {
+        internal GeoLongitudeRange GetLongitudeRange(int index)
+            => index switch
+            {
+                0 => FirstLongitudeRange,
+                1 when LongitudeRangeCount > 1 => SecondLongitudeRange,
+                _ => throw new ArgumentOutOfRangeException(nameof(index))
+            };
+
+        internal bool ContainsLongitude(double longitude)
+        {
+            for (int i = 0; i < LongitudeRangeCount; i++)
+            {
+                GeoLongitudeRange range = GetLongitudeRange(i);
+                if (longitude >= range.Minimum && longitude <= range.Maximum)
+                    return true;
+            }
+
+            return false;
         }
     }
 }

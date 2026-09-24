@@ -12,5 +12,9 @@ public enum SortFieldType
     /// <summary>Sort by a 64-bit integer stored/indexed field.</summary>
     Int64,
     /// <summary>Sort by a string stored field (lexicographic).</summary>
-    String
+    String,
+    /// <summary>Sort by exact geographic distance in metres.</summary>
+    GeoDistance,
+    /// <summary>Sort by exact Cartesian distance in coordinate units.</summary>
+    XYDistance
 }

@@ -82,6 +82,49 @@ internal sealed class PackedBkdReader : IDisposable
         where TVisitor : struct, IPackedBkdIntersectVisitor
         => Intersect(fieldName, ref visitor, out _);
 
+    internal bool TraverseBestFirst<TVisitor>(
+        string fieldName,
+        ref TVisitor visitor,
+        out PackedBkdTraversalStats stats)
+        where TVisitor : IPackedBkdBestFirstVisitor
+    {
+        ArgumentNullException.ThrowIfNull(fieldName);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        stats = default;
+        using var activity = Diagnostics.LeanCorpusActivitySource.Source.StartActivity(
+            Diagnostics.LeanCorpusActivitySource.PackedBkdBestFirst);
+        PackedBkdFieldMetadata metadata;
+        lock (_gate)
+        {
+            if (!_directory.TryGetValue(fieldName, out var entry))
+            {
+                activity?.SetTag("packed_bkd.field_present", false);
+                return false;
+            }
+            metadata = _metadata.TryGetValue(fieldName, out var cached)
+                ? cached
+                : (_metadata[fieldName] = ParseField(fieldName, entry));
+        }
+
+        using var queryBody = _body.OpenSharedSlice(0, _body.Length);
+        using var cursor = new PackedBkdFieldCursor(queryBody, fieldName, metadata, MaximumTreeDepth);
+        cursor.TraverseBestFirst(ref visitor, ref stats);
+        activity?.SetTag("packed_bkd.field_present", true);
+        activity?.SetTag("packed_bkd.cells_visited", stats.CellsVisited);
+        activity?.SetTag("packed_bkd.cells_pruned", stats.CellsPruned);
+        activity?.SetTag("packed_bkd.leaves_visited", stats.LeavesVisited);
+        activity?.SetTag("packed_bkd.leaves_semantically_validated", stats.LeavesSemanticallyValidated);
+        activity?.SetTag("packed_bkd.packed_values_decoded", stats.PackedValuesDecoded);
+        activity?.SetTag("packed_bkd.documents_visited", stats.DocumentsVisited);
+        activity?.SetTag("packed_bkd.peak_leaf_scratch", stats.PeakLeafScratch);
+        activity?.SetTag("packed_bkd.frontier_peak", stats.PeakFrontierSize);
+        activity?.SetTag("packed_bkd.exact_distance_calculations", visitor.ExactDistanceCalculations);
+        activity?.SetTag("packed_bkd.filter_candidates_rejected", visitor.FilterCandidatesRejected);
+        activity?.SetTag("packed_bkd.candidate_heap_updates", visitor.CandidateUpdates);
+        activity?.SetTag("packed_bkd.candidate_peak", visitor.PeakCandidateCount);
+        return true;
+    }
+
     /// <summary>Intersects one field and returns the traversal counters for an observer.</summary>
     internal bool Intersect<TVisitor>(
         string fieldName,

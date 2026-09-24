@@ -18,16 +18,16 @@ public sealed class IndexSort : IEquatable<IndexSort>
     /// <summary>
     /// Initialises a new <see cref="IndexSort"/> with the specified sort fields.
     /// </summary>
-    /// <param name="fields">One or more sort fields that define the document ordering. Score sort type is not allowed.</param>
-    /// <exception cref="ArgumentException">Thrown if no fields are provided, or if any field uses <see cref="SortFieldType.Score"/>.</exception>
+    /// <param name="fields">One or more sort fields that define the document ordering. Score and point-distance sort types are not allowed.</param>
+    /// <exception cref="ArgumentException">Thrown if no fields are provided, or if any field uses a score or point-distance sort type.</exception>
     public IndexSort(params SortField[] fields)
     {
         if (fields.Length == 0)
             throw new ArgumentException("At least one sort field is required.", nameof(fields));
         foreach (var f in fields)
         {
-            if (f.Type == SortFieldType.Score)
-                throw new ArgumentException("Index sort cannot use Score sort type.", nameof(fields));
+            if (f.Type is SortFieldType.Score or SortFieldType.GeoDistance or SortFieldType.XYDistance)
+                throw new ArgumentException("Index sort cannot use score or point-distance sort types.", nameof(fields));
         }
         Fields = fields.ToArray();
         var serialised = new List<string>(fields.Length);
@@ -53,7 +53,8 @@ public sealed class IndexSort : IEquatable<IndexSort>
             var a = Fields[i];
             var b = other.Fields[i];
             if (a.Type != b.Type || a.FieldName != b.FieldName
-                || a.Descending != b.Descending || a.Selector != b.Selector)
+                || a.Descending != b.Descending || a.Selector != b.Selector
+                || a.GeoOrigin != b.GeoOrigin || a.XYOrigin != b.XYOrigin)
                 return false;
         }
         return true;
@@ -72,6 +73,8 @@ public sealed class IndexSort : IEquatable<IndexSort>
             hc.Add(f.FieldName);
             hc.Add(f.Descending);
             hc.Add(f.Selector);
+            hc.Add(f.GeoOrigin);
+            hc.Add(f.XYOrigin);
         }
         return hc.ToHashCode();
     }

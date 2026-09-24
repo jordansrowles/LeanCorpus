@@ -1,9 +1,17 @@
 ### Added
 
 - Added immutable Geo and XY geometry values with `IGeoGeometry` and `IXYGeometry` markers, shared canonical coordinate validation, and a deterministic multidimensional Packed BKD v1 format using new `.pbkd` files.
+- Added segment-aware Packed BKD execution for Geo bounding-box and distance queries, with legacy-segment fallback, dateline splitting, and exact Haversine filtering.
+- Added `XYPointField` and packed XY bounding-box and distance queries with repeated point DocValues and exact Euclidean filtering.
+- Added typed Geo and XY distance sort factories, with origin-aware invariant search-session cursor identities.
+- Added DocValues-backed Geo and XY distance sorting with multi-value minima, deterministic ties, missing-value ordering, and SearchAfter/session support.
+- Added best-first Packed BKD Top-N for eligible ascending Geo/XY distance sorts, with conservative cell lower bounds, constant-score filter bitmap reuse, and exact fallback scans for legacy Geo segments.
+- Added a spatial nearest benchmark matrix comparing exact sorting with best-first Geo/XY Top-N across uniform, clustered and multi-value points, Top-N sizes and filter selectivity, recording Packed BKD traversal counters and packed-only versus mixed legacy/packed Geo overhead.
 
 ### Changed
 
+- Set Core package, assembly and file versions to `3.2.0` for the Sprint 2 release.
+- Use the existing indexed latitude range to select candidates for single-valued packed Geo distance queries, while retaining exact Haversine checks and packed/mixed fallbacks.
 - Added construction-time `IndexingConcurrency` configuration and explicit concurrent async bulk ingestion for the Core writer, and made concurrent bulk ingestion use bounded producers through the normal DWPT pipeline.
 - Made concurrent indexing ownership explicit for analyser components across maintained built-ins, consolidated automatic DWPT flushing, and now account for active and detached flush-buffer retention separately.
 - Detached DWPT flushing now uses bounded background physical execution with ordered writer-owned publication, so indexing producers no longer wait for segment I/O after admission and async ingestion reuses its owning operation lifetime.
@@ -30,6 +38,9 @@
 - Reduced retained Packed BKD build metadata to one contiguous leaf-data stream
   and stack-based recursive validation scratch, while expanding generated
   lifecycle and corruption coverage.
+- Added a replayable Geo/XY state-machine model, NRT snapshot coverage,
+  interrupted packed-point flush recovery, mixed legacy fallback with a corrupt
+  packed segment, and nearest-search corruption/cancellation cleanup coverage.
 - Corrected Packed BKD field-name ordering for prefix and Unicode names, and
   rejected incompatible or checksum-corrupt source files before merge rewrites.
 - Kept Packed BKD root metadata read-only, documented the separate public 1D

@@ -1,3 +1,6 @@
+using Rowles.LeanCorpus.Search.Geo;
+using Rowles.LeanCorpus.Search.XY;
+
 namespace Rowles.LeanCorpus.Search.Scoring;
 
 /// <summary>
@@ -23,6 +26,12 @@ public sealed class SortField
     /// <summary>Gets the value selector used for multi-valued fields.</summary>
     public SortValueSelector Selector { get; }
 
+    /// <summary>Gets the immutable origin for a geographic distance sort.</summary>
+    public GeoPoint? GeoOrigin { get; }
+
+    /// <summary>Gets the immutable origin for a Cartesian distance sort.</summary>
+    public XYPoint? XYOrigin { get; }
+
     /// <summary>Initialises a new <see cref="SortField"/> with the given type, field name, and direction.</summary>
     /// <param name="type">The kind of value to sort by.</param>
     /// <param name="fieldName">The field name for <see cref="SortFieldType.Numeric"/> and <see cref="SortFieldType.String"/> sorts.</param>
@@ -34,10 +43,30 @@ public sealed class SortField
         bool descending = false,
         SortValueSelector selector = SortValueSelector.Min)
     {
+        if (type is SortFieldType.GeoDistance or SortFieldType.XYDistance)
+            throw new ArgumentException("Use the typed distance-sort factory to supply its origin.", nameof(type));
+
         Type = type;
         FieldName = fieldName;
         Descending = descending;
         Selector = selector;
+        GeoOrigin = null;
+        XYOrigin = null;
+    }
+
+    private SortField(
+        SortFieldType type,
+        string fieldName,
+        bool descending,
+        GeoPoint? geoOrigin,
+        XYPoint? xyOrigin)
+    {
+        Type = type;
+        FieldName = fieldName;
+        Descending = descending;
+        Selector = SortValueSelector.Min;
+        GeoOrigin = geoOrigin;
+        XYOrigin = xyOrigin;
     }
 
     /// <summary>Creates a numeric sort on the given field.</summary>
@@ -51,6 +80,20 @@ public sealed class SortField
     /// <summary>Creates a string sort on the given field.</summary>
     public static SortField String(string fieldName, bool descending = false)
         => new(SortFieldType.String, fieldName, descending);
+
+    /// <summary>Creates a geographic distance sort measured in metres from <paramref name="origin"/>.</summary>
+    public static SortField GeoDistance(string fieldName, GeoPoint origin, bool descending = false)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fieldName);
+        return new SortField(SortFieldType.GeoDistance, fieldName, descending, origin, null);
+    }
+
+    /// <summary>Creates a Cartesian distance sort measured in coordinate units from <paramref name="origin"/>.</summary>
+    public static SortField XYDistance(string fieldName, XYPoint origin, bool descending = false)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fieldName);
+        return new SortField(SortFieldType.XYDistance, fieldName, descending, null, origin);
+    }
 
     /// <summary>Creates a multi-valued numeric sort on the given field.</summary>
     public static SortField SortedNumeric(

@@ -8,9 +8,16 @@ internal sealed record SearchCursorData(string SessionId, string IndexIdentity, 
     string QueryIdentity, string SortIdentity, string RankingIdentity, ScoreDoc After,
     IReadOnlyList<CursorSortValue> SortValues);
 
-internal readonly record struct CursorSortValue(SortFieldType Type, double Numeric, long Int64, string? String)
+internal readonly record struct CursorSortValue(
+    SortFieldType Type,
+    double Numeric,
+    long Int64,
+    string? String,
+    bool IsMissing = false)
 {
     internal static CursorSortValue FromNumeric(SortFieldType type, double value) => new(type, value, 0, null);
+    internal static CursorSortValue FromNumeric(SortFieldType type, double value, bool isMissing)
+        => new(type, value, 0, null, isMissing);
     internal static CursorSortValue FromInt64(SortFieldType type, long value) => new(type, 0, value, null);
     internal static CursorSortValue FromString(string value) => new(SortFieldType.String, 0, 0, value);
 }
@@ -40,6 +47,10 @@ internal sealed class SearchCursorCodec
                 switch (value.Type)
                 {
                     case SortFieldType.Score or SortFieldType.Numeric: writer.Write(BitConverter.DoubleToInt64Bits(value.Numeric)); break;
+                    case SortFieldType.GeoDistance or SortFieldType.XYDistance:
+                        writer.Write(BitConverter.DoubleToInt64Bits(value.Numeric));
+                        writer.Write(value.IsMissing);
+                        break;
                     case SortFieldType.DocId or SortFieldType.Int64: writer.Write(value.Int64); break;
                     case SortFieldType.String: WriteString(writer, value.String ?? string.Empty); break;
                     default: throw Invalid("Unsupported cursor sort value.");
@@ -91,6 +102,7 @@ internal sealed class SearchCursorCodec
                 values[i] = type switch
                 {
                     SortFieldType.Score or SortFieldType.Numeric => ReadNumeric(reader, type),
+                    SortFieldType.GeoDistance or SortFieldType.XYDistance => ReadSpatialNumeric(reader, type),
                     SortFieldType.DocId or SortFieldType.Int64 => CursorSortValue.FromInt64(type, reader.ReadInt64()),
                     SortFieldType.String => CursorSortValue.FromString(ReadString(reader)),
                     _ => throw Invalid("Cursor sort value type is invalid.")
@@ -107,6 +119,13 @@ internal sealed class SearchCursorCodec
 
     private static CursorSortValue ReadNumeric(BinaryReader reader, SortFieldType type)
     { double value = BitConverter.Int64BitsToDouble(reader.ReadInt64()); if (!double.IsFinite(value)) throw Invalid("Non-finite cursor sort values are unsupported."); return CursorSortValue.FromNumeric(type, value); }
+    private static CursorSortValue ReadSpatialNumeric(BinaryReader reader, SortFieldType type)
+    {
+        double value = BitConverter.Int64BitsToDouble(reader.ReadInt64());
+        bool isMissing = reader.ReadBoolean();
+        if (!double.IsFinite(value)) throw Invalid("Non-finite cursor sort values are unsupported.");
+        return CursorSortValue.FromNumeric(type, value, isMissing);
+    }
     private static void WriteString(BinaryWriter writer, string value) { if (Encoding.UTF8.GetByteCount(value) > 2048) throw Invalid("Cursor string value is oversized."); writer.Write(value); }
     private static string ReadString(BinaryReader reader) { string value = reader.ReadString(); if (Encoding.UTF8.GetByteCount(value) > 2048) throw Invalid("Cursor string value is oversized."); return value; }
     private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');

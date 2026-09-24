@@ -383,6 +383,36 @@ internal sealed partial class SegmentReaderState
         return true;
     }
 
+    /// <summary>Returns whether a binary DocValues field has at least one value for every segment document.</summary>
+    internal bool HasBinaryDocValuesForEveryDocument(string field)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        if (!EnsureBinaryDocValues().TryGetValue(field, out var perDocumentValues)
+            || perDocumentValues.Length != _info.DocCount)
+            return false;
+
+        var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
+        lock (lockObj)
+        {
+            _binaryDocValuesFullCoverage ??= new Dictionary<string, bool>(StringComparer.Ordinal);
+            if (_binaryDocValuesFullCoverage.TryGetValue(field, out bool hasFullCoverage))
+                return hasFullCoverage;
+
+            hasFullCoverage = true;
+            foreach (byte[][] documentValues in perDocumentValues)
+            {
+                if (documentValues.Length > 0)
+                    continue;
+
+                hasFullCoverage = false;
+                break;
+            }
+
+            _binaryDocValuesFullCoverage.Add(field, hasFullCoverage);
+            return hasFullCoverage;
+        }
+    }
+
     /// <summary>Returns the NumericDocValues array for a field, or null if unavailable.</summary>
     public double[]? GetNumericDocValues(string field)
         => EnsureNumericDocValues().GetValueOrDefault(field);

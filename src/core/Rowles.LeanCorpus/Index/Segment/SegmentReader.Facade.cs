@@ -336,6 +336,15 @@ public sealed partial class SegmentReader : IDisposable
     public bool TryGetSortedNumericDocValues(string field, int docId, out IReadOnlyList<double> values) { using var lease = AcquireReadLease(); return lease.State.TryGetSortedNumericDocValues(field, docId, out values); }
     public bool TryGetSortedInt64DocValues(string field, int docId, out IReadOnlyList<long> values) { using var lease = AcquireReadLease(); return lease.State.TryGetSortedInt64DocValues(field, docId, out values); }
     public bool TryGetBinaryDocValues(string field, int docId, out IReadOnlyList<byte[]> values) { if (TryGetFastState(out var state)) return state.TryGetBinaryDocValues(field, docId, out values); using var lease = AcquireReadLease(); return lease.State.TryGetBinaryDocValues(field, docId, out values); }
+
+    internal bool HasBinaryDocValuesForEveryDocument(string field)
+    {
+        if (TryGetFastState(out var state))
+            return state.HasBinaryDocValuesForEveryDocument(field);
+
+        using var lease = AcquireReadLease();
+        return lease.State.HasBinaryDocValuesForEveryDocument(field);
+    }
     public double[]? GetNumericDocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetNumericDocValues(field); }
     public string[]? GetSortedDocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetSortedDocValues(field); }
     public string[][]? GetSortedSetDocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetSortedSetDocValues(field); }

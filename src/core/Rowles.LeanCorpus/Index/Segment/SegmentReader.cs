@@ -53,6 +53,7 @@ internal sealed partial class SegmentReaderState : IDisposable
     private Dictionary<string, double[][]>? _sortedNumericDocValues;
     private Dictionary<string, long[][]>? _int64SortedDocValues;
     private Dictionary<string, byte[][][]>? _binaryDocValues;
+    private Dictionary<string, bool>? _binaryDocValuesFullCoverage;
     private TermVectorsReader? _termVectorsReader;
     private Codecs.Bkd.BKDReader? _bkdReader;
     private bool _bkdReaderLoaded;

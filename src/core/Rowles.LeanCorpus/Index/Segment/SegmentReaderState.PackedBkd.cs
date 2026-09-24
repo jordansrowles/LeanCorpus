@@ -34,6 +34,22 @@ internal sealed partial class SegmentReaderState
         return reader is not null && reader.Intersect(field, ref visitor);
     }
 
+    internal bool TraversePackedBkdBestFirst<TVisitor>(
+        string field,
+        ref TVisitor visitor,
+        out PackedBkdTraversalStats stats)
+        where TVisitor : IPackedBkdBestFirstVisitor
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        PackedBkdReader? reader = EnsurePackedBkdReader();
+        if (reader is null)
+        {
+            stats = default;
+            return false;
+        }
+        return reader.TraverseBestFirst(field, ref visitor, out stats);
+    }
+
     internal void DeepValidatePackedBkd()
         => EnsurePackedBkdReader()?.DeepValidate();
 

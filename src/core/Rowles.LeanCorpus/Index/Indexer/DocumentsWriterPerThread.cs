@@ -1,9 +1,13 @@
 using System.Buffers;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Codecs.PackedBkd;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer.Postings;
+using Rowles.LeanCorpus.Search.Geo;
+using Rowles.LeanCorpus.Search.XY;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
 
@@ -191,6 +195,8 @@ internal sealed class DocumentsWriterPerThread
     private void AddDocumentCore(LeanDocument doc)
     {
         int localDocId = DocCount;
+        Span<byte> packedGeoPoint = stackalloc byte[2 * PackedBkdConfig.FixedBytesPerDimension];
+        Span<byte> geoPointDocValue = stackalloc byte[GeoPointDocValues.ValueLength];
         StoredDocStarts.Add(StoredFieldIds.Count);
 
         foreach (var field in doc.Fields)
@@ -258,6 +264,18 @@ internal sealed class DocumentsWriterPerThread
                     break;
                 case GeoPointField gf:
                     TrackFieldBoost(gf.Name, localDocId, gf.Boost);
+                    GeoEncodingUtils.WriteLonSortable(gf.Longitude, packedGeoPoint);
+                    GeoEncodingUtils.WriteLatSortable(gf.Latitude, packedGeoPoint[PackedBkdConfig.FixedBytesPerDimension..]);
+                    AddPackedBkdValue(
+                        gf.Name,
+                        PackedBkdConfig.Point2D(_config.BKDMaxLeafSize),
+                        packedGeoPoint,
+                        localDocId);
+                    GeoPointDocValues.Encode(gf.Latitude, gf.Longitude, geoPointDocValue);
+                    AddBinaryDocValue(
+                        GeoPointDocValues.GetFieldName(gf.Name),
+                        localDocId,
+                        geoPointDocValue);
                     IndexNumericField(gf.LatFieldName, gf.Latitude, localDocId, gf.StoreDocValues);
                     IndexNumericField(gf.LonFieldName, gf.Longitude, localDocId, gf.StoreDocValues);
                     if (gf.IsStored)
@@ -265,6 +283,17 @@ internal sealed class DocumentsWriterPerThread
                         AppendStored(gf.Name, StoredFieldValue.FromString(gf.Value), storeDocValues: gf.StoreDocValues);
                         _estimatedRamBytes += gf.Value.Length * 2 + 64;
                     }
+                    break;
+                case XYPointField xy:
+                    TrackFieldBoost(xy.Name, localDocId, xy.Boost);
+                    XYEncodingUtils.Encode(xy.X, packedGeoPoint);
+                    XYEncodingUtils.Encode(xy.Y, packedGeoPoint[PackedBkdConfig.FixedBytesPerDimension..]);
+                    AddPackedBkdValue(
+                        xy.Name,
+                        PackedBkdConfig.Point2D(_config.BKDMaxLeafSize),
+                        packedGeoPoint,
+                        localDocId);
+                    AddBinaryDocValue(xy.Name, localDocId, packedGeoPoint);
                     break;
             }
         }
