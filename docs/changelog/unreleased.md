@@ -1,5 +1,8 @@
 ### Added
 
+- Added optional Shape DocValues `.dvg` v1 for indexed Geo and XY shapes, preserving the exact Packed BKD primitive stream for metadata aggregations.
+- Added one-pass heterogeneous numeric and Geo distance, centroid and bounds aggregation requests, including legacy point fallback and complete shape DocValues coverage checks.
+- Added bounded invariant 2D Geo and XY WKT parsing and canonical writing, plus explicit deterministic Geo and XY line, polygon and collection simplification.
 - Added Geo and XY shape fields and constant-score `Intersects`, `Within`, `Contains` and `Disjoint` queries over stable Packed BKD primitives, including polygon holes, value-aware containment and analytic query circles.
 - Added immutable Geo and XY geometry values with `IGeoGeometry` and `IXYGeometry` markers, shared canonical coordinate validation, and a deterministic multidimensional Packed BKD v1 format using new `.pbkd` files.
 - Added segment-aware Packed BKD execution for Geo bounding-box and distance queries, with legacy-segment fallback, dateline splitting, and exact Haversine filtering.

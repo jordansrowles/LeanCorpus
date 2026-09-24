@@ -10,6 +10,7 @@ using Rowles.LeanCorpus.Codecs.TermDictionary;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Codecs.ShapeDocValues;
 
 namespace Rowles.LeanCorpus.Index.Segment;
 
@@ -247,6 +248,7 @@ public sealed class SegmentMerger
         WriteDocValueColumns(ctx, basePath);
         WriteBkdTree(ctx, basePath);
         WritePackedBkdTree(ctx, basePath);
+        WriteShapeDocValues(ctx, basePath);
         WriteParentBitSet(ctx, basePath);
 
         LiveDocs? mergedLiveDocs = null;
@@ -325,6 +327,7 @@ public sealed class SegmentMerger
         internal ParentBitSet? ParentBitSet { get; set; }
         internal Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> Vectors { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, PackedBkdFieldBuffer> PackedBkdFields { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, ShapeDocValuesFieldBuffer> ShapeDocValuesFields { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, int> VectorFieldDims { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, bool> VectorFieldNormalised { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, bool> VectorFieldHadHnsw { get; } = new(StringComparer.Ordinal);
@@ -342,6 +345,9 @@ public sealed class SegmentMerger
             foreach (var buffer in PackedBkdFields.Values)
                 buffer.Dispose();
             PackedBkdFields.Clear();
+            foreach (ShapeDocValuesFieldBuffer buffer in ShapeDocValuesFields.Values)
+                buffer.Dispose();
+            ShapeDocValuesFields.Clear();
         }
     }
 
@@ -385,6 +391,33 @@ public sealed class SegmentMerger
             var segInt64Dvs = ReadInt64DocValues(reader);
             var segInt64SortedDvs = ReadInt64SortedDocValues(reader);
             var packedFieldNames = reader.GetPackedBkdFieldNames();
+            IReadOnlyList<string> shapeDocValuesFieldNames = reader.GetShapeDocValuesFieldNames();
+            var shapeDocValuesFields = new Dictionary<string, ShapeDocValuesFieldMetadata>(
+                shapeDocValuesFieldNames.Count, StringComparer.Ordinal);
+            if (shapeDocValuesFieldNames.Count > 0)
+                reader.ValidateShapeDocValuesChecksum();
+            foreach (string shapeFieldName in shapeDocValuesFieldNames)
+            {
+                if (!reader.TryGetShapeDocValuesFieldMetadata(shapeFieldName, out ShapeDocValuesFieldMetadata shapeMetadata))
+                    throw new InvalidDataException($"Shape DocValues field '{shapeFieldName}' disappeared during merge.");
+                SpatialFieldInfo? segmentKind = segInfo.SpatialFields.FirstOrDefault(
+                    field => string.Equals(field.FieldName, shapeFieldName, StringComparison.Ordinal));
+                if (segmentKind is null || segmentKind.Kind != shapeMetadata.Kind)
+                    throw new InvalidDataException($"Shape DocValues field '{shapeFieldName}' conflicts with segment spatial-field metadata.");
+                if (!reader.TryGetPackedBkdFieldMetadata(shapeFieldName, out PackedBkdFieldMetadata packedMetadata)
+                    || packedMetadata.DocumentCount < shapeMetadata.RecordCount)
+                    throw new InvalidDataException($"Shape DocValues field '{shapeFieldName}' has no compatible Packed BKD field coverage during merge.");
+                if (!ctx.ShapeDocValuesFields.TryGetValue(shapeFieldName, out ShapeDocValuesFieldBuffer? shapeBuffer))
+                {
+                    shapeBuffer = new ShapeDocValuesFieldBuffer(shapeFieldName, shapeMetadata.Kind);
+                    ctx.ShapeDocValuesFields.Add(shapeFieldName, shapeBuffer);
+                }
+                else if (shapeBuffer.Kind != shapeMetadata.Kind)
+                {
+                    throw new InvalidDataException($"Shape DocValues field '{shapeFieldName}' has incompatible coordinate systems during merge.");
+                }
+                shapeDocValuesFields.Add(shapeFieldName, shapeMetadata);
+            }
             if (packedFieldNames.Count > 0)
                 reader.ValidatePackedBkdChecksum();
             foreach (var packedFieldName in packedFieldNames)
@@ -421,6 +454,18 @@ public sealed class SegmentMerger
             {
                 int remapDocId = docIdMap[oldDocId];
                 if (remapDocId < 0) continue;
+
+                foreach ((string shapeFieldName, ShapeDocValuesFieldMetadata _) in shapeDocValuesFields)
+                {
+                    if (!reader.TryGetShapeDocValuesRecordMetadata(shapeFieldName, oldDocId, out ShapeDocValuesRecordMetadata record))
+                        continue;
+                    byte[] rawRecord = reader.ReadShapeDocValuesRecordBytes(shapeFieldName, oldDocId);
+                    ctx.ShapeDocValuesFields[shapeFieldName].AppendRawRecord(
+                        remapDocId,
+                        record.ValueCount,
+                        record.PrimitiveCount,
+                        rawRecord);
+                }
 
                 ctx.StoredWriter!.AddDocument(reader.GetStoredFieldValues(oldDocId));
 
@@ -885,6 +930,12 @@ public sealed class SegmentMerger
                 basePath + ".pbkd",
                 ctx.PackedBkdFields,
                 PackedBkdBuildOptions.Default with { SpillDirectory = Path.GetDirectoryName(basePath) });
+    }
+
+    private static void WriteShapeDocValues(MergeContext ctx, string basePath)
+    {
+        if (ctx.ShapeDocValuesFields.Count > 0)
+            ShapeDocValuesWriter.Write(basePath + ".dvg", ctx.TotalDocs, ctx.ShapeDocValuesFields);
     }
 
     private readonly struct PackedBkdMergeVisitor(int[] docIdMap, PackedBkdFieldBuffer destination) : IPackedBkdIntersectVisitor

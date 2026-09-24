@@ -3,6 +3,7 @@ using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.DocValues;
+using Rowles.LeanCorpus.Codecs.ShapeDocValues;
 using Rowles.LeanCorpus.Codecs.Fst;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Codecs.Bkd;
@@ -391,6 +392,9 @@ internal static class SegmentFlusher
                 source.PackedBkdFields,
                 PackedBkdBuildOptions.Default with { SpillDirectory = directoryPath });
         }
+
+        if (source.ShapeDocValuesFields.Count > 0)
+            ShapeDocValuesWriter.Write(basePath + ".dvg", docCount, source.ShapeDocValuesFields);
 
         flushSw.Stop();
         config.Metrics.RecordFlush(flushSw.Elapsed);
@@ -1146,6 +1150,9 @@ internal static class SegmentFlusher
 
         foreach (var packedField in buffer.PackedBkdFields.Values)
             packedField.RemapDocumentIds(inversePerm);
+
+        foreach (ShapeDocValuesFieldBuffer field in buffer.ShapeDocValuesFields.Values)
+            field.RemapDocumentIds(inversePerm);
 
         if (buffer.Vectors.Count > 0)
         {

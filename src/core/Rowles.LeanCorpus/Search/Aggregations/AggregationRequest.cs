@@ -3,7 +3,7 @@
 /// <summary>
 /// Describes a numeric aggregation to compute alongside a search query.
 /// </summary>
-public sealed class AggregationRequest
+public sealed class AggregationRequest : ISearchAggregationRequest
 {
     /// <summary>
     /// Initialises a new <see cref="AggregationRequest"/>.

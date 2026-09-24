@@ -52,7 +52,7 @@ var family = new CodecFamilyDescriptor(
     "Product files",
     [data]);
 
-var catalog = new CodecCatalogBuilder()
+var catalogue = new CodecCatalogBuilder()
     .AddBuiltIns()
     .Add(family)
     .Build();
@@ -119,6 +119,24 @@ A persistent format is complete only when all applicable surfaces agree:
 8. temporary-file and recovery recognition;
 9. golden, corruption and backwards-fixture tests;
 10. contributor and user documentation.
+
+## Built-in Shape DocValues format
+
+LeanCorpus 3.2 adds `leancorpus.doc-values.shape` to the existing
+`leancorpus.doc-values` family. It uses the `.dvg` extension, format version 1,
+random access, canonical LCCF v1 framing and xxHash64. It has no legacy framing
+or migration because no released Shape DocValues format predates it. The
+descriptor does not create a new codec family or change any existing codec
+version.
+
+The reader opens the bounded frame and field directory lazily. Shape DocValues
+store quantised operational metadata and the exact Packed BKD primitive stream;
+they do not retain source geometry or WKT. Merge validates the source checksum
+before copying live document records. Older supported indexes without `.dvg`
+remain available to their existing indexed query paths; shape centroid and
+bounds aggregations require complete Shape DocValues coverage. See
+[ADR035](../../articles/ADRs/ADR035-shape-docvalues-and-spatial-aggregations.md)
+for the version 1 body layout and validation contract.
 
 ## Version changes
 

@@ -246,7 +246,10 @@ internal static class Program
             RunSuite<TermInSetQueryBenchmarks>("terminset", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (runAll || suites.Contains(BenchmarkSuite.Aggregation))
+        {
             RunSuite<AggregationBenchmarks>("aggregation", runDir, benchmarkArgs, suiteSummaries, gcDump);
+            RunSuite<SpatialAggregationBenchmarks>("spatial-aggregation", runDir, benchmarkArgs, suiteSummaries, gcDump);
+        }
 
         if (runAll || suites.Contains(BenchmarkSuite.QueryCache))
             RunSuite<QueryCacheBenchmarks>("query-cache", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -321,6 +324,10 @@ internal static class Program
         {
             RunSuite<ShapeIndexingBenchmarks>("shape-index", runDir, benchmarkArgs, suiteSummaries, gcDump);
             RunSuite<ShapeRelationBenchmarks>("shape-relations", runDir, benchmarkArgs, suiteSummaries, gcDump);
+            RunSuite<ShapeDocValuesBenchmarks>("shape-docvalues", runDir, benchmarkArgs, suiteSummaries, gcDump);
+            RunSuite<ShapeDocValuesMergeBenchmarks>("shape-docvalues-merge", runDir, benchmarkArgs, suiteSummaries, gcDump);
+            RunSuite<ShapeDocValuesCopyBenchmarks>("shape-docvalues-copy", runDir, benchmarkArgs, suiteSummaries, gcDump);
+            RunSuite<SpatialUtilityBenchmarks>("spatial-utilities", runDir, benchmarkArgs, suiteSummaries, gcDump);
         }
 
         if (suites.Contains(BenchmarkSuite.DocValuesRead))
@@ -708,7 +715,7 @@ internal static class Program
               searcher-mgr        SearcherManagerBenchmarks -- acquire/release hot path
               combined            CombinedFieldsQueryBenchmarks -- BM25F multi-field search
               terminset           TermInSetQueryBenchmarks -- set membership search
-              aggregation         AggregationBenchmarks -- aggregation overhead
+              aggregation         AggregationBenchmarks and SpatialAggregationBenchmarks -- numeric and spatial aggregation overhead
               query-cache         QueryCacheBenchmarks -- query cache overhead
               parallel            ParallelSearchBenchmarks -- parallel search
               function-score      FunctionScoreQueryBenchmarks -- function score modes
@@ -733,7 +740,7 @@ internal static class Program
               postings-arena       PostingsArenaBenchmarks -- DWPT postings arena workload matrix (explicit only)
               packed-bkd           PackedBkdBenchmarks -- full Packed BKD build, spill and traversal matrix (explicit only)
               nearest              SpatialNearestBenchmarks and compatibility suite -- exact sort vs best-first Geo/XY Top-N, with legacy/packed comparison (explicit only)
-              shape                ShapeIndexingBenchmarks and ShapeRelationBenchmarks -- tessellation/indexing and all four Packed BKD relations (explicit only)
+              shape                Shape indexing/relations, Shape DocValues serialisation/read/traversal/merge-copy, and WKT/simplification (explicit only)
               docvalues-read      DocValuesReadBenchmarks -- DocValues read throughput (explicit only)
               bkd                 BKDTreeBenchmarks -- BKD range search throughput (explicit only)
               fst-lookup          FstLookupBenchmarks -- FST term dictionary lookup (explicit only)

@@ -7,7 +7,9 @@ using Rowles.LeanCorpus.Codecs.PackedBkd;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Spatial;
+using Rowles.LeanCorpus.Search.Spatial.Internal;
 using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Search.XY;
 using Rowles.LeanCorpus.Store;
@@ -40,6 +42,8 @@ public class ShapeIndexingBenchmarks
     private MMapDirectory? _directory;
     private IndexWriter? _writer;
     private long _packedBytes;
+    private long _shapeDocValuesBytes;
+    private long _preparedOwnedCapacityBytes;
     private long _primitiveCount;
     private long _elapsedTimestampTicks;
     private int _actualInputVertexCount;
@@ -49,6 +53,12 @@ public class ShapeIndexingBenchmarks
     {
         _geometry = ShapeGeometryFactory.CreateIndexedGeometry(ShapeKind, VertexCount);
         _actualInputVertexCount = ShapeGeometryFactory.CountVertices(_geometry);
+        using var prepared = new PreparedSpatialDocument();
+        EncodedShapePrimitiveSink sink = prepared.CreateSink(SpatialFieldKind.XYShape);
+        ShapeTessellator.TessellateXY(_geometry, valueOrdinal: 0, sink);
+        prepared.AddValue(0, "shape", SpatialFieldKind.XYShape, 0, storeDocValues: true, sink);
+        _primitiveCount = sink.Count;
+        _preparedOwnedCapacityBytes = prepared.AllocatedBytes;
     }
 
     [IterationSetup]
@@ -90,8 +100,13 @@ public class ShapeIndexingBenchmarks
             if (packedPath is null)
                 throw new InvalidDataException("Shape indexing benchmark did not produce a loose Packed BKD file.");
             _packedBytes = new FileInfo(packedPath).Length;
+            string? shapeDocValuesPath = Directory.GetFiles(_path, "*.dvg").SingleOrDefault();
+            if (shapeDocValuesPath is null)
+                throw new InvalidDataException("Shape indexing benchmark did not produce loose Shape DocValues.");
+            _shapeDocValuesBytes = new FileInfo(shapeDocValuesPath).Length;
             using var packedReader = PackedBkdReader.Open(packedPath);
-            _primitiveCount = packedReader.GetFieldMetadata("shape").PointCount;
+            if (packedReader.GetFieldMetadata("shape").PointCount != _primitiveCount)
+                throw new InvalidDataException("Shape indexing benchmark primitive count differs from its owned preparation.");
         }
         finally
         {
@@ -122,13 +137,17 @@ public class ShapeIndexingBenchmarks
             primitiveCount = _primitiveCount,
             rawPrimitiveValueBytesPerDocument = _primitiveCount * 28L,
             packedBytesPerDocument = _packedBytes,
+            shapeDocValuesBytesPerDocument = _shapeDocValuesBytes,
+            packedAndShapeDocValuesBytesPerDocument = _packedBytes + _shapeDocValuesBytes,
             elapsedMillisecondsObserved = elapsedSeconds * 1_000,
             documentsPerSecondObserved = elapsedSeconds <= 0 ? 0 : 1 / elapsedSeconds,
             ramAccounting = new
             {
-                shapePreparationEstimateBytes = _primitiveCount * 96L,
-                shapePreparationEstimateReleasedAfterAppend = true,
+                shapePreparationOwnedBufferCapacityBytes = _preparedOwnedCapacityBytes,
+                shapePreparationOwnedBytesPerPrimitive = _primitiveCount == 0 ? 0 : _preparedOwnedCapacityBytes / (double)_primitiveCount,
+                preparedShapeValueCount = 1,
                 packedBkdBufferCapacityIncludedInDwptEstimate = true,
+                shapeDocValuesCapacityIncludedInDwptEstimate = true,
                 allocatedBytesPerOperation = "BenchmarkDotNet MemoryDiagnoser",
             },
             allocations = "BenchmarkDotNet MemoryDiagnoser report",

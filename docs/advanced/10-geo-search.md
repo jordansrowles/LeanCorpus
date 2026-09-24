@@ -139,8 +139,11 @@ data, and Geo and XY shape fields support indexing and document-level relations.
 `LatLonShapeField` and `XYShapeField` index built-in points, rectangles, line
 strings, polygons and geometry collections. Polygon holes are supported. A
 geometry collection stored in one field is one logical value. Shape fields are
-indexed in Packed BKD, are not stored, and do not write DocValues in 3.2.
-Circles cannot be indexed.
+indexed in Packed BKD and are not stored. They write Shape DocValues by default
+for spatial metadata aggregations; pass `storeDocValues: false` to omit that
+optional representation while retaining shape query support. Shape DocValues
+contain quantised operational metadata, not source geometry or WKT. Circles
+cannot be indexed.
 
 ```csharp
 var document = new LeanDocument();
@@ -180,14 +183,60 @@ Shape field names have a persisted Geo/XY and point/shape kind. Reusing one
 field name with a conflicting spatial kind is rejected, including across
 segments during merge.
 
+## WKT and simplification
+
+`WktReader` accepts bounded, culture-invariant two-dimensional Geo and XY WKT
+for points, lines, polygons, multi-geometries and geometry collections. Geo
+ordinates are longitude then latitude; XY ordinates are X then Y. Polygon
+rings must be explicitly closed. Keywords are case-insensitive, and the parser
+accepts ASCII whitespace, caps nested collections at depth 32 and caps a parse
+at 1,000,000 coordinate positions. Z/M coordinates, empty values, circles,
+SRID prefixes and unsupported WKT forms are rejected. `WktWriter` emits
+deterministic uppercase text for supported geometries and represents
+rectangles as equivalent polygons.
+
+`GeoSimplifier` and `XYSimplifier` explicitly simplify lines, polygons and
+geometry collections with deterministic Douglas-Peucker reduction. Geo
+tolerance is in metres and uses spherical great-circle cross-track distance;
+XY tolerance is in the geometry's coordinate units and uses Euclidean distance.
+Zero tolerance returns the original immutable geometry. Polygon construction
+rechecks closure, area, self-intersection and shell/hole relationships after
+simplification and throws if the result is invalid. Point, rectangle and circle
+collection components remain unchanged. Indexing never simplifies geometry
+implicitly.
+
 ## What is not supported
 
-- WKT parsing
 - Recursive prefix tree or Spatial4n strategies
-- Shape DocValues and shape distance sorting
+- Shape distance sorting
 - Custom geometry implementations
 
 If you need full spatial support, consider pre-filtering with bounding box or distance queries and post-processing with a spatial library.
+
+## Qualification measurements
+
+These are exploratory BenchmarkDotNet measurements from Debian 13 on .NET
+11.0.100-preview.7, using an Intel Xeon E3-1220 V2 with one logical CPU
+allocated. Each run used one warm-up and three measured iterations, so the
+results are workload snapshots rather than regression thresholds.
+
+| Workload | Mean | Allocated |
+| --- | ---: | ---: |
+| Add and flush one 10,000-vertex XY shape | 186.3 ms | 3.38 MB |
+| Serialise a 10,000-primitive Shape DocValues record | 12.962 ms | 833,744 B |
+| Read metadata for a 10,000-primitive record | 483.4 ns | 232 B |
+| Traverse its component tree | 1.094 ms | 464 B |
+| Copy two 10,000-primitive records after reading and validating them, then write the destination `.dvg` | 11.471 ms | 1,324.78 KB |
+| Geo distance aggregation over 1,000 documents | 238.6 μs | 87.48 KB |
+| Geo centroid aggregation over 1,000 documents | 1.423 ms | 251.53 KB |
+| Geo wrapped-bounds aggregation over 1,000 documents | 4.458 ms | 1,140.84 KB |
+| One-pass numeric and spatial aggregations over 1,000 documents | 6.868 ms | 1,674.07 KB |
+
+In the measured one-record XY sample, 10,000 primitives used 337,537 bytes in
+`.dvg`, 134,444 bytes in Packed BKD and 524,288 bytes of owned preparation
+capacity. These sizes depend on geometry and segment contents. The relation,
+WKT, simplification and per-size Shape DocValues reports are recorded in the
+Sprint 4 tracker with their workloads and artefact paths.
 
 ## See also
 

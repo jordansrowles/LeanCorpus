@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Codecs.PackedBkd;
+using Rowles.LeanCorpus.Codecs.ShapeDocValues;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
@@ -174,8 +175,15 @@ public sealed class SpatialShapeFieldTests
             using var segmentReader = new SegmentReader(directory, segment);
             var values = new ShapeValueCollector(SpatialFieldKind.XYShape);
             Assert.True(segmentReader.IntersectPackedBkd("area", ref values));
+            Assert.True(segmentReader.TryGetShapeDocValuesFieldMetadata("area", out ShapeDocValuesFieldMetadata shapeMetadata));
+            Assert.Equal(segment.DocCount, shapeMetadata.MaxDoc);
+            Assert.Equal(segment.DocCount, shapeMetadata.RecordCount);
+            segmentReader.DeepValidateShapeDocValues();
             int multiDocId = Enumerable.Range(0, segment.DocCount)
                 .Single(docId => segmentReader.GetStoredFields(docId)["id"][0] == "multi");
+            Assert.True(segmentReader.TryGetShapeDocValuesRecordMetadata("area", multiDocId, out ShapeDocValuesRecordMetadata shapeRecord));
+            Assert.Equal(2u, shapeRecord.ValueCount);
+            Assert.Equal(4u, shapeRecord.PrimitiveCount);
             Assert.Equal(
                 [0u, 1u],
                 values.Values
@@ -183,6 +191,9 @@ public sealed class SpatialShapeFieldTests
                     .Select(static value => value.Primitive.ValueOrdinal)
                     .Distinct()
                     .Order());
+            var mergedDocValues = new List<ShapePrimitive>();
+            Assert.Equal(4, segmentReader.VisitShapeDocValuesPrimitives("area", multiDocId, mergedDocValues.Add));
+            Assert.Equal([0u, 1u], mergedDocValues.Select(static primitive => primitive.ValueOrdinal).Distinct().Order());
         }
         finally
         {

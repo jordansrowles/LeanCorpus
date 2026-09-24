@@ -1,5 +1,7 @@
 using FsCheck;
 using FsCheck.Xunit;
+using Rowles.LeanCorpus.Search.Spatial;
+using Rowles.LeanCorpus.Search.XY;
 
 namespace Rowles.LeanCorpus.Tests.Core.Search;
 
@@ -99,5 +101,45 @@ public sealed class SpatialGeometryPropertyTests
         Assert.Equal(first, second);
         Assert.Contains(first.Shell, point => point.Longitude == 180);
         Assert.Contains(first.Shell, point => point.Longitude == -180);
+    }
+
+    [Property(DisplayName = "Generated XY simplification returns valid deterministic lines and polygons", MaxTest = 200, StartSize = 1, EndSize = 128)]
+    public void XYSimplification_ReturnedLinesAndPolygonsAreValidAndDeterministic(NonEmptyArray<byte> input)
+    {
+        byte[] values = input.Get;
+        var linePoints = new XYPoint[values.Length + 2];
+        linePoints[0] = new XYPoint(0, 0);
+        for (int i = 0; i < values.Length; i++)
+        {
+            float offset = ((values[i] / 255f) - 0.5f) * 0.05f;
+            linePoints[i + 1] = new XYPoint(i + 1, offset);
+        }
+        linePoints[^1] = new XYPoint(values.Length + 1, 0);
+
+        var line = new XYLineString(linePoints);
+        XYLineString simplifiedLine = XYSimplifier.Simplify(line, 0.1f);
+        XYLineString repeatedLine = XYSimplifier.Simplify(line, 0.1f);
+        Assert.Equal(line.Points[0], simplifiedLine.Points[0]);
+        Assert.Equal(line.Points[^1], simplifiedLine.Points[^1]);
+        Assert.Equal(simplifiedLine, repeatedLine);
+        _ = new XYLineString(simplifiedLine.Points);
+
+        float Offset(int index) => ((values[index % values.Length] / 255f) - 0.5f) * 0.1f;
+        var polygon = new XYPolygon(
+        [
+            new XYPoint(0, 0),
+            new XYPoint(5, Offset(0)),
+            new XYPoint(10, 0),
+            new XYPoint(10 + Offset(1), 5),
+            new XYPoint(10, 10),
+            new XYPoint(5, 10 + Offset(2)),
+            new XYPoint(0, 10),
+            new XYPoint(Offset(3), 5),
+        ]);
+
+        XYPolygon simplifiedPolygon = XYSimplifier.Simplify(polygon, 0.1f);
+        XYPolygon repeatedPolygon = XYSimplifier.Simplify(polygon, 0.1f);
+        Assert.Equal(simplifiedPolygon, repeatedPolygon);
+        _ = new XYPolygon(simplifiedPolygon.Shell, simplifiedPolygon.Holes);
     }
 }

@@ -59,14 +59,27 @@ internal static class DwptManager
             {
                 writer.ThrowIfIndexingFailed();
                 dwpt.ValidateDocument(doc);
-                var preparedSpatialShapes = dwpt.PrepareSpatialShapes(doc);
-                writer.ValidateVectorDimensions(doc);
-                long before = dwpt.EstimatedRamBytes;
-                mutationStarted = true;
-                dwpt.AddPrevalidatedDocument(doc, preparedSpatialShapes);
+                long beforePreparation = dwpt.EstimatedRamBytes;
+                PreparedSpatialDocument? preparedSpatialShapes = dwpt.PrepareSpatialShapes(doc);
+                long withPreparation = dwpt.EstimatedRamBytes;
+                Interlocked.Add(ref writer.ActiveDwptBytes, withPreparation - beforePreparation);
+                try
+                {
+                    writer.Config.Metrics.RecordWriterMemory(
+                        Volatile.Read(ref writer.ActiveDwptBytes),
+                        Volatile.Read(ref writer.PendingFlushBytes),
+                        writer.PendingDeletes.Count * 96L);
+                    writer.ValidateVectorDimensions(doc);
+                    mutationStarted = true;
+                    dwpt.AddPrevalidatedDocument(doc, preparedSpatialShapes);
+                }
+                finally
+                {
+                    preparedSpatialShapes?.Dispose();
+                    Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes - withPreparation);
+                }
                 observedDwptBytes = dwpt.EstimatedRamBytes;
                 observedDocCount = dwpt.DocCount;
-                Interlocked.Add(ref writer.ActiveDwptBytes, observedDwptBytes - before);
             }
             finally
             {
@@ -130,14 +143,28 @@ internal static class DwptManager
             {
                 writer.ThrowIfIndexingFailed();
                 dwpt.ValidateDocumentBlock(block);
-                var preparedSpatialShapes = dwpt.PrepareSpatialShapes(block);
-                writer.ValidateVectorDimensions(block);
-                long before = dwpt.EstimatedRamBytes;
-                mutationStarted = true;
-                dwpt.AddPrevalidatedDocumentBlock(block, preparedSpatialShapes);
+                long beforePreparation = dwpt.EstimatedRamBytes;
+                PreparedSpatialDocument?[] preparedSpatialShapes = dwpt.PrepareSpatialShapes(block);
+                long withPreparation = dwpt.EstimatedRamBytes;
+                Interlocked.Add(ref writer.ActiveDwptBytes, withPreparation - beforePreparation);
+                try
+                {
+                    writer.Config.Metrics.RecordWriterMemory(
+                        Volatile.Read(ref writer.ActiveDwptBytes),
+                        Volatile.Read(ref writer.PendingFlushBytes),
+                        writer.PendingDeletes.Count * 96L);
+                    writer.ValidateVectorDimensions(block);
+                    mutationStarted = true;
+                    dwpt.AddPrevalidatedDocumentBlock(block, preparedSpatialShapes);
+                }
+                finally
+                {
+                    foreach (PreparedSpatialDocument? prepared in preparedSpatialShapes)
+                        prepared?.Dispose();
+                    Interlocked.Add(ref writer.ActiveDwptBytes, dwpt.EstimatedRamBytes - withPreparation);
+                }
                 observedDwptBytes = dwpt.EstimatedRamBytes;
                 observedDocCount = dwpt.DocCount;
-                Interlocked.Add(ref writer.ActiveDwptBytes, observedDwptBytes - before);
             }
             finally
             {

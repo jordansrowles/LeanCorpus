@@ -477,6 +477,19 @@ public sealed partial class IndexSearcher
         return results.TotalHits == 0 ? (results, []) : (results, sideCollector.GetResults());
     }
 
+    /// <summary>Executes numeric and spatial aggregations in one matching-document traversal.</summary>
+    public (TopDocs Results, IReadOnlyList<ISearchAggregationResult> Aggregations) SearchWithAggregations(
+        Query query,
+        int topN,
+        IReadOnlyList<ISearchAggregationRequest> aggregations,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(aggregations);
+        var sideCollector = new HeterogeneousAggregationSideCollector(aggregations, _readers, cancellationToken);
+        var (results, _) = SearchWithSideCollector(query, topN, sideCollector);
+        return (results, sideCollector.GetResults(cancellationToken));
+    }
+
     // --- Result Collapsing ---
 
     /// <summary>
@@ -742,6 +755,109 @@ public sealed partial class IndexSearcher
         }
 
         public AggregationResult[] GetResults() => _collector.Finish(_cancellationToken);
+    }
+
+    private sealed class HeterogeneousAggregationSideCollector : ISideCollector
+    {
+        private readonly NumericAggregationCollector? _numericCollector;
+        private readonly int[] _numericResultIndexes;
+        private readonly ISpatialAggregationState[] _spatialStates;
+        private readonly int[] _spatialResultIndexes;
+        private readonly int _resultCount;
+        private readonly CancellationToken _cancellationToken;
+
+        internal HeterogeneousAggregationSideCollector(
+            IReadOnlyList<ISearchAggregationRequest> requests,
+            IReadOnlyList<Index.Segment.SegmentReader> readers,
+            CancellationToken cancellationToken)
+        {
+            _cancellationToken = cancellationToken;
+            _resultCount = requests.Count;
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            var numericRequests = new List<AggregationRequest>();
+            var numericIndexes = new List<int>();
+            var spatialStates = new List<ISpatialAggregationState>();
+            var spatialIndexes = new List<int>();
+            var validatedFields = new HashSet<(string Field, bool AllowShapes)>();
+
+            for (int i = 0; i < requests.Count; i++)
+            {
+                ISearchAggregationRequest request = requests[i]
+                    ?? throw new ArgumentException("Aggregation requests must not contain null values.", nameof(requests));
+                string name = SpatialAggregationRequestValidation.ValidateName(request.Name, nameof(requests));
+                FieldNameValidator.Validate(request.Field, nameof(requests));
+                if (!names.Add(name))
+                    throw new ArgumentException($"Aggregation name '{name}' is repeated.", nameof(requests));
+
+                switch (request)
+                {
+                    case AggregationRequest numeric:
+                        numeric.Validate();
+                        numericRequests.Add(numeric);
+                        numericIndexes.Add(i);
+                        break;
+                    case GeoDistanceAggregationRequest distance:
+                        ValidateField(distance.Field, allowShapes: false);
+                        spatialStates.Add(new GeoDistanceAggregationState(distance));
+                        spatialIndexes.Add(i);
+                        break;
+                    case GeoCentroidAggregationRequest centroid:
+                        ValidateField(centroid.Field, allowShapes: true);
+                        spatialStates.Add(new GeoCentroidAggregationState(centroid));
+                        spatialIndexes.Add(i);
+                        break;
+                    case GeoBoundsAggregationRequest bounds:
+                        ValidateField(bounds.Field, allowShapes: true);
+                        spatialStates.Add(new GeoBoundsAggregationState(bounds));
+                        spatialIndexes.Add(i);
+                        break;
+                    default:
+                        throw new ArgumentException(
+                            $"Aggregation request type '{request.GetType().FullName}' is not supported by this searcher.",
+                            nameof(requests));
+                }
+            }
+
+            _numericCollector = numericRequests.Count == 0
+                ? null
+                : NumericAggregator.CreateCollector(numericRequests.ToArray(), readers);
+            _numericResultIndexes = numericIndexes.ToArray();
+            _spatialStates = spatialStates.ToArray();
+            _spatialResultIndexes = spatialIndexes.ToArray();
+
+            void ValidateField(string field, bool allowShapes)
+            {
+                if (validatedFields.Add((field, allowShapes)))
+                    SpatialAggregationValidation.ValidateGeoField(field, readers, allowShapes);
+            }
+        }
+
+        public void Collect(int globalDocId, float score, Index.Segment.SegmentReader reader, int localDocId)
+        {
+            _cancellationToken.ThrowIfCancellationRequested();
+            _numericCollector?.Collect(reader, localDocId);
+            for (int i = 0; i < _spatialStates.Length; i++)
+                _spatialStates[i].Collect(reader, localDocId);
+        }
+
+        internal IReadOnlyList<ISearchAggregationResult> GetResults(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ISearchAggregationResult[] results = new ISearchAggregationResult[_resultCount];
+            if (_numericCollector is not null)
+            {
+                AggregationResult[] numericResults = _numericCollector.Finish(cancellationToken);
+                for (int i = 0; i < numericResults.Length; i++)
+                    results[_numericResultIndexes[i]] = numericResults[i];
+            }
+
+            for (int i = 0; i < _spatialStates.Length; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                results[_spatialResultIndexes[i]] = _spatialStates[i].Finish();
+            }
+            return Array.AsReadOnly(results);
+        }
     }
 
     private sealed class ExcludingSideCollector(ISideCollector inner, int excludedGlobalDocId) : ISideCollector

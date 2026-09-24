@@ -503,6 +503,7 @@ internal sealed partial class SegmentReaderState : IDisposable
         _quantisedVectorReaders.Clear();
         _termVectorsReader?.Dispose();
         _packedBkdReader?.Dispose();
+        _shapeDocValuesReader?.Dispose();
         _bkdReader?.Dispose();
         _int64BkdReader?.Dispose();
         _files.Dispose();

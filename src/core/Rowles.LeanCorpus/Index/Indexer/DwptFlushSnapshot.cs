@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Codecs.StoredFields;
+using Rowles.LeanCorpus.Codecs.ShapeDocValues;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Index.Indexer.Postings;
 
@@ -24,6 +25,7 @@ internal sealed class DwptFlushSnapshot : IDisposable
     internal required Dictionary<string, Dictionary<int, long>> Int64Index { get; init; }
     internal required Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> Vectors { get; init; }
     internal required Dictionary<string, PackedBkdFieldBuffer> PackedBkdFields { get; init; }
+    internal required Dictionary<string, ShapeDocValuesFieldBuffer> ShapeDocValuesFields { get; init; }
     internal required Dictionary<string, SpatialFieldKind> SpatialFieldKinds { get; init; }
     internal required Dictionary<string, List<double>> NumericDocValues { get; init; }
     internal required Dictionary<string, List<long>> Int64DocValues { get; init; }
@@ -62,6 +64,7 @@ internal sealed class DwptFlushSnapshot : IDisposable
             Int64Index = dwpt.Int64Index,
             Vectors = dwpt.Vectors,
             PackedBkdFields = dwpt.PackedBkdFields,
+            ShapeDocValuesFields = dwpt.ShapeDocValuesFields,
             SpatialFieldKinds = dwpt.SpatialFieldKinds,
             NumericDocValues = dwpt.NumericDocValues,
             Int64DocValues = dwpt.Int64DocValues,
@@ -90,5 +93,8 @@ internal sealed class DwptFlushSnapshot : IDisposable
         foreach (var buffer in PackedBkdFields.Values)
             buffer.Dispose();
         PackedBkdFields.Clear();
+        foreach (ShapeDocValuesFieldBuffer buffer in ShapeDocValuesFields.Values)
+            buffer.Dispose();
+        ShapeDocValuesFields.Clear();
     }
 }

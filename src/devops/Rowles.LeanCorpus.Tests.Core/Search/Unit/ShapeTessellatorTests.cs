@@ -186,8 +186,8 @@ public sealed class ShapeTessellatorTests
         Assert.Contains(primitives, static primitive => primitive.Kind == ShapePrimitiveKind.Line);
     }
 
-    [Fact(DisplayName = "Shape fields reject circles and expose binary indexed field settings")]
-    public void ShapeFields_RejectQueryOnlyCirclesAndUseSprintThreeFieldSettings()
+    [Fact(DisplayName = "Shape fields reject circles and enable Shape DocValues by default")]
+    public void ShapeFields_RejectQueryOnlyCirclesAndUseFinalFieldSettings()
     {
         Assert.Throws<ArgumentException>(() => new LatLonShapeField("geo", new GeoCircle(0, 0, 100)));
         Assert.Throws<ArgumentException>(() => new XYShapeField("xy", new XYCircle(0, 0, 1)));
@@ -199,7 +199,8 @@ public sealed class ShapeTessellatorTests
         Assert.Equal(FieldType.Binary, field.FieldType);
         Assert.True(field.IsIndexed);
         Assert.False(field.IsStored);
-        Assert.False(field.StoreDocValues);
+        Assert.True(field.StoreDocValues);
+        Assert.False(new XYShapeField("xy-no-dv", new XYRectangle(0, 0, 1, 1), storeDocValues: false).StoreDocValues);
         Assert.Equal(FieldIndexOptions.DocsOnly, field.IndexOptions);
     }
 

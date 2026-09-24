@@ -111,8 +111,10 @@ primitive may represent the long way around the globe. Rectangles use the same
 polygon preparation path. Shape values are appended to the existing Packed BKD
 buffer and transfer through the normal DWPT snapshot, flush, compound-file and
 merge lifecycle. Merge validates source checksums, retains value ordinals and
-rebuilds with the target leaf size. No shape sidecar or DocValues layout is
-introduced.
+rebuilds with the target leaf size. Sprint 3 relation execution remains
+independent of Shape DocValues. Sprint 4 adds the optional `.dvg` operational
+metadata representation under ADR035; it does not change primitive bytes or
+relation semantics.
 
 ### Relations
 
@@ -145,7 +147,8 @@ search-session identity does not depend on runtime object hashes.
 ## Consequences
 
 - `.pbkd` v1 bytes, frame, version and descriptor remain unchanged.
-- Shape fields have no Stored Fields or DocValues representation in 3.2.
+- Shape fields have no Stored Fields representation in 3.2. Optional Shape
+  DocValues and spatial aggregation semantics are defined by ADR035.
 - Circle shapes remain query-only.
 - Persisted spatial kind metadata prevents Geo/XY and point/shape reinterpretation.
 - Stable primitive bytes and ordinals are covered by golden tests and remain

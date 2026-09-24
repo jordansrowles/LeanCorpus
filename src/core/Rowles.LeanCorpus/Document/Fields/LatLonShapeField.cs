@@ -5,7 +5,8 @@ namespace Rowles.LeanCorpus.Document.Fields;
 
 /// <summary>An indexed geographic point, line, rectangle, polygon or geometry collection.</summary>
 /// <remarks>
-/// Shape primitives are written to Packed BKD. This field is not stored and has no DocValues in 3.2.
+/// Quantised shape primitives are indexed in Packed BKD and, by default, Shape DocValues.
+/// Shape DocValues retain operational geometry metadata and are not source-geometry or WKT storage.
 /// Circles are query-only and cannot be indexed.
 /// </remarks>
 public sealed class LatLonShapeField : IField
@@ -14,13 +15,15 @@ public sealed class LatLonShapeField : IField
     /// <param name="name">The field name.</param>
     /// <param name="geometry">A supported built-in geographic geometry.</param>
     /// <param name="boost">The index-time field boost.</param>
-    public LatLonShapeField(string name, IGeoGeometry geometry, float boost = 1.0f)
+    /// <param name="storeDocValues">Whether to retain Shape DocValues for spatial aggregations.</param>
+    public LatLonShapeField(string name, IGeoGeometry geometry, float boost = 1.0f, bool storeDocValues = true)
     {
         Name = FieldNameValidator.Validate(name, nameof(name));
         ArgumentNullException.ThrowIfNull(geometry);
         ShapeTessellator.ValidateGeoFieldGeometry(geometry);
         Geometry = geometry;
         Boost = FieldBoostValidator.Validate(boost, nameof(boost));
+        StoreDocValues = storeDocValues;
     }
 
     /// <inheritdoc/>
@@ -39,7 +42,7 @@ public sealed class LatLonShapeField : IField
     public bool IsStored => false;
 
     /// <inheritdoc/>
-    public bool StoreDocValues => false;
+    public bool StoreDocValues { get; }
 
     /// <inheritdoc/>
     public FieldIndexOptions IndexOptions => FieldIndexOptions.DocsOnly;

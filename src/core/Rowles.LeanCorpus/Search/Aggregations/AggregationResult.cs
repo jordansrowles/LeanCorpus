@@ -9,7 +9,7 @@
 /// sum and average; positive and negative infinity are retained using normal
 /// IEEE-754 arithmetic.
 /// </remarks>
-public class AggregationResult
+public class AggregationResult : ISearchAggregationResult
 {
     /// <summary>Gets the caller-assigned name of this aggregation result.</summary>
     public required string Name { get; init; }

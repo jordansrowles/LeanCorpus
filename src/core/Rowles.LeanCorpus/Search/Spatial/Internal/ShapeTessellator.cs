@@ -86,8 +86,16 @@ internal static class ShapeTessellator
     internal static List<ShapePrimitive> PrepareGeo(IGeoGeometry geometry, uint valueOrdinal)
     {
         ArgumentNullException.ThrowIfNull(geometry);
+        var values = new List<ShapePrimitive>();
+        TessellateGeo(geometry, valueOrdinal, new ShapePrimitiveListSink(values));
+        return values;
+    }
+
+    internal static void TessellateGeo(IGeoGeometry geometry, uint valueOrdinal, IShapePrimitiveSink output)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+        ArgumentNullException.ThrowIfNull(output);
         CheckGeometryComplexity(geometry);
-        var output = new List<ShapePrimitive>();
         switch (geometry)
         {
             case GeoPoint point:
@@ -113,14 +121,21 @@ internal static class ShapeTessellator
         }
 
         CheckOutputCount(output.Count);
-        return output;
     }
 
     internal static List<ShapePrimitive> PrepareXY(IXYGeometry geometry, uint valueOrdinal)
     {
         ArgumentNullException.ThrowIfNull(geometry);
+        var values = new List<ShapePrimitive>();
+        TessellateXY(geometry, valueOrdinal, new ShapePrimitiveListSink(values));
+        return values;
+    }
+
+    internal static void TessellateXY(IXYGeometry geometry, uint valueOrdinal, IShapePrimitiveSink output)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+        ArgumentNullException.ThrowIfNull(output);
         CheckGeometryComplexity(geometry);
-        var output = new List<ShapePrimitive>();
         switch (geometry)
         {
             case XYPoint point:
@@ -146,10 +161,9 @@ internal static class ShapeTessellator
         }
 
         CheckOutputCount(output.Count);
-        return output;
     }
 
-    private static void AppendGeoComponent(List<ShapePrimitive> output, IGeoGeometry geometry, uint ordinal)
+    private static void AppendGeoComponent(IShapePrimitiveSink output, IGeoGeometry geometry, uint ordinal)
     {
         switch (geometry)
         {
@@ -172,7 +186,7 @@ internal static class ShapeTessellator
         }
     }
 
-    private static void AppendXYComponent(List<ShapePrimitive> output, IXYGeometry geometry, uint ordinal)
+    private static void AppendXYComponent(IShapePrimitiveSink output, IXYGeometry geometry, uint ordinal)
     {
         switch (geometry)
         {
@@ -195,7 +209,7 @@ internal static class ShapeTessellator
         }
     }
 
-    private static void AppendGeoRectangle(List<ShapePrimitive> output, GeoRectangle rectangle, uint ordinal)
+    private static void AppendGeoRectangle(IShapePrimitiveSink output, GeoRectangle rectangle, uint ordinal)
     {
         double west = QuantiseGeoLongitude(rectangle.West);
         double east = QuantiseGeoLongitude(rectangle.East) + (rectangle.CrossesDateline ? 360 : 0);
@@ -227,7 +241,7 @@ internal static class ShapeTessellator
         AppendGeoPolygonWork(output, shell, [], ordinal);
     }
 
-    private static void AppendXYRectangle(List<ShapePrimitive> output, XYRectangle rectangle, uint ordinal)
+    private static void AppendXYRectangle(IShapePrimitiveSink output, XYRectangle rectangle, uint ordinal)
     {
         double minX = CanonicalXY(rectangle.MinX);
         double minY = CanonicalXY(rectangle.MinY);
@@ -259,19 +273,19 @@ internal static class ShapeTessellator
         AppendXYPolygonWork(output, shell, [], ordinal);
     }
 
-    private static void AppendGeoLine(List<ShapePrimitive> output, IReadOnlyList<GeoPoint> points, uint ordinal)
+    private static void AppendGeoLine(IShapePrimitiveSink output, IReadOnlyList<GeoPoint> points, uint ordinal)
     {
         var unwrapped = CreateGeoRing(points, referenceLongitude: null, requireClosed: false);
         AppendGeoLineCoordinates(output, unwrapped, ordinal);
     }
 
-    private static void AppendGeoLineCoordinates(List<ShapePrimitive> output, IReadOnlyList<WorkVertex> points, uint ordinal)
+    private static void AppendGeoLineCoordinates(IShapePrimitiveSink output, IReadOnlyList<WorkVertex> points, uint ordinal)
     {
         for (int i = 0; i + 1 < points.Count; i++)
             SplitGeoLineSegment(output, points[i], points[i + 1], ordinal);
     }
 
-    private static void SplitGeoLineSegment(List<ShapePrimitive> output, WorkVertex first, WorkVertex second, uint ordinal)
+    private static void SplitGeoLineSegment(IShapePrimitiveSink output, WorkVertex first, WorkVertex second, uint ordinal)
     {
         if (first.X == second.X && first.Y == second.Y)
         {
@@ -303,7 +317,7 @@ internal static class ShapeTessellator
                 new WorkVertex(second.X - (360d * secondStrip), second.Y, true), ordinal);
     }
 
-    private static void AppendXYLine(List<ShapePrimitive> output, IReadOnlyList<XYPoint> points, uint ordinal)
+    private static void AppendXYLine(IShapePrimitiveSink output, IReadOnlyList<XYPoint> points, uint ordinal)
     {
         CheckVertexCount(points.Count);
         for (int i = 0; i + 1 < points.Count; i++)
@@ -315,7 +329,7 @@ internal static class ShapeTessellator
     }
 
     private static void AppendGeoPolygon(
-        List<ShapePrimitive> output,
+        IShapePrimitiveSink output,
         IReadOnlyList<GeoPoint> shellPoints,
         IReadOnlyList<IReadOnlyList<GeoPoint>> holes,
         uint ordinal)
@@ -328,7 +342,7 @@ internal static class ShapeTessellator
     }
 
     private static void AppendXYPolygon(
-        List<ShapePrimitive> output,
+        IShapePrimitiveSink output,
         IReadOnlyList<XYPoint> shellPoints,
         IReadOnlyList<IReadOnlyList<XYPoint>> holes,
         uint ordinal)
@@ -341,7 +355,7 @@ internal static class ShapeTessellator
     }
 
     private static void AppendGeoPolygonWork(
-        List<ShapePrimitive> output,
+        IShapePrimitiveSink output,
         List<WorkVertex> shell,
         List<List<WorkVertex>> holes,
         uint ordinal)
@@ -352,7 +366,7 @@ internal static class ShapeTessellator
     }
 
     private static void AppendXYPolygonWork(
-        List<ShapePrimitive> output,
+        IShapePrimitiveSink output,
         List<WorkVertex> shell,
         List<List<WorkVertex>> holes,
         uint ordinal)
@@ -903,7 +917,7 @@ internal static class ShapeTessellator
         return (abc > 0) != (abd > 0) && (cda > 0) != (cdb > 0);
     }
 
-    private static void SplitGeoTriangle(List<ShapePrimitive> output, WorkTriangle triangle, uint ordinal)
+    private static void SplitGeoTriangle(IShapePrimitiveSink output, WorkTriangle triangle, uint ordinal)
     {
         double minimumX = Math.Min(triangle.A.X, Math.Min(triangle.B.X, triangle.C.X));
         double maximumX = Math.Max(triangle.A.X, Math.Max(triangle.B.X, triangle.C.X));
@@ -1082,14 +1096,14 @@ internal static class ShapeTessellator
         return result;
     }
 
-    private static void AddPoint(List<ShapePrimitive> output, SpatialFieldKind kind, double x, double y, uint ordinal)
+    private static void AddPoint(IShapePrimitiveSink output, SpatialFieldKind kind, double x, double y, uint ordinal)
     {
         ShapeVertex point = ShapePrimitiveCodec.Quantise(new ShapeVertex(x, y), kind);
         output.Add(new ShapePrimitive(point, point, point, true, true, true, ordinal, ShapePrimitiveKind.Point));
         CheckOutputCount(output.Count);
     }
 
-    private static void AddLine(List<ShapePrimitive> output, SpatialFieldKind kind, WorkVertex first, WorkVertex second, uint ordinal)
+    private static void AddLine(IShapePrimitiveSink output, SpatialFieldKind kind, WorkVertex first, WorkVertex second, uint ordinal)
     {
         ShapeVertex a = ShapePrimitiveCodec.Quantise(new ShapeVertex(first.X, first.Y), kind);
         ShapeVertex b = ShapePrimitiveCodec.Quantise(new ShapeVertex(second.X, second.Y), kind);
@@ -1105,7 +1119,7 @@ internal static class ShapeTessellator
     }
 
     private static void AddTriangle(
-        List<ShapePrimitive> output,
+        IShapePrimitiveSink output,
         ShapeVertex a,
         bool edgeAB,
         ShapeVertex b,

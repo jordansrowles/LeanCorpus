@@ -79,6 +79,29 @@ var (_, results) = searcher.SearchWithAggregations(query, topN: 20, requests);
 var p99 = ((PercentileAggregationResult)results[2]).Percentiles.Single(p => p.Percentile == 99).Value;
 ```
 
+## Spatial aggregations
+
+Numeric and spatial requests can be submitted together through the
+`ISearchAggregationRequest` overload. The searcher evaluates them in one
+matching-document side traversal and returns results in request order.
+
+Geo distance ranges aggregate every `GeoPointField` value in metres. The lower
+bound is inclusive and the upper bound is exclusive; ranges may overlap, and a
+document counts once in each bucket even when several of its points match.
+Geo centroid and bounds requests accept Geo point or shape fields. Centroids
+select the highest contributing dimension (area, then line, then point), reset
+lower-dimensional totals when that dimension rises, and weight shape lines by
+segment length and areas by triangle area. Geo bounds can return a narrow Date
+Line crossing interval and use the union of shape primitive longitude
+intervals. Multi-valued points are read exactly, with `_lat`/`_lon` fallback
+for legacy segments.
+
+Shape aggregations require Shape DocValues on every document containing that
+shape field in each segment. Shape fields enable them by default; setting
+`storeDocValues: false` retains relation queries but makes shape centroid and
+bounds requests fail with `InvalidOperationException` before query traversal.
+Missing fields contribute no value.
+
 ## See also
 
 - <xref:Rowles.LeanCorpus.Search.Aggregations.AggregationRequest>

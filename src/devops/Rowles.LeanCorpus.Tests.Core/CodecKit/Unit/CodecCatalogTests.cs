@@ -16,7 +16,7 @@ public sealed class CodecCatalogTests
         };
         var family = new CodecFamilyDescriptor("example.format", "Example", files);
         var builder = new CodecCatalogBuilder().Add(family);
-        var catalog = builder.Build();
+        var catalogue = builder.Build();
 
         versions[0] = Version(2, writable: true);
         files[0] = File("example.format.changed", "example.format", ".two", 1, [Version(1, writable: true)]);
@@ -25,12 +25,12 @@ public sealed class CodecCatalogTests
             "Later",
             [File("example.later.data", "example.later", ".later", 1, [Version(1, writable: true)])]));
 
-        var registered = catalog.GetFile("example.format.data");
-        Assert.Single(catalog.Families);
-        Assert.Single(catalog.Files);
+        var registered = catalogue.GetFile("example.format.data");
+        Assert.Single(catalogue.Families);
+        Assert.Single(catalogue.Files);
         Assert.Equal(1, registered.SupportedVersions[0].Version);
         Assert.Throws<NotSupportedException>(() =>
-            ((IList<CodecFamilyDescriptor>)catalog.Families).Add(family));
+            ((IList<CodecFamilyDescriptor>)catalogue.Families).Add(family));
         Assert.Throws<NotSupportedException>(() =>
             ((IList<CodecVersionDescriptor>)registered.SupportedVersions).Add(Version(2)));
     }
@@ -192,10 +192,10 @@ public sealed class CodecCatalogTests
             "Example",
             [File(formatId, "example.family", ".data", 1, [Version(1, writable: true)])]);
 
-        var catalog = new CodecCatalogBuilder().Add(family).Build();
+        var catalogue = new CodecCatalogBuilder().Add(family).Build();
 
         Assert.Equal(64, formatId.Length);
-        Assert.Same(catalog.Files[0], catalog.GetFile(formatId));
+        Assert.Same(catalogue.Files[0], catalogue.GetFile(formatId));
     }
 
     [Fact(DisplayName = "Build rejects a 65-byte format identifier")]
@@ -234,6 +234,7 @@ public sealed class CodecCatalogTests
             ("seg_1.dvb", CodecConstants.BinaryDocValuesVersion),
             ("seg_1.dvnl", CodecConstants.Int64DocValuesVersion),
             ("seg_1.dsnl", CodecConstants.Int64SortedNumericDocValuesVersion),
+            ("seg_1.dvg", CodecConstants.ShapeDocValuesVersion),
             ("seg_1.bkd", CodecConstants.BKDVersion),
             ("seg_1.bkdl", CodecConstants.Int64BKDVersion),
             ("seg_1.pbkd", CodecConstants.PackedBkdVersion),
@@ -276,7 +277,7 @@ public sealed class CodecCatalogTests
             Assert.Equal(CodecFramingPolicy.Canonical, file.CurrentFraming);
             Assert.Equal(CodecChecksumPolicy.XxHash64, file.ChecksumPolicy);
             Assert.NotEqual(CodecAccessKind.External, file.AccessKind);
-            if (file.FormatId != "leancorpus.numeric-structures.packed-bkd")
+            if (file.FormatId is not ("leancorpus.numeric-structures.packed-bkd" or "leancorpus.doc-values.shape"))
                 Assert.NotEqual(CodecMigrationBehaviour.None, file.MigrationBehaviour);
             Assert.Equal(file.MigrationBehaviour, current.MigrationBehaviour);
             Assert.NotEmpty(file.TemporaryFileMatchers);
@@ -306,13 +307,38 @@ public sealed class CodecCatalogTests
 
             foreach (var version in file.SupportedVersions)
             {
-                if (file.FormatId != "leancorpus.numeric-structures.packed-bkd")
+                if (file.FormatId is not ("leancorpus.numeric-structures.packed-bkd" or "leancorpus.doc-values.shape"))
                 {
                     Assert.NotEqual(CodecLegacyFraming.None, version.LegacyFraming);
                     Assert.NotEqual(CodecMigrationBehaviour.None, version.MigrationBehaviour);
                 }
             }
         }
+    }
+
+    [Fact(DisplayName = "Shape DocValues descriptor declares its exact v1 storage contract")]
+    public void Default_ShapeDocValuesDescriptorIsExact()
+    {
+        var file = CodecCatalog.Default.GetFile("leancorpus.doc-values.shape");
+
+        Assert.Equal("leancorpus.doc-values", file.FamilyId);
+        Assert.Equal("Shape DocValues", file.DisplayName);
+        Assert.Equal(CodecConstants.ShapeDocValuesVersion, file.CurrentFormatVersion);
+        Assert.True(file.FileMatcher.IsMatch("seg_1.dvg"));
+        Assert.Equal(CodecAccessKind.RandomAccess, file.AccessKind);
+        Assert.Equal(CodecFramingPolicy.Canonical, file.CurrentFraming);
+        Assert.Equal(CodecChecksumPolicy.XxHash64, file.ChecksumPolicy);
+        Assert.Equal(CodecMigrationBehaviour.None, file.MigrationBehaviour);
+        Assert.Single(file.SupportedVersions);
+
+        var version = Assert.Single(file.SupportedVersions);
+        Assert.Equal(1, version.Version);
+        Assert.True(version.IsReadable);
+        Assert.True(version.IsWritable);
+        Assert.Equal(CodecLegacyFraming.None, version.LegacyFraming);
+        Assert.Equal(CodecMigrationBehaviour.None, version.MigrationBehaviour);
+        Assert.Single(file.TemporaryFileMatchers);
+        Assert.True(file.TemporaryFileMatchers[0].IsMatch("seg_1.dvg.tmp"));
     }
 
     [Theory(DisplayName = "Headerless legacy sidecars declare their framing explicitly")]
