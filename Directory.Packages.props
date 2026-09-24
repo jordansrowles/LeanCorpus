@@ -6,6 +6,7 @@
   <ItemGroup>
     <PackageVersion Include="BenchmarkDotNet" Version="0.16.0-nightly.20260816.607" />
     <PackageVersion Include="BenchmarkDotNet.Annotations" Version="0.16.0-nightly.20260816.607" />
+    <PackageVersion Include="Bogus" Version="35.6.5" />
     <PackageVersion Include="coverlet.MTP" Version="10.0.1" />
     <PackageVersion Include="FsCheck" Version="3.4.0" />
     <PackageVersion Include="FsCheck.Xunit" Version="3.4.0" />

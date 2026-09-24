@@ -15,6 +15,14 @@
         Coverage = $false
         Capabilities = @('Trx', 'HangDump', 'CrashDump')
     }
+    dataforge = @{
+        Name = 'DataForge'
+        Project = 'src/devops/Rowles.DataForge.Tests/Rowles.DataForge.Tests.csproj'
+        Runner = 'Mtp'
+        Frameworks = @('net10.0', 'net11.0')
+        Coverage = $false
+        Capabilities = @('Trx', 'HangDump', 'CrashDump')
+    }
     sourcegen = @{
         Name = 'SourceGen'
         Project = 'src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj'

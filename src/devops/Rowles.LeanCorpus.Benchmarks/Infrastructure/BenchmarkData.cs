@@ -1,68 +1,95 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
+using Rowles.DataForge;
+using Rowles.DataForge.Workloads;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
 internal static class BenchmarkData
 {
-    /// <summary>Default document count used by all benchmark suites when <c>BENCH_DOC_COUNT</c> is not set.</summary>
+    /// <summary>Default document count used when <c>BENCH_DOC_COUNT</c> is not set.</summary>
     public const int DefaultDocCount = 20_000;
 
-    /// <summary>
-    /// Returns the document count to use for benchmarks. When the BENCH_DOC_COUNT
-    /// environment variable is set (e.g. via --doccount in benchmark.ps1), that
-    /// value is used; otherwise the per-suite default is returned.
-    /// </summary>
+    private const ulong SearchSeed = 42;
+    private static readonly LeanCorpusSearchProfile Profile = new();
+    private static readonly ConcurrentDictionary<DatasetCacheKey, Lazy<SearchDataset>> Datasets = new();
+
+    /// <summary>Returns the configured document count, retaining <c>BENCH_DOC_COUNT</c> compatibility.</summary>
     public static IEnumerable<int> GetDocCounts(int defaultCount)
     {
         var env = Environment.GetEnvironmentVariable("BENCH_DOC_COUNT");
-        if (int.TryParse(env, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n > 0)
-            return [n];
+        if (int.TryParse(env, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count) && count > 0)
+            return [count];
         return [defaultCount];
     }
 
-    public static BenchmarkDataSourceReport[] GetLoadedDataSources()
-        => RealDataPool.GetLoadedDataSources();
-
-    /// <summary>Returns real-world document bodies from the data pool, wrapping round-robin if needed.</summary>
+    /// <summary>Returns DataForge search record bodies, wrapping no external corpus.</summary>
     public static string[] BuildDocuments(int count)
-        => RealDataPool.GetBodies(count);
+        => GetRecords(count).Select(static record => record.Body).ToArray();
 
-    /// <summary>Builds documents with a numeric "price" field for index sort benchmarks.</summary>
+    /// <summary>Projects the profile's deterministic minor-unit prices to benchmark doubles.</summary>
     public static (string Body, double Price)[] BuildDocumentsWithPrices(int count)
     {
-        var bodies = RealDataPool.GetBodies(count);
-        var rng = new Random(42);
-        var docs = new (string Body, double Price)[count];
-        for (int i = 0; i < count; i++)
-            docs[i] = (bodies[i], Math.Round(rng.NextDouble() * 999 + 1, 2));
-        return docs;
+        var records = GetRecords(count);
+        var documents = new (string Body, double Price)[records.Length];
+        for (var index = 0; index < records.Length; index++)
+            documents[index] = (records[index].Body, records[index].PriceMinor / 100d);
+        return documents;
     }
 
-    /// <summary>Builds parent-child document blocks for block join benchmarks.</summary>
-    public static (string ParentTitle, string[] ChildBodies)[] BuildParentChildBlocks(int blockCount, int childrenPerBlock = 3)
+    /// <summary>Builds parent-child blocks from profile titles and bodies.</summary>
+    public static (string ParentTitle, string[] ChildBodies)[] BuildParentChildBlocks(
+        int blockCount,
+        int childrenPerBlock = 3)
     {
-        var bodies = RealDataPool.GetBodies(blockCount * (childrenPerBlock + 1));
+        ArgumentOutOfRangeException.ThrowIfNegative(blockCount);
+        ArgumentOutOfRangeException.ThrowIfNegative(childrenPerBlock);
+        if (blockCount == 0)
+            return [];
+
+        var records = GetRecords(checked(blockCount * (childrenPerBlock + 1)));
         var blocks = new (string ParentTitle, string[] ChildBodies)[blockCount];
-        var idx = 0;
-        for (int i = 0; i < blockCount; i++)
+        var recordIndex = 0;
+        for (var blockIndex = 0; blockIndex < blockCount; blockIndex++)
         {
-            var parentBody = bodies[idx++];
-            var dot = parentBody.IndexOf('.', StringComparison.Ordinal);
-            var title = dot > 0 && dot <= 80
-                ? parentBody[..dot]
-                : parentBody[..Math.Min(80, parentBody.Length)];
-
+            var parent = records[recordIndex++];
             var children = new string[childrenPerBlock];
-            for (int c = 0; c < childrenPerBlock; c++)
-                children[c] = bodies[idx++];
-
-            blocks[i] = (title, children);
+            for (var childIndex = 0; childIndex < children.Length; childIndex++)
+                children[childIndex] = records[recordIndex++].Body;
+            blocks[blockIndex] = (parent.Title, children);
         }
         return blocks;
     }
 
-    /// <summary>Builds misspelled term variants for suggester benchmarks against real-corpus vocabulary.</summary>
+    /// <summary>Returns the existing JSON benchmark shape using the typed search records.</summary>
+    public static string[] BuildJsonDocuments(int count)
+    {
+        var records = GetRecords(count);
+        var documents = new string[records.Length];
+        for (var index = 0; index < records.Length; index++)
+        {
+            var record = records[index];
+            var id = record.Ordinal.ToString(CultureInfo.InvariantCulture);
+            var price = string.Concat(
+                (record.PriceMinor / 100).ToString(CultureInfo.InvariantCulture),
+                ".",
+                (record.PriceMinor % 100).ToString("D2", CultureInfo.InvariantCulture));
+            var active = record.Active ? "true" : "false";
+            documents[index] = $"{{\"id\":{id},\"body\":{JsonSerializer.Serialize(record.Body)},\"price\":{price},\"active\":{active}}}";
+        }
+        return documents;
+    }
+
+    /// <summary>Returns the identity for the same cached records used by benchmark projections.</summary>
+    public static DataForgeDatasetIdentity GetDatasetIdentity(int count)
+        => GetDataset(count).Identity;
+
+    /// <summary>Returns typed profile records for benchmark setup and diagnostic reporting.</summary>
+    public static SearchRecord[] GetRecords(int count)
+        => GetDataset(count).Records;
+
+    /// <summary>Builds the established misspelling cases against the generated profile vocabulary.</summary>
     public static (string Original, string Misspelled)[] BuildMisspelledTerms()
     {
         return
@@ -90,19 +117,49 @@ internal static class BenchmarkData
         ];
     }
 
-    /// <summary>Builds JSON document strings for JSON mapping benchmarks.</summary>
-    public static string[] BuildJsonDocuments(int count)
+    private static SearchDataset GetDataset(int count)
     {
-        var bodies = RealDataPool.GetBodies(count);
-        var rng = new Random(42);
-        var docs = new string[count];
-        for (int i = 0; i < count; i++)
-        {
-            var body = JsonSerializer.Serialize(bodies[i]);
-            var price = Math.Round(rng.NextDouble() * 999 + 1, 2)
-                            .ToString("F2", CultureInfo.InvariantCulture);
-            docs[i] = $$$"""{"id":{{{i}}},"body":{{{body}}},"price":{{{price}}},"active":true}""";
-        }
-        return docs;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(count);
+        var key = new DatasetCacheKey(Profile.Descriptor.ProfileVersion, SearchSeed, count);
+        return Datasets.GetOrAdd(
+            key,
+            static datasetKey => new Lazy<SearchDataset>(
+                () => GenerateDataset(datasetKey),
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
     }
+
+    private static SearchDataset GenerateDataset(DatasetCacheKey key)
+    {
+        var profile = new LeanCorpusSearchProfile();
+        if (profile.Descriptor.ProfileVersion != key.ProfileVersion)
+            throw new InvalidOperationException("The DataForge search profile version changed while resolving a cached dataset.");
+
+        var options = new DataForgeGenerationOptions(key.Seed, key.RecordCount);
+        var records = profile.Generate(options).ToArray();
+
+        using var writer = new CanonicalJsonWriter(Stream.Null);
+        foreach (var record in records)
+        {
+            profile.CanonicalRecordWriter.Write(writer, record);
+            writer.WriteLine();
+        }
+
+        var identity = new DataForgeDatasetIdentity(
+            DataForgeSourceKind.Generated,
+            DataForgeVersions.DataForgeVersion,
+            profile.Descriptor.ProfileId,
+            profile.Descriptor.ProfileVersion,
+            DatasetId: null,
+            DatasetVersion: null,
+            Seed: key.Seed,
+            RecordCount: records.Length,
+            Parameters: options.Parameters,
+            ContentSha256: Convert.ToHexString(writer.GetSha256()).ToLowerInvariant());
+        BenchmarkDatasetSidecars.Write(identity);
+        return new SearchDataset(records, identity);
+    }
+
+    private readonly record struct DatasetCacheKey(int ProfileVersion, ulong Seed, int RecordCount);
+
+    private sealed record SearchDataset(SearchRecord[] Records, DataForgeDatasetIdentity Identity);
 }

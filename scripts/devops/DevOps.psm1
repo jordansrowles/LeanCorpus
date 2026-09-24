@@ -37,6 +37,7 @@ $Script:BenchmarkStrategies = Import-PowerShellDataFile "$PSScriptRoot/config/be
 . "$PSScriptRoot/commands/diagnostics.ps1"
 . "$PSScriptRoot/commands/benchmark.ps1"
 . "$PSScriptRoot/commands/data.ps1"
+. "$PSScriptRoot/commands/dataforge.ps1"
 . "$PSScriptRoot/commands/docs.ps1"
 . "$PSScriptRoot/commands/benchmarks.ps1"
 . "$PSScriptRoot/commands/setup.ps1"
@@ -56,6 +57,7 @@ function Invoke-DevOps {
         'diagnostics'{ Invoke-DevOpsDiagnostics -Arguments $Arguments }
         'benchmark'  { Invoke-DevOpsBenchmark -Arguments $Arguments }
         'data'       { Invoke-DevOpsData -Arguments $Arguments }
+        'dataforge'  { Invoke-DevOpsDataForge -Arguments $Arguments }
         'docs'       { Invoke-DevOpsDocs -Arguments $Arguments }
         'benchmarks' { Invoke-DevOpsBenchmarks -Arguments $Arguments }
         'setup'      { Invoke-DevOpsSetup -Arguments $Arguments }
@@ -158,6 +160,13 @@ function Invoke-DevOpsHelp {
     Write-Host '      news                20 Newsgroups dataset'
     Write-Host '      wikipedia           Wikipedia article dump'
     Write-Host ''
+    Write-Host '    dataforge            Deterministic generated datasets'
+    Write-Host '      profiles            List available profiles and defaults'
+    Write-Host '      generate            Generate and materialise a named profile'
+    Write-Host '      inspect             Read dataset manifest details'
+    Write-Host '      verify              Check materialised bytes and manifest hashes'
+    Write-Host '      reproduce           Regenerate and compare dataset identity'
+    Write-Host ''
     Write-Host '    docs                 Build the documentation site'
     Write-Host '      build               Full build: API metadata + static site (default)'
     Write-Host '      metadata            API YAML metadata only, no site build'
@@ -205,6 +214,8 @@ function Invoke-DevOpsHelp {
     Write-Host '    devops docs serve'
     Write-Host '    devops docs metadata'
     Write-Host '    devops data gutenberg -BookCount 500'
+    Write-Host '    devops dataforge profiles'
+    Write-Host '    devops dataforge generate -Profile leancorpus-search -Version 1 -Seed 42 -Count 20000'
     Write-Host '    devops report'
     Write-Host '    devops report code -Strict'
     Write-Host '    devops server start'

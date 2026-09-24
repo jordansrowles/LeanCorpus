@@ -2,6 +2,10 @@
   <Project Path="src/core/Rowles.Text/Rowles.Text.csproj" />
   <Project Path="src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj" />
   <Project Path="src/devops/Rowles.Text.Benchmarks/Rowles.Text.Benchmarks.csproj" />
+  <Project Path="src/devops/Rowles.DataForge/Rowles.DataForge.csproj" />
+  <Project Path="src/devops/Rowles.DataForge.Workloads/Rowles.DataForge.Workloads.csproj" />
+  <Project Path="src/devops/Rowles.DataForge.Tool/Rowles.DataForge.Tool.csproj" />
+  <Project Path="src/devops/Rowles.DataForge.Tests/Rowles.DataForge.Tests.csproj" />
   <Project Path="src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj" />
   <Project Path="src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj" />
   <Project Path="src/core/Rowles.LeanCorpus.Compression.LZ4/Rowles.LeanCorpus.Compression.LZ4.csproj" />

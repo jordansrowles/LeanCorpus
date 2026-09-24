@@ -51,6 +51,7 @@ internal static class Program
             ? Path.GetFullPath(suppliedArtifactDirectory)
             : Path.Combine(repoRoot, "artifacts", "benchmark", "runs",
                 now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture), "core");
+        Environment.SetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR", runDir);
         var machineDir = Directory.GetParent(runDir)?.FullName ?? runDir;
         Directory.CreateDirectory(runDir);
         string packedBkdEvidenceDirectory = Path.Combine(
@@ -395,7 +396,8 @@ internal static class Program
         report.Provenance = BenchmarkProvenanceBuilder.Build(
             repoRoot,
             gitCommitHash,
-            docCount ?? BenchmarkData.DefaultDocCount);
+            docCount ?? BenchmarkData.DefaultDocCount,
+            runDir);
         if (!report.Provenance.RscriptAvailable)
             report.QualityFlags.Add("RscriptUnavailable");
 

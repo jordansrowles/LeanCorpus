@@ -13,7 +13,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 
 internal sealed class BenchmarkRunReport
 {
-    public int SchemaVersion { get; set; } = 3;
+    public int SchemaVersion { get; set; } = 4;
     public string RunId { get; set; } = string.Empty;
     public string RunType { get; set; } = "full";
     public string GeneratedAtUtc { get; set; } = string.Empty;
@@ -44,8 +44,22 @@ internal sealed class BenchmarkProvenanceReport
     public bool RscriptAvailable { get; set; }
     public int? EffectiveDocCount { get; set; }
     public string DataFingerprintSha256 { get; set; } = string.Empty;
-    public BenchmarkDataSourceReport[] DataSources { get; set; } = [];
+    public BenchmarkDatasetReport[] Datasets { get; set; } = [];
     public BenchmarkCorpusReport? Corpus { get; set; }
+}
+
+internal sealed class BenchmarkDatasetReport
+{
+    public string SourceKind { get; set; } = string.Empty;
+    public int DataForgeVersion { get; set; }
+    public string? ProfileId { get; set; }
+    public int? ProfileVersion { get; set; }
+    public string? DatasetId { get; set; }
+    public int? DatasetVersion { get; set; }
+    public ulong? Seed { get; set; }
+    public int RecordCount { get; set; }
+    public Dictionary<string, string> Parameters { get; set; } = new(StringComparer.Ordinal);
+    public string ContentSha256 { get; set; } = string.Empty;
 }
 
 internal sealed class BenchmarkCorpusReport
@@ -115,7 +129,7 @@ internal sealed class BenchmarkGcReport
 
 internal sealed class BenchmarkRunIndex
 {
-    public int SchemaVersion { get; set; } = 3;
+    public int SchemaVersion { get; set; } = 4;
     public List<BenchmarkRunIndexEntry> Runs { get; set; } = [];
 }
 
@@ -394,9 +408,13 @@ internal static class BenchmarkRunReportBuilder
 
 internal static class BenchmarkProvenanceBuilder
 {
-    public static BenchmarkProvenanceReport Build(string repoRoot, string gitCommitHash, int? effectiveDocCount)
+    public static BenchmarkProvenanceReport Build(
+        string repoRoot,
+        string gitCommitHash,
+        int? effectiveDocCount,
+        string artifactDirectory)
     {
-        var dataSources = BenchmarkData.GetLoadedDataSources();
+        var datasets = BenchmarkDatasetSidecars.ReadAll(artifactDirectory);
         var sourceCommit = FirstNonEmpty(
             Environment.GetEnvironmentVariable("BENCH_SOURCE_COMMIT"),
             gitCommitHash);
@@ -413,8 +431,8 @@ internal static class BenchmarkProvenanceBuilder
             BenchmarkDotNetVersion = GetBenchmarkDotNetVersion(),
             RscriptAvailable = IsCommandAvailable("Rscript"),
             EffectiveDocCount = effectiveDocCount,
-            DataSources = dataSources,
-            DataFingerprintSha256 = BuildCombinedFingerprint(dataSources),
+            Datasets = datasets.Select(static evidence => evidence.Report).ToArray(),
+            DataFingerprintSha256 = BuildCombinedFingerprint(datasets),
             Corpus = corpus
         };
     }
@@ -427,20 +445,17 @@ internal static class BenchmarkProvenanceBuilder
             ?? string.Empty;
     }
 
-    private static string BuildCombinedFingerprint(BenchmarkDataSourceReport[] dataSources)
+    private static string BuildCombinedFingerprint(IReadOnlyList<BenchmarkDatasetEvidence> datasets)
     {
-        if (dataSources.Length == 0)
-            return string.Empty;
-
-        var builder = new StringBuilder();
-        foreach (var source in dataSources.OrderBy(s => s.Name, StringComparer.Ordinal))
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach (var dataset in datasets.OrderBy(
+                     static evidence => Convert.ToHexString(evidence.CanonicalIdentityBytes),
+                     StringComparer.Ordinal))
         {
-            builder
-                .Append(source.Name).Append('\0')
-                .Append(source.FingerprintSha256).Append('\0')
-                .Append(source.DocumentCount.ToString(CultureInfo.InvariantCulture)).Append('\0');
+            hash.AppendData(dataset.CanonicalIdentityBytes);
+            hash.AppendData([ (byte)'\n' ]);
         }
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
+        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
     }
 
     private static bool? TryReadGitDirty(string repoRoot)
@@ -507,28 +522,28 @@ internal static class BenchmarkCorpusReportBuilder
         if (documentCount is not > 0)
             return null;
 
-        var documents = BenchmarkData.BuildDocuments(documentCount.Value);
+        var records = BenchmarkData.GetRecords(documentCount.Value);
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         var sink = new CorpusTokenSink();
         var analyser = new Rowles.LeanCorpus.Analysis.Analysers.StandardAnalyser();
         long byteCount = 0;
 
-        foreach (var document in documents)
+        foreach (var record in records)
         {
-            var bytes = Encoding.UTF8.GetBytes(document);
+            var bytes = Encoding.UTF8.GetBytes(record.Body);
             byteCount += bytes.Length;
-            hash.AppendData(BitConverter.GetBytes(bytes.Length));
             hash.AppendData(bytes);
-            analyser.Analyse(document.AsSpan(), sink);
+            hash.AppendData([ (byte)'\n' ]);
+            analyser.Analyse(record.Body.AsSpan(), sink);
         }
 
         return new BenchmarkCorpusReport
         {
-            DocumentCount = documents.Length,
+            DocumentCount = records.Length,
             Utf8ByteCount = byteCount,
             TokenCount = sink.TokenCount,
             UniqueTermCount = sink.UniqueTerms.Count,
-            PayloadSha256 = Convert.ToHexString(hash.GetHashAndReset())
+            PayloadSha256 = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant()
         };
     }
 

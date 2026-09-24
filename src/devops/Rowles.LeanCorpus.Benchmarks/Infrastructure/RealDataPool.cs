@@ -15,6 +15,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 /// materialised via ToString() -- same heap footprint. The practical limit is
 /// capping per-source document counts to avoid loading all 18K newsgroup files.
 /// </remarks>
+// Pending LEAN-10 Sprint 2 removal. Do not use this from new code.
 internal static class RealDataPool
 {
     private sealed class LoadedDataSet

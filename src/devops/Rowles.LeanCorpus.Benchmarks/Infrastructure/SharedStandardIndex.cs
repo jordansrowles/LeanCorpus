@@ -139,6 +139,7 @@ internal static class SharedStandardIndex
                 }
 
                 _leanSearcher = new LeanIndexSearcher(_leanDirectory);
+                RunSearchPreflight(docCount);
 
                 // ── Lucene.NET index ──
                 _luceneIndexPath = Path.Combine(
@@ -181,6 +182,68 @@ internal static class SharedStandardIndex
             }
 
             _initialised = true;
+        }
+    }
+
+    private static void RunSearchPreflight(int docCount)
+    {
+        var identity = BenchmarkData.GetDatasetIdentity(docCount);
+        var searchIdentity = string.Concat(
+            "profile=", identity.ProfileId,
+            " version=", identity.ProfileVersion?.ToString(CultureInfo.InvariantCulture) ?? "null",
+            " seed=", identity.Seed?.ToString(CultureInfo.InvariantCulture) ?? "null",
+            " count=", identity.RecordCount.ToString(CultureInfo.InvariantCulture),
+            " contentSha256=", identity.ContentSha256);
+
+        try
+        {
+            var searcher = _leanSearcher ?? throw new InvalidOperationException("The LeanCorpus searcher is unavailable.");
+            Check("term said", new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "said"), minimumHits: 1);
+            Check("term government", new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "government"), minimumHits: 1);
+            Check("term people", new Rowles.LeanCorpus.Search.Queries.TermQuery("body", "people"), minimumHits: 1);
+
+            Check("phrase new york", new Rowles.LeanCorpus.Search.Queries.PhraseQuery("body", "new", "york"), minimumHits: 1);
+            Check("phrase new york stock", new Rowles.LeanCorpus.Search.Queries.PhraseQuery("body", "new", "york", "stock"), minimumHits: 1);
+            Check("phrase said government slop 2", new Rowles.LeanCorpus.Search.Queries.PhraseQuery("body", slop: 2, "said", "government"), minimumHits: 1);
+
+            Check("prefix gov", new Rowles.LeanCorpus.Search.Queries.PrefixQuery("body", "gov"), minimumHits: 2);
+            Check("prefix pres", new Rowles.LeanCorpus.Search.Queries.PrefixQuery("body", "pres"), minimumHits: 2);
+            Check("prefix mark", new Rowles.LeanCorpus.Search.Queries.PrefixQuery("body", "mark"), minimumHits: 2);
+
+            Check("wildcard gov*", new Rowles.LeanCorpus.Search.Queries.WildcardQuery("body", "gov*"), minimumHits: 2);
+            Check("wildcard m*rket", new Rowles.LeanCorpus.Search.Queries.WildcardQuery("body", "m*rket"), minimumHits: 2);
+            Check("wildcard pre*dent", new Rowles.LeanCorpus.Search.Queries.WildcardQuery("body", "pre*dent"), minimumHits: 2);
+
+            Check("regexp gov.*ment", new Rowles.LeanCorpus.Search.Queries.RegexpQuery("body", "gov.*ment"), minimumHits: 2);
+            Check("regexp mark.*", new Rowles.LeanCorpus.Search.Queries.RegexpQuery("body", "mark.*"), minimumHits: 2);
+            Check("regexp .*nation.*", new Rowles.LeanCorpus.Search.Queries.RegexpQuery("body", ".*nation.*"), minimumHits: 2);
+
+            Check("fuzzy marke/1", new Rowles.LeanCorpus.Search.Queries.FuzzyQuery("body", "marke", 1), minimumHits: 1);
+            Check("fuzzy goverment/1", new Rowles.LeanCorpus.Search.Queries.FuzzyQuery("body", "goverment", 1), minimumHits: 1);
+            Check("fuzzy presdnt/2", new Rowles.LeanCorpus.Search.Queries.FuzzyQuery("body", "presdnt", 2), minimumHits: 1);
+            Check("fuzzy econmic/1", new Rowles.LeanCorpus.Search.Queries.FuzzyQuery("body", "econmic", 1), minimumHits: 1);
+
+            var noHitCount = searcher.Search(
+                new Rowles.LeanCorpus.Search.Queries.FuzzyQuery("body", "zzzznomatch", 2),
+                1).TotalHits;
+            if (noHitCount != 0)
+                throw new InvalidOperationException($"Fuzzy no-hit scenario returned {noHitCount} hits; expected zero.");
+
+            foreach (var (original, _) in BenchmarkData.BuildMisspelledTerms())
+                Check($"suggester original {original}", new Rowles.LeanCorpus.Search.Queries.TermQuery("body", original), minimumHits: 1);
+
+            return;
+
+            void Check(string scenario, Rowles.LeanCorpus.Search.Query query, int minimumHits)
+            {
+                var totalHits = searcher.Search(query, 1).TotalHits;
+                if (totalHits < minimumHits)
+                    throw new InvalidOperationException($"{scenario} returned {totalHits} hits; expected at least {minimumHits}.");
+            }
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException($"DataForge search preflight failed ({searchIdentity}).", exception);
         }
     }
 

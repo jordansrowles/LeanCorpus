@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\core\Rowles.LeanCorpus\Rowles.LeanCorpus.csproj" />
+    <ProjectReference Include="..\Rowles.DataForge.Workloads\Rowles.DataForge.Workloads.csproj" />
   </ItemGroup>
 
   <ItemGroup>
