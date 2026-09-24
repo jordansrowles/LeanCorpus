@@ -31,6 +31,7 @@
 
 ### Fixed
 
+- Best-first Geo nearest sorting now includes legacy-only points in mixed segments after a force merge.
 - Made canonical geographic dateline seam normalisation idempotent when a
   canonical polygon or line is used as input again, validated polygon shell and
   hole relationships in one unwrapped world and on the quantised grid, promoted

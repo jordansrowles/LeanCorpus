@@ -309,8 +309,13 @@ public sealed partial class IndexSearcher
             if (compatiblePackedField)
             {
                 reader.TraversePackedBkdBestFirst(sort.FieldName, ref collector, out _);
-                if (!collector.ShouldStop && collector.Count < capacity)
-                    collector.CollectAllDocuments(includeMissing: true);
+                if (!collector.ShouldStop)
+                {
+                    if (collector.Count < capacity)
+                        collector.CollectAllDocuments(includeMissing: true);
+                    else
+                        collector.CollectLegacyGeoDocuments(metadata);
+                }
             }
             else
             {
@@ -883,6 +888,68 @@ public sealed partial class IndexSearcher
                     continue;
                 AddDocument(_reader.DocBase + localDocId, includeMissing);
             }
+        }
+
+        internal void CollectLegacyGeoDocuments(PackedBkdFieldMetadata metadata)
+        {
+            if (_sort.Type != SortFieldType.GeoDistance)
+                return;
+            if (metadata.DocumentCount == _reader.MaxDoc)
+                return;
+
+            string latitudeField = _sort.FieldName + "_lat";
+            string longitudeField = _sort.FieldName + "_lon";
+            if (!_reader.TryGetNumericDocValues(latitudeField, out _, out var latitudePresence)
+                || !_reader.TryGetNumericDocValues(longitudeField, out _, out var longitudePresence))
+                return;
+
+            int latitudeDocumentCount = latitudePresence?.Cardinality ?? _reader.MaxDoc;
+            int longitudeDocumentCount = longitudePresence?.Cardinality ?? _reader.MaxDoc;
+            if (latitudeDocumentCount <= metadata.DocumentCount
+                || longitudeDocumentCount <= metadata.DocumentCount)
+                return;
+
+            Util.RoaringBitmap? legacyCandidates = latitudePresence is null
+                ? longitudePresence
+                : longitudePresence is null
+                    ? latitudePresence
+                    : Util.RoaringBitmap.And(latitudePresence, longitudePresence);
+            if (legacyCandidates is not null && legacyCandidates.Cardinality <= metadata.DocumentCount)
+                return;
+
+            byte[][][]? exactGeoValues = _reader.GetBinaryDocValues(
+                GeoPointDocValues.GetFieldName(_sort.FieldName));
+            if (legacyCandidates is null)
+            {
+                for (int localDocId = 0; localDocId < _reader.MaxDoc && !ShouldStop; localDocId++)
+                    CollectLegacyGeoDocument(localDocId, exactGeoValues);
+                return;
+            }
+
+            foreach (int localDocId in legacyCandidates)
+            {
+                if (ShouldStop)
+                    break;
+
+                CollectLegacyGeoDocument(localDocId, exactGeoValues);
+            }
+        }
+
+        private void CollectLegacyGeoDocument(int localDocId, byte[][][]? exactGeoValues)
+        {
+            if (!_reader.IsLive(localDocId))
+                return;
+            if (_filterBitmap is not null && !_filterBitmap.Contains(localDocId))
+            {
+                _filterCandidatesRejected++;
+                return;
+            }
+            if (exactGeoValues is not null
+                && (uint)localDocId < (uint)exactGeoValues.Length
+                && exactGeoValues[localDocId].Length > 0)
+                return;
+
+            AddDocument(_reader.DocBase + localDocId, includeMissing: false);
         }
 
         internal void MergeInto(SortedSet<SpatialDistanceCandidate> globalTopN, int topN)

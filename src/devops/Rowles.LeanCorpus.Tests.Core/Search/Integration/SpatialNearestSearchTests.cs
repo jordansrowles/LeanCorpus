@@ -267,10 +267,70 @@ public sealed class SpatialNearestSearchTests : IDisposable
         Assert.Equal(6, nearest.ScoreDocs.Length);
     }
 
-    private static void AddGeo(IndexWriter writer, double latitude, double longitude)
+    [Fact]
+    public void GeoNearestIncludesLegacyOnlyDocumentsAfterMixedSegmentsAreForceMerged()
+    {
+        const int topN = 3;
+        string path = Path.Combine(_path, "force-merged-mixed-geo");
+        using (var directory = new MMapDirectory(path))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig()))
+        {
+            AddLegacyGeo(writer, 0, 0.00001, includeInEligibilityFilter: true);
+            writer.Commit();
+        }
+
+        using (var directory = new MMapDirectory(path))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig { BKDMaxLeafSize = 2 }))
+        {
+            for (int i = 1; i <= 5; i++)
+                AddGeo(writer, 0, i / 10d, includeInEligibilityFilter: i <= topN);
+
+            writer.Commit();
+            writer.ForceMerge(1);
+        }
+
+        using var searchDirectory = new MMapDirectory(path);
+        using var searcher = new IndexSearcher(searchDirectory);
+        Assert.Single(searcher.GetSegmentReaders());
+
+        var distance = SortField.GeoDistance("location", new GeoPoint(0, 0));
+        TopDocs nearest = searcher.Search(new MatchAllDocsQuery(), topN, distance);
+        TopDocs exhaustive = searcher.Search(
+            new MatchAllDocsQuery(), topN, [distance, SortField.DocId]);
+
+        Assert.Equal(exhaustive.TotalHits, nearest.TotalHits);
+        Assert.Equal(
+            exhaustive.ScoreDocs.Select(static hit => hit.DocId),
+            nearest.ScoreDocs.Select(static hit => hit.DocId));
+        Assert.Equal(0, nearest.ScoreDocs[0].DocId);
+
+        var filteredQuery = new ConstantScoreQuery(new TermQuery("eligibility", "eligible"), 3)
+        {
+            Boost = 2
+        };
+        TopDocs filteredNearest = searcher.Search(filteredQuery, topN, distance);
+        TopDocs filteredExhaustive = searcher.Search(
+            filteredQuery, topN, [distance, SortField.DocId]);
+
+        Assert.Equal(4, filteredNearest.TotalHits);
+        Assert.Equal(filteredExhaustive.TotalHits, filteredNearest.TotalHits);
+        Assert.Equal(
+            filteredExhaustive.ScoreDocs.Select(static hit => hit.DocId),
+            filteredNearest.ScoreDocs.Select(static hit => hit.DocId));
+        Assert.Equal(0, filteredNearest.ScoreDocs[0].DocId);
+        Assert.All(filteredNearest.ScoreDocs, static hit => Assert.Equal(6, hit.Score));
+    }
+
+    private static void AddGeo(
+        IndexWriter writer,
+        double latitude,
+        double longitude,
+        bool includeInEligibilityFilter = false)
     {
         var document = new LeanDocument();
         document.Add(new GeoPointField("location", latitude, longitude));
+        if (includeInEligibilityFilter)
+            document.Add(new StringField("eligibility", "eligible", stored: false));
         writer.AddDocument(document);
     }
 
@@ -281,11 +341,17 @@ public sealed class SpatialNearestSearchTests : IDisposable
         writer.AddDocument(document);
     }
 
-    private static void AddLegacyGeo(IndexWriter writer, double latitude, double longitude)
+    private static void AddLegacyGeo(
+        IndexWriter writer,
+        double latitude,
+        double longitude,
+        bool includeInEligibilityFilter = false)
     {
         var document = new LeanDocument();
         document.Add(new NumericField("location_lat", latitude, stored: false));
         document.Add(new NumericField("location_lon", longitude, stored: false));
+        if (includeInEligibilityFilter)
+            document.Add(new StringField("eligibility", "eligible", stored: false));
         writer.AddDocument(document);
     }
 
