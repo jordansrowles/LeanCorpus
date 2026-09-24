@@ -150,6 +150,7 @@ public sealed class SegmentMerger
 
     private SegmentInfo? MergeSegments(List<SegmentInfo> segments, ref int nextSegmentOrdinal, int commitGeneration)
     {
+        List<SpatialFieldInfo> spatialFields = MergeSpatialFieldMetadata(segments);
         var newSegId = $"seg_{nextSegmentOrdinal++}";
         var basePath = Path.Combine(_directory.DirectoryPath, newSegId);
 
@@ -163,7 +164,7 @@ public sealed class SegmentMerger
             foreach (var segInfo in segments)
                 readers[segInfo.SegmentId] = new SegmentReader(_directory, segInfo);
 
-            return MergeSegmentsCore(segments, readers, newSegId, basePath, commitGeneration);
+            return MergeSegmentsCore(segments, readers, newSegId, basePath, commitGeneration, spatialFields);
         }
         finally
         {
@@ -177,7 +178,8 @@ public sealed class SegmentMerger
         IReadOnlyDictionary<string, SegmentReader> readers,
         string newSegId,
         string basePath,
-        int commitGeneration)
+        int commitGeneration,
+        List<SpatialFieldInfo> spatialFields)
     {
         // Phase 1: build per-segment doc-id remap (live docs only).
         // Use int[] with -1 sentinel; flat arrays beat Dictionary on both lookup
@@ -265,6 +267,7 @@ public sealed class SegmentMerger
             FieldNames = fieldNames.ToList(),
             IndexSortFields = segments[0].IndexSortFields,
             VectorFields = mergedVectorFields,
+            SpatialFields = spatialFields,
             MinSequenceNumber = ComputeMergedMinSeqNo(segments),
             MaxSequenceNumber = ComputeMergedMaxSeqNo(segments),
             EarliestSoftDeleteTimestamp = mergedLiveDocs?.EarliestSoftDeleteTimestamp,
@@ -273,6 +276,29 @@ public sealed class SegmentMerger
             mergedInfo.IsCompoundFile = true;
         SegmentFlusher.RefreshSegmentSize(mergedInfo, _directory.DirectoryPath);
         return mergedInfo;
+    }
+
+    private static List<SpatialFieldInfo> MergeSpatialFieldMetadata(List<SegmentInfo> segments)
+    {
+        var fields = new Dictionary<string, SpatialFieldKind>(StringComparer.Ordinal);
+        foreach (SegmentInfo segment in segments)
+        {
+            segment.Validate();
+            foreach (SpatialFieldInfo spatialField in segment.SpatialFields)
+            {
+                if (fields.TryGetValue(spatialField.FieldName, out SpatialFieldKind existing)
+                    && existing != spatialField.Kind)
+                    throw new InvalidDataException(
+                        $"Spatial field '{spatialField.FieldName}' has incompatible kinds '{existing}' and '{spatialField.Kind}' during merge.");
+
+                fields[spatialField.FieldName] = spatialField.Kind;
+            }
+        }
+
+        return fields
+            .OrderBy(static pair => pair.Key, StringComparer.Ordinal)
+            .Select(static pair => new SpatialFieldInfo { FieldName = pair.Key, Kind = pair.Value })
+            .ToList();
     }
 
     /// <summary>
@@ -990,6 +1016,7 @@ public sealed class SegmentMerger
         IndexWriterConfig config,
         int commitGeneration = 0)
     {
+        List<SpatialFieldInfo> spatialFields = MergeSpatialFieldMetadata(sourceSegments);
         var newSegId = $"seg_{nextSegmentOrdinal++}";
         var basePath = Path.Combine(_directory.DirectoryPath, newSegId);
 
@@ -999,7 +1026,7 @@ public sealed class SegmentMerger
             foreach (var segInfo in sourceSegments)
                 readers[segInfo.SegmentId] = new SegmentReader(sourceDirectory, segInfo);
 
-            return MergeSegmentsCore(sourceSegments, readers, newSegId, basePath, commitGeneration);
+            return MergeSegmentsCore(sourceSegments, readers, newSegId, basePath, commitGeneration, spatialFields);
         }
         finally
         {

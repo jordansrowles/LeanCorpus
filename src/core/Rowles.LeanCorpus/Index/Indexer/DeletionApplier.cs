@@ -56,13 +56,11 @@ internal static class DeletionApplier
         foreach (var seg in segments)
         {
             var basePath = Path.Combine(dirPath, seg.SegmentId);
-            var dicPath = basePath + ".dic";
-            var posPath = basePath + ".pos";
-
-            if (!FileOpenRetry.FileExists(dicPath) || !FileOpenRetry.FileExists(posPath))
+            using var segmentReader = new SegmentReader(directory, seg);
+            if (!segmentReader.FileExists(".dic") || !segmentReader.FileExists(".pos"))
                 continue;
 
-            using var dicReader = TermDictionaryReader.Open(dicPath);
+            using var dicReader = TermDictionaryReader.Open(segmentReader.OpenInput(".dic"));
 
             string existingDelPath = seg.DelGeneration.HasValue
                 ? basePath + $"_gen_{seg.DelGeneration.Value}.del"
@@ -74,7 +72,7 @@ internal static class DeletionApplier
 
             bool changed = false;
             var newlyDeleted = new HashSet<int>();
-            using var posInput = new IndexInput(posPath);
+            using var posInput = segmentReader.OpenInput(".pos");
             byte postingsVersion = PostingsEnum.ValidateFileHeader(posInput);
 
             ApplyDeletesByOrdinal(dicReader, posInput, postingsVersion, liveDocs,

@@ -63,6 +63,9 @@ internal static class Program
         Environment.SetEnvironmentVariable(
             "LEANCORPUS_SPATIAL_NEAREST_EVIDENCE_DIR",
             Path.Combine(runDir, "nearest", "observer-counters"));
+        Environment.SetEnvironmentVariable(
+            "LEANCORPUS_SHAPE_EVIDENCE_DIR",
+            Path.Combine(runDir, "shapes", "observer-counters"));
 
         var gitCommitHash = GetGitShortHash(repoRoot);
         var sourceCommit = Environment.GetEnvironmentVariable("BENCH_SOURCE_COMMIT");
@@ -104,6 +107,7 @@ internal static class Program
                 BenchmarkSuite.PostingsArena,
                 BenchmarkSuite.PackedBkd,
                 BenchmarkSuite.SpatialNearest,
+                BenchmarkSuite.ShapeSpatial,
                 BenchmarkSuite.DocValuesRead,
                 BenchmarkSuite.BKDTree,
                 BenchmarkSuite.FstLookup,
@@ -311,6 +315,12 @@ internal static class Program
         {
             RunSuite<SpatialNearestBenchmarks>("nearest", runDir, benchmarkArgs, suiteSummaries, gcDump);
             RunSuite<SpatialNearestCompatibilityBenchmarks>("nearest-compatibility", runDir, benchmarkArgs, suiteSummaries, gcDump);
+        }
+
+        if (suites.Contains(BenchmarkSuite.ShapeSpatial))
+        {
+            RunSuite<ShapeIndexingBenchmarks>("shape-index", runDir, benchmarkArgs, suiteSummaries, gcDump);
+            RunSuite<ShapeRelationBenchmarks>("shape-relations", runDir, benchmarkArgs, suiteSummaries, gcDump);
         }
 
         if (suites.Contains(BenchmarkSuite.DocValuesRead))
@@ -723,6 +733,7 @@ internal static class Program
               postings-arena       PostingsArenaBenchmarks -- DWPT postings arena workload matrix (explicit only)
               packed-bkd           PackedBkdBenchmarks -- full Packed BKD build, spill and traversal matrix (explicit only)
               nearest              SpatialNearestBenchmarks and compatibility suite -- exact sort vs best-first Geo/XY Top-N, with legacy/packed comparison (explicit only)
+              shape                ShapeIndexingBenchmarks and ShapeRelationBenchmarks -- tessellation/indexing and all four Packed BKD relations (explicit only)
               docvalues-read      DocValuesReadBenchmarks -- DocValues read throughput (explicit only)
               bkd                 BKDTreeBenchmarks -- BKD range search throughput (explicit only)
               fst-lookup          FstLookupBenchmarks -- FST term dictionary lookup (explicit only)
@@ -869,6 +880,7 @@ internal static class Program
             "postings-arena" or "postingsarena" => BenchmarkSuite.PostingsArena,
             "packed-bkd" or "packedbkd" => BenchmarkSuite.PackedBkd,
             "nearest" or "spatial-nearest" => BenchmarkSuite.SpatialNearest,
+            "shape" or "shapes" => BenchmarkSuite.ShapeSpatial,
             "docvalues-read" or "docvaluesread" => BenchmarkSuite.DocValuesRead,
             "bkd" or "bkd-tree" => BenchmarkSuite.BKDTree,
             "fst-lookup" or "fstlookup" => BenchmarkSuite.FstLookup,
@@ -1006,6 +1018,7 @@ internal static class Program
         PostingsArena,
         PackedBkd,
         SpatialNearest,
+        ShapeSpatial,
         DocValuesRead,
         BKDTree,
         FstLookup,

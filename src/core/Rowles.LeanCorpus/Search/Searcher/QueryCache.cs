@@ -2,6 +2,9 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
 using System.Threading;
+using Rowles.LeanCorpus.Search.Geo;
+using Rowles.LeanCorpus.Search.Spatial.Internal;
+using Rowles.LeanCorpus.Search.XY;
 
 namespace Rowles.LeanCorpus.Search.Searcher;
 
@@ -278,6 +281,16 @@ public sealed class QueryCache
                     AppendPart(builder, pisq.Field);
                     foreach (var point in pisq.Points)
                         builder.Append("|pt=").Append(point.ToString("R", CultureInfo.InvariantCulture));
+                    break;
+                case GeoShapeQuery geoShapeQuery:
+                    AppendPart(builder, geoShapeQuery.Field);
+                    builder.Append("|relation=").Append((byte)geoShapeQuery.Relation).Append('|');
+                    SpatialGeometryFingerprint.Append(geoShapeQuery.Geometry, builder);
+                    break;
+                case XYShapeQuery xyShapeQuery:
+                    AppendPart(builder, xyShapeQuery.Field);
+                    builder.Append("|relation=").Append((byte)xyShapeQuery.Relation).Append('|');
+                    SpatialGeometryFingerprint.Append(xyShapeQuery.Geometry, builder);
                     break;
                 case BinaryPointInSetQuery bpisq:
                     AppendPart(builder, bpisq.Field);

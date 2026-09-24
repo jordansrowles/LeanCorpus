@@ -4,6 +4,8 @@ using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Scoring;
 using Rowles.LeanCorpus.Search.Searcher;
+using Rowles.LeanCorpus.Search.Spatial;
+using Rowles.LeanCorpus.Search.XY;
 
 namespace Rowles.LeanCorpus.Tests.Core.Search;
 
@@ -202,5 +204,37 @@ public sealed class QueryFamilyUnitTests
                 new IntervalsTermSource("body", "beta")));
 
         Assert.NotNull(cache.TryGet(lookup, 5));
+    }
+
+    [Fact(DisplayName = "Shape query equality and cache fingerprints include relation, geometry and boost")]
+    public void ShapeQueries_UseValueEqualityAndDeterministicCacheIdentity()
+    {
+        var first = new XYShapeQuery("area", SpatialRelation.Intersects, new XYRectangle(1, 2, 3, 4))
+        {
+            Boost = 2,
+        };
+        var same = new XYShapeQuery("area", SpatialRelation.Intersects, new XYRectangle(1, 2, 3, 4))
+        {
+            Boost = 2,
+        };
+        var otherGeometry = new XYShapeQuery("area", SpatialRelation.Intersects, new XYRectangle(1, 2, 3, 5))
+        {
+            Boost = 2,
+        };
+        var otherRelation = new XYShapeQuery("area", SpatialRelation.Within, new XYRectangle(1, 2, 3, 4))
+        {
+            Boost = 2,
+        };
+
+        Assert.Equal(first, same);
+        Assert.Equal(first.GetHashCode(), same.GetHashCode());
+        Assert.NotEqual(first, otherGeometry);
+        Assert.NotEqual(first, otherRelation);
+
+        var cache = new QueryCache(4);
+        cache.Put(first, 12, TopDocs.Empty);
+        Assert.NotNull(cache.TryGet(same, 12));
+        Assert.Null(cache.TryGet(otherGeometry, 12));
+        Assert.Null(cache.TryGet(otherRelation, 12));
     }
 }

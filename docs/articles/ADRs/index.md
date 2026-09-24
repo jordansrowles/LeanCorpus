@@ -44,6 +44,7 @@ _description: Recorded LeanCorpus architecture decisions and their status.
 <tr><td><a href="ADR031-dwpt-postings-arena.md">031</a></td><td>2026-09-21</td><td>Accepted</td><td></td><td><a href="ADR031-dwpt-postings-arena.md">DWPT postings use a pooled block arena</a></td><td></td></tr>
 <tr><td><a href="ADR032-async-execution-runtime-async-and-storage-io.md">032</a></td><td>2026-09-16</td><td>Accepted</td><td></td><td><a href="ADR032-async-execution-runtime-async-and-storage-io.md">Async execution, Runtime Async and storage I/O</a></td><td></td></tr>
 <tr><td><a href="ADR033-spatial-geometry-packed-bkd.md">033</a></td><td>2026-09-21</td><td>Accepted</td><td></td><td><a href="ADR033-spatial-geometry-packed-bkd.md">Spatial geometry uses canonical encoded coordinates and multidimensional Packed BKD</a></td><td></td></tr>
+<tr><td><a href="ADR034-shape-indexing-and-spatial-relations.md">034</a></td><td>2026-09-24</td><td>Accepted</td><td></td><td><a href="ADR034-shape-indexing-and-spatial-relations.md">Shape values use stable Packed BKD primitives and document-level relations</a></td><td></td></tr>
 </tbody>
 </table>
 </div>

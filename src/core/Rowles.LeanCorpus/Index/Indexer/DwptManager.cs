@@ -59,10 +59,11 @@ internal static class DwptManager
             {
                 writer.ThrowIfIndexingFailed();
                 dwpt.ValidateDocument(doc);
+                var preparedSpatialShapes = dwpt.PrepareSpatialShapes(doc);
                 writer.ValidateVectorDimensions(doc);
                 long before = dwpt.EstimatedRamBytes;
                 mutationStarted = true;
-                dwpt.AddPrevalidatedDocument(doc);
+                dwpt.AddPrevalidatedDocument(doc, preparedSpatialShapes);
                 observedDwptBytes = dwpt.EstimatedRamBytes;
                 observedDocCount = dwpt.DocCount;
                 Interlocked.Add(ref writer.ActiveDwptBytes, observedDwptBytes - before);
@@ -129,10 +130,11 @@ internal static class DwptManager
             {
                 writer.ThrowIfIndexingFailed();
                 dwpt.ValidateDocumentBlock(block);
+                var preparedSpatialShapes = dwpt.PrepareSpatialShapes(block);
                 writer.ValidateVectorDimensions(block);
                 long before = dwpt.EstimatedRamBytes;
                 mutationStarted = true;
-                dwpt.AddPrevalidatedDocumentBlock(block);
+                dwpt.AddPrevalidatedDocumentBlock(block, preparedSpatialShapes);
                 observedDwptBytes = dwpt.EstimatedRamBytes;
                 observedDocCount = dwpt.DocCount;
                 Interlocked.Add(ref writer.ActiveDwptBytes, observedDwptBytes - before);

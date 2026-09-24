@@ -1,5 +1,6 @@
 ### Added
 
+- Added Geo and XY shape fields and constant-score `Intersects`, `Within`, `Contains` and `Disjoint` queries over stable Packed BKD primitives, including polygon holes, value-aware containment and analytic query circles.
 - Added immutable Geo and XY geometry values with `IGeoGeometry` and `IXYGeometry` markers, shared canonical coordinate validation, and a deterministic multidimensional Packed BKD v1 format using new `.pbkd` files.
 - Added segment-aware Packed BKD execution for Geo bounding-box and distance queries, with legacy-segment fallback, dateline splitting, and exact Haversine filtering.
 - Added `XYPointField` and packed XY bounding-box and distance queries with repeated point DocValues and exact Euclidean filtering.
@@ -10,6 +11,7 @@
 
 ### Changed
 
+- Apply queued deletes through logical segment members so compound segments can be deleted and updated without unpacking their `.dic` and `.pos` files.
 - Set Core package, assembly and file versions to `3.2.0` for the Sprint 2 release.
 - Use the existing indexed latitude range to select candidates for single-valued packed Geo distance queries, while retaining exact Haversine checks and packed/mixed fallbacks.
 - Added construction-time `IndexingConcurrency` configuration and explicit concurrent async bulk ingestion for the Core writer, and made concurrent bulk ingestion use bounded producers through the normal DWPT pipeline.

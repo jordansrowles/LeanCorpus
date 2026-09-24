@@ -53,6 +53,7 @@
     'postings-arena'     = 'PostingsArenaBenchmarks'
     'packed-bkd'         = 'PackedBkdBenchmarks'
     nearest              = 'SpatialNearestBenchmarks'
+    shape                = 'XY shape indexing/tessellation and all four Packed BKD relation queries'
     'docvalues-read'     = 'DocValuesReadBenchmarks'
     bkd                  = 'BKDTreeBenchmarks'
     'fst-lookup'         = 'FstLookupBenchmarks'

@@ -6,7 +6,9 @@ using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer.Postings;
+using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Geo;
+using Rowles.LeanCorpus.Search.Spatial.Internal;
 using Rowles.LeanCorpus.Search.XY;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
@@ -48,6 +50,7 @@ internal sealed class DocumentsWriterPerThread
     internal Dictionary<string, Dictionary<int, List<byte[]>>> BinaryDocValues = new(StringComparer.Ordinal);
     internal Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> Vectors = new(StringComparer.Ordinal);
     internal Dictionary<string, PackedBkdFieldBuffer> PackedBkdFields = new(StringComparer.Ordinal);
+    internal Dictionary<string, SpatialFieldKind> SpatialFieldKinds = new(StringComparer.Ordinal);
     internal HashSet<string> FieldNames = new(StringComparer.Ordinal);
     // Per-field token counts: field → docId → count
     internal Dictionary<string, int[]> DocTokenCounts = new(StringComparer.Ordinal);
@@ -128,6 +131,7 @@ internal sealed class DocumentsWriterPerThread
         BinaryDocValues = new(StringComparer.Ordinal);
         Vectors = new(StringComparer.Ordinal);
         PackedBkdFields = new(StringComparer.Ordinal);
+        SpatialFieldKinds = new(StringComparer.Ordinal);
         FieldNames = new(StringComparer.Ordinal);
         DocTokenCounts = new(StringComparer.Ordinal);
         FieldBoosts = new(StringComparer.Ordinal);
@@ -166,6 +170,78 @@ internal sealed class DocumentsWriterPerThread
             Interlocked.Add(ref _packedBkdAllocatedBytes, after - before);
     }
 
+    internal void RegisterSpatialField(string fieldName, SpatialFieldKind kind)
+    {
+        if (SpatialFieldKinds.TryGetValue(fieldName, out SpatialFieldKind existing))
+        {
+            if (existing != kind)
+                throw new InvalidOperationException($"Spatial field '{fieldName}' was registered as both '{existing}' and '{kind}'.");
+            return;
+        }
+
+        SpatialFieldKinds.Add(fieldName, kind);
+        _estimatedRamBytes += checked((fieldName.Length * 2L) + 48);
+    }
+
+    private static uint NextShapeValueOrdinal(ref Dictionary<string, uint>? ordinals, string fieldName)
+    {
+        ordinals ??= new Dictionary<string, uint>(StringComparer.Ordinal);
+        if (!ordinals.TryGetValue(fieldName, out uint next))
+        {
+            ordinals.Add(fieldName, 1);
+            return 0;
+        }
+
+        if (next > ShapePrimitiveCodec.MaximumValueOrdinal)
+            throw new ArgumentOutOfRangeException(nameof(fieldName), "A document contains more shape values than the 26-bit ordinal can represent.");
+        ordinals[fieldName] = next + 1;
+        return next;
+    }
+
+    private void IndexPreparedShape(
+        string fieldName,
+        SpatialFieldKind fieldKind,
+        IReadOnlyList<ShapePrimitive> primitives,
+        int docId,
+        Span<byte> packedValue)
+    {
+        long temporaryBytes = checked((long)primitives.Count * 96);
+        _estimatedRamBytes += temporaryBytes;
+        try
+        {
+            PackedBkdConfig config = PackedBkdConfig.Shape7D4Indexed(_config.BKDMaxLeafSize);
+            foreach (ShapePrimitive primitive in primitives)
+            {
+                switch (primitive.Kind)
+                {
+                    case ShapePrimitiveKind.Point:
+                        ShapePrimitiveCodec.EncodePoint(packedValue, fieldKind, primitive.A, primitive.ValueOrdinal);
+                        break;
+                    case ShapePrimitiveKind.Line:
+                        ShapePrimitiveCodec.EncodeLine(packedValue, fieldKind, primitive.A, primitive.B, primitive.ValueOrdinal);
+                        break;
+                    case ShapePrimitiveKind.Triangle:
+                        ShapePrimitiveCodec.EncodeTriangle(
+                            packedValue,
+                            fieldKind,
+                            primitive.A, primitive.EdgeAB,
+                            primitive.B, primitive.EdgeBC,
+                            primitive.C, primitive.EdgeCA,
+                            primitive.ValueOrdinal);
+                        break;
+                    default:
+                        throw new InvalidDataException($"Unsupported shape primitive kind '{primitive.Kind}'.");
+                }
+
+                AddPackedBkdValue(fieldName, config, packedValue, docId);
+            }
+        }
+        finally
+        {
+            _estimatedRamBytes -= temporaryBytes;
+        }
+    }
+
     private void DisposePackedBkdFields()
     {
         foreach (var buffer in PackedBkdFields.Values)
@@ -181,26 +257,115 @@ internal sealed class DocumentsWriterPerThread
     public void AddDocument(LeanDocument doc)
     {
         ValidateDocument(doc);
-        AddPrevalidatedDocument(doc);
+        AddPrevalidatedDocument(doc, PrepareSpatialShapes(doc));
     }
 
     /// <summary>Checks document-local admission constraints without changing buffer state.</summary>
     internal void ValidateDocument(LeanDocument doc)
-        => ValidateTokenBudget(doc);
+    {
+        ValidateTokenBudget(doc);
+        ValidateSpatialFieldKinds(doc);
+    }
+
+    private void ValidateSpatialFieldKinds(LeanDocument doc)
+    {
+        for (int i = 0; i < doc.Fields.Count; i++)
+        {
+            if (!TryGetSpatialKind(doc.Fields[i], out SpatialFieldKind kind))
+                continue;
+
+            string fieldName = doc.Fields[i].Name;
+            if (SpatialFieldKinds.TryGetValue(fieldName, out SpatialFieldKind registered) && registered != kind)
+                throw new InvalidOperationException($"Spatial field '{fieldName}' was registered as both '{registered}' and '{kind}'.");
+
+            for (int j = 0; j < i; j++)
+            {
+                if (doc.Fields[j].Name == fieldName
+                    && TryGetSpatialKind(doc.Fields[j], out SpatialFieldKind earlierKind)
+                    && earlierKind != kind)
+                    throw new InvalidOperationException($"Spatial field '{fieldName}' was registered as both '{earlierKind}' and '{kind}'.");
+            }
+        }
+    }
+
+    private static bool TryGetSpatialKind(IField field, out SpatialFieldKind kind)
+    {
+        switch (field)
+        {
+            case GeoPointField:
+                kind = SpatialFieldKind.GeoPoint;
+                return true;
+            case XYPointField:
+                kind = SpatialFieldKind.XYPoint;
+                return true;
+            case LatLonShapeField:
+                kind = SpatialFieldKind.GeoShape;
+                return true;
+            case XYShapeField:
+                kind = SpatialFieldKind.XYShape;
+                return true;
+            default:
+                kind = default;
+                return false;
+        }
+    }
 
     /// <summary>Adds a document after the writer and DWPT admission checks have completed.</summary>
     internal void AddPrevalidatedDocument(LeanDocument doc)
-        => AddDocumentCore(doc);
+        => AddPrevalidatedDocument(doc, PrepareSpatialShapes(doc));
 
-    private void AddDocumentCore(LeanDocument doc)
+    internal void AddPrevalidatedDocument(
+        LeanDocument doc,
+        IReadOnlyDictionary<int, List<ShapePrimitive>>? preparedSpatialShapes)
+        => AddDocumentCore(doc, preparedSpatialShapes);
+
+    /// <summary>Prepares every shape value before document buffers are mutated.</summary>
+    internal Dictionary<int, List<ShapePrimitive>>? PrepareSpatialShapes(LeanDocument doc)
+    {
+        Dictionary<int, List<ShapePrimitive>>? prepared = null;
+        Dictionary<string, uint>? ordinals = null;
+        for (int fieldIndex = 0; fieldIndex < doc.Fields.Count; fieldIndex++)
+        {
+            switch (doc.Fields[fieldIndex])
+            {
+                case LatLonShapeField geoShape:
+                {
+                    uint ordinal = NextShapeValueOrdinal(ref ordinals, geoShape.Name);
+                    (prepared ??= [])[fieldIndex] = ShapeTessellator.PrepareGeo(geoShape.Geometry, ordinal);
+                    break;
+                }
+                case XYShapeField xyShape:
+                {
+                    uint ordinal = NextShapeValueOrdinal(ref ordinals, xyShape.Name);
+                    (prepared ??= [])[fieldIndex] = ShapeTessellator.PrepareXY(xyShape.Geometry, ordinal);
+                    break;
+                }
+            }
+        }
+        return prepared;
+    }
+
+    internal Dictionary<int, List<ShapePrimitive>>?[] PrepareSpatialShapes(IReadOnlyList<LeanDocument> documents)
+    {
+        var prepared = new Dictionary<int, List<ShapePrimitive>>?[documents.Count];
+        for (int i = 0; i < documents.Count; i++)
+            prepared[i] = PrepareSpatialShapes(documents[i]);
+        return prepared;
+    }
+
+    private void AddDocumentCore(
+        LeanDocument doc,
+        IReadOnlyDictionary<int, List<ShapePrimitive>>? preparedSpatialShapes)
     {
         int localDocId = DocCount;
         Span<byte> packedGeoPoint = stackalloc byte[2 * PackedBkdConfig.FixedBytesPerDimension];
         Span<byte> geoPointDocValue = stackalloc byte[GeoPointDocValues.ValueLength];
+        Span<byte> packedShapeValue = stackalloc byte[ShapePrimitiveCodec.PackedValueLength];
         StoredDocStarts.Add(StoredFieldIds.Count);
 
-        foreach (var field in doc.Fields)
+        for (int fieldIndex = 0; fieldIndex < doc.Fields.Count; fieldIndex++)
         {
+            IField field = doc.Fields[fieldIndex];
             switch (field)
             {
                 case TextField tf:
@@ -263,6 +428,7 @@ internal sealed class DocumentsWriterPerThread
                     IndexVectorField(vf.Name, vf.Value, localDocId);
                     break;
                 case GeoPointField gf:
+                    RegisterSpatialField(gf.Name, SpatialFieldKind.GeoPoint);
                     TrackFieldBoost(gf.Name, localDocId, gf.Boost);
                     GeoEncodingUtils.WriteLonSortable(gf.Longitude, packedGeoPoint);
                     GeoEncodingUtils.WriteLatSortable(gf.Latitude, packedGeoPoint[PackedBkdConfig.FixedBytesPerDimension..]);
@@ -285,6 +451,7 @@ internal sealed class DocumentsWriterPerThread
                     }
                     break;
                 case XYPointField xy:
+                    RegisterSpatialField(xy.Name, SpatialFieldKind.XYPoint);
                     TrackFieldBoost(xy.Name, localDocId, xy.Boost);
                     XYEncodingUtils.Encode(xy.X, packedGeoPoint);
                     XYEncodingUtils.Encode(xy.Y, packedGeoPoint[PackedBkdConfig.FixedBytesPerDimension..]);
@@ -295,6 +462,22 @@ internal sealed class DocumentsWriterPerThread
                         localDocId);
                     AddBinaryDocValue(xy.Name, localDocId, packedGeoPoint);
                     break;
+                case LatLonShapeField geoShape:
+                {
+                    List<ShapePrimitive> prepared = GetPreparedSpatialShape(preparedSpatialShapes, fieldIndex);
+                    RegisterSpatialField(geoShape.Name, SpatialFieldKind.GeoShape);
+                    TrackFieldBoost(geoShape.Name, localDocId, geoShape.Boost);
+                    IndexPreparedShape(geoShape.Name, SpatialFieldKind.GeoShape, prepared, localDocId, packedShapeValue);
+                    break;
+                }
+                case XYShapeField xyShape:
+                {
+                    List<ShapePrimitive> prepared = GetPreparedSpatialShape(preparedSpatialShapes, fieldIndex);
+                    RegisterSpatialField(xyShape.Name, SpatialFieldKind.XYShape);
+                    TrackFieldBoost(xyShape.Name, localDocId, xyShape.Boost);
+                    IndexPreparedShape(xyShape.Name, SpatialFieldKind.XYShape, prepared, localDocId, packedShapeValue);
+                    break;
+                }
             }
         }
 
@@ -305,28 +488,54 @@ internal sealed class DocumentsWriterPerThread
     public void AddDocumentBlock(IReadOnlyList<LeanDocument> block)
     {
         ValidateDocumentBlock(block);
-        AddPrevalidatedDocumentBlock(block);
+        AddPrevalidatedDocumentBlock(block, PrepareSpatialShapes(block));
     }
 
     /// <summary>Checks every document in a block without changing buffer state.</summary>
     internal void ValidateDocumentBlock(IReadOnlyList<LeanDocument> block)
     {
+        var spatialKinds = new Dictionary<string, SpatialFieldKind>(SpatialFieldKinds, StringComparer.Ordinal);
         for (int i = 0; i < block.Count; i++)
-            ValidateDocument(block[i]);
+        {
+            LeanDocument document = block[i];
+            ValidateTokenBudget(document);
+            foreach (IField field in document.Fields)
+            {
+                if (!TryGetSpatialKind(field, out SpatialFieldKind kind))
+                    continue;
+                if (spatialKinds.TryGetValue(field.Name, out SpatialFieldKind existing) && existing != kind)
+                    throw new InvalidOperationException($"Spatial field '{field.Name}' was registered as both '{existing}' and '{kind}'.");
+                spatialKinds[field.Name] = kind;
+            }
+        }
     }
 
     /// <summary>Adds a block after the writer and DWPT admission checks have completed.</summary>
     internal void AddPrevalidatedDocumentBlock(IReadOnlyList<LeanDocument> block)
+        => AddPrevalidatedDocumentBlock(block, PrepareSpatialShapes(block));
+
+    internal void AddPrevalidatedDocumentBlock(
+        IReadOnlyList<LeanDocument> block,
+        IReadOnlyList<Dictionary<int, List<ShapePrimitive>>?> preparedSpatialShapes)
     {
         for (int i = 0; i < block.Count; i++)
         {
-            AddDocumentCore(block[i]);
+            AddDocumentCore(block[i], preparedSpatialShapes[i]);
             if (i == block.Count - 1)
             {
                 ParentDocIds ??= [];
                 ParentDocIds.Add(DocCount - 1);
             }
         }
+    }
+
+    private static List<ShapePrimitive> GetPreparedSpatialShape(
+        IReadOnlyDictionary<int, List<ShapePrimitive>>? preparedSpatialShapes,
+        int fieldIndex)
+    {
+        if (preparedSpatialShapes is not null && preparedSpatialShapes.TryGetValue(fieldIndex, out List<ShapePrimitive>? prepared))
+            return prepared;
+        throw new InvalidDataException("A shape field reached DWPT mutation without a prepared primitive list.");
     }
 
     internal void ValidateTokenBudget(LeanDocument doc)

@@ -1,5 +1,7 @@
 using System.Buffers;
 using System.Runtime.CompilerServices;
+using Rowles.LeanCorpus.Search.Spatial;
+using Rowles.LeanCorpus.Search.Spatial.Internal;
 namespace Rowles.LeanCorpus.Search.Searcher;
 
 /// <summary>
@@ -236,6 +238,12 @@ public sealed partial class IndexSearcher
                 break;
             case XYDistanceQuery xydq:
                 ExecuteXYDistanceQuery(xydq, reader, ref collector);
+                break;
+            case GeoShapeQuery geoShapeQuery:
+                ExecuteGeoShapeQuery(geoShapeQuery, reader, ref collector);
+                break;
+            case XYShapeQuery xyShapeQuery:
+                ExecuteXYShapeQuery(xyShapeQuery, reader, ref collector);
                 break;
         }
     }
@@ -928,6 +936,26 @@ public sealed partial class IndexSearcher
                     }
                     break;
                 }
+            case GeoShapeQuery geoShapeQuery:
+                AddShapeSubQueryResults(
+                    results,
+                    reader,
+                    geoShapeQuery.Field,
+                    SpatialFieldKind.GeoShape,
+                    geoShapeQuery.Relation,
+                    PreparedShapeQuery.Prepare(geoShapeQuery),
+                    geoShapeQuery.Boost);
+                break;
+            case XYShapeQuery xyShapeQuery:
+                AddShapeSubQueryResults(
+                    results,
+                    reader,
+                    xyShapeQuery.Field,
+                    SpatialFieldKind.XYShape,
+                    xyShapeQuery.Relation,
+                    PreparedShapeQuery.Prepare(xyShapeQuery),
+                    xyShapeQuery.Boost);
+                break;
             case BooleanQuery bq:
                 {
                     // Nested boolean: use a sub-collector and extract results

@@ -12,6 +12,7 @@ namespace Rowles.LeanCorpus.Serialization;
 [JsonSerializable(typeof(CommitData))]
 [JsonSerializable(typeof(SegmentInfo))]
 [JsonSerializable(typeof(VectorFieldInfo))]
+[JsonSerializable(typeof(SpatialFieldInfo))]
 [JsonSerializable(typeof(VectorQuantisation))]
 [JsonSerializable(typeof(IndexStatsDto))]
 [JsonSerializable(typeof(SegmentStatsDto))]

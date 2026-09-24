@@ -108,6 +108,11 @@ Packed BKD build and traversal activities reuse the existing LeanCorpus activity
 source. They record useful build, spill, output, pruning and decode counters only
 when an observer is active.
 
+Shape indexing uses the existing 7D/4-indexed Packed BKD configuration without
+changing `.pbkd` v1. The exact 28-byte point/line/triangle encoding,
+reconstruction codes, source-edge bits, value ordinal and Geo/XY document
+relation contract are frozen by ADR034 and golden-byte tests.
+
 ## Rationale
 
 Separate Geo and XY types keep coordinate semantics explicit and avoid a generic
@@ -135,6 +140,8 @@ than point count.
 - Public geometry marker interfaces are closed in supported behaviour for 3.2
   and do not register custom geometries for indexing.
 - `.bkd` and `.bkdl` constants, bytes and migration behaviour do not change.
+- Shape primitive bytes are additive values in Packed BKD v1; ADR034 is their
+  stable encoding and relation-semantics contract.
 - Flush and merge may carry packed field buffers through the existing detached
   snapshot boundary; failed work must dispose pooled state and remove spill
   artefacts.

@@ -49,6 +49,18 @@ public sealed class SegmentInfo
     /// <summary>Per-field vector metadata for vectors stored in this segment.</summary>
     public List<VectorFieldInfo> VectorFields { get; init; } = [];
 
+    /// <summary>Per-field coordinate and encoding metadata for spatial values.</summary>
+    public List<SpatialFieldInfo> SpatialFields
+    {
+        get => _spatialFields ??= [];
+        init
+        {
+            _spatialFields = value;
+        }
+    }
+
+    private List<SpatialFieldInfo>? _spatialFields = [];
+
     /// <summary>
     /// The commit generation at which the current live-document file was written.
     /// When set, the file is named <c>{SegmentId}_gen_{DelGeneration}.del</c>.
@@ -108,5 +120,15 @@ public sealed class SegmentInfo
             throw new InvalidDataException($"Segment '{SegmentId}' has null codec byte metadata.");
         foreach (var vf in VectorFields)
             vf.Validate();
+
+        var spatialFieldNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var spatialField in SpatialFields)
+        {
+            if (spatialField is null)
+                throw new InvalidDataException($"Segment '{SegmentId}' contains null spatial field metadata.");
+            spatialField.Validate();
+            if (!spatialFieldNames.Add(spatialField.FieldName))
+                throw new InvalidDataException($"Segment '{SegmentId}' contains duplicate spatial metadata for field '{spatialField.FieldName}'.");
+        }
     }
 }

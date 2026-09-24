@@ -62,6 +62,10 @@ internal static class SegmentFlusher
             LiveDocCount = docCount,
             CommitGeneration = commitGeneration,
             FieldNames = fieldNames,
+            SpatialFields = source.SpatialFieldKinds
+                .OrderBy(static pair => pair.Key, StringComparer.Ordinal)
+                .Select(static pair => new SpatialFieldInfo { FieldName = pair.Key, Kind = pair.Value })
+                .ToList(),
             IndexSortFields = config.IndexSort?.SerialisedFields,
             MinSequenceNumber = config.TrackSequenceNumbers ? flushSeqNoStart : null,
             MaxSequenceNumber = config.TrackSequenceNumbers ? nextSequenceNumber - 1 : null

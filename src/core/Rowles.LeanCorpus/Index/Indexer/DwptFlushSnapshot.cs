@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Codecs.StoredFields;
+using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Index.Indexer.Postings;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
@@ -23,6 +24,7 @@ internal sealed class DwptFlushSnapshot : IDisposable
     internal required Dictionary<string, Dictionary<int, long>> Int64Index { get; init; }
     internal required Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> Vectors { get; init; }
     internal required Dictionary<string, PackedBkdFieldBuffer> PackedBkdFields { get; init; }
+    internal required Dictionary<string, SpatialFieldKind> SpatialFieldKinds { get; init; }
     internal required Dictionary<string, List<double>> NumericDocValues { get; init; }
     internal required Dictionary<string, List<long>> Int64DocValues { get; init; }
     internal required Dictionary<string, List<string?>> SortedDocValues { get; init; }
@@ -60,6 +62,7 @@ internal sealed class DwptFlushSnapshot : IDisposable
             Int64Index = dwpt.Int64Index,
             Vectors = dwpt.Vectors,
             PackedBkdFields = dwpt.PackedBkdFields,
+            SpatialFieldKinds = dwpt.SpatialFieldKinds,
             NumericDocValues = dwpt.NumericDocValues,
             Int64DocValues = dwpt.Int64DocValues,
             SortedDocValues = dwpt.SortedDocValues,

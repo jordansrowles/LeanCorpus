@@ -6,6 +6,8 @@ using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Ranking;
 using Rowles.LeanCorpus.Search.Scoring;
 using Rowles.LeanCorpus.Search.Searcher;
+using Rowles.LeanCorpus.Search.Spatial;
+using Rowles.LeanCorpus.Search.XY;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
@@ -68,6 +70,47 @@ public sealed class StableSearchSessionTests : IDisposable
         AssertFailure(SearchSessionFailureReason.IncompatibleCursor, () => first.Search(new TermQuery("body", "common"), 2, page.NextCursor, [SortField.DocId], "profile-a"));
         AssertFailure(SearchSessionFailureReason.IncompatibleCursor, () => first.Search(new TermQuery("body", "common"), 2, page.NextCursor, [SortField.Score], "profile-b"));
         AssertFailure(SearchSessionFailureReason.IncompatibleCursor, () => second.Search(new TermQuery("body", "common"), 2, page.NextCursor, [SortField.Score], "profile-a"));
+    }
+
+    [Fact]
+    public void ShapeQueryCursorIdentityIncludesGeometryAndRelation()
+    {
+        using (var directory = new MMapDirectory(_path))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig()))
+        {
+            foreach (XYRectangle rectangle in new[]
+                     {
+                         new XYRectangle(-1, -1, 1, 1),
+                         new XYRectangle(-2, -2, 2, 2),
+                     })
+            {
+                var document = new LeanDocument();
+                document.Add(new XYShapeField("session-area", rectangle));
+                writer.AddDocument(document);
+            }
+            writer.Commit();
+        }
+
+        using var directoryForSearch = new MMapDirectory(_path);
+        using var searchers = new SearcherManager(directoryForSearch);
+        using var sessions = new SearchSessionManager(searchers);
+        using var session = sessions.OpenSession();
+        var query = new XYShapeQuery("session-area", SpatialRelation.Intersects, new XYPoint(0, 0));
+        var page = session.Search(query, 1);
+        Assert.NotNull(page.NextCursor);
+
+        AssertFailure(
+            SearchSessionFailureReason.IncompatibleCursor,
+            () => session.Search(
+                new XYShapeQuery("session-area", SpatialRelation.Intersects, new XYPoint(0.25f, 0)),
+                1,
+                page.NextCursor));
+        AssertFailure(
+            SearchSessionFailureReason.IncompatibleCursor,
+            () => session.Search(
+                new XYShapeQuery("session-area", SpatialRelation.Contains, new XYPoint(0, 0)),
+                1,
+                page.NextCursor));
     }
 
     [Fact]

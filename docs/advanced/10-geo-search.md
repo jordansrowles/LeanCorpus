@@ -132,14 +132,60 @@ after coordinate quantisation, invalid topology is rejected, and geographic
 rings crossing the International Date Line receive deterministic seam points.
 Geo and XY point fields, bounding queries, distance queries and distance sorts
 are public APIs. Other geometry values are available for validated application
-data, but arbitrary line and polygon indexing and shape relations are not
-implemented here.
+data, and Geo and XY shape fields support indexing and document-level relations.
+
+## Index shapes and query relations
+
+`LatLonShapeField` and `XYShapeField` index built-in points, rectangles, line
+strings, polygons and geometry collections. Polygon holes are supported. A
+geometry collection stored in one field is one logical value. Shape fields are
+indexed in Packed BKD, are not stored, and do not write DocValues in 3.2.
+Circles cannot be indexed.
+
+```csharp
+var document = new LeanDocument();
+document.Add(new StringField("id", "park-17"));
+document.Add(new LatLonShapeField("boundary", new GeoPolygon(
+    [new GeoPoint(51.50, -0.14), new GeoPoint(51.51, -0.14),
+     new GeoPoint(51.51, -0.12), new GeoPoint(51.50, -0.12)])));
+document.Add(new XYShapeField("service-area", new XYRectangle(0, 0, 100, 75)));
+writer.AddDocument(document);
+
+var nearby = searcher.Search(
+    new GeoShapeQuery("boundary", SpatialRelation.Intersects, new GeoCircle(51.505, -0.13, 500)),
+    topN: 20);
+var covered = searcher.Search(
+    new XYShapeQuery("service-area", SpatialRelation.Contains, new XYPoint(50, 20)),
+    topN: 20);
+```
+
+`SpatialRelation` has four document-level meanings:
+
+| Relation | Match rule |
+|---|---|
+| `Intersects` | At least one indexed field value intersects the query. |
+| `Within` | Every indexed field value is within the query. |
+| `Contains` | One complete indexed field value contains the whole query. Separate field instances are not combined. |
+| `Disjoint` | Every indexed field value is disjoint from the query. |
+
+Edges and vertices count as touching. A document without the queried field
+matches none of the relations, including `Disjoint`. A query geometry
+collection is treated as one union. When a single indexed collection value has
+several components, that value may collectively contain a query. Geo circles
+remain analytic query shapes using the existing Haversine Earth radius;
+crossing rectangles, lines and polygons handle the International Date Line.
+Query circles may cross the Date Line and include polar locations.
+
+Shape field names have a persisted Geo/XY and point/shape kind. Reusing one
+field name with a conflicting spatial kind is rejected, including across
+segments during merge.
 
 ## What is not supported
 
-- Polygon, line string, or shape queries (no WKT parsing)
+- WKT parsing
 - Recursive prefix tree or Spatial4n strategies
-- Cartesian (XY) shapes
+- Shape DocValues and shape distance sorting
+- Custom geometry implementations
 
 If you need full spatial support, consider pre-filtering with bounding box or distance queries and post-processing with a spatial library.
 

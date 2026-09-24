@@ -7,6 +7,7 @@ using Rowles.LeanCorpus.Search.Geo;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Scoring;
 using Rowles.LeanCorpus.Search.Searcher;
+using Rowles.LeanCorpus.Search.Spatial;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Search.XY;
 using Xunit;
@@ -82,6 +83,70 @@ public sealed class PackedBkdSmokeTests
         {
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GeoAndXYShapeIndexingAndRelationsRunUnderNativeAot()
+    {
+        string directoryPath = Path.Combine(Path.GetTempPath(), $"lc-aot-shapes-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directoryPath);
+        try
+        {
+            var xyCollection = new XYGeometryCollection(
+            [
+                new XYRectangle(0, 0, 4, 4),
+                new XYRectangle(6, 0, 10, 4),
+            ]);
+            var geoPolygon = new GeoPolygon(
+            [
+                new GeoPoint(-10, 170), new GeoPoint(-10, -170),
+                new GeoPoint(10, -170), new GeoPoint(10, 170),
+            ],
+            [[
+                new GeoPoint(-2, 175), new GeoPoint(-2, -175),
+                new GeoPoint(2, -175), new GeoPoint(2, 175),
+            ]]);
+
+            using (var directory = new MMapDirectory(directoryPath))
+            using (var writer = new IndexWriter(directory, new IndexWriterConfig
+            {
+                BKDMaxLeafSize = 2,
+                UseCompoundFile = true,
+            }))
+            {
+                var document = new LeanDocument();
+                document.Add(new StringField("id", "shape"));
+                document.Add(new LatLonShapeField("geo", geoPolygon));
+                document.Add(new XYShapeField("xy", xyCollection));
+                writer.AddDocument(document);
+                writer.Commit();
+            }
+
+            using var searchDirectory = new MMapDirectory(directoryPath);
+            using var searcher = new IndexSearcher(searchDirectory, new IndexSearcherConfig { ParallelSearch = false });
+            CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+            TopDocs geoPoint = searcher.Search(
+                new GeoShapeQuery("geo", SpatialRelation.Intersects, new GeoPoint(5, -180)),
+                10,
+                cancellationToken);
+            TopDocs geoCircle = searcher.Search(
+                new GeoShapeQuery("geo", SpatialRelation.Intersects, new GeoCircle(5, 179.5, 100_000)),
+                10,
+                cancellationToken);
+            TopDocs xyCollectionContains = searcher.Search(
+                new XYShapeQuery("xy", SpatialRelation.Contains, xyCollection),
+                10,
+                cancellationToken);
+
+            Assert.Equal(1, geoPoint.TotalHits);
+            Assert.Equal(1, geoCircle.TotalHits);
+            Assert.Equal(1, xyCollectionContains.TotalHits);
+        }
+        finally
+        {
+            if (Directory.Exists(directoryPath))
+                Directory.Delete(directoryPath, recursive: true);
         }
     }
 
