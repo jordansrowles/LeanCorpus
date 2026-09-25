@@ -29,6 +29,7 @@ public class DocValuesReadBenchmarks
     private string _indexPath = string.Empty;
     private MMapDirectory? _directory;
     private SegmentReader? _reader;
+    private int[] _accessOrder = [];
 
     [GlobalSetup]
     public void Setup()
@@ -56,6 +57,10 @@ public class DocValuesReadBenchmarks
 
         var segments = writer.GetNrtSegments();
         _reader = new SegmentReader(_directory, segments[0]);
+        var accessRandom = BenchmarkDeterministicRandom.Create("benchmark/docvalues/access-order");
+        _accessOrder = new int[DocumentCount];
+        for (int i = 0; i < _accessOrder.Length; i++)
+            _accessOrder[i] = accessRandom.NextInt32(DocumentCount);
     }
 
     [GlobalCleanup]
@@ -83,11 +88,10 @@ public class DocValuesReadBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_NumericDvRandom()
     {
-        var rnd = new Random(7);
         int count = 0;
         for (int i = 0; i < DocumentCount; i++)
         {
-            int docId = rnd.Next(DocumentCount);
+            int docId = _accessOrder[i];
             if (_reader!.TryGetNumericValue("price", docId, out _))
                 count++;
         }

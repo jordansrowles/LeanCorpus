@@ -116,6 +116,7 @@ function Prepare-TestTargets {
                 try {
                     Invoke-DotNet @('build', $projectPath, '--configuration', $target.Configuration,
                         '--framework', $target.Framework, '--no-restore', '--nologo',
+                        '--disable-build-servers', '-m:1',
                         '-p:UseSharedCompilation=false') | Out-Host
                 } finally {
                     $operationStopwatch.Stop()

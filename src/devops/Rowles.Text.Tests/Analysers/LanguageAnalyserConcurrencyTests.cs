@@ -12,10 +12,10 @@ namespace Rowles.Text.Tests;
 public sealed class LanguageAnalyserConcurrencyTests
 {
     /// <summary>
-    /// Verifies the Analyse: Concurrent Calls Match Single Threaded Baseline scenario.
+    /// Verifies concurrent thread-local analysers match the single-threaded baseline.
     /// </summary>
-    [Fact(DisplayName = "Analyse: Concurrent Calls Match Single Threaded Baseline")]
-    public void Analyse_ConcurrentCalls_MatchSingleThreadedBaseline()
+    [Fact(DisplayName = "Analyse: Concurrent Thread-Local Instances Match Single-Threaded Baseline")]
+    public void Analyse_ConcurrentThreadLocalInstances_MatchSingleThreadedBaseline()
     {
         var analyser = AnalyserFactory.Create("en");
 
@@ -40,13 +40,20 @@ public sealed class LanguageAnalyserConcurrencyTests
             .ToArray();
 
         const int iterations = 200;
-        Parallel.For(0, iterations * inputs.Length, i =>
-        {
-            var idx = i % inputs.Length;
-            var matSink = new MaterialisingTokenSink();
-            analyser.Analyse(inputs[idx], matSink);
-            var actual = matSink.Tokens.Select(t => t.Text).ToArray();
-            Assert.Equal(baseline[idx], actual);
-        });
+        var threadLocalFactory = Assert.IsAssignableFrom<IThreadLocalAnalyser>(analyser);
+        Parallel.For(
+            0,
+            iterations * inputs.Length,
+            threadLocalFactory.CreateThreadLocalAnalyser,
+            (i, _, workerAnalyser) =>
+            {
+                var idx = i % inputs.Length;
+                var matSink = new MaterialisingTokenSink();
+                workerAnalyser.Analyse(inputs[idx], matSink);
+                var actual = matSink.Tokens.Select(t => t.Text).ToArray();
+                Assert.Equal(baseline[idx], actual);
+                return workerAnalyser;
+            },
+            _ => { });
     }
 }

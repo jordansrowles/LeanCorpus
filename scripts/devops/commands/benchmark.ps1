@@ -100,7 +100,8 @@ function Invoke-DevOpsBenchmark {
     elseif ($stratDocCount -gt 0) { $effectiveDocCount = $stratDocCount }
 
     if ($prepareData) {
-        Prepare-BenchmarkData -RepoRoot $repoRoot -ScriptsPath $scriptsPath -BookCount $bookCount
+        Prepare-BenchmarkData -RepoRoot $repoRoot -ScriptsPath $scriptsPath -BookCount $bookCount `
+            -Suite $suite -PassThrough $passThrough
     }
 
     if ($effectiveDocCount -gt 0) {

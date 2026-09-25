@@ -419,7 +419,12 @@ internal static class BenchmarkProvenanceBuilder
             Environment.GetEnvironmentVariable("BENCH_SOURCE_COMMIT"),
             gitCommitHash);
 
-        var corpus = BenchmarkCorpusReportBuilder.Build(effectiveDocCount);
+        var hasSearchDataset = effectiveDocCount is > 0 && datasets.Any(dataset =>
+            string.Equals(dataset.Identity.ProfileId, "leancorpus-search", StringComparison.Ordinal) &&
+            dataset.Identity.RecordCount == effectiveDocCount.Value);
+        var corpus = hasSearchDataset
+            ? BenchmarkCorpusReportBuilder.Build(effectiveDocCount)
+            : null;
         return new BenchmarkProvenanceReport
         {
             SourceCommit = sourceCommit,

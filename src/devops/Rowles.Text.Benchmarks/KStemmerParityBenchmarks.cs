@@ -17,7 +17,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [RPlotExporter]
 public class KStemmerParityBenchmarks
 {
-    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
+    public static IEnumerable<int> DocCounts => TextBenchmarkData.GetDocCounts(TextBenchmarkData.DefaultDocCount);
 
     [ParamsSource(nameof(DocCounts))]
     public int DocumentCount { get; set; }
@@ -28,7 +28,7 @@ public class KStemmerParityBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        _documents = BenchmarkData.BuildDocuments(DocumentCount);
+        _documents = TextBenchmarkData.BuildDocuments(DocumentCount);
 
         var lexiconPath = FindKStemLexiconPath();
         var lexicon = KStemLexicon.FromFile(lexiconPath);

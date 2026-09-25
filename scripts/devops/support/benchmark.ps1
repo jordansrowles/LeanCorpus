@@ -15,13 +15,20 @@ function Prepare-BenchmarkData {
     param(
         [string]$RepoRoot,
         [string]$ScriptsPath,
-        [int]$BookCount
+        [int]$BookCount,
+        [string]$Suite,
+        [string[]]$PassThrough
     )
+
+    $needsGutenberg = $Suite -in @('gutenberg-index', 'gutenberg-search') -or
+        ($Suite -eq 'text' -and ($PassThrough -match 'GutenbergAnalysisBenchmarks').Count -gt 0)
+    if (-not $needsGutenberg) {
+        Write-Info "No external data preparation is required for suite '$Suite'."
+        return
+    }
 
     $dataDir = Get-BenchmarkDataRoot -RepoRoot $RepoRoot
     $gutenbergDir = Join-Path $dataDir 'gutenberg-ebooks'
-    $newsDir = Join-Path $dataDir '20newsgroups'
-    $reutersDir = Join-Path $dataDir 'reuters21578'
 
     $gutenbergCount = if (Test-Path $gutenbergDir) {
         (Get-ChildItem $gutenbergDir -Filter '*.txt' -ErrorAction SilentlyContinue).Count
@@ -32,20 +39,6 @@ function Prepare-BenchmarkData {
         & (Join-Path $ScriptsPath 'data/download-gutenberg.ps1') -BookCount $BookCount
     } else {
         Write-Info "Gutenberg data present ($gutenbergCount books), skipping download."
-    }
-
-    $newsCount = if (Test-Path $newsDir) {
-        (Get-ChildItem $newsDir -File -Recurse -ErrorAction SilentlyContinue).Count
-    } else { 0 }
-    $reutersCount = if (Test-Path $reutersDir) {
-        (Get-ChildItem $reutersDir -Filter '*.sgm' -File -ErrorAction SilentlyContinue).Count
-    } else { 0 }
-
-    if ($newsCount -eq 0 -or $reutersCount -eq 0) {
-        Write-Heading 'Preparing news data...'
-        & (Join-Path $ScriptsPath 'data/download-news.ps1')
-    } else {
-        Write-Info "News data present ($newsCount posts, $reutersCount Reuters files), skipping download."
     }
 
     Write-Host ''

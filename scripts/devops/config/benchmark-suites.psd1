@@ -61,6 +61,7 @@
     'windows-filesystem' = 'WindowsFileSystemBenchmarks'
     'windows-storage'    = 'WindowsStoragePathBenchmarks'
     hnsw                 = 'HnswSearchBenchmarks'
+    hybrid               = 'HybridSearchBenchmarks'
     vq                   = 'VectorQuantisationBenchmarks'
     'compound-file'      = 'CompoundFileBenchmarks'
     'tv-highlighter'     = 'TermVectorHighlighterBenchmarks'

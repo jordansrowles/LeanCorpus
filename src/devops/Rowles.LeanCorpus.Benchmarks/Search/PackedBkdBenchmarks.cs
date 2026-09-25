@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using BenchmarkDotNet.Attributes;
+using Rowles.DataForge;
 using Rowles.LeanCorpus.Codecs.PackedBkd;
 using Rowles.LeanCorpus.Search.XY;
 
@@ -46,7 +47,7 @@ public class PackedBkdBenchmarks
     {
         _packedValues = new byte[checked(PointCount * 8)];
         _documentIds = new int[PointCount];
-        var random = new Random(42);
+        var random = BenchmarkDeterministicRandom.Create($"benchmark/packed-bkd/{Distribution}");
         Span<byte> packed = stackalloc byte[8];
         for (int point = 0; point < PointCount; point++)
         {
@@ -235,16 +236,16 @@ public class PackedBkdBenchmarks
             JsonSerializer.Serialize(evidence, JsonOptions));
     }
 
-    private (float X, float Y) CreatePoint(int point, Random random)
+    private (float X, float Y) CreatePoint(int point, DataForgePrng random)
     {
         return Distribution switch
         {
             PackedBkdDistribution.Uniform => (
-                random.NextSingle() * 20_000 - 10_000,
-                random.NextSingle() * 20_000 - 10_000),
+                random.NextSingle01() * 20_000 - 10_000,
+                random.NextSingle01() * 20_000 - 10_000),
             PackedBkdDistribution.Clustered => (
-                2_000 + (float)(random.NextDouble() * 20 - 10),
-                -3_000 + (float)(random.NextDouble() * 20 - 10)),
+                2_000 + (float)(random.NextDouble01() * 20 - 10),
+                -3_000 + (float)(random.NextDouble01() * 20 - 10)),
             PackedBkdDistribution.Identical => (7, 7),
             PackedBkdDistribution.LineLike => (
                 -10_000 + point * (20_000f / Math.Max(1, PointCount - 1)),

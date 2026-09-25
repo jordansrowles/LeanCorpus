@@ -25,7 +25,9 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [InvocationCount(1)]
 public class FlushBenchmarks
 {
-    [Params(100, 1_000, 10_000)]
+    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(100, 1_000, 10_000);
+
+    [ParamsSource(nameof(DocCounts))]
     public int DocsPerFlush { get; set; }
 
     /// <summary>Physical detached-flush concurrency limits to compare.</summary>
@@ -33,12 +35,15 @@ public class FlushBenchmarks
     public int MaxConcurrentFlushes { get; set; }
 
     private string[] _documents = [];
+    private float[][] _vectors = [];
     private readonly List<string> _createdPaths = [];
 
     [GlobalSetup]
     public void Setup()
     {
         _documents = BenchmarkData.BuildDocuments(DocsPerFlush);
+        _vectors = BenchmarkVectorData.Get(DocsPerFlush, 64).Records
+            .Select(static record => record.Vector).ToArray();
     }
 
     [IterationCleanup]
@@ -136,7 +141,6 @@ public class FlushBenchmarks
                    HnswSeed = 1L,
                }))
         {
-            var rnd = new Random(7);
             var documents = new LeanDocument[_documents.Length];
             for (int i = 0; i < _documents.Length; i++)
             {
@@ -144,11 +148,8 @@ public class FlushBenchmarks
                 doc.Add(new LeanStringField("id",
                     i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
                 doc.Add(new LeanTextField("body", _documents[i]));
-                var vec = new float[64];
-                for (int d = 0; d < 64; d++)
-                    vec[d] = (float)(rnd.NextDouble() * 2 - 1);
                 doc.Add(new Rowles.LeanCorpus.Document.Fields.VectorField("emb",
-                    new ReadOnlyMemory<float>(vec)));
+                    new ReadOnlyMemory<float>(_vectors[i])));
                 documents[i] = doc;
             }
             writer.AddDocumentsConcurrent(documents);

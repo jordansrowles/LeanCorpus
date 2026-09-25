@@ -1,4 +1,5 @@
 using BenchmarkDotNet.Attributes;
+using Rowles.DataForge.Workloads.Legacy;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 
@@ -23,7 +24,7 @@ public class GutenbergAnalysisBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        _books = GutenbergDataLoader.LoadBookTexts();
+        _books = GutenbergCorpusLoader.LoadBookTexts();
         _standard = new StandardAnalyser();
         _english = new EnglishAnalyser();
         _sink = new CountingTokenSink();

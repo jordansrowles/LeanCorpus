@@ -29,11 +29,11 @@
     Skip downloading the Reuters-21578 dataset.
 
 .EXAMPLE
-    .\scripts\download-news.ps1
+    .\scripts\data\download-news.ps1
     Downloads both datasets.
 
 .EXAMPLE
-    .\scripts\download-news.ps1 -SkipReuters
+    .\scripts\data\download-news.ps1 -SkipReuters
     Downloads only the 20 Newsgroups dataset.
 #>
 param(

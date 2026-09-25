@@ -7,7 +7,9 @@ namespace Rowles.DataForge.Tool;
 
 public static class DataForgeCommandLine
 {
-    private static readonly IReadOnlyList<IDataForgeProfile> Profiles = [new LeanCorpusSearchProfile()];
+    private static readonly IReadOnlyList<IDataForgeProfile> Profiles =
+        [new LeanCorpusSearchProfile(), new LeanCorpusVectorProfile(), new LeanCorpusHybridProfile(),
+            new LeanCorpusStressProfile(), new RowlesTextMultilingualProfile(), new LeanCorpusE2eProfile()];
 
     public static int Run(string[] args, TextWriter output, TextWriter error, string repositoryRoot)
     {
@@ -71,23 +73,104 @@ public static class DataForgeCommandLine
     {
         var options = ParseFlags(
             args,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Force" },
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Profile", "Version", "Seed", "Count", "Output" });
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Force", "AllowLarge" },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { "Profile", "Version", "Seed", "Count", "Output", "Mode", "Language", "Dimension", "VectorDistribution", "ClusterCount", "QueryCount",
+                    "VeryLongShareBasisPoints", "LongShareBasisPoints", "CategoryCardinality", "RegionCardinality", "RareAnchorBasisPoints", "NarrowFilterBasisPoints" });
         var profileId = Required(options.Values, "Profile");
-        var version = ParseInt(Required(options.Values, "Version"), "Version");
-        var seed = ParseUInt64(Required(options.Values, "Seed"), "Seed");
-        var count = ParseInt(Required(options.Values, "Count"), "Count");
-        if (!string.Equals(profileId, "leancorpus-search", StringComparison.Ordinal))
-            throw new CommandLineException($"Unknown generated profile '{profileId}'.");
-
-        var profile = new LeanCorpusSearchProfile();
+        var profile = Profiles.FirstOrDefault(item => string.Equals(item.Descriptor.ProfileId, profileId, StringComparison.Ordinal))
+            ?? throw new CommandLineException($"Unknown generated profile '{profileId}'.");
+        var stress = profile is LeanCorpusStressProfile;
+        var multilingual = profile is RowlesTextMultilingualProfile;
+        var optionalDefaults = stress || multilingual || profile is LeanCorpusE2eProfile;
+        var mode = stress ? Required(options.Values, "Mode") : null;
+        var defaultCount = mode switch { "search" => 100_000, "vector" or "hybrid" => 50_000, _ => profile.Descriptor.DefaultCount };
+        var version = ParseInt(optionalDefaults ? options.Values.GetValueOrDefault("Version") ?? "1" : Required(options.Values, "Version"), "Version");
+        var seed = ParseUInt64(optionalDefaults ? options.Values.GetValueOrDefault("Seed") ?? "42" : Required(options.Values, "Seed"), "Seed");
+        var count = ParseInt(optionalDefaults ? options.Values.GetValueOrDefault("Count") ?? defaultCount.ToString(CultureInfo.InvariantCulture)
+            : Required(options.Values, "Count"), "Count");
         if (version != profile.Descriptor.ProfileVersion)
             throw new CommandLineException($"Profile '{profileId}' supports version {profile.Descriptor.ProfileVersion}, not {version}.");
-        var generationOptions = new DataForgeGenerationOptions(seed, count);
+        var parameters = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (mode is not null)
+            parameters.Add("mode", mode);
+        if (multilingual)
+            parameters.Add("language", Required(options.Values, "Language"));
+        foreach (var (flag, parameter) in new[]
+                 {
+                     ("Dimension", "dimension"),
+                     ("VectorDistribution", "vectorDistribution"),
+                     ("ClusterCount", "clusterCount"),
+                     ("QueryCount", "queryCount"),
+                     ("VeryLongShareBasisPoints", "veryLongShareBasisPoints"),
+                     ("LongShareBasisPoints", "longShareBasisPoints"),
+                     ("CategoryCardinality", "categoryCardinality"),
+                     ("RegionCardinality", "regionCardinality"),
+                     ("RareAnchorBasisPoints", "rareAnchorBasisPoints"),
+                     ("NarrowFilterBasisPoints", "narrowFilterBasisPoints")
+                 })
+        {
+            if (options.Values.TryGetValue(flag, out var value))
+                parameters.Add(parameter, value);
+        }
+        if (options.Flags.Contains("AllowLarge") && !stress)
+            throw new CommandLineException("-AllowLarge is available only for the stress profile.");
+        if (!stress && options.Values.ContainsKey("Mode"))
+            throw new CommandLineException("-Mode is available only for the stress profile.");
+        if (!multilingual && options.Values.ContainsKey("Language"))
+            throw new CommandLineException("-Language is available only for the multilingual profile.");
+        if (parameters.Count != 0 && profile is not (LeanCorpusVectorProfile or LeanCorpusHybridProfile or LeanCorpusStressProfile or RowlesTextMultilingualProfile))
+            throw new CommandLineException("Profile parameters are not accepted by this profile.");
+        if (multilingual && parameters.Keys.Any(static key => key != "language"))
+            throw new CommandLineException("The multilingual profile accepts only the language parameter.");
+        if (profile is LeanCorpusHybridProfile && parameters.Keys.Any(static key => key != "dimension"))
+            throw new CommandLineException("The hybrid profile accepts only the dimension parameter.");
+        if (profile is LeanCorpusVectorProfile && parameters.Keys.Any(static key => key is not ("dimension" or "vectorDistribution" or "clusterCount" or "queryCount")))
+            throw new CommandLineException("The vector profile accepts only vector parameters.");
+        if (stress && mode is not ("search" or "vector" or "hybrid"))
+            throw new CommandLineException($"Stress generation failed for {ReplayIdentity(profileId, version, seed, count, parameters)}: mode must be search, vector or hybrid.");
+        if (stress && !options.Flags.Contains("AllowLarge"))
+        {
+            if (mode == "search" && count > 1_000_000)
+                throw new CommandLineException($"Stress generation requires -AllowLarge for {ReplayIdentity(profileId, version, seed, count, parameters)}: search count exceeds 1,000,000.");
+            if (mode == "vector")
+            {
+                var dimension = parameters.TryGetValue("dimension", out var dimensionText)
+                    ? ParseInt(dimensionText, "Dimension") : 128;
+                if ((long)count * dimension * sizeof(float) > 16L * 1024 * 1024 * 1024)
+                    throw new CommandLineException($"Stress generation requires -AllowLarge for {ReplayIdentity(profileId, version, seed, count, parameters)}: raw vector payload exceeds 16 GiB.");
+            }
+        }
+        DataForgeGenerationOptions generationOptions;
+        try
+        {
+            generationOptions = new DataForgeGenerationOptions(seed, count, parameters);
+        }
+        catch (ArgumentException exception) when (stress)
+        {
+            throw new CommandLineException($"Invalid stress identity {ReplayIdentity(profileId, version, seed, count, parameters)}: {exception.Message}");
+        }
         var outputPath = options.Values.TryGetValue("Output", out var requestedOutput)
             ? ResolveOutputPath(repositoryRoot, requestedOutput)
             : GetDefaultOutputPath(repositoryRoot, profile.Descriptor, generationOptions);
-        var result = DataForgeMaterialiser.Materialise(profile, generationOptions, outputPath, options.Flags.Contains("Force"));
+        DataForgeMaterialisationResult result;
+        try
+        {
+            result = profile switch
+            {
+                LeanCorpusSearchProfile search => DataForgeMaterialiser.Materialise(search, generationOptions, outputPath, options.Flags.Contains("Force")),
+                LeanCorpusVectorProfile vector => DataForgeMaterialiser.Materialise(vector, generationOptions, outputPath, options.Flags.Contains("Force")),
+                LeanCorpusHybridProfile hybrid => DataForgeMaterialiser.Materialise(hybrid, generationOptions, outputPath, options.Flags.Contains("Force")),
+                LeanCorpusStressProfile stressProfile => DataForgeMaterialiser.Materialise(stressProfile, generationOptions, outputPath, options.Flags.Contains("Force")),
+                RowlesTextMultilingualProfile text => DataForgeMaterialiser.Materialise(text, generationOptions, outputPath, options.Flags.Contains("Force")),
+                LeanCorpusE2eProfile e2e => DataForgeMaterialiser.Materialise(e2e, generationOptions, outputPath, options.Flags.Contains("Force")),
+                _ => throw new CommandLineException($"Unknown generated profile '{profileId}'.")
+            };
+        }
+        catch (Exception exception) when (stress && exception is not CommandLineException)
+        {
+            throw new CommandLineException($"Stress generation failed for {ReplayIdentity(profileId, version, seed, count, parameters)}: {exception.Message}");
+        }
 
         output.WriteLine($"Profile: {profileId}");
         output.WriteLine($"Version: {version.ToString(CultureInfo.InvariantCulture)}");
@@ -140,9 +223,16 @@ public static class DataForgeCommandLine
         var manifest = DataForgeManifestCodec.Read(manifestPath);
         if (manifest.ProfileId is null || manifest.ProfileVersion is null)
             throw new InvalidDataException("Reproduction requires a generated profile identity.");
-        if (!string.Equals(manifest.ProfileId, "leancorpus-search", StringComparison.Ordinal))
-            throw new InvalidDataException($"No generated profile is registered for '{manifest.ProfileId}'.");
-        var result = DataForgeVerifier.Reproduce(manifestPath, new LeanCorpusSearchProfile());
+        var result = manifest.ProfileId switch
+        {
+            "leancorpus-search" => DataForgeVerifier.Reproduce(manifestPath, new LeanCorpusSearchProfile()),
+            "leancorpus-vector" => DataForgeVerifier.Reproduce(manifestPath, new LeanCorpusVectorProfile()),
+            "leancorpus-hybrid" => DataForgeVerifier.Reproduce(manifestPath, new LeanCorpusHybridProfile()),
+            "leancorpus-stress" => DataForgeVerifier.Reproduce(manifestPath, new LeanCorpusStressProfile()),
+            "rowles-text-multilingual" => DataForgeVerifier.Reproduce(manifestPath, new RowlesTextMultilingualProfile()),
+            "leancorpus-e2e" => DataForgeVerifier.Reproduce(manifestPath, new LeanCorpusE2eProfile()),
+            _ => throw new InvalidDataException($"No generated profile is registered for '{manifest.ProfileId}'.")
+        };
         output.WriteLine("Reproduced: true");
         output.WriteLine($"Profile: {result.Manifest.ProfileId}");
         output.WriteLine($"Version: {result.Manifest.ProfileVersion?.ToString(CultureInfo.InvariantCulture)}");
@@ -159,6 +249,11 @@ public static class DataForgeCommandLine
         output.WriteLine("Usage:");
         output.WriteLine("  ./devops dataforge profiles");
         output.WriteLine("  ./devops dataforge generate -Profile leancorpus-search -Version 1 -Seed 42 -Count 20000 [-Output <path>] [-Force]");
+        output.WriteLine("  ./devops dataforge generate -Profile leancorpus-vector -Version 1 -Seed 42 -Count 1000 [-Dimension 64] [-VectorDistribution Uniform] [-ClusterCount 8] [-QueryCount 1] [-Output <path>] [-Force]");
+        output.WriteLine("  ./devops dataforge generate -Profile leancorpus-hybrid -Version 1 -Seed 42 -Count 20000 [-Dimension 64] [-Output <path>] [-Force]");
+        output.WriteLine("  ./devops dataforge generate -Profile leancorpus-stress -Mode search|vector|hybrid [-Version 1] [-Seed 42] [-Count <count>] [-AllowLarge] [-Output <path>] [-Force]");
+        output.WriteLine("  ./devops dataforge generate -Profile rowles-text-multilingual -Language en|fr|de|es|it|pt|nl|ru|ar|zh|ja|ko [-Version 1] [-Seed 42] [-Count 256] [-Output <path>] [-Force]");
+        output.WriteLine("  ./devops dataforge generate -Profile leancorpus-e2e [-Version 1] [-Seed 42] [-Count 256] [-Output <path>] [-Force]");
         output.WriteLine("  ./devops dataforge inspect <dataset-dir-or-manifest>");
         output.WriteLine("  ./devops dataforge verify <dataset-dir-or-manifest>");
         output.WriteLine("  ./devops dataforge reproduce <dataset-dir-or-manifest>");
@@ -222,6 +317,9 @@ public static class DataForgeCommandLine
 
     private static string Required(IReadOnlyDictionary<string, string> values, string name) =>
         values.TryGetValue(name, out var value) ? value : throw new CommandLineException($"Option '-{name}' is required.");
+
+    private static string ReplayIdentity(string profileId, int version, ulong seed, int count, IReadOnlyDictionary<string, string> parameters) =>
+        $"{profileId}/v{version} seed={seed} count={count} parameters=[{string.Join(",", parameters.OrderBy(static item => item.Key, StringComparer.Ordinal).Select(static item => $"{item.Key}={item.Value}"))}]";
 
     private static int ParseInt(string value, string name) =>
         int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var result)

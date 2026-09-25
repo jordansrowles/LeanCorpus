@@ -25,13 +25,16 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [InvocationCount(1)]
 public class MergeBenchmarks
 {
-    [Params(1_000, 10_000)]
+    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(1_000, 10_000);
+
+    [ParamsSource(nameof(DocCounts))]
     public int DocumentCount { get; set; }
 
     [Params(5, 20)]
     public int SegmentCount { get; set; }
 
     private string[] _documents = [];
+    private float[][] _vectors = [];
     private string _plainPath = string.Empty;
     private string _hnswPath = string.Empty;
     private List<SegmentInfo> _plainSegments = [];
@@ -41,6 +44,8 @@ public class MergeBenchmarks
     public void Setup()
     {
         _documents = BenchmarkData.BuildDocuments(DocumentCount);
+        _vectors = BenchmarkVectorData.Get(DocumentCount, 64).Records
+            .Select(static record => record.Vector).ToArray();
     }
 
     [IterationSetup]
@@ -100,7 +105,6 @@ public class MergeBenchmarks
         using (var directory = new MMapDirectory(path))
         using (var writer = new IndexWriter(directory, config))
         {
-            var random = new Random(7);
             for (int i = 0; i < _documents.Length; i++)
             {
                 var document = new LeanDocument();
@@ -110,10 +114,7 @@ public class MergeBenchmarks
 
                 if (withHnswVectors)
                 {
-                    var vector = new float[64];
-                    for (int dimension = 0; dimension < vector.Length; dimension++)
-                        vector[dimension] = (float)(random.NextDouble() * 2 - 1);
-                    document.Add(new LeanVectorField("emb", new ReadOnlyMemory<float>(vector)));
+                    document.Add(new LeanVectorField("emb", new ReadOnlyMemory<float>(_vectors[i])));
                 }
 
                 writer.AddDocument(document);

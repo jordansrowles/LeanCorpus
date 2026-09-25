@@ -201,10 +201,10 @@ internal static class Program
         if (runAll || suites.Contains(BenchmarkSuite.BlockJoin) || suites.Contains(BenchmarkSuite.BlockJoinSearch))
             RunSuite<BlockJoinSearchBenchmarks>("blockjoin-search", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
-        if (runAll || suites.Contains(BenchmarkSuite.GutenbergIndex))
+        if (suites.Contains(BenchmarkSuite.GutenbergIndex))
             RunSuite<GutenbergIndexingBenchmarks>("gutenberg-index", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
-        if (runAll || suites.Contains(BenchmarkSuite.GutenbergSearch))
+        if (suites.Contains(BenchmarkSuite.GutenbergSearch))
             RunSuite<GutenbergSearchBenchmarks>("gutenberg-search", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         // Phase 1: query parity
@@ -276,6 +276,9 @@ internal static class Program
 
         if (runAll || suites.Contains(BenchmarkSuite.HnswSearch))
             RunSuite<HnswSearchBenchmarks>("hnsw", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (runAll || suites.Contains(BenchmarkSuite.Hybrid))
+            RunSuite<HybridSearchBenchmarks>("hybrid", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         // Microbenchmarks: explicit only, not included in --suite all.
         if (suites.Contains(BenchmarkSuite.PackedIntCodec))
@@ -678,7 +681,7 @@ internal static class Program
               --help, -h       Show this help message
 
             Suites:
-              all              Run all primary benchmark suites, including Gutenberg (default)
+              all              Run all primary synthetic benchmark suites (default)
               all-with-explicit  Run all primary plus all explicit-only suites
               explicit         Run all explicit-only suites, including subsystem and recent-feature benchmarks
               index            IndexingBenchmarks -- bulk indexing throughput (vs Lucene.NET)
@@ -720,6 +723,7 @@ internal static class Program
               async-index         AsyncIndexingBenchmarks -- sync vs async indexing
               vq                  VectorQuantisationBenchmarks -- HNSW search with vector quantisation (vs Lucene.NET flat scan)
               hnsw                HnswSearchBenchmarks -- HNSW graph search vs flat scan (vs Lucene.NET baseline)
+              hybrid              HybridSearchBenchmarks -- vector filters and text-vector RRF
               tokenbudget         TokenBudgetBenchmarks -- token budget enforcement overhead (explicit only)
               diagnostics         DiagnosticsBenchmarks -- SlowQueryLog + Analytics hook overhead (explicit only)
               packed-int-codec    PackedIntCodecBenchmarks -- Pack/Unpack scalar loop throughput (explicit only)
@@ -937,6 +941,7 @@ internal static class Program
             "similarity" => BenchmarkSuite.Similarity,
             "vectorquantisation" or "vq" => BenchmarkSuite.VectorQuantisation,
             "hnsw" or "hnsw-search" => BenchmarkSuite.HnswSearch,
+            "hybrid" => BenchmarkSuite.Hybrid,
             "async-index" or "asyncindex" => BenchmarkSuite.AsyncIndex,
             _ => throw new ArgumentException($"Unknown benchmark suite '{value}'. Use --help to list available suites.")
         };
@@ -1008,6 +1013,7 @@ internal static class Program
         AsyncIndex,
         VectorQuantisation,
         HnswSearch,
+        Hybrid,
         PackedIntCodec,
         CodecFrame,
         CodecFrameRead,

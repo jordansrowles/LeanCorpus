@@ -23,10 +23,10 @@ public class PackedIntCodecBenchmarks
     public void Setup()
     {
         _values = new int[PackedIntCodec.BlockSize];
-        var rnd = new Random(42);
+        var rnd = BenchmarkDeterministicRandom.Create("benchmark/packed-int/values");
         int maxVal = (1 << BitsPerValue) - 1;
         for (int i = 0; i < _values.Length; i++)
-            _values[i] = rnd.Next(maxVal + 1);
+            _values[i] = rnd.NextInt32(maxVal + 1);
 
         _packed = new byte[1 + BitsPerValue * 16];
     }

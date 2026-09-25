@@ -18,7 +18,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [RPlotExporter]
 public class AnalysisBenchmarks
 {
-    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
+    public static IEnumerable<int> DocCounts => TextBenchmarkData.GetDocCounts(TextBenchmarkData.DefaultDocCount);
 
     [ParamsSource(nameof(DocCounts))]
     public int DocumentCount { get; set; }
@@ -31,7 +31,7 @@ public class AnalysisBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        _documents = BenchmarkData.BuildDocuments(DocumentCount);
+        _documents = TextBenchmarkData.BuildDocuments(DocumentCount);
         _leanAnalyser = new StandardAnalyser();
         _luceneAnalyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
         _sink = new CountingTokenSink();

@@ -9,11 +9,11 @@ function Invoke-DevOpsData {
 
     $dataset = $parsed.Positionals[0]
     if (-not $dataset) {
-        Write-Error "Usage: devops data <gutenberg|news|wikipedia> [options]"
+        Write-Error "Usage: devops data <gutenberg|wikipedia> [options]"
         exit 1
     }
 
-    $valid = @('gutenberg', 'news', 'wikipedia')
+    $valid = @('gutenberg', 'wikipedia')
     if ($dataset -notin $valid) {
         Write-Error "Unknown dataset '$dataset'. Valid: $($valid -join ', ')"
         exit 1

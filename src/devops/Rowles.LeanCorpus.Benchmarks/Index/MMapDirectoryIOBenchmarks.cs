@@ -28,6 +28,7 @@ public class MMapDirectoryIOBenchmarks
     private MMapDirectory? _directory;
     private string _dataFilePath = string.Empty;
     private byte[] _writeBuffer = [];
+    private int[] _readOrder = [];
     private readonly List<string> _writtenPaths = [];
 
     [GlobalSetup]
@@ -38,7 +39,11 @@ public class MMapDirectoryIOBenchmarks
         _directory = new MMapDirectory(_dirPath);
         _dataFilePath = Path.Combine(_dirPath, "data.bin");
         _writeBuffer = new byte[BlockSize];
-        new Random(7).NextBytes(_writeBuffer);
+        BenchmarkDeterministicRandom.Create("benchmark/mmap/data").NextBytes(_writeBuffer);
+        var readRandom = BenchmarkDeterministicRandom.Create("benchmark/mmap/read-order");
+        _readOrder = new int[BlockCount];
+        for (int i = 0; i < _readOrder.Length; i++)
+            _readOrder[i] = readRandom.NextInt32(BlockCount);
 
         // Pre-write data once for read benchmarks.
         using (var output = new IndexOutput(_dataFilePath))
@@ -106,12 +111,11 @@ public class MMapDirectoryIOBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_IO_RandomRead()
     {
-        var rnd = new Random(7);
         using var input = new IndexInput(_dataFilePath);
         int checksum = 0;
         for (int i = 0; i < BlockCount; i++)
         {
-            long pos = (long)rnd.Next(BlockCount) * BlockSize;
+            long pos = (long)_readOrder[i] * BlockSize;
             input.Seek(pos);
             checksum += input.ReadSpan(BlockSize)[0];
         }
@@ -122,12 +126,11 @@ public class MMapDirectoryIOBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_IO_ReadByte()
     {
-        var rnd = new Random(7);
         int sum = 0;
         using var input = new IndexInput(_dataFilePath);
         for (int i = 0; i < BlockCount; i++)
         {
-            long pos = (long)rnd.Next(BlockCount) * BlockSize;
+            long pos = (long)_readOrder[i] * BlockSize;
             input.Seek(pos);
             sum += input.ReadByte();
         }

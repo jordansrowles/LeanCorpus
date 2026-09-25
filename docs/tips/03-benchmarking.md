@@ -41,17 +41,19 @@ The names are presets, not a ranking of statistical quality. `intense` has fewer
 
 `-Controlled` selects a deterministic local diagnostic preset. It cannot make two different machines equivalent.
 
-## Real data
+## Benchmark data
 
-Prepare the supported corpora:
+Ordinary benchmark runs use deterministic DataForge records. They do not download or discover a local corpus. Select a Gutenberg suite explicitly when measuring real ebook text:
 
 ```powershell
-./devops benchmark -PrepareData -BookCount 200
+./devops benchmark -Suite gutenberg-index -PrepareData -BookCount 200
+./devops benchmark -Suite gutenberg-search -PrepareData -BookCount 200
+./devops benchmark -Suite text -PrepareData -- --filter "*GutenbergAnalysisBenchmarks*"
 ```
 
-The report records data-source names, file and byte counts, document counts, and SHA-256 fingerprints. Compare those fields before comparing timings.
+The report records generated profile identity, version, seed, record count, parameters and content SHA-256. Explicit Gutenberg runs record the external data source. Compare the complete identity and workload parameters before comparing timings.
 
-Use `-CorpusOnly` when a suite should use corpus-backed cases without synthetic companions.
+Use `-CorpusOnly` to run LeanCorpus cases without Lucene.NET comparisons.
 
 ## Output
 
@@ -73,7 +75,7 @@ Check these before calling a difference a regression:
 
 - same benchmark method and parameters;
 - same documents or bytes processed per operation;
-- same corpus fingerprint and document count;
+- same dataset identity, content SHA-256 and document count;
 - same indexed features, segment count, merge state, and directory;
 - same runtime and architecture;
 - no critical BenchmarkDotNet warnings;

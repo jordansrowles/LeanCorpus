@@ -15,13 +15,13 @@ internal static class BenchmarkData
     private static readonly LeanCorpusSearchProfile Profile = new();
     private static readonly ConcurrentDictionary<DatasetCacheKey, Lazy<SearchDataset>> Datasets = new();
 
-    /// <summary>Returns the configured document count, retaining <c>BENCH_DOC_COUNT</c> compatibility.</summary>
-    public static IEnumerable<int> GetDocCounts(int defaultCount)
+    /// <summary>Returns the configured document count or the suite's default count matrix.</summary>
+    public static IEnumerable<int> GetDocCounts(params int[] defaultCounts)
     {
         var env = Environment.GetEnvironmentVariable("BENCH_DOC_COUNT");
         if (int.TryParse(env, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count) && count > 0)
             return [count];
-        return [defaultCount];
+        return defaultCounts;
     }
 
     /// <summary>Returns DataForge search record bodies, wrapping no external corpus.</summary>
