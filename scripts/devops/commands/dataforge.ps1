@@ -421,7 +421,8 @@ function Find-DataForgeQualificationRun {
         try {
             $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
             $manifestStart = [DateTime]::Parse([string]$manifest.startedAtUtc).ToUniversalTime()
-            if ($manifestStart -lt $StartedAtUtc.AddSeconds(-3) -or [string]$manifest.commandLine -ne $CommandText) { continue }
+            if ($manifestStart -lt $StartedAtUtc.AddSeconds(-3) -or
+                ([string]$manifest.commandLine).Trim() -ne $CommandText.Trim()) { continue }
             [void]$matches.Add([pscustomobject]@{
                 RunId = [string]$manifest.runId
                 Directory = $directory.FullName
