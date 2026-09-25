@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Rowles.DataForge\Rowles.DataForge.csproj" />
+    <InternalsVisibleTo Include="Rowles.DataForge.Tool" />
   </ItemGroup>
 
 </Project>

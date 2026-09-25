@@ -96,6 +96,7 @@ internal static class BenchmarkVectorData
             Seed: options.Seed,
             RecordCount: records.Length,
             Parameters: options.Parameters,
+            Dependencies: profile.Dependencies.ToArray(),
             ContentSha256: Convert.ToHexString(writer.GetSha256()).ToLowerInvariant());
         return new BenchmarkVectorDataset(records, profile.GenerateQuery(options, 0), identity);
     }

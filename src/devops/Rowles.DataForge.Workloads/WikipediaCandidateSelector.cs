@@ -4,34 +4,6 @@ using System.Security.Cryptography;
 using System.Text;
 
 namespace Rowles.DataForge.Workloads;
-
-public sealed record WikipediaIndexEntry(long Offset, ulong PageId, string Title);
-
-public sealed class WikipediaCandidate : IComparable<WikipediaCandidate>
-{
-    private readonly byte[] selectionKey;
-
-    public WikipediaCandidate(WikipediaIndexEntry entry)
-    {
-        Entry = entry ?? throw new ArgumentNullException(nameof(entry));
-        Span<byte> input = stackalloc byte[34];
-        Encoding.UTF8.GetBytes("leancorpus-wikipedia-en-v1", input);
-        BinaryPrimitives.WriteUInt64BigEndian(input[26..], entry.PageId);
-        selectionKey = SHA256.HashData(input);
-    }
-
-    public WikipediaIndexEntry Entry { get; }
-
-    public ReadOnlyMemory<byte> SelectionKey => selectionKey;
-
-    public int CompareTo(WikipediaCandidate? other)
-    {
-        if (other is null) return 1;
-        var comparison = selectionKey.AsSpan().SequenceCompareTo(other.selectionKey);
-        return comparison != 0 ? comparison : Entry.PageId.CompareTo(other.Entry.PageId);
-    }
-}
-
 /// <summary>Selects the exact lowest page-id hashes without retaining the complete dump index.</summary>
 public static class WikipediaCandidateSelector
 {
@@ -46,7 +18,6 @@ public static class WikipediaCandidateSelector
             throw new ArgumentOutOfRangeException(nameof(candidateLimit));
 
         var heap = new CandidateMaxHeap(candidateLimit);
-        var pageIds = new HashSet<ulong>();
         var uniqueOffsets = new List<long>();
         long previousOffset = -1;
         long scanned = 0;
@@ -63,15 +34,13 @@ public static class WikipediaCandidateSelector
             if (entry.Offset != previousOffset)
                 uniqueOffsets.Add(entry.Offset);
             previousOffset = entry.Offset;
-            if (!pageIds.Add(entry.PageId))
-                throw new InvalidDataException($"Wikipedia index contains duplicate page ID {entry.PageId.ToString(CultureInfo.InvariantCulture)}.");
             heap.Add(new WikipediaCandidate(entry));
         }
 
         return new WikipediaCandidateSelection(heap.ToSortedArray(), scanned, uniqueOffsets);
     }
 
-    private static string? ReadBoundedLine(TextReader reader)
+    internal static string? ReadBoundedLine(TextReader reader)
     {
         var line = new StringBuilder(256);
         while (true)
@@ -164,5 +133,3 @@ public static class WikipediaCandidateSelector
         }
     }
 }
-
-public sealed record WikipediaCandidateSelection(IReadOnlyList<WikipediaCandidate> Candidates, long IndexEntriesScanned, IReadOnlyList<long> UniqueOffsets);

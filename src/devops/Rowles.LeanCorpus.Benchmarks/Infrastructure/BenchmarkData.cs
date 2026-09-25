@@ -178,6 +178,7 @@ internal static class BenchmarkData
             Seed: key.Seed,
             RecordCount: records.Length,
             Parameters: options.Parameters,
+            Dependencies: profile.Dependencies.ToArray(),
             ContentSha256: Convert.ToHexString(writer.GetSha256()).ToLowerInvariant());
         BenchmarkDatasetSidecars.Write(identity);
         return new BenchmarkDataset(records, records.Select(static record => record.Body).ToArray(), identity);

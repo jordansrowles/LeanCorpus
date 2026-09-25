@@ -78,6 +78,7 @@ internal static class TextBenchmarkData
             Seed: options.Seed,
             RecordCount: records.Count,
             Parameters: options.Parameters,
+            Dependencies: profile.Dependencies.ToArray(),
             ContentSha256: Convert.ToHexString(SHA256.HashData(canonicalStream.ToArray())).ToLowerInvariant());
         var identityBytes = identity.GetCanonicalBytes();
         var directory = Path.Combine(Path.GetFullPath(artifactRoot), "dataforge");

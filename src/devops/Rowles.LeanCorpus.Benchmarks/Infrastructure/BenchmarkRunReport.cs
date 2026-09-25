@@ -60,6 +60,7 @@ internal sealed class BenchmarkDatasetReport
     public ulong? Seed { get; set; }
     public int RecordCount { get; set; }
     public Dictionary<string, string> Parameters { get; set; } = new(StringComparer.Ordinal);
+    public DataForgeDependencyVersion[] Dependencies { get; set; } = [];
     public string ContentSha256 { get; set; } = string.Empty;
 }
 
@@ -455,7 +456,7 @@ internal static class BenchmarkProvenanceBuilder
             ?? string.Empty;
     }
 
-    private static string BuildCombinedFingerprint(IReadOnlyList<BenchmarkDatasetEvidence> datasets)
+    internal static string BuildCombinedFingerprint(IReadOnlyList<BenchmarkDatasetEvidence> datasets)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         foreach (var dataset in datasets.OrderBy(

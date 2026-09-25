@@ -47,7 +47,7 @@ Download the pinned checksum/status files, primary dump and index with the DataF
 
 ## Selection and text transformation
 
-The builder reads the compressed multistream index in order, then ranks candidate page IDs by the pinned `page-id-sha256-v1` algorithm and salt `leancorpus-wikipedia-en-v1`. It keeps a bounded Top-K heap and increases the candidate limit until it has 20,000 eligible pages. Index offsets are range-checked; each selected bzip2 member is read through a bounded stream. XML parsing prohibits DTDs and external entity resolution.
+Before candidate expansion, the builder validates every index page ID with bounded external sort runs in the source cache; duplicate IDs fail even when they are far apart in source order. It then ranks candidates by the pinned `page-id-sha256-v1` algorithm and salt `leancorpus-wikipedia-en-v1`. Candidate selection keeps a bounded Top-K heap and increases the candidate limit until it has 20,000 eligible pages. Index offsets are range-checked; each selected bzip2 member is read through a bounded stream. XML parsing prohibits DTDs and external entity resolution.
 
 Eligibility v1 accepts namespace-zero pages with a page ID, a current revision and text, and no redirect. It rejects malformed or oversized source text, normalised text outside 256 bytes to 2 MiB, and text with fewer than 40 whitespace-delimited tokens. Stable rejection reasons and the selection limit are recorded as build evidence.
 
@@ -65,7 +65,7 @@ Once v1 is accepted, do not overwrite it with a later dump or a changed normalis
 
 Synthetic remains the normal benchmark dataset. Wikipedia must be selected with `-Dataset wikipedia`, and the runner verifies the reference before starting. Only suites listed by `./devops benchmark -List` for Wikipedia mode are accepted. Text-only merge and flush methods are selected explicitly; generated prices, categories, vectors and other structured fields are not added to the imported pages.
 
-The benchmark sidecar labels the imported source kind, dataset ID/version, full record count and content hash with no seed. That identity and its data fingerprint keep Wikipedia results in a separate history from synthetic `leancorpus-search` results. Compare timings only when the complete dataset identity, benchmark method, workload parameters and runtime match.
+The benchmark sidecar records the imported source kind, dataset ID/version, dependency versions, full record count and content hash with no seed. Generated identities also include dependency versions in ordinal name order. Those identities and their data fingerprint keep Wikipedia results in a separate history from synthetic `leancorpus-search` results. Compare timings only when the complete dataset identity, benchmark method, workload parameters and runtime match.
 
 ## Release qualification
 

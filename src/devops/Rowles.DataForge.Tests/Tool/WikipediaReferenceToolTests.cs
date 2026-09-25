@@ -14,6 +14,69 @@ namespace Rowles.DataForge.Tests.Tool;
 public sealed class WikipediaReferenceToolTests
 {
     [Fact]
+    public void Accepts_completed_pinned_articles_multistream_job_and_files()
+    {
+        WithTempDirectory(root =>
+        {
+            var path = Path.Combine(root, "dumpstatus.json");
+            File.WriteAllText(path, CreateDumpStatus(jobStatus: "done", includePrimary: true, includeIndex: true));
+
+            WikipediaReferenceDownloader.ValidateDumpStatus(path);
+        });
+    }
+
+    [Theory]
+    [InlineData("running")]
+    [InlineData("failed")]
+    [InlineData("unknown")]
+    public void Rejects_required_filenames_in_an_incomplete_or_unknown_job(string status)
+    {
+        WithTempDirectory(root =>
+        {
+            var path = Path.Combine(root, "dumpstatus.json");
+            File.WriteAllText(path, CreateDumpStatus(status, includePrimary: true, includeIndex: true));
+
+            Assert.Throws<InvalidDataException>(() => WikipediaReferenceDownloader.ValidateDumpStatus(path));
+        });
+    }
+
+    [Fact]
+    public void Rejects_a_completed_job_with_a_missing_index_file()
+    {
+        WithTempDirectory(root =>
+        {
+            var path = Path.Combine(root, "dumpstatus.json");
+            File.WriteAllText(path, CreateDumpStatus("done", includePrimary: true, includeIndex: false));
+
+            Assert.Throws<InvalidDataException>(() => WikipediaReferenceDownloader.ValidateDumpStatus(path));
+        });
+    }
+
+    [Fact]
+    public void Rejects_similar_files_in_an_unrelated_job()
+    {
+        WithTempDirectory(root =>
+        {
+            var path = Path.Combine(root, "dumpstatus.json");
+            File.WriteAllText(path, CreateDumpStatus("done", includePrimary: true, includeIndex: true, jobName: "unrelatedjob"));
+
+            Assert.Throws<InvalidDataException>(() => WikipediaReferenceDownloader.ValidateDumpStatus(path));
+        });
+    }
+
+    [Fact]
+    public void Rejects_malformed_dumpstatus_json()
+    {
+        WithTempDirectory(root =>
+        {
+            var path = Path.Combine(root, "dumpstatus.json");
+            File.WriteAllText(path, "{\"jobs\":");
+
+            Assert.Throws<InvalidDataException>(() => WikipediaReferenceDownloader.ValidateDumpStatus(path));
+        });
+    }
+
+    [Fact]
     public void Resumes_a_partial_file_at_the_exact_byte_boundary()
     {
         WithTempDirectory(root =>
@@ -462,6 +525,44 @@ public sealed class WikipediaReferenceToolTests
     }
 
     private static WikipediaCandidate Candidate(long offset, ulong pageId) => new(new WikipediaIndexEntry(offset, pageId, $"Title {pageId}"));
+
+    private static string CreateDumpStatus(string jobStatus, bool includePrimary, bool includeIndex,
+        string jobName = "articlesmultistreamdumprecombine") =>
+        JsonSerializer.Serialize(new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            ["jobs"] = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                [jobName] = new Dictionary<string, object>(StringComparer.Ordinal)
+                {
+                    ["status"] = jobStatus,
+                    ["updated"] = "2026-09-02 00:00:00",
+                    ["files"] = CreateFileEntries(includePrimary, includeIndex)
+                }
+            },
+            ["version"] = "1.0"
+        });
+
+    private static Dictionary<string, object> CreateFileEntries(bool includePrimary, bool includeIndex)
+    {
+        var entries = new Dictionary<string, object>(StringComparer.Ordinal);
+        if (includePrimary)
+            entries.Add(WikipediaReferenceContract.PrimaryFilename, new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["size"] = 26797495184L,
+                ["url"] = "/enwiki/20260901/" + WikipediaReferenceContract.PrimaryFilename,
+                ["md5"] = "f251f445259e452fafcb67d9f2c26513",
+                ["sha1"] = WikipediaReferenceContract.PrimarySha1
+            });
+        if (includeIndex)
+            entries.Add(WikipediaReferenceContract.IndexFilename, new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["size"] = 284375992L,
+                ["url"] = "/enwiki/20260901/" + WikipediaReferenceContract.IndexFilename,
+                ["md5"] = "1d730f63aae2805882f11cbaf639ca53",
+                ["sha1"] = "ce0cbff600b0be2eed98da5ce189f847232d2282"
+            });
+        return entries;
+    }
 
     private static string PageXml(ulong pageId, int namespaceId = 0, bool hasRedirect = false)
     {

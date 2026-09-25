@@ -29,6 +29,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Profiling" />
+    <InternalsVisibleTo Include="Rowles.DataForge.Tests" />
   </ItemGroup>
 
 </Project>

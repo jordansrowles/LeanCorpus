@@ -50,10 +50,9 @@ public sealed class WikipediaCandidateSelectorTests
     }
 
     [Fact]
-    public void Rejects_decreasing_offsets_duplicate_page_ids_and_oversized_lines()
+    public void Rejects_decreasing_offsets_and_oversized_lines()
     {
         Assert.Throws<InvalidDataException>(() => WikipediaCandidateSelector.Select(new StringReader("10:1:a\n9:2:b"), 2));
-        Assert.Throws<InvalidDataException>(() => WikipediaCandidateSelector.Select(new StringReader("0:1:a\n0:1:b"), 2));
         Assert.Throws<InvalidDataException>(() => WikipediaCandidateSelector.Select(new StringReader("0:1:" + new string('x', 70_000)), 2));
     }
 

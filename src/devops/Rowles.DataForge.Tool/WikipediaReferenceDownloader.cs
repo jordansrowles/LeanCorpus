@@ -249,13 +249,65 @@ public sealed class WikipediaReferenceDownloader(HttpClient httpClient)
 
     internal static void ValidateDumpStatus(string statusPath)
     {
-        using var document = JsonDocument.Parse(File.ReadAllBytes(statusPath), new JsonDocumentOptions { MaxDepth = 64 });
-        if (document.RootElement.ValueKind != JsonValueKind.Object)
-            throw new InvalidDataException("Pinned Wikimedia dumpstatus.json is not a JSON object.");
-        var json = File.ReadAllText(statusPath, new UTF8Encoding(false, true));
-        if (!json.Contains(WikipediaReferenceContract.PrimaryFilename, StringComparison.Ordinal) ||
-            !json.Contains(WikipediaReferenceContract.IndexFilename, StringComparison.Ordinal))
-            throw new InvalidDataException("Pinned Wikimedia dump status does not identify both required source files.");
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(File.ReadAllBytes(statusPath), new JsonDocumentOptions { MaxDepth = 64 });
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("Pinned Wikimedia dumpstatus.json is malformed.", exception);
+        }
+
+        using (document)
+        {
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object ||
+                !TryGetUniqueProperty(root, "jobs", out var jobs) || jobs.ValueKind != JsonValueKind.Object ||
+                !TryGetUniqueProperty(jobs, "articlesmultistreamdumprecombine", out var job) || job.ValueKind != JsonValueKind.Object)
+            {
+                throw new InvalidDataException("Pinned Wikimedia dump status is missing the articles multistream re-combine job.");
+            }
+
+            if (!TryGetUniqueProperty(job, "status", out var jobStatus) || jobStatus.ValueKind != JsonValueKind.String ||
+                !string.Equals(jobStatus.GetString(), "done", StringComparison.Ordinal))
+            {
+                throw new InvalidDataException("Pinned Wikimedia articles multistream re-combine job is not complete.");
+            }
+
+            if (!TryGetUniqueProperty(job, "files", out var files) || files.ValueKind != JsonValueKind.Object)
+                throw new InvalidDataException("Pinned Wikimedia articles multistream job has no file metadata.");
+
+            ValidateCompletedFile(files, WikipediaReferenceContract.PrimaryFilename);
+            ValidateCompletedFile(files, WikipediaReferenceContract.IndexFilename);
+        }
+    }
+
+    private static void ValidateCompletedFile(JsonElement files, string filename)
+    {
+        if (!TryGetUniqueProperty(files, filename, out var file) || file.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException($"Pinned Wikimedia articles multistream job is missing '{filename}'.");
+        if (TryGetUniqueProperty(file, "status", out var status) &&
+            (status.ValueKind != JsonValueKind.String || !string.Equals(status.GetString(), "done", StringComparison.Ordinal)))
+        {
+            throw new InvalidDataException($"Pinned Wikimedia file '{filename}' is not complete.");
+        }
+    }
+
+    private static bool TryGetUniqueProperty(JsonElement value, string name, out JsonElement property)
+    {
+        property = default;
+        var found = false;
+        foreach (var item in value.EnumerateObject())
+        {
+            if (!string.Equals(item.Name, name, StringComparison.Ordinal))
+                continue;
+            if (found)
+                throw new InvalidDataException($"Pinned Wikimedia dump status contains duplicate '{name}' fields.");
+            property = item.Value;
+            found = true;
+        }
+        return found;
     }
 
     private static void EnsureFreeSpace(string directory, long requiredBytes)

@@ -8,30 +8,6 @@ using Rowles.DataForge;
 using Rowles.DataForge.Workloads;
 
 namespace Rowles.DataForge.Tool;
-
-public sealed record WikipediaReferenceRecord(
-    string Id,
-    ulong PageId,
-    ulong RevisionId,
-    string RevisionTimestampUtc,
-    string Title,
-    string SourceUrl,
-    string RawWikitextSha256,
-    string TextSha256,
-    string Text);
-
-public sealed record WikipediaReferenceBuildResult(
-    string OutputDirectory,
-    int CandidateLimit,
-    long IndexEntriesScanned,
-    int CandidateIdsInspected,
-    int EligibleCount,
-    int SelectedCount,
-    int UniqueOffsetsRead,
-    DataForgeManifest Manifest,
-    IReadOnlyDictionary<string, long> RejectionCounts,
-    long ElapsedMilliseconds);
-
 /// <summary>Builds the immutable Wikipedia v1 imported DataForge artefact from verified local source files.</summary>
 public static class WikipediaReferenceBuilder
 {
@@ -40,15 +16,19 @@ public static class WikipediaReferenceBuilder
     private const string SharpCompressVersion = "0.50.4";
 
     public static WikipediaReferenceBuildResult Build(string cacheDirectory, string outputDirectory)
+        => Build(cacheDirectory, outputDirectory, CancellationToken.None);
+
+    internal static WikipediaReferenceBuildResult Build(string cacheDirectory, string outputDirectory, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(cacheDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
+        cancellationToken.ThrowIfCancellationRequested();
         var output = Path.GetFullPath(outputDirectory);
         if (Directory.Exists(output) || File.Exists(output))
             throw new IOException($"Wikipedia v1 output '{output}' already exists. It is immutable and will not be overwritten.");
         var source = WikipediaReferenceSource.Verify(cacheDirectory);
         return BuildCore(cacheDirectory, output, source, WikipediaReferenceContract.TargetCount,
-            WikipediaCandidateSelector.InitialCandidateLimit, WikipediaCandidateSelector.MaximumCandidateLimit);
+            WikipediaCandidateSelector.InitialCandidateLimit, WikipediaCandidateSelector.MaximumCandidateLimit, cancellationToken);
     }
 
     internal static WikipediaReferenceBuildResult BuildFixture(
@@ -56,7 +36,8 @@ public static class WikipediaReferenceBuilder
         string outputDirectory,
         int targetCount,
         int initialCandidateLimit = WikipediaCandidateSelector.InitialCandidateLimit,
-        int maximumCandidateLimit = WikipediaCandidateSelector.MaximumCandidateLimit)
+        int maximumCandidateLimit = WikipediaCandidateSelector.MaximumCandidateLimit,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(cacheDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
@@ -79,7 +60,7 @@ public static class WikipediaReferenceBuilder
             Sha256(indexPath),
             Sha256(indexPath),
             Sha256(primaryPath));
-        return BuildCore(cache, outputDirectory, source, targetCount, initialCandidateLimit, maximumCandidateLimit);
+        return BuildCore(cache, outputDirectory, source, targetCount, initialCandidateLimit, maximumCandidateLimit, cancellationToken);
     }
 
     private static WikipediaReferenceBuildResult BuildCore(
@@ -88,7 +69,8 @@ public static class WikipediaReferenceBuilder
         WikipediaDumpSource source,
         int targetCount,
         int initialCandidateLimit,
-        int maximumCandidateLimit)
+        int maximumCandidateLimit,
+        CancellationToken cancellationToken)
     {
         var timer = Stopwatch.StartNew();
         var output = Path.GetFullPath(outputDirectory);
@@ -103,6 +85,8 @@ public static class WikipediaReferenceBuilder
         {
             var indexPath = Path.Combine(Path.GetFullPath(cacheDirectory), WikipediaReferenceContract.IndexFilename);
             var primaryPath = Path.Combine(Path.GetFullPath(cacheDirectory), WikipediaReferenceContract.PrimaryFilename);
+            var pageIdValidation = WikipediaPageIdValidator.Validate(indexPath, Path.GetFullPath(cacheDirectory),
+                cancellationToken: cancellationToken);
             var cached = new Dictionary<ulong, CandidateSnapshot>();
             var offsetsRead = new HashSet<long>();
             var extractor = new WikipediaPageExtractor();
@@ -114,6 +98,7 @@ public static class WikipediaReferenceBuilder
 
             while (true)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 passes++;
                 selection = WikipediaReferenceSource.ReadIndex(indexPath, candidateLimit);
                 indexEntriesScanned = selection.IndexEntriesScanned;
@@ -229,6 +214,7 @@ public static class WikipediaReferenceBuilder
                 candidateLimit,
                 selection.IndexEntriesScanned,
                 indexEntriesScanned * passes,
+                pageIdValidation,
                 cached.Count,
                 cached.Values.Count(static snapshot => snapshot.IsEligible),
                 selected.Length,
@@ -479,6 +465,7 @@ public static class WikipediaReferenceBuilder
         int CandidateLimitUsed,
         long IndexEntriesScanned,
         long TotalIndexEntriesScanned,
+        WikipediaPageIdValidationResult PageIdValidation,
         int UniqueCandidatesInspected,
         int EligibleCandidates,
         int SelectedCount,

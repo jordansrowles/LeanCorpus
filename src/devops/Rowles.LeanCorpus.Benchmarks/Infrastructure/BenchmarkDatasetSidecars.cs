@@ -22,6 +22,7 @@ internal static class BenchmarkDatasetSidecars
         "seed",
         "recordCount",
         "parameters",
+        "dependencies",
         "contentSha256"
     ];
 
@@ -137,6 +138,20 @@ internal static class BenchmarkDatasetSidecars
                 throw new InvalidDataException($"DataForge dataset sidecar contains a duplicate parameter '{property.Name}'.");
         }
 
+        var dependenciesElement = root.GetProperty("dependencies");
+        if (dependenciesElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("DataForge dataset sidecar dependencies must be an array.");
+        var dependencies = dependenciesElement.EnumerateArray().Select(static item =>
+        {
+            if (item.ValueKind != JsonValueKind.Object ||
+                !item.EnumerateObject().Select(static property => property.Name)
+                    .SequenceEqual(["name", "version"], StringComparer.Ordinal))
+                throw new InvalidDataException("DataForge dataset dependency has an invalid shape or property order.");
+            return new DataForgeDependencyVersion(
+                item.GetProperty("name").GetString() ?? throw new InvalidDataException("DataForge dependency name must be a string."),
+                item.GetProperty("version").GetString() ?? throw new InvalidDataException("DataForge dependency version must be a string."));
+        }).ToArray();
+
         var seedElement = root.GetProperty("seed");
         ulong? seed = seedElement.ValueKind switch
         {
@@ -155,6 +170,7 @@ internal static class BenchmarkDatasetSidecars
             seed,
             root.GetProperty("recordCount").GetInt32(),
             parameters,
+            dependencies,
             root.GetProperty("contentSha256").GetString() ?? throw new InvalidDataException("DataForge dataset content hash must be a string."));
     }
 
@@ -170,6 +186,7 @@ internal static class BenchmarkDatasetSidecars
             Seed = identity.Seed,
             RecordCount = identity.RecordCount,
             Parameters = identity.Parameters.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal),
+            Dependencies = identity.Dependencies.ToArray(),
             ContentSha256 = identity.ContentSha256
         };
 

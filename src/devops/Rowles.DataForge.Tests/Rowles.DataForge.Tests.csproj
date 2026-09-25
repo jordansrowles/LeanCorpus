@@ -18,6 +18,7 @@
     <ProjectReference Include="..\Rowles.DataForge\Rowles.DataForge.csproj" />
     <ProjectReference Include="..\Rowles.DataForge.Workloads\Rowles.DataForge.Workloads.csproj" />
     <ProjectReference Include="..\Rowles.DataForge.Tool\Rowles.DataForge.Tool.csproj" />
+    <ProjectReference Include="..\Rowles.LeanCorpus.Benchmarks\Rowles.LeanCorpus.Benchmarks.csproj" />
   </ItemGroup>
 
 </Project>

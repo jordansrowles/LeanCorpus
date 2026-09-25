@@ -287,15 +287,29 @@ public static class DataForgeCommandLine
                 var destination = options.Values.TryGetValue("Output", out var requestedOutput)
                     ? ResolveOutputPath(repositoryRoot, requestedOutput)
                     : WikipediaReferenceContract.ReferencePath(repositoryRoot);
-                var result = WikipediaReferenceBuilder.Build(cache, destination);
-                output.WriteLine($"DatasetId: {WikipediaReferenceContract.DatasetId}");
-                output.WriteLine($"DatasetVersion: {WikipediaReferenceContract.DatasetVersion.ToString(CultureInfo.InvariantCulture)}");
-                output.WriteLine($"Count: {result.SelectedCount.ToString(CultureInfo.InvariantCulture)}");
-                output.WriteLine($"CandidateLimit: {result.CandidateLimit.ToString(CultureInfo.InvariantCulture)}");
-                output.WriteLine($"ContentSha256: {result.Manifest.ContentSha256}");
-                output.WriteLine($"ArtefactSha256: {result.Manifest.ArtefactSha256}");
-                output.WriteLine($"Output: {result.OutputDirectory}");
-                return 0;
+                using var cancellation = new CancellationTokenSource();
+                ConsoleCancelEventHandler handler = (_, eventArgs) =>
+                {
+                    eventArgs.Cancel = true;
+                    cancellation.Cancel();
+                };
+                Console.CancelKeyPress += handler;
+                try
+                {
+                    var result = WikipediaReferenceBuilder.Build(cache, destination, cancellation.Token);
+                    output.WriteLine($"DatasetId: {WikipediaReferenceContract.DatasetId}");
+                    output.WriteLine($"DatasetVersion: {WikipediaReferenceContract.DatasetVersion.ToString(CultureInfo.InvariantCulture)}");
+                    output.WriteLine($"Count: {result.SelectedCount.ToString(CultureInfo.InvariantCulture)}");
+                    output.WriteLine($"CandidateLimit: {result.CandidateLimit.ToString(CultureInfo.InvariantCulture)}");
+                    output.WriteLine($"ContentSha256: {result.Manifest.ContentSha256}");
+                    output.WriteLine($"ArtefactSha256: {result.Manifest.ArtefactSha256}");
+                    output.WriteLine($"Output: {result.OutputDirectory}");
+                    return 0;
+                }
+                finally
+                {
+                    Console.CancelKeyPress -= handler;
+                }
             }
             case "inspect":
             case "verify":

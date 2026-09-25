@@ -66,6 +66,75 @@ public sealed class ManifestTests
     }
 
     [Fact]
+    public void Duplicate_dependency_names_are_rejected()
+    {
+        var manifest = CreateManifest(dependencies:
+        [
+            new DataForgeDependencyVersion("Bogus", "35.6.5"),
+            new DataForgeDependencyVersion("Bogus", "35.6.6")
+        ]);
+
+        Assert.Throws<InvalidDataException>(() => DataForgeManifestCodec.Validate(manifest));
+    }
+
+    [Fact]
+    public void Generated_manifests_reject_imported_source_metadata()
+    {
+        var manifest = CreateManifest() with
+        {
+            Source = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["datasetId"] = "foreign-dataset",
+                ["datasetVersion"] = "1"
+            }
+        };
+
+        Assert.Throws<InvalidDataException>(() => DataForgeManifestCodec.Validate(manifest));
+    }
+
+    [Fact]
+    public void Imported_manifests_reject_generated_fields_and_require_dataset_identity()
+    {
+        var imported = CreateImportedManifest();
+
+        Assert.Throws<InvalidDataException>(() => DataForgeManifestCodec.Validate(imported with { ProfileId = "profile" }));
+        Assert.Throws<InvalidDataException>(() => DataForgeManifestCodec.Validate(imported with { ProfileVersion = 1 }));
+        Assert.Throws<InvalidDataException>(() => DataForgeManifestCodec.Validate(imported with { Seed = 42 }));
+        Assert.Throws<InvalidDataException>(() => DataForgeManifestCodec.Validate(imported with
+        {
+            Parameters = [new DataForgeParameter("unexpected", "value")]
+        }));
+        Assert.Throws<InvalidDataException>(() => DataForgeManifestCodec.Validate(imported with
+        {
+            Source = new Dictionary<string, string>(StringComparer.Ordinal) { ["datasetVersion"] = "1" }
+        }));
+        Assert.Throws<InvalidDataException>(() => DataForgeManifestCodec.Validate(imported with
+        {
+            Source = new Dictionary<string, string>(StringComparer.Ordinal) { ["datasetId"] = "dataset" }
+        }));
+    }
+
+    [Fact]
+    public void Strictly_validated_imported_manifest_round_trips_canonically()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "dataforge-imported-manifest-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var bytes = DataForgeManifestCodec.ToCanonicalBytes(CreateImportedManifest());
+            File.WriteAllBytes(path, bytes);
+            var manifest = DataForgeManifestCodec.Read(path);
+
+            Assert.Equal(DataForgeSourceKind.Imported, manifest.SourceKind);
+            Assert.Equal(bytes, DataForgeManifestCodec.ToCanonicalBytes(manifest));
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Generation_options_enforce_count_and_parameter_utf8_bounds()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new DataForgeGenerationOptions(1, 0));
@@ -93,4 +162,18 @@ public sealed class ManifestTests
             Hash,
             [],
             Source: null);
+
+    private static DataForgeManifest CreateImportedManifest() => CreateManifest() with
+    {
+        SourceKind = DataForgeSourceKind.Imported,
+        ProfileId = null,
+        ProfileVersion = null,
+        Seed = null,
+        Parameters = [],
+        Source = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["datasetId"] = "dataset",
+            ["datasetVersion"] = "1"
+        }
+    };
 }
