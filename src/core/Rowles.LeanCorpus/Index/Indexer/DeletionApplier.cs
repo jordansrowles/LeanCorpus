@@ -10,7 +10,7 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
 /// Applies pending deletions to segment live-docs bitmaps.
-/// All methods are static — operates on parameters only, no coupling back to <see cref="IndexWriter"/>.
+/// All methods are static and operate on parameters only, with no coupling back to <see cref="IndexWriter"/>.
 /// </summary>
 internal static class DeletionApplier
 {

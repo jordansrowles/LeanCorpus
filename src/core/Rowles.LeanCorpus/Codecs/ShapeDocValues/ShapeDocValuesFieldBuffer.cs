@@ -143,9 +143,3 @@ internal sealed class ShapeDocValuesFieldBuffer : IDisposable
         _rawRecords?.Clear();
     }
 }
-
-internal readonly record struct ShapeDocValuesRecord(
-    int DocumentId,
-    int ByteOffset,
-    int PrimitiveCount,
-    uint ValueCount);

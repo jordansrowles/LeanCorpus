@@ -1,5 +1,6 @@
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Aggregations;
 using Rowles.LeanCorpus.Search.Geo;
 using Rowles.LeanCorpus.Search.Queries;
@@ -251,6 +252,54 @@ public sealed class SpatialAggregationTests : IDisposable
             10,
             TestContext.Current.CancellationToken);
         Assert.Equal(1, relationHits.TotalHits);
+    }
+
+    [Fact(DisplayName = "Shape aggregations treat a fully deleted merged field as empty input")]
+    public void ShapeAggregations_FullyDeletedFieldAfterForceMergeReturnsEmptyResults()
+    {
+        using (var writer = new IndexWriter(
+            new MMapDirectory(_directoryPath),
+            new IndexWriterConfig { MaxBufferedDocs = 1, MergePolicy = NoMergePolicy.Instance }))
+        {
+            var deletedShape = new LeanDocument();
+            deletedShape.Add(new StringField("id", "deleted-shape"));
+            deletedShape.Add(new LatLonShapeField("area", new GeoRectangle(-1, -2, 3, 4)));
+            writer.AddDocument(deletedShape);
+            writer.Commit();
+
+            var survivor = new LeanDocument();
+            survivor.Add(new StringField("id", "survivor"));
+            writer.AddDocument(survivor);
+            writer.Commit();
+
+            writer.DeleteDocuments(new TermQuery("id", "deleted-shape"));
+            writer.Commit();
+            writer.ForceMerge(1);
+        }
+
+        using var searcher = new IndexSearcher(new MMapDirectory(_directoryPath));
+        SegmentReader mergedSegment = Assert.Single(searcher.GetSegmentReaders());
+        Assert.Contains(mergedSegment.Info.SpatialFields, static field => field.FieldName == "area" && field.Kind == SpatialFieldKind.GeoShape);
+        Assert.False(mergedSegment.TryGetPackedBkdFieldMetadata("area", out _));
+        Assert.False(mergedSegment.TryGetShapeDocValuesFieldMetadata("area", out _));
+
+        var (hits, results) = searcher.SearchWithAggregations(
+            new TermQuery("id", "survivor"),
+            10,
+            [
+                new GeoCentroidAggregationRequest("centre", "area"),
+                new GeoBoundsAggregationRequest("bounds", "area"),
+            ],
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, hits.TotalHits);
+        GeoCentroidAggregationResult centroid = Assert.IsType<GeoCentroidAggregationResult>(results[0]);
+        Assert.Null(centroid.Centroid);
+        Assert.Null(centroid.Dimension);
+        Assert.Equal(0, centroid.ContributingDocumentCount);
+        GeoBoundsAggregationResult bounds = Assert.IsType<GeoBoundsAggregationResult>(results[1]);
+        Assert.Null(bounds.Bounds);
+        Assert.Equal(0, bounds.ContributingDocumentCount);
     }
 
     [Fact(DisplayName = "Empty typed spatial aggregations return named empty results")]

@@ -44,6 +44,12 @@ public sealed partial class SegmentReader
         lease.State.ValidateShapeDocValuesChecksum();
     }
 
+    internal void ValidateShapeDocValuesRecord(string field, int documentId)
+    {
+        using var lease = AcquireReadLease();
+        lease.State.ValidateShapeDocValuesRecord(field, documentId);
+    }
+
     internal void DeepValidateShapeDocValues()
     {
         using var lease = AcquireReadLease();

@@ -84,6 +84,12 @@ internal sealed class ShapeDocValuesReader : IDisposable
     {
         ArgumentNullException.ThrowIfNull(fieldName);
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!_directory.ContainsKey(fieldName))
+        {
+            metadata = default;
+            return false;
+        }
+
         ShapeDocValuesFieldMetadata field = GetFieldMetadata(fieldName);
         if ((uint)documentId >= (uint)field.MaxDoc || field.RecordCount == 0)
         {
@@ -194,6 +200,30 @@ internal sealed class ShapeDocValuesReader : IDisposable
         {
             throw new InvalidDataException("Shape DocValues source checksum validation failed during merge.", exception);
         }
+    }
+
+    /// <summary>Validates one record's component tree without scanning other records in the file.</summary>
+    internal void ValidateRecordSemantics(string fieldName, int documentId)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!TryGetRecordMetadata(fieldName, documentId, out ShapeDocValuesRecordMetadata record))
+            throw new InvalidDataException(
+                $"Shape DocValues record for field '{fieldName}' and document {documentId} is not present.");
+
+        ShapeDocValuesFieldMetadata field = GetFieldMetadata(fieldName);
+        using IndexInput section = OpenFieldInput(field);
+        long treeStart = checked(record.RecordOffset + RecordHeaderLength);
+        long treeEnd = checked(treeStart + record.TreeLength);
+        NodeValidationSummary summary = TraverseNode(
+            section,
+            treeStart,
+            treeEnd,
+            depth: 0,
+            field.Kind,
+            record.ValueCount,
+            static _ => { });
+        if (summary.NodeLength != record.TreeLength || summary.PrimitiveCount != record.PrimitiveCount)
+            throw new InvalidDataException("Shape DocValues component tree length or primitive count does not match its record header.");
     }
 
     internal byte[] ReadRecordBytes(string fieldName, int documentId)
@@ -676,32 +706,3 @@ internal sealed class ShapeDocValuesReader : IDisposable
     private readonly record struct NodeBounds(uint MinimumD0, uint MinimumD1, uint MaximumD2, uint MaximumD3);
     private readonly record struct NodeValidationSummary(int NodeLength, int PrimitiveCount, NodeBounds Bounds);
 }
-
-internal readonly record struct ShapeDocValuesFieldMetadata(
-    string FieldName,
-    SpatialFieldKind Kind,
-    int MaxDoc,
-    int RecordCount,
-    long SectionOffset,
-    long SectionLength,
-    long RecordDirectoryOffset);
-
-internal readonly record struct ShapeDocValuesRecordMetadata(
-    uint DocumentId,
-    long RecordOffset,
-    uint RecordLength,
-    uint ValueCount,
-    uint PrimitiveCount,
-    SpatialDimension HighestDimension,
-    byte Flags,
-    uint Bound0,
-    uint Bound1,
-    uint Bound2,
-    uint Bound3,
-    uint Bound4,
-    uint Bound5,
-    double Accumulator0,
-    double Accumulator1,
-    double Accumulator2,
-    double Weight,
-    int TreeLength);

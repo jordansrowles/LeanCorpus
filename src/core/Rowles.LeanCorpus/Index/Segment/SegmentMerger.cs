@@ -459,6 +459,7 @@ public sealed class SegmentMerger
                 {
                     if (!reader.TryGetShapeDocValuesRecordMetadata(shapeFieldName, oldDocId, out ShapeDocValuesRecordMetadata record))
                         continue;
+                    reader.ValidateShapeDocValuesRecord(shapeFieldName, oldDocId);
                     byte[] rawRecord = reader.ReadShapeDocValuesRecordBytes(shapeFieldName, oldDocId);
                     ctx.ShapeDocValuesFields[shapeFieldName].AppendRawRecord(
                         remapDocId,

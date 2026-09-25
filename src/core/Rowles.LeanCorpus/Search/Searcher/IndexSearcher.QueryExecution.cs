@@ -44,7 +44,7 @@ public sealed partial class IndexSearcher
     {
         var clauses = bq.Clauses;
 
-        // Compute global DFs inline — one pass over readers per unique term
+        // Compute global DFs inline, with one pass over readers per unique term.
         var globalDFs = new Dictionary<(string Field, string Term), int>(clauses.Count);
         foreach (var clause in clauses)
         {
@@ -426,7 +426,7 @@ public sealed partial class IndexSearcher
 
             if (mustCount > 0)
             {
-                // Sort Must enums by DocFreq ascending — rarest term leads
+                // Sort Must enums by DocFreq ascending, so the rarest term leads.
                 int leaderIdx = 0;
                 for (int i = 1; i < mustCount; i++)
                 {

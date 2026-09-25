@@ -63,6 +63,15 @@ internal sealed partial class SegmentReaderState
     internal void ValidateShapeDocValuesChecksum()
         => EnsureShapeDocValuesReader()?.ValidateChecksum();
 
+    internal void ValidateShapeDocValuesRecord(string field, int documentId)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        ShapeDocValuesReader? reader = EnsureShapeDocValuesReader();
+        if (reader is null)
+            throw new InvalidDataException("Shape DocValues file is not present during record validation.");
+        reader.ValidateRecordSemantics(field, documentId);
+    }
+
     internal void DeepValidateShapeDocValues()
         => EnsureShapeDocValuesReader()?.DeepValidate();
 

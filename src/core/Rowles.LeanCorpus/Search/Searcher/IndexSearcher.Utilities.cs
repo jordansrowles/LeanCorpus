@@ -611,7 +611,7 @@ public sealed partial class IndexSearcher
                     entry.Term.AsSpan().CopyTo(buf.AsSpan(fieldLen + 1));
                     ReadOnlySpan<char> qt = buf.AsSpan(0, qtLen);
                     string qtStr = new string(buf, 0, qtLen);
-                    // Fast path: MinDocFreq <= 1 with multiple segments — use local
+                    // Fast path: MinDocFreq <= 1 with multiple segments; use local
                     // segment's docFreq scaled by segment count as an IDF approximation.
                     if (p.MinDocFreq <= 1 && segmentCount > 1)
                     {

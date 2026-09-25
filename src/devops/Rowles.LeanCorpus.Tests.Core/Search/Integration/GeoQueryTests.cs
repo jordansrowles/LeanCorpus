@@ -255,7 +255,7 @@ public sealed class GeoQueryTests : IDisposable
         var dir = new MMapDirectory(_dir);
         using var searcher = new IndexSearcher(dir);
 
-        // 400km radius from London — should include London, possibly Paris (~340km)
+        // 400km radius from London should include London, possibly Paris (~340km).
         var query = new GeoDistanceQuery("location", 51.5074, -0.1278, 400_000.0);
         var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
@@ -290,7 +290,7 @@ public sealed class GeoQueryTests : IDisposable
         var dir = new MMapDirectory(_dir);
         using var searcher = new IndexSearcher(dir);
 
-        // 10,000km radius from centre of Atlantic — should reach London/Paris/NY
+        // 10,000km radius from centre of Atlantic should reach London, Paris and New York.
         var query = new GeoDistanceQuery("location", 45.0, -30.0, 10_000_000.0);
         var results = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 

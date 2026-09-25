@@ -596,7 +596,7 @@ public sealed partial class IndexSearcher
         }
 
         // Extract leading literal prefix before the first wildcard to narrow FST subtree.
-        // Only use prefix narrowing when the prefix is at least 2 characters — for 1-char
+        // Only use prefix narrowing when the prefix is at least 2 characters. For 1-char
         // prefixes the FST subtree is too broad and the filtering overhead dominates.
         var leadingPrefix = GetLeadingLiteralPrefix(query.Pattern);
         bool usePrefixNarrowing = leadingPrefix.Length >= 2;
@@ -772,7 +772,7 @@ public sealed partial class IndexSearcher
             char c = pattern[end];
             if (c == '\\')
             {
-                // Escaped character — consume the backslash and add the next char literally.
+                // Escaped character: consume the backslash and add the next char literally.
                 end++;
                 if (end < pattern.Length)
                     end++;
@@ -959,7 +959,7 @@ public sealed partial class IndexSearcher
             return;
         }
 
-        // Fallback: full FST enumeration with regex filter (expensive — only for complex patterns).
+        // Fallback: full FST enumeration with regex filter (expensive, only for complex patterns).
         var matchingTerms = reader.GetTermsMatchingRegex(fieldPrefix, regex);
         if (matchingTerms.Count == 0) return;
         ExecuteRegexpFromCandidates(query, reader, ref collector, matchingTerms, fieldPrefix, regex);

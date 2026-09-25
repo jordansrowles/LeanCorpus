@@ -12,9 +12,12 @@ public sealed class LayeringTests
         .ResideInNamespaceMatching(@"^Rowles\.LeanCorpus\.Store(\.|$)")
         .As("Store types");
 
-    private static readonly IObjectProvider<IType> Codecs = Types().That()
-        .ResideInNamespaceMatching(@"^Rowles\.LeanCorpus\.Codecs(\.|$)")
-        .As("codec types");
+    // ADR035's Shape DocValues codec persists the same spatial primitives and
+    // field metadata used by indexing and search, so its namespace is the one
+    // deliberate exception to the otherwise independent codec layer.
+    private static readonly IObjectProvider<IType> NonSpatialCodecs = Types().That()
+        .ResideInNamespaceMatching(@"^Rowles\.LeanCorpus\.Codecs(?!\.ShapeDocValues(?:\.|$))(\.|$)")
+        .As("non-spatial codec types");
 
     private static readonly IObjectProvider<IType> Search = Types().That()
         .ResideInNamespaceMatching(@"^Rowles\.LeanCorpus\.Search(\.|$)")
@@ -43,13 +46,13 @@ public sealed class LayeringTests
     [Fact]
     public void Codecs_must_not_depend_on_Search()
     {
-        Types().That().Are(Codecs).Should().NotDependOnAny(Search).Check(ArchitectureContext.Core);
+        Types().That().Are(NonSpatialCodecs).Should().NotDependOnAny(Search).Check(ArchitectureContext.Core);
     }
 
     [Fact]
     public void Codecs_must_not_depend_on_Index()
     {
-        Types().That().Are(Codecs).Should().NotDependOnAny(Index).Check(ArchitectureContext.Core);
+        Types().That().Are(NonSpatialCodecs).Should().NotDependOnAny(Index).Check(ArchitectureContext.Core);
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 using System.Globalization;
 using Rowles.LeanCorpus.Search.Geo;
 using Rowles.LeanCorpus.Search.Spatial;
+using Rowles.LeanCorpus.Search.Spatial.Internal;
 using Rowles.LeanCorpus.Search.XY;
 
 namespace Rowles.LeanCorpus.Tests.Core.Search.Spatial;
@@ -59,7 +60,7 @@ public sealed class WktAndSimplifierTests
         Assert.All(xyPolygons.Geometries, static geometry => Assert.IsType<XYPolygon>(geometry));
     }
 
-    [Fact(DisplayName = "WKT writer emits deterministic round-trip text and rectangles as polygons")]
+    [Fact(DisplayName = "WKT writer emits deterministic round-trip text and dimension-specific rectangles")]
     public void WktWriter_WritesCanonicalInvariantGeometry()
     {
         GeoPolygon polygon = Assert.IsType<GeoPolygon>(WktReader.ParseGeo(
@@ -80,6 +81,106 @@ public sealed class WktAndSimplifierTests
         string xyRectangleText = WktWriter.Write(new XYRectangle(-2, -1, 3, 4));
         Assert.StartsWith("POLYGON (", xyRectangleText, StringComparison.Ordinal);
         Assert.IsType<XYPolygon>(WktReader.ParseXY(xyRectangleText));
+    }
+
+    [Fact(DisplayName = "WKT writer covers degenerate, dateline and full-world Geo and XY rectangles")]
+    public void WktWriter_RoundTripsEveryRectangleDimension()
+    {
+        Assert.IsType<GeoPoint>(WktReader.ParseGeo(WktWriter.Write(new GeoRectangle(4, 12, 4, 12))));
+        Assert.IsType<GeoLineString>(WktReader.ParseGeo(WktWriter.Write(new GeoRectangle(-2, 12, 4, 12))));
+        Assert.IsType<GeoLineString>(WktReader.ParseGeo(WktWriter.Write(new GeoRectangle(1, 170, 1, -170))));
+        Assert.IsType<GeoPolygon>(WktReader.ParseGeo(WktWriter.Write(new GeoRectangle(-2, -3, 4, 5))));
+        Assert.IsType<GeoPolygon>(WktReader.ParseGeo(WktWriter.Write(new GeoRectangle(-1, 179, 1, -179))));
+
+        GeoPolygon fullWorld = Assert.IsType<GeoPolygon>(
+            WktReader.ParseGeo(WktWriter.Write(new GeoRectangle(-10, -180, 10, 180))));
+        Assert.True(fullWorld.Shell.Count >= 10);
+
+        Assert.IsType<GeoPoint>(WktReader.ParseGeo(WktWriter.Write(new GeoRectangle(0, 180, 0, -180))));
+        Assert.IsType<GeoLineString>(WktReader.ParseGeo(WktWriter.Write(new GeoRectangle(0, -180, 0, 180))));
+
+        Assert.IsType<XYPoint>(WktReader.ParseXY(WktWriter.Write(new XYRectangle(2, 3, 2, 3))));
+        Assert.IsType<XYLineString>(WktReader.ParseXY(WktWriter.Write(new XYRectangle(2, -1, 2, 4))));
+        Assert.IsType<XYLineString>(WktReader.ParseXY(WktWriter.Write(new XYRectangle(-2, 3, 5, 3))));
+        Assert.IsType<XYPolygon>(WktReader.ParseXY(WktWriter.Write(new XYRectangle(-2, -1, 3, 4))));
+
+        foreach (var rectangle in new[]
+                 {
+                     new GeoRectangle(4, 12, 4, 12),
+                     new GeoRectangle(-2, 12, 4, 12),
+                     new GeoRectangle(1, 170, 1, -170),
+                     new GeoRectangle(-2, -3, 4, 5),
+                     new GeoRectangle(-1, 179, 1, -179),
+                     new GeoRectangle(-10, -180, 10, 180),
+                     new GeoRectangle(0, -180, 0, 180),
+                 })
+            AssertGeoSpatiallyEquivalent(rectangle);
+
+        foreach (var rectangle in new[]
+                 {
+                     new XYRectangle(2, 3, 2, 3),
+                     new XYRectangle(2, -1, 2, 4),
+                     new XYRectangle(-2, 3, 5, 3),
+                     new XYRectangle(-2, -1, 3, 4),
+                 })
+            AssertXYSpatiallyEquivalent(rectangle);
+    }
+
+    private static void AssertGeoSpatiallyEquivalent(GeoRectangle rectangle)
+    {
+        var parsed = WktReader.ParseGeo(WktWriter.Write(rectangle));
+        var originalQuery = PreparedShapeQuery.Prepare(new GeoShapeQuery("area", SpatialRelation.Intersects, rectangle));
+        var parsedQuery = PreparedShapeQuery.Prepare(new GeoShapeQuery("area", SpatialRelation.Intersects, parsed));
+        var longitudeSpan = rectangle.East < rectangle.West
+            ? rectangle.East + 360d - rectangle.West
+            : rectangle.East - rectangle.West;
+        var centreLongitude = rectangle.West + longitudeSpan / 2d;
+        if (centreLongitude > 180d)
+            centreLongitude -= 360d;
+        var centreLatitude = (rectangle.South + rectangle.North) / 2d;
+        var points = new[]
+        {
+            new GeoPoint(rectangle.South, rectangle.West),
+            new GeoPoint(rectangle.North, rectangle.East),
+            new GeoPoint(centreLatitude, centreLongitude),
+            new GeoPoint(0, -180),
+            new GeoPoint(0, -90),
+            new GeoPoint(0, 0),
+            new GeoPoint(0, 90),
+            new GeoPoint(0, 180),
+        };
+
+        foreach (var point in points)
+        {
+            var vertex = new ShapeVertex(point.Longitude, point.Latitude);
+            Assert.Equal(originalQuery.Contains(vertex), parsedQuery.Contains(vertex));
+            var envelope = new SpatialEnvelope(point.Longitude - 0.1, point.Latitude - 0.1,
+                point.Longitude + 0.1, point.Latitude + 0.1);
+            Assert.Equal(originalQuery.IsOutside(envelope), parsedQuery.IsOutside(envelope));
+        }
+    }
+
+    private static void AssertXYSpatiallyEquivalent(XYRectangle rectangle)
+    {
+        var parsed = WktReader.ParseXY(WktWriter.Write(rectangle));
+        var originalQuery = PreparedShapeQuery.Prepare(new XYShapeQuery("area", SpatialRelation.Intersects, rectangle));
+        var parsedQuery = PreparedShapeQuery.Prepare(new XYShapeQuery("area", SpatialRelation.Intersects, parsed));
+        var points = new[]
+        {
+            new XYPoint(rectangle.MinX, rectangle.MinY),
+            new XYPoint(rectangle.MaxX, rectangle.MaxY),
+            new XYPoint((rectangle.MinX + rectangle.MaxX) / 2f, (rectangle.MinY + rectangle.MaxY) / 2f),
+            new XYPoint(rectangle.MinX - 1, rectangle.MinY - 1),
+            new XYPoint(rectangle.MaxX + 1, rectangle.MaxY + 1),
+        };
+
+        foreach (var point in points)
+        {
+            var vertex = new ShapeVertex(point.X, point.Y);
+            Assert.Equal(originalQuery.Contains(vertex), parsedQuery.Contains(vertex));
+            var envelope = new SpatialEnvelope(point.X - 0.1, point.Y - 0.1, point.X + 0.1, point.Y + 0.1);
+            Assert.Equal(originalQuery.IsOutside(envelope), parsedQuery.IsOutside(envelope));
+        }
     }
 
     [Fact(DisplayName = "WKT numbers remain invariant under a comma-decimal culture")]

@@ -4,7 +4,7 @@ namespace Rowles.LeanCorpus.Diagnostics;
 
 /// <summary>
 /// Shared <see cref="ActivitySource"/> for LeanCorpus instrumentation.
-/// Activities are only allocated when a listener is attached — zero overhead otherwise.
+/// Activities are only allocated when a listener is attached; zero overhead otherwise.
 /// </summary>
 internal static class LeanCorpusActivitySource
 {

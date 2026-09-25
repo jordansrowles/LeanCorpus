@@ -250,6 +250,97 @@ public sealed class SpatialShapeFieldTests
         }
     }
 
+    [Fact(DisplayName = "Force merge rejects checksum-valid corrupt Shape DocValues trees and preserves the commit")]
+    public void ForceMerge_RejectsSemanticShapeDocValuesCorruptionWithoutPublishing()
+    {
+        string directoryPath = CreateDirectoryPath();
+        try
+        {
+            using var directory = new MMapDirectory(directoryPath);
+            using (var writer = new IndexWriter(directory, new IndexWriterConfig
+            {
+                MaxBufferedDocs = 1,
+                MergePolicy = NoMergePolicy.Instance,
+                UseCompoundFile = false,
+            }))
+            {
+                writer.AddDocument(CreateGeoDocument("shape", new GeoRectangle(-1, 170, 2, 179)));
+                var plain = new LeanDocument();
+                plain.Add(new StringField("id", "plain"));
+                writer.AddDocument(plain);
+                writer.Commit();
+            }
+
+            string[] sourceSegments = Directory.GetFiles(directoryPath, "seg_*.seg")
+                .Select(SegmentInfo.ReadFrom)
+                .Select(static segment => segment.SegmentId)
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+            Assert.Equal(2, sourceSegments.Length);
+
+            string shapeDocValuesPath = Assert.Single(Directory.GetFiles(directoryPath, "*.dvg"));
+            byte[] rawRecord;
+            ShapeDocValuesRecordMetadata record;
+            using (ShapeDocValuesReader reader = ShapeDocValuesReader.Open(shapeDocValuesPath))
+            {
+                reader.ValidateChecksum();
+                Assert.True(reader.TryGetRecordMetadata("area", 0, out record));
+                rawRecord = reader.ReadRecordBytes("area", 0);
+            }
+
+            rawRecord[72 + 8] ^= 0x01;
+            string replacementPath = shapeDocValuesPath + ".replacement";
+            using (var field = new ShapeDocValuesFieldBuffer("area", SpatialFieldKind.GeoShape))
+            {
+                field.AppendRawRecord(0, record.ValueCount, record.PrimitiveCount, rawRecord);
+                ShapeDocValuesWriter.Write(replacementPath, maxDoc: 1, new Dictionary<string, ShapeDocValuesFieldBuffer>
+                {
+                    [field.FieldName] = field,
+                });
+            }
+            using (ShapeDocValuesReader corrupt = ShapeDocValuesReader.Open(replacementPath))
+            {
+                corrupt.ValidateChecksum();
+                Assert.Throws<InvalidDataException>(() => corrupt.ValidateRecordSemantics("area", 0));
+            }
+            File.Copy(replacementPath, shapeDocValuesPath, overwrite: true);
+            File.Delete(replacementPath);
+
+            using (var writer = new IndexWriter(directory, new IndexWriterConfig
+            {
+                MergePolicy = NoMergePolicy.Instance,
+                UseCompoundFile = false,
+            }))
+            {
+                Assert.Throws<InvalidDataException>(() => writer.ForceMerge(1));
+                Assert.Equal(
+                    sourceSegments,
+                    writer.GetNrtSegments()
+                        .Select(static segment => segment.SegmentId)
+                        .Order(StringComparer.Ordinal)
+                        .ToArray());
+                Assert.Empty(Directory.GetDirectories(directoryPath, ".merge-*"));
+            }
+
+            using var reopened = new IndexSearcher(directory, new IndexSearcherConfig { ParallelSearch = false });
+            Assert.Equal(2, reopened.GetSegmentReaders().Count);
+            Assert.Equal(1, reopened.Search(new TermQuery("id", "shape"), 10, TestContext.Current.CancellationToken).TotalHits);
+            Assert.Equal(1, reopened.Search(new TermQuery("id", "plain"), 10, TestContext.Current.CancellationToken).TotalHits);
+        }
+        finally
+        {
+            TestDirectoryFixture.TryDeleteDirectory(directoryPath);
+        }
+    }
+
+    private static LeanDocument CreateGeoDocument(string id, GeoRectangle shape)
+    {
+        var document = new LeanDocument();
+        document.Add(new StringField("id", id));
+        document.Add(new LatLonShapeField("area", shape));
+        return document;
+    }
+
     private static LeanDocument CreateDocument(string id, params XYRectangle[] shapes)
     {
         var document = new LeanDocument();

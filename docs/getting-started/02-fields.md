@@ -5,11 +5,11 @@ Built-in field types implement `IField`.
 | Type | Indexed | Stored | Use |
 |---|---|---|---|
 | `TextField` | yes (analysed) | opt-in | Body text, tokenised and analysed |
-| `StringField` | yes (whole value) | opt-in | Identifiers, tags, enums — not analysed |
-| `NumericField` | yes (BKD point) | opt-in | Long, double, etc. — range queries |
+| `StringField` | yes (whole value) | opt-in | Identifiers, tags and enums: not analysed |
+| `NumericField` | yes (BKD point) | opt-in | Long, double, etc.: range queries |
 | `VectorField` | indexed via `.vec` | flat `.vec` file | Dense float vectors for ANN |
 | `BinaryField` | doc-values backed | yes | Raw byte arrays |
-| `StoredField` | values-only | yes | String, int, long, double — retrieval only |
+| `StoredField` | values-only | yes | String, int, long and double: retrieval only |
 | `GeoPointField` | yes (Packed BKD and compatibility fields) | yes | Latitude/longitude filters and distance sorts |
 | `XYPointField` | yes (Packed BKD) | no | Cartesian point filters and distance sorts; point DocValues are always written |
 | `LatLonShapeField` | yes (Packed BKD) | no | Geographic points, lines, rectangles, polygons and collections |

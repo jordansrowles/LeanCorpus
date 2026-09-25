@@ -172,6 +172,38 @@ public sealed class ShapeDocValuesReaderTests
         }
     }
 
+    [Fact(DisplayName = "Record validation rejects checksum-valid semantic tree corruption")]
+    public void Reader_ValidatesOneChecksumValidRecordTree()
+    {
+        string path = GetPath();
+        string rewrittenPath = path + ".rewritten";
+        try
+        {
+            WriteSinglePointField(path);
+            byte[] rawRecord;
+            using (ShapeDocValuesReader reader = ShapeDocValuesReader.Open(path))
+                rawRecord = reader.ReadRecordBytes("shape", 0);
+
+            rawRecord[72 + 8] ^= 0x01;
+            using var field = new ShapeDocValuesFieldBuffer("shape", SpatialFieldKind.XYShape);
+            field.AppendRawRecord(0, valueCount: 1, primitiveCount: 1, rawRecord);
+            ShapeDocValuesWriter.Write(rewrittenPath, maxDoc: 1, new Dictionary<string, ShapeDocValuesFieldBuffer>
+            {
+                [field.FieldName] = field,
+            });
+            File.Move(rewrittenPath, path, overwrite: true);
+
+            using ShapeDocValuesReader corruptReader = ShapeDocValuesReader.Open(path);
+            corruptReader.ValidateChecksum();
+            Assert.Throws<InvalidDataException>(() => corruptReader.ValidateRecordSemantics("shape", 0));
+        }
+        finally
+        {
+            DeleteFile(path);
+            DeleteFile(rewrittenPath);
+        }
+    }
+
     [Fact(DisplayName = "Shape DocValues rejects truncated frames and checksum mismatches")]
     public void Reader_RejectsTruncatedFramesAndChecksumMismatches()
     {

@@ -10,12 +10,11 @@
 - Added typed Geo and XY distance sort factories, with origin-aware invariant search-session cursor identities.
 - Added DocValues-backed Geo and XY distance sorting with multi-value minima, deterministic ties, missing-value ordering, and SearchAfter/session support.
 - Added best-first Packed BKD Top-N for eligible ascending Geo/XY distance sorts, with conservative cell lower bounds, constant-score filter bitmap reuse, and exact fallback scans for legacy Geo segments.
-- Added a spatial nearest benchmark matrix comparing exact sorting with best-first Geo/XY Top-N across uniform, clustered and multi-value points, Top-N sizes and filter selectivity, recording Packed BKD traversal counters and packed-only versus mixed legacy/packed Geo overhead.
 
 ### Changed
 
 - Apply queued deletes through logical segment members so compound segments can be deleted and updated without unpacking their `.dic` and `.pos` files.
-- Set Core package, assembly and file versions to `3.2.0` for the Sprint 2 release.
+- Set Core package, assembly and file versions to `3.2.0`.
 - Use the existing indexed latitude range to select candidates for single-valued packed Geo distance queries, while retaining exact Haversine checks and packed/mixed fallbacks.
 - Added construction-time `IndexingConcurrency` configuration and explicit concurrent async bulk ingestion for the Core writer, and made concurrent bulk ingestion use bounded producers through the normal DWPT pipeline.
 - Made concurrent indexing ownership explicit for analyser components across maintained built-ins, consolidated automatic DWPT flushing, and now account for active and detached flush-buffer retention separately.
@@ -26,11 +25,10 @@
 - Streamed postings and FST term bytes directly from detached snapshots, and moved index-sort remapping to one-term pooled scratch while preserving positions, payloads, offsets and term vectors.
 - Hardened postings-arena logical read bounds, removed managed metadata per slice, and maintained O(1) owned-capacity posting memory accounting.
 - Pooled high-cardinality flush term-ID and posting-offset scratch, and reused the normal positional decode/materialisation pass for term vectors, including index-sorted flushes.
-- Completed physical flush execution now releases its detached snapshot graph before ordered publication, while deterministic writer lifecycle coverage removes throughput-sensitive shutdown coordination tests.
+- Completed physical flush execution now releases its detached snapshot graph before ordered publication.
 - Hardened Packed BKD v1 reader bounds, semantic validation, deterministic spill cleanup and DWPT capacity accounting without changing the on-disk format.
 - Made Packed BKD open read only its tail directory, selected raw leaves on exact prefix-size ties, accounted actual rented build capacity, and added observer-only build and traversal telemetry.
 - Renamed spatial configuration and longitude-normalisation APIs to `Point2D()`, `Shape7D4Indexed()` and `NormaliseLongitude()` while preserving the Packed BKD v1 file format.
-- Made DevOps managed test target resolution disable MSBuild servers and use single-node evaluation, while pinning the selected SDK host for task-host reliability.
 - Segment ordinals now use one atomic allocator across detached flush, merge, force-merge, and imported-index paths. Detached flushing also sorts compact term IDs directly against its owned UTF-8 pool rather than allocating per-term byte arrays.
 - Reduced repeated `OperationDrain` entry in postings decoding by grouping multi-read decoder work under `BeginReadSession()`, improving representative real-query throughput on Windows and Linux. (c837dbb94, #75)
 
@@ -42,11 +40,7 @@
   hole relationships in one unwrapped world and on the quantised grid, promoted
   XY topology calculations to `double`, and canonicalised signed zero encoding.
 - Reduced retained Packed BKD build metadata to one contiguous leaf-data stream
-  and stack-based recursive validation scratch, while expanding generated
-  lifecycle and corruption coverage.
-- Added a replayable Geo/XY state-machine model, NRT snapshot coverage,
-  interrupted packed-point flush recovery, mixed legacy fallback with a corrupt
-  packed segment, and nearest-search corruption/cancellation cleanup coverage.
+  and stack-based recursive validation scratch.
 - Corrected Packed BKD field-name ordering for prefix and Unicode names, and
   rejected incompatible or checksum-corrupt source files before merge rewrites.
 - Kept Packed BKD root metadata read-only, documented the separate public 1D
@@ -68,8 +62,9 @@
 - Corrected multi-segment search result merging so Boolean and generic parallel paths preserve exact total-hit counts and global top-N document IDs, including block-max WAND execution. (6925d748d, 2cc3b4fa5, #75)
 - Cleared pooled stored-field writer scratch before use so previous search activity cannot silently omit fields from newly written segments. (f58ac6c44)
 - Released the writer lock when incompatible index metadata aborts `IndexWriter` construction, preventing Windows test-directory cleanup failures. (60b6735ea, #86)
-- Synchronised merge-throttling segment inspection with background merge publication without nesting writer and merge locks, and made background-refresh coverage scheduler-friendly under stress execution. (cc3dc2aa5, 34a3c69bd, #86)
-- Added structured terminal file-move and cleanup diagnostics, including paths, HRESULT, retry count, and elapsed time, and deterministically disposed the merge regression directory. (016a50aa6, #86)
+- Synchronised merge-throttling segment inspection with background merge publication without nesting writer and merge locks. (cc3dc2aa5, 34a3c69bd, #86)
+- Added structured terminal file-move and cleanup diagnostics, including paths, HRESULT, retry count, and elapsed time. (016a50aa6, #86)
+- Fixed merge validation for Shape DocValues component trees, empty spatial aggregations after shape deletion, and WKT output for degenerate Geo and XY rectangles and Geo rectangles spanning longitude -180 to 180.
 
 ### Removed
 

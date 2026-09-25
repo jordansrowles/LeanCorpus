@@ -43,13 +43,7 @@ public static class WktWriter
                 AppendGeoPolygon(builder, polygon);
                 break;
             case GeoRectangle rectangle:
-                AppendGeoPolygon(builder, new GeoPolygon(
-                [
-                    new GeoPoint(rectangle.South, rectangle.West),
-                    new GeoPoint(rectangle.South, rectangle.East),
-                    new GeoPoint(rectangle.North, rectangle.East),
-                    new GeoPoint(rectangle.North, rectangle.West),
-                ]));
+                AppendGeoRectangle(builder, rectangle);
                 break;
             case GeoGeometryCollection collection:
                 builder.Append("GEOMETRYCOLLECTION (");
@@ -85,13 +79,7 @@ public static class WktWriter
                 AppendXYPolygon(builder, polygon);
                 break;
             case XYRectangle rectangle:
-                AppendXYPolygon(builder, new XYPolygon(
-                [
-                    new XYPoint(rectangle.MinX, rectangle.MinY),
-                    new XYPoint(rectangle.MaxX, rectangle.MinY),
-                    new XYPoint(rectangle.MaxX, rectangle.MaxY),
-                    new XYPoint(rectangle.MinX, rectangle.MaxY),
-                ]));
+                AppendXYRectangle(builder, rectangle);
                 break;
             case XYGeometryCollection collection:
                 builder.Append("GEOMETRYCOLLECTION (");
@@ -119,6 +107,121 @@ public static class WktWriter
             builder.Append(", ");
             AppendGeoCoordinateSequence(builder, hole);
         }
+        builder.Append(')');
+    }
+
+    private static void AppendGeoRectangle(StringBuilder builder, GeoRectangle rectangle)
+    {
+        double longitudeSpan = rectangle.East < rectangle.West
+            ? rectangle.East + 360d - rectangle.West
+            : rectangle.East - rectangle.West;
+        bool zeroWidth = longitudeSpan == 0d;
+        bool zeroHeight = rectangle.South == rectangle.North;
+
+        if (zeroWidth && zeroHeight)
+        {
+            builder.Append("POINT (");
+            AppendCoordinate(builder, rectangle.West, rectangle.South);
+            builder.Append(')');
+            return;
+        }
+
+        if (zeroHeight || zeroWidth)
+        {
+            builder.Append("LINESTRING ");
+            if (zeroWidth)
+            {
+                AppendGeoCoordinateSequence(builder,
+                [
+                    new GeoPoint(rectangle.South, rectangle.West),
+                    new GeoPoint(rectangle.North, rectangle.West),
+                ]);
+            }
+            else
+            {
+                AppendGeoLongitudeLine(builder, rectangle.West, longitudeSpan, rectangle.South);
+            }
+            return;
+        }
+
+        int longitudeSteps = Math.Max(1, (int)Math.Ceiling(longitudeSpan / 90d));
+        double unwrappedEast = rectangle.West + longitudeSpan;
+        builder.Append("POLYGON ((");
+        for (int i = 0; i <= longitudeSteps; i++)
+        {
+            if (i > 0)
+                builder.Append(", ");
+            double longitude = rectangle.West + longitudeSpan * i / longitudeSteps;
+            AppendCoordinate(builder, NormaliseWktLongitude(longitude), rectangle.South);
+        }
+        builder.Append(", ");
+        AppendCoordinate(builder, NormaliseWktLongitude(unwrappedEast), rectangle.North);
+        for (int i = longitudeSteps - 1; i >= 0; i--)
+        {
+            builder.Append(", ");
+            double longitude = rectangle.West + longitudeSpan * i / longitudeSteps;
+            AppendCoordinate(builder, NormaliseWktLongitude(longitude), rectangle.North);
+        }
+        builder.Append(", ");
+        AppendCoordinate(builder, NormaliseWktLongitude(rectangle.West), rectangle.South);
+        builder.Append("))");
+    }
+
+    private static void AppendGeoLongitudeLine(StringBuilder builder, double west, double span, double latitude)
+    {
+        int steps = Math.Max(1, (int)Math.Ceiling(span / 90d));
+        builder.Append('(');
+        for (int i = 0; i <= steps; i++)
+        {
+            if (i > 0)
+                builder.Append(", ");
+            double longitude = west + span * i / steps;
+            AppendCoordinate(builder, NormaliseWktLongitude(longitude), latitude);
+        }
+        builder.Append(')');
+    }
+
+    private static double NormaliseWktLongitude(double longitude)
+    {
+        if (longitude > 180d)
+            longitude -= 360d * Math.Ceiling((longitude - 180d) / 360d);
+        else if (longitude < -180d)
+            longitude += 360d * Math.Ceiling((-180d - longitude) / 360d);
+        return longitude == 0d ? 0d : longitude;
+    }
+
+    private static void AppendXYRectangle(StringBuilder builder, XYRectangle rectangle)
+    {
+        bool zeroWidth = rectangle.MinX == rectangle.MaxX;
+        bool zeroHeight = rectangle.MinY == rectangle.MaxY;
+        if (zeroWidth && zeroHeight)
+        {
+            builder.Append("POINT (");
+            AppendCoordinate(builder, rectangle.MinX, rectangle.MinY);
+            builder.Append(')');
+            return;
+        }
+
+        if (zeroWidth || zeroHeight)
+        {
+            builder.Append("LINESTRING ");
+            AppendXYCoordinateSequence(builder,
+            [
+                new XYPoint(rectangle.MinX, rectangle.MinY),
+                new XYPoint(rectangle.MaxX, rectangle.MaxY),
+            ]);
+            return;
+        }
+
+        builder.Append("POLYGON (");
+        AppendXYCoordinateSequence(builder,
+        [
+            new XYPoint(rectangle.MinX, rectangle.MinY),
+            new XYPoint(rectangle.MaxX, rectangle.MinY),
+            new XYPoint(rectangle.MaxX, rectangle.MaxY),
+            new XYPoint(rectangle.MinX, rectangle.MaxY),
+            new XYPoint(rectangle.MinX, rectangle.MinY),
+        ]);
         builder.Append(')');
     }
 

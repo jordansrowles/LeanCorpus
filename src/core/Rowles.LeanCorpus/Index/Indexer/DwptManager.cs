@@ -8,7 +8,7 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
 /// Manages the DocumentsWriterPerThread pool and concurrent indexing paths.
-/// All methods are static — operates via a single <see cref="IndexWriter"/> parameter.
+/// All methods are static and operate via a single <see cref="IndexWriter"/> parameter.
 /// </summary>
 internal static class DwptManager
 {
