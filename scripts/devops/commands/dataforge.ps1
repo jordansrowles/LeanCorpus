@@ -420,7 +420,7 @@ function Find-DataForgeQualificationRun {
         if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { continue }
         try {
             $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-            $manifestStart = [DateTime]::Parse([string]$manifest.startedAtUtc).ToUniversalTime()
+            $manifestStart = ([DateTime]$manifest.startedAtUtc).ToUniversalTime()
             if ($manifestStart -lt $StartedAtUtc.AddSeconds(-3) -or
                 ([string]$manifest.commandLine).Trim() -ne $CommandText.Trim()) { continue }
             [void]$matches.Add([pscustomobject]@{
