@@ -20,10 +20,10 @@ public class NumericAggregatorSimdBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        var rnd = new Random(42);
+        var rnd = BenchmarkDeterministicRandom.Create("benchmark/numeric-aggregator/values");
         _data = new double[SpanLength];
         for (int i = 0; i < _data.Length; i++)
-            _data[i] = rnd.NextDouble() * 1000 - 500;
+            _data[i] = rnd.NextDouble01() * 1000 - 500;
     }
 
     [Benchmark(Baseline = true, Description = "Scalar")]

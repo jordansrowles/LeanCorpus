@@ -24,5 +24,6 @@
     <ProjectReference Include="../../Rowles.LeanCorpus.Server.AspNetCore/Rowles.LeanCorpus.Server.AspNetCore.csproj" />
     <ProjectReference Include="../../Rowles.LeanCorpus.Server.Grpc/Rowles.LeanCorpus.Server.Grpc.csproj" />
     <ProjectReference Include="../../Rowles.LeanCorpus.Studio/Rowles.LeanCorpus.Studio.csproj" />
+    <ProjectReference Include="../../../devops/Rowles.DataForge.Workloads/Rowles.DataForge.Workloads.csproj" />
   </ItemGroup>
 </Project>

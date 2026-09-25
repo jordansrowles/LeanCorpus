@@ -7,6 +7,7 @@ using Lucene.Net.Spatial.Prefix.Tree;
 using Lucene.Net.Spatial.Queries;
 using Lucene.Net.Store;
 using Lucene.Net.Util;
+using Rowles.DataForge.Workloads;
 using Rowles.LeanCorpus.Search.Geo;
 using Spatial4n.Context;
 using Spatial4n.Distance;
@@ -27,7 +28,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
 /// Measures <see cref="GeoDistanceQuery"/> and <see cref="GeoBoundingBoxQuery"/> throughput
-/// on a corpus of documents with random geo coordinates.
+/// on a corpus of documents with deterministic DataForge geo coordinates.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -61,9 +62,9 @@ public class GeoQueryBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        var documents = BenchmarkData.BuildDocuments(DocumentCount);
-        BuildLeanIndex(documents);
-        BuildLuceneIndex(documents);
+        var records = BenchmarkData.GetRecords(DocumentCount);
+        BuildLeanIndex(records);
+        BuildLuceneIndex(records);
     }
 
     [GlobalCleanup]
@@ -116,7 +117,7 @@ public class GeoQueryBenchmarks
         return hits.TotalHits;
     }
 
-    private void BuildLuceneIndex(string[] documents)
+    private void BuildLuceneIndex(SearchRecord[] records)
     {
         _luceneIndexPath = Path.Combine(BenchmarkHelpers.TempRoot, $"lucenenet-bench-geo-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(_luceneIndexPath);
@@ -131,17 +132,16 @@ public class GeoQueryBenchmarks
             _luceneDirectory,
             new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
 
-        var rng = new Random(42);
-        for (int i = 0; i < documents.Length; i++)
+        for (int i = 0; i < records.Length; i++)
         {
-            double lat = rng.NextDouble() * 180.0 - 90.0;
-            double lon = rng.NextDouble() * 360.0 - 180.0;
+            double lat = records[i].LatitudeE6 / 1_000_000d;
+            double lon = records[i].LongitudeE6 / 1_000_000d;
             var pt = _spatialContext.MakePoint(lon, lat);
             var doc = new LuceneDocument();
             doc.Add(new LuceneStringField("id",
                 i.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 Lucene.Net.Documents.Field.Store.NO));
-            doc.Add(new LuceneTextField("body", documents[i],
+            doc.Add(new LuceneTextField("body", records[i].Body,
                 Lucene.Net.Documents.Field.Store.NO));
             foreach (var field in _spatialStrategy.CreateIndexableFields(pt))
                 doc.Add(field);
@@ -152,7 +152,7 @@ public class GeoQueryBenchmarks
         _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
     }
 
-    private void BuildLeanIndex(string[] documents)
+    private void BuildLeanIndex(SearchRecord[] records)
     {
         _leanIndexPath = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-geo-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(_leanIndexPath);
@@ -161,14 +161,13 @@ public class GeoQueryBenchmarks
             _leanDirectory,
             new Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig { MaxBufferedDocs = 10_000, RamBufferSizeMB = 256 });
 
-        var rng = new Random(42);
-        for (int i = 0; i < documents.Length; i++)
+        for (int i = 0; i < records.Length; i++)
         {
-            double lat = rng.NextDouble() * 180.0 - 90.0;
-            double lon = rng.NextDouble() * 360.0 - 180.0;
+            double lat = records[i].LatitudeE6 / 1_000_000d;
+            double lon = records[i].LongitudeE6 / 1_000_000d;
             var doc = new LeanDocument();
             doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-            doc.Add(new LeanTextField("body", documents[i]));
+            doc.Add(new LeanTextField("body", records[i].Body));
             doc.Add(new Rowles.LeanCorpus.Document.Fields.GeoPointField("location", lat, lon));
             writer.AddDocument(doc);
         }

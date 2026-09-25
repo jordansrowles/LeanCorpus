@@ -17,7 +17,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [RPlotExporter]
 public class NGramTokeniserBenchmarks
 {
-    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
+    public static IEnumerable<int> DocCounts => TextBenchmarkData.GetDocCounts(TextBenchmarkData.DefaultDocCount);
 
     [ParamsSource(nameof(DocCounts))]
     public int DocumentCount { get; set; }
@@ -40,7 +40,7 @@ public class NGramTokeniserBenchmarks
         var parts = GramRange.Split('-');
         _min = int.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture);
         _max = int.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture);
-        _documents = BenchmarkData.BuildDocuments(DocumentCount);
+        _documents = TextBenchmarkData.BuildDocuments(DocumentCount);
         _edgeTokeniser = new EdgeNGramTokeniser(_min, _max);
         _ngramTokeniser = new NGramTokeniser(_min, _max);
         _ngramTokeniserWs = new NGramTokeniser(_min, _max, splitOnWhitespace: true);

@@ -37,6 +37,7 @@ $Script:BenchmarkStrategies = Import-PowerShellDataFile "$PSScriptRoot/config/be
 . "$PSScriptRoot/commands/diagnostics.ps1"
 . "$PSScriptRoot/commands/benchmark.ps1"
 . "$PSScriptRoot/commands/data.ps1"
+. "$PSScriptRoot/commands/dataforge.ps1"
 . "$PSScriptRoot/commands/docs.ps1"
 . "$PSScriptRoot/commands/benchmarks.ps1"
 . "$PSScriptRoot/commands/setup.ps1"
@@ -56,6 +57,7 @@ function Invoke-DevOps {
         'diagnostics'{ Invoke-DevOpsDiagnostics -Arguments $Arguments }
         'benchmark'  { Invoke-DevOpsBenchmark -Arguments $Arguments }
         'data'       { Invoke-DevOpsData -Arguments $Arguments }
+        'dataforge'  { Invoke-DevOpsDataForge -Arguments $Arguments }
         'docs'       { Invoke-DevOpsDocs -Arguments $Arguments }
         'benchmarks' { Invoke-DevOpsBenchmarks -Arguments $Arguments }
         'setup'      { Invoke-DevOpsSetup -Arguments $Arguments }
@@ -137,7 +139,9 @@ function Invoke-DevOpsHelp {
     Write-Host '                          exhaustive (100K) (default: default)'
     Write-Host '      -DocCount           Override document count for the run'
     Write-Host '      -Framework          net10.0 or net11.0 (default: net10.0)'
-    Write-Host '      -PrepareData        Download benchmark data if not already present'
+    Write-Host '      -Dataset            synthetic or wikipedia (default: synthetic)'
+    Write-Host '      -ReferencePath      Wikipedia v1 reference directory'
+    Write-Host '      -PrepareData        Prepare Gutenberg for an explicitly selected Gutenberg suite'
     Write-Host '      -BookCount          Gutenberg books to fetch with -PrepareData (default: 200)'
     Write-Host '      -CorpusOnly         Skip Lucene.NET comparison; LeanCorpus methods only'
     Write-Host '      -Controlled         Deterministic preset: 1K docs, short job, corpus-only'
@@ -155,8 +159,20 @@ function Invoke-DevOpsHelp {
     Write-Host '    data                 Download benchmark datasets'
     Write-Host '      gutenberg           Project Gutenberg ebooks'
     Write-Host '        -BookCount        Number of books to download (default: 200)'
-    Write-Host '      news                20 Newsgroups dataset'
-    Write-Host '      wikipedia           Wikipedia article dump'
+    Write-Host ''
+    Write-Host '    dataforge            Deterministic datasets and frozen reference data'
+    Write-Host '      profiles            List available profiles and defaults'
+    Write-Host '      generate            Generate and materialise a named profile'
+    Write-Host '      inspect             Read dataset manifest details'
+    Write-Host '      verify              Check materialised bytes and manifest hashes'
+    Write-Host '      reproduce           Regenerate and compare dataset identity'
+    Write-Host '      reference download  Fetch pinned Wikipedia source files'
+    Write-Host '      reference build     Build immutable Wikipedia v1 from the local cache'
+    Write-Host '      reference inspect   Read frozen Wikipedia identity and summaries'
+    Write-Host '      reference verify    Verify Wikipedia v1 without the source dump'
+    Write-Host '      qualify             Run synthetic and Wikipedia release qualification'
+    Write-Host '        -ReferencePath    Override the Wikipedia v1 reference directory'
+    Write-Host '        -Dry              Print qualification commands without running them'
     Write-Host ''
     Write-Host '    docs                 Build the documentation site'
     Write-Host '      build               Full build: API metadata + static site (default)'
@@ -205,6 +221,8 @@ function Invoke-DevOpsHelp {
     Write-Host '    devops docs serve'
     Write-Host '    devops docs metadata'
     Write-Host '    devops data gutenberg -BookCount 500'
+    Write-Host '    devops dataforge profiles'
+    Write-Host '    devops dataforge generate -Profile leancorpus-search -Version 1 -Seed 42 -Count 20000'
     Write-Host '    devops report'
     Write-Host '    devops report code -Strict'
     Write-Host '    devops server start'

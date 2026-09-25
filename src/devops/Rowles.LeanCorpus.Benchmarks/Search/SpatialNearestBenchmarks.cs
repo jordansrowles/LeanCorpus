@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using BenchmarkDotNet.Attributes;
+using Rowles.DataForge;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
@@ -153,7 +154,7 @@ public class SpatialNearestBenchmarks
 
     private void BuildIndex()
     {
-        var random = new Random(0x0700_2032);
+        var random = BenchmarkDeterministicRandom.Create($"benchmark/spatial-nearest/{SpatialKind}/{Distribution}");
         using var directory = new MMapDirectory(_indexPath);
         using var writer = new IndexWriter(directory, new IndexWriterConfig { BKDMaxLeafSize = 64 });
         for (int documentId = 0; documentId < DocumentCount; documentId++)
@@ -196,16 +197,16 @@ public class SpatialNearestBenchmarks
         writer.Commit();
     }
 
-    private (double Latitude, double Longitude) CreateGeoPoint(Random random)
+    private (double Latitude, double Longitude) CreateGeoPoint(DataForgePrng random)
         => Distribution == "Clustered"
-            ? (random.NextDouble() * 2 - 1, random.NextDouble() * 2 - 1)
-            : (random.NextDouble() * 180 - 90, random.NextDouble() * 360 - 180);
+            ? (random.NextDouble01() * 2 - 1, random.NextDouble01() * 2 - 1)
+            : (random.NextDouble01() * 180 - 90, random.NextDouble01() * 360 - 180);
 
-    private (float X, float Y) CreateXyPoint(Random random)
+    private (float X, float Y) CreateXyPoint(DataForgePrng random)
     {
         double extent = Distribution == "Clustered" ? 1_000 : 1_000_000;
-        return ((float)(random.NextDouble() * 2 * extent - extent),
-            (float)(random.NextDouble() * 2 * extent - extent));
+        return ((float)(random.NextDouble01() * 2 * extent - extent),
+            (float)(random.NextDouble01() * 2 * extent - extent));
     }
 
     private int GetPointCount(int documentId)

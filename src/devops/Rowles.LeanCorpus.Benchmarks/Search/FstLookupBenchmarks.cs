@@ -55,14 +55,14 @@ public class FstLookupBenchmarks
             throw new InvalidOperationException($"FST prefix fixture expected {_expectedPrefixMatches} matches, got {prefixMatches}.");
 
         // Pick representative keys for lookup (50% hit rate).
-        var rnd = new Random(7);
+        var rnd = BenchmarkDeterministicRandom.Create("benchmark/fst/miss-keys");
         _keys = new byte[TermCount][];
         for (int i = 0; i < TermCount; i++)
         {
             if (i < TermCount / 2)
                 _keys[i] = Encoding.UTF8.GetBytes(terms[i]); // hit
             else
-                _keys[i] = Encoding.UTF8.GetBytes($"miss{rnd.Next(100000):D8}"); // miss
+                _keys[i] = Encoding.UTF8.GetBytes($"miss{rnd.NextInt32(100000):D8}"); // miss
         }
     }
 

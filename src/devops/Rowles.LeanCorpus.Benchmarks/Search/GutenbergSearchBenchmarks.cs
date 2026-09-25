@@ -1,4 +1,5 @@
 using BenchmarkDotNet.Attributes;
+using Rowles.DataForge.Workloads.Legacy;
 using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Documents;
 using Lucene.Net.Index;
@@ -135,7 +136,7 @@ public class GutenbergSearchBenchmarks
             if (s_built)
                 return;
 
-            var paragraphs = GutenbergDataLoader.Load();
+            var paragraphs = GutenbergCorpusLoader.Load();
             s_standardIndexPath = BuildLeanIndex(paragraphs, new StandardAnalyser(), "standard");
             s_englishIndexPath  = BuildLeanIndex(paragraphs, new EnglishAnalyser(),  "english");
             s_luceneIndexPath   = BuildLuceneIndex(paragraphs);

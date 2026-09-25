@@ -1,16 +1,16 @@
-﻿namespace Rowles.LeanCorpus.Benchmarks;
+namespace Rowles.DataForge.Workloads.Legacy;
 
 /// <summary>
 /// A single indexed paragraph from a Gutenberg ebook.
 /// </summary>
-internal sealed record BookParagraph(string Id, string Title, string Body);
+public sealed record BookParagraph(string Id, string Title, string Body);
 
 /// <summary>
 /// Loads Project Gutenberg plain-text ebooks from the bench data directory,
 /// strips the standard Gutenberg header and footer, and splits the content
 /// into indexable paragraphs.
 /// </summary>
-internal static class GutenbergDataLoader
+public static class GutenbergCorpusLoader
 {
     private static readonly Dictionary<string, string> BookTitles = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -72,8 +72,14 @@ internal static class GutenbergDataLoader
     /// </summary>
     public static (string Title, string Text)[] LoadBookTexts()
     {
-        var dataDir = FindDataDirectory();
-        var files = Directory.GetFiles(dataDir, "*.txt", SearchOption.TopDirectoryOnly);
+        return LoadBookTexts(FindDataDirectory());
+    }
+
+    /// <summary>Returns raw book text from an explicitly selected reference corpus directory.</summary>
+    public static (string Title, string Text)[] LoadBookTexts(string dataDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
+        var files = Directory.GetFiles(dataDirectory, "*.txt", SearchOption.TopDirectoryOnly);
 
         return files
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
@@ -103,7 +109,7 @@ internal static class GutenbergDataLoader
             "Set GUTENBERG_DATA_PATH environment variable to override.");
     }
 
-    internal static string FindRepositoryRoot()
+    private static string FindRepositoryRoot()
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);
         while (current is not null)

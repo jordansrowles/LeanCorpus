@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Rowles.DataForge\Rowles.DataForge.csproj" />
+    <ProjectReference Include="..\Rowles.DataForge.Workloads\Rowles.DataForge.Workloads.csproj" />
+    <PackageReference Include="SharpCompress" />
+    <Content Include="Licenses\CC-BY-SA-4.0.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

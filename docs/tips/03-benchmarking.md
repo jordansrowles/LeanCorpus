@@ -41,17 +41,43 @@ The names are presets, not a ranking of statistical quality. `intense` has fewer
 
 `-Controlled` selects a deterministic local diagnostic preset. It cannot make two different machines equivalent.
 
-## Real data
+## Benchmark data
 
-Prepare the supported corpora:
+Ordinary benchmark runs use deterministic synthetic DataForge records. They do not download or discover a local corpus. Select a Gutenberg suite explicitly when measuring real ebook text:
 
 ```powershell
-./devops benchmark -PrepareData -BookCount 200
+./devops benchmark -Suite gutenberg-index -PrepareData -BookCount 200
+./devops benchmark -Suite gutenberg-search -PrepareData -BookCount 200
+./devops benchmark -Suite text -PrepareData -- --filter "*GutenbergAnalysisBenchmarks*"
 ```
 
-The report records data-source names, file and byte counts, document counts, and SHA-256 fingerprints. Compare those fields before comparing timings.
+The report records generated profile identity, version, seed, record count, parameters and content SHA-256. Explicit Gutenberg runs record the external data source. Compare the complete identity and workload parameters before comparing timings.
 
-Use `-CorpusOnly` when a suite should use corpus-backed cases without synthetic companions.
+Rowles.Text benchmark artefacts also contain canonical DataForge identity sidecars, including a separate `rowles-text-multilingual` identity for each language.
+
+### Frozen Wikipedia reference
+
+Wikipedia v1 is a separate release and deep-investigation dataset. Download its pinned source once, build the immutable reference, then inspect or verify it without network access:
+
+```powershell
+./devops dataforge reference download
+./devops dataforge reference build
+./devops dataforge reference inspect
+./devops dataforge reference verify
+```
+
+Benchmark it explicitly. The runner verifies the reference before starting and fails if the selected directory is missing or invalid:
+
+```powershell
+./devops benchmark -Suite query -Dataset wikipedia -Strat fast
+./devops benchmark -Suite index -Dataset wikipedia -ReferencePath ./artifacts/dataforge/reference/leancorpus-wikipedia-en-v1 -DocCount 1000 -Strat fast
+```
+
+Reference mode accepts `index`, `query`, `boolean`, `phrase`, `prefix`, `fuzzy`, `wildcard`, `regexp`, `mlt`, `highlighter`, `combined`, `terminset`, `parallel`, `similarity`, and `async-index`. The `merge` suite runs its plain-text method only; `flush` runs its text-only method only. Suites that need generated structured fields or vectors are unavailable. The frozen reference contains 20,000 records, so a larger `-DocCount` or strategy fails instead of switching datasets.
+
+The imported benchmark identity contains `DatasetId=leancorpus-wikipedia-en`, version 1, the reference's full record count and content SHA-256, with no seed. It has its own data fingerprint and result series. Normal synthetic benchmarks remain the default, and benchmark execution never downloads or queries live Wikipedia.
+
+Use `-CorpusOnly` to run LeanCorpus cases without Lucene.NET comparisons.
 
 ## Output
 
@@ -73,7 +99,7 @@ Check these before calling a difference a regression:
 
 - same benchmark method and parameters;
 - same documents or bytes processed per operation;
-- same corpus fingerprint and document count;
+- same dataset identity, content SHA-256 and document count;
 - same indexed features, segment count, merge state, and directory;
 - same runtime and architecture;
 - no critical BenchmarkDotNet warnings;

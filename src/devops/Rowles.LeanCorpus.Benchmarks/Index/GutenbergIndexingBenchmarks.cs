@@ -1,4 +1,5 @@
 ﻿using BenchmarkDotNet.Attributes;
+using Rowles.DataForge.Workloads.Legacy;
 using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Documents;
 using Lucene.Net.Util;
@@ -34,7 +35,7 @@ public class GutenbergIndexingBenchmarks
     private readonly List<string> _iterationPaths = [];
 
     [GlobalSetup]
-    public void Setup() => _paragraphs = GutenbergDataLoader.Load();
+    public void Setup() => _paragraphs = GutenbergCorpusLoader.Load();
 
     [GlobalCleanup]
     public void Cleanup()

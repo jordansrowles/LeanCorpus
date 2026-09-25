@@ -45,13 +45,13 @@ public class BKDTreeBenchmarks
             MaxBufferedDocs = PointCount,
             RamBufferSizeMB = 256
         });
-        var rnd = new Random(42);
+        var records = BenchmarkData.GetRecords(PointCount);
         for (int i = 0; i < PointCount; i++)
         {
             var doc = new LeanDocument();
             doc.Add(new LeanStringField("id",
                 i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-            doc.Add(new LeanNumericField("value", rnd.NextDouble() * 10_000));
+            doc.Add(new LeanNumericField("value", records[i].PriceMinor / 100d));
             writer.AddDocument(doc);
         }
         writer.Commit();

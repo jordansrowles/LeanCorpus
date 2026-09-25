@@ -25,13 +25,16 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [InvocationCount(1)]
 public class MergeBenchmarks
 {
-    [Params(1_000, 10_000)]
+    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(1_000, 10_000);
+
+    [ParamsSource(nameof(DocCounts))]
     public int DocumentCount { get; set; }
 
     [Params(5, 20)]
     public int SegmentCount { get; set; }
 
     private string[] _documents = [];
+    private float[][] _vectors = [];
     private string _plainPath = string.Empty;
     private string _hnswPath = string.Empty;
     private List<SegmentInfo> _plainSegments = [];
@@ -41,22 +44,30 @@ public class MergeBenchmarks
     public void Setup()
     {
         _documents = BenchmarkData.BuildDocuments(DocumentCount);
+        _vectors = BenchmarkData.IsWikipediaReferenceMode
+            ? []
+            : BenchmarkVectorData.Get(DocumentCount, 64).Records.Select(static record => record.Vector).ToArray();
     }
 
     [IterationSetup]
     public void IterationSetup()
     {
         _plainPath = BenchmarkHelpers.CreateTempDirectory("lc-merge-plain");
-        _hnswPath = BenchmarkHelpers.CreateTempDirectory("lc-merge-hnsw");
         _plainSegments = BuildSegments(_plainPath, withHnswVectors: false);
-        _hnswSegments = BuildSegments(_hnswPath, withHnswVectors: true);
+        if (!BenchmarkData.IsWikipediaReferenceMode)
+        {
+            _hnswPath = BenchmarkHelpers.CreateTempDirectory("lc-merge-hnsw");
+            _hnswSegments = BuildSegments(_hnswPath, withHnswVectors: true);
+        }
     }
 
     [IterationCleanup]
     public void IterationCleanup()
     {
         BenchmarkHelpers.DeleteDirectory(_plainPath);
-        BenchmarkHelpers.DeleteDirectory(_hnswPath);
+        if (!string.IsNullOrEmpty(_hnswPath))
+            BenchmarkHelpers.DeleteDirectory(_hnswPath);
+        _hnswPath = string.Empty;
         _plainSegments = [];
         _hnswSegments = [];
     }
@@ -76,6 +87,8 @@ public class MergeBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_Merge_WithHnswVectors()
     {
+        if (BenchmarkData.IsWikipediaReferenceMode)
+            throw new InvalidOperationException("Wikipedia reference mode only supports the plain-text merge benchmark.");
         using var directory = new MMapDirectory(_hnswPath);
         var merger = new SegmentMerger(directory, mergeThreshold: SegmentCount + 1);
         int nextOrdinal = NextOrdinal(_hnswSegments);
@@ -100,7 +113,6 @@ public class MergeBenchmarks
         using (var directory = new MMapDirectory(path))
         using (var writer = new IndexWriter(directory, config))
         {
-            var random = new Random(7);
             for (int i = 0; i < _documents.Length; i++)
             {
                 var document = new LeanDocument();
@@ -110,10 +122,7 @@ public class MergeBenchmarks
 
                 if (withHnswVectors)
                 {
-                    var vector = new float[64];
-                    for (int dimension = 0; dimension < vector.Length; dimension++)
-                        vector[dimension] = (float)(random.NextDouble() * 2 - 1);
-                    document.Add(new LeanVectorField("emb", new ReadOnlyMemory<float>(vector)));
+                    document.Add(new LeanVectorField("emb", new ReadOnlyMemory<float>(_vectors[i])));
                 }
 
                 writer.AddDocument(document);

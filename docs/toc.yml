@@ -197,6 +197,8 @@
           href: tips/02-query-cache.md
         - name: Benchmarking
           href: tips/03-benchmarking.md
+        - name: DataForge datasets
+          href: tips/dataforge.md
         - name: Production deployment
           href: tips/04-production-deployment.md
         - name: Performance tuning

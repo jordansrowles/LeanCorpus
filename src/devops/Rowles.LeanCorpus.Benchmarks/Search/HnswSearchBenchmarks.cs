@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using BenchmarkDotNet.Attributes;
+using Rowles.DataForge.Workloads;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
@@ -28,7 +29,9 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [IterationCount(5)]
 public class HnswSearchBenchmarks
 {
-    [Params(1_000, 10_000)]
+    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(1_000, 10_000);
+
+    [ParamsSource(nameof(DocCounts))]
     public int DocCount { get; set; }
 
     [Params(64, 128)]
@@ -44,9 +47,11 @@ public class HnswSearchBenchmarks
     private static string s_flatPath = string.Empty;
     private static LeanIndexSearcher s_hnswSearcher = default!;
     private static LeanIndexSearcher s_flatSearcher = default!;
-    private static float[][] s_referenceVectors = [];
+    private static VectorRecord[] s_referenceRecords = [];
 
     private float[] _query = [];
+    private VectorQueryCase _queryCase = default!;
+    private BenchmarkVectorDataset _dataset = default!;
     private int[] _flatTopDocumentIds = [];
     private int _scalarChecksum;
     private int _hnswChecksum;
@@ -69,33 +74,23 @@ public class HnswSearchBenchmarks
                     IODirectory.CreateDirectory(s_hnswPath);
                     IODirectory.CreateDirectory(s_flatPath);
 
-                    var random = new Random(7);
-                    var vectors = new float[DocCount][];
-                    for (int i = 0; i < DocCount; i++)
-                    {
-                        var vector = new float[Dimension];
-                        for (int dimension = 0; dimension < Dimension; dimension++)
-                            vector[dimension] = (float)(random.NextDouble() * 2 - 1);
-                        vectors[i] = vector;
-                    }
+                    var dataset = BenchmarkVectorData.Get(DocCount, Dimension);
+                    var vectors = dataset.Records.Select(static record => record.Vector).ToArray();
 
                     BuildIndex(s_hnswPath, vectors, hnsw: true);
                     BuildIndex(s_flatPath, vectors, hnsw: false);
                     s_hnswSearcher = new LeanIndexSearcher(new LeanMMapDirectory(s_hnswPath));
                     s_flatSearcher = new LeanIndexSearcher(new LeanMMapDirectory(s_flatPath));
-                    s_referenceVectors = vectors;
+                    s_referenceRecords = dataset.Records;
                     s_lastKey = key;
                     s_built = true;
                 }
             }
         }
 
-        _query = new float[Dimension];
-        // Keep the query deterministic but independent from the vector fixture.
-        // Reusing seed 7 made the query identical to document zero.
-        var queryRandom = new Random(17);
-        for (int dimension = 0; dimension < Dimension; dimension++)
-            _query[dimension] = (float)(queryRandom.NextDouble() * 2 - 1);
+        _dataset = BenchmarkVectorData.Get(DocCount, Dimension);
+        _queryCase = _dataset.Query;
+        _query = _queryCase.Vector;
 
         var reference = s_flatSearcher.Search(new LeanVectorQuery("emb", _query, topK: 10), 10);
         _flatTopDocumentIds = reference.ScoreDocs
@@ -120,6 +115,7 @@ public class HnswSearchBenchmarks
             _flatTopDocumentIds.Contains(scoreDoc.DocId));
         if (recallHits == 0)
             throw new InvalidOperationException("HNSW recall is zero against the exact top-ten reference.");
+        BenchmarkVectorData.WriteHnswRecall(_dataset, EfSearch, 10, recallHits);
         _hnswChecksum = ResultChecksum(hnsw);
     }
 
@@ -180,47 +176,8 @@ public class HnswSearchBenchmarks
     private int[] ComputeScalarTopDocumentIds()
     {
         const int topK = 10;
-        var heap = new (float Similarity, int DocId)[topK];
-        int heapSize = 0;
-        float queryNorm = QueryNorm(_query);
-
-        for (int i = 0; i < s_referenceVectors.Length; i++)
-        {
-            var vector = s_referenceVectors[i];
-            float vectorNorm = 0f;
-            float dot = 0f;
-            for (int dimension = 0; dimension < Dimension; dimension++)
-            {
-                vectorNorm += vector[dimension] * vector[dimension];
-                dot += vector[dimension] * _query[dimension];
-            }
-            dot /= MathF.Sqrt(vectorNorm * queryNorm);
-
-            if (heapSize < topK || dot > heap[0].Similarity)
-            {
-                if (heapSize < topK)
-                {
-                    heap[heapSize++] = (dot, i);
-                    SiftUp(heap, heapSize - 1);
-                }
-                else
-                {
-                    heap[0] = (dot, i);
-                    SiftDown(heap, heapSize);
-                }
-            }
-        }
-
-        Array.Sort(heap, 0, heapSize, Comparer<(float Similarity, int DocId)>.Create(
-            static (left, right) =>
-            {
-                int score = right.Similarity.CompareTo(left.Similarity);
-                return score != 0 ? score : left.DocId.CompareTo(right.DocId);
-            }));
-        var documentIds = new int[heapSize];
-        for (int i = 0; i < heapSize; i++)
-            documentIds[i] = heap[i].DocId;
-        return documentIds;
+        return VectorGroundTruth.Compute(s_referenceRecords, _queryCase, topK)
+            .NeighbourOrdinals.Select(static ordinal => checked((int)ordinal)).ToArray();
     }
 
     /// <summary>Release shared resources after all HNSW parameter rows complete.</summary>
@@ -228,37 +185,6 @@ public class HnswSearchBenchmarks
 
     [GlobalCleanup]
     public void Cleanup() => DisposeStaticResources();
-
-    private static void SiftUp((float Similarity, int DocId)[] heap, int index)
-    {
-        while (index > 0)
-        {
-            int parent = (index - 1) / 2;
-            if (heap[parent].Similarity <= heap[index].Similarity)
-                break;
-            (heap[parent], heap[index]) = (heap[index], heap[parent]);
-            index = parent;
-        }
-    }
-
-    private static void SiftDown((float Similarity, int DocId)[] heap, int size)
-    {
-        int index = 0;
-        while (true)
-        {
-            int smallest = index;
-            int left = 2 * index + 1;
-            int right = left + 1;
-            if (left < size && heap[left].Similarity < heap[smallest].Similarity)
-                smallest = left;
-            if (right < size && heap[right].Similarity < heap[smallest].Similarity)
-                smallest = right;
-            if (smallest == index)
-                return;
-            (heap[index], heap[smallest]) = (heap[smallest], heap[index]);
-            index = smallest;
-        }
-    }
 
     private void ValidateExactResult(TopDocs result)
     {
@@ -278,14 +204,6 @@ public class HnswSearchBenchmarks
         return checksum;
     }
 
-    private static float QueryNorm(float[] query)
-    {
-        float norm = 0f;
-        for (int i = 0; i < query.Length; i++)
-            norm += query[i] * query[i];
-        return norm;
-    }
-
     private static void DisposeStaticResources()
     {
         if (s_built)
@@ -300,6 +218,6 @@ public class HnswSearchBenchmarks
         s_lastKey = default;
         s_hnswPath = string.Empty;
         s_flatPath = string.Empty;
-        s_referenceVectors = [];
+        s_referenceRecords = [];
     }
 }

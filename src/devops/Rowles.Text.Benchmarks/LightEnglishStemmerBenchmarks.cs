@@ -23,7 +23,7 @@ public class LightEnglishStemmerBenchmarks
 {
     private const int MaxWordLength = 256;
 
-    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
+    public static IEnumerable<int> DocCounts => TextBenchmarkData.GetDocCounts(TextBenchmarkData.DefaultDocCount);
 
     [ParamsSource(nameof(DocCounts))]
     public int DocumentCount { get; set; }
@@ -37,7 +37,7 @@ public class LightEnglishStemmerBenchmarks
     public void Setup()
     {
         // Extract individual words from benchmark documents
-        var documents = BenchmarkData.BuildDocuments(DocumentCount);
+        var documents = TextBenchmarkData.BuildDocuments(DocumentCount);
         var wordList = new List<string>();
         foreach (var doc in documents)
             wordList.AddRange(doc.Split(' ', StringSplitOptions.RemoveEmptyEntries));

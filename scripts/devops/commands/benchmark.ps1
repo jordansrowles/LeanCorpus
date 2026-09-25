@@ -40,6 +40,8 @@ function Invoke-DevOpsBenchmark {
     $passThrough = $parsed.PassThrough
     $area = $parsed.Get('Area', '')
     $group = $parsed.Get('Group', '')
+    $dataset = ([string]$parsed.Get('Dataset', 'synthetic')).ToLowerInvariant()
+    $requestedReferencePath = [string]$parsed.Get('ReferencePath', '')
 
     $suiteMap = Import-PowerShellDataFile "$PSScriptRoot/../config/benchmark-suites.psd1"
     $stratMap = Import-PowerShellDataFile "$PSScriptRoot/../config/benchmark-strategies.psd1"
@@ -62,7 +64,52 @@ function Invoke-DevOpsBenchmark {
             Write-Host ("    {0,-16} {1}" -f $name, $stratMap[$name].Description)
         }
         Write-Host ''
+        Write-Host '  Dataset: -Dataset synthetic|wikipedia (default: synthetic)'
+        Write-Host '  Wikipedia suites: index, query, boolean, phrase, prefix, fuzzy, wildcard, regexp, mlt, highlighter, combined, terminset, parallel, similarity, async-index, merge, flush'
+        Write-Host '  Wikipedia -ReferencePath defaults to artifacts/dataforge/reference/leancorpus-wikipedia-en-v1.'
+        Write-Host ''
         exit 0
+    }
+
+    if ($dataset -notin @('synthetic', 'wikipedia')) {
+        Write-Error "Unknown dataset '$dataset'. Choose synthetic or wikipedia."
+        exit 1
+    }
+
+    $resolvedReferencePath = ''
+    if ($dataset -eq 'wikipedia') {
+        $wikipediaSuites = @(
+            'index', 'query', 'boolean', 'phrase', 'prefix', 'fuzzy', 'wildcard', 'regexp', 'mlt',
+            'highlighter', 'combined', 'terminset', 'parallel', 'similarity', 'async-index', 'merge', 'flush'
+        )
+        if ($suite -notin $wikipediaSuites) {
+            Write-Error "Suite '$suite' is not supported with the Wikipedia reference. Select one of: $($wikipediaSuites -join ', ')."
+            exit 1
+        }
+        if ($area -or $group) {
+            Write-Error '-Area and -Group are not supported with the Wikipedia reference dataset.'
+            exit 1
+        }
+        if ($prepareData) {
+            Write-Error '-PrepareData is not supported with the Wikipedia reference dataset.'
+            exit 1
+        }
+        if ($suite -in @('merge', 'flush') -and @($passThrough | Where-Object { $_ -in @('--filter', '-f') -or $_ -match '^(--filter|-f)=' }).Count -gt 0) {
+            Write-Error "Wikipedia '$suite' runs select only the plain-text benchmark method; custom BenchmarkDotNet filters are not supported."
+            exit 1
+        }
+        if ($requestedReferencePath) {
+            $resolvedReferencePath = if ([System.IO.Path]::IsPathRooted($requestedReferencePath)) {
+                [System.IO.Path]::GetFullPath($requestedReferencePath)
+            } else {
+                [System.IO.Path]::GetFullPath((Join-Path $repoRoot $requestedReferencePath))
+            }
+        } else {
+            $resolvedReferencePath = Join-Path $repoRoot 'artifacts/dataforge/reference/leancorpus-wikipedia-en-v1'
+        }
+    } elseif ($requestedReferencePath) {
+        Write-Error '-ReferencePath requires -Dataset wikipedia.'
+        exit 1
     }
 
     if ($area -or $group) {
@@ -100,11 +147,22 @@ function Invoke-DevOpsBenchmark {
     elseif ($stratDocCount -gt 0) { $effectiveDocCount = $stratDocCount }
 
     if ($prepareData) {
-        Prepare-BenchmarkData -RepoRoot $repoRoot -ScriptsPath $scriptsPath -BookCount $bookCount
+        Prepare-BenchmarkData -RepoRoot $repoRoot -ScriptsPath $scriptsPath -BookCount $bookCount `
+            -Suite $suite -PassThrough $passThrough
     }
 
     if ($effectiveDocCount -gt 0) {
+        if ($dataset -eq 'wikipedia' -and $effectiveDocCount -gt 20000) {
+            Write-Error "Wikipedia reference mode contains 20,000 records; requested document count $effectiveDocCount exceeds that limit."
+            exit 1
+        }
         $env:BENCH_DOC_COUNT = $effectiveDocCount.ToString()
+    }
+    $env:BENCH_DATASET_MODE = $dataset
+    if ($dataset -eq 'wikipedia') {
+        $env:BENCH_REFERENCE_PATH = $resolvedReferencePath
+    } else {
+        $env:BENCH_REFERENCE_PATH = $null
     }
     if ($sourceCommit)   { $env:BENCH_SOURCE_COMMIT   = $sourceCommit }
     if ($sourceRef)      { $env:BENCH_SOURCE_REF      = $sourceRef }
@@ -113,6 +171,8 @@ function Invoke-DevOpsBenchmark {
     Write-Host "Suite:      $suite"
     Write-Host "Strat:      $strat"
     Write-Host "Framework:  $framework"
+    Write-Host "Dataset:    $dataset"
+    if ($dataset -eq 'wikipedia') { Write-Host "Reference:  $resolvedReferencePath" }
     if ($controlled)     { Write-Host 'Mode:       controlled' }
     if ($corpusOnly)     { Write-Host 'CorpusOnly: enabled' }
     if ($effectiveDocCount -gt 0) { Write-Host "Docs:       $effectiveDocCount" }
@@ -122,12 +182,20 @@ function Invoke-DevOpsBenchmark {
 
     if ($dry) {
         Write-Host ''
-        Write-Host 'Dry run - commands that would execute:'
+    Write-Host 'Dry run - commands that would execute:'
+        Write-Host "  Environment: BENCH_DATASET_MODE=$dataset"
+        if ($dataset -eq 'wikipedia') { Write-Host "               BENCH_REFERENCE_PATH=$resolvedReferencePath" }
+        if ($dataset -eq 'wikipedia') {
+            $toolProject = Join-Path $repoRoot 'src/devops/Rowles.DataForge.Tool/Rowles.DataForge.Tool.csproj'
+            Write-Host "  dotnet run -c Release --framework net10.0 --project `"$toolProject`" -- reference verify -ReferencePath `"$resolvedReferencePath`""
+        }
         foreach ($projectKey in $projectKeys) {
             $projectPath = Resolve-BenchmarkProjectPath $projectKey
             $runArgs = if ($projectKey -eq 'core') { @('--suite', $(if ($suite -in @('all', 'core')) { 'all' } else { $suite })) } else { @() }
             if ($effectiveDocCount -gt 0 -and $projectKey -eq 'core') { $runArgs += @('--doccount', $effectiveDocCount.ToString()) }
             if ($corpusOnly -and $projectKey -eq 'core') { $runArgs += '--corpus-only' }
+            if ($dataset -eq 'wikipedia' -and $suite -eq 'merge') { $runArgs += @('--filter', '*LeanCorpus_Merge_PlainText*') }
+            if ($dataset -eq 'wikipedia' -and $suite -eq 'flush') { $runArgs += @('--filter', '*LeanCorpus_Flush_TextOnly*') }
             Write-Host "  dotnet run -c Release --framework $framework --project `"$projectPath`" -- $($runArgs -join ' ') $($stratJobArgs -join ' ') $($passThrough -join ' ')"
         }
         Write-Host ''
@@ -136,6 +204,25 @@ function Invoke-DevOpsBenchmark {
 
     if ($gcDump) {
         Assert-DotNetTool 'dotnet-gcdump'
+    }
+
+    $datasetReport = [ordered]@{ mode = 'synthetic'; identity = $null }
+    if ($dataset -eq 'wikipedia') {
+        $toolProject = Join-Path $repoRoot 'src/devops/Rowles.DataForge.Tool/Rowles.DataForge.Tool.csproj'
+        Invoke-DotNet @('run', '--project', $toolProject, '--framework', 'net10.0', '--configuration', 'Release',
+            '--', 'reference', 'verify', '-ReferencePath', $resolvedReferencePath) -WorkingDirectory $repoRoot | Out-Host
+        $manifestPath = Join-Path $resolvedReferencePath 'manifest.json'
+        $referenceManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        $datasetReport = [ordered]@{
+            mode = 'wikipedia'
+            identity = [ordered]@{
+                sourceKind = 'Imported'
+                datasetId = [string]$referenceManifest.source.datasetId
+                datasetVersion = [int]$referenceManifest.source.datasetVersion
+                recordCount = [int]$referenceManifest.recordCount
+                contentSha256 = [string]$referenceManifest.contentSha256
+            }
+        }
     }
 
     Write-Host ''
@@ -154,6 +241,8 @@ function Invoke-DevOpsBenchmark {
             if ($effectiveDocCount -gt 0 -and $projectKey -eq 'core') { $runArgs += @('--doccount', $effectiveDocCount.ToString()) }
             if ($corpusOnly -and $projectKey -eq 'core') { $runArgs += '--corpus-only' }
             if ($gcDump -and $projectKey -eq 'core') { $runArgs += '--gcdump' }
+            if ($dataset -eq 'wikipedia' -and $suite -eq 'merge') { $runArgs += @('--filter', '*LeanCorpus_Merge_PlainText*') }
+            if ($dataset -eq 'wikipedia' -and $suite -eq 'flush') { $runArgs += @('--filter', '*LeanCorpus_Flush_TextOnly*') }
 
             Set-ArtifactProcessEnvironment -RunId $benchmarkRun.RunId -Kind benchmark `
                 -ArtifactDirectory $projectDirectory -Target $projectKey
@@ -174,6 +263,7 @@ function Invoke-DevOpsBenchmark {
             status = if ($failedProjects.Count -eq 0) { 'Passed' } else { 'Failed' }
             framework = $framework
             strategy = $strat
+            dataset = $datasetReport
             comparable = $true
             projects = @($projectResults)
         }

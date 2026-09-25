@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Rowles.DataForge;
+using Rowles.DataForge.Workloads;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Common;
 
 namespace Rowles.LeanCorpus.Server.Integration.Tests;
@@ -9,6 +11,100 @@ namespace Rowles.LeanCorpus.Server.Integration.Tests;
 [Trait("Area", "Server")]
 public sealed class RestAndStudioTests
 {
+    [Fact]
+    public async Task DataForgeCorpusCanBeIndexedAndSearchedOverRest()
+    {
+        var profile = new LeanCorpusE2eProfile();
+        var options = new DataForgeGenerationOptions(42, 256);
+        var records = profile.Generate(options).ToArray();
+        var contentHash = DataForgeMaterialiser.GenerateToStream(profile, options, Stream.Null).ContentSha256;
+        var replay = $"DataForge leancorpus-e2e/v1 seed=42 count=256 content={contentHash}";
+        Console.WriteLine(replay);
+
+        await using ServerHostScope host = await ServerHostScope.StartAsync(HttpProtocols.Http1);
+        using HttpClient client = host.CreateHttpClient();
+        using (await SendSuccessAsync(client, HttpMethod.Put, "/v1/indices/forge-e2e", new
+        {
+            indexName = "forge-e2e",
+            schema = new
+            {
+                fields = new[]
+                {
+                    new { name = "title", type = 0, indexed = true, stored = true, multiValued = false, analyser = (string?)"standard" },
+                    new { name = "body", type = 0, indexed = true, stored = true, multiValued = false, analyser = (string?)"standard" },
+                    new { name = "category", type = 1, indexed = true, stored = true, multiValued = false, analyser = (string?)null },
+                    new { name = "year", type = 2, indexed = true, stored = true, multiValued = false, analyser = (string?)null },
+                    new { name = "price", type = 3, indexed = true, stored = true, multiValued = false, analyser = (string?)null },
+                    new { name = "active", type = 4, indexed = true, stored = true, multiValued = false, analyser = (string?)null }
+                },
+                analysis = new Dictionary<string, object>()
+            },
+            topology = new { shardCount = 1, replicaCount = 0 },
+            settings = new { refreshInterval = (string?)null, commitInterval = (string?)null, defaultField = "body", maximumQueryClauses = (int?)null }
+        })) { }
+
+        var operations = records.Select(static record => new
+        {
+            kind = 0,
+            documentId = record.Id,
+            document = new
+            {
+                title = record.Title,
+                body = record.Body,
+                category = record.Category,
+                year = record.Year,
+                price = record.PriceMinor / 100d,
+                active = record.Active
+            }
+        }).ToArray();
+        foreach (var batch in operations.Chunk(100))
+        {
+            using JsonDocument indexed = await SendSuccessAsync(client, HttpMethod.Post,
+                "/v1/indices/forge-e2e/documents:bulk", new { indexName = "forge-e2e", operations = batch, refresh = true });
+            JsonElement items = indexed.RootElement.GetProperty("value").GetProperty("items");
+            Assert.True(items.GetArrayLength() == batch.Length &&
+                items.EnumerateArray().All(static item => item.GetProperty("accepted").GetBoolean()),
+                $"{replay}: a bulk batch did not accept all its records.");
+        }
+
+        using (JsonDocument exact = await SearchAsync(new { query = new { kind = "queryString", text = "forgeexactanchor", defaultField = "body" }, size = 10 }))
+            Assert.True(HitIds(exact).SequenceEqual(["e2e-exact"]), $"{replay}: exact anchor search did not return only e2e-exact.");
+
+        using (JsonDocument phrase = await SearchAsync(new { query = new { kind = "queryString", text = "\"deterministic corpus replay\"", defaultField = "body" }, size = 20 }))
+            Assert.True(HitIds(phrase).Contains("e2e-phrase", StringComparer.Ordinal), $"{replay}: phrase query did not include e2e-phrase.");
+
+        using (JsonDocument filtered = await SearchAsync(new { query = new { kind = "term", field = "category", value = "scenario-filter" }, size = 10 }))
+            Assert.True(HitIds(filtered).SequenceEqual(["e2e-filter"]), $"{replay}: keyword term query did not return e2e-filter.");
+
+        using (JsonDocument unicode = await SearchAsync(new { query = new { kind = "term", field = "category", value = "scenario-unicode" }, size = 10, includeDocuments = true }))
+        {
+            var hit = Assert.Single(unicode.RootElement.GetProperty("value").GetProperty("hits").EnumerateArray());
+            Assert.True(hit.GetProperty("documentId").GetString() == "e2e-unicode" &&
+                hit.GetProperty("document").GetProperty("body").GetString() == "café naïve Ελληνικά 日本語 العربية",
+                $"{replay}: stored Unicode document did not round trip.");
+        }
+
+        using (JsonDocument faceted = await SearchAsync(new
+        {
+            query = new { kind = "wildcard", field = "category", pattern = "*" },
+            size = 10,
+            facets = new[] { new { name = "categories", field = "category", kind = 0, size = 64 } }
+        }))
+        {
+            var categories = faceted.RootElement.GetProperty("value").GetProperty("facets")[0]
+                .GetProperty("buckets").EnumerateArray()
+                .Select(static bucket => bucket.GetProperty("key").GetString()).ToHashSet(StringComparer.Ordinal);
+            Assert.True(new[] { "scenario-exact", "scenario-phrase", "scenario-filter", "scenario-unicode", "scenario-long" }
+                .All(categories.Contains), $"{replay}: category facet omitted a reserved scenario.");
+        }
+
+        Task<JsonDocument> SearchAsync(object request) =>
+            SendSuccessAsync(client, HttpMethod.Post, "/v1/indices/forge-e2e/search", request);
+
+        static string[] HitIds(JsonDocument response) => response.RootElement.GetProperty("value").GetProperty("hits")
+            .EnumerateArray().Select(static hit => hit.GetProperty("documentId").GetString()!).ToArray();
+    }
+
     [Fact]
     public async Task CommunityRestAndStudioScenarioIsComplete()
     {

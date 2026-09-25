@@ -59,6 +59,16 @@ compression projects. A failure in one project does not remove earlier output.
 Generated benchmark documentation discovers all three families from those run
 directories.
 
+Core benchmark report schema v4 records DataForge dataset identities. Each
+identity is written as a canonical sidecar under the run artefact directory's
+`dataforge/` child, keyed by the first 16 lower-case hexadecimal characters of
+the SHA-256 of its canonical identity bytes. Sidecars are written to a temporary
+file in the same directory, flushed and atomically renamed. The v4
+`DataFingerprintSha256` is the SHA-256 of lexicographically sorted canonical
+identity bytes separated by LF; it excludes paths, timestamps and machine
+metadata. Corpus statistics remain diagnostic, with their payload hash derived
+from the exact ordered DataForge body sequence.
+
 ## Rationale
 
 The SDK already implements collision-safe project, configuration, framework and

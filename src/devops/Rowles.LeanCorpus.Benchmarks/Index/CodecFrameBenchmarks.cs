@@ -22,7 +22,7 @@ public class CodecFrameBenchmarks
         _directory = Path.Combine(Path.GetTempPath(), "LeanCorpus_CodecFrameBenchmarks", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_directory);
         _block = new byte[64 * 1024];
-        new Random(42).NextBytes(_block);
+        BenchmarkDeterministicRandom.Create("benchmark/codec-frame/block").NextBytes(_block);
     }
 
     [GlobalCleanup]

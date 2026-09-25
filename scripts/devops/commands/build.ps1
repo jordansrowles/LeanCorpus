@@ -45,6 +45,8 @@ function Invoke-DevOpsBuild {
 
     try {
         Invoke-DotNet (@($buildArgs) + $frameworkArgs + @(
+            '--disable-build-servers',
+            '-m:1',
             '-p:UseSharedCompilation=false',
             '--tl:off',
             "-bl:$binaryLogPath",

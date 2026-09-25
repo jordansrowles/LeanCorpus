@@ -6,6 +6,76 @@ namespace Rowles.LeanCorpus.Tests.Architecture;
 public sealed class PackageBoundaryTests
 {
     [Fact]
+    public void Core_and_shipped_Server_projects_must_not_reference_DataForge_or_its_dependencies()
+    {
+        string root = RepositoryPaths.Root;
+        string[] forbiddenProjects = ["Rowles.DataForge", "Rowles.DataForge.Workloads"];
+        string[] forbiddenPackages = ["Bogus", "SharpCompress"];
+        string[] shippingProjects = Directory
+            .EnumerateFiles(Path.Combine(root, "src", "core"), "*.csproj", SearchOption.AllDirectories)
+            .Concat(Directory.EnumerateFiles(Path.Combine(root, "src", "server"), "*.csproj", SearchOption.TopDirectoryOnly))
+            .OrderBy(static path => path, StringComparer.Ordinal)
+            .ToArray();
+        var violations = new List<string>();
+
+        foreach (string projectPath in shippingProjects)
+        {
+            XDocument project = XDocument.Load(projectPath);
+            string relativePath = Path.GetRelativePath(root, projectPath).Replace(Path.DirectorySeparatorChar, '/');
+
+            foreach (string reference in project.Descendants("ProjectReference")
+                         .Select(static element => (string?)element.Attribute("Include"))
+                         .OfType<string>())
+            {
+                string referencedName = Path.GetFileNameWithoutExtension(
+                    reference.Replace('\\', Path.DirectorySeparatorChar));
+                if (forbiddenProjects.Contains(referencedName, StringComparer.Ordinal))
+                    violations.Add($"{relativePath} -> {referencedName}");
+            }
+
+            foreach (string package in project.Descendants("PackageReference")
+                         .Select(static element => (string?)element.Attribute("Include"))
+                         .OfType<string>())
+            {
+                if (forbiddenPackages.Contains(package, StringComparer.OrdinalIgnoreCase))
+                    violations.Add($"{relativePath} -> package {package}");
+            }
+        }
+
+        RuleAssert.Empty("Core and shipped Server projects must remain independent of DataForge:", violations);
+    }
+
+    [Fact]
+    public void DataForge_projects_must_target_both_repository_frameworks_and_be_non_packable()
+    {
+        XDocument props = XDocument.Load(Path.Combine(RepositoryPaths.Root, "Directory.Build.props"));
+        string[] projectNames =
+        [
+            "Rowles.DataForge",
+            "Rowles.DataForge.Workloads",
+            "Rowles.DataForge.Tool",
+            "Rowles.DataForge.Tests"
+        ];
+        string[] frameworkConditions = props.Descendants("PropertyGroup")
+            .Where(group => string.Equals(group.Element("TargetFrameworks")?.Value, "net10.0;net11.0", StringComparison.Ordinal))
+            .Select(group => group.Attribute("Condition")?.Value ?? string.Empty)
+            .ToArray();
+        string[] nonPackableConditions = props.Descendants("PropertyGroup")
+            .Where(group => string.Equals(group.Element("IsPackable")?.Value, "false", StringComparison.OrdinalIgnoreCase))
+            .Select(group => group.Attribute("Condition")?.Value ?? string.Empty)
+            .ToArray();
+
+        foreach (string projectName in projectNames)
+        {
+            string condition = $"'$(MSBuildProjectName)' == '{projectName}'";
+            Assert.True(frameworkConditions.Any(value => value.Contains(condition, StringComparison.Ordinal)),
+                $"{projectName} must use the central net10.0/net11.0 target condition.");
+            Assert.True(nonPackableConditions.Any(value => value.Contains(condition, StringComparison.Ordinal)),
+                $"{projectName} must use the central non-packable condition.");
+        }
+    }
+
+    [Fact]
     public void LeanCorpus_must_not_reference_Rowles_Text()
     {
         bool hasReference = ArchitectureContext.CoreAssembly

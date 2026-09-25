@@ -38,7 +38,9 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [RPlotExporter]
 public class VectorQuantisationBenchmarks
 {
-    [Params(1_000, 10_000)]
+    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(1_000, 10_000);
+
+    [ParamsSource(nameof(DocCounts))]
     public int DocCount { get; set; }
 
     [Params(64, 128)]
@@ -82,15 +84,8 @@ public class VectorQuantisationBenchmarks
                         "lc_vq_bench_" + Guid.NewGuid().ToString("N"));
                     IODirectory.CreateDirectory(s_indexPath);
 
-                    var rnd = new Random(7);
-                    var vectors = new float[DocCount][];
-                    for (int i = 0; i < DocCount; i++)
-                    {
-                        var v = new float[Dimension];
-                        for (int d = 0; d < Dimension; d++)
-                            v[d] = (float)(rnd.NextDouble() * 2 - 1);
-                        vectors[i] = v;
-                    }
+                    var vectors = BenchmarkVectorData.Get(DocCount, Dimension).Records
+                        .Select(static record => record.Vector).ToArray();
 
                     var cfg = new LeanIndexWriterConfig
                     {
@@ -124,10 +119,7 @@ public class VectorQuantisationBenchmarks
             }
         }
 
-        _query = new float[Dimension];
-        var qrnd = new Random(7);
-        for (int d = 0; d < Dimension; d++)
-            _query[d] = (float)(qrnd.NextDouble() * 2 - 1);
+        _query = BenchmarkVectorData.Get(DocCount, Dimension).Query.Vector;
     }
 
     [Benchmark(Baseline = true, Description = "HNSW search")]

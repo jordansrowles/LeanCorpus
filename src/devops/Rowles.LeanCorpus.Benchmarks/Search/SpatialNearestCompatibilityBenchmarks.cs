@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using BenchmarkDotNet.Attributes;
+using Rowles.DataForge;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
@@ -92,7 +93,7 @@ public class SpatialNearestCompatibilityBenchmarks
 
     private void BuildIndex()
     {
-        var random = new Random(0x0700_2032);
+        var random = BenchmarkDeterministicRandom.Create($"benchmark/spatial-nearest-compat/geo/{Distribution}");
         using var directory = new MMapDirectory(_indexPath);
         var config = new IndexWriterConfig
         {
@@ -118,7 +119,7 @@ public class SpatialNearestCompatibilityBenchmarks
         }
     }
 
-    private LeanDocument CreateLegacyDocument(Random random)
+    private LeanDocument CreateLegacyDocument(DataForgePrng random)
     {
         (double latitude, double longitude) = CreateGeoPoint(random);
         var document = new LeanDocument();
@@ -127,7 +128,7 @@ public class SpatialNearestCompatibilityBenchmarks
         return document;
     }
 
-    private LeanDocument CreatePackedDocument(Random random)
+    private LeanDocument CreatePackedDocument(DataForgePrng random)
     {
         (double latitude, double longitude) = CreateGeoPoint(random);
         var document = new LeanDocument();
@@ -135,8 +136,8 @@ public class SpatialNearestCompatibilityBenchmarks
         return document;
     }
 
-    private (double Latitude, double Longitude) CreateGeoPoint(Random random)
+    private (double Latitude, double Longitude) CreateGeoPoint(DataForgePrng random)
         => Distribution == "Clustered"
-            ? (random.NextDouble() * 2 - 1, random.NextDouble() * 2 - 1)
-            : (random.NextDouble() * 180 - 90, random.NextDouble() * 360 - 180);
+            ? (random.NextDouble01() * 2 - 1, random.NextDouble01() * 2 - 1)
+            : (random.NextDouble01() * 180 - 90, random.NextDouble01() * 360 - 180);
 }

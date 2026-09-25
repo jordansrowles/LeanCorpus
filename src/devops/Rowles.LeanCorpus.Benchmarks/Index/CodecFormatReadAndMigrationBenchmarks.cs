@@ -30,7 +30,7 @@ public class CodecFrameReadBenchmarks
         _path = Path.Combine(_directory, "canonical.pos");
         _descriptor = CodecCatalog.Default.GetFile("leancorpus.postings.data");
         byte[] block = new byte[64 * 1024];
-        new Random(42).NextBytes(block);
+        BenchmarkDeterministicRandom.Create("benchmark/codec-migration/block").NextBytes(block);
         using var output = new IndexOutput(_path);
         using var frame = CodecFileWriter.Begin(output, _descriptor);
         for (int remaining = BodyMiB * 1024 * 1024; remaining > 0;)
