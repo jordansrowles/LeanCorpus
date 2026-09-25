@@ -255,7 +255,7 @@ internal sealed record NewsgroupsIndexOptions(string SourcePath, string IndexPat
                 return candidate;
         }
 
-        throw new ArgumentException("Could not find bench\\data\\20newsgroups. Run scripts\\data\\download-news.ps1 -SkipReuters from the repository root, or pass --source <path>.");
+        throw new ArgumentException("Could not find bench\\data\\20newsgroups. Run scripts\\data\\download-news.ps1 from the repository root, or pass --source <path>.");
     }
 
     private static IEnumerable<string> CandidateRoots()

@@ -91,7 +91,9 @@ function Prepare-TestTargets {
                 $operationStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
                 $restoreStopwatch.Start()
                 try {
-                    Invoke-DotNet @('restore', $projectPath, '--nologo') | Out-Host
+                    Invoke-DotNet @('restore', $projectPath, '--nologo',
+                        '--disable-build-servers', '-m:1',
+                        '-p:UseSharedCompilation=false') | Out-Host
                 } finally {
                     $operationStopwatch.Stop()
                     $restoreStopwatch.Stop()

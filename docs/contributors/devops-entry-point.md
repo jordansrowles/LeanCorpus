@@ -48,7 +48,7 @@ Use `benchmark` for running measurements and `benchmarks docs` for publishing ex
 
 The script combines two styles:
 
-- command or subcommand tokens such as `docs serve`, `server start` and `data wikipedia`;
+- command or subcommand tokens such as `docs serve`, `server start` and `dataforge reference download`;
 - PowerShell-style named options such as `-Suite query`, `-Framework net10.0`, and `-SkipBenchmarks`.
 
 BenchmarkDotNet arguments follow a `--` separator:

@@ -342,6 +342,17 @@ public static class DataForgeManifestCodec
             if (profileIdBytes is < 1 or > 128)
                 throw new InvalidDataException("Generated manifest profile ID must contain 1 to 128 UTF-8 bytes.");
         }
+        else
+        {
+            if (manifest.ProfileId is not null || manifest.ProfileVersion is not null || manifest.Seed is not null)
+                throw new InvalidDataException("Imported manifests must not invent generated profile or seed fields.");
+            if (manifest.Source is null || !manifest.Source.TryGetValue("datasetId", out var datasetId) || string.IsNullOrWhiteSpace(datasetId) ||
+                !manifest.Source.TryGetValue("datasetVersion", out var datasetVersion) ||
+                !int.TryParse(datasetVersion, NumberStyles.None, CultureInfo.InvariantCulture, out var parsedDatasetVersion) || parsedDatasetVersion < 1)
+                throw new InvalidDataException("Imported manifests require source datasetId and positive datasetVersion fields.");
+            if (manifest.Parameters.Count != 0)
+                throw new InvalidDataException("Imported manifests do not use generated profile parameters.");
+        }
 
         var parameterNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var parameter in manifest.Parameters)

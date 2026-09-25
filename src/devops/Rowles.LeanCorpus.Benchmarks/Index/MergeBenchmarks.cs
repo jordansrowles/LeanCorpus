@@ -44,24 +44,30 @@ public class MergeBenchmarks
     public void Setup()
     {
         _documents = BenchmarkData.BuildDocuments(DocumentCount);
-        _vectors = BenchmarkVectorData.Get(DocumentCount, 64).Records
-            .Select(static record => record.Vector).ToArray();
+        _vectors = BenchmarkData.IsWikipediaReferenceMode
+            ? []
+            : BenchmarkVectorData.Get(DocumentCount, 64).Records.Select(static record => record.Vector).ToArray();
     }
 
     [IterationSetup]
     public void IterationSetup()
     {
         _plainPath = BenchmarkHelpers.CreateTempDirectory("lc-merge-plain");
-        _hnswPath = BenchmarkHelpers.CreateTempDirectory("lc-merge-hnsw");
         _plainSegments = BuildSegments(_plainPath, withHnswVectors: false);
-        _hnswSegments = BuildSegments(_hnswPath, withHnswVectors: true);
+        if (!BenchmarkData.IsWikipediaReferenceMode)
+        {
+            _hnswPath = BenchmarkHelpers.CreateTempDirectory("lc-merge-hnsw");
+            _hnswSegments = BuildSegments(_hnswPath, withHnswVectors: true);
+        }
     }
 
     [IterationCleanup]
     public void IterationCleanup()
     {
         BenchmarkHelpers.DeleteDirectory(_plainPath);
-        BenchmarkHelpers.DeleteDirectory(_hnswPath);
+        if (!string.IsNullOrEmpty(_hnswPath))
+            BenchmarkHelpers.DeleteDirectory(_hnswPath);
+        _hnswPath = string.Empty;
         _plainSegments = [];
         _hnswSegments = [];
     }
@@ -81,6 +87,8 @@ public class MergeBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_Merge_WithHnswVectors()
     {
+        if (BenchmarkData.IsWikipediaReferenceMode)
+            throw new InvalidOperationException("Wikipedia reference mode only supports the plain-text merge benchmark.");
         using var directory = new MMapDirectory(_hnswPath);
         var merger = new SegmentMerger(directory, mergeThreshold: SegmentCount + 1);
         int nextOrdinal = NextOrdinal(_hnswSegments);

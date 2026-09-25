@@ -9,17 +9,17 @@ function Invoke-DevOpsData {
 
     $dataset = $parsed.Positionals[0]
     if (-not $dataset) {
-        Write-Error "Usage: devops data <gutenberg|wikipedia> [options]"
+        Write-Error "Usage: devops data gutenberg [options]"
         exit 1
     }
 
-    $valid = @('gutenberg', 'wikipedia')
+    $valid = @('gutenberg')
     if ($dataset -notin $valid) {
         Write-Error "Unknown dataset '$dataset'. Valid: $($valid -join ', ')"
         exit 1
     }
 
-    $scriptName = "download-$dataset.ps1"
+    $scriptName = 'download-gutenberg.ps1'
     $scriptPath = Join-Path $scriptsPath "data/$scriptName"
     if (-not (Test-Path $scriptPath)) {
         Write-Error "Script not found: $scriptPath"

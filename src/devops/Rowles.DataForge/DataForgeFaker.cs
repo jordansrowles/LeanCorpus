@@ -2,9 +2,9 @@ using Bogus;
 
 namespace Rowles.DataForge;
 
-public sealed class DataForgeBogusRandomiser : Randomizer
+public sealed class DataForgeBogusRandomizer : Randomizer
 {
-    public DataForgeBogusRandomiser(ulong seed)
+    public DataForgeBogusRandomizer(ulong seed)
     {
         localSeed = new DataForgeSystemRandom(seed);
     }
@@ -40,7 +40,7 @@ public sealed class DataForgeFaker
 
     public string Url() => faker.Internet.Url();
 
-    public void ResetRandomiser(ulong seed) => faker.Random = new DataForgeBogusRandomiser(seed);
+    public void ResetRandomiser(ulong seed) => faker.Random = new DataForgeBogusRandomizer(seed);
 
     public string LoremWords(int count)
     {
@@ -63,7 +63,7 @@ public static class DataForgeFakerFactory
         ArgumentException.ThrowIfNullOrWhiteSpace(locale);
         var faker = new Faker(locale)
         {
-            Random = new DataForgeBogusRandomiser(seed),
+            Random = new DataForgeBogusRandomizer(seed),
             DateTimeReference = FixedDateTimeReference
         };
         return new DataForgeFaker(faker);

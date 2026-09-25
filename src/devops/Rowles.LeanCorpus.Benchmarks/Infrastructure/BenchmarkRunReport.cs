@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Rowles.DataForge;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
@@ -420,8 +421,12 @@ internal static class BenchmarkProvenanceBuilder
             gitCommitHash);
 
         var hasSearchDataset = effectiveDocCount is > 0 && datasets.Any(dataset =>
+            dataset.Identity.SourceKind == DataForgeSourceKind.Generated &&
             string.Equals(dataset.Identity.ProfileId, "leancorpus-search", StringComparison.Ordinal) &&
-            dataset.Identity.RecordCount == effectiveDocCount.Value);
+            dataset.Identity.RecordCount == effectiveDocCount.Value ||
+            dataset.Identity.SourceKind == DataForgeSourceKind.Imported &&
+            string.Equals(dataset.Identity.DatasetId, "leancorpus-wikipedia-en", StringComparison.Ordinal) &&
+            dataset.Identity.DatasetVersion == 1 && dataset.Identity.RecordCount == 20_000);
         var corpus = hasSearchDataset
             ? BenchmarkCorpusReportBuilder.Build(effectiveDocCount)
             : null;
@@ -527,24 +532,24 @@ internal static class BenchmarkCorpusReportBuilder
         if (documentCount is not > 0)
             return null;
 
-        var records = BenchmarkData.GetRecords(documentCount.Value);
+        var documents = BenchmarkData.BuildDocuments(documentCount.Value);
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         var sink = new CorpusTokenSink();
         var analyser = new Rowles.LeanCorpus.Analysis.Analysers.StandardAnalyser();
         long byteCount = 0;
 
-        foreach (var record in records)
+        foreach (var body in documents)
         {
-            var bytes = Encoding.UTF8.GetBytes(record.Body);
+            var bytes = Encoding.UTF8.GetBytes(body);
             byteCount += bytes.Length;
             hash.AppendData(bytes);
             hash.AppendData([ (byte)'\n' ]);
-            analyser.Analyse(record.Body.AsSpan(), sink);
+            analyser.Analyse(body.AsSpan(), sink);
         }
 
         return new BenchmarkCorpusReport
         {
-            DocumentCount = records.Length,
+            DocumentCount = documents.Length,
             Utf8ByteCount = byteCount,
             TokenCount = sink.TokenCount,
             UniqueTermCount = sink.UniqueTerms.Count,

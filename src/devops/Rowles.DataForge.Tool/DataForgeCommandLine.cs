@@ -29,6 +29,7 @@ public static class DataForgeCommandLine
             {
                 "profiles" => RunProfiles(tail, output),
                 "generate" => RunGenerate(tail, output, repositoryRoot),
+                "reference" => RunReference(tail, output, repositoryRoot),
                 "inspect" => RunInspect(tail, output),
                 "verify" => RunVerify(tail, output),
                 "reproduce" => RunReproduce(tail, output),
@@ -41,6 +42,11 @@ public static class DataForgeCommandLine
             error.WriteLine($"Invalid command: {exception.Message}");
             error.WriteLine("Run './devops dataforge help' for usage.");
             return 2;
+        }
+        catch (OperationCanceledException)
+        {
+            error.WriteLine("DataForge operation cancelled; resumable partial files are retained.");
+            return 130;
         }
         catch (Exception exception)
         {
@@ -200,6 +206,11 @@ public static class DataForgeCommandLine
             output.WriteLine($"Parameter.{parameter.Name}: {parameter.Value}");
         foreach (var dependency in manifest.Dependencies.OrderBy(static item => item.Name, StringComparer.Ordinal))
             output.WriteLine($"Dependency.{dependency.Name}: {dependency.Version}");
+        if (manifest.Source is not null)
+            foreach (var source in manifest.Source.OrderBy(static item => item.Key, StringComparer.Ordinal))
+                output.WriteLine($"Source.{source.Key}: {source.Value}");
+        foreach (var summary in manifest.Summaries)
+            output.WriteLine($"Summary.{summary.Name}: {summary.Value}");
         return 0;
     }
 
@@ -207,12 +218,115 @@ public static class DataForgeCommandLine
     {
         if (args.Length != 1)
             throw new CommandLineException("Usage: verify <dataset-dir-or-manifest>");
-        var result = DataForgeVerifier.VerifyMaterialised(args[0]);
+        var manifestPath = DataForgeVerifier.ResolveManifestPath(args[0]);
+        var manifest = DataForgeManifestCodec.Read(manifestPath);
+        if (manifest.SourceKind == DataForgeSourceKind.Imported && manifest.Source?.GetValueOrDefault("datasetId") == WikipediaReferenceContract.DatasetId)
+        {
+            var wikipedia = WikipediaReferenceVerifier.Verify(manifestPath);
+            output.WriteLine("Verified: true");
+            output.WriteLine($"DatasetId: {wikipedia.DatasetId}");
+            output.WriteLine($"DatasetVersion: {wikipedia.DatasetVersion.ToString(CultureInfo.InvariantCulture)}");
+            output.WriteLine($"Count: {wikipedia.RecordCount.ToString(CultureInfo.InvariantCulture)}");
+            output.WriteLine($"ContentSha256: {wikipedia.ContentSha256}");
+            return 0;
+        }
+        var result = DataForgeVerifier.VerifyMaterialised(manifestPath);
         output.WriteLine("Verified: true");
         output.WriteLine($"Profile: {result.Manifest.ProfileId ?? "(none)"}");
         output.WriteLine($"Count: {result.Manifest.RecordCount.ToString(CultureInfo.InvariantCulture)}");
         output.WriteLine($"ContentSha256: {result.Manifest.ContentSha256}");
         return 0;
+    }
+
+    private static int RunReference(string[] args, TextWriter output, string repositoryRoot)
+    {
+        if (args.Length == 0)
+            throw new CommandLineException("Usage: reference <download|build|inspect|verify>");
+        var operation = args[0].ToLowerInvariant();
+        var tail = args[1..];
+        switch (operation)
+        {
+            case "download":
+            {
+                var options = ParseFlags(tail,
+                    new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Force" },
+                    new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Cache" });
+                var cache = options.Values.TryGetValue("Cache", out var requestedCache)
+                    ? Path.GetFullPath(requestedCache)
+                    : WikipediaReferenceContract.CachePath(repositoryRoot);
+                using var cancellation = new CancellationTokenSource();
+                ConsoleCancelEventHandler handler = (_, eventArgs) =>
+                {
+                    eventArgs.Cancel = true;
+                    cancellation.Cancel();
+                };
+                Console.CancelKeyPress += handler;
+                try
+                {
+                    using var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
+                    var source = new WikipediaReferenceDownloader(client).DownloadAsync(cache, options.Flags.Contains("Force"), cancellation.Token).GetAwaiter().GetResult();
+                    output.WriteLine($"Wiki: {source.Wiki}");
+                    output.WriteLine($"DumpDate: {source.DumpDate}");
+                    output.WriteLine($"PrimarySha256: {source.PrimarySha256}");
+                    output.WriteLine($"IndexSha256: {source.IndexSha256}");
+                    output.WriteLine($"Cache: {cache}");
+                    return 0;
+                }
+                finally
+                {
+                    Console.CancelKeyPress -= handler;
+                }
+            }
+            case "build":
+            {
+                var options = ParseFlags(tail, new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                    new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Cache", "Output" });
+                var cache = options.Values.TryGetValue("Cache", out var requestedCache)
+                    ? Path.GetFullPath(requestedCache)
+                    : WikipediaReferenceContract.CachePath(repositoryRoot);
+                var destination = options.Values.TryGetValue("Output", out var requestedOutput)
+                    ? ResolveOutputPath(repositoryRoot, requestedOutput)
+                    : WikipediaReferenceContract.ReferencePath(repositoryRoot);
+                var result = WikipediaReferenceBuilder.Build(cache, destination);
+                output.WriteLine($"DatasetId: {WikipediaReferenceContract.DatasetId}");
+                output.WriteLine($"DatasetVersion: {WikipediaReferenceContract.DatasetVersion.ToString(CultureInfo.InvariantCulture)}");
+                output.WriteLine($"Count: {result.SelectedCount.ToString(CultureInfo.InvariantCulture)}");
+                output.WriteLine($"CandidateLimit: {result.CandidateLimit.ToString(CultureInfo.InvariantCulture)}");
+                output.WriteLine($"ContentSha256: {result.Manifest.ContentSha256}");
+                output.WriteLine($"ArtefactSha256: {result.Manifest.ArtefactSha256}");
+                output.WriteLine($"Output: {result.OutputDirectory}");
+                return 0;
+            }
+            case "inspect":
+            case "verify":
+            {
+                var options = ParseFlags(tail, new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                    new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ReferencePath" });
+                var reference = options.Values.TryGetValue("ReferencePath", out var requestedPath)
+                    ? Path.GetFullPath(requestedPath)
+                    : WikipediaReferenceContract.ReferencePath(repositoryRoot);
+                var result = WikipediaReferenceVerifier.Verify(reference);
+                if (operation == "verify")
+                    output.WriteLine("Verified: true");
+                output.WriteLine($"DatasetId: {result.DatasetId}");
+                output.WriteLine($"DatasetVersion: {result.DatasetVersion.ToString(CultureInfo.InvariantCulture)}");
+                output.WriteLine($"DumpDate: {result.DumpDate}");
+                output.WriteLine($"Count: {result.RecordCount.ToString(CultureInfo.InvariantCulture)}");
+                output.WriteLine($"CandidateLimit: {result.CandidateLimit.ToString(CultureInfo.InvariantCulture)}");
+                output.WriteLine($"ContentSha256: {result.ContentSha256}");
+                output.WriteLine($"ArtefactSha256: {result.ArtefactSha256}");
+                if (operation == "inspect")
+                {
+                    var manifest = DataForgeManifestCodec.Read(DataForgeVerifier.ResolveManifestPath(reference));
+                    foreach (var summary in manifest.Summaries)
+                        output.WriteLine($"Summary.{summary.Name}: {summary.Value}");
+                    output.WriteLine("Licence: CC BY-SA 4.0");
+                }
+                return 0;
+            }
+            default:
+                throw new CommandLineException($"Unknown reference command '{args[0]}'.");
+        }
     }
 
     private static int RunReproduce(string[] args, TextWriter output)
@@ -254,6 +368,10 @@ public static class DataForgeCommandLine
         output.WriteLine("  ./devops dataforge generate -Profile leancorpus-stress -Mode search|vector|hybrid [-Version 1] [-Seed 42] [-Count <count>] [-AllowLarge] [-Output <path>] [-Force]");
         output.WriteLine("  ./devops dataforge generate -Profile rowles-text-multilingual -Language en|fr|de|es|it|pt|nl|ru|ar|zh|ja|ko [-Version 1] [-Seed 42] [-Count 256] [-Output <path>] [-Force]");
         output.WriteLine("  ./devops dataforge generate -Profile leancorpus-e2e [-Version 1] [-Seed 42] [-Count 256] [-Output <path>] [-Force]");
+        output.WriteLine("  ./devops dataforge reference download [-Cache <path>] [-Force]");
+        output.WriteLine("  ./devops dataforge reference build [-Cache <path>] [-Output <path>]");
+        output.WriteLine("  ./devops dataforge reference inspect [-ReferencePath <path>]");
+        output.WriteLine("  ./devops dataforge reference verify [-ReferencePath <path>]");
         output.WriteLine("  ./devops dataforge inspect <dataset-dir-or-manifest>");
         output.WriteLine("  ./devops dataforge verify <dataset-dir-or-manifest>");
         output.WriteLine("  ./devops dataforge reproduce <dataset-dir-or-manifest>");

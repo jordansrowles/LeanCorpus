@@ -195,6 +195,9 @@ internal static class SharedStandardIndex
             " count=", identity.RecordCount.ToString(CultureInfo.InvariantCulture),
             " contentSha256=", identity.ContentSha256);
 
+        if (BenchmarkData.IsWikipediaReferenceMode)
+            return;
+
         try
         {
             var searcher = _leanSearcher ?? throw new InvalidOperationException("The LeanCorpus searcher is unavailable.");

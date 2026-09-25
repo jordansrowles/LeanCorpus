@@ -42,8 +42,9 @@ public class FlushBenchmarks
     public void Setup()
     {
         _documents = BenchmarkData.BuildDocuments(DocsPerFlush);
-        _vectors = BenchmarkVectorData.Get(DocsPerFlush, 64).Records
-            .Select(static record => record.Vector).ToArray();
+        _vectors = BenchmarkData.IsWikipediaReferenceMode
+            ? []
+            : BenchmarkVectorData.Get(DocsPerFlush, 64).Records.Select(static record => record.Vector).ToArray();
     }
 
     [IterationCleanup]
@@ -90,6 +91,7 @@ public class FlushBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_Flush_MixedFields()
     {
+        EnsureSyntheticMode("mixed-field flush");
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"lc-flush-bench-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(path);
         _createdPaths.Add(path);
@@ -124,6 +126,7 @@ public class FlushBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_Flush_WithVectors()
     {
+        EnsureSyntheticMode("vector flush");
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"lc-flush-bench-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(path);
         _createdPaths.Add(path);
@@ -162,6 +165,7 @@ public class FlushBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_Flush_WithTermVectors()
     {
+        EnsureSyntheticMode("term-vector flush");
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"lc-flush-bench-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(path);
         _createdPaths.Add(path);
@@ -189,5 +193,11 @@ public class FlushBenchmarks
             writer.Commit();
             return _documents.Length;
         }
+    }
+
+    private static void EnsureSyntheticMode(string benchmark)
+    {
+        if (BenchmarkData.IsWikipediaReferenceMode)
+            throw new InvalidOperationException($"Wikipedia reference mode only supports the text-only flush benchmark, not {benchmark}.");
     }
 }

@@ -58,7 +58,7 @@ The example continuously indexes and searches a small book corpus while emitting
 Prepare the corpus:
 
 ```bash
-pwsh ./scripts/data/download-news.ps1 -SkipReuters
+pwsh ./scripts/data/download-news.ps1
 ```
 
 Run a bounded ingestion first:

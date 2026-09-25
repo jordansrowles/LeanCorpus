@@ -12,6 +12,7 @@ internal static class Program
     {
         string artifactsPath = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR")
             ?? Path.Combine(FindRepositoryRoot(), "artifacts", "benchmark", "runs", "direct", "text");
+        Environment.SetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR", artifactsPath);
         Directory.CreateDirectory(artifactsPath);
         var config = DefaultConfig.Instance.WithArtifactsPath(Path.Combine(artifactsPath, "_runner"));
         bool includeGutenberg = args.Any(argument =>
