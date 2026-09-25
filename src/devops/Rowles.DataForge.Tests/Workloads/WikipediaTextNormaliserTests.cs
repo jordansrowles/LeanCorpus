@@ -46,6 +46,7 @@ public sealed class WikipediaTextNormaliserTests
 
     [Theory]
     [InlineData("<!-- unclosed", "Unclosed Wikipedia comment block.")]
+    [InlineData("<ref>unclosed", "Unclosed Wikipedia ref element.")]
     [InlineData("{{ unclosed", "Unclosed Wikipedia template block.")]
     [InlineData("{| unclosed", "Unclosed Wikipedia table block.")]
     public void Fails_on_unclosed_bounded_markup(string input, string message)
@@ -60,6 +61,8 @@ public sealed class WikipediaTextNormaliserTests
         Assert.Throws<InvalidDataException>(() => WikipediaTextNormaliserV1.Normalise("<ref>a<ref>b</ref></ref>"));
         var tooDeep = string.Concat(Enumerable.Repeat("{{", 65)) + string.Concat(Enumerable.Repeat("}}", 65));
         Assert.Throws<InvalidDataException>(() => WikipediaTextNormaliserV1.Normalise(tooDeep));
+        var tableTooDeep = string.Concat(Enumerable.Repeat("{|", 17)) + string.Concat(Enumerable.Repeat("|}", 17));
+        Assert.Throws<InvalidDataException>(() => WikipediaTextNormaliserV1.Normalise(tableTooDeep));
     }
 
     [Fact]
@@ -80,6 +83,44 @@ public sealed class WikipediaTextNormaliserTests
             Assert.Equal(normalised, WikipediaTextNormaliserV1.Normalise(normalised));
             Assert.DoesNotContain('\r', normalised);
             Assert.Equal(normalised, new System.Text.UTF8Encoding(false, true).GetString(System.Text.Encoding.UTF8.GetBytes(normalised)));
+        }
+    }
+
+    [Fact]
+    public void Deterministic_generated_markup_preserves_normaliser_properties()
+    {
+        var fragments = new[]
+        {
+            "plain text",
+            "{{outer|hidden {{inner|value}}}}",
+            "{| class=\"wikitable\"\n| row |}",
+            "[[Page|visible label]]",
+            "[https://example.test external label]",
+            "<ref name=\"source\">citation</ref>",
+            "<!-- hidden comment -->",
+            "'''bold''' and ''italic''",
+            "== Heading ==",
+            "Zażółć 東京 مرحبا &amp;"
+        };
+        var utf8 = new System.Text.UTF8Encoding(false, true);
+
+        for (var sample = 0; sample < 128; sample++)
+        {
+            var input = new System.Text.StringBuilder();
+            var fragmentCount = 4 + sample % 9;
+            for (var part = 0; part < fragmentCount; part++)
+            {
+                var fragmentIndex = (sample * 17 + part * 23 + part * part) % fragments.Length;
+                input.Append(fragments[fragmentIndex]);
+                input.Append(part % 3 == 0 ? "\n" : " ");
+            }
+
+            var value = input.ToString();
+            var normalised = WikipediaTextNormaliserV1.Normalise(value);
+            Assert.Equal(normalised, WikipediaTextNormaliserV1.Normalise(value));
+            Assert.Equal(normalised, WikipediaTextNormaliserV1.Normalise(normalised));
+            Assert.DoesNotContain('\r', normalised);
+            Assert.Equal(normalised, utf8.GetString(utf8.GetBytes(normalised)));
         }
     }
 }

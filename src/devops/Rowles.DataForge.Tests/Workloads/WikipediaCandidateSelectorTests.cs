@@ -1,4 +1,8 @@
+using System.Text;
+using Rowles.DataForge.Tool;
 using Rowles.DataForge.Workloads;
+using SharpCompress.Compressors;
+using SharpCompress.Compressors.BZip2;
 
 namespace Rowles.DataForge.Tests.Workloads;
 
@@ -53,5 +57,29 @@ public sealed class WikipediaCandidateSelectorTests
         Assert.Throws<InvalidDataException>(() => WikipediaCandidateSelector.Select(new StringReader("0:1:" + new string('x', 70_000)), 2));
     }
 
+    [Fact]
+    public void Rejects_invalid_utf8_in_the_compressed_index()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "dataforge-index-" + Guid.NewGuid().ToString("N") + ".bz2");
+        try
+        {
+            File.WriteAllBytes(path, Compress([.. Encoding.ASCII.GetBytes("0:1:"), 0xC3]));
+
+            Assert.Throws<DecoderFallbackException>(() => WikipediaReferenceSource.ReadIndex(path, 2));
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
     private static string Format(WikipediaIndexEntry entry) => $"{entry.Offset}:{entry.PageId}:{entry.Title}";
+
+    private static byte[] Compress(byte[] bytes)
+    {
+        using var output = new MemoryStream();
+        using (var compressor = BZip2Stream.Create(output, CompressionMode.Compress, decompressConcatenated: false, leaveOpen: true))
+            compressor.Write(bytes);
+        return output.ToArray();
+    }
 }

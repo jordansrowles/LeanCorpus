@@ -47,14 +47,21 @@ public static class WikipediaReferenceBuilder
         if (Directory.Exists(output) || File.Exists(output))
             throw new IOException($"Wikipedia v1 output '{output}' already exists. It is immutable and will not be overwritten.");
         var source = WikipediaReferenceSource.Verify(cacheDirectory);
-        return BuildCore(cacheDirectory, output, source, WikipediaReferenceContract.TargetCount);
+        return BuildCore(cacheDirectory, output, source, WikipediaReferenceContract.TargetCount,
+            WikipediaCandidateSelector.InitialCandidateLimit, WikipediaCandidateSelector.MaximumCandidateLimit);
     }
 
-    internal static WikipediaReferenceBuildResult BuildFixture(string cacheDirectory, string outputDirectory, int targetCount)
+    internal static WikipediaReferenceBuildResult BuildFixture(
+        string cacheDirectory,
+        string outputDirectory,
+        int targetCount,
+        int initialCandidateLimit = WikipediaCandidateSelector.InitialCandidateLimit,
+        int maximumCandidateLimit = WikipediaCandidateSelector.MaximumCandidateLimit)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(cacheDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(targetCount);
+        ValidateCandidateLimits(initialCandidateLimit, maximumCandidateLimit);
         var cache = Path.GetFullPath(cacheDirectory);
         var primaryPath = Path.Combine(cache, WikipediaReferenceContract.PrimaryFilename);
         var indexPath = Path.Combine(cache, WikipediaReferenceContract.IndexFilename);
@@ -72,10 +79,16 @@ public static class WikipediaReferenceBuilder
             Sha256(indexPath),
             Sha256(indexPath),
             Sha256(primaryPath));
-        return BuildCore(cache, outputDirectory, source, targetCount);
+        return BuildCore(cache, outputDirectory, source, targetCount, initialCandidateLimit, maximumCandidateLimit);
     }
 
-    private static WikipediaReferenceBuildResult BuildCore(string cacheDirectory, string outputDirectory, WikipediaDumpSource source, int targetCount)
+    private static WikipediaReferenceBuildResult BuildCore(
+        string cacheDirectory,
+        string outputDirectory,
+        WikipediaDumpSource source,
+        int targetCount,
+        int initialCandidateLimit,
+        int maximumCandidateLimit)
     {
         var timer = Stopwatch.StartNew();
         var output = Path.GetFullPath(outputDirectory);
@@ -93,7 +106,7 @@ public static class WikipediaReferenceBuilder
             var cached = new Dictionary<ulong, CandidateSnapshot>();
             var offsetsRead = new HashSet<long>();
             var extractor = new WikipediaPageExtractor();
-            var candidateLimit = WikipediaCandidateSelector.InitialCandidateLimit;
+            var candidateLimit = initialCandidateLimit;
             var passes = 0;
             long indexEntriesScanned = 0;
             WikipediaCandidateSelection selection;
@@ -118,9 +131,9 @@ public static class WikipediaReferenceBuilder
                     selected = eligible[..targetCount];
                     break;
                 }
-                if (candidateLimit == WikipediaCandidateSelector.MaximumCandidateLimit)
+                if (candidateLimit == maximumCandidateLimit)
                     throw new InvalidDataException($"Only {eligible.Length} eligible Wikipedia pages were found among {candidateLimit} candidates; v1 requires exactly {targetCount}.");
-                candidateLimit = Math.Min(candidateLimit * 2, WikipediaCandidateSelector.MaximumCandidateLimit);
+                candidateLimit = Math.Min(candidateLimit * 2, maximumCandidateLimit);
             }
 
             var selectedCache = selected.ToDictionary(static candidate => candidate.Entry.PageId,
@@ -224,7 +237,7 @@ public static class WikipediaReferenceBuilder
                 timer.ElapsedMilliseconds,
                 rejectionCounts));
 
-            _ = WikipediaReferenceVerifier.Verify(temporary, targetCount);
+            _ = WikipediaReferenceVerifier.Verify(temporary, targetCount, initialCandidateLimit);
             Directory.Move(temporary, output);
             return new WikipediaReferenceBuildResult(output, candidateLimit, indexEntriesScanned, cached.Count,
                 cached.Values.Count(static snapshot => snapshot.IsEligible), selected.Length, offsetsRead.Count,
@@ -235,6 +248,17 @@ public static class WikipediaReferenceBuilder
             if (Directory.Exists(temporary))
                 Directory.Delete(temporary, recursive: true);
         }
+    }
+
+    private static void ValidateCandidateLimits(int initialCandidateLimit, int maximumCandidateLimit)
+    {
+        if (initialCandidateLimit is < 1 or > WikipediaCandidateSelector.MaximumCandidateLimit ||
+            (initialCandidateLimit & (initialCandidateLimit - 1)) != 0)
+            throw new ArgumentOutOfRangeException(nameof(initialCandidateLimit));
+        if (maximumCandidateLimit < initialCandidateLimit ||
+            maximumCandidateLimit > WikipediaCandidateSelector.MaximumCandidateLimit ||
+            (maximumCandidateLimit & (maximumCandidateLimit - 1)) != 0)
+            throw new ArgumentOutOfRangeException(nameof(maximumCandidateLimit));
     }
 
     public static void WriteRecord(CanonicalJsonWriter writer, WikipediaReferenceRecord record)

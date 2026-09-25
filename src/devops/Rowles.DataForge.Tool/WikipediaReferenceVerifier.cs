@@ -26,7 +26,10 @@ public static class WikipediaReferenceVerifier
     public static WikipediaReferenceVerificationResult Verify(string datasetDirectoryOrManifest) =>
         Verify(datasetDirectoryOrManifest, WikipediaReferenceContract.TargetCount);
 
-    internal static WikipediaReferenceVerificationResult Verify(string datasetDirectoryOrManifest, int expectedCount)
+    internal static WikipediaReferenceVerificationResult Verify(string datasetDirectoryOrManifest, int expectedCount) =>
+        Verify(datasetDirectoryOrManifest, expectedCount, WikipediaCandidateSelector.InitialCandidateLimit);
+
+    internal static WikipediaReferenceVerificationResult Verify(string datasetDirectoryOrManifest, int expectedCount, int minimumCandidateLimit)
     {
         var verification = DataForgeVerifier.VerifyMaterialised(datasetDirectoryOrManifest);
         var manifest = verification.Manifest;
@@ -49,7 +52,7 @@ public static class WikipediaReferenceVerifier
         Require(source, "selectionSalt", "leancorpus-wikipedia-en-v1");
         Require(source, "normaliser", WikipediaTextNormaliserV1.Version);
         Require(source, "eligibilityVersion", "1");
-        var candidateLimit = ParseCandidateLimit(source);
+        var candidateLimit = ParseCandidateLimit(source, minimumCandidateLimit);
         ValidateSha1(source, "indexSha1");
         ValidateSha256(source, "primarySha256");
         ValidateSha256(source, "indexSha256");
@@ -202,10 +205,10 @@ public static class WikipediaReferenceVerifier
             throw new InvalidDataException(ordinal == 0 ? $"Wikipedia source field '{field}' is not a lowercase SHA-256." : $"Wikipedia record {ordinal} field '{field}' is not a lowercase SHA-256.");
     }
 
-    private static int ParseCandidateLimit(IReadOnlyDictionary<string, string> source)
+    private static int ParseCandidateLimit(IReadOnlyDictionary<string, string> source, int minimumCandidateLimit)
     {
         if (!int.TryParse(RequireValue(source, "candidateLimitUsed"), NumberStyles.None, CultureInfo.InvariantCulture, out var limit) ||
-            limit is < WikipediaCandidateSelector.InitialCandidateLimit or > WikipediaCandidateSelector.MaximumCandidateLimit ||
+            limit < minimumCandidateLimit || limit > WikipediaCandidateSelector.MaximumCandidateLimit ||
             (limit & (limit - 1)) != 0)
             throw new InvalidDataException("Wikipedia manifest candidateLimitUsed is invalid.");
         return limit;
