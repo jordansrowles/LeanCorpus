@@ -29,11 +29,28 @@
 - Hardened Packed BKD v1 reader bounds, semantic validation, deterministic spill cleanup and DWPT capacity accounting without changing the on-disk format.
 - Made Packed BKD open read only its tail directory, selected raw leaves on exact prefix-size ties, accounted actual rented build capacity, and added observer-only build and traversal telemetry.
 - Renamed spatial configuration and longitude-normalisation APIs to `Point2D()`, `Shape7D4Indexed()` and `NormaliseLongitude()` while preserving the Packed BKD v1 file format.
+- `QueryParser.AnalyseTerm` now returns the complete token stream to subclasses; wildcard and range literals reject analyser output that cannot be represented as one term.
 - Segment ordinals now use one atomic allocator across detached flush, merge, force-merge, and imported-index paths. Detached flushing also sorts compact term IDs directly against its owned UTF-8 pool rather than allocating per-term byte arrays.
 - Reduced repeated `OperationDrain` entry in postings decoding by grouping multi-read decoder work under `BeginReadSession()`, improving representative real-query throughput on Windows and Linux. (c837dbb94, #75)
 
 ### Fixed
 
+- Fail closed when selected deletion state is missing, malformed, or inconsistent with segment metadata.
+- Compile query-string clauses with the analyser configured for their selected schema field.
+- Preserve query-token escape metadata through wildcard, range, and phrase parsing so escaped metacharacters remain literal.
+- Preserve position lengths through legacy filter routing and cached graph replay, with independent cache clones.
+- Map character-filter token offsets back to original UTF-16 input across chained transformations.
+- Compile phrase token graphs iteratively within explicit traversal and output limits.
+- Preserve position lengths and absolute graph edges through common-gram generation and replay.
+- Unicode tokenisers recognise supplementary letters and digits while preserving UTF-16 offsets; unpaired surrogates delimit words.
+- `StandardAnalyser` now lowercases Unicode tokens invariantly regardless of token length.
+- Enforce documented fuzzy-query edit and expansion limits at construction and report invalid parser modifiers at their source offset.
+- Preserve exact field lengths above 65,535 and reject negative token counts instead of clamping values.
+- Enforce schema, nesting, Boolean clause, wildcard and regexp limits for Server query-string requests before query execution.
+- Merges now preserve compatible index sort order while remapping document data, keeping sorted top-N results correct.
+- Isolated analyser filter and sink state for concurrent calls and cleaned up execution state after failed analyses.
+- Persist only the logical document range in field-length files, excluding unused pooled-array values.
+- Lower complete unquoted analyser output with the parser's implicit OR operator and bounded graph-path compilation instead of discarding tokens after the first.
 - Best-first Geo nearest sorting now includes legacy-only points in mixed segments after a force merge.
 - Made canonical geographic dateline seam normalisation idempotent when a
   canonical polygon or line is used as input again, validated polygon shell and
