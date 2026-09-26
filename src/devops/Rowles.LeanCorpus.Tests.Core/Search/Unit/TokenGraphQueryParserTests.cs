@@ -88,6 +88,22 @@ public sealed class TokenGraphQueryParserTests
         Assert.True(allocatedBytes < 16 * 1024 * 1024, $"Traversal-budget rejection allocated {allocatedBytes:N0} bytes.");
     }
 
+    [Fact(DisplayName = "QueryParser: can parse after phrase traversal budget failure")]
+    public void Parse_AfterPhraseTraversalBudgetFailure_CanBeReused()
+    {
+        var parser = new QueryParser(
+            "body",
+            new BranchingPhraseAnalyser(branchCount: 64, tailLength: 1_100, switchToSingleTokenAfterFirstAnalysis: true));
+
+        var exception = Assert.Throws<QueryParseException>(() => parser.Parse("\"graph\""));
+
+        Assert.Contains("traversal steps exceed the maximum of 65536", exception.Message, StringComparison.OrdinalIgnoreCase);
+
+        var phrase = Assert.IsType<PhraseQuery>(parser.Parse("\"safe\""));
+        Assert.Equal(["safe"], phrase.Terms);
+        Assert.Equal([0], phrase.Positions);
+    }
+
     [Fact(DisplayName = "QueryParser: phrase graph rejects excessive emitted path count")]
     public void Parse_PhraseGraphExceedingPathBudget_ThrowsQueryParseException()
     {
@@ -108,10 +124,22 @@ public sealed class TokenGraphQueryParserTests
         Assert.Contains("compiled phrase query clause count exceeds the maximum of 512", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    private sealed class BranchingPhraseAnalyser(int branchCount, int tailLength) : IAnalyser
+    private sealed class BranchingPhraseAnalyser(
+        int branchCount,
+        int tailLength,
+        bool switchToSingleTokenAfterFirstAnalysis = false) : IAnalyser
     {
+        private int _analysisCount;
+
         public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
         {
+            if (switchToSingleTokenAfterFirstAnalysis && _analysisCount++ > 0)
+            {
+                sink.Add("safe".AsSpan(), 0, 4, Token.DefaultType,
+                    positionIncrement: 1, positionLength: 1, payload: null);
+                return;
+            }
+
             for (int branch = 0; branch < branchCount; branch++)
             {
                 sink.Add("branch".AsSpan(), 0, 6, Token.DefaultType,
