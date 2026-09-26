@@ -1,4 +1,3 @@
-using System.Text;
 using Rowles.LeanCorpus.Analysis.Analysers;
 
 namespace Rowles.LeanCorpus.Search.Parsing;
@@ -13,34 +12,17 @@ public sealed class AnalysingQueryParser : QueryParser
     }
 
     /// <inheritdoc/>
-    protected override string AnalyseMultiTerm(string term)
-    {
-        var builder = new StringBuilder(term.Length);
-        int start = 0;
-        for (int i = 0; i <= term.Length; i++)
+    protected override string AnalyseMultiTerm(string term) =>
+        NormaliseMultiTermPattern(term, literal =>
         {
-            if (i < term.Length && term[i] is not ('*' or '?'))
-                continue;
-
-            if (i > start)
-            {
-                string literal = term[start..i];
-                string analysed = AnalyseTerm(literal);
-                builder.Append(analysed.Length == 0 ? literal : analysed);
-            }
-
-            if (i < term.Length)
-                builder.Append(term[i]);
-            start = i + 1;
-        }
-
-        return builder.ToString();
-    }
+            string analysed = AnalyseSingleToken(literal);
+            return analysed.Length == 0 ? literal : analysed;
+        });
 
     /// <inheritdoc/>
     protected override string AnalyseRangeBound(string term)
     {
-        string analysed = AnalyseTerm(term);
+        string analysed = AnalyseSingleToken(term);
         return analysed.Length == 0 ? term : analysed;
     }
 }

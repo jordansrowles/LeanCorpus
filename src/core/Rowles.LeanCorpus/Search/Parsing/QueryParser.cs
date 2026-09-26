@@ -7,13 +7,35 @@ namespace Rowles.LeanCorpus.Search.Parsing;
 /// explicit boolean operators, ranges, regular expressions, field existence,
 /// prefix*, wild?card, fuzzy~N, "phrase"~N, boosts, and constant scores.
 /// </summary>
+/// <remarks>
+/// When one unquoted syntax term analyses to multiple independent positions, those
+/// positions use the parser's implicit OR operator. Same-position alternatives are
+/// retained as Boolean alternatives, and non-unit graph edges use bounded phrase-path
+/// compilation.
+/// </remarks>
 public class QueryParser
 {
+    private const int MaximumAnalysedPhraseTokenCount = 16_384;
+    private const int MaximumPhraseGraphEdgeCount = 8_192;
+    private const int MaximumPhraseGraphTraversalSteps = 65_536;
+    private const int MaximumCompiledPhraseClauseCount = 512;
+
     private readonly string _defaultField;
     private readonly IAnalyser _analyser;
+    private readonly Func<string, QueryFieldCompilationContext>? _fieldContextResolver;
+    private readonly Dictionary<string, QueryFieldCompilationContext> _fieldContexts = new(StringComparer.Ordinal);
     private readonly bool _lenient;
     private readonly int _maxGraphPaths;
     private int _depth;
+    private int _maxDepth = 64;
+    private int _maxSyntaxNodes = int.MaxValue;
+    private int _syntaxNodeCount;
+    private int _analysedPhraseTokenCount;
+    private int _phraseGraphEdgeCount;
+    private int _phraseGraphTraversalSteps;
+    private int _compiledPhraseClauseCount;
+    private bool _parseLimitsAreComplexity;
+    private bool _graphPathLimitIsComplexity;
 
     /// <summary>Gets the analyser used to build query terms.</summary>
     protected IAnalyser Analyser => _analyser;
@@ -28,10 +50,23 @@ public class QueryParser
     /// </param>
     /// <param name="maxGraphPaths">The maximum complete analysed phrase paths permitted before parsing fails.</param>
     public QueryParser(string defaultField, IAnalyser analyser, bool lenient = false, int maxGraphPaths = 256)
+        : this(defaultField, analyser, fieldContextResolver: null, lenient, maxGraphPaths)
+    {
+    }
+
+    internal QueryParser(
+        string defaultField,
+        IAnalyser analyser,
+        Func<string, QueryFieldCompilationContext>? fieldContextResolver,
+        bool lenient = false,
+        int maxGraphPaths = 256)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxGraphPaths, 1);
+        ArgumentNullException.ThrowIfNull(defaultField);
+        ArgumentNullException.ThrowIfNull(analyser);
         _defaultField = defaultField;
         _analyser = analyser;
+        _fieldContextResolver = fieldContextResolver;
         _lenient = lenient;
         _maxGraphPaths = maxGraphPaths;
     }
@@ -47,20 +82,39 @@ public class QueryParser
     /// </exception>
     public Query Parse(string queryString)
     {
-        if (string.IsNullOrWhiteSpace(queryString))
-            return new BooleanQuery.Builder().Build();
+        return CompileSyntax(ParseSyntax(queryString, maximumDepth: 64, maximumClauses: int.MaxValue, maximumTokens: int.MaxValue));
+    }
 
-        var tokens = Tokenize(queryString, _lenient);
+    internal QuerySyntax ParseSyntax(
+        string queryString,
+        int maximumDepth,
+        int maximumClauses,
+        int maximumTokens,
+        bool limitsAreComplexity = false)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumDepth, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumClauses, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumTokens, 1);
+        if (string.IsNullOrWhiteSpace(queryString))
+            return new EmptyQuerySyntax();
+
+        _depth = 0;
+        _syntaxNodeCount = 0;
+        _parseLimitsAreComplexity = limitsAreComplexity;
+        ResetPhraseGraphBudget();
+        _maxDepth = maximumDepth;
+        _maxSyntaxNodes = maximumClauses;
+        var tokens = Tokenize(queryString, _lenient, maximumTokens);
         int pos = 0;
-        Query query;
+        QuerySyntax? syntax;
         if (_lenient)
         {
-            try { query = ParseExpression(tokens, ref pos); }
-            catch (QueryParseException) { query = new BooleanQuery.Builder().Build(); }
+            try { syntax = ParseExpression(tokens, ref pos).Query; }
+            catch (QueryParseException) { syntax = null; }
         }
         else
         {
-            query = ParseExpression(tokens, ref pos);
+            syntax = ParseExpression(tokens, ref pos).Query;
             if (pos < tokens.Count)
             {
                 var tok = tokens[pos];
@@ -68,30 +122,43 @@ public class QueryParser
                     $"Unexpected token '{tok.Value}' at position {pos}.", tok.Offset);
             }
         }
-        return query;
+        return syntax ?? new EmptyQuerySyntax();
     }
 
-    private Query ParseExpression(List<QToken> tokens, ref int pos)
+    internal QuerySyntax PrepareSyntax(QuerySyntax syntax, Action<int, int> consumeAdditionalClauses, bool graphPathLimitIsComplexity)
     {
-        const int maxDepth = 64;
-        if (++_depth > maxDepth)
+        _graphPathLimitIsComplexity = graphPathLimitIsComplexity;
+        try
+        {
+            return Prepare(syntax, consumeAdditionalClauses, depth: 0);
+        }
+        finally
+        {
+            _graphPathLimitIsComplexity = false;
+        }
+    }
+
+    internal Query CompileSyntax(QuerySyntax syntax) => Compile(syntax) ?? new BooleanQuery.Builder().Build();
+
+    private ParsedSyntaxClause ParseExpression(List<QToken> tokens, ref int pos)
+    {
+        if (++_depth > _maxDepth)
         {
             _depth--;
-            throw new QueryParseException(
-                $"Query nesting depth exceeds the maximum of {maxDepth}. " +
-                "Simplify the query by reducing nested parentheses.");
+            string message = $"Query nesting depth exceeds the maximum of {_maxDepth}. Simplify the query by reducing nested parentheses.";
+            if (_parseLimitsAreComplexity)
+                throw new QueryParseLimitException(message);
+            throw new QueryParseException(message);
         }
 
         try
         {
             var parsed = ParseDisjunction(tokens, ref pos);
             if (parsed.Query is null)
-                return new BooleanQuery.Builder().Build();
+                return new ParsedSyntaxClause(new EmptyQuerySyntax(), Occur.Should);
             if (parsed.Occur == Occur.Should)
-                return parsed.Query;
-            return new BooleanQuery.Builder()
-                .Add(parsed.Query, parsed.Occur)
-                .Build();
+                return parsed;
+            return new ParsedSyntaxClause(CreateSyntaxNode(new BooleanQuerySyntax([new QuerySyntaxClause(parsed.Query, parsed.Occur)])), Occur.Should);
         }
         finally
         {
@@ -99,9 +166,9 @@ public class QueryParser
         }
     }
 
-    private ParsedClause ParseDisjunction(List<QToken> tokens, ref int pos)
+    private ParsedSyntaxClause ParseDisjunction(List<QToken> tokens, ref int pos)
     {
-        var clauses = new List<ParsedClause>();
+        var clauses = new List<ParsedSyntaxClause>();
         var operators = new List<QTokenType>();
 
         var first = ParseConjunction(tokens, ref pos);
@@ -140,25 +207,23 @@ public class QueryParser
         if (operators.Count > 0 && operators.All(static op => op == QTokenType.Pipe)
             && clauses.All(static clause => clause.Occur == Occur.Should))
         {
-            var disMax = new DisjunctionMaxQuery.Builder();
-            foreach (var clause in clauses)
-                disMax.Add(clause.Query!);
-            return new ParsedClause(disMax.Build(), Occur.Should);
+            return new ParsedSyntaxClause(
+                CreateSyntaxNode(new DisjunctionMaxQuerySyntax(clauses.Select(static clause => clause.Query!).ToArray())),
+                Occur.Should);
         }
 
-        var builder = new BooleanQuery.Builder();
-        foreach (var clause in clauses)
-            builder.Add(clause.Query!, clause.Occur);
-        return new ParsedClause(builder.Build(), Occur.Should);
+        return new ParsedSyntaxClause(
+            CreateSyntaxNode(new BooleanQuerySyntax(clauses.Select(static clause => new QuerySyntaxClause(clause.Query!, clause.Occur)).ToArray())),
+            Occur.Should);
     }
 
-    private ParsedClause ParseConjunction(List<QToken> tokens, ref int pos)
+    private ParsedSyntaxClause ParseConjunction(List<QToken> tokens, ref int pos)
     {
         var first = ParseUnary(tokens, ref pos);
         if (first.Query is null)
             return first;
 
-        List<ParsedClause>? clauses = null;
+        List<ParsedSyntaxClause>? clauses = null;
         while (pos < tokens.Count && tokens[pos].Type is QTokenType.And or QTokenType.Not)
         {
             var op = tokens[pos].Type;
@@ -173,23 +238,22 @@ public class QueryParser
                     "A boolean operator must be followed by a query clause.", operatorOffset);
             }
 
-            clauses ??= [new ParsedClause(first.Query, PromoteForConjunction(first.Occur))];
+            clauses ??= [new ParsedSyntaxClause(first.Query, PromoteForConjunction(first.Occur))];
             var nextOccur = op == QTokenType.Not
                 ? Occur.MustNot
                 : PromoteForConjunction(next.Occur);
-            clauses.Add(new ParsedClause(next.Query, nextOccur));
+            clauses.Add(new ParsedSyntaxClause(next.Query, nextOccur));
         }
 
         if (clauses is null)
             return first;
 
-        var builder = new BooleanQuery.Builder();
-        foreach (var clause in clauses)
-            builder.Add(clause.Query!, clause.Occur);
-        return new ParsedClause(builder.Build(), Occur.Should);
+        return new ParsedSyntaxClause(
+            CreateSyntaxNode(new BooleanQuerySyntax(clauses.Select(static clause => new QuerySyntaxClause(clause.Query!, clause.Occur)).ToArray())),
+            Occur.Should);
     }
 
-    private ParsedClause ParseUnary(List<QToken> tokens, ref int pos)
+    private ParsedSyntaxClause ParseUnary(List<QToken> tokens, ref int pos)
     {
         var occur = Occur.Should;
         int operatorOffset = pos < tokens.Count ? tokens[pos].Offset : 0;
@@ -218,7 +282,7 @@ public class QueryParser
                 operatorOffset);
         }
 
-        Query? query;
+        QuerySyntax? query;
         if (_lenient)
         {
             try { query = ParseClause(tokens, ref pos); }
@@ -228,7 +292,7 @@ public class QueryParser
         {
             query = ParseClause(tokens, ref pos);
         }
-        return new ParsedClause(query, occur);
+        return new ParsedSyntaxClause(query, occur);
     }
 
     private static bool CanStartClause(QTokenType type) =>
@@ -239,7 +303,7 @@ public class QueryParser
     private static Occur PromoteForConjunction(Occur occur) =>
         occur == Occur.Should ? Occur.Must : occur;
 
-    private Query? ParseClause(List<QToken> tokens, ref int pos)
+    private QuerySyntax? ParseClause(List<QToken> tokens, ref int pos)
     {
         if (pos >= tokens.Count) return null;
 
@@ -253,7 +317,7 @@ public class QueryParser
                 pos++; // consume ')'
             else if (!_lenient)
                 throw new QueryParseException("Unmatched opening parenthesis.", openOffset);
-            return ApplyBoost(inner, tokens, ref pos);
+            return ApplyBoost(new GroupQuerySyntax(inner.Query!), tokens, ref pos);
         }
 
         // Quoted phrase
@@ -264,13 +328,12 @@ public class QueryParser
             string field = _defaultField;
 
             int slop = ReadSlop(tokens, ref pos);
-            var query = BuildPhraseQuery(field, phrase, slop);
-            return ApplyBoost(query, tokens, ref pos);
+            return ApplyBoost(CreateSyntaxNode(new PhraseQuerySyntax(field, phrase, slop)), tokens, ref pos);
         }
 
         if (tokens[pos].Type == QTokenType.Regex)
         {
-            var query = new RegexpQuery(_defaultField, tokens[pos].Value);
+            var query = CreateSyntaxNode(new RegexpQuerySyntax(_defaultField, tokens[pos].Value));
             pos++;
             return ApplyBoost(query, tokens, ref pos);
         }
@@ -282,8 +345,9 @@ public class QueryParser
         if (tokens[pos].Type == QTokenType.Term)
         {
             string field = _defaultField;
-            string term = tokens[pos].Value;
-            int termOffset = tokens[pos].Offset;
+            QToken termToken = tokens[pos];
+            string term = termToken.Value;
+            int termOffset = termToken.Offset;
             pos++;
 
             // Check for field:value
@@ -295,7 +359,7 @@ public class QueryParser
                 {
                     if (pos < tokens.Count && tokens[pos].Type == QTokenType.Term)
                     {
-                        var exists = new FieldExistsQuery(tokens[pos].Value);
+                        var exists = CreateSyntaxNode(new FieldExistsQuerySyntax(tokens[pos].Value));
                         pos++;
                         return ApplyBoost(exists, tokens, ref pos);
                     }
@@ -313,12 +377,12 @@ public class QueryParser
                         var phrase = tokens[pos].Value;
                         pos++;
                         int slop = ReadSlop(tokens, ref pos);
-                        var pq = BuildPhraseQuery(field, phrase, slop);
+                        var pq = CreateSyntaxNode(new PhraseQuerySyntax(field, phrase, slop));
                         return ApplyBoost(pq, tokens, ref pos);
                     }
                     else if (tokens[pos].Type == QTokenType.Regex)
                     {
-                        var regex = new RegexpQuery(field, tokens[pos].Value);
+                        var regex = CreateSyntaxNode(new RegexpQuerySyntax(field, tokens[pos].Value));
                         pos++;
                         return ApplyBoost(regex, tokens, ref pos);
                     }
@@ -329,7 +393,8 @@ public class QueryParser
                     }
                     else if (tokens[pos].Type == QTokenType.Term)
                     {
-                        term = tokens[pos].Value;
+                        termToken = tokens[pos];
+                        term = termToken.Value;
                         pos++;
                     }
                     else
@@ -349,21 +414,16 @@ public class QueryParser
             }
 
             // Check for wildcard/prefix/fuzzy suffixes
-            if (term.Contains('*') || term.Contains('?'))
+            if (termToken.HasUnescapedWildcard)
             {
-                term = AnalyseMultiTerm(term);
-                if (term.EndsWith('*') && !term.AsSpan()[..^1].Contains('*') && !term.AsSpan()[..^1].Contains('?'))
-                {
-                    var q = new PrefixQuery(field, term[..^1]);
-                    return ApplyBoost(q, tokens, ref pos);
-                }
-                var wq = new WildcardQuery(field, term);
-                return ApplyBoost(wq, tokens, ref pos);
+                var multiTerm = CreateSyntaxNode(new MultiTermQuerySyntax(field, termToken.Raw, term));
+                return ApplyBoost(multiTerm, tokens, ref pos);
             }
 
             // Check for fuzzy ~ suffix
             if (pos < tokens.Count && tokens[pos].Type == QTokenType.Tilde)
             {
+                int modifierOffset = tokens[pos].Offset;
                 pos++;
                 int maxEdits = 2;
                 if (pos < tokens.Count && tokens[pos].Type == QTokenType.Term &&
@@ -372,18 +432,15 @@ public class QueryParser
                     maxEdits = edits;
                     pos++;
                 }
-                var analysed = AnalyseTerm(term);
-                var fq = new FuzzyQuery(field, analysed, maxEdits);
-                return ApplyBoost(fq, tokens, ref pos);
+                var analysedTokens = AnalyseTerm(field, term);
+                var fuzzy = LowerAnalysedTokens(field, term, analysedTokens, maxEdits, modifierOffset);
+                return fuzzy is null ? null : ApplyBoost(fuzzy, tokens, ref pos);
             }
 
             // Regular term — analyse it
-            var analysedTerm = AnalyseTerm(term);
-            if (string.IsNullOrEmpty(analysedTerm))
-                return null; // stop word removed
-
-            var tq = new TermQuery(field, analysedTerm);
-            return ApplyBoost(tq, tokens, ref pos);
+            var analysedTermTokens = AnalyseTerm(field, term);
+            var loweredTerm = LowerAnalysedTokens(field, term, analysedTermTokens);
+            return loweredTerm is null ? null : ApplyBoost(loweredTerm, tokens, ref pos);
         }
 
         if (_lenient) return null;
@@ -391,106 +448,308 @@ public class QueryParser
             $"Unexpected token '{tokens[pos].Value}' at position {pos}.", tokens[pos].Offset);
     }
 
-    private Query ParseRange(string field, List<QToken> tokens, ref int pos)
+    private QuerySyntax ParseRange(string field, List<QToken> tokens, ref int pos)
     {
         var opening = tokens[pos];
         bool includeLower = opening.Type == QTokenType.OpenSquare;
         pos++;
 
-        if (!TryReadRangeBound(tokens, ref pos, out var lower))
+        if (!TryReadRangeBound(tokens, ref pos, out QToken lower))
             throw new QueryParseException("A range query must include a lower bound.", opening.Offset);
         if (pos >= tokens.Count || tokens[pos].Type != QTokenType.To)
             throw new QueryParseException("A range query must separate its bounds with TO.", opening.Offset);
         pos++;
-        if (!TryReadRangeBound(tokens, ref pos, out var upper))
+        if (!TryReadRangeBound(tokens, ref pos, out QToken upper))
             throw new QueryParseException("A range query must include an upper bound.", opening.Offset);
         if (pos >= tokens.Count || tokens[pos].Type is not (QTokenType.CloseSquare or QTokenType.CloseCurly))
             throw new QueryParseException("A range query must end with ']' or '}'.", opening.Offset);
 
         bool includeUpper = tokens[pos].Type == QTokenType.CloseSquare;
         pos++;
-        string? lowerTerm = lower == "*" ? null : AnalyseRangeBound(lower);
-        string? upperTerm = upper == "*" ? null : AnalyseRangeBound(upper);
-        return new TermRangeQuery(
+        string? lowerTerm = IsUnboundedRangeMarker(lower) ? null : lower.Value;
+        string? upperTerm = IsUnboundedRangeMarker(upper) ? null : upper.Value;
+        return CreateSyntaxNode(new TermRangeQuerySyntax(
             field,
             lowerTerm,
             upperTerm,
             includeLower,
-            includeUpper);
+            includeUpper));
     }
 
-    private static bool TryReadRangeBound(List<QToken> tokens, ref int pos, out string value)
+    private static bool TryReadRangeBound(List<QToken> tokens, ref int pos, out QToken value)
     {
         if (pos < tokens.Count && tokens[pos].Type is QTokenType.Term or QTokenType.Phrase)
         {
-            value = tokens[pos].Value;
+            value = tokens[pos];
             pos++;
             return true;
         }
-        value = string.Empty;
+        value = default;
         return false;
     }
 
+    private static bool IsUnboundedRangeMarker(QToken token) =>
+        token.Type == QTokenType.Term && string.Equals(token.Raw, "*", StringComparison.Ordinal);
+
     /// <summary>Builds a phrase query from analysed phrase text.</summary>
-    protected virtual Query BuildPhraseQuery(string field, string phraseText, int slop)
+    protected virtual Query BuildPhraseQuery(string field, string phraseText, int slop) =>
+        CompilePhraseExpansion(field, slop, CreatePhraseExpansion(field, phraseText));
+
+    private PhraseQuerySyntaxExpansion CreatePhraseExpansion(string field, string phraseText)
     {
         var tokens = new List<Analysis.Token>();
-        var sink = new CapturingSink(tokens);
-        _analyser.Analyse(phraseText.AsSpan(), sink);
+        var sink = new CapturingSink(tokens, this);
+        ResolveFieldContext(field).QueryAnalyser.Analyse(phraseText.AsSpan(), sink);
+        return CreatePhraseExpansionFromTokens(phraseText, tokens, tokensAlreadyCounted: true);
+    }
+
+    private PhraseQuerySyntaxExpansion CreatePhraseExpansionFromTokens(
+        string sourceText,
+        IReadOnlyList<Analysis.Token> tokens,
+        bool tokensAlreadyCounted)
+    {
         if (tokens.Count == 0)
-            return new PhraseQuery(field, slop, phraseText.Split(' '));
+        {
+            CountFallbackPhraseTokens(sourceText);
+            return new PhraseQuerySyntaxExpansion(sourceText.Split(' '), []);
+        }
+
+        if (!tokensAlreadyCounted)
+        {
+            foreach (var _ in tokens)
+                ConsumeAnalysedPhraseToken();
+        }
 
         var graph = new Analysis.TokenGraph();
         foreach (var token in tokens)
+        {
+            if (_phraseGraphEdgeCount >= MaximumPhraseGraphEdgeCount)
+                ThrowPhraseGraphLimitExceeded(
+                    $"Analysed phrase graph edge count exceeds the maximum of {MaximumPhraseGraphEdgeCount}.");
             graph.Add(token);
+            _phraseGraphEdgeCount++;
+        }
         graph.ValidateOrdered();
 
         int start = graph.Edges.Min(static edge => edge.StartPosition);
         int end = graph.Edges.Max(static edge => edge.EndPosition);
         var byStart = graph.Edges.GroupBy(static edge => edge.StartPosition)
             .ToDictionary(static group => group.Key, static group => group.ToArray());
-        var paths = new List<Analysis.TokenGraph.TokenEdge[]>();
+        var paths = new List<PhraseQuerySyntaxPath[]>();
         var path = new List<Analysis.TokenGraph.TokenEdge>();
-        CollectGraphPaths(start);
+        var traversal = new List<PhraseGraphTraversalFrame> { new(start, pathLength: 0) };
+        int compiledPhraseClauseCount = 0;
+
+        while (traversal.Count > 0)
+        {
+            int frameIndex = traversal.Count - 1;
+            PhraseGraphTraversalFrame frame = traversal[frameIndex];
+            if (path.Count > frame.PathLength)
+                path.RemoveRange(frame.PathLength, path.Count - frame.PathLength);
+
+            if (frame.Position == end)
+            {
+                if (paths.Count >= _maxGraphPaths)
+                {
+                    string message = $"Analysed phrase graph exceeds the configured maximum of {_maxGraphPaths} paths.";
+                    ThrowPhraseGraphLimitExceeded(message);
+                }
+
+                if (_compiledPhraseClauseCount + compiledPhraseClauseCount >= MaximumCompiledPhraseClauseCount)
+                {
+                    ThrowPhraseGraphLimitExceeded(
+                        $"Compiled phrase query clause count exceeds the maximum of {MaximumCompiledPhraseClauseCount}.");
+                }
+
+                compiledPhraseClauseCount++;
+                paths.Add(path.Select(edge => new PhraseQuerySyntaxPath(edge.Token.Text, edge.StartPosition - start)).ToArray());
+                traversal.RemoveAt(frameIndex);
+                continue;
+            }
+
+            if (!byStart.TryGetValue(frame.Position, out var nextEdges))
+            {
+                traversal.RemoveAt(frameIndex);
+                continue;
+            }
+
+            if (frame.NextEdgeIndex >= nextEdges.Length)
+            {
+                traversal.RemoveAt(frameIndex);
+                continue;
+            }
+
+            if (_phraseGraphTraversalSteps >= MaximumPhraseGraphTraversalSteps)
+            {
+                ThrowPhraseGraphLimitExceeded(
+                    $"Analysed phrase graph traversal steps exceed the maximum of {MaximumPhraseGraphTraversalSteps}.");
+            }
+
+            Analysis.TokenGraph.TokenEdge edge = nextEdges[frame.NextEdgeIndex];
+            frame.NextEdgeIndex++;
+            traversal[frameIndex] = frame;
+            _phraseGraphTraversalSteps++;
+            path.Add(edge);
+            traversal.Add(new PhraseGraphTraversalFrame(edge.EndPosition, path.Count));
+        }
 
         if (paths.Count == 0)
             throw new QueryParseException("Analysed phrase token graph has no complete path.", 0);
 
-        Query CreatePathQuery(Analysis.TokenGraph.TokenEdge[] edges)
+        _compiledPhraseClauseCount += compiledPhraseClauseCount;
+        return new PhraseQuerySyntaxExpansion(null, paths);
+    }
+
+    private QuerySyntax? LowerAnalysedTokens(
+        string field,
+        string sourceText,
+        IReadOnlyList<Analysis.Token> tokens,
+        int? fuzzyMaxEdits = null,
+        int modifierOffset = 0)
+    {
+        if (tokens.Count == 0)
+            return null;
+
+        if (tokens.Any(static token => token.PositionLength != 1))
         {
-            var terms = edges.Select(static edge => edge.Token.Text).ToArray();
-            var positions = edges.Select(edge => edge.StartPosition - start).ToArray();
-            return new PhraseQuery(field, terms, positions, slop);
+            if (fuzzyMaxEdits.HasValue)
+            {
+                throw new QueryParseException(
+                    "A fuzzy query analyser must not emit multi-position graph edges.", modifierOffset);
+            }
+
+            var expansion = CreatePhraseExpansionFromTokens(sourceText, tokens, tokensAlreadyCounted: false);
+            return CreateSyntaxNode(new PhraseQuerySyntax(field, sourceText, 0, expansion));
         }
 
-        if (paths.Count == 1)
-            return CreatePathQuery(paths[0]);
+        var graph = new Analysis.TokenGraph();
+        foreach (var token in tokens)
+            graph.Add(token);
+        graph.ValidateOrdered();
+
+        var positionQueries = new List<QuerySyntax>();
+        foreach (var positionGroup in graph.Edges.GroupBy(static edge => edge.StartPosition))
+        {
+            var alternatives = new List<QuerySyntax>();
+            foreach (var edge in positionGroup)
+            {
+                alternatives.Add(fuzzyMaxEdits is int maxEdits
+                    ? CreateSyntaxNode(new FuzzyQuerySyntax(field, edge.Token.Text, maxEdits, modifierOffset))
+                    : CreateSyntaxNode(new TermQuerySyntax(field, edge.Token.Text)));
+            }
+
+            positionQueries.Add(alternatives.Count == 1
+                ? alternatives[0]
+                : CreateShouldQuery(alternatives));
+        }
+
+        return positionQueries.Count == 1
+            ? positionQueries[0]
+            : CreateShouldQuery(positionQueries);
+    }
+
+    private QuerySyntax CreateShouldQuery(IReadOnlyList<QuerySyntax> queries) =>
+        CreateSyntaxNode(new BooleanQuerySyntax(
+            queries.Select(static query => new QuerySyntaxClause(query, Occur.Should)).ToArray()));
+
+    private void CountFallbackPhraseTokens(string phraseText)
+    {
+        int phraseTokenCount = 1;
+        foreach (char character in phraseText)
+        {
+            if (character != ' ')
+                continue;
+
+            if (_analysedPhraseTokenCount + phraseTokenCount >= MaximumAnalysedPhraseTokenCount)
+            {
+                ThrowPhraseGraphLimitExceeded(
+                    $"Analysed phrase token count exceeds the maximum of {MaximumAnalysedPhraseTokenCount}.");
+            }
+
+            phraseTokenCount++;
+        }
+
+        if (_analysedPhraseTokenCount > MaximumAnalysedPhraseTokenCount - phraseTokenCount)
+        {
+            ThrowPhraseGraphLimitExceeded(
+                $"Analysed phrase token count exceeds the maximum of {MaximumAnalysedPhraseTokenCount}.");
+        }
+
+        _analysedPhraseTokenCount += phraseTokenCount;
+    }
+
+    private void ConsumeAnalysedPhraseToken()
+    {
+        if (_analysedPhraseTokenCount >= MaximumAnalysedPhraseTokenCount)
+        {
+            ThrowPhraseGraphLimitExceeded(
+                $"Analysed phrase token count exceeds the maximum of {MaximumAnalysedPhraseTokenCount}.");
+        }
+
+        _analysedPhraseTokenCount++;
+    }
+
+    private void ThrowPhraseGraphLimitExceeded(string message)
+    {
+        if (_graphPathLimitIsComplexity || _parseLimitsAreComplexity)
+            throw new QueryParseLimitException(message);
+
+        throw new QueryParseException(message, 0);
+    }
+
+    private void ResetPhraseGraphBudget()
+    {
+        _analysedPhraseTokenCount = 0;
+        _phraseGraphEdgeCount = 0;
+        _phraseGraphTraversalSteps = 0;
+        _compiledPhraseClauseCount = 0;
+    }
+
+    private static Query CompilePhraseExpansion(string field, int slop, PhraseQuerySyntaxExpansion expansion)
+    {
+        if (expansion.DirectTerms is not null)
+            return new PhraseQuery(field, slop, expansion.DirectTerms);
+        if (expansion.Paths.Count == 1)
+        {
+            PhraseQuerySyntaxPath[] path = expansion.Paths[0];
+            return new PhraseQuery(field, path.Select(static item => item.Term).ToArray(), path.Select(static item => item.Position).ToArray(), slop);
+        }
 
         var builder = new BooleanQuery.Builder();
-        foreach (var graphPath in paths)
-            builder.Add(CreatePathQuery(graphPath), Occur.Should);
-        return builder.Build();
-
-        void CollectGraphPaths(int position)
+        foreach (PhraseQuerySyntaxPath[] path in expansion.Paths)
         {
-            if (position == end)
-            {
-                paths.Add(path.ToArray());
-                if (paths.Count > _maxGraphPaths)
-                    throw new QueryParseException($"Analysed phrase graph exceeds the configured maximum of {_maxGraphPaths} paths.", 0);
-                return;
-            }
-
-            if (!byStart.TryGetValue(position, out var nextEdges))
-                return;
-
-            foreach (var edge in nextEdges)
-            {
-                path.Add(edge);
-                CollectGraphPaths(edge.EndPosition);
-                path.RemoveAt(path.Count - 1);
-            }
+            builder.Add(new PhraseQuery(
+                field,
+                path.Select(static item => item.Term).ToArray(),
+                path.Select(static item => item.Position).ToArray(),
+                slop), Occur.Should);
         }
+        return builder.Build();
+    }
+
+    private QuerySyntax Prepare(QuerySyntax syntax, Action<int, int> consumeAdditionalClauses, int depth) => syntax switch
+    {
+        GroupQuerySyntax group => group with { Inner = Prepare(group.Inner, consumeAdditionalClauses, depth + 1) },
+        BooleanQuerySyntax boolean => boolean with
+        {
+            Clauses = boolean.Clauses.Select(clause => clause with { Query = Prepare(clause.Query, consumeAdditionalClauses, depth + 1) }).ToArray()
+        },
+        DisjunctionMaxQuerySyntax disjunction => disjunction with
+        {
+            Clauses = disjunction.Clauses.Select(clause => Prepare(clause, consumeAdditionalClauses, depth + 1)).ToArray()
+        },
+        BoostQuerySyntax boost when boost.ConstantScore => boost with { Inner = Prepare(boost.Inner, consumeAdditionalClauses, depth + 1) },
+        BoostQuerySyntax boost => boost with { Inner = Prepare(boost.Inner, consumeAdditionalClauses, depth) },
+        PhraseQuerySyntax phrase => PreparePhrase(phrase, consumeAdditionalClauses, depth),
+        _ => syntax
+    };
+
+    private PhraseQuerySyntax PreparePhrase(PhraseQuerySyntax phrase, Action<int, int> consumeAdditionalClauses, int depth)
+    {
+        PhraseQuerySyntaxExpansion expansion = phrase.Expansion ?? CreatePhraseExpansion(phrase.Field, phrase.Text);
+        if (expansion.Paths.Count > 1)
+            consumeAdditionalClauses(expansion.Paths.Count, depth + 1);
+        return phrase with { Expansion = expansion };
     }
 
     private static int ReadSlop(List<QToken> tokens, ref int pos)
@@ -508,7 +767,7 @@ public class QueryParser
         return 0;
     }
 
-    private static Query ApplyBoost(Query query, List<QToken> tokens, ref int pos)
+    private QuerySyntax ApplyBoost(QuerySyntax query, List<QToken> tokens, ref int pos)
     {
         if (pos < tokens.Count && tokens[pos].Type == QTokenType.Caret)
         {
@@ -520,21 +779,312 @@ public class QueryParser
                 float.TryParse(tokens[pos].Value, System.Globalization.CultureInfo.InvariantCulture, out float boost))
             {
                 pos++;
-                if (constantScore)
-                    return new ConstantScoreQuery(query, boost);
-                query.Boost = boost;
+                BoostQuerySyntax syntax = new(query, boost, constantScore);
+                return constantScore ? CreateSyntaxNode(syntax) : syntax;
             }
         }
         return query;
     }
 
-    /// <summary>Analyses one literal query term.</summary>
-    protected string AnalyseTerm(string term)
+    private T CreateSyntaxNode<T>(T syntax) where T : QuerySyntax
+    {
+        if (_syntaxNodeCount >= _maxSyntaxNodes)
+            throw new QueryParseLimitException("The query exceeds the configured Boolean clause limit.");
+        _syntaxNodeCount++;
+        return syntax;
+    }
+
+    private Query? Compile(QuerySyntax syntax) => syntax switch
+    {
+        EmptyQuerySyntax => null,
+        GroupQuerySyntax group => Compile(group.Inner),
+        TermQuerySyntax term => new TermQuery(term.Field, term.Term),
+        FuzzyQuerySyntax fuzzy => CompileFuzzy(fuzzy),
+        MultiTermQuerySyntax multiTerm => CompileMultiTerm(multiTerm),
+        PhraseQuerySyntax phrase => phrase.Expansion is null
+            ? BuildPhraseQuery(phrase.Field, phrase.Text, phrase.Slop)
+            : CompilePhraseExpansion(phrase.Field, phrase.Slop, phrase.Expansion),
+        RegexpQuerySyntax regexp => CompileRegexp(regexp),
+        TermRangeQuerySyntax range => CompileRange(range),
+        FieldExistsQuerySyntax exists => new FieldExistsQuery(exists.Field),
+        BoostQuerySyntax boost => CompileBoost(boost),
+        BooleanQuerySyntax boolean => CompileBoolean(boolean),
+        DisjunctionMaxQuerySyntax disjunction => CompileDisjunctionMax(disjunction),
+        _ => throw new InvalidOperationException($"Unsupported query syntax '{syntax.GetType().Name}'.")
+    };
+
+    private static FuzzyQuery CompileFuzzy(FuzzyQuerySyntax syntax)
+    {
+        try
+        {
+            return new FuzzyQuery(syntax.Field, syntax.Term, syntax.MaxEdits);
+        }
+        catch (ArgumentOutOfRangeException exception) when (exception.ParamName == "maxEdits")
+        {
+            throw new QueryParseException("Fuzzy edit distance must be between 0 and 2.", syntax.ModifierOffset);
+        }
+    }
+
+    private Query CompileMultiTerm(MultiTermQuerySyntax syntax)
+    {
+        string term = AnalyseMultiTerm(syntax.Field, syntax.Pattern);
+        if (TryGetPrefixLiteral(term.AsSpan(), out string prefix))
+            return new PrefixQuery(syntax.Field, prefix);
+        return new WildcardQuery(syntax.Field, term);
+    }
+
+    private static bool TryGetPrefixLiteral(ReadOnlySpan<char> pattern, out string prefix)
+    {
+        var literal = new System.Text.StringBuilder(pattern.Length);
+        bool foundTrailingStar = false;
+
+        for (int i = 0; i < pattern.Length; i++)
+        {
+            char c = pattern[i];
+            if (c == '\\')
+            {
+                if (i + 1 < pattern.Length)
+                    literal.Append(pattern[++i]);
+                else
+                    literal.Append('\\');
+                continue;
+            }
+
+            if (c == '?')
+            {
+                prefix = string.Empty;
+                return false;
+            }
+            if (c == '*')
+            {
+                if (foundTrailingStar || i != pattern.Length - 1)
+                {
+                    prefix = string.Empty;
+                    return false;
+                }
+                foundTrailingStar = true;
+                continue;
+            }
+
+            literal.Append(c);
+        }
+
+        prefix = literal.ToString();
+        return foundTrailingStar;
+    }
+
+    private Query CompileRange(TermRangeQuerySyntax syntax) => new TermRangeQuery(
+        syntax.Field,
+        syntax.LowerTerm is null ? null : AnalyseRangeBound(syntax.Field, syntax.LowerTerm),
+        syntax.UpperTerm is null ? null : AnalyseRangeBound(syntax.Field, syntax.UpperTerm),
+        syntax.IncludeLower,
+        syntax.IncludeUpper);
+
+    private Query CompileRegexp(RegexpQuerySyntax syntax)
+    {
+        QueryFieldCompilationContext context = ResolveFieldContext(syntax.Field);
+        return new RegexpQuery(context.Field, syntax.Pattern);
+    }
+
+    private Query? CompileBoost(BoostQuerySyntax syntax)
+    {
+        Query? inner = Compile(syntax.Inner);
+        if (inner is null)
+            return null;
+        if (syntax.ConstantScore)
+            return new ConstantScoreQuery(inner, syntax.Boost);
+        inner.Boost = syntax.Boost;
+        return inner;
+    }
+
+    private Query? CompileBoolean(BooleanQuerySyntax syntax)
+    {
+        var builder = new BooleanQuery.Builder();
+        int count = 0;
+        foreach (QuerySyntaxClause clause in syntax.Clauses)
+        {
+            Query? query = Compile(clause.Query);
+            if (query is null)
+                continue;
+            builder.Add(query, clause.Occur);
+            count++;
+        }
+        return count == 0 ? null : builder.Build();
+    }
+
+    private Query? CompileDisjunctionMax(DisjunctionMaxQuerySyntax syntax)
+    {
+        var disjunction = new DisjunctionMaxQuery.Builder();
+        Query? only = null;
+        int count = 0;
+        foreach (QuerySyntax clause in syntax.Clauses)
+        {
+            Query? query = Compile(clause);
+            if (query is null)
+                continue;
+            only = query;
+            disjunction.Add(query);
+            count++;
+        }
+        return count switch
+        {
+            0 => null,
+            1 => only,
+            _ => disjunction.Build()
+        };
+    }
+
+    /// <summary>Analyses a literal query term and returns its complete token stream.</summary>
+    /// <remarks>
+    /// Subclasses that need a single normalised literal for wildcard or range handling
+    /// should use <see cref="AnalyseSingleToken(string)"/>, which rejects multi-token output.
+    /// </remarks>
+    protected IReadOnlyList<Analysis.Token> AnalyseTerm(string term) => AnalyseTerm(_defaultField, term);
+
+    /// <summary>Analyses a literal query term with the analyser resolved for <paramref name="field"/>.</summary>
+    protected IReadOnlyList<Analysis.Token> AnalyseTerm(string field, string term)
     {
         var tokens = new List<Analysis.Token>();
         var sink = new CapturingSink(tokens);
-        _analyser.Analyse(term.AsSpan(), sink);
-        return tokens.Count > 0 ? tokens[0].Text : string.Empty;
+        ResolveFieldContext(field).QueryAnalyser.Analyse(term.AsSpan(), sink);
+        return tokens.ToArray();
+    }
+
+    /// <summary>Analyses a literal that must remain a single term, such as a wildcard fragment.</summary>
+    /// <exception cref="QueryParseException">The analyser emitted more than one token or a graph edge.</exception>
+    protected string AnalyseSingleToken(string term) => AnalyseSingleToken(_defaultField, term);
+
+    /// <summary>Analyses a literal using the analyser resolved for <paramref name="field"/>.</summary>
+    /// <exception cref="QueryParseException">The analyser emitted more than one token or a graph edge.</exception>
+    protected string AnalyseSingleToken(string field, string term) =>
+        AnalyseSingleToken(ResolveFieldContext(field).QueryAnalyser, term);
+
+    private static string AnalyseSingleToken(IAnalyser analyser, string term)
+    {
+        var tokens = new List<Analysis.Token>();
+        analyser.Analyse(term.AsSpan(), new CapturingSink(tokens));
+        if (tokens.Count == 0)
+            return string.Empty;
+        if (tokens.Count != 1 || tokens[0].PositionLength != 1)
+        {
+            throw new QueryParseException(
+                "A wildcard or range literal must analyse to at most one unit-length token.", 0);
+        }
+
+        return tokens[0].Text;
+    }
+
+    internal static Func<string, string> CreateSingleTokenNormaliser(IAnalyser analyser)
+    {
+        ArgumentNullException.ThrowIfNull(analyser);
+        return literal =>
+        {
+            string analysed = AnalyseSingleToken(analyser, literal);
+            return analysed.Length == 0 ? literal : analysed;
+        };
+    }
+
+    internal static string NormaliseMultiTermPattern(string pattern, Func<string, string> normaliseLiteral)
+    {
+        ArgumentNullException.ThrowIfNull(pattern);
+        ArgumentNullException.ThrowIfNull(normaliseLiteral);
+
+        var builder = new System.Text.StringBuilder(pattern.Length);
+        var literal = new System.Text.StringBuilder(pattern.Length);
+
+        void FlushLiteral()
+        {
+            if (literal.Length == 0)
+                return;
+
+            builder.Append(EscapeWildcardLiteral(normaliseLiteral(literal.ToString())));
+            literal.Clear();
+        }
+
+        for (int i = 0; i < pattern.Length;)
+        {
+            char current = pattern[i];
+            if (current == '\\')
+            {
+                if (i + 1 < pattern.Length)
+                {
+                    char escaped = pattern[i + 1];
+                    if (escaped is '*' or '?' or '\\')
+                    {
+                        FlushLiteral();
+                        builder.Append('\\').Append(escaped);
+                    }
+                    else
+                    {
+                        literal.Append(escaped);
+                    }
+                    i += 2;
+                    continue;
+                }
+
+                literal.Append('\\');
+                i++;
+                continue;
+            }
+
+            if (current is '*' or '?')
+            {
+                FlushLiteral();
+                builder.Append(current);
+                i++;
+                continue;
+            }
+
+            literal.Append(current);
+            i++;
+        }
+
+        FlushLiteral();
+        return builder.ToString();
+    }
+
+    private static string EscapeWildcardLiteral(string literal)
+    {
+        var escaped = new System.Text.StringBuilder(literal.Length);
+        foreach (char character in literal)
+        {
+            if (character is '*' or '?' or '\\')
+                escaped.Append('\\');
+            escaped.Append(character);
+        }
+        return escaped.ToString();
+    }
+
+    private string AnalyseMultiTerm(string field, string pattern)
+    {
+        Func<string, string>? normaliseLiteral = ResolveFieldContext(field).MultiTermNormaliser;
+        return normaliseLiteral is null
+            ? AnalyseMultiTerm(pattern)
+            : NormaliseMultiTermPattern(pattern, normaliseLiteral);
+    }
+
+    private string AnalyseRangeBound(string field, string term)
+    {
+        Func<string, string>? normaliseLiteral = ResolveFieldContext(field).MultiTermNormaliser;
+        return normaliseLiteral is null
+            ? AnalyseRangeBound(term)
+            : normaliseLiteral(term);
+    }
+
+    private QueryFieldCompilationContext ResolveFieldContext(string field)
+    {
+        if (_fieldContextResolver is null)
+            return new QueryFieldCompilationContext(field, _analyser, MultiTermNormaliser: null);
+        if (_fieldContexts.TryGetValue(field, out QueryFieldCompilationContext? context))
+            return context;
+
+        context = _fieldContextResolver(field)
+            ?? throw new QueryParseException("The field context resolver returned no context.", 0);
+        if (!string.Equals(context.Field, field, StringComparison.Ordinal))
+            throw new QueryParseException("The field context resolver returned a context for a different field.", 0);
+
+        _fieldContexts.Add(field, context);
+        return context;
     }
 
     /// <summary>Normalises a wildcard or prefix term while preserving its operators.</summary>
@@ -546,20 +1096,42 @@ public class QueryParser
     private sealed class CapturingSink : Analysis.ISpanTokenSink
     {
         private readonly List<Analysis.Token> _tokens;
+        private readonly QueryParser? _phraseOwner;
+
         public CapturingSink(List<Analysis.Token> tokens) => _tokens = tokens;
+
+        public CapturingSink(List<Analysis.Token> tokens, QueryParser phraseOwner)
+        {
+            _tokens = tokens;
+            _phraseOwner = phraseOwner;
+        }
+
         public void Add(ReadOnlySpan<char> text, int startOffset, int endOffset,
             string type = Analysis.Token.DefaultType, int positionIncrement = 1, byte[]? payload = null)
-            => _tokens.Add(new Analysis.Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload));
+        {
+            _phraseOwner?.ConsumeAnalysedPhraseToken();
+            _tokens.Add(new Analysis.Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload));
+        }
 
         public void Add(ReadOnlySpan<char> text, int startOffset, int endOffset, string type,
             int positionIncrement, int positionLength, byte[]? payload)
-            => _tokens.Add(new Analysis.Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload, positionLength));
+        {
+            _phraseOwner?.ConsumeAnalysedPhraseToken();
+            _tokens.Add(new Analysis.Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload, positionLength));
+        }
     }
 
-    private static List<QToken> Tokenize(string input, bool lenient)
+    private static List<QToken> Tokenize(string input, bool lenient, int maximumTokens)
     {
         var tokens = new List<QToken>();
         int i = 0;
+
+        void AddToken(QToken token)
+        {
+            if (tokens.Count >= maximumTokens)
+                throw new QueryParseLimitException("The query exceeds the configured parser token limit.");
+            tokens.Add(token);
+        }
 
         while (i < input.Length)
         {
@@ -569,19 +1141,19 @@ public class QueryParser
 
             switch (c)
             {
-                case '+': tokens.Add(new QToken(QTokenType.Plus, "+", i)); i++; continue;
-                case '-': tokens.Add(new QToken(QTokenType.Minus, "-", i)); i++; continue;
-                case '(': tokens.Add(new QToken(QTokenType.LParen, "(", i)); i++; continue;
-                case ')': tokens.Add(new QToken(QTokenType.RParen, ")", i)); i++; continue;
-                case ':': tokens.Add(new QToken(QTokenType.Colon, ":", i)); i++; continue;
-                case '~': tokens.Add(new QToken(QTokenType.Tilde, "~", i)); i++; continue;
-                case '^': tokens.Add(new QToken(QTokenType.Caret, "^", i)); i++; continue;
-                case '=': tokens.Add(new QToken(QTokenType.Equal, "=", i)); i++; continue;
-                case '|': tokens.Add(new QToken(QTokenType.Pipe, "|", i)); i++; continue;
-                case '[': tokens.Add(new QToken(QTokenType.OpenSquare, "[", i)); i++; continue;
-                case ']': tokens.Add(new QToken(QTokenType.CloseSquare, "]", i)); i++; continue;
-                case '{': tokens.Add(new QToken(QTokenType.OpenCurly, "{", i)); i++; continue;
-                case '}': tokens.Add(new QToken(QTokenType.CloseCurly, "}", i)); i++; continue;
+                case '+': AddToken(new QToken(QTokenType.Plus, "+", i)); i++; continue;
+                case '-': AddToken(new QToken(QTokenType.Minus, "-", i)); i++; continue;
+                case '(': AddToken(new QToken(QTokenType.LParen, "(", i)); i++; continue;
+                case ')': AddToken(new QToken(QTokenType.RParen, ")", i)); i++; continue;
+                case ':': AddToken(new QToken(QTokenType.Colon, ":", i)); i++; continue;
+                case '~': AddToken(new QToken(QTokenType.Tilde, "~", i)); i++; continue;
+                case '^': AddToken(new QToken(QTokenType.Caret, "^", i)); i++; continue;
+                case '=': AddToken(new QToken(QTokenType.Equal, "=", i)); i++; continue;
+                case '|': AddToken(new QToken(QTokenType.Pipe, "|", i)); i++; continue;
+                case '[': AddToken(new QToken(QTokenType.OpenSquare, "[", i)); i++; continue;
+                case ']': AddToken(new QToken(QTokenType.CloseSquare, "]", i)); i++; continue;
+                case '{': AddToken(new QToken(QTokenType.OpenCurly, "{", i)); i++; continue;
+                case '}': AddToken(new QToken(QTokenType.CloseCurly, "}", i)); i++; continue;
             }
 
             if (c == '/')
@@ -614,7 +1186,7 @@ public class QueryParser
                 }
                 if (!closed && !lenient)
                     throw new QueryParseException("Unmatched regular expression delimiter.", slashOffset);
-                tokens.Add(new QToken(QTokenType.Regex, pattern.ToString(), slashOffset));
+                AddToken(new QToken(QTokenType.Regex, pattern.ToString(), slashOffset));
                 continue;
             }
 
@@ -623,20 +1195,32 @@ public class QueryParser
                 int quoteOffset = i;
                 i++; // skip opening quote
                 int start = i;
-                while (i < input.Length && input[i] != '"')
+                while (i < input.Length)
+                {
+                    if (input[i] == '\\' && i + 1 < input.Length)
+                    {
+                        i += 2;
+                        continue;
+                    }
+                    if (input[i] == '"')
+                        break;
                     i++;
+                }
                 if (i >= input.Length)
                 {
                     if (lenient)
                     {
                         // Treat the unterminated phrase content as a plain term token.
-                        tokens.Add(new QToken(QTokenType.Term, input[start..], quoteOffset));
+                        string raw = input[start..];
+                        AddToken(new QToken(QTokenType.Term, Unescape(raw), quoteOffset, raw,
+                            HasUnescapedWildcard(raw.AsSpan())));
                         continue;
                     }
                     throw new QueryParseException(
                         "Unmatched quote in query string.", quoteOffset);
                 }
-                tokens.Add(new QToken(QTokenType.Phrase, input[start..i], quoteOffset));
+                string phraseRaw = input[start..i];
+                AddToken(new QToken(QTokenType.Phrase, Unescape(phraseRaw), quoteOffset, phraseRaw));
                 i++; // skip closing quote
                 continue;
             }
@@ -668,23 +1252,29 @@ public class QueryParser
                     i++;
                 }
 
-                string termValue;
-                if (hasEscapes)
-                {
-                    var raw = input.AsSpan(start, i - start);
-                    termValue = Unescape(raw);
-                }
-                else
-                {
-                    termValue = input[start..i];
-                }
-
+                string raw = input[start..i];
+                string termValue = hasEscapes ? Unescape(raw.AsSpan()) : raw;
                 var type = !hasEscapes ? GetKeywordType(termValue) : QTokenType.Term;
-                tokens.Add(new QToken(type, termValue, start));
+                AddToken(new QToken(type, termValue, start, raw, HasUnescapedWildcard(raw.AsSpan())));
             }
         }
 
         return tokens;
+    }
+
+    private static bool HasUnescapedWildcard(ReadOnlySpan<char> raw)
+    {
+        for (int i = 0; i < raw.Length; i++)
+        {
+            if (raw[i] == '\\' && i + 1 < raw.Length)
+            {
+                i++;
+                continue;
+            }
+            if (raw[i] is '*' or '?')
+                return true;
+        }
+        return false;
     }
 
 
@@ -738,9 +1328,53 @@ public class QueryParser
         Equal, And, Or, Not, To, Pipe, OpenSquare, CloseSquare, OpenCurly, CloseCurly
     }
 
-    private readonly record struct QToken(QTokenType Type, string Value, int Offset);
-    private readonly record struct ParsedClause(Query? Query, Occur Occur);
+    private readonly record struct QToken(
+        QTokenType Type,
+        string Value,
+        int Offset,
+        string? RawValue = null,
+        bool HasUnescapedWildcard = false)
+    {
+        public string Raw => RawValue ?? Value;
+    }
+    private readonly record struct ParsedSyntaxClause(QuerySyntax? Query, Occur Occur);
+
+    private struct PhraseGraphTraversalFrame
+    {
+        public PhraseGraphTraversalFrame(int position, int pathLength)
+        {
+            Position = position;
+            PathLength = pathLength;
+        }
+
+        public int Position { get; }
+        public int NextEdgeIndex { get; set; }
+        public int PathLength { get; }
+    }
 }
+
+internal abstract record QuerySyntax;
+internal sealed record EmptyQuerySyntax : QuerySyntax;
+internal sealed record GroupQuerySyntax(QuerySyntax Inner) : QuerySyntax;
+internal sealed record TermQuerySyntax(string Field, string Term) : QuerySyntax;
+internal sealed record FuzzyQuerySyntax(string Field, string Term, int MaxEdits, int ModifierOffset) : QuerySyntax;
+internal sealed record MultiTermQuerySyntax(string Field, string Pattern, string Term) : QuerySyntax;
+internal sealed record PhraseQuerySyntax(string Field, string Text, int Slop, PhraseQuerySyntaxExpansion? Expansion = null) : QuerySyntax;
+internal sealed record PhraseQuerySyntaxExpansion(string[]? DirectTerms, IReadOnlyList<PhraseQuerySyntaxPath[]> Paths);
+internal readonly record struct PhraseQuerySyntaxPath(string Term, int Position);
+internal sealed record RegexpQuerySyntax(string Field, string Pattern) : QuerySyntax;
+internal sealed record TermRangeQuerySyntax(string Field, string? LowerTerm, string? UpperTerm, bool IncludeLower, bool IncludeUpper) : QuerySyntax;
+internal sealed record FieldExistsQuerySyntax(string Field) : QuerySyntax;
+internal sealed record BoostQuerySyntax(QuerySyntax Inner, float Boost, bool ConstantScore) : QuerySyntax;
+internal sealed record BooleanQuerySyntax(IReadOnlyList<QuerySyntaxClause> Clauses) : QuerySyntax;
+internal sealed record DisjunctionMaxQuerySyntax(IReadOnlyList<QuerySyntax> Clauses) : QuerySyntax;
+internal readonly record struct QuerySyntaxClause(QuerySyntax Query, Occur Occur);
+internal sealed record QueryFieldCompilationContext(
+    string Field,
+    IAnalyser QueryAnalyser,
+    Func<string, string>? MultiTermNormaliser);
+
+internal sealed class QueryParseLimitException(string message) : Exception(message);
 
 /// <summary>Exception thrown when a query string cannot be parsed.</summary>
 public sealed class QueryParseException : FormatException

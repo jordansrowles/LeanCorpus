@@ -30,6 +30,10 @@ public sealed class FuzzyQuery : Query
     /// <param name="maxExpansions">Maximum number of expanded terms to score. Default: <see cref="DefaultMaxExpansions"/>.</param>
     public FuzzyQuery(string field, string term, int maxEdits = 2, int maxExpansions = DefaultMaxExpansions)
     {
+        if (maxEdits is < 0 or > 2)
+            throw new ArgumentOutOfRangeException(nameof(maxEdits), maxEdits, "Maximum edit distance must be between 0 and 2.");
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxExpansions, 1);
+
         Field = field;
         Term = term;
         MaxEdits = maxEdits;

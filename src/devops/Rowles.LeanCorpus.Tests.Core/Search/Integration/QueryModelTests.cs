@@ -689,6 +689,18 @@ public sealed class QueryModelTests
     }
 
     /// <summary>
+    /// Verifies the Query Builder: Fuzzy Rejects Unsupported Edit Distance scenario.
+    /// </summary>
+    [Fact(DisplayName = "Query Builder: Fuzzy Rejects Unsupported Edit Distance")]
+    public void QueryBuilder_Fuzzy_UnsupportedMaxEdits_Throws()
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+            () => QueryBuilder.Fuzzy("body", "hello", maxEdits: 3));
+
+        Assert.Equal("maxEdits", exception.ParamName);
+    }
+
+    /// <summary>
     /// Verifies the Query Builder: Wildcard Creates Wildcard Query scenario.
     /// </summary>
     [Fact(DisplayName = "Query Builder: Wildcard Creates Wildcard Query")]

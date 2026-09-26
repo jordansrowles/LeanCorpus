@@ -2,18 +2,19 @@
 
 /// <summary>
 /// Matches terms using wildcard patterns (* = any chars, ? = single char).
+/// A backslash escapes the next pattern character so wildcard metacharacters can be matched literally.
 /// </summary>
 public sealed class WildcardQuery : Query
 {
     /// <inheritdoc/>
     public override string Field { get; }
 
-    /// <summary>Gets the wildcard pattern where <c>*</c> matches any characters and <c>?</c> matches a single character.</summary>
+    /// <summary>Gets the wildcard pattern where <c>*</c> matches any characters, <c>?</c> matches one character, and backslash escapes the next character.</summary>
     public string Pattern { get; }
 
     /// <summary>Initialises a new <see cref="WildcardQuery"/> for the given field and pattern.</summary>
     /// <param name="field">The field to search.</param>
-    /// <param name="pattern">The wildcard pattern (<c>*</c> = any chars, <c>?</c> = single char).</param>
+    /// <param name="pattern">The wildcard pattern (<c>*</c> = any chars, <c>?</c> = single char, backslash escapes the next character).</param>
     public WildcardQuery(string field, string pattern)
     {
         Field = field;
@@ -38,19 +39,41 @@ public sealed class WildcardQuery : Query
 
         while (t < term.Length)
         {
-            if (p < pattern.Length && (pattern[p] == '?' || pattern[p] == term[t]))
+            if (p < pattern.Length && pattern[p] == '*')
+            {
+                starP = ++p;
+                starT = t;
+                continue;
+            }
+
+            if (p < pattern.Length && pattern[p] == '\\')
+            {
+                if (p + 1 < pattern.Length)
+                {
+                    if (pattern[p + 1] == term[t])
+                    {
+                        t++;
+                        p += 2;
+                        continue;
+                    }
+                }
+                else if (term[t] == '\\')
+                {
+                    t++;
+                    p++;
+                    continue;
+                }
+            }
+            else if (p < pattern.Length && (pattern[p] == '?' || pattern[p] == term[t]))
             {
                 t++;
                 p++;
+                continue;
             }
-            else if (p < pattern.Length && pattern[p] == '*')
+
+            if (starP >= 0)
             {
-                starP = p++;
-                starT = t;
-            }
-            else if (starP >= 0)
-            {
-                p = starP + 1;
+                p = starP;
                 t = ++starT;
             }
             else

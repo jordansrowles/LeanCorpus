@@ -41,6 +41,49 @@ public sealed class QueryParserTests
         Assert.Equal("search", tq.Term);
     }
 
+    [Fact(DisplayName = "Parse: Explicit field term uses its resolved analyser")]
+    public void Parse_ExplicitFieldTerm_UsesResolvedAnalyser()
+    {
+        var query = Assert.IsType<TermQuery>(CreateFieldAwareParser().Parse("exactText:ABC-123"));
+
+        Assert.Equal("exactText", query.Field);
+        Assert.Equal("ABC-123", query.Term);
+    }
+
+    [Fact(DisplayName = "Parse: Explicit field phrase and fuzzy term use their resolved analyser")]
+    public void Parse_ExplicitFieldPhraseAndFuzzy_UseResolvedAnalyser()
+    {
+        QueryParser parser = CreateFieldAwareParser();
+
+        var phrase = Assert.IsType<PhraseQuery>(parser.Parse("exactText:\"ABC-123\""));
+        var fuzzy = Assert.IsType<FuzzyQuery>(parser.Parse("exactText:ABC-123~1"));
+
+        Assert.Equal(new[] { "ABC-123" }, phrase.Terms);
+        Assert.Equal("ABC-123", fuzzy.Term);
+    }
+
+    [Fact(DisplayName = "Parse: Explicit field wildcard and range use their resolved normaliser")]
+    public void Parse_ExplicitFieldWildcardAndRange_UseResolvedNormaliser()
+    {
+        QueryParser parser = CreateFieldAwareParser();
+
+        var prefix = Assert.IsType<PrefixQuery>(parser.Parse("exactText:ABC-123*"));
+        var range = Assert.IsType<TermRangeQuery>(parser.Parse("exactText:[ABC-123 TO XYZ-999]"));
+
+        Assert.Equal("ABC-123", prefix.Prefix);
+        Assert.Equal("ABC-123", range.LowerTerm);
+        Assert.Equal("XYZ-999", range.UpperTerm);
+    }
+
+    [Fact(DisplayName = "Parse: Explicit field regexp remains attached to its resolved field")]
+    public void Parse_ExplicitFieldRegexp_UsesResolvedFieldContext()
+    {
+        var query = Assert.IsType<RegexpQuery>(CreateFieldAwareParser().Parse("exactText:/ABC-123/"));
+
+        Assert.Equal("exactText", query.Field);
+        Assert.Equal("ABC-123", query.Pattern);
+    }
+
     /// <summary>
     /// Verifies the Parse: Quoted Phrase Returns Phrase Query scenario.
     /// </summary>
@@ -89,6 +132,97 @@ public sealed class QueryParserTests
         Assert.All(bq.Clauses, c => Assert.Equal(Occur.Should, c.Occur));
     }
 
+    [Fact(DisplayName = "Parse: Unquoted analysis preserves every token from one syntax term")]
+    public void Parse_UnquotedAnalyserOutput_PreservesEveryToken()
+    {
+        var query = _parser.Parse("foo-bar");
+
+        var boolean = Assert.IsType<BooleanQuery>(query);
+        Assert.Equal(2, boolean.Clauses.Count);
+        Assert.All(boolean.Clauses, static clause => Assert.Equal(Occur.Should, clause.Occur));
+        Assert.Equal(
+            new[] { "foo", "bar" },
+            boolean.Clauses.Select(static clause => Assert.IsType<TermQuery>(clause.Query).Term));
+    }
+
+    [Fact(DisplayName = "Parse: Unquoted same-position analyser alternatives are preserved")]
+    public void Parse_UnquotedSamePositionAlternatives_ArePreserved()
+    {
+        var parser = new QueryParser("body", new DelegateAnalyser(static sink =>
+        {
+            sink.Add("quick".AsSpan(), 0, 5, Token.DefaultType, 1, 1, null);
+            sink.Add("fast".AsSpan(), 0, 4, Token.DefaultType, 0, 1, null);
+        }));
+
+        var boolean = Assert.IsType<BooleanQuery>(parser.Parse("alias"));
+
+        Assert.Equal(2, boolean.Clauses.Count);
+        Assert.All(boolean.Clauses, static clause => Assert.Equal(Occur.Should, clause.Occur));
+        Assert.Equal(new[] { "quick", "fast" },
+            boolean.Clauses.Select(static clause => Assert.IsType<TermQuery>(clause.Query).Term));
+    }
+
+    [Fact(DisplayName = "Parse: Unquoted analyser graph compiles complete bounded paths")]
+    public void Parse_UnquotedAnalyserGraph_CompilesCompletePaths()
+    {
+        var parser = new QueryParser("body", new DelegateAnalyser(EmitHyphenatedSynonymGraph));
+
+        var boolean = Assert.IsType<BooleanQuery>(parser.Parse("new-york"));
+
+        Assert.Equal(2, boolean.Clauses.Count);
+        var paths = boolean.Clauses
+            .Select(static clause => Assert.IsType<PhraseQuery>(clause.Query))
+            .ToArray();
+        Assert.Contains(paths, static phrase =>
+            phrase.Terms.SequenceEqual(new[] { "new", "york" }) &&
+            phrase.Positions.SequenceEqual(new[] { 0, 1 }));
+        Assert.Contains(paths, static phrase =>
+            phrase.Terms.SequenceEqual(new[] { "nyc" }) &&
+            phrase.Positions.SequenceEqual(new[] { 0 }));
+    }
+
+    [Fact(DisplayName = "Parse: Unquoted analyser graph obeys configured path limit")]
+    public void Parse_UnquotedAnalyserGraph_ObeysConfiguredPathLimit()
+    {
+        var parser = new QueryParser(
+            "body", new DelegateAnalyser(EmitHyphenatedSynonymGraph), maxGraphPaths: 1);
+
+        var exception = Assert.Throws<QueryParseException>(() => parser.Parse("new-york"));
+
+        Assert.Contains("configured maximum of 1 paths", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "Parse: Unquoted term with no analysed tokens emits no clause")]
+    public void Parse_UnquotedTermWithNoAnalysedTokens_EmitsNoClause()
+    {
+        var parser = new QueryParser("body", new DelegateAnalyser(static _ => { }));
+
+        var boolean = Assert.IsType<BooleanQuery>(parser.Parse("removed"));
+
+        Assert.Empty(boolean.Clauses);
+    }
+
+    [Fact(DisplayName = "Parse: Fuzzy syntax preserves multiple linear analysis outputs")]
+    public void Parse_FuzzyTermWithMultipleAnalysisOutputs_PreservesEachOutput()
+    {
+        var boolean = Assert.IsType<BooleanQuery>(_parser.Parse("foo-bar~1"));
+
+        Assert.Equal(2, boolean.Clauses.Count);
+        Assert.All(boolean.Clauses, static clause => Assert.Equal(Occur.Should, clause.Occur));
+        Assert.Equal(new[] { "foo", "bar" }, boolean.Clauses
+            .Select(static clause => Assert.IsType<FuzzyQuery>(clause.Query).Term));
+    }
+
+    [Fact(DisplayName = "Parse: Analysed wildcard literal rejects multiple tokens explicitly")]
+    public void Parse_AnalysedWildcardLiteralWithMultipleTokens_ThrowsInsteadOfTruncating()
+    {
+        var parser = new AnalysingQueryParser("body", new StandardAnalyser());
+
+        var exception = Assert.Throws<QueryParseException>(() => parser.Parse("foo-bar*"));
+
+        Assert.Contains("must analyse to at most one unit-length token", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// Verifies the Parse: Prefix Wildcard Returns Prefix Query scenario.
     /// </summary>
@@ -113,6 +247,72 @@ public sealed class QueryParserTests
         Assert.Equal("te?t", wq.Pattern);
     }
 
+    [Theory(DisplayName = "Parse: Escaped wildcard characters remain literal terms")]
+    [InlineData(@"foo\*bar", "foo*bar")]
+    [InlineData(@"foo\?bar", "foo?bar")]
+    public void Parse_EscapedWildcards_AreLiteralTerms(string input, string expectedTerm)
+    {
+        var query = Assert.IsType<TermQuery>(_keywordParser.Parse(input));
+
+        Assert.Equal(expectedTerm, query.Term);
+    }
+
+    [Fact(DisplayName = "Parse: Mixed wildcard pattern retains escaped literal metacharacters")]
+    public void Parse_MixedWildcardPattern_PreservesEscapedStar()
+    {
+        var query = Assert.IsType<WildcardQuery>(_keywordParser.Parse(@"foo\**bar"));
+
+        Assert.Equal(@"foo\**bar", query.Pattern);
+        Assert.True(WildcardQuery.Matches("foo*bar", query.Pattern));
+        Assert.False(WildcardQuery.Matches("fooxbar", query.Pattern));
+    }
+
+    [Fact(DisplayName = "Parse: Analysed mixed wildcard pattern normalises literals without activating escapes")]
+    public void Parse_AnalysedMixedWildcardPattern_PreservesEscapedStar()
+    {
+        var parser = new AnalysingQueryParser("body", new StandardAnalyser());
+
+        var query = Assert.IsType<WildcardQuery>(parser.Parse(@"Foo\**Bar"));
+
+        Assert.Equal(@"foo\**bar", query.Pattern);
+        Assert.True(WildcardQuery.Matches("foo*bar", query.Pattern));
+    }
+
+    [Fact(DisplayName = "Parse: Escaped wildcard before a trailing star becomes a literal prefix")]
+    public void Parse_EscapedWildcardPrefix_UsesLiteralPrefix()
+    {
+        var query = Assert.IsType<PrefixQuery>(_keywordParser.Parse(@"foo\**"));
+
+        Assert.Equal("foo*", query.Prefix);
+    }
+
+    [Fact(DisplayName = "Parse: Escaped quote inside a phrase remains literal content")]
+    public void Parse_EscapedQuoteInsidePhrase_IsLiteralContent()
+    {
+        var query = Assert.IsType<PhraseQuery>(_keywordParser.Parse("\"foo\\\"bar\""));
+
+        Assert.Equal(new[] { "foo\"bar" }, query.Terms);
+    }
+
+    [Fact(DisplayName = "Parse: Escaped wildcard range bound remains literal")]
+    public void Parse_EscapedWildcardRangeBound_RemainsLiteral()
+    {
+        var query = Assert.IsType<TermRangeQuery>(_keywordParser.Parse(@"body:[\* TO z]"));
+
+        Assert.Equal("*", query.LowerTerm);
+        Assert.Equal("z", query.UpperTerm);
+    }
+
+    [Theory(DisplayName = "Parse: Regex escaping preserves regex operators and quoted delimiters")]
+    [InlineData(@"/foo\/bar/", "foo/bar")]
+    [InlineData(@"/\d+/", @"\d+")]
+    public void Parse_RegexEscaping_PreservesRegexOperators(string input, string expectedPattern)
+    {
+        var query = Assert.IsType<RegexpQuery>(_keywordParser.Parse(input));
+
+        Assert.Equal(expectedPattern, query.Pattern);
+    }
+
     /// <summary>
     /// Verifies the Parse: Fuzzy Term Returns Fuzzy Query scenario.
     /// </summary>
@@ -124,6 +324,19 @@ public sealed class QueryParserTests
         Assert.Equal("body", fq.Field);
         Assert.Equal("corpus", fq.Term);
         Assert.Equal(2, fq.MaxEdits);
+    }
+
+    /// <summary>
+    /// Verifies parsing rejects unsupported fuzzy edit distances at the modifier offset.
+    /// </summary>
+    [Theory(DisplayName = "Parse: Unsupported Fuzzy Edit Distance Reports Modifier Offset")]
+    [InlineData("corpus~3", 6)]
+    [InlineData("corpus~1000", 6)]
+    public void Parse_UnsupportedFuzzyEditDistance_ThrowsAtModifierOffset(string queryText, int expectedOffset)
+    {
+        var exception = Assert.Throws<QueryParseException>(() => _parser.Parse(queryText));
+
+        Assert.Equal(expectedOffset, exception.Offset);
     }
 
     /// <summary>
@@ -353,4 +566,30 @@ public sealed class QueryParserTests
         Assert.Equal("normal", tq.Field);
         Assert.Equal("term", tq.Term);
     }
+
+    private static void EmitHyphenatedSynonymGraph(ISpanTokenSink sink)
+    {
+        sink.Add("new".AsSpan(), 0, 3, Token.DefaultType, 1, 1, null);
+        sink.Add("nyc".AsSpan(), 0, 8, Token.DefaultType, 0, 2, null);
+        sink.Add("york".AsSpan(), 4, 8, Token.DefaultType, 1, 1, null);
+    }
+
+    private sealed class DelegateAnalyser(Action<ISpanTokenSink> emit) : IAnalyser
+    {
+        public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink) => emit(sink);
+    }
+
+    private static QueryParser CreateFieldAwareParser() => new(
+        "body",
+        new StandardAnalyser(),
+        static field =>
+        {
+            IAnalyser analyser = string.Equals(field, "exactText", StringComparison.Ordinal)
+                ? new KeywordAnalyser()
+                : new StandardAnalyser();
+            return new QueryFieldCompilationContext(
+                field,
+                analyser,
+                QueryParser.CreateSingleTokenNormaliser(analyser));
+        });
 }

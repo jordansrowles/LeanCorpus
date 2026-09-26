@@ -60,6 +60,41 @@ public sealed class QueryEqualityGapsTests
         Assert.False(q.Equals((object?)null));
     }
 
+    /// <summary>Verifies FuzzyQuery rejects edit distances outside its documented range.</summary>
+    [Theory(DisplayName = "FuzzyQuery: Rejects Unsupported MaxEdits")]
+    [InlineData(-1)]
+    [InlineData(3)]
+    [InlineData(1000)]
+    public void FuzzyQuery_UnsupportedMaxEdits_Throws(int maxEdits)
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+            () => new FuzzyQuery("body", "term", maxEdits));
+
+        Assert.Equal("maxEdits", exception.ParamName);
+    }
+
+    /// <summary>Verifies FuzzyQuery accepts all documented edit distances.</summary>
+    [Theory(DisplayName = "FuzzyQuery: Accepts Supported MaxEdits")]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void FuzzyQuery_SupportedMaxEdits_AreAccepted(int maxEdits)
+    {
+        var query = new FuzzyQuery("body", "term", maxEdits);
+
+        Assert.Equal(maxEdits, query.MaxEdits);
+    }
+
+    /// <summary>Verifies FuzzyQuery rejects a nonpositive expansion limit.</summary>
+    [Fact(DisplayName = "FuzzyQuery: Rejects Nonpositive MaxExpansions")]
+    public void FuzzyQuery_NonpositiveMaxExpansions_Throws()
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+            () => new FuzzyQuery("body", "term", maxExpansions: 0));
+
+        Assert.Equal("maxExpansions", exception.ParamName);
+    }
+
     // ── PrefixQuery ───────────────────────────────────────────────────────────
 
     /// <summary>Verifies PrefixQuery exposes Field and Prefix.</summary>
