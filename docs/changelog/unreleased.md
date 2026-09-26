@@ -38,6 +38,7 @@
 
 ### Fixed
 
+- Reject malformed stored-field document metadata with bounded document spans, validated block offsets and consistent corruption errors across retrieval and field checks.
 - Bound stored-field blocks by a 1 MiB raw-byte target as well as the configured document maximum, isolate larger documents up to the shared 256 MiB hard limit, and write the variable-count layout as stored-fields v4 while keeping v1-v3 readable.
 - Ignore deleted children and parents in block-join search, and drop a whole block during merge when its parent is not retained.
 - Keep per-segment deletion generations, live-document counts and soft-delete cutoffs in each commit, so commit publication atomically selects visibility for recovery, snapshots and historical backups.
