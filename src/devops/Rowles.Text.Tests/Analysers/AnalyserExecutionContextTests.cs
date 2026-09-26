@@ -90,7 +90,7 @@ public sealed class AnalyserExecutionContextTests
     public void CachingFilter_PublishesCompletedExecutionState()
     {
         var cache = new CachingTokenFilter();
-        Assert.Same(cache, cache.Clone());
+        Assert.NotSame(cache, cache.Clone());
 
         var analyser = new Analyser(new Tokeniser(), cache);
         var firstSink = new MaterialisingTokenSink();
