@@ -6,7 +6,6 @@ namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>Measures concurrent reads from one warm stored-fields block.</summary>
 [MemoryDiagnoser]
-[InvocationCount(1)]
 public class StoredFieldsReadBenchmarks
 {
     private const int DocumentCount = 8_192;
