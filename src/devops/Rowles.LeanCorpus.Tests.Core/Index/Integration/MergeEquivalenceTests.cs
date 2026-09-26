@@ -2,6 +2,7 @@ using System.Text.Json;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Store;
@@ -175,9 +176,8 @@ public sealed class MergeEquivalenceTests : IClassFixture<TestDirectoryFixture>
         }
 
         // Merge deterministically.
-        var segFiles = Directory.GetFiles(dir, "seg_*.seg");
-        var sourceSegments = segFiles
-            .Select(SegmentInfo.ReadFrom)
+        var sourceSegments = IndexRecovery.RecoverLatestCommit(dir, cleanupOrphans: false)!
+            .SegmentInfos
             .OrderBy(s => int.Parse(s.SegmentId.AsSpan("seg_".Length)))
             .ToList();
 

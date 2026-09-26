@@ -5,6 +5,7 @@ using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Queries;
@@ -44,8 +45,8 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
 
     private static string MergeSegmentsForTest(string dir, MMapDirectory mmap)
     {
-        var sourceSegments = Directory.GetFiles(dir, "seg_*.seg")
-            .Select(SegmentInfo.ReadFrom)
+        var sourceSegments = IndexRecovery.RecoverLatestCommit(dir, cleanupOrphans: false)!
+            .SegmentInfos
             .OrderBy(s => SegmentOrdinal(s.SegmentId))
             .ToList();
         Assert.True(sourceSegments.Count >= 2, "Expected at least two source segments to merge.");

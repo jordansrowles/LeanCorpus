@@ -1,6 +1,7 @@
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
+using Rowles.LeanCorpus.Serialization;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Simd;
 using Rowles.LeanCorpus.Search.Parsing;
@@ -118,11 +119,18 @@ public sealed class LiveDocsTests : IClassFixture<TestDirectoryFixture>
             writer.Commit();
         }
 
-        string segmentPath = Directory.GetFiles(directoryPath, "seg_*.seg").Single();
-        var info = SegmentInfo.ReadFrom(segmentPath);
-        Assert.NotNull(info.EarliestSoftDeleteTimestamp);
-        info.EarliestSoftDeleteTimestamp = null;
-        info.WriteTo(segmentPath);
+        string commitPath = Path.Combine(directoryPath, "segments_2");
+        var commitData = System.Text.Json.JsonSerializer.Deserialize(
+            CommitFileFormat.ReadJson(commitPath),
+            LeanCorpusJsonContext.Default.CommitData)
+            ?? throw new InvalidDataException("The commit could not be read.");
+        Assert.NotNull(commitData.SegmentStates);
+        Assert.NotNull(commitData.SegmentStates.Single().EarliestSoftDeleteTimestamp);
+        commitData.SegmentStates.Single().EarliestSoftDeleteTimestamp = null;
+        string commitJson = System.Text.Json.JsonSerializer.Serialize(
+            commitData,
+            LeanCorpusJsonContext.Default.CommitData);
+        File.WriteAllText(commitPath, CommitFileFormat.Wrap(commitJson));
 
         Assert.Throws<InvalidDataException>(() => new IndexSearcher(new MMapDirectory(directoryPath)));
     }
