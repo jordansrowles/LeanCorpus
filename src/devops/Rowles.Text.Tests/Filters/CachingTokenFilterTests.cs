@@ -1,5 +1,7 @@
 using Rowles.LeanCorpus.Analysis;
+using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Filters;
+using Rowles.LeanCorpus.Analysis.Tokenisers;
 using Rowles.LeanCorpus.Tests.Shared.Infrastructure;
 
 namespace Rowles.Text.Tests.Filters;
@@ -80,5 +82,86 @@ public class CachingTokenFilterTests
         filter.Apply("token", 0, 5, "term", 3, null, sink);
 
         Assert.Equal(3, filter.Tokens[0].PositionIncrement);
+    }
+
+    [Fact(DisplayName = "CachingTokenFilter: captures and replays graph metadata through a legacy filter")]
+    public void CapturesAndReplaysGraphMetadataThroughLegacyFilter()
+    {
+        var synonyms = new SynonymMap();
+        synonyms.Add("new york", ["NYC"]);
+        var cache = new CachingTokenFilter();
+        var analyser = new Analyser(
+            new WhitespaceTokeniser(),
+            new SynonymGraphFilter(synonyms),
+            new LegacyPassThroughFilter(),
+            new LowercaseFilter(),
+            cache);
+        var live = new MaterialisingTokenSink();
+
+        analyser.Analyse("new york park", live);
+
+        var liveGraph = MaterialiseGraph(live.Tokens);
+        var capturedGraph = MaterialiseGraph(cache.Tokens);
+        var expected = new[]
+        {
+            ("new", 0, 1, 0, 3, 1, 1),
+            ("nyc", 0, 2, 0, 8, 0, 2),
+            ("york", 1, 2, 4, 8, 1, 1),
+            ("park", 2, 3, 9, 13, 1, 1)
+        };
+
+        Assert.Equal(expected, DescribeEdges(liveGraph));
+        Assert.Equal(expected, DescribeEdges(capturedGraph));
+
+        var replay = new MaterialisingTokenSink();
+        capturedGraph.Emit(replay);
+        Assert.Equal(expected, DescribeEdges(MaterialiseGraph(replay.Tokens)));
+    }
+
+    [Fact(DisplayName = "CachingTokenFilter: Clone creates independent capture state")]
+    public void CloneCreatesIndependentCaptureState()
+    {
+        var original = new CachingTokenFilter();
+        var sink = new MaterialisingTokenSink();
+        original.Apply("alpha", 0, 5, "term", 1, null, sink);
+
+        var clone = Assert.IsType<CachingTokenFilter>(original.Clone());
+        clone.Apply("beta", 6, 10, "term", 1, null, sink);
+
+        Assert.NotSame(original, clone);
+        Assert.Equal(["alpha"], original.Tokens.Select(static token => token.Text));
+        Assert.Equal(["beta"], clone.Tokens.Select(static token => token.Text));
+    }
+
+    private static TokenGraph MaterialiseGraph(IEnumerable<Token> tokens)
+    {
+        var graph = new TokenGraph();
+        foreach (var token in tokens)
+            graph.Add(token);
+
+        graph.ValidateOrdered();
+        return graph;
+    }
+
+    private static (string Text, int StartPosition, int EndPosition, int StartOffset, int EndOffset,
+        int PositionIncrement, int PositionLength)[] DescribeEdges(TokenGraph graph) =>
+        graph.Edges.Select(static edge => (
+            edge.Token.Text,
+            edge.StartPosition,
+            edge.EndPosition,
+            edge.Token.StartOffset,
+            edge.Token.EndOffset,
+            edge.Token.PositionIncrement,
+            edge.Token.PositionLength)).ToArray();
+
+    private sealed class LegacyPassThroughFilter : ISpanTokenFilter
+    {
+        public void Apply(ReadOnlySpan<char> text, int startOffset, int endOffset, string type,
+            int positionIncrement, byte[]? payload, ISpanTokenSink sink)
+        {
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+        }
+
+        public ISpanTokenFilter Clone() => new LegacyPassThroughFilter();
     }
 }

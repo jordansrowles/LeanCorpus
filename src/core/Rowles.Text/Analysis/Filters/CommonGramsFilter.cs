@@ -70,11 +70,8 @@ public sealed class CommonGramsFilter : ISpanTokenFilter
         {
             if (_previousIsCommon && currentIsCommon)
             {
-                // Emit the bigram at the same position as the first common word.
-                EmitBigram(_previousText.AsSpan(), text, _previousStartOffset, endOffset,
-                    _previousType, _previousPayload, sink);
-
-                // Then emit the first common word with its original position increment.
+                // Keep the first unigram at its incoming position, then add the bigram
+                // as an alternate edge spanning both common-word positions.
                 sink.Add(
                     _previousText.AsSpan(),
                     _previousStartOffset,
@@ -82,6 +79,9 @@ public sealed class CommonGramsFilter : ISpanTokenFilter
                     _previousType,
                     _previousPositionIncrement,
                     _previousPayload);
+
+                EmitBigram(_previousText.AsSpan(), text, _previousStartOffset, endOffset,
+                    _previousType, _previousPayload, sink);
             }
             else
             {
@@ -131,7 +131,8 @@ public sealed class CommonGramsFilter : ISpanTokenFilter
 
     /// <summary>
     /// Builds a bigram string from two spans and sends it to the sink with
-    /// <c>positionIncrement = 0</c> (same position as the first word).
+    /// <c>positionIncrement = 0</c> and <c>positionLength = 2</c>, at the same start
+    /// position as the first word and spanning both common-word positions.
     /// </summary>
     private void EmitBigram(
         ReadOnlySpan<char> first,
@@ -156,7 +157,7 @@ public sealed class CommonGramsFilter : ISpanTokenFilter
             _separator.AsSpan().CopyTo(buffer[first.Length..]);
             second.CopyTo(buffer[(first.Length + _separator.Length)..]);
 
-            sink.Add(buffer, startOffset, endOffset, type, positionIncrement: 0, payload);
+            sink.Add(buffer, startOffset, endOffset, type, positionIncrement: 0, positionLength: 2, payload);
         }
         finally
         {

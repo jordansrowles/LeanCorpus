@@ -28,8 +28,10 @@ public interface ISpanTokenFilter
     /// Applies the filter to a token edge with an explicit position length.
     /// </summary>
     /// <remarks>
-    /// Legacy filter implementations are adapted by preserving their input edge length.
-    /// Graph-producing filters must override this member when they create new edges.
+    /// Legacy filters running inside an analysis context use its invocation-local sink
+    /// to preserve the input edge length without allocating an adapter per token. Direct
+    /// callers with another sink use a compatibility adapter when the edge is not unit
+    /// length. Graph-producing filters must override this member when they create edges.
     /// </remarks>
     void Apply(
         ReadOnlySpan<char> text,
@@ -42,6 +44,29 @@ public interface ISpanTokenFilter
         ISpanTokenSink sink)
     {
         Token.ValidatePositionLength(positionLength);
+
+        if (sink is IPositionLengthContextSink positionLengthSink)
+        {
+            int previousPositionLength = positionLengthSink.PositionLength;
+            positionLengthSink.PositionLength = positionLength;
+            try
+            {
+                Apply(text, startOffset, endOffset, type, positionIncrement, payload, sink);
+            }
+            finally
+            {
+                positionLengthSink.PositionLength = previousPositionLength;
+            }
+
+            return;
+        }
+
+        if (positionLength == 1)
+        {
+            Apply(text, startOffset, endOffset, type, positionIncrement, payload, sink);
+            return;
+        }
+
         Apply(text, startOffset, endOffset, type, positionIncrement, payload,
             new PositionLengthForwardingSink(sink, positionLength));
     }
@@ -60,6 +85,16 @@ public interface ISpanTokenFilter
     /// Creates an independent copy of this filter with the same configuration
     /// but fresh state. The default returns <c>this</c>, which is safe for
     /// stateless filters. Stateful filters must override to return a new instance.
+    /// <see cref="Analysers.Analyser"/> uses this contract to create isolated filter
+    /// state for each analysis call.
     /// </summary>
     ISpanTokenFilter Clone() => this;
+}
+
+/// <summary>Receives successful completion for a per-analysis filter clone.</summary>
+internal interface IAnalysisContextFilter
+{
+    ISpanTokenFilter CreateExecutionFilter();
+
+    void CompleteAnalysis();
 }

@@ -10,20 +10,34 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 /// captured stream. Call <see cref="Reset"/> before the next <c>Analyse</c> call
 /// to clear the capture.</para>
 /// <para>Each captured token's text is materialised as a <see cref="string"/> because
-/// the original span is transient. This is the only allocation this filter
-/// introduces.</para>
+/// the original span is transient.</para>
 /// <para>Tokens are forwarded to the downstream sink unchanged — the filter is
 /// transparent to the pipeline.</para>
 /// </remarks>
-public sealed class CachingTokenFilter : ISpanTokenFilter
+public sealed class CachingTokenFilter : ISpanTokenFilter, IAnalysisContextFilter
 {
+    private readonly CachingTokenFilter? _publisher;
     private readonly List<Token> _tokens = [];
+    private readonly List<Token> _executionTokens = [];
+    private IReadOnlyList<Token>? _publishedTokens;
+
+    /// <summary>Initialises an empty token cache.</summary>
+    public CachingTokenFilter()
+    {
+    }
+
+    private CachingTokenFilter(CachingTokenFilter publisher)
+    {
+        _publisher = publisher;
+    }
 
     /// <summary>
     /// The tokens captured during the most recent <c>Analyse</c> call.
     /// Safe to enumerate multiple times without re-running the pipeline.
     /// </summary>
-    public IReadOnlyList<Token> Tokens => _tokens;
+    public IReadOnlyList<Token> Tokens => _publisher is null
+        ? Volatile.Read(ref _publishedTokens) ?? _tokens
+        : _executionTokens;
 
     /// <summary>
     /// Clears the captured token list so the filter is ready for the next
@@ -31,7 +45,13 @@ public sealed class CachingTokenFilter : ISpanTokenFilter
     /// </summary>
     public void Reset()
     {
-        _tokens.Clear();
+        if (_publisher is null)
+        {
+            _tokens.Clear();
+            Volatile.Write(ref _publishedTokens, null);
+        }
+        else
+            _executionTokens.Clear();
     }
 
     /// <inheritdoc/>
@@ -43,23 +63,48 @@ public sealed class CachingTokenFilter : ISpanTokenFilter
         int positionIncrement,
         byte[]? payload,
         ISpanTokenSink sink)
+        => Apply(text, startOffset, endOffset, type, positionIncrement, 1, payload, sink);
+
+    /// <inheritdoc/>
+    public void Apply(
+        ReadOnlySpan<char> text,
+        int startOffset,
+        int endOffset,
+        string type,
+        int positionIncrement,
+        int positionLength,
+        byte[]? payload,
+        ISpanTokenSink sink)
     {
         ArgumentNullException.ThrowIfNull(sink);
+        Token.ValidatePositionLength(positionLength);
 
         // Materialise the span into a string — we must own the data because the
         // caller may inspect Tokens long after the pipeline has finished.
         string capturedText = text.ToString();
 
-        _tokens.Add(new Token(
+        var token = new Token(
             capturedText,
             startOffset,
             endOffset,
             type,
             positionIncrement,
-            payload));
+            payload,
+            positionLength);
+        if (_publisher is null)
+        {
+            if (Volatile.Read(ref _publishedTokens) is not null)
+            {
+                _tokens.Clear();
+                Volatile.Write(ref _publishedTokens, null);
+            }
+            _tokens.Add(token);
+        }
+        else
+            _executionTokens.Add(token);
 
         // Forward unchanged to the next stage.
-        sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+        sink.Add(text, startOffset, endOffset, type, positionIncrement, positionLength, payload);
     }
 
     /// <inheritdoc/>
@@ -76,9 +121,16 @@ public sealed class CachingTokenFilter : ISpanTokenFilter
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Returns <c>this</c> — cloning would defeat the purpose of this filter,
-    /// which exists to be inspected after analysis. Callers that need a fresh
-    /// capture should create a new <see cref="CachingTokenFilter"/> directly.
+    /// Returns a new cache with independent capture state.
     /// </remarks>
-    public ISpanTokenFilter Clone() => this;
+    public ISpanTokenFilter Clone() => new CachingTokenFilter();
+
+    ISpanTokenFilter IAnalysisContextFilter.CreateExecutionFilter()
+        => new CachingTokenFilter(_publisher ?? this);
+
+    void IAnalysisContextFilter.CompleteAnalysis()
+    {
+        if (_publisher is not null)
+            Volatile.Write(ref _publisher._publishedTokens, _executionTokens.ToArray());
+    }
 }

@@ -1,6 +1,15 @@
 namespace Rowles.LeanCorpus.Analysis;
 
 /// <summary>
+/// Carries the input edge length while a legacy filter runs inside an analysis
+/// context, avoiding a forwarding sink allocation for each token.
+/// </summary>
+internal interface IPositionLengthContextSink
+{
+    int PositionLength { get; set; }
+}
+
+/// <summary>
 /// Preserves an input edge length while adapting a legacy filter implementation.
 /// </summary>
 internal sealed class PositionLengthForwardingSink : ISpanTokenSink
