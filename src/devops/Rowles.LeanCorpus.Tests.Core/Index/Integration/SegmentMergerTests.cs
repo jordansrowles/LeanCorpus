@@ -212,6 +212,262 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(1f, reader.GetVector("embedding", 0)![0]);
     }
 
+    [Fact]
+    public void Merge_RejectsMixedVectorDimensionsBeforeWritingDestinationFiles()
+    {
+        string source2D = CreateVectorSourceIndex("merge_mixed_dimensions_2d", 2, normalised: true,
+            VectorQuantisation.None, hnswSeed: 301);
+        string source3D = CreateVectorSourceIndex("merge_mixed_dimensions_3d", 3, normalised: true,
+            VectorQuantisation.None, hnswSeed: 302);
+        string targetPath = SubDir(nameof(Merge_RejectsMixedVectorDimensionsBeforeWritingDestinationFiles));
+        using var targetDirectory = new MMapDirectory(targetPath);
+
+        using (var writer = new IndexWriter(targetDirectory, new IndexWriterConfig
+        {
+            MergePolicy = NoMergePolicy.Instance,
+            MergeThreshold = 100,
+        }))
+        {
+            using (var sourceDirectory = new MMapDirectory(source2D))
+                writer.AddIndexes(sourceDirectory);
+            using (var sourceDirectory = new MMapDirectory(source3D))
+                writer.AddIndexes(sourceDirectory);
+            writer.Commit();
+        }
+
+        List<SegmentInfo> segments = Directory.GetFiles(targetPath, "seg_*.seg")
+            .Select(SegmentInfo.ReadFrom)
+            .OrderBy(static segment => SegmentOrdinal(segment.SegmentId))
+            .ToList();
+        Assert.Equal(2, segments.Count);
+        string[] filesBeforeMerge = Directory.GetFiles(targetPath)
+            .Select(static path => Path.GetFileName(path)!)
+            .OrderBy(static file => file, StringComparer.Ordinal)
+            .ToArray();
+
+        int nextOrdinal = segments.Max(static segment => SegmentOrdinal(segment.SegmentId)) + 1;
+        var merger = new SegmentMerger(targetDirectory, mergeThreshold: 100, softDeleteRetentionSeconds: 0);
+        InvalidDataException exception = Assert.Throws<InvalidDataException>(
+            () => merger.MergeAll(segments, ref nextOrdinal));
+
+        Assert.True(exception.Message.Contains("embedding", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(filesBeforeMerge, Directory.GetFiles(targetPath)
+            .Select(static path => Path.GetFileName(path)!)
+            .OrderBy(static file => file, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void Merge_RejectsMixedVectorNormalisationBeforeWritingDestinationFiles()
+    {
+        string normalisedSource = CreateVectorSourceIndex("merge_mixed_normalisation_true", 3, normalised: true,
+            VectorQuantisation.None, hnswSeed: 311);
+        string unnormalisedSource = CreateVectorSourceIndex("merge_mixed_normalisation_false", 3, normalised: false,
+            VectorQuantisation.None, hnswSeed: 312);
+        string targetPath = SubDir(nameof(Merge_RejectsMixedVectorNormalisationBeforeWritingDestinationFiles));
+        using var targetDirectory = new MMapDirectory(targetPath);
+
+        using (var writer = new IndexWriter(targetDirectory, new IndexWriterConfig
+        {
+            MergePolicy = NoMergePolicy.Instance,
+            MergeThreshold = 100,
+        }))
+        {
+            using (var sourceDirectory = new MMapDirectory(normalisedSource))
+                writer.AddIndexes(sourceDirectory);
+            using (var sourceDirectory = new MMapDirectory(unnormalisedSource))
+                writer.AddIndexes(sourceDirectory);
+            writer.Commit();
+        }
+
+        List<SegmentInfo> segments = Directory.GetFiles(targetPath, "seg_*.seg")
+            .Select(SegmentInfo.ReadFrom)
+            .OrderBy(static segment => SegmentOrdinal(segment.SegmentId))
+            .ToList();
+        Assert.Equal(2, segments.Count);
+        string[] filesBeforeMerge = Directory.GetFiles(targetPath)
+            .Select(static path => Path.GetFileName(path)!)
+            .OrderBy(static file => file, StringComparer.Ordinal)
+            .ToArray();
+
+        int nextOrdinal = segments.Max(static segment => SegmentOrdinal(segment.SegmentId)) + 1;
+        var merger = new SegmentMerger(targetDirectory, mergeThreshold: 100, softDeleteRetentionSeconds: 0);
+        InvalidDataException exception = Assert.Throws<InvalidDataException>(
+            () => merger.MergeAll(segments, ref nextOrdinal));
+
+        Assert.True(exception.Message.Contains("embedding", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(filesBeforeMerge, Directory.GetFiles(targetPath)
+            .Select(static path => Path.GetFileName(path)!)
+            .OrderBy(static file => file, StringComparer.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AddIndexes_UsesDestinationQuantisationAndSkipsIncompatibleHnswSeeds(bool reverseSourceOrder)
+    {
+        string sourceNone = CreateVectorSourceIndex("add_indexes_vectors_none", 3, normalised: true,
+            VectorQuantisation.None, hnswSeed: 321);
+        string sourceInt8 = CreateVectorSourceIndex("add_indexes_vectors_int8", 3, normalised: true,
+            VectorQuantisation.Int8, hnswSeed: 322);
+        long sourceNoneSeed = ReadSingleVectorGraphSeed(sourceNone);
+        long sourceInt8Seed = ReadSingleVectorGraphSeed(sourceInt8);
+        string targetPath = SubDir($"{nameof(AddIndexes_UsesDestinationQuantisationAndSkipsIncompatibleHnswSeeds)}_{reverseSourceOrder}");
+        using var targetDirectory = new MMapDirectory(targetPath);
+        var hnswConfig = new HnswBuildConfig { M = 2, M0 = 2, EfConstruction = 4 };
+
+        using (var writer = new IndexWriter(targetDirectory, new IndexWriterConfig
+        {
+            MergePolicy = NoMergePolicy.Instance,
+            MergeThreshold = 100,
+            NormaliseVectors = true,
+            VectorQuantisation = VectorQuantisation.BBQ,
+            HnswBuildConfig = hnswConfig,
+        }))
+        {
+            string firstSource = reverseSourceOrder ? sourceInt8 : sourceNone;
+            string secondSource = reverseSourceOrder ? sourceNone : sourceInt8;
+            using (var sourceDirectory = new MMapDirectory(firstSource))
+                writer.AddIndexes(sourceDirectory);
+            using (var sourceDirectory = new MMapDirectory(secondSource))
+                writer.AddIndexes(sourceDirectory);
+            writer.Commit();
+
+            List<SegmentInfo> importedSegments = Directory.GetFiles(targetPath, "seg_*.seg")
+                .Select(SegmentInfo.ReadFrom)
+                .OrderBy(static segment => SegmentOrdinal(segment.SegmentId))
+                .ToList();
+            Assert.Equal(2, importedSegments.Count);
+            for (int i = 0; i < importedSegments.Count; i++)
+            {
+                Assert.Equal(VectorQuantisation.BBQ, Assert.Single(importedSegments[i].VectorFields).Quantisation);
+                using var reader = new SegmentReader(targetDirectory, importedSegments[i]);
+                long sourceSeed = reverseSourceOrder
+                    ? (i == 0 ? sourceInt8Seed : sourceNoneSeed)
+                    : (i == 0 ? sourceNoneSeed : sourceInt8Seed);
+                Assert.NotEqual(sourceSeed, reader.GetHnswGraph("embedding")!.Seed);
+            }
+
+            Assert.Equal(2, writer.ForceMerge(1));
+            writer.Commit();
+        }
+
+        SegmentInfo merged = Assert.Single(Directory.GetFiles(targetPath, "seg_*.seg")
+            .Select(SegmentInfo.ReadFrom));
+        Assert.Equal(VectorQuantisation.BBQ, Assert.Single(merged.VectorFields).Quantisation);
+        Assert.True(Assert.Single(merged.VectorFields).HasHnsw);
+        Assert.Single(Directory.GetFiles(targetPath, $"{merged.SegmentId}_v_*.vq"));
+        Assert.Empty(Directory.GetFiles(targetPath, $"{merged.SegmentId}_v_*.vec"));
+        using var mergedReader = new SegmentReader(targetDirectory, merged);
+        Assert.Equal(8, mergedReader.GetHnswGraph("embedding")!.NodeCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ForceMerge_UsesDestinationQuantisationRegardlessOfSourceOrder(bool reverseSourceOrder)
+    {
+        VectorQuantisation firstQuantisation = reverseSourceOrder
+            ? VectorQuantisation.Int8
+            : VectorQuantisation.None;
+        VectorQuantisation secondQuantisation = reverseSourceOrder
+            ? VectorQuantisation.None
+            : VectorQuantisation.Int8;
+        string targetPath = SubDir($"{nameof(ForceMerge_UsesDestinationQuantisationRegardlessOfSourceOrder)}_{reverseSourceOrder}");
+        using var targetDirectory = new MMapDirectory(targetPath);
+        var hnswConfig = new HnswBuildConfig { M = 2, M0 = 2, EfConstruction = 4 };
+        using var writer = new IndexWriter(targetDirectory, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 10,
+            MergePolicy = NoMergePolicy.Instance,
+            MergeThreshold = 100,
+            BuildHnswOnFlush = true,
+            NormaliseVectors = true,
+            VectorQuantisation = firstQuantisation,
+            HnswBuildConfig = hnswConfig,
+        });
+
+        AddVectorDocuments(writer, firstDocumentId: 0, documentCount: 4);
+        writer.Commit();
+        writer.Config.VectorQuantisation = secondQuantisation;
+        AddVectorDocuments(writer, firstDocumentId: 4, documentCount: 4);
+        writer.Commit();
+
+        List<SegmentInfo> sourceSegments = Directory.GetFiles(targetPath, "seg_*.seg")
+            .Select(SegmentInfo.ReadFrom)
+            .OrderBy(static segment => SegmentOrdinal(segment.SegmentId))
+            .ToList();
+        Assert.Equal(2, sourceSegments.Count);
+        Assert.Equal(firstQuantisation, Assert.Single(sourceSegments[0].VectorFields).Quantisation);
+        Assert.Equal(secondQuantisation, Assert.Single(sourceSegments[1].VectorFields).Quantisation);
+
+        writer.Config.VectorQuantisation = VectorQuantisation.BBQ;
+        Assert.Equal(2, writer.ForceMerge(1));
+        writer.Commit();
+
+        SegmentInfo merged = Assert.Single(Directory.GetFiles(targetPath, "seg_*.seg")
+            .Select(SegmentInfo.ReadFrom));
+        VectorFieldInfo vectorField = Assert.Single(merged.VectorFields);
+        Assert.Equal(VectorQuantisation.BBQ, vectorField.Quantisation);
+        Assert.True(vectorField.HasHnsw);
+        Assert.Single(Directory.GetFiles(targetPath, $"{merged.SegmentId}_v_*.vq"));
+        Assert.Empty(Directory.GetFiles(targetPath, $"{merged.SegmentId}_v_*.vec"));
+        using var mergedReader = new SegmentReader(targetDirectory, merged);
+        Assert.Equal(8, mergedReader.GetHnswGraph("embedding")!.NodeCount);
+    }
+
+    private static void AddVectorDocuments(IndexWriter writer, int firstDocumentId, int documentCount)
+    {
+        for (int offset = 0; offset < documentCount; offset++)
+        {
+            int documentId = firstDocumentId + offset;
+            var vector = new float[3];
+            vector[documentId % vector.Length] = documentId + 1f;
+            var document = new LeanDocument();
+            document.Add(new VectorField("embedding", new ReadOnlyMemory<float>(vector)));
+            writer.AddDocument(document);
+        }
+    }
+
+    private string CreateVectorSourceIndex(
+        string name,
+        int dimension,
+        bool normalised,
+        VectorQuantisation quantisation,
+        long hnswSeed)
+    {
+        string path = SubDir(name);
+        using var directory = new MMapDirectory(path);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 10,
+            MergeThreshold = 100,
+            NormaliseVectors = normalised,
+            VectorQuantisation = quantisation,
+            HnswSeed = hnswSeed,
+            HnswBuildConfig = new HnswBuildConfig { M = 2, M0 = 2, EfConstruction = 4 },
+        });
+
+        for (int docId = 0; docId < 4; docId++)
+        {
+            var vector = new float[dimension];
+            vector[docId % dimension] = docId + 1f;
+            var document = new LeanDocument();
+            document.Add(new VectorField("embedding", new ReadOnlyMemory<float>(vector)));
+            writer.AddDocument(document);
+        }
+        writer.Commit();
+        return path;
+    }
+
+    private static long ReadSingleVectorGraphSeed(string directoryPath)
+    {
+        using var directory = new MMapDirectory(directoryPath);
+        SegmentInfo segment = Assert.Single(Directory.GetFiles(directoryPath, "seg_*.seg")
+            .Select(SegmentInfo.ReadFrom));
+        using var reader = new SegmentReader(directory, segment);
+        return reader.GetHnswGraph("embedding")!.Seed;
+    }
+
     [Theory]
     [InlineData(VectorQuantisation.Int8)]
     [InlineData(VectorQuantisation.BBQ)]
@@ -255,8 +511,9 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
             .ToList();
         Assert.Equal(2, sourceSegments.Count);
         int nextOrdinal = sourceSegments.Count;
-        var merger = new SegmentMerger(mmap, mergeThreshold: 100, softDeleteRetentionSeconds: 0,
-            hnswBuildConfig: hnswConfig);
+        var merger = new SegmentMerger(mmap, new TieredMergePolicy(100), SegmentMerger.DefaultSkipInterval,
+            softDeleteRetentionSeconds: 0, hnswBuildConfig: hnswConfig, useCompoundFile: false,
+            destinationVectorQuantisation: quantisation);
         SegmentInfo merged = Assert.IsType<SegmentInfo>(merger.MergeAll(sourceSegments, ref nextOrdinal));
 
         Assert.Contains(merged.VectorFields, field =>
