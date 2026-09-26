@@ -307,7 +307,10 @@ internal static class Program
 
         // Subsystem benchmarks: explicit only, not included in --suite all.
         if (suites.Contains(BenchmarkSuite.Merge))
+        {
             RunSuite<MergeBenchmarks>("merge", runDir, benchmarkArgs, suiteSummaries, gcDump);
+            RunSuite<VectorMergeMemoryBenchmarks>("merge-vector-memory", runDir, benchmarkArgs, suiteSummaries, gcDump);
+        }
 
         if (suites.Contains(BenchmarkSuite.Flush))
             RunSuite<FlushBenchmarks>("flush", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -528,6 +531,9 @@ internal static class Program
     {
         foreach (var summary in summaries)
         {
+            if (!summary.BenchmarksCases.Any())
+                continue;
+
             var benchmarkType = summary.BenchmarksCases.First().Descriptor.Type;
             var suite = pendingSuites.First(item => item.Type == benchmarkType);
             suiteSummaries.Add((suite.Name, summary));
@@ -745,7 +751,7 @@ internal static class Program
               index-writer        IndexWriterContentionBenchmarks -- concurrent AddDocument throughput (explicit only)
               concurrent-write    ConcurrentVsSequentialBenchmarks -- DWPT parallel vs sequential indexing (explicit only)
 
-              merge               MergeBenchmarks -- segment merge throughput (explicit only)
+              merge               MergeBenchmarks and VectorMergeMemoryBenchmarks -- segment merge throughput and high-dimensional vector allocation (explicit only)
               flush               FlushBenchmarks -- segment flush latency per doc count (explicit only)
               postings-arena       PostingsArenaBenchmarks -- DWPT postings arena workload matrix (explicit only)
               packed-bkd           PackedBkdBenchmarks -- full Packed BKD build, spill and traversal matrix (explicit only)
