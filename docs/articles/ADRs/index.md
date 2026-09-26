@@ -46,6 +46,7 @@ _description: Recorded LeanCorpus architecture decisions and their status.
 <tr><td><a href="ADR033-spatial-geometry-packed-bkd.md">033</a></td><td>2026-09-21</td><td>Accepted</td><td></td><td><a href="ADR033-spatial-geometry-packed-bkd.md">Spatial geometry uses canonical encoded coordinates and multidimensional Packed BKD</a></td><td></td></tr>
 <tr><td><a href="ADR034-shape-indexing-and-spatial-relations.md">034</a></td><td>2026-09-24</td><td>Accepted</td><td></td><td><a href="ADR034-shape-indexing-and-spatial-relations.md">Shape values use stable Packed BKD primitives and document-level relations</a></td><td></td></tr>
 <tr><td><a href="ADR035-shape-docvalues-and-spatial-aggregations.md">035</a></td><td>2026-09-24</td><td>Accepted</td><td></td><td><a href="ADR035-shape-docvalues-and-spatial-aggregations.md">Shape DocValues preserve encoded primitives and spatial metadata</a></td><td></td></tr>
+<tr><td><a href="ADR036-commit-scoped-segment-state.md">036</a></td><td>2026-09-26</td><td>Accepted</td><td></td><td><a href="ADR036-commit-scoped-segment-state.md">Commit-scoped state defines segment liveness at publication</a></td><td></td></tr>
 </tbody>
 </table>
 </div>

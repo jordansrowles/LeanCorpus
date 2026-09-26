@@ -35,6 +35,7 @@
 
 ### Fixed
 
+- Keep per-segment deletion generations, live-document counts and soft-delete cutoffs in each commit, so commit publication atomically selects visibility for recovery, snapshots and historical backups.
 - Fail closed when selected deletion state is missing, malformed, or inconsistent with segment metadata.
 - Expose immutable `SegmentDescriptor` metadata from `SegmentReader.Info` and return deep copies from `GetNrtSegments()`, so later commits cannot change an existing NRT searcher's deletion view.
 - Centralise segment file ownership so merge, deletion and recovery cleanup include vector/HNSW and deletion-generation sidecars, while pruning protects active commit and held-snapshot generations.
