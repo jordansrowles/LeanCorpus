@@ -1,5 +1,6 @@
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis.Filters;
 
 namespace Rowles.Text.Tests;
 
@@ -59,6 +60,9 @@ public class StandardAnalyserTests
 
         var token = Assert.Single(sink.Tokens);
         Assert.Equal(new string('é', tokenLength), token.Text);
+        var filterBuffer = input.ToCharArray();
+        new LowercaseFilter().Apply(filterBuffer);
+        Assert.Equal(token.Text, new string(filterBuffer));
         Assert.Equal(0, token.StartOffset);
         Assert.Equal(tokenLength, token.EndOffset);
         Assert.Equal(Token.DefaultType, token.Type);
