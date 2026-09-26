@@ -24,6 +24,12 @@
 
     'Analysers'     = @{ Area = 'Analysers';     Globs = @('src/core/Rowles.Text/Analysis/Analysers/**');          Project = 'text'; Benchmarks = @('AnalysisBenchmarks', 'AnalyserParityBenchmarks') }
     'Filters'       = @{ Area = 'Filters';       Globs = @('src/core/Rowles.Text/Analysis/Filters/**');            Project = 'text'; Benchmarks = @('TokenFilterBenchmarks', 'SynonymBenchmarks') }
+    'CachingGraphEdges' = @{
+        Area = 'Filters'
+        Globs = @('src/core/Rowles.Text/Analysis/Filters/CachingTokenFilter.cs', 'src/devops/Rowles.Text.Benchmarks/CachingGraphEdgeBenchmarks.cs')
+        Project = 'text'
+        Benchmarks = @('CachingGraphEdgeBenchmarks')
+    }
     'Stemmers'      = @{ Area = 'Stemmers';      Globs = @('src/core/Rowles.Text/Analysis/Stemmers/**');           Project = 'text'; Benchmarks = @('StemmerParityBenchmarks', 'HunspellBenchmarks') }
     'Tokenisers'    = @{ Area = 'Tokenisers';    Globs = @('src/core/Rowles.Text/Analysis/Tokenisers/**');         Project = 'text'; Benchmarks = @('NGramTokeniserBenchmarks', 'PatternTokeniserBenchmarks') }
     'TextIntegration'= @{ Area = 'TextIntegration'; Globs = @('src/core/Rowles.Text/**');                         Project = 'core'; Benchmarks = @('TokenBudgetBenchmarks') }

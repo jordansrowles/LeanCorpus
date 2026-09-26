@@ -33,6 +33,10 @@
     'core-search-tests' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.Core/Search/**'); Targets = @('core:Search') }
     'text-analyser-tests' = @{ Globs = @('src/devops/Rowles.Text.Tests/Analysers/**'); Targets = @('text:Analysers') }
     'text-filter-tests' = @{ Globs = @('src/devops/Rowles.Text.Tests/Filters/**'); Targets = @('text:Filters') }
+    'text-filter-benchmarks' = @{
+        Globs = @('src/devops/Rowles.Text.Benchmarks/CachingGraphEdgeBenchmarks.cs')
+        Targets = @('text:Filters', 'core:TextIntegration')
+    }
     'text-tokeniser-tests' = @{ Globs = @('src/devops/Rowles.Text.Tests/Tokenisers/**'); Targets = @('text:Tokenisers') }
     'core-textintegration-tests' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.Core/TextIntegration/**'); Targets = @('core:TextIntegration') }
     'core-index-benchmarks' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Benchmarks/Index/**', 'src/devops/Rowles.LeanCorpus.Benchmarks/Program.cs'); Targets = @('core:Index') }

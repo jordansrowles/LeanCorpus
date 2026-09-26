@@ -6,12 +6,15 @@ using Rowles.LeanCorpus.Analysis.Filters;
 namespace Rowles.Text.Benchmarks;
 
 /// <summary>
-/// Measures capture and forwarding allocations for a small token graph.
+/// Compares the pre-RT-06 legacy cache path with graph-aware capture
+/// for a repeated small token graph.
 /// </summary>
 [MemoryDiagnoser]
 [InvocationCount(1)]
 public class CachingGraphEdgeBenchmarks
 {
+    private const int GraphRepetitions = 32_768;
+
     private static readonly Token[] GraphEdges =
     [
         new("new", 0, 3),
@@ -20,25 +23,67 @@ public class CachingGraphEdgeBenchmarks
         new("park", 9, 13)
     ];
 
-    private ISpanTokenFilter _filter = null!;
-    private CountingTokenSink _sink = null!;
+    private ISpanTokenFilter _legacyFilter = null!;
+    private ISpanTokenFilter _graphAwareFilter = null!;
+    private CountingTokenSink _legacySink = null!;
+    private CountingTokenSink _graphAwareSink = null!;
 
     [IterationSetup]
     public void SetUpIteration()
     {
-        _filter = new CachingTokenFilter();
-        _sink = new CountingTokenSink();
+        _legacyFilter = new LegacyCachingTokenFilter();
+        _graphAwareFilter = new CachingTokenFilter();
+        _legacySink = new CountingTokenSink();
+        _graphAwareSink = new CountingTokenSink();
     }
 
-    [Benchmark]
-    public int CaptureAndForwardGraphEdges()
+    [Benchmark(
+        Baseline = true,
+        Description = "Pre-fix legacy cache",
+        OperationsPerInvoke = GraphRepetitions)]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int CaptureAndForwardGraphEdges_Legacy()
+        => CaptureAndForwardGraphEdges(_legacyFilter, _legacySink);
+
+    [Benchmark(Description = "Graph-aware cache", OperationsPerInvoke = GraphRepetitions)]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int CaptureAndForwardGraphEdges_GraphAware()
+        => CaptureAndForwardGraphEdges(_graphAwareFilter, _graphAwareSink);
+
+    private static int CaptureAndForwardGraphEdges(ISpanTokenFilter filter, CountingTokenSink sink)
     {
-        foreach (var token in GraphEdges)
+        for (int repetition = 0; repetition < GraphRepetitions; repetition++)
         {
-            _filter.Apply(token.Text.AsSpan(), token.StartOffset, token.EndOffset,
-                token.Type, token.PositionIncrement, token.PositionLength, token.Payload, _sink);
+            foreach (var token in GraphEdges)
+            {
+                filter.Apply(token.Text.AsSpan(), token.StartOffset, token.EndOffset,
+                    token.Type, token.PositionIncrement, token.PositionLength, token.Payload, sink);
+            }
         }
 
-        return _sink.Count;
+        return sink.Count;
+    }
+
+    /// <summary>
+    /// Reproduces the former cache implementation: it only accepts the legacy edge
+    /// and therefore reaches the downstream sink through the default graph adapter.
+    /// </summary>
+    private sealed class LegacyCachingTokenFilter : ISpanTokenFilter
+    {
+        private readonly List<Token> _tokens = [];
+
+        public void Apply(
+            ReadOnlySpan<char> text,
+            int startOffset,
+            int endOffset,
+            string type,
+            int positionIncrement,
+            byte[]? payload,
+            ISpanTokenSink sink)
+        {
+            _tokens.Add(new Token(text.ToString(), startOffset, endOffset,
+                type, positionIncrement, payload));
+            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+        }
     }
 }

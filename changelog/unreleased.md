@@ -18,6 +18,7 @@
 - Map Core Search test-source changes to the Search area for affected test runs.
 - Map Rowles.Text Tokenisers test-source changes to the Tokenisers area for affected test runs.
 - Map Core TextIntegration test-source changes to the TextIntegration area for affected test runs.
+- Add a paired allocation benchmark for legacy and graph-aware token cache paths, with a focused DevOps benchmark group.
 - Apply queued deletes through logical segment members so compound segments can be deleted and updated without unpacking their `.dic` and `.pos` files.
 - Set Core package, assembly and file versions to `3.2.0`.
 - Use the existing indexed latitude range to select candidates for single-valued packed Geo distance queries, while retaining exact Haversine checks and packed/mixed fallbacks.
