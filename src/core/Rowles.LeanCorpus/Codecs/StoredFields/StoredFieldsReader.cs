@@ -24,6 +24,8 @@ internal sealed class StoredFieldsReader : IDisposable
     private const int MaxCachedBlockCount = 8;
     private const int MaxCachedBlockBytes = 2 * 1024 * 1024;
     private const int MaxCachedBytes = 16 * 1024 * 1024;
+    private const int MaxInitialFieldCapacity = 16;
+    private const int MaxInitialValueCapacity = 8;
     private readonly Lock _blockCachePublicationLock = new();
     private BlockCacheSnapshot _blockCache = BlockCacheSnapshot.Empty;
     private int _disposeStarted;
@@ -224,8 +226,8 @@ internal sealed class StoredFieldsReader : IDisposable
 
             long blockEnd = checked(position + (long)blockDocCount * sizeof(int) + compLength);
             long nextBlockOffset = blockIndex + 1 < blockOffsets.Length ? blockOffsets[blockIndex + 1] : bodyEnd;
-            if (blockEnd > nextBlockOffset)
-                throw new InvalidDataException("Stored fields block overlaps the next block or extends beyond the data body.");
+            if (blockEnd != nextBlockOffset)
+                throw new InvalidDataException("Stored fields block size does not match its indexed boundary.");
 
             blockDocCounts[blockIndex] = blockDocCount;
             if (blockDocStarts is not null)
@@ -298,87 +300,131 @@ internal sealed class StoredFieldsReader : IDisposable
 
     internal Dictionary<string, List<StoredFieldValue>> ReadDocumentValues(int docId, ISet<string>? fieldsToLoad)
     {
-        var block = GetBlockForDocument(docId, out int docInBlock);
-        var cursor = new DocumentCursor(block.Data, block.IntraOffsets[docInBlock]);
-
-        int fieldCount = cursor.ReadInt32();
-        var fields = new Dictionary<string, List<StoredFieldValue>>(fieldCount, StringComparer.Ordinal);
-
-        for (int i = 0; i < fieldCount; i++)
+        var block = GetBlockForDocument(docId, out int blockIndex, out int docInBlock);
+        try
         {
-            int nameLen = cursor.ReadInt32();
-            string name = Encoding.UTF8.GetString(cursor.ReadSpan(nameLen));
-
-            int valueCount = cursor.ReadInt32();
-
-            if (fieldsToLoad is not null && !fieldsToLoad.Contains(name))
-            {
-                for (int v = 0; v < valueCount; v++)
-                {
-                    cursor.ReadByte(); // kind
-                    int valueLength = cursor.ReadInt32();
-                    cursor.Seek(valueLength, SeekOrigin.Current);
-                }
-                continue;
-            }
-
-            var values = new List<StoredFieldValue>(valueCount);
-            for (int v = 0; v < valueCount; v++)
-            {
-                var kind = (StoredFieldValueKind)cursor.ReadByte();
-                int valueLength = cursor.ReadInt32();
-                if (kind == StoredFieldValueKind.Binary)
-                {
-                    values.Add(StoredFieldValue.FromBinary(cursor.ReadBytes(valueLength)));
-                }
-                else if (kind == StoredFieldValueKind.Long)
-                {
-                    var bytes = cursor.ReadSpan(valueLength);
-                    long value = BinaryPrimitives.ReadInt64LittleEndian(bytes);
-                    values.Add(StoredFieldValue.FromLong(value));
-                }
-                else
-                {
-                    values.Add(StoredFieldValue.FromString(Encoding.UTF8.GetString(cursor.ReadSpan(valueLength))));
-                }
-            }
-            fields[name] = values;
+            return ParseDocument(GetDocumentSpan(block, docInBlock), fieldsToLoad, fieldToFind: null, out _)!;
         }
-
-        return fields;
+        catch (InvalidDataException)
+        {
+            RemoveCachedBlock(blockIndex, block);
+            throw;
+        }
     }
 
     internal bool HasField(int docId, string field)
     {
-        var block = GetBlockForDocument(docId, out int docInBlock);
-        var cursor = new DocumentCursor(block.Data, block.IntraOffsets[docInBlock]);
-
-        int fieldCount = cursor.ReadInt32();
-        for (int i = 0; i < fieldCount; i++)
+        var block = GetBlockForDocument(docId, out int blockIndex, out int docInBlock);
+        try
         {
-            int nameLen = cursor.ReadInt32();
-            string name = Encoding.UTF8.GetString(cursor.ReadSpan(nameLen));
-
-            int valueCount = cursor.ReadInt32();
-            if (string.Equals(name, field, StringComparison.Ordinal) && valueCount > 0)
-                return true;
-            for (int v = 0; v < valueCount; v++)
-            {
-                cursor.ReadByte(); // kind
-                int valueLength = cursor.ReadInt32();
-                cursor.Seek(valueLength, SeekOrigin.Current);
-            }
+            _ = ParseDocument(GetDocumentSpan(block, docInBlock), fieldsToLoad: null, fieldToFind: field, out bool hasField);
+            return hasField;
         }
-
-        return false;
+        catch (InvalidDataException)
+        {
+            RemoveCachedBlock(blockIndex, block);
+            throw;
+        }
     }
 
-    private DecompressedBlock GetBlockForDocument(int docId, out int docInBlock)
+    private static Dictionary<string, List<StoredFieldValue>>? ParseDocument(
+        ReadOnlySpan<byte> document,
+        ISet<string>? fieldsToLoad,
+        string? fieldToFind,
+        out bool hasField)
+    {
+        var cursor = new DocumentCursor(document);
+        int fieldCount = cursor.ReadCount("field", minimumRecordBytes: 2 * sizeof(int));
+        var fields = fieldToFind is null
+            ? new Dictionary<string, List<StoredFieldValue>>(Math.Min(fieldCount, MaxInitialFieldCapacity), StringComparer.Ordinal)
+            : null;
+        hasField = false;
+
+        for (int i = 0; i < fieldCount; i++)
+        {
+            int nameLength = cursor.ReadLength("field name");
+            string name = Encoding.UTF8.GetString(cursor.ReadSpan(nameLength));
+            int valueCount = cursor.ReadCount("value", minimumRecordBytes: sizeof(byte) + sizeof(int));
+            bool materialiseValues = fields is not null && (fieldsToLoad is null || fieldsToLoad.Contains(name));
+            if (fieldToFind is not null && valueCount > 0 && string.Equals(name, fieldToFind, StringComparison.Ordinal))
+                hasField = true;
+
+            var values = materialiseValues
+                ? new List<StoredFieldValue>(Math.Min(valueCount, MaxInitialValueCapacity))
+                : null;
+            for (int valueIndex = 0; valueIndex < valueCount; valueIndex++)
+            {
+                var kind = (StoredFieldValueKind)cursor.ReadByte();
+                if (!Enum.IsDefined(kind))
+                    throw new InvalidDataException($"Stored fields document contains unsupported value kind {(byte)kind}.");
+
+                int valueLength = cursor.ReadLength("value");
+                if (kind == StoredFieldValueKind.Long && valueLength != sizeof(long))
+                    throw new InvalidDataException(
+                        $"Stored fields Long value length {valueLength} is invalid; expected {sizeof(long)} bytes.");
+
+                ReadOnlySpan<byte> payload = cursor.ReadSpan(valueLength);
+                if (values is null)
+                    continue;
+
+                StoredFieldValue value = kind switch
+                {
+                    StoredFieldValueKind.String => StoredFieldValue.FromString(Encoding.UTF8.GetString(payload)),
+                    StoredFieldValueKind.Binary => StoredFieldValue.FromBinary(payload),
+                    StoredFieldValueKind.Long => StoredFieldValue.FromLong(BinaryPrimitives.ReadInt64LittleEndian(payload)),
+                    _ => throw new InvalidDataException($"Stored fields document contains unsupported value kind {(byte)kind}.")
+                };
+                values.Add(value);
+            }
+
+            if (values is not null)
+                fields![name] = values;
+        }
+
+        cursor.EnsureConsumed();
+        return fields;
+    }
+
+    private static ReadOnlySpan<byte> GetDocumentSpan(DecompressedBlock block, int docInBlock)
+    {
+        int start = block.IntraOffsets[docInBlock];
+        int end = docInBlock + 1 < block.IntraOffsets.Length
+            ? block.IntraOffsets[docInBlock + 1]
+            : block.Data.Length;
+        if (start < 0 || end < start || end > block.Data.Length)
+            throw new InvalidDataException("Stored fields document offsets are outside the decompressed block.");
+
+        return block.Data.AsSpan(start, checked(end - start));
+    }
+
+    private void RemoveCachedBlock(int blockIndex, DecompressedBlock block)
+    {
+        lock (_blockCachePublicationLock)
+        {
+            var cache = _blockCache;
+            if (!cache.Blocks.TryGetValue(blockIndex, out var cached) || !ReferenceEquals(cached, block))
+                return;
+
+            var blocks = new Dictionary<int, DecompressedBlock>(cache.Blocks);
+            blocks.Remove(blockIndex);
+            var order = new List<int>(Math.Max(0, cache.InsertionOrder.Length - 1));
+            foreach (int cachedBlockIndex in cache.InsertionOrder)
+            {
+                if (cachedBlockIndex != blockIndex)
+                    order.Add(cachedBlockIndex);
+            }
+
+            Volatile.Write(
+                ref _blockCache,
+                new BlockCacheSnapshot(blocks, order.ToArray(), cache.CachedBytes - cached.CacheSize));
+        }
+    }
+
+    private DecompressedBlock GetBlockForDocument(int docId, out int blockIndex, out int docInBlock)
     {
         if ((uint)docId >= (uint)_docCount)
             throw new ArgumentOutOfRangeException(nameof(docId), docId, $"docId must be in the range [0, {_docCount}).");
 
-        int blockIndex;
         if (_blockDocStarts is null)
         {
             blockIndex = docId / _blockSize;
@@ -472,12 +518,13 @@ internal sealed class StoredFieldsReader : IDisposable
                 long nextBlockOffset = blockIndex + 1 < _blockOffsets.Length
                     ? _blockOffsets[blockIndex + 1]
                     : _bodyEnd;
-                if (blockEnd > nextBlockOffset)
-                    throw new InvalidDataException("Stored fields block extends beyond the data body.");
+                if (blockEnd != nextBlockOffset)
+                    throw new InvalidDataException("Stored fields block size does not match its indexed boundary.");
 
                 intraOffsets = new int[docCount];
                 for (int i = 0; i < docCount; i++)
                     intraOffsets[i] = session.ReadInt32(ref position);
+                ValidateIntraOffsets(intraOffsets, rawLength);
 
                 compData = ArrayPool<byte>.Shared.Rent(compLength);
                 session.BorrowSpan(compLength, ref position).CopyTo(compData);
@@ -485,12 +532,33 @@ internal sealed class StoredFieldsReader : IDisposable
 
             var rawData = StoredFieldCompression.Decompress(
                 compData!, compLength, rawLength, _compression);
+            if (rawData.Length != rawLength)
+                throw new InvalidDataException(
+                    $"Stored fields decompressor returned {rawData.Length} bytes; expected {rawLength} bytes.");
             return new DecompressedBlock(rawData, intraOffsets);
         }
         finally
         {
             if (compData is not null)
                 ArrayPool<byte>.Shared.Return(compData);
+        }
+    }
+
+    private static void ValidateIntraOffsets(ReadOnlySpan<int> intraOffsets, int rawLength)
+    {
+        if (intraOffsets.IsEmpty || intraOffsets[0] != 0)
+            throw new InvalidDataException("The first stored fields document offset must be zero.");
+
+        int previousOffset = -1;
+        for (int i = 0; i < intraOffsets.Length; i++)
+        {
+            int offset = intraOffsets[i];
+            if (offset < 0 || offset >= rawLength)
+                throw new InvalidDataException(
+                    $"Stored fields document offset {offset} is outside raw block length {rawLength}.");
+            if (i > 0 && offset <= previousOffset)
+                throw new InvalidDataException("Stored fields document offsets must be strictly increasing.");
+            previousOffset = offset;
         }
     }
 
@@ -525,58 +593,65 @@ internal sealed class StoredFieldsReader : IDisposable
 
     private ref struct DocumentCursor
     {
-        private readonly byte[] _data;
+        private readonly ReadOnlySpan<byte> _data;
         private int _position;
 
-        internal DocumentCursor(byte[] data, int start)
+        internal DocumentCursor(ReadOnlySpan<byte> data)
         {
-            if ((uint)start > (uint)data.Length)
-                throw new IOException("The requested stream position is outside the stored fields block.");
             _data = data;
-            _position = start;
+            _position = 0;
         }
+
+        private int Remaining => _data.Length - _position;
 
         internal int ReadInt32()
         {
-            if (_position < 0 || _position > _data.Length - sizeof(int))
-                throw new EndOfStreamException("Unable to read beyond the end of the stored fields document block.");
-            int value = BinaryPrimitives.ReadInt32LittleEndian(_data.AsSpan(_position));
+            if (Remaining < sizeof(int))
+                throw new InvalidDataException("Stored fields document metadata extends beyond its document boundary.");
+            int value = BinaryPrimitives.ReadInt32LittleEndian(_data[_position..]);
             _position += sizeof(int);
             return value;
         }
 
+        internal int ReadCount(string description, int minimumRecordBytes)
+        {
+            int count = ReadInt32();
+            if (count < 0 || count > Remaining / minimumRecordBytes)
+                throw new InvalidDataException(
+                    $"Stored fields {description} count {count} is invalid for {Remaining} remaining document bytes.");
+            return count;
+        }
+
+        internal int ReadLength(string description)
+        {
+            int length = ReadInt32();
+            if (length < 0 || length > Remaining)
+                throw new InvalidDataException(
+                    $"Stored fields {description} length {length} is outside the remaining {Remaining} document bytes.");
+            return length;
+        }
+
         internal byte ReadByte()
         {
-            if ((uint)_position >= (uint)_data.Length)
-                throw new EndOfStreamException("Unable to read beyond the end of the stored fields document block.");
+            if (Remaining < sizeof(byte))
+                throw new InvalidDataException("Stored fields document metadata extends beyond its document boundary.");
             return _data[_position++];
         }
 
-        internal byte[] ReadBytes(int count)
-            => ReadSpan(count).ToArray();
-
         internal ReadOnlySpan<byte> ReadSpan(int count)
         {
-            ArgumentOutOfRangeException.ThrowIfNegative(count);
-            int available = Math.Max(0, _data.Length - _position);
-            int bytesToRead = Math.Min(count, available);
-            ReadOnlySpan<byte> result = _data.AsSpan(_position, bytesToRead);
-            _position += bytesToRead;
+            if (count < 0 || count > Remaining)
+                throw new InvalidDataException(
+                    $"Stored fields payload length {count} is outside the remaining {Remaining} document bytes.");
+            ReadOnlySpan<byte> result = _data.Slice(_position, count);
+            _position = checked(_position + count);
             return result;
         }
 
-        internal void Seek(int offset, SeekOrigin origin)
+        internal void EnsureConsumed()
         {
-            long position = origin switch
-            {
-                SeekOrigin.Begin => offset,
-                SeekOrigin.Current => (long)_position + offset,
-                SeekOrigin.End => (long)_data.Length + offset,
-                _ => throw new ArgumentException("Invalid seek origin.", nameof(origin))
-            };
-            if (position < 0 || position > int.MaxValue)
-                throw new IOException("An attempt was made to move the position before the beginning of the stored fields block.");
-            _position = (int)position;
+            if (Remaining != 0)
+                throw new InvalidDataException($"Stored fields document has {Remaining} unconsumed trailing bytes.");
         }
     }
 }
