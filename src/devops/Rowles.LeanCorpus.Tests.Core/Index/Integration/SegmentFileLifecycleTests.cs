@@ -124,16 +124,16 @@ public sealed class SegmentFileLifecycleTests : IClassFixture<TestDirectoryFixtu
         Assert.All(orphanFiles, name => Assert.False(File.Exists(Path.Combine(path, name)), name));
     }
 
-    [Fact(DisplayName = "Commit: Prunes Unprotected Deletion Generations")]
-    public void Commit_PrunesUnprotectedDeletionGenerations()
+    [Fact(DisplayName = "Commit: Retains Deletion Generations Used By Retained Commits")]
+    public void Commit_RetainsDeletionGenerationsUsedByRetainedCommits()
     {
-        string path = SubDir(nameof(Commit_PrunesUnprotectedDeletionGenerations));
+        string path = SubDir(nameof(Commit_RetainsDeletionGenerationsUsedByRetainedCommits));
         using var directory = new MMapDirectory(path);
         using var writer = new IndexWriter(directory, new IndexWriterConfig
         {
             MaxBufferedDocs = 100,
             MergeThreshold = 100,
-            DeletionPolicy = new KeepLastNCommitsPolicy(5),
+            DeletionPolicy = new KeepLastNCommitsPolicy(2),
         });
         writer.AddDocument(CreateDocument("first"));
         writer.AddDocument(CreateDocument("second"));
@@ -149,7 +149,9 @@ public sealed class SegmentFileLifecycleTests : IClassFixture<TestDirectoryFixtu
         Assert.NotNull(currentSegment.DelGeneration);
         string currentDeletionFile = Path.Combine(path, $"{currentSegment.SegmentId}_gen_{currentSegment.DelGeneration}.del");
         Assert.True(File.Exists(currentDeletionFile));
-        Assert.Equal([currentDeletionFile], GetDeletionGenerationPaths(path, currentSegment.SegmentId));
+        Assert.Equal(
+            [$"{currentSegment.SegmentId}_gen_2.del", $"{currentSegment.SegmentId}_gen_3.del"],
+            GetDeletionGenerationPaths(path, currentSegment.SegmentId).Select(Path.GetFileName));
     }
 
     [Fact(DisplayName = "Held Snapshot: Preserves And Releases Its Exact Deletion Generation")]
@@ -161,7 +163,7 @@ public sealed class SegmentFileLifecycleTests : IClassFixture<TestDirectoryFixtu
         {
             MaxBufferedDocs = 100,
             MergeThreshold = 100,
-            DeletionPolicy = new KeepLastNCommitsPolicy(5),
+            DeletionPolicy = new KeepLastNCommitsPolicy(1),
         });
         writer.AddDocument(CreateDocument("first"));
         writer.AddDocument(CreateDocument("second"));
@@ -188,6 +190,7 @@ public sealed class SegmentFileLifecycleTests : IClassFixture<TestDirectoryFixtu
             Assert.Equal(0, currentSearcher.Search(new TermQuery("id", "second"), 10, TestContext.Current.CancellationToken).TotalHits);
 
         writer.ReleaseSnapshot(snapshot);
+        writer.Commit();
         Assert.False(File.Exists(protectedFile));
         SegmentInfo currentSegment = ReadOnlySegment(path);
         Assert.Equal([$"{currentSegment.SegmentId}_gen_{currentSegment.DelGeneration}.del"],
@@ -225,5 +228,6 @@ public sealed class SegmentFileLifecycleTests : IClassFixture<TestDirectoryFixtu
             || fileName.StartsWith(segmentId + "_gen_", StringComparison.Ordinal);
 
     private static SegmentInfo ReadOnlySegment(string directoryPath)
-        => SegmentInfo.ReadFrom(Directory.GetFiles(directoryPath, "seg_*.seg").Single());
+        => IndexRecovery.RecoverLatestCommit(directoryPath, cleanupOrphans: false)!
+            .SegmentInfos.Single();
 }

@@ -291,8 +291,8 @@ public sealed class AddIndexesTests : IClassFixture<TestDirectoryFixture>
             writer.Commit();
         }
 
-        var segmentPath = Directory.GetFiles(sourcePath, "seg_*.seg").Single();
-        var segmentInfo = SegmentInfo.ReadFrom(segmentPath);
+        var segmentInfo = IndexRecovery.RecoverLatestCommit(sourcePath, cleanupOrphans: false)!
+            .SegmentInfos.Single();
         int deletionGeneration = segmentInfo.DelGeneration
             ?? throw new InvalidOperationException("The source deletion commit did not select a deletion generation.");
         string selectedDeletionPath = Path.Combine(

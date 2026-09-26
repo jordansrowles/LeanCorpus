@@ -695,15 +695,29 @@ public static class IndexCodecMigrator
         IReadOnlyDictionary<string, string> segmentIdMap,
         int newGeneration)
     {
+        if (plan.Inventory.SegmentStates.Count != plan.Inventory.SegmentIds.Count)
+            throw new InvalidDataException("The selected commit's segment state could not be fully resolved for migration.");
+
         var segmentIds = new List<string>(plan.Inventory.SegmentIds.Count);
-        foreach (var segId in plan.Inventory.SegmentIds)
+        var segmentStates = new List<SegmentCommitState>(plan.Inventory.SegmentIds.Count);
+        for (int i = 0; i < plan.Inventory.SegmentIds.Count; i++)
         {
+            string segId = plan.Inventory.SegmentIds[i];
             segmentIds.Add(segmentIdMap.TryGetValue(segId, out var newId) ? newId : segId);
+            var sourceState = plan.Inventory.SegmentStates[i];
+            segmentStates.Add(new SegmentCommitState
+            {
+                SegmentId = segmentIds[^1],
+                DelGeneration = sourceState.DelGeneration,
+                LiveDocCount = sourceState.LiveDocCount,
+                EarliestSoftDeleteTimestamp = sourceState.EarliestSoftDeleteTimestamp
+            });
         }
 
         var commitData = new CommitData
         {
             Segments = segmentIds,
+            SegmentStates = segmentStates,
             Generation = newGeneration,
             ContentToken = plan.Inventory.ContentToken ?? 0
         };

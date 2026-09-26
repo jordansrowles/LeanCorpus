@@ -9,7 +9,7 @@ using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
-/// Applies pending deletions to segment live-docs bitmaps.
+/// Applies pending deletions to segment live-docs bitmaps and the writer's in-memory commit state.
 /// All methods are static and operate on parameters only, with no coupling back to <see cref="IndexWriter"/>.
 /// </summary>
 internal static class DeletionApplier
@@ -84,7 +84,6 @@ internal static class DeletionApplier
                 seg.LiveDocCount = liveDocs.LiveCount;
                 seg.EarliestSoftDeleteTimestamp = liveDocs.EarliestSoftDeleteTimestamp;
                 UpdateSegmentStatistics(basePath, seg, newlyDeleted);
-                seg.WriteTo(basePath + ".seg");
             }
         }
 

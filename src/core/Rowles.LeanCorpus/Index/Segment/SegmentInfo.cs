@@ -5,7 +5,7 @@ using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Index.Segment;
 
 /// <summary>
-/// Metadata record for a single immutable segment.
+/// Immutable codec metadata and the writer's current view of mutable segment state.
 /// </summary>
 public sealed class SegmentInfo
 {

@@ -179,6 +179,9 @@ public sealed class IndexWriterConfig
     /// </summary>
     internal Action<string>? PreparedCommitPublicationSync { get; set; }
 
+    /// <summary>Test-only callback invoked after commit contents are prepared and before publication.</summary>
+    internal Action<string>? CommitBeforePublication { get; set; }
+
     /// <summary>Test-only callback invoked after physical-flush admission.</summary>
     internal Action? PhysicalFlushStarted { get; set; }
 

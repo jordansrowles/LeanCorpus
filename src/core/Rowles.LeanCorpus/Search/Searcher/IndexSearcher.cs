@@ -231,7 +231,10 @@ public sealed partial class IndexSearcher : IDisposable
 
         IndexOpenGuard.EnsureNoBlockingMigration(directory, config.CompatibilityMode);
 
-        var (segmentIds, generation) = LoadLatestCommitWithGeneration();
+        var recovery = LoadLatestCommitWithGeneration();
+        var segmentIds = recovery?.SegmentIds ?? [];
+        var segmentInfos = recovery?.SegmentInfos ?? [];
+        int generation = recovery?.Generation ?? 0;
         _commitGeneration = generation;
         IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false, config.CodecCatalog);
 
@@ -250,11 +253,8 @@ public sealed partial class IndexSearcher : IDisposable
                     name => IsSnapshotFile(idSet, name), out var inventory);
                 var inventorySet = new HashSet<string>(inventory, StringComparer.Ordinal);
                 bool permanentlyResident = config.MaxCachedSegmentReaders >= segmentIds.Count;
-                foreach (var segId in segmentIds)
+                foreach (var info in segmentInfos)
                 {
-                    var segPath = Path.Combine(directory.DirectoryPath, segId + ".seg");
-                    if (!FileOpenRetry.FileExists(segPath)) continue;
-                    var info = SegmentInfo.ReadFrom(segPath);
                     _readers.Add(new SegmentReader(directory, info, _segmentReaderCache, inventorySet,
                         permanentlyResident));
                 }
@@ -265,7 +265,10 @@ public sealed partial class IndexSearcher : IDisposable
             catch (FileNotFoundException) when (attempt < maxAttempts)
             {
                 Thread.Sleep(10 * attempt);
-                (segmentIds, generation) = LoadLatestCommitWithGeneration();
+                recovery = LoadLatestCommitWithGeneration();
+                segmentIds = recovery?.SegmentIds ?? [];
+                segmentInfos = recovery?.SegmentInfos ?? [];
+                generation = recovery?.Generation ?? 0;
                 _commitGeneration = generation;
                 IndexOpenGuard.EnsureCanOpenSegments(directory, segmentIds, config.CompatibilityMode, forWriting: false, config.CodecCatalog);
             }
@@ -1136,21 +1139,18 @@ public sealed partial class IndexSearcher : IDisposable
             : PrecomputeGlobalDocFreqs(query);
     }
 
-    private (List<string> SegmentIds, int Generation) LoadLatestCommitWithGeneration()
+    private IndexRecovery.RecoveryResult? LoadLatestCommitWithGeneration()
     {
-        var recovery = IndexRecovery.RecoverLatestCommit(
+        return IndexRecovery.RecoverLatestCommit(
             _directory.DirectoryPath,
             cleanupOrphans: false,
             catalog: _config.CodecCatalog);
-        return recovery is not null
-            ? (recovery.SegmentIds, recovery.Generation)
-            : ([], 0);
     }
 
     private List<string> LoadLatestCommit()
     {
-        var (ids, _) = LoadLatestCommitWithGeneration();
-        return ids;
+        var recovery = LoadLatestCommitWithGeneration();
+        return recovery?.SegmentIds ?? [];
     }
 
     /// <summary>Disposes all underlying segment readers.</summary>

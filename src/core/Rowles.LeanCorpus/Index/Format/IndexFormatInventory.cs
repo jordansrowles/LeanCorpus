@@ -17,6 +17,8 @@ public sealed record IndexFormatInventory
     /// <summary>Gets segment IDs referenced by the latest readable commit.</summary>
     public required IReadOnlyList<string> SegmentIds { get; init; }
 
+    internal IReadOnlyList<SegmentCommitState> SegmentStates { get; init; } = [];
+
     /// <summary>Gets inspected segment inventories.</summary>
     public required IReadOnlyList<SegmentFormatInventory> Segments { get; init; }
 

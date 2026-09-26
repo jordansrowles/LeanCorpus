@@ -10,6 +10,7 @@ using Rowles.LeanCorpus.Search.Scoring;
 namespace Rowles.LeanCorpus.Serialization;
 
 [JsonSerializable(typeof(CommitData))]
+[JsonSerializable(typeof(SegmentCommitState))]
 [JsonSerializable(typeof(SegmentInfo))]
 [JsonSerializable(typeof(VectorFieldInfo))]
 [JsonSerializable(typeof(SpatialFieldInfo))]

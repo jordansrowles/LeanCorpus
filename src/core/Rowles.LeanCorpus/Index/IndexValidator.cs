@@ -69,8 +69,8 @@ public static class IndexValidator
         if (commitData is null)
             return result;
 
-        foreach (var segmentId in commitData.Segments)
-            CheckSegment(dirPath, segmentId, options, result);
+        for (int i = 0; i < commitData.Segments.Count; i++)
+            CheckSegment(dirPath, commitData.Segments[i], commitData.GetSegmentState(i), options, result);
 
         return result;
     }
@@ -131,7 +131,12 @@ public static class IndexValidator
     private static bool IsRecognisedTemporaryFile(string fileName, CodecCatalog catalog)
         => catalog.TryMatchTemporaryFile(fileName, out _);
 
-    private static void CheckSegment(string dirPath, string segmentId, IndexCheckOptions options, IndexCheckResult result)
+    private static void CheckSegment(
+        string dirPath,
+        string segmentId,
+        SegmentCommitState? commitState,
+        IndexCheckOptions options,
+        IndexCheckResult result)
     {
         result.SegmentsChecked++;
         var basePath = Path.Combine(dirPath, segmentId);
@@ -146,6 +151,7 @@ public static class IndexValidator
         try
         {
             info = SegmentInfo.ReadFrom(segPath);
+            commitState?.ApplyTo(info);
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException)
         {

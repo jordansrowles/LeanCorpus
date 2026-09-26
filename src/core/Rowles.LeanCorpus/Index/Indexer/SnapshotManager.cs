@@ -38,18 +38,7 @@ internal static class SnapshotManager
 
             var snapshot = new IndexSnapshot(
                 writer.CommitGeneration,
-                writer.CommittedSegments.Select(s => new SegmentInfo
-                {
-                    SegmentId = s.SegmentId,
-                    DocCount = s.DocCount,
-                    LiveDocCount = s.LiveDocCount,
-                    CommitGeneration = s.CommitGeneration,
-                    IsCompoundFile = s.IsCompoundFile,
-                    DelGeneration = s.DelGeneration,
-                    FieldNames = [.. s.FieldNames],
-                    IndexSortFields = s.IndexSortFields is null ? null : [.. s.IndexSortFields],
-                    VectorFields = [.. s.VectorFields]
-                }).ToList().AsReadOnly());
+                writer.CommittedSegments.Select(static segment => segment.DeepCopy()).ToList().AsReadOnly());
 
             writer.HeldSnapshots.Add(snapshot);
             return snapshot;

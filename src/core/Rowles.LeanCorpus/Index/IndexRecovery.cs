@@ -53,7 +53,7 @@ public static class IndexRecovery
             if (result is not null)
             {
                 if (cleanupOrphans)
-                    CleanupOrphanedSegments(directoryPath, result.SegmentIds, catalog);
+                    CleanupOrphanedSegments(directoryPath, result.SegmentInfos, catalog);
                 return result;
             }
         }
@@ -130,12 +130,20 @@ public static class IndexRecovery
             if (commitData.Generation != generation)
                 return null;
 
-            var validSegments = new List<string>();
-            foreach (var segId in commitData.Segments)
+            var validSegments = new List<string>(commitData.Segments.Count);
+            var resolvedSegments = new List<Segment.SegmentInfo>(commitData.Segments.Count);
+            for (int i = 0; i < commitData.Segments.Count; i++)
             {
-                if (!ValidateSegment(directoryPath, segId, catalog))
+                string segId = commitData.Segments[i];
+                var segmentInfo = Segment.SegmentInfo.ReadFrom(Path.Combine(directoryPath, segId + ".seg"));
+                if (!string.Equals(segmentInfo.SegmentId, segId, StringComparison.Ordinal))
+                    return null;
+                commitData.GetSegmentState(i)?.ApplyTo(segmentInfo);
+
+                if (!ValidateSegment(directoryPath, segmentInfo, catalog))
                     return null;
                 validSegments.Add(segId);
+                resolvedSegments.Add(segmentInfo);
             }
 
             return new RecoveryResult
@@ -143,6 +151,7 @@ public static class IndexRecovery
                 Generation = generation,
                 ContentToken = commitData.ContentToken,
                 SegmentIds = validSegments,
+                SegmentInfos = resolvedSegments,
                 CommitFilePath = commitFilePath,
                 WasFallback = wasFallback
             };
@@ -155,14 +164,18 @@ public static class IndexRecovery
         {
             return null;
         }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
-    private static bool ValidateSegment(string directoryPath, string segId, CodecCatalog catalog)
+    private static bool ValidateSegment(string directoryPath, Segment.SegmentInfo segInfo, CodecCatalog catalog)
     {
         try
         {
+            string segId = segInfo.SegmentId;
             var basePath = Path.Combine(directoryPath, segId);
-            var segInfo = Segment.SegmentInfo.ReadFrom(basePath + ".seg");
 
             if (!Segment.DeletionStateValidator.Validate(basePath, segInfo).IsValid)
                 return false;
@@ -365,10 +378,12 @@ public static class IndexRecovery
     /// </summary>
     private static void CleanupOrphanedSegments(
         string directoryPath,
-        List<string> activeSegmentIds,
+        List<Segment.SegmentInfo> activeSegments,
         CodecCatalog catalog)
     {
-        var activeSet = new HashSet<string>(activeSegmentIds, StringComparer.Ordinal);
+        var activeSegmentIds = activeSegments.Select(static segment => segment.SegmentId).ToList();
+        var retainedSegmentIds = GetRetainedSegmentIds(directoryPath);
+        retainedSegmentIds.UnionWith(activeSegmentIds);
         string[] fileNames = FileOpenRetry.EnumerateFiles(directoryPath, "*")
             .Select(Path.GetFileName)
             .Where(static fileName => fileName is not null)
@@ -378,21 +393,93 @@ public static class IndexRecovery
 
         foreach (string segmentId in SegmentFileSet.FindSegmentIds(fileNames, catalog))
         {
-            if (activeSet.Contains(segmentId))
+            if (retainedSegmentIds.Contains(segmentId))
                 continue;
 
             SegmentFileSet.FromFileNames(segmentId, fileNames, catalog)
                 .DeleteAllOwnedFiles(directory, "orphan cleanup");
         }
 
-        foreach (string segmentId in activeSegmentIds)
+        var segmentInfosById = activeSegments.ToDictionary(static segment => segment.SegmentId, StringComparer.Ordinal);
+        foreach (string segmentId in retainedSegmentIds)
         {
-            string segmentPath = Path.Combine(directoryPath, segmentId + ".seg");
-            var segmentInfo = Segment.SegmentInfo.ReadFrom(segmentPath);
+            if (!segmentInfosById.TryGetValue(segmentId, out var segmentInfo))
+            {
+                string segmentPath = Path.Combine(directoryPath, segmentId + ".seg");
+                if (!FileOpenRetry.FileExists(segmentPath))
+                    continue;
+                segmentInfo = Segment.SegmentInfo.ReadFrom(segmentPath);
+            }
+
             var protectedGenerations = new HashSet<int?> { segmentInfo.DelGeneration };
+            protectedGenerations.UnionWith(GetRetainedDeletionGenerations(directoryPath, segmentInfo));
             SegmentFileSet.FromFileNames(segmentId, fileNames, catalog)
                 .PruneDeletionFiles(directory, protectedGenerations, "obsolete deletion generation cleanup");
         }
+    }
+
+    internal static HashSet<string> GetRetainedSegmentIds(string directoryPath)
+    {
+        var segmentIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (generation, commitPath) in FindCommitFiles(directoryPath))
+        {
+            try
+            {
+                string? json = CommitFileFormat.TryReadJson(commitPath);
+                if (json is null)
+                    continue;
+                var commitData = JsonSerializer.Deserialize(json, LeanCorpusJsonContext.Default.CommitData);
+                if (commitData is null || commitData.Generation != generation)
+                    continue;
+                commitData.Validate();
+                segmentIds.UnionWith(commitData.Segments);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or JsonException)
+            {
+                // A malformed historical commit cannot be selected by recovery.
+            }
+        }
+
+        return segmentIds;
+    }
+
+    internal static HashSet<int?> GetRetainedDeletionGenerations(
+        string directoryPath,
+        Segment.SegmentInfo segmentInfo)
+    {
+        var generations = new HashSet<int?>();
+        foreach (var (generation, commitPath) in FindCommitFiles(directoryPath))
+        {
+            try
+            {
+                string? json = CommitFileFormat.TryReadJson(commitPath);
+                if (json is null)
+                    continue;
+                var commitData = JsonSerializer.Deserialize(json, LeanCorpusJsonContext.Default.CommitData);
+                if (commitData is null || commitData.Generation != generation)
+                    continue;
+                commitData.Validate();
+
+                for (int i = 0; i < commitData.Segments.Count; i++)
+                {
+                    if (!string.Equals(commitData.Segments[i], segmentInfo.SegmentId, StringComparison.Ordinal))
+                        continue;
+
+                    SegmentCommitState state = commitData.GetSegmentState(i)
+                        ?? SegmentCommitState.FromSegmentInfo(segmentInfo);
+                    var resolved = segmentInfo.DeepCopy();
+                    state.ApplyTo(resolved);
+                    if (Segment.DeletionStateValidator.RequiresFile(resolved))
+                        generations.Add(resolved.DelGeneration);
+                }
+            }
+            catch (Exception ex) when (ex is InvalidDataException or JsonException)
+            {
+                // A malformed historical commit cannot be selected by recovery.
+            }
+        }
+
+        return generations;
     }
 
     /// <summary>Result of crash recovery.</summary>
@@ -406,6 +493,9 @@ public static class IndexRecovery
 
         /// <summary>Gets the segment IDs referenced by the recovered commit.</summary>
         public List<string> SegmentIds { get; init; } = [];
+
+        /// <summary>Gets immutable segment metadata overlaid with this commit's deletion state.</summary>
+        internal List<Segment.SegmentInfo> SegmentInfos { get; init; } = [];
 
         /// <summary>Gets the file path of the commit file that was successfully loaded.</summary>
         public string CommitFilePath { get; init; } = "";

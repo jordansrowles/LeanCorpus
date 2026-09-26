@@ -146,10 +146,35 @@ public static class IndexFormatInspector
         }
 
         var segmentIds = commitData.Segments;
+        var segmentStates = new List<SegmentCommitState>(segmentIds.Count);
         var referencedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var segments = new List<SegmentFormatInventory>(segmentIds.Count);
-        foreach (var segmentId in segmentIds)
-            segments.Add(InspectSegment(directory, segmentId, options, issues, referencedFiles));
+        for (int i = 0; i < segmentIds.Count; i++)
+        {
+            segments.Add(InspectSegment(directory, segmentIds[i], commitData.GetSegmentState(i), options, issues, referencedFiles));
+            if (commitData.GetSegmentState(i) is { } state)
+            {
+                segmentStates.Add(state);
+            }
+            else
+            {
+                try
+                {
+                    segmentStates.Add(SegmentCommitState.FromSegmentInfo(
+                        SegmentInfo.ReadFrom(Path.Combine(directoryPath, segmentIds[i] + ".seg"))));
+                }
+                catch (Exception ex) when (ex is IOException or JsonException)
+                {
+                    issues.Add(CreateIssue(
+                        IndexCheckSeverity.Error,
+                        IndexCheckIssueCodes.SegmentMetadataUnreadable,
+                        $"Segment '{segmentIds[i]}' cannot be read while resolving commit state: {ex.Message}",
+                        segmentIds[i] + ".seg",
+                        segmentIds[i],
+                        false));
+                }
+            }
+        }
 
         var orphanFiles = InspectOrphanFiles(directory, referencedFiles, options, issues);
         return new IndexFormatInventory
@@ -158,6 +183,7 @@ public static class IndexFormatInspector
             CommitGeneration = commitGeneration,
             ContentToken = commitData.ContentToken,
             SegmentIds = segmentIds,
+            SegmentStates = segmentStates,
             Segments = segments,
             OrphanFiles = orphanFiles,
             Issues = issues,
@@ -206,6 +232,7 @@ public static class IndexFormatInspector
     private static SegmentFormatInventory InspectSegment(
         MMapDirectory directory,
         string segmentId,
+        SegmentCommitState? commitState,
         IndexFormatInspectionOptions options,
         List<IndexCheckIssue> issues,
         HashSet<string> referencedFiles)
@@ -222,6 +249,7 @@ public static class IndexFormatInspector
             try
             {
                 segmentInfo = SegmentInfo.ReadFrom(segPath);
+                commitState?.ApplyTo(segmentInfo);
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException)
             {

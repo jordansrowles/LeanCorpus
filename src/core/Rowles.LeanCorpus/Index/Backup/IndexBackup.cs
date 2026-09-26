@@ -103,19 +103,32 @@ public static class IndexBackup
         var entries = new Dictionary<string, IndexBackupFileEntry>(StringComparer.Ordinal);
         AddEntry(entries, sourceDirectory, Path.GetFileName(selectedCommit.FilePath), null, "commit", isRequired: true, isCommitFile: true);
 
-        foreach (var segmentId in commitData.Segments)
+        for (int i = 0; i < commitData.Segments.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var segmentId = commitData.Segments[i];
             var segmentFileName = segmentId + ".seg";
             var segmentInfo = SegmentInfo.ReadFrom(Path.Combine(sourceDirectory, segmentFileName));
             if (!string.Equals(segmentInfo.SegmentId, segmentId, StringComparison.Ordinal))
                 throw new InvalidDataException($"Segment metadata '{segmentFileName}' records segment ID '{segmentInfo.SegmentId}', expected '{segmentId}'.");
+            commitData.GetSegmentState(i)?.ApplyTo(segmentInfo);
+
+            var deletionState = DeletionStateValidator.Validate(Path.Combine(sourceDirectory, segmentId), segmentInfo);
+            if (!deletionState.IsValid)
+                throw new InvalidDataException(deletionState.Message ?? $"Deletion state for segment '{segmentId}' is invalid.", deletionState.Exception);
 
             var requiredExtensions = segmentInfo.IsCompoundFile
                 ? new[] { ".seg", ".cfs" }
                 : RequiredSegmentExtensions;
             foreach (var extension in requiredExtensions)
                 AddEntry(entries, sourceDirectory, segmentId + extension, segmentId, ClassifySegmentFile(segmentId + extension, selectedCommit.Generation), isRequired: true, isCommitFile: false);
+
+            if (DeletionStateValidator.RequiresFile(segmentInfo))
+            {
+                string deletionFileName = DeletionStateValidator.GetFileName(segmentInfo);
+                AddEntry(entries, sourceDirectory, deletionFileName, segmentId,
+                    ClassifySegmentFile(deletionFileName, selectedCommit.Generation), isRequired: true, isCommitFile: false);
+            }
 
             foreach (var fileName in EnumerateSegmentFileNames(sourceDirectory, segmentId))
             {

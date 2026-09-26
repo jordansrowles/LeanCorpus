@@ -50,6 +50,84 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         Assert.DoesNotContain(manifest.Files, file => file.FileName == "segments_2");
     }
 
+    [Fact(DisplayName = "IndexBackup: Retained Commit Restores Its Own Deletion State")]
+    public void IndexBackup_RetainedCommitRestoresItsOwnDeletionState()
+    {
+        var indexPath = Path.Combine(_fixture.Path, "retained_deletion_state");
+        Directory.CreateDirectory(indexPath);
+        using (var directory = new MMapDirectory(indexPath))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            DeletionPolicy = new KeepLastNCommitsPolicy(2),
+            MergePolicy = NoMergePolicy.Instance,
+            MaxBufferedDocs = 100,
+            MergeThreshold = 100
+        }))
+        {
+            writer.AddDocument(CreateDocument("survivor", 1));
+            writer.AddDocument(CreateDocument("target", 2));
+            writer.Commit();
+
+            writer.DeleteDocuments(new TermQuery("body", "target"));
+            writer.Commit();
+        }
+
+        var generationOneBackup = Path.Combine(_fixture.Path, "retained_deletion_state_generation_one");
+        var generationTwoBackup = Path.Combine(_fixture.Path, "retained_deletion_state_generation_two");
+        IndexBackup.Backup(indexPath, generationOneBackup,
+            new IndexBackupOptions { CommitGeneration = 1 }, TestContext.Current.CancellationToken);
+        IndexBackup.Backup(indexPath, generationTwoBackup,
+            new IndexBackupOptions { CommitGeneration = 2 }, TestContext.Current.CancellationToken);
+
+        var generationOneRestore = Path.Combine(_fixture.Path, "retained_deletion_state_restore_one");
+        var generationTwoRestore = Path.Combine(_fixture.Path, "retained_deletion_state_restore_two");
+        IndexBackup.Restore(generationOneBackup, generationOneRestore, cancellationToken: TestContext.Current.CancellationToken);
+        IndexBackup.Restore(generationTwoBackup, generationTwoRestore, cancellationToken: TestContext.Current.CancellationToken);
+
+        using var oldSearcher = new IndexSearcher(new MMapDirectory(generationOneRestore));
+        using var newSearcher = new IndexSearcher(new MMapDirectory(generationTwoRestore));
+        Assert.Equal(1, oldSearcher.Search(new TermQuery("body", "target"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, newSearcher.Search(new TermQuery("body", "target"), 10, TestContext.Current.CancellationToken).TotalHits);
+    }
+
+    [Fact(DisplayName = "IndexBackup: Snapshot Restores Snapshot Deletion State After Later Delete")]
+    public void IndexBackup_SnapshotRestoresSnapshotDeletionStateAfterLaterDelete()
+    {
+        var indexPath = Path.Combine(_fixture.Path, "snapshot_deletion_state");
+        Directory.CreateDirectory(indexPath);
+        using var directory = new MMapDirectory(indexPath);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            DeletionPolicy = new KeepLatestCommitPolicy(),
+            MergePolicy = NoMergePolicy.Instance,
+            MaxBufferedDocs = 100,
+            MergeThreshold = 100
+        });
+        writer.AddDocument(CreateDocument("survivor", 1));
+        writer.AddDocument(CreateDocument("target", 2));
+        writer.Commit();
+        var snapshot = writer.CreateSnapshot();
+
+        try
+        {
+            writer.DeleteDocuments(new TermQuery("body", "target"));
+            writer.Commit();
+
+            var backupPath = Path.Combine(_fixture.Path, "snapshot_deletion_state_backup");
+            var restorePath = Path.Combine(_fixture.Path, "snapshot_deletion_state_restore");
+            var backup = writer.BackupSnapshot(snapshot, backupPath, cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal(snapshot.CommitGeneration, backup.Manifest.CommitGeneration);
+            IndexBackup.Restore(backupPath, restorePath, cancellationToken: TestContext.Current.CancellationToken);
+
+            using var restoredSearcher = new IndexSearcher(new MMapDirectory(restorePath));
+            Assert.Equal(1, restoredSearcher.Search(new TermQuery("body", "target"), 10, TestContext.Current.CancellationToken).TotalHits);
+        }
+        finally
+        {
+            writer.ReleaseSnapshot(snapshot);
+        }
+    }
+
     [Fact(DisplayName = "IndexBackup: Restore Recreates Searchable Index")]
     public void IndexBackup_Restore_RecreatesSearchableIndex()
     {

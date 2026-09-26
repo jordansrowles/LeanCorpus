@@ -370,24 +370,9 @@ public sealed partial class IndexWriter : IDisposable
                 forWriting: false,
                 _config.CodecCatalog);
 
-            var sourceSegments = new List<SegmentInfo>();
-            foreach (var segId in recovery.SegmentIds)
-            {
-                var segPath = Path.Combine(sourceDirectory.DirectoryPath, segId + ".seg");
-                if (!FileOpenRetry.FileExists(segPath))
-                    throw new InvalidDataException($"Segment file not found: {segPath}");
-
-                var seg = SegmentInfo.ReadFrom(segPath);
-                var segmentBasePath = Path.Combine(sourceDirectory.DirectoryPath, segId);
-                var liveDocs = DeletionStateValidator.RequireValid(segmentBasePath, seg);
-                if (liveDocs is not null)
-                {
-                    seg.LiveDocCount = liveDocs.LiveCount;
-                    seg.EarliestSoftDeleteTimestamp = liveDocs.EarliestSoftDeleteTimestamp;
-                }
-
-                sourceSegments.Add(seg);
-            }
+            var sourceSegments = recovery.SegmentInfos
+                .Select(static segment => segment.DeepCopy())
+                .ToList();
 
             lock (_writeLock)
             {
