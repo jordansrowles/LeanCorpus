@@ -86,7 +86,7 @@ public sealed class IndexLifecycleStateMachineTests
         model = model.Update(replacement).Delete(document.Id);
 
         Assert.Empty(model.Working);
-        Assert.Empty(model.Committed);
+        Assert.Equal(document, model.Committed[document.Id]);
 
         model = model.Reopen();
         Assert.Equal(model.Committed, model.Working);

@@ -70,14 +70,13 @@ internal sealed record IndexReaderLifecycleModel(
         return this with
         {
             Working = working,
-            History = History.ApplyLiveDeletes(working, replacement.Id).MarkChanged()
+            History = History.MarkChanged()
         };
     }
 
     public IndexReaderLifecycleModel Commit()
     {
-        var history = History.ApplyLiveDeletes(Working);
-        return this with { History = history.Append(Working) };
+        return this with { History = History.Append(Working) };
     }
 
     public IndexReaderLifecycleModel Refresh()

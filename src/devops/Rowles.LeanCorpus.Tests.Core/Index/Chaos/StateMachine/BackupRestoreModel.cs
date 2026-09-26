@@ -64,14 +64,13 @@ internal sealed record BackupRestoreModel(
         return this with
         {
             Working = working,
-            History = History.ApplyLiveDeletes(working, replacement.Id).MarkChanged()
+            History = History.MarkChanged()
         };
     }
 
     public BackupRestoreModel Commit()
     {
-        var history = History.ApplyLiveDeletes(Working);
-        return this with { History = history.Append(Working) };
+        return this with { History = History.Append(Working) };
     }
 
     public BackupRestoreModel AddFullBackup(int id) => this with

@@ -49,34 +49,6 @@ internal sealed record CommitHistoryModel(
         };
     }
 
-    public CommitHistoryModel ApplyLiveDeletes(
-        ImmutableDictionary<string, ModelDocument> working,
-        string? replacementId = null)
-    {
-        var commits = Commits
-            .Select(commit => commit with
-            {
-                Documents = RemoveLiveDocuments(commit.Documents, working, replacementId)
-            })
-            .ToImmutableList();
-        return this with { Commits = commits };
-    }
-
     public static ImmutableDictionary<string, ModelDocument> EmptyDocuments() =>
         ImmutableDictionary.Create<string, ModelDocument>(StringComparer.Ordinal);
-
-    private static ImmutableDictionary<string, ModelDocument> RemoveLiveDocuments(
-        ImmutableDictionary<string, ModelDocument> documents,
-        ImmutableDictionary<string, ModelDocument> working,
-        string? replacementId)
-    {
-        var visible = documents;
-        foreach (string id in documents.Keys)
-        {
-            if (!working.ContainsKey(id)
-                || replacementId is not null && string.Equals(id, replacementId, StringComparison.Ordinal))
-                visible = visible.Remove(id);
-        }
-        return visible;
-    }
 }

@@ -51,17 +51,16 @@ internal sealed record IndexRecoveryModel(
         return this with
         {
             Working = working,
-            History = History.ApplyLiveDeletes(working, replacement.Id).MarkChanged()
+            History = History.MarkChanged()
         };
     }
 
     public IndexRecoveryModel Commit()
     {
-        var history = History.ApplyLiveDeletes(Working);
-        int generation = history.Latest.Generation + 1;
+        int generation = History.Latest.Generation + 1;
         return this with
         {
-            History = history.Append(Working),
+            History = History.Append(Working),
             InvalidCommitGenerations = InvalidCommitGenerations.Remove(generation)
         };
     }

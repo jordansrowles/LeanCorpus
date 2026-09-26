@@ -134,13 +134,7 @@ internal sealed record IndexModel(
 
     public IndexModel Update(ModelDocument replacement) => this with
     {
-        // IndexWriter.UpdateDocument applies the delete to the existing segment
-        // before queuing the replacement document. It also flushes and applies
-        // earlier pending deletes, so those Working deletions become visible at
-        // this point as well. The replacement is Working-only until the next
-        // commit, while the old committed document is no longer visible.
         Working = Working.SetItem(replacement.Id, replacement),
-        Committed = RemoveWorkingDeletionsAndReplacement(replacement.Id)
     };
 
     public IndexModel Commit() => this with { Committed = Working };
@@ -150,15 +144,4 @@ internal sealed record IndexModel(
     private static ImmutableDictionary<string, ModelDocument> CreateDocumentMap() =>
         ImmutableDictionary.Create<string, ModelDocument>(StringComparer.Ordinal);
 
-    private ImmutableDictionary<string, ModelDocument> RemoveWorkingDeletionsAndReplacement(string replacementId)
-    {
-        var committed = Committed;
-        foreach (string id in Committed.Keys)
-        {
-            if (!Working.ContainsKey(id) || string.Equals(id, replacementId, StringComparison.Ordinal))
-                committed = committed.Remove(id);
-        }
-
-        return committed;
-    }
 }
