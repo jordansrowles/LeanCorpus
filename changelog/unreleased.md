@@ -50,6 +50,7 @@
 - Preserve exact field lengths above 65,535 and reject negative token counts instead of clamping values.
 - Enforce schema, nesting, Boolean clause, wildcard and regexp limits for Server query-string requests before query execution.
 - Merges now preserve compatible index sort order while remapping document data, keeping sorted top-N results correct.
+- Preserve numeric and Int64 DocValues presence independently of sparse point indexes during segment merges.
 - Isolated analyser filter and sink state for concurrent calls and cleaned up execution state after failed analyses.
 - Persist only the logical document range in field-length files, excluding unused pooled-array values.
 - Lower complete unquoted analyser output with the parser's implicit OR operator and bounded graph-path compilation instead of discarding tokens after the first.

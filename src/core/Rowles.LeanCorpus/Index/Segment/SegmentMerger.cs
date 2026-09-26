@@ -835,7 +835,9 @@ public sealed class SegmentMerger
         internal Dictionary<string, int[]> FieldLengths { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, float[]> FieldBoosts { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, double[]> NumericDocValues { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, HashSet<int>> NumericDocValuesPresence { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, long[]> Int64DocValues { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, HashSet<int>> Int64DocValuesPresence { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, string?[]> SortedDocValues { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, IReadOnlyList<string>?[]> SortedSetDocValues { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, IReadOnlyList<double>?[]> SortedNumericDocValues { get; } = new(StringComparer.Ordinal);
@@ -1017,6 +1019,12 @@ public sealed class SegmentMerger
                         ctx.NumericDocValues[field] = dst;
                     }
                     dst[remapDocId] = arr[oldDocId];
+                    if (!ctx.NumericDocValuesPresence.TryGetValue(field, out var presence))
+                    {
+                        presence = new HashSet<int>();
+                        ctx.NumericDocValuesPresence[field] = presence;
+                    }
+                    presence.Add(remapDocId);
                 }
 
                 foreach (var (field, arr) in segInt64Dvs.Values)
@@ -1031,6 +1039,12 @@ public sealed class SegmentMerger
                         ctx.Int64DocValues[field] = dst;
                     }
                     dst[remapDocId] = arr[oldDocId];
+                    if (!ctx.Int64DocValuesPresence.TryGetValue(field, out var presence))
+                    {
+                        presence = new HashSet<int>();
+                        ctx.Int64DocValuesPresence[field] = presence;
+                    }
+                    presence.Add(remapDocId);
                 }
 
                 foreach (var (field, arr) in segSortedDvs.Values)
@@ -1405,12 +1419,11 @@ public sealed class SegmentMerger
                     for (int i = 0; i < kn; i++)
                     {
                         var field = fieldKeys[i];
-                        ctx.NumericFields.TryGetValue(field, out var sparseMap);
-                        IReadOnlySet<int>? presenceSet = sparseMap is not null
-                            ? (IReadOnlySet<int>)sparseMap.Keys.ToHashSet()
-                            : null;
+                        if (!ctx.NumericDocValuesPresence.TryGetValue(field, out var presenceSet))
+                            throw new InvalidDataException($"Numeric DocValues field '{field}' has no merged presence set.");
                         NumericDocValuesWriter.WriteFieldBlock(bodyOutput, field, ctx.NumericDocValues[field], ctx.TotalDocs, presenceSet);
                         ctx.NumericDocValues.Remove(field);
+                        ctx.NumericDocValuesPresence.Remove(field);
                     }
                 }
                 finally
@@ -1424,10 +1437,13 @@ public sealed class SegmentMerger
             var int64Presence = new Dictionary<string, IReadOnlySet<int>>(ctx.Int64DocValues.Count, StringComparer.Ordinal);
             foreach (var field in ctx.Int64DocValues.Keys)
             {
-                if (ctx.Int64Fields.TryGetValue(field, out var sparseMap))
-                    int64Presence[field] = sparseMap.Keys.ToHashSet();
+                if (!ctx.Int64DocValuesPresence.TryGetValue(field, out var presenceSet))
+                    throw new InvalidDataException($"Int64 DocValues field '{field}' has no merged presence set.");
+                int64Presence[field] = presenceSet;
             }
             Int64DocValuesWriter.Write(basePath + ".dvnl", ctx.Int64DocValues, ctx.TotalDocs, int64Presence);
+            ctx.Int64DocValues.Clear();
+            ctx.Int64DocValuesPresence.Clear();
         }
 
         if (ctx.SortedDocValues.Count > 0)

@@ -597,6 +597,61 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(2, sorted.TotalHits);
     }
 
+    [Fact(DisplayName = "Merge: preserves numeric DocValues presence without sparse point indexes")]
+    public void Merge_PreservesNumericDocValuesPresenceWithoutSparsePointIndexes()
+    {
+        var dir = SubDir(nameof(Merge_PreservesNumericDocValuesPresenceWithoutSparsePointIndexes));
+        var mmap = new MMapDirectory(dir);
+
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig { MaxBufferedDocs = 2, MergeThreshold = 100 }))
+        {
+            var present = new LeanDocument();
+            present.Add(new NumericField("sparse-double", 42));
+            present.Add(new Int64Field("sparse-long", 420));
+            writer.AddDocument(present);
+
+            writer.AddDocument(new LeanDocument());
+            writer.AddDocument(new LeanDocument());
+            writer.Commit();
+        }
+
+        SegmentInfo docValuesSegment = Directory.GetFiles(dir, "seg_*.seg")
+            .Select(SegmentInfo.ReadFrom)
+            .Single(segment => File.Exists(Path.Combine(dir, segment.SegmentId + ".dvn")));
+        string numericIndexPath = Path.Combine(dir, docValuesSegment.SegmentId + ".num");
+        string int64IndexPath = Path.Combine(dir, docValuesSegment.SegmentId + ".numl");
+        Assert.True(File.Exists(numericIndexPath));
+        Assert.True(File.Exists(int64IndexPath));
+        File.Delete(numericIndexPath);
+        File.Delete(int64IndexPath);
+
+        using (var legacyReader = new SegmentReader(mmap, docValuesSegment))
+        {
+            Assert.True(legacyReader.TryGetNumericValue("sparse-double", 0, out double numericValue));
+            Assert.Equal(42, numericValue);
+            Assert.False(legacyReader.TryGetNumericValue("sparse-double", 1, out _));
+            Assert.True(legacyReader.TryGetInt64Value("sparse-long", 0, out long int64Value));
+            Assert.Equal(420, int64Value);
+            Assert.False(legacyReader.TryGetInt64Value("sparse-long", 1, out _));
+        }
+
+        string mergedId = MergeSegmentsForTest(dir, mmap);
+        using var mergedReader = new SegmentReader(mmap, SegmentInfo.ReadFrom(Path.Combine(dir, mergedId + ".seg")));
+
+        var numericValues = new List<double>();
+        var int64Values = new List<long>();
+        for (int docId = 0; docId < mergedReader.Info.DocCount; docId++)
+        {
+            if (mergedReader.TryGetNumericValue("sparse-double", docId, out double numericValue))
+                numericValues.Add(numericValue);
+            if (mergedReader.TryGetInt64Value("sparse-long", docId, out long int64Value))
+                int64Values.Add(int64Value);
+        }
+
+        Assert.Equal([42d], numericValues);
+        Assert.Equal([420L], int64Values);
+    }
+
     /// <summary>
     /// Verifies the Merge: Preserves Sorted Doc Values scenario.
     /// </summary>
