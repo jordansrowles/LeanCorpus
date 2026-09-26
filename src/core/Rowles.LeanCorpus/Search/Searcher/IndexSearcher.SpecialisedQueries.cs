@@ -1,5 +1,6 @@
 
 using System.Numerics;
+using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.PackedBkd;
 using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Document.Fields;
@@ -1411,13 +1412,9 @@ public sealed partial class IndexSearcher
         int docBase = reader.DocBase;
         bool hasDeletions = reader.HasDeletions;
         reader.TryGetFieldLengths(tq.Field, out var fieldLengths);
-        double[]? numericValues = null;
-        Util.RoaringBitmap? numericPresence = null;
+        NumericDocValuesColumn? numericValues = null;
         bool hasNumericDocValues = fsq.IsSimpleNumericField
-            && reader.TryGetNumericDocValues(
-                fsq.NumericField,
-                out numericValues,
-                out numericPresence);
+            && reader.TryGetNumericDocValues(fsq.NumericField, out numericValues);
 
         while (postings.MoveNextUnchecked(out int docId, out int tf))
         {
@@ -1432,11 +1429,8 @@ public sealed partial class IndexSearcher
             // Modify the field-boosted BM25 score using the numeric doc value.
             if (hasNumericDocValues)
             {
-                if ((uint)docId < (uint)numericValues!.Length
-                    && (numericPresence is null || numericPresence.Contains(docId)))
-                {
-                    score = FunctionScoreQuery.Combine(score, numericValues[docId], fsq.Mode);
-                }
+                if (numericValues!.TryGetValue(docId, out double numericValue))
+                    score = FunctionScoreQuery.Combine(score, numericValue, fsq.Mode);
             }
             else if (fsq.IsSimpleNumericField
                 && reader.TryGetNumericValue(fsq.NumericField, docId, out double fieldValue))

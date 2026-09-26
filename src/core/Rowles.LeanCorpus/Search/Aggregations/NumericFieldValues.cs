@@ -83,14 +83,14 @@ internal static class NumericFieldValues
     private static NumericFieldAccessor DetermineSegmentAccessor(SegmentReader reader, string fieldName)
     {
         // Sorted-numeric takes priority because it is the multi-value form.
-        if (reader.GetSortedNumericDocValues(fieldName) is not null)
+        if (reader.HasSortedNumericDocValues(fieldName))
             return new NumericFieldAccessor(IsInt64: false, IsSortedNumeric: true, IsSingleNumeric: false);
-        if (reader.GetSortedInt64DocValues(fieldName) is not null)
+        if (reader.HasSortedInt64DocValues(fieldName))
             return new NumericFieldAccessor(IsInt64: true, IsSortedNumeric: true, IsSingleNumeric: false);
 
-        if (reader.HasInt64Index(fieldName) || reader.GetInt64DocValues(fieldName) is not null)
+        if (reader.HasInt64Index(fieldName) || reader.HasInt64DocValues(fieldName))
             return new NumericFieldAccessor(IsInt64: true, IsSortedNumeric: false, IsSingleNumeric: true);
-        if (reader.HasNumericIndex(fieldName) || reader.GetNumericDocValues(fieldName) is not null)
+        if (reader.HasNumericIndex(fieldName) || reader.HasNumericDocValues(fieldName))
             return new NumericFieldAccessor(IsInt64: false, IsSortedNumeric: false, IsSingleNumeric: true);
 
         throw new InvalidOperationException($"Numeric field '{fieldName}' has no readable numeric representation.");

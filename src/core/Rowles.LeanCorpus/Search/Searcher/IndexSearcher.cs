@@ -1598,7 +1598,7 @@ public sealed partial class IndexSearcher : IDisposable
                 reader.TryGetFieldLengths(tq.Field, out var fieldLengths);
                 reader.TryGetFieldBoosts(tq.Field, out var fieldBoosts);
                 bool hasNumericDocValues = reader.TryGetNumericDocValues(
-                    fsq.NumericField, out var numericValues, out var numericPresence);
+                    fsq.NumericField, out var numericValues);
 
                 // Single pass: BM25, field boost, function score, then top-N collect.
                 while (postings.MoveNextUnchecked(out int docId, out int tf))
@@ -1612,15 +1612,12 @@ public sealed partial class IndexSearcher : IDisposable
                     score = ApplyFieldBoost(fieldBoosts, docId, score);
 
                     // Modify the field-boosted BM25 score with the numeric doc value.
-                    // Read the dense column once per segment instead of probing the
+                    // Read the packed column once per segment instead of probing the
                     // sparse numeric map for every matching document.
                     if (hasNumericDocValues)
                     {
-                        if ((uint)docId < (uint)numericValues!.Length
-                            && (numericPresence is null || numericPresence.Contains(docId)))
-                        {
-                            score = FunctionScoreQuery.Combine(score, numericValues[docId], fsq.Mode);
-                        }
+                        if (numericValues!.TryGetValue(docId, out double numericValue))
+                            score = FunctionScoreQuery.Combine(score, numericValue, fsq.Mode);
                     }
                     else if (reader.TryGetNumericValue(fsq.NumericField, docId, out double fieldValue))
                     {

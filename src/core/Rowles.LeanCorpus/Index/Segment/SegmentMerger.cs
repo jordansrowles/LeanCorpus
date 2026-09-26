@@ -631,38 +631,11 @@ public sealed class SegmentMerger
     {
         private readonly SegmentReader _reader;
         private readonly SortField _field;
-        private readonly double[][]? _sortedNumericValues;
-        private readonly double[]? _numericDocValues;
-        private readonly Dictionary<int, double>? _numericIndex;
-        private readonly long[][]? _sortedInt64Values;
-        private readonly long[]? _int64DocValues;
-        private readonly Dictionary<int, long>? _int64Index;
-        private readonly string[]? _sortedDocValues;
-        private readonly string[][]? _sortedSetDocValues;
-        private readonly byte[][][]? _binaryDocValues;
 
         internal MergeSortValueResolver(SegmentReader reader, SortField field)
         {
             _reader = reader;
             _field = field;
-            switch (field.Type)
-            {
-                case SortFieldType.Numeric:
-                    _sortedNumericValues = reader.GetSortedNumericDocValues(field.FieldName);
-                    _numericDocValues = reader.GetNumericDocValues(field.FieldName);
-                    _numericIndex = ReadNumericIndex(reader).GetValueOrDefault(field.FieldName);
-                    break;
-                case SortFieldType.Int64:
-                    _sortedInt64Values = reader.GetSortedInt64DocValues(field.FieldName);
-                    _int64DocValues = reader.GetInt64DocValues(field.FieldName);
-                    _int64Index = ReadInt64Index(reader).GetValueOrDefault(field.FieldName);
-                    break;
-                case SortFieldType.String:
-                    _sortedDocValues = reader.GetSortedDocValues(field.FieldName);
-                    _sortedSetDocValues = reader.GetSortedSetDocValues(field.FieldName);
-                    _binaryDocValues = reader.GetBinaryDocValues(field.FieldName);
-                    break;
-            }
         }
 
         internal MergeSortValue Read(int oldDocId, ISet<string> storedFieldFilter)
@@ -670,14 +643,16 @@ public sealed class SegmentMerger
             switch (_field.Type)
             {
                 case SortFieldType.Numeric:
-                    if (_sortedNumericValues is not null
-                        && (uint)oldDocId < (uint)_sortedNumericValues.Length
-                        && _sortedNumericValues[oldDocId].Length > 0)
+                    if (_reader.TryGetSortedNumericDocValues(_field.FieldName, oldDocId, out var sortedNumericValues)
+                        && sortedNumericValues.Count > 0)
                         return MergeSortValue.Numeric(SegmentFlusher.SelectNumericValue(
-                            _sortedNumericValues[oldDocId], _field.Selector));
-                    if (_numericDocValues is not null && (uint)oldDocId < (uint)_numericDocValues.Length)
-                        return MergeSortValue.Numeric(_numericDocValues[oldDocId]);
-                    if (_numericIndex is not null && _numericIndex.TryGetValue(oldDocId, out double numericValue))
+                            sortedNumericValues, _field.Selector));
+                    if (_reader.HasNumericDocValues(_field.FieldName))
+                    {
+                        _reader.TryGetNumericValue(_field.FieldName, oldDocId, out double docValue);
+                        return MergeSortValue.Numeric(docValue);
+                    }
+                    if (_reader.TryGetNumericValue(_field.FieldName, oldDocId, out double numericValue))
                         return MergeSortValue.Numeric(numericValue);
                     if (TryGetStoredSortValue(_reader, _field.FieldName, oldDocId, storedFieldFilter, out var numericStored))
                     {
@@ -691,14 +666,16 @@ public sealed class SegmentMerger
                     return MergeSortValue.Numeric(0);
 
                 case SortFieldType.Int64:
-                    if (_sortedInt64Values is not null
-                        && (uint)oldDocId < (uint)_sortedInt64Values.Length
-                        && _sortedInt64Values[oldDocId].Length > 0)
+                    if (_reader.TryGetSortedInt64DocValues(_field.FieldName, oldDocId, out var sortedInt64Values)
+                        && sortedInt64Values.Count > 0)
                         return MergeSortValue.Int64(SegmentFlusher.SelectInt64Value(
-                            _sortedInt64Values[oldDocId], _field.Selector));
-                    if (_int64DocValues is not null && (uint)oldDocId < (uint)_int64DocValues.Length)
-                        return MergeSortValue.Int64(_int64DocValues[oldDocId]);
-                    if (_int64Index is not null && _int64Index.TryGetValue(oldDocId, out long int64Value))
+                            sortedInt64Values, _field.Selector));
+                    if (_reader.HasInt64DocValues(_field.FieldName))
+                    {
+                        _reader.TryGetInt64Value(_field.FieldName, oldDocId, out long docValue);
+                        return MergeSortValue.Int64(docValue);
+                    }
+                    if (_reader.TryGetInt64Value(_field.FieldName, oldDocId, out long int64Value))
                         return MergeSortValue.Int64(int64Value);
                     if (TryGetStoredSortValue(_reader, _field.FieldName, oldDocId, storedFieldFilter, out var int64Stored))
                     {
@@ -712,21 +689,21 @@ public sealed class SegmentMerger
                     return MergeSortValue.Int64(0);
 
                 case SortFieldType.String:
-                    if (_sortedDocValues is not null && (uint)oldDocId < (uint)_sortedDocValues.Length)
-                        return MergeSortValue.String(_sortedDocValues[oldDocId]);
-                    if (_sortedSetDocValues is not null
-                        && (uint)oldDocId < (uint)_sortedSetDocValues.Length
-                        && _sortedSetDocValues[oldDocId].Length > 0)
+                    if (_reader.HasSortedDocValues(_field.FieldName))
                     {
-                        string[] values = _sortedSetDocValues[oldDocId];
-                        return MergeSortValue.String(_field.Selector == SortValueSelector.Max
-                            ? values[^1]
-                            : values[0]);
+                        return MergeSortValue.String(
+                            _reader.TryGetSortedDocValue(_field.FieldName, oldDocId, out var value)
+                                ? value
+                                : string.Empty);
                     }
-                    if (_binaryDocValues is not null
-                        && (uint)oldDocId < (uint)_binaryDocValues.Length
-                        && _binaryDocValues[oldDocId].Length > 0)
-                        return MergeSortValue.String(System.Text.Encoding.UTF8.GetString(_binaryDocValues[oldDocId][0]));
+                    if (_reader.TryGetSortedSetDocValues(_field.FieldName, oldDocId, out var sortedSetValues)
+                        && sortedSetValues.Count > 0)
+                        return MergeSortValue.String(_field.Selector == SortValueSelector.Max
+                            ? sortedSetValues[^1]
+                            : sortedSetValues[0]);
+                    if (_reader.TryGetBinaryDocValues(_field.FieldName, oldDocId, out var binaryValues)
+                        && binaryValues.Count > 0)
+                        return MergeSortValue.String(System.Text.Encoding.UTF8.GetString(binaryValues[0]));
                     if (TryGetStoredSortValue(_reader, _field.FieldName, oldDocId, storedFieldFilter, out var stringStored))
                         return MergeSortValue.String(stringStored.StringValue);
                     return MergeSortValue.String(null);

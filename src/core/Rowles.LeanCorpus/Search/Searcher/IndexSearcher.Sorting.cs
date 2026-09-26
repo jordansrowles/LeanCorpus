@@ -899,8 +899,8 @@ public sealed partial class IndexSearcher
 
             string latitudeField = _sort.FieldName + "_lat";
             string longitudeField = _sort.FieldName + "_lon";
-            if (!_reader.TryGetNumericDocValues(latitudeField, out _, out var latitudePresence)
-                || !_reader.TryGetNumericDocValues(longitudeField, out _, out var longitudePresence))
+            if (!_reader.TryGetNumericDocValuesPresence(latitudeField, out var latitudePresence)
+                || !_reader.TryGetNumericDocValuesPresence(longitudeField, out var longitudePresence))
                 return;
 
             int latitudeDocumentCount = latitudePresence?.Cardinality ?? _reader.MaxDoc;
