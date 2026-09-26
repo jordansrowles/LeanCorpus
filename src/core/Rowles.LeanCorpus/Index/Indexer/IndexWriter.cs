@@ -396,7 +396,8 @@ public sealed partial class IndexWriter : IDisposable
 
                 var merger = new SegmentMerger(_directory, _config.MergePolicy, _config.PostingsSkipInterval,
                     _config.SoftDeleteRetentionSeconds, _config.HnswBuildConfig,
-                    useCompoundFile: _config.UseCompoundFile)
+                    useCompoundFile: _config.UseCompoundFile,
+                    destinationVectorQuantisation: _config.VectorQuantisation)
                 {
                     FileCatalog = _config.CodecCatalog
                 };

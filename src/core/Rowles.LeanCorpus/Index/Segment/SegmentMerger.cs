@@ -30,6 +30,7 @@ public sealed class SegmentMerger
     private readonly Diagnostics.IMetricsCollector _metrics;
     private readonly HnswBuildConfig _hnswBuildConfig;
     private readonly bool _useCompoundFile;
+    private readonly VectorQuantisation _destinationVectorQuantisation;
 
     internal CodecCatalog FileCatalog { get; set; } = CodecCatalog.Default;
 
@@ -58,6 +59,20 @@ public sealed class SegmentMerger
         HnswBuildConfig? hnswBuildConfig = null,
         Diagnostics.IMetricsCollector? metrics = null,
         bool useCompoundFile = false)
+        : this(directory, mergePolicy, skipInterval, softDeleteRetentionSeconds, hnswBuildConfig,
+            metrics, useCompoundFile, VectorQuantisation.None)
+    {
+    }
+
+    internal SegmentMerger(
+        MMapDirectory directory,
+        IMergePolicy mergePolicy,
+        int skipInterval,
+        double softDeleteRetentionSeconds,
+        HnswBuildConfig? hnswBuildConfig,
+        Diagnostics.IMetricsCollector? metrics,
+        bool useCompoundFile,
+        VectorQuantisation destinationVectorQuantisation)
     {
         _directory = directory;
         _mergePolicy = mergePolicy ?? new TieredMergePolicy(DefaultMergeThreshold);
@@ -66,6 +81,22 @@ public sealed class SegmentMerger
         _hnswBuildConfig = hnswBuildConfig ?? new HnswBuildConfig();
         _metrics = metrics ?? Diagnostics.NullMetricsCollector.Instance;
         _useCompoundFile = useCompoundFile;
+        _destinationVectorQuantisation = destinationVectorQuantisation;
+    }
+
+    internal SegmentMerger(
+        MMapDirectory directory,
+        IMergePolicy mergePolicy,
+        int skipInterval,
+        double softDeleteRetentionSeconds,
+        HnswBuildConfig? hnswBuildConfig,
+        bool useCompoundFile,
+        VectorQuantisation destinationVectorQuantisation)
+        : this(directory, mergePolicy, skipInterval, softDeleteRetentionSeconds, hnswBuildConfig,
+            metrics: null,
+            useCompoundFile: useCompoundFile,
+            destinationVectorQuantisation: destinationVectorQuantisation)
+    {
     }
 
     /// <summary>Initialises a merger bound to the given directory with the default tiered policy.</summary>
@@ -168,7 +199,8 @@ public sealed class SegmentMerger
             foreach (var segInfo in segments)
                 readers[segInfo.SegmentId] = new SegmentReader(_directory, segInfo);
 
-            return MergeSegmentsCore(segments, readers, newSegId, basePath, commitGeneration, spatialFields);
+            return MergeSegmentsCore(segments, readers, newSegId, basePath, commitGeneration, spatialFields,
+                _destinationVectorQuantisation);
         }
         finally
         {
@@ -183,7 +215,8 @@ public sealed class SegmentMerger
         string newSegId,
         string basePath,
         int commitGeneration,
-        List<SpatialFieldInfo> spatialFields)
+        List<SpatialFieldInfo> spatialFields,
+        VectorQuantisation destinationVectorQuantisation)
     {
         // Phase 1: build per-segment doc-id remaps. Compatible, physically sorted inputs
         // are merged by their complete index-sort key; all other inputs retain committed
@@ -222,6 +255,8 @@ public sealed class SegmentMerger
         }
         if (totalDocs == 0) return null;
 
+        Dictionary<string, VectorFieldContract> vectorContracts = PreflightVectorContracts(segments);
+
         MergeDocument[] documentOrder = BuildDestinationDocumentOrder(perSegmentMaps, totalDocs);
 
         var fieldNames = new HashSet<string>(StringComparer.Ordinal);
@@ -247,7 +282,8 @@ public sealed class SegmentMerger
 
         // Phase 4: emit per-codec output files.
         WriteNorms(perSegmentMaps, readers, fieldNames, basePath, totalDocs);
-        var mergedVectorFields = MergeVectors(ctx, documentOrder, basePath);
+        var mergedVectorFields = MergeVectors(
+            ctx, documentOrder, basePath, vectorContracts, destinationVectorQuantisation);
         WriteNumericFiles(ctx, basePath);
         WriteFieldLengthsAndStats(ctx, fieldNames, basePath, newSegId, totalDocs);
         WriteDocValueColumns(ctx, basePath);
@@ -309,6 +345,40 @@ public sealed class SegmentMerger
             .Select(static pair => new SpatialFieldInfo { FieldName = pair.Key, Kind = pair.Value })
             .ToList();
     }
+
+    private static Dictionary<string, VectorFieldContract> PreflightVectorContracts(
+        IReadOnlyList<SegmentInfo> segments)
+    {
+        var contracts = new Dictionary<string, VectorFieldContract>(StringComparer.Ordinal);
+        var firstSourceSegments = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (SegmentInfo segment in segments)
+        {
+            foreach (VectorFieldInfo field in segment.VectorFields)
+            {
+                var contract = new VectorFieldContract(field.Dimension, field.Normalised);
+                if (!contracts.TryGetValue(field.FieldName, out VectorFieldContract existing))
+                {
+                    contracts.Add(field.FieldName, contract);
+                    firstSourceSegments.Add(field.FieldName, segment.SegmentId);
+                    continue;
+                }
+
+                if (existing.Dimension != contract.Dimension)
+                    throw new InvalidDataException(
+                        $"Cannot merge vector field '{field.FieldName}': segment '{segment.SegmentId}' has dimension {contract.Dimension}, " +
+                        $"which differs from dimension {existing.Dimension} in segment '{firstSourceSegments[field.FieldName]}'.");
+
+                if (existing.Normalised != contract.Normalised)
+                    throw new InvalidDataException(
+                        $"Cannot merge vector field '{field.FieldName}': segment '{segment.SegmentId}' has Normalised={contract.Normalised}, " +
+                        $"which differs from Normalised={existing.Normalised} in segment '{firstSourceSegments[field.FieldName]}'.");
+            }
+        }
+
+        return contracts;
+    }
+
+    private readonly record struct VectorFieldContract(int Dimension, bool Normalised);
 
     private static bool TryGetCommonIndexSort(List<SegmentInfo> segments, out SortField[] sortFields)
     {
@@ -776,10 +846,7 @@ public sealed class SegmentMerger
         internal Dictionary<string, PackedBkdFieldBuffer> PackedBkdFields { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, ShapeDocValuesFieldBuffer> ShapeDocValuesFields { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, Dictionary<string, ShapeDocValuesFieldMetadata>> ShapeDocValuesMetadataBySegment { get; } = new(StringComparer.Ordinal);
-        internal Dictionary<string, int> VectorFieldDims { get; } = new(StringComparer.Ordinal);
-        internal Dictionary<string, bool> VectorFieldNormalised { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, bool> VectorFieldHadHnsw { get; } = new(StringComparer.Ordinal);
-        internal Dictionary<string, VectorQuantisation> VectorFieldQuantisation { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, List<(SegmentInfo Seg, Dictionary<int, int> OldToNew, SegmentReader Reader)>> VectorFieldRemaps { get; } = new(StringComparer.Ordinal);
 
         internal MergeContext(int totalDocs, HashSet<string> fieldNames)
@@ -1005,8 +1072,6 @@ public sealed class SegmentMerger
                             ctx.VectorFieldDocIds[vfName] = vectorDocIds;
                         }
                         vectorDocIds.Add(remapDocId);
-                        ctx.VectorFieldDims[vfName] = match.Dimension;
-
                         if (!ctx.VectorFieldRemaps.TryGetValue(vfName, out var remapList))
                         {
                             remapList = new List<(SegmentInfo, Dictionary<int, int>, SegmentReader)>();
@@ -1020,9 +1085,7 @@ public sealed class SegmentMerger
                         }
                         entry.OldToNew[oldDocId] = remapDocId;
 
-                        ctx.VectorFieldNormalised[vfName] = match.Normalised;
                         ctx.VectorFieldHadHnsw[vfName] = ctx.VectorFieldHadHnsw.GetValueOrDefault(vfName, false) || match.HasHnsw;
-                        ctx.VectorFieldQuantisation[vfName] = match.Quantisation;
                     }
                 }
             }
@@ -1094,18 +1157,24 @@ public sealed class SegmentMerger
         NormsWriter.Write(basePath + ".nrm", fieldNorms, fieldBoosts);
     }
 
-    private List<VectorFieldInfo> MergeVectors(MergeContext ctx, MergeDocument[] documentOrder, string basePath)
+    private List<VectorFieldInfo> MergeVectors(
+        MergeContext ctx,
+        MergeDocument[] documentOrder,
+        string basePath,
+        IReadOnlyDictionary<string, VectorFieldContract> vectorContracts,
+        VectorQuantisation destinationVectorQuantisation)
     {
         var merged = new List<VectorFieldInfo>();
         foreach (var (fieldName, vectorDocIds) in ctx.VectorFieldDocIds)
         {
             if (vectorDocIds.Count == 0) continue;
-            int dimension = ctx.VectorFieldDims[fieldName];
-            if (!ctx.VectorFieldNormalised.TryGetValue(fieldName, out var normalised))
+            if (!vectorContracts.TryGetValue(fieldName, out VectorFieldContract contract))
                 throw new InvalidOperationException(
-                    $"Cannot determine Normalised flag for vector field '{fieldName}' during merge. Source segments must declare this flag.");
+                    $"Cannot determine the vector contract for field '{fieldName}' during merge. Source segments must declare this field.");
 
-            var quantisation = ctx.VectorFieldQuantisation.GetValueOrDefault(fieldName, VectorQuantisation.None);
+            int dimension = contract.Dimension;
+            bool normalised = contract.Normalised;
+            VectorQuantisation quantisation = destinationVectorQuantisation;
             bool shouldBuildHnsw = ctx.VectorFieldHadHnsw.GetValueOrDefault(fieldName, false)
                 && vectorDocIds.Count >= 2;
             string vecPath = Codecs.Vectors.VectorFilePaths.VectorFile(basePath, fieldName);
@@ -1123,6 +1192,7 @@ public sealed class SegmentMerger
                         basePath,
                         dimension,
                         normalised,
+                        quantisation,
                         new VectorReaderSource(vectorReader),
                         vectorDocIds,
                         ctx.VectorFieldRemaps);
@@ -1162,6 +1232,7 @@ public sealed class SegmentMerger
                             basePath,
                             dimension,
                             normalised,
+                            quantisation,
                             new QuantisedVectorSource(quantisedReader),
                             vectorDocIds,
                             ctx.VectorFieldRemaps);
@@ -1191,6 +1262,7 @@ public sealed class SegmentMerger
         string basePath,
         int dimension,
         bool normalised,
+        VectorQuantisation destinationVectorQuantisation,
         IVectorSource vectorSource,
         IReadOnlyList<int> vectorDocIds,
         IReadOnlyDictionary<string, List<(SegmentInfo Seg, Dictionary<int, int> OldToNew, SegmentReader Reader)>> vectorFieldRemaps)
@@ -1202,7 +1274,12 @@ public sealed class SegmentMerger
             if (vectorFieldRemaps.TryGetValue(fieldName, out var remapList) && remapList.Count > 0)
             {
                 var seed = remapList
-                    .Where(entry => entry.Seg.VectorFields.Any(field => field.FieldName == fieldName && field.HasHnsw))
+                    .Where(entry => entry.Seg.VectorFields.Any(field =>
+                        field.FieldName == fieldName
+                        && field.HasHnsw
+                        && field.Dimension == dimension
+                        && field.Normalised == normalised
+                        && field.Quantisation == destinationVectorQuantisation))
                     .OrderByDescending(static entry => entry.OldToNew.Count)
                     .FirstOrDefault();
 
@@ -1591,7 +1668,8 @@ public sealed class SegmentMerger
             foreach (var segInfo in sourceSegments)
                 readers[segInfo.SegmentId] = new SegmentReader(sourceDirectory, segInfo);
 
-            return MergeSegmentsCore(sourceSegments, readers, newSegId, basePath, commitGeneration, spatialFields);
+            return MergeSegmentsCore(sourceSegments, readers, newSegId, basePath, commitGeneration, spatialFields,
+                config.VectorQuantisation);
         }
         finally
         {

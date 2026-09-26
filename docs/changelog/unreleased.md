@@ -80,6 +80,7 @@
 - Preflight vector dimensions before DWPT mutation and copy accepted vector storage so caller-side array mutation cannot alter buffered or persisted vectors.
 - Corrected multi-segment search result merging so Boolean and generic parallel paths preserve exact total-hit counts and global top-N document IDs, including block-max WAND execution. (6925d748d, 2cc3b4fa5, #75)
 - Streamed vector segment merges through mapped destination files and bounded quantisation passes, avoiding a second managed float corpus during HNSW rebuilds.
+- Preflighted vector merge dimensions and normalisation contracts before writing output, applied the destination writer's quantisation policy across imports and merges, and reused HNSW seeds only when their vector contract matches the destination.
 - Cleared pooled stored-field writer scratch before use so previous search activity cannot silently omit fields from newly written segments. (f58ac6c44)
 - Released the writer lock when incompatible index metadata aborts `IndexWriter` construction, preventing Windows test-directory cleanup failures. (60b6735ea, #86)
 - Synchronised merge-throttling segment inspection with background merge publication without nesting writer and merge locks. (cc3dc2aa5, 34a3c69bd, #86)
