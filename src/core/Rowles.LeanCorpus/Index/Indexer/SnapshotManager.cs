@@ -25,7 +25,7 @@ internal static class SnapshotManager
         {
             DwptManager.FlushDwptPool(writer);
             DwptManager.WaitForPendingFlushes(writer);
-            return writer.CommittedSegments.ToList().AsReadOnly();
+            return writer.CommittedSegments.Select(static segment => segment.DeepCopy()).ToList().AsReadOnly();
         }
     }
 

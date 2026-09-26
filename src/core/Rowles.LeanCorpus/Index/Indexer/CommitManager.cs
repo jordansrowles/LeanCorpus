@@ -650,23 +650,7 @@ internal static class CommitManager
         writer.PreparedSegments = null;
     }
 
-    private static SegmentInfo CloneSegmentInfo(SegmentInfo segment) => new()
-    {
-        SegmentId = segment.SegmentId,
-        DocCount = segment.DocCount,
-        LiveDocCount = segment.LiveDocCount,
-        TotalBytes = segment.TotalBytes,
-        CodecBytes = new Dictionary<string, long>(segment.CodecBytes, StringComparer.Ordinal),
-        CommitGeneration = segment.CommitGeneration,
-        IsCompoundFile = segment.IsCompoundFile,
-        FieldNames = [.. segment.FieldNames],
-        IndexSortFields = segment.IndexSortFields is null ? null : [.. segment.IndexSortFields],
-        VectorFields = [.. segment.VectorFields],
-        DelGeneration = segment.DelGeneration,
-        MinSequenceNumber = segment.MinSequenceNumber,
-        MaxSequenceNumber = segment.MaxSequenceNumber,
-        EarliestSoftDeleteTimestamp = segment.EarliestSoftDeleteTimestamp
-    };
+    private static SegmentInfo CloneSegmentInfo(SegmentInfo segment) => segment.DeepCopy();
 
     private static (List<SegmentInfo> Segments, long ContentToken) CapturePublishedState(IndexWriter writer)
     {

@@ -450,6 +450,98 @@ public sealed class IndexWriterTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(1, searcher.Search(new TermQuery("id", "doc-4"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
+    [Fact(DisplayName = "NRT Searcher: Retains Its Captured Deletion Generation")]
+    public void GetNrtSegments_SearcherRetainsCapturedDeletionState()
+    {
+        string path = System.IO.Path.Combine(_fixture.Path, "nrt_reader_identity");
+        TestDirectoryFixture.TryDeleteDirectory(path);
+        System.IO.Directory.CreateDirectory(path);
+        using var directory = new MMapDirectory(path);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 100,
+            MergeThreshold = 100,
+            UseCompoundFile = false,
+        });
+
+        foreach (string id in new[] { "first", "second", "third" })
+        {
+            var document = new LeanDocument();
+            document.Add(new StringField("id", id));
+            document.Add(new TextField("body", id));
+            writer.AddDocument(document);
+        }
+        writer.Commit();
+
+        writer.DeleteDocuments(new Rowles.LeanCorpus.Search.Queries.TermQuery("id", "first"));
+        writer.Commit();
+        var oldSegments = writer.GetNrtSegments();
+        using var oldSearcher = new Rowles.LeanCorpus.Search.Searcher.IndexSearcher(directory, oldSegments);
+
+        writer.DeleteDocuments(new Rowles.LeanCorpus.Search.Queries.TermQuery("id", "second"));
+        writer.Commit();
+
+        Assert.Equal(0, oldSearcher.Search(
+            new Rowles.LeanCorpus.Search.Queries.TermQuery("id", "first"), 10,
+            TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, oldSearcher.Search(
+            new Rowles.LeanCorpus.Search.Queries.TermQuery("id", "second"), 10,
+            TestContext.Current.CancellationToken).TotalHits);
+
+        using var currentSearcher = new Rowles.LeanCorpus.Search.Searcher.IndexSearcher(
+            directory, writer.GetNrtSegments());
+        Assert.Equal(0, currentSearcher.Search(
+            new Rowles.LeanCorpus.Search.Queries.TermQuery("id", "second"), 10,
+            TestContext.Current.CancellationToken).TotalHits);
+    }
+
+    [Fact(DisplayName = "NRT Segments: Returns Deep Mutable Copies")]
+    public void GetNrtSegments_ReturnsDeepMutableCopies()
+    {
+        string path = System.IO.Path.Combine(_fixture.Path, "nrt_segment_copies");
+        TestDirectoryFixture.TryDeleteDirectory(path);
+        System.IO.Directory.CreateDirectory(path);
+        using var directory = new MMapDirectory(path);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 100,
+            MergeThreshold = 100,
+            UseCompoundFile = false,
+        });
+        var document = new LeanDocument();
+        document.Add(new StringField("id", "copy"));
+        document.Add(new TextField("body", "copy test"));
+        writer.AddDocument(document);
+        writer.Commit();
+
+        SegmentInfo copied = Assert.Single(writer.GetNrtSegments());
+        int liveDocCount = copied.LiveDocCount;
+        var codecBytes = new Dictionary<string, long>(copied.CodecBytes, StringComparer.Ordinal);
+        string[] fieldNames = [.. copied.FieldNames];
+        copied.LiveDocCount = 0;
+        copied.DelGeneration = 777;
+        copied.CodecBytes.Clear();
+        copied.FieldNames.Clear();
+        copied.VectorFields.Add(new Rowles.LeanCorpus.Index.Segment.VectorFieldInfo
+        {
+            FieldName = "caller-mutation",
+            Dimension = 1
+        });
+        copied.SpatialFields.Add(new Rowles.LeanCorpus.Index.Segment.SpatialFieldInfo
+        {
+            FieldName = "caller-mutation",
+            Kind = Rowles.LeanCorpus.Index.Segment.SpatialFieldKind.GeoPoint
+        });
+
+        SegmentInfo fresh = Assert.Single(writer.GetNrtSegments());
+        Assert.Equal(liveDocCount, fresh.LiveDocCount);
+        Assert.Null(fresh.DelGeneration);
+        Assert.Equal(codecBytes.OrderBy(static pair => pair.Key), fresh.CodecBytes.OrderBy(static pair => pair.Key));
+        Assert.Equal(fieldNames, fresh.FieldNames);
+        Assert.Empty(fresh.VectorFields);
+        Assert.Empty(fresh.SpatialFields);
+    }
+
     /// <summary>
     /// Verifies that Compact is a no-op when there is only one segment.
     /// </summary>
