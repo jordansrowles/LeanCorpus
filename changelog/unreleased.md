@@ -35,6 +35,7 @@
 
 ### Fixed
 
+- Ignore deleted children and parents in block-join search, and drop a whole block during merge when its parent is not retained.
 - Keep per-segment deletion generations, live-document counts and soft-delete cutoffs in each commit, so commit publication atomically selects visibility for recovery, snapshots and historical backups.
 - Fail closed when selected deletion state is missing, malformed, or inconsistent with segment metadata.
 - Expose immutable `SegmentDescriptor` metadata from `SegmentReader.Info` and return deep copies from `GetNrtSegments()`, so later commits cannot change an existing NRT searcher's deletion view.
