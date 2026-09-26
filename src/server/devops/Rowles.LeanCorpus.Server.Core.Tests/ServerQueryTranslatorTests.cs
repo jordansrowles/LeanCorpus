@@ -103,13 +103,13 @@ public sealed class ServerQueryTranslatorTests
         BooleanQueryDefinition definition = new(Should:
         [
             new TermQueryDefinition("title", "guide"),
-            new QueryStringDefinition("search")
+            new QueryStringDefinition("search OR guide")
         ]);
 
         bool translated = ServerQueryTranslator.TryTranslate(
             definition,
             CreateSchema(),
-            new ServerCoreOptions { MaximumBooleanClauses = 2 },
+            new ServerCoreOptions { MaximumBooleanClauses = 3 },
             defaultField: "title",
             maximumBooleanClauses: null,
             out var query,
