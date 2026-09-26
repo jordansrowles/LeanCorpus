@@ -85,6 +85,24 @@ public class FieldLengthTests : IDisposable
         Assert.Equal(3, loaded["body"].Length);
     }
 
+    [Fact(DisplayName = "Flush: Field lengths persist the logical range for every field")]
+    public void Flush_FieldLengths_PersistLogicalRangeForEveryField()
+    {
+        var path = Path.Combine(_dir, "multi-field-logical-range.fln");
+        var data = new Dictionary<string, int[]>
+        {
+            ["body"] = [17, 23, 42, 0x12345678],
+            ["title"] = [3, 7, 11, int.MaxValue]
+        };
+
+        FieldLengthWriter.Write(path, data, docCount: 3);
+        var loaded = FieldLengthReader.TryRead(path);
+
+        Assert.NotNull(loaded);
+        Assert.Equal([17, 23, 42], loaded["body"]);
+        Assert.Equal([3, 7, 11], loaded["title"]);
+    }
+
     [Fact(DisplayName = "Flush: Field lengths reject a document count beyond the source range")]
     public void Flush_FieldLengths_RejectDocumentCountBeyondSourceRange()
     {
