@@ -137,7 +137,8 @@ public sealed class NumericDocValuesTests : IDisposable
         long offset = BitsPerValueByteOffset(path, fieldName);
         OverwriteByte(path, offset, 65);
 
-        Assert.ThrowsAny<InvalidDataException>(() => NumericDocValuesReader.Read(path));
+        CodecFileException corruption = Assert.Throws<CodecFileException>(() => NumericDocValuesReader.Read(path));
+        Assert.Equal(CodecFileErrorCode.SemanticValidationFailure, corruption.ErrorCode);
     }
 
     /// <summary>

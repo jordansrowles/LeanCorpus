@@ -1,4 +1,3 @@
-using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
 
@@ -7,20 +6,20 @@ namespace Rowles.LeanCorpus.Codecs.DocValues;
 /// <summary>Opens sorted numeric DocValues as offsets and packed values.</summary>
 internal static class SortedNumericDocValuesReader
 {
-    public static Dictionary<string, double[][]> Read(string filePath)
+    public static Dictionary<string, double[][]> Read(string filePath, int? expectedDocumentCount = null)
     {
         if (!FileOpenRetry.FileExists(filePath))
             return new Dictionary<string, double[][]>(StringComparer.Ordinal);
 
         using var input = new IndexInput(filePath);
-        return Read(input);
+        return Read(input, expectedDocumentCount);
     }
 
-    internal static Dictionary<string, double[][]> Read(IndexInput input)
+    internal static Dictionary<string, double[][]> Read(IndexInput input, int? expectedDocumentCount = null)
     {
         using (input)
         {
-            var columns = OpenColumns(input);
+            var columns = OpenColumns(input, expectedDocumentCount);
             var values = new Dictionary<string, double[][]>(columns.Count, StringComparer.Ordinal);
             foreach ((string field, SortedNumericDocValuesColumn column) in columns)
                 values.Add(field, column.Materialise());
@@ -29,63 +28,61 @@ internal static class SortedNumericDocValuesReader
     }
 
     /// <summary>
-    /// Parses per-document offsets and packed-value positions without creating a jagged row array.
-    /// The caller owns <paramref name="input"/> for the lifetime of the returned columns.
+    /// Parses and validates per-document offsets and packed-value positions without creating a jagged
+    /// row array. The caller owns <paramref name="input"/> for the returned columns.
     /// </summary>
-    internal static Dictionary<string, SortedNumericDocValuesColumn> OpenColumns(IndexInput input)
+    internal static Dictionary<string, SortedNumericDocValuesColumn> OpenColumns(
+        IndexInput input,
+        int? expectedDocumentCount = null)
     {
         ArgumentNullException.ThrowIfNull(input);
-        var columns = new Dictionary<string, SortedNumericDocValuesColumn>(StringComparer.Ordinal);
         using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.SortedNumeric);
+        var body = new DocValuesBodyReader(input, frame, DocValuesCodecFiles.SortedNumeric, expectedDocumentCount);
+        int fieldCount = body.ReadFieldCount();
+        var columns = new Dictionary<string, SortedNumericDocValuesColumn>(StringComparer.Ordinal);
 
-        int fieldCount = input.ReadInt32();
-        if (fieldCount < 0)
-            throw new InvalidDataException("Sorted-numeric DocValues field count cannot be negative.");
-
-        long bodyEnd = checked(frame.BodyStart + frame.BodyLength);
         for (int fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++)
         {
-            string fieldName = ReadString(input);
-            int documentCount = input.ReadInt32();
-            if (documentCount < 0)
-                throw new InvalidDataException($"Sorted-numeric DocValues field '{fieldName}' has a negative document count.");
+            string fieldName = body.ReadString(fieldName: null);
+            int documentCount = body.ReadDocumentCount(fieldName);
+            int[] documentStarts = body.ReadInt32Array(
+                documentCount,
+                "document offsets",
+                fieldName,
+                includeTerminalValue: true);
 
-            var documentStarts = new int[checked(documentCount + 1)];
-            for (int index = 0; index < documentStarts.Length; index++)
-                documentStarts[index] = input.ReadInt32();
+            int valueCount = body.ReadCount("value count", fieldName);
+            ValidateStarts(documentStarts, valueCount, fieldName, body);
+            long minimumBits = body.ReadInt64("minimum value", fieldName);
+            int bitsPerValue = body.ReadByte("bits-per-value", fieldName);
+            if (bitsPerValue > 64)
+                throw body.Corruption(
+                    $"Bits-per-value {bitsPerValue} must be between 0 and 64.",
+                    fieldName);
 
-            int valueCount = input.ReadInt32();
-            if (valueCount < 0)
-                throw new InvalidDataException($"Sorted-numeric DocValues field '{fieldName}' has a negative value count.");
-            ValidateStarts(documentStarts, valueCount, fieldName);
-
-            long minimumBits = input.ReadInt64();
-            int bitsPerValue = input.ReadByte();
-            if ((uint)bitsPerValue > 64)
-                throw new InvalidDataException(
-                    $"Invalid bits-per-value {bitsPerValue} for sorted-numeric DocValues field '{fieldName}'; must be between 0 and 64.");
-
-            long packedByteCount = checked(((long)bitsPerValue * valueCount + 7) / 8);
-            long packedDataOffset = input.Position;
-            if (packedDataOffset > bodyEnd || packedByteCount > bodyEnd - packedDataOffset)
-                throw new InvalidDataException(
-                    $"Sorted-numeric DocValues field '{fieldName}' does not contain its declared packed values.");
-
-            columns.Add(fieldName, new SortedNumericDocValuesColumn(
-                input, documentStarts, minimumBits, bitsPerValue, packedDataOffset));
-            input.Seek(checked(packedDataOffset + packedByteCount));
+            long packedByteCount = body.ReadPackedByteCount(valueCount, bitsPerValue, fieldName);
+            long packedDataOffset = body.Position;
+            body.EnsureBodyBytes(packedByteCount, "packed values", fieldName);
+            var column = new SortedNumericDocValuesColumn(
+                input, documentStarts, minimumBits, bitsPerValue, packedDataOffset);
+            if (!columns.TryAdd(fieldName, column))
+                throw body.Corruption("Field name is duplicated.", fieldName);
+            body.Seek(checked(packedDataOffset + packedByteCount), "packed values", fieldName);
         }
 
+        body.ValidateEnd();
         frame.ValidateChecksum();
         return columns;
     }
 
-    internal static List<(string Name, IReadOnlyList<double>?[] Values)> EnumerateFields(string filePath)
+    internal static List<(string Name, IReadOnlyList<double>?[] Values)> EnumerateFields(
+        string filePath,
+        int? expectedDocumentCount = null)
     {
         if (!FileOpenRetry.FileExists(filePath))
             return [];
 
-        var values = Read(filePath);
+        var values = Read(filePath, expectedDocumentCount);
         var results = new List<(string, IReadOnlyList<double>?[])>(values.Count);
         foreach ((string field, double[][] documents) in values)
         {
@@ -98,29 +95,24 @@ internal static class SortedNumericDocValuesReader
         return results;
     }
 
-    private static void ValidateStarts(int[] starts, int totalValues, string fieldName)
+    private static void ValidateStarts(
+        int[] starts,
+        int totalValues,
+        string fieldName,
+        DocValuesBodyReader body)
     {
         if (starts.Length == 0 || starts[0] != 0)
-            throw new InvalidDataException($"Invalid sorted-numeric DocValues offsets for field '{fieldName}'.");
+            throw body.Corruption("Document offsets do not begin at zero.", fieldName);
 
         int previous = 0;
-        for (int index = 0; index < starts.Length; index++)
+        foreach (int current in starts)
         {
-            int current = starts[index];
             if (current < previous || current > totalValues)
-                throw new InvalidDataException($"Invalid sorted-numeric DocValues offsets for field '{fieldName}'.");
+                throw body.Corruption("Document offsets are not monotonic or exceed the value count.", fieldName);
             previous = current;
         }
 
         if (starts[^1] != totalValues)
-            throw new InvalidDataException($"Invalid sorted-numeric DocValues terminal offset for field '{fieldName}'.");
-    }
-
-    private static string ReadString(IndexInput input)
-    {
-        int length = input.ReadVarInt();
-        if (length < 0)
-            throw new InvalidDataException("Negative string length in sorted-numeric DocValues.");
-        return Encoding.UTF8.GetString(input.ReadBytes(length));
+            throw body.Corruption("Terminal document offset does not match the value count.", fieldName);
     }
 }

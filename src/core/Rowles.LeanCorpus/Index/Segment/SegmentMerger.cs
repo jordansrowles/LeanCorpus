@@ -1664,42 +1664,42 @@ public sealed class SegmentMerger
     private static (Dictionary<string, double[]> Values,
         Dictionary<string, Util.RoaringBitmap?> Presence) ReadNumericDocValues(SegmentReader reader)
         => reader.FileExists(".dvn")
-            ? NumericDocValuesReader.Read(reader.OpenInput(".dvn"))
+            ? NumericDocValuesReader.Read(reader.OpenInput(".dvn"), reader.MaxDoc)
             : (new Dictionary<string, double[]>(StringComparer.Ordinal),
                 new Dictionary<string, Util.RoaringBitmap?>(StringComparer.Ordinal));
 
     private static (Dictionary<string, long[]> Values,
         Dictionary<string, Util.RoaringBitmap?> Presence) ReadInt64DocValues(SegmentReader reader)
         => reader.FileExists(".dvnl")
-            ? Int64DocValuesReader.Read(reader.OpenInput(".dvnl"))
+            ? Int64DocValuesReader.Read(reader.OpenInput(".dvnl"), reader.MaxDoc)
             : (new Dictionary<string, long[]>(StringComparer.Ordinal),
                 new Dictionary<string, Util.RoaringBitmap?>(StringComparer.Ordinal));
 
     private static (Dictionary<string, string[]> Values,
         Dictionary<string, Util.RoaringBitmap?> Presence) ReadSortedDocValues(SegmentReader reader)
         => reader.FileExists(".dvs")
-            ? SortedDocValuesReader.Read(reader.OpenInput(".dvs"))
+            ? SortedDocValuesReader.Read(reader.OpenInput(".dvs"), reader.MaxDoc)
             : (new Dictionary<string, string[]>(StringComparer.Ordinal),
                 new Dictionary<string, Util.RoaringBitmap?>(StringComparer.Ordinal));
 
     private static Dictionary<string, string[][]> ReadSortedSetDocValues(SegmentReader reader)
         => reader.FileExists(".dss")
-            ? SortedSetDocValuesReader.Read(reader.OpenInput(".dss"))
+            ? SortedSetDocValuesReader.Read(reader.OpenInput(".dss"), reader.MaxDoc)
             : new Dictionary<string, string[][]>(StringComparer.Ordinal);
 
     private static Dictionary<string, double[][]> ReadSortedNumericDocValues(SegmentReader reader)
         => reader.FileExists(".dsn")
-            ? SortedNumericDocValuesReader.Read(reader.OpenInput(".dsn"))
+            ? SortedNumericDocValuesReader.Read(reader.OpenInput(".dsn"), reader.MaxDoc)
             : new Dictionary<string, double[][]>(StringComparer.Ordinal);
 
     private static Dictionary<string, long[][]> ReadInt64SortedDocValues(SegmentReader reader)
         => reader.FileExists(".dsnl")
-            ? Int64SortedNumericDocValuesReader.Read(reader.OpenInput(".dsnl"))
+            ? Int64SortedNumericDocValuesReader.Read(reader.OpenInput(".dsnl"), reader.MaxDoc)
             : new Dictionary<string, long[][]>(StringComparer.Ordinal);
 
     private static Dictionary<string, byte[][][]> ReadBinaryDocValues(SegmentReader reader)
         => reader.FileExists(".dvb")
-            ? BinaryDocValuesReader.Read(reader.OpenInput(".dvb"))
+            ? BinaryDocValuesReader.Read(reader.OpenInput(".dvb"), reader.MaxDoc)
             : new Dictionary<string, byte[][][]>(StringComparer.Ordinal);
 
     /// <summary>

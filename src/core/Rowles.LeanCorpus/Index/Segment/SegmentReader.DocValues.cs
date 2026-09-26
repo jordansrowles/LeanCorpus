@@ -210,7 +210,7 @@ internal sealed partial class SegmentReaderState
     private Dictionary<string, TColumn> EnsureDocValuesColumns<TColumn>(
         ref Dictionary<string, TColumn>? columns,
         string extension,
-        Func<IndexInput, Dictionary<string, TColumn>> open)
+        Func<IndexInput, int?, Dictionary<string, TColumn>> open)
     {
         if (columns is not null)
             return columns;
@@ -226,7 +226,7 @@ internal sealed partial class SegmentReaderState
             IndexInput input = _files.OpenInput(extension);
             try
             {
-                Dictionary<string, TColumn> opened = open(input);
+                Dictionary<string, TColumn> opened = open(input, _info.DocCount);
                 _docValuesInputs.Add(input);
                 return columns = opened;
             }

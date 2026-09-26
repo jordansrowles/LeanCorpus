@@ -83,7 +83,8 @@ public sealed class BinaryDocValuesTests : IDisposable
         BinaryDocValuesWriter.Write(path, fields, 1);
         OverwriteInt32(path, TerminalByteOffset(path, fieldName, docCount: 1, valueCount: 1), int.MinValue);
 
-        Assert.Throws<InvalidDataException>(() => BinaryDocValuesReader.Read(path));
+        CodecFileException corruption = Assert.Throws<CodecFileException>(() => BinaryDocValuesReader.Read(path));
+        Assert.Equal(CodecFileErrorCode.SemanticValidationFailure, corruption.ErrorCode);
 
         BinaryDocValuesWriter.Write(path, fields, 1);
         Assert.Equal("alpha", System.Text.Encoding.UTF8.GetString(BinaryDocValuesReader.Read(path)[fieldName][0][0]));

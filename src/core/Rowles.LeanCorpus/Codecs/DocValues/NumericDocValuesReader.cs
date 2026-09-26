@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Util;
@@ -9,7 +8,9 @@ namespace Rowles.LeanCorpus.Codecs.DocValues;
 /// <summary>Opens packed per-document numeric values from a column-stride .dvn file.</summary>
 internal static class NumericDocValuesReader
 {
-    public static (Dictionary<string, double[]> Values, Dictionary<string, RoaringBitmap?> Presence) Read(string filePath)
+    public static (Dictionary<string, double[]> Values, Dictionary<string, RoaringBitmap?> Presence) Read(
+        string filePath,
+        int? expectedDocumentCount = null)
     {
         var values = new Dictionary<string, double[]>(StringComparer.Ordinal);
         var presence = new Dictionary<string, RoaringBitmap?>(StringComparer.Ordinal);
@@ -17,14 +18,16 @@ internal static class NumericDocValuesReader
             return (values, presence);
 
         using var input = new IndexInput(filePath);
-        return Read(input);
+        return Read(input, expectedDocumentCount);
     }
 
-    internal static (Dictionary<string, double[]> Values, Dictionary<string, RoaringBitmap?> Presence) Read(IndexInput input)
+    internal static (Dictionary<string, double[]> Values, Dictionary<string, RoaringBitmap?> Presence) Read(
+        IndexInput input,
+        int? expectedDocumentCount = null)
     {
         using (input)
         {
-            var columns = OpenColumns(input);
+            var columns = OpenColumns(input, expectedDocumentCount);
             var values = new Dictionary<string, double[]>(columns.Count, StringComparer.Ordinal);
             var presence = new Dictionary<string, RoaringBitmap?>(columns.Count, StringComparer.Ordinal);
             foreach ((string field, NumericDocValuesColumn column) in columns)
@@ -37,77 +40,56 @@ internal static class NumericDocValuesReader
     }
 
     /// <summary>
-    /// Parses metadata and retains packed data offsets without expanding the document values.
-    /// The caller owns <paramref name="input"/> for the lifetime of the returned columns.
+    /// Parses and validates metadata while retaining packed data offsets. The caller owns
+    /// <paramref name="input"/> for the lifetime of the returned columns.
     /// </summary>
-    internal static Dictionary<string, NumericDocValuesColumn> OpenColumns(IndexInput input)
+    internal static Dictionary<string, NumericDocValuesColumn> OpenColumns(
+        IndexInput input,
+        int? expectedDocumentCount = null)
     {
         ArgumentNullException.ThrowIfNull(input);
-        var columns = new Dictionary<string, NumericDocValuesColumn>(StringComparer.Ordinal);
         using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.Numeric);
+        var body = new DocValuesBodyReader(input, frame, DocValuesCodecFiles.Numeric, expectedDocumentCount);
+        int fieldCount = body.ReadFieldCount();
+        var columns = new Dictionary<string, NumericDocValuesColumn>(StringComparer.Ordinal);
 
-        int fieldCount = input.ReadInt32();
-        if (fieldCount < 0)
-            throw new InvalidDataException("Numeric DocValues field count cannot be negative.");
-
-        long bodyEnd = checked(frame.BodyStart + frame.BodyLength);
         for (int fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++)
         {
-            string fieldName = ReadString(input);
-            RoaringBitmap? presence = ReadPresence(input, fieldName);
-            int documentCount = input.ReadInt32();
-            if (documentCount < 0)
-                throw new InvalidDataException($"Numeric DocValues field '{fieldName}' has a negative document count.");
+            string fieldName = body.ReadString(fieldName: null);
+            byte[]? presenceBytes = body.ReadPresenceBytes(fieldName);
+            int documentCount = body.ReadDocumentCount(fieldName);
+            RoaringBitmap? presence = body.DecodePresence(presenceBytes, fieldName, documentCount);
+            long minimumBits = body.ReadInt64("minimum value", fieldName);
+            int bitsPerValue = body.ReadByte("bits-per-value", fieldName);
+            if (bitsPerValue > 64)
+                throw body.Corruption(
+                    $"Bits-per-value {bitsPerValue} must be between 0 and 64.",
+                    fieldName);
 
-            long minimumBits = input.ReadInt64();
-            int bitsPerValue = input.ReadByte();
-            if ((uint)bitsPerValue > 64)
-                throw new InvalidDataException(
-                    $"Invalid bits-per-value {bitsPerValue} for numeric DocValues field '{fieldName}'; must be between 0 and 64.");
+            long packedByteCount = body.ReadPackedByteCount(documentCount, bitsPerValue, fieldName);
+            long packedDataOffset = body.Position;
+            body.EnsureBodyBytes(packedByteCount, "packed values", fieldName);
+            var column = new NumericDocValuesColumn(
+                input, documentCount, minimumBits, bitsPerValue, packedDataOffset, presence);
+            if (!columns.TryAdd(fieldName, column))
+                throw body.Corruption("Field name is duplicated.", fieldName);
 
-            long packedByteCount = checked(((long)bitsPerValue * documentCount + 7) / 8);
-            long packedDataOffset = input.Position;
-            if (packedDataOffset > bodyEnd || packedByteCount > bodyEnd - packedDataOffset)
-                throw new InvalidDataException(
-                    $"Numeric DocValues field '{fieldName}' does not contain its declared packed values.");
-
-            columns.Add(fieldName, new NumericDocValuesColumn(
-                input, documentCount, minimumBits, bitsPerValue, packedDataOffset, presence));
-            input.Seek(checked(packedDataOffset + packedByteCount));
+            body.Seek(checked(packedDataOffset + packedByteCount), "packed values", fieldName);
         }
 
+        body.ValidateEnd();
         frame.ValidateChecksum();
         return columns;
     }
 
-    internal static List<(string Name, double[] Values, RoaringBitmap? Presence)> EnumerateFields(string filePath)
+    internal static List<(string Name, double[] Values, RoaringBitmap? Presence)> EnumerateFields(
+        string filePath,
+        int? expectedDocumentCount = null)
     {
-        var (values, presence) = Read(filePath);
+        var (values, presence) = Read(filePath, expectedDocumentCount);
         var result = new List<(string, double[], RoaringBitmap?)>(values.Count);
         foreach ((string field, double[] column) in values)
             result.Add((field, column, presence.GetValueOrDefault(field)));
         return result;
-    }
-
-    private static RoaringBitmap? ReadPresence(IndexInput input, string fieldName)
-    {
-        int presenceByteCount = input.ReadInt32();
-        if (presenceByteCount < 0)
-            throw new InvalidDataException($"Numeric DocValues field '{fieldName}' has a negative presence length.");
-        if (presenceByteCount == 0)
-            return null;
-
-        byte[] bitmapBytes = input.ReadBytes(presenceByteCount);
-        using var stream = new MemoryStream(bitmapBytes, writable: false);
-        using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: false);
-        return RoaringBitmap.Deserialise(reader);
-    }
-
-    private static string ReadString(IndexInput input)
-    {
-        int length = input.ReadVarInt();
-        if (length < 0)
-            throw new InvalidDataException("Negative string length in numeric DocValues.");
-        return Encoding.UTF8.GetString(input.ReadBytes(length));
     }
 }

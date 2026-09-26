@@ -256,6 +256,13 @@ public static class CodecFileHeader
             bodyLength = ~bodyLength;
         if (bodyLength < 0 || bodyLength > int.MaxValue)
             throw new InvalidDataException($"Invalid envelope body length: {bodyLength}");
+        if (reader.BaseStream.CanSeek)
+        {
+            long remaining = reader.BaseStream.Length - reader.BaseStream.Position;
+            if (remaining < 0 || bodyLength > remaining)
+                throw new InvalidDataException(
+                    $"CodecKit envelope is truncated: expected {bodyLength} body bytes, but only {Math.Max(0, remaining)} remain.");
+        }
 
         byte[] body = reader.ReadBytes((int)bodyLength);
         if (body.Length != bodyLength)

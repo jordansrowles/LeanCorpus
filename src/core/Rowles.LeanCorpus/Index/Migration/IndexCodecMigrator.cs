@@ -36,13 +36,13 @@ public static class IndexCodecMigrator
             ["leancorpus.postings.data"] = static context => RewritePostings(context.TargetDirectory, context.Action, context.SegmentIdMap, context.Catalog),
             ["leancorpus.norms.data"] = static context => RewriteNorms(context.SourcePath, context.TargetPath),
             ["leancorpus.field-lengths.data"] = static context => RewriteFieldLengths(context.SourcePath, context.TargetPath),
-            ["leancorpus.doc-values.numeric"] = static context => RewriteNumericDocValues(context.SourcePath, context.TargetPath),
-            ["leancorpus.doc-values.sorted"] = static context => RewriteSortedDocValues(context.SourcePath, context.TargetPath),
-            ["leancorpus.doc-values.sorted-set"] = static context => RewriteSortedSetDocValues(context.SourcePath, context.TargetPath),
-            ["leancorpus.doc-values.sorted-numeric"] = static context => RewriteSortedNumericDocValues(context.SourcePath, context.TargetPath),
-            ["leancorpus.doc-values.binary"] = static context => RewriteBinaryDocValues(context.SourcePath, context.TargetPath),
-            ["leancorpus.doc-values.int64"] = static context => RewriteInt64DocValues(context.SourcePath, context.TargetPath),
-            ["leancorpus.doc-values.int64-sorted-numeric"] = static context => RewriteInt64SortedNumericDocValues(context.SourcePath, context.TargetPath),
+            ["leancorpus.doc-values.numeric"] = static context => RewriteNumericDocValues(context.SourcePath, context.TargetPath, ExpectedSegmentDocumentCount(context)),
+            ["leancorpus.doc-values.sorted"] = static context => RewriteSortedDocValues(context.SourcePath, context.TargetPath, ExpectedSegmentDocumentCount(context)),
+            ["leancorpus.doc-values.sorted-set"] = static context => RewriteSortedSetDocValues(context.SourcePath, context.TargetPath, ExpectedSegmentDocumentCount(context)),
+            ["leancorpus.doc-values.sorted-numeric"] = static context => RewriteSortedNumericDocValues(context.SourcePath, context.TargetPath, ExpectedSegmentDocumentCount(context)),
+            ["leancorpus.doc-values.binary"] = static context => RewriteBinaryDocValues(context.SourcePath, context.TargetPath, ExpectedSegmentDocumentCount(context)),
+            ["leancorpus.doc-values.int64"] = static context => RewriteInt64DocValues(context.SourcePath, context.TargetPath, ExpectedSegmentDocumentCount(context)),
+            ["leancorpus.doc-values.int64-sorted-numeric"] = static context => RewriteInt64SortedNumericDocValues(context.SourcePath, context.TargetPath, ExpectedSegmentDocumentCount(context)),
             ["leancorpus.numeric-structures.bkd"] = static context => RewriteBkd(context.SourcePath, context.TargetPath),
             ["leancorpus.numeric-structures.int64-bkd"] = static context => RewriteInt64Bkd(context.SourcePath, context.TargetPath),
             ["leancorpus.numeric-structures.numeric-index"] = static context => RewriteNumericIndex(context.SourcePath, context.TargetPath),
@@ -978,12 +978,23 @@ public static class IndexCodecMigrator
         }
     }
 
-    private static void RewriteNumericDocValues(string sourcePath, string targetPath)
+    private static int? ExpectedSegmentDocumentCount(MigrationRewriteContext context)
+    {
+        if (context.Action.SegmentId is not string segmentId)
+            return null;
+
+        string segmentInfoPath = Path.Combine(context.TargetDirectory, segmentId + ".seg");
+        return FileOpenRetry.FileExists(segmentInfoPath)
+            ? SegmentInfo.ReadFrom(segmentInfoPath).DocCount
+            : null;
+    }
+
+    private static void RewriteNumericDocValues(string sourcePath, string targetPath, int? expectedDocumentCount)
     {
         // Single pass: enumerate once into memory, so the MMF handle releases
         // before the Move. Two-pass enumeration opens IndexInput twice on the
         // same file, causing LLIDX040 on Windows.
-        var allFields = NumericDocValuesReader.EnumerateFields(sourcePath);
+        var allFields = NumericDocValuesReader.EnumerateFields(sourcePath, expectedDocumentCount);
         if (allFields.Count == 0)
             return;
 
@@ -1003,9 +1014,9 @@ public static class IndexCodecMigrator
         NumericDocValuesWriter.Write(targetPath, fields, maxDocCount, presence, durable: true);
     }
 
-    private static void RewriteSortedDocValues(string sourcePath, string targetPath)
+    private static void RewriteSortedDocValues(string sourcePath, string targetPath, int? expectedDocumentCount)
     {
-        var allFields = SortedDocValuesReader.EnumerateFields(sourcePath);
+        var allFields = SortedDocValuesReader.EnumerateFields(sourcePath, expectedDocumentCount);
         if (allFields.Count == 0)
             return;
 
@@ -1053,9 +1064,9 @@ public static class IndexCodecMigrator
             durable: true);
     }
 
-    private static void RewriteSortedSetDocValues(string sourcePath, string targetPath)
+    private static void RewriteSortedSetDocValues(string sourcePath, string targetPath, int? expectedDocumentCount)
     {
-        var allFields = SortedSetDocValuesReader.EnumerateFields(sourcePath);
+        var allFields = SortedSetDocValuesReader.EnumerateFields(sourcePath, expectedDocumentCount);
         if (allFields.Count == 0)
             return;
 
@@ -1070,9 +1081,9 @@ public static class IndexCodecMigrator
         SortedSetDocValuesWriter.Write(targetPath, fields, maxDocCount, durable: true);
     }
 
-    private static void RewriteSortedNumericDocValues(string sourcePath, string targetPath)
+    private static void RewriteSortedNumericDocValues(string sourcePath, string targetPath, int? expectedDocumentCount)
     {
-        var allFields = SortedNumericDocValuesReader.EnumerateFields(sourcePath);
+        var allFields = SortedNumericDocValuesReader.EnumerateFields(sourcePath, expectedDocumentCount);
         if (allFields.Count == 0)
             return;
 
@@ -1087,9 +1098,9 @@ public static class IndexCodecMigrator
         SortedNumericDocValuesWriter.Write(targetPath, fields, maxDocCount, durable: true);
     }
 
-    private static void RewriteBinaryDocValues(string sourcePath, string targetPath)
+    private static void RewriteBinaryDocValues(string sourcePath, string targetPath, int? expectedDocumentCount)
     {
-        var allFields = BinaryDocValuesReader.EnumerateFields(sourcePath);
+        var allFields = BinaryDocValuesReader.EnumerateFields(sourcePath, expectedDocumentCount);
         if (allFields.Count == 0)
             return;
 
@@ -1104,9 +1115,9 @@ public static class IndexCodecMigrator
         BinaryDocValuesWriter.Write(targetPath, fields, maxDocCount, durable: true);
     }
 
-    private static void RewriteInt64DocValues(string sourcePath, string targetPath)
+    private static void RewriteInt64DocValues(string sourcePath, string targetPath, int? expectedDocumentCount)
     {
-        var (fields, bitmaps) = Int64DocValuesReader.Read(sourcePath);
+        var (fields, bitmaps) = Int64DocValuesReader.Read(sourcePath, expectedDocumentCount);
         if (fields.Count == 0)
             return;
 
@@ -1121,9 +1132,9 @@ public static class IndexCodecMigrator
         Int64DocValuesWriter.Write(targetPath, fields, maxDocCount, presence, durable: true);
     }
 
-    private static void RewriteInt64SortedNumericDocValues(string sourcePath, string targetPath)
+    private static void RewriteInt64SortedNumericDocValues(string sourcePath, string targetPath, int? expectedDocumentCount)
     {
-        var values = Int64SortedNumericDocValuesReader.Read(sourcePath);
+        var values = Int64SortedNumericDocValuesReader.Read(sourcePath, expectedDocumentCount);
         if (values.Count == 0)
             return;
 

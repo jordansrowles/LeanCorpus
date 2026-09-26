@@ -556,11 +556,16 @@ public sealed class RoaringBitmap : IEnumerable<int>
         int payloadLen = bodyReader.ReadInt32();
         if (payloadLen < 0)
             throw new InvalidDataException($"Invalid Roaring bitmap payload length: {payloadLen}.");
+        if (payloadLen > bodyStream.Length - bodyStream.Position - sizeof(uint))
+            throw new InvalidDataException(
+                $"Roaring bitmap payload length {payloadLen} exceeds its bounded body.");
         var payload = bodyReader.ReadBytes(payloadLen);
         if (payload.Length != payloadLen)
             throw new InvalidDataException(
                 $"Roaring bitmap truncated: expected {payloadLen} payload bytes, got {payload.Length}.");
         uint expectedCrc = bodyReader.ReadUInt32();
+        if (bodyStream.Position != bodyStream.Length)
+            throw new InvalidDataException("Roaring bitmap body has trailing bytes.");
         uint actualCrc = Crc32.Compute(payload);
         if (expectedCrc != actualCrc)
             throw new InvalidDataException(
@@ -574,20 +579,30 @@ public sealed class RoaringBitmap : IEnumerable<int>
     private static RoaringBitmap ReadPayload(BinaryReader reader)
     {
         int chunkCount = reader.ReadInt32();
+        if (chunkCount < 0 || chunkCount > (reader.BaseStream.Length - reader.BaseStream.Position) / 3 || chunkCount > 1 << 16)
+            throw new InvalidDataException($"Invalid Roaring bitmap chunk count: {chunkCount}.");
+
         var bitmap = new RoaringBitmap();
         bitmap._keys = new ushort[Math.Max(chunkCount, 4)];
         bitmap._containers = new Container[bitmap._keys.Length];
         bitmap._size = chunkCount;
         bitmap._cardinality = 0;
 
+        ushort previousKey = 0;
         for (int i = 0; i < chunkCount; i++)
         {
             bitmap._keys[i] = reader.ReadUInt16();
+            if (i > 0 && bitmap._keys[i] <= previousKey)
+                throw new InvalidDataException("Roaring bitmap chunk keys are not strictly increasing.");
+            previousKey = bitmap._keys[i];
+
             byte type = reader.ReadByte();
             switch (type)
             {
                 case 0: // Array
                     int count = reader.ReadUInt16();
+                    if (count > (reader.BaseStream.Length - reader.BaseStream.Position) / sizeof(ushort))
+                        throw new InvalidDataException("Roaring array container is truncated.");
                     var values = new ushort[count];
                     for (int j = 0; j < count; j++)
                         values[j] = reader.ReadUInt16();
@@ -595,6 +610,8 @@ public sealed class RoaringBitmap : IEnumerable<int>
                     bitmap._cardinality += count;
                     break;
                 case 1: // Bitmap
+                    if (reader.BaseStream.Length - reader.BaseStream.Position < 1024L * sizeof(ulong))
+                        throw new InvalidDataException("Roaring bitmap container is truncated.");
                     var words = new ulong[1024];
                     int card = 0;
                     for (int w = 0; w < 1024; w++)
@@ -607,6 +624,8 @@ public sealed class RoaringBitmap : IEnumerable<int>
                     break;
                 case 2: // Run
                     int runCount = reader.ReadUInt16();
+                    if (runCount > (reader.BaseStream.Length - reader.BaseStream.Position) / (2L * sizeof(ushort)))
+                        throw new InvalidDataException("Roaring run container is truncated.");
                     var runs = new (ushort Start, ushort Length)[runCount];
                     int runCard = 0;
                     for (int r = 0; r < runCount; r++)
@@ -621,6 +640,9 @@ public sealed class RoaringBitmap : IEnumerable<int>
                     throw new InvalidDataException($"Unknown container type: {type}");
             }
         }
+
+        if (reader.BaseStream.Position != reader.BaseStream.Length)
+            throw new InvalidDataException("Roaring bitmap payload has trailing bytes.");
 
         return bitmap;
     }

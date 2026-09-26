@@ -731,13 +731,13 @@ public static class IndexValidator
 
     private static void ValidateDocValuesDeep(string basePath, SegmentInfo info, IndexCheckResult result)
     {
-        TryReadDocValues(basePath + ".dvn", info, result, static path => NumericDocValuesReader.Read(path).Values.Values.Select(static values => values.Length));
-        TryReadDocValues(basePath + ".dvs", info, result, static path => SortedDocValuesReader.Read(path).Values.Values.Select(static values => values.Length));
-        TryReadDocValues(basePath + ".dss", info, result, static path => SortedSetDocValuesReader.Read(path).Values.Select(static values => values.Length));
-        TryReadDocValues(basePath + ".dsn", info, result, static path => SortedNumericDocValuesReader.Read(path).Values.Select(static values => values.Length));
-        TryReadDocValues(basePath + ".dvb", info, result, static path => BinaryDocValuesReader.Read(path).Values.Select(static values => values.Length));
-        TryReadDocValues(basePath + ".dvnl", info, result, static path => Int64DocValuesReader.Read(path).Values.Values.Select(static values => values.Length));
-        TryReadDocValues(basePath + ".dsnl", info, result, static path => Int64SortedNumericDocValuesReader.Read(path).Values.Select(static values => values.Length));
+        TryReadDocValues(basePath + ".dvn", info, result, path => NumericDocValuesReader.Read(path, info.DocCount).Values.Values.Select(static values => values.Length));
+        TryReadDocValues(basePath + ".dvs", info, result, path => SortedDocValuesReader.Read(path, info.DocCount).Values.Values.Select(static values => values.Length));
+        TryReadDocValues(basePath + ".dss", info, result, path => SortedSetDocValuesReader.Read(path, info.DocCount).Values.Select(static values => values.Length));
+        TryReadDocValues(basePath + ".dsn", info, result, path => SortedNumericDocValuesReader.Read(path, info.DocCount).Values.Select(static values => values.Length));
+        TryReadDocValues(basePath + ".dvb", info, result, path => BinaryDocValuesReader.Read(path, info.DocCount).Values.Select(static values => values.Length));
+        TryReadDocValues(basePath + ".dvnl", info, result, path => Int64DocValuesReader.Read(path, info.DocCount).Values.Values.Select(static values => values.Length));
+        TryReadDocValues(basePath + ".dsnl", info, result, path => Int64SortedNumericDocValuesReader.Read(path, info.DocCount).Values.Select(static values => values.Length));
     }
 
     private static void TryReadDocValues(

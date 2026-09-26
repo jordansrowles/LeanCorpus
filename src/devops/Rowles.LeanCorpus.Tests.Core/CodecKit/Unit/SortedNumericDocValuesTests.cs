@@ -78,7 +78,8 @@ public sealed class SortedNumericDocValuesTests : IDisposable
         SortedNumericDocValuesWriter.Write(path, fields, 1);
         OverwriteInt32(path, StartsOffset(path, fieldName), 1);
 
-        Assert.ThrowsAny<InvalidDataException>(() => SortedNumericDocValuesReader.Read(path));
+        CodecFileException corruption = Assert.Throws<CodecFileException>(() => SortedNumericDocValuesReader.Read(path));
+        Assert.Equal(CodecFileErrorCode.SemanticValidationFailure, corruption.ErrorCode);
     }
 
     private static int StartsOffset(string path, string fieldName)
@@ -123,7 +124,8 @@ public sealed class SortedNumericDocValuesTests : IDisposable
         long offset = BitsPerValueByteOffset(path, fieldName, docCount: 2);
         OverwriteByte(path, offset, 65);
 
-        Assert.ThrowsAny<InvalidDataException>(() => SortedNumericDocValuesReader.Read(path));
+        CodecFileException corruption = Assert.Throws<CodecFileException>(() => SortedNumericDocValuesReader.Read(path));
+        Assert.Equal(CodecFileErrorCode.SemanticValidationFailure, corruption.ErrorCode);
     }
 
     /// <summary>
