@@ -68,6 +68,36 @@ public class FieldLengthTests : IDisposable
         Assert.Equal(data["body"], loaded["body"]);
     }
 
+    [Fact(DisplayName = "Flush: Field lengths persist only the logical document range")]
+    public void Flush_FieldLengths_PersistOnlyLogicalDocumentRange()
+    {
+        var path = Path.Combine(_dir, "logical-range.fln");
+        var data = new Dictionary<string, int[]>
+        {
+            ["body"] = [17, 23, 42, 0x12345678, int.MaxValue]
+        };
+
+        FieldLengthWriter.Write(path, data, docCount: 3);
+        var loaded = FieldLengthReader.TryRead(path);
+
+        Assert.NotNull(loaded);
+        Assert.Equal([17, 23, 42], loaded["body"]);
+        Assert.Equal(3, loaded["body"].Length);
+    }
+
+    [Fact(DisplayName = "Flush: Field lengths reject a document count beyond the source range")]
+    public void Flush_FieldLengths_RejectDocumentCountBeyondSourceRange()
+    {
+        var path = Path.Combine(_dir, "short-range.fln");
+        var data = new Dictionary<string, int[]>
+        {
+            ["body"] = [17, 23]
+        };
+
+        Assert.Throws<ArgumentException>(() => FieldLengthWriter.Write(path, data, docCount: 3));
+        Assert.False(File.Exists(path));
+    }
+
     /// <summary>
     /// Verifies the Try Read: Missing File Returns Null scenario.
     /// </summary>
@@ -79,23 +109,35 @@ public class FieldLengthTests : IDisposable
     }
 
     /// <summary>
-    /// Verifies the Clamp To Ushort Max scenario.
+    /// Verifies field lengths above UInt16 are persisted exactly.
     /// </summary>
-    [Fact(DisplayName = "Clamp To Ushort Max")]
-    public void ClampToUshortMax()
+    [Fact(DisplayName = "Field lengths above UInt16 round-trip exactly")]
+    public void FieldLengthsBeyondUshortMax_RoundTripExactly()
     {
-        var path = Path.Combine(_dir, "clamp.fln");
+        var path = Path.Combine(_dir, "large-lengths.fln");
         var data = new Dictionary<string, int[]>
         {
-            ["field"] = [70000, 100000] // exceeds ushort max
+            ["field"] = [65535, 65536, 100000, 1_000_000]
         };
 
         FieldLengthWriter.Write(path, data);
         var loaded = FieldLengthReader.TryRead(path);
 
         Assert.NotNull(loaded);
-        Assert.Equal(65535, loaded["field"][0]);
-        Assert.Equal(65535, loaded["field"][1]);
+        Assert.Equal(data["field"], loaded["field"]);
+    }
+
+    [Fact(DisplayName = "Field lengths reject negative token counts")]
+    public void FieldLengths_NegativeTokenCount_ThrowsArgumentOutOfRange()
+    {
+        var path = Path.Combine(_dir, "negative-length.fln");
+        var data = new Dictionary<string, int[]>
+        {
+            ["field"] = [1, -1]
+        };
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => FieldLengthWriter.Write(path, data));
+        Assert.False(File.Exists(path));
     }
 
     /// <summary>

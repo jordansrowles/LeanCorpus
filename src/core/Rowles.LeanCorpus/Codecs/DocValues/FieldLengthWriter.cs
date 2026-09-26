@@ -13,8 +13,17 @@ namespace Rowles.LeanCorpus.Codecs.DocValues;
 internal static class FieldLengthWriter
 {
 
-    internal static void WriteFieldBlock(IBufferWriter<byte> bw, string fieldName, int[] lengths)
+    internal static void WriteFieldBlock(IBufferWriter<byte> bw, string fieldName, ReadOnlySpan<int> lengths)
     {
+        for (int i = 0; i < lengths.Length; i++)
+        {
+            if (lengths[i] < 0)
+                throw new ArgumentOutOfRangeException(
+                    nameof(lengths),
+                    lengths[i],
+                    $"Field '{fieldName}' length at document {i} must be non-negative.");
+        }
+
         int count = lengths.Length;
         var fieldBytes = Encoding.UTF8.GetBytes(fieldName);
         bw.WriteInt32(fieldBytes.Length);
@@ -22,20 +31,31 @@ internal static class FieldLengthWriter
         bw.WriteInt32(count);
 
         for (int i = 0; i < count; i++)
-        {
-            int val = Math.Clamp(lengths[i], 0, ushort.MaxValue);
-            bw.Write7BitEncodedInt(val);
-        }
+            bw.Write7BitEncodedInt(lengths[i]);
     }
 
     internal static void Write(string filePath, IReadOnlyDictionary<string, int[]> fieldTokenCounts, int docCount = -1, bool durable = false)
     {
+        if (docCount < -1)
+            throw new ArgumentOutOfRangeException(nameof(docCount), "Document count must be non-negative or -1 to use each field array's length.");
+
+        foreach (var (fieldName, counts) in fieldTokenCounts)
+        {
+            if (docCount > counts.Length)
+                throw new ArgumentException(
+                    $"Field '{fieldName}' has {counts.Length} lengths, fewer than the requested document count {docCount}.",
+                    nameof(fieldTokenCounts));
+        }
+
         var descriptor = CodecCatalog.Default.GetFile("leancorpus.field-lengths.data");
         CodecFileWriter.WriteAtomically(filePath, descriptor, durable, bodyOutput =>
         {
             bodyOutput.WriteInt32(fieldTokenCounts.Count);
             foreach (var (fieldName, counts) in fieldTokenCounts)
-                WriteFieldBlock(bodyOutput, fieldName, counts);
+            {
+                int count = docCount < 0 ? counts.Length : docCount;
+                WriteFieldBlock(bodyOutput, fieldName, counts.AsSpan(0, count));
+            }
         });
     }
 }
