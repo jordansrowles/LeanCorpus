@@ -52,7 +52,7 @@
 - Compile query-string clauses with the analyser configured for their selected schema field.
 - Preserve query-token escape metadata through wildcard, range, and phrase parsing so escaped metacharacters remain literal.
 - Preserve position lengths through legacy filter routing and cached graph replay, with independent cache clones.
-- Map character-filter token offsets back to original UTF-16 input across chained transformations.
+- Return `CharFilterResult` from `ICharFilter` with composable UTF-16 offset corrections, mapping indexed token offsets back to original input across chained transformations. This breaks the published Rowles.Text 1.x filter API and advances the package to 2.0.0.
 - Compile phrase token graphs iteratively within explicit traversal and output limits.
 - Preserve position lengths and absolute graph edges through common-gram generation and replay.
 - Unicode tokenisers recognise supplementary letters and digits while preserving UTF-16 offsets; unpaired surrogates delimit words.

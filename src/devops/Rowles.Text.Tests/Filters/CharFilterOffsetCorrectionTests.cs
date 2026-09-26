@@ -124,6 +124,9 @@ public sealed class CharFilterOffsetCorrectionTests
 
     private static void AssertTargetOffsets(CharFilterResult result, string source, int startOffset, int endOffset)
     {
+        Assert.Equal(source.Length, result.OffsetCorrections.InputLength);
+        Assert.Equal(result.Text.Length, result.OffsetCorrections.OutputLength);
+
         var sink = new MaterialisingTokenSink();
         result.Analyse(new WhitespaceAnalyser(), sink);
 
