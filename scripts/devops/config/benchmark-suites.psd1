@@ -64,7 +64,7 @@
     hybrid               = 'HybridSearchBenchmarks'
     vq                   = 'VectorQuantisationBenchmarks'
     'compound-file'      = 'CompoundFileBenchmarks'
-    'stored-fields'      = 'StoredFieldsReadBenchmarks -- concurrent same-segment retrieval'
+    'stored-fields'      = 'StoredFieldsReadBenchmarks and StoredFieldsByteBoundedBenchmarks -- concurrent reads and byte-bounded read allocation'
     'tv-highlighter'     = 'TermVectorHighlighterBenchmarks'
     'analysis-parity'    = 'AnalyserParityBenchmarks'
     'analysis-filters'   = 'TokenFilterBenchmarks'
