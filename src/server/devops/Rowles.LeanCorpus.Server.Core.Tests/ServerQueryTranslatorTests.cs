@@ -97,6 +97,29 @@ public sealed class ServerQueryTranslatorTests
         Assert.Equal("query_too_complex", failure?.Code);
     }
 
+    [Fact]
+    public void StructuredAndTextClausesShareOneCompilationBudget()
+    {
+        BooleanQueryDefinition definition = new(Should:
+        [
+            new TermQueryDefinition("title", "guide"),
+            new QueryStringDefinition("search")
+        ]);
+
+        bool translated = ServerQueryTranslator.TryTranslate(
+            definition,
+            CreateSchema(),
+            new ServerCoreOptions { MaximumBooleanClauses = 2 },
+            defaultField: "title",
+            maximumBooleanClauses: null,
+            out var query,
+            out var failure);
+
+        Assert.False(translated);
+        Assert.Null(query);
+        Assert.Equal("query_too_complex", failure?.Code);
+    }
+
     private static CompiledIndexSchema CreateSchema() => CompiledIndexSchema.Create(
         new IndexSchema(
             [
