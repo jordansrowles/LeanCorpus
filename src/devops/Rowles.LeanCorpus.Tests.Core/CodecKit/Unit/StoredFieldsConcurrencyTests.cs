@@ -65,12 +65,14 @@ public sealed class StoredFieldsConcurrencyTests : IClassFixture<TestDirectoryFi
 
             start.SignalAndWait(TestContext.Current.CancellationToken);
             await Task.WhenAll(read, hasField).WaitAsync(TestContext.Current.CancellationToken);
+            var readValues = await read;
+            bool hasBodyField = await hasField;
 
             Assert.True(barrierCodec.MaximumConcurrentDecodes >= 2,
                 "Stored-field blocks were decoded serially through the shared reader lock.");
-            Assert.Equal($"{marker}-0", read.Result["id"][0].StringValue);
-            Assert.Equal("stored-body-0", read.Result["body"][0].StringValue);
-            Assert.True(hasField.Result);
+            Assert.Equal($"{marker}-0", readValues["id"][0].StringValue);
+            Assert.Equal("stored-body-0", readValues["body"][0].StringValue);
+            Assert.True(hasBodyField);
             Assert.Throws<ArgumentOutOfRangeException>(() => reader.ReadDocumentValues(-1));
             Assert.Equal($"{marker}-3", reader.ReadDocumentValues(3)["id"][0].StringValue);
 
