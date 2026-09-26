@@ -217,9 +217,6 @@ internal sealed class StoredFieldsReader : IDisposable
             if (compLength <= 0 || compLength > StoredFieldsBlockPolicy.MaximumRawBytes)
                 throw new InvalidDataException(
                     $"Stored fields block compLength {compLength} exceeds maximum {StoredFieldsBlockPolicy.MaximumRawBytes}.");
-            if (compLength > (long)rawLength * 2)
-                throw new InvalidDataException(
-                    $"Stored fields block compressed length {compLength} exceeds 2x raw length {rawLength}.");
             if (variableBlockCounts && rawLength > StoredFieldsBlockPolicy.TargetRawBytes && blockDocCount != 1)
                 throw new InvalidDataException(
                     $"Stored fields block rawLength {rawLength} exceeds target {StoredFieldsBlockPolicy.TargetRawBytes} for {blockDocCount} documents.");
@@ -507,9 +504,6 @@ internal sealed class StoredFieldsReader : IDisposable
                     throw new InvalidDataException($"Stored fields block rawLength {rawLength} exceeds maximum {MaxDecompressedBlockBytes}.");
                 if (compLength <= 0 || compLength > MaxDecompressedBlockBytes)
                     throw new InvalidDataException($"Stored fields block compLength {compLength} exceeds maximum {MaxDecompressedBlockBytes}.");
-                // Compression should not expand data beyond a 2x ratio; reject obvious bombs.
-                if (compLength > (long)rawLength * 2)
-                    throw new InvalidDataException($"Stored fields block compressed length {compLength} exceeds 2x raw length {rawLength}.");
                 if (_blockDocStarts is not null && rawLength > StoredFieldsBlockPolicy.TargetRawBytes && docCount != 1)
                     throw new InvalidDataException(
                         $"Stored fields block rawLength {rawLength} exceeds target {StoredFieldsBlockPolicy.TargetRawBytes} for {docCount} documents.");

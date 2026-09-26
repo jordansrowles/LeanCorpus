@@ -131,6 +131,41 @@ public sealed class StoredFieldsConcurrencyTests : IClassFixture<TestDirectoryFi
         }
     }
 
+    [Fact(DisplayName = "Stored Fields: writer and reader round-trip codec output larger than twice the raw block")]
+    public void WriteAndRead_ExpandingCodecOutput_RoundTrips()
+    {
+        const string marker = "core055-expanding-codec-round-trip";
+        string path = Path.Combine(_fixture.Path, $"sf-expanding-compression-{Guid.NewGuid():N}");
+        List<Dictionary<string, List<string>>> docs =
+        [
+            new(StringComparer.Ordinal) { ["id"] = [marker] }
+        ];
+
+        var originalCodec = CompressionCodecRegistry.Get(FieldCompressionPolicy.Deflate);
+        var expandingCodec = new ExpandingFieldCompressionCodec(originalCodec, Encoding.UTF8.GetBytes(marker));
+        CompressionCodecRegistry.Register(expandingCodec);
+        try
+        {
+            StoredFieldsWriter.Write(
+                path + ".fdt",
+                path + ".fdx",
+                docs,
+                blockSize: 1,
+                compression: FieldCompressionPolicy.Deflate);
+
+            using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
+            var values = reader.ReadDocumentValues(0);
+
+            Assert.True(expandingCodec.ExpandedBeyondTwiceRawLength);
+            Assert.Equal(marker, values["id"][0].StringValue);
+            Assert.True(reader.HasField(0, "id"));
+        }
+        finally
+        {
+            CompressionCodecRegistry.Register(originalCodec);
+        }
+    }
+
     private sealed class ConcurrentDecodeBarrierCodec : IFieldCompressionCodec, IDisposable
     {
         private readonly IFieldCompressionCodec _inner;
@@ -194,6 +229,44 @@ public sealed class StoredFieldsConcurrencyTests : IClassFixture<TestDirectoryFi
             if (raw.AsSpan().IndexOf(marker) >= 0 && Interlocked.Exchange(ref _shouldFail, 0) == 1)
                 throw new InvalidDataException("Injected stored-field decompression failure.");
             return raw;
+        }
+    }
+
+    private sealed class ExpandingFieldCompressionCodec(IFieldCompressionCodec inner, byte[] marker) : IFieldCompressionCodec
+    {
+        private const byte PaddingByte = 0xA5;
+        private static ReadOnlySpan<byte> Header => "SFEXP001"u8;
+        private int _expandedBeyondTwiceRawLength;
+
+        public byte PolicyByte => inner.PolicyByte;
+
+        internal bool ExpandedBeyondTwiceRawLength => Volatile.Read(ref _expandedBeyondTwiceRawLength) != 0;
+
+        public byte[] Compress(ReadOnlySpan<byte> raw)
+        {
+            if (raw.IndexOf(marker) < 0)
+                return inner.Compress(raw);
+
+            int compressedLength = checked(Header.Length + checked(raw.Length * 3));
+            var compressed = new byte[compressedLength];
+            Header.CopyTo(compressed);
+            raw.CopyTo(compressed.AsSpan(Header.Length));
+            compressed.AsSpan(Header.Length + raw.Length).Fill(PaddingByte);
+            Volatile.Write(ref _expandedBeyondTwiceRawLength, compressedLength > (long)raw.Length * 2 ? 1 : 0);
+            return compressed;
+        }
+
+        public byte[] Decompress(ReadOnlySpan<byte> compressed, int originalSize)
+        {
+            if (!compressed.StartsWith(Header))
+                return inner.Decompress(compressed, originalSize);
+
+            int expectedLength = checked(Header.Length + checked(originalSize * 3));
+            if (compressed.Length != expectedLength ||
+                compressed[(Header.Length + originalSize)..].IndexOfAnyExcept(PaddingByte) >= 0)
+                throw new InvalidDataException("Expanding test codec received an invalid payload.");
+
+            return compressed.Slice(Header.Length, originalSize).ToArray();
         }
     }
 }

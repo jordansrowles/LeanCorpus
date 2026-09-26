@@ -243,9 +243,6 @@ internal static class StoredFieldsWriter
         if (compLength <= 0 || compLength > StoredFieldsBlockPolicy.MaximumRawBytes)
             throw new InvalidDataException(
                 $"Stored fields block compLength {compLength} exceeds maximum {StoredFieldsBlockPolicy.MaximumRawBytes}.");
-        if (compLength > (long)rawLength * 2)
-            throw new InvalidDataException(
-                $"Stored fields block compressed length {compLength} exceeds 2x raw length {rawLength}.");
     }
 
     private static void WriteFdx(string fdxPath, int blockSize, int docCount, List<long> blockOffsets)
