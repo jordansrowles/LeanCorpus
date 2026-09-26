@@ -337,6 +337,9 @@ internal static class Program
         if (suites.Contains(BenchmarkSuite.DocValuesRead))
             RunSuite<DocValuesReadBenchmarks>("docvalues-read", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
+        if (runAll || suites.Contains(BenchmarkSuite.StoredFieldsRead))
+            RunSuite<StoredFieldsReadBenchmarks>("stored-fields", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
         if (suites.Contains(BenchmarkSuite.BKDTree))
             RunSuite<BKDTreeBenchmarks>("bkd", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
@@ -731,6 +734,7 @@ internal static class Program
               vq                  VectorQuantisationBenchmarks -- HNSW search with vector quantisation (vs Lucene.NET flat scan)
               hnsw                HnswSearchBenchmarks -- HNSW graph search vs flat scan (vs Lucene.NET baseline)
               hybrid              HybridSearchBenchmarks -- vector filters and text-vector RRF
+              stored-fields       StoredFieldsReadBenchmarks -- concurrent reads from one warm stored-fields block
               tokenbudget         TokenBudgetBenchmarks -- token budget enforcement overhead (explicit only)
               diagnostics         DiagnosticsBenchmarks -- SlowQueryLog + Analytics hook overhead (explicit only)
               packed-int-codec    PackedIntCodecBenchmarks -- Pack/Unpack scalar loop throughput (explicit only)
@@ -895,6 +899,7 @@ internal static class Program
             "nearest" or "spatial-nearest" => BenchmarkSuite.SpatialNearest,
             "shape" or "shapes" => BenchmarkSuite.ShapeSpatial,
             "docvalues-read" or "docvaluesread" => BenchmarkSuite.DocValuesRead,
+            "stored-fields" or "storedfields" => BenchmarkSuite.StoredFieldsRead,
             "bkd" or "bkd-tree" => BenchmarkSuite.BKDTree,
             "fst-lookup" or "fstlookup" => BenchmarkSuite.FstLookup,
             "mmap-io" or "mmapio" => BenchmarkSuite.MMapIO,
@@ -1035,6 +1040,7 @@ internal static class Program
         SpatialNearest,
         ShapeSpatial,
         DocValuesRead,
+        StoredFieldsRead,
         BKDTree,
         FstLookup,
         MMapIO,

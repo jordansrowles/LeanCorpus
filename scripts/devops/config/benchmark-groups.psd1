@@ -12,6 +12,7 @@
 @{
     'MMapIO'        = @{ Area = 'Store';         Globs = @('src/core/Rowles.LeanCorpus/Store/**');                 Project = 'core'; Benchmarks = @('MMapDirectoryIOBenchmarks', 'CompoundFileBenchmarks') }
     'CodecKit'      = @{ Area = 'CodecKit';      Globs = @('src/core/Rowles.LeanCorpus/Codecs/**');                Project = 'core'; Benchmarks = @('PackedIntCodecBenchmarks', 'CodecFrameBenchmarks', 'DocValuesReadBenchmarks', 'FstLookupBenchmarks') }
+    'StoredFields'  = @{ Area = 'CodecKit';      Globs = @('src/core/Rowles.LeanCorpus/Codecs/StoredFields/**'); Project = 'core'; Benchmarks = @('StoredFieldsReadBenchmarks') }
     'Search'        = @{ Area = 'Search';        Globs = @('src/core/Rowles.LeanCorpus/Search/**');                Project = 'core'; Benchmarks = @('TermQueryBenchmarks', 'BooleanQueryBenchmarks', 'PhraseQueryBenchmarks', 'HnswSearchBenchmarks') }
     'Indexing'      = @{ Area = 'Index';         Globs = @('src/core/Rowles.LeanCorpus/Index/**');                 Project = 'core'; Benchmarks = @('IndexingBenchmarks', 'MergeBenchmarks', 'FlushBenchmarks', 'PostingsArenaBenchmarks', 'DeletionQueueBenchmarks') }
     'Diagnostics'   = @{ Area = 'Diagnostics';   Globs = @('src/core/Rowles.LeanCorpus/Diagnostics/**');           Project = 'core'; Benchmarks = @('DiagnosticsBenchmarks', 'NumericAggregatorSimdBenchmarks') }
