@@ -396,9 +396,10 @@ public sealed class IndexValidatorGapsTests : IDisposable
 
         var result = IndexValidator.Check(new MMapDirectory(dir));
 
-        Assert.Contains(result.DetailedIssues,
+        var mappingIssue = Assert.Single(result.DetailedIssues.Where(
             issue => issue.Code == IndexCheckIssueCodes.StoredFieldsReadFailure &&
-                     (issue.FileName ?? string.Empty).EndsWith(".fdt", StringComparison.Ordinal));
+                     (issue.FileName ?? string.Empty).EndsWith(".fdt", StringComparison.Ordinal)));
+        Assert.Contains("allowed count", mappingIssue.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     // CheckDeletionGeneration: missing del file when live docs < doc count

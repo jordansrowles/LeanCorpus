@@ -23,7 +23,7 @@ public sealed class HistoricalIndexFixtureTests : IClassFixture<TestDirectoryFix
         { HistoricalIndexFixture.Version200Loose, true, false, 3 },
         { HistoricalIndexFixture.Version230Loose, true, false, 3 },
         { HistoricalIndexFixture.Version230Compound, true, true, 4 },
-        { HistoricalIndexFixture.Version300CurrentLoose, false, false, 3 },
+        { HistoricalIndexFixture.Version300CurrentLoose, true, false, 3 },
     };
 
     [Theory(DisplayName = "Historical full index: inspect, search, validate and migrate")]

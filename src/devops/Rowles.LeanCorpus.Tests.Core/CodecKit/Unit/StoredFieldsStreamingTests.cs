@@ -225,6 +225,27 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         Assert.Contains("maximum block size", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact(DisplayName = "Stored Fields: writers reject document limits beyond the reader maximum")]
+    public void Writers_RejectMaximumDocumentCountBeyondSharedLimit()
+    {
+        var path = Path.Combine(_fixture.Path, $"sf-invalid-block-size-{Guid.NewGuid():N}");
+        int tooManyDocuments = StoredFieldsBlockPolicy.MaximumDocumentCount + 1;
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => StoredFieldsWriter.Write(
+            path + ".fdt",
+            path + ".fdx",
+            Array.Empty<Dictionary<string, List<string>>>(),
+            blockSize: tooManyDocuments));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new StoredFieldsStreamWriter(
+            path + "-stream.fdt",
+            path + "-stream.fdx",
+            blockSize: tooManyDocuments));
+        Assert.False(File.Exists(path + ".fdt"));
+        Assert.False(File.Exists(path + ".fdx"));
+        Assert.False(File.Exists(path + "-stream.fdt"));
+        Assert.False(File.Exists(path + "-stream.fdx"));
+    }
+
     [Fact(DisplayName = "Stored Fields: reader exposes DocCount and rejects out-of-range docId")]
     public void Reader_DocCount_AndBoundsCheck()
     {
