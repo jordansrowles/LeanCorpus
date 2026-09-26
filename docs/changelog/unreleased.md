@@ -40,6 +40,7 @@
 
 - Validate the stored-field block document-count limit consistently in writer configuration, direct and stream writers, readers, and index inspection.
 - Reject Binary DocValues field payloads above 2,147,483,646 bytes before writing offsets or publishing the `.dvb` file, using checked 64-bit size accounting while preserving the current 32-bit offset format.
+- Validate DocValues frame lengths, field and document counts, offsets, and presence payloads before allocating; reject malformed counts and body overruns as codec corruption.
 - Accept stored-field codec output larger than twice its raw size while retaining independent block-size and file-bound checks.
 - Reject malformed stored-field document metadata with bounded document spans, validated block offsets and consistent corruption errors across retrieval and field checks.
 - Bound stored-field blocks by a 1 MiB raw-byte target as well as the configured document maximum, isolate larger documents up to the shared 256 MiB hard limit, and write the variable-count layout as stored-fields v4 while keeping v1-v3 readable.
