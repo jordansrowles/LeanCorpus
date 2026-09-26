@@ -99,6 +99,28 @@ public sealed class AdvancedAnalysisIntegrationTests : IClassFixture<TestDirecto
         Assert.Equal(1, searcher.Search(phrase, 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
+    [Fact(DisplayName = "CommonGrams Filter: Correct graph alternatives remain searchable after flattening")]
+    public void CommonGramsFilter_GraphAlternatives_PreservePhraseAndBigramSearch()
+    {
+        using var directory = new MMapDirectory(SubDir("common_grams_graph"));
+        var analyser = new Analyser(
+            new Tokeniser(),
+            new CommonGramsFilter(["the", "quick"]),
+            new FlattenGraphFilter());
+
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig { DefaultAnalyser = analyser }))
+        {
+            var document = new LeanDocument();
+            document.Add(new TextField("body", "the quick fox"));
+            writer.AddDocument(document);
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(directory);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "the_quick"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(1, searcher.Search(new PhraseQuery("body", "the", "quick", "fox"), 10, TestContext.Current.CancellationToken).TotalHits);
+    }
+
     [Fact(DisplayName = "Hunspell Stem Filter: Stemmed Term Matches Inflected Document")]
     public void HunspellStemFilter_StemmedTerm_MatchesInflectedDocument()
     {
