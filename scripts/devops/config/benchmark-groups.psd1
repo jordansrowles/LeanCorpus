@@ -11,7 +11,7 @@
 
 @{
     'MMapIO'        = @{ Area = 'Store';         Globs = @('src/core/Rowles.LeanCorpus/Store/**');                 Project = 'core'; Benchmarks = @('MMapDirectoryIOBenchmarks', 'CompoundFileBenchmarks') }
-    'CodecKit'      = @{ Area = 'CodecKit';      Globs = @('src/core/Rowles.LeanCorpus/Codecs/**');                Project = 'core'; Benchmarks = @('PackedIntCodecBenchmarks', 'CodecFrameBenchmarks', 'DocValuesReadBenchmarks', 'FstLookupBenchmarks') }
+    'CodecKit'      = @{ Area = 'CodecKit';      Globs = @('src/core/Rowles.LeanCorpus/Codecs/**');                Project = 'core'; Benchmarks = @('PackedIntCodecBenchmarks', 'CodecFrameBenchmarks', 'DocValuesReadBenchmarks', 'BinaryDocValuesWriteBenchmarks', 'FstLookupBenchmarks') }
     'StoredFields'  = @{ Area = 'CodecKit';      Globs = @('src/core/Rowles.LeanCorpus/Codecs/StoredFields/**'); Project = 'core'; Benchmarks = @('StoredFieldsReadBenchmarks', 'StoredFieldsByteBoundedBenchmarks') }
     'Search'        = @{ Area = 'Search';        Globs = @('src/core/Rowles.LeanCorpus/Search/**');                Project = 'core'; Benchmarks = @('TermQueryBenchmarks', 'BooleanQueryBenchmarks', 'PhraseQueryBenchmarks', 'HnswSearchBenchmarks') }
     'Indexing'      = @{ Area = 'Index';         Globs = @('src/core/Rowles.LeanCorpus/Index/**');                 Project = 'core'; Benchmarks = @('IndexingBenchmarks', 'MergeBenchmarks', 'FlushBenchmarks', 'PostingsArenaBenchmarks', 'DeletionQueueBenchmarks') }

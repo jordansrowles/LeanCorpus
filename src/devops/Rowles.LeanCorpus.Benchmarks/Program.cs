@@ -110,6 +110,7 @@ internal static class Program
                 BenchmarkSuite.SpatialNearest,
                 BenchmarkSuite.ShapeSpatial,
                 BenchmarkSuite.DocValuesRead,
+                BenchmarkSuite.DocValuesWrite,
                 BenchmarkSuite.BKDTree,
                 BenchmarkSuite.FstLookup,
                 BenchmarkSuite.MMapIO,
@@ -339,6 +340,9 @@ internal static class Program
 
         if (suites.Contains(BenchmarkSuite.DocValuesRead))
             RunSuite<DocValuesReadBenchmarks>("docvalues-read", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.DocValuesWrite))
+            RunSuite<BinaryDocValuesWriteBenchmarks>("docvalues-write", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (runAll || suites.Contains(BenchmarkSuite.StoredFieldsRead))
         {
@@ -761,6 +765,7 @@ internal static class Program
               nearest              SpatialNearestBenchmarks and compatibility suite -- exact sort vs best-first Geo/XY Top-N, with legacy/packed comparison (explicit only)
               shape                Shape indexing/relations, Shape DocValues serialisation/read/traversal/merge-copy, and WKT/simplification (explicit only)
               docvalues-read      DocValuesReadBenchmarks -- DocValues read throughput (explicit only)
+              docvalues-write     BinaryDocValuesWriteBenchmarks -- binary payload-offset accounting and block writing (explicit only)
               bkd                 BKDTreeBenchmarks -- BKD range search throughput (explicit only)
               fst-lookup          FstLookupBenchmarks -- FST term dictionary lookup (explicit only)
               mmap-io             MMapDirectoryIOBenchmarks -- raw I/O throughput (explicit only)
@@ -908,6 +913,7 @@ internal static class Program
             "nearest" or "spatial-nearest" => BenchmarkSuite.SpatialNearest,
             "shape" or "shapes" => BenchmarkSuite.ShapeSpatial,
             "docvalues-read" or "docvaluesread" => BenchmarkSuite.DocValuesRead,
+            "docvalues-write" or "docvalueswrite" => BenchmarkSuite.DocValuesWrite,
             "stored-fields" or "storedfields" => BenchmarkSuite.StoredFieldsRead,
             "bkd" or "bkd-tree" => BenchmarkSuite.BKDTree,
             "fst-lookup" or "fstlookup" => BenchmarkSuite.FstLookup,
@@ -1049,6 +1055,7 @@ internal static class Program
         SpatialNearest,
         ShapeSpatial,
         DocValuesRead,
+        DocValuesWrite,
         StoredFieldsRead,
         BKDTree,
         FstLookup,

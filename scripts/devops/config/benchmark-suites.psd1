@@ -55,6 +55,7 @@
     nearest              = 'SpatialNearestBenchmarks'
     shape                = 'Shape indexing/relations, Shape DocValues serialisation/read/traversal/merge-copy, and WKT/simplification'
     'docvalues-read'     = 'DocValuesReadBenchmarks'
+    'docvalues-write'    = 'BinaryDocValuesWriteBenchmarks -- binary payload-offset accounting and block write'
     bkd                  = 'BKDTreeBenchmarks'
     'fst-lookup'         = 'FstLookupBenchmarks'
     'mmap-io'            = 'MMapDirectoryIOBenchmarks'

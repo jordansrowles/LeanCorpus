@@ -9,6 +9,8 @@ namespace Rowles.LeanCorpus.Codecs.DocValues;
 /// </summary>
 internal static class BinaryDocValuesWriter
 {
+    internal const int MaximumFieldPayloadBytes = int.MaxValue - 1;
+
     public static void Write(
         string filePath,
         IReadOnlyDictionary<string, IReadOnlyList<byte[]>?[]> fields,
@@ -29,9 +31,6 @@ internal static class BinaryDocValuesWriter
         IReadOnlyList<byte[]>?[] values,
         int docCount)
     {
-        bw.WriteString(fieldName);
-        bw.WriteInt32(docCount);
-
         var starts = new int[docCount + 1];
         var allValues = new List<byte[]>();
         for (int docId = 0; docId < docCount; docId++)
@@ -42,18 +41,30 @@ internal static class BinaryDocValuesWriter
         }
         starts[docCount] = allValues.Count;
 
+        var byteOffsets = new int[allValues.Count + 1];
+        long totalBytes = 0;
+        for (int i = 0; i < allValues.Count; i++)
+        {
+            long nextTotalBytes = checked(totalBytes + allValues[i].Length);
+            if (nextTotalBytes > MaximumFieldPayloadBytes)
+            {
+                throw new ArgumentException(
+                    $"Binary DocValues field '{fieldName}' exceeds the maximum payload size of {MaximumFieldPayloadBytes} bytes.",
+                    nameof(values));
+            }
+
+            byteOffsets[i] = checked((int)totalBytes);
+            totalBytes = nextTotalBytes;
+        }
+        byteOffsets[^1] = checked((int)totalBytes);
+
+        bw.WriteString(fieldName);
+        bw.WriteInt32(docCount);
+
         for (int i = 0; i < starts.Length; i++)
             bw.WriteInt32(starts[i]);
 
         bw.WriteInt32(allValues.Count);
-        var byteOffsets = new int[allValues.Count + 1];
-        int totalBytes = 0;
-        for (int i = 0; i < allValues.Count; i++)
-        {
-            byteOffsets[i] = totalBytes;
-            totalBytes += allValues[i].Length;
-        }
-        byteOffsets[^1] = totalBytes;
 
         for (int i = 0; i < byteOffsets.Length; i++)
             bw.WriteInt32(byteOffsets[i]);
