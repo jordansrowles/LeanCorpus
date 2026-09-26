@@ -15,6 +15,8 @@ internal sealed class StoredFieldsReader : IDisposable
     private readonly int _blockSize;
     private readonly int _docCount;
     private readonly long[] _blockOffsets;
+    private readonly int[] _blockDocCounts;
+    private readonly int[]? _blockDocStarts;
     private readonly FieldCompressionPolicy _compression;
     private readonly long _bodyEnd;
     private readonly IDisposable _fdtFrame;
@@ -27,16 +29,18 @@ internal sealed class StoredFieldsReader : IDisposable
     private int _disposeStarted;
 
     /// <summary>Maximum decompressed byte size for a single stored fields block (256 MB).</summary>
-    internal const int MaxDecompressedBlockBytes = 256 * 1024 * 1024;
+    internal const int MaxDecompressedBlockBytes = StoredFieldsBlockPolicy.MaximumRawBytes;
 
     /// <summary>Maximum documents per block. Guards against corrupt headers.</summary>
-    internal const int MaxBlockSize = 100_000;
+    internal const int MaxBlockSize = StoredFieldsBlockPolicy.MaximumDocumentCount;
 
     private StoredFieldsReader(
         IndexInput fdtInput,
         int blockSize,
         int docCount,
         long[] blockOffsets,
+        int[] blockDocCounts,
+        int[]? blockDocStarts,
         FieldCompressionPolicy compression,
         long bodyEnd,
         IDisposable fdtFrame)
@@ -48,6 +52,8 @@ internal sealed class StoredFieldsReader : IDisposable
         _blockSize = blockSize;
         _docCount = docCount;
         _blockOffsets = blockOffsets;
+        _blockDocCounts = blockDocCounts;
+        _blockDocStarts = blockDocStarts;
         _compression = compression;
         _bodyEnd = bodyEnd;
         _fdtFrame = fdtFrame;
@@ -121,10 +127,6 @@ internal sealed class StoredFieldsReader : IDisposable
 
             if (!Enum.IsDefined(compression))
                 throw new InvalidDataException($"Stored fields compression policy {(byte)compression} is unsupported.");
-            int expectedBlockCount = docCount == 0 ? 0 : checked((docCount + fdtBlockSize - 1) / fdtBlockSize);
-            if (blockOffsets.Length != expectedBlockCount)
-                throw new InvalidDataException($"Stored fields index declares {blockOffsets.Length} blocks, but {expectedBlockCount} are required for {docCount} documents.");
-
             long firstBlockPosition = fdtInput.Position;
             long previousOffset = -1;
             foreach (long offset in blockOffsets)
@@ -136,11 +138,30 @@ internal sealed class StoredFieldsReader : IDisposable
                 previousOffset = offset;
             }
 
+            bool variableBlockCounts = fdtFrame.Version >= 4;
+            if (!variableBlockCounts)
+            {
+                int expectedBlockCount = docCount == 0 ? 0 : checked((docCount + fdtBlockSize - 1) / fdtBlockSize);
+                if (blockOffsets.Length != expectedBlockCount)
+                    throw new InvalidDataException($"Stored fields index declares {blockOffsets.Length} blocks, but {expectedBlockCount} are required for {docCount} documents.");
+            }
+
+            var (blockDocCounts, blockDocStarts) = ReadBlockDocumentCounts(
+                fdtInput,
+                blockOffsets,
+                fdtFrame.BodyEnd,
+                firstBlockPosition,
+                fdtBlockSize,
+                docCount,
+                variableBlockCounts);
+
             var result = new StoredFieldsReader(
                 fdtInput,
                 fdtBlockSize,
                 docCount,
                 blockOffsets,
+                blockDocCounts,
+                blockDocStarts,
                 compression,
                 fdtFrame.BodyEnd,
                 fdtFrame);
@@ -154,6 +175,69 @@ internal sealed class StoredFieldsReader : IDisposable
             fdxInput.Dispose();
             throw;
         }
+    }
+
+    private static (int[] BlockDocCounts, int[]? BlockDocStarts) ReadBlockDocumentCounts(
+        IndexInput input,
+        long[] blockOffsets,
+        long bodyEnd,
+        long firstBlockPosition,
+        int maximumDocumentCount,
+        int totalDocumentCount,
+        bool variableBlockCounts)
+    {
+        var blockDocCounts = new int[blockOffsets.Length];
+        int[]? blockDocStarts = variableBlockCounts ? new int[blockOffsets.Length] : null;
+        int documentsRead = 0;
+
+        using var session = input.BeginReadSession();
+        for (int blockIndex = 0; blockIndex < blockOffsets.Length; blockIndex++)
+        {
+            long position = blockOffsets[blockIndex];
+            if (position < firstBlockPosition || position > bodyEnd - 3L * sizeof(int))
+                throw new InvalidDataException("Stored fields block header extends beyond the data body.");
+
+            int blockDocCount = session.ReadInt32(ref position);
+            int rawLength = session.ReadInt32(ref position);
+            int compLength = session.ReadInt32(ref position);
+
+            int expectedCount = variableBlockCounts
+                ? maximumDocumentCount
+                : Math.Min(maximumDocumentCount, totalDocumentCount - documentsRead);
+            if (blockDocCount <= 0 ||
+                (variableBlockCounts ? blockDocCount > expectedCount : blockDocCount != expectedCount) ||
+                blockDocCount > totalDocumentCount - documentsRead)
+                throw new InvalidDataException(
+                    $"Stored fields block has {blockDocCount} documents but its allowed count is {expectedCount}.");
+            if (rawLength <= 0 || rawLength > StoredFieldsBlockPolicy.MaximumRawBytes)
+                throw new InvalidDataException(
+                    $"Stored fields block rawLength {rawLength} exceeds maximum {StoredFieldsBlockPolicy.MaximumRawBytes}.");
+            if (compLength <= 0 || compLength > StoredFieldsBlockPolicy.MaximumRawBytes)
+                throw new InvalidDataException(
+                    $"Stored fields block compLength {compLength} exceeds maximum {StoredFieldsBlockPolicy.MaximumRawBytes}.");
+            if (compLength > (long)rawLength * 2)
+                throw new InvalidDataException(
+                    $"Stored fields block compressed length {compLength} exceeds 2x raw length {rawLength}.");
+            if (variableBlockCounts && rawLength > StoredFieldsBlockPolicy.TargetRawBytes && blockDocCount != 1)
+                throw new InvalidDataException(
+                    $"Stored fields block rawLength {rawLength} exceeds target {StoredFieldsBlockPolicy.TargetRawBytes} for {blockDocCount} documents.");
+
+            long blockEnd = checked(position + (long)blockDocCount * sizeof(int) + compLength);
+            long nextBlockOffset = blockIndex + 1 < blockOffsets.Length ? blockOffsets[blockIndex + 1] : bodyEnd;
+            if (blockEnd > nextBlockOffset)
+                throw new InvalidDataException("Stored fields block overlaps the next block or extends beyond the data body.");
+
+            blockDocCounts[blockIndex] = blockDocCount;
+            if (blockDocStarts is not null)
+                blockDocStarts[blockIndex] = documentsRead;
+            documentsRead = checked(documentsRead + blockDocCount);
+        }
+
+        if (documentsRead != totalDocumentCount)
+            throw new InvalidDataException(
+                $"Stored fields blocks contain {documentsRead} documents, but the index declares {totalDocumentCount}.");
+
+        return (blockDocCounts, blockDocStarts);
     }
 
     private static void ValidateMatchingHeaders(
@@ -294,8 +378,20 @@ internal sealed class StoredFieldsReader : IDisposable
         if ((uint)docId >= (uint)_docCount)
             throw new ArgumentOutOfRangeException(nameof(docId), docId, $"docId must be in the range [0, {_docCount}).");
 
-        int blockIndex = docId / _blockSize;
-        docInBlock = docId % _blockSize;
+        int blockIndex;
+        if (_blockDocStarts is null)
+        {
+            blockIndex = docId / _blockSize;
+            docInBlock = docId % _blockSize;
+        }
+        else
+        {
+            blockIndex = Array.BinarySearch(_blockDocStarts, docId);
+            if (blockIndex < 0)
+                blockIndex = ~blockIndex - 1;
+            docInBlock = docId - _blockDocStarts[blockIndex];
+        }
+
         return GetBlock(blockIndex);
     }
 
@@ -358,18 +454,25 @@ internal sealed class StoredFieldsReader : IDisposable
                 compLength = session.ReadInt32(ref position);
 
                 // Guard against corrupt or malicious block headers.
-                if ((uint)docCount > (uint)_blockSize)
-                    throw new InvalidDataException($"Stored fields block has {docCount} documents but block size is {_blockSize}.");
+                if (docCount != _blockDocCounts[blockIndex])
+                    throw new InvalidDataException(
+                        $"Stored fields block has {docCount} documents but its validated count is {_blockDocCounts[blockIndex]}.");
                 if (rawLength <= 0 || rawLength > MaxDecompressedBlockBytes)
                     throw new InvalidDataException($"Stored fields block rawLength {rawLength} exceeds maximum {MaxDecompressedBlockBytes}.");
                 if (compLength <= 0 || compLength > MaxDecompressedBlockBytes)
                     throw new InvalidDataException($"Stored fields block compLength {compLength} exceeds maximum {MaxDecompressedBlockBytes}.");
                 // Compression should not expand data beyond a 2x ratio; reject obvious bombs.
-                if (compLength > rawLength * 2)
+                if (compLength > (long)rawLength * 2)
                     throw new InvalidDataException($"Stored fields block compressed length {compLength} exceeds 2x raw length {rawLength}.");
+                if (_blockDocStarts is not null && rawLength > StoredFieldsBlockPolicy.TargetRawBytes && docCount != 1)
+                    throw new InvalidDataException(
+                        $"Stored fields block rawLength {rawLength} exceeds target {StoredFieldsBlockPolicy.TargetRawBytes} for {docCount} documents.");
 
                 long blockEnd = checked(position + (long)docCount * sizeof(int) + compLength);
-                if (blockEnd > _bodyEnd)
+                long nextBlockOffset = blockIndex + 1 < _blockOffsets.Length
+                    ? _blockOffsets[blockIndex + 1]
+                    : _bodyEnd;
+                if (blockEnd > nextBlockOffset)
                     throw new InvalidDataException("Stored fields block extends beyond the data body.");
 
                 intraOffsets = new int[docCount];

@@ -1,5 +1,6 @@
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Codecs.CodecKit;
@@ -203,8 +204,8 @@ public sealed class IndexWriterConfig
     public FieldCompressionPolicy CompressionPolicy { get; set; } = FieldCompressionPolicy.Deflate;
 
     /// <summary>
-    /// Number of documents per stored field block. Larger blocks compress better but
-    /// increase random-access cost. Default: 16.
+    /// Maximum documents per stored field block. Blocks can be smaller when the
+    /// 1 MiB raw-byte target is reached. Default: 16.
     /// </summary>
     public int StoredFieldBlockSize { get; set; } = 16;
 
@@ -406,8 +407,10 @@ public sealed class IndexWriterConfig
         if (MaxQueuedBytes < 0)
             throw new ArgumentException("MaxQueuedBytes must not be negative.", nameof(MaxQueuedBytes));
 
-        if (StoredFieldBlockSize < 1)
-            throw new ArgumentException("StoredFieldBlockSize must be at least 1.", nameof(StoredFieldBlockSize));
+        if (StoredFieldBlockSize is < 1 or > StoredFieldsBlockPolicy.MaximumDocumentCount)
+            throw new ArgumentOutOfRangeException(
+                nameof(StoredFieldBlockSize), StoredFieldBlockSize,
+                $"StoredFieldBlockSize must be in the range [1, {StoredFieldsBlockPolicy.MaximumDocumentCount}].");
 
         if (PostingsSkipInterval < 1)
             throw new ArgumentException("PostingsSkipInterval must be at least 1.", nameof(PostingsSkipInterval));

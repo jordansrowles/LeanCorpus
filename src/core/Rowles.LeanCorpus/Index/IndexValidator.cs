@@ -276,6 +276,33 @@ public static class IndexValidator
     {
         CheckStoredFieldsCompression(basePath + ".fdt", segmentId, result);
         CheckStoredFieldsIndex(basePath + ".fdx", segmentId, info, result);
+        CheckStoredFieldsBlockMapping(basePath, segmentId, result);
+    }
+
+    private static void CheckStoredFieldsBlockMapping(string basePath, string segmentId, IndexCheckResult result)
+    {
+        string fdtPath = basePath + ".fdt";
+        string fdxPath = basePath + ".fdx";
+        if (!FileOpenRetry.FileExists(fdtPath) || !FileOpenRetry.FileExists(fdxPath))
+            return;
+
+        string fileName = Path.GetFileName(fdtPath);
+        try
+        {
+            // Opening the reader validates the cross-file block layout, including
+            // variable document counts in v4, without decompressing block payloads.
+            using var reader = StoredFieldsReader.Open(fdtPath, fdxPath);
+        }
+        catch (Exception ex) when (ex is IOException or EndOfStreamException or InvalidDataException)
+        {
+            result.AddIssue(
+                IndexCheckSeverity.Error,
+                IndexCheckIssueCodes.StoredFieldsReadFailure,
+                $"Cannot validate stored fields block mapping for segment '{segmentId}': {ex.Message}",
+                fileName,
+                segmentId,
+                false);
+        }
     }
 
     private static void CheckStoredFieldsCompression(string fdtPath, string segmentId, IndexCheckResult result)

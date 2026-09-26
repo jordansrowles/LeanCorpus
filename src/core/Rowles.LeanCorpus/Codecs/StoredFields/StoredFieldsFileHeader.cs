@@ -8,7 +8,7 @@ namespace Rowles.LeanCorpus.Codecs.StoredFields;
 /// v1 used the CodecKit envelope: [version:byte][VarInt64 bodyLen][body].
 /// v2 streams directly: [version:byte][body] (ADR008 custom header).
 /// v3 legacy data uses the CodecKit trailer while legacy index files retain the custom header.
-/// Current v3 writes use the canonical CodecKit frame.
+/// Current v4 writes use the canonical CodecKit frame and byte-bounded block mapping.
 /// </summary>
 internal static class StoredFieldsFileHeader
 {

@@ -60,10 +60,10 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         AssertCanonicalFrame(path + ".fdx", StoredFieldsCodecFiles.Index);
     }
 
-    [Fact(DisplayName = "Stored Fields v3: writer emits coordinated canonical frames")]
-    public void Writer_EmitsVersion3()
+    [Fact(DisplayName = "Stored Fields v4: writer emits coordinated canonical frames")]
+    public void Writer_EmitsVersion4()
     {
-        var path = Path.Combine(_fixture.Path, $"sf-v3-{Guid.NewGuid():N}");
+        var path = Path.Combine(_fixture.Path, $"sf-v4-{Guid.NewGuid():N}");
         var docs = new[]
         {
             new Dictionary<string, List<StoredFieldValue>>(StringComparer.Ordinal)
@@ -78,7 +78,7 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         AssertCanonicalFrame(path + ".fdx", StoredFieldsCodecFiles.Index);
     }
 
-    [Fact(DisplayName = "Stored Fields v2: round-trip many documents")]
+    [Fact(DisplayName = "Stored Fields: round-trip many documents")]
     public void Writer_RoundTrip_ManyDocuments()
     {
         var path = Path.Combine(_fixture.Path, $"sf-many-{Guid.NewGuid():N}");
@@ -104,6 +104,127 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         }
     }
 
+    [Fact(DisplayName = "Stored Fields: writer splits blocks at the raw byte target")]
+    public void Writer_SplitsBlocksWhenRawByteTargetWouldBeExceeded()
+    {
+        var path = Path.Combine(_fixture.Path, $"sf-byte-target-{Guid.NewGuid():N}");
+        const int payloadBytes = 600_000;
+        var docs = new Dictionary<string, List<StoredFieldValue>>[]
+        {
+            new(StringComparer.Ordinal) { ["body"] = [StoredFieldValue.FromString(new string('a', payloadBytes))] },
+            new(StringComparer.Ordinal) { ["body"] = [StoredFieldValue.FromString(new string('b', payloadBytes))] }
+        };
+
+        StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", docs.Length, docId => docs[docId]);
+
+        Assert.Equal(2, ReadBlockCount(path + ".fdx"));
+
+        using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
+        Assert.Equal(new string('a', payloadBytes), reader.ReadDocument(0)["body"][0]);
+        Assert.Equal(new string('b', payloadBytes), reader.ReadDocument(1)["body"][0]);
+    }
+
+    [Fact(DisplayName = "Stored Fields: flat writer splits blocks at the raw byte target")]
+    public void FlatWriter_SplitsBlocksWhenRawByteTargetWouldBeExceeded()
+    {
+        var path = Path.Combine(_fixture.Path, $"sf-flat-byte-target-{Guid.NewGuid():N}");
+        const int payloadBytes = 600_000;
+        List<int> docStarts = [0, 1];
+        List<int> fieldIds = [0, 0];
+        List<StoredFieldValue> values =
+        [
+            StoredFieldValue.FromString(new string('a', payloadBytes)),
+            StoredFieldValue.FromString(new string('b', payloadBytes))
+        ];
+
+        StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", docStarts, fieldIds, values, ["body"]);
+
+        Assert.Equal(2, ReadBlockCount(path + ".fdx"));
+        using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
+        Assert.Equal(new string('a', payloadBytes), reader.ReadDocument(0)["body"][0]);
+        Assert.Equal(new string('b', payloadBytes), reader.ReadDocument(1)["body"][0]);
+    }
+
+    [Fact(DisplayName = "Stored Fields: streaming writer splits blocks at the raw byte target")]
+    public void StreamWriter_SplitsBlocksWhenRawByteTargetWouldBeExceeded()
+    {
+        var path = Path.Combine(_fixture.Path, $"sf-stream-byte-target-{Guid.NewGuid():N}");
+        const int payloadBytes = 600_000;
+        using (var writer = new StoredFieldsStreamWriter(path + ".fdt", path + ".fdx"))
+        {
+            writer.AddDocument(new Dictionary<string, IReadOnlyList<StoredFieldValue>>(StringComparer.Ordinal)
+            {
+                ["body"] = new[] { StoredFieldValue.FromString(new string('a', payloadBytes)) }
+            });
+            writer.AddDocument(new Dictionary<string, IReadOnlyList<StoredFieldValue>>(StringComparer.Ordinal)
+            {
+                ["body"] = new[] { StoredFieldValue.FromString(new string('b', payloadBytes)) }
+            });
+        }
+
+        Assert.Equal(2, ReadBlockCount(path + ".fdx"));
+        using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
+        Assert.Equal(new string('a', payloadBytes), reader.ReadDocument(0)["body"][0]);
+        Assert.Equal(new string('b', payloadBytes), reader.ReadDocument(1)["body"][0]);
+    }
+
+    [Fact(DisplayName = "Stored Fields: a document over the target occupies a single block")]
+    public void Writer_WritesOversizedDocumentInItsOwnBlock()
+    {
+        var path = Path.Combine(_fixture.Path, $"sf-oversized-single-{Guid.NewGuid():N}");
+        var docs = new Dictionary<string, List<StoredFieldValue>>[]
+        {
+            new(StringComparer.Ordinal)
+            {
+                ["body"] = [StoredFieldValue.FromString(new string('x', StoredFieldsBlockPolicy.TargetRawBytes))]
+            },
+            new(StringComparer.Ordinal) { ["body"] = [StoredFieldValue.FromString("small")] }
+        };
+
+        StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", docs.Length, docId => docs[docId]);
+
+        Assert.Equal(2, ReadBlockCount(path + ".fdx"));
+        var headers = ReadBlockHeaders(path + ".fdt");
+        Assert.Equal(1, headers[0].DocumentCount);
+        Assert.True(headers[0].RawLength > StoredFieldsBlockPolicy.TargetRawBytes);
+        using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
+        Assert.Equal(new string('x', StoredFieldsBlockPolicy.TargetRawBytes), reader.ReadDocument(0)["body"][0]);
+        Assert.Equal("small", reader.ReadDocument(1)["body"][0]);
+    }
+
+    [Fact(DisplayName = "Stored Fields v4: reader maps variable block counts during parallel reads")]
+    public void Reader_MapsVariableBlockCountsDuringParallelReads()
+    {
+        var path = Path.Combine(_fixture.Path, $"sf-variable-parallel-{Guid.NewGuid():N}");
+        const int payloadBytes = 600_000;
+        var docs = new Dictionary<string, List<StoredFieldValue>>[]
+        {
+            new(StringComparer.Ordinal) { ["body"] = [StoredFieldValue.FromString(new string('a', payloadBytes))] },
+            new(StringComparer.Ordinal) { ["body"] = [StoredFieldValue.FromString(new string('b', payloadBytes))] },
+            new(StringComparer.Ordinal) { ["body"] = [StoredFieldValue.FromString("small-2")] },
+            new(StringComparer.Ordinal) { ["body"] = [StoredFieldValue.FromString("small-3")] },
+            new(StringComparer.Ordinal) { ["body"] = [StoredFieldValue.FromString("small-4")] }
+        };
+
+        StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", docs.Length, docId => docs[docId], blockSize: 16);
+
+        Assert.Equal(new[] { 1, 4 }, ReadBlockHeaders(path + ".fdt").Select(static header => header.DocumentCount));
+        using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
+        Parallel.For(0, 500, operation =>
+        {
+            int docId = operation % docs.Length;
+            Assert.Equal(docs[docId]["body"][0].StringValue, reader.ReadDocument(docId)["body"][0]);
+        });
+    }
+
+    [Fact(DisplayName = "Stored Fields: shared policy rejects blocks beyond the hard byte limit")]
+    public void BlockPolicy_RejectsRawLengthAboveHardMaximum()
+    {
+        var ex = Assert.Throws<InvalidDataException>(() =>
+            StoredFieldsBlockPolicy.ValidateRawLength((long)StoredFieldsBlockPolicy.MaximumRawBytes + 1));
+        Assert.Contains("maximum block size", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact(DisplayName = "Stored Fields: reader exposes DocCount and rejects out-of-range docId")]
     public void Reader_DocCount_AndBoundsCheck()
     {
@@ -124,7 +245,7 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         Assert.Throws<ArgumentOutOfRangeException>(() => reader.ReadDocument(1));
     }
 
-    [Fact(DisplayName = "Stored Fields v2: stream writer round-trip")]
+    [Fact(DisplayName = "Stored Fields: stream writer round-trip")]
     public void StreamWriter_RoundTrip()
     {
         var path = Path.Combine(_fixture.Path, $"sf-stream-{Guid.NewGuid():N}");
@@ -150,7 +271,7 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         }
     }
 
-    [Fact(DisplayName = "Stored Fields v2: stream writer cleans up .fdt when .fdx write fails")]
+    [Fact(DisplayName = "Stored Fields: stream writer cleans up .fdt when .fdx write fails")]
     public void StreamWriter_CleansUpFdt_WhenFdxWriteFails()
     {
         var path = Path.Combine(_fixture.Path, $"sf-cleanup-{Guid.NewGuid():N}");
@@ -194,12 +315,36 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         Assert.Equal("42", stored["count"][0]);
     }
 
+    [Fact(DisplayName = "Stored Fields v3: reader keeps fixed-count canonical blocks readable")]
+    public void Reader_ReadsV3CanonicalFiles()
+    {
+        var path = Path.Combine(_fixture.Path, $"sf-v3-{Guid.NewGuid():N}");
+        var docs = new[]
+        {
+            new Dictionary<string, List<StoredFieldValue>>(StringComparer.Ordinal)
+            {
+                ["title"] = [StoredFieldValue.FromString("legacy-v3")]
+            },
+            new Dictionary<string, List<StoredFieldValue>>(StringComparer.Ordinal)
+            {
+                ["title"] = [StoredFieldValue.FromString("legacy-v3-second")]
+            }
+        };
+        StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", docs.Length, docId => docs[docId]);
+        RewriteCanonicalVersion(path + ".fdt", StoredFieldsCodecFiles.Data, StoredFieldsFileHeader.V3);
+        RewriteCanonicalVersion(path + ".fdx", StoredFieldsCodecFiles.Index, StoredFieldsFileHeader.V3);
+
+        using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
+        Assert.Equal("legacy-v3", reader.ReadDocument(0)["title"][0]);
+        Assert.Equal("legacy-v3-second", reader.ReadDocument(1)["title"][0]);
+    }
+
     [Fact(DisplayName = "Stored Fields: reader rejects future version")]
     public void Reader_RejectsFutureVersion()
     {
         var path = Path.Combine(_fixture.Path, $"sf-future-{Guid.NewGuid():N}");
-        File.WriteAllBytes(path + ".fdt", [(byte)(StoredFieldsFileHeader.V3 + 1), 16, 0, 0, 0, 0]);
-        File.WriteAllBytes(path + ".fdx", [(byte)(StoredFieldsFileHeader.V3 + 1), 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        File.WriteAllBytes(path + ".fdt", [(byte)(CodecConstants.StoredFieldsVersion + 1), 16, 0, 0, 0, 0]);
+        File.WriteAllBytes(path + ".fdx", [(byte)(CodecConstants.StoredFieldsVersion + 1), 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
         var ex = Assert.Throws<InvalidDataException>(() => StoredFieldsReader.Open(path + ".fdt", path + ".fdx"));
         Assert.Contains("format version", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -224,8 +369,7 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
             fs.Write(bombLength);
         }
 
-        using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
-        var ex = Assert.Throws<InvalidDataException>(() => reader.ReadDocument(0));
+        var ex = Assert.Throws<InvalidDataException>(() => StoredFieldsReader.Open(path + ".fdt", path + ".fdx"));
         Assert.Contains("rawLength", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("exceeds maximum", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -248,8 +392,7 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
             fs.Write(BitConverter.GetBytes(9999));
         }
 
-        using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
-        var ex = Assert.Throws<InvalidDataException>(() => reader.ReadDocument(0));
+        var ex = Assert.Throws<InvalidDataException>(() => StoredFieldsReader.Open(path + ".fdt", path + ".fdx"));
         Assert.Contains("documents", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -262,6 +405,17 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         int varintSize = WriteVarInt64(fs, body.Length);
         fs.Write(body);
         return 1 + varintSize - canonicalBodyStart;
+    }
+
+    private static void RewriteCanonicalVersion(string filePath, CodecFileDescriptor descriptor, byte version)
+    {
+        var (body, _) = ReadCanonicalBody(filePath, descriptor);
+        CodecFileWriter.WriteAtomically(
+            filePath,
+            descriptor.FormatId,
+            version,
+            durable: false,
+            output => output.WriteBytes(body));
     }
 
     private static void RewriteFdxAsV1(string filePath, long offsetDelta)
@@ -291,6 +445,43 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         Assert.Equal(descriptor.CurrentFormatVersion, frame.Metadata.FormatVersion);
         Assert.Equal(CodecFileChecksumAlgorithm.XxHash64, frame.Metadata.ChecksumAlgorithm);
         frame.ValidateChecksum();
+    }
+
+    private static int ReadBlockCount(string fdxPath)
+    {
+        using var input = new IndexInput(fdxPath);
+        using var frame = CodecFileReader.Open(input, StoredFieldsCodecFiles.Index);
+        _ = input.ReadInt32();
+        _ = input.ReadInt32();
+        return input.ReadInt32();
+    }
+
+    private static (int DocumentCount, int RawLength)[] ReadBlockHeaders(string fdtPath)
+    {
+        using var input = new IndexInput(fdtPath);
+        using var frame = StoredFieldsCodecFiles.OpenData(input);
+        _ = input.ReadInt32();
+        _ = input.ReadByte();
+        var offsets = new List<long>();
+        using (var fdxInput = new IndexInput(Path.ChangeExtension(fdtPath, ".fdx")))
+        using (var fdxFrame = CodecFileReader.Open(fdxInput, StoredFieldsCodecFiles.Index))
+        {
+            _ = fdxInput.ReadInt32();
+            _ = fdxInput.ReadInt32();
+            int blockCount = fdxInput.ReadInt32();
+            for (int i = 0; i < blockCount; i++)
+                offsets.Add(fdxInput.ReadInt64());
+        }
+
+        var headers = new (int DocumentCount, int RawLength)[offsets.Count];
+        for (int i = 0; i < offsets.Count; i++)
+        {
+            long position = offsets[i];
+            using var session = input.BeginReadSession();
+            headers[i] = (session.ReadInt32(ref position), session.ReadInt32(ref position));
+        }
+
+        return headers;
     }
 
     private static long ReadCanonicalBodyStart(string path, CodecFileDescriptor descriptor)

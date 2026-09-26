@@ -168,7 +168,7 @@ public sealed class IndexWriterDefaultOptions
     public bool? DurableCommits { get; set; }
     /// <summary>Gets or sets the stored-fields compression policy.</summary>
     public FieldCompressionPolicy? CompressionPolicy { get; set; }
-    /// <summary>Gets or sets the stored-field block size.</summary>
+    /// <summary>Gets or sets the maximum documents per stored-field block; the byte target may flush earlier.</summary>
     public int? StoredFieldBlockSize { get; set; }
     /// <summary>Gets or sets the postings skip interval.</summary>
     public int? PostingsSkipInterval { get; set; }

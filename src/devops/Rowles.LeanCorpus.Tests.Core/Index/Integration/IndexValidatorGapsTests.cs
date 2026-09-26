@@ -1,5 +1,6 @@
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
@@ -330,7 +331,7 @@ public sealed class IndexValidatorGapsTests : IDisposable
         using (var stream = File.OpenWrite(Path.Combine(dir, segId + ".fdx")))
         using (var writer = new BinaryWriter(stream))
         {
-            writer.Write(CodecConstants.StoredFieldsVersion);
+            writer.Write(StoredFieldsFileHeader.V3);
             writer.Write(128);  // blockSize
             writer.Write(99);   // docCount - wrong (segment has 1)
             writer.Write(0);    // blockCount
@@ -355,7 +356,7 @@ public sealed class IndexValidatorGapsTests : IDisposable
         using (var stream = File.OpenWrite(Path.Combine(dir, segId + ".fdx")))
         using (var writer = new BinaryWriter(stream))
         {
-            writer.Write(CodecConstants.StoredFieldsVersion);
+            writer.Write(StoredFieldsFileHeader.V3);
             writer.Write(128);  // blockSize
             writer.Write(1);    // docCount
             writer.Write(1);    // blockCount = 1 → write one offset
@@ -367,6 +368,37 @@ public sealed class IndexValidatorGapsTests : IDisposable
 
         Assert.Contains(result.DetailedIssues,
             i => i.Code == IndexCheckIssueCodes.InvalidStoredFieldOffsets);
+    }
+
+    [Fact(DisplayName = "Check: Stored Fields validates v4 block document mapping")]
+    public void Check_StoredFieldsInvalidV4BlockMapping_ReportsReadFailure()
+    {
+        var dir = SubDir("fdt_block_mapping");
+        const string segId = "seg_fdtmapping";
+        WriteMinimalSegment(dir, segId, docCount: 1);
+        var storedDocs = new Dictionary<string, List<StoredFieldValue>>[]
+        {
+            new(StringComparer.Ordinal) { ["id"] = [StoredFieldValue.FromString("doc-0")] }
+        };
+        StoredFieldsWriter.Write(
+            Path.Combine(dir, segId + ".fdt"),
+            Path.Combine(dir, segId + ".fdx"),
+            storedDocs.Length,
+            docId => storedDocs[docId]);
+
+        long bodyStart = FindBodyStartOffset(Path.Combine(dir, segId + ".fdt"));
+        using (var stream = new FileStream(Path.Combine(dir, segId + ".fdt"), FileMode.Open, FileAccess.Write, FileShare.None))
+        using (var writer = new BinaryWriter(stream))
+        {
+            stream.Position = bodyStart + sizeof(int) + sizeof(byte);
+            writer.Write(2); // The index declares one document, but this block claims two.
+        }
+
+        var result = IndexValidator.Check(new MMapDirectory(dir));
+
+        Assert.Contains(result.DetailedIssues,
+            issue => issue.Code == IndexCheckIssueCodes.StoredFieldsReadFailure &&
+                     (issue.FileName ?? string.Empty).EndsWith(".fdt", StringComparison.Ordinal));
     }
 
     // CheckDeletionGeneration: missing del file when live docs < doc count

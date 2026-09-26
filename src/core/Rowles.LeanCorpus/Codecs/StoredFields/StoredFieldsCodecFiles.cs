@@ -59,6 +59,10 @@ internal static class StoredFieldsCodecFiles
             return new StoredFieldsReadFrame(version, input.Position, input.Length, frameSession: null);
         }
 
+        if (version == descriptor.CurrentFormatVersion)
+            throw new InvalidDataException(
+                $"Stored fields format version {version} requires a canonical CodecKit frame.");
+
         if (TryOpenLegacyEnvelope(input, frameStart, out long bodyStart))
             return new StoredFieldsReadFrame(version, bodyStart, input.Length, frameSession: null);
 
