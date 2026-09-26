@@ -100,4 +100,15 @@ public class TokeniserOffsetsTests
 
         Assert.Equal(new[] { (0, 4), (5, 7), (9, 10) }, offsets);
     }
+
+    [Fact(DisplayName = "Tokenise Offsets: Leading And Trailing Supplementary Letters Use UTF-16 Offsets")]
+    public void TokeniseOffsets_LeadingAndTrailingSupplementaryLetters_UsesUtf16Offsets()
+    {
+        const string input = "\U00010400word\U00010400";
+        var offsets = new List<(int Start, int End)>();
+
+        _tokeniser.TokeniseOffsets(input, offsets);
+
+        Assert.Equal(new[] { (0, input.Length) }, offsets);
+    }
 }
