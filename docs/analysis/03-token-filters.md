@@ -146,7 +146,19 @@ Character filters transform the complete input before tokenisation:
 | `MappingCharFilter` | Applies string mappings |
 | `PatternReplaceCharFilter` | Applies a regular expression replacement |
 
-Attach them through `IndexWriterConfig.CharFilters`. Offset-sensitive features need tests because changing source length can affect how offsets relate to original text.
+Attach them through `IndexWriterConfig.CharFilters`. Each `ICharFilter.Filter` returns a `CharFilterResult` containing transformed text and a map from transformed UTF-16 offsets back to the input. LeanCorpus composes these maps across configured filters and indexes token offsets against the original field value.
+
+When applying character filters directly, carry the result through the chain and analyse it so the map is applied to emitted tokens:
+
+```csharp
+var filtered = new CharFilterResult(source)
+    .Apply(new HtmlStripCharFilter())
+    .Apply(new PatternReplaceCharFilter(@"\d+", ""));
+
+filtered.Analyse(analyser, sink);
+```
+
+Filters that preserve length use identity offset coordinates. Inserted and removed text keeps later token offsets anchored to their original UTF-16 source ranges.
 
 ## Ordering checklist
 

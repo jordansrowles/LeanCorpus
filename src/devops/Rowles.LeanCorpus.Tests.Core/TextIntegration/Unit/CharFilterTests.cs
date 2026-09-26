@@ -33,7 +33,7 @@ public class CharFilterTests : IDisposable
     public void HtmlStripCharFilter_RemovesTags()
     {
         var filter = new HtmlStripCharFilter();
-        var result = filter.Filter("<p>Hello <b>world</b></p>".AsSpan());
+        var result = filter.Filter("<p>Hello <b>world</b></p>".AsSpan()).Text;
         Assert.DoesNotContain("<", result);
         Assert.Contains("Hello", result);
         Assert.Contains("world", result);
@@ -46,7 +46,7 @@ public class CharFilterTests : IDisposable
     public void HtmlStripCharFilter_RemovesEntities()
     {
         var filter = new HtmlStripCharFilter();
-        var result = filter.Filter("rock &amp; roll".AsSpan());
+        var result = filter.Filter("rock &amp; roll".AsSpan()).Text;
         Assert.DoesNotContain("&amp;", result);
     }
 
@@ -57,7 +57,7 @@ public class CharFilterTests : IDisposable
     public void PatternReplaceCharFilter_ReplacesPattern()
     {
         var filter = new PatternReplaceCharFilter(@"\d+", "#");
-        var result = filter.Filter("abc123def456".AsSpan());
+        var result = filter.Filter("abc123def456".AsSpan()).Text;
         Assert.Equal("abc#def#", result);
     }
 
@@ -74,7 +74,7 @@ public class CharFilterTests : IDisposable
             ["\u2019"] = "'",  // right single smart quote → apostrophe
         };
         var filter = new MappingCharFilter(mappings);
-        var result = filter.Filter("\u201CHello\u201D".AsSpan());
+        var result = filter.Filter("\u201CHello\u201D".AsSpan()).Text;
         Assert.Equal("\"Hello\"", result);
     }
 
@@ -86,7 +86,7 @@ public class CharFilterTests : IDisposable
     {
         var mappings = new Dictionary<string, string>();
         var filter = new MappingCharFilter(mappings);
-        var result = filter.Filter("unchanged".AsSpan());
+        var result = filter.Filter("unchanged".AsSpan()).Text;
         Assert.Equal("unchanged", result);
     }
 
@@ -117,6 +117,35 @@ public class CharFilterTests : IDisposable
         // Should NOT find literal HTML tags
         var tagResults = searcher.Search(new TermQuery("body", "<p>"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(0, tagResults.TotalHits);
+    }
+
+    /// <summary>
+    /// Verifies that indexed offsets after a length-changing char filter refer to the original field value.
+    /// </summary>
+    [Fact(DisplayName = "Char Filter: Indexed Offsets Refer To Original Field Value")]
+    public void CharFilter_IndexedOffsetsReferToOriginalFieldValue()
+    {
+        var config = new IndexWriterConfig
+        {
+            CharFilters = [new PatternReplaceCharFilter(@"\d+", "")],
+            StoreTermVectors = true
+        };
+
+        using (var writer = new IndexWriter(new MMapDirectory(_dir), config))
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "prefix123 target", stored: true, boost: 1.0f,
+                indexOptions: FieldIndexOptions.DocsAndFreqsAndPositionsAndOffsets));
+            writer.AddDocument(doc);
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+        var reader = Assert.Single(searcher.GetSegmentReaders());
+        var target = Assert.Single(reader.GetTermVectors(0)!["body"], static entry => entry.Term == "target");
+
+        Assert.Equal([10], target.StartOffsets!);
+        Assert.Equal([16], target.EndOffsets!);
     }
 
     /// <summary>

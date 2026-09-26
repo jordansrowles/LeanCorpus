@@ -22,6 +22,23 @@ public sealed class PatternReplaceCharFilter : ICharFilter
     }
 
     /// <inheritdoc/>
-    public string Filter(ReadOnlySpan<char> input)
-        => _pattern.Replace(input.ToString(), _replacement);
+    public CharFilterResult Filter(ReadOnlySpan<char> input)
+    {
+        string source = input.ToString();
+        MatchCollection matches = _pattern.Matches(source);
+        if (matches.Count == 0)
+            return new CharFilterResult(source);
+
+        var output = new CharFilterResultBuilder(source.Length);
+        int sourceOffset = 0;
+        foreach (Match match in matches)
+        {
+            output.AppendUnchanged(source.AsSpan(sourceOffset, match.Index - sourceOffset), sourceOffset);
+            string replacement = match.Result(_replacement);
+            output.AppendReplacement(replacement.AsSpan(), match.Index, match.Length);
+            sourceOffset = match.Index + match.Length;
+        }
+        output.AppendUnchanged(source.AsSpan(sourceOffset), sourceOffset);
+        return output.Build();
+    }
 }

@@ -642,6 +642,6 @@ public sealed class LeanCorpusDefaultsExpansionTests
 
     private sealed class IdentityCharFilter : ICharFilter
     {
-        public string Filter(ReadOnlySpan<char> input) => input.ToString();
+        public CharFilterResult Filter(ReadOnlySpan<char> input) => new(input.ToString());
     }
 }

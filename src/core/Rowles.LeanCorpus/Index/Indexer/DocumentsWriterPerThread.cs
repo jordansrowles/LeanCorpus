@@ -686,13 +686,11 @@ internal sealed class DocumentsWriterPerThread : IDisposable
                 continue;
 
             ReadOnlySpan<char> input = textField.Value.AsSpan();
-            string? filtered = null;
+            CharFilterResult? filtered = null;
             if (_config.CharFilters.Count > 0)
             {
-                filtered = textField.Value;
-                foreach (var charFilter in _config.CharFilters)
-                    filtered = charFilter.Filter(filtered.AsSpan());
-                input = filtered.AsSpan();
+                filtered = ApplyCharFilters(textField.Value);
+                input = filtered.Text.AsSpan();
             }
 
             var analyser = _fieldAnalysers.GetValueOrDefault(textField.Name, _analyser);
@@ -729,20 +727,29 @@ internal sealed class DocumentsWriterPerThread : IDisposable
     private void IndexTextField(string fieldName, string value, int docId, FieldIndexOptions indexOptions)
     {
         ReadOnlySpan<char> input = value.AsSpan();
-        string? filtered = null;
+        CharFilterResult? filtered = null;
         if (_config.CharFilters.Count > 0)
         {
-            filtered = value;
-            foreach (var cf in _config.CharFilters)
-                filtered = cf.Filter(filtered.AsSpan());
-            input = filtered.AsSpan();
+            filtered = ApplyCharFilters(value);
+            input = filtered.Text.AsSpan();
         }
         var analyser = _fieldAnalysers.GetValueOrDefault(fieldName, _analyser);
         int budget = _config.MaxTokensPerDocument;
         _spanPostingSink.Reset(fieldName, docId, indexOptions, budget, _config.TokenBudgetPolicy);
-        analyser.Analyse(input, _spanPostingSink);
+        if (filtered is null)
+            analyser.Analyse(input, _spanPostingSink);
+        else
+            filtered.Analyse(analyser, _spanPostingSink);
         AddTokenCount(fieldName, docId, _spanPostingSink.AcceptedCount);
         FieldNames.Add(fieldName);
+    }
+
+    private CharFilterResult ApplyCharFilters(string source)
+    {
+        var filtered = new CharFilterResult(source);
+        foreach (var charFilter in _config.CharFilters)
+            filtered = filtered.Apply(charFilter);
+        return filtered;
     }
 
 

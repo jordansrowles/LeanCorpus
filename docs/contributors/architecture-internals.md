@@ -82,7 +82,7 @@ The reference-valued defaults follow the implementation lifecycles:
 | Value | Current behaviour | Global default ownership |
 |---|---|---|
 | `IAnalyser` | Built-in analysers are stateful and a standard analyser is not thread-safe. | Factories create the configured analyser for each writer; DWPT setup continues to create thread-local built-in analyser instances. |
-| `ICharFilter` | Filters are invoked in configured order and have no common disposal contract. | Factories create a fresh ordered filter collection for each writer. |
+| `ICharFilter` | Filters return transformed text with UTF-16 source offset maps, composed in configured order; the interface has no disposal contract. | Factories create a fresh ordered filter collection for each writer. |
 | `IIndexDeletionPolicy` and `IMergePolicy` | Policies are writer-owned strategy objects; tiered merge policy state is configured at construction. | Factories create fresh policy objects per writer. |
 | `ISimilarity` | Built-in similarities are safe to reuse, while custom implementations may carry state. | Root scoring factories materialise separate writer and searcher values; explicit local values remain caller-owned. |
 | `IMetricsCollector` | The interface has no disposal contract and collectors receive calls from the owning component. | Factories create a collector per writer or searcher configuration; directly supplied collectors are not disposed by LeanCorpus. |

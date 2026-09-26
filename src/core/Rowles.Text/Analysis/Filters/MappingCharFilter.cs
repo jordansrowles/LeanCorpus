@@ -19,11 +19,11 @@ public sealed class MappingCharFilter : ICharFilter
     }
 
     /// <inheritdoc/>
-    public string Filter(ReadOnlySpan<char> input)
+    public CharFilterResult Filter(ReadOnlySpan<char> input)
     {
-        var text = input.ToString();
+        var result = new CharFilterResult(input.ToString());
         foreach (var (from, to) in _mappings)
-            text = text.Replace(from, to, StringComparison.Ordinal);
-        return text;
+            result = result.ReplaceOrdinal(from, to);
+        return result;
     }
 }

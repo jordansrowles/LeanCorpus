@@ -276,7 +276,8 @@ public sealed class IndexWriterConfig
 
     /// <summary>
     /// Character-level filters applied to text before tokenisation.
-    /// Runs in order before the analyser. Default: empty (no char filters).
+    /// Run in order before the analyser. Their offset maps are composed so indexed UTF-16 token offsets refer
+    /// to the original field value. Default: empty (no char filters).
     /// </summary>
     public IReadOnlyList<ICharFilter> CharFilters { get; set; } = [];
 
