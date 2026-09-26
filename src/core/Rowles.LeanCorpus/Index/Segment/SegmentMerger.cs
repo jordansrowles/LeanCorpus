@@ -448,6 +448,8 @@ public sealed class SegmentMerger
             var docIdMap = new int[segment.DocCount];
             Array.Fill(docIdMap, -1);
             perSegmentMaps.Add((segment, docIdMap, reader));
+            List<DocIdRange> droppedBlockRanges = BuildDroppedBlockRanges(
+                reader, segment, softDeleteCutoff);
 
             var cursor = new MergeSortCursor(
                 segment,
@@ -456,7 +458,8 @@ public sealed class SegmentMerger
                 sortFields,
                 i,
                 ShouldRetainSoftDeletes(segment),
-                softDeleteCutoff);
+                softDeleteCutoff,
+                droppedBlockRanges);
             if (cursor.TryAdvance())
                 queue.Enqueue(cursor, cursor);
             else if (!cursor.IsInputSorted)
@@ -494,8 +497,22 @@ public sealed class SegmentMerger
             SegmentReader reader = readers[segment.SegmentId];
             var docIdMap = new int[segment.DocCount];
             bool retainSoftDeletes = ShouldRetainSoftDeletes(segment);
+            List<DocIdRange> droppedBlockRanges = BuildDroppedBlockRanges(
+                reader, segment, softDeleteCutoff);
+            int droppedBlockRangeIndex = 0;
             for (int oldDocId = 0; oldDocId < segment.DocCount; oldDocId++)
             {
+                while (droppedBlockRangeIndex < droppedBlockRanges.Count
+                    && oldDocId > droppedBlockRanges[droppedBlockRangeIndex].End)
+                    droppedBlockRangeIndex++;
+
+                if (droppedBlockRangeIndex < droppedBlockRanges.Count
+                    && oldDocId >= droppedBlockRanges[droppedBlockRangeIndex].Start)
+                {
+                    docIdMap[oldDocId] = -1;
+                    continue;
+                }
+
                 if (reader.IsLive(oldDocId))
                 {
                     docIdMap[oldDocId] = totalDocs++;
@@ -519,6 +536,44 @@ public sealed class SegmentMerger
         }
 
         return perSegmentMaps;
+    }
+
+    private static List<DocIdRange> BuildDroppedBlockRanges(
+        SegmentReader reader,
+        SegmentInfo segment,
+        long softDeleteCutoff)
+    {
+        ParentBitSet? parentBitSet = reader.GetParentBitSet();
+        if (parentBitSet is null)
+            return [];
+
+        var droppedBlocks = new List<DocIdRange>();
+        int blockStart = 0;
+        for (int parentDocId = parentBitSet.NextParent(0);
+             parentDocId >= 0;
+             parentDocId = parentBitSet.NextParent(parentDocId + 1))
+        {
+            if (!IsRetainedDuringMerge(reader, segment, parentDocId, softDeleteCutoff))
+                droppedBlocks.Add(new DocIdRange(blockStart, parentDocId));
+
+            blockStart = parentDocId + 1;
+        }
+
+        return droppedBlocks;
+    }
+
+    private static bool IsRetainedDuringMerge(
+        SegmentReader reader,
+        SegmentInfo segment,
+        int docId,
+        long softDeleteCutoff)
+    {
+        if (reader.IsLive(docId))
+            return true;
+
+        return ShouldRetainSoftDeletes(segment)
+            && reader.IsSoftDeleted(docId, out long timestamp)
+            && timestamp > softDeleteCutoff;
     }
 
     private static MergeDocument[] BuildDestinationDocumentOrder(
@@ -705,6 +760,8 @@ public sealed class SegmentMerger
 
     private readonly record struct MergeDocument(SegmentInfo Segment, SegmentReader Reader, int OldDocId);
 
+    private readonly record struct DocIdRange(int Start, int End);
+
     private readonly record struct MergeSortValue(double NumericValue, long Int64Value, string? StringValue)
     {
         internal static MergeSortValue Numeric(double value) => new(value, 0, null);
@@ -717,11 +774,13 @@ public sealed class SegmentMerger
         private readonly SortField[] _sortFields;
         private readonly long _softDeleteCutoff;
         private readonly bool _retainSoftDeletes;
+        private readonly IReadOnlyList<DocIdRange> _droppedBlockRanges;
         private readonly MergeSortValue[] _previousKey;
         private readonly MergeSortValueResolver[] _sortValueResolvers;
         private readonly HashSet<string>[] _storedFieldFilters;
         private bool _hasPreviousKey;
         private int _nextOldDocId;
+        private int _droppedBlockRangeIndex;
 
         internal SegmentInfo Segment { get; }
         internal SegmentReader Reader { get; }
@@ -740,7 +799,8 @@ public sealed class SegmentMerger
             SortField[] sortFields,
             int sourceOrdinal,
             bool retainSoftDeletes,
-            long softDeleteCutoff)
+            long softDeleteCutoff,
+            IReadOnlyList<DocIdRange> droppedBlockRanges)
         {
             Segment = segment;
             Reader = reader;
@@ -749,6 +809,7 @@ public sealed class SegmentMerger
             _sortFields = sortFields;
             _retainSoftDeletes = retainSoftDeletes;
             _softDeleteCutoff = softDeleteCutoff;
+            _droppedBlockRanges = droppedBlockRanges;
             CurrentKey = new MergeSortValue[sortFields.Length];
             _previousKey = new MergeSortValue[sortFields.Length];
             _sortValueResolvers = new MergeSortValueResolver[sortFields.Length];
@@ -767,6 +828,14 @@ public sealed class SegmentMerger
             while (_nextOldDocId < Segment.DocCount)
             {
                 int oldDocId = _nextOldDocId++;
+                while (_droppedBlockRangeIndex < _droppedBlockRanges.Count
+                    && oldDocId > _droppedBlockRanges[_droppedBlockRangeIndex].End)
+                    _droppedBlockRangeIndex++;
+
+                if (_droppedBlockRangeIndex < _droppedBlockRanges.Count
+                    && oldDocId >= _droppedBlockRanges[_droppedBlockRangeIndex].Start)
+                    continue;
+
                 bool isLive = Reader.IsLive(oldDocId);
                 bool isRetainedSoftDelete = false;
                 long softDeleteTimestamp = 0;

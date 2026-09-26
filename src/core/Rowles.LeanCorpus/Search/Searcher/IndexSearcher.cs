@@ -1221,12 +1221,13 @@ public sealed partial class IndexSearcher : IDisposable
                 using var pe = reader.GetPostingsEnum(qt);
                 while (pe.MoveNextUnchecked(out int childDocId, out _))
                 {
-                    if (pbs.IsParent(childDocId)) continue;
+                    if (!reader.IsLive(childDocId) || pbs.IsParent(childDocId)) continue;
                     int parentLocal = pbs.NextParent(childDocId + 1);
                     if (parentLocal >= 0 && parentLocal != lastParent)
                     {
                         lastParent = parentLocal;
-                        collector.Collect(docBase + parentLocal, boost);
+                        if (reader.IsLive(parentLocal))
+                            collector.Collect(docBase + parentLocal, boost);
                     }
                 }
             }
@@ -1239,13 +1240,14 @@ public sealed partial class IndexSearcher : IDisposable
 
                 for (int docId = 0; docId < reader.MaxDoc; docId++)
                 {
-                    if (!childBits[docId]) continue;
+                    if (!childBits[docId] || !reader.IsLive(docId)) continue;
                     if (pbs.IsParent(docId)) continue;
                     int parentLocal = pbs.NextParent(docId + 1);
                     if (parentLocal >= 0 && parentLocal != lastParent)
                     {
                         lastParent = parentLocal;
-                        collector.Collect(docBase + parentLocal, boost);
+                        if (reader.IsLive(parentLocal))
+                            collector.Collect(docBase + parentLocal, boost);
                     }
                 }
             }
@@ -1265,7 +1267,10 @@ public sealed partial class IndexSearcher : IDisposable
                     var qt = string.Concat(tq.Field, "\x00", tq.Term);
                     using var pe = reader.GetPostingsEnum(qt);
                     while (pe.MoveNextUnchecked(out int docId, out _))
-                        bits[docId] = true;
+                    {
+                        if (reader.IsLive(docId))
+                            bits[docId] = true;
+                    }
                     break;
                 }
             case BooleanQuery bq:
