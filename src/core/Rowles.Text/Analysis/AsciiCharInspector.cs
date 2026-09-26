@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
@@ -59,14 +60,23 @@ internal static class AsciiCharInspector
 
     /// <summary>
     /// Copies <paramref name="source"/> to <paramref name="destination"/>, converting
-    /// ASCII uppercase letters (<c>'A'-'Z'</c>) to lowercase via SIMD. Characters outside
-    /// the ASCII range are copied unchanged. The scalar tail uses
-    /// <see cref="char.ToLowerInvariant"/> for correct Unicode handling of the final
-    /// characters that do not fill a full vector.
+    /// all characters to invariant lowercase. The SIMD ASCII path is used only when the
+    /// entire source is ASCII; otherwise the BCL performs Unicode invariant casing.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static void AsciiToLower(ReadOnlySpan<char> source, Span<char> destination)
     {
+        if (destination.Length < source.Length)
+            throw new ArgumentException("The destination must be at least as long as the source.", nameof(destination));
+
+        if (!IsAscii(source))
+        {
+            int written = source.ToLowerInvariant(destination);
+            if (written != source.Length)
+                throw new InvalidOperationException("Invariant lowercasing did not write the full source span.");
+            return;
+        }
+
         int i = 0;
         int length = source.Length;
         ref ushort srcRef = ref Unsafe.As<char, ushort>(ref MemoryMarshal.GetReference(source));
@@ -88,13 +98,19 @@ internal static class AsciiCharInspector
     }
 
     /// <summary>
-    /// Converts ASCII uppercase letters (<c>'A'-'Z'</c>) to lowercase in place via SIMD.
-    /// Characters outside the ASCII range are left unchanged. The scalar tail uses
-    /// <see cref="char.ToLowerInvariant"/> for correct Unicode handling.
+    /// Converts text to invariant lowercase in place. The SIMD ASCII path is used only
+    /// when the entire buffer is ASCII; otherwise the BCL performs Unicode invariant
+    /// casing through a temporary buffer because the span casing API rejects overlap.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static void AsciiToLowerInPlace(Span<char> buffer)
     {
+        if (!IsAscii(buffer))
+        {
+            LowerUnicodeInPlace(buffer);
+            return;
+        }
+
         int i = 0;
         int length = buffer.Length;
         ref ushort bufRef = ref Unsafe.As<char, ushort>(ref MemoryMarshal.GetReference(buffer));
@@ -112,5 +128,46 @@ internal static class AsciiCharInspector
 
         for (; i < length; i++)
             buffer[i] = char.ToLowerInvariant(buffer[i]);
+    }
+
+    private static void LowerUnicodeInPlace(Span<char> buffer)
+    {
+        const int StackThreshold = 256;
+        if (buffer.Length <= StackThreshold)
+        {
+            Span<char> lowered = stackalloc char[buffer.Length];
+            int written = buffer.ToLowerInvariant(lowered);
+            if (written != buffer.Length)
+                throw new InvalidOperationException("Invariant lowercasing did not write the full buffer.");
+            lowered.CopyTo(buffer);
+            return;
+        }
+
+        char[] rented = ArrayPool<char>.Shared.Rent(buffer.Length);
+        try
+        {
+            Span<char> lowered = rented.AsSpan(0, buffer.Length);
+            int written = buffer.ToLowerInvariant(lowered);
+            if (written != buffer.Length)
+                throw new InvalidOperationException("Invariant lowercasing did not write the full buffer.");
+            lowered.CopyTo(buffer);
+        }
+        finally
+        {
+            ArrayPool<char>.Shared.Return(rented);
+        }
+    }
+
+    /// <summary>
+    /// Returns true only when every character in <paramref name="text"/> is ASCII.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool IsAscii(ReadOnlySpan<char> text)
+    {
+        for (int i = 0; i < text.Length; i++)
+            if (text[i] > 0x7F)
+                return false;
+
+        return true;
     }
 }

@@ -33,15 +33,16 @@ public sealed class Tokeniser : IShareableSpanTokeniser
         int i = 0;
         while (i < input.Length)
         {
-            if (!char.IsLetterOrDigit(input[i]))
+            if (!UnicodeTokenisation.IsLetterOrDigit(input, i, out int scalarLength))
             {
-                i++;
+                i += scalarLength;
                 continue;
             }
 
             int start = i;
-            while (i < input.Length && char.IsLetterOrDigit(input[i]))
-                i++;
+            i += scalarLength;
+            while (i < input.Length && UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
+                i += scalarLength;
 
             sink.Add(input[start..i], start, i, UnicodeTokenisation.ClassifyTokenType(input[start..i]));
         }
@@ -75,15 +76,16 @@ public sealed class Tokeniser : IShareableSpanTokeniser
 
         while (i < input.Length)
         {
-            if (!char.IsLetterOrDigit(input[i]))
+            if (!UnicodeTokenisation.IsLetterOrDigit(input, i, out int scalarLength))
             {
-                i++;
+                i += scalarLength;
                 continue;
             }
 
             int start = i;
-            while (i < input.Length && char.IsLetterOrDigit(input[i]))
-                i++;
+            i += scalarLength;
+            while (i < input.Length && UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
+                i += scalarLength;
 
             offsets.Add((start, i));
         }
@@ -175,27 +177,28 @@ public sealed class Tokeniser : IShareableSpanTokeniser
     private static void SimdScalarStep(
         ReadOnlySpan<char> input, ref int i, ref int? pendingStart, ISpanTokenSink sink)
     {
+        bool isLetterOrDigit = UnicodeTokenisation.IsLetterOrDigit(input, i, out int scalarLength);
         if (pendingStart.HasValue)
         {
-            if (char.IsLetterOrDigit(input[i]))
+            if (isLetterOrDigit)
             {
-                i++;
+                i += scalarLength;
                 return;
             }
             int start = pendingStart.Value;
             sink.Add(input[start..i], start, i, UnicodeTokenisation.ClassifyTokenType(input[start..i]));
             pendingStart = null;
-            i++;
+            i += scalarLength;
         }
         else
         {
-            if (!char.IsLetterOrDigit(input[i]))
+            if (!isLetterOrDigit)
             {
-                i++;
+                i += scalarLength;
                 return;
             }
             pendingStart = i;
-            i++;
+            i += scalarLength;
         }
     }
 
@@ -203,10 +206,11 @@ public sealed class Tokeniser : IShareableSpanTokeniser
     private static void ScalarTail(
         ReadOnlySpan<char> input, ref int i, ref int? pendingStart, int length, ISpanTokenSink sink)
     {
+        int scalarLength;
         if (pendingStart.HasValue)
         {
-            while (i < length && char.IsLetterOrDigit(input[i]))
-                i++;
+            while (i < length && UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
+                i += scalarLength;
             int start = pendingStart.Value;
             sink.Add(input[start..i], start, i, UnicodeTokenisation.ClassifyTokenType(input[start..i]));
             pendingStart = null;
@@ -214,15 +218,16 @@ public sealed class Tokeniser : IShareableSpanTokeniser
 
         while (i < length)
         {
-            if (!char.IsLetterOrDigit(input[i]))
+            if (!UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
             {
-                i++;
+                i += scalarLength;
                 continue;
             }
 
             int start = i;
-            while (i < length && char.IsLetterOrDigit(input[i]))
-                i++;
+            i += scalarLength;
+            while (i < length && UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
+                i += scalarLength;
             sink.Add(input[start..i], start, i, UnicodeTokenisation.ClassifyTokenType(input[start..i]));
         }
     }
@@ -231,26 +236,27 @@ public sealed class Tokeniser : IShareableSpanTokeniser
     private static void SimdScalarStepOffsets(
         ReadOnlySpan<char> input, ref int i, ref int? pendingStart, List<(int Start, int End)> offsets)
     {
+        bool isLetterOrDigit = UnicodeTokenisation.IsLetterOrDigit(input, i, out int scalarLength);
         if (pendingStart.HasValue)
         {
-            if (char.IsLetterOrDigit(input[i]))
+            if (isLetterOrDigit)
             {
-                i++;
+                i += scalarLength;
                 return;
             }
             offsets.Add((pendingStart.Value, i));
             pendingStart = null;
-            i++;
+            i += scalarLength;
         }
         else
         {
-            if (!char.IsLetterOrDigit(input[i]))
+            if (!isLetterOrDigit)
             {
-                i++;
+                i += scalarLength;
                 return;
             }
             pendingStart = i;
-            i++;
+            i += scalarLength;
         }
     }
 
@@ -258,25 +264,27 @@ public sealed class Tokeniser : IShareableSpanTokeniser
     private static void ScalarTailOffsets(
         ReadOnlySpan<char> input, ref int i, ref int? pendingStart, int length, List<(int Start, int End)> offsets)
     {
+        int scalarLength;
         if (pendingStart.HasValue)
         {
-            while (i < length && char.IsLetterOrDigit(input[i]))
-                i++;
+            while (i < length && UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
+                i += scalarLength;
             offsets.Add((pendingStart.Value, i));
             pendingStart = null;
         }
 
         while (i < length)
         {
-            if (!char.IsLetterOrDigit(input[i]))
+            if (!UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
             {
-                i++;
+                i += scalarLength;
                 continue;
             }
 
             int start = i;
-            while (i < length && char.IsLetterOrDigit(input[i]))
-                i++;
+            i += scalarLength;
+            while (i < length && UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
+                i += scalarLength;
             offsets.Add((start, i));
         }
     }

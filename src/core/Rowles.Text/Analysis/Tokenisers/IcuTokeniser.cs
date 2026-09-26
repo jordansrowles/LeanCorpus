@@ -46,15 +46,7 @@ public sealed class IcuTokeniser : IThreadLocalSpanTokeniser
                 continue;
             }
 
-            if (!UnicodeTokenisation.IsWordStart(input[i]))
-            {
-                i++;
-                continue;
-            }
-
-            int start = i;
-            i = UnicodeTokenisation.ConsumeWord(input, start);
-            sink.Add(input[start..i], start, i, UnicodeTokenisation.ClassifyTokenType(input[start..i]));
+            UnicodeTokenisation.TokeniseNonThaiSpan(input, sink, ref i);
         }
     }
 

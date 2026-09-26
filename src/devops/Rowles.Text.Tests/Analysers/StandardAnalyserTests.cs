@@ -43,6 +43,48 @@ public class StandardAnalyserTests
         Assert.Equal("forest", result[2].Text);
     }
 
+    [Theory]
+    [InlineData(7)]
+    [InlineData(8)]
+    [InlineData(9)]
+    [InlineData(15)]
+    [InlineData(16)]
+    [InlineData(17)]
+    public void Analyse_NonAsciiUppercaseToken_LowercasesRegardlessOfLength(int tokenLength)
+    {
+        string input = new('É', tokenLength);
+        var sink = new MaterialisingTokenSink();
+
+        _analyser.Analyse(input, sink);
+
+        var token = Assert.Single(sink.Tokens);
+        Assert.Equal(new string('é', tokenLength), token.Text);
+        Assert.Equal(0, token.StartOffset);
+        Assert.Equal(tokenLength, token.EndOffset);
+        Assert.Equal(Token.DefaultType, token.Type);
+        Assert.Equal(1, token.PositionIncrement);
+        Assert.Equal(1, token.PositionLength);
+        Assert.Null(token.Payload);
+    }
+
+    [Fact(DisplayName = "Analyse: Mixed ASCII and non-ASCII uppercase is lowercased")]
+    public void Analyse_MixedAsciiAndNonAsciiUppercase_LowercasesWholeToken()
+    {
+        const string input = "ASCIIÉUP";
+        var sink = new MaterialisingTokenSink();
+
+        _analyser.Analyse(input, sink);
+
+        var token = Assert.Single(sink.Tokens);
+        Assert.Equal("asciiéup", token.Text);
+        Assert.Equal(0, token.StartOffset);
+        Assert.Equal(input.Length, token.EndOffset);
+        Assert.Equal(Token.DefaultType, token.Type);
+        Assert.Equal(1, token.PositionIncrement);
+        Assert.Equal(1, token.PositionLength);
+        Assert.Null(token.Payload);
+    }
+
     /// <summary>
     /// Verifies the Analyse: After Returns Token scenario.
     /// </summary>

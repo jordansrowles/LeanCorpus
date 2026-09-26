@@ -60,14 +60,16 @@ public sealed class Uax29UrlEmailTokeniser : IThreadLocalSpanTokeniser
                 continue;
             }
 
-            if (UnicodeTokenisation.IsWordStart(input[i]) && UnicodeTokenisation.TryReadEmail(input, i, out int emailEnd))
+            if (UnicodeTokenisation.IsWordStart(input, i, out _) && UnicodeTokenisation.TryReadEmail(input, i, out int emailEnd))
             {
                 sink.Add(input[i..emailEnd], i, emailEnd, EmailType);
                 i = emailEnd;
                 continue;
             }
 
-            if ((input[i] == '#' || input[i] == '@') && i + 1 < input.Length && UnicodeTokenisation.IsWordStart(input[i + 1]))
+            if ((input[i] == '#' || input[i] == '@')
+                && i + 1 < input.Length
+                && UnicodeTokenisation.IsWordStart(input, i + 1, out _))
             {
                 int start = i;
                 i = UnicodeTokenisation.ConsumeWord(input, i + 1, allowUnderscore: true, allowHyphen: false);
@@ -79,15 +81,7 @@ public sealed class Uax29UrlEmailTokeniser : IThreadLocalSpanTokeniser
                 continue;
             }
 
-            if (!UnicodeTokenisation.IsWordStart(input[i]))
-            {
-                i++;
-                continue;
-            }
-
-            int wordStart = i;
-            i = UnicodeTokenisation.ConsumeWord(input, wordStart);
-            sink.Add(input[wordStart..i], wordStart, i, UnicodeTokenisation.ClassifyTokenType(input[wordStart..i]));
+            UnicodeTokenisation.TokeniseNonThaiSpan(input, sink, ref i);
         }
     }
 

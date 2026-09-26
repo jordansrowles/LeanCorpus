@@ -22,6 +22,22 @@ public sealed class AdvancedTokeniserTests
         Assert.Equal([6, 11, 19], tokens.Select(static token => token.EndOffset));
     }
 
+    [Fact(DisplayName = "ICU Tokeniser: Supplementary Letters Digits And Marks Use Scalar Boundaries")]
+    public void IcuTokeniser_SupplementaryLettersDigitsAndMarks_UsesScalarBoundaries()
+    {
+        const string input = "A\U00010400B \U0001D7D8 a\U0001D165b";
+        var tokeniser = new IcuTokeniser();
+
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise(input, matSink);
+        var tokens = matSink.Tokens;
+
+        Assert.Equal(["A\U00010400B", "\U0001D7D8", "a\U0001D165b"], tokens.Select(static token => token.Text));
+        Assert.Equal([0, 5, 8], tokens.Select(static token => token.StartOffset));
+        Assert.Equal([4, 7, 12], tokens.Select(static token => token.EndOffset));
+        Assert.Equal([Token.DefaultType, "number", Token.DefaultType], tokens.Select(static token => token.Type));
+    }
+
     [Fact(DisplayName = "ICU Tokeniser: With Thai Tokeniser Segments Thai Properly")]
     public void IcuTokeniser_WithThai_SegmentsThai()
     {
@@ -50,6 +66,44 @@ public sealed class AdvancedTokeniserTests
         Assert.Contains(tokens, static token => token.Text == "https://example.com/docs" && token.Type == Uax29UrlEmailTokeniser.UrlType);
         Assert.Contains(tokens, static token => token.Text == "#LeanCorpus" && token.Type == Uax29UrlEmailTokeniser.HashtagType);
         Assert.Contains(tokens, static token => token.Text == "@jordansrowles" && token.Type == Uax29UrlEmailTokeniser.MentionType);
+    }
+
+    [Fact(DisplayName = "UAX29 URL Email Tokeniser: Supplementary Words Stay In Hashtags And Emails")]
+    public void Uax29UrlEmailTokeniser_SupplementaryWords_StaysInHashtagsAndEmails()
+    {
+        const string tag = "#A\U00010400B";
+        const string email = "dev\U00010400@example.com";
+        string input = $"{tag} {email}";
+        var tokeniser = new Uax29UrlEmailTokeniser();
+
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise(input, matSink);
+        var tokens = matSink.Tokens;
+
+        Assert.Equal(2, tokens.Count);
+        Assert.Equal(tag, tokens[0].Text);
+        Assert.Equal(0, tokens[0].StartOffset);
+        Assert.Equal(tag.Length, tokens[0].EndOffset);
+        Assert.Equal(Uax29UrlEmailTokeniser.HashtagType, tokens[0].Type);
+        Assert.Equal(email, tokens[1].Text);
+        Assert.Equal(tag.Length + 1, tokens[1].StartOffset);
+        Assert.Equal(input.Length, tokens[1].EndOffset);
+        Assert.Equal(Uax29UrlEmailTokeniser.EmailType, tokens[1].Type);
+    }
+
+    [Fact(DisplayName = "Thai Tokeniser: Supplementary Non-Thai Letters Use Scalar Boundaries")]
+    public void ThaiTokeniser_SupplementaryNonThaiLetters_UsesScalarBoundaries()
+    {
+        const string input = "A\U00010400B";
+        var tokeniser = new ThaiTokeniser(["ภาษา"]);
+
+        var matSink = new MaterialisingTokenSink();
+        tokeniser.Tokenise(input, matSink);
+
+        var token = Assert.Single(matSink.Tokens);
+        Assert.Equal(input, token.Text);
+        Assert.Equal(0, token.StartOffset);
+        Assert.Equal(input.Length, token.EndOffset);
     }
 
     [Fact(DisplayName = "Thai Tokeniser: FromFile Loads Lexicon and Splits Known Runs")]

@@ -457,7 +457,7 @@ public class AnalysisSmokeTests
     public void PatternReplaceCharFilter()
     {
         var filter = new PatternReplaceCharFilter(@"\d+", "#");
-        var result = filter.Filter("abc123def456".AsSpan());
+        var result = filter.Filter("abc123def456".AsSpan()).Text;
         Assert.True(result == "abc#def#",
             $"PatternReplaceCharFilter expected 'abc#def#', got '{result}'");
     }

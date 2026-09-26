@@ -111,15 +111,16 @@ public sealed class ChineseLexiconTokeniser : IShareableSpanTokeniser
                 }
                 TokeniseCjkRun(input, runStart, i, sink);
             }
-            else if (char.IsLetterOrDigit(input[i]))
+            else if (UnicodeTokenisation.IsLetterOrDigit(input, i, out int scalarLength))
             {
                 int start = i;
-                while (i < input.Length && char.IsLetterOrDigit(input[i]))
+                while (i < input.Length
+                    && UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
                 {
-                    int nextCodePoint = CjkUnicode.DecodeCodePoint(input, i, out int nextChars);
+                    int nextCodePoint = CjkUnicode.DecodeCodePoint(input, i, out _);
                     if (CjkUnicode.IsIdeograph(nextCodePoint))
                         break;
-                    i += nextChars;
+                    i += scalarLength;
                 }
                 sink.Add(
                     input[start..i],
@@ -129,7 +130,7 @@ public sealed class ChineseLexiconTokeniser : IShareableSpanTokeniser
             }
             else
             {
-                i++; // skip whitespace/punctuation
+                i += charsConsumed; // skip whitespace/punctuation or one invalid UTF-16 code unit
             }
         }
     }

@@ -123,6 +123,38 @@ public sealed class CJKTokeniserTests
         Assert.Equal(Token.DefaultType, sink.Tokens[0].Type); // "term"
     }
 
+    [Fact(DisplayName = "CJKBigramTokeniser: Supplementary Non-CJK Letters And Digits Use UTF-16 Offsets")]
+    public void CJKBigramTokeniser_SupplementaryNonCjkLettersAndDigits_UseUtf16Offsets()
+    {
+        const string input = "A\U00010400B \U0001D7D8";
+        var tokeniser = new CJKBigramTokeniser();
+        var sink = new MaterialisingTokenSink();
+
+        tokeniser.Tokenise(input, sink);
+
+        Assert.Equal(["A\U00010400B", "\U0001D7D8"], sink.Tokens.Select(static token => token.Text));
+        Assert.Equal([(0, 4), (5, 7)], sink.Tokens.Select(static token => (token.StartOffset, token.EndOffset)));
+        Assert.Equal([Token.DefaultType, "number"], sink.Tokens.Select(static token => token.Type));
+        Assert.All(sink.Tokens, static token => Assert.Equal(1, token.PositionIncrement));
+        Assert.All(sink.Tokens, static token => Assert.Equal(1, token.PositionLength));
+    }
+
+    [Fact(DisplayName = "ChineseLexiconTokeniser: Supplementary Non-CJK Letters And Digits Use UTF-16 Offsets")]
+    public void ChineseLexiconTokeniser_SupplementaryNonCjkLettersAndDigits_UseUtf16Offsets()
+    {
+        const string input = "A\U00010400B \U0001D7D8";
+        var tokeniser = new ChineseLexiconTokeniser(["中文"]);
+        var sink = new MaterialisingTokenSink();
+
+        tokeniser.Tokenise(input, sink);
+
+        Assert.Equal(["A\U00010400B", "\U0001D7D8"], sink.Tokens.Select(static token => token.Text));
+        Assert.Equal([(0, 4), (5, 7)], sink.Tokens.Select(static token => (token.StartOffset, token.EndOffset)));
+        Assert.Equal([Token.DefaultType, "number"], sink.Tokens.Select(static token => token.Type));
+        Assert.All(sink.Tokens, static token => Assert.Equal(1, token.PositionIncrement));
+        Assert.All(sink.Tokens, static token => Assert.Equal(1, token.PositionLength));
+    }
+
     [Fact(DisplayName = "CJKBigramTokeniser: Punctuation only produces no tokens")]
     public void CJKBigramTokeniser_PunctuationOnly_NoTokens()
     {

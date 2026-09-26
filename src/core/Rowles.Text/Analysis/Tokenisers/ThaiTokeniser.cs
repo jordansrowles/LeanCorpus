@@ -1,5 +1,4 @@
 using System.Collections.Frozen;
-using System.Globalization;
 
 #if !ROWLES_TEXT
 using Rowles.LeanCorpus.Store;
@@ -149,10 +148,9 @@ public sealed class ThaiTokeniser : IShareableSpanTokeniser
         int i = start + 1;
         while (i < end)
         {
-            var category = char.GetUnicodeCategory(input[i]);
-            if (category is UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark)
+            if (UnicodeTokenisation.IsMark(input, i, out int scalarLength))
             {
-                i++;
+                i += scalarLength;
                 continue;
             }
 

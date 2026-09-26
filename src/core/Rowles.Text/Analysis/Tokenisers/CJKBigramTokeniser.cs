@@ -71,12 +71,16 @@ public sealed class CJKBigramTokeniser : IShareableSpanTokeniser
                     }
                 }
             }
-            else if (char.IsLetterOrDigit(input[i]))
+            else if (UnicodeTokenisation.IsLetterOrDigit(input, i, out int scalarLength))
             {
                 // Use standard word tokenisation outside ideograph runs.
                 int start = i;
-                while (i < input.Length && char.IsLetterOrDigit(input[i]))
-                    i++;
+                i += scalarLength;
+                while (i < input.Length
+                    && UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
+                {
+                    i += scalarLength;
+                }
                 sink.Add(
                     input[start..i],
                     start,
@@ -85,7 +89,7 @@ public sealed class CJKBigramTokeniser : IShareableSpanTokeniser
             }
             else
             {
-                i++; // skip whitespace/punctuation
+                i += charsConsumed; // skip whitespace/punctuation or one invalid UTF-16 code unit
             }
         }
     }
