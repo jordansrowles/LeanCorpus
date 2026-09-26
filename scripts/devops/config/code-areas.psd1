@@ -27,6 +27,14 @@
     'tokenisers'     = @{ Globs = @('src/core/Rowles.Text/Analysis/Tokenisers/**');                  Targets = @('text:Tokenisers', 'core:TextIntegration') }
     'text-root'      = @{ Globs = @('src/core/Rowles.Text/Analysis/*.cs', 'src/core/Rowles.Text/*.csproj'); Targets = @('text:Analysers', 'core:TextIntegration') }
 
+    # Test and benchmark changes carry area intent for the production code they exercise.
+    'core-index-tests' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.Core/Index/**'); Targets = @('core:Index') }
+    'core-index-benchmarks' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Benchmarks/Index/**', 'src/devops/Rowles.LeanCorpus.Benchmarks/Program.cs'); Targets = @('core:Index') }
+
+    # Release notes are recognised but do not independently select tests. A
+    # change consisting only of these files still fails closed below.
+    'release-notes' = @{ Globs = @('changelog/**', 'docs/changelog/**'); Targets = @() }
+
     'server-abstractions' = @{ Globs = @('src/server/Rowles.LeanCorpus.Server.Abstractions/**'); Targets = @('server-abstractions:Server', 'server-integration:Server') }
     'server-core' = @{ Globs = @('src/server/Rowles.LeanCorpus.Server.Core/**'); Targets = @('server-core:Server', 'server-integration:Server') }
     'server-transport' = @{ Globs = @('src/server/Rowles.LeanCorpus.Server.AspNetCore/**', 'src/server/Rowles.LeanCorpus.Server.Grpc/**', 'src/server/Rowles.LeanCorpus.Server.Local/**', 'src/server/Rowles.LeanCorpus.Studio/**'); Targets = @('server-integration:Server') }
