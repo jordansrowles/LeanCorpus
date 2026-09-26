@@ -1,20 +1,16 @@
 using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
-using System.Collections.Generic;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
 
-/// <summary>
-/// Reads multi-valued string DocValues from a .dss sidecar file.
-/// </summary>
+/// <summary>Opens sorted-set DocValues as term tables and flat local ordinals.</summary>
 internal static class SortedSetDocValuesReader
 {
     public static Dictionary<string, string[][]> Read(string filePath)
     {
-        var values = new Dictionary<string, string[][]>(StringComparer.Ordinal);
         if (!FileOpenRetry.FileExists(filePath))
-            return values;
+            return new Dictionary<string, string[][]>(StringComparer.Ordinal);
 
         using var input = new IndexInput(filePath);
         return Read(input);
@@ -22,65 +18,77 @@ internal static class SortedSetDocValuesReader
 
     internal static Dictionary<string, string[][]> Read(IndexInput input)
     {
-        using var inputLifetime = input;
-        var values = new Dictionary<string, string[][]>(StringComparer.Ordinal);
+        using (input)
+        {
+            var columns = OpenColumns(input);
+            var values = new Dictionary<string, string[][]>(columns.Count, StringComparer.Ordinal);
+            foreach ((string field, SortedSetDocValuesColumn column) in columns)
+                values.Add(field, column.Materialise());
+            return values;
+        }
+    }
+
+    /// <summary>
+    /// Parses each term table and flat ordinal vector once. The caller owns <paramref name="input"/>
+    /// for the lifetime of the returned columns.
+    /// </summary>
+    internal static Dictionary<string, SortedSetDocValuesColumn> OpenColumns(IndexInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        var columns = new Dictionary<string, SortedSetDocValuesColumn>(StringComparer.Ordinal);
         using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.SortedSet);
 
         int fieldCount = input.ReadInt32();
-        for (int f = 0; f < fieldCount; f++)
+        if (fieldCount < 0)
+            throw new InvalidDataException("Sorted-set DocValues field count cannot be negative.");
+
+        long bodyEnd = checked(frame.BodyStart + frame.BodyLength);
+        for (int fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++)
         {
             string fieldName = ReadString(input);
-            int docCount = input.ReadInt32();
-            int ordCount = input.ReadInt32();
-            var ordTable = new string[ordCount];
-            for (int i = 0; i < ordTable.Length; i++)
-                ordTable[i] = ReadString(input);
+            int documentCount = input.ReadInt32();
+            int ordinalCount = input.ReadInt32();
+            if (documentCount < 0 || ordinalCount < 0)
+                throw new InvalidDataException($"Sorted-set DocValues field '{fieldName}' has a negative count.");
 
-            var starts = new int[docCount + 1];
-            for (int i = 0; i < starts.Length; i++)
-                starts[i] = input.ReadInt32();
+            var terms = new string[ordinalCount];
+            for (int ordinal = 0; ordinal < terms.Length; ordinal++)
+                terms[ordinal] = ReadString(input);
 
-            int totalOrdinals = input.ReadInt32();
-            ValidateStarts(starts, totalOrdinals, fieldName);
+            var documentStarts = new int[checked(documentCount + 1)];
+            for (int index = 0; index < documentStarts.Length; index++)
+                documentStarts[index] = input.ReadInt32();
 
-            var ordinals = new int[totalOrdinals];
-            for (int i = 0; i < ordinals.Length; i++)
+            int valueCount = input.ReadInt32();
+            if (valueCount < 0)
+                throw new InvalidDataException($"Sorted-set DocValues field '{fieldName}' has a negative ordinal count.");
+            ValidateStarts(documentStarts, valueCount, fieldName);
+
+            long remainingBody = bodyEnd - input.Position;
+            if (remainingBody < valueCount)
+                throw new InvalidDataException($"Sorted-set DocValues field '{fieldName}' has a truncated ordinal vector.");
+
+            var ordinals = new int[valueCount];
+            for (int index = 0; index < ordinals.Length; index++)
             {
-                int ord = input.ReadVarInt();
-                if ((uint)ord >= (uint)ordTable.Length)
-                    throw new InvalidDataException($"Invalid sorted-set DocValues ordinal {ord} for field '{fieldName}'.");
-                ordinals[i] = ord;
+                int ordinal = input.ReadVarInt();
+                if ((uint)ordinal >= (uint)terms.Length)
+                    throw new InvalidDataException(
+                        $"Invalid sorted-set DocValues ordinal {ordinal} for field '{fieldName}'.");
+                ordinals[index] = ordinal;
             }
 
-            var perDoc = new string[docCount][];
-            for (int docId = 0; docId < docCount; docId++)
-            {
-                int start = starts[docId];
-                int end = starts[docId + 1];
-                if (end == start)
-                {
-                    perDoc[docId] = [];
-                    continue;
-                }
-
-                var docValues = new string[end - start];
-                for (int i = 0; i < docValues.Length; i++)
-                    docValues[i] = ordTable[ordinals[start + i]];
-                perDoc[docId] = docValues;
-            }
-
-            values[fieldName] = perDoc;
+            columns.Add(fieldName, new SortedSetDocValuesColumn(terms, documentStarts, ordinals));
         }
 
         frame.ValidateChecksum();
-        return values;
+        return columns;
     }
 
     internal static Dictionary<string, string[]> ReadTerms(string filePath)
     {
-        var terms = new Dictionary<string, string[]>(StringComparer.Ordinal);
         if (!FileOpenRetry.FileExists(filePath))
-            return terms;
+            return new Dictionary<string, string[]>(StringComparer.Ordinal);
 
         using var input = new IndexInput(filePath);
         return ReadTerms(input);
@@ -88,103 +96,43 @@ internal static class SortedSetDocValuesReader
 
     internal static Dictionary<string, string[]> ReadTerms(IndexInput input)
     {
-        using var inputLifetime = input;
-        var terms = new Dictionary<string, string[]>(StringComparer.Ordinal);
-        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.SortedSet);
-        int fieldCount = input.ReadInt32();
-        for (int f = 0; f < fieldCount; f++)
+        using (input)
         {
-            string fieldName = ReadString(input);
-            int docCount = input.ReadInt32();
-            int ordCount = input.ReadInt32();
-            if (docCount < 0 || ordCount < 0)
-                throw new InvalidDataException($"Sorted-set DocValues field '{fieldName}' has a negative count.");
-            var fieldTerms = new string[ordCount];
-            for (int ordinal = 0; ordinal < ordCount; ordinal++)
-                fieldTerms[ordinal] = ReadString(input);
-
-            for (int i = 0; i <= docCount; i++)
-                _ = input.ReadInt32();
-            int totalOrdinals = input.ReadInt32();
-            if (totalOrdinals < 0)
-                throw new InvalidDataException($"Sorted-set DocValues field '{fieldName}' has a negative ordinal count.");
-            for (int i = 0; i < totalOrdinals; i++)
-                _ = input.ReadVarInt();
-            terms[fieldName] = fieldTerms;
+            var columns = OpenColumns(input);
+            var terms = new Dictionary<string, string[]>(columns.Count, StringComparer.Ordinal);
+            foreach ((string field, SortedSetDocValuesColumn column) in columns)
+                terms.Add(field, column.CopyTerms());
+            return terms;
         }
-
-        frame.ValidateChecksum();
-        return terms;
     }
 
     internal static List<(string Name, IReadOnlyList<string>?[] Values)> EnumerateFields(string filePath)
     {
         if (!FileOpenRetry.FileExists(filePath))
-            return new List<(string, IReadOnlyList<string>?[])>(0);
+            return [];
 
-        using var input = new IndexInput(filePath);
-        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.SortedSet);
-
-        int fieldCount = input.ReadInt32();
-        var results = new List<(string, IReadOnlyList<string>?[])>(fieldCount);
-        for (int f = 0; f < fieldCount; f++)
+        var values = Read(filePath);
+        var result = new List<(string, IReadOnlyList<string>?[])>(values.Count);
+        foreach ((string field, string[][] documents) in values)
         {
-            string fieldName = ReadString(input);
-            int docCount = input.ReadInt32();
-            int ordCount = input.ReadInt32();
-            var ordTable = new string[ordCount];
-            for (int i = 0; i < ordTable.Length; i++)
-                ordTable[i] = ReadString(input);
-
-            var starts = new int[docCount + 1];
-            for (int i = 0; i < starts.Length; i++)
-                starts[i] = input.ReadInt32();
-
-            int totalOrdinals = input.ReadInt32();
-            ValidateStarts(starts, totalOrdinals, fieldName);
-
-            var ordinals = new int[totalOrdinals];
-            for (int i = 0; i < ordinals.Length; i++)
-            {
-                int ord = input.ReadVarInt();
-                if ((uint)ord >= (uint)ordTable.Length)
-                    throw new InvalidDataException($"Invalid sorted-set DocValues ordinal {ord} for field '{fieldName}'.");
-                ordinals[i] = ord;
-            }
-
-            var perDoc = new IReadOnlyList<string>[docCount];
-            for (int docId = 0; docId < docCount; docId++)
-            {
-                int start = starts[docId];
-                int end = starts[docId + 1];
-                if (end == start)
-                {
-                    perDoc[docId] = Array.Empty<string>();
-                    continue;
-                }
-
-                var docValues = new string[end - start];
-                for (int i = 0; i < docValues.Length; i++)
-                    docValues[i] = ordTable[ordinals[start + i]];
-                perDoc[docId] = docValues;
-            }
-
-            results.Add((fieldName, perDoc));
+            var rows = new IReadOnlyList<string>?[documents.Length];
+            for (int documentId = 0; documentId < documents.Length; documentId++)
+                rows[documentId] = documents[documentId];
+            result.Add((field, rows));
         }
 
-        frame.ValidateChecksum();
-        return results;
+        return result;
     }
 
     private static void ValidateStarts(int[] starts, int totalValues, string fieldName)
     {
-        if (starts[0] != 0)
+        if (starts.Length == 0 || starts[0] != 0)
             throw new InvalidDataException($"Invalid sorted-set DocValues offsets for field '{fieldName}'.");
 
         int previous = 0;
-        for (int i = 0; i < starts.Length; i++)
+        for (int index = 0; index < starts.Length; index++)
         {
-            int current = starts[i];
+            int current = starts[index];
             if (current < previous || current > totalValues)
                 throw new InvalidDataException($"Invalid sorted-set DocValues offsets for field '{fieldName}'.");
             previous = current;

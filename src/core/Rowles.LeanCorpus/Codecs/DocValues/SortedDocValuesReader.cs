@@ -1,23 +1,19 @@
+using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Util;
-using System.Collections.Generic;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
 
-/// <summary>
-/// Reads per-document string values from a column-stride .dvs file.
-/// Returns the dense value arrays alongside per-field presence bitmaps.
-/// A null presence entry means all documents carry a value for that field.
-/// </summary>
+/// <summary>Opens sorted DocValues while retaining packed local ordinals.</summary>
 internal static class SortedDocValuesReader
 {
     public static (Dictionary<string, string[]> Values, Dictionary<string, RoaringBitmap?> Presence) Read(string filePath)
     {
         var values = new Dictionary<string, string[]>(StringComparer.Ordinal);
         var presence = new Dictionary<string, RoaringBitmap?>(StringComparer.Ordinal);
-
-        if (!FileOpenRetry.FileExists(filePath)) return (values, presence);
+        if (!FileOpenRetry.FileExists(filePath))
+            return (values, presence);
 
         using var input = new IndexInput(filePath);
         return Read(input);
@@ -25,91 +21,81 @@ internal static class SortedDocValuesReader
 
     internal static (Dictionary<string, string[]> Values, Dictionary<string, RoaringBitmap?> Presence) Read(IndexInput input)
     {
-        using var inputLifetime = input;
-        var values = new Dictionary<string, string[]>(StringComparer.Ordinal);
-        var presence = new Dictionary<string, RoaringBitmap?>(StringComparer.Ordinal);
+        using (input)
+        {
+            var columns = OpenColumns(input);
+            var values = new Dictionary<string, string[]>(columns.Count, StringComparer.Ordinal);
+            var presence = new Dictionary<string, RoaringBitmap?>(columns.Count, StringComparer.Ordinal);
+            foreach ((string field, SortedDocValuesColumn column) in columns)
+            {
+                values.Add(field, column.Materialise());
+                presence.Add(field, column.Presence);
+            }
+            return (values, presence);
+        }
+    }
 
+    /// <summary>
+    /// Parses term tables and packed ordinal offsets without expanding one string reference per document.
+    /// The caller owns <paramref name="input"/> for the lifetime of the returned columns.
+    /// </summary>
+    internal static Dictionary<string, SortedDocValuesColumn> OpenColumns(IndexInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        var columns = new Dictionary<string, SortedDocValuesColumn>(StringComparer.Ordinal);
         using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.Sorted);
 
         int fieldCount = input.ReadInt32();
+        if (fieldCount < 0)
+            throw new InvalidDataException("Sorted DocValues field count cannot be negative.");
 
-        for (int f = 0; f < fieldCount; f++)
+        long bodyEnd = checked(frame.BodyStart + frame.BodyLength);
+        for (int fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++)
         {
-            int nameLen = input.ReadVarInt();
-            var nameBytes = new byte[nameLen];
-            for (int b = 0; b < nameLen; b++)
-                nameBytes[b] = input.ReadByte();
-            string fieldName = System.Text.Encoding.UTF8.GetString(nameBytes);
+            string fieldName = ReadString(input);
+            RoaringBitmap? presence = ReadPresence(input, fieldName);
+            int documentCount = input.ReadInt32();
+            int ordinalCount = input.ReadInt32();
+            if (documentCount < 0 || ordinalCount < 0)
+                throw new InvalidDataException($"Sorted DocValues field '{fieldName}' has a negative count.");
 
-            // Presence block (current format)
-            RoaringBitmap? fieldPresence = null;
-            int presenceByteCount = input.ReadInt32();
-            if (presenceByteCount > 0)
-            {
-                var bitmapBytes = input.ReadBytes(presenceByteCount);
-                using var ms = new System.IO.MemoryStream(bitmapBytes);
-                using var br = new System.IO.BinaryReader(ms);
-                fieldPresence = RoaringBitmap.Deserialise(br);
-            }
-            presence[fieldName] = fieldPresence;
+            var terms = new string[ordinalCount];
+            for (int ordinal = 0; ordinal < terms.Length; ordinal++)
+                terms[ordinal] = ReadString(input);
 
-            int docCount = input.ReadInt32();
-            int ordCount = input.ReadInt32();
-
-            var ordTable = new string[ordCount];
-            for (int o = 0; o < ordCount; o++)
-            {
-                int len = input.ReadVarInt();
-                var bytes = new byte[len];
-                for (int b = 0; b < len; b++)
-                    bytes[b] = input.ReadByte();
-                ordTable[o] = System.Text.Encoding.UTF8.GetString(bytes);
-            }
-
-            int bitsPerOrd = input.ReadByte();
-            if (bitsPerOrd > 63)
+            int bitsPerOrdinal = input.ReadByte();
+            if (bitsPerOrdinal > 63)
                 throw new InvalidDataException(
-                    $"Sorted DocValues field '{fieldName}' has bitsPerOrd={bitsPerOrd}, max is 63.");
+                    $"Sorted DocValues field '{fieldName}' has bitsPerOrd={bitsPerOrdinal}, max is 63.");
 
-            var fieldValues = new string[docCount];
+            long packedByteCount = checked(((long)documentCount * bitsPerOrdinal + 7) / 8);
+            long packedDataOffset = input.Position;
+            if (packedDataOffset > bodyEnd || packedByteCount > bodyEnd - packedDataOffset)
+                throw new InvalidDataException(
+                    $"Sorted DocValues field '{fieldName}' does not contain its declared packed ordinals.");
 
-            if (bitsPerOrd == 0)
+            var column = new SortedDocValuesColumn(
+                input, documentCount, terms, bitsPerOrdinal, packedDataOffset, presence);
+            for (int documentId = 0; documentId < documentCount; documentId++)
             {
-                Array.Fill(fieldValues, ordTable.Length > 0 ? ordTable[0] : string.Empty);
-            }
-            else
-            {
-                ulong mask = (1UL << bitsPerOrd) - 1;
-                ulong buffer = 0;
-                int bitsInBuffer = 0;
-                for (int i = 0; i < docCount; i++)
-                {
-                    while (bitsInBuffer < bitsPerOrd)
-                    {
-                        buffer |= (ulong)input.ReadByte() << bitsInBuffer;
-                        bitsInBuffer += 8;
-                    }
-                    int ord = (int)(buffer & mask);
-                    buffer >>= bitsPerOrd;
-                    bitsInBuffer -= bitsPerOrd;
-                    if ((uint)ord >= (uint)ordTable.Length)
-                        throw new InvalidDataException(
-                            $"Sorted DocValues field '{fieldName}' has ordinal {ord} but ordTable has {ordTable.Length} entries.");
-                    fieldValues[i] = ordTable[ord];
-                }
+                int ordinal = column.GetOrdinal(documentId);
+                if ((uint)ordinal >= (uint)ordinalCount)
+                    throw new InvalidDataException(
+                        $"Sorted DocValues field '{fieldName}' has ordinal {ordinal} but ordTable has {ordinalCount} entries.");
             }
 
-            values[fieldName] = fieldValues;
+            columns.Add(fieldName, column);
+            input.Seek(checked(packedDataOffset + packedByteCount));
         }
 
         frame.ValidateChecksum();
-        return (values, presence);
+        return columns;
     }
 
     internal static Dictionary<string, string[]> ReadTerms(string filePath)
     {
-        var terms = new Dictionary<string, string[]>(StringComparer.Ordinal);
-        if (!FileOpenRetry.FileExists(filePath)) return terms;
+        if (!FileOpenRetry.FileExists(filePath))
+            return new Dictionary<string, string[]>(StringComparer.Ordinal);
 
         using var input = new IndexInput(filePath);
         return ReadTerms(input);
@@ -117,131 +103,54 @@ internal static class SortedDocValuesReader
 
     internal static Dictionary<string, string[]> ReadTerms(IndexInput input)
     {
-        using var inputLifetime = input;
-        var terms = new Dictionary<string, string[]>(StringComparer.Ordinal);
-        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.Sorted);
-        int fieldCount = input.ReadInt32();
-        for (int f = 0; f < fieldCount; f++)
+        using (input)
         {
-            string fieldName = ReadString(input);
-            int presenceByteCount = input.ReadInt32();
-            if (presenceByteCount < 0)
-                throw new InvalidDataException($"Sorted DocValues field '{fieldName}' has a negative presence length.");
-            input.Seek(checked(input.Position + presenceByteCount));
-
-            int docCount = input.ReadInt32();
-            int ordCount = input.ReadInt32();
-            if (docCount < 0 || ordCount < 0)
-                throw new InvalidDataException($"Sorted DocValues field '{fieldName}' has a negative count.");
-            var fieldTerms = new string[ordCount];
-            for (int ordinal = 0; ordinal < ordCount; ordinal++)
-                fieldTerms[ordinal] = ReadString(input);
-
-            int bitsPerOrd = input.ReadByte();
-            if (bitsPerOrd > 63)
-                throw new InvalidDataException(
-                    $"Sorted DocValues field '{fieldName}' has bitsPerOrd={bitsPerOrd}, max is 63.");
-            long packedByteCount = ((long)docCount * bitsPerOrd + 7) / 8;
-            input.Seek(checked(input.Position + packedByteCount));
-            terms[fieldName] = fieldTerms;
+            var columns = OpenColumns(input);
+            var terms = new Dictionary<string, string[]>(columns.Count, StringComparer.Ordinal);
+            foreach ((string field, SortedDocValuesColumn column) in columns)
+                terms.Add(field, column.CopyTerms());
+            return terms;
         }
-
-        frame.ValidateChecksum();
-        return terms;
     }
 
     internal static List<(string Name, string?[] Values)> EnumerateFields(string filePath)
     {
         if (!FileOpenRetry.FileExists(filePath))
-            return new List<(string, string?[])>(0);
+            return [];
 
-        using var input = new IndexInput(filePath);
-
-        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.Sorted);
-
-        int fieldCount = input.ReadInt32();
-
-        var results = new List<(string Name, string?[] Values)>(fieldCount);
-
-        for (int f = 0; f < fieldCount; f++)
+        var (values, presence) = Read(filePath);
+        var results = new List<(string, string?[])>(values.Count);
+        foreach ((string field, string[] fieldValues) in values)
         {
-            int nameLen = input.ReadVarInt();
-            var nameBytes = new byte[nameLen];
-            for (int b = 0; b < nameLen; b++)
-                nameBytes[b] = input.ReadByte();
-            string fieldName = System.Text.Encoding.UTF8.GetString(nameBytes);
-
-            // Presence block (current format)
-            RoaringBitmap? fieldPresence = null;
-            int presenceByteCount = input.ReadInt32();
-            if (presenceByteCount > 0)
+            string?[] enumerated = fieldValues;
+            if (presence.GetValueOrDefault(field) is { } fieldPresence)
             {
-                var bitmapBytes = input.ReadBytes(presenceByteCount);
-                using var ms = new System.IO.MemoryStream(bitmapBytes);
-                using var br = new System.IO.BinaryReader(ms);
-                fieldPresence = RoaringBitmap.Deserialise(br);
-            }
-
-            int docCount = input.ReadInt32();
-            int ordCount = input.ReadInt32();
-
-            var ordTable = new string[ordCount];
-            for (int o = 0; o < ordCount; o++)
-            {
-                int len = input.ReadVarInt();
-                var bytes = new byte[len];
-                for (int b = 0; b < len; b++)
-                    bytes[b] = input.ReadByte();
-                ordTable[o] = System.Text.Encoding.UTF8.GetString(bytes);
-            }
-
-            int bitsPerOrd = input.ReadByte();
-            if (bitsPerOrd > 63)
-                throw new InvalidDataException(
-                    $"Sorted DocValues field '{fieldName}' has bitsPerOrd={bitsPerOrd}, max is 63.");
-
-            var fieldValues = new string?[docCount];
-
-            if (bitsPerOrd == 0)
-            {
-                Array.Fill(fieldValues, ordTable.Length > 0 ? ordTable[0] : string.Empty);
-            }
-            else
-            {
-                ulong mask = (1UL << bitsPerOrd) - 1;
-                ulong buffer = 0;
-                int bitsInBuffer = 0;
-                for (int i = 0; i < docCount; i++)
-                {
-                    while (bitsInBuffer < bitsPerOrd)
-                    {
-                        buffer |= (ulong)input.ReadByte() << bitsInBuffer;
-                        bitsInBuffer += 8;
-                    }
-                    int ord = (int)(buffer & mask);
-                    buffer >>= bitsPerOrd;
-                    bitsInBuffer -= bitsPerOrd;
-                    if ((uint)ord >= (uint)ordTable.Length)
-                        throw new InvalidDataException(
-                            $"Sorted DocValues field '{fieldName}' has ordinal {ord} but ordTable has {ordTable.Length} entries.");
-                    fieldValues[i] = ordTable[ord];
-                }
-            }
-
-            if (fieldPresence is not null)
-            {
+                enumerated = new string?[fieldValues.Length];
                 for (int docId = 0; docId < fieldValues.Length; docId++)
                 {
-                    if (!fieldPresence.Contains(docId))
-                        fieldValues[docId] = null;
+                    if (fieldPresence.Contains(docId))
+                        enumerated[docId] = fieldValues[docId];
                 }
             }
 
-            results.Add((fieldName, fieldValues));
+            results.Add((field, enumerated));
         }
 
-        frame.ValidateChecksum();
         return results;
+    }
+
+    private static RoaringBitmap? ReadPresence(IndexInput input, string fieldName)
+    {
+        int presenceByteCount = input.ReadInt32();
+        if (presenceByteCount < 0)
+            throw new InvalidDataException($"Sorted DocValues field '{fieldName}' has a negative presence length.");
+        if (presenceByteCount == 0)
+            return null;
+
+        byte[] bitmapBytes = input.ReadBytes(presenceByteCount);
+        using var stream = new MemoryStream(bitmapBytes, writable: false);
+        using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: false);
+        return RoaringBitmap.Deserialise(reader);
     }
 
     private static string ReadString(IndexInput input)
@@ -249,6 +158,6 @@ internal static class SortedDocValuesReader
         int length = input.ReadVarInt();
         if (length < 0)
             throw new InvalidDataException("Negative string length in sorted DocValues.");
-        return System.Text.Encoding.UTF8.GetString(input.ReadBytes(length));
+        return Encoding.UTF8.GetString(input.ReadBytes(length));
     }
 }

@@ -1,19 +1,16 @@
-using Rowles.LeanCorpus.Store;
+using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using System.Collections.Generic;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
 
-/// <summary>
-/// Reads multi-valued numeric DocValues from a .dsn sidecar file.
-/// </summary>
+/// <summary>Opens sorted numeric DocValues as offsets and packed values.</summary>
 internal static class SortedNumericDocValuesReader
 {
     public static Dictionary<string, double[][]> Read(string filePath)
     {
-        var values = new Dictionary<string, double[][]>(StringComparer.Ordinal);
         if (!FileOpenRetry.FileExists(filePath))
-            return values;
+            return new Dictionary<string, double[][]>(StringComparer.Ordinal);
 
         using var input = new IndexInput(filePath);
         return Read(input);
@@ -21,156 +18,95 @@ internal static class SortedNumericDocValuesReader
 
     internal static Dictionary<string, double[][]> Read(IndexInput input)
     {
-        using var inputLifetime = input;
-        var values = new Dictionary<string, double[][]>(StringComparer.Ordinal);
+        using (input)
+        {
+            var columns = OpenColumns(input);
+            var values = new Dictionary<string, double[][]>(columns.Count, StringComparer.Ordinal);
+            foreach ((string field, SortedNumericDocValuesColumn column) in columns)
+                values.Add(field, column.Materialise());
+            return values;
+        }
+    }
+
+    /// <summary>
+    /// Parses per-document offsets and packed-value positions without creating a jagged row array.
+    /// The caller owns <paramref name="input"/> for the lifetime of the returned columns.
+    /// </summary>
+    internal static Dictionary<string, SortedNumericDocValuesColumn> OpenColumns(IndexInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        var columns = new Dictionary<string, SortedNumericDocValuesColumn>(StringComparer.Ordinal);
         using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.SortedNumeric);
 
         int fieldCount = input.ReadInt32();
-        for (int f = 0; f < fieldCount; f++)
+        if (fieldCount < 0)
+            throw new InvalidDataException("Sorted-numeric DocValues field count cannot be negative.");
+
+        long bodyEnd = checked(frame.BodyStart + frame.BodyLength);
+        for (int fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++)
         {
             string fieldName = ReadString(input);
-            int docCount = input.ReadInt32();
-            var starts = new int[docCount + 1];
-            for (int i = 0; i < starts.Length; i++)
-                starts[i] = input.ReadInt32();
+            int documentCount = input.ReadInt32();
+            if (documentCount < 0)
+                throw new InvalidDataException($"Sorted-numeric DocValues field '{fieldName}' has a negative document count.");
+
+            var documentStarts = new int[checked(documentCount + 1)];
+            for (int index = 0; index < documentStarts.Length; index++)
+                documentStarts[index] = input.ReadInt32();
 
             int valueCount = input.ReadInt32();
-            ValidateStarts(starts, valueCount, fieldName);
-            var flattened = ReadPackedDoubles(input, valueCount);
+            if (valueCount < 0)
+                throw new InvalidDataException($"Sorted-numeric DocValues field '{fieldName}' has a negative value count.");
+            ValidateStarts(documentStarts, valueCount, fieldName);
 
-            var perDoc = new double[docCount][];
-            for (int docId = 0; docId < docCount; docId++)
-            {
-                int start = starts[docId];
-                int end = starts[docId + 1];
-                if (end == start)
-                {
-                    perDoc[docId] = [];
-                    continue;
-                }
+            long minimumBits = input.ReadInt64();
+            int bitsPerValue = input.ReadByte();
+            if ((uint)bitsPerValue > 64)
+                throw new InvalidDataException(
+                    $"Invalid bits-per-value {bitsPerValue} for sorted-numeric DocValues field '{fieldName}'; must be between 0 and 64.");
 
-                var docValues = new double[end - start];
-                Array.Copy(flattened, start, docValues, 0, docValues.Length);
-                perDoc[docId] = docValues;
-            }
+            long packedByteCount = checked(((long)bitsPerValue * valueCount + 7) / 8);
+            long packedDataOffset = input.Position;
+            if (packedDataOffset > bodyEnd || packedByteCount > bodyEnd - packedDataOffset)
+                throw new InvalidDataException(
+                    $"Sorted-numeric DocValues field '{fieldName}' does not contain its declared packed values.");
 
-            values[fieldName] = perDoc;
+            columns.Add(fieldName, new SortedNumericDocValuesColumn(
+                input, documentStarts, minimumBits, bitsPerValue, packedDataOffset));
+            input.Seek(checked(packedDataOffset + packedByteCount));
         }
 
         frame.ValidateChecksum();
-        return values;
+        return columns;
     }
 
     internal static List<(string Name, IReadOnlyList<double>?[] Values)> EnumerateFields(string filePath)
     {
         if (!FileOpenRetry.FileExists(filePath))
-            return new List<(string Name, IReadOnlyList<double>?[] Values)>(0);
+            return [];
 
-        using var input = new IndexInput(filePath);
-        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.SortedNumeric);
-
-        int fieldCount = input.ReadInt32();
-        var results = new List<(string Name, IReadOnlyList<double>?[] Values)>(fieldCount);
-        for (int f = 0; f < fieldCount; f++)
+        var values = Read(filePath);
+        var results = new List<(string, IReadOnlyList<double>?[])>(values.Count);
+        foreach ((string field, double[][] documents) in values)
         {
-            string fieldName = ReadString(input);
-            int docCount = input.ReadInt32();
-            var starts = new int[docCount + 1];
-            for (int i = 0; i < starts.Length; i++)
-                starts[i] = input.ReadInt32();
-
-            int valueCount = input.ReadInt32();
-            ValidateStarts(starts, valueCount, fieldName);
-            var flattened = ReadPackedDoubles(input, valueCount);
-
-            var perDoc = new IReadOnlyList<double>[docCount];
-            for (int docId = 0; docId < docCount; docId++)
-            {
-                int start = starts[docId];
-                int end = starts[docId + 1];
-                if (end == start)
-                {
-                    perDoc[docId] = Array.Empty<double>();
-                    continue;
-                }
-
-                var docValues = new double[end - start];
-                Array.Copy(flattened, start, docValues, 0, docValues.Length);
-                perDoc[docId] = docValues;
-            }
-
-            results.Add((fieldName, perDoc));
+            var rows = new IReadOnlyList<double>?[documents.Length];
+            for (int documentId = 0; documentId < documents.Length; documentId++)
+                rows[documentId] = documents[documentId];
+            results.Add((field, rows));
         }
 
-        frame.ValidateChecksum();
         return results;
-    }
-
-    private static double[] ReadPackedDoubles(IndexInput input, int valueCount)
-    {
-        long min = input.ReadInt64();
-        int bitsPerValue = input.ReadByte();
-
-        if ((uint)bitsPerValue > 64)
-            throw new InvalidDataException(
-                $"Invalid bits-per-value {bitsPerValue} for sorted-numeric doc values; must be between 0 and 64.");
-
-        if (bitsPerValue > 0)
-        {
-            long expectedPackedBytes = ((long)bitsPerValue * valueCount + 7) / 8;
-            if (input.Position + expectedPackedBytes > input.Length)
-                throw new InvalidDataException(
-                    $"Sorted-numeric doc values declare {bitsPerValue} bits per value for {valueCount} values, but the file does not contain the expected packed data.");
-        }
-
-        var values = new double[valueCount];
-
-        if (valueCount == 0)
-            return values;
-
-        if (bitsPerValue == 0)
-        {
-            double value = BitConverter.Int64BitsToDouble(min);
-            Array.Fill(values, value);
-            return values;
-        }
-
-        byte accum = 0;
-        int accBits = 0;
-        for (int i = 0; i < values.Length; i++)
-        {
-            ulong value = 0;
-            int collected = 0;
-            while (collected < bitsPerValue)
-            {
-                if (accBits == 0)
-                {
-                    accum = input.ReadByte();
-                    accBits = 8;
-                }
-
-                int take = Math.Min(bitsPerValue - collected, accBits);
-                value |= ((ulong)(accum & ((1 << take) - 1))) << collected;
-                accum >>= take;
-                accBits -= take;
-                collected += take;
-            }
-
-            values[i] = BitConverter.Int64BitsToDouble((long)((ulong)min + value));
-        }
-
-        return values;
     }
 
     private static void ValidateStarts(int[] starts, int totalValues, string fieldName)
     {
-        if (starts[0] != 0)
+        if (starts.Length == 0 || starts[0] != 0)
             throw new InvalidDataException($"Invalid sorted-numeric DocValues offsets for field '{fieldName}'.");
 
         int previous = 0;
-        for (int i = 0; i < starts.Length; i++)
+        for (int index = 0; index < starts.Length; index++)
         {
-            int current = starts[i];
+            int current = starts[index];
             if (current < previous || current > totalValues)
                 throw new InvalidDataException($"Invalid sorted-numeric DocValues offsets for field '{fieldName}'.");
             previous = current;
@@ -185,6 +121,6 @@ internal static class SortedNumericDocValuesReader
         int length = input.ReadVarInt();
         if (length < 0)
             throw new InvalidDataException("Negative string length in sorted-numeric DocValues.");
-        return System.Text.Encoding.UTF8.GetString(input.ReadBytes(length));
+        return Encoding.UTF8.GetString(input.ReadBytes(length));
     }
 }

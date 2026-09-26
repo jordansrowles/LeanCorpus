@@ -205,6 +205,51 @@ public sealed unsafe class IndexInput : IDisposable
         return value;
     }
 
+    /// <summary>Reads one little-endian packed integer without changing the shared cursor.</summary>
+    internal ulong ReadPackedUnsigned(long packedDataOffset, int valueIndex, int bitsPerValue)
+    {
+        if (packedDataOffset < 0)
+            throw new ArgumentOutOfRangeException(nameof(packedDataOffset));
+        if (valueIndex < 0)
+            throw new ArgumentOutOfRangeException(nameof(valueIndex));
+        if ((uint)bitsPerValue > 64)
+            throw new ArgumentOutOfRangeException(nameof(bitsPerValue));
+        if (bitsPerValue == 0)
+            return 0;
+
+        using var operation = EnterReadScope();
+        long firstBit = checked((long)valueIndex * bitsPerValue);
+        long byteOffset = checked(packedDataOffset + (firstBit >> 3));
+        int bitOffset = (int)(firstBit & 7);
+        int byteCount = (bitOffset + bitsPerValue + 7) >> 3;
+        EnsureAvailable(byteOffset, byteCount);
+
+        ulong value = 0;
+        int collected = 0;
+        while (collected < bitsPerValue)
+        {
+            int take = Math.Min(bitsPerValue - collected, 8 - bitOffset);
+            ulong mask = (1UL << take) - 1;
+            ulong part = (ulong)(_ptr[byteOffset] >> bitOffset) & mask;
+            value |= part << collected;
+            collected += take;
+            byteOffset++;
+            bitOffset = 0;
+        }
+
+        return value;
+    }
+
+    /// <summary>Copies bytes at an absolute input position without changing the shared cursor.</summary>
+    internal byte[] ReadBytesAt(long position, int count)
+    {
+        using var operation = EnterReadScope();
+        EnsureAvailable(position, count);
+        var result = new byte[count];
+        new ReadOnlySpan<byte>(_ptr + position, count).CopyTo(result);
+        return result;
+    }
+
     /// <summary>Reads the next byte and returns <see langword="true"/> if it is non-zero.</summary>
     /// <returns><see langword="true"/> if the byte is non-zero; otherwise, <see langword="false"/>.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -1,19 +1,16 @@
+using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
-using System.Collections.Generic;
 
 namespace Rowles.LeanCorpus.Codecs.DocValues;
 
-/// <summary>
-/// Reads multi-valued binary DocValues from a .dvb sidecar file.
-/// </summary>
+/// <summary>Opens binary DocValues as mapped offsets into one shared payload range.</summary>
 internal static class BinaryDocValuesReader
 {
     public static Dictionary<string, byte[][][]> Read(string filePath)
     {
-        var values = new Dictionary<string, byte[][][]>(StringComparer.Ordinal);
         if (!FileOpenRetry.FileExists(filePath))
-            return values;
+            return new Dictionary<string, byte[][][]>(StringComparer.Ordinal);
 
         using var input = new IndexInput(filePath);
         return Read(input);
@@ -21,130 +18,103 @@ internal static class BinaryDocValuesReader
 
     internal static Dictionary<string, byte[][][]> Read(IndexInput input)
     {
-        using var inputLifetime = input;
-        var values = new Dictionary<string, byte[][][]>(StringComparer.Ordinal);
+        using (input)
+        {
+            var columns = OpenColumns(input);
+            var values = new Dictionary<string, byte[][][]>(columns.Count, StringComparer.Ordinal);
+            foreach ((string field, BinaryDocValuesColumn column) in columns)
+                values.Add(field, column.Materialise());
+            return values;
+        }
+    }
+
+    /// <summary>
+    /// Parses document and payload offsets without copying each binary value. The caller owns
+    /// <paramref name="input"/> for the lifetime of the returned columns.
+    /// </summary>
+    internal static Dictionary<string, BinaryDocValuesColumn> OpenColumns(IndexInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        var columns = new Dictionary<string, BinaryDocValuesColumn>(StringComparer.Ordinal);
         using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.Binary);
 
         int fieldCount = input.ReadInt32();
-        for (int f = 0; f < fieldCount; f++)
+        if (fieldCount < 0)
+            throw new InvalidDataException("Binary DocValues field count cannot be negative.");
+
+        long bodyEnd = checked(frame.BodyStart + frame.BodyLength);
+        for (int fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++)
         {
             string fieldName = ReadString(input);
-            int docCount = input.ReadInt32();
-            var starts = new int[docCount + 1];
-            for (int i = 0; i < starts.Length; i++)
-                starts[i] = input.ReadInt32();
+            int documentCount = input.ReadInt32();
+            if (documentCount < 0)
+                throw new InvalidDataException($"Binary DocValues field '{fieldName}' has a negative document count.");
+
+            var documentStarts = new int[checked(documentCount + 1)];
+            for (int index = 0; index < documentStarts.Length; index++)
+                documentStarts[index] = input.ReadInt32();
 
             int valueCount = input.ReadInt32();
-            ValidateStarts(starts, valueCount, fieldName);
+            if (valueCount < 0)
+                throw new InvalidDataException($"Binary DocValues field '{fieldName}' has a negative value count.");
+            ValidateStarts(documentStarts, valueCount, fieldName);
 
-            var byteOffsets = new int[valueCount + 1];
-            for (int i = 0; i < byteOffsets.Length; i++)
-                byteOffsets[i] = input.ReadInt32();
-            ValidateStarts(byteOffsets, byteOffsets[^1], fieldName);
+            var valueByteOffsets = new int[checked(valueCount + 1)];
+            for (int index = 0; index < valueByteOffsets.Length; index++)
+                valueByteOffsets[index] = input.ReadInt32();
+            if (valueByteOffsets[0] != 0)
+                throw new InvalidDataException($"Invalid binary DocValues byte offsets for field '{fieldName}'.");
 
-            var payload = input.ReadBytes(byteOffsets[^1]);
-            var allValues = new byte[valueCount][];
-            for (int i = 0; i < allValues.Length; i++)
+            int previous = 0;
+            for (int index = 0; index < valueByteOffsets.Length; index++)
             {
-                int start = byteOffsets[i];
-                int length = byteOffsets[i + 1] - start;
-                var value = new byte[length];
-                Array.Copy(payload, start, value, 0, length);
-                allValues[i] = value;
+                int current = valueByteOffsets[index];
+                if (current < previous)
+                    throw new InvalidDataException($"Invalid binary DocValues byte offsets for field '{fieldName}'.");
+                previous = current;
             }
 
-            var perDoc = new byte[docCount][][];
-            for (int docId = 0; docId < docCount; docId++)
-            {
-                int start = starts[docId];
-                int end = starts[docId + 1];
-                if (end == start)
-                {
-                    perDoc[docId] = [];
-                    continue;
-                }
+            long payloadOffset = input.Position;
+            int payloadLength = valueByteOffsets[^1];
+            if (payloadOffset > bodyEnd || payloadLength > bodyEnd - payloadOffset)
+                throw new InvalidDataException($"Binary DocValues field '{fieldName}' has a truncated payload.");
 
-                var docValues = new byte[end - start][];
-                Array.Copy(allValues, start, docValues, 0, docValues.Length);
-                perDoc[docId] = docValues;
-            }
-
-            values[fieldName] = perDoc;
+            columns.Add(fieldName, new BinaryDocValuesColumn(
+                input, documentStarts, valueByteOffsets, payloadOffset));
+            input.Seek(checked(payloadOffset + payloadLength));
         }
 
         frame.ValidateChecksum();
-        return values;
+        return columns;
     }
 
     internal static List<(string Name, IReadOnlyList<byte[]>?[] Values)> EnumerateFields(string filePath)
     {
         if (!FileOpenRetry.FileExists(filePath))
-            return new List<(string Name, IReadOnlyList<byte[]>?[] Values)>(0);
+            return [];
 
-        using var input = new IndexInput(filePath);
-        using var frame = CodecFileReader.OpenSupported(input, DocValuesCodecFiles.Binary);
-
-        int fieldCount = input.ReadInt32();
-        var results = new List<(string Name, IReadOnlyList<byte[]>?[] Values)>(fieldCount);
-        for (int f = 0; f < fieldCount; f++)
+        var values = Read(filePath);
+        var results = new List<(string, IReadOnlyList<byte[]>?[])>(values.Count);
+        foreach ((string field, byte[][][] documents) in values)
         {
-            string fieldName = ReadString(input);
-            int docCount = input.ReadInt32();
-            var starts = new int[docCount + 1];
-            for (int i = 0; i < starts.Length; i++)
-                starts[i] = input.ReadInt32();
-
-            int valueCount = input.ReadInt32();
-            ValidateStarts(starts, valueCount, fieldName);
-
-            var byteOffsets = new int[valueCount + 1];
-            for (int i = 0; i < byteOffsets.Length; i++)
-                byteOffsets[i] = input.ReadInt32();
-            ValidateStarts(byteOffsets, byteOffsets[^1], fieldName);
-
-            var payload = input.ReadBytes(byteOffsets[^1]);
-            var allValues = new byte[valueCount][];
-            for (int i = 0; i < allValues.Length; i++)
-            {
-                int start = byteOffsets[i];
-                int length = byteOffsets[i + 1] - start;
-                var value = new byte[length];
-                Array.Copy(payload, start, value, 0, length);
-                allValues[i] = value;
-            }
-
-            var perDoc = new IReadOnlyList<byte[]>[docCount];
-            for (int docId = 0; docId < docCount; docId++)
-            {
-                int start = starts[docId];
-                int end = starts[docId + 1];
-                if (end == start)
-                {
-                    perDoc[docId] = Array.Empty<byte[]>();
-                    continue;
-                }
-
-                var docValues = new byte[end - start][];
-                Array.Copy(allValues, start, docValues, 0, docValues.Length);
-                perDoc[docId] = docValues;
-            }
-
-            results.Add((fieldName, perDoc));
+            var rows = new IReadOnlyList<byte[]>?[documents.Length];
+            for (int documentId = 0; documentId < documents.Length; documentId++)
+                rows[documentId] = documents[documentId];
+            results.Add((field, rows));
         }
 
-        frame.ValidateChecksum();
         return results;
     }
 
     private static void ValidateStarts(int[] starts, int totalValues, string fieldName)
     {
-        if (starts[0] != 0)
+        if (starts.Length == 0 || starts[0] != 0)
             throw new InvalidDataException($"Invalid binary DocValues offsets for field '{fieldName}'.");
 
         int previous = 0;
-        for (int i = 0; i < starts.Length; i++)
+        for (int index = 0; index < starts.Length; index++)
         {
-            int current = starts[i];
+            int current = starts[index];
             if (current < previous || current > totalValues)
                 throw new InvalidDataException($"Invalid binary DocValues offsets for field '{fieldName}'.");
             previous = current;
@@ -159,6 +129,6 @@ internal static class BinaryDocValuesReader
         int length = input.ReadVarInt();
         if (length < 0)
             throw new InvalidDataException("Negative string length in binary DocValues.");
-        return System.Text.Encoding.UTF8.GetString(input.ReadBytes(length));
+        return Encoding.UTF8.GetString(input.ReadBytes(length));
     }
 }
