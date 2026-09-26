@@ -106,6 +106,47 @@ public class CrashRecoveryTests : IDisposable
         Assert.Equal(1, results.TotalHits);
     }
 
+    [Fact(DisplayName = "Recovery: missing selected deletion file rejects latest commit")]
+    public void RecoverLatestCommit_MissingSelectedDeletionFile_FallsBackToPriorValidCommit()
+    {
+        var config = new IndexWriterConfig
+        {
+            DeletionPolicy = new KeepLastNCommitsPolicy(3),
+            MergePolicy = NoMergePolicy.Instance,
+            MaxBufferedDocs = 1,
+            MergeThreshold = 100,
+        };
+        using (var writer = new IndexWriter(new MMapDirectory(_dir), config))
+        {
+            writer.AddDocument(CreateDocument("first generation"));
+            writer.Commit();
+
+            writer.AddDocument(CreateDocument("later victim"));
+            writer.Commit();
+
+            writer.DeleteDocuments(new TermQuery("body", "victim"));
+            writer.Commit();
+        }
+
+        SegmentInfo deletedSegment = Directory.GetFiles(_dir, "seg_*.seg")
+            .Select(SegmentInfo.ReadFrom)
+            .Single(static segment => segment.LiveDocCount < segment.DocCount);
+        int deletionGeneration = deletedSegment.DelGeneration
+            ?? throw new InvalidOperationException("The latest commit did not select a deletion generation.");
+        string selectedDeletionPath = Path.Combine(
+            _dir,
+            $"{deletedSegment.SegmentId}_gen_{deletionGeneration}.del");
+        Assert.True(File.Exists(selectedDeletionPath));
+        File.Delete(selectedDeletionPath);
+
+        IndexRecovery.RecoveryResult recovery = IndexRecovery.RecoverLatestCommit(_dir, cleanupOrphans: false)
+            ?? throw new InvalidOperationException("Expected the earlier valid commit to remain recoverable.");
+
+        Assert.True(recovery.WasFallback);
+        Assert.Equal(1, recovery.Generation);
+        Assert.Single(recovery.SegmentIds);
+    }
+
     [Fact(DisplayName = "Recovery: corrupt optional codec file falls back and reports fallback")]
     public void RecoverLatestCommit_CorruptOptionalCodecFile_FallsBackAndReportsFallback()
     {
