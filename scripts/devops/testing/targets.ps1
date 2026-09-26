@@ -251,7 +251,7 @@ function Get-AffectedTestIntent {
 
     $normalisedAreas = @{}
     foreach ($suiteKey in @($areasBySuite.Keys | Sort-Object)) {
-        $normalisedAreas[$suiteKey] = @($areasBySuite[$suiteKey].ToArray() | Sort-Object)
+        $normalisedAreas[$suiteKey] = @($areasBySuite[$suiteKey] | ForEach-Object { [string]$_ } | Sort-Object -Unique)
     }
 
     return [pscustomobject]@{
