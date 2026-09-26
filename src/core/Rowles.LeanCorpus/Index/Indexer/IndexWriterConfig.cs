@@ -407,10 +407,8 @@ public sealed class IndexWriterConfig
         if (MaxQueuedBytes < 0)
             throw new ArgumentException("MaxQueuedBytes must not be negative.", nameof(MaxQueuedBytes));
 
-        if (StoredFieldBlockSize is < 1 or > StoredFieldsBlockPolicy.MaximumDocumentCount)
-            throw new ArgumentOutOfRangeException(
-                nameof(StoredFieldBlockSize), StoredFieldBlockSize,
-                $"StoredFieldBlockSize must be in the range [1, {StoredFieldsBlockPolicy.MaximumDocumentCount}].");
+        StoredFieldsBlockPolicy.ValidateMaximumDocumentCount(
+            StoredFieldBlockSize, nameof(StoredFieldBlockSize));
 
         if (PostingsSkipInterval < 1)
             throw new ArgumentException("PostingsSkipInterval must be at least 1.", nameof(PostingsSkipInterval));

@@ -33,9 +33,6 @@ internal sealed class StoredFieldsReader : IDisposable
     /// <summary>Maximum decompressed byte size for a single stored fields block (256 MB).</summary>
     internal const int MaxDecompressedBlockBytes = StoredFieldsBlockPolicy.MaximumRawBytes;
 
-    /// <summary>Maximum documents per block. Guards against corrupt headers.</summary>
-    internal const int MaxBlockSize = StoredFieldsBlockPolicy.MaximumDocumentCount;
-
     private StoredFieldsReader(
         IndexInput fdtInput,
         int blockSize,
@@ -47,8 +44,9 @@ internal sealed class StoredFieldsReader : IDisposable
         long bodyEnd,
         IDisposable fdtFrame)
     {
-        if (blockSize is < 1 or > MaxBlockSize)
-            throw new InvalidDataException($"Stored fields block size {blockSize} is out of range [1, {MaxBlockSize}].");
+        if (!StoredFieldsBlockPolicy.IsValidMaximumDocumentCount(blockSize))
+            throw new InvalidDataException(
+                $"Stored fields block size {blockSize} is out of range [1, {StoredFieldsBlockPolicy.MaximumDocumentCount}].");
 
         _fdtInput = fdtInput;
         _blockSize = blockSize;
@@ -123,8 +121,9 @@ internal sealed class StoredFieldsReader : IDisposable
             fdtFrame = StoredFieldsCodecFiles.OpenData(fdtInput);
             int fdtBlockSize = fdtInput.ReadInt32();
             ValidateMatchingHeaders(".fdt", ".fdx", fdtFrame.Version, fdxVersion, fdtBlockSize, fdxBlockSize, requireMatchingVersions);
-            if (fdtBlockSize is < 1 or > MaxBlockSize)
-                throw new InvalidDataException($"Stored fields block size {fdtBlockSize} is out of range [1, {MaxBlockSize}].");
+            if (!StoredFieldsBlockPolicy.IsValidMaximumDocumentCount(fdtBlockSize))
+                throw new InvalidDataException(
+                    $"Stored fields block size {fdtBlockSize} is out of range [1, {StoredFieldsBlockPolicy.MaximumDocumentCount}].");
             var compression = (FieldCompressionPolicy)fdtInput.ReadByte();
 
             if (!Enum.IsDefined(compression))

@@ -355,7 +355,8 @@ public static class IndexValidator
             int blockSize = input.ReadInt32();
             int docCount = input.ReadInt32();
             int blockCount = input.ReadInt32();
-            if (blockSize <= 0 || blockCount < 0 || docCount < 0 || docCount != info.DocCount)
+            if (!StoredFieldsBlockPolicy.IsValidMaximumDocumentCount(blockSize) ||
+                blockCount < 0 || docCount < 0 || docCount != info.DocCount)
             {
                 result.AddIssue(
                     IndexCheckSeverity.Error,

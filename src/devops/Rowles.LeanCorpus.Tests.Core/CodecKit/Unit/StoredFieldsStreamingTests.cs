@@ -246,6 +246,61 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         Assert.False(File.Exists(path + "-stream.fdx"));
     }
 
+    [Fact(DisplayName = "Stored Fields: direct and stream writers round-trip the maximum block document count")]
+    public void WritersAndReader_AcceptMaximumDocumentCount()
+    {
+        int maximumDocumentCount = StoredFieldsBlockPolicy.MaximumDocumentCount;
+        foreach (bool streaming in new[] { false, true })
+        {
+            var path = Path.Combine(_fixture.Path, $"sf-max-block-count-{streaming}-{Guid.NewGuid():N}");
+            if (streaming)
+            {
+                using var writer = new StoredFieldsStreamWriter(
+                    path + ".fdt", path + ".fdx", blockSize: maximumDocumentCount);
+                writer.AddDocument(new Dictionary<string, IReadOnlyList<StoredFieldValue>>(StringComparer.Ordinal)
+                {
+                    ["id"] = [StoredFieldValue.FromString("maximum-block-count")]
+                });
+            }
+            else
+            {
+                var documents = new Dictionary<string, List<string>>[]
+                {
+                    new(StringComparer.Ordinal) { ["id"] = ["maximum-block-count"] }
+                };
+                StoredFieldsWriter.Write(
+                    path + ".fdt", path + ".fdx", documents, blockSize: maximumDocumentCount);
+            }
+
+            using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
+            Assert.Equal("maximum-block-count", reader.ReadDocument(0)["id"][0]);
+        }
+    }
+
+    [Fact(DisplayName = "Stored Fields: reader rejects a paired header above the shared block document limit")]
+    public void Reader_RejectsBlockDocumentCountBeyondSharedLimit_AndRemainsUsable()
+    {
+        var invalidPath = Path.Combine(_fixture.Path, $"sf-invalid-block-header-{Guid.NewGuid():N}");
+        var documents = new Dictionary<string, List<string>>[]
+        {
+            new(StringComparer.Ordinal) { ["id"] = ["invalid-header"] }
+        };
+        StoredFieldsWriter.Write(invalidPath + ".fdt", invalidPath + ".fdx", documents, blockSize: 1);
+
+        int tooManyDocuments = StoredFieldsBlockPolicy.MaximumDocumentCount + 1;
+        PatchCanonicalInt32AtBodyStart(invalidPath + ".fdt", StoredFieldsCodecFiles.Data, tooManyDocuments);
+        PatchCanonicalInt32AtBodyStart(invalidPath + ".fdx", StoredFieldsCodecFiles.Index, tooManyDocuments);
+
+        var error = Assert.Throws<InvalidDataException>(() => StoredFieldsReader.Open(
+            invalidPath + ".fdt", invalidPath + ".fdx"));
+        Assert.Contains($"[1, {StoredFieldsBlockPolicy.MaximumDocumentCount}]", error.Message, StringComparison.Ordinal);
+
+        var validPath = Path.Combine(_fixture.Path, $"sf-valid-after-invalid-block-header-{Guid.NewGuid():N}");
+        StoredFieldsWriter.Write(validPath + ".fdt", validPath + ".fdx", documents, blockSize: 1);
+        using var reader = StoredFieldsReader.Open(validPath + ".fdt", validPath + ".fdx");
+        Assert.Equal("invalid-header", reader.ReadDocument(0)["id"][0]);
+    }
+
     [Fact(DisplayName = "Stored Fields: reader exposes DocCount and rejects out-of-range docId")]
     public void Reader_DocCount_AndBoundsCheck()
     {
@@ -510,6 +565,14 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         using var input = new IndexInput(path);
         using var frame = CodecFileReader.Open(input, descriptor);
         return frame.Metadata.BodyStart;
+    }
+
+    private static void PatchCanonicalInt32AtBodyStart(string path, CodecFileDescriptor descriptor, int value)
+    {
+        long bodyStart = ReadCanonicalBodyStart(path, descriptor);
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.None);
+        file.Position = bodyStart;
+        file.Write(BitConverter.GetBytes(value));
     }
 
     private static (byte[] Body, long BodyStart) ReadCanonicalBody(string path, CodecFileDescriptor descriptor)

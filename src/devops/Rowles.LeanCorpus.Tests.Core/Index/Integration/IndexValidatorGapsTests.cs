@@ -344,6 +344,30 @@ public sealed class IndexValidatorGapsTests : IDisposable
             i => i.Code == IndexCheckIssueCodes.StoredFieldDocCountMismatch);
     }
 
+    [Fact(DisplayName = "Check: Stored Fields Index Rejects Block Size Above Shared Limit")]
+    public void Check_StoredFieldsIndexOversizedBlockSize_ReportsIssue()
+    {
+        var dir = SubDir("fdx_oversized_block_size");
+        const string segId = "seg_fdxblocksize";
+        WriteMinimalSegment(dir, segId, docCount: 1);
+
+        using (var stream = File.OpenWrite(Path.Combine(dir, segId + ".fdx")))
+        using (var writer = new BinaryWriter(stream))
+        {
+            writer.Write(StoredFieldsFileHeader.V3);
+            writer.Write(StoredFieldsBlockPolicy.MaximumDocumentCount + 1);
+            writer.Write(1); // docCount
+            writer.Write(0); // blockCount
+        }
+
+        var mmap = new MMapDirectory(dir);
+        var result = IndexValidator.Check(mmap);
+
+        Assert.Contains(result.DetailedIssues,
+            i => i.Code == IndexCheckIssueCodes.StoredFieldDocCountMismatch
+              && (i.FileName ?? "").EndsWith(".fdx", StringComparison.Ordinal));
+    }
+
     // CheckStoredFieldsIndex: invalid block offset
 
     [Fact(DisplayName = "Check: Stored Fields Index With Negative Block Offset Reports InvalidStoredFieldOffsets")]

@@ -64,11 +64,14 @@ internal static class StoredFieldsBlockPolicy
                 $"Stored fields raw length {rawLength} exceeds the maximum block size {MaximumRawBytes}.");
     }
 
-    internal static void ValidateMaximumDocumentCount(int maximumDocumentCount)
+    internal static bool IsValidMaximumDocumentCount(int maximumDocumentCount)
+        => maximumDocumentCount is >= 1 and <= MaximumDocumentCount;
+
+    internal static void ValidateMaximumDocumentCount(int maximumDocumentCount, string? parameterName = null)
     {
-        if (maximumDocumentCount is < 1 or > MaximumDocumentCount)
+        if (!IsValidMaximumDocumentCount(maximumDocumentCount))
             throw new ArgumentOutOfRangeException(
-                nameof(maximumDocumentCount), maximumDocumentCount,
+                parameterName ?? nameof(maximumDocumentCount), maximumDocumentCount,
                 $"Stored fields block document limit must be in the range [1, {MaximumDocumentCount}].");
     }
 
