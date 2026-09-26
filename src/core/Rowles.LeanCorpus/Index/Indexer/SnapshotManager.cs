@@ -62,6 +62,7 @@ internal static class SnapshotManager
         lock (writer.WriteLock)
         {
             writer.HeldSnapshots.Remove(snapshot);
+            CommitManager.PruneDeletionGenerations(writer);
         }
     }
 

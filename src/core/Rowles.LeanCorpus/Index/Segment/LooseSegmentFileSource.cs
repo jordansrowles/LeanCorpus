@@ -14,9 +14,9 @@ internal sealed class LooseSegmentFileSource : ISegmentFileSource
         ArgumentException.ThrowIfNullOrWhiteSpace(segmentId);
 
         _directory = directory;
-        _fileNames = Array.AsReadOnly(directory.ListAll()
-            .Where(fileName => IsSegmentFile(fileName, segmentId))
-            .OrderBy(static fileName => fileName, StringComparer.Ordinal)
+        _fileNames = Array.AsReadOnly(SegmentFileSet
+            .FromFileNames(segmentId, directory.ListAll(), includeTemporary: false)
+            .FileNames
             .ToArray());
     }
 
@@ -34,8 +34,6 @@ internal sealed class LooseSegmentFileSource : ISegmentFileSource
     }
 
     internal static bool IsSegmentFile(string fileName, string segmentId)
-        => fileName.StartsWith(segmentId + ".", StringComparison.Ordinal) ||
-           fileName.StartsWith(segmentId + "_v_", StringComparison.Ordinal) ||
-           fileName.StartsWith(segmentId + "_gen_", StringComparison.Ordinal) &&
-           fileName.EndsWith(".del", StringComparison.OrdinalIgnoreCase);
+        => SegmentFileSet.IsOwnedFileName(segmentId, fileName)
+            && !SegmentFileSet.IsTemporaryFileName(fileName);
 }

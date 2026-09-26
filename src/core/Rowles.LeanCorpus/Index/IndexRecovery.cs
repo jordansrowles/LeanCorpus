@@ -53,7 +53,7 @@ public static class IndexRecovery
             if (result is not null)
             {
                 if (cleanupOrphans)
-                    CleanupOrphanedSegments(directoryPath, result.SegmentIds);
+                    CleanupOrphanedSegments(directoryPath, result.SegmentIds, catalog);
                 return result;
             }
         }
@@ -360,32 +360,38 @@ public static class IndexRecovery
         => catalog.TryMatchTemporaryFile(fileName, out _);
 
     /// <summary>
-    /// Removes segment files that are not referenced by the active commit. Uses a
-    /// pattern-based match so all sidecar files for the orphaned segment are cleaned,
-    /// including stats, vector, and HNSW files that may have been added by later codecs.
+    /// Removes unreferenced segment files and prunes obsolete deletion generations for
+    /// active segments. SegmentFileSet is the physical file ownership authority.
     /// </summary>
-    private static void CleanupOrphanedSegments(string directoryPath, List<string> activeSegmentIds)
+    private static void CleanupOrphanedSegments(
+        string directoryPath,
+        List<string> activeSegmentIds,
+        CodecCatalog catalog)
     {
         var activeSet = new HashSet<string>(activeSegmentIds, StringComparer.Ordinal);
+        string[] fileNames = FileOpenRetry.EnumerateFiles(directoryPath, "*")
+            .Select(Path.GetFileName)
+            .Where(static fileName => fileName is not null)
+            .Select(static fileName => fileName!)
+            .ToArray();
+        using var directory = new MMapDirectory(directoryPath);
 
-        // Find all segment IDs on disk by looking for .seg files
-        foreach (var segFile in FileOpenRetry.GetFiles(directoryPath, "*.seg"))
+        foreach (string segmentId in SegmentFileSet.FindSegmentIds(fileNames, catalog))
         {
-            var segId = Path.GetFileNameWithoutExtension(segFile);
-            if (activeSet.Contains(segId))
+            if (activeSet.Contains(segmentId))
                 continue;
 
-            // Pattern: segId.* and segId_v_*.* (per-field vector and HNSW files).
-            DeleteByPattern(directoryPath, segId + ".*");
-            DeleteByPattern(directoryPath, segId + "_v_*.*");
+            SegmentFileSet.FromFileNames(segmentId, fileNames, catalog)
+                .DeleteAllOwnedFiles(directory, "orphan cleanup");
         }
-    }
 
-    private static void DeleteByPattern(string directoryPath, string pattern)
-    {
-        foreach (var path in FileOpenRetry.GetFiles(directoryPath, pattern))
+        foreach (string segmentId in activeSegmentIds)
         {
-            try { FileOpenRetry.Delete(path); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "orphan cleanup"); }
+            string segmentPath = Path.Combine(directoryPath, segmentId + ".seg");
+            var segmentInfo = Segment.SegmentInfo.ReadFrom(segmentPath);
+            var protectedGenerations = new HashSet<int?> { segmentInfo.DelGeneration };
+            SegmentFileSet.FromFileNames(segmentId, fileNames, catalog)
+                .PruneDeletionFiles(directory, protectedGenerations, "obsolete deletion generation cleanup");
         }
     }
 

@@ -36,6 +36,7 @@
 ### Fixed
 
 - Fail closed when selected deletion state is missing, malformed, or inconsistent with segment metadata.
+- Centralise segment file ownership so merge, deletion and recovery cleanup include vector/HNSW and deletion-generation sidecars, while pruning protects active commit and held-snapshot generations.
 - Compile query-string clauses with the analyser configured for their selected schema field.
 - Preserve query-token escape metadata through wildcard, range, and phrase parsing so escaped metacharacters remain literal.
 - Preserve position lengths through legacy filter routing and cached graph replay, with independent cache clones.

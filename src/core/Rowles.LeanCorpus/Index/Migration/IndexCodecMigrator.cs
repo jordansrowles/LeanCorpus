@@ -322,8 +322,8 @@ public static class IndexCodecMigrator
                 executed.Add(action);
             }
 
-            MigrateSegmentSidecars(targetDirectory, segmentIdMap, rewrittenTargetPaths);
-            RepackMigratedCompoundSegments(targetDirectory, plan.Actions, segmentIdMap);
+            MigrateSegmentSidecars(targetDirectory, segmentIdMap, rewrittenTargetPaths, options.Catalog);
+            RepackMigratedCompoundSegments(targetDirectory, plan.Actions, segmentIdMap, options.Catalog);
 
             var newCommitGeneration = sourceCommitGeneration + 1;
             WriteMigratedCommit(targetDirectory, plan, segmentIdMap, newCommitGeneration);
@@ -363,7 +363,12 @@ public static class IndexCodecMigrator
             currentState = IndexMigrationState.Published;
 
             var resultIssues = new List<IndexCheckIssue>(plan.Issues);
-            CleanupMigratedSourceFiles(sourceDirectory, segmentIdMap, sourceCommitGeneration, resultIssues);
+            CleanupMigratedSourceFiles(
+                sourceDirectory,
+                segmentIdMap,
+                sourceCommitGeneration,
+                resultIssues,
+                options.Catalog);
             if (TryDeleteStagingDirectory(targetDirectory, out var cleanupIssue))
                 resultIssues.Add(cleanupIssue);
 
@@ -566,7 +571,8 @@ public static class IndexCodecMigrator
     private static void MigrateSegmentSidecars(
         string targetDirectory,
         IReadOnlyDictionary<string, string> segmentIdMap,
-        HashSet<string> rewrittenTargetPaths)
+        HashSet<string> rewrittenTargetPaths,
+        CodecCatalog catalog)
     {
         foreach (var (oldSegmentId, newSegmentId) in segmentIdMap)
         {
@@ -594,7 +600,7 @@ public static class IndexCodecMigrator
                 newInfo.WriteTo(Path.Combine(targetDirectory, newSegmentId + ".seg"));
             }
 
-            foreach (var oldFile in FindSegmentFiles(targetDirectory, oldSegmentId))
+            foreach (var oldFile in FindSegmentFiles(targetDirectory, oldSegmentId, catalog))
             {
                 var fileName = Path.GetFileName(oldFile);
                 var newFileName = newSegmentId + fileName.Substring(oldSegmentId.Length);
@@ -662,7 +668,8 @@ public static class IndexCodecMigrator
     private static void RepackMigratedCompoundSegments(
         string targetDirectory,
         IReadOnlyList<IndexCodecMigrationAction> actions,
-        IReadOnlyDictionary<string, string> segmentIdMap)
+        IReadOnlyDictionary<string, string> segmentIdMap,
+        CodecCatalog catalog)
     {
         foreach (var sourceSegmentId in actions
                      .Where(static action => !string.IsNullOrEmpty(action.CompoundFileName) && action.SegmentId is not null)
@@ -670,27 +677,17 @@ public static class IndexCodecMigrator
                      .Distinct(StringComparer.Ordinal))
         {
             var targetSegmentId = segmentIdMap.TryGetValue(sourceSegmentId, out var mapped) ? mapped : sourceSegmentId;
-            _ = CompoundFileWriter.Pack(targetDirectory, targetSegmentId);
+            _ = CompoundFileWriter.Pack(targetDirectory, targetSegmentId, catalog);
         }
     }
 
-    private static IEnumerable<string> FindSegmentFiles(string directoryPath, string segmentId)
-    {
-        foreach (var file in FileOpenRetry.EnumerateFiles(directoryPath, "*"))
-        {
-            var name = Path.GetFileName(file);
-            if (!name.StartsWith(segmentId, StringComparison.Ordinal))
-                continue;
-
-            var tail = name.Substring(segmentId.Length);
-            if (tail.StartsWith(".", StringComparison.Ordinal) ||
-                tail.StartsWith("_gen_", StringComparison.Ordinal) ||
-                tail.StartsWith("_v_", StringComparison.Ordinal))
-            {
-                yield return file;
-            }
-        }
-    }
+    private static IEnumerable<string> FindSegmentFiles(
+        string directoryPath,
+        string segmentId,
+        CodecCatalog catalog)
+        => SegmentFileSet.Enumerate(directoryPath, segmentId, catalog)
+            .FileNames
+            .Select(fileName => Path.Combine(directoryPath, fileName));
 
     private static void WriteMigratedCommit(
         string targetDirectory,
@@ -773,11 +770,12 @@ public static class IndexCodecMigrator
         string sourceDirectory,
         IReadOnlyDictionary<string, string> segmentIdMap,
         int oldGeneration,
-        List<IndexCheckIssue> issues)
+        List<IndexCheckIssue> issues,
+        CodecCatalog catalog)
     {
         foreach (var oldSegmentId in segmentIdMap.Keys)
         {
-            foreach (var file in FindSegmentFiles(sourceDirectory, oldSegmentId))
+            foreach (var file in FindSegmentFiles(sourceDirectory, oldSegmentId, catalog))
             {
                 TryDeleteFile(file);
             }

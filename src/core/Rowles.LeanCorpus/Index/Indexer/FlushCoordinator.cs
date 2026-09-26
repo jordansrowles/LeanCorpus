@@ -232,7 +232,10 @@ internal sealed class FlushCoordinator
             // A failed detached flush is never publishable. Remove any files
             // created before the physical failure so reopening cannot mistake
             // partial output for an orphaned completed segment.
-            CommitManager.DeleteSegmentFiles($"seg_{state.SegmentOrdinal}", _writer.Directory);
+            CommitManager.DeleteSegmentFiles(
+                $"seg_{state.SegmentOrdinal}",
+                _writer.Directory,
+                _writer.Config.CodecCatalog);
             throw;
         }
         finally

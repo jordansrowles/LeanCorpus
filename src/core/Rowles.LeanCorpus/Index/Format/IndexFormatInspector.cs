@@ -246,7 +246,7 @@ public static class IndexFormatInspector
                 missingFiles.Add(Path.GetFileName(path));
         }
 
-        var physicalSegmentFiles = FindSegmentFiles(directoryPath, segmentId);
+        var physicalSegmentFiles = FindSegmentFiles(directoryPath, segmentId, options.Catalog);
         foreach (var filePath in physicalSegmentFiles)
             referencedFiles.Add(filePath);
 
@@ -318,17 +318,15 @@ public static class IndexFormatInspector
         };
     }
 
-    private static List<string> FindSegmentFiles(string directoryPath, string segmentId)
+    private static List<string> FindSegmentFiles(
+        string directoryPath,
+        string segmentId,
+        CodecCatalog catalog)
     {
-        var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in FileOpenRetry.GetFiles(directoryPath, segmentId + ".*"))
-            files.Add(file);
-        foreach (var file in FileOpenRetry.GetFiles(directoryPath, segmentId + "_gen_*.del"))
-            files.Add(file);
-        foreach (var file in FileOpenRetry.GetFiles(directoryPath, segmentId + "_v_*.*"))
-            files.Add(file);
-
-        var result = files.ToList();
+        var result = SegmentFileSet.Enumerate(directoryPath, segmentId, catalog)
+            .FileNames
+            .Select(fileName => Path.Combine(directoryPath, fileName))
+            .ToList();
         result.Sort(StringComparer.OrdinalIgnoreCase);
         return result;
     }

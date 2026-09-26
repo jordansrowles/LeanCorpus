@@ -1,5 +1,7 @@
 using System.Buffers;
 using System.Text;
+using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Index.Segment;
 
 namespace Rowles.LeanCorpus.Store;
 
@@ -10,21 +12,10 @@ internal static class CompoundFileWriter
     internal const int Version = 1;
     internal const int MaxEntries = 4096;
 
-    internal static bool Pack(string directoryPath, string segmentId)
+    internal static bool Pack(string directoryPath, string segmentId, CodecCatalog? catalog = null)
     {
-        var sourceNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var pattern in new[] { segmentId + ".*", segmentId + "_v_*.*" })
-        {
-            foreach (var path in FileOpenRetry.GetFiles(directoryPath, pattern))
-                sourceNames.Add(Path.GetFileName(path));
-        }
-
-        var sourceFiles = sourceNames
-            .Where(name => !name.Equals(segmentId + ".seg", StringComparison.Ordinal)
-                && !name.Equals(segmentId + ".cfs", StringComparison.Ordinal)
-                && !name.EndsWith(".cfs.tmp", StringComparison.OrdinalIgnoreCase)
-                && !name.EndsWith(".stats.json", StringComparison.OrdinalIgnoreCase)
-                && !name.EndsWith(".del", StringComparison.OrdinalIgnoreCase))
+        var sourceFiles = SegmentFileSet.Enumerate(directoryPath, segmentId, catalog, includeTemporary: false)
+            .ImmutableCodecFileNames
             .OrderBy(static name => name, StringComparer.Ordinal)
             .ToArray();
 

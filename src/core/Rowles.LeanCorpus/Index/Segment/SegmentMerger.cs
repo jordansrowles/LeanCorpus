@@ -31,6 +31,8 @@ public sealed class SegmentMerger
     private readonly HnswBuildConfig _hnswBuildConfig;
     private readonly bool _useCompoundFile;
 
+    internal CodecCatalog FileCatalog { get; set; } = CodecCatalog.Default;
+
     /// <summary>Default merge threshold: when this many segments exist, merge.</summary>
     public const int DefaultMergeThreshold = 10;
 
@@ -279,9 +281,9 @@ public sealed class SegmentMerger
             MaxSequenceNumber = ComputeMergedMaxSeqNo(segments),
             EarliestSoftDeleteTimestamp = mergedLiveDocs?.EarliestSoftDeleteTimestamp,
         };
-        if (_useCompoundFile && CompoundFileWriter.Pack(_directory.DirectoryPath, newSegId))
+        if (_useCompoundFile && CompoundFileWriter.Pack(_directory.DirectoryPath, newSegId, FileCatalog))
             mergedInfo.IsCompoundFile = true;
-        SegmentFlusher.RefreshSegmentSize(mergedInfo, _directory.DirectoryPath);
+        SegmentFlusher.RefreshSegmentSize(mergedInfo, _directory.DirectoryPath, FileCatalog);
         return mergedInfo;
     }
 
@@ -1425,18 +1427,8 @@ public sealed class SegmentMerger
 
     internal void CleanupSegmentFiles(SegmentInfo seg)
     {
-        // Delete every file belonging to this segment (any extension).
-        foreach (var filePath in FileOpenRetry.GetFiles(_directory.DirectoryPath, $"{seg.SegmentId}.*"))
-        {
-            try { _directory.DeleteFile(Path.GetFileName(filePath)); }
-            catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "merge segment file cleanup"); }
-        }
-        // Also sweep generation-versioned deletion files (e.g. seg_0_gen_3.del).
-        foreach (var filePath in FileOpenRetry.GetFiles(_directory.DirectoryPath, $"{seg.SegmentId}_gen_*.del"))
-        {
-            try { _directory.DeleteFile(Path.GetFileName(filePath)); }
-            catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "merge del file cleanup"); }
-        }
+        SegmentFileSet.Enumerate(_directory.DirectoryPath, seg.SegmentId, FileCatalog)
+            .DeleteAllOwnedFiles(_directory, "merge segment file cleanup");
     }
 
     private static int GetSizeTier(int docCount)

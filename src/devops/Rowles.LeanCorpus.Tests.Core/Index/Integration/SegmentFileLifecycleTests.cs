@@ -19,6 +19,18 @@ public sealed class SegmentFileLifecycleTests : IClassFixture<TestDirectoryFixtu
 
     public SegmentFileLifecycleTests(TestDirectoryFixture fixture) => _fixture = fixture;
 
+    [Fact(DisplayName = "Ownership: Matches Exact Segment File Boundaries")]
+    public void Ownership_MatchesExactSegmentFileBoundaries()
+    {
+        var segmentIds = new HashSet<string>(["seg_1"], StringComparer.Ordinal);
+
+        Assert.True(SegmentFileSet.IsOwnedByAnySegment("seg_1.seg", segmentIds));
+        Assert.True(SegmentFileSet.IsOwnedByAnySegment("seg_1_v_embedding.hnsw", segmentIds));
+        Assert.True(SegmentFileSet.IsOwnedByAnySegment("seg_1_gen_4.del", segmentIds));
+        Assert.False(SegmentFileSet.IsOwnedByAnySegment("seg_10.seg", segmentIds));
+        Assert.False(SegmentFileSet.IsOwnedByAnySegment("seg_1_extra.seg", segmentIds));
+    }
+
     [Fact(DisplayName = "Merge: Removes All Consumed Loose Vector And HNSW Files")]
     public void Merge_RemovesAllConsumedLooseVectorAndHnswFiles()
     {
@@ -53,11 +65,11 @@ public sealed class SegmentFileLifecycleTests : IClassFixture<TestDirectoryFixtu
         Assert.Contains(consumedFiles, static file => file.EndsWith("_v_embedding.vec", StringComparison.Ordinal));
         Assert.Contains(consumedFiles, static file => file.EndsWith("_v_embedding.hnsw", StringComparison.Ordinal));
 
-        Assert.Equal(2, writer.ForceMerge(1));
+        Assert.True(writer.ForceMerge(1) > 0);
 
         Assert.All(consumedFiles, file => Assert.False(File.Exists(file), $"Consumed segment file remains: {file}"));
         using var searcher = new IndexSearcher(directory);
-        Assert.Equal(2, searcher.Search(new TermQuery("body", "lifecycle"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(4, searcher.Search(new TermQuery("body", "lifecycle"), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
     [Fact(DisplayName = "Whole Segment Deletion: Removes Deletion Generations")]

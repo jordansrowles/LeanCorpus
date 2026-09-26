@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Index.Backup;
 using Rowles.LeanCorpus.Index.Compatibility;
+using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Serialization;
 using Rowles.LeanCorpus.Store;
@@ -72,6 +74,7 @@ internal static class CommitManager
             writer.Config.DeletionPolicy.OnCommit(dirPath, writer.CommitGeneration,
                 SnapshotManager.GetSnapshotProtectedSegments(writer));
             CleanupObsoleteMergeSegments(writer);
+            PruneDeletionGenerations(writer);
 
             MergeScheduler.ScheduleBackgroundMerge(writer);
         }
@@ -110,6 +113,7 @@ internal static class CommitManager
         writer.Config.DeletionPolicy.OnCommit(writer.Directory.DirectoryPath, writer.CommitGeneration,
             SnapshotManager.GetSnapshotProtectedSegments(writer));
         CleanupObsoleteMergeSegments(writer);
+        PruneDeletionGenerations(writer);
 
         // Schedule background merge after commit is fully written — segment files must
         // remain intact while WriteCommitStats opens them for scanning.
@@ -198,17 +202,7 @@ internal static class CommitManager
     }
 
     private static bool BelongsToCommittedSegment(string fileName, HashSet<string> segmentIds)
-    {
-        int separator = fileName.IndexOf('.');
-        int generationSeparator = fileName.IndexOf("_gen_", StringComparison.Ordinal);
-        int vectorSeparator = fileName.IndexOf("_v_", StringComparison.Ordinal);
-        if (generationSeparator >= 0 && (separator < 0 || generationSeparator < separator))
-            separator = generationSeparator;
-        if (vectorSeparator >= 0 && (separator < 0 || vectorSeparator < separator))
-            separator = vectorSeparator;
-
-        return separator > 0 && segmentIds.Contains(fileName[..separator]);
-    }
+        => SegmentFileSet.IsOwnedByAnySegment(fileName, segmentIds);
 
     public static void WriteCommitStats(IndexWriter writer)
     {
@@ -360,16 +354,45 @@ internal static class CommitManager
         }
     }
 
-    public static void DeleteSegmentFiles(string segId, LeanDirectory directory)
+    public static void DeleteSegmentFiles(
+        string segId,
+        LeanDirectory directory,
+        CodecCatalog? catalog = null)
     {
-        var directoryPath = directory.DirectoryPath;
-        foreach (var file in FileOpenRetry.GetFiles(directoryPath, segId + ".*"))
+        SegmentFileSet.Enumerate(directory.DirectoryPath, segId, catalog)
+            .DeleteAllOwnedFiles(directory, "segment file delete");
+    }
+
+    internal static void PruneDeletionGenerations(IndexWriter writer)
+    {
+        var snapshotsBySegment = new Dictionary<string, HashSet<int?>>(StringComparer.Ordinal);
+        foreach (IndexSnapshot snapshot in writer.HeldSnapshots)
         {
-            try { directory.DeleteFile(Path.GetFileName(file)); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "segment file delete"); }
+            foreach (SegmentInfo segment in snapshot.Segments)
+            {
+                if (!snapshotsBySegment.TryGetValue(segment.SegmentId, out var generations))
+                {
+                    generations = [];
+                    snapshotsBySegment.Add(segment.SegmentId, generations);
+                }
+                generations.Add(segment.DelGeneration);
+            }
         }
-        foreach (var file in FileOpenRetry.GetFiles(directoryPath, segId + "_v_*.*"))
+
+        foreach (SegmentInfo current in writer.CommittedSegments)
         {
-            try { directory.DeleteFile(Path.GetFileName(file)); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "vector file delete"); }
+            var protectedGenerations = new HashSet<int?> { current.DelGeneration };
+            if (snapshotsBySegment.TryGetValue(current.SegmentId, out var snapshotGenerations))
+                protectedGenerations.UnionWith(snapshotGenerations);
+
+            SegmentFileSet.Enumerate(
+                    writer.Directory.DirectoryPath,
+                    current.SegmentId,
+                    writer.Config.CodecCatalog)
+                .PruneDeletionFiles(
+                    writer.Directory,
+                    protectedGenerations,
+                    "obsolete deletion generation cleanup");
         }
     }
 
@@ -427,7 +450,10 @@ internal static class CommitManager
 
             var merger = new SegmentMerger(writer.Directory, writer.Config.MergePolicy, writer.Config.PostingsSkipInterval,
                 writer.Config.SoftDeleteRetentionSeconds, writer.Config.HnswBuildConfig,
-                useCompoundFile: writer.Config.UseCompoundFile);
+                useCompoundFile: writer.Config.UseCompoundFile)
+            {
+                FileCatalog = writer.Config.CodecCatalog
+            };
             int localOrdinal = writer.ReserveSegmentOrdinal();
             var merged = merger.MergeAll(mergeable, ref localOrdinal, writer.CommitGeneration);
 
@@ -458,6 +484,7 @@ internal static class CommitManager
                     merger.CleanupSegmentFiles(seg);
                 }
             }
+            PruneDeletionGenerations(writer);
 
             return mergeableCount;
         }
@@ -504,7 +531,10 @@ internal static class CommitManager
 
                 var merger = new SegmentMerger(writer.Directory, writer.Config.MergePolicy, writer.Config.PostingsSkipInterval,
                     writer.Config.SoftDeleteRetentionSeconds, writer.Config.HnswBuildConfig,
-                    useCompoundFile: writer.Config.UseCompoundFile);
+                    useCompoundFile: writer.Config.UseCompoundFile)
+                {
+                    FileCatalog = writer.Config.CodecCatalog
+                };
                 lastMerger = merger;
                 int localOrdinal = writer.ReserveSegmentOrdinal();
                 var merged = merger.MergeAll(toMerge, ref localOrdinal, writer.CommitGeneration);
@@ -545,6 +575,7 @@ internal static class CommitManager
                 WriteCommitStats(writer);
                 WriteCommitFile(writer);
                 writer.Config.DeletionPolicy.OnCommit(dirPath, writer.CommitGeneration, protectedSegments);
+                PruneDeletionGenerations(writer);
             }
         }
         return totalMerged;
@@ -604,7 +635,7 @@ internal static class CommitManager
             foreach (var seg in writer.CommittedSegments)
             {
                 if (!rollbackIds.Contains(seg.SegmentId))
-                    DeleteSegmentFiles(seg.SegmentId, writer.Directory);
+                    DeleteSegmentFiles(seg.SegmentId, writer.Directory, writer.Config.CodecCatalog);
             }
 
             writer.CommittedSegments.Clear();
@@ -680,7 +711,7 @@ internal static class CommitManager
         if (writer.ObsoleteMergeSegments.Count == 0)
             return;
         foreach (string segmentId in writer.ObsoleteMergeSegments)
-            DeleteSegmentFiles(segmentId, writer.Directory);
+            DeleteSegmentFiles(segmentId, writer.Directory, writer.Config.CodecCatalog);
         writer.ObsoleteMergeSegments.Clear();
     }
 }
