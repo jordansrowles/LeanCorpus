@@ -28,21 +28,58 @@ internal readonly record struct DeletionStateValidationResult(
 /// </summary>
 internal static class DeletionStateValidator
 {
+    private readonly record struct DeletionMetadata(
+        string SegmentId,
+        int DocCount,
+        int LiveDocCount,
+        int? DelGeneration,
+        long? EarliestSoftDeleteTimestamp);
+
+    private static DeletionMetadata Capture(SegmentInfo info)
+        => new(info.SegmentId, info.DocCount, info.LiveDocCount, info.DelGeneration, info.EarliestSoftDeleteTimestamp);
+
+    private static DeletionMetadata Capture(SegmentDescriptor info)
+        => new(info.SegmentId, info.DocCount, info.LiveDocCount, info.DelGeneration, info.EarliestSoftDeleteTimestamp);
+
     internal static string GetPath(string segmentBasePath, SegmentInfo info)
+        => GetPath(segmentBasePath, Capture(info));
+
+    internal static string GetPath(string segmentBasePath, SegmentDescriptor info)
+        => GetPath(segmentBasePath, Capture(info));
+
+    private static string GetPath(string segmentBasePath, DeletionMetadata info)
         => info.DelGeneration is int generation
             ? segmentBasePath + $"_gen_{generation}.del"
             : segmentBasePath + ".del";
 
     internal static string GetFileName(SegmentInfo info)
+        => GetFileName(Capture(info));
+
+    internal static string GetFileName(SegmentDescriptor info)
+        => GetFileName(Capture(info));
+
+    private static string GetFileName(DeletionMetadata info)
         => info.DelGeneration is int generation
             ? $"{info.SegmentId}_gen_{generation}.del"
             : info.SegmentId + ".del";
 
     internal static bool RequiresFile(SegmentInfo info)
+        => RequiresFile(Capture(info));
+
+    internal static bool RequiresFile(SegmentDescriptor info)
+        => RequiresFile(Capture(info));
+
+    private static bool RequiresFile(DeletionMetadata info)
         => info.DelGeneration.HasValue || info.LiveDocCount != info.DocCount ||
             info.EarliestSoftDeleteTimestamp.HasValue;
 
     internal static DeletionStateValidationResult Validate(string segmentBasePath, SegmentInfo info)
+        => Validate(segmentBasePath, Capture(info));
+
+    internal static DeletionStateValidationResult Validate(string segmentBasePath, SegmentDescriptor info)
+        => Validate(segmentBasePath, Capture(info));
+
+    private static DeletionStateValidationResult Validate(string segmentBasePath, DeletionMetadata info)
     {
         string delPath = GetPath(segmentBasePath, info);
         if (info.DocCount < 0)
@@ -128,8 +165,13 @@ internal static class DeletionStateValidator
     }
 
     internal static LiveDocs? RequireValid(string segmentBasePath, SegmentInfo info)
+        => RequireValid(Validate(segmentBasePath, info));
+
+    internal static LiveDocs? RequireValid(string segmentBasePath, SegmentDescriptor info)
+        => RequireValid(Validate(segmentBasePath, info));
+
+    private static LiveDocs? RequireValid(DeletionStateValidationResult result)
     {
-        var result = Validate(segmentBasePath, info);
         if (!result.IsValid)
             throw result.Exception is null
                 ? new InvalidDataException(result.Message)
@@ -139,6 +181,12 @@ internal static class DeletionStateValidator
     }
 
     internal static void RequireFileIfSelected(SegmentInfo info, IReadOnlyCollection<string> inventory)
+        => RequireFileIfSelected(Capture(info), inventory);
+
+    internal static void RequireFileIfSelected(SegmentDescriptor info, IReadOnlyCollection<string> inventory)
+        => RequireFileIfSelected(Capture(info), inventory);
+
+    private static void RequireFileIfSelected(DeletionMetadata info, IReadOnlyCollection<string> inventory)
     {
         if (!RequiresFile(info))
             return;

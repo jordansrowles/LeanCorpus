@@ -306,7 +306,18 @@ public sealed partial class IndexSearcher : IDisposable
     /// <param name="segments">The explicit list of segment infos to search.</param>
     /// <param name="similarity">The scoring model to use. Defaults to BM25 if null.</param>
     public IndexSearcher(MMapDirectory directory, IReadOnlyList<SegmentInfo> segments, ISimilarity? similarity = null)
-        : this(directory, segments, CreateConfig(similarity))
+        : this(directory, CaptureDescriptors(segments), CreateConfig(similarity))
+    {
+    }
+
+    /// <summary>
+    /// Initialises a new <see cref="IndexSearcher"/> over an immutable segment descriptor list.
+    /// </summary>
+    /// <param name="directory">The index directory containing segment files.</param>
+    /// <param name="segments">The immutable segment descriptors to search.</param>
+    /// <param name="similarity">The scoring model to use. Defaults to BM25 if null.</param>
+    public IndexSearcher(MMapDirectory directory, IReadOnlyList<SegmentDescriptor> segments, ISimilarity? similarity = null)
+        : this(directory, CaptureDescriptors(segments), CreateConfig(similarity))
     {
     }
 
@@ -317,6 +328,25 @@ public sealed partial class IndexSearcher : IDisposable
     /// <param name="segments">The explicit list of segment infos to search.</param>
     /// <param name="config">Searcher configuration including similarity model, parallelism, and caching options.</param>
     public IndexSearcher(MMapDirectory directory, IReadOnlyList<SegmentInfo> segments, IndexSearcherConfig config)
+        : this(directory, CaptureDescriptors(segments), config)
+    {
+    }
+
+    /// <summary>
+    /// Initialises a new <see cref="IndexSearcher"/> over an immutable segment descriptor list with the specified configuration.
+    /// </summary>
+    /// <param name="directory">The index directory containing segment files.</param>
+    /// <param name="segments">The immutable segment descriptors to search.</param>
+    /// <param name="config">Searcher configuration including similarity model, parallelism, and caching options.</param>
+    public IndexSearcher(MMapDirectory directory, IReadOnlyList<SegmentDescriptor> segments, IndexSearcherConfig config)
+        : this(directory, CaptureDescriptors(segments), config)
+    {
+    }
+
+    private IndexSearcher(
+        MMapDirectory directory,
+        SegmentDescriptor[] segments,
+        IndexSearcherConfig config)
     {
         ArgumentNullException.ThrowIfNull(directory);
         ArgumentNullException.ThrowIfNull(segments);
@@ -344,9 +374,9 @@ public sealed partial class IndexSearcher : IDisposable
             _snapshotLease = directory.AcquireSnapshot(
                 name => IsSnapshotFile(idSet, name), out var inventory);
             var inventorySet = new HashSet<string>(inventory, StringComparer.Ordinal);
-            bool permanentlyResident = config.MaxCachedSegmentReaders >= segments.Count;
-            foreach (var info in segments)
-                _readers.Add(new SegmentReader(directory, info, _segmentReaderCache, inventorySet,
+            bool permanentlyResident = config.MaxCachedSegmentReaders >= segments.Length;
+            foreach (var descriptor in segments)
+                _readers.Add(new SegmentReader(directory, descriptor, _segmentReaderCache, inventorySet,
                     permanentlyResident));
 
             _docBases = AssignDocBases();
@@ -366,6 +396,18 @@ public sealed partial class IndexSearcher : IDisposable
             config.DisposeOwnedDiagnostics();
             throw;
         }
+    }
+
+    private static SegmentDescriptor[] CaptureDescriptors(IReadOnlyList<SegmentInfo> segments)
+    {
+        ArgumentNullException.ThrowIfNull(segments);
+        return segments.Select(static info => new SegmentDescriptor(info)).ToArray();
+    }
+
+    private static SegmentDescriptor[] CaptureDescriptors(IReadOnlyList<SegmentDescriptor> segments)
+    {
+        ArgumentNullException.ThrowIfNull(segments);
+        return segments.ToArray();
     }
 
     private int[] AssignDocBases()

@@ -410,8 +410,8 @@ public sealed class SegmentReaderGapsTests: IDisposable
 
     // Info
 
-    [Fact(DisplayName = "SegmentReader: Info Returns The Correct SegmentInfo")]
-    public void Info_ReturnsCorrectSegmentInfo()
+    [Fact(DisplayName = "SegmentReader: Info Returns The Correct Immutable Descriptor")]
+    public void Info_ReturnsCorrectImmutableDescriptor()
     {
         var (dir, searcher) = BuildAndOpen(w =>
         {
@@ -424,6 +424,33 @@ public sealed class SegmentReaderGapsTests: IDisposable
             var reader = searcher.GetSegmentReaders()[0];
             Assert.NotNull(reader.Info.SegmentId);
             Assert.Equal(1, reader.Info.DocCount);
+        }
+    }
+
+    [Fact(DisplayName = "SegmentReader: Info Uses An Immutable Descriptor")]
+    public void Info_UsesImmutableDescriptorAndDetachesFromInputMetadata()
+    {
+        var (dir, searcher) = BuildAndOpen(w =>
+        {
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "test document"));
+            w.AddDocument(doc);
+        });
+        using (dir) using (searcher)
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+            var inputInfo = Rowles.LeanCorpus.Index.Segment.SegmentInfo.ReadFrom(
+                Path.Combine(_dir, reader.Info.SegmentId + ".seg"));
+            using var directReader = new Rowles.LeanCorpus.Index.Segment.SegmentReader(dir, inputInfo);
+            bool originalCompoundState = directReader.Info.IsCompoundFile;
+            inputInfo.IsCompoundFile = !originalCompoundState;
+
+            Assert.Equal("SegmentDescriptor", directReader.Info.GetType().Name);
+            Assert.Equal(originalCompoundState, directReader.Info.IsCompoundFile);
+            Assert.All(directReader.Info.GetType().GetProperties(), property => Assert.Null(property.SetMethod));
+
+            var fieldNames = Assert.IsAssignableFrom<IList<string>>(directReader.Info.FieldNames);
+            Assert.Throws<NotSupportedException>(() => fieldNames[0] = "mutated");
         }
     }
 

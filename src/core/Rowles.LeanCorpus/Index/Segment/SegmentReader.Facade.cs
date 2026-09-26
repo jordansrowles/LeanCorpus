@@ -19,7 +19,7 @@ public sealed partial class SegmentReader : IDisposable
     [ThreadStatic] private static int t_pinDepth;
 
     private readonly MMapDirectory _directory;
-    private readonly SegmentInfo _info;
+    private readonly SegmentDescriptor _info;
     private readonly BoundedLruCache<string, SegmentReaderState> _cache;
     private readonly Func<SegmentReaderState> _stateFactory;
     private readonly bool _ownsCache;
@@ -34,7 +34,7 @@ public sealed partial class SegmentReader : IDisposable
     public int DocBase { get; set; }
 
     /// <summary>Gets the segment metadata for this reader.</summary>
-    public SegmentInfo Info => _info;
+    public SegmentDescriptor Info => _info;
 
     /// <summary>Gets the directory this reader was opened from.</summary>
     internal MMapDirectory Directory => _directory;
@@ -47,12 +47,13 @@ public sealed partial class SegmentReader : IDisposable
     {
         ArgumentNullException.ThrowIfNull(directory);
         ArgumentNullException.ThrowIfNull(info);
-        var segmentId = info.SegmentId;
+        var descriptor = new SegmentDescriptor(info);
+        var segmentId = descriptor.SegmentId;
         var snapshot = directory.AcquireSnapshot(
             name => IsSegmentFile(segmentId, name), out var inventory);
         try
         {
-            ValidateRequiredFiles(info, inventory);
+            ValidateRequiredFiles(descriptor, inventory);
             _snapshot = snapshot;
         }
         catch
@@ -61,9 +62,9 @@ public sealed partial class SegmentReader : IDisposable
             throw;
         }
         _directory = directory;
-        _info = info;
+        _info = descriptor;
         _cache = new BoundedLruCache<string, SegmentReaderState>(1, StringComparer.Ordinal);
-        _stateFactory = () => new SegmentReaderState(directory, info);
+        _stateFactory = () => new SegmentReaderState(directory, descriptor);
         _ownsCache = true;
         _permanentlyResident = true;
     }
@@ -74,7 +75,19 @@ public sealed partial class SegmentReader : IDisposable
         BoundedLruCache<string, SegmentReaderState> cache,
         IReadOnlyCollection<string> inventory,
         bool permanentlyResident)
+        : this(directory, new SegmentDescriptor(info), cache, inventory, permanentlyResident)
     {
+    }
+
+    internal SegmentReader(
+        MMapDirectory directory,
+        SegmentDescriptor info,
+        BoundedLruCache<string, SegmentReaderState> cache,
+        IReadOnlyCollection<string> inventory,
+        bool permanentlyResident)
+    {
+        ArgumentNullException.ThrowIfNull(directory);
+        ArgumentNullException.ThrowIfNull(info);
         ValidateRequiredFiles(info, inventory);
         _directory = directory;
         _info = info;
@@ -214,7 +227,7 @@ public sealed partial class SegmentReader : IDisposable
         => SegmentFileSet.IsOwnedFileName(segmentId, name)
             && !SegmentFileSet.IsTemporaryFileName(name);
 
-    internal static void ValidateRequiredFiles(SegmentInfo info, IReadOnlyCollection<string> inventory)
+    internal static void ValidateRequiredFiles(SegmentDescriptor info, IReadOnlyCollection<string> inventory)
     {
         var files = inventory is HashSet<string> set
             ? set
@@ -231,6 +244,9 @@ public sealed partial class SegmentReader : IDisposable
 
         DeletionStateValidator.RequireFileIfSelected(info, files);
     }
+
+    internal static void ValidateRequiredFiles(SegmentInfo info, IReadOnlyCollection<string> inventory)
+        => ValidateRequiredFiles(new SegmentDescriptor(info), inventory);
 
     public bool IsLive(int docId) { if (TryGetFastState(out var state)) return state.IsLive(docId); using var lease = AcquireReadLease(); return lease.State.IsLive(docId); }
     public bool IsSoftDeleted(int docId, out long timestamp) { using var lease = AcquireReadLease(); return lease.State.IsSoftDeleted(docId, out timestamp); }

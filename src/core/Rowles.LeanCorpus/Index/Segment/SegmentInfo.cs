@@ -104,6 +104,37 @@ public sealed class SegmentInfo
         return info;
     }
 
+    /// <summary>Creates a deep mutable copy, including all nested segment metadata.</summary>
+    internal SegmentInfo DeepCopy() => new()
+    {
+        SegmentId = SegmentId,
+        DocCount = DocCount,
+        LiveDocCount = LiveDocCount,
+        TotalBytes = TotalBytes,
+        CodecBytes = new Dictionary<string, long>(CodecBytes, StringComparer.Ordinal),
+        CommitGeneration = CommitGeneration,
+        IsCompoundFile = IsCompoundFile,
+        FieldNames = [.. FieldNames],
+        IndexSortFields = IndexSortFields is null ? null : [.. IndexSortFields],
+        VectorFields = VectorFields.Select(static field => new VectorFieldInfo
+        {
+            FieldName = field.FieldName,
+            Dimension = field.Dimension,
+            Normalised = field.Normalised,
+            HasHnsw = field.HasHnsw,
+            Quantisation = field.Quantisation
+        }).ToList(),
+        SpatialFields = SpatialFields.Select(static field => new SpatialFieldInfo
+        {
+            FieldName = field.FieldName,
+            Kind = field.Kind
+        }).ToList(),
+        DelGeneration = DelGeneration,
+        MinSequenceNumber = MinSequenceNumber,
+        MaxSequenceNumber = MaxSequenceNumber,
+        EarliestSoftDeleteTimestamp = EarliestSoftDeleteTimestamp
+    };
+
     /// <summary>
     /// Validates invariants after deserialisation. Throws <see cref="InvalidDataException"/>
     /// when required fields are missing, empty, or out of range.

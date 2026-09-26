@@ -18,7 +18,7 @@ internal sealed class SegmentFileAccess : IDisposable
         _isCompound = isCompound;
     }
 
-    internal static SegmentFileAccess Open(MMapDirectory directory, SegmentInfo info)
+    internal static SegmentFileAccess Open(MMapDirectory directory, SegmentDescriptor info)
     {
         if (!info.IsCompoundFile)
         {

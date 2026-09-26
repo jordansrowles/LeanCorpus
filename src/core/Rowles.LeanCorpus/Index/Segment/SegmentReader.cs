@@ -17,7 +17,7 @@ namespace Rowles.LeanCorpus.Index.Segment;
 internal sealed partial class SegmentReaderState : IDisposable
 {
     private readonly MMapDirectory _directory;
-    private readonly SegmentInfo _info;
+    private readonly SegmentDescriptor _info;
     private readonly SegmentFileAccess _files;
     private TermDictionaryReader? _dictionaryReader;
     private IndexInput? _postingsInput;
@@ -68,7 +68,7 @@ internal sealed partial class SegmentReaderState : IDisposable
     public int DocBase { get; set; }
 
     /// <summary>Gets the segment metadata for this reader.</summary>
-    public SegmentInfo Info => _info;
+    public SegmentDescriptor Info => _info;
 
     /// <summary>Gets the directory this reader was opened from.</summary>
     internal MMapDirectory Directory => _directory;
@@ -90,7 +90,7 @@ internal sealed partial class SegmentReaderState : IDisposable
     /// <param name="info">The segment metadata.</param>
     /// <exception cref="FileNotFoundException">Thrown if required segment files are missing.</exception>
     /// <exception cref="InvalidDataException">Thrown if segment files contain corrupted or incompatible data.</exception>
-    internal SegmentReaderState(MMapDirectory directory, SegmentInfo info)
+    internal SegmentReaderState(MMapDirectory directory, SegmentDescriptor info)
     {
         _directory = directory;
         _info = info;
