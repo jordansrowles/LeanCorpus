@@ -11,6 +11,7 @@ using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Codecs.ShapeDocValues;
+using Rowles.LeanCorpus.Search.Scoring;
 
 namespace Rowles.LeanCorpus.Index.Segment;
 
@@ -182,42 +183,44 @@ public sealed class SegmentMerger
         int commitGeneration,
         List<SpatialFieldInfo> spatialFields)
     {
-        // Phase 1: build per-segment doc-id remap (live docs only).
-        // Use int[] with -1 sentinel; flat arrays beat Dictionary on both lookup
-        // cost and allocation pressure for the hot streaming-merge inner loop.
-        var perSegmentMaps = new List<(SegmentInfo Seg, int[] DocIdMap, SegmentReader Reader)>(segments.Count);
-        var retainedSoftDeletes = new List<(int DocId, long Timestamp)>();
-        int newDocId = 0;
+        // Phase 1: build per-segment doc-id remaps. Compatible, physically sorted inputs
+        // are merged by their complete index-sort key; all other inputs retain committed
+        // segment order and must not claim index-sort metadata in the output.
         long softDeleteCutoff = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - (long)(_softDeleteRetentionSeconds * 1000);
-        foreach (var segInfo in segments)
+        bool hasCompatibleIndexSort = TryGetCommonIndexSort(segments, out SortField[] sortFields);
+        var sortedMaps = new List<(SegmentInfo Seg, int[] DocIdMap, SegmentReader Reader)>(segments.Count);
+        var sortedSoftDeletes = new List<(int DocId, long Timestamp)>();
+        int sortedDocCount = 0;
+        bool hasSortedOutputOrder = hasCompatibleIndexSort
+            && TryBuildSortedDocumentMaps(
+                segments,
+                readers,
+                sortFields,
+                softDeleteCutoff,
+                out sortedMaps,
+                out sortedDocCount,
+                out sortedSoftDeletes);
+        List<(SegmentInfo Seg, int[] DocIdMap, SegmentReader Reader)> perSegmentMaps;
+        List<(int DocId, long Timestamp)> retainedSoftDeletes;
+        int totalDocs;
+        if (hasSortedOutputOrder)
         {
-            var reader = readers[segInfo.SegmentId];
-            var docIdMap = new int[segInfo.DocCount];
-            bool retainSoftDeletes = ShouldRetainSoftDeletes(segInfo);
-            for (int oldDocId = 0; oldDocId < segInfo.DocCount; oldDocId++)
-            {
-                if (reader.IsLive(oldDocId))
-                {
-                    docIdMap[oldDocId] = newDocId++;
-                    continue;
-                }
-
-                if (retainSoftDeletes &&
-                    reader.IsSoftDeleted(oldDocId, out long timestamp) &&
-                    timestamp > softDeleteCutoff)
-                {
-                    int retainedDocId = newDocId++;
-                    docIdMap[oldDocId] = retainedDocId;
-                    retainedSoftDeletes.Add((retainedDocId, timestamp));
-                    continue;
-                }
-
-                docIdMap[oldDocId] = -1;
-            }
-            perSegmentMaps.Add((segInfo, docIdMap, reader));
+            perSegmentMaps = sortedMaps;
+            retainedSoftDeletes = sortedSoftDeletes;
+            totalDocs = sortedDocCount;
         }
-        int totalDocs = newDocId;
+        else
+        {
+            perSegmentMaps = BuildSequentialDocumentMaps(
+                segments,
+                readers,
+                softDeleteCutoff,
+                out totalDocs,
+                out retainedSoftDeletes);
+        }
         if (totalDocs == 0) return null;
+
+        MergeDocument[] documentOrder = BuildDestinationDocumentOrder(perSegmentMaps, totalDocs);
 
         var fieldNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var segInfo in segments)
@@ -237,7 +240,7 @@ public sealed class SegmentMerger
         {
             ctx.StoredWriter = storedWriter;
             ctx.TermVectorWriter = tvWriter;
-            AccumulateDocPayloads(perSegmentMaps, ctx);
+            AccumulateDocPayloads(perSegmentMaps, documentOrder, ctx);
         }
 
         // Phase 4: emit per-codec output files.
@@ -267,7 +270,9 @@ public sealed class SegmentMerger
             LiveDocCount = mergedLiveDocs?.LiveCount ?? totalDocs,
             CommitGeneration = commitGeneration,
             FieldNames = fieldNames.ToList(),
-            IndexSortFields = segments[0].IndexSortFields,
+            IndexSortFields = hasSortedOutputOrder && segments[0].IndexSortFields is { } sortMetadata
+                ? [.. sortMetadata]
+                : null,
             VectorFields = mergedVectorFields,
             SpatialFields = spatialFields,
             MinSequenceNumber = ComputeMergedMinSeqNo(segments),
@@ -303,6 +308,446 @@ public sealed class SegmentMerger
             .ToList();
     }
 
+    private static bool TryGetCommonIndexSort(List<SegmentInfo> segments, out SortField[] sortFields)
+    {
+        sortFields = [];
+        if (segments.Count == 0 || segments[0].IndexSortFields is not { Count: > 0 } common)
+            return false;
+
+        foreach (SegmentInfo segment in segments)
+        {
+            if (segment.IndexSortFields is not { Count: > 0 } fields
+                || !fields.SequenceEqual(common, StringComparer.Ordinal))
+                return false;
+        }
+
+        var parsed = new SortField[common.Count];
+        for (int i = 0; i < common.Count; i++)
+        {
+            string[] parts = common[i].Split(':');
+            if (parts.Length is < 3 or > 4
+                || !Enum.TryParse(parts[0], ignoreCase: false, out SortFieldType type)
+                || !Enum.IsDefined(type)
+                || type is not (SortFieldType.DocId or SortFieldType.Numeric or SortFieldType.Int64 or SortFieldType.String)
+                || (type == SortFieldType.DocId ? parts[1].Length != 0 : string.IsNullOrWhiteSpace(parts[1]))
+                || !bool.TryParse(parts[2], out bool descending))
+                return false;
+
+            SortValueSelector selector = SortValueSelector.Min;
+            if (parts.Length == 4
+                && (!Enum.TryParse(parts[3], ignoreCase: false, out selector)
+                    || !Enum.IsDefined(selector)))
+                return false;
+
+            parsed[i] = new SortField(type, parts[1], descending, selector);
+        }
+
+        // A descending DocId key is the pre-flush document ID. That value is not
+        // persisted after SegmentFlusher physically reorders a segment, so a merge
+        // cannot reconstruct a globally correct key from the source segments.
+        if (parsed.Any(static field => field.Type == SortFieldType.DocId && field.Descending))
+            return false;
+
+        sortFields = parsed;
+        return true;
+    }
+
+    private bool TryBuildSortedDocumentMaps(
+        List<SegmentInfo> segments,
+        IReadOnlyDictionary<string, SegmentReader> readers,
+        SortField[] sortFields,
+        long softDeleteCutoff,
+        out List<(SegmentInfo Seg, int[] DocIdMap, SegmentReader Reader)> perSegmentMaps,
+        out int totalDocs,
+        out List<(int DocId, long Timestamp)> retainedSoftDeletes)
+    {
+        perSegmentMaps = new List<(SegmentInfo Seg, int[] DocIdMap, SegmentReader Reader)>(segments.Count);
+        retainedSoftDeletes = [];
+        totalDocs = 0;
+
+        var queue = new PriorityQueue<MergeSortCursor, MergeSortCursor>(
+            segments.Count,
+            new MergeSortCursorComparer(sortFields));
+
+        for (int i = 0; i < segments.Count; i++)
+        {
+            SegmentInfo segment = segments[i];
+            SegmentReader reader = readers[segment.SegmentId];
+            var docIdMap = new int[segment.DocCount];
+            Array.Fill(docIdMap, -1);
+            perSegmentMaps.Add((segment, docIdMap, reader));
+
+            var cursor = new MergeSortCursor(
+                segment,
+                reader,
+                docIdMap,
+                sortFields,
+                i,
+                ShouldRetainSoftDeletes(segment),
+                softDeleteCutoff);
+            if (cursor.TryAdvance())
+                queue.Enqueue(cursor, cursor);
+            else if (!cursor.IsInputSorted)
+                return false;
+        }
+
+        while (queue.TryDequeue(out MergeSortCursor? cursor, out _))
+        {
+            int newDocId = totalDocs++;
+            cursor.DocIdMap[cursor.CurrentOldDocId] = newDocId;
+            if (cursor.CurrentIsRetainedSoftDelete)
+                retainedSoftDeletes.Add((newDocId, cursor.CurrentSoftDeleteTimestamp));
+
+            if (cursor.TryAdvance())
+                queue.Enqueue(cursor, cursor);
+            else if (!cursor.IsInputSorted)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static List<(SegmentInfo Seg, int[] DocIdMap, SegmentReader Reader)> BuildSequentialDocumentMaps(
+        List<SegmentInfo> segments,
+        IReadOnlyDictionary<string, SegmentReader> readers,
+        long softDeleteCutoff,
+        out int totalDocs,
+        out List<(int DocId, long Timestamp)> retainedSoftDeletes)
+    {
+        var perSegmentMaps = new List<(SegmentInfo Seg, int[] DocIdMap, SegmentReader Reader)>(segments.Count);
+        retainedSoftDeletes = [];
+        totalDocs = 0;
+        foreach (SegmentInfo segment in segments)
+        {
+            SegmentReader reader = readers[segment.SegmentId];
+            var docIdMap = new int[segment.DocCount];
+            bool retainSoftDeletes = ShouldRetainSoftDeletes(segment);
+            for (int oldDocId = 0; oldDocId < segment.DocCount; oldDocId++)
+            {
+                if (reader.IsLive(oldDocId))
+                {
+                    docIdMap[oldDocId] = totalDocs++;
+                    continue;
+                }
+
+                if (retainSoftDeletes
+                    && reader.IsSoftDeleted(oldDocId, out long timestamp)
+                    && timestamp > softDeleteCutoff)
+                {
+                    int retainedDocId = totalDocs++;
+                    docIdMap[oldDocId] = retainedDocId;
+                    retainedSoftDeletes.Add((retainedDocId, timestamp));
+                    continue;
+                }
+
+                docIdMap[oldDocId] = -1;
+            }
+
+            perSegmentMaps.Add((segment, docIdMap, reader));
+        }
+
+        return perSegmentMaps;
+    }
+
+    private static MergeDocument[] BuildDestinationDocumentOrder(
+        IReadOnlyList<(SegmentInfo Seg, int[] DocIdMap, SegmentReader Reader)> perSegmentMaps,
+        int totalDocs)
+    {
+        var documentOrder = new MergeDocument[totalDocs];
+        foreach ((SegmentInfo segment, int[] docIdMap, SegmentReader reader) in perSegmentMaps)
+        {
+            for (int oldDocId = 0; oldDocId < docIdMap.Length; oldDocId++)
+            {
+                int newDocId = docIdMap[oldDocId];
+                if (newDocId < 0)
+                    continue;
+                if ((uint)newDocId >= (uint)documentOrder.Length || documentOrder[newDocId].Segment is not null)
+                    throw new InvalidDataException("The merge document remap contains duplicate or out-of-range destination IDs.");
+
+                documentOrder[newDocId] = new MergeDocument(segment, reader, oldDocId);
+            }
+        }
+
+        for (int newDocId = 0; newDocId < documentOrder.Length; newDocId++)
+            if (documentOrder[newDocId].Segment is null)
+                throw new InvalidDataException("The merge document remap contains a gap in destination IDs.");
+
+        return documentOrder;
+    }
+
+    private static int CompareSortValues(
+        IReadOnlyList<SortField> sortFields,
+        ReadOnlySpan<MergeSortValue> left,
+        ReadOnlySpan<MergeSortValue> right)
+    {
+        for (int i = 0; i < sortFields.Count; i++)
+        {
+            SortField field = sortFields[i];
+            int comparison = field.Type switch
+            {
+                SortFieldType.Numeric => left[i].NumericValue.CompareTo(right[i].NumericValue),
+                SortFieldType.Int64 or SortFieldType.DocId => left[i].Int64Value.CompareTo(right[i].Int64Value),
+                SortFieldType.String => string.Compare(left[i].StringValue, right[i].StringValue, StringComparison.Ordinal),
+                _ => throw new InvalidDataException($"Index sort type '{field.Type}' is not supported during merge.")
+            };
+
+            if (field.Descending)
+                comparison = comparison < 0 ? 1 : comparison > 0 ? -1 : 0;
+            if (comparison != 0)
+                return comparison;
+        }
+
+        return 0;
+    }
+
+    private sealed class MergeSortValueResolver
+    {
+        private readonly SegmentReader _reader;
+        private readonly SortField _field;
+        private readonly double[][]? _sortedNumericValues;
+        private readonly double[]? _numericDocValues;
+        private readonly Dictionary<int, double>? _numericIndex;
+        private readonly long[][]? _sortedInt64Values;
+        private readonly long[]? _int64DocValues;
+        private readonly Dictionary<int, long>? _int64Index;
+        private readonly string[]? _sortedDocValues;
+        private readonly string[][]? _sortedSetDocValues;
+        private readonly byte[][][]? _binaryDocValues;
+
+        internal MergeSortValueResolver(SegmentReader reader, SortField field)
+        {
+            _reader = reader;
+            _field = field;
+            switch (field.Type)
+            {
+                case SortFieldType.Numeric:
+                    _sortedNumericValues = reader.GetSortedNumericDocValues(field.FieldName);
+                    _numericDocValues = reader.GetNumericDocValues(field.FieldName);
+                    _numericIndex = ReadNumericIndex(reader).GetValueOrDefault(field.FieldName);
+                    break;
+                case SortFieldType.Int64:
+                    _sortedInt64Values = reader.GetSortedInt64DocValues(field.FieldName);
+                    _int64DocValues = reader.GetInt64DocValues(field.FieldName);
+                    _int64Index = ReadInt64Index(reader).GetValueOrDefault(field.FieldName);
+                    break;
+                case SortFieldType.String:
+                    _sortedDocValues = reader.GetSortedDocValues(field.FieldName);
+                    _sortedSetDocValues = reader.GetSortedSetDocValues(field.FieldName);
+                    _binaryDocValues = reader.GetBinaryDocValues(field.FieldName);
+                    break;
+            }
+        }
+
+        internal MergeSortValue Read(int oldDocId, ISet<string> storedFieldFilter)
+        {
+            switch (_field.Type)
+            {
+                case SortFieldType.Numeric:
+                    if (_sortedNumericValues is not null
+                        && (uint)oldDocId < (uint)_sortedNumericValues.Length
+                        && _sortedNumericValues[oldDocId].Length > 0)
+                        return MergeSortValue.Numeric(SegmentFlusher.SelectNumericValue(
+                            _sortedNumericValues[oldDocId], _field.Selector));
+                    if (_numericDocValues is not null && (uint)oldDocId < (uint)_numericDocValues.Length)
+                        return MergeSortValue.Numeric(_numericDocValues[oldDocId]);
+                    if (_numericIndex is not null && _numericIndex.TryGetValue(oldDocId, out double numericValue))
+                        return MergeSortValue.Numeric(numericValue);
+                    if (TryGetStoredSortValue(_reader, _field.FieldName, oldDocId, storedFieldFilter, out var numericStored))
+                    {
+                        if (numericStored.IsLong)
+                            return MergeSortValue.Numeric(numericStored.LongValue);
+                        if (numericStored.StringValue is { } numericText
+                            && double.TryParse(numericText, System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out numericValue))
+                            return MergeSortValue.Numeric(numericValue);
+                    }
+                    return MergeSortValue.Numeric(0);
+
+                case SortFieldType.Int64:
+                    if (_sortedInt64Values is not null
+                        && (uint)oldDocId < (uint)_sortedInt64Values.Length
+                        && _sortedInt64Values[oldDocId].Length > 0)
+                        return MergeSortValue.Int64(SegmentFlusher.SelectInt64Value(
+                            _sortedInt64Values[oldDocId], _field.Selector));
+                    if (_int64DocValues is not null && (uint)oldDocId < (uint)_int64DocValues.Length)
+                        return MergeSortValue.Int64(_int64DocValues[oldDocId]);
+                    if (_int64Index is not null && _int64Index.TryGetValue(oldDocId, out long int64Value))
+                        return MergeSortValue.Int64(int64Value);
+                    if (TryGetStoredSortValue(_reader, _field.FieldName, oldDocId, storedFieldFilter, out var int64Stored))
+                    {
+                        if (int64Stored.IsLong)
+                            return MergeSortValue.Int64(int64Stored.LongValue);
+                        if (int64Stored.StringValue is { } int64Text
+                            && long.TryParse(int64Text, System.Globalization.NumberStyles.Integer,
+                                System.Globalization.CultureInfo.InvariantCulture, out int64Value))
+                            return MergeSortValue.Int64(int64Value);
+                    }
+                    return MergeSortValue.Int64(0);
+
+                case SortFieldType.String:
+                    if (_sortedDocValues is not null && (uint)oldDocId < (uint)_sortedDocValues.Length)
+                        return MergeSortValue.String(_sortedDocValues[oldDocId]);
+                    if (_sortedSetDocValues is not null
+                        && (uint)oldDocId < (uint)_sortedSetDocValues.Length
+                        && _sortedSetDocValues[oldDocId].Length > 0)
+                    {
+                        string[] values = _sortedSetDocValues[oldDocId];
+                        return MergeSortValue.String(_field.Selector == SortValueSelector.Max
+                            ? values[^1]
+                            : values[0]);
+                    }
+                    if (_binaryDocValues is not null
+                        && (uint)oldDocId < (uint)_binaryDocValues.Length
+                        && _binaryDocValues[oldDocId].Length > 0)
+                        return MergeSortValue.String(System.Text.Encoding.UTF8.GetString(_binaryDocValues[oldDocId][0]));
+                    if (TryGetStoredSortValue(_reader, _field.FieldName, oldDocId, storedFieldFilter, out var stringStored))
+                        return MergeSortValue.String(stringStored.StringValue);
+                    return MergeSortValue.String(null);
+
+                case SortFieldType.DocId:
+                    return MergeSortValue.Int64(oldDocId);
+
+                default:
+                    throw new InvalidDataException($"Index sort type '{_field.Type}' is not supported during merge.");
+            }
+        }
+    }
+
+    private static bool TryGetStoredSortValue(
+        SegmentReader reader,
+        string fieldName,
+        int oldDocId,
+        ISet<string> storedFieldFilter,
+        out StoredFieldValue value)
+    {
+        var stored = reader.GetStoredFieldValues(oldDocId, storedFieldFilter);
+        if (stored.TryGetValue(fieldName, out IReadOnlyList<StoredFieldValue>? values) && values.Count > 0)
+        {
+            value = values[0];
+            return true;
+        }
+
+        value = default;
+        return false;
+    }
+
+    private readonly record struct MergeDocument(SegmentInfo Segment, SegmentReader Reader, int OldDocId);
+
+    private readonly record struct MergeSortValue(double NumericValue, long Int64Value, string? StringValue)
+    {
+        internal static MergeSortValue Numeric(double value) => new(value, 0, null);
+        internal static MergeSortValue Int64(long value) => new(0, value, null);
+        internal static MergeSortValue String(string? value) => new(0, 0, value);
+    }
+
+    private sealed class MergeSortCursor
+    {
+        private readonly SortField[] _sortFields;
+        private readonly long _softDeleteCutoff;
+        private readonly bool _retainSoftDeletes;
+        private readonly MergeSortValue[] _previousKey;
+        private readonly MergeSortValueResolver[] _sortValueResolvers;
+        private readonly HashSet<string>[] _storedFieldFilters;
+        private bool _hasPreviousKey;
+        private int _nextOldDocId;
+
+        internal SegmentInfo Segment { get; }
+        internal SegmentReader Reader { get; }
+        internal int[] DocIdMap { get; }
+        internal int SourceOrdinal { get; }
+        internal int CurrentOldDocId { get; private set; }
+        internal MergeSortValue[] CurrentKey { get; }
+        internal bool CurrentIsRetainedSoftDelete { get; private set; }
+        internal long CurrentSoftDeleteTimestamp { get; private set; }
+        internal bool IsInputSorted { get; private set; } = true;
+
+        internal MergeSortCursor(
+            SegmentInfo segment,
+            SegmentReader reader,
+            int[] docIdMap,
+            SortField[] sortFields,
+            int sourceOrdinal,
+            bool retainSoftDeletes,
+            long softDeleteCutoff)
+        {
+            Segment = segment;
+            Reader = reader;
+            DocIdMap = docIdMap;
+            SourceOrdinal = sourceOrdinal;
+            _sortFields = sortFields;
+            _retainSoftDeletes = retainSoftDeletes;
+            _softDeleteCutoff = softDeleteCutoff;
+            CurrentKey = new MergeSortValue[sortFields.Length];
+            _previousKey = new MergeSortValue[sortFields.Length];
+            _sortValueResolvers = new MergeSortValueResolver[sortFields.Length];
+            _storedFieldFilters = new HashSet<string>[sortFields.Length];
+            for (int i = 0; i < sortFields.Length; i++)
+            {
+                _sortValueResolvers[i] = new MergeSortValueResolver(reader, sortFields[i]);
+                _storedFieldFilters[i] = new HashSet<string>(StringComparer.Ordinal);
+                if (sortFields[i].FieldName.Length > 0)
+                    _storedFieldFilters[i].Add(sortFields[i].FieldName);
+            }
+        }
+
+        internal bool TryAdvance()
+        {
+            while (_nextOldDocId < Segment.DocCount)
+            {
+                int oldDocId = _nextOldDocId++;
+                bool isLive = Reader.IsLive(oldDocId);
+                bool isRetainedSoftDelete = false;
+                long softDeleteTimestamp = 0;
+                if (!isLive)
+                {
+                    if (!_retainSoftDeletes
+                        || !Reader.IsSoftDeleted(oldDocId, out softDeleteTimestamp)
+                        || softDeleteTimestamp <= _softDeleteCutoff)
+                        continue;
+                    isRetainedSoftDelete = true;
+                }
+
+                for (int i = 0; i < _sortFields.Length; i++)
+                    CurrentKey[i] = _sortValueResolvers[i].Read(oldDocId, _storedFieldFilters[i]);
+
+                if (_hasPreviousKey
+                    && CompareSortValues(_sortFields, _previousKey, CurrentKey) > 0)
+                {
+                    IsInputSorted = false;
+                    return false;
+                }
+
+                Array.Copy(CurrentKey, _previousKey, CurrentKey.Length);
+                _hasPreviousKey = true;
+                CurrentOldDocId = oldDocId;
+                CurrentIsRetainedSoftDelete = isRetainedSoftDelete;
+                CurrentSoftDeleteTimestamp = softDeleteTimestamp;
+                return true;
+            }
+
+            return false;
+        }
+    }
+
+    private sealed class MergeSortCursorComparer(SortField[] sortFields) : IComparer<MergeSortCursor>
+    {
+        public int Compare(MergeSortCursor? left, MergeSortCursor? right)
+        {
+            if (ReferenceEquals(left, right)) return 0;
+            if (left is null) return -1;
+            if (right is null) return 1;
+
+            int comparison = CompareSortValues(sortFields, left.CurrentKey, right.CurrentKey);
+            if (comparison != 0)
+                return comparison;
+
+            comparison = left.SourceOrdinal.CompareTo(right.SourceOrdinal);
+            return comparison != 0
+                ? comparison
+                : left.CurrentOldDocId.CompareTo(right.CurrentOldDocId);
+        }
+    }
+
     /// <summary>
     /// Accumulator for per-doc data structures threaded through the merge phases.
     /// Owns nothing; lifetime is the merge call.
@@ -328,6 +773,7 @@ public sealed class SegmentMerger
         internal Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> Vectors { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, PackedBkdFieldBuffer> PackedBkdFields { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, ShapeDocValuesFieldBuffer> ShapeDocValuesFields { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, Dictionary<string, ShapeDocValuesFieldMetadata>> ShapeDocValuesMetadataBySegment { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, int> VectorFieldDims { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, bool> VectorFieldNormalised { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, bool> VectorFieldHadHnsw { get; } = new(StringComparer.Ordinal);
@@ -369,11 +815,11 @@ public sealed class SegmentMerger
 
     private void AccumulateDocPayloads(
         IReadOnlyList<(SegmentInfo Seg, int[] DocIdMap, SegmentReader Reader)> sources,
+        MergeDocument[] documentOrder,
         MergeContext ctx)
     {
         foreach (var (segInfo, docIdMap, reader) in sources)
         {
-            bool segHasTermVectors = reader.HasTermVectors;
             var segParentBitSet = reader.GetParentBitSet();
 
             var segFieldLengths = reader.FileExists(".fln")
@@ -418,6 +864,7 @@ public sealed class SegmentMerger
                 }
                 shapeDocValuesFields.Add(shapeFieldName, shapeMetadata);
             }
+            ctx.ShapeDocValuesMetadataBySegment.Add(segInfo.SegmentId, shapeDocValuesFields);
             if (packedFieldNames.Count > 0)
                 reader.ValidatePackedBkdChecksum();
             foreach (var packedFieldName in packedFieldNames)
@@ -454,21 +901,6 @@ public sealed class SegmentMerger
             {
                 int remapDocId = docIdMap[oldDocId];
                 if (remapDocId < 0) continue;
-
-                foreach ((string shapeFieldName, ShapeDocValuesFieldMetadata _) in shapeDocValuesFields)
-                {
-                    if (!reader.TryGetShapeDocValuesRecordMetadata(shapeFieldName, oldDocId, out ShapeDocValuesRecordMetadata record))
-                        continue;
-                    reader.ValidateShapeDocValuesRecord(shapeFieldName, oldDocId);
-                    byte[] rawRecord = reader.ReadShapeDocValuesRecordBytes(shapeFieldName, oldDocId);
-                    ctx.ShapeDocValuesFields[shapeFieldName].AppendRawRecord(
-                        remapDocId,
-                        record.ValueCount,
-                        record.PrimitiveCount,
-                        rawRecord);
-                }
-
-                ctx.StoredWriter!.AddDocument(reader.GetStoredFieldValues(oldDocId));
 
                 foreach (var (field, values) in segNumericIndex)
                 {
@@ -552,12 +984,6 @@ public sealed class SegmentMerger
                 CopyMergedMultiValues(segInt64SortedDvs, ctx.Int64SortedDocValues, oldDocId, remapDocId, ctx.TotalDocs);
                 CopyMergedMultiValues(segBinaryDvs, ctx.BinaryDocValues, oldDocId, remapDocId, ctx.TotalDocs);
 
-                if (ctx.TermVectorWriter is not null)
-                {
-                    var tv = segHasTermVectors ? reader.GetTermVectors(oldDocId) : null;
-                    ctx.TermVectorWriter.AddDocument(tv);
-                }
-
                 if (segParentBitSet is not null && segParentBitSet.IsParent(oldDocId))
                 {
                     ctx.ParentBitSet ??= new ParentBitSet(ctx.TotalDocs);
@@ -601,6 +1027,40 @@ public sealed class SegmentMerger
                         }
                     }
                 }
+            }
+        }
+
+        for (int newDocId = 0; newDocId < documentOrder.Length; newDocId++)
+        {
+            MergeDocument document = documentOrder[newDocId];
+            ctx.StoredWriter!.AddDocument(document.Reader.GetStoredFieldValues(document.OldDocId));
+            if (ctx.TermVectorWriter is not null)
+            {
+                var termVectors = document.Reader.HasTermVectors
+                    ? document.Reader.GetTermVectors(document.OldDocId)
+                    : null;
+                ctx.TermVectorWriter.AddDocument(termVectors);
+            }
+
+            if (!ctx.ShapeDocValuesMetadataBySegment.TryGetValue(
+                    document.Segment.SegmentId,
+                    out Dictionary<string, ShapeDocValuesFieldMetadata>? shapeFields))
+                continue;
+
+            foreach ((string shapeFieldName, ShapeDocValuesFieldMetadata _) in shapeFields)
+            {
+                if (!document.Reader.TryGetShapeDocValuesRecordMetadata(
+                        shapeFieldName,
+                        document.OldDocId,
+                        out ShapeDocValuesRecordMetadata record))
+                    continue;
+                document.Reader.ValidateShapeDocValuesRecord(shapeFieldName, document.OldDocId);
+                byte[] rawRecord = document.Reader.ReadShapeDocValuesRecordBytes(shapeFieldName, document.OldDocId);
+                ctx.ShapeDocValuesFields[shapeFieldName].AppendRawRecord(
+                    newDocId,
+                    record.ValueCount,
+                    record.PrimitiveCount,
+                    rawRecord);
             }
         }
     }

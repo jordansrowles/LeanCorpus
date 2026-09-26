@@ -62,13 +62,8 @@ internal static class DeletionApplier
 
             using var dicReader = TermDictionaryReader.Open(segmentReader.OpenInput(".dic"));
 
-            string existingDelPath = seg.DelGeneration.HasValue
-                ? basePath + $"_gen_{seg.DelGeneration.Value}.del"
-                : basePath + ".del";
-
-            var liveDocs = FileOpenRetry.FileExists(existingDelPath)
-                ? LiveDocs.Deserialise(existingDelPath, seg.DocCount)
-                : new LiveDocs(seg.DocCount);
+            var liveDocs = DeletionStateValidator.RequireValid(basePath, seg)
+                ?? new LiveDocs(seg.DocCount);
 
             bool changed = false;
             var newlyDeleted = new HashSet<int>();

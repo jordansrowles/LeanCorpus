@@ -196,7 +196,7 @@ public static class IndexValidator
         {
             result.DocumentsChecked += Math.Max(info.DocCount, 0);
             ValidateCompoundFile(dirPath, segmentId, result);
-            CheckDeletionGeneration(basePath, segmentId, info, options, result);
+            CheckDeletionGeneration(basePath, segmentId, info, result);
             RunCompoundDeepChecks(dirPath, info, options, result);
             return;
         }
@@ -206,7 +206,7 @@ public static class IndexValidator
 
         result.DocumentsChecked += Math.Max(info.DocCount, 0);
         CheckStoredFields(basePath, segmentId, info, result);
-        CheckDeletionGeneration(basePath, segmentId, info, options, result);
+        CheckDeletionGeneration(basePath, segmentId, info, result);
         CheckVectors(basePath, segmentId, info, options, result);
         RunDeepChecks(directoryPath: dirPath, basePath, info, options, result);
     }
@@ -368,31 +368,29 @@ public static class IndexValidator
         string basePath,
         string segmentId,
         SegmentInfo info,
-        IndexCheckOptions options,
         IndexCheckResult result)
     {
-        var delPath = info.DelGeneration is int generation
-            ? Path.Combine(Path.GetDirectoryName(basePath)!, $"{segmentId}_gen_{generation}.del")
-            : basePath + ".del";
-
-        if (!FileOpenRetry.FileExists(delPath))
-        {
-            if (info.LiveDocCount < info.DocCount)
-            {
-                result.AddIssue(
-                    IndexCheckSeverity.Error,
-                    IndexCheckIssueCodes.DeletionFileMissing,
-                    $"Segment '{segmentId}' has deleted documents but deletion file '{Path.GetFileName(delPath)}' is missing.",
-                    Path.GetFileName(delPath),
-                    segmentId,
-                    true);
-            }
+        var validation = DeletionStateValidator.Validate(basePath, info);
+        if (validation.FileExists)
+            result.FilesChecked++;
+        if (validation.IsValid)
             return;
-        }
 
-        result.FilesChecked++;
-        if (options.Deep || options.VerifyLiveDocs)
-            ValidateLiveDocs(delPath, segmentId, info, result);
+        string fileName = Path.GetFileName(validation.FilePath);
+        string issueCode = validation.Error switch
+        {
+            DeletionStateValidationError.MissingFile => IndexCheckIssueCodes.DeletionFileMissing,
+            DeletionStateValidationError.LiveCountMismatch => IndexCheckIssueCodes.DeletionLiveCountMismatch,
+            _ => IndexCheckIssueCodes.DeletionFileUnreadable
+        };
+        bool repairable = validation.Error == DeletionStateValidationError.MissingFile;
+        result.AddIssue(
+            IndexCheckSeverity.Error,
+            issueCode,
+            validation.Message ?? $"Deletion state for segment '{segmentId}' is invalid.",
+            fileName,
+            segmentId,
+            repairable);
     }
 
     private static void CheckVectors(string basePath, string segmentId, SegmentInfo info, IndexCheckOptions options, IndexCheckResult result)
@@ -813,35 +811,6 @@ public static class IndexValidator
                 $"Cannot validate postings for segment '{info.SegmentId}': {ex.Message}",
                 info.SegmentId + ".pos",
                 info.SegmentId,
-                false);
-        }
-    }
-
-    private static void ValidateLiveDocs(string delPath, string segmentId, SegmentInfo info, IndexCheckResult result)
-    {
-        var fileName = Path.GetFileName(delPath);
-        try
-        {
-            var liveDocs = LiveDocs.Deserialise(delPath, info.DocCount);
-            if (liveDocs.MaxDoc != info.DocCount || liveDocs.LiveCount != info.LiveDocCount)
-            {
-                result.AddIssue(
-                    IndexCheckSeverity.Error,
-                    IndexCheckIssueCodes.DeletionLiveCountMismatch,
-                    $"Deletion file live count {liveDocs.LiveCount} does not match segment LiveDocCount {info.LiveDocCount}.",
-                    fileName,
-                    segmentId,
-                    false);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or EndOfStreamException)
-        {
-            result.AddIssue(
-                IndexCheckSeverity.Error,
-                IndexCheckIssueCodes.DeletionFileUnreadable,
-                $"Cannot read deletion file '{fileName}': {ex.Message}",
-                fileName,
-                segmentId,
                 false);
         }
     }

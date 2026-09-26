@@ -195,11 +195,7 @@ internal sealed partial class SegmentReaderState : IDisposable
             lock (lockObj)
             {
                 if (_liveDocumentsLoaded) return _liveDocuments;
-                var delPath = _info.DelGeneration.HasValue
-                    ? _basePath + $"_gen_{_info.DelGeneration.Value}.del"
-                    : _basePath + ".del";
-                if (FileOpenRetry.FileExists(delPath))
-                    _liveDocuments = LiveDocs.Deserialise(delPath, _info.DocCount);
+                _liveDocuments = DeletionStateValidator.RequireValid(_basePath, _info);
                 Volatile.Write(ref _liveDocumentsLoaded, true);
                 return _liveDocuments;
             }

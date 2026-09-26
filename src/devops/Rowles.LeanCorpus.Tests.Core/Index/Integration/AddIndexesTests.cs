@@ -269,6 +269,54 @@ public sealed class AddIndexesTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(8, results.TotalHits);
     }
 
+    [Fact(DisplayName = "AddIndexes: Missing Selected Deletion File Rejects Import And Preserves Target")]
+    public void AddIndexes_MissingSelectedDeletionFile_RejectsImportAndPreservesTarget()
+    {
+        string sourcePath = SubDir("add_missing_del_src");
+        string targetPath = SubDir("add_missing_del_tgt");
+        var sourceDirectory = new MMapDirectory(sourcePath);
+        var targetDirectory = new MMapDirectory(targetPath);
+
+        using (var writer = new IndexWriter(sourceDirectory, new IndexWriterConfig()))
+        {
+            var retained = new LeanDocument();
+            retained.Add(new TextField("body", "source retained"));
+            writer.AddDocument(retained);
+
+            var deleted = new LeanDocument();
+            deleted.Add(new TextField("body", "source deleted"));
+            writer.AddDocument(deleted);
+            writer.Commit();
+            writer.DeleteDocuments(new TermQuery("body", "deleted"));
+            writer.Commit();
+        }
+
+        var segmentPath = Directory.GetFiles(sourcePath, "seg_*.seg").Single();
+        var segmentInfo = SegmentInfo.ReadFrom(segmentPath);
+        int deletionGeneration = segmentInfo.DelGeneration
+            ?? throw new InvalidOperationException("The source deletion commit did not select a deletion generation.");
+        string selectedDeletionPath = Path.Combine(
+            sourcePath,
+            $"{segmentInfo.SegmentId}_gen_{deletionGeneration}.del");
+        Assert.True(File.Exists(selectedDeletionPath));
+        File.Delete(selectedDeletionPath);
+
+        using (var writer = new IndexWriter(targetDirectory, new IndexWriterConfig()))
+        {
+            var existing = new LeanDocument();
+            existing.Add(new TextField("body", "target existing"));
+            writer.AddDocument(existing);
+            writer.Commit();
+        }
+
+        using (var writer = new IndexWriter(targetDirectory, new IndexWriterConfig()))
+            Assert.Throws<InvalidDataException>(() => writer.AddIndexes(sourceDirectory));
+
+        using var searcher = new IndexSearcher(targetDirectory);
+        Assert.Equal(1, searcher.Search(new TermQuery("body", "existing"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "retained"), 10, TestContext.Current.CancellationToken).TotalHits);
+    }
+
     /// <summary>
     /// Importing into a non-empty target merges correctly.
     /// </summary>

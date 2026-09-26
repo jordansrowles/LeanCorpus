@@ -471,6 +471,245 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
     }
 
     /// <summary>
+    /// Verifies a merge preserves physical index-sort order and keeps early termination
+    /// equivalent to a full sort when the input segment ranges are reversed.
+    /// </summary>
+    [Fact(DisplayName = "Merge: Index Sort Preserves Physical Order And Top One Results")]
+    public void Merge_IndexSortPreservesPhysicalOrderAndTopOneResults()
+    {
+        var dir = SubDir(nameof(Merge_IndexSortPreservesPhysicalOrderAndTopOneResults));
+        var mmap = new MMapDirectory(dir);
+        var sort = new IndexSort(SortField.Numeric("price"));
+
+        using (var writer = new IndexWriter(mmap, SmallSegmentMergeConfig(storeTermVectors: true, sort: sort)))
+        {
+            AddSortedDocument(writer, 50.0, "red blue");
+            AddSortedDocument(writer, 49.0, "blue red");
+            writer.Commit();
+        }
+
+        string mergedId = MergeSegmentsForTest(dir, mmap);
+        var mergedInfo = SegmentInfo.ReadFrom(Path.Combine(dir, mergedId + ".seg"));
+        using (var reader = new SegmentReader(mmap, mergedInfo))
+        {
+            Assert.True(reader.TryGetNumericValue("price", 0, out double firstPrice));
+            Assert.True(reader.TryGetNumericValue("price", 1, out double secondPrice));
+            Assert.Equal([49.0, 50.0], new[] { firstPrice, secondPrice });
+
+            var firstVectors = reader.GetTermVectors(0)!["body"];
+            Assert.Equal([0], firstVectors.Single(static entry => entry.Term == "blue").Positions);
+            Assert.Equal([1], firstVectors.Single(static entry => entry.Term == "red").Positions);
+            var secondVectors = reader.GetTermVectors(1)!["body"];
+            Assert.Equal([1], secondVectors.Single(static entry => entry.Term == "blue").Positions);
+            Assert.Equal([0], secondVectors.Single(static entry => entry.Term == "red").Positions);
+        }
+
+        using var searcher = new IndexSearcher(mmap);
+        var searchOptions = new SearchOptions { CancellationToken = TestContext.Current.CancellationToken };
+        var earlyTerminated = searcher.Search(new TermQuery("title", "item"), 1, SortField.Numeric("price"), searchOptions);
+        var fullSort = searcher.Search(new WildcardQuery("title", "*"), 1, SortField.Numeric("price"), searchOptions);
+
+        Assert.True(earlyTerminated.IsPartial);
+        Assert.Equal(49.0, GetStoredDouble(searcher, earlyTerminated, "price"));
+        Assert.Equal(GetStoredDouble(searcher, fullSort, "price"), GetStoredDouble(searcher, earlyTerminated, "price"));
+
+        var phrase = searcher.Search(new PhraseQuery("body", "blue", "red"), 10, TestContext.Current.CancellationToken);
+        Assert.Single(phrase.ScoreDocs);
+        Assert.Equal(49.0, GetStoredDouble(searcher, phrase, "price"));
+    }
+
+    /// <summary>
+    /// Verifies merge order uses every configured field rather than only the primary key.
+    /// </summary>
+    [Fact(DisplayName = "Merge: Index Sort Uses Complete Compound Key")]
+    public void Merge_IndexSortUsesCompleteCompoundKey()
+    {
+        var dir = SubDir(nameof(Merge_IndexSortUsesCompleteCompoundKey));
+        var mmap = new MMapDirectory(dir);
+        var sort = new IndexSort(SortField.Numeric("price"), SortField.String("category"));
+
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig
+        {
+            IndexSort = sort,
+            MaxBufferedDocs = 2,
+            MergeThreshold = 100,
+        }))
+        {
+            AddCompoundSortDocument(writer, "A1", 2.0, "x");
+            AddCompoundSortDocument(writer, "A0", 1.0, "z");
+            AddCompoundSortDocument(writer, "B1", 3.0, "a");
+            AddCompoundSortDocument(writer, "B0", 1.0, "a");
+            writer.Commit();
+        }
+
+        string mergedId = MergeSegmentsForTest(dir, mmap);
+        var mergedInfo = SegmentInfo.ReadFrom(Path.Combine(dir, mergedId + ".seg"));
+        Assert.Equal(["Numeric:price:False", "String:category:False"], mergedInfo.IndexSortFields);
+
+        using var reader = new SegmentReader(mmap, mergedInfo);
+        var ids = Enumerable.Range(0, mergedInfo.DocCount)
+            .Select(docId => reader.GetStoredFields(docId)["id"][0])
+            .ToArray();
+        Assert.Equal(["B0", "A0", "A1", "B1"], ids);
+    }
+
+    /// <summary>
+    /// Verifies equal complete keys retain source order deterministically during the k-way merge.
+    /// </summary>
+    [Fact(DisplayName = "Merge: Index Sort Equal Keys Retain Source Order")]
+    public void Merge_IndexSortEqualKeysRetainSourceOrder()
+    {
+        var dir = SubDir(nameof(Merge_IndexSortEqualKeysRetainSourceOrder));
+        var mmap = new MMapDirectory(dir);
+        var sort = new IndexSort(SortField.Numeric("price"), SortField.String("category"));
+
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig
+        {
+            IndexSort = sort,
+            MaxBufferedDocs = 1,
+            MergeThreshold = 100,
+        }))
+        {
+            AddCompoundSortDocument(writer, "first", 7.0, "same");
+            AddCompoundSortDocument(writer, "second", 7.0, "same");
+            writer.Commit();
+        }
+
+        string mergedId = MergeSegmentsForTest(dir, mmap);
+        var mergedInfo = SegmentInfo.ReadFrom(Path.Combine(dir, mergedId + ".seg"));
+        using var reader = new SegmentReader(mmap, mergedInfo);
+        string[] ids = Enumerable.Range(0, mergedInfo.DocCount)
+            .Select(docId => reader.GetStoredFields(docId)["id"][0])
+            .ToArray();
+
+        Assert.Equal(["first", "second"], ids);
+    }
+
+    /// <summary>
+    /// Verifies absent sort values keep the same default ordering as index flush.
+    /// </summary>
+    [Fact(DisplayName = "Merge: Index Sort Missing Values Keep Flush Ordering")]
+    public void Merge_IndexSortMissingValuesKeepFlushOrdering()
+    {
+        var dir = SubDir(nameof(Merge_IndexSortMissingValuesKeepFlushOrdering));
+        var mmap = new MMapDirectory(dir);
+
+        using (var writer = new IndexWriter(mmap, SmallSegmentMergeConfig(sort: new IndexSort(SortField.Numeric("price")))))
+        {
+            var valued = new LeanDocument();
+            valued.Add(new StoredField("id", "valued"));
+            valued.Add(new NumericField("price", 5.0));
+            writer.AddDocument(valued);
+
+            var missing = new LeanDocument();
+            missing.Add(new StoredField("id", "missing"));
+            writer.AddDocument(missing);
+            writer.Commit();
+        }
+
+        string mergedId = MergeSegmentsForTest(dir, mmap);
+        var mergedInfo = SegmentInfo.ReadFrom(Path.Combine(dir, mergedId + ".seg"));
+        using var reader = new SegmentReader(mmap, mergedInfo);
+        string[] ids = Enumerable.Range(0, mergedInfo.DocCount)
+            .Select(docId => reader.GetStoredFields(docId)["id"][0])
+            .ToArray();
+
+        Assert.Equal(["missing", "valued"], ids);
+        Assert.Equal("Numeric:price:False", Assert.Single(mergedInfo.IndexSortFields!));
+    }
+
+    /// <summary>
+    /// Verifies missing or differing source sort definitions do not get copied to a merged segment.
+    /// </summary>
+    [Theory(DisplayName = "Merge: Sort Metadata Requires Matching Source Definitions")]
+    [InlineData("absent", false, false)]
+    [InlineData("mixed", true, false)]
+    [InlineData("different", true, true)]
+    public void Merge_SortMetadataRequiresMatchingSourceDefinitions(
+        string scenario,
+        bool firstIsSorted,
+        bool secondIsSorted)
+    {
+        var dir = SubDir($"{nameof(Merge_SortMetadataRequiresMatchingSourceDefinitions)}_{scenario}");
+        var mmap = new MMapDirectory(dir);
+        var firstSort = firstIsSorted ? new IndexSort(SortField.Numeric("price")) : null;
+        var secondSort = secondIsSorted
+            ? new IndexSort(SortField.Numeric(scenario == "different" ? "rank" : "price"))
+            : null;
+
+        using (var writer = new IndexWriter(mmap, SmallSegmentMergeConfig(sort: firstSort)))
+        {
+            AddSortedDocument(writer, 50.0, "red blue", rank: 1.0);
+            writer.Commit();
+        }
+
+        using (var writer = new IndexWriter(mmap, SmallSegmentMergeConfig(sort: secondSort)))
+        {
+            AddSortedDocument(writer, 49.0, "blue red", rank: 2.0);
+            writer.Commit();
+        }
+
+        string mergedId = MergeSegmentsForTest(dir, mmap);
+        var mergedInfo = SegmentInfo.ReadFrom(Path.Combine(dir, mergedId + ".seg"));
+        Assert.Null(mergedInfo.IndexSortFields);
+    }
+
+    /// <summary>
+    /// Verifies merges drop descending DocId metadata because its pre-flush key is not persisted.
+    /// </summary>
+    [Fact(DisplayName = "Merge: Descending DocId Sort Metadata Is Not Reused")]
+    public void Merge_DescendingDocIdSortMetadataIsNotReused()
+    {
+        var dir = SubDir(nameof(Merge_DescendingDocIdSortMetadataIsNotReused));
+        var mmap = new MMapDirectory(dir);
+
+        using (var writer = new IndexWriter(mmap, SmallSegmentMergeConfig(sort: new IndexSort(
+                   new SortField(SortFieldType.DocId, string.Empty, descending: true)))))
+        {
+            var first = new LeanDocument();
+            first.Add(new StoredField("id", "first"));
+            writer.AddDocument(first);
+            var second = new LeanDocument();
+            second.Add(new StoredField("id", "second"));
+            writer.AddDocument(second);
+            writer.Commit();
+        }
+
+        string mergedId = MergeSegmentsForTest(dir, mmap);
+        var mergedInfo = SegmentInfo.ReadFrom(Path.Combine(dir, mergedId + ".seg"));
+        Assert.Null(mergedInfo.IndexSortFields);
+    }
+
+    private static void AddSortedDocument(IndexWriter writer, double price, string body, double? rank = null)
+    {
+        var document = new LeanDocument();
+        document.Add(new TextField("title", "item"));
+        document.Add(new TextField("body", body));
+        document.Add(new NumericField("price", price));
+        if (rank is not null)
+            document.Add(new NumericField("rank", rank.Value));
+        writer.AddDocument(document);
+    }
+
+    private static void AddCompoundSortDocument(IndexWriter writer, string id, double price, string category)
+    {
+        var document = new LeanDocument();
+        document.Add(new TextField("title", "item"));
+        document.Add(new StoredField("id", id));
+        document.Add(new NumericField("price", price));
+        document.Add(new StoredField("category", category));
+        writer.AddDocument(document);
+    }
+
+    private static double GetStoredDouble(IndexSearcher searcher, TopDocs results, string fieldName)
+    {
+        Assert.Single(results.ScoreDocs);
+        var stored = searcher.GetStoredFields(results.ScoreDocs[0].DocId);
+        Assert.True(stored.TryGetValue(fieldName, out var values));
+        return double.Parse(values![0], System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
     /// Verifies the Cleanup Segment Files: Leaves No Orphans scenario.
     /// </summary>
     [Fact(DisplayName = "Cleanup Segment Files: Leaves No Orphans")]

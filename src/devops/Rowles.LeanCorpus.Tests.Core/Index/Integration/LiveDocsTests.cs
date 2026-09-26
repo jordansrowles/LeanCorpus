@@ -39,6 +39,94 @@ public sealed class LiveDocsTests : IClassFixture<TestDirectoryFixture>
         Assert.True(liveDocs.IsLive(2));
     }
 
+    [Fact(DisplayName = "Live Docs: Delete Mutations Reject Out Of Range Document IDs")]
+    public void LiveDocs_DeleteMutations_RejectOutOfRangeDocumentIds()
+    {
+        var liveDocs = new LiveDocs(3);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => liveDocs.Delete(-1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => liveDocs.Delete(3));
+        Assert.Throws<ArgumentOutOfRangeException>(() => liveDocs.SoftDelete(-1, 1234));
+        Assert.Throws<ArgumentOutOfRangeException>(() => liveDocs.SoftDelete(3, 1234));
+        Assert.Equal(3, liveDocs.LiveCount);
+    }
+
+    [Fact(DisplayName = "Live Docs: Deserialise Rejects Out Of Range Deleted IDs")]
+    public void LiveDocs_Deserialise_RejectsOutOfRangeDeletedIds()
+    {
+        string path = Path.Combine(_fixture.Path, $"livedocs_out_of_range_{Guid.NewGuid():N}.del");
+        var deletedDocs = new RoaringBitmap();
+        deletedDocs.Add(3);
+        using (var stream = File.Create(path))
+        using (var writer = new BinaryWriter(stream))
+        {
+            deletedDocs.Serialise(writer);
+            writer.Write(0);
+        }
+
+        Assert.Throws<InvalidDataException>(() => LiveDocs.Deserialise(path, maxDoc: 3));
+    }
+
+    [Fact(DisplayName = "Live Docs: Deserialise Rejects Truncated Soft Delete Timestamps")]
+    public void LiveDocs_Deserialise_RejectsTruncatedSoftDeleteTimestamps()
+    {
+        string path = Path.Combine(_fixture.Path, $"livedocs_truncated_soft_deletes_{Guid.NewGuid():N}.del");
+        var deletedDocs = new RoaringBitmap();
+        deletedDocs.Add(1);
+        using (var stream = File.Create(path))
+        using (var writer = new BinaryWriter(stream))
+        {
+            deletedDocs.Serialise(writer);
+            writer.Write(1); // One timestamp is declared, but no record follows.
+        }
+
+        Assert.Throws<InvalidDataException>(() => LiveDocs.Deserialise(path, maxDoc: 3));
+    }
+
+    [Fact(DisplayName = "Live Docs: Deserialise Rejects Soft Delete Timestamp For Live Document")]
+    public void LiveDocs_Deserialise_RejectsSoftDeleteTimestampForLiveDocument()
+    {
+        string path = Path.Combine(_fixture.Path, $"livedocs_orphan_soft_delete_{Guid.NewGuid():N}.del");
+        var deletedDocs = new RoaringBitmap();
+        deletedDocs.Add(1);
+        using (var stream = File.Create(path))
+        using (var writer = new BinaryWriter(stream))
+        {
+            deletedDocs.Serialise(writer);
+            writer.Write(1);
+            writer.Write(2); // Document 2 is live in the bitmap.
+            writer.Write(1234L);
+        }
+
+        Assert.Throws<InvalidDataException>(() => LiveDocs.Deserialise(path, maxDoc: 3));
+    }
+
+    [Fact(DisplayName = "Live Docs: Reader Rejects Soft Delete Timestamp Metadata Mismatch")]
+    public void LiveDocs_ReaderRejectsSoftDeleteTimestampMetadataMismatch()
+    {
+        string directoryPath = Path.Combine(_fixture.Path, $"livedocs_timestamp_metadata_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directoryPath);
+        using (var writer = new IndexWriter(
+            new MMapDirectory(directoryPath),
+            new IndexWriterConfig { SoftDeletesEnabled = true }))
+        {
+            var document = new LeanDocument();
+            document.Add(new TextField("body", "timestamp mismatch"));
+            writer.AddDocument(document);
+            writer.Commit();
+            writer.SoftDeleteDocuments(new TermQuery("body", "mismatch"));
+            writer.Commit();
+        }
+
+        string segmentPath = Directory.GetFiles(directoryPath, "seg_*.seg").Single();
+        var info = SegmentInfo.ReadFrom(segmentPath);
+        Assert.NotNull(info.EarliestSoftDeleteTimestamp);
+        info.EarliestSoftDeleteTimestamp = null;
+        info.WriteTo(segmentPath);
+
+        Assert.Throws<InvalidDataException>(() => new IndexSearcher(new MMapDirectory(directoryPath)));
+    }
+
     /// <summary>
     /// Verifies the Live Docs: Deleted Doc Not Returned By Search scenario.
     /// </summary>

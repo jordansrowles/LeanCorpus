@@ -327,18 +327,11 @@ internal static class CommitManager
             var seg = SegmentInfo.ReadFrom(segPath);
 
             var basePath = Path.Combine(dirPath, segId);
-            var delPath = seg.DelGeneration.HasValue
-                ? basePath + $"_gen_{seg.DelGeneration.Value}.del"
-                : basePath + ".del";
-            if (FileOpenRetry.FileExists(delPath))
+            var liveDocs = DeletionStateValidator.RequireValid(basePath, seg);
+            if (liveDocs is not null)
             {
-                var liveDocs = LiveDocs.Deserialise(delPath, seg.DocCount);
                 seg.LiveDocCount = liveDocs.LiveCount;
                 seg.EarliestSoftDeleteTimestamp = liveDocs.EarliestSoftDeleteTimestamp;
-            }
-            else
-            {
-                seg.LiveDocCount = seg.DocCount;
             }
 
             writer.CommittedSegments.Add(seg);

@@ -378,18 +378,12 @@ public sealed partial class IndexWriter : IDisposable
                     throw new InvalidDataException($"Segment file not found: {segPath}");
 
                 var seg = SegmentInfo.ReadFrom(segPath);
-                var delPath = seg.DelGeneration.HasValue
-                    ? Path.Combine(sourceDirectory.DirectoryPath, $"{segId}_gen_{seg.DelGeneration.Value}.del")
-                    : Path.Combine(sourceDirectory.DirectoryPath, segId + ".del");
-                if (FileOpenRetry.FileExists(delPath))
+                var segmentBasePath = Path.Combine(sourceDirectory.DirectoryPath, segId);
+                var liveDocs = DeletionStateValidator.RequireValid(segmentBasePath, seg);
+                if (liveDocs is not null)
                 {
-                    var liveDocs = LiveDocs.Deserialise(delPath, seg.DocCount);
                     seg.LiveDocCount = liveDocs.LiveCount;
                     seg.EarliestSoftDeleteTimestamp = liveDocs.EarliestSoftDeleteTimestamp;
-                }
-                else
-                {
-                    seg.LiveDocCount = seg.DocCount;
                 }
 
                 sourceSegments.Add(seg);

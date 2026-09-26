@@ -164,6 +164,9 @@ public static class IndexRecovery
             var basePath = Path.Combine(directoryPath, segId);
             var segInfo = Segment.SegmentInfo.ReadFrom(basePath + ".seg");
 
+            if (!Segment.DeletionStateValidator.Validate(basePath, segInfo).IsValid)
+                return false;
+
             using var directory = new MMapDirectory(directoryPath);
             using Segment.ISegmentFileSource source = segInfo.IsCompoundFile
                 ? new Segment.CompoundSegmentFileSource(directory, segId)

@@ -20,6 +20,7 @@ internal sealed class LiveDocs
 
     public LiveDocs(int maxDoc)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxDoc);
         _deletedDocs = new RoaringBitmap();
         _maxDoc = maxDoc;
     }
@@ -37,6 +38,7 @@ internal sealed class LiveDocs
 
     public void Delete(int docId)
     {
+        ValidateDocId(docId);
         _deletedDocs.Add(docId);
     }
 
@@ -45,9 +47,17 @@ internal sealed class LiveDocs
     /// </summary>
     public void SoftDelete(int docId, long timestampMillis)
     {
+        ValidateDocId(docId);
         _deletedDocs.Add(docId);
         _softDeleteTimestamps ??= new Dictionary<int, long>();
         _softDeleteTimestamps[docId] = timestampMillis;
+    }
+
+    private void ValidateDocId(int docId)
+    {
+        if ((uint)docId >= (uint)_maxDoc)
+            throw new ArgumentOutOfRangeException(nameof(docId), docId,
+                $"Document ID must be in the range [0, {_maxDoc}).");
     }
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
@@ -156,60 +166,63 @@ internal sealed class LiveDocs
 
     private static LiveDocs DeserialiseBody(Stream stream, int maxDoc)
     {
+        if (maxDoc < 0)
+            throw new InvalidDataException($"Invalid maximum document count: {maxDoc}.");
+
         using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
 
         var deletedDocs = RoaringBitmap.Deserialise(reader);
 
         Dictionary<int, long>? timestamps = null;
 
-        // Check if there is trailing data after the bitmap
         long remaining = stream.Length - stream.Position;
-        if (remaining >= 4)
-        {
-            try
-            {
-                int sdCount = reader.ReadInt32();
-                if (sdCount > 0 && remaining >= 4 + (long)sdCount * 12)
-                {
-                    timestamps = new Dictionary<int, long>(sdCount);
-                    for (int i = 0; i < sdCount; i++)
-                    {
-                        int docId = reader.ReadInt32();
-                        long ticks = reader.ReadInt64();
-                        timestamps[docId] = ticks;
-                    }
-                }
-            }
-            catch (EndOfStreamException)
-            {
-                // Graceful fallback for truncated soft-delete section
-            }
+        if (remaining < 0)
+            throw new InvalidDataException("Live-doc stream position is past the end of the stream.");
 
-            // Remove timestamps for doc IDs that are not in the deleted bitmap
-            if (timestamps is not null)
+        // Headerless historical bodies may end directly after the bitmap. If a
+        // timestamp trailer is present, however, it must be complete and exact.
+        if (remaining != 0)
+        {
+            if (remaining < sizeof(int))
+                throw new InvalidDataException("Live-doc soft-delete trailer is truncated before its count.");
+
+            int sdCount = reader.ReadInt32();
+            if (sdCount < 0)
+                throw new InvalidDataException($"Invalid soft-delete timestamp count: {sdCount}.");
+            if (sdCount > deletedDocs.Cardinality)
+                throw new InvalidDataException(
+                    $"Soft-delete timestamp count {sdCount} exceeds deleted-document count {deletedDocs.Cardinality}.");
+
+            long expectedLength = sizeof(int) + (long)sdCount * (sizeof(int) + sizeof(long));
+            if (remaining != expectedLength)
+                throw new InvalidDataException(
+                    $"Live-doc soft-delete trailer length is {remaining} bytes; expected {expectedLength} bytes.");
+
+            if (sdCount > 0)
             {
-                var orphanKeys = new List<int>();
-                foreach (var kvp in timestamps)
+                timestamps = new Dictionary<int, long>(sdCount);
+                for (int i = 0; i < sdCount; i++)
                 {
-                    if (!deletedDocs.Contains(kvp.Key))
-                        orphanKeys.Add(kvp.Key);
+                    int docId = reader.ReadInt32();
+                    long timestamp = reader.ReadInt64();
+                    if ((uint)docId >= (uint)maxDoc)
+                        throw new InvalidDataException(
+                            $"Soft-delete timestamp document ID {docId} is outside [0, {maxDoc}).");
+                    if (!deletedDocs.Contains(docId))
+                        throw new InvalidDataException(
+                            $"Soft-delete timestamp document ID {docId} is not marked deleted.");
+                    if (!timestamps.TryAdd(docId, timestamp))
+                        throw new InvalidDataException(
+                            $"Live-doc soft-delete trailer contains duplicate document ID {docId}.");
                 }
-                foreach (var key in orphanKeys)
-                    timestamps.Remove(key);
             }
         }
 
-        // Strip out-of-range doc IDs from the deleted bitmap
-        if (maxDoc > 0)
+        foreach (var docId in deletedDocs)
         {
-            var outOfRangeDocs = new List<int>();
-            foreach (var docId in deletedDocs)
-            {
-                if ((uint)docId >= (uint)maxDoc)
-                    outOfRangeDocs.Add(docId);
-            }
-            foreach (var docId in outOfRangeDocs)
-                deletedDocs.Remove(docId);
+            if ((uint)docId >= (uint)maxDoc)
+                throw new InvalidDataException(
+                    $"Deleted document ID {docId} is outside [0, {maxDoc}).");
         }
 
         return new LiveDocs(deletedDocs, maxDoc, timestamps);

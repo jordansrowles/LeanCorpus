@@ -226,6 +226,8 @@ public sealed partial class SegmentReader : IDisposable
             if (!files.Contains(name))
                 throw new FileNotFoundException($"Segment file is missing: '{name}'.", name);
         }
+
+        DeletionStateValidator.RequireFileIfSelected(info, files);
     }
 
     public bool IsLive(int docId) { if (TryGetFastState(out var state)) return state.IsLive(docId); using var lease = AcquireReadLease(); return lease.State.IsLive(docId); }

@@ -59,8 +59,7 @@ internal static class StreamingPostingsMerger
             var sortedTerms = new List<string>();
             var offsets = new Dictionary<string, long>(StringComparer.Ordinal);
 
-            // Min-heap of cursor indices, ordered by current term (then by source order
-            // so the lowest-numbered segment wins ties — keeps doc IDs monotonic).
+            // Min-heap of cursor indices, ordered by current term and then source order.
             var heap = new PriorityQueue<int, (string Term, int Idx)>(cursors.Count, TermAndIndexComparer.Instance);
             for (int i = 0; i < cursors.Count; i++)
                 heap.Enqueue(i, (cursors[i].CurrentTerm, i));
@@ -97,61 +96,77 @@ internal static class StreamingPostingsMerger
 
                 string fieldName = QualifiedTermHelpers.GetFieldName(currentTerm).ToString();
 
-                foreach (int idx in participants)
-                {
-                    var cursor = cursors[idx];
-                    cursor.DecodeCurrentPostings(out var oldIds, out int count, out var freqs,
-                        out bool curHasPositions, out bool curHasPayloads);
-                    try
-                    {
-                        var docMap = cursor.Source.DocIdMap;
-                        var norms = cursorNorms[idx].Norms;
-                        norms.TryGetValue(fieldName, out var fieldNormBytes);
-                        for (int j = 0; j < count; j++)
-                        {
-                            int oldId = oldIds[j];
-                            if ((uint)oldId >= (uint)docMap.Length) continue;
-                            int newId = docMap[oldId];
-                            if (newId < 0) continue;
-                            byte norm = fieldNormBytes is not null && (uint)oldId < (uint)fieldNormBytes.Length
-                                ? fieldNormBytes[oldId]
-                                : (byte)0;
-                            blockWriter.AddPosting(newId, hasFreqs ? freqs[j] : 1, norm);
-                        }
-                    }
-                    finally
-                    {
-                        ArrayPool<int>.Shared.Return(oldIds);
-                        ArrayPool<int>.Shared.Return(freqs);
-                    }
-                }
-
-                var meta = blockWriter.FinishTerm();
-
-                // Stream position data doc-by-doc from source cursors.
-                // Docs are already in merged doc-ID order (participants sorted by segment index,
-                // segment 0 remapped IDs < segment 1 < ...), so no sort is needed.
-                if (hasPositions)
+                var decodedSources = new List<DecodedPostingSource>(participants.Count);
+                var orderedPostings = new List<(DecodedPostingSource Source, int PostingIndex)>();
+                var postingQueue = new PriorityQueue<DecodedPostingSource, (int DocId, int SourceOrdinal)>();
+                try
                 {
                     foreach (int idx in participants)
                     {
-                        var cursor = cursors[idx];
-                        cursor.WritePositionsForTerm(bodyOutput, hasPayloads);
+                        Cursor cursor = cursors[idx];
+                        cursor.DecodeCurrentPostings(out int[] oldIds, out int count, out int[] freqs);
+                        var source = new DecodedPostingSource(cursor, idx, oldIds, freqs, count);
+                        decodedSources.Add(source);
+                        if (source.TryAdvance())
+                            postingQueue.Enqueue(source, (source.CurrentDocId, source.SourceOrdinal));
+                    }
+
+                    while (postingQueue.TryDequeue(out DecodedPostingSource? source, out _))
+                    {
+                        int oldId = source.CurrentOldDocId;
+                        var norms = cursorNorms[source.SourceOrdinal].Norms;
+                        norms.TryGetValue(fieldName, out var fieldNormBytes);
+                        byte norm = fieldNormBytes is not null && (uint)oldId < (uint)fieldNormBytes.Length
+                            ? fieldNormBytes[oldId]
+                            : (byte)0;
+                        blockWriter.AddPosting(source.CurrentDocId, hasFreqs ? source.CurrentFrequency : 1, norm);
+                        orderedPostings.Add((source, source.CurrentPostingIndex));
+
+                        if (source.TryAdvance())
+                            postingQueue.Enqueue(source, (source.CurrentDocId, source.SourceOrdinal));
+                    }
+
+                    var meta = blockWriter.FinishTerm();
+
+                    // Each source position stream is sequential in source doc order. The posting
+                    // merge order preserves that order within each source, so discard deleted
+                    // posting positions and emit live positions in the same destination order.
+                    if (hasPositions)
+                    {
+                        foreach ((DecodedPostingSource source, int postingIndex) in orderedPostings)
+                        {
+                            if (!source.Cursor.HasDecodedPositions)
+                                continue;
+
+                            while (source.NextPositionPostingIndex < postingIndex)
+                            {
+                                source.Cursor.SkipDocPositions(hasPayloads);
+                                source.NextPositionPostingIndex++;
+                            }
+
+                            source.Cursor.WriteDocPositions(bodyOutput, hasPayloads);
+                            source.NextPositionPostingIndex++;
+                        }
+                    }
+
+                    long metadataOffset = bodyOutput.Position;
+                    bodyOutput.WriteInt64(bodyOffset);
+                    bodyOutput.WriteInt32(meta.DocFreq);
+                    bodyOutput.WriteInt64(meta.SkipOffset);
+                    bodyOutput.WriteBoolean(hasFreqs);
+                    bodyOutput.WriteBoolean(hasPositions);
+                    bodyOutput.WriteBoolean(hasPayloads);
+
+                    if (meta.DocFreq > 0)
+                    {
+                        sortedTerms.Add(currentTerm);
+                        offsets[currentTerm] = metadataOffset;
                     }
                 }
-
-                long metadataOffset = bodyOutput.Position;
-                bodyOutput.WriteInt64(bodyOffset);
-                bodyOutput.WriteInt32(meta.DocFreq);
-                bodyOutput.WriteInt64(meta.SkipOffset);
-                bodyOutput.WriteBoolean(hasFreqs);
-                bodyOutput.WriteBoolean(hasPositions);
-                bodyOutput.WriteBoolean(hasPayloads);
-
-                if (meta.DocFreq > 0)
+                finally
                 {
-                    sortedTerms.Add(currentTerm);
-                    offsets[currentTerm] = metadataOffset;
+                    foreach (DecodedPostingSource source in decodedSources)
+                        source.Dispose();
                 }
 
                 foreach (int idx in participants)
@@ -183,6 +198,60 @@ internal static class StreamingPostingsMerger
         }
     }
 
+    private sealed class DecodedPostingSource : IDisposable
+    {
+        private readonly int[] _oldIds;
+        private readonly int[] _frequencies;
+        private readonly int _count;
+        private int _nextIndex;
+
+        internal Cursor Cursor { get; }
+        internal int SourceOrdinal { get; }
+        internal int CurrentPostingIndex { get; private set; }
+        internal int CurrentOldDocId { get; private set; }
+        internal int CurrentDocId { get; private set; }
+        internal int CurrentFrequency { get; private set; }
+        internal int NextPositionPostingIndex { get; set; }
+
+        internal DecodedPostingSource(Cursor cursor, int sourceOrdinal, int[] oldIds, int[] frequencies, int count)
+        {
+            Cursor = cursor;
+            SourceOrdinal = sourceOrdinal;
+            _oldIds = oldIds;
+            _frequencies = frequencies;
+            _count = count;
+        }
+
+        internal bool TryAdvance()
+        {
+            int[] docIdMap = Cursor.Source.DocIdMap;
+            while (_nextIndex < _count)
+            {
+                int postingIndex = _nextIndex++;
+                int oldDocId = _oldIds[postingIndex];
+                if ((uint)oldDocId >= (uint)docIdMap.Length)
+                    continue;
+                int newDocId = docIdMap[oldDocId];
+                if (newDocId < 0)
+                    continue;
+
+                CurrentPostingIndex = postingIndex;
+                CurrentOldDocId = oldDocId;
+                CurrentDocId = newDocId;
+                CurrentFrequency = _frequencies[postingIndex];
+                return true;
+            }
+
+            return false;
+        }
+
+        public void Dispose()
+        {
+            ArrayPool<int>.Shared.Return(_oldIds);
+            ArrayPool<int>.Shared.Return(_frequencies);
+        }
+    }
+
     private sealed class Cursor : IDisposable
     {
         internal Source Source { get; }
@@ -192,10 +261,7 @@ internal static class StreamingPostingsMerger
         private int _index;
 
         // State for streaming position reads
-        private int _decodedDocCount;
         private bool _decodedHasPositions;
-        private bool _decodedHasPayloads;
-        private long _decodedPosDataStart;
 
         private Cursor(Source src, TermDictionaryReader dic, IndexInput pos, List<(string, long)> terms)
         {
@@ -230,6 +296,7 @@ internal static class StreamingPostingsMerger
         internal bool HasMore => _index < _terms.Count;
         internal string CurrentTerm => _terms[_index].Item1;
         internal long CurrentOffset => _terms[_index].Item2;
+        internal bool HasDecodedPositions => _decodedHasPositions;
 
         internal void Advance() => _index++;
 
@@ -240,16 +307,15 @@ internal static class StreamingPostingsMerger
         }
 
         /// <summary>
-        /// Decodes doc IDs and frequencies for the current term. Sets up internal state
-        /// so that <see cref="WritePositionsForTerm"/> can stream position data doc-by-doc.
+        /// Decodes doc IDs and frequencies for the current term and positions the source
+        /// stream at its first per-document position block when present.
         /// Callers must return <paramref name="oldIds"/> and <paramref name="freqs"/> to
         /// <see cref="ArrayPool{T}.Shared"/> when done.
         /// </summary>
-        internal void DecodeCurrentPostings(out int[] oldIds, out int count, out int[] freqs,
-            out bool hasPositions, out bool hasPayloads)
+        internal void DecodeCurrentPostings(out int[] oldIds, out int count, out int[] freqs)
         {
             PostingsEnum.ReadTermMetadata(_pos, CurrentOffset, out long docStart, out count,
-                out long skipOffset, out bool hasFreqs, out hasPositions, out hasPayloads);
+                out long skipOffset, out bool hasFreqs, out bool hasPositions, out _);
             var enumv = BlockPostingsEnum.Create(_pos, docStart, skipOffset, count);
             oldIds = ArrayPool<int>.Shared.Rent(count);
             freqs = ArrayPool<int>.Shared.Rent(count);
@@ -261,9 +327,7 @@ internal static class StreamingPostingsMerger
                 idx++;
             }
 
-            _decodedDocCount = count;
             _decodedHasPositions = hasPositions;
-            _decodedHasPayloads = hasPayloads;
 
             if (hasPositions)
             {
@@ -271,7 +335,6 @@ internal static class StreamingPostingsMerger
                 _pos.Seek(skipOffset);
                 int skipCount = _pos.ReadInt32();
                 _pos.Seek(_pos.Position + (long)skipCount * 15);
-                _decodedPosDataStart = _pos.Position;
             }
         }
 
@@ -281,18 +344,24 @@ internal static class StreamingPostingsMerger
         /// in the same order as the doc IDs returned by that method.
         /// </summary>
         internal void WriteDocPositions(ISequentialIndexOutput output, bool hasPayloads)
+            => CopyDocPositions(output, hasPayloads);
+
+        /// <summary>Consumes one source document's position block without emitting it.</summary>
+        internal void SkipDocPositions(bool hasPayloads)
+            => CopyDocPositions(output: null, hasPayloads);
+
+        private void CopyDocPositions(ISequentialIndexOutput? output, bool hasPayloads)
         {
             int posCount = _pos.ReadVarInt();
-            output.WriteVarInt(posCount);
+            output?.WriteVarInt(posCount);
 
-            // Copy position deltas (byte-identical in source and merged output).
             for (int i = 0; i < posCount; i++)
             {
                 byte b;
                 do
                 {
                     b = _pos.ReadByte();
-                    output.WriteByte(b);
+                    output?.WriteByte(b);
                 } while ((b & 0x80) != 0);
             }
 
@@ -301,23 +370,13 @@ internal static class StreamingPostingsMerger
                 for (int i = 0; i < posCount; i++)
                 {
                     int payloadLen = _pos.ReadVarInt();
-                    output.WriteVarInt(payloadLen);
-                    if (payloadLen > 0)
+                    output?.WriteVarInt(payloadLen);
+                    if (payloadLen > 0 && output is not null)
                         output.WriteBytes(_pos.ReadBytes(payloadLen));
+                    else if (payloadLen > 0)
+                        _pos.Seek(_pos.Position + payloadLen);
                 }
             }
-        }
-
-        /// <summary>
-        /// Writes all position data for the current term by streaming one doc at a time
-        /// through <see cref="WriteDocPositions"/>.
-        /// </summary>
-        internal void WritePositionsForTerm(ISequentialIndexOutput output, bool hasPayloads)
-        {
-            if (!_decodedHasPositions) return;
-
-            for (int i = 0; i < _decodedDocCount; i++)
-                WriteDocPositions(output, hasPayloads);
         }
 
         public void Dispose()
