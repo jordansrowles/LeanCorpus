@@ -13,6 +13,7 @@
 
 ### Changed
 
+- Map Core Search test-source changes to the Search area for affected test runs.
 - Apply queued deletes through logical segment members so compound segments can be deleted and updated without unpacking their `.dic` and `.pos` files.
 - Set Core package, assembly and file versions to `3.2.0`.
 - Use the existing indexed latitude range to select candidates for single-valued packed Geo distance queries, while retaining exact Haversine checks and packed/mixed fallbacks.
