@@ -145,6 +145,39 @@ public sealed class BlockJoinDeletionTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal("live-parent", ParentId(searcher, retained.ScoreDocs[0].DocId));
     }
 
+    [Fact(DisplayName = "Block Join: Expired Soft Deleted Parent Drops Its Whole Block")]
+    public async Task ExpiredSoftDeletedParent_DropsWholeBlockDuringMerge()
+    {
+        string path = CreateIndexPath();
+        using (var writer = new IndexWriter(new MMapDirectory(path), new IndexWriterConfig
+        {
+            MaxBufferedDocs = 8,
+            MergeThreshold = 100,
+            MergePolicy = NoMergePolicy.Instance,
+            SoftDeletesEnabled = true,
+            SoftDeleteRetentionSeconds = 0.001,
+        }))
+        {
+            writer.AddDocumentBlock([Child("expired-child", "expiredterm"), Parent("expired-parent")]);
+            writer.Commit();
+            writer.AddDocumentBlock([Child("live-child", "liveterm"), Parent("live-parent")]);
+            writer.Commit();
+            writer.SoftDeleteDocuments(new TermQuery("id", "expired-parent"));
+            writer.Commit();
+
+            await Task.Delay(TimeSpan.FromMilliseconds(25), TestContext.Current.CancellationToken);
+            Assert.True(writer.ForceMerge(1) > 0);
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(new MMapDirectory(path));
+        Assert.Equal(0, Search(searcher, new TermQuery("body", "expiredterm")).TotalHits);
+
+        var retained = Search(searcher, new TermQuery("body", "liveterm"));
+        Assert.Equal(1, retained.TotalHits);
+        Assert.Equal("live-parent", ParentId(searcher, retained.ScoreDocs[0].DocId));
+    }
+
     [Fact(DisplayName = "Block Join: Hard Deleted Parent Cannot Reparent Children In Later Merges")]
     public void HardDeletedParent_CannotReparentChildrenInLaterMerges()
     {
