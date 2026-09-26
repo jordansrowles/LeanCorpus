@@ -122,4 +122,41 @@ internal static class VectorWriter
             }
         });
     }
+
+    /// <summary>Streams a dense per-field vector file from a random-access source.</summary>
+    internal static void WriteField(
+        string filePath,
+        int docCount,
+        int dimension,
+        IVectorSource vectorsByDoc)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(docCount);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dimension);
+        ArgumentNullException.ThrowIfNull(vectorsByDoc);
+        if (vectorsByDoc.Dimension != dimension || vectorsByDoc.Count < docCount)
+            throw new ArgumentException("Vector source dimensions do not match the destination field.", nameof(vectorsByDoc));
+
+        float[] vectorBuffer = ArrayPool<float>.Shared.Rent(dimension);
+        try
+        {
+            CodecFileWriter.WriteAtomically(filePath, VectorCodecFiles.Float32, durable: false, bodyOutput =>
+            {
+                bodyOutput.WriteInt32(docCount);
+                bodyOutput.WriteInt32(dimension);
+                bodyOutput.WriteByte((byte)VectorQuantisation.None);
+
+                Span<float> vector = vectorBuffer.AsSpan(0, dimension);
+                for (int docId = 0; docId < docCount; docId++)
+                {
+                    vectorsByDoc.CopyVectorTo(docId, vector);
+                    for (int j = 0; j < dimension; j++)
+                        bodyOutput.WriteSingle(vector[j]);
+                }
+            });
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(vectorBuffer, clearArray: false);
+        }
+    }
 }

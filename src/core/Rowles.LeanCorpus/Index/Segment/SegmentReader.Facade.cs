@@ -389,6 +389,8 @@ public sealed partial class SegmentReader : IDisposable
     public bool HasVectors { get { using var lease = AcquireReadLease(); return lease.State.HasVectors; } }
     public float[]? GetVector(int docId) { using var lease = AcquireReadLease(); return lease.State.GetVector(docId); }
     public float[]? GetVector(string fieldName, int docId) { using var lease = AcquireReadLease(); return lease.State.GetVector(fieldName, docId); }
+    internal bool TryCopyVectorTo(string fieldName, int docId, Span<float> destination)
+    { using var lease = AcquireReadLease(); return lease.State.TryCopyVectorTo(fieldName, docId, destination); }
     public IReadOnlyCollection<string> VectorFieldNames { get { using var lease = AcquireReadLease(); return lease.State.VectorFieldNames.ToArray(); } }
     internal HnswGraph? GetHnswGraph(string fieldName) { using var lease = AcquireReadLease(); return lease.State.GetHnswGraph(fieldName); }
 

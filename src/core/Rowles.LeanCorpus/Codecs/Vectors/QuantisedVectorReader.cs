@@ -128,6 +128,8 @@ internal sealed class QuantisedVectorReader : IDisposable
     {
         if ((uint)docId >= (uint)_docCount)
             throw new ArgumentOutOfRangeException(nameof(docId));
+        if (destination.Length != _dimension)
+            throw new ArgumentException($"Destination length {destination.Length} != vector dimension {_dimension}.", nameof(destination));
 
         switch (_quantisation)
         {

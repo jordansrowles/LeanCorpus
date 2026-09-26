@@ -19,5 +19,7 @@ internal sealed class VectorReaderSource : IVectorSource
 
     public int Count => _reader.VectorCount;
 
-    public ReadOnlySpan<float> GetVector(int docId) => _reader.ReadVector(docId);
+    public ReadOnlySpan<float> GetVector(int docId) => _reader.ReadVectorSpan(docId);
+
+    public void CopyVectorTo(int docId, Span<float> destination) => _reader.ReadVector(docId, destination);
 }

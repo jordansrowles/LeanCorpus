@@ -30,6 +30,187 @@ internal static class QuantisedVectorWriter
 {
     private const float Epsilon = 1e-8f;
 
+    /// <summary>Writes Int8 vectors through bounded passes over a file-backed source.</summary>
+    internal static void WriteInt8(
+        string filePath,
+        int docCount,
+        int dimension,
+        IVectorSource vectorsByDoc,
+        IReadOnlyList<int> vectorDocIds)
+    {
+        ValidateSource(docCount, dimension, vectorsByDoc, vectorDocIds);
+        float[] vectorBuffer = ArrayPool<float>.Shared.Rent(dimension);
+        byte[] packedBuffer = ArrayPool<byte>.Shared.Rent(dimension);
+        try
+        {
+            float min = float.MaxValue;
+            float max = float.MinValue;
+            bool any = false;
+            Span<float> calibrationVector = vectorBuffer.AsSpan(0, dimension);
+            foreach (int docId in vectorDocIds)
+            {
+                vectorsByDoc.CopyVectorTo(docId, calibrationVector);
+                for (int j = 0; j < dimension; j++)
+                {
+                    float value = calibrationVector[j];
+                    if (value < min) min = value;
+                    if (value > max) max = value;
+                    any = true;
+                }
+            }
+
+            if (!any)
+            {
+                min = 0f;
+                max = 1f;
+            }
+            else if (MathF.Abs(max - min) < Epsilon)
+            {
+                max = min + 1f;
+            }
+            float alpha = (max - min) / 255f;
+
+            CodecFileWriter.WriteAtomically(filePath, VectorCodecFiles.Quantised, durable: false, bodyOutput =>
+            {
+                Span<float> vector = vectorBuffer.AsSpan(0, dimension);
+                bodyOutput.WriteInt32(docCount);
+                bodyOutput.WriteInt32(dimension);
+                bodyOutput.WriteByte((byte)VectorQuantisation.Int8);
+                bodyOutput.WriteSingle(min);
+                bodyOutput.WriteSingle(alpha);
+
+                // Corrections precede packed data in the persisted format, so reread
+                // the mapped source instead of retaining one packed array per document.
+                for (int docId = 0; docId < docCount; docId++)
+                {
+                    vectorsByDoc.CopyVectorTo(docId, vector);
+                    float correction = 0f;
+                    for (int j = 0; j < dimension; j++)
+                    {
+                        float quantised = Math.Clamp((vector[j] - min) / alpha + 0.5f, 0f, 255f);
+                        float reconstructed = min + alpha * quantised;
+                        correction += alpha * quantised * (vector[j] - reconstructed);
+                    }
+                    bodyOutput.WriteSingle(correction);
+                }
+
+                for (int docId = 0; docId < docCount; docId++)
+                {
+                    vectorsByDoc.CopyVectorTo(docId, vector);
+                    for (int j = 0; j < dimension; j++)
+                        packedBuffer[j] = (byte)Math.Clamp((vector[j] - min) / alpha + 0.5f, 0f, 255f);
+                    bodyOutput.WriteBytes(packedBuffer, 0, dimension);
+                }
+            });
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(packedBuffer, clearArray: false);
+            ArrayPool<float>.Shared.Return(vectorBuffer, clearArray: false);
+        }
+    }
+
+    /// <summary>Writes BBQ vectors through bounded passes over a file-backed source.</summary>
+    internal static void WriteBBQ(
+        string filePath,
+        int docCount,
+        int dimension,
+        IVectorSource vectorsByDoc,
+        IReadOnlyList<int> vectorDocIds)
+    {
+        ValidateSource(docCount, dimension, vectorsByDoc, vectorDocIds);
+        int packedBytes = (dimension + 7) / 8;
+        float[] vectorBuffer = ArrayPool<float>.Shared.Rent(dimension);
+        float[] centroidBuffer = ArrayPool<float>.Shared.Rent(dimension);
+        byte[] packedBuffer = ArrayPool<byte>.Shared.Rent(packedBytes);
+        try
+        {
+            Span<float> calibrationVector = vectorBuffer.AsSpan(0, dimension);
+            Span<float> centroid = centroidBuffer.AsSpan(0, dimension);
+            centroid.Clear();
+            foreach (int docId in vectorDocIds)
+            {
+                vectorsByDoc.CopyVectorTo(docId, calibrationVector);
+                for (int j = 0; j < dimension; j++)
+                    centroid[j] += calibrationVector[j];
+            }
+            if (vectorDocIds.Count > 0)
+            {
+                float divisor = vectorDocIds.Count;
+                for (int j = 0; j < dimension; j++)
+                    centroid[j] /= divisor;
+            }
+
+            CodecFileWriter.WriteAtomically(filePath, VectorCodecFiles.Quantised, durable: false, bodyOutput =>
+            {
+                Span<float> vector = vectorBuffer.AsSpan(0, dimension);
+                ReadOnlySpan<float> writtenCentroid = centroidBuffer.AsSpan(0, dimension);
+                bodyOutput.WriteInt32(docCount);
+                bodyOutput.WriteInt32(dimension);
+                bodyOutput.WriteByte((byte)VectorQuantisation.BBQ);
+                for (int j = 0; j < dimension; j++)
+                    bodyOutput.WriteSingle(writtenCentroid[j]);
+
+                for (int docId = 0; docId < docCount; docId++)
+                {
+                    vectorsByDoc.CopyVectorTo(docId, vector);
+                    float correction1 = 0f;
+                    float correction2 = 0f;
+                    float correction3 = 0f;
+                    for (int j = 0; j < dimension; j++)
+                    {
+                        float residual = vector[j] - writtenCentroid[j];
+                        float sign = residual > 0f ? 1f : -1f;
+                        correction1 += residual;
+                        correction2 += sign * residual;
+                        correction3 += residual * residual;
+                    }
+                    bodyOutput.WriteSingle(correction1);
+                    bodyOutput.WriteSingle(correction2);
+                    bodyOutput.WriteSingle(correction3);
+                }
+
+                for (int docId = 0; docId < docCount; docId++)
+                {
+                    vectorsByDoc.CopyVectorTo(docId, vector);
+                    packedBuffer.AsSpan(0, packedBytes).Clear();
+                    for (int j = 0; j < dimension; j++)
+                    {
+                        if (vector[j] - writtenCentroid[j] <= 0f)
+                            continue;
+                        packedBuffer[j / 8] |= (byte)(1 << (j % 8));
+                    }
+                    bodyOutput.WriteBytes(packedBuffer, 0, packedBytes);
+                }
+            });
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(packedBuffer, clearArray: false);
+            ArrayPool<float>.Shared.Return(centroidBuffer, clearArray: false);
+            ArrayPool<float>.Shared.Return(vectorBuffer, clearArray: false);
+        }
+    }
+
+    private static void ValidateSource(
+        int docCount,
+        int dimension,
+        IVectorSource vectorsByDoc,
+        IReadOnlyList<int> vectorDocIds)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(docCount);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dimension);
+        ArgumentNullException.ThrowIfNull(vectorsByDoc);
+        ArgumentNullException.ThrowIfNull(vectorDocIds);
+        if (vectorsByDoc.Dimension != dimension || vectorsByDoc.Count < docCount)
+            throw new ArgumentException("Vector source dimensions do not match the destination field.", nameof(vectorsByDoc));
+        foreach (int docId in vectorDocIds)
+        {
+            if ((uint)docId >= (uint)docCount)
+                throw new ArgumentOutOfRangeException(nameof(vectorDocIds), $"Vector document ID {docId} is outside the destination document range.");
+        }
+    }
+
     /// <summary>
     /// Writes int8 scalar-quantised vectors. Uses per-segment min/max to compute
     /// a uniform scale factor (alpha), then quantises each float to [0, 255].

@@ -13,6 +13,15 @@ internal interface IVectorSource
     /// <summary>Total number of vectors addressable by this source.</summary>
     int Count { get; }
 
-    /// <summary>Returns the vector for a document identifier as a read-only span.</summary>
+    /// <summary>Returns a read-only vector span, which may borrow storage owned by this source.</summary>
+    /// <remarks>The span must not be retained after this source or its backing reader is disposed.</remarks>
     ReadOnlySpan<float> GetVector(int docId);
+
+    /// <summary>Copies a vector into caller-owned scratch storage without requiring a new array.</summary>
+    void CopyVectorTo(int docId, Span<float> destination)
+    {
+        if (destination.Length != Dimension)
+            throw new ArgumentException($"Destination length {destination.Length} != vector dimension {Dimension}.", nameof(destination));
+        GetVector(docId).CopyTo(destination);
+    }
 }

@@ -802,6 +802,57 @@ internal sealed partial class SegmentReaderState
         return null;
     }
 
+    internal bool TryCopyVectorTo(string fieldName, int docId, Span<float> destination)
+    {
+        if (string.IsNullOrEmpty(fieldName) && _vectorPaths.Count == 1)
+            fieldName = _vectorPaths.Keys.First();
+
+        if (_vectorReaders.TryGetValue(fieldName, out var vectorReader))
+        {
+            vectorReader.ReadVector(docId, destination);
+            return true;
+        }
+        if (_quantisedVectorReaders.TryGetValue(fieldName, out var quantisedReader))
+        {
+            quantisedReader.ReadVector(docId, destination);
+            return true;
+        }
+
+        lock (_hnswLoadLock)
+        {
+            if (_vectorReaders.TryGetValue(fieldName, out vectorReader))
+            {
+                vectorReader.ReadVector(docId, destination);
+                return true;
+            }
+            if (_quantisedVectorReaders.TryGetValue(fieldName, out quantisedReader))
+            {
+                quantisedReader.ReadVector(docId, destination);
+                return true;
+            }
+            if (!_vectorPaths.TryGetValue(fieldName, out var path))
+            {
+                destination.Clear();
+                return false;
+            }
+
+            if (_vectorQuantisation.TryGetValue(fieldName, out var quantisation)
+                && quantisation != VectorQuantisation.None)
+            {
+                quantisedReader = QuantisedVectorReader.Open(_files.OpenInput(path));
+                _quantisedVectorReaders[fieldName] = quantisedReader;
+                quantisedReader.ReadVector(docId, destination);
+            }
+            else
+            {
+                vectorReader = VectorReader.Open(_files.OpenInput(path));
+                _vectorReaders[fieldName] = vectorReader;
+                vectorReader.ReadVector(docId, destination);
+            }
+            return true;
+        }
+    }
+
     private float[]? ReadVectorFromField(string fieldName, int docId)
     {
         if (_vectorReaders.TryGetValue(fieldName, out var vr))

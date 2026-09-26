@@ -1,5 +1,6 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
+using System.Runtime.InteropServices;
 
 namespace Rowles.LeanCorpus.Codecs.Vectors;
 
@@ -85,23 +86,44 @@ internal sealed class VectorReader : IDisposable
 
     public float[] ReadVector(int docId)
     {
+        var vector = new float[_dimension];
+        ReadVector(docId, vector);
+        return vector;
+    }
+
+    /// <summary>Reads a vector into caller-owned storage.</summary>
+    public void ReadVector(int docId, Span<float> destination)
+    {
         if ((uint)docId >= (uint)_vectorCount)
             throw new ArgumentOutOfRangeException(nameof(docId));
+        if (destination.Length != _dimension)
+            throw new ArgumentException($"Destination length {destination.Length} != vector dimension {_dimension}.", nameof(destination));
 
-        var vector = new float[_dimension];
         if (_int8)
         {
             long position = _dataStart + (long)docId * _dimension;
             var packed = _input.BorrowSpan(_dimension, ref position);
             for (int j = 0; j < _dimension; j++)
-                vector[j] = _int8Min + _int8Alpha * packed[j];
+                destination[j] = _int8Min + _int8Alpha * packed[j];
         }
         else
         {
             long position = _dataStart + (long)docId * _dimension * sizeof(float);
-            _input.ReadSingleArray(vector, _dimension, ref position);
+            _input.ReadSingleArray(destination, _dimension, ref position);
         }
-        return vector;
+    }
+
+    /// <summary>Returns a borrowed zero-copy span for an unquantised vector.</summary>
+    internal ReadOnlySpan<float> ReadVectorSpan(int docId)
+    {
+        if ((uint)docId >= (uint)_vectorCount)
+            throw new ArgumentOutOfRangeException(nameof(docId));
+        if (_int8 || !BitConverter.IsLittleEndian)
+            return ReadVector(docId);
+
+        long position = _dataStart + (long)docId * _dimension * sizeof(float);
+        int byteCount = checked(_dimension * sizeof(float));
+        return MemoryMarshal.Cast<byte, float>(_input.BorrowSpan(byteCount, ref position));
     }
 
     public int Dimension => _dimension;

@@ -28,6 +28,8 @@ internal sealed class QuantisedVectorSource : IBBQVectorSource, IInt8VectorSourc
     /// </summary>
     public ReadOnlySpan<float> GetVector(int docId) => _reader.ReadVector(docId);
 
+    public void CopyVectorTo(int docId, Span<float> destination) => _reader.ReadVector(docId, destination);
+
     /// <summary>Exposes the underlying reader for distance-computer access.</summary>
     internal QuantisedVectorReader Reader => _reader;
 
