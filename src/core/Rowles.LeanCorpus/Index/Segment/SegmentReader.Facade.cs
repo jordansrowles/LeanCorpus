@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Codecs.Hnsw;
+using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Codecs.TermVectors;
@@ -347,15 +348,71 @@ public sealed partial class SegmentReader : IDisposable
     public IReadOnlyDictionary<string, IReadOnlyList<byte[]>> GetStoredBinaryFields(int docId, ISet<string>? fieldsToLoad) { using var lease = AcquireReadLease(); return lease.State.GetStoredBinaryFields(docId, fieldsToLoad); }
 
     public bool TryGetNumericValue(string field, int docId, out double value) { if (TryGetFastState(out var state)) return state.TryGetNumericValue(field, docId, out value); using var lease = AcquireReadLease(); return lease.State.TryGetNumericValue(field, docId, out value); }
-    internal bool TryGetNumericDocValues(string field, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out double[]? values, out Util.RoaringBitmap? presence) { if (TryGetFastState(out var state)) return state.TryGetNumericDocValues(field, out values, out presence); using var lease = AcquireReadLease(); return lease.State.TryGetNumericDocValues(field, out values, out presence); }
+    internal bool TryGetNumericDocValues(string field, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out NumericDocValuesColumn? values) { if (TryGetFastState(out var state)) return state.TryGetNumericDocValues(field, out values); using var lease = AcquireReadLease(); return lease.State.TryGetNumericDocValues(field, out values); }
+    internal bool TryGetNumericDocValuesPresence(string field, out Util.RoaringBitmap? presence)
+    {
+        if (TryGetFastState(out var state) && state.TryGetNumericDocValues(field, out var fastValues))
+        {
+            presence = fastValues.Presence;
+            return true;
+        }
+
+        using var lease = AcquireReadLease();
+        if (lease.State.TryGetNumericDocValues(field, out var values))
+        {
+            presence = values.Presence;
+            return true;
+        }
+
+        presence = null;
+        return false;
+    }
+    internal bool HasNumericDocValues(string field) { if (TryGetFastState(out var state)) return state.HasNumericDocValues(field); using var lease = AcquireReadLease(); return lease.State.HasNumericDocValues(field); }
+    internal bool HasInt64DocValues(string field) { if (TryGetFastState(out var state)) return state.HasInt64DocValues(field); using var lease = AcquireReadLease(); return lease.State.HasInt64DocValues(field); }
+    internal bool HasSortedDocValues(string field) { if (TryGetFastState(out var state)) return state.HasSortedDocValues(field); using var lease = AcquireReadLease(); return lease.State.HasSortedDocValues(field); }
+    internal bool HasSortedSetDocValues(string field) { if (TryGetFastState(out var state)) return state.HasSortedSetDocValues(field); using var lease = AcquireReadLease(); return lease.State.HasSortedSetDocValues(field); }
+    internal bool HasSortedNumericDocValues(string field) { if (TryGetFastState(out var state)) return state.HasSortedNumericDocValues(field); using var lease = AcquireReadLease(); return lease.State.HasSortedNumericDocValues(field); }
+    internal bool HasSortedInt64DocValues(string field) { if (TryGetFastState(out var state)) return state.HasSortedInt64DocValues(field); using var lease = AcquireReadLease(); return lease.State.HasSortedInt64DocValues(field); }
+    internal bool HasBinaryDocValues(string field) { if (TryGetFastState(out var state)) return state.HasBinaryDocValues(field); using var lease = AcquireReadLease(); return lease.State.HasBinaryDocValues(field); }
+    internal void ValidateDocValuesDocumentCounts() { using var lease = AcquireReadLease(); lease.State.ValidateDocValuesDocumentCounts(); }
     public bool TryGetInt64Value(string field, int docId, out long value) { if (TryGetFastState(out var state)) return state.TryGetInt64Value(field, docId, out value); using var lease = AcquireReadLease(); return lease.State.TryGetInt64Value(field, docId, out value); }
     public bool TryGetSortedDocValue(string field, int docId, out string value) { if (TryGetFastState(out var state)) return state.TryGetSortedDocValue(field, docId, out value); using var lease = AcquireReadLease(); return lease.State.TryGetSortedDocValue(field, docId, out value); }
     public bool TryGetSortedDocOrdinal(string field, int docId, out int ordinal) { if (TryGetFastState(out var state)) return state.TryGetSortedDocOrdinal(field, docId, out ordinal); using var lease = AcquireReadLease(); return lease.State.TryGetSortedDocOrdinal(field, docId, out ordinal); }
-    public bool TryGetSortedSetDocValues(string field, int docId, out IReadOnlyList<string> values) { if (TryGetFastState(out var state)) return state.TryGetSortedSetDocValues(field, docId, out values); using var lease = AcquireReadLease(); return lease.State.TryGetSortedSetDocValues(field, docId, out values); }
-    public bool TryGetSortedSetDocOrdinals(string field, int docId, out IReadOnlyList<int> ordinals) { if (TryGetFastState(out var state)) return state.TryGetSortedSetDocOrdinals(field, docId, out ordinals); using var lease = AcquireReadLease(); return lease.State.TryGetSortedSetDocOrdinals(field, docId, out ordinals); }
-    public bool TryGetSortedNumericDocValues(string field, int docId, out IReadOnlyList<double> values) { using var lease = AcquireReadLease(); return lease.State.TryGetSortedNumericDocValues(field, docId, out values); }
-    public bool TryGetSortedInt64DocValues(string field, int docId, out IReadOnlyList<long> values) { using var lease = AcquireReadLease(); return lease.State.TryGetSortedInt64DocValues(field, docId, out values); }
-    public bool TryGetBinaryDocValues(string field, int docId, out IReadOnlyList<byte[]> values) { if (TryGetFastState(out var state)) return state.TryGetBinaryDocValues(field, docId, out values); using var lease = AcquireReadLease(); return lease.State.TryGetBinaryDocValues(field, docId, out values); }
+    public bool TryGetSortedSetDocValues(string field, int docId, out IReadOnlyList<string> values)
+    {
+        using var lease = AcquireReadLease();
+        if (!lease.State.TryGetSortedSetDocValues(field, docId, out var view)) { values = Array.Empty<string>(); return false; }
+        values = view.ToArray();
+        return true;
+    }
+    public bool TryGetSortedSetDocOrdinals(string field, int docId, out IReadOnlyList<int> ordinals)
+    {
+        using var lease = AcquireReadLease();
+        if (!lease.State.TryGetSortedSetDocOrdinals(field, docId, out var view)) { ordinals = Array.Empty<int>(); return false; }
+        ordinals = view.ToArray();
+        return true;
+    }
+    public bool TryGetSortedNumericDocValues(string field, int docId, out IReadOnlyList<double> values)
+    {
+        using var lease = AcquireReadLease();
+        if (!lease.State.TryGetSortedNumericDocValues(field, docId, out var view)) { values = Array.Empty<double>(); return false; }
+        values = view.ToArray();
+        return true;
+    }
+    public bool TryGetSortedInt64DocValues(string field, int docId, out IReadOnlyList<long> values)
+    {
+        using var lease = AcquireReadLease();
+        if (!lease.State.TryGetSortedInt64DocValues(field, docId, out var view)) { values = Array.Empty<long>(); return false; }
+        values = view.ToArray();
+        return true;
+    }
+    public bool TryGetBinaryDocValues(string field, int docId, out IReadOnlyList<byte[]> values)
+    {
+        using var lease = AcquireReadLease();
+        if (!lease.State.TryGetBinaryDocValues(field, docId, out var view)) { values = Array.Empty<byte[]>(); return false; }
+        values = view.ToArray();
+        return true;
+    }
 
     internal bool HasBinaryDocValuesForEveryDocument(string field)
     {

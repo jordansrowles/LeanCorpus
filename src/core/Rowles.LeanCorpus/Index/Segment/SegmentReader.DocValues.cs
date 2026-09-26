@@ -24,23 +24,8 @@ internal sealed partial class SegmentReaderState
         })!;
     }
 
-    /// <summary>Lazy-loads numeric doc values (.dvn) and their presence bitmaps.</summary>
-    private Dictionary<string, double[]> EnsureNumericDocValues()
-    {
-        if (_numericDocValues is not null) return _numericDocValues;
-
-        var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
-        lock (lockObj)
-        {
-            if (_numericDocValues is not null) return _numericDocValues;
-            var (vals, pres) = _files.Exists(".dvn")
-                ? NumericDocValuesReader.Read(_files.OpenInput(".dvn"))
-                : (new Dictionary<string, double[]>(), new Dictionary<string, RoaringBitmap?>());
-            _numericDocValuesPresence = pres;
-            _numericDocValues = vals;
-        }
-        return _numericDocValues;
-    }
+    private Dictionary<string, NumericDocValuesColumn> EnsureNumericDocValueColumns()
+        => EnsureDocValuesColumns(ref _numericDocValueColumns, ".dvn", NumericDocValuesReader.OpenColumns);
 
     /// <summary>Lazy-loads the 64-bit integer index (.numl) for range queries.</summary>
     private Dictionary<string, Dictionary<int, long>> EnsureInt64Index()
@@ -53,139 +38,217 @@ internal sealed partial class SegmentReaderState
         })!;
     }
 
-    /// <summary>Lazy-loads 64-bit integer doc values (.dvnl) and their presence bitmaps.</summary>
+    /// <summary>Materialises the compatibility array only when a caller explicitly requests it.</summary>
+    private Dictionary<string, double[]> EnsureNumericDocValues()
+    {
+        var columns = EnsureNumericDocValueColumns();
+        if (_numericDocValues is not null)
+            return _numericDocValues;
+
+        var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
+        lock (lockObj)
+        {
+            if (_numericDocValues is not null)
+                return _numericDocValues;
+            _numericDocValues = MaterialiseColumns(columns, static column => column.Materialise());
+            _numericDocValuesPresence = columns.ToDictionary(
+                static entry => entry.Key,
+                static entry => entry.Value.Presence,
+                StringComparer.Ordinal);
+            return _numericDocValues;
+        }
+    }
+
+    private Dictionary<string, Int64DocValuesColumn> EnsureInt64DocValueColumns()
+        => EnsureDocValuesColumns(ref _int64DocValueColumns, ".dvnl", Int64DocValuesReader.OpenColumns);
+
+    /// <summary>Materialises the compatibility array only when a caller explicitly requests it.</summary>
     private Dictionary<string, long[]> EnsureInt64DocValues()
     {
-        if (_int64DocValues is not null) return _int64DocValues;
+        var columns = EnsureInt64DocValueColumns();
+        if (_int64DocValues is not null)
+            return _int64DocValues;
 
         var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
         lock (lockObj)
         {
-            if (_int64DocValues is not null) return _int64DocValues;
-            var (vals, pres) = _files.Exists(".dvnl")
-                ? Int64DocValuesReader.Read(_files.OpenInput(".dvnl"))
-                : (new Dictionary<string, long[]>(), new Dictionary<string, RoaringBitmap?>());
-            _int64DocValuesPresence = pres;
-            _int64DocValues = vals;
+            if (_int64DocValues is not null)
+                return _int64DocValues;
+            _int64DocValues = MaterialiseColumns(columns, static column => column.Materialise());
+            _int64DocValuesPresence = columns.ToDictionary(
+                static entry => entry.Key,
+                static entry => entry.Value.Presence,
+                StringComparer.Ordinal);
+            return _int64DocValues;
         }
-        return _int64DocValues;
     }
 
-    /// <summary>Lazy-loads 64-bit integer sorted-numeric doc values (.dsnl).</summary>
+    private Dictionary<string, Int64SortedNumericDocValuesColumn> EnsureInt64SortedDocValueColumns()
+        => EnsureDocValuesColumns(ref _int64SortedDocValueColumns, ".dsnl", Int64SortedNumericDocValuesReader.OpenColumns);
+
     private Dictionary<string, long[][]> EnsureInt64SortedDocValues()
     {
-        if (_int64SortedDocValues is not null) return _int64SortedDocValues;
+        var columns = EnsureInt64SortedDocValueColumns();
+        if (_int64SortedDocValues is not null)
+            return _int64SortedDocValues;
 
         var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
         lock (lockObj)
         {
-            if (_int64SortedDocValues is not null) return _int64SortedDocValues;
-            _int64SortedDocValues = _files.Exists(".dsnl")
-                ? Int64SortedNumericDocValuesReader.Read(_files.OpenInput(".dsnl"))
-                : new Dictionary<string, long[][]>();
+            _int64SortedDocValues ??= MaterialiseColumns(columns, static column => column.Materialise());
+            return _int64SortedDocValues;
         }
-        return _int64SortedDocValues;
     }
 
-    /// <summary>Lazy-loads sorted doc values (.dvs) and their presence bitmaps.</summary>
+    private Dictionary<string, SortedDocValuesColumn> EnsureSortedDocValueColumns()
+        => EnsureDocValuesColumns(ref _sortedDocValueColumns, ".dvs", SortedDocValuesReader.OpenColumns);
+
+    /// <summary>Materialises the compatibility array only when a caller explicitly requests it.</summary>
     private Dictionary<string, string[]> EnsureSortedDocValues()
     {
-        if (_sortedDocValues is not null) return _sortedDocValues;
+        var columns = EnsureSortedDocValueColumns();
+        if (_sortedDocValues is not null)
+            return _sortedDocValues;
 
         var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
         lock (lockObj)
         {
-            if (_sortedDocValues is not null) return _sortedDocValues;
-            var (vals, pres) = _files.Exists(".dvs")
-                ? SortedDocValuesReader.Read(_files.OpenInput(".dvs"))
-                : (new Dictionary<string, string[]>(), new Dictionary<string, RoaringBitmap?>());
-            _sortedDocValuesPresence = pres;
-            _sortedDocValues = vals;
+            if (_sortedDocValues is not null)
+                return _sortedDocValues;
+            _sortedDocValues = MaterialiseColumns(columns, static column => column.Materialise());
+            _sortedDocValuesPresence = columns.ToDictionary(
+                static entry => entry.Key,
+                static entry => entry.Value.Presence,
+                StringComparer.Ordinal);
+            return _sortedDocValues;
         }
-        return _sortedDocValues;
     }
 
-    /// <summary>Lazy-loads sorted-set doc values (.dss).</summary>
+    private Dictionary<string, SortedSetDocValuesColumn> EnsureSortedSetDocValueColumns()
+        => EnsureDocValuesColumns(ref _sortedSetDocValueColumns, ".dss", SortedSetDocValuesReader.OpenColumns);
+
     private Dictionary<string, string[][]> EnsureSortedSetDocValues()
     {
-        if (_sortedSetDocValues is not null) return _sortedSetDocValues;
+        var columns = EnsureSortedSetDocValueColumns();
+        if (_sortedSetDocValues is not null)
+            return _sortedSetDocValues;
 
         var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
         lock (lockObj)
         {
-            if (_sortedSetDocValues is not null) return _sortedSetDocValues;
-            _sortedSetDocValues = _files.Exists(".dss")
-                ? SortedSetDocValuesReader.Read(_files.OpenInput(".dss"))
-                : new Dictionary<string, string[][]>();
+            _sortedSetDocValues ??= MaterialiseColumns(columns, static column => column.Materialise());
+            return _sortedSetDocValues;
         }
-        return _sortedSetDocValues;
     }
 
     private Dictionary<string, string[]> EnsureSortedDocValueTerms()
     {
-        if (_sortedDocValueTerms is not null) return _sortedDocValueTerms;
+        if (_sortedDocValueTerms is not null)
+            return _sortedDocValueTerms;
 
         var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
         lock (lockObj)
         {
-            if (_sortedDocValueTerms is not null) return _sortedDocValueTerms;
-            _sortedDocValueTerms = _files.Exists(".dvs")
-                ? SortedDocValuesReader.ReadTerms(_files.OpenInput(".dvs"))
-                : new Dictionary<string, string[]>();
+            _sortedDocValueTerms ??= EnsureSortedDocValueColumns().ToDictionary(
+                static entry => entry.Key,
+                static entry => entry.Value.CopyTerms(),
+                StringComparer.Ordinal);
+            return _sortedDocValueTerms;
         }
-        return _sortedDocValueTerms;
     }
 
     private Dictionary<string, string[]> EnsureSortedSetDocValueTerms()
     {
-        if (_sortedSetDocValueTerms is not null) return _sortedSetDocValueTerms;
+        if (_sortedSetDocValueTerms is not null)
+            return _sortedSetDocValueTerms;
 
         var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
         lock (lockObj)
         {
-            if (_sortedSetDocValueTerms is not null) return _sortedSetDocValueTerms;
-            _sortedSetDocValueTerms = _files.Exists(".dss")
-                ? SortedSetDocValuesReader.ReadTerms(_files.OpenInput(".dss"))
-                : new Dictionary<string, string[]>();
+            _sortedSetDocValueTerms ??= EnsureSortedSetDocValueColumns().ToDictionary(
+                static entry => entry.Key,
+                static entry => entry.Value.CopyTerms(),
+                StringComparer.Ordinal);
+            return _sortedSetDocValueTerms;
         }
-        return _sortedSetDocValueTerms;
     }
 
-    /// <summary>Lazy-loads sorted-numeric doc values (.dsn).</summary>
+    private Dictionary<string, SortedNumericDocValuesColumn> EnsureSortedNumericDocValueColumns()
+        => EnsureDocValuesColumns(ref _sortedNumericDocValueColumns, ".dsn", SortedNumericDocValuesReader.OpenColumns);
+
     private Dictionary<string, double[][]> EnsureSortedNumericDocValues()
     {
-        if (_sortedNumericDocValues is not null) return _sortedNumericDocValues;
+        var columns = EnsureSortedNumericDocValueColumns();
+        if (_sortedNumericDocValues is not null)
+            return _sortedNumericDocValues;
 
         var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
         lock (lockObj)
         {
-            if (_sortedNumericDocValues is not null) return _sortedNumericDocValues;
-            _sortedNumericDocValues = _files.Exists(".dsn")
-                ? SortedNumericDocValuesReader.Read(_files.OpenInput(".dsn"))
-                : new Dictionary<string, double[][]>();
+            _sortedNumericDocValues ??= MaterialiseColumns(columns, static column => column.Materialise());
+            return _sortedNumericDocValues;
         }
-        return _sortedNumericDocValues;
     }
 
-    /// <summary>Lazy-loads binary doc values (.dvb).</summary>
+    private Dictionary<string, BinaryDocValuesColumn> EnsureBinaryDocValueColumns()
+        => EnsureDocValuesColumns(ref _binaryDocValueColumns, ".dvb", BinaryDocValuesReader.OpenColumns);
+
     private Dictionary<string, byte[][][]> EnsureBinaryDocValues()
     {
-        if (_binaryDocValues is not null) return _binaryDocValues;
+        var columns = EnsureBinaryDocValueColumns();
+        if (_binaryDocValues is not null)
+            return _binaryDocValues;
 
         var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
         lock (lockObj)
         {
-            if (_binaryDocValues is not null) return _binaryDocValues;
-            _binaryDocValues = _files.Exists(".dvb")
-                ? BinaryDocValuesReader.Read(_files.OpenInput(".dvb"))
-                : new Dictionary<string, byte[][][]>();
+            _binaryDocValues ??= MaterialiseColumns(columns, static column => column.Materialise());
+            return _binaryDocValues;
         }
-        return _binaryDocValues;
     }
 
-    /// <summary>
-    /// Tries to get a numeric field value for a document from the .num index.
-    /// </summary>
+    private Dictionary<string, TColumn> EnsureDocValuesColumns<TColumn>(
+        ref Dictionary<string, TColumn>? columns,
+        string extension,
+        Func<IndexInput, Dictionary<string, TColumn>> open)
+    {
+        if (columns is not null)
+            return columns;
+
+        var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
+        lock (lockObj)
+        {
+            if (columns is not null)
+                return columns;
+            if (!_files.Exists(extension))
+                return columns = new Dictionary<string, TColumn>(StringComparer.Ordinal);
+
+            IndexInput input = _files.OpenInput(extension);
+            try
+            {
+                Dictionary<string, TColumn> opened = open(input);
+                _docValuesInputs.Add(input);
+                return columns = opened;
+            }
+            catch
+            {
+                input.Dispose();
+                throw;
+            }
+        }
+    }
+
+    private static Dictionary<string, TValue> MaterialiseColumns<TColumn, TValue>(
+        Dictionary<string, TColumn> columns,
+        Func<TColumn, TValue> materialise)
+    {
+        var values = new Dictionary<string, TValue>(columns.Count, StringComparer.Ordinal);
+        foreach ((string field, TColumn column) in columns)
+            values.Add(field, materialise(column));
+        return values;
+    }
+
+    /// <summary>Tries to get one numeric value, falling back to the packed DocValues column.</summary>
     public bool TryGetNumericValue(string field, int docId, out double value)
     {
         value = 0;
@@ -193,52 +256,17 @@ internal sealed partial class SegmentReaderState
         if (numericIndex.TryGetValue(field, out var fieldMap))
             return fieldMap.TryGetValue(docId, out value);
 
-        // Legacy fallback for segments that predate the sparse .num index.
-        var numericDocValues = EnsureNumericDocValues();
-        if (numericDocValues.TryGetValue(field, out var dvArr) && (uint)docId < (uint)dvArr.Length)
-        {
-            // Use the presence bitmap (v2 files) to distinguish truly absent docs from
-            // docs that have an explicit zero value.
-            if (_numericDocValuesPresence is not null &&
-                _numericDocValuesPresence.TryGetValue(field, out var presenceBitmap) &&
-                presenceBitmap is not null &&
-                !presenceBitmap.Contains(docId))
-            {
-                return false;
-            }
-
-            value = dvArr[docId];
-            return true;
-        }
-
-        return false;
+        return EnsureNumericDocValueColumns().TryGetValue(field, out var column)
+            && column.TryGetValue(docId, out value);
     }
 
-    /// <summary>
-    /// Gets the dense numeric values and optional presence bitmap for a field.
-    /// Callers that already hold a segment lease can use this for repeated reads
-    /// without looking up the sparse numeric map for every document.
-    /// </summary>
+    /// <summary>Gets the packed numeric DocValues column for a caller holding a segment lease.</summary>
     internal bool TryGetNumericDocValues(
         string field,
-        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out double[]? values,
-        out RoaringBitmap? presence)
-    {
-        var numericDocValues = EnsureNumericDocValues();
-        if (!numericDocValues.TryGetValue(field, out values))
-        {
-            presence = null;
-            return false;
-        }
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out NumericDocValuesColumn? values)
+        => EnsureNumericDocValueColumns().TryGetValue(field, out values);
 
-        presence = null;
-        _numericDocValuesPresence?.TryGetValue(field, out presence);
-        return true;
-    }
-
-    /// <summary>
-    /// Tries to get a 64-bit integer field value for a document from the .numl index.
-    /// </summary>
+    /// <summary>Tries to get one Int64 value, falling back to the packed DocValues column.</summary>
     public bool TryGetInt64Value(string field, int docId, out long value)
     {
         value = 0;
@@ -246,149 +274,145 @@ internal sealed partial class SegmentReaderState
         if (int64Index.TryGetValue(field, out var fieldMap))
             return fieldMap.TryGetValue(docId, out value);
 
-        var int64DocValues = EnsureInt64DocValues();
-        if (int64DocValues.TryGetValue(field, out var dvArr) && (uint)docId < (uint)dvArr.Length)
-        {
-            if (_int64DocValuesPresence is not null &&
-                _int64DocValuesPresence.TryGetValue(field, out var presenceBitmap) &&
-                presenceBitmap is not null &&
-                !presenceBitmap.Contains(docId))
-            {
-                return false;
-            }
-
-            value = dvArr[docId];
-            return true;
-        }
-
-        return false;
+        return EnsureInt64DocValueColumns().TryGetValue(field, out var column)
+            && column.TryGetValue(docId, out value);
     }
 
-    /// <summary>
-    /// Tries to get a string DocValues field value for a document.
-    /// </summary>
     public bool TryGetSortedDocValue(string field, int docId, out string value)
     {
         value = string.Empty;
-        var sortedDocValues = EnsureSortedDocValues();
-        if (sortedDocValues.TryGetValue(field, out var arr) && (uint)docId < (uint)arr.Length)
-        {
-            // Use the presence bitmap (v2 files) to distinguish absent docs from those
-            // with an explicitly empty string value.
-            if (_sortedDocValuesPresence is not null &&
-                _sortedDocValuesPresence.TryGetValue(field, out var presenceBitmap) &&
-                presenceBitmap is not null &&
-                !presenceBitmap.Contains(docId))
-            {
-                return false;
-            }
+        if (!EnsureSortedDocValueColumns().TryGetValue(field, out var column)
+            || !column.TryGetOrdinal(docId, out _))
+            return false;
 
-            value = arr[docId];
-            return true;
-        }
-        return false;
+        value = column.ValueCount == 0 ? string.Empty : column.GetValue(docId);
+        return true;
     }
 
-    /// <summary>Tries to get the local ordinal for a sorted DocValues value.</summary>
     public bool TryGetSortedDocOrdinal(string field, int docId, out int ordinal)
     {
         ordinal = -1;
-        if (!TryGetSortedDocValue(field, docId, out var value))
+        if (!EnsureSortedDocValueColumns().TryGetValue(field, out var column)
+            || column.ValueCount == 0)
             return false;
-
-        var terms = EnsureSortedDocValueTerms().GetValueOrDefault(field);
-        if (terms is null)
-            return false;
-
-        ordinal = Array.BinarySearch(terms, value, StringComparer.Ordinal);
-        return ordinal >= 0;
+        return column.TryGetOrdinal(docId, out ordinal);
     }
 
-    /// <summary>
-    /// Tries to get sorted-set DocValues for a document.
-    /// </summary>
     public bool TryGetSortedSetDocValues(string field, int docId, out IReadOnlyList<string> values)
     {
-        values = [];
-        var docValues = EnsureSortedSetDocValues();
-        if (!docValues.TryGetValue(field, out var arr) || (uint)docId >= (uint)arr.Length || arr[docId].Length == 0)
+        if (!EnsureSortedSetDocValueColumns().TryGetValue(field, out var column)
+            || !column.HasValues(docId))
+        {
+            values = Array.Empty<string>();
             return false;
+        }
 
-        values = arr[docId];
+        values = column.GetValues(docId);
         return true;
     }
 
-    /// <summary>Tries to get the local ordinals for a sorted-set DocValues value.</summary>
     public bool TryGetSortedSetDocOrdinals(string field, int docId, out IReadOnlyList<int> ordinals)
     {
-        ordinals = [];
-        if (!TryGetSortedSetDocValues(field, docId, out var values))
-            return false;
-
-        var terms = EnsureSortedSetDocValueTerms().GetValueOrDefault(field);
-        if (terms is null)
-            return false;
-
-        var resolved = new int[values.Count];
-        for (int i = 0; i < values.Count; i++)
+        if (!EnsureSortedSetDocValueColumns().TryGetValue(field, out var column)
+            || !column.HasValues(docId))
         {
-            int ordinal = Array.BinarySearch(terms, values[i], StringComparer.Ordinal);
-            if (ordinal < 0)
-                return false;
-            resolved[i] = ordinal;
+            ordinals = Array.Empty<int>();
+            return false;
         }
-        ordinals = resolved;
+
+        ordinals = column.GetOrdinals(docId);
         return true;
     }
 
-    /// <summary>
-    /// Tries to get sorted-numeric DocValues for a document.
-    /// </summary>
     public bool TryGetSortedNumericDocValues(string field, int docId, out IReadOnlyList<double> values)
     {
-        values = [];
-        var docValues = EnsureSortedNumericDocValues();
-        if (!docValues.TryGetValue(field, out var arr) || (uint)docId >= (uint)arr.Length || arr[docId].Length == 0)
+        if (!EnsureSortedNumericDocValueColumns().TryGetValue(field, out var column)
+            || !column.HasValues(docId))
+        {
+            values = Array.Empty<double>();
             return false;
+        }
 
-        values = arr[docId];
+        values = column.GetValues(docId);
         return true;
     }
 
-    /// <summary>
-    /// Tries to get 64-bit integer sorted-numeric DocValues for a document.
-    /// </summary>
     public bool TryGetSortedInt64DocValues(string field, int docId, out IReadOnlyList<long> values)
     {
-        values = [];
-        var docValues = EnsureInt64SortedDocValues();
-        if (!docValues.TryGetValue(field, out var arr) || (uint)docId >= (uint)arr.Length || arr[docId].Length == 0)
+        if (!EnsureInt64SortedDocValueColumns().TryGetValue(field, out var column)
+            || !column.HasValues(docId))
+        {
+            values = Array.Empty<long>();
             return false;
+        }
 
-        values = arr[docId];
+        values = column.GetValues(docId);
         return true;
     }
 
-    /// <summary>
-    /// Tries to get binary DocValues for a document.
-    /// </summary>
     public bool TryGetBinaryDocValues(string field, int docId, out IReadOnlyList<byte[]> values)
     {
-        values = [];
-        var docValues = EnsureBinaryDocValues();
-        if (!docValues.TryGetValue(field, out var arr) || (uint)docId >= (uint)arr.Length || arr[docId].Length == 0)
+        if (!EnsureBinaryDocValueColumns().TryGetValue(field, out var column)
+            || !column.HasValues(docId))
+        {
+            values = Array.Empty<byte[]>();
             return false;
+        }
 
-        values = arr[docId];
+        values = column.GetValues(docId);
         return true;
+    }
+
+    internal bool HasNumericDocValues(string field) => EnsureNumericDocValueColumns().ContainsKey(field);
+    internal bool HasInt64DocValues(string field) => EnsureInt64DocValueColumns().ContainsKey(field);
+    internal bool HasSortedDocValues(string field) => EnsureSortedDocValueColumns().ContainsKey(field);
+    internal bool HasSortedSetDocValues(string field) => EnsureSortedSetDocValueColumns().ContainsKey(field);
+    internal bool HasSortedNumericDocValues(string field) => EnsureSortedNumericDocValueColumns().ContainsKey(field);
+    internal bool HasSortedInt64DocValues(string field) => EnsureInt64SortedDocValueColumns().ContainsKey(field);
+    internal bool HasBinaryDocValues(string field) => EnsureBinaryDocValueColumns().ContainsKey(field);
+
+    internal void ValidateDocValuesDocumentCounts()
+    {
+        int expectedDocumentCount = _info.DocCount;
+        ValidateColumnDocumentCounts(EnsureNumericDocValueColumns(), expectedDocumentCount);
+        ValidateColumnDocumentCounts(EnsureInt64DocValueColumns(), expectedDocumentCount);
+        ValidateColumnDocumentCounts(EnsureSortedDocValueColumns(), expectedDocumentCount);
+        ValidateColumnDocumentCounts(EnsureSortedSetDocValueColumns(), expectedDocumentCount);
+        ValidateColumnDocumentCounts(EnsureSortedNumericDocValueColumns(), expectedDocumentCount);
+        ValidateColumnDocumentCounts(EnsureInt64SortedDocValueColumns(), expectedDocumentCount);
+        ValidateColumnDocumentCounts(EnsureBinaryDocValueColumns(), expectedDocumentCount);
+    }
+
+    private static void ValidateColumnDocumentCounts<TColumn>(
+        Dictionary<string, TColumn> columns,
+        int expectedDocumentCount)
+    {
+        foreach ((string field, TColumn column) in columns)
+        {
+            int documentCount = column switch
+            {
+                NumericDocValuesColumn numeric => numeric.DocumentCount,
+                Int64DocValuesColumn int64 => int64.DocumentCount,
+                SortedDocValuesColumn sorted => sorted.DocumentCount,
+                SortedSetDocValuesColumn sortedSet => sortedSet.DocumentCount,
+                SortedNumericDocValuesColumn sortedNumeric => sortedNumeric.DocumentCount,
+                Int64SortedNumericDocValuesColumn int64SortedNumeric => int64SortedNumeric.DocumentCount,
+                BinaryDocValuesColumn binary => binary.DocumentCount,
+                _ => throw new InvalidOperationException($"Unsupported DocValues column type '{typeof(TColumn)}'."),
+            };
+
+            if (documentCount != expectedDocumentCount)
+                throw new InvalidDataException(
+                    $"DocValues field '{field}' contains {documentCount} documents but the segment declares {expectedDocumentCount}.");
+        }
     }
 
     /// <summary>Returns whether a binary DocValues field has at least one value for every segment document.</summary>
     internal bool HasBinaryDocValuesForEveryDocument(string field)
     {
         ArgumentNullException.ThrowIfNull(field);
-        if (!EnsureBinaryDocValues().TryGetValue(field, out var perDocumentValues)
-            || perDocumentValues.Length != _info.DocCount)
+        if (!EnsureBinaryDocValueColumns().TryGetValue(field, out var column)
+            || column.DocumentCount != _info.DocCount)
             return false;
 
         var lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
@@ -398,16 +422,7 @@ internal sealed partial class SegmentReaderState
             if (_binaryDocValuesFullCoverage.TryGetValue(field, out bool hasFullCoverage))
                 return hasFullCoverage;
 
-            hasFullCoverage = true;
-            foreach (byte[][] documentValues in perDocumentValues)
-            {
-                if (documentValues.Length > 0)
-                    continue;
-
-                hasFullCoverage = false;
-                break;
-            }
-
+            hasFullCoverage = column.HasValuesForEveryDocument();
             _binaryDocValuesFullCoverage.Add(field, hasFullCoverage);
             return hasFullCoverage;
         }
@@ -459,15 +474,15 @@ internal sealed partial class SegmentReaderState
     {
         if (EnsureNumericIndex().ContainsKey(field))
             return true;
-        if (EnsureNumericDocValues().ContainsKey(field))
+        if (HasNumericDocValues(field))
             return true;
-        if (EnsureSortedNumericDocValues().ContainsKey(field))
+        if (HasSortedNumericDocValues(field))
             return true;
         if (EnsureInt64Index().ContainsKey(field))
             return true;
-        if (EnsureInt64DocValues().ContainsKey(field))
+        if (HasInt64DocValues(field))
             return true;
-        if (EnsureInt64SortedDocValues().ContainsKey(field))
+        if (HasSortedInt64DocValues(field))
             return true;
         return false;
     }
@@ -515,21 +530,18 @@ internal sealed partial class SegmentReaderState
             return true;
         }
 
-        var numericDocValues = EnsureNumericDocValues();
-        if (!numericDocValues.TryGetValue(field, out var values))
+        var numericDocValues = EnsureNumericDocValueColumns();
+        if (!numericDocValues.TryGetValue(field, out var column))
             return false;
 
-        RoaringBitmap? presenceBitmap = null;
-        _numericDocValuesPresence?.TryGetValue(field, out presenceBitmap);
-        for (int docId = 0; docId < values.Length; docId++)
+        for (int docId = 0; docId < column.DocumentCount; docId++)
         {
             if (!IsLive(docId))
                 continue;
 
-            if (presenceBitmap is not null && !presenceBitmap.Contains(docId))
+            if (!column.TryGetValue(docId, out double value))
                 continue;
 
-            double value = values[docId];
             if (value >= min && value <= max)
                 visitor(docId, value);
         }
@@ -621,21 +633,18 @@ internal sealed partial class SegmentReaderState
             return true;
         }
 
-        var int64DocValues = EnsureInt64DocValues();
-        if (!int64DocValues.TryGetValue(field, out var values))
+        var int64DocValues = EnsureInt64DocValueColumns();
+        if (!int64DocValues.TryGetValue(field, out var column))
             return false;
 
-        RoaringBitmap? presenceBitmap = null;
-        _int64DocValuesPresence?.TryGetValue(field, out presenceBitmap);
-        for (int docId = 0; docId < values.Length; docId++)
+        for (int docId = 0; docId < column.DocumentCount; docId++)
         {
             if (!IsLive(docId))
                 continue;
 
-            if (presenceBitmap is not null && !presenceBitmap.Contains(docId))
+            if (!column.TryGetValue(docId, out long value))
                 continue;
 
-            long value = values[docId];
             if (value >= min && value <= max)
                 visitor(docId, value);
         }

@@ -581,16 +581,7 @@ public static class IndexValidator
         {
             using var directory = new MMapDirectory(directoryPath);
             using var reader = new SegmentReader(directory, info);
-            foreach (var fieldName in info.FieldNames)
-            {
-                ValidateDocValuesLength(reader.GetNumericDocValues(fieldName), info);
-                ValidateDocValuesLength(reader.GetSortedDocValues(fieldName), info);
-                ValidateDocValuesLength(reader.GetSortedSetDocValues(fieldName), info);
-                ValidateDocValuesLength(reader.GetSortedNumericDocValues(fieldName), info);
-                ValidateDocValuesLength(reader.GetBinaryDocValues(fieldName), info);
-                ValidateDocValuesLength(reader.GetInt64DocValues(fieldName), info);
-                ValidateDocValuesLength(reader.GetSortedInt64DocValues(fieldName), info);
-            }
+            reader.ValidateDocValuesDocumentCounts();
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or EndOfStreamException or InvalidOperationException)
         {
@@ -602,12 +593,6 @@ public static class IndexValidator
                 info.SegmentId,
                 false);
         }
-    }
-
-    private static void ValidateDocValuesLength(Array? values, SegmentInfo info)
-    {
-        if (values is not null && values.Length != info.DocCount)
-            throw new InvalidDataException($"DocValues field length {values.Length} does not match segment DocCount {info.DocCount}.");
     }
 
     private static void ValidateCompoundStoredFieldsDeep(

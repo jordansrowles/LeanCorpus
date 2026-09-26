@@ -30,6 +30,7 @@ internal sealed partial class SegmentReaderState : IDisposable
     private readonly Dictionary<string, VectorQuantisation> _vectorQuantisation = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HnswGraph?> _hnswGraphs = new(StringComparer.Ordinal);
     private readonly object _hnswLoadLock = new();
+    private readonly List<IndexInput> _docValuesInputs = [];
     private LiveDocs? _liveDocuments;
     private bool _liveDocumentsLoaded;
 
@@ -41,6 +42,13 @@ internal sealed partial class SegmentReaderState : IDisposable
     // Lazy-loaded Stage 2 features (thread-safe via LazyInitializer)
     private Dictionary<string, Dictionary<int, double>>? _numericIndex;
     private Dictionary<string, Dictionary<int, long>>? _int64Index;
+    private Dictionary<string, NumericDocValuesColumn>? _numericDocValueColumns;
+    private Dictionary<string, Int64DocValuesColumn>? _int64DocValueColumns;
+    private Dictionary<string, SortedDocValuesColumn>? _sortedDocValueColumns;
+    private Dictionary<string, SortedSetDocValuesColumn>? _sortedSetDocValueColumns;
+    private Dictionary<string, SortedNumericDocValuesColumn>? _sortedNumericDocValueColumns;
+    private Dictionary<string, Int64SortedNumericDocValuesColumn>? _int64SortedDocValueColumns;
+    private Dictionary<string, BinaryDocValuesColumn>? _binaryDocValueColumns;
     private Dictionary<string, double[]>? _numericDocValues;
     private Dictionary<string, Util.RoaringBitmap?>? _numericDocValuesPresence;
     private Dictionary<string, long[]>? _int64DocValues;
@@ -490,6 +498,9 @@ internal sealed partial class SegmentReaderState : IDisposable
         _postingsInput?.Dispose();
         _dictionaryReader?.Dispose();
         _storedReader?.Dispose();
+        for (int inputIndex = _docValuesInputs.Count - 1; inputIndex >= 0; inputIndex--)
+            _docValuesInputs[inputIndex].Dispose();
+        _docValuesInputs.Clear();
         foreach (var graph in _hnswGraphs.Values)
             graph?.Dispose();
         foreach (var r in _vectorReaders.Values) r.Dispose();
