@@ -247,7 +247,7 @@ public sealed class SegmentMerger
 
         // Phase 4: emit per-codec output files.
         WriteNorms(perSegmentMaps, readers, fieldNames, basePath, totalDocs);
-        var mergedVectorFields = MergeVectors(ctx, basePath);
+        var mergedVectorFields = MergeVectors(ctx, documentOrder, basePath);
         WriteNumericFiles(ctx, basePath);
         WriteFieldLengthsAndStats(ctx, fieldNames, basePath, newSegId, totalDocs);
         WriteDocValueColumns(ctx, basePath);
@@ -772,7 +772,7 @@ public sealed class SegmentMerger
         internal Dictionary<string, IReadOnlyList<long>?[]> Int64SortedDocValues { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, IReadOnlyList<byte[]>?[]> BinaryDocValues { get; } = new(StringComparer.Ordinal);
         internal ParentBitSet? ParentBitSet { get; set; }
-        internal Dictionary<string, Dictionary<int, ReadOnlyMemory<float>>> Vectors { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, List<int>> VectorFieldDocIds { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, PackedBkdFieldBuffer> PackedBkdFields { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, ShapeDocValuesFieldBuffer> ShapeDocValuesFields { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, Dictionary<string, ShapeDocValuesFieldMetadata>> ShapeDocValuesMetadataBySegment { get; } = new(StringComparer.Ordinal);
@@ -996,15 +996,16 @@ public sealed class SegmentMerger
                 {
                     foreach (var vfName in reader.VectorFieldNames)
                     {
-                        var vec = reader.GetVector(vfName, oldDocId);
-                        if (vec is null || vec.Length == 0) continue;
-                        if (!ctx.Vectors.TryGetValue(vfName, out var perField))
+                        if (vectorFieldByName is null || !vectorFieldByName.TryGetValue(vfName, out var match))
+                            throw new InvalidDataException($"Vector field '{vfName}' has no segment metadata during merge.");
+
+                        if (!ctx.VectorFieldDocIds.TryGetValue(vfName, out var vectorDocIds))
                         {
-                            perField = new Dictionary<int, ReadOnlyMemory<float>>();
-                            ctx.Vectors[vfName] = perField;
+                            vectorDocIds = new List<int>();
+                            ctx.VectorFieldDocIds[vfName] = vectorDocIds;
                         }
-                        perField[remapDocId] = vec;
-                        ctx.VectorFieldDims[vfName] = vec.Length;
+                        vectorDocIds.Add(remapDocId);
+                        ctx.VectorFieldDims[vfName] = match.Dimension;
 
                         if (!ctx.VectorFieldRemaps.TryGetValue(vfName, out var remapList))
                         {
@@ -1019,14 +1020,9 @@ public sealed class SegmentMerger
                         }
                         entry.OldToNew[oldDocId] = remapDocId;
 
-                        var match = vectorFieldByName is not null && vectorFieldByName.TryGetValue(vfName, out var vfInfo)
-                            ? vfInfo : null;
-                        if (match is not null)
-                        {
-                            ctx.VectorFieldNormalised[vfName] = match.Normalised;
-                            ctx.VectorFieldHadHnsw[vfName] = ctx.VectorFieldHadHnsw.GetValueOrDefault(vfName, false) || match.HasHnsw;
-                            ctx.VectorFieldQuantisation[vfName] = match.Quantisation;
-                        }
+                        ctx.VectorFieldNormalised[vfName] = match.Normalised;
+                        ctx.VectorFieldHadHnsw[vfName] = ctx.VectorFieldHadHnsw.GetValueOrDefault(vfName, false) || match.HasHnsw;
+                        ctx.VectorFieldQuantisation[vfName] = match.Quantisation;
                     }
                 }
             }
@@ -1098,122 +1094,83 @@ public sealed class SegmentMerger
         NormsWriter.Write(basePath + ".nrm", fieldNorms, fieldBoosts);
     }
 
-    private List<VectorFieldInfo> MergeVectors(MergeContext ctx, string basePath)
+    private List<VectorFieldInfo> MergeVectors(MergeContext ctx, MergeDocument[] documentOrder, string basePath)
     {
         var merged = new List<VectorFieldInfo>();
-        foreach (var (fieldName, perField) in ctx.Vectors)
+        foreach (var (fieldName, vectorDocIds) in ctx.VectorFieldDocIds)
         {
-            if (perField.Count == 0) continue;
+            if (vectorDocIds.Count == 0) continue;
             int dimension = ctx.VectorFieldDims[fieldName];
             if (!ctx.VectorFieldNormalised.TryGetValue(fieldName, out var normalised))
                 throw new InvalidOperationException(
                     $"Cannot determine Normalised flag for vector field '{fieldName}' during merge. Source segments must declare this flag.");
 
             var quantisation = ctx.VectorFieldQuantisation.GetValueOrDefault(fieldName, VectorQuantisation.None);
-            float int8Min = 0f, int8Alpha = 0f;
-            float[]? bbqCentroid = null;
+            bool shouldBuildHnsw = ctx.VectorFieldHadHnsw.GetValueOrDefault(fieldName, false)
+                && vectorDocIds.Count >= 2;
+            string vecPath = Codecs.Vectors.VectorFilePaths.VectorFile(basePath, fieldName);
+            var mergedSource = new MergedDocumentVectorSource(documentOrder, fieldName, dimension);
+            bool hasHnsw = false;
 
             if (quantisation == VectorQuantisation.None)
             {
-                var vecPath = Codecs.Vectors.VectorFilePaths.VectorFile(basePath, fieldName);
-                VectorWriter.WriteField(vecPath, ctx.TotalDocs, dimension, perField, quantisation);
+                VectorWriter.WriteField(vecPath, ctx.TotalDocs, dimension, mergedSource);
+                if (shouldBuildHnsw)
+                {
+                    using var vectorReader = VectorReader.Open(vecPath);
+                    hasHnsw = BuildAndWriteMergedHnsw(
+                        fieldName,
+                        basePath,
+                        dimension,
+                        normalised,
+                        new VectorReaderSource(vectorReader),
+                        vectorDocIds,
+                        ctx.VectorFieldRemaps);
+                }
             }
             else
             {
-                switch (quantisation)
+                var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
+                string vecFileName = Path.GetFileName(vecPath);
+                try
                 {
-                    case VectorQuantisation.Int8:
-                        (int8Min, int8Alpha) = ComputeInt8ParamsMerge(perField);
-                        break;
-                    case VectorQuantisation.BBQ:
-                        bbqCentroid = ComputeBBQCentroidMerge(perField, dimension);
-                        break;
-                }
-            }
-
-            bool hasHnsw = false;
-            if (ctx.VectorFieldHadHnsw.GetValueOrDefault(fieldName, false) && perField.Count >= 2)
-            {
-                IVectorSource src;
-                if (quantisation == VectorQuantisation.Int8)
-                {
-                    src = new Int8QuantisedMemoryVectorSource(perField, dimension, int8Min, int8Alpha);
-                    var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
-                    QuantisedVectorWriter.WriteInt8(vqPath, ctx.TotalDocs, dimension, perField);
-                }
-                else if (quantisation == VectorQuantisation.BBQ)
-                {
-                    src = new BBQMemoryVectorSource(perField, dimension, bbqCentroid!);
-                    var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
-                    QuantisedVectorWriter.WriteBBQ(vqPath, ctx.TotalDocs, dimension, perField, bbqCentroid!);
-                }
-                else
-                {
-                    src = new InMemoryVectorSource(new Dictionary<int, ReadOnlyMemory<float>>(perField), dimension);
-                }
-
-                var hnswSw = System.Diagnostics.Stopwatch.StartNew();
-
-                HnswGraph? graph = null;
-                if (ctx.VectorFieldRemaps.TryGetValue(fieldName, out var remapList) && remapList.Count > 0)
-                {
-                    var seed = remapList
-                        .Where(t => t.Seg.VectorFields.Any(vf => vf.FieldName == fieldName && vf.HasHnsw))
-                        .OrderByDescending(t => t.OldToNew.Count)
-                        .FirstOrDefault();
-
-                    if (seed.OldToNew is not null && seed.OldToNew.Count > 0)
+                    VectorWriter.WriteField(vecPath, ctx.TotalDocs, dimension, mergedSource);
+                    using (var vectorReader = VectorReader.Open(vecPath))
                     {
-                        string seedHnswExtension = Codecs.Vectors.VectorFilePaths.HnswFile(
-                            string.Empty, fieldName);
-                        if (seed.Reader.FileExists(seedHnswExtension))
+                        var vectorSource = new VectorReaderSource(vectorReader);
+                        switch (quantisation)
                         {
-                            try
-                            {
-                                graph = HnswReader.Read(
-                                    seed.Reader.OpenInput(seedHnswExtension), src, normalised, seed.OldToNew);
-                                graph.Thaw();
-                                foreach (var docId in perField.Keys)
-                                    if (!graph.ContainsNode(docId)) graph.Insert(docId);
-                            }
-                            catch (Exception ex) when (ex is IOException or InvalidDataException)
-                            {
-                                Diagnostics.LeanCorpusActivitySource.TraceSwallowed(
-                                    ex, $"HNSW seed read failed for '{fieldName}'; rebuilding graph from scratch");
-                                graph = null;
-                            }
+                            case VectorQuantisation.Int8:
+                                QuantisedVectorWriter.WriteInt8(
+                                    vqPath, ctx.TotalDocs, dimension, vectorSource, vectorDocIds);
+                                break;
+                            case VectorQuantisation.BBQ:
+                                QuantisedVectorWriter.WriteBBQ(
+                                    vqPath, ctx.TotalDocs, dimension, vectorSource, vectorDocIds);
+                                break;
+                            default:
+                                throw new InvalidDataException(
+                                    $"Unsupported vector quantisation '{quantisation}' during merge of field '{fieldName}'.");
                         }
                     }
-                }
 
-                if (graph is null)
-                {
-                    var docIds = perField.Keys.ToArray();
-                    graph = HnswGraphBuilder.Build(src, docIds, _hnswBuildConfig);
+                    if (shouldBuildHnsw)
+                    {
+                        using var quantisedReader = QuantisedVectorReader.Open(vqPath);
+                        hasHnsw = BuildAndWriteMergedHnsw(
+                            fieldName,
+                            basePath,
+                            dimension,
+                            normalised,
+                            new QuantisedVectorSource(quantisedReader),
+                            vectorDocIds,
+                            ctx.VectorFieldRemaps);
+                    }
                 }
-                else
+                finally
                 {
-                    graph.Freeze();
-                }
-
-                hnswSw.Stop();
-                _metrics.RecordHnswBuild(hnswSw.Elapsed, perField.Count);
-                var hnswPath = Codecs.Vectors.VectorFilePaths.HnswFile(basePath, fieldName);
-                HnswWriter.Write(hnswPath, graph, dimension, normalised);
-                hasHnsw = true;
-            }
-            else if (quantisation != VectorQuantisation.None)
-            {
-                // Write .vq even when HNSW is not rebuilt, since the data was deferred.
-                var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
-                switch (quantisation)
-                {
-                    case VectorQuantisation.Int8:
-                        QuantisedVectorWriter.WriteInt8(vqPath, ctx.TotalDocs, dimension, perField);
-                        break;
-                    case VectorQuantisation.BBQ:
-                        QuantisedVectorWriter.WriteBBQ(vqPath, ctx.TotalDocs, dimension, perField, bbqCentroid!);
-                        break;
+                    if (_directory.FileExists(vecFileName))
+                        _directory.DeleteFile(vecFileName);
                 }
             }
 
@@ -1227,6 +1184,110 @@ public sealed class SegmentMerger
             });
         }
         return merged;
+    }
+
+    private bool BuildAndWriteMergedHnsw(
+        string fieldName,
+        string basePath,
+        int dimension,
+        bool normalised,
+        IVectorSource vectorSource,
+        IReadOnlyList<int> vectorDocIds,
+        IReadOnlyDictionary<string, List<(SegmentInfo Seg, Dictionary<int, int> OldToNew, SegmentReader Reader)>> vectorFieldRemaps)
+    {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        HnswGraph? graph = null;
+        try
+        {
+            if (vectorFieldRemaps.TryGetValue(fieldName, out var remapList) && remapList.Count > 0)
+            {
+                var seed = remapList
+                    .Where(entry => entry.Seg.VectorFields.Any(field => field.FieldName == fieldName && field.HasHnsw))
+                    .OrderByDescending(static entry => entry.OldToNew.Count)
+                    .FirstOrDefault();
+
+                if (seed.OldToNew is not null && seed.OldToNew.Count > 0)
+                {
+                    string seedHnswExtension = VectorFilePaths.HnswFile(string.Empty, fieldName);
+                    if (seed.Reader.FileExists(seedHnswExtension))
+                    {
+                        try
+                        {
+                            graph = HnswReader.Read(
+                                seed.Reader.OpenInput(seedHnswExtension), vectorSource, normalised, seed.OldToNew);
+                            graph.Thaw();
+                            foreach (int docId in vectorDocIds)
+                                if (!graph.ContainsNode(docId)) graph.Insert(docId);
+                        }
+                        catch (Exception ex) when (ex is IOException or InvalidDataException)
+                        {
+                            graph?.Dispose();
+                            graph = null;
+                            Diagnostics.LeanCorpusActivitySource.TraceSwallowed(
+                                ex, $"HNSW seed read failed for '{fieldName}'; rebuilding graph from scratch");
+                        }
+                    }
+                }
+            }
+
+            if (graph is null)
+            {
+                graph = HnswGraphBuilder.Build(vectorSource, vectorDocIds, _hnswBuildConfig);
+            }
+            else
+            {
+                graph.Freeze();
+            }
+
+            stopwatch.Stop();
+            _metrics.RecordHnswBuild(stopwatch.Elapsed, vectorDocIds.Count);
+            string hnswPath = VectorFilePaths.HnswFile(basePath, fieldName);
+            HnswWriter.Write(hnswPath, graph, dimension, normalised);
+            return true;
+        }
+        finally
+        {
+            graph?.Dispose();
+        }
+    }
+
+    private sealed class MergedDocumentVectorSource : IVectorSource
+    {
+        private readonly MergeDocument[] _documents;
+        private readonly string _fieldName;
+        private float[]? _zeroVector;
+
+        internal MergedDocumentVectorSource(MergeDocument[] documents, string fieldName, int dimension)
+        {
+            _documents = documents;
+            _fieldName = fieldName;
+            Dimension = dimension;
+        }
+
+        public int Dimension { get; }
+        public int Count => _documents.Length;
+
+        public ReadOnlySpan<float> GetVector(int docId)
+        {
+            MergeDocument document = GetDocument(docId);
+            return document.Reader.GetVector(_fieldName, document.OldDocId) ?? (_zeroVector ??= new float[Dimension]);
+        }
+
+        public void CopyVectorTo(int docId, Span<float> destination)
+        {
+            if (destination.Length != Dimension)
+                throw new ArgumentException($"Destination length {destination.Length} != vector dimension {Dimension}.", nameof(destination));
+            MergeDocument document = GetDocument(docId);
+            if (!document.Reader.TryCopyVectorTo(_fieldName, document.OldDocId, destination))
+                destination.Clear();
+        }
+
+        private MergeDocument GetDocument(int docId)
+        {
+            if ((uint)docId >= (uint)_documents.Length)
+                throw new ArgumentOutOfRangeException(nameof(docId));
+            return _documents[docId];
+        }
     }
 
     private static void WriteNumericFiles(MergeContext ctx, string basePath)
@@ -1567,48 +1628,9 @@ public sealed class SegmentMerger
         return max;
     }
 
-    private static (float min, float alpha) ComputeInt8ParamsMerge(
-        IReadOnlyDictionary<int, ReadOnlyMemory<float>> perField)
-    {
-        float min = float.MaxValue;
-        float max = float.MinValue;
-        foreach (var v in perField.Values)
-        {
-            var sp = v.Span;
-            for (int j = 0; j < sp.Length; j++)
-            {
-                float val = sp[j];
-                if (val < min) min = val;
-                if (val > max) max = val;
-            }
-        }
-        if (MathF.Abs(max - min) < 1e-8f) max = min + 1f;
-        return (min, (max - min) / 255f);
-    }
-
     private static void TryDeleteTemporaryFile(string path)
     {
         try { FileOpenRetry.Delete(path); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "merge file delete"); }
     }
 
-    private static float[] ComputeBBQCentroidMerge(
-        IReadOnlyDictionary<int, ReadOnlyMemory<float>> perField,
-        int dimension)
-    {
-        float[] centroid = new float[dimension];
-        int cnt = 0;
-        foreach (var v in perField.Values)
-        {
-            var sp = v.Span;
-            for (int j = 0; j < dimension; j++)
-                centroid[j] += sp[j];
-            cnt++;
-        }
-        if (cnt > 0)
-        {
-            for (int j = 0; j < dimension; j++)
-                centroid[j] /= cnt;
-        }
-        return centroid;
-    }
 }

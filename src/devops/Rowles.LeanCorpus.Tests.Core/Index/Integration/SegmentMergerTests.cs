@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.DocValues;
+using Rowles.LeanCorpus.Codecs.Hnsw;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
@@ -154,6 +156,122 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
         Assert.NotNull(reader.GetHnswGraph("embedding"));
         Assert.True(reader.TryGetBinaryDocValues("payload", 2, out var payload));
         Assert.Equal(new byte[] { 2, 3 }, payload[0]);
+    }
+
+    [Fact(DisplayName = "Merge: Streams High-Dimension HNSW Vectors Without Retaining The Float Corpus")]
+    public void Merge_StreamsHighDimensionHnswVectorsWithinBoundedAllocation()
+    {
+        const int documentCount = 4;
+        const int dimension = 1_000_000;
+        long floatCorpusBytes = (long)documentCount * dimension * sizeof(float);
+        var dir = SubDir(nameof(Merge_StreamsHighDimensionHnswVectorsWithinBoundedAllocation));
+        using var mmap = new MMapDirectory(dir);
+        var hnswConfig = new HnswBuildConfig { M = 2, M0 = 2, EfConstruction = 4 };
+
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig
+        {
+            MaxBufferedDocs = documentCount / 2,
+            RamBufferSizeMB = 128,
+            MergeThreshold = 100,
+            BuildHnswOnFlush = true,
+            NormaliseVectors = true,
+            HnswSeed = 1L,
+            HnswBuildConfig = hnswConfig,
+        }))
+        {
+            for (int docId = 0; docId < documentCount; docId++)
+            {
+                var vector = new float[dimension];
+                vector[docId] = 1f;
+                var document = new LeanDocument();
+                document.Add(new VectorField("embedding", new ReadOnlyMemory<float>(vector)));
+                writer.AddDocument(document);
+            }
+            writer.Commit();
+        }
+
+        List<SegmentInfo> sourceSegments = Directory.GetFiles(dir, "seg_*.seg")
+            .Select(SegmentInfo.ReadFrom)
+            .OrderBy(static segment => segment.SegmentId, StringComparer.Ordinal)
+            .ToList();
+        Assert.Equal(2, sourceSegments.Count);
+
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        long allocatedBeforeMerge = GC.GetAllocatedBytesForCurrentThread();
+        int nextOrdinal = sourceSegments.Count;
+        var merger = new SegmentMerger(mmap, mergeThreshold: 100, softDeleteRetentionSeconds: 0,
+            hnswBuildConfig: hnswConfig);
+        SegmentInfo merged = Assert.IsType<SegmentInfo>(merger.MergeAll(sourceSegments, ref nextOrdinal));
+        long mergeAllocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocatedBeforeMerge;
+
+        Assert.True(mergeAllocatedBytes < floatCorpusBytes * 3 / 4,
+            $"Merge allocated {mergeAllocatedBytes:N0} bytes for a {floatCorpusBytes:N0}-byte vector corpus; vector merge must use bounded file-backed buffers.");
+        Assert.Contains(merged.VectorFields, static field => field.FieldName == "embedding" && field.HasHnsw);
+        using var reader = new SegmentReader(mmap, merged);
+        Assert.Equal(documentCount, reader.GetHnswGraph("embedding")!.NodeCount);
+        Assert.Equal(1f, reader.GetVector("embedding", 0)![0]);
+    }
+
+    [Theory]
+    [InlineData(VectorQuantisation.Int8)]
+    [InlineData(VectorQuantisation.BBQ)]
+    public void Merge_QuantisedHnswUsesFileBackedVectors(VectorQuantisation quantisation)
+    {
+        const int documentCount = 4;
+        var dir = SubDir($"{nameof(Merge_QuantisedHnswUsesFileBackedVectors)}_{quantisation}");
+        using var mmap = new MMapDirectory(dir);
+        var hnswConfig = new HnswBuildConfig { M = 2, M0 = 2, EfConstruction = 4 };
+        ReadOnlyMemory<float>[] vectors =
+        [
+            new float[] { 1f, 0f, 0f },
+            new float[] { 0.8f, 0.2f, 0f },
+            new float[] { 0f, 1f, 0f },
+            new float[] { 0f, 0.2f, 0.8f },
+        ];
+
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig
+        {
+            MaxBufferedDocs = documentCount / 2,
+            MergeThreshold = 100,
+            BuildHnswOnFlush = true,
+            NormaliseVectors = true,
+            VectorQuantisation = quantisation,
+            HnswSeed = 17L,
+            HnswBuildConfig = hnswConfig,
+        }))
+        {
+            for (int docId = 0; docId < vectors.Length; docId++)
+            {
+                var document = new LeanDocument();
+                document.Add(new VectorField("embedding", vectors[docId]));
+                writer.AddDocument(document);
+            }
+            writer.Commit();
+        }
+
+        List<SegmentInfo> sourceSegments = Directory.GetFiles(dir, "seg_*.seg")
+            .Select(SegmentInfo.ReadFrom)
+            .OrderBy(static segment => segment.SegmentId, StringComparer.Ordinal)
+            .ToList();
+        Assert.Equal(2, sourceSegments.Count);
+        int nextOrdinal = sourceSegments.Count;
+        var merger = new SegmentMerger(mmap, mergeThreshold: 100, softDeleteRetentionSeconds: 0,
+            hnswBuildConfig: hnswConfig);
+        SegmentInfo merged = Assert.IsType<SegmentInfo>(merger.MergeAll(sourceSegments, ref nextOrdinal));
+
+        Assert.Contains(merged.VectorFields, field =>
+            field.FieldName == "embedding" && field.Quantisation == quantisation && field.HasHnsw);
+        Assert.Single(Directory.GetFiles(dir, $"{merged.SegmentId}_v_*.vq"));
+        Assert.Empty(Directory.GetFiles(dir, $"{merged.SegmentId}_v_*.vec"));
+
+        using var reader = new SegmentReader(mmap, merged);
+        Assert.Equal(documentCount, reader.GetHnswGraph("embedding")!.NodeCount);
+        for (int docId = 0; docId < documentCount; docId++)
+        {
+            float[] vector = Assert.IsType<float[]>(reader.GetVector("embedding", docId));
+            Assert.Equal(3, vector.Length);
+            Assert.All(vector, static value => Assert.True(float.IsFinite(value)));
+        }
     }
 
     /// <summary>
