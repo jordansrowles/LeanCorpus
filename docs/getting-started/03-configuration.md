@@ -30,7 +30,7 @@ var config = new IndexWriterConfig
 | `DeletionPolicy` | `KeepLatestCommitPolicy` | Which old commits survive |
 | `DurableCommits` | `true` | `fsync` before declaring commit successful |
 | `CompressionPolicy` | `Deflate` | Stored field compression |
-| `StoredFieldBlockSize` | `16` | Docs per compression block |
+| `StoredFieldBlockSize` | `16` | Maximum docs per block; a 1 MiB raw-byte target can flush sooner |
 | `PostingsSkipInterval` | `128` | Postings skip-list frequency |
 | `MergeThreshold` | `10` | Segment count that triggers a merge |
 | `BKDMaxLeafSize` | `512` | BKD tree leaf capacity |

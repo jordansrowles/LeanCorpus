@@ -46,7 +46,7 @@ Index-time and query-time analysis must agree for exact term matching. A schema 
 |---|---:|---|
 | `Similarity` | BM25 | Index-time scoring metadata and default search scoring model. |
 | `CompressionPolicy` | `Deflate` | Stored-field block compression. |
-| `StoredFieldBlockSize` | `16` | Documents per stored-field compression block. |
+| `StoredFieldBlockSize` | `16` | Maximum documents per block; a 1 MiB raw-byte target can flush sooner. |
 | `PostingsSkipInterval` | `128` | Skip-data interval for postings. |
 | `StorePayloads` | `false` | Persists token payloads where analysis supplies them. |
 | `StoreTermVectors` | `false` | Persists per-document term vectors. |
