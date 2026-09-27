@@ -203,6 +203,17 @@ public sealed class PaginationRelevanceTests : IClassFixture<TestDirectoryFixtur
     }
 
     [Fact]
+    public void ComplexPhraseQueryParser_RejectsConstantScoreClauseInsteadOfDroppingItsScore()
+    {
+        var parser = new ComplexPhraseQueryParser("body", new StandardAnalyser());
+
+        var exception = Assert.Throws<QueryParseException>(
+            () => parser.Parse("\"foo^=2 bar*\""));
+
+        Assert.Contains("position-preserving grammar", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void ComplexPhraseQueryParser_PunctuationPreservesAllAnalyserTokensAndPositions()
     {
         var parser = new ComplexPhraseQueryParser("body", new StandardAnalyser());
