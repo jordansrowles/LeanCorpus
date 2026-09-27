@@ -10,6 +10,8 @@ namespace Rowles.LeanCorpus.Index.Segment;
 /// </summary>
 internal sealed class ParentBitSet
 {
+    private const int BitsPerWord = 64;
+
     internal static CodecFileDescriptor Descriptor { get; } =
         CodecCatalog.Default.GetFile("leancorpus.deletes.parent-bitset");
 
@@ -18,8 +20,9 @@ internal sealed class ParentBitSet
 
     public ParentBitSet(int maxDoc)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxDoc);
         _length = maxDoc;
-        _bits = new long[(maxDoc + 63) >> 6];
+        _bits = new long[(int)(((long)maxDoc + BitsPerWord - 1) / BitsPerWord)];
     }
 
     private ParentBitSet(long[] bits, int length)
@@ -31,6 +34,9 @@ internal sealed class ParentBitSet
     /// <summary>Marks the given doc ID as a parent document.</summary>
     public void Set(int docId)
     {
+        if ((uint)docId >= (uint)_length)
+            throw new ArgumentOutOfRangeException(nameof(docId), docId, "Document ID must be within the bitset length.");
+
         _bits[docId >> 6] |= 1L << (docId & 63);
     }
 
@@ -141,12 +147,28 @@ internal sealed class ParentBitSet
         {
             int length = input.ReadInt32();
             int wordCount = input.ReadInt32();
-            if (length < 0 || wordCount < 0 || wordCount > (length + 63) / 64)
+            if (length < 0 || wordCount < 0)
                 throw new InvalidDataException("Parent bitset has invalid dimensions.");
-            if (input.Position + (long)wordCount * sizeof(long) != bodyEnd)
+
+            long expectedWordCount = ((long)length + BitsPerWord - 1) / BitsPerWord;
+            if (wordCount != expectedWordCount)
+                throw new InvalidDataException("Parent bitset has invalid dimensions.");
+
+            long expectedWordBytes = (long)wordCount * sizeof(long);
+            if (input.Position > bodyEnd || bodyEnd - input.Position != expectedWordBytes)
                 throw new InvalidDataException("Parent bitset length does not match its declared dimensions.");
+
             var bits = new long[wordCount];
             for (int i = 0; i < wordCount; i++) bits[i] = input.ReadInt64();
+
+            int usedBitsInLastWord = length & (BitsPerWord - 1);
+            if (usedBitsInLastWord != 0 && bits.Length > 0)
+            {
+                ulong validBitsMask = (1UL << usedBitsInLastWord) - 1;
+                if (((ulong)bits[^1] & ~validBitsMask) != 0)
+                    throw new InvalidDataException("Parent bitset has set bits beyond its logical length.");
+            }
+
             return new ParentBitSet(bits, length);
         }
     }
