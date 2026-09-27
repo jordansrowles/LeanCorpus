@@ -62,7 +62,7 @@ The smoke test publishes `src/examples/Rowles.LeanCorpus.Example.NativeAot` for 
 > SnappyCompression.Register();
 > ZstandardCompression.Register();
 > ```
-> In standard .NET the module initialiser registers them automatically, but AOT may trim the initialiser.
+> Call these before creating writer or searcher configuration so the selected immutable `CodecCatalog` captures the codecs. In standard .NET the module initialiser registers them automatically, but AOT may trim the initialiser. Duplicate policy bytes are rejected, and bootstrap registration closes when an index opens.
 
 > [!IMPORTANT]
 > LeanCorpus does not support Blazor WASM. The segment-centric design requires a filesystem for memory-mapped I/O. Blazor Server and Blazor Hybrid are supported, as long as indexing happens server-side.

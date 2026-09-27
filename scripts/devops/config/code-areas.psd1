@@ -8,6 +8,7 @@
 @{
     'store'          = @{ Globs = @('src/core/Rowles.LeanCorpus/Store/**');                          Targets = @('core:Store', 'server-core:Server', 'server-integration:Server') }
     'codecs'         = @{ Globs = @('src/core/Rowles.LeanCorpus/Codecs/**');                         Targets = @('core:CodecKit') }
+    'compression-packages' = @{ Globs = @('src/core/Rowles.LeanCorpus.Compression.LZ4/**', 'src/core/Rowles.LeanCorpus.Compression.Snappy/**', 'src/core/Rowles.LeanCorpus.Compression.Zstandard/**'); Targets = @('core:CodecKit') }
     'diagnostics'    = @{ Globs = @('src/core/Rowles.LeanCorpus/Diagnostics/**');                    Targets = @('core:Diagnostics') }
     'document'       = @{ Globs = @('src/core/Rowles.LeanCorpus/Document/**');                       Targets = @('core:Document') }
     'index'          = @{ Globs = @('src/core/Rowles.LeanCorpus/Index/**');                          Targets = @('core:Index') }
@@ -39,6 +40,7 @@
     'core-search-docs' = @{ Globs = @('docs/articles/vs-lucene.md', 'docs/articles/ADRs/ADR011-lazy-segment-reader-lifetimes.md', 'docs/articles/ADRs/ADR038-bounded-query-string-compilation.md', 'docs/searching/03-phrase-and-proximity.md', 'docs/searching/04-query-parser.md'); Targets = @('core:Search') }
     'core-index-snapshot-docs' = @{ Globs = @('docs/concurrency/03-snapshots-and-policies.md'); Targets = @('core:Index') }
     'core-configuration-docs' = @{ Globs = @('docs/getting-started/05-configuration-reference.md'); Targets = @('core:Foundation', 'core:Search') }
+    'core-compression-docs' = @{ Globs = @('docs/getting-started/01-installation.md', 'docs/getting-started/03-configuration.md'); Targets = @('core:CodecKit') }
     'text-analysis-docs' = @{ Globs = @('docs/analysis/**'); Targets = @('text:Analysers') }
     'aot-search-smoke-test' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/IndexSmokeTests.cs'); Targets = @('aot:Search') }
     'text-analyser-tests' = @{ Globs = @('src/devops/Rowles.Text.Tests/Analysers/**'); Targets = @('text:Analysers') }

@@ -17,6 +17,8 @@
 
 ### Changed
 
+- Capture stored-field compression implementations in immutable `CodecCatalog` snapshots, reject duplicate policy registrations, and close process bootstrap registration when an index opens.
+- Map optional compression package and compression guide changes to the Core CodecKit area in affected-test selection.
 - Weight the heavy segment-reader LRU by retained-resource estimates as well as entry count, evicting oversized states after active operation and cursor leases end instead of pinning every warmed state below the entry-count threshold.
 - Register the existing segment-reader-cache benchmark suite in its CLI dispatcher and add a DevOps resource-cache suite for equivalent count-only and byte-budget DocValues workloads.
 - Add a wide sparse merge-payload benchmark suite to DevOps for per-field merge remapping.

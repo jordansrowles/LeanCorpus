@@ -39,6 +39,32 @@ var config = new IndexWriterConfig
 | `StoreTermVectors` | `false` | Whether to persist term vectors |
 | `Metrics` | `NullMetricsCollector.Instance` | Metrics backend |
 
+## Compression codec catalogue
+
+Stored-field compression implementations are captured by the immutable
+`CodecCatalog` used by the writer and searcher. Optional compression packages
+register during startup; custom implementations can be added to a catalogue
+before it is built:
+
+```csharp
+var compressionCodec = new MyCompressionCodec();
+var codecCatalog = new CodecCatalogBuilder()
+    .AddBuiltIns()
+    .AddCompressionCodec(compressionCodec)
+    .Build();
+
+var config = new IndexWriterConfig
+{
+    CodecCatalog = codecCatalog,
+    CompressionPolicy = (FieldCompressionPolicy)compressionCodec.PolicyByte,
+};
+```
+
+`AddCompressionCodec` rejects a policy byte that is already present. To
+intentionally change a built-in or registered implementation for this
+catalogue, use `ReplaceCompressionCodec` before `Build()`. Existing catalogues
+and open readers keep their captured implementation.
+
 ## Process-wide defaults
 
 Configure process-wide defaults once during application startup, before creating
