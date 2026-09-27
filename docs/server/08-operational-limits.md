@@ -1,6 +1,13 @@
 # Operational limits and alpha limitations
 
-ServerCoreOptions bounds bulk-operation count, document bytes, result count, query depth and clauses, wildcard and regular-expression complexity, inspection output, idempotency retention, commit intervals and refresh intervals. The reference host also applies a maximum HTTP request body size. Limits apply after request decompression.
+`ServerCoreOptions` bounds bulk-operation count, document bytes, result count,
+query-string input characters, parser tokens and syntax nodes, query depth and
+clauses, wildcard and regular-expression pattern length, phrase token-graph
+edges, traversal steps, paths and compiled output, fuzzy edit distance, phrase
+slop, inspection output, idempotency retention, commit intervals and refresh
+intervals. Structured and query-string clauses share the request clause and
+depth budget. The reference host also applies a maximum HTTP request body size.
+Limits apply after request decompression.
 
 Community Server 0.1.0-alpha.1 is deliberately single-node: one shard, no replicas, local consistency and local persistence. Memory and LocalFsync are the supported write durability requests. Replica, Quorum and Replicated are explicit unsupported capabilities and return typed failures.
 

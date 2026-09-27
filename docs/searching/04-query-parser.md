@@ -8,6 +8,38 @@ Query q = parser.Parse("+quick brown -fox");
 var hits = searcher.Search(q, 10);
 ```
 
+The constructor above preserves compatibility limits for trusted input. For
+user-supplied query text, pass `QueryParserOptions` so the parser bounds work
+before it creates executable queries:
+
+```csharp
+var options = QueryParserOptions.Default with
+{
+    MaxInputChars = 16_384,
+    MaxTokens = 2_048,
+    MaxSyntaxDepth = 32,
+    MaxQueryClauses = 1_024,
+    MaxWildcardPatternChars = 256,
+    MaxRegexpPatternChars = 512
+};
+var parser = new QueryParser("body", new StandardAnalyser(), options);
+
+try
+{
+    Query query = parser.Parse(userInput);
+}
+catch (QueryParseException exception)
+{
+    // Return a bounded-query error to the caller.
+}
+```
+
+`QueryParserOptions.Default` also bounds phrase token graphs by token count,
+edge count, traversal steps, paths, compiled terms and generated clauses. Limit
+violations throw `QueryParseException`; parser instances remain reusable after
+a rejected input. The existing constructors do not apply the default options,
+so applications that accept untrusted text should pass an options object.
+
 ## Grammar
 
 | Construct | Meaning |
@@ -51,15 +83,14 @@ Query query = parser.Parse("QUICK*");
 
 ## Complex phrases
 
-`ComplexPhraseQueryParser` accepts alternatives and multi-term clauses inside
-quoted phrases and lowers them to span queries:
+`ComplexPhraseQueryParser` uses the configured analyser for quoted phrases and
+supports token-graph alternatives. Embedded operators are rejected until a
+position-preserving phrase grammar is defined:
 
 ```csharp
 var parser = new ComplexPhraseQueryParser("body", new StandardAnalyser());
-Query query = parser.Parse("\"(quick OR fast) bro*\"~1");
+Query query = parser.Parse("\"quick brown\"~1");
 ```
-
-Every clause in a complex phrase must target the same field.
 
 ## See also
 

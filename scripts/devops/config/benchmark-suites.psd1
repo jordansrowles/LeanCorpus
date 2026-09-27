@@ -3,6 +3,7 @@
     'all-with-explicit'  = 'All primary plus all explicit-only suites'
     index                = 'IndexingBenchmarks'
     query                = 'TermQueryBenchmarks'
+    parser               = 'QueryParserBenchmarks -- bounded query text parsing and rejection'
     boolean              = 'BooleanQueryBenchmarks'
     phrase               = 'PhraseQueryBenchmarks'
     prefix               = 'PrefixQueryBenchmarks'

@@ -148,6 +148,9 @@ internal static class Program
         if (runAll || suites.Contains(BenchmarkSuite.Query))
             RunSuite<TermQueryBenchmarks>("query", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
+        if (runAll || suites.Contains(BenchmarkSuite.Parser))
+            RunSuite<QueryParserBenchmarks>("parser", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
         if (runAll || suites.Contains(BenchmarkSuite.Index))
             RunSuite<IndexingBenchmarks>("index", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
@@ -709,6 +712,7 @@ internal static class Program
               explicit         Run all explicit-only suites, including subsystem and recent-feature benchmarks
               index            IndexingBenchmarks -- bulk indexing throughput (vs Lucene.NET)
               query            TermQueryBenchmarks -- single-term search (vs Lucene.NET)
+              parser           QueryParserBenchmarks -- bounded rejection of oversized query text
               boolean          BooleanQueryBenchmarks -- deterministic clause shapes
               phrase           PhraseQueryBenchmarks -- exact and slop phrase matching
               prefix           PrefixQueryBenchmarks -- prefix matching (vs Lucene.NET)
@@ -899,6 +903,7 @@ internal static class Program
             "explicit" => BenchmarkSuite.Explicit,
             "index" => BenchmarkSuite.Index,
             "query" => BenchmarkSuite.Query,
+            "parser" => BenchmarkSuite.Parser,
             "packedintcodec" or "packed-int-codec" => BenchmarkSuite.PackedIntCodec,
             "codecframe" or "codec-frame" => BenchmarkSuite.CodecFrame,
             "codecframeread" or "codec-frame-read" => BenchmarkSuite.CodecFrameRead,
@@ -999,6 +1004,7 @@ internal static class Program
         Explicit,
         Index,
         Query,
+        Parser,
         Boolean,
         Phrase,
         Prefix,

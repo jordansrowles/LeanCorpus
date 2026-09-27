@@ -10,6 +10,7 @@
 - Added typed Geo and XY distance sort factories, with origin-aware invariant search-session cursor identities.
 - Added DocValues-backed Geo and XY distance sorting with multi-value minima, deterministic ties, missing-value ordering, and SearchAfter/session support.
 - Added best-first Packed BKD Top-N for eligible ascending Geo/XY distance sorts, with conservative cell lower bounds, constant-score filter bitmap reuse, and exact fallback scans for legacy Geo segments.
+- Added public `QueryParserOptions` for bounded query-string parsing and mapped Server Core request limits to the same input, syntax, modifier, pattern and phrase-graph budgets.
 - Added per-parse analyser factory constructors for query parsers, enabling concurrent parser reuse with isolated parse state and analyser instances.
 
 ### Changed
